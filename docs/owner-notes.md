@@ -14,7 +14,7 @@ merged/deployed at a5741864 (deployment 2157 / run 36099179983). Served chat.js
 matched the reviewed bytes at 2026-09-25 05:36:30 UTC. Deployment log reports
 container reuse; no repeated runtime container check or canary. This contains
 an escaped display error; publication and cleanup already succeeded. Other
-checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back (on the branch, not merged). What is left on the edit path, and the next test I'd run, are in the first entry below. Nothing is dispatched.
+checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back (on the branch, not merged). The text check now accepts everyday wording like "…from the home page" (on the branch, not merged), and test 3 is revised to use it; see the first entry below. What is left on the edit path is in the second. Nothing is dispatched.
 
 Kept for the owner. Two purposes:
 1. **How you like things done** — durable preferences, so a fresh session does not
@@ -176,7 +176,76 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
-## 2026-09-25 — What's left on the edit path, and the next test I'd run (nothing dispatched)
+## 2026-09-25 — Everyday wording like "…from the home page" now passes the text check (on the branch, not merged); test 3 revised
+
+You reproduced two ordinary requests that the text check refused even with a
+correct answer:
+- "Remove the ‘The first eight chords’ section from the home page."
+- "On the home page, change the text under ‘The first eight chords’ to ‘Start
+  here.’"
+
+**What changed.**
+- A page mentioned in the request ("from the home page", "On the home page,",
+  "on /menu", "on the menu page", "on this page") is now read as which page is
+  meant. It has to be the page being edited. If it names another page, or the
+  page can't be confirmed, that part of the request allows nothing.
+- The page mention is never read as a section to change. Anything after it
+  ("…above ‘A guitar you can turn’") stays a reference and is never removed
+  as well.
+- "The text under ‘X’" now works. It means the one paragraph under that
+  heading, and if there are two paragraphs it allows nothing.
+- A page called by its menu name ("the Lesson Prices page") isn't recognised
+  yet, so it allows nothing. That errs on the safe side.
+
+**Evidence** (the writer's answers are supplied, so this proves the checking,
+not a real model):
+- There are 23 new tests, 22 of them through the real edit path in both
+  modes. Your two sentences publish with the correct answer.
+- These still refuse, with nothing compiled, stored or charged for the edit:
+  - unrelated text lost beside either sentence;
+  - the heading renamed as well;
+  - another page named, at the start or the end;
+  - the referenced section dropped too;
+  - "from" a section rather than a page.
+- The 156 existing tests in that file all still pass, including the
+  ambiguous-heading, quoted-text and collateral-removal ones.
+- On the old code, exactly the 7 new "should pass" tests fail.
+- 14 of 14 targeted probes were caught. The first run missed one: a page
+  written as an address was recognised but not compared. I added a test for
+  it.
+- One refinement after the first push: a page mentioned after "to" (as in "…then
+  go to the gear page") is no longer read as the page the edit is on, because
+  that wording could only have refused a valid request.
+- The whole suite passes locally: 7,863 tests. Required CI is running as I
+  write this; the reply says how it went.
+- This touches the Worker, so merging it would rebuild the container. The
+  predicted image is `18725c075657d7e3`.
+
+**Test 3, revised (not dispatched).**
+- **It waits on this fix being merged and deployed**, because it uses the
+  natural sentence. The merge also brings the after-read fix. The two
+  expectation boxes become the merge commit and the new image id.
+- **Request:** "Remove the ‘The first eight chords’ section from the home
+  page." (63 characters, sha256 `48bdbf47…`). Only the full writer can remove
+  words, so both protections run on a real model's answer.
+- **How to read it.**
+  - **A publish doesn't prove everything else stayed the same**, because the
+    checks only see literal page text, links and the site's own components.
+    So I'll read the actual output: every stored file, block by block, the
+    live page at the edit's own version in a browser, which model calls ran,
+    and the ledger.
+  - **A refusal doesn't prove the model changed something extra.** I'll read
+    the refusal's reason, which says which check refused and why. But the text
+    check's refusal doesn't say which text it found missing, and the refused
+    answer isn't kept. So a text-check refusal can't be pinned on the model.
+    It could have changed other text, or moved text into a component or data,
+    which the check also counts as missing. Making that readable would take one
+    small change (putting the missing text on the refusal), which I haven't
+    made.
+- **Cost:** about 17–25 credits. That's an estimate, not a cap. The balance
+  is 91.
+
+## 2026-09-25 — What's left on the edit path (nothing dispatched)
 
 **Shown live on this deployment so far:**
 - Run 30: the right Worker and container answer, and an empty edit is queued
@@ -201,15 +270,13 @@ owner signals one; move an item out of Open the moment it is resolved.
 - #418, the phone-width hydration error on `/` (runs 11, 21, 24, 26 and 32).
 - The text guard only sees plain text written into the page itself. It can't
   see words that come from data, component settings or other component files.
-- **New, measured today for free:** the text guard refuses two natural ways of
-  asking, even when the writer's answer is exactly right:
+- **Fixed on the branch, not deployed (the entry above):** the text guard
+  refused two natural ways of asking, even when the writer's answer was
+  exactly right:
   - "Remove the ‘…’ section from the home page."
   - "On the home page, change the text under ‘…’ to …"
 
-  It accepts "Remove the ‘…’ section." and "Take the ‘…’ section off the home
-  page." This only affects edits that reach the full writer. A refusal
-  publishes nothing and costs nothing for the edit, but reading the message is
-  still charged.
+  Until the fix is merged and deployed, the live site still refuses them.
 - Billing wording. Some other failure messages still claim "nothing was
   charged", and a refused step inside a message with several steps stays
   charged.
@@ -225,31 +292,9 @@ owner signals one; move an item out of Open the moment it is resolved.
 **Parked:** translation (including fretwork-1's "Cymraeg" label), video
 hosting, and replies written by a model.
 
-**The next test I'd run: test 3, one full-page-writer edit on fretwork-1.**
-- **Request:** "Remove the ‘The first eight chords’ section." (44 characters,
-  sha256 `9042f8011d8809618564371d1cae16005a30695ab6062bd6674df74843340d96`).
-- **Why this one.**
-  - The quick writer can't remove words, so the change has to go to the full
-    writer.
-  - The section holds one of the site's own components (the chord diagram), so
-    both protections run on a real model's answer.
-  - The right answer is known exactly: that one section is gone and everything
-    else is unchanged, byte for byte.
-  - The canary's restore mode can put `n7mtnq` back for free afterwards.
-  - Which step the router picks is part of what the test measures.
-- **Checked first, free.** I fed the real text guard a correct answer to this
-  exact request, and it publishes. Fed the same answer with one extra sentence
-  reworded elsewhere, it refuses. So either live outcome can be read: a publish
-  means the model removed only that section, and a refusal means it touched
-  something else.
-- **Cost:** about 17–25 credits, covering routing, the quick writer's attempt,
-  the full writer and the judge. Runs 21, 24 and 26 cost 17, 24 and 19. This is
-  an estimate, not a cap. The balance is 91.
-- **How to run it.** Dispatch from the branch `claude/help-needed-ehlwlj`, or
-  merge first, so the fixed after-read is used; a merge of this deploys
-  nothing. The two expectation boxes are unchanged:
-  `c2fa000cba21ec4546a6593b41e9031f7da97124` and `a51d8b32e5869576`.
-- **Not dispatched.** It needs your spending approval.
+**The next test is test 3, one full-page-writer edit on fretwork-1.** It is
+revised in the entry above: it now uses the natural sentence, waits on the
+guard fix being merged and deployed, and has corrected reading rules.
 
 ## 2026-09-25 — The canary now waits for its own edit's version before reading the site back (on the branch, not merged)
 

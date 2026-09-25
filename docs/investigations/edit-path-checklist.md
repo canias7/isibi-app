@@ -30,8 +30,9 @@ availability box against the real `bookings_on_day` (1 → "5 places left.",
 
 **Still open.**
 - #418 (phone-width hydration).
-- The text guard's scope limits, plus two ordinary phrasings it refuses even
-  with a correct answer (CLAUDE.md, "Test 3").
+- The text guard's scope limits. The two ordinary page-qualified phrasings it
+  refused with a correct answer are fixed on the branch (`ce913d06` + `8c0d67a1`), not
+  merged; see [text preservation](edit-text-preservation.md).
 - Next-task 4's other billing sentences and the charged refused step.
 - The full revise on `incomplete` sites.
 - Attachments dropped by an unusable routing answer.
@@ -41,8 +42,11 @@ availability box against the real `bookings_on_day` (1 → "5 places left.",
 **Harness.** The canary's early after-read is fixed on
 `claude/help-needed-ehlwlj` (`72885ca9`, not merged).
 
-**Next.** Test 3 is prepared and not dispatched ("Remove the ‘The first eight
-chords’ section.", about 17–25 credits).
+**Next.** Test 3 is revised and not dispatched: "Remove the ‘The first eight
+chords’ section from the home page.", after `ce913d06` + `8c0d67a1` are merged and deployed,
+about 17–25 credits. A publish is read against the actual stored output and the
+live page; a refusal is read by its reason, which for the text guard does not
+say which text.
 
 ---
 

@@ -18,9 +18,11 @@ Live test 2 (the section move on fretwork-1): run 32 published it through the qu
 writer as a pure block move, for route 2 + edit 8 credits. **CLOSED for what it shows
 (owner)**: the quick writer moved one section and kept the surrounding source; it does
 NOT verify the full-writer text guard, and #418 stays open. Browser-verified 19:00 UTC
-(a real Chromium over TLS-verified live bytes). The canary's early after-read is fixed on
-the branch (`72885ca9`, not merged); test 3 (the full writer) is prepared, not
-dispatched (the run 32 section and the two after it).
+(a real Chromium over TLS-verified live bytes). On the branch, not merged: the canary's
+after-read waits for its job's version (`72885ca9`, reviewed: 40 focused tests), and the
+text guard accepts page-qualified requests held to the edited page (`ce913d06` + `8c0d67a1`). Test 3
+(the full writer) is revised and waits on that merge (the run 32 section and the three
+after it).
 Remaining scope: [edit-path checklist](docs/investigations/edit-path-checklist.md).
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
@@ -7915,62 +7917,126 @@ newer version is not a match. Focused checks only, no paid rerun."*
 - **RE-ANCHORED, NOT APPEASED**: the reply-capture guard closed on
   `await inventory("after")`, which gained an argument. It now closes on the
   new block's first line, so the window is as wide as before.
-- **NOT MERGED, AND A MERGE DEPLOYS NOTHING.** `scripts/**` and `test/**` are in
-  `deploy.yml`'s `paths-ignore`. Until it is on main, **a dispatch from main
-  still reads early**.
+- **NOT MERGED, AND ON ITS OWN A MERGE DEPLOYS NOTHING.** `scripts/**` and
+  `test/**` are in `deploy.yml`'s `paths-ignore`. Until it is on main, **a
+  dispatch from main still reads early**. **Reviewed by the owner: the 40
+  focused tests passed independent review.**
 
-### TEST 3 — THE FULL PAGE WRITER, PREPARED AND NOT DISPATCHED (2026-09-25)
+### THE TEXT GUARD HOLDS A PAGE QUALIFIER TO THE EDITED PAGE (2026-09-25, on the branch at `ce913d06` + `8c0d67a1`, not merged)
 
-The one path run 32 could not reach. Owner: *"recommend the next meaningful
-test. No automatic paid dispatch."*
+Owner, having reproduced both with correct generated output: *"Customers
+should not need a specially shortened sentence to get a valid edit accepted.
+Support these page-qualified requests while retaining exact target boundaries.
+A page qualifier must match the actual target page; it must not authorize
+unrelated sections or turn a referenced section into another removal
+target."* The sentences were *"Remove the ‘The first eight chords’ section from
+the home page."* and *"On the home page, change the text under ‘The first eight
+chords’ to ‘Start here.’"*
 
-- **Request**: *"Remove the ‘The first eight chords’ section."*, 44 chars,
-  sha256 `9042f8011d8809618564371d1cae16005a30695ab6062bd6674df74843340d96`.
-  - The quick writer cannot drop words (`sameProse`), so a publish must come
-    from the full writer.
-  - The section renders an own component (`chord-diagram`), so `keepCheck`'s
-    judge runs too.
-  - The right answer is exact: one render block gone, every other block
-    byte-identical. `chord-diagram` stays stored, since parts not returned are
-    kept.
-  - Which rung the router picks is part of the measurement.
-  - Reversible for free: the restore mode can put back `01790360265159-n7mtnq`.
-- **CHECKED FREE through the real `preservePageProse`** over the stored
-  `n7mtnq` source, with SUPPLIED answers:
-  - That section removed → publish.
-  - The same with one guitar sentence reworded → refuse, naming the sentence.
-  - *"Take the ‘…’ section off the home page."* → publish.
-- **⚠ AND TWO NATURAL PHRASINGS REFUSE A CORRECT ANSWER — measured, not
-  changed.**
-  - *"Remove the ‘…’ section from the home page."*: `from` is not an operand
-    boundary, so the object never resolves.
-  - *"On the home page, change the text under ‘…’ to …"*: the verb must open
-    the clause.
-  - Both are the documented "unsupported legitimate phrasing" class, and here
-    it is two ordinary sentences.
-  - It is reached only on the full writer, and costs the routing call
-    (`prose-preservation` answers `cost: 0` for the edit).
-- **Cost**: ~17–25 (runs 21/24/26 were 17/24/19). This is an estimate, not a
-  cap. Balance 91.
-- **Pressed from the branch** (or after merging `72885ca9`, which deploys
-  nothing) so the after-read waits. `expect_deploy`
-  `c2fa000cba21ec4546a6593b41e9031f7da97124`, `expect_image`
-  `a51d8b32e5869576`.
-- **Acceptance.** It counts only if:
+- **THE CAUSE**: the qualifier was read as part of the target operand, which
+  then matched no section (`from` is not an operand boundary), and a leading
+  qualifier kept the verb from opening the clause. *"The text under X"* was not
+  a form at all.
+- **THE FIX, in `builder/page-prose.mjs`**:
+  - `preservePageProse` takes `page`, and the edit route passes
+    `routeOf(target.path)`.
+  - `PAGE_QUAL` finds each qualifier: on/in/from/off/of/for/at plus the home
+    page (or homepage, front, main, landing, index page), an address, "`<word>`
+    page", or this/the page. **Not "to"**: it already ends the target operand,
+    and a page after it is a destination or replacement wording, so reading it
+    as a qualifier could only refuse a valid request (Q-14).
+  - `samePage` holds each one to the edited route. A home synonym is `/` only,
+    an address is compared, and "`<word>` page" is the route whose last
+    segment is `<word>`. This/the page always matches. **An unknown page
+    confirms nothing.**
+  - **Any unconfirmed qualifier voids the clause's grant.**
+  - `PAGE_LEAD` strips a leading qualifier, and qualifiers are cut out of the
+    operand before `resolve`.
+  - "text"/"words" under/in/of X join the line-scope forms (exactly one
+    paragraph or no grant).
+  - The quoted-text replacement is read with qualifiers removed.
+- **WHAT CANNOT HAPPEN, EACH A CASE**:
+  - A qualifier never becomes a target.
+  - A reference after it stays a reference (*"…from the home page above ‘A
+    guitar you can turn’"* dropping both is refused).
+  - "From ‘<section>’" is not a page and grants nothing.
+  - A qualifier naming another page grants nothing, leading or trailing.
+  - A qualifier can only narrow a grant.
+- **EVIDENCE.**
+  - `test/edit-page-keep.test.mjs` gains **23 cases**: 22 through the real
+    route (sync and job) plus the matcher case.
+    - Publish: the owner's two sentences, the reference, and quoted text with
+      a qualifier.
+    - Refuse on `prose-preservation`/`unconfirmed-target`, with 0 compiles, the
+      store unchanged and no reservation: unrelated loss beside each sentence,
+      the heading renamed too, another page named (trailing and leading), the
+      reference dropped too, and "from" a section.
+  - **Red on the unfixed guard: exactly the 6 publish cases and the matcher
+    case**. The 14 refusals and all **156 existing cases** (the
+    ambiguous-target, quoted-text and collateral controls among them) pass on
+    both.
+  - **Probes `scripts/mutants/page-qualifier.json`: 14 killed, 0 survived, 2
+    comment-only controls**. The first pass left **Q-13 surviving** (an
+    address recognised but not compared), a real fixture gap closed by a
+    negative case.
+  - Suite **7,863 locally** (`7863 / 7861 / 0 / 2`, +23).
+  - Checked separately on fretwork-1's stored `n7mtnq` home page, with the
+    real guard and supplied answers (17 cases): the same outcomes.
+- **LIMITS**: a page named by its navigation label (*"the Lesson Prices page"*)
+  is not confirmed and grants nothing. Unquoted replacement words naming
+  another page void their clause. Both are conservative, never wider.
+- **AN IMAGE INPUT**: the predicted id at `8c0d67a1` is `18725c075657d7e3`
+  (187 inputs), against main's `a51d8b32e5869576`. `72885ca9` alone moves
+  nothing.
+
+### TEST 3 — THE FULL PAGE WRITER, REVISED (2026-09-25, prepared, NOT dispatched)
+
+**PREREQUISITE**: `ce913d06` + `8c0d67a1` merged and deployed, since the natural sentence
+needs the deployed guard. The merge carries the after-read wait (`72885ca9`)
+with it. `expect_deploy` is the merge sha. `expect_image` is predicted
+`18725c075657d7e3`, to be re-predicted over the real merge.
+
+- **Request**: *"Remove the ‘The first eight chords’ section from the home
+  page."*, 63 chars / 67 bytes, sha256
+  `48bdbf475e1718e6ceaab4fee3a9941d13477f719616d262216a87dcbf2be823`.
+  - The quick writer cannot drop words, so a publish must come from the full
+    writer.
+  - `chord-diagram` is an own component, so `keepCheck`'s judge is called.
+  - Reversible for free with the restore mode (`01790360265159-n7mtnq`).
+  - Which rung the router picks is part of what it measures.
+- **COUNTS AS THE TEST ONLY IF**:
   - the request sha matches;
-  - the run's own before-read matches `n7mtnq`'s bodies (`index.tsx`
-    `6bb1fb500f7df623` and the five unchanged);
-  - it published or refused `prose-preservation`.
-- **A publish passes when all of these hold:**
-  - `tweak` is absent;
-  - exactly the chords block is gone, with every other block and file
-    byte-identical;
-  - the comparison is VERIFIED;
-  - money closes against the ledger;
-  - the reply is true;
-  - the browser render shows the guitar second.
-- **A refusal is also a reading.** The writer touched something else, and its
-  answer is not stored.
+  - the run's own before-read equals `n7mtnq`'s six bodies;
+  - the preflight passes;
+  - the reply is a stored terminal one.
+- **⚠ THE READING, CORRECTED (owner): NEITHER VERDICT SPEAKS FOR ITSELF.**
+  - **A PUBLISH DOES NOT PROVE THE REST IS UNCHANGED.** Both guards see only
+    their inventories: parsed literal JSX prose, in-body links and own
+    components. They do not see component prop strings, the `CHORDS` data,
+    computed text, kit-only markup, other component files or CSS. So read the
+    actual output:
+    - the after `source.json` bodies, with index.tsx block by block (the
+      chords block gone, every other block and the code above the render
+      byte-identical, any change to the now-unused import noted) and the
+      other five files byte-identical;
+    - the harness's comparison VERIFIED at the job's own version;
+    - a browser render (the order, the guitar draws, the day box);
+    - `usage` (a quick-writer attempt, the full writer, the judge);
+    - money against `credit_events`.
+  - **A REFUSAL DOES NOT PROVE THE MODEL CHANGED EXTRA CONTENT.** Read the
+    reason. `error: "prose-preservation"` is the text guard, and its only
+    detail is `proseBlocked`: `unconfirmed-target`, `unparsed` or
+    `no-parser`. `withheld` + `contentBlocked` is `keepCheck`, one entry per
+    item with its `why` (`not-asked`, `quote-not-about-item`,
+    `group-other-kind`…). `contentUnchecked` means the judge failed. **The text
+    guard's refusal names no text, and the refused answer is not stored**, so
+    such a refusal cannot be attributed to the model. It may have removed or
+    reworded other prose, or moved literal text into a component, data or a
+    conditional (which the guard counts as lost). The wording check rules out
+    only the grammar refusing a correct answer. **Carrying the blocked texts
+    on the 409 is a one-line option, not in this patch.**
+- **COST**: ~17–25 (runs 21/24/26: 17/24/19), an estimate and not a cap.
+  Balance 91.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
@@ -11526,11 +11592,9 @@ does name one — moved up to the supported list on 2026-09-20.)*
 - **THE PAID CANARY'S EARLY AFTER-READ IS FIXED ON THE BRANCH, NOT MERGED**
   (`72885ca9`; the section after run 32). Until it is on main, a dispatch from
   main still reads the site back without waiting.
-- **THE TEXT GUARD REFUSES TWO ORDINARY PHRASINGS (measured 2026-09-25, not
-  changed).** The sentences are *"Remove the ‘…’ section from the home page."*
-  and *"On the home page, change the text under ‘…’ to …"*. Measured with a
-  correct supplied answer; see test 3. It is a grammar decision for whoever
-  owns `builder/page-prose.mjs`, not a bug in the comparison.
+- **THE TEXT GUARD'S TWO REFUSED PHRASINGS ARE FIXED ON THE BRANCH, NOT MERGED**
+  (`ce913d06` + `8c0d67a1`; *"the text guard holds a page qualifier to the edited page"*,
+  after run 32). Until it is deployed, the live guard still refuses them.
 - **fretwork-1's stored language is Welsh (`lang="cy"`) over English copy**, so
   its switcher labels the home page "Cymraeg". Pre-existing, noticed 2026-09-25,
   parked with translation.
