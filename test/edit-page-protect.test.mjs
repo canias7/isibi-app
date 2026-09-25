@@ -89,7 +89,7 @@ const homeWith = (slug) => ROUTE_HEAD
   + 'import CardB from "./-parts/card-b"\n'
   + "function Home(){return <main><h1>Ravenscroft</h1>"
   + '<SafeImage src="' + PIC_A(slug) + '" alt="the bench" />'
-  + "<p>Nine until five.</p>"
+  + "<section><h2>Opening hours</h2><p>Nine until five.</p></section>"
   + '<SafeImage src="' + PIC_B(slug) + '" alt="the window" />'
   + "<CardA /><CardB /></main>}\n";
 
@@ -118,7 +118,7 @@ const homeOnePic = (slug) => ROUTE_HEAD
   + 'import CardA from "./-parts/card-a"\n'
   + "function Home(){return <main><h1>Ravenscroft</h1>"
   + '<SafeImage src="' + PIC_A(slug) + '" alt="the bench" />'
-  + "<p>Nine until five.</p><CardA /></main>}\n";
+  + "<section><h2>Opening hours</h2><p>Nine until five.</p></section><CardA /></main>}\n";
 
 const A_OLD = 'export default function CardA(){return <section data-slot="card"><h2>Opening hours</h2></section>}';
 const A_NEW = 'export default function CardA(){return <section data-slot="card"><h2>When we are open</h2></section>}';
@@ -380,7 +380,7 @@ test("the picture rung running FIRST is what the page rung protects against", as
       [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
       [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: strippedBoth(slug) }], parts: [] },
     }, async (calls) => {
-      const { body, said } = await edit(slug, "take the window photo off and rewrite the cards", { store, layer: "look" });
+      const { body, said } = await edit(slug, "take the window photo off and rewrite the cards and change Opening hours to six", { store, layer: "look" });
       assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
       assert.deepEqual(body.layers, ["picture", "page"],
         "the rungs did not run picture-then-page, so this case proves nothing: " + JSON.stringify(body.layers));
@@ -593,7 +593,7 @@ test("a rung that WITHHELD beside a rung that shipped still reaches the screen",
       // the page rung withholds.
       [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: benchDeleted(slug) }], parts: [] },
     }, async () => {
-      const { body, said } = await edit(slug, "take the window photo off and rewrite the cards", { store, layer: "look" });
+      const { body, said } = await edit(slug, "take the window photo off and rewrite the cards and change Opening hours to six", { store, layer: "look" });
 
       // (a) ONE RUNG SHIPPED AND ONE DID NOT, and the reply says so on the
       //     field that carries it.
@@ -658,7 +658,7 @@ test("a rung that failed WITHOUT a sentence is counted rather than dropped", asy
       // refusal with a reason and no prose.
       [SITE_PAGES_TOOL.name]: { pages: [], parts: [] },
     }, async () => {
-      const { body, said } = await edit(slug, "take the window photo off and rewrite the cards", { store, layer: "look" });
+      const { body, said } = await edit(slug, "take the window photo off and rewrite the cards and change Opening hours to six", { store, layer: "look" });
       assert.equal(body && body.ok, true, "the whole message failed: " + JSON.stringify(body));
       assert.ok(Array.isArray(body.partial) && body.partial.length === 1,
         "the failed rung is not on `partial`: " + JSON.stringify(body.partial));
@@ -946,7 +946,7 @@ test("a withheld component is named on the reply AND on the screen when two rung
         parts: [{ name: "card-a", source: A_NEW }, { name: "card-b", source: B_NEW }],
       },
     }, async (calls) => {
-      const { body, said } = await edit(slug, "show the top of the window photograph, rename the hours card and rewrite the address card", { store, layer: "look" });
+      const { body, said } = await edit(slug, "show the top of the window photograph, rename the hours card and rewrite the address card and change Opening hours to six", { store, layer: "look" });
       assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
 
       // (a) THE MERGED REPLY IS THE `look` SHAPE — the branch the warnings
@@ -1398,7 +1398,7 @@ test("a refusal beside a change that SHIPPED does not claim the site is untouche
       [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
       [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: benchDeleted(slug) }], parts: [] },
     }, async () => {
-      const { body, said } = await edit(slug, "take the window photo off and rewrite the cards", { store, layer: "look" });
+      const { body, said } = await edit(slug, "take the window photo off and rewrite the cards and change Opening hours to six", { store, layer: "look" });
 
       // (a) THE PREMISE: one rung shipped, one withheld.
       assert.equal(body && body.ok, true, "the whole message failed: " + JSON.stringify(body));
@@ -1496,7 +1496,7 @@ test("a tweak reads the site's COMPONENTS too, though it cannot write one", asyn
     + 'import CardA from "./-parts/card-a"\n'
     + "function Home(){return <main><h1>Ravenscroft</h1>"
     + '<SafeImage src="' + PIC_A(slug) + '" alt="the bench" />'
-    + "<p>Nine until five.</p><CardA /></main>}\n";
+    + "<section><h2>Opening hours</h2><p>Nine until five.</p></section><CardA /></main>}\n";
   const store = bucket(slug, { home, parts: [{ name: "card-a", source: CARD_WITH_PIC }] });
   const c = installCompiler();
   try {

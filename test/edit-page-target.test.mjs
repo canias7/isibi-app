@@ -152,7 +152,7 @@ function withWire(answers, run) {
 // THE BROWSER HOP, DRIVEN: `siteEdit` cut out of chat.js and run for real.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CHAT = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+const CHAT = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
 /**
  * THE POST `siteEdit` MAKES for a routing reply — the real function, with its

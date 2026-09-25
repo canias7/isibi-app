@@ -82,7 +82,7 @@ const HOME = ROUTE_HEAD
 // is byte-identical and no component moved — and with the store unreadable
 // `partMoved` is false by construction, so an unchanged page would take the
 // refusal branch and the reproduction would never reach the merge it is about.
-const HOME_EDITED = HOME.replace("<h1>Ravenscroft</h1>", "<h1>Ravenscroft &amp; Fyne</h1>");
+const HOME_EDITED = HOME.replace("<h1>", '<h1 className="text-5xl">');
 
 const A_OLD = "export default function CardA(){return <section data-slot=\"card\"><h2>Opening hours</h2><p>Nine until five, Tuesday to Saturday.</p></section>}";
 const B_OLD = "export default function CardB(){return <section data-slot=\"card\"><h2>Where to find us</h2><p>Eleven Bridge Street, by the weir.</p></section>}";

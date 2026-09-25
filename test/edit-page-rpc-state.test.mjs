@@ -295,7 +295,7 @@ const pageWith = (h1) => ROUTE_HEAD
 const HOME = pageWith("Fretwork");
 // WHAT THE WRITER HANDS BACK — different each time it is asked, because the
 // rung refuses `no-change` for a page returned byte-identical.
-const WRITTEN = (i) => pageWith("Fretwork " + (i + 2));
+const WRITTEN = (i) => pageWith("Fretwork").replace("<main>", '<main data-edit-pass="' + i + '">');
 
 // THE SCHEMA THE DATABASE REALLY HAS: a table and the function run 21's box
 // calls. `_meta` holds it and the catalog agrees, which is `stored`.

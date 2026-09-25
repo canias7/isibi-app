@@ -196,6 +196,7 @@ import { runRulesEdit } from "./builder/site-rules.mjs";
 import { runPictureEdit, newEmptySlots, newListFrames } from "./builder/site-picture.mjs";
 import { runTweak, keptProse } from "./builder/site-tweak.mjs";
 import { keepCheck, keepWithheldMsg, KEEP_UNCHECKED_MSG, unsurePhrases } from "./builder/page-keep.mjs";
+import { preservePageProse, PROSE_WITHHELD } from "./builder/page-prose.mjs";
 // ONE EDITABLE VIEW of a site's source — its pages and its own components in a
 // single `{path, source}` list, and the way back. The cheap rungs key on `path`
 // and never interpret one, so a part with a path is a page to them; the mapping
@@ -24105,9 +24106,9 @@ async function handleRequest(request, env, ctx) {
               // because the message is the one thing both carry. The picker's
               // `removes` is not consulted: it names lanes, never a target.
               //
-              // ⚠ WHAT IT DOES NOT COVER, SAID WHERE IT RUNS: a section of plain
-              // words or kit-only markup has no link and none of the site's own
-              // components, so its loss is invisible here and still publishes.
+              // Links/components retain their existing check. The parsed prose
+              // check below separately refuses unconfirmed text changes; a
+              // model verdict about a link cannot authorize neighboring prose.
               const pKeep = await keepCheck({
                 message: eInstruction, before: target.source, after: wrote.source,
                 does: eLook2.tsx, inPart: !!partNameOf(target.path),
@@ -24115,6 +24116,11 @@ async function handleRequest(request, env, ctx) {
               });
               const pStop = keepRefusal(pKeep, ownerSlug, { problems: pProblems.slice(0, 4) });
               if (pStop) return pStop;
+              const pProse = await preservePageProse({ before: target.source, after: wrote.source, message: eInstruction });
+              if (!pProse.ok) return Response.json({
+                ok: false, error: "withheld", cost: 0, msg: PROSE_WITHHELD,
+                proseBlocked: pProse.why,
+              }, { status: 409 });
               const pPages = pGuard.pages;
               // THE COMPONENTS THE EDIT WROTE GO WITH THE PAGE. `validatePages`
               // reads them out of `parts`, as the build does; this rung dropped

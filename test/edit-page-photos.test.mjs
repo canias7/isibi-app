@@ -88,7 +88,7 @@ const PIC_B = (slug) => "/u/" + slug + "/b2c3d4e5f6071829.jpg";
 const homeWith = (slug) => ROUTE_HEAD
   + "function Home(){return <main><h1>Ravenscroft</h1>"
   + '<SafeImage src="' + PIC_A(slug) + '" alt="the bench" />'
-  + '<p>Nine until five.</p>'
+  + '<section><h2>Opening hours</h2><p>Nine until five.</p></section>'
   + '<SafeImage src="' + PIC_B(slug) + '" alt="the window" />'
   + "</main>}\n";
 
@@ -413,7 +413,7 @@ test("a photograph living in a COMPONENT counts on both sides", async () => {
     + 'import Hero from "./-parts/hero"\n'
     + "function Home(){return <main><h1>Ravenscroft</h1>"
     + '<SafeImage src="' + PIC_A(slug) + '" alt="the bench" />'
-    + "<p>Nine until five.</p><Hero /></main>}\n";
+    + "<section><h2>Opening hours</h2><p>Nine until five.</p></section><Hero /></main>}\n";
   const store = bucket(slug, { home: pagePic, parts: [{ name: "hero", source: partWith }] });
   const c = installCompiler();
   try {
@@ -475,7 +475,7 @@ test("a photograph stripped out of a COMPONENT is withheld too", async () => {
     + 'import Hero from "./-parts/hero"\n'
     + "function Home(){return <main><h1>Ravenscroft</h1>"
     + '<SafeImage src="' + PIC_A(slug) + '" alt="the bench" />'
-    + "<p>Nine until five.</p><Hero /></main>}\n";
+    + "<section><h2>Opening hours</h2><p>Nine until five.</p></section><Hero /></main>}\n";
   const store = bucket(slug, { home: pagePic, parts: [{ name: "hero", source: partWith }] });
   const c = installCompiler();
   try {
@@ -592,7 +592,7 @@ test("a page edit that adds an empty picture frame says so", async () => {
   const slug = "pix-frame";
   // A site with NO photographs, so the frame the writer adds is unambiguously
   // new rather than one it emptied.
-  const plain = ROUTE_HEAD + "function Home(){return <main><h1>Ravenscroft</h1><p>Nine until five.</p></main>}\n";
+  const plain = ROUTE_HEAD + "function Home(){return <main><h1>Ravenscroft</h1><section><h2>Opening hours</h2><p>Nine until five.</p></section></main>}\n";
   const withFrame = plain
     .replace("Nine until five.", "Nine until six.")
     .replace("</main>", '<SafeImage src="" alt="the bench" /></main>');
@@ -603,7 +603,7 @@ test("a page edit that adds an empty picture frame says so", async () => {
       [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
       [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: withFrame }], parts: [] },
     }, async () => {
-      const { body } = await edit(slug, "hours to six, and leave room for a photo of the bench", { store });
+      const { body } = await edit(slug, "Change the Opening hours to six, and leave room for a photo of the bench", { store });
       assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
       assert.ok(sentHome(c).includes('src=""'), "the publish carried no empty frame, so this case is about nothing");
       assert.equal(body.photos, 1, "the new empty frame was not counted: " + body.photos);
@@ -621,7 +621,7 @@ test("a page edit that adds nothing and loses nothing reports neither", async ()
   // — without this case, a rung that reported `0` and `0` on every edit would
   // pass every assertion above and add a sentence to every reply.
   const slug = "pix-quiet";
-  const plain = ROUTE_HEAD + "function Home(){return <main><h1>Ravenscroft</h1><p>Nine until five.</p></main>}\n";
+  const plain = ROUTE_HEAD + "function Home(){return <main><h1>Ravenscroft</h1><section><h2>Opening hours</h2><p>Nine until five.</p></section></main>}\n";
   const store = bucket(slug, { home: plain });
   const c = installCompiler();
   try {
@@ -629,7 +629,7 @@ test("a page edit that adds nothing and loses nothing reports neither", async ()
       [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
       [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: plain.replace("five", "six") }], parts: [] },
     }, async () => {
-      const { body } = await edit(slug, "hours to six", { store });
+      const { body } = await edit(slug, "Change the Opening hours to six", { store });
       assert.equal(body && body.ok, true, "the edit did not go through: " + JSON.stringify(body));
       assert.equal(body.photos, 0, "a quiet edit reported a picture space: " + body.photos);
       assert.equal(body.photosRemoved, undefined, "a quiet edit reported a loss: " + JSON.stringify(body.photosRemoved));

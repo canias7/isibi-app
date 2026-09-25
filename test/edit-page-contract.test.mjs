@@ -85,7 +85,7 @@ const USER = { id: "u-contract-1", email: "owner@example.com" };
 const TOKEN = "Bearer some-token";
 const SRC_KEY = (slug) => "source/" + String(slug).toLowerCase() + "/pages.json";
 const PARTS_KEY = (slug) => "source/" + String(slug).toLowerCase() + "/parts.json";
-const F = (name) => readFileSync(new URL("./fixtures/run17/" + name, import.meta.url), "utf8");
+const F = (name) => readFileSync(new URL("./fixtures/run17/" + name, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const sha = (s) => createHash("sha256").update(String(s), "utf8").digest("hex").slice(0, 16);
 
 // ── THE RUN'S OWN ARTIFACT ──────────────────────────────────────────────────
@@ -967,6 +967,9 @@ test("`inPart` really travels from runTweak into readTweak", async () => {
  * correct component when it gets there.
  */
 async function doesNotPublish(slug, tweakSource, home = HOME_BEFORE, absent = []) {
+  // Preserve the supplied before-page's loading branch. Fixing the component
+  // does not authorize deleting that page text on the way past.
+  const fixedPage = home === HOME_BEFORE ? HOME_FIXED : home;
   const store = bucket(slug, home);
   const c = installCompiler();
   try {
@@ -975,7 +978,7 @@ async function doesNotPublish(slug, tweakSource, home = HOME_BEFORE, absent = []
       [TWEAK_TOOL.name]: { source: tweakSource },
       // And the writer that CAN read components answers the corrected pair.
       [SITE_PAGES_TOOL.name]: {
-        pages: [{ path: "src/routes/index.tsx", source: HOME_FIXED }],
+        pages: [{ path: "src/routes/index.tsx", source: fixedPage }],
         parts: [{ name: "day-space-lookup", source: LOOKUP_AFTER }],
       },
     }, async (calls) => {
@@ -1018,7 +1021,7 @@ async function doesNotPublish(slug, tweakSource, home = HOME_BEFORE, absent = []
 
       // (d) THE STORED SOURCE agrees, so the next edit starts from the fix.
       const st = stored(store, slug);
-      assert.equal(st["index.tsx"], HOME_FIXED, "the store kept a different page");
+      assert.equal(st["index.tsx"], fixedPage, "the store kept a different page");
       assert.equal(st[PART_DIR + "day-space-lookup.tsx"], LOOKUP_AFTER, "the store kept a different component");
 
       // (e) UNRELATED PAGES AND COMPONENTS ARE BYTE-IDENTICAL, in the payload
@@ -1078,7 +1081,7 @@ test("THE CONDITIONAL BRANCH SWAP does not publish either — through the route,
     "contract-repro-branch",
     HOME_BRANCH_SWAPPED,
     HOME_GUARDED,
-    [["bookingCount === undefined ?", "the publish carried the branch-swapped guard"]],
+    [["bookingCount === undefined ? (\n" + HOME_LOOKUP_EL, "the publish carried the branch-swapped guard"]],
   );
 });
 

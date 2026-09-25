@@ -44,10 +44,9 @@
 // supplies a judge that ignores that, and the loss publishes — because a quote
 // that is really in the message and names its item is all code can check.
 //
-// ⚠ AND WHAT STAYS OPEN: a section of plain words or kit-only markup has no
-// literal link and none of the site's own components, so nothing here reads
-// its loss. The "Opening hours" drop is kept as that reproduction, and it
-// still publishes.
+// The former plain-text Opening hours reproduction now refuses through
+// page-prose.mjs. The route cases at the end exercise that independent parsed
+// check, including acceptance, ambiguity, rendered output and queued billing.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -67,6 +66,8 @@ import {
   KEEP_TOOL, KEEP_RULES, KEEP_UNCHECKED_MSG, KEEP_GROUPS, keepInventory, pairLinks, partStates, quoteInMessage,
   quoteNamesItem, groupCovers, readKeep, keepRequest, keepWithheldMsg,
 } from "../builder/page-keep.mjs";
+import { PROSE_WITHHELD, preservePageProse } from "../builder/page-prose.mjs";
+import { renderPart } from "./fixtures/render-part.mjs";
 import { editBrowserReply } from "../scripts/addon-sweep.mjs";
 
 const T = {
@@ -805,11 +806,12 @@ test("MUST STAY PUBLISHED: a component the rewrite still renders through an alia
   assert.equal(r.said.text, UPDATED + " I couldn’t confirm that the “Order ahead” section is still on the page — have a look before you share it.");
 });
 
-test("OPEN, AND OUTSIDE THE INVENTORY: a section of plain words dropped still publishes — this protection does not reach it", async () => {
+test("PROTECTED: intended hero edit plus unrelated plain hours deletion stops before publication", async () => {
   const r = await drive({ route: { layer: "page" }, ask: HERO_ASK, answer: DROPS_HOURS });
-  published(r, DROPS_HOURS, { calls: PAGE, debits: [credits(CALL, CALL)] });
-  assert.ok(!r.stored.includes("Opening hours"), "the hours section, which nobody mentioned, is gone");
-  assert.equal(r.said.text, UPDATED);
+  refused(r, { calls: PAGE });
+  assert.ok(r.stored.includes("Opening hours"));
+  assert.ok(r.said.text.includes(PROSE_WITHHELD));
+  assert.deepEqual(r.said.actions, [], "no rewrite or paid handoff");
   assert.deepEqual(links(DROPS_HOURS), links(HOME));
   assert.equal(use(DROPS_HOURS), "rendered");
 });
@@ -823,13 +825,14 @@ test("NEGATIVE: “and keep the order form” is not permission to drop it — n
     "the rule the judge was given");
 });
 
-test("LIMIT, NOT A PROTECTION: a judge that misreads “keep the order form” as permission is believed — the quote is real and names the item", async () => {
+test("PROTECTED: a judge cannot authorize collateral loss of the Order ahead text", async () => {
   // Kept so the boundary is on the record rather than assumed away: a verified
   // quote proves the words occur in the request, and whether they AUTHORISE
   // the loss is the model's judgement. This is supplied output; it says nothing
   // about how often a real model reads it this way.
   const r = await drive({ route: { layer: "page" }, ask: KEEP_ASK, answer: DROPS_ORDER, judge: judged(asks(1, "keep the order form")) });
-  published(r, DROPS_ORDER, { calls: PAGE_JUDGED, debits: [credits(CALL, CALL, JUDGE)] });
+  refused(r, { calls: PAGE_JUDGED });
+  assert.equal(r.reply.msg, PROSE_WITHHELD);
 });
 
 test("NEGATIVE: an unrelated removal instruction does not cover a section it never named — even with the picker's removal mark", async () => {
@@ -1042,7 +1045,7 @@ test("GROUP + COLLATERAL, THE JOB PATH: the refusal reserves nothing, compiles n
   assert.deepEqual(r.finalized, [false], "the job finalized as not published");
 });
 
-test("LIMIT, NOT A PROTECTION: a judge that calls a links quote a sections group is believed — which group words ask for is its reading", async () => {
+test("PROTECTED: a links quote cannot authorize collateral section text loss", async () => {
   // The kind check stops a group being stretched over a thing it cannot hold;
   // it cannot stop the judge naming the wrong group for the words, because
   // telling "all links" from "all sections" is reading English. Supplied output.
@@ -1050,7 +1053,8 @@ test("LIMIT, NOT A PROTECTION: a judge that calls a links quote a sections group
     route: { layer: "page" }, ask: ALL_LINKS_ASK, answer: UNLINKED_DROPS_ORDER,
     judge: judged(inGroup(1, Q_ALL, "links"), inGroup(2, Q_ALL, "links"), inGroup(3, Q_ALL, "sections")),
   });
-  published(r, UNLINKED_DROPS_ORDER, { calls: PAGE_JUDGED, debits: [credits(CALL, CALL, JUDGE)] });
+  refused(r, { calls: PAGE_JUDGED });
+  assert.equal(r.reply.msg, PROSE_WITHHELD);
   assert.equal(itemsShown(r).length, 3, "the order form WAS an item, and the third answer covered it");
 });
 
@@ -1152,4 +1156,144 @@ test("LIMIT, NOT A PROTECTION: the form answered with NO group, quoting the link
   });
   published(r, UNDER_UNLINKED_DROPS_FORM, { calls: PAGE_JUDGED, debits: [credits(CALL, CALL, JUDGE)] });
   assert.equal(itemsShown(r).length, 2, "the form WAS an item, and the judge's yes covered it");
+});
+
+
+// Parsed prose regressions use the same real route, compiler capture, storage
+// and browser composer above. The model/provider outputs remain fixtures.
+function renderedHome(source) {
+  const component = source.replace(/^import .*\n/gm, "")
+    .replace(/^export const Route = .*\n/gm, "")
+    + "\nconst Link = ({to, children}) => <a href={to}>{children}</a>;\n"
+    + ORDER_FORM.replace("export default ", "") + "\nexport default Home;";
+  return renderPart(component, {});
+}
+for (const mode of ["sync", "job"]) {
+  test("PROSE " + mode + ": reword and rename hours, preserve and render neighbors", async () => {
+    const next = home(HERO, HOURS_NEW.replace("Opening hours", "When we open"), ORDER, VISIT);
+    const r = await drive({ mode, ask: "Rewrite the Opening hours section as a short list and rename its heading.", answer: next });
+    assert.equal(r.status, 200, JSON.stringify(r.reply));
+    assert.equal(r.compiled, next); assert.equal(r.stored, next);
+    assert.equal(r.said.text, UPDATED); assert.deepEqual(r.said.actions, ["refresh the credit balance"]);
+    const rendered = renderedHome(r.stored);
+    assert.match(rendered.text, /When we open Weekdays 7am to 4pm Saturday 8am to 2pm/);
+    assert.match(rendered.text, /Bread from the harbour, every morning/);
+    assert.match(rendered.html, /href="\/visit"/); assert.match(rendered.html, /<form/);
+  });
+  test("PROSE " + mode + ": explicit text-only section deletion preserves neighbors", async () => {
+    const next = home(HERO, ORDER, VISIT);
+    const r = await drive({ mode, ask: "Remove the Opening hours section.", answer: next });
+    assert.equal(r.status, 200, JSON.stringify(r.reply));
+    assert.equal(r.compiled, next); assert.equal(r.stored, next); assert.equal(r.said.text, UPDATED);
+    assert.doesNotMatch(renderedHome(r.stored).text, /Opening hours/);
+    assert.match(renderedHome(r.stored).text, /Harbour Loaf.*Order ahead.*Find us/);
+  });
+  test("PROSE " + mode + ": movement preserves rendered words and changes order", async () => {
+    const next = home(HOURS, HERO, ORDER, VISIT);
+    const r = await drive({ mode, ask: "Move Opening hours above the hero.", answer: next });
+    assert.equal(r.status, 200, JSON.stringify(r.reply));
+    assert.equal(r.compiled, next); assert.equal(r.stored, next); assert.equal(r.said.text, UPDATED);
+    assert.match(renderedHome(r.stored).text, /^Opening hours.*Harbour Loaf/);
+  });
+  for (const [label, ask, before, answer] of [
+    ["hero change cannot discard hours", HERO_ASK, HOME, DROPS_HOURS],
+    ["unchanged heading cannot hide lost body", HERO_ASK, HOME, home(HERO_NEW, HOURS.replace("<p>Open from 7am on weekdays.</p>", ""), ORDER, VISIT)],
+    ["a reword request is not section deletion", HOURS_ASK, HOME, home(HERO, ORDER, VISIT)],
+    ["replacement wording mentioning hours grants no hours permission", "Change the Harbour Loaf heading to Opening hours.", HOME, home(HERO.replace("Harbour Loaf", "Opening hours"), ORDER, VISIT)],
+    ["duplicate headings require disambiguation", "Rewrite Opening hours as a list.", home(HERO, HOURS, HOURS.replace("7am", "9am"), ORDER, VISIT), home(HERO, HOURS_NEW, HOURS.replace("7am", "9am"), ORDER, VISIT)],
+    ["vague targeting stops", "Change that section.", HOME, home(HERO, HOURS_NEW, ORDER, VISIT)],
+    ["negated target stops", "Do not remove Opening hours.", HOME, home(HERO, ORDER, VISIT)],
+    ["literal text in a hidden branch is not preserved", HERO_ASK, HOME, home(HERO_NEW, "{false && " + HOURS + "}", ORDER, VISIT)],
+    ["literal text in unused code is not preserved", HERO_ASK, HOME, home(HERO_NEW, ORDER, VISIT) + "function Unused(){return " + HOURS + "}"],
+  ]) {
+    test("PROSE " + mode + ": " + label, async () => {
+      const r = await drive({ mode, ask, before, answer });
+      refused(r, { calls: PAGE });
+      assert.equal(r.reply.msg, PROSE_WITHHELD);
+      assert.ok(r.said.text.includes(PROSE_WITHHELD));
+      assert.deepEqual(r.said.actions, []); assert.deepEqual(r.reserves, []);
+    });
+  }
+  test("PROSE " + mode + ": a successful style step survives a refused text-loss step", async () => {
+    const r = await drive({ mode, route: { layer: "look" }, ask: "Make the footer dark green and change the Harbour Loaf heading.",
+      pick: { fields: ["css", "components"] }, lane: { css: FOOTER }, answer: DROPS_HOURS });
+    assert.equal(r.status, 200); assert.equal(r.compiles, 1);
+    assert.equal(r.compiled, HOME); assert.equal(r.stored, HOME); assert.equal(r.css, FOOTER);
+    assert.ok(r.reply.partial.some(p => p.error === "withheld" && p.msg === PROSE_WITHHELD));
+    assert.ok(r.said.text.includes(PROSE_WITHHELD));
+    assert.ok(!r.said.text.includes("Nothing on your site changed"));
+    assert.deepEqual(r.said.actions, ["refresh the credit balance"]);
+    if (mode === "sync") assert.deepEqual(r.debits, [credits(CALL, LANE)]);
+    else assert.deepEqual(r.reserves, [{ seq: 1, cost: credits(CALL, LANE) }]);
+  });
+}
+test("PROSE: heading-only permission does not cover its paragraph", async () => {
+  const r = await drive({ ask: "Rename the Opening hours heading to When we open.", answer: home(HERO, HOURS_NEW.replace("Opening hours", "When we open"), ORDER, VISIT) });
+  refused(r, { calls: PAGE });
+});
+test("PROSE: unique section id disambiguates duplicate headings", async () => {
+  const first = HOURS.replace("<section", '<section id="weekday-hours"');
+  const second = HOURS.replace("7am", "9am");
+  const before = home(HERO, first, second, ORDER, VISIT);
+  const next = home(HERO, first.replace("7am", "8am"), second, ORDER, VISIT);
+  const r = await drive({ ask: "Change the weekday-hours section to say we open at 8am.", before, answer: next });
+  published(r, next, { calls: PAGE, debits: [credits(CALL, CALL)] });
+});
+test("PROSE: no parser and malformed source stop rather than inventing an empty inventory", async () => {
+  assert.deepEqual(await preservePageProse({ before: HOME, after: DROPS_HOURS, message: HERO_ASK, parse: null }), { ok: false, why: "no-parser" });
+  assert.equal((await preservePageProse({ before: HOME, after: "function Broken(){ return <", message: HERO_ASK })).why, "unparsed");
+});
+
+
+test("PROSE: changing a line under a heading cannot rename the heading too", async () => {
+  const r = await drive({ ask: HERO_ASK, answer: home(HERO_NEW.replace("Harbour Loaf", "Different business"), HOURS, ORDER, VISIT) });
+  refused(r, { calls: PAGE });
+});
+test("PROSE: an image target under a section is not authority to rewrite its prose", async () => {
+  const r = await drive({ ask: "Change the image under Opening hours.", answer: home(HERO, HOURS_NEW, ORDER, VISIT) });
+  refused(r, { calls: PAGE });
+});
+test("PROSE: accepted wording preserves literal photo, links, and custom component beside text", async () => {
+  const photo = '<img src="https://images.unsplash.com/photo-1509440159596-0249088772ff" alt="Bread on the bench" />';
+  const before = home(HERO + photo, HOURS, ORDER, VISIT);
+  const next = home(HERO + photo, HOURS_NEW, ORDER, VISIT);
+  const r = await drive({ before, ask: HOURS_ASK, answer: next });
+  published(r, next, { calls: PAGE, debits: [credits(CALL, CALL)] });
+  const html = renderedHome(r.stored).html;
+  assert.match(html, /<img[^>]*alt="Bread on the bench"/);
+  assert.match(html, /href="\/menu"/); assert.match(html, /href="\/visit"/);
+  assert.match(html, /<form/); assert.match(html, /Weekdays 7am to 4pm/);
+});
+test("PROSE: deleting text cannot be hidden by a comment containing the old section", async () => {
+  const r = await drive({ ask: HERO_ASK, answer: DROPS_HOURS + '\n/* ' + HOURS + ' */' });
+  refused(r, { calls: PAGE });
+});
+test("PROSE: exact text targeting works without a semantic section wrapper", async () => {
+  const before = page('/', '<h1>Bakery</h1><p>Open from 7am on weekdays.</p><p>Quay Street.</p>');
+  const next = before.replace('Open from 7am on weekdays.', 'Open from 8am on weekdays.');
+  const r = await drive({ before, ask: 'Change "Open from 7am on weekdays." to "Open from 8am on weekdays."', answer: next });
+  published(r, next, { calls: PAGE, debits: [credits(CALL, CALL)] });
+});
+
+
+test("PROSE: a shared sentence in another section cannot mask a lost local sentence", async () => {
+  const shared = HOURS.replace('className="hours"', 'className="weekend"').replace('Opening hours', 'Weekend hours');
+  const before = home(HERO, HOURS, shared, ORDER, VISIT);
+  const after = home(HERO, HOURS_NEW, shared.replace('<p>Open from 7am on weekdays.</p>', ''), ORDER, VISIT);
+  const r = await drive({ before, ask: HOURS_ASK, answer: after });
+  refused(r, { calls: PAGE });
+});
+test("PROSE: explicit removal with a repeated sentence keeps the other section's instance", async () => {
+  const shared = HOURS.replace('className="hours"', 'className="weekend"').replace('Opening hours', 'Weekend hours');
+  const before = home(HERO, HOURS, shared, ORDER, VISIT);
+  const next = home(HERO, shared, ORDER, VISIT);
+  const r = await drive({ before, ask: 'Remove the Opening hours section.', answer: next });
+  published(r, next, { calls: PAGE, debits: [credits(CALL, CALL)] });
+});
+test("PROSE: a heading can be renamed without any persisted section identifier", async () => {
+  const before = home(HERO, HOURS.replace(' className="hours"', ''), ORDER, VISIT);
+  const next = before.replace('Opening hours', 'When we open');
+  const r = await drive({ before, ask: 'Rename the Opening hours heading to When we open.', answer: next });
+  published(r, next, { calls: PAGE, debits: [credits(CALL, CALL)] });
+  assert.match(renderedHome(r.stored).text, /When we open Open from 7am on weekdays/);
 });

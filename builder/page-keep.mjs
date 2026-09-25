@@ -12,7 +12,9 @@
 // page renders (`partUses`). Run 11 is why it stops there — a correct,
 // requested consolidation took `<section>` from 15 to 13, so any block-level
 // rule would have refused a real, correct edit. A section of plain words or
-// kit-only markup is NOT covered, and the file says so wherever it matters.
+// kit-only markup is NOT covered by this module. The full edit writer now
+// also runs page-prose.mjs for literal JSX prose; its permission does not
+// depend on this model judge.
 //
 // THE FACTS ARE CODE'S AND THE INTENT IS THE CUSTOMER'S OWN WORDS, AND THE TWO
 // NEVER MIX. Code computes exactly what the rewrite lost. Whether the message
