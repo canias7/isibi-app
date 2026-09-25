@@ -36,11 +36,12 @@ successful steps remain the baseline.
   surrounding section as permission to rewrite its prose. A non-deletion
   request requires a surviving target with replacement prose. Explicit removal
   and the existing all-sections-except-one control remain possible.
-- When targeting or parsing cannot be established, return `409 withheld` with an
+- When targeting or parsing cannot be established, return `409 prose-preservation` with an
   explanatory sentence. No rewrite/handoff is initiated and no extra model
   call was added. Existing model link/component verdicts cannot override it.
 
-The refusal says this page change was not published; it does not promise the
+The distinct error reason avoids the legacy `withheld` browser suffix claiming
+that nothing on the site changed. The refusal says this page change was not published; it does not promise the
 entire request was free or untouched. Routing can have cost credits; a previous
 successful step or editable-state recovery can have changed state.
 
@@ -71,6 +72,10 @@ A local browser displayed React-rendered HTML captured from the actual accepted
 route's stored output: When we open, the new weekday/Saturday list, unchanged
 Harbour Loaf copy, Order ahead form and Find us link/address. This is isolated
 fixture rendering, not a deployed site's complete theme or working backend.
+
+Initial unit CI caught the new module missing from the explicit container COPY
+list. Added it beside page-keep and retained the import-closure check. The earlier
+site-build run was superseded after that correction.
 
 Focused validation: **561 passed, zero failed** across edit-page-keep/context/
 protect/photos/once/contract/target/verb/rpc-state, edit-path, edit-lock,

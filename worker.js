@@ -24118,7 +24118,9 @@ async function handleRequest(request, env, ctx) {
               if (pStop) return pStop;
               const pProse = await preservePageProse({ before: target.source, after: wrote.source, message: eInstruction });
               if (!pProse.ok) return Response.json({
-                ok: false, error: "withheld", cost: 0, msg: PROSE_WITHHELD,
+                // The legacy "withheld" browser note promises nothing changed;
+                // recovery may already have run, so do not claim that here.
+                ok: false, error: "prose-preservation", cost: 0, unchanged: false, msg: PROSE_WITHHELD,
                 proseBlocked: pProse.why,
               }, { status: 409 });
               const pPages = pGuard.pages;

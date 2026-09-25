@@ -369,7 +369,7 @@ function published(r, answer, { calls, debits }) {
 function refused(r, { calls, status = 409 }) {
   assert.equal(r.status, status, "refused: " + JSON.stringify(r.reply));
   assert.equal(r.reply && r.reply.ok, false);
-  assert.equal(r.reply.error, "withheld");
+  assert.equal(r.reply.error, r.reply.proseBlocked ? "prose-preservation" : "withheld");
   assert.equal(r.reply.cost, 0, "the edit cost nothing");
   assert.deepEqual(r.calls, calls, "the model calls");
   assert.equal(r.compiles, 0, "nothing was compiled");
@@ -1211,6 +1211,8 @@ for (const mode of ["sync", "job"]) {
       refused(r, { calls: PAGE });
       assert.equal(r.reply.msg, PROSE_WITHHELD);
       assert.ok(r.said.text.includes(PROSE_WITHHELD));
+      assert.ok(!r.said.text.includes("Nothing on your site changed"));
+      assert.ok(!r.said.text.includes("cost you nothing"));
       assert.deepEqual(r.said.actions, []); assert.deepEqual(r.reserves, []);
     });
   }
@@ -1219,7 +1221,7 @@ for (const mode of ["sync", "job"]) {
       pick: { fields: ["css", "components"] }, lane: { css: FOOTER }, answer: DROPS_HOURS });
     assert.equal(r.status, 200); assert.equal(r.compiles, 1);
     assert.equal(r.compiled, HOME); assert.equal(r.stored, HOME); assert.equal(r.css, FOOTER);
-    assert.ok(r.reply.partial.some(p => p.error === "withheld" && p.msg === PROSE_WITHHELD));
+    assert.ok(r.reply.partial.some(p => p.error === "prose-preservation" && p.msg === PROSE_WITHHELD));
     assert.ok(r.said.text.includes(PROSE_WITHHELD));
     assert.ok(!r.said.text.includes("Nothing on your site changed"));
     assert.deepEqual(r.said.actions, ["refresh the credit balance"]);
