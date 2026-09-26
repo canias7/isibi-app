@@ -9636,7 +9636,11 @@ addition."* `scripts/canary-ui.mjs`, the `ui_scenario` box on `edit-canary.yml`,
     session's one try at the free rehearsal dispatch (spend `no`) answered
     **403** again and was not retried.
   - **Suite 8,041 locally** (`# tests 8041 / # pass 8039 / # fail 0 /
-    # skipped 2`, `duration_ms 143,296`): +1, the new case.
+    # skipped 2`, `duration_ms 143,296`): +1, the new case. **CI matches**:
+    unit run `36278804992` on `714cd952` reads `8041 / 8037 / 0 / 4`
+    (`duration_ms 127,276`). All 23 new cases (22 in `canary-ui`, 1 in
+    `canary-watch`) were found passing by name, with 8,041 distinct result
+    numbers and zero `not ok`. **The stamp chain ends at `714cd952`.**
 
 ### A SECTION HEADED BY THE KIT (2026-09-26, `2f2fed58` + `5ec82214`, merged and deployed in deploy 2162)
 
