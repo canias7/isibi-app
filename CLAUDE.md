@@ -63,9 +63,10 @@ proof nothing else ran. **The kit-heading fix is CLOSED BY THE OWNER and
 MERGED AND DEPLOYED at `ab74d0d9`** (deploy 2162, 2026-09-26 20:31 UTC, image
 `369d7b1e5bae25b0`; *a section headed by the kit*, below), with the owner's
 review round (a kit heading the page may not render named its section) in it
-at `5ec82214`. **Deployed, not yet runtime-confirmed**: the session's dispatch
-answered 403, so the authenticated reading is the owner's free press, which is
-also Test 4a's before-read (*Test 4a, prepared*, below). **Test 4 is split in
+at `5ec82214`. **Runtime-confirmed by the owner's free press, run 35**
+(36271891594, 21:08 UTC): both readers answered `ab74d0d94384` with image
+`369d7b1e5bae25b0`, the restore target was listed and restorable, and the
+balance was 73 (*Test 4a, prepared*, below). **Test 4 is split in
 two, each approved on its own**: 4a (pages, photographs, an attachment and second
 messages; a free restore undoes it) and 4b (the database; a free `grants preview`
 read first, and no permission change that could only be undone by another model
@@ -9360,10 +9361,14 @@ the actual deployment and authenticated runtime readings."*
     before and after.
   - `Uploaded isibi-app`, `Current Version ID: a840a906-…`, `Deployed isibi-app
     triggers`. Gates 401 / 401 / 401 / 404 at 20:47:33Z.
-- **DEPLOYED, NOT YET RUNTIME-CONFIRMED.** The session's one dispatch, made at
-  20:51Z after the hold (from `main`, spend `no`, both expectations), answered
-  **403**. It was not retried. The authenticated reading is the owner's free
-  press, *Test 4a, prepared*, below.
+- **RUNTIME-CONFIRMED BY THE OWNER'S FREE PRESS, run 35** (`36271891594`,
+  21:08:15 → 21:08:56Z). The session's own dispatch, made at 20:51Z after the
+  hold, had answered **403** and was not retried. Run 35's env block reads
+  `CANARY_SPEND: 0`, `CANARY_RESTORE: 01789969693841-xqi8vs` and both
+  expectations. `build-health 200 deploy=ab74d0d94384 image=369d7b1e5bae25b0`,
+  `runtime 200 … async=true runner=true`, both readers agreeing, every
+  preflight check `ok`, `ALL FREE CHECKS PASSED`, balance **73**. **The live
+  Worker answering, not Wrangler reporting on itself.**
 
 ### TEST 4a, PREPARED FOR THE DEPLOYED CODE (2026-09-26, evening — not dispatched)
 
@@ -9405,6 +9410,26 @@ expected results are the checklist's Test 4a section. What is law here:
   has no tables, which is why it warns and live should not.
 - **The supplied-answer rehearsal re-run on the deployed tree (`ab74d0d9`): 13
   of 13.** It proves the route, never the real model.
+- **STEP 0 RAN AS RUN 35, AND THE RESTORE TARGET IS VERIFIED BY THE SITE'S OWN
+  LIST**: 5 versions listed, row 1 `01789969693841-xqi8vs` ("Live now", parent
+  `01789776828162-bdqv15`, run 51's), not marked `NOT RESTORABLE`, then
+  `RESTORED — the site already reported …, so nothing was posted`. The source
+  read was complete (`reads` all true), every route answered the same version,
+  and four of the five bodies equal the record.
+- **⚠ AND `order.tsx` READ BACK WITH ONE EN DASH AS THREE U+FFFD — THE
+  CANARY'S OWN READER, NOT THE SITE.** `call()` did `text += chunk`, which
+  decodes each network chunk on its own; an en dash is E2 80 93, and a chunk
+  boundary after E2 yields exactly `"8���2"` (reproduced). The whole read held
+  exactly those 3 replacement characters; the route HTML read with
+  `fetch().text()` held none; run 9's read of the same stored bytes held none,
+  and a broken reader can garble bytes but never repair them, so the store had
+  the dash then and nothing has written it since. **A reader that decodes chunk
+  by chunk produces a false "this page changed"** in exactly the comparison a
+  test's validity rests on. **Fixed on the branch, not merged** (`call()`
+  collects the chunks and decodes once; a guard drives the mechanism and
+  censuses the wiring, red on the unfixed script). **The same spelling is in
+  `addon-sweep.mjs`, `build-as-owner.mjs`, `gap-sweep.mjs` and
+  `lane-sweep.mjs`** — found, not changed.
 
 ### A SECTION HEADED BY THE KIT (2026-09-26, `2f2fed58` + `5ec82214`, merged and deployed in deploy 2162)
 
@@ -12070,7 +12095,8 @@ at run 34's end (2026-09-26, Test 3: **91 → 73, moved 18**, route 2 + the page
 rung's 16, closing exactly, on a run that published; the ledger holds one reserve
 of 16 and no refund), **and read 73 again on 2026-09-26 at 20:46:59Z** off the
 balance row the canary itself reads, matching the last ledger row (run 34's
-reserve); nothing has spent since. **Between run 31 and
+reserve), and by run 35's free press at 21:08Z; nothing has spent since.
+**Between run 31 and
 run 32 the balance rose from 1 to 101** (read on the ledger at 18:09Z and by the
 canary before its paid call). **Only the readings are recorded; how it rose is
 not.** Run 31 ended at **1** (3 → 1, the routing call alone, the edit's

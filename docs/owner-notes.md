@@ -14,7 +14,7 @@ merged/deployed at a5741864 (deployment 2157 / run 36099179983). Served chat.js
 matched the reviewed bytes at 2026-09-25 05:36:30 UTC. Deployment log reports
 container reuse; no repeated runtime container check or canary. This contains
 an escaped display error; publication and cleanup already succeeded. Other
-checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; see the dated entries below). Your free check (run 33, 06:24 UTC) confirmed deployment 2161 from the live server, and with it 2160's code. Test 3 ran as your paid run 34: the full page writer removed "The first eight chords" and nothing else, for 18 credits (balance 73), and all seven checks hold (the dated entry below). The page-text check now recognises a section heading shown by a design component, and your review's gap (such a heading counted when the page might not show it) is closed too. You closed that correction, and it is merged and deployed at `ab74d0d9` (deployment 2162, 2026-09-26 20:31 UTC, image `369d7b1e5bae25b0`). It is not yet confirmed from the live server: my check was refused (403), so your free press is the confirmation. Test 4 is two parts, each for your separate approval: 4a (pages, photos, an attached picture, second messages) is now prepared for the deployed code, with the exact presses (the newest entry below), and 4b (the database) waits for its own approval.
+checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; see the dated entries below). Your free check (run 33, 06:24 UTC) confirmed deployment 2161 from the live server, and with it 2160's code. Test 3 ran as your paid run 34: the full page writer removed "The first eight chords" and nothing else, for 18 credits (balance 73), and all seven checks hold (the dated entry below). The page-text check now recognises a section heading shown by a design component, and your review's gap (such a heading counted when the page might not show it) is closed too. You closed that correction, and it is merged and deployed at `ab74d0d9` (deployment 2162, 2026-09-26 20:31 UTC, image `369d7b1e5bae25b0`). Your free press (run 35, 21:08 UTC) confirmed it from the live server. Test 4 is two parts, each for your separate approval: 4a (pages, photos, an attached picture, second messages) is now prepared for the deployed code, with the exact presses (the newest entry below), and 4b (the database) waits for its own approval.
 
 Kept for the owner. Two purposes:
 1. **How you like things done** — durable preferences, so a fresh session does not
@@ -176,7 +176,44 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
-## 2026-09-26 — The design-heading fix is merged and deployed at `ab74d0d9` (not yet confirmed from the live server); test 4a is ready for your approval
+## 2026-09-26 — Your free check (run 35) confirmed deployment 2162 and the put-back version; the canary misread one character, fixed on the branch
+
+Your step 0 press ran as
+[run 35](https://github.com/canias7/isibi-app/actions/runs/36271891594) at
+21:08 UTC.
+- **Deployment 2162 is confirmed from the live server**: the running code is
+  `ab74d0d9` and a fresh container gets image `369d7b1e5bae25b0`. Every free
+  check passed.
+- **The put-back version is confirmed by the site's own list**:
+  `01789969693841-xqi8vs` is the live version, restorable, and nothing was
+  posted.
+- **Balance 73**, and every page is on that version.
+- Four of the five page files read back exactly as recorded.
+
+**The fifth, `order.tsx`, read back with one dash garbled, and it was the
+canary's reading, not your site.** The opening hours "Wed–Sat 8–2" came back
+with the second dash as three "�". The canary's download reader decoded the
+page in pieces, and a dash is three bytes; when a piece ends in the middle of
+one, you get exactly those three characters. I reproduced that. The evidence
+that the stored page is fine:
+- those three characters were the only ones in the whole read;
+- the same pages read another way had none;
+- run 9 read the same stored page with the dash intact, and nothing has
+  changed it since.
+
+**The fix is one line in the canary, on the branch, not merged**: it now
+decodes the whole download at once. A new test is red on the old code and
+green on the new, and all 8,018 tests pass. It touches only the test tool, so
+merging it would not deploy anything. Four other test scripts read the same
+way; I left them, since they aren't part of test 4a.
+
+**Before Part A**, run the presses from the branch: in "Run workflow", set "Use
+workflow from" to `claude/help-needed-ehlwlj`. That branch has the fixed reader
+and runs against the same live server. Press step 0 once more that way (free).
+If `order.tsx` then reads back intact, that settles it, and Part A is next, from
+the same branch. Or say "merge" and I'll put the fix on main first.
+
+## 2026-09-26 — The design-heading fix is merged and deployed at `ab74d0d9` (confirmed since from the live server by run 35, the entry above); test 4a is ready for your approval
 
 You closed the correction, so it's merged and deployed. Main hadn't moved, so
 the merge was a fast-forward at 20:28 UTC with nothing on main to keep.

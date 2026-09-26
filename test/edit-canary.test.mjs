@@ -421,3 +421,33 @@ test("the after-read waits for THIS job's own version, and an unverified compari
   const tail = paid.slice(paid.lastIndexOf("CANARY PASSED"));
   assert.match(tail, /SAID/, "the verdict on the transport no longer carries the verdict on the comparison");
 });
+
+// ── A BODY IS DECODED ONCE, NOT CHUNK BY CHUNK (run 35) ─────────────────────
+//
+// Run 35 read fold-lane-bakery's `order.tsx` back with one en dash turned into
+// three U+FFFD, while the site still served the version whose saved copy has
+// the dash. `call()` added each network chunk to a string, which decodes every
+// chunk on its own: an en dash is three bytes, and a chunk boundary after the
+// first one yields exactly three replacement characters. A body comparison
+// then reports a changed page that nothing changed.
+test("the canary decodes a response body once, so a character split across two chunks survives", () => {
+  // THE MECHANISM, DRIVEN: the old accumulation garbles the split dash, and
+  // decoding the concatenated bytes once keeps it.
+  const bytes = Buffer.from("8–2", "utf8");
+  const parts = [bytes.subarray(0, 2), bytes.subarray(2)];
+  let old = ""; for (const c of parts) old += c;
+  assert.equal(old, "8���2", "the old accumulation no longer shows the defect, so this case proves nothing");
+  assert.equal(Buffer.concat(parts).toString("utf8"), "8–2");
+
+  // THE WIRING: `call()` collects the chunks and decodes them once.
+  const at = SRC.indexOf("function call(");
+  const end = SRC.indexOf("let failed = 0;", at);
+  assert.ok(at > 0 && end > at, "call() or the line after it moved; re-anchor this case");
+  const body = SRC.slice(at, end);
+  assert.ok(body.includes('res.on("data"'), "call() no longer reads the response stream");
+  const chunkToString = /\+=\s*c\s*;/;
+  assert.ok(chunkToString.test('res.on("data", (c) => { text += c; });'), "the census no longer recognises the old spelling");
+  assert.ok(!chunkToString.test(body), "call() adds each chunk to a string again, which splits multi-byte characters");
+  assert.ok(/Buffer\.concat\(\w+\)\.toString\("utf8"\)/.test(body) || body.includes('setEncoding("utf8")'),
+    "call() no longer decodes the whole body once");
+});

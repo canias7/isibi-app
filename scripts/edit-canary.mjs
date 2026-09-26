@@ -111,9 +111,14 @@ function call(method, path, { body, headers } = {}) {
       hostname: u.hostname, path: u.pathname + u.search, method,
       headers: { Authorization: `Bearer ${TOKEN}`, "content-type": "application/json", ...(headers || {}) },
     }, (res) => {
-      let text = "";
-      res.on("data", (c) => { text += c; });
+      // BYTES, DECODED ONCE. Adding each chunk to a string decodes it on its
+      // own, so a multi-byte character split across two chunks turns into
+      // replacement characters: run 35 read an en dash in order.tsx back as
+      // three U+FFFD, and a body comparison would call that a changed page.
+      const chunks = [];
+      res.on("data", (c) => { chunks.push(c); });
       res.on("end", () => {
+        const text = Buffer.concat(chunks).toString("utf8");
         let json = null;
         try { json = JSON.parse(text); } catch { /* not JSON */ }
         // THE HEADERS RIDE ALONG, because `x-gf-edit: final` is the ONLY thing

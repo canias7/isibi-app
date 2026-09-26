@@ -9,9 +9,9 @@ Nothing has been dispatched since run 34, and the balance is 73 (read again at
 
 **The kit-heading defect is fixed, closed by the owner, and merged and
 deployed**: main is `ab74d0d9` (deploy 2162, 2026-09-26 20:31 UTC, image
-`369d7b1e5bae25b0`). It is **deployed, not yet runtime-confirmed**: the
-session's dispatch answered 403, so the authenticated reading is your free
-press, which is also Test 4a's before-read (below). The owner reproduced the
+`369d7b1e5bae25b0`). It is **runtime-confirmed by your free press, run 35**
+(21:08 UTC): both readers answered `ab74d0d94384` with image
+`369d7b1e5bae25b0`. That press was also Test 4a's step 0 (below). The owner reproduced the
 defect independently: the correct removal was refused with `SectionHeader`'s
 `title` and accepted with the equivalent literal `<h2>`. The owner's review then
 found one gap — a kit heading the page may not render (inside `{false && …}`,
@@ -209,6 +209,39 @@ What it should print, and what each part establishes:
 - The inventory, including `before/source.json`, which I compare with the five
   bodies below.
 - It ends `RESTORE MODE — stopping before the paid edit. Nothing was charged.`
+
+**Step 0 ran as run 35** ([36271891594](https://github.com/canias7/isibi-app/actions/runs/36271891594),
+21:08:15 → 21:08:56Z, from `main`):
+- **Deploy 2162 is runtime-confirmed**: `build-health 200 deploy=ab74d0d94384
+  image=369d7b1e5bae25b0`, `runtime 200 … async=true runner=true`, both readers
+  agreeing, every preflight check `ok`, and `ALL FREE CHECKS PASSED`.
+- **The restore target is verified by the site's own list**: 5 versions, row 1
+  `01789969693841-xqi8vs` ("Live now", parent `01789776828162-bdqv15`), not
+  marked `NOT RESTORABLE`. Then `RESTORED — the site already reported …, so
+  nothing was posted`.
+- **Balance 73.** Every route answered `01789969693841-xqi8vs`, and the source
+  read was complete (`reads` all true).
+- **Four of the five bodies equal the record**: `index.tsx`,
+  `the-starter.tsx`, `visit.tsx` and `gallery.tsx`.
+- **`order.tsx` read back garbled, by the canary's own reader.** One en dash
+  in its opening hours ("Wed–Sat 8–2") came back as three U+FFFD, so the read
+  was 9,264 characters against 9,262. `call()` added each network chunk to a
+  string, which decodes every chunk on its own. An en dash is three bytes, and
+  a chunk boundary after the first yields exactly those three replacement
+  characters (reproduced). The evidence that the stored page is intact:
+  - the whole read held only those 3 replacement characters;
+  - the route HTML, read another way, held none;
+  - run 9's read of the same stored bytes held none — a broken reader can only
+    garble bytes, never repair them — and nothing has written the page since.
+- **The reader is fixed on the branch, not merged.** `call()` now collects the
+  chunks and decodes them once; a guard drives the mechanism and checks the
+  wiring (red on the unfixed script).
+- **What it means for Part A.** Run the presses from the branch
+  `claude/help-needed-ehlwlj` ("Use workflow from" in the Run workflow form),
+  or merge the fix first. That is a scripts, tests and docs change only, so no
+  deploy runs. Press step 0 once more that way first: with the fixed reader,
+  `order.tsx` should read back as `4491c50d7cee45d8`, which settles it. Then
+  press Part A.
 
 **The before-inventory, read free** (2026-09-26, 20:47–20:50Z):
 - **Version.** All five routes (`/`, `/gallery`, `/order`, `/the-starter`,
