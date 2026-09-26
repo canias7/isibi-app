@@ -4,20 +4,22 @@
 
 Test 3 (run 34) and the CSS-correction milestone (deploy 2161's batch) are
 **closed by the owner**: no repeat run, no restoration, no further CSS work.
-Nothing has been dispatched since run 34, and the balance is 73 (read again at
-2026-09-26 20:46:59Z).
+Nothing paid has been dispatched since run 34 (runs 35 and 36 were free), and
+the balance is 73 (read by run 36 at 2026-09-26 21:36Z).
 
 **The kit-heading defect is fixed, closed by the owner, and merged and
 deployed**: main is `ab74d0d9` (deploy 2162, 2026-09-26 20:31 UTC, image
 `369d7b1e5bae25b0`). It is **runtime-confirmed by your free press, run 35**
 (21:08 UTC): both readers answered `ab74d0d94384` with image
-`369d7b1e5bae25b0`. That press was also Test 4a's step 0 (below). The owner reproduced the
+`369d7b1e5bae25b0`. That press was also Test 4a's step 0, and step 0 ran again
+as run 36 from the branch with the canary's reader fixed (below). The owner reproduced the
 defect independently: the correct removal was refused with `SectionHeader`'s
 `title` and accepted with the equivalent literal `<h2>`. The owner's review then
 found one gap — a kit heading the page may not render (inside `{false && …}`,
 `<div hidden>` or an unknown wrapper) still named its section — closed at
 `5ec82214`, which is in the deploy. Test 4 below is split in two, each part with
-its own approval; **4a is prepared for the deployed code and not dispatched**.
+its own approval; **4a is prepared for the deployed code, its free step 0 is
+done (runs 35 and 36), and its paid parts are not dispatched**.
 
 ### What is already shown live (credited, not rerun)
 
@@ -170,12 +172,16 @@ its own approval and its own recovery.**
 
 #### Test 4a — pages, photographs, an attachment and second messages
 
-**Prepared for the deployed code (2026-09-26, evening); not dispatched.** Every
-press below is `edit-canary.yml`
+**Prepared for the deployed code (2026-09-26, evening); step 0 done, the paid
+parts not dispatched.** Every press below is `edit-canary.yml`
 (<https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml>, "Run
-workflow", branch `main`). The GitHub form shows descriptions, not input names,
-so the boxes are named here by their descriptions. **The two "Refuse to spend
-unless…" boxes are the same on every press**, read off deploy 2162:
+workflow"), with **"Use workflow from" set to `claude/help-needed-ehlwlj`**
+until the canary's reader fix (below) is merged; a merge of it deploys nothing.
+A branch press runs the branch's canary script against the live platform, and
+the preflight checks the platform, so the two expectation boxes stay deploy
+2162's. The GitHub form shows descriptions, not input names, so the boxes are
+named here by their descriptions. **The two "Refuse to spend unless…" boxes
+are the same on every press**, read off deploy 2162:
 - "…the Worker reports this deploy sha…":
   `ab74d0d94384e85db252176eaca623ba131932a5`;
 - "…a cold container reports this image id…": `369d7b1e5bae25b0`.
@@ -236,12 +242,36 @@ What it should print, and what each part establishes:
 - **The reader is fixed on the branch, not merged.** `call()` now collects the
   chunks and decodes them once; a guard drives the mechanism and checks the
   wiring (red on the unfixed script).
-- **What it means for Part A.** Run the presses from the branch
-  `claude/help-needed-ehlwlj` ("Use workflow from" in the Run workflow form),
-  or merge the fix first. That is a scripts, tests and docs change only, so no
-  deploy runs. Press step 0 once more that way first: with the fixed reader,
-  `order.tsx` should read back as `4491c50d7cee45d8`, which settles it. Then
-  press Part A.
+- **What it meant for Part A**: press step 0 once more from the branch, and
+  `order.tsx` should read back as `4491c50d7cee45d8`. Run 36 did.
+
+**Step 0 ran again as run 36, from the branch**
+([36273488436](https://github.com/canias7/isibi-app/actions/runs/36273488436),
+21:35:58 → 21:36:38Z). The checkout step fetched and checked out exactly
+`8996cc1a`, the branch tip carrying the fixed reader.
+- **The same platform**: `build-health 200 deploy=ab74d0d94384
+  image=369d7b1e5bae25b0`, `runtime 200 … async=true runner=true`, both
+  readers agreeing, every preflight check `ok`, `ALL FREE CHECKS PASSED`.
+- **The same restore no-op**: the same five versions and `RESTORED — the site
+  already reported …, so nothing was posted`. Its `restore.json` is
+  byte-identical to run 35's.
+- **Balance 73.** Every route answered `01789969693841-xqi8vs`, and the source
+  read was complete.
+- **All five bodies equal the record, byte for byte**: `index.tsx`
+  `2c9421cf728d9823`, `order.tsx` `4491c50d7cee45d8`, `the-starter.tsx`
+  `e1172965a3644f5f`, `visit.tsx` `0963e3bc45f1d949`, `gallery.tsx`
+  `1c940e38d7fe6ab0`. The path set is the same and there are no components.
+  - The whole read holds **0** replacement characters; run 35's held 3.
+  - `order.tsx` is 9,262 characters and byte-identical to run 9's
+    after-read.
+  - The only difference from run 35's inventory is `order.tsx`'s character
+    count, 9,264 → 9,262. The five route pages are identical to run 35's once
+    digit runs (the render times) are masked.
+- **So the reader fix is proven live, and the before-state Part A compares
+  against is complete.** The supplied-answer rehearsal, re-run on the branch
+  checkout, reads 13 of 13; its input (run 9's after-read) is byte-identical to
+  run 36's read on all five bodies. That proves the route, never the model.
+- **Next: Part A, from the same branch.** It is paid and yours to press.
 
 **The before-inventory, read free** (2026-09-26, 20:47–20:50Z):
 - **Version.** All five routes (`/`, `/gallery`, `/order`, `/the-starter`,

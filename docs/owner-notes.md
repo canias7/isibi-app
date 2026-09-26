@@ -176,6 +176,26 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-26 — Your second free check (run 36, from the branch) read every page file back exactly; Part A is ready for you
+
+Your press from the branch ran as
+[run 36](https://github.com/canias7/isibi-app/actions/runs/36273488436) at
+21:36 UTC, on the branch's fixed canary against the same live server.
+- **`order.tsx` now reads back intact**, dash included, and matches the
+  recorded copy exactly. So the garbled dash in run 35 was the canary's
+  reading, and the fix works.
+- **All five page files match the record exactly**, and there are no garbled
+  characters anywhere in the read.
+- **Everything else is as run 35 found it**: the same live code and container,
+  the same put-back version (nothing posted), every page on it, and a balance
+  of 73.
+- The practice run with supplied answers still passes (13 of 13), on exactly
+  these page files.
+
+**Part A is next**, from the same branch. It is the paid step (about 10–12
+credits), so it waits for your press. The fix stays on the branch until you
+say "merge"; merging it would deploy nothing.
+
 ## 2026-09-26 — Your free check (run 35) confirmed deployment 2162 and the put-back version; the canary misread one character, fixed on the branch
 
 Your step 0 press ran as

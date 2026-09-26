@@ -66,7 +66,10 @@ review round (a kit heading the page may not render named its section) in it
 at `5ec82214`. **Runtime-confirmed by the owner's free press, run 35**
 (36271891594, 21:08 UTC): both readers answered `ab74d0d94384` with image
 `369d7b1e5bae25b0`, the restore target was listed and restorable, and the
-balance was 73 (*Test 4a, prepared*, below). **Test 4 is split in
+balance was 73 (*Test 4a, prepared*, below). **Step 0 ran again as run 36**
+(36273488436, 21:36 UTC, from the branch with the canary's reader fixed): all
+five stored bodies equal the record byte for byte, so Part A's before-state is
+complete. **Test 4 is split in
 two, each approved on its own**: 4a (pages, photographs, an attachment and second
 messages; a free restore undoes it) and 4b (the database; a free `grants preview`
 read first, and no permission change that could only be undone by another model
@@ -9370,7 +9373,7 @@ the actual deployment and authenticated runtime readings."*
   preflight check `ok`, `ALL FREE CHECKS PASSED`, balance **73**. **The live
   Worker answering, not Wrangler reporting on itself.**
 
-### TEST 4a, PREPARED FOR THE DEPLOYED CODE (2026-09-26, evening — not dispatched)
+### TEST 4a, PREPARED FOR THE DEPLOYED CODE (2026-09-26, evening — step 0 done, paid parts not dispatched)
 
 Owner: *"prepare Test 4a on fold-lane-bakery using the existing workflow/browser
 facilities—no F12 … Keep Test 4b's database changes under separate approval. Do
@@ -9430,6 +9433,20 @@ expected results are the checklist's Test 4a section. What is law here:
   censuses the wiring, red on the unfixed script). **The same spelling is in
   `addon-sweep.mjs`, `build-as-owner.mjs`, `gap-sweep.mjs` and
   `lane-sweep.mjs`** — found, not changed.
+- **RUN 36 PROVES THE FIX LIVE** (`36273488436`, 21:35:58 → 21:36:38Z, the
+  owner's free press from `claude/help-needed-ehlwlj`; the checkout step
+  fetched and checked out exactly `8996cc1a`). The same preflight
+  (`ab74d0d94384` / `369d7b1e5bae25b0`, async and runner true, both readers
+  agreeing), the same restore no-op (`restore.json` byte-identical to run
+  35's), balance **73**, and **all five bodies byte-identical to the record**
+  with **0** U+FFFD in the whole read; `order.tsx` reads `4491c50d7cee45d8`,
+  9,262 characters, byte-identical to run 9's after-read. The only difference
+  from run 35's inventory is that one character count (9,264 → 9,262), and the
+  route pages match once render times are masked. **A branch press runs the
+  branch's script against main's Worker**, and the expectation boxes still
+  name deploy 2162, because the preflight checks the platform, not the script.
+  The supplied-answer rehearsal re-run on that checkout: 13 of 13, its input
+  byte-identical to run 36's read. **Part A is next, from the same branch.**
 
 ### A SECTION HEADED BY THE KIT (2026-09-26, `2f2fed58` + `5ec82214`, merged and deployed in deploy 2162)
 
@@ -12095,7 +12112,8 @@ at run 34's end (2026-09-26, Test 3: **91 → 73, moved 18**, route 2 + the page
 rung's 16, closing exactly, on a run that published; the ledger holds one reserve
 of 16 and no refund), **and read 73 again on 2026-09-26 at 20:46:59Z** off the
 balance row the canary itself reads, matching the last ledger row (run 34's
-reserve), and by run 35's free press at 21:08Z; nothing has spent since.
+reserve), and by the free presses of run 35 (21:08Z) and run 36 (21:36Z);
+nothing has spent since.
 **Between run 31 and
 run 32 the balance rose from 1 to 101** (read on the ledger at 18:09Z and by the
 canary before its paid call). **Only the readings are recorded; how it rose is
