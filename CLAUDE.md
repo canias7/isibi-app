@@ -28,7 +28,10 @@ is PENDING**: the session's dispatch was refused (403), and the free canary pres
 the owner's. The rollback round's two findings — a stale stylesheet rule holding an
 unrelated edit, and a failed restore that was not said — are **fixed on the branch,
 for review, NOT merged** (*a publish is held only for the rules a request wrote*,
-below). Test 3 (the full writer) is prepared and waits for spending approval.
+below). So is the defect the owner then found in that fix's rule key — whitespace
+inside a quoted value collapsed, so a respaced selector shipped unjudged (*a quoted
+value, an escape or a selector's own whitespace is part of the rule*, below).
+Test 3 (the full writer) is prepared and waits for spending approval.
 Remaining scope: [edit-path checklist](docs/investigations/edit-path-checklist.md).
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
@@ -8552,7 +8555,134 @@ restore also fails. **If these merge first, Test 3's `expect_deploy` and
 `c084e5c5`: `168a9f94d1e6783e`** (187 inputs, 157 distinct paths). The same
 reader reproduces main's `c3cc126e45e93815` first. Documents-only commits on
 top do not move it, but **re-run the predictor over the merge commit itself**
-before pressing.
+before pressing. **It moved again with the rule-key correction below**
+(`1ee5606e09db1a67` over `991b9204`).
+
+### A QUOTED VALUE, AN ESCAPE OR A SELECTOR'S OWN WHITESPACE IS PART OF THE RULE (2026-09-26, on the branch, NOT merged)
+
+Owner, after reviewing the round above: *"One new defect remains in ruleKey's
+whitespace normalization … Preserve meaningful whitespace and escapes inside
+quoted selectors, declarations and at-rule conditions. Normalize only where
+equivalence is established; uncertain differences should remain changed. Keep
+this bounded—no CSS subsystem redesign."* The CSS-scoping and failed-restore
+cases passed that review and are unchanged. **Every model answer in the
+evidence is supplied.**
+
+- **REPRODUCED FIRST, THE OWNER'S WAY**, through the real edit route on both
+  money paths. The page carries `data-label="a  b"` (two spaces), the stored
+  rule selects it, and the css lane — picked beside a menu change — answered
+  the sheet back with the value respaced to ONE space. The compiler was sent
+  `cssVerify: []`, nothing was judged, one build shipped `[data-label="a b"]`,
+  the job committed, and the screen said *"✅ Updated the look — the design. …"*.
+- **AND THIRTEEN MORE PAIRS ANSWERED `[]` ON THE OLD MODULE, each measured**: a
+  tab inside the quotes; a quoted declaration (`content:"a  b"`, a colon's
+  spacing inside one, comment-shaped text inside one, a quoted custom
+  property); a quoted `@supports selector(…)`, `@container style(…)` and
+  `@scope` root; an escaped space (`.a\  b`); a hex escape and the whitespace it
+  owns (`.\31  0` is a class and a descendant, `.\31 0` the class "10"); and
+  whitespace before a colon inside `selector()`, in `@scope`'s root and in a
+  nested rule (`a :hover` is not `a:hover`).
+- **THE CAUSE WAS TWO LAYERS.** The key collapsed `\s+` and stripped whitespace
+  around punctuation everywhere, strings included; and it read the walker's
+  BLANKED copy, where `blankComments` — not string-aware — turns comment-shaped
+  text inside a string into spaces.
+- **THE FIX IS BOUNDED TO THE KEY.** The walker also cuts each rule's own text
+  (`ctx`, `prelude`, `body`) at its offsets, which blanking does not move. The
+  key reads that text with a small reader (`cssPieces`):
+  - strings, escapes (a hex escape with the one whitespace it consumes) and an
+    unquoted `url(…)` are kept as written;
+  - a comment is whitespace — the walker's reading, and so the judge's;
+  - a whitespace run is one space, and whitespace is dropped only where CSS
+    defines it as nothing: at either end; next to a comma; next to a block's
+    top-level `{`, `}` or `;`; next to a declaration's own colon and its `!`;
+    next to a feature's colon in a condition (`(max-width: 600px)`);
+  - empty declarations are dropped (`{;a:1;;b:2;}` is `{a:1;b:2}`);
+  - every colon in a SELECTOR keeps its whitespace: the rule's own, a nested
+    rule's, `@scope`'s root and `selector()`'s argument.
+
+  The key is `JSON.stringify` of the three spellings, so no separator can
+  collide. **The walker's structure, `plainSelectors` and what the build
+  service judges are unchanged.**
+- **THE DIRECTION.** What the old key equated and CSS does not now reads
+  changed and is judged: quote style; an empty item in a selector list (which
+  invalidates the whole list); a no-break space (a name character, which the
+  old `\s` collapsed); whitespace inside an unquoted `url()`; a second colon in
+  a value; a feature colon at a condition's top level. **One equivalence is
+  new**: empty declarations, which the old key read as changed.
+- **EVIDENCE.**
+  - `test/css-scope.test.mjs` goes from 5 to 9 cases: the reproduced shapes; the
+    formatting control with quoted values, escapes and conditions present; the
+    equivalences CSS does not establish; and a property over 1,500 random sheets
+    carrying quoted values, escapes and conditions. In the property, whitespace
+    and comments added only where CSS ignores them name nothing in either
+    direction and leave `plainSelectors` as it was. **Measured**: 3,470
+    selectors judged, and 1,428 of the 1,500 sheets carrying a quoted value.
+  - **The battery's stamp moved by ONE pair** (511 → 512 named, 2,489 → 2,488
+    quiet), measured pair by pair against the old module: its respacing
+    mutation rewrites the brace inside `content:"{"`, a string whose value that
+    changes.
+  - `test/edit-failure-paths.test.mjs` goes from 39 to 47 cases, judged by
+    `pageJudge`, which reads an attribute selector against the value the page's
+    own source carries, character for character:
+    - the respaced value is sent to be judged, found dead and corrected, on
+      both money paths, with the correction asked about that rule alone (the
+      job's second publish verifies `[]`, the corrected sheet being the site's);
+    - the job is refused when the correction still misses: nothing published,
+      the sheet put back, refunded, and the next edit ships the rule the page
+      matches;
+    - a quoted declaration and a quoted `@scope` root are sent to be judged,
+      and nothing else (both paths);
+    - the same sheet reformatted is sent for nothing (both paths).
+  - **Red on the unfixed `933168ea`: 8 of 56** across the two files — the three
+    new unit tests and the five route cases carrying the defect. The route
+    formatting controls, the property, the judge's self-check and every earlier
+    case pass there. **The unit formatting control fails there only on its two
+    empty-declaration lines** (measured by cutting them): the old key read
+    those as changed, the safe direction.
+  - The 49 focused files (last round's 47, plus `site-fonts` and
+    `site-theme-registry`, which import this module) read 1,728 / 1,728.
+  - **Suite 7,962 locally** (`# tests 7962 / # pass 7960 / # fail 0 / # skipped
+    2`, `duration_ms 115,870`): +12 against 7,950, which is `css-scope` +4 and
+    `edit-failure-paths` +8.
+  - **AND THE CI UNIT HALF MATCHES**: run **`36216866723` on `991b9204`** reads
+    **`# tests 7962 / # pass 7958 / # fail 0 / # skipped 4`** (`duration_ms
+    124,908`). The total is what matches; `pass` differs by CI's four skips. All
+    twelve new cases, and the battery whose stamp moved, were found passing BY
+    NAME in the downloaded log archive, with 7,962 distinct result numbers, no
+    gap and zero `not ok N -`.
+  - **AND `site build` run `36216866790` on `991b9204`** (04:07:04 → 04:29:46Z,
+    **22m42s**, all twenty steps) read all twelve counts green out of its
+    per-step files: TAP 397/397/0/0, kit-typecheck 4, site-build **382**,
+    contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
+    site-runtime 47, and kit-render / kit-a11y / kit-effects / kit-paint `all
+    passed`; census 7 + 4 + 1 = **12**. The only `##[error]` lines are the two
+    known annotations (`index.tsx(50,13) TS2322`, `menu.tsx(27,17) TS2339`);
+    `tsc`-format lines read 9 / 2 / 7; `site-build.mjs` took **16m33s**. That
+    harness runs the build service's `selectorsToJudge` — through the walker
+    this change touched — against real compiled sites. **The stamp chain ends
+    at `991b9204`.**
+  - **No mutation sweep**, per the instruction (*"focused tests and required CI
+    only"*); the red run is the evidence the new cases bite.
+- **FOUND ON THE WAY, NOT CHANGED:**
+  - **The walker does not honour a backslash-escaped quote, and a rule after one
+    is invisible to BOTH readers.** `.q{content:"\""} header button{color:red}`
+    → `plainSelectors` answers `[".q"]`; without the escape it answers both.
+    So a broken rule written after such a declaration is never judged, by the
+    old whole-sheet check or this one, and the build service's own selection is
+    blind the same way. Pre-existing. Fixing it changes what every build
+    judges, which is beyond the key.
+  - **After a correction that restores the sheet the site had, the screen still
+    says "✅ Updated the look — the design. …"** and names no menu change: the
+    reply is composed from the lane's first answer (review #9's class). Pinned
+    in the route case as it stands.
+  - **The check reads a rule's own selector**, never an `@scope` root or a
+    condition. A rule inside a condition whose quoted value changed is sent to
+    be judged, and it is judged by its selector alone.
+- **THE IMAGE MOVES AGAIN**: `builder/site-freecss.mjs` is an image input.
+  **Predicted over `991b9204`: `1ee5606e09db1a67`** (187 inputs, 157 distinct
+  paths). The same reader reproduces main's `c3cc126e45e93815` and
+  `c084e5c5`'s `168a9f94d1e6783e`. If this merges before Test 3, its two
+  expectation boxes change: read both off the deploy and the free press.
 
 ### TEST 3 — THE FULL PAGE WRITER, REVISED (2026-09-25, prepared, NOT dispatched)
 

@@ -176,6 +176,82 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-26 — Spacing inside a quoted value now counts: a respaced selector is checked, not shipped (for your review, not merged)
+
+You found that the comparison deciding which stylesheet rules a message wrote
+flattened the spacing inside quotes, so `[data-label="a  b"]` and
+`[data-label="a b"]` looked like the same rule. Nothing is merged, deployed or
+dispatched. The answers in every test are supplied.
+
+**What went wrong, reproduced first.**
+- Through the real edit route, both ways (direct and queued): the page carries
+  `data-label="a  b"`, and the styling step, answering beside a menu change,
+  respaced the value to one space. The build was told to check nothing
+  (`cssVerify: []`), the broken rule shipped, the job was committed, and the
+  screen said "Updated the look".
+- Thirteen more cases behaved the same way on the old code, each measured:
+  - a tab inside the quotes;
+  - spacing inside a quoted value such as `content: "a  b"`, or inside a
+    quoted custom property;
+  - a quoted value inside an `@supports`, `@container` or `@scope` condition;
+  - escaped characters (`\ ` and `\31 `);
+  - a space before a colon inside a selector (`a :hover` is not `a:hover`).
+
+**What changed.**
+- The comparison now reads each rule's own text the way CSS does. Anything in
+  quotes, any escape and any unquoted `url(…)` is compared exactly as written.
+- Spacing is ignored only where CSS itself ignores it:
+  - at the start and end;
+  - next to commas, braces and semicolons;
+  - next to a declaration's own colon and `!important`;
+  - next to a media-feature colon.
+
+  Empty declarations such as `;;` are ignored too.
+- Everything else counts as a change and is checked. That includes spellings
+  that are probably equal but not provably so, like `'a'` against `"a"`, which
+  is the direction you asked for.
+- What the build service checks is unchanged. Only the comparison that decides
+  which rules your message wrote has moved.
+
+**How it was checked.**
+- Through the route, both ways:
+  - The respaced rule is now sent to be checked. It is found to match nothing
+    on the page and is corrected. Only that rule is asked about.
+  - On a queued edit where the correction still misses, nothing is published.
+    The stylesheet is put back, the charge is refunded, and your next edit
+    ships the rule that matches the page.
+  - A changed quoted value in a declaration, or in an `@scope` condition, is
+    sent to be checked.
+  - The same stylesheet, only reformatted, is sent for nothing. That is your
+    harmless-formatting control.
+- A test over 1,500 random stylesheets with quoted values and escapes: adding
+  spacing or comments only where CSS ignores them never marked a rule as
+  changed.
+- On the old code, 8 of these checks fail: the 3 new unit tests and the 5
+  route cases that carry the bug. The formatting controls pass there too,
+  except two lines about empty declarations, which the old comparison counted
+  as changes (the safe direction).
+- All 7,962 tests pass here (2 are skipped in this sandbox, as usual), and the
+  same 7,962 pass on GitHub. The site build on GitHub also passed, with every
+  count as before. No mutation sweep, as you asked.
+
+**Noticed, not changed:**
+- The stylesheet reader loses everything after an escaped quote such as
+  `content: "\""`. So a broken rule written after one is never checked, by the
+  old check, the new one or the build service's own. This is older than this
+  work, and fixing it would change what every build checks, so I've left it
+  for you to decide.
+- When the correction puts the stylesheet back exactly as it was, the screen
+  still says "Updated the look" and doesn't mention the menu change. This is
+  the known look-reply limitation.
+
+**The runtime check and test 3 are unchanged** from the entry below. The free
+press is still yours, and I have not seen it pass. If you merge this before
+test 3, the image box changes: this commit is predicted to build
+`1ee5606e09db1a67`.
+
+---
+
 ## 2026-09-26 — The two findings are fixed on the branch: an old stylesheet rule no longer holds an unrelated edit, and a failed put-back is always said (for your review, not merged)
 
 You asked me to close both findings together before test 3, and to bring them

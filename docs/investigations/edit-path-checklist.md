@@ -1,6 +1,6 @@
 # Remaining edit-path checklist
 
-## The two findings from the rollback round (2026-09-26) — fixed on the branch, for review, not merged
+## The two findings from the rollback round (2026-09-26), and the rule-key defect found in their review — fixed on the branch, for review, not merged
 
 After reviewing the merged batch, the owner asked for both findings to be
 closed together before the paid Test 3. The work was to use focused tests and
@@ -19,6 +19,9 @@ section).
 | A container still on the previous image | demonstrated (job) | It judges every rule, and the route's own filter still holds the publish for the new rule alone. |
 | A failure of ours whose restore was refused too said only "our build service was restarting", while the change stayed saved and the next edit shipped it | reproduced defect, fixed on the branch | Every arm of the failed-publish sentence now says the change is still saved when the restore failed. Driven on both money paths, plus a gate refusal, a real compile failure and a cancel. |
 | The add-on route logged a revert that failed and still called the site untouched | reproduced defect (the same class, one route over), fixed on the branch | The reply now says the addition is still saved. |
+| Review finding: the rule key collapsed whitespace inside quoted values, so a lane that respaced `[data-label="a  b"]` to one space shipped a selector matching nothing, unjudged | reproduced defect (both money paths), fixed on the branch | The compiler was sent `cssVerify: []`, the job committed, and the screen said the look was updated. Now the respaced rule is sent to be judged, found dead against the page, and corrected (both paths), or refused when the correction still misses (job). |
+| The same collapse on quoted declarations, quoted at-rule conditions, escapes and whitespace before a colon inside a selector | reproduced (unit), fixed on the branch | Thirteen more pairs answered `[]` on the old module, each measured; each is now named. A quoted declaration and a quoted `@scope` root are also driven through the route. |
+| The harmless formatting control | demonstrated, kept | A sheet answered back with only the whitespace CSS ignores is sent to be judged for nothing (both paths); also held over 1,500 random sheets carrying quoted values and escapes. |
 
 **1. A publish is held only for the rules this request wrote.**
 - The route records the sheet the css lane was shown and the sheet it stored.
@@ -70,6 +73,31 @@ section).
   - Queued, the same: the same first three sentences, then "This edit cost you
     nothing." The job is refunded.
 
+**3. A quoted value, an escape or a selector's own whitespace is part of the
+rule** (the owner's review of item 1: *"Preserve meaningful whitespace and
+escapes inside quoted selectors, declarations and at-rule conditions. Normalize
+only where equivalence is established; uncertain differences should remain
+changed."*).
+- **Reproduced first**, through the real edit route on both money paths. The
+  page carries `data-label="a  b"`, and the css lane, picked beside a menu
+  change, answered the sheet back with the value respaced to one space. The
+  compiler was sent `cssVerify: []`, one build shipped the broken selector, the
+  job committed, and the screen said "✅ Updated the look — the design. …".
+- **The cause was two layers.** The key collapsed whitespace and stripped it
+  around punctuation everywhere, strings included. It also read the walker's
+  blanked copy, where comment-shaped text inside a string had become spaces.
+- **The fix is bounded to the key.** The walker also cuts each rule's own text
+  at its offsets. The key reads that text keeping strings, escapes and unquoted
+  `url(…)` as written. Whitespace is dropped only where CSS defines it as
+  nothing: at either end; next to a comma; next to a block's `{`, `}` or `;`;
+  next to a declaration's own colon and its `!`; next to a feature's colon in a
+  condition. Empty declarations are dropped too. Every colon in a selector
+  keeps its whitespace. What the build service judges is unchanged.
+- **The direction:** anything else reads as changed and is judged. That covers
+  quote style, an empty selector-list item, a no-break space, whitespace inside
+  an unquoted `url()`, and a second colon in a value. One equivalence is new:
+  empty declarations, which the old key read as changed.
+
 **What these cases assert.** Each one checks the stored configuration, the exact
 browser reply, the ledger and the next edit:
 - The menu-edit case: the next edit builds once with the same sheet.
@@ -115,6 +143,26 @@ browser reply, the ledger and the next edit:
 - **Site build** on `c084e5c5` (run 36213341839, 24m39s, all twenty steps)
   has all twelve counts green: TAP 397, site-build 382, and the rest as
   recorded. The only annotations are the two known ones.
+- **Item 3's evidence:**
+  - `test/css-scope.test.mjs` goes from 5 to 9 cases. They cover the reproduced
+    shapes, the formatting control with quoted values present, the
+    equivalences CSS does not establish, and a property over 1,500 random
+    sheets (3,470 selectors judged; 1,428 sheets carrying a quoted value).
+  - `test/edit-failure-paths.test.mjs` goes from 39 to 47. The page judge reads
+    an attribute selector against the value the page's own source carries.
+  - **Red on the unfixed `933168ea`: 8 of 56**: the three new unit tests and
+    the five route cases carrying the defect. The unit formatting control fails
+    there only on its two empty-declaration lines, which the old key read as
+    changed (the safe direction).
+  - The 49 focused files read 1,728 / 1,728. The suite locally reads
+    `7962 / 7960 / 0 / 2` (+12).
+  - **Unit CI** on `991b9204` (run 36216866723) reads `7962 / 7958 / 0 / 4`,
+    with all twelve new cases and the battery passing by name.
+  - **Site build** on `991b9204` (run 36216866790, 22m42s, all twenty steps)
+    has all twelve counts green (TAP 397, site-build 382, and the rest as
+    recorded) and only the two known annotations.
+  - There was no mutation sweep, per the instruction; the red run is the
+    evidence the cases bite.
 - **Checked by shape only**: the add-on route's schema-refusal sentence when
   the revert is refused too. The add-on's compile arm is driven. But no harness
   makes the add-on's database apply refuse, and that arm's plain sentence has
@@ -128,6 +176,17 @@ browser reply, the ledger and the next edit:
 - The look step's own rollback block after `publishStep` is unreachable,
   because `publishStep` defers and always answers ok. Its guard in `site-apply`
   pins it.
+- **The walker does not honour a backslash-escaped quote, and a rule after one
+  is invisible to both readers.** `.q{content:"\""} header button{color:red}`
+  gives `plainSelectors` `[".q"]`, so a broken rule written after such a
+  declaration is never judged. The build service's own selection is blind the
+  same way. Pre-existing, and not introduced by scoping. Fixing it changes what
+  every build judges, which is beyond the key.
+- After a correction that restores the sheet the site had, the screen still
+  says "✅ Updated the look — the design. …" and names no menu change. The
+  reply is composed from the lane's first answer (review #9's class).
+- The check reads a rule's own selector, never an `@scope` root or another
+  condition.
 
 **The press that would confirm deploy 2160 at runtime — free, and yours.** The
 form shows each box's description:
@@ -309,7 +368,8 @@ resolution, the quoted-page reader and the canary's after-read wait.
   two fixes (top section) are merged before the press, both change: the sha to
   the merge's, and the image to the one that deploy builds (the fixes move
   image inputs; predicted `168a9f94d1e6783e` over the fix commit `c084e5c5`,
-  187 inputs). Read both off the deploy and the free press before pressing.
+  and `1ee5606e09db1a67` over the rule-key correction `991b9204`, 187 inputs
+  each). Read both off the deploy and the free press before pressing.
   Neither fix is on the expected path: one needs the css lane picked, the other
   a failure of ours whose restore also fails. Which rung the router picks is
   itself part of what Test 3 measures, so that is an expectation, not a
