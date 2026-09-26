@@ -1,0 +1,187 @@
+[
+  {
+    "label": "CONTROL: the rendering rule's comment changes nothing",
+    "control": true,
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "//   - IT RENDERS WHENEVER ITS SECTION DOES (2026-09-26, owner: \"A heading that",
+    "to": "//   - IT RENDERS WHENEVER ITS SECTION DOES (2026-09-26, owner (c): \"A heading that"
+  },
+  {
+    "label": "R-1: a kit heading names its section whether or not it renders (no rendering check at all)",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "const text = rendersWith(node, block) ? kitHeadingText(attrsOf(openOf(node)), kitTags.get(tag), k) : null;",
+    "to": "const text = kitHeadingText(attrsOf(openOf(node)), kitTags.get(tag), k);"
+  },
+  {
+    "label": "R-2: the steps up to the section are not asked (2f2fed58's reading)",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "      if (k(p) !== \"JsxElement\" || !SHOWS_CHILDREN.has(tagOf(p)) || mayHide(attrsOf(openOf(p)), k)) return false;\n",
+    "to": ""
+  },
+  {
+    "label": "R-3: a braced expression (a condition, a list, a prop value) is walked through",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "      if (k(p) === \"JsxFragment\") continue;",
+    "to": "      if (k(p) !== \"JsxElement\") continue;"
+  },
+  {
+    "label": "R-4: any element shows its children (a component, <details>, <template>)",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "if (k(p) !== \"JsxElement\" || !SHOWS_CHILDREN.has(tagOf(p)) || mayHide",
+    "to": "if (k(p) !== \"JsxElement\" || mayHide"
+  },
+  {
+    "label": "R-5: what hides a step up to the section is not asked",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "|| mayHide(attrsOf(openOf(p)), k)) return false;",
+    "to": ") return false;"
+  },
+  {
+    "label": "R-6: what hides the heading itself is not asked",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "    if (mayHide(attrsOf(openOf(node)), k)) return false;\n",
+    "to": ""
+  },
+  {
+    "label": "R-7: the walk asks the heading's attributes, not the step's",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "|| mayHide(attrsOf(openOf(p)), k)) return false;",
+    "to": "|| mayHide(attrsOf(openOf(node)), k)) return false;"
+  },
+  {
+    "label": "R-8: the walk asks the heading's tag, not the step's",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "!SHOWS_CHILDREN.has(tagOf(p))",
+    "to": "!SHOWS_CHILDREN.has(tagOf(node))"
+  },
+  {
+    "label": "R-9: a fragment does not show its children",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "      if (k(p) === \"JsxFragment\") continue;\n",
+    "to": ""
+  },
+  {
+    "label": "R-10: the section's own attributes are asked",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "      if (p === block.node) return true;",
+    "to": "      if (p === block.node) return !mayHide(attrsOf(openOf(p)), k);"
+  },
+  {
+    "label": "R-11: hidden is not read",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "if (key === \"hidden\" || key === \"aria-hidden\"",
+    "to": "if (key === \"aria-hidden\""
+  },
+  {
+    "label": "R-12: style is not read",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "|| key === \"style\" || key === \"popover\") return true;",
+    "to": "|| key === \"popover\") return true;"
+  },
+  {
+    "label": "R-13: popover is not read",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": " || key === \"popover\") return true;",
+    "to": ") return true;"
+  },
+  {
+    "label": "R-14: a computed class is read as no class",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "if (!e || k(e) !== \"StringLiteral\" || HIDING_CLASS.test(e.text)) return true;",
+    "to": "if (e && k(e) === \"StringLiteral\" && HIDING_CLASS.test(e.text)) return true;"
+  },
+  {
+    "label": "R-15: the old word-boundary class rule (overflow-hidden read as hiding)",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "const HIDING_CLASS = /(?:^|[\\s\"'`:])(?:hidden|invisible|sr-only)(?=$|[\\s\"'`])/;",
+    "to": "const HIDING_CLASS = /\\b(?:hidden|invisible|sr-only)\\b/;"
+  },
+  {
+    "label": "R-16: a breakpoint or state variant is not read (md:hidden)",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "(?:^|[\\s\"'`:])(?:hidden",
+    "to": "(?:^|[\\s\"'`])(?:hidden"
+  },
+  {
+    "label": "R-17: sr-only is not read",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "(?:hidden|invisible|sr-only)(?=$",
+    "to": "(?:hidden|invisible)(?=$"
+  },
+  {
+    "label": "R-18: <details> is taken to show its children",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "\"form\", \"fieldset\"]);",
+    "to": "\"form\", \"fieldset\", \"details\"]);"
+  },
+  {
+    "label": "R-19: className is not read",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "if (key !== \"className\" && key !== \"class\") continue;",
+    "to": "if (key !== \"class\") continue;"
+  },
+  {
+    "label": "R-20: class is not read",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "if (key !== \"className\" && key !== \"class\") continue;",
+    "to": "if (key !== \"className\") continue;"
+  },
+  {
+    "label": "R-21: a braced class is not unwrapped",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "e = init && k(init) === \"JsxExpression\" ? init.expression : init;",
+    "to": "e = init;"
+  },
+  {
+    "label": "R-22: a section block does not know its element",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "section: true, anchor: \"\", node };",
+    "to": "section: true, anchor: \"\" };"
+  }
+]

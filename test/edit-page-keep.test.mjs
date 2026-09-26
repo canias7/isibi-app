@@ -1974,3 +1974,128 @@ for (const mode of ["sync", "job"]) {
     publishedHere(await drive({ before: alone, ask, answer: alone.replace("Rye on Saturdays.", "Rye on Sundays.") }), alone.replace("Rye on Saturdays.", "Rye on Sundays."), OTHERS, UPDATED);
   });
 }
+
+// ── A KIT HEADING THAT DOES NOT RENDER NAMES NOTHING (2026-09-26, owner) ────
+//
+// "preservePageProse accepts deleting this entire section for 'Remove the
+// ‘Today’s bake’ section from the home page': <section>{false &&
+// <SectionHeader title="Today’s bake" />}<p>Keep this unrelated public
+// information.</p></section> … The same acceptance occurs when the heading is
+// inside <div hidden> or an unknown <Opaque> wrapper. … A heading that cannot
+// be established as rendering must not authorize deletion of visible
+// siblings."
+//
+// So every step between the heading and its section must be a fragment or a
+// plain element that shows its children, with nothing hiding it. The section's
+// own attributes are not asked: they show or hide the heading and its
+// neighbours together. Every answer is SUPPLIED.
+const KEEP_P = "<p>Keep this unrelated public information.</p>";
+const OWNER_SH = '<SectionHeader title="Today’s bake" />';
+const ownerSection = (heading) => "<section>" + heading + KEEP_P + "</section>";
+const OWNER_FALSE = "{false && " + OWNER_SH + "}";
+const OWNER_HIDDEN = "<div hidden>" + OWNER_SH + "</div>";
+const OWNER_OPAQUE = "<Opaque>" + OWNER_SH + "</Opaque>";
+const OWNER_WRAPPED = '<div className="mx-auto max-w-3xl overflow-hidden"><div className="grid gap-8">' + OWNER_SH + "</div></div>";
+
+test("KIT: a kit heading names its section only where it renders whenever the section does", async () => {
+  const parse = await tweakParser();
+  assert.equal(typeof parse, "function", "the parser is here — this case would be vacuous without it");
+  const namesOf = (imports, heading) => {
+    const inv = proseInventory(withImports(imports, ownerSection(heading), VISIT), parse);
+    const b = inv.blocks.find((x) => x.section && x.atoms.some((a) => a.text === "Keep this unrelated public information."));
+    assert.ok(b, "the owner's section is in the inventory");
+    return { names: b.names, kit: b.kit };
+  };
+  const named = { names: ["todays bake"], kit: ["todays bake"] };
+  const unnamed = { names: [], kit: [] };
+  // THE POSITIVE CONTROLS: rendered directly, behind plain elements and
+  // fragments, and under the import's alias or namespace.
+  for (const [label, imports, heading] of [
+    ["directly in the section", KIT_SH, OWNER_SH],
+    ["inside ordinary visible elements (overflow-hidden hides nothing)", KIT_SH, OWNER_WRAPPED],
+    ["inside a header", KIT_SH, "<header>" + OWNER_SH + "</header>"],
+    ["inside a fragment", KIT_SH, "<>" + OWNER_SH + "</>"],
+    ["inside an element with an id and a literal class", KIT_SH, '<div id="bake" className="reveal">' + OWNER_SH + "</div>"],
+    ["a braced literal class is a literal", KIT_SH, '<div className={"mx-auto"}>' + OWNER_SH + "</div>"],
+    ["under an alias", 'import { SectionHeader as Heading } from "@/components/ui/section-header"\n', '<div className="mx-auto"><Heading title="Today’s bake" /></div>'],
+    ["under a namespace", 'import * as UI from "@/components/ui/section-header"\n', '<div className="mx-auto"><UI.SectionHeader title="Today’s bake" /></div>'],
+    ["the heading's own overflow-hidden class hides nothing", KIT_SH, '<SectionHeader title="Today’s bake" className="overflow-hidden" />'],
+  ]) assert.deepEqual(namesOf(imports, heading), named, label);
+  // WHAT IS NOT ESTABLISHED AS RENDERING NAMES NOTHING.
+  for (const [label, heading] of [
+    // A false or conditional branch — or any braced expression around it.
+    ["the owner's section: {false && …}", OWNER_FALSE],
+    ["a condition", "{open && " + OWNER_SH + "}"],
+    ["the true arm of a ternary", "{open ? " + OWNER_SH + " : null}"],
+    ["the false arm of a ternary", "{open ? null : " + OWNER_SH + "}"],
+    ["a fallback", "{bake || " + OWNER_SH + "}"],
+    ["a list", "{[1].map(() => " + OWNER_SH + ")}"],
+    ["a braced element with no condition is still an expression", "{" + OWNER_SH + "}"],
+    ["a prop value of an element", '<div title={' + OWNER_SH + '} />'],
+    // A hidden ancestor, or one whose attributes cannot be read.
+    ["the owner's <div hidden>", OWNER_HIDDEN],
+    ["hidden={false} is still an attribute this check does not evaluate", "<div hidden={false}>" + OWNER_SH + "</div>"],
+    ["aria-hidden", '<div aria-hidden="true">' + OWNER_SH + "</div>"],
+    ["a hidden class", '<div className="hidden">' + OWNER_SH + "</div>"],
+    ["a hidden class spelled class", '<div class="hidden">' + OWNER_SH + "</div>"],
+    ["hidden at one breakpoint", '<div className="md:hidden">' + OWNER_SH + "</div>"],
+    ["visible only from one breakpoint up", '<div className="hidden md:block">' + OWNER_SH + "</div>"],
+    ["screen-reader only", '<div className="sr-only">' + OWNER_SH + "</div>"],
+    ["invisible on a state", '<div className="group-hover:invisible">' + OWNER_SH + "</div>"],
+    ["a style", '<div style={{ display: "none" }}>' + OWNER_SH + "</div>"],
+    ["a spread", "<div {...rest}>" + OWNER_SH + "</div>"],
+    ["a popover", "<div popover=\"\">" + OWNER_SH + "</div>"],
+    ["a computed class", "<div className={wrap}>" + OWNER_SH + "</div>"],
+    ["a conditional class", '<div className={open ? "" : "hidden"}>' + OWNER_SH + "</div>"],
+    ["a template class is not read, as a template title is not", "<div className={`mx-auto`}>" + OWNER_SH + "</div>"],
+    ["a template class with a substitution", "<div className={`mx-auto ${wrap}`}>" + OWNER_SH + "</div>"],
+    ["a class with no value", "<div className>" + OWNER_SH + "</div>"],
+    ["a hidden step two levels up", '<div className="mx-auto"><div hidden><div>' + OWNER_SH + "</div></div></div>"],
+    ["the heading's own computed class", "<SectionHeader title=\"Today’s bake\" className={cls} />"],
+    // An unknown component wrapper decides for itself whether its children show.
+    ["the owner's unknown <Opaque>", OWNER_OPAQUE],
+    ["a member tag", "<ui.Box>" + OWNER_SH + "</ui.Box>"],
+    ["a motion element", "<motion.div>" + OWNER_SH + "</motion.div>"],
+    ["a prop value of a component", "<Card header={" + OWNER_SH + "} />"],
+    // An HTML element that does not simply show its children.
+    ["details (closed)", "<details>" + OWNER_SH + "</details>"],
+    ["dialog (closed)", "<dialog>" + OWNER_SH + "</dialog>"],
+    ["template", "<template>" + OWNER_SH + "</template>"],
+    ["noscript", "<noscript>" + OWNER_SH + "</noscript>"],
+    ["a custom element", "<x-slot>" + OWNER_SH + "</x-slot>"],
+    ["svg", "<svg>" + OWNER_SH + "</svg>"],
+  ]) assert.deepEqual(namesOf(KIT_SH, heading), unnamed, label);
+  // AN UNCERTAIN HEADING STILL COMES FIRST: a heading after it does not open
+  // the section, so nothing names it — whichever of the two would render.
+  assert.deepEqual(namesOf(KIT_SH, "{open && <SectionHeader title=\"Bread\" />}" + OWNER_SH), unnamed);
+  // THE SECTION'S OWN ATTRIBUTES ARE NOT ASKED: they show or hide the heading
+  // and the paragraph beside it together.
+  const hiddenSection = proseInventory(withImports(KIT_SH, '<section hidden className="bake">' + OWNER_SH + KEEP_P + "</section>"), parse);
+  assert.deepEqual(hiddenSection.blocks.find((b) => b.anchor === "className:bake")?.kit, ["todays bake"]);
+});
+
+for (const mode of ["sync", "job"]) {
+  const { refusedHere, publishedHere } = pageGuardChecks(mode);
+  for (const [label, heading] of [
+    ["{false && …}", OWNER_FALSE],
+    ["<div hidden>", OWNER_HIDDEN],
+    ["an unknown <Opaque> wrapper", OWNER_OPAQUE],
+  ]) {
+    test(`KIT ${mode}: a kit heading in ${label} names nothing, so deleting the section's visible paragraph is refused`, async () => {
+      const slug = kitSlug(mode);
+      const before = kitHome(HERO, ownerSection(heading), BENCH(slug), ORDER, VISIT);
+      const answer = kitHome(HERO, BENCH(slug), ORDER, VISIT);
+      assert.notEqual(answer, before, "the answer really deletes the section");
+      refusedHere(await drive({ mode, slug, before, ask: REMOVE_BAKE, answer }), before, OTHERS);
+    });
+  }
+  test(`KIT ${mode}: the same heading inside ordinary visible elements names its section, and the removal publishes`, async () => {
+    const slug = kitSlug(mode);
+    const before = kitHome(HERO, ownerSection(OWNER_WRAPPED), BENCH(slug), ORDER, VISIT);
+    const answer = kitHome(HERO, BENCH(slug), ORDER, VISIT);
+    const r = await drive({ mode, slug, before, ask: REMOVE_BAKE, answer });
+    publishedHere(r, answer, OTHERS, UPDATED);
+    assert.ok(r.compiled.includes(PIC(slug, "a1b2c3d4e5f60718.jpg")) && r.compiled.includes(PIC(slug, "b2c3d4e5f6071829.jpg")), "both photographs are still on the page");
+    assert.ok(r.compiled.includes("<OrderForm />"), "the site's own order form is still rendered");
+  });
+}

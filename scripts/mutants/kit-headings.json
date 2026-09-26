@@ -86,7 +86,7 @@
     "files": [
       "builder/page-prose.mjs"
     ],
-    "from": "    if (k(a) === \"JsxSpreadAttribute\") return null;\n",
+    "from": "    if (k(a) === \"JsxSpreadAttribute\") return true;\n",
     "to": ""
   },
   {
@@ -94,16 +94,16 @@
     "files": [
       "builder/page-prose.mjs"
     ],
-    "from": "    if (key === \"className\" && /\\b(?:hidden|invisible|sr-only)\\b/.test(a.initializer?.getText?.() || \"\")) return null;\n",
-    "to": ""
+    "from": "|| HIDING_CLASS.test(e.text)) return true;",
+    "to": ") return true;"
   },
   {
     "label": "K-12: aria-hidden is ignored",
     "files": [
       "builder/page-prose.mjs"
     ],
-    "from": "if (key === \"hidden\" || key === \"aria-hidden\" || key === \"style\") return null;",
-    "to": "if (key === \"hidden\" || key === \"style\") return null;"
+    "from": "if (key === \"hidden\" || key === \"aria-hidden\" || key === \"style\" || key === \"popover\") return true;",
+    "to": "if (key === \"hidden\" || key === \"style\" || key === \"popover\") return true;"
   },
   {
     "label": "K-13: a prop given twice is read",

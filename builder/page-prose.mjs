@@ -35,6 +35,18 @@ export const PROSE_WITHHELD = "I couldn't confirm that this page change preserve
 //   - THE VALUE is a literal (`title="…"` or `title={"…"}`), given once, on an
 //     element with no spread (which could carry the prop) and nothing hiding
 //     it. A computed title's words are not known here.
+//   - IT RENDERS WHENEVER ITS SECTION DOES (2026-09-26, owner: "A heading that
+//     cannot be established as rendering must not authorize deletion of
+//     visible siblings"). `{false && <SectionHeader title="Today's bake" />}`,
+//     one inside `<div hidden>` and one inside an unknown `<Opaque>` all named
+//     their section, and deleting the section took the visible paragraphs
+//     beside them. So every step between the heading and its section must be
+//     a fragment or a plain HTML element that shows its children
+//     (`SHOWS_CHILDREN`) with nothing that could hide it (`mayHide`). A braced
+//     expression — a condition, a `.map`, a prop value — or a component, a
+//     member tag, `<details>`, `<template>` and the rest is not established.
+//     The section's own attributes are not asked: they show or hide the
+//     heading and its neighbours together.
 //   - IT OPENS ITS SECTION: nothing that could show a heading comes before it
 //     there — no `<h1>`–`<h6>` and no other component. A visitor names a
 //     section by the heading it starts with; a second kit heading further down
@@ -83,14 +95,36 @@ function kitHeadingTags(file, importsOf, k) {
   for (const tag of [...tags.keys()]) if (declared.has(tag.split(".")[0])) tags.delete(tag);
   return tags;
 }
-/** The literal words a kit heading element shows for `prop`, or null when they are not certain. */
+// A class that can take an element off the screen at any breakpoint or state
+// (`hidden`, `sm:hidden`, `group-hover:invisible`, `sr-only`) — the kit
+// table's own rule. `overflow-hidden` is not one.
+const HIDING_CLASS = /(?:^|[\s"'`:])(?:hidden|invisible|sr-only)(?=$|[\s"'`])/;
+// The HTML elements that show their children in the page's normal flow. A
+// kit heading inside anything else is not established as rendering.
+const SHOWS_CHILDREN = new Set(["div", "span", "header", "footer", "main", "nav", "aside", "hgroup", "figure", "figcaption", "blockquote", "address", "p", "ul", "ol", "li", "dl", "dt", "dd", "a", "strong", "em", "b", "i", "small", "label", "form", "fieldset"]);
+/** Whether an element's attributes could keep it off the screen — or cannot be read, which is the same answer. */
+function mayHide(attrs, k) {
+  for (const a of attrs) {
+    if (k(a) === "JsxSpreadAttribute") return true;
+    const key = a.name?.getText?.();
+    if (key === "hidden" || key === "aria-hidden" || key === "style" || key === "popover") return true;
+    if (key !== "className" && key !== "class") continue;
+    // A class is read only as a quoted string (`"…"` or `{"…"}`), as the title
+    // is; anything else — computed, a template — cannot be.
+    const init = a.initializer, e = init && k(init) === "JsxExpression" ? init.expression : init;
+    if (!e || k(e) !== "StringLiteral" || HIDING_CLASS.test(e.text)) return true;
+  }
+  return false;
+}
+/**
+ * The literal words a kit heading element shows for `prop`, or null when they
+ * are not certain. Asked only once `mayHide` has cleared the element, which
+ * also refuses a spread — the one attribute that could carry the prop unseen.
+ */
 function kitHeadingText(attrs, prop, k) {
   let value = null, seen = 0;
   for (const a of attrs) {
-    if (k(a) === "JsxSpreadAttribute") return null;
     const key = a.name?.getText?.();
-    if (key === "hidden" || key === "aria-hidden" || key === "style") return null;
-    if (key === "className" && /\b(?:hidden|invisible|sr-only)\b/.test(a.initializer?.getText?.() || "")) return null;
     if (key !== prop) continue;
     seen++;
     const init = a.initializer;
@@ -129,11 +163,25 @@ export function proseInventory(source, parse) {
     return out.join("|");
   };
   const named = (block, n) => { block.names.push(n); block.literal.push(n); };
+  // A kit heading renders whenever its section does: nothing on it may hide
+  // it, and every step up to the section is a fragment or a plain element that
+  // shows its children with nothing hiding it. The first step that is anything
+  // else — a braced expression, a component, `<details>` — ends the answer.
+  // A heading outside every section never meets one, and names nothing.
+  const rendersWith = (node, block) => {
+    if (mayHide(attrsOf(openOf(node)), k)) return false;
+    for (let p = node.parent; p; p = p.parent) {
+      if (p === block.node) return true;
+      if (k(p) === "JsxFragment") continue;
+      if (k(p) !== "JsxElement" || !SHOWS_CHILDREN.has(tagOf(p)) || mayHide(attrsOf(openOf(p)), k)) return false;
+    }
+    return false;
+  };
   const visit = (node, block, heading = false, role = "") => {
     if (isJsx(node)) {
       const tag = tagOf(node);
       if (tag === "section" || tag === "article") {
-        block = { names: [], literal: [], kit: [], before: [], atoms: [], section: true, anchor: "" };
+        block = { names: [], literal: [], kit: [], before: [], atoms: [], section: true, anchor: "", node };
         blocks.push(block);
         for (const a of attrsOf(openOf(node))) {
           const key = a.name?.getText?.(), value = a.initializer?.text;
@@ -146,9 +194,10 @@ export function proseInventory(source, parse) {
       if (kitTags.has(tag)) {
         // Only a heading that OPENS its section names it: nothing that could
         // show a heading ends before this element starts. A wrapper around it
-        // ends after it, so it never counts against it.
+        // ends after it, so it never counts against it. And only one that
+        // renders whenever the section does.
         const start = node.getStart();
-        const text = kitHeadingText(attrsOf(openOf(node)), kitTags.get(tag), k);
+        const text = rendersWith(node, block) ? kitHeadingText(attrsOf(openOf(node)), kitTags.get(tag), k) : null;
         const n = text === null ? "" : name(text);
         if (n && !block.before.some((end) => end <= start)) { block.names.push(n); block.kit.push(n); }
       }
