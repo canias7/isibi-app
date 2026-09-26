@@ -18,17 +18,14 @@ Live test 2 (the section move on fretwork-1): run 32 published it through the qu
 writer as a pure block move, for route 2 + edit 8 credits. **CLOSED for what it shows
 (owner)**: the quick writer moved one section and kept the surrounding source; it does
 NOT verify the full-writer text guard, and #418 stays open. Browser-verified 19:00 UTC
-(a real Chromium over TLS-verified live bytes). On the branch, not merged: the canary's
-after-read waits for its job's version (`72885ca9`, reviewed: 40 focused tests), and the
-text guard accepts page-qualified requests held to the edited page (`ce913d06` + `8c0d67a1`)
-and reads a quoted or unreadable page instead of dropping it (`d6f5e55e`). Also on the
-branch, not merged: the consolidated edit-path milestone, nine commits from `01222bab`
-to `8f66dfb9` (page names from the site's own pages, the routing stop keeps the message,
-a stopped edit's design put back, the logo's attachment shape, money from the ledger, the
-unknown-outcome sentence, what went through before a failed publish, and a full revise's
-read-only database context). Its section follows the quoted-page one, and its checklist
-heads the remaining-scope file. Test 3 (the full writer) waits on the merge.
-Remaining scope: [edit-path checklist](docs/investigations/edit-path-checklist.md).
+(a real Chromium over TLS-verified live bytes). **Merged and deployed at `7384ddba`**
+(deploy 2160, 2026-09-26 01:05 UTC, image `c3cc126e45e93815`; served `chat.js` and
+`edit-poll.js` byte-identical to the merged files): the canary's after-read wait
+(`72885ca9`), the page-qualified and quoted-page text guard (`ce913d06` + `8c0d67a1` +
+`d6f5e55e`), the consolidated edit-path milestone (`01222bab` → `8f66dfb9`) and the
+rollback round (`7384ddba`: tests and the checklist only). Its runtime confirmation is
+the owner's free canary press. Test 3 (the full writer) is prepared and waits for
+spending approval. Remaining scope: [edit-path checklist](docs/investigations/edit-path-checklist.md).
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -441,6 +438,14 @@ input paths. The log answered `built …:a5***d8b32e5869576 (registry answered
 404; ***87 inputs …)` and `- …:f05cb5a5a0def44c` → `+ …:a5***d8b32e5869576`
 under `SUCCESS Modified application`; **0 `CACHED` lines**, image step 2m05s,
 Wrangler ~22s, job 3m09s.
+**Deploy 2160 (2026-09-26) was predicted on both ends and confirmed on both
+channels**: `origin/main` `c2fa000c` answered `a51d8b32e5869576` — what canary
+run 32 read LIVE — and the tip `7384ddba` answered `c3cc126e45e93815`, both from
+187 inputs (the same id at `8f66dfb9`, the round after it moving no input). The
+log answered `built …:c3cc***26e45e938***5 (registry answered 404; ***87 inputs
+…)` and `- …:a5***d8b32e5869576` → `+ …:c3cc***26e45e938***5` under `SUCCESS
+Modified application`; **0 `CACHED` lines**, image step 2m14s, Wrangler ~19s
+(it reinstalled itself first), job 3m01s.
 The twelfth
 added a SECOND CHANNEL — **deploy 2139 (2026-09-21) was predicted before the
 push over the local merge commit `28e46e91` as `82bccb3bee50e4fd`, against
@@ -8331,13 +8336,74 @@ coverage-only test was added.
 **`c3cc126e45e93815`** at `8f66dfb9` (187 inputs, 157 distinct paths), from
 main's `a51d8b32e5869576`.
 
+### MERGED AND DEPLOYED: THE CONSOLIDATED MILESTONE AND THE ROLLBACK ROUND (2026-09-26)
+
+Owner: *"The consolidated batch has been reviewed at 4f6ab55c. The independent
+484 focused checks passed, and unit/site-build CI is green. … After the focused
+checks and required CI pass, merge and deploy this reviewed batch. Preserve
+main's existing changes. Read the actual deployment SHA and image from the
+deployment, then verify them through the existing authenticated GitHub
+workflow. No F12 and no paid dispatch."*
+
+- **THE ROUND BEFORE THE MERGE** (`7384ddba`, tests and documents only):
+  - the two rollback edges were closed (the milestone's STILL OPEN list,
+    above);
+  - the checklist names the add-on route's rebuild conditions;
+  - two findings are recorded, not fixed.
+
+  Suite locally `7934 / 7932 / 0 / 2` (+7, exactly the new cases), and the 25
+  files the milestone touched read 1,002 / 1,002. Unit CI run
+  **`36206886612` on `7384ddba`** read `7934 / 7930 / 0 / 4`, with all seven
+  new cases and the kept control found passing BY NAME, 7,934 distinct result
+  numbers and zero `not ok`. No site build is owed: the round touched none of
+  its paths, and the product tree is `8f66dfb9`'s, whose run `36202704088` is
+  green.
+- **A FAST-FORWARD, SO NOTHING ON MAIN COULD BE LOST**: `main` `c2fa000c` →
+  **`7384ddba`** at 01:02:47Z, 21 commits, 50 files (+5,500 / −235). Asked before the push:
+  - `main` had not moved;
+  - zero runs were in progress, queued or waiting;
+  - the image id was predicted over both ends (the deploy section);
+  - the rollback was verified — reverting `c2fa000c..7384ddba` in a throwaway
+    worktree gives tree `4fcc262c…`, main's own, so a rollback reuses
+    `a51d8b32e5869576`.
+- **DEPLOY 2160 (`36207057160`)**, success, job 01:02:52 → 01:05:53Z.
+  - `DEPLOY_ID` `7384ddbac4ba05b725***c52aa53d6fc9e0***8a9699` (each `***` a
+    masked `1`), and the gate took over from `c2fa000c…`.
+  - The image was **built `c3cc126e45e93815` and rolled from
+    `a51d8b32e5869576`**. The drain found `no live leases`.
+  - `+ /edit-poll.js`, `+ /chat.js`: 2 uploaded, 84 already. `Uploaded
+    isibi-app`, `Current Version ID: 70c103d6-…`, `Deployed isibi-app
+    triggers`.
+- **THE SERVED FILES, BOTH READINGS.**
+  - Before (01:01:05Z): `chat.js` 782,960 bytes `d5b10edb5534dae5` and
+    `edit-poll.js` 29,391 bytes `7d7da74ed3b3c160`, each byte-identical to
+    `c2fa000c`'s.
+  - After (a poll saw the change at 01:05:48Z, the second Wrangler finished;
+    read at 01:06:22Z): **786,047 bytes `e56f1c9f4ffca3da` and 29,659 bytes
+    `ebc0e7094320a447`, each byte-identical to `git show 7384ddba:public/…`**,
+    with and without a query string.
+  - Discriminators 0 → N: `refusedCost` 0 → 3 and *"could make the change
+    twice"* 0 → 1 in `chat.js`; `wholeRequestNote` 0 → 1 in `edit-poll.js`.
+  - Gates 401 / 401 / 401 / 404.
+- **DEPLOYED, NOT YET RUNTIME-CONFIRMED.** The image rolled, so the free
+  canary press is held until the rollout settles. The press is the
+  confirmation: `expect_deploy` `7384ddbac4ba05b7251c52aa53d6fc9e018a9699`,
+  `expect_image` `c3cc126e45e93815`.
+
 ### TEST 3 — THE FULL PAGE WRITER, REVISED (2026-09-25, prepared, NOT dispatched)
 
-**PREREQUISITE**: the branch merged and deployed through the milestone above,
-since the natural sentence needs the deployed guard (`ce913d06` + `8c0d67a1` +
-`d6f5e55e` + `01222bab`). The merge carries the after-read wait (`72885ca9`)
-with it. `expect_deploy` is the merge sha. `expect_image` is predicted
-`c3cc126e45e93815` at the branch tip, to be re-predicted over the real merge.
+**PREREQUISITE — MET 2026-09-26**: merged and deployed at `7384ddba` (deploy
+2160, the section above), carrying the deployed guard (`ce913d06` + `8c0d67a1`
++ `d6f5e55e` + `01222bab`) and the after-read wait (`72885ca9`).
+`expect_deploy` `7384ddbac4ba05b7251c52aa53d6fc9e018a9699`, `expect_image`
+`c3cc126e45e93815` (read off the deploy; the free press confirms them live).
+**WHICH WRITER RAN IS READ OFF `terminal.json`'s stored reply**: `tweak: true` is
+the quick writer publishing (no full-writer coverage then); `tweak` absent with
+`usage` on a published page edit is the full writer (its model and tokens);
+`tweakUsage` is a quick attempt first; `keepUsage` is the judge. A refusal names
+itself: `prose-preservation` (the text guard, asked of the full writer's answer
+only), `withheld` + `contentBlocked` (the judge), `contentUnchecked` (the judge
+failed). The router's answer and the page list it was given are `routing.json`.
 
 **RE-CHECKED AGAINST THE CURRENT GUARD (2026-09-25, 23:44Z), free, supplied
 answers**, on fretwork-1's stored `n7mtnq` home page (`index.tsx`
@@ -8389,8 +8455,8 @@ answers**, on fretwork-1's stored `n7mtnq` home page (`index.tsx`
     conditional (which the guard counts as lost). The wording check rules out
     only the grammar refusing a correct answer. **Carrying the blocked texts
     on the 409 is a one-line option, not in this patch.**
-- **COST**: ~17–25 (runs 21/24/26: 17/24/19), an estimate and not a cap.
-  Balance 91.
+- **COST**: ~18–27 (runs 21/24/26: 17/24/19, plus the judge's ~1), an estimate
+  and not a cap. Balance 91 at run 32's end.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 

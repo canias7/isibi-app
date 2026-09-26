@@ -1,13 +1,13 @@
 # Remaining edit-path checklist
 
-## The consolidated milestone (2026-09-25, late) — on the branch, not merged
+## The consolidated milestone (2026-09-25, late) — merged and deployed at `7384ddba` (2026-09-26)
 
 The owner asked for one batch across six areas. Each item below is marked
-**demonstrated**, **reproduced defect** (fixed on the branch), **unverified**
-or **deferred**. Everything fixed is on `claude/help-needed-ehlwlj`, **not
-merged or deployed**. Every model answer in the evidence is supplied, so the
-tests prove what the route and the browser do with an answer, never that a real
-model gives it.
+**demonstrated**, **reproduced defect** (now fixed), **unverified** or
+**deferred**. The batch was reviewed at `4f6ab55c` and merged and deployed with
+the rollback round at `7384ddba` (deploy 2160). Every model answer in the
+evidence is supplied, so the tests prove what the route and the browser do with
+an answer, never that a real model gives it.
 
 ### 1. Target selection
 
@@ -155,49 +155,122 @@ data and rules rungs.
   shown.
 - Real-model compliance is unproven throughout.
 
-### 6. Live acceptance — Test 3, prepared and not dispatched
+### 6. Live acceptance — Test 3, prepared and not dispatched (waiting for spending approval)
 
-Run 32 stays closed.
+Run 32 stays closed. **The prerequisite is met**: this batch is merged and
+deployed (see the deploy entry), so a dispatch from `main` carries the page-name
+resolution, the quoted-page reader and the canary's after-read wait.
 
-- **Request:** "Remove the ‘The first eight chords’ section from the home
-  page." — 63 characters, sha256 `48bdbf475e1718e6…`.
-- **Site:** fretwork-1, live at `01790360265159-n7mtnq` (read 23:44Z).
-- **Needs:** this branch merged and deployed (the page-name resolution, the
-  canary's after-read wait), and the image re-predicted over the real merge. At
-  `8f66dfb9` it is `c3cc126e45e93815`, 187 inputs (main: `a51d8b32e5869576`).
-- **Re-checked against the current guard** (supplied answers, fretwork-1's
-  stored `n7mtnq` home page): the correct removal passes, with or without the
-  now-unused import and chord data; losing the guitar paragraph too refuses;
-  the same removal judged as `/prices` refuses.
-- **Expected:** `index.tsx` loses the chords block. The `ChordDiagram` import
-  and the `CHORDS` data serve only that block, so either may go too; that is
-  inspected and noted, not failed. Every other block and the rest of the code
-  above the render stay byte-identical. `prices.tsx`, `gear.tsx` and
-  the three component files stay byte-identical. The judge is called (the
-  `chord-diagram` use goes) and publishes on the quote. The comparison is
-  VERIFIED at the job's own version.
-- **Cost:** about 17–25 credits (estimate, not a cap). Balance 91 at run 32's
-  end.
-- **Limits:** one sentence on one site. The writer's prompt is not captured. A
-  text-guard refusal names no text. A publish is checked against the stored
-  bodies and the live page, never taken as proof of preservation.
+- **The request, pasted verbatim into the "What to change" box:**
+  "Remove the ‘The first eight chords’ section from the home page." — 63
+  characters, 67 bytes (curly quotes U+2018 and U+2019), sha256
+  `48bdbf475e1718e6ceaab4fee3a9941d13477f719616d262216a87dcbf2be823`.
+- **The press:** `edit-canary.yml`, run from `main`. The form shows each
+  box's description rather than its name:
+  - "Run the ONE paid edit as well": `yes`.
+  - "What to change": the sentence above.
+  - "The site to edit": `fretwork-1`. "A second site…": `washhouse-3`.
+  - "READ ONE EXISTING JOB AND STOP" and "PUT ONE SAVED VERSION BACK": blank.
+  - "Refuse to spend unless the Worker reports this deploy sha": `7384ddbac4ba05b7251c52aa53d6fc9e018a9699`.
+  - "Refuse to spend unless a cold container reports this image id": `c3cc126e45e93815`.
+- **The starting state:** live `01790360265159-n7mtnq`, read again at
+  01:01:55Z on 2026-09-26, with the headings in run 32's order. The press's own
+  before-read must equal these six stored bodies:
+  - `index.tsx` `6bb1fb500f7df623`;
+  - `prices.tsx` `0d2d72dee56a2a71`;
+  - `gear.tsx` `d580389f971cdd31`;
+  - `chord-diagram` `d0c20d52f91d69d2`;
+  - `trial-booking-form` `4b66386c0ad46092`;
+  - `day-space-lookup` `4b162037f67df545`.
+- **What records which writer ran.** `routing.json` holds the router's intent,
+  layer and page, and the page list it was given. `terminal.json` holds the
+  stored reply whole, which tells the writers apart:
+  - `tweak: true` means the quick writer published and the full writer did not
+    run. The quick writer cannot drop words, so on this sentence that outcome
+    would itself be a finding.
+  - `tweak` absent with `usage` present on a published page edit means the
+    full writer published; `usage` carries its model and tokens.
+  - `tweakUsage` means a quick attempt was made first.
+  - `keepUsage` means the preservation judge ran.
+  - A refusal names its reason. `prose-preservation` (with `proseBlocked`) is
+    the text guard, which is asked only of the full writer's answer.
+    `withheld` (with `contentBlocked`) is the judge refusing item by item.
+    `contentUnchecked` means the judge failed.
+
+  Full-writer coverage is claimed only when `tweak` is absent and the full
+  writer's `usage` is on the reply.
+- **Acceptance.** Each item is read from the evidence bundle and a real browser:
+  1. **It counts as the test** only if the request sha matches, the press's
+     own before-read equals the six bodies, the preflight passes with both
+     expectations, and a stored terminal reply arrived.
+  2. **Published at the job's own version.** The stored 200 arrives under
+     `x-gf-edit: final`, and `x-site-version` moves to a version minted inside
+     the run's window. `compare.json` says VERIFIED, with every after-page read
+     at that version.
+  3. **The requested removal, in the stored source.** `index.tsx` loses the
+     section headed "The first eight chords", with its `ChordDiagram` grid. The
+     `ChordDiagram` import and the `CHORDS` data serve only that block, so
+     either may go too; that is noted, not failed. Every other top-level render
+     block and the code above the render stay byte-identical.
+  4. **Other pages and component bodies:** the other five files stay
+     byte-identical. The `chord-diagram` file stays stored even though no page
+     renders it: nothing deletes a component file.
+  5. **The live page at that version.** The headings read, in order: Book a
+     guitar lesson · A guitar you can turn · September 2026 · Space on a
+     preferred day · Book a trial lesson · Book a trial lesson. There are no
+     chord diagrams, the guitar canvas draws, and the day box answers the real
+     `bookings_on_day`. `/prices` and `/gear` keep their headings and word
+     lists. Console errors and failed requests are counted.
+  6. **Money.** The balance moves by exactly the routing charge plus the edit's
+     cost, and the edit's cost matches the ledger rows for its job.
+  7. **The reply the customer sees** (`customer-reply.txt`) is checked against
+     the bundle. The render check's #418 finding is passed on, not verified.
+- **Cost:** about 18–27 credits, an estimate and not a cap. That is the
+  routing charge (2), the full writer (~12–15, as in runs 21, 24 and 26), a
+  quick attempt (from under 1 when it declines at once up to ~6 when it
+  rewrites the page first, as in run 24), and the judge (~1). The balance was
+  91 at run 32's end; the free press prints the current figure.
+- **Reversible for free** with the restore mode (`01790360265159-n7mtnq`).
+- **Limits:** one sentence on one site, and the writer's prompt is not
+  captured. A text-guard refusal names no text and the refused answer is not
+  stored, so a refusal cannot be blamed on the model. A publish is checked
+  against the stored bodies and the live page, never taken as proof of
+  preservation.
 
 ### Required CI
 
-- **Unit:** run 36202704161 on `8f66dfb9` reads `7927 / 7923 / 0 / 4`, and all
-  57 new or renamed test names pass by name. Locally the suite reads
-  `7927 / 7925 / 0 / 2`, and the 25 test files the milestone touched read
-  995 / 995.
+- **Unit:** run 36206886612 on `7384ddba` reads `7934 / 7930 / 0 / 4`. The
+  seven new rollback cases and the kept control pass by name, with 7,934
+  distinct result numbers and no `not ok`. Locally the suite reads
+  `7934 / 7932 / 0 / 2`, and the 25 test files the milestone touched read
+  1,002 / 1,002. The reviewed product tip `8f66dfb9` read `7927 / 7923 / 0 / 4`
+  (run 36202704161).
 - **Site build:** runs 36200973701 (`90efa38d`), 36201665364 (`80ce60f4`) and
   36202704088 (`8f66dfb9`). Each has all twelve counts green (TAP 397,
   site-build 382, and the rest as recorded) and only the two known
-  annotations.
+  annotations. The rollback round changed no file on the site build's paths,
+  so the product tree it merged is `8f66dfb9`'s.
+
+### Merged and deployed (2026-09-26)
+
+Main was fast-forwarded `c2fa000c` → `7384ddba` (21 commits), which deployed as
+deploy 2160 (run 36207057160, success, 01:02:52 → 01:05:53Z):
+- The Worker reports `DEPLOY_ID` `7384ddba…`.
+- The image was built as predicted, `c3cc126e45e93815` (187 inputs), and
+  rolled over from `a51d8b32e5869576`.
+- The served `chat.js` (786,047 bytes) and `edit-poll.js` (29,659 bytes) are
+  byte-identical to the merged files.
+- The rollback was verified before the push: it restores main's own tree.
+
+A green deploy is Wrangler reporting on itself. **The runtime confirmation is
+the free canary press** with both expectations set, taken once the image
+rollout has settled.
 
 ### Stopping point
 
-The milestone stops here, pending the owner's review, merge and deploy. After
-that come the free canary press, then Test 3 on approval. Nothing further is
-started.
+The batch is merged and deployed, and the free press confirms it at runtime.
+Test 3 is prepared above and waits for your spending approval. Nothing is
+dispatched that spends.
 
 ## Status after run 32 (2026-09-25)
 

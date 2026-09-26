@@ -14,7 +14,7 @@ merged/deployed at a5741864 (deployment 2157 / run 36099179983). Served chat.js
 matched the reviewed bytes at 2026-09-25 05:36:30 UTC. Deployment log reports
 container reuse; no repeated runtime container check or canary. This contains
 an escaped display error; publication and cleanup already succeeded. Other
-checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that is on the branch, not merged. So is the edit-path milestone you asked for next: eight fixes, the checklist and test 3 (the first entry below). Nothing is merged, deployed or dispatched.
+checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are now merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC, image `c3cc126e45e93815`), and your free canary press is the runtime confirmation (first entry below). Test 3 is prepared and waits for your spending approval.
 
 Kept for the owner. Two purposes:
 1. **How you like things done** — durable preferences, so a fresh session does not
@@ -176,7 +176,7 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
-## 2026-09-26 — The two rollback gaps are closed, and the add-on rebuild conditions are named
+## 2026-09-26 — The batch is live (merged and deployed at `7384ddba`); the two rollback gaps are closed; test 3 is ready
 
 You reviewed the batch at `4f6ab55c` (484 focused checks, CI green) and asked
 me to finish it without expanding it. No product code changed in this round:
@@ -227,6 +227,25 @@ case "deferred".
   later message that touches styling. The correction can restyle something
   you never mentioned, and on a queued edit a failed correction refuses the
   whole message. The code's own comment says it checks only the new rules.
+
+**3. Merged and deployed.** The fast-forward took `main` from `c2fa000c` to
+`7384ddba`, with nothing on main lost. It deployed as deploy 2160 (success,
+01:02:52 → 01:05:53 UTC):
+- The Worker reports the merge sha.
+- The container image is `c3cc126e45e93815`, as predicted before the push. It
+  was rebuilt because the batch changes code the container runs.
+- The two browser files the site serves (`chat.js` and `edit-poll.js`) match
+  the merged ones byte for byte.
+- Undoing it was checked beforehand: it would restore main exactly.
+
+That is the deploy reporting on itself. The confirmation from the live server
+is your free canary press (below).
+
+**4. Test 3 is prepared and not dispatched.** It waits for your approval to
+spend about 18–27 credits (an estimate, not a cap; the balance was 91 at run
+32's end). The exact form values, what counts as a pass, and how the result
+shows which writer ran are in the
+[checklist](investigations/edit-path-checklist.md), section 6.
 
 ## 2026-09-25 — The edit-path milestone: eight fixes in one batch (on the branch, not merged)
 
