@@ -14,7 +14,7 @@ merged/deployed at a5741864 (deployment 2157 / run 36099179983). Served chat.js
 matched the reviewed bytes at 2026-09-25 05:36:30 UTC. Deployment log reports
 container reuse; no repeated runtime container check or canary. This contains
 an escaped display error; publication and cleanup already succeeded. Other
-checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; the newest entry below). Neither deployment is runtime-confirmed yet: no free canary has run since run 32, and my one attempt waits for the new container image to finish rolling out. Test 3 is prepared for deployment 2161 and waits for your spending approval.
+checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; the newest entry below). Neither deployment is runtime-confirmed: no free canary has run since run 32, and my one attempt was refused (403), so the free press is yours. Test 3 is prepared for deployment 2161 and waits for your spending approval.
 
 Kept for the owner. Two purposes:
 1. **How you like things done** — durable preferences, so a fresh session does not
@@ -213,10 +213,21 @@ once, and prepare test 3. Nothing was spent.
 - **That is the deployment reporting on itself.** It is not the live server
   answering.
 
-**Runtime.** Not confirmed yet. No free canary has run since run 32, so
-deployment 2160 was never confirmed either. The container image changed, so my
-one attempt waits until the rollout settles (about 06:08 UTC); the next update
-says what it answered.
+**Runtime.** Not confirmed. No free canary has run since run 32, so
+deployment 2160 was never confirmed either. I waited for the new container
+image to finish rolling out, then tried the free canary once at 06:08 UTC.
+GitHub refused it (403, the same permission wall as before), and I did not
+retry. **The press is yours:**
+- <https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml>,
+  "Run workflow" from `main`. The form shows each box's description:
+  - "Run the ONE paid edit as well": `no`.
+  - "Refuse to spend unless the Worker reports this deploy sha":
+    `0de188ff2d3a00d8096b01f8616c507aea2bbce4`.
+  - "Refuse to spend unless a cold container reports this image id":
+    `05750a5120d33570`.
+  - Every other box at its default.
+- It spends nothing and confirms both deployments. It refuses if either value
+  doesn't match.
 
 **Test 3** (the full writer removes "The first eight chords"), ready for your
 approval and not dispatched:

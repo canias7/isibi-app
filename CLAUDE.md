@@ -36,8 +36,9 @@ whitespace is part of the rule*, below); and a comment read as whitespace, so a
 compound rewritten as a descendant shipped unjudged and the judge was handed the
 wrong meaning (*a comment is a token boundary, not whitespace*, below). Its site
 build ran the new browser control in a real Chromium: 22 of 22.
-**Neither deploy is runtime-confirmed yet**: no free canary has run since run 32, and
-the session's one attempt for 2161 is held until the image rollout settles (~06:08Z).
+**Neither deploy is runtime-confirmed**: no free canary has run since run 32, and the
+session's one attempt for 2161 (06:08:20Z, after the rollout hold) answered **403**
+(`actions: write`) and was not retried. The free press is the owner's.
 Test 3 (the full writer) is prepared for deploy 2161 and waits for spending approval.
 Remaining scope: [edit-path checklist](docs/investigations/edit-path-checklist.md).
 
@@ -8944,10 +8945,14 @@ boundary, not whitespace*. **Every model answer in its evidence is supplied.**
   05:52:49Z.
 - **DEPLOYED, NOT RUNTIME-CONFIRMED.** No free canary has run since run 32,
   so deploy 2160 was never confirmed either. The image rolled, so the session's
-  one dispatch attempt (spend `no`, `expect_deploy`
+  one dispatch attempt waited out the hold and was made at **06:08:20Z** (from
+  `main`, spend `no`, `expect_deploy`
   `0de188ff2d3a00d8096b01f8616c507aea2bbce4`, `expect_image`
-  `05750a5120d33570`) is held until the rollout settles, ~06:08Z. Its answer is
-  recorded in the next documents commit.
+  `05750a5120d33570`). It answered **403 Resource not accessible by
+  integration**, the `actions: write` wall again, and was not retried, per the
+  owner. **The confirmation is the owner's free press** with exactly those
+  inputs (the checklist's press). It also confirms deploy 2160's code, which
+  2161 carries.
 
 ### TEST 3 — THE FULL PAGE WRITER, REVISED (2026-09-25, prepared, NOT dispatched)
 

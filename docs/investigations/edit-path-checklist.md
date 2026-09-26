@@ -10,7 +10,8 @@ then merged and deployed as deploy 2161 (see *Merged and deployed at
 `0de188ff`* below). Nothing that spends was dispatched. Every model answer in
 the evidence is supplied, so the tests prove what the route and the browser do
 with an answer, never what a real model answers. **Neither deploy 2160 nor 2161 is
-runtime-confirmed yet** (see *Merged and deployed at `0de188ff`*).
+runtime-confirmed**: the session's one attempt answered 403 (see *Merged and
+deployed at `0de188ff`*).
 
 | Item | Status | Evidence |
 | --- | --- | --- |
@@ -625,15 +626,17 @@ Main was then fast-forwarded `7384ddba` → `0de188ff` (9 commits, 20 files) at
 - The auth gates answer 401 / 401 / 401 / 404.
 
 A green deploy is Wrangler reporting on itself. **The runtime confirmation
-is the free canary press** with both expectations set (the press above). At
-this commit the session's one attempt is held until the image rollout settles,
-~06:08Z.
+is the free canary press** with both expectations set (the press above). The
+session's one attempt, made at 06:08:20Z after the rollout hold, answered **403
+Resource not accessible by integration** and was not retried, so the press is
+yours.
 
 ### Stopping point
 
 Deploys 2160 and 2161 are merged and deployed. **Neither is runtime-confirmed**:
 no free canary has run since run 32, and the session's one attempt for 2161
-is held until the rollout settles. Test 3 is prepared above for deploy 2161 and waits for your
+answered 403, so the free press above is yours. Nothing here claims the
+preflight passed. Test 3 is prepared above for deploy 2161 and waits for your
 spending approval. Nothing that spends is dispatched.
 
 ## Status after run 32 (2026-09-25)
