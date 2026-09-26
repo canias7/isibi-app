@@ -54,6 +54,120 @@ test("changedSelectors names the rules a request wrote, and none it left as they
   assert.deepEqual(c(null, STALE + NEW_DEAD), [".newsletter-band", "header button"]);
 });
 
+// ── A QUOTED VALUE, AN ESCAPE AND A SELECTOR'S OWN WHITESPACE (2026-09-26) ──
+//
+// Owner: *"Preserve meaningful whitespace and escapes inside quoted selectors,
+// declarations and at-rule conditions. Normalize only where equivalence is
+// established; uncertain differences should remain changed."*
+//
+// REPRODUCED on 933168ea: the rule key collapsed whitespace everywhere, the
+// inside of a quoted value included, and every pair below answered `[]` — two
+// rules that differ read as one, so the one a request changed was never judged.
+// The route case (the queued edit, the compiler sent `cssVerify: []`) is in
+// test/edit-failure-paths.test.mjs.
+
+test("a rule whose quoted value, escape or selector whitespace changed is named — each pair read as one rule before", () => {
+  const c = changedSelectors;
+  // THE OWNER'S REPRODUCTION: two attribute values, two elements.
+  assert.deepEqual(c("[data-label=\"a  b\"]{color:red}", "[data-label=\"a b\"]{color:red}"), ["[data-label=\"a b\"]"]);
+  assert.deepEqual(c("[data-label=\"a\tb\"]{color:red}", "[data-label=\"a b\"]{color:red}"), ["[data-label=\"a b\"]"], "a tab inside the quotes");
+  // A QUOTED DECLARATION: the string is the value, every character of it.
+  assert.deepEqual(c(".x{content:\"a  b\"}", ".x{content:\"a b\"}"), [".x"], "whitespace inside a quoted value");
+  assert.deepEqual(c(".x{content:\"a : b\"}", ".x{content:\"a:b\"}"), [".x"], "a colon's spacing inside a quoted value");
+  assert.deepEqual(c(".x{content:\"/* a */\"}", ".x{content:\"/* b */\"}"), [".x"], "comment-shaped text inside a quoted value");
+  assert.deepEqual(c(".price{--currency:\"£  \"}", ".price{--currency:\"£ \"}"), [".price"], "a quoted custom property");
+  // A QUOTED AT-RULE CONDITION: the rules inside it are its rules.
+  assert.deepEqual(c("@supports selector([data-label=\"a  b\"]){.x{color:red}}", "@supports selector([data-label=\"a b\"]){.x{color:red}}"), [".x"], "a quoted @supports condition");
+  assert.deepEqual(c("@container style(--l: \"a  b\"){.x{color:red}}", "@container style(--l: \"a b\"){.x{color:red}}"), [".x"], "a quoted container style query");
+  assert.deepEqual(c("@scope ([data-label=\"a  b\"]){p{color:red}}", "@scope ([data-label=\"a b\"]){p{color:red}}"), ["p"], "a quoted @scope root");
+  // AN ESCAPE, with the whitespace it owns: `\31 0` is the class "10", `\31  0`
+  // a class "1" and a descendant `0`.
+  assert.deepEqual(c(".a\\  b{color:red}", ".a\\ b{color:red}"), [".a\\ b"], "an escaped space and the whitespace after it");
+  assert.deepEqual(c(".\\31  0{color:red}", ".\\31 0{color:red}"), [".\\31 0"], "a hex escape's own whitespace");
+  // A SELECTOR'S COLON: whitespace before it is a descendant combinator.
+  assert.deepEqual(c("@supports selector(a :hover){.x{color:red}}", "@supports selector(a:hover){.x{color:red}}"), [".x"], "a colon inside selector()");
+  assert.deepEqual(c("@scope (.card :hover){p{color:red}}", "@scope (.card:hover){p{color:red}}"), ["p"], "a colon in @scope's root");
+  assert.deepEqual(c(".card{& :hover{color:red}}", ".card{&:hover{color:red}}"), [".card"], "a colon in a nested rule's selector");
+});
+
+test("control: the formatting CSS ignores names nothing, with quoted values, escapes and conditions present", () => {
+  const c = changedSelectors;
+  assert.deepEqual(c(
+    "[data-label=\"a  b\"]{content:\"x  y\";margin:0 auto}@media (max-width:600px){.p{--c:\"£  \"}}",
+    "[data-label=\"a  b\"] {\n  content: \"x  y\";\n  margin: 0  auto;\n}\n@media (max-width: 600px) {\n  .p { --c: \"£  \"; }\n}\n"), [], "a quoted sheet pretty-printed");
+  assert.deepEqual(c(".a{x:1;;y:2;}", ".a{ x:1; y:2 }"), [], "empty declarations");
+  assert.deepEqual(c(".a{;x:1}", ".a{x:1}"), [], "a leading empty declaration");
+  assert.deepEqual(c("/* head */.a{/* c */x:1}", ".a{x:1}"), [], "comments");
+  assert.deepEqual(c(".a{x:1 ! important}", ".a{x:1!important}"), [], "the spacing of !important");
+  assert.deepEqual(c(".md\\:flex{display:flex}", ".md\\:flex { display: flex; }"), [], "an escaped colon, kept, beside formatting");
+  assert.deepEqual(c(".\\31 0{x:1}", ".\\31 0 { x: 1 }"), [], "a hex escape, kept, beside formatting");
+  assert.deepEqual(c(".a{background:url(a.png)}", ".a { background: url(a.png); }"), [], "an unquoted url, kept, beside formatting");
+  assert.deepEqual(c(".card{&:hover{color:red}}", ".card { &:hover { color : red; } }"), [], "a nested rule's declarations");
+  assert.deepEqual(c("@supports (display:grid){.a{x:1}}", "@supports (display : grid) { .a { x: 1 } }"), [], "a feature's colon in @supports");
+  assert.deepEqual(c("@container style(--t:\"a  b\"){.a{x:1}}", "@container style(--t : \"a  b\") {.a{x:1}}"), [], "a style query's colon, the quoted value kept");
+  assert.deepEqual(c("@scope ([data-label=\"a  b\"]){p{x:1}}", "@scope ([data-label=\"a  b\"]) {\n p { x: 1 }\n}"), [], "@scope, its quoted root kept");
+});
+
+test("an equivalence CSS does not establish reads as changed and is judged — never the other way", () => {
+  const c = changedSelectors;
+  // Two spellings of one value: the key does not unquote, so it cannot know.
+  assert.deepEqual(c("[data-label=\"a  b\"]{x:1}", "[data-label='a  b']{x:1}"), ["[data-label='a  b']"], "quote style");
+  // An empty item makes the whole selector list invalid.
+  assert.deepEqual(c(".a,,.b{x:1}", ".a,.b{x:1}"), [".a", ".b"], "an empty list item");
+  // U+00A0 is not CSS whitespace: it is part of the class name.
+  assert.deepEqual(c(".a\u00a0.b{x:1}", ".a .b{x:1}"), [".a .b"], "a no-break space");
+  // Whitespace inside an unquoted url() makes it a different token.
+  assert.deepEqual(c(".a{background:url(a,b)}", ".a{background:url(a, b)}"), [".a"], "the inside of an unquoted url");
+  // Only a declaration's own colon sheds its whitespace.
+  assert.deepEqual(c(".a{--x:a:b}", ".a{--x:a : b}"), [".a"], "a second colon in a value");
+});
+
+// A PROPERTY OVER RANDOM SHEETS, the formatting control at scale: whitespace and
+// comments added only where CSS ignores them — next to a `{`, `}`, `;` or `,`,
+// outside every string, escape and url — name nothing, in either direction;
+// and the sheets carry the constructs the key must not normalise.
+test("formatting added only where CSS ignores it names nothing, over random sheets with quoted values and escapes", () => {
+  const sels = ["[data-label=\"a  b\"]", "[data-x='p q']", ".md\\:flex", ".\\31 0", ".a\\ b", "header button", ".a, .b", "div > p", "& .n"];
+  const decls = ["content:\"a  b\"", "--c:\"£  \"", "font-family:\"Open  Sans\", serif", "background:url(a.png)", "margin:0 auto !important", "color:rgb(1,2,3)", "content:\"{;}\""];
+  const wrap = ["@media (max-width:600px)", "@supports selector([data-x=\"p  q\"])", "@scope ([data-label=\"a  b\"])", "@container style(--t:\"x  y\")"];
+  let seed = 20260927;
+  const rnd = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
+  const rule = () => sels[rnd(sels.length)] + "{" + decls[rnd(decls.length)] + ";" + decls[rnd(decls.length)] + "}";
+  const sheet = () => {
+    const out = [];
+    for (let j = 1 + rnd(6); j > 0; j--) out.push(rnd(3) ? rule() : wrap[rnd(wrap.length)] + "{" + rule() + "}");
+    return out.join("");
+  };
+  const SPACES = [" ", "\n", "\n  ", "\t", " /* note; } { */ "];
+  // Whitespace beside the four delimiters, stepping over strings, escapes and urls.
+  const format = (css) => {
+    let out = "";
+    for (let i = 0; i < css.length; i++) {
+      const ch = css[i];
+      if (ch === "\"" || ch === "'") { const j = css.indexOf(ch, i + 1); out += css.slice(i, j + 1); i = j; continue; }
+      if (ch === "\\") { out += css.slice(i, i + 2); i++; continue; }
+      if (css.startsWith("url(", i)) { const j = css.indexOf(")", i); out += css.slice(i, j + 1); i = j; continue; }
+      if ("{};,".includes(ch)) { out += (rnd(2) ? SPACES[rnd(SPACES.length)] : "") + ch + (rnd(2) ? SPACES[rnd(SPACES.length)] : ""); continue; }
+      out += ch;
+    }
+    return out;
+  };
+  let judged = 0, quoted = 0;
+  for (let k = 0; k < 1500; k++) {
+    const before = sheet(), after = format(before);
+    assert.deepEqual(changedSelectors(before, after), [], "formatting named a rule: " + JSON.stringify([before, after]));
+    assert.deepEqual(changedSelectors(after, before), [], "formatting named a rule (reversed): " + JSON.stringify([after, before]));
+    assert.deepEqual(plainSelectors(after), plainSelectors(before), "formatting moved what the service judges: " + JSON.stringify([before, after]));
+    judged += plainSelectors(before).length;
+    if (/["']/.test(before)) quoted++;
+  }
+  // THE OBSERVER IS ALIVE: the sheets had rules the service judges, and quoted
+  // values in them. MEASURED on this seed: 3,470 selectors judged, and 1,428 of
+  // the 1,500 sheets carrying a quoted value — the floors sit well under that.
+  assert.ok(judged > 2000, "the property judged almost nothing: " + judged);
+  assert.ok(quoted > 1000, "the sheets carried no quoted values: " + quoted);
+});
+
 // ── THE PROPERTY THE GATE RESTS ON ─────────────────────────────────────────
 //
 // Every name `changedSelectors` gives is one `plainSelectors` gives for the same
@@ -105,9 +219,12 @@ test("every selector changedSelectors names is one the build service would judge
   }
   // THE OBSERVER IS ALIVE, both ways: the battery produced selectors to compare
   // and pairs that name some and pairs that name none. MEASURED on this seed —
-  // 511 named of 1,062 judged, 2,489 of the 3,000 pairs naming nothing — and the
+  // 512 named of 1,062 judged, 2,488 of the 3,000 pairs naming nothing — and the
   // floors sit well under that, so a walker that stopped reading rules fails
-  // here rather than passing over nothing.
+  // here rather than passing over nothing. (511 and 2,489 before the key kept
+  // quoted text: ONE pair moved, measured pair by pair against the old module —
+  // the respacing mutation (`k === 1`) rewrites the brace inside `content:"{"`, a
+  // string whose value it changes, which the old key read as unchanged.)
   assert.ok(judgedAll > 800, "the battery judged almost nothing: " + judgedAll);
   assert.ok(named > 300 && named < judgedAll, "the battery named " + named + " of " + judgedAll);
   assert.ok(quiet > 1000 && quiet < 3000, "the battery did not exercise both an unchanged and a changed sheet: " + quiet);

@@ -498,6 +498,175 @@ test("a synchronous edit whose corrected build cannot be stored is a named failu
   assert.ok(!next.builds[0].includes("site-link"), "the next, unrelated edit shipped the correction nobody published");
 });
 
+// ── A QUOTED VALUE IS PART OF THE RULE (2026-09-26) ─────────────────────────
+//
+// Owner: *"Preserve meaningful whitespace and escapes inside quoted selectors,
+// declarations and at-rule conditions. Normalize only where equivalence is
+// established; uncertain differences should remain changed."*
+//
+// REPRODUCED on 933168ea, both money paths. The page carries
+// `data-label="a  b"` — two spaces — and the stored sheet's rule selects it. The
+// css lane, picked beside a menu change, answered the sheet back with the value
+// respaced to ONE space: a selector that matches nothing. The rule key
+// collapsed whitespace inside the quotes, so the working rule and the broken
+// one read as the same rule — the compiler was sent `cssVerify: []`, nothing
+// was judged, the edit published, and the screen said the look was updated.
+//
+// THE PAGE IS READ, NOT LISTED: `pageJudge` judges an attribute selector by the
+// value the page's own source carries, character for character, the way a
+// browser compares one — so the respaced selector is dead because the page
+// says so. A class and a bare tag are read off the source the same way; any
+// other selector is judged against `ON_PAGE`, as the rest of this file does.
+
+const LABEL = "a  b";
+const ON_LABEL = "[data-label=\"" + LABEL + "\"]";
+const RESPACED_SEL = "[data-label=\"a b\"]";
+const LABELLED = ON_LABEL + "{background:#f4e9d8}";
+const RESPACED = RESPACED_SEL + "{background:#f4e9d8}";
+const LABEL_PAGES = [
+  { path: "index.tsx", source: page("/", "<section data-label=\"" + LABEL + "\" className=\"price\"><h2>Welcome</h2><p>Bread every morning.</p><Link to=\"/visit\">Find us</Link></section>") },
+  STORED[1],
+];
+
+function pageJudge({ seen = null } = {}) {
+  return (n, sent) => {
+    const sheet = readCss(sent && sent.css).css;
+    const looked = selectorsToJudge(sheet, sent && sent.cssVerify);
+    const src = Object.values((sent && sent.files) || {}).join("\n");
+    assert.ok(src.includes("data-label="), "the build carried no page source, so this judges nothing");
+    const live = (s) => {
+      let m = s.match(/^\[([\w-]+)="([^"]*)"\]$/);
+      if (m) return src.includes(m[1] + "=\"" + m[2] + "\"");
+      m = s.match(/^\.([\w-]+)$/);
+      if (m) return new RegExp("className=\"(?:[^\"]*\\s)?" + m[1] + "(?:\\s[^\"]*)?\"").test(src);
+      if (/^[a-z]+$/.test(s)) return src.includes("<" + s + ">") || src.includes("<" + s + " ");
+      return ON_PAGE.includes(s);
+    };
+    const dead = looked.filter((s) => !live(s));
+    if (seen) seen.push({ looked, dead });
+    return { ok: true, checked: 2, pages: 1, findings: [], ...(dead.length ? { deadSelectors: dead, selectorsLooked: looked.length } : {}), landmarks: [] };
+  };
+}
+
+function labelSite(mode, css = LABELLED) {
+  const slug = "fail-" + mode + "-" + hex32().slice(0, 8);
+  const b = bucket(slug);
+  b.store.set("source/" + slug + "/pages.json", JSON.stringify(LABEL_PAGES));
+  b.store.set(CONFIG_KEY(slug), JSON.stringify({ look: LOOK, css }));
+  return { slug, b };
+}
+
+const sheetOf = (build) => JSON.parse(build).css;
+
+test("the page judge reads the page: the stored rule is live and the respaced one is not", () => {
+  const seen = [];
+  const files = { "src/routes/index.tsx": LABEL_PAGES[0].source };
+  pageJudge({ seen })(1, { css: LABELLED + "\n" + RESPACED, files });
+  assert.deepEqual(seen, [{ looked: [ON_LABEL, RESPACED_SEL], dead: [RESPACED_SEL] }]);
+});
+
+for (const mode of ["sync", "job"]) {
+  test("a rule whose quoted value the lane respaced is sent to be judged, found dead against the page, and corrected (" + mode + ")", async () => {
+    const looked = [];
+    const r = await drive({ mode, site: labelSite(mode), routed: { layer: "look" }, ask: LINK_ASK, pick: PICK_CSS_LINK, lanes: [{ css: RESPACED }, { css: LABELLED }], nav: LINK_TO_HOME, render: pageJudge({ seen: looked }) });
+    // THE VERIFICATION PAYLOAD: the first publish is held for the respaced rule
+    // — the defect sent `[]` — and for nothing the request left as it was.
+    assert.deepEqual(verified(r)[0], [RESPACED_SEL], "the first publish was not held for the rule whose quoted value moved");
+    assert.equal(sheetOf(r.builds[0]), RESPACED, "the first build did not carry the lane's answer");
+    // THE CHECK JUDGED THAT RULE AGAINST THE PAGE, AND IT MATCHES NOTHING.
+    assert.deepEqual(looked[0], { looked: [RESPACED_SEL], dead: [RESPACED_SEL] }, "the respaced rule was not judged, or was not found dead");
+    // THE CORRECTION WAS ASKED ABOUT IT, AND ONLY IT.
+    assert.deepEqual(r.models, [T.pick, T.lane, T.nav, T.lane], "not the picker, the css lane, the menu call and the one correction");
+    assert.deepEqual(correctionAsked(r), [RESPACED_SEL], "the correction round was not asked about the respaced rule");
+    assert.equal(r.builds.length, 2, "not the build and the one rebuild");
+    // THE SECOND PUBLISH: a job verifies what the corrected sheet still differs
+    // by — nothing, it is the sheet the site had — and the synchronous path
+    // verifies nothing, as before.
+    assert.deepEqual(verified(r)[1], mode === "job" ? [] : undefined, "the second publish was held for the wrong rules");
+    assert.equal(sheetOf(r.builds[1]), LABELLED, "the rebuild did not carry the correction");
+    assert.equal(r.reply && r.reply.ok, true, "the corrected edit did not publish: " + JSON.stringify(r.reply));
+    if (mode === "job") assert.equal(r.committed, true, "the corrected edit was not committed");
+    // WHAT IS STORED: the rule the page matches, byte for byte — and the menu change.
+    assert.equal(r.config.css, LABELLED, "the stored stylesheet is not the correction");
+    assert.match(r.builds[1], /<Link to=\\"\/\\">Find us<\/Link>/, "the menu change is not in the published build");
+    // THE LEDGER: the css lane and the menu call; the correction is not billed.
+    if (mode === "sync") {
+      assert.deepEqual(r.debits, [2, 1], "not the css lane and the menu call collected");
+      assert.deepEqual(r.credited, [], "a refund was made");
+    } else {
+      assert.deepEqual(r.reserves, [2, 1], "not the css lane and the menu call reserved");
+      assert.equal(r.row.billing, "finalized", "the job was not settled");
+    }
+    assert.equal(r.reply.cost, 3, "the reply's cost is not what the ledger holds");
+    // THE SCREEN, AS THE LOOK BRANCH COMPOSES IT — from the lane's first answer,
+    // so it says the look was updated though the stored sheet ended as the site
+    // had it, and it names no menu change (review #9). Recorded, not this
+    // correction's to change.
+    assert.equal(r.said.text, LOOK_SAID);
+    assert.deepEqual(r.said.actions, ["refresh the credit balance"]);
+  });
+}
+
+test("a respaced quoted value the correction does not put right is refused: nothing published, the stylesheet put back, and the next edit ships the rule the page matches (job)", async () => {
+  const looked = [];
+  const r = await drive({ mode: "job", site: labelSite("job"), routed: { layer: "look" }, ask: LINK_ASK, pick: PICK_CSS_LINK, lanes: [{ css: RESPACED }, { css: RESPACED }], nav: LINK_TO_HOME, render: pageJudge({ seen: looked }) });
+  // BOTH PUBLISHES ASKED ABOUT THE RESPACED RULE, AND BOTH FOUND IT DEAD.
+  assert.deepEqual(verified(r), [[RESPACED_SEL], [RESPACED_SEL]], "the publishes were not held for the respaced rule");
+  assert.deepEqual(looked.map((l) => l.dead), [[RESPACED_SEL], [RESPACED_SEL]], "the respaced rule was not found dead twice");
+  assert.deepEqual(correctionAsked(r), [RESPACED_SEL]);
+  // REFUSED, AND NOTHING WENT OUT.
+  assert.equal(r.reply && r.reply.ok, false, "a rule that still matches nothing was published: " + JSON.stringify(r.reply));
+  assert.equal(r.reply.error, "unverified", JSON.stringify(r.reply));
+  assert.equal(r.committed, false, "the refused edit was committed");
+  assert.deepEqual([...r.site.b.store.keys()].filter((k) => k.startsWith("current/")), [], "a version was activated");
+  // PUT BACK: the stored sheet is the one the page matches.
+  assert.equal(r.config.css, LABELLED, "the respaced stylesheet is still stored");
+  assert.deepEqual(r.reserves, [2, 1], "not the css lane and the menu call reserved");
+  assert.equal(r.row.billing, "refunded", "the refused job was not refunded");
+  assert.equal(r.said.text, "⚠️ " + STOPPED + " This edit cost you nothing. Reading your message cost 2 credits.");
+  assert.deepEqual(r.said.actions, [], "a refusal started something");
+  // AND THE NEXT, UNRELATED EDIT SHIPS THE RULE THE PAGE MATCHES.
+  const next = await drive({ mode: "sync", routed: { layer: "look" }, ask: NAME_ASK, pick: { fields: ["brand"] }, lanes: [{ brand: "Harbour Loaf Co" }], site: r.site, render: pageJudge() });
+  assert.equal(next.reply && next.reply.ok, true, "the next message did not go through: " + JSON.stringify(next.reply));
+  assert.equal(next.builds.length, 1, "the next message did not build once");
+  assert.equal(sheetOf(next.builds[0]), LABELLED, "the next, unrelated edit did not ship the stored rule");
+});
+
+// A QUOTED DECLARATION AND A QUOTED AT-RULE CONDITION, and nothing else moved:
+// each changes the rule it belongs to, so each rule is sent to be judged. The
+// check reads a rule's own selector — whether an `@scope` root exists is not
+// something it reads — so what these cases hold is what is SENT.
+const QUOTED_BEFORE = LABELLED + "\n.price{--currency:\"£  \"}\n@scope (" + ON_LABEL + "){p{color:#014421}}";
+const QUOTED_AFTER = LABELLED + "\n.price{--currency:\"£ \"}\n@scope (" + RESPACED_SEL + "){p{color:#014421}}";
+// THE SAME SHEET AS CSS READS IT — only whitespace CSS ignores added, every
+// quoted value as it was.
+const QUOTED_PRETTY = ON_LABEL + " {\n  background: #f4e9d8;\n}\n\n.price {\n  --currency: \"£  \";\n}\n\n/* scoped to the band */\n@scope (" + ON_LABEL + ") {\n  p {\n    color: #014421;\n  }\n}";
+
+for (const mode of ["sync", "job"]) {
+  test("a rule whose quoted declaration or quoted at-rule condition changed is sent to be judged, and no other (" + mode + ")", async () => {
+    const looked = [];
+    const r = await drive({ mode, site: labelSite(mode, QUOTED_BEFORE), routed: { layer: "look" }, ask: CSS_ASK, pick: PICK_CSS, lanes: [{ css: QUOTED_AFTER }], render: pageJudge({ seen: looked }) });
+    assert.deepEqual(verified(r), [[".price", "p"]], "the publish was not held for exactly the two rules whose quoted text changed");
+    assert.deepEqual(looked, [{ looked: [".price", "p"], dead: [] }], "the check did not judge exactly those two rules");
+    assert.deepEqual(r.models, [T.pick, T.lane], "a correction ran for rules the page matches");
+    assert.equal(r.reply && r.reply.ok, true, JSON.stringify(r.reply));
+    assert.equal(r.config.css, QUOTED_AFTER, "the lane's answer was not stored");
+    assert.equal(r.said.text, LOOK_SAID);
+  });
+
+  test("control: the same sheet answered back with only the whitespace CSS ignores is sent to be judged for nothing (" + mode + ")", async () => {
+    const looked = [];
+    const r = await drive({ mode, site: labelSite(mode, QUOTED_BEFORE), routed: { layer: "look" }, ask: CSS_ASK, pick: PICK_CSS, lanes: [{ css: QUOTED_PRETTY }], render: pageJudge({ seen: looked }) });
+    assert.deepEqual(verified(r), [[]], "a reformatted sheet was held for a rule");
+    assert.deepEqual(looked, [{ looked: [], dead: [] }], "a reformatted sheet had a rule judged");
+    assert.deepEqual(r.models, [T.pick, T.lane], "a reformatted sheet bought a correction");
+    assert.equal(r.builds.length, 1, "not one build");
+    assert.equal(r.reply && r.reply.ok, true, JSON.stringify(r.reply));
+    assert.equal(r.config.css, QUOTED_PRETTY, "the lane's answer was not stored");
+    assert.equal(r.said.text, LOOK_SAID);
+  });
+}
+
 // ── THE VERIFY CATCH IS NOT REACHED BY ANY FAILURE THE ROUND CAN MEET ───────
 //
 // The correction round runs inside a try whose catch puts the design back and

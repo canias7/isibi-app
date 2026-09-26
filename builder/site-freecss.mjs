@@ -479,15 +479,22 @@ export function judgeableSelector(sel) {
  * prelude starts, and the day they differed a rule this request broke would
  * slip through the match unjudged: the silent direction. So each rule carries
  * the selectors `plainSelectors` has always taken from it, and its `ctx` (the
- * at-rules around it) and `body` (the declarations) ride beside them for the
- * one question only the edit route asks — is this rule new?
+ * at-rules around it), `prelude` and `body` (the declarations) ride beside them
+ * for the one question only the edit route asks — is this rule new?
+ *
+ * THOSE THREE ARE THE SHEET'S OWN TEXT, comments and all, cut at the walker's
+ * offsets — which blanking comments does not move, being length-preserving —
+ * because the blanked copy is not the sheet: it turns a comment-shaped run
+ * inside a quoted value into spaces, and a key reading it would call two
+ * different values the same. `ruleKey` reads them the way CSS does.
  */
 function styleRules(css) {
   if (typeof css !== "string" || !css.trim()) return [];
   const src = blankComments(css);
   const rules = [];
-  // A prelude is everything since the last `{`, `}` or `;` at this level.
-  let buf = "", quote = "";
+  // A prelude is everything since the last `{`, `}` or `;` at this level, and
+  // `from` is where it began in the sheet.
+  let buf = "", quote = "", from = 0;
   // One frame per open block: what `descend` was outside it, the at-rule it
   // opened when that is one we read rules inside, and the rule it opened.
   const stack = [];
@@ -498,7 +505,9 @@ function styleRules(css) {
     if (ch === '"' || ch === "'") { quote = ch; buf += ch; continue; }
     if (ch === "{") {
       const prelude = buf.trim();
+      const text = css.slice(from, i);
       buf = "";
+      from = i + 1;
       const isAt = prelude.startsWith("@");
       // AN AT-RULE EITHER CONTAINS RULES OR IT DOES NOT, and only the first
       // kind is worth walking into. Listed by what they CONTAIN rather than by
@@ -510,12 +519,12 @@ function styleRules(css) {
       if (!isAt && descend) {
         rule = {
           ctx: stack.filter((f) => f.at !== null).map((f) => f.at),
-          prelude, body: null, start: i,
+          prelude: text, body: null, start: i,
           selectors: splitSelectors(prelude).filter((one) => judgeableSelector(one)),
         };
         rules.push(rule);
       }
-      stack.push({ descend, at: isAt && into ? prelude : null, rule });
+      stack.push({ descend, at: isAt && into ? text : null, rule });
       // Inside a plain style rule sit declarations, not rules — so stop reading
       // preludes until it closes. Nested CSS would put rules there, and those
       // carry `&`, which `judgeableSelector` already refuses.
@@ -524,17 +533,18 @@ function styleRules(css) {
     }
     if (ch === "}") {
       buf = "";
+      from = i + 1;
       const f = stack.pop();
-      if (f && f.rule) f.rule.body = src.slice(f.rule.start + 1, i);
+      if (f && f.rule) f.rule.body = css.slice(f.rule.start + 1, i);
       descend = f ? f.descend : true;
       continue;
     }
-    if (ch === ";" && !stack.length) { buf = ""; continue; }
+    if (ch === ";" && !stack.length) { buf = ""; from = i + 1; continue; }
     buf += ch;
   }
   // A RULE THE SHEET NEVER CLOSED still names its selectors, as it always has;
   // its body is whatever follows.
-  for (const r of rules) if (r.body === null) r.body = src.slice(r.start + 1);
+  for (const r of rules) if (r.body === null) r.body = css.slice(r.start + 1);
   return rules;
 }
 
@@ -548,23 +558,229 @@ export function plainSelectors(css) {
   return out;
 }
 
+// ── WHAT MAKES TWO RULES THE SAME RULE ──────────────────────────────────────
+//
+// The at-rules around it, its selector list and its declarations, each spelled
+// ONE way — so a lane that answers the whole sheet back reformatted has changed
+// nothing, while a rule whose colour, selector or place moved is a different
+// rule, and is judged.
+//
+// ⚠ THE FIRST KEY COLLAPSED WHITESPACE EVERYWHERE, THE INSIDE OF A QUOTED VALUE
+// INCLUDED (2026-09-26, owner: *"Preserve meaningful whitespace and escapes
+// inside quoted selectors, declarations and at-rule conditions. Normalize only
+// where equivalence is established; uncertain differences should remain
+// changed."*). `[data-label="a  b"]` and `[data-label="a b"]` match different
+// elements and read as one rule, so a lane that respaced the value shipped a
+// selector matching nothing with nothing judged — reproduced through the queued
+// edit route: `cssVerify: []`, one build, committed, "Updated the look".
+//
+// SO THE KEY READS THE SHEET'S OWN TEXT THE WAY CSS DOES, AND APPLIES ONLY THE
+// EQUIVALENCES CSS ITSELF DEFINES:
+//
+//   · a run of whitespace is one whitespace — the tokenizer makes it one token;
+//   · a comment is whitespace — the walker's reading, and so the judge's;
+//   · whitespace at either end, and next to: a `,`; a `{`, `}` or `;` at the top
+//     of a block; the `!` of a declaration; a declaration's own colon, and the
+//     colon of a feature in a condition — `(max-width: 600px)`;
+//   · an empty declaration — a `;` with no declaration before it in its block,
+//     or none after it: `{;a:1;;b:2;}` is `{a:1;b:2}`.
+//
+// EVERYTHING ELSE IS KEPT AS WRITTEN, and a difference there reads as CHANGED
+// and is judged — what every rule was before the key existed. A string, all of
+// it; an escape, with the one whitespace a hex escape consumes (`\31 0` is the
+// class "10", `\31  0` a class and a descendant); an unquoted `url(…)`, which is
+// one token; and every colon in a SELECTOR — the rule's own, a nested rule's,
+// `@scope`'s root and `selector()`'s argument — where whitespace before it is a
+// combinator: `a :hover` is not `a:hover`. It never lowercases, reorders or
+// unquotes, so `'a'` and `"a"` are two spellings of one value and read as a
+// change: uncertain, therefore changed.
+
+const CSS_SPACE = /[ \t\n\r\f]/;
+const HEX_DIGIT = /[0-9a-fA-F]/;
+const NAME_CHAR = /[\w\-\u0080-\uffff]/;
+/** A run of whitespace, or a comment. */
+const GAP = Object.freeze({ gap: true });
+
+/** CSS text as pieces: a GAP, `{ raw }` kept exactly as written, or one character. */
+function cssPieces(text) {
+  const out = [];
+  const n = text.length;
+  let i = 0;
+  while (i < n) {
+    const ch = text[i];
+    // A STRING, to its closing quote — past an escaped one — or to the end.
+    if (ch === '"' || ch === "'") {
+      let j = i + 1;
+      while (j < n && text[j] !== ch) j += text[j] === "\\" ? 2 : 1;
+      j = Math.min(j + 1, n);
+      out.push({ raw: text.slice(i, j) });
+      i = j;
+      continue;
+    }
+    // AN ESCAPE: the backslash and the character it escapes, or up to six hex
+    // digits and the ONE whitespace that ends them, which belongs to the escape.
+    if (ch === "\\") {
+      let j = i + 1;
+      if (j < n && HEX_DIGIT.test(text[j])) {
+        const stop = Math.min(n, j + 6);
+        while (j < stop && HEX_DIGIT.test(text[j])) j++;
+        if (j < n && CSS_SPACE.test(text[j])) j += text[j] === "\r" && text[j + 1] === "\n" ? 2 : 1;
+      } else if (j < n) j++;
+      out.push({ raw: text.slice(i, j) });
+      i = j;
+      continue;
+    }
+    if (ch === "/" && text[i + 1] === "*") {
+      const end = text.indexOf("*/", i + 2);
+      // AN UNCLOSED COMMENT IS KEPT: that what follows it is nothing is not established.
+      if (end < 0) { out.push({ raw: text.slice(i) }); break; }
+      out.push(GAP);
+      i = end + 2;
+      continue;
+    }
+    if (CSS_SPACE.test(ch)) {
+      while (i < n && CSS_SPACE.test(text[i])) i++;
+      out.push(GAP);
+      continue;
+    }
+    // AN UNQUOTED url(…) IS ONE TOKEN: a comma, a colon or a `/*` inside it is
+    // part of the address, and whitespace inside it makes it a different token.
+    if (ch === "(" && /(?:^|[^\w\-\\\u0080-\uffff])url$/i.test(text.slice(Math.max(0, i - 4), i))) {
+      let j = i + 1;
+      while (j < n && CSS_SPACE.test(text[j])) j++;
+      if (text[j] !== '"' && text[j] !== "'") {
+        while (j < n && text[j] !== ")") j += text[j] === "\\" ? 2 : 1;
+        j = Math.min(j + 1, n);
+        out.push({ raw: text.slice(i, j) });
+        i = j;
+        continue;
+      }
+    }
+    out.push(ch);
+    i++;
+  }
+  return out;
+}
+
+/** The name spelled by the characters just before piece `k`, with nothing between. */
+function nameBefore(pieces, k) {
+  let name = "";
+  for (let j = k - 1; j >= 0 && typeof pieces[j] === "string" && NAME_CHAR.test(pieces[j]); j--) name = pieces[j] + name;
+  return name;
+}
+
+/** A selector list: only the comma separating two of them sheds its whitespace. */
+function selectorTight(pieces) {
+  return pieces.map((p) => p === ",");
+}
+
 /**
- * WHAT MAKES TWO RULES THE SAME RULE: the at-rules around it, its selector list
- * and its declarations, compared with the whitespace CSS ignores taken out — so
- * a lane that answers the whole sheet back reformatted has changed nothing,
- * while a rule whose colour, selector or place moved is a different rule.
- *
- * THE NORMALISATION ONLY EVER ERRS TOWARDS "CHANGED". It removes whitespace
- * around punctuation where CSS gives it no meaning and collapses the rest; it
- * never lowercases, reorders or unquotes. A rule respelled some other way is
- * read as changed and judged, which is what every rule was before this existed.
+ * An at-rule's condition. A feature's colon — `(max-width: 600px)`, `(display:
+ * grid)`, `style(--x: 1)` — sheds its whitespace; a colon inside `selector(…)`,
+ * or anywhere in `@scope`'s prelude, is a selector's and does not.
  */
+function conditionTight(pieces) {
+  const tight = pieces.map(() => false);
+  let k0 = 0;
+  while (pieces[k0] === GAP) k0++;
+  let head = pieces[k0] === "@" ? "@" : "";
+  for (let j = k0 + 1; head && typeof pieces[j] === "string" && NAME_CHAR.test(pieces[j]); j++) head += pieces[j];
+  const scope = head.toLowerCase() === "@scope";
+  const groups = [];
+  for (let k = 0; k < pieces.length; k++) {
+    const p = pieces[k];
+    if (p === "(") groups.push(nameBefore(pieces, k).toLowerCase() === "selector");
+    else if (p === "[") groups.push(false);
+    else if ((p === ")" || p === "]") && groups.length) groups.pop();
+    else if (p === ",") tight[k] = true;
+    else if (p === ":" && !scope && groups.length && !groups.includes(true)) tight[k] = true;
+  }
+  return tight;
+}
+
+/** One declaration: its own colon, the `!` of `!important`, and commas shed whitespace. */
+function declarationTight(pieces) {
+  const tight = pieces.map(() => false);
+  let depth = 0, named = false;
+  for (let k = 0; k < pieces.length; k++) {
+    const p = pieces[k];
+    if (p === "(" || p === "[") depth++;
+    else if ((p === ")" || p === "]") && depth > 0) depth--;
+    else if (p === ",") tight[k] = true;
+    else if (depth === 0 && p === "!") tight[k] = true;
+    else if (depth === 0 && p === ":" && !named) { tight[k] = true; named = true; }
+  }
+  return tight;
+}
+
+/**
+ * A rule's block: split at the `{`, `}` and `;` at its top level, each piece
+ * between read as what it is — a nested rule's selector, a nested at-rule's
+ * condition, or a declaration — and each empty declaration dropped.
+ */
+function blockTight(pieces) {
+  const tight = pieces.map(() => false);
+  const drop = pieces.map(() => false);
+  const cuts = [];
+  let depth = 0, from = 0;
+  for (let k = 0; k < pieces.length; k++) {
+    const p = pieces[k];
+    if (p === "(" || p === "[") depth++;
+    else if ((p === ")" || p === "]") && depth > 0) depth--;
+    else if (depth === 0 && (p === ";" || p === "{" || p === "}")) { cuts.push([from, k, p]); tight[k] = true; from = k + 1; }
+  }
+  cuts.push([from, pieces.length, null]);
+  for (const [a, b, end] of cuts) {
+    const seg = pieces.slice(a, b);
+    const first = seg.find((p) => p !== GAP);
+    const t = end !== "{" ? declarationTight(seg) : first === "@" ? conditionTight(seg) : selectorTight(seg);
+    for (let k = 0; k < t.length; k++) tight[a + k] = t[k];
+  }
+  let kept = null;
+  for (let k = 0; k < pieces.length; k++) {
+    const p = pieces[k];
+    if (p === GAP) continue;
+    if (p === ";" && tight[k]) {
+      let j = k + 1;
+      while (pieces[j] === GAP) j++;
+      const next = j < pieces.length ? pieces[j] : null;
+      if (kept === null || kept === "{" || kept === "}" || kept === ";" || next === null || next === "}" || next === ";") { drop[k] = true; continue; }
+    }
+    kept = typeof p === "string" ? p : "raw";
+  }
+  return { tight, drop };
+}
+
+/** The pieces spelled one way: a GAP is one space unless a tight piece is beside it. */
+function spell(pieces, tight, drop = null) {
+  let out = "", gap = false, prevTight = true;
+  for (let k = 0; k < pieces.length; k++) {
+    const p = pieces[k];
+    if (p === GAP) { gap = true; continue; }
+    if (drop && drop[k]) continue;
+    if (gap && !prevTight && !tight[k]) out += " ";
+    out += typeof p === "string" ? p : p.raw;
+    prevTight = tight[k];
+    gap = false;
+  }
+  return out;
+}
+
+function spellCss(text, kind) {
+  const pieces = cssPieces(String(text || ""));
+  if (kind === "block") {
+    const { tight, drop } = blockTight(pieces);
+    return spell(pieces, tight, drop);
+  }
+  return spell(pieces, kind === "condition" ? conditionTight(pieces) : selectorTight(pieces));
+}
+
 function ruleKey(r) {
-  const ws = (s) => String(s || "").replace(/\s+/g, " ").trim();
-  const ctx = r.ctx.map((c) => ws(c).replace(/\s*([:,])\s*/g, "$1")).join("\u0001");
-  const sel = splitSelectors(r.prelude).map(ws).join(",");
-  const body = ws(r.body).replace(/\s*([;:{},!])\s*/g, "$1").replace(/;+(?=}|$)/g, "");
-  return ctx + "\u0002" + sel + "\u0003" + body;
+  return JSON.stringify([
+    r.ctx.map((c) => spellCss(c, "condition")),
+    spellCss(r.prelude, "selector"),
+    spellCss(r.body, "block"),
+  ]);
 }
 
 /**
