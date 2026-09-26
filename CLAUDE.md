@@ -41,8 +41,14 @@ build ran the new browser control in a real Chromium: 22 of 22.
 `05750a5120d33570`, all free checks passed, and the balance was 91. The session's own
 attempt at 06:08:20Z had answered **403**. Deploy 2160's moment was never read live;
 its code is live as part of 2161.
-Test 3 (the full writer) is prepared for deploy 2161 and waits for spending approval.
-Run 33's before-read matches its recorded starting source on all six bodies.
+**Test 3 ran as the owner's paid press, run 34** (36224239033, 2026-09-26 06:43 UTC),
+and **all seven acceptance items hold**. The full writer removed "The first eight
+chords" and nothing else. The route was the router's `look`, the `components` lane,
+then the page rung. The quick writer declined, and both preservation checks let the
+change through. It cost route 2 + edit 16 = 18, leaving a balance of 73. The live
+page at the job's own version `01790404806543-kk6qsh` is exactly the before page
+without that section. The verdicts are inferred from the publish, not captured,
+and #418 stays open.
 Remaining scope: [edit-path checklist](docs/investigations/edit-path-checklist.md).
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
@@ -8986,7 +8992,7 @@ boundary, not whitespace*. **Every model answer in its evidence is supplied.**
     run 32's after-read first (6 of 6), and against run 32's BEFORE-read it
     finds exactly `index.tsx` changed, which is the section move.
 
-### TEST 3 — THE FULL PAGE WRITER, REVISED (2026-09-25, prepared, NOT dispatched)
+### TEST 3 — THE FULL PAGE WRITER, REVISED (2026-09-25, prepared; pressed 2026-09-26 as run 34, below)
 
 **PREREQUISITE — MET 2026-09-26**: merged and deployed at `7384ddba` (deploy
 2160), carrying the deployed guard (`ce913d06` + `8c0d67a1` + `d6f5e55e` +
@@ -9071,6 +9077,125 @@ Deploy 2161 did not touch the text guard; this confirms it.
   `d580389f971cdd31`, `chord-diagram` `d0c20d52f91d69d2`, `trial-booking-form`
   `4b66386c0ad46092`, `day-space-lookup` `4b162037f67df545`. The paid press's
   own before-read must equal this, or the run is not Test 3.
+
+### RUN 34 — TEST 3: THE FULL WRITER REMOVED THE SECTION, AND ALL SEVEN ITEMS HOLD (2026-09-26)
+
+The owner's paid press: `36224239033`, from `main` at `0de188ff`, job
+06:36:00 → 06:43:09Z, canary step 6m56s. **It counts as Test 3.** The request
+is the sheet's byte for byte (63 chars, 67 bytes, sha256 `48bdbf475e1718e6…`,
+`source: CANARY_INSTRUCTION`). Its own before-read (all `reads` true) matches
+all six recorded bodies. The preflight passed with both expectations. A stored
+reply arrived.
+
+- **ROUTING, AND THE PATH.** The router was given `/, /prices, /gear` and
+  answered `intent=edit layer=look page=/` in 17.0 s for 2 credits
+  (`6,759 in / 19 out`). **It chose `look`, not `page`.** The look door's
+  picker chose the `components` lane (`pick_lanes` 32,554 ms), which dispatches
+  to the page rung.
+  - **The router named the page on a `look` answer**, which is the field deploy
+    2147 opened and no live run had shown filled until now. n=1, and `/` is
+    also the default, so this does not show the router naming a non-home page.
+- **WHICH WRITER RAN, off the stored reply.** `tweak` is absent.
+  - `tweakUsage` is `8,359 in / 67 out`: the quick writer tried and declined
+    without re-emitting the page. Its reason is still not on the wire.
+  - The full writer's call is on `usage`: `25,077 in / 8,011 out`.
+  - `keepUsage` is `931 in / 46 out`: the preservation judge ran.
+  - The fourth usage entry, `2,248 / 20`, is the lane picker.
+  - All four calls are `grok-4.6`.
+  - **So full-writer coverage IS claimed this time**: `tweak` is absent and
+    the full writer's usage is on the reply.
+- **BOTH PRESERVATION CHECKS PASSED ON A REAL MODEL'S ANSWER, read from code
+  plus outcome.** On the deployed code, `keepCheck` and then
+  `preservePageProse` are asked of the full writer's answer before
+  `publishStep` (`worker.js` at `0de188ff`).
+  - The answer lost one of the site's own components (the `ChordDiagram`
+    grid), so the judge was asked, and the edit published.
+  - It lost literal JSX prose (the heading and its paragraph), and the text
+    guard let it through. The request is an explicit removal of an exact
+    heading, qualified by "from the home page" on the page being edited.
+  - **Neither verdict is on the wire**, so what each decided is inferred from
+    the publish.
+  - This is the first publish by the full writer since the text guard deployed
+    (2158). Run 32 published through the quick writer, and run 31 published
+    nothing.
+- **PUBLISHED AT THE JOB'S OWN VERSION.**
+  - A stored 200 arrived under `x-gf-edit: final` at 376.5 s (116 polls, 0
+    transient).
+  - Job states: `claimed` (cost 0) to ~198 s, `routing` (cost 16) from
+    ~211 s, `publishing` at ~367 s. These are intervals, not attributed.
+  - The live header moved `01790360265159-n7mtnq` →
+    **`01790404806543-kk6qsh`**, minted **06:40:06.543Z**, 1.8 s after the
+    reserve.
+  - `compare.json` reads **VERIFIED**: every after-page was read at `kk6qsh`,
+    the before at `n7mtnq`, and the wait matched on its first read.
+  - The job row reads `done`, `billing: finalized`, `cost 16`,
+    `worker_status 200`, `published_at` 06:42:55.117Z. `phase_ms` has
+    `publish:1` 173,560, `stage` 31,483 and `activate` 7,498.
+- **THE STORED SOURCE IS EXACTLY THE REQUESTED REMOVAL.**
+  - `index.tsx` went 26,563 → **24,654** chars, sha `1d5a606968fd60c1`.
+  - The chords block is gone. Every other top-level render block is
+    byte-identical and in its own order, and so is everything below them.
+  - The now-unused `ChordDiagram` import and the `CHORDS` data went too, which
+    is noted, not failed. Apart from those two, the code above the render is
+    byte-identical.
+  - The token multiset lost exactly the removed code's **487** tokens and
+    gained **0**.
+  - **The page is byte-identical to the removal built by hand as the
+    evaluator's control** (the same sha). The evaluator was proved alive first
+    on four controls: two correct removals passed, and a collateral paragraph
+    loss and an unrelated code edit were each flagged.
+  - ⚠ The evaluator's first controls were themselves broken. The bad control's
+    anchor text did not exist, so it compared a good page against itself. And
+    the `CHORDS` span ended at the first `];`, which sits inside the type
+    annotation. Both were fixed before the run was read.
+- **THE OTHER FIVE FILES ARE BYTE-IDENTICAL** (`prices.tsx`, `gear.tsx`,
+  `chord-diagram`, `trial-booking-form`, `day-space-lookup`, each at its
+  recorded sha). `chord-diagram` stays stored though no page renders it.
+- **THE LIVE PAGE, in a real Chromium over TLS-verified live bytes, at
+  `kk6qsh`.**
+  - NAV 200. The headings read exactly *Book a guitar lesson · A guitar you
+    can turn · September 2026 · Space on a preferred day · Book a trial lesson
+    · Book a trial lesson*.
+  - There are **0** chord diagrams (`svg[role=img][aria-label$=" chord"]`),
+    and neither the heading nor any chord name appears.
+  - **The rendered text is exactly the before-reading's with the chords
+    section cut out**: 543 → 450 words, 0 gained. The before-reading was taken
+    at 06:39Z on `n7mtnq`, before the publish landed.
+  - The guitar draws: the canvas is 1096×420 on WebGL 2, and a 240 px drag
+    changed 2.4% of its pixels. Those are run 32's figures again.
+  - The day box before a day is chosen reads *Choose a day to check space.*
+  - The real `bookings_on_day` answered 200 on four days: 2026-09-17 → `1` →
+    *5 places left.*, and the rest → `0` → *Six places left.*
+  - Hosts are the site and `static.cloudflareinsights.com`. There were **0**
+    console errors, page errors, failed requests or non-OK responses.
+  - `/prices` and `/gear` render text and headings identical to the
+    before-reading. `/prices`' three 502 console errors, from its `gbp_eur`
+    outside connection (one call plus two retries), were in the before-reading
+    too.
+  - `/fr` and `/es` serve `kk6qsh` and lost the translated heading and all 8
+    diagrams, keeping everything else.
+- **MONEY CLOSES EXACTLY: 91 → 73 = route 2 + edit 16**, at the bottom of the
+  18–27 band quoted before the press.
+  - `credit_events` holds ONE row for the job: `reserve −16`,
+    `balance_after 73`, ref `<job>#1`, 06:40:04.716Z. There is no refund.
+  - The routing charge writes no ledger row, as recorded.
+  - `langs` fr and es are `cached`, `missing: 0`, so no translation was
+    charged.
+- **THE REPLY**: *"✅ Updated /. I had a look at the finished pages: 3 pages
+  threw an error and 6 pages reads something the check can't reach, so I
+  couldn't see it with real data."*
+  - *"Updated /"* is true. It names the page, not the removal; the replies are
+    composed deterministically, which is the recorded future-preference item.
+  - The render check read 9 pages. It found #418 at phone width on `/`, `/es`
+    and `/fr` (the known, parked finding), plus 6 `unmet` by design. It is
+    passed on, not verified.
+  - `deadSelectors` are the same two as before. `problems` is `[]`.
+  - `changed: []` and `moved: []` are the recorded empty-merge quirk, not an
+    inventory.
+- **WHAT IT DOES NOT ESTABLISH**: one sentence on one site. The writer's
+  prompt, the quick writer's decline reason and both preservation verdicts are
+  not captured. #418 stays open. **The site now serves the section removed**;
+  the restore mode puts `n7mtnq` back for free if the owner wants it.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
@@ -11625,7 +11750,10 @@ because `buildFloor` refuses before spending and the refusal reads as a broken
 build. **Balance 91** at run 32's end (2026-09-25, the section move: **101 → 91,
 moved 10**, route 2 + the page rung's 8, closing exactly, on a run that
 published; the ledger holds one reserve of 8 and no refund), **and run 33's free
-press read 91 again** (2026-09-26 06:24Z, nothing spent between). **Between run 31 and
+press read 91 again** (2026-09-26 06:24Z, nothing spent between). **Balance 73**
+at run 34's end (2026-09-26, Test 3: **91 → 73, moved 18**, route 2 + the page
+rung's 16, closing exactly, on a run that published; the ledger holds one reserve
+of 16 and no refund). **Between run 31 and
 run 32 the balance rose from 1 to 101** (read on the ledger at 18:09Z and by the
 canary before its paid call). **Only the readings are recorded; how it rose is
 not.** Run 31 ended at **1** (3 → 1, the routing call alone, the edit's

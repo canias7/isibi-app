@@ -14,7 +14,7 @@ merged/deployed at a5741864 (deployment 2157 / run 36099179983). Served chat.js
 matched the reviewed bytes at 2026-09-25 05:36:30 UTC. Deployment log reports
 container reuse; no repeated runtime container check or canary. This contains
 an escaped display error; publication and cleanup already succeeded. Other
-checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; the newest entry below). Your free check (run 33, 06:24 UTC) confirmed deployment 2161 from the live server, and with it 2160's code. Test 3 is prepared for deployment 2161, its starting point is confirmed, and it waits for your spending approval.
+checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; the newest entry below). Your free check (run 33, 06:24 UTC) confirmed deployment 2161 from the live server, and with it 2160's code. Test 3 ran as your paid run 34: the full page writer removed "The first eight chords" and nothing else, for 18 credits (balance 73), and all seven checks hold (the newest entry below).
 
 Kept for the owner. Two purposes:
 1. **How you like things done** — durable preferences, so a fresh session does not
@@ -176,7 +176,66 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
-## 2026-09-26 — Your free check confirmed deployment 2161 from the live server; test 3 is ready for your approval
+## 2026-09-26 — Test 3 passed: the full writer removed the section and nothing else
+
+You ran test 3 ([run 34](https://github.com/canias7/isibi-app/actions/runs/36224239033)).
+I read its log, its saved files, the billing records and the live site in a
+real browser. **All seven checks hold.**
+
+**What happened.**
+- The request went through exactly as written.
+- The router sent it to the look-and-layout door, which handed it to the page
+  editor.
+  - The quick writer looked at it and declined.
+  - The full writer rewrote the home page without the chords section.
+  - Both safety checks, the one for your own components and links and the one
+    for page text, let it through. That is the first time the full writer has
+    published since the text check went live.
+- It published a new version, `01790404806543-kk6qsh`, about 7 minutes after
+  you pressed.
+
+**What changed, checked file by file.**
+- The home page lost the chords section. Its import and the chord data it
+  used went too, since nothing else needed them.
+- Nothing else on the page changed, not even one character. It matches, byte
+  for byte, the removal I had made by hand beforehand to test my own checker.
+- The other five files (the prices and gear pages, and the three components)
+  are untouched. The chord-diagram component file is still stored, unused.
+
+**The live site, in a real browser.**
+- The home page's headings are now: Book a guitar lesson, A guitar you can
+  turn, September 2026, Space on a preferred day, Book a trial lesson (twice).
+  There are no chord diagrams left.
+- I read the page's text just before the change landed and again after. The
+  only difference is the chords section, 93 words; nothing was added.
+- The guitar still draws and turns. The day box still gives the right answer
+  from the real bookings, for example "5 places left." on a day with one
+  booking.
+- No errors and no failed requests.
+- The prices and gear pages look exactly as they did. The prices page's live
+  exchange-rate lookup fails three times on every load. It was already doing
+  that before this edit, so it's not something this edit broke.
+- The French and Spanish pages lost the section too.
+
+**Money.** 18 credits: 2 to read your message and 16 for the edit. The
+balance went from 91 to 73, and the billing record shows exactly one charge of
+16 for this job, with no refund. My estimate was 18–27.
+
+**What your customer would see.** "✅ Updated /." That is true, though it
+doesn't say what changed. After it comes the automatic page check's note that
+3 pages threw an error; that is the phone-size hydration finding (#418) you've
+parked, and it's reported, not verified.
+
+**Worth knowing.**
+- The live site now serves the home page without the chords section. If you
+  want it back, putting version `01790360265159-n7mtnq` back is free; just say
+  so.
+- This covers one sentence on one site. The two safety checks don't record
+  their decisions, so I know they let it through only because it published.
+
+---
+
+## 2026-09-26 — Your free check confirmed deployment 2161 from the live server; test 3 is ready for your approval (test 3 since ran and passed: the entry above)
 
 You ran the free canary ([run 33](https://github.com/canias7/isibi-app/actions/runs/36223626560),
 spending off). I read its log and the evidence file it saved.

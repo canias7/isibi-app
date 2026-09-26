@@ -474,7 +474,53 @@ data and rules rungs.
   shown.
 - Real-model compliance is unproven throughout.
 
-### 6. Live acceptance — Test 3, prepared and not dispatched (waiting for spending approval)
+### 6. Live acceptance — Test 3: pressed as run 34, all seven items hold (2026-09-26)
+
+**The result.** Run 34 (run 36224239033, your paid press, from `main` at
+`0de188ff`) counts as the test, and every acceptance item below holds:
+1. **It counts as the test.** The request sha matches (63 characters). Its own
+   before-read equals the six bodies, the preflight passed with both
+   expectations, and a stored terminal reply arrived.
+2. **Published at the job's own version.** A stored 200 arrived under
+   `x-gf-edit: final` at 376.5 s. `x-site-version` moved to
+   `01790404806543-kk6qsh`, minted 06:40:06Z inside the run. `compare.json`
+   reads VERIFIED.
+3. **The removal, in the stored source.** The chords block is gone; the unused
+   `ChordDiagram` import and the `CHORDS` data went too (noted, not failed).
+   Every other block and all other code is byte-identical, and the page lost
+   exactly the removed code's 487 tokens and gained none. It is byte-identical
+   to the removal built by hand as the evaluator's control.
+4. **The other five files** are byte-identical. `chord-diagram` is still
+   stored.
+5. **The live page, in a real Chromium at `kk6qsh`:**
+   - the headings are in the expected order, with 0 chord diagrams;
+   - the rendered text is the before-reading's (taken at 06:39Z) with only the
+     chords section cut out, 543 → 450 words;
+   - the guitar draws and turns, and the day box is right for four days
+     against the real `bookings_on_day`;
+   - 0 console errors, 0 failed requests;
+   - `/prices` and `/gear` render identically, and `/prices`' three `gbp_eur`
+     502s were there before the edit too;
+   - `/fr` and `/es` lost the section too.
+6. **Money.** 91 → 73 = route 2 + edit 16. The ledger holds one reserve of 16
+   (balance after 73) and no refund; the job is `finalized`, cost 16.
+7. **The reply**, *"✅ Updated /. …"*, is true. The render check's #418 finding
+   (on `/`, `/es` and `/fr` at phone width) is passed on, not verified.
+
+**Which writer ran.** The router chose `look` for `/`, and the lane picker
+chose `components`, which runs the page rung. The quick writer tried and
+declined (`tweakUsage` 8,359 in / 67 out). The full writer made the change
+(25,077 in / 8,011 out), and the judge ran (`keepUsage` 931 in / 46 out). So
+full-writer coverage is claimed, and both preservation checks, which run on
+the full writer's answer before anything publishes, let this answer through.
+Neither verdict is on the wire. This is also the first live run where the
+router named a page on a `look` answer (`/`, which is also the default).
+
+**What it does not show:** one sentence on one site, with the writer's prompt
+and the verdicts not captured. #418 stays open. The site now serves the
+section removed; the restore mode puts `01790360265159-n7mtnq` back for free.
+
+The preparation, as it stood before the press:
 
 Run 32 stays closed. **The prerequisite is met**: this batch is merged and
 deployed (see the deploy entry), so a dispatch from `main` carries the page-name
@@ -655,9 +701,8 @@ live, but every commit it shipped is in `0de188ff`.
 
 Deploys 2160 and 2161 are merged and deployed, and **2161 is
 runtime-confirmed** by your free press, run 33, which also confirms 2160's code.
-Test 3 is prepared above for deploy 2161. Its starting source is confirmed by
-the same run, and it waits for your spending approval. Nothing that spends is
-dispatched.
+**Test 3 ran as your paid press, run 34, and all seven acceptance items hold**
+(section 6). Nothing further is dispatched.
 
 ## Status after run 32 (2026-09-25)
 
