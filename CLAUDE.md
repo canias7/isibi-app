@@ -59,10 +59,13 @@ restoration, no further CSS work.
 picture, data and rules rungs, a page move, a second message from one tab and the
 full writer on a photographed page have never published, and no job has been
 `exempt`; a synchronous edit makes no job row, so that is the queue's record, not
-proof nothing else ran. **The kit-heading defect is FIXED ON THE BRANCH, not
-merged** (`2f2fed58`, *a section headed by the kit*, below), and the owner's
-review of it — a kit heading the page may not render still named its section —
-is closed on the branch at `5ec82214`. **Test 4 is split in
+proof nothing else ran. **The kit-heading fix is CLOSED BY THE OWNER and
+MERGED AND DEPLOYED at `ab74d0d9`** (deploy 2162, 2026-09-26 20:31 UTC, image
+`369d7b1e5bae25b0`; *a section headed by the kit*, below), with the owner's
+review round (a kit heading the page may not render named its section) in it
+at `5ec82214`. **Deployed, not yet runtime-confirmed**: the session's dispatch
+answered 403, so the authenticated reading is the owner's free press, which is
+also Test 4a's before-read (*Test 4a, prepared*, below). **Test 4 is split in
 two, each approved on its own**: 4a (pages, photographs, an attachment and second
 messages; a free restore undoes it) and 4b (the database; a free `grants preview`
 read first, and no permission change that could only be undone by another model
@@ -497,6 +500,17 @@ fast-forward's `origin/main`) answered the same id. The log answered `built
 …:05750a5***20d33570 (registry answered 404; ***87 inputs …)` and
 `- …:c3cc***26e45e938***5` → `+ …:05750a5***20d33570` under `SUCCESS Modified
 application`; **0 `CACHED` lines**, image step 2m02s, Wrangler 18s, job 2m48s.
+**Deploy 2162 (2026-09-26) was predicted on both ends and confirmed on both
+channels, and the input COUNT moved 187 → 188 as predicted**
+(`builder/kit-headings.mjs` joined the worker COPY line): `origin/main`
+`0de188ff` answered `05750a5120d33570` — what run 33 read LIVE — and the tip
+`ab74d0d9` answered `369d7b1e5bae25b0`, from 158 distinct paths, with
+`Dockerfile`, `builder/kit-headings.mjs`, `builder/page-prose.mjs` and
+`builder/site-tweak.mjs` the four of the push's 12 files among them. The
+predictor re-run over the MERGED tree answered the same id. The log answered
+`built …:369d7b***e5bae25b0 (registry answered 404; ***88 inputs …)` and
+`- …:05750a5***20d33570` → `+ …:369d7b***e5bae25b0` under `SUCCESS Modified
+application`; **0 `CACHED` lines**, image step 2m05s, Wrangler 16s, job 2m53s.
 The twelfth
 added a SECOND CHANNEL — **deploy 2139 (2026-09-21) was predicted before the
 push over the local merge commit `28e46e91` as `82bccb3bee50e4fd`, against
@@ -9267,11 +9281,11 @@ list, and Test 4's exact form values, are the top section of the
   one scripted request, so no two messages have ever come from one browser
   tab. All of that is **missing evidence, not a defect**: each decision has
   controlled tests with supplied answers.
-- **THE KIT-HEADING DEFECT IS FIXED ON THE BRANCH, NOT MERGED** (`2f2fed58`;
-  *a section headed by the kit*, next section). The owner reproduced it
-  independently: 'Remove the "Today's bake" section from the home page.',
-  answered correctly, was refused with `SectionHeader`'s `title` and accepted
-  with the equivalent literal `<h2>`.
+- **THE KIT-HEADING DEFECT IS FIXED, MERGED AND DEPLOYED** (`2f2fed58` +
+  `5ec82214`, deploy 2162 at `ab74d0d9`; *a section headed by the kit*, below).
+  The owner reproduced it independently: 'Remove the "Today's bake" section
+  from the home page.', answered correctly, was refused with `SectionHeader`'s
+  `title` and accepted with the equivalent literal `<h2>`.
 - **A SECTION MADE ONLY OF KIT PROPS IS THE CLEAN FULL-WRITER FIXTURE.** Its
   words are all quoted prop strings, which `sameProse` counts, so the quick
   writer cannot remove it (`sameProse` false, 180 → 162 prose tokens,
@@ -9283,7 +9297,7 @@ list, and Test 4's exact form values, are the top section of the
   (owner, 2026-09-26: *"Separate the photo/attachment/second-message checks from
   database writes and permission changes."*), all on fold-lane-bakery:
   - **4a — pages only, undone free by the canary's restore mode**:
-    - Part A, a paid canary press after this fix is merged and deployed:
+    - Part A, a paid canary press (the fix is deployed since 2162):
       'Remove the "Today's bake" section from the home page.' (53 characters,
       sha256 `26b7101c…`), the full writer on a photographed page and the fix,
       live;
@@ -9320,7 +9334,79 @@ list, and Test 4's exact form values, are the top section of the
     `phone`, `loaf`, `pickup_date` and `pickup_time`, and step 0 shows whether
     `orders` would be granted all five. A real order is still the only proof.
 
-### A SECTION HEADED BY THE KIT (2026-09-26, `2f2fed58` + `5ec82214`, fixed on the branch, not merged)
+### MERGED AND DEPLOYED: THE KIT-HEADING FIX (2026-09-26, evening)
+
+Owner: *"Close this correction. Merge and deploy the reviewed branch, preserving
+any new main commits. Verify the resulting deploy SHA and container image from
+the actual deployment and authenticated runtime readings."*
+
+- **RECHECKED BEFORE THE PUSH** (10:28Z and again at 20:28Z, ten hours apart,
+  since the session was paused between): `main` unmoved at `0de188ff`, a clean
+  tree, zero runs in progress, queued or waiting, and no edit job in a
+  non-terminal state. Unit CI on the tip `ab74d0d9` (`36235390517`) and `site
+  build` on the product tree `5ec82214` (`36234086268`) were green. The image
+  was predicted over both ends, and the rollback verified in a throwaway
+  worktree: reverting `0de188ff..ab74d0d9` gives tree `c2762cbf…`, main's own,
+  so a rollback reuses `05750a5120d33570`.
+- **A FAST-FORWARD**, so nothing on main could be lost: `0de188ff` →
+  **`ab74d0d9`** at 20:28:49Z, 11 commits, 12 files (+3,117 / −167).
+- **DEPLOY 2162 (`36269668411`)**, success, job 20:28:55 → 20:31:48Z.
+  - `DEPLOY_ID` `ab74d0d94384e85db252***76eaca623ba***3***932a5` (each `***` a
+    masked `1`), and the gate took over from `0de188ff…`.
+  - The image was **built `369d7b1e5bae25b0` and rolled from
+    `05750a5120d33570`** (the deploy section). The drain found no live leases.
+  - `No updated asset files to upload`, so **there is no served-file check**:
+    `public/` did not change, and the served `chat.js` read `e56f1c9f4ffca3da`
+    before and after.
+  - `Uploaded isibi-app`, `Current Version ID: a840a906-…`, `Deployed isibi-app
+    triggers`. Gates 401 / 401 / 401 / 404 at 20:47:33Z.
+- **DEPLOYED, NOT YET RUNTIME-CONFIRMED.** The session's one dispatch, made at
+  20:51Z after the hold (from `main`, spend `no`, both expectations), answered
+  **403**. It was not retried. The authenticated reading is the owner's free
+  press, *Test 4a, prepared*, below.
+
+### TEST 4a, PREPARED FOR THE DEPLOYED CODE (2026-09-26, evening — not dispatched)
+
+Owner: *"prepare Test 4a on fold-lane-bakery using the existing workflow/browser
+facilities—no F12 … Keep Test 4b's database changes under separate approval. Do
+not dispatch paid tests yet."* The form values, the before-inventory and the
+expected results are the checklist's Test 4a section. What is law here:
+
+- **THE RESTORE MODE POINTED AT THE LIVE VERSION IS A FREE, NO-POST READING OF
+  THREE THINGS AT ONCE.** Below the free checks and above the inventory,
+  `restoreFlow` lists the site's versions (each row's parent and a `NOT
+  RESTORABLE` flag), refuses an id it does not list or cannot restore, and
+  answers `already-live` with **nothing posted** when the site already reports
+  the id. So one press with `restore_version` set to the live version gives the
+  authenticated deploy/image reading, proof that the recovery target is listed
+  and restorable, and the byte-level before-read. **It prints `RESTORED — the
+  site already reported …, so nothing was posted`: that `RESTORED` is the
+  no-op.** Part C must leave the box blank, or it would restore.
+- **THE RESTORE TARGET IS `01789969693841-xqi8vs`, FROM EVIDENCE.** Every route
+  answers it (curl 20:47:48Z, a real Chromium ~20:50Z). Its first 14 digits mint
+  it at 2026-09-21 05:48:13.841Z, inside run 9's job window (created 05:47:43Z,
+  published 05:50:09Z). Run 9 is the last job on the site (the job table), and
+  run 9's saved after-read carries the five recorded bodies. **It survives
+  4a's publishes**: `pruneBuilds` keeps the newest `MAX_VERSIONS` (10) plus the
+  pointer's version and its parent, and 4a makes four (five with a correction
+  round).
+- **A RESTORE PUTS BACK THE LOGO, READ IN CODE.** `restoreVersion` copies the
+  build's `pages.json` and `parts.json` back and replaces `look`, `css`, `logo`,
+  `icon` and `langStrings` (`STATE_CONFIG_FIELDS`) whole. The logo rung stores
+  its upload as `look.wordmark` (`{form: "image", url}`), so the old mark
+  returns. The uploaded file stays in `uploads/`, unused.
+- **`/the-starter` IS A SALVAGE STUB** ("This page isn't finished yet", 955
+  characters, no header). So B3 moves a placeholder page, and B1's header logo
+  shows on four of the five pages. Both are expectations, not defects.
+- **THE SCHEMA DECLARES `loaves`, READ OFF A JOB ROW RATHER THAN GUESSED.** Run
+  51's stored addon reply on this site answered `backend: "ready"` and
+  `problems: []` over a changed `index.tsx` that reads it. So a Part A reply
+  calling `loaves` undeclared would be a lookup finding. The rehearsal's fixture
+  has no tables, which is why it warns and live should not.
+- **The supplied-answer rehearsal re-run on the deployed tree (`ab74d0d9`): 13
+  of 13.** It proves the route, never the real model.
+
+### A SECTION HEADED BY THE KIT (2026-09-26, `2f2fed58` + `5ec82214`, merged and deployed in deploy 2162)
 
 Owner, having reproduced it independently: *"Resolve visible section headings
 from established kit-component behavior, respecting the actual import and any
@@ -9415,7 +9501,8 @@ supplied.** What is law here:
   and **`369d7b1e5bae25b0` at `5ec82214`**, each from **188** inputs (158
   distinct paths), against main's `05750a5120d33570` (187).
   **`container-images` failed until `kit-headings.mjs` was COMMITTED** — the
-  guard asks git, by design.
+  guard asks git, by design. **Deploy 2162 built and rolled exactly
+  `369d7b1e5bae25b0`** (the deploy section).
 - **FOUND, NOT CHANGED**: a LITERAL heading names its whole section wherever it
   stands, so naming a card's `<h3>` authorizes the enclosing section (measured,
   in the backlog). The kit rule is deliberately narrower. **And a literal
@@ -11981,7 +12068,9 @@ published; the ledger holds one reserve of 8 and no refund), **and run 33's free
 press read 91 again** (2026-09-26 06:24Z, nothing spent between). **Balance 73**
 at run 34's end (2026-09-26, Test 3: **91 → 73, moved 18**, route 2 + the page
 rung's 16, closing exactly, on a run that published; the ledger holds one reserve
-of 16 and no refund). **Between run 31 and
+of 16 and no refund), **and read 73 again on 2026-09-26 at 20:46:59Z** off the
+balance row the canary itself reads, matching the last ledger row (run 34's
+reserve); nothing has spent since. **Between run 31 and
 run 32 the balance rose from 1 to 101** (read on the ledger at 18:09Z and by the
 canary before its paid call). **Only the readings are recorded; how it rose is
 not.** Run 31 ended at **1** (3 → 1, the routing call alone, the edit's
@@ -12989,7 +13078,7 @@ does name one — moved up to the supported list on 2026-09-20.)*
 ## Backlog
 
 - **THE TEXT GUARD CANNOT NAME A SECTION HEADED BY A KIT COMPONENT'S PROP
-  (FIXED ON THE BRANCH 2026-09-26, `2f2fed58`, not merged: *a section headed by
+  (FIXED, MERGED AND DEPLOYED in deploy 2162, `ab74d0d9`: *a section headed by
   the kit*).**
   - **What happens.** `proseInventory` names a section only by literal
     `<h1>`–`<h6>` text or a `<section>`'s id or aria-label. A section headed by
@@ -12999,10 +13088,11 @@ does name one — moved up to the supported list on 2026-09-20.)*
     heading the customer already gave.
   - **Reach.** 59% of the corpus's prose-bearing sections (329 of 555).
   - **Impact.** Fail-closed: no content lost, the routing charge spent.
-  - **Status.** Fixed on the branch, awaiting review; the rule and its limits
-    are in *a section headed by the kit*. The owner's review of `2f2fed58` found
-    that a kit heading the page may not render still named its section; closed
-    on the branch at `5ec82214`.
+  - **Status.** Fixed, closed by the owner after review, and merged and
+    deployed in deploy 2162 (`ab74d0d9`, image `369d7b1e5bae25b0`); the rule and
+    its limits are in *a section headed by the kit*. The owner's review of
+    `2f2fed58` found that a kit heading the page may not render still named its
+    section, closed at `5ec82214`. Its live check is Test 4a's Part A.
 - **A LITERAL HEADING NAMES ITS SECTION WHETHER OR NOT IT RENDERS (found
   2026-09-26 in the kit-heading review, not changed).** The kit heading now
   must render whenever its section does; the literal reader has no such check.

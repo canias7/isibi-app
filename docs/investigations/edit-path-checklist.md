@@ -4,17 +4,20 @@
 
 Test 3 (run 34) and the CSS-correction milestone (deploy 2161's batch) are
 **closed by the owner**: no repeat run, no restoration, no further CSS work.
-Main is `0de188ff` (deploy 2161, image `05750a5120d33570`), runtime-confirmed
-by run 33. Nothing has been dispatched since run 34, and the balance is 73.
+Nothing has been dispatched since run 34, and the balance is 73 (read again at
+2026-09-26 20:46:59Z).
 
-**The kit-heading defect is fixed on the branch, not merged or deployed**
-(the next section). The owner reproduced it independently: the correct removal
-was refused with `SectionHeader`'s `title` and accepted with the equivalent
-literal `<h2>`. The owner's review then found one gap — a kit heading the page
-may not render (inside `{false && …}`, `<div hidden>` or an unknown wrapper)
-still named its section — and that is closed on the branch too, at
-`5ec82214`. Test 4 below is split in two, each part with its own approval, and
-its first part assumes the fix is merged and deployed first.
+**The kit-heading defect is fixed, closed by the owner, and merged and
+deployed**: main is `ab74d0d9` (deploy 2162, 2026-09-26 20:31 UTC, image
+`369d7b1e5bae25b0`). It is **deployed, not yet runtime-confirmed**: the
+session's dispatch answered 403, so the authenticated reading is your free
+press, which is also Test 4a's before-read (below). The owner reproduced the
+defect independently: the correct removal was refused with `SectionHeader`'s
+`title` and accepted with the equivalent literal `<h2>`. The owner's review then
+found one gap — a kit heading the page may not render (inside `{false && …}`,
+`<div hidden>` or an unknown wrapper) still named its section — closed at
+`5ec82214`, which is in the deploy. Test 4 below is split in two, each part with
+its own approval; **4a is prepared for the deployed code and not dispatched**.
 
 ### What is already shown live (credited, not rerun)
 
@@ -101,8 +104,8 @@ missing is a real model, the real browser or the live database.
 5. **The quick writer's reply carries empty `changed` and `moved` lists** (runs
    17, 32 and 34). They are not an inventory.
 
-**Fixed on the branch, not merged:** the text guard could not name a section
-whose heading comes from a kit component's prop (the next section).
+**Fixed, merged and deployed in deploy 2162:** the text guard could not name a
+section whose heading comes from a kit component's prop (the next section).
 
 ### Deliberately deferred (owner's decisions)
 
@@ -167,23 +170,93 @@ its own approval and its own recovery.**
 
 #### Test 4a — pages, photographs, an attachment and second messages
 
+**Prepared for the deployed code (2026-09-26, evening); not dispatched.** Every
+press below is `edit-canary.yml`
+(<https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml>, "Run
+workflow", branch `main`). The GitHub form shows descriptions, not input names,
+so the boxes are named here by their descriptions. **The two "Refuse to spend
+unless…" boxes are the same on every press**, read off deploy 2162:
+- "…the Worker reports this deploy sha…":
+  `ab74d0d94384e85db252176eaca623ba131932a5`;
+- "…a cold container reports this image id…": `369d7b1e5bae25b0`.
+
+A press refuses to go on if either disagrees with the live platform, so none can
+run against the previous build.
+
+**Step 0 — your free press, first: the runtime confirmation, the restore target
+and the before-read in one.**
+- "Run the ONE paid edit as well": `no`.
+- "What to change" and "READ ONE EXISTING JOB AND STOP": blank.
+- "PUT ONE SAVED VERSION BACK, THEN READ IT AND STOP":
+  `01789969693841-xqi8vs`. This is the version the site serves now, so nothing
+  is posted.
+- "The site to edit": `fold-lane-bakery`. "A second site…": `washhouse-3`.
+- The two "Refuse to spend unless…" boxes: as above.
+
+What it should print, and what each part establishes:
+- `build-health 200 deploy=ab74d0d94384 image=369d7b1e5bae25b0` and `runtime
+  200 … async=true runner=true`, with both readers agreeing. This is **deploy
+  2162's runtime confirmation**: the live Worker answering, not the deploy
+  reporting on itself.
+- The balance, 73 unless something spends first.
+- `RESTORE`: the site's version list, newest first, with
+  `01789969693841-xqi8vs` as row 1 ("Live now") and not marked `NOT
+  RESTORABLE`. Then **`RESTORED — the site already reported
+  01789969693841-xqi8vs, so nothing was posted`**. That `RESTORED` is a no-op:
+  the restore mode refuses an id the list does not carry or cannot restore, and
+  posts nothing when the site already serves the id. So this press verifies the
+  recovery target and changes nothing.
+- The inventory, including `before/source.json`, which I compare with the five
+  bodies below.
+- It ends `RESTORE MODE — stopping before the paid edit. Nothing was charged.`
+
+**The before-inventory, read free** (2026-09-26, 20:47–20:50Z):
+- **Version.** All five routes (`/`, `/gallery`, `/order`, `/the-starter`,
+  `/visit`) answer `x-site-version: 01789969693841-xqi8vs`.
+- **`/`, in a real Chromium.** Every request was answered from a TLS-verified
+  fetch, and nothing was typed or submitted.
+  - Headings: Harbour Loaf · Fed every morning since we opened · Today's bake
+    · Today's bake (the loaf list's own `h3`) · Order a loaf for collection.
+  - 201 visible words. The loaf list shows six loaves with prices (Sea Salt
+    Focaccia £4.50).
+  - Both photographs load: 2400×1792, shown at 976×549 and 720×540. The boule
+    photograph is at `object-position: 50% 50%`.
+  - The header draws an SVG mark and "Harbour Loaf", with no image.
+  - 0 console errors, 0 page errors, 0 failed requests.
+- **The other pages.**
+  - `/gallery`: Our Gallery · Photographs of the bakery's work; seven picture
+    frames, all placeholders; 77 words.
+  - `/order`: Order a loaf · Pick a loaf and a collection slot; 165 words.
+  - `/visit`: Come to the bakery · The shutters and the street · Order a
+    collection so we hold a loaf; one photograph and the gallery QR code; 116
+    words.
+  - **`/the-starter` is a salvage placeholder**: "This page isn't finished
+    yet", 30 words, and no header.
+- **Links to `/the-starter`** in the server HTML: nine (`/` 3, `/gallery` 2,
+  `/order` 2, `/visit` 2). They come from the header menu, the footer and the
+  home page's story block.
+- **The stored bodies** are run 9's after-read. No job has touched the site
+  since run 9 (the job table), and the live version is run 9's:
+  - `index.tsx` `2c9421cf728d9823` (4,389 characters);
+  - `order.tsx` `4491c50d7cee45d8`;
+  - `the-starter.tsx` `e1172965a3644f5f`;
+  - `visit.tsx` `0963e3bc45f1d949`;
+  - `gallery.tsx` `1c940e38d7fe6ab0`;
+  - no components.
+
+  Step 0 re-reads them byte for byte.
+
 **Part A — your paid canary press: the full writer on a page with photographs,
 and the kit-heading fix, live.**
-
-- **Only after this fix is merged and deployed.** The two expectation boxes are
-  then the merge's sha and the image its deploy builds, read off the deploy.
-  To run 4a before merging instead, use `Remove the "Order a loaf for
-  collection" section from the home page.` (68 characters, sha256
-  `54a55001238b9e2b84a10bca5a6af15c8a36b1e71b6c37a8ca227de16f242766`): a
-  section with no literal prose, which checks the full writer but not the fix.
-- **The form.** `edit-canary.yml`, run from `main`:
+- **The form.**
   - "Run the ONE paid edit as well": `yes`.
   - "What to change": `Remove the "Today's bake" section from the home page.`
     That is 53 characters, all ASCII (straight quotes), sha256
     `26b7101c225656db1ec13ccff5873bd7fb64fca28ea79f2a1ad81bbbd5bfa9be`.
+  - "READ ONE EXISTING JOB AND STOP" and "PUT ONE SAVED VERSION BACK": **blank**.
+    A named version turns spending off.
   - "The site to edit": `fold-lane-bakery`. "A second site…": `washhouse-3`.
-  - "READ ONE EXISTING JOB AND STOP" and "PUT ONE SAVED VERSION BACK": blank.
-  - The two "Refuse to spend unless…" boxes: the merge's sha and image.
+  - The two "Refuse to spend unless…" boxes: as above.
 - **Why this sentence.** The section's heading is `<SectionHeader
   title="Today's bake">`, the case the fix exists for. The section holds three
   literal sentences (the loading error and the two empty-state lines), so the
@@ -191,33 +264,39 @@ and the kit-heading fix, live.**
   remove words, so the full writer runs, on a page whose two photographs sit in
   other sections.
 - **It counts as the test only if** the request sha matches; the press's own
-  before-read equals these five bodies; the preflight passes; and a stored
-  reply arrives. The bodies:
-  - `index.tsx` `2c9421cf728d9823` (4,389 characters);
-  - `order.tsx` `4491c50d7cee45d8`;
-  - `the-starter.tsx` `e1172965a3644f5f`;
-  - `visit.tsx` `0963e3bc45f1d949`;
-  - `gallery.tsx` `1c940e38d7fe6ab0`;
-  - no components.
+  before-read equals the five bodies above; the preflight passes; and a stored
+  reply arrives.
 - **Expected.**
-  1. Routed to the page rung for `/`, directly or through `look` — expected,
-     not guaranteed: a model routes it.
-  2. The full writer publishes: `tweak` is absent, with `tweakUsage` and the
-     full writer's `usage`.
+  1. Routed to the page rung for `/`, directly or through `look`. This is
+     expected, not guaranteed: a model routes it.
+  2. The full writer publishes: `tweak` is absent, with `tweakUsage` (a quick
+     attempt, which cannot remove words) and the full writer's `usage`.
   3. It publishes at the job's own version, and `compare.json` reads VERIFIED.
-  4. `index.tsx` loses that one `<section>`. The imports and the `loaves` hook
-     it leaves unused may go too, which is noted, not failed. Both
-     `<SafeImage>` elements and all the other code stay byte-identical, and so
-     do the other four pages.
-  5. There is no `keepUsage` (no literal link and no own component is lost),
-     and `problems` is empty.
+  4. `index.tsx` loses exactly the `<section>` holding `<SectionHeader
+     title="Today's bake">`: 1,489 characters, covering the heading, the
+     loading, error and empty lines, and the loaf list.
+     - The imports it leaves unused (`Empty`, `MenuSection`, `SectionHeader`,
+       `Skeleton`, `useRows`), the `Loaf` type and the `loaves` read may go
+       too. That is noted, not failed.
+     - Everything else stays byte-identical. That includes both `<SafeImage>`
+       elements and the header menu's "Today's bake" item. That item is a link
+       to `/` in `CHROME`, outside the section; no guard protects it, so the
+       source comparison is what checks it.
+     - The other four pages stay byte-identical.
+  5. There is no `keepUsage`, since no literal link and no own component is
+     lost. `problems` is empty, because the site's schema declares `loaves`:
+     run 51's stored reply on this site read `backend: "ready"` and `problems:
+     []` over a changed `index.tsx` that reads it.
   6. The reply is "✅ Updated /.", with the render check's note passed on.
-  7. The balance moves by the routing charge plus the edit, and the ledger's
-     one reserve for the job equals the edit's cost.
-  8. The live page, in a real Chromium: the headings are Harbour Loaf · Fed
-     every morning since we opened · Order a loaf for collection, with no
-     "Today's bake" heading; both photographs load; there are no console
-     errors or failed requests.
+  7. The balance moves by the routing charge plus the edit. The ledger's one
+     reserve for the job equals the edit's cost.
+  8. The live page, in a real Chromium (mine, free):
+     - the headings are Harbour Loaf · Fed every morning since we opened ·
+       Order a loaf for collection;
+     - there is no "Today's bake" heading, no loaf name and no price;
+     - visible words go from 201 to **82**: exactly the section's 119 go;
+     - both photographs load, with no console errors or failed requests;
+     - the other four pages read as before.
 - **What a different result would mean.**
   - `prose-preservation`: either the fix is not what answered (check the
     deploy) or the writer also lost other literal prose. The refused answer is
@@ -227,8 +306,10 @@ and the kit-heading fix, live.**
   - `withheld` with `photosBlocked`, or `photosKept`: the writer dropped a
     photograph and the wall refused or restored it — the protection working
     live.
-- **Cost:** route 2 + edit about 8–10, so about 10–12 (8–15). An estimate, not
-  a cap.
+  - A reply calling `loaves` undeclared: the page rung's schema read, not the
+    edit.
+- **Cost:** route 2 + edit about 8–10, so about 10–12 (8–15), plus about 1
+  if it is routed through `look`. An estimate, not a cap.
 
 **Part B — in the app, one tab, no reload, no developer tools: three
 messages.** This is the real composer, and only your own tab is that: no
@@ -239,9 +320,9 @@ the ledger (read-only), and the live pages in my own browser.
 
 | # | Send exactly | Expected rung | Expected reply | Established afterwards | Credits |
 | --- | --- | --- | --- | --- | --- |
-| B1 | Attach a PNG or JPEG under 2 MB (not an SVG) with the + button, then `Use this picture as the logo.` | logo — expected, not guaranteed | "✅ That's your logo in the header now, on every page." | The header draws the image on every page. **The free path is established only by the job's own record**: its stored reply names the `logo` layer, its `billing` is `exempt`, and no ledger row names it. A different layer is a routing finding, not a logo-rung result. | 2 |
-| B2 | `Show more of the top of the photo of the sourdough boule cooling.` | picture | "✅ Moved “A sourdough boule cooling after the morning bake” to show the top." | Only that image gains `object-top`; both photographs still load; the job's one reserve equals its cost. | ~3 |
-| B3 | `Move the starter page to /starter.` | page (move) | "✅ Moved /the-starter to /starter." | `/starter` answers 200; `/the-starter` answers 301 to `/starter`; every link follows. `exempt` only if the stored reply shows the page rung and the ledger holds no reserve; through `look`, the lane picker's call is billed instead. | 2 (3 through look) |
+| B1 | Attach a PNG or JPEG under 2 MB (not an SVG) with the + button, then `Use this picture as the logo.` | logo — expected, not guaranteed | "✅ That's your logo in the header now, on every page." | The header draws the image instead of today's SVG mark, on the four pages that have a header; `/the-starter` is the placeholder and has none. **The free path is established only by the job's own record**: its stored reply names the `logo` layer, its `billing` is `exempt`, and no ledger row names it. A different layer is a routing finding, not a logo-rung result. | 2 |
+| B2 | `Show more of the top of the photo of the sourdough boule cooling.` | picture | "✅ Moved “A sourdough boule cooling after the morning bake” to show the top." | Only that image moves, from `object-position: 50% 50%` to the top; both photographs still load; the job's one reserve equals its cost. | ~3 |
+| B3 | `Move the starter page to /starter.` | page (move) | "✅ Moved /the-starter to /starter." | `/starter` answers 200 with the same placeholder page; `/the-starter` answers 301 to `/starter`; no page links to `/the-starter` (nine do today). `exempt` only if the stored reply shows the page rung and the ledger holds no reserve; through `look`, the lane picker's call is billed instead. | 2 (3 through look) |
 
 - **Second messages.** B2 and B3 each follow a finished job. Each must get its
   own job and reply, and the send box must come back after each. A message
@@ -249,22 +330,38 @@ the ledger (read-only), and the live pages in my own browser.
   rows show one job per message, in order.
 - **Cost:** about 7–8 in total.
 
-**Part C — your free canary press.** Use the same form as Part A, with "Run
-the ONE paid edit as well" set to `no` and "What to change" left blank. It
-reads every stored body after Parts A and B, so the whole sitting is compared
-byte for byte:
+**Part C — your free press, after Parts A and B.** Use step 0's form, but with
+"PUT ONE SAVED VERSION BACK" **blank**: with the version named, the press would
+restore it. It reads every stored body after Parts A and B, so the whole
+sitting is compared byte for byte:
 - `index.tsx` should change only by Part A's removal, B2's `focus="top"` and
   B3's links;
 - `the-starter.tsx` should become `starter.tsx`;
 - the other pages should change only by B3's links.
 
-**Recovery for 4a, free and with no model call:** the canary's restore mode,
-with "PUT ONE SAVED VERSION BACK" set to `01789969693841-xqi8vs`, puts back
-the pages, the logo and the moved page. The uploaded logo file stays stored,
-unused.
+**Recovery for 4a — free, with no model call, and verified.** Use step 0's form
+exactly: "PUT ONE SAVED VERSION BACK" = `01789969693841-xqi8vs`.
+- **Why that version:**
+  - every route answers it now;
+  - its first 14 digits mint it at 2026-09-21 05:48:13.841Z, inside run 9's job
+    (created 05:47:43Z, published 05:50:09Z);
+  - run 9 is the last job on the site;
+  - step 0 shows the site's own list carrying it as restorable.
+- **What it puts back, read in code** (`restoreVersion`):
+  - the pages and components;
+  - the look, whole — including the logo mark, since the logo rung stores its
+    upload as `look.wordmark`;
+  - the stylesheet;
+  - the version's own script and head.
+
+  So `/starter` stops answering and `/the-starter` serves again. The uploaded
+  logo file stays stored, unused.
+- **It survives 4a's publishes.** Pruning keeps the newest 10 builds plus the
+  live one and its parent, and 4a makes four publishes (five with a correction
+  round).
 
 **4a total:** about 17–20 credits (15–26), an estimate and not a cap. The
-balance is 73.
+balance is 73 (read 2026-09-26 20:46:59Z).
 
 #### Test 4b — the database: a row and a permission change (separate approval)
 
@@ -331,7 +428,7 @@ the add-on, a css-lane run, a page removal (the move exercises the same verb
 and publish path), a hop between rungs, and why a quick attempt did not
 publish.
 
-## A section headed by the kit — fixed on the branch (2026-09-26), not merged
+## A section headed by the kit — fixed (2026-09-26), merged and deployed in deploy 2162
 
 **The defect.** The text guard named a section only by a literal
 `<h1>`–`<h6>`, or by a `<section>`'s id or aria-label. A page built from the
@@ -555,7 +652,8 @@ shapes were accepted.
 - **The image.** `builder/page-prose.mjs` is an image input, so a merge
   rebuilds. The predicted id at `5ec82214` is `369d7b1e5bae25b0`, from 188
   inputs (158 distinct paths); the same reader reproduces `2f2fed58`'s
-  `209c520fb8b06cd3` and main's `05750a5120d33570`.
+  `209c520fb8b06cd3` and main's `05750a5120d33570`. **Deploy 2162 built and
+  rolled exactly that id** when `ab74d0d9` was merged (2026-09-26, 20:31 UTC).
 
 **Limits.**
 - Every writer and judge answer is supplied, so what a real model writes is
@@ -1040,15 +1138,16 @@ data and rules rungs.
     on its own named outcome and puts the design back. With a marker in the
     catch, the whole suite (7,934 tests) reached it zero times. The catch
     stays as the defence against a defect in our own code.
-- **A failed restore after a publish failure of ours was not said — fixed on
-  the branch, not merged** (the top section). `compileMsg` answered a failure
-  of ours (and a refused reservation) with its own sentence, which dropped the
-  one carrying "the change is saved". Every arm now takes the restore's result.
+- **A failed restore after a publish failure of ours was not said — fixed,
+  merged and deployed in deploy 2161** (the top section). `compileMsg`
+  answered a failure of ours (and a refused reservation) with its own
+  sentence, which dropped the one carrying "the change is saved". Every arm now
+  takes the restore's result.
 - **The stylesheet check read the whole stored sheet, not this message's rules
-  — fixed on the branch, not merged** (the top section). A rule left dead by an
-  earlier change started the correction round on any later message that picked
-  the css lane, and the correction rewrote a rule the customer never mentioned.
-  A publish is now held only for the rules the request wrote.
+  — fixed, merged and deployed in deploy 2161** (the top section). A rule left
+  dead by an earlier change started the correction round on any later message
+  that picked the css lane, and the correction rewrote a rule the customer
+  never mentioned. A publish is now held only for the rules the request wrote.
 - **A new cost.** A `ready` site whose tables cannot be recovered now has its
   revise refused, where before it was revised with the partial spec.
 - Drafts last for the session only. The needs-review enqueue sentence is never

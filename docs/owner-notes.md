@@ -14,7 +14,7 @@ merged/deployed at a5741864 (deployment 2157 / run 36099179983). Served chat.js
 matched the reviewed bytes at 2026-09-25 05:36:30 UTC. Deployment log reports
 container reuse; no repeated runtime container check or canary. This contains
 an escaped display error; publication and cleanup already succeeded. Other
-checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; see the dated entries below). Your free check (run 33, 06:24 UTC) confirmed deployment 2161 from the live server, and with it 2160's code. Test 3 ran as your paid run 34: the full page writer removed "The first eight chords" and nothing else, for 18 credits (balance 73), and all seven checks hold (the dated entry below). The page-text check now recognises a section heading shown by a design component: fixed on the branch at `2f2fed58`, not merged or deployed, nothing spent. Your review found that such a heading still counted when the page might not show it; that is closed on the branch at `5ec82214` (the newest entry below). Test 4 is now two parts, each for your separate approval: 4a (pages, photos, an attached picture, second messages) and 4b (the database) (the second entry below).
+checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; see the dated entries below). Your free check (run 33, 06:24 UTC) confirmed deployment 2161 from the live server, and with it 2160's code. Test 3 ran as your paid run 34: the full page writer removed "The first eight chords" and nothing else, for 18 credits (balance 73), and all seven checks hold (the dated entry below). The page-text check now recognises a section heading shown by a design component, and your review's gap (such a heading counted when the page might not show it) is closed too. You closed that correction, and it is merged and deployed at `ab74d0d9` (deployment 2162, 2026-09-26 20:31 UTC, image `369d7b1e5bae25b0`). It is not yet confirmed from the live server: my check was refused (403), so your free press is the confirmation. Test 4 is two parts, each for your separate approval: 4a (pages, photos, an attached picture, second messages) is now prepared for the deployed code, with the exact presses (the newest entry below), and 4b (the database) waits for its own approval.
 
 Kept for the owner. Two purposes:
 1. **How you like things done** — durable preferences, so a fresh session does not
@@ -176,7 +176,93 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
-## 2026-09-26 — A design heading the page may not show no longer names its section (on the branch, not merged)
+## 2026-09-26 — The design-heading fix is merged and deployed at `ab74d0d9` (not yet confirmed from the live server); test 4a is ready for your approval
+
+You closed the correction, so it's merged and deployed. Main hadn't moved, so
+the merge was a fast-forward at 20:28 UTC with nothing on main to keep.
+Deployment 2162 finished at 20:31 UTC.
+- It rebuilt the site container: image `369d7b1e5bae25b0`, exactly as
+  predicted, from 188 inputs.
+- No browser file changed, so there's no served-file check this time.
+- **Not yet confirmed from the live server.** My one attempt at the free check
+  was refused (403, the permission I don't have), and I didn't retry. Your free
+  press below is that confirmation, and it also reads test 4a's starting point.
+- Balance: **73** (read at 20:46 UTC), unchanged since test 3.
+
+Everything below is on
+[the canary form](https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml),
+"Run workflow", branch `main`. **The two "Refuse to spend unless…" boxes are
+the same on every press:** the deploy sha
+`ab74d0d94384e85db252176eaca623ba131932a5` and the image id
+`369d7b1e5bae25b0`. A press stops if either doesn't match the live server.
+
+**Step 0 — free, press it first.**
+- "Run the ONE paid edit as well": `no`.
+- "PUT ONE SAVED VERSION BACK…": `01789969693841-xqi8vs`. That's the version
+  the site is on now, so nothing is put back.
+- "The site to edit": `fold-lane-bakery`. "A second site…": `washhouse-3`.
+- Everything else blank.
+
+It should report the live server on `ab74d0d9` with image
+`369d7b1e5bae25b0`, and the balance. It should list the site's saved versions
+with ours as the live one, then say *"RESTORED — the site already reported
+01789969693841-xqi8vs, so nothing was posted"*. That "RESTORED" means nothing
+happened. The press refuses a version it can't restore, and posts nothing when
+the site is already on it. So one free press confirms the deployment, proves
+the put-back version is really available, and records every page's code
+before the test.
+
+**Part A — paid, only with your approval.** Same form, with:
+- "Run the ONE paid edit as well": `yes`.
+- "What to change": `Remove the "Today's bake" section from the home page.`
+  (53 characters, straight quotes).
+- "PUT ONE SAVED VERSION BACK…": **blank**.
+
+Expected:
+- The full page writer removes that one section: the "Today's bake" heading,
+  the loaf list and its three short messages.
+- Both home photos and everything else stay. The header menu's "Today's bake"
+  link is outside the section and should stay too.
+- The other four pages don't change, and the reply is "✅ Updated /.".
+- The home page goes from 201 words to 82.
+- About 10–12 credits (8–15), an estimate, not a cap.
+
+This is the live check of the design-heading fix.
+
+**Part B — three messages in your own tab** (no reload, no developer tools),
+each after the previous reply is on screen:
+1. Attach a PNG or JPEG under 2 MB with the + button, then `Use this picture
+   as the logo.` It should be free apart from reading your message. The header
+   shows it on four of the five pages; the starter page has no header.
+2. `Show more of the top of the photo of the sourdough boule cooling.` (~3)
+3. `Move the starter page to /starter.` (2)
+
+**Part C — free.** Step 0's form with "PUT ONE SAVED VERSION BACK" left
+**blank**. With the version named, it would put it back. It reads every page's
+code after A and B, so I can compare the whole sitting byte for byte.
+
+**Putting it all back — free.** Step 0's form exactly (the version named). It
+puts back the pages, the logo setting, the moved page and the stylesheet. The
+logo file you uploaded stays stored, unused. The version survives the test's
+four or five new versions, because the ten newest are always kept.
+
+**What I read today, free.**
+- Every page is on `01789969693841-xqi8vs`, which run 9 made on 2026-09-21. No
+  job has touched the site since.
+- In a real browser, the home page shows its two photos and the six loaves
+  with prices, with no errors.
+- **The starter page is an unfinished placeholder** ("This page isn't finished
+  yet"), so B3 moves a placeholder. That's still a real move of a real page
+  address.
+- The site's schema knows the `loaves` table (run 51's record says so), so
+  Part A shouldn't warn about it.
+- The prepared-answer rehearsal passes 13 of 13 on the deployed code. It shows
+  what the code does, not what a real model writes.
+
+**Test 4b** (the database) is unchanged and still waits for its own approval.
+Nothing paid has been dispatched.
+
+## 2026-09-26 — A design heading the page may not show no longer names its section (merged and deployed since, in deployment 2162)
 
 You found the gap before merging. On `2f2fed58`, 'Remove the ‘Today’s bake’
 section from the home page.' was accepted for a section whose SectionHeader
@@ -224,7 +310,7 @@ condition) and is recorded as its own next item.
 
 Test 4 is unchanged (the entry below).
 
-## 2026-09-26 — The kit-heading fix (on the branch, not merged), and test 4 split in two
+## 2026-09-26 — The kit-heading fix (merged and deployed since, in deployment 2162), and test 4 split in two
 
 You reproduced the text-check defect yourself: a correct removal was refused
 when the section's heading came from the SectionHeader component, and accepted
