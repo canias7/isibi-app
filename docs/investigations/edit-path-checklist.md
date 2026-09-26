@@ -4,8 +4,9 @@
 
 Test 3 (run 34) and the CSS-correction milestone (deploy 2161's batch) are
 **closed by the owner**: no repeat run, no restoration, no further CSS work.
-Nothing paid has been dispatched since run 34 (runs 35 and 36 were free), and
-the balance is 73 (read by run 36 at 2026-09-26 21:36Z).
+Runs 35 and 36 were free. **Test 4a's Part A ran as run 37** (your paid press,
+8 credits), and the balance is 65 (read on the balance row at 2026-09-26
+22:05Z).
 
 **The kit-heading defect is fixed, closed by the owner, and merged and
 deployed**: main is `ab74d0d9` (deploy 2162, 2026-09-26 20:31 UTC, image
@@ -18,8 +19,9 @@ defect independently: the correct removal was refused with `SectionHeader`'s
 found one gap — a kit heading the page may not render (inside `{false && …}`,
 `<div hidden>` or an unknown wrapper) still named its section — closed at
 `5ec82214`, which is in the deploy. Test 4 below is split in two, each part with
-its own approval; **4a is prepared for the deployed code, its free step 0 is
-done (runs 35 and 36), and its paid parts are not dispatched**.
+its own approval; **4a is prepared for the deployed code: its free step 0 is
+done (runs 35 and 36), Part A ran as run 37 and passed, and Parts B and C are
+not dispatched**.
 
 ### What is already shown live (credited, not rerun)
 
@@ -37,7 +39,7 @@ exercised it.
 | Rung or behaviour | Published through the queue |
 | --- | --- |
 | Page rung, quick writer | Runs 9, 17 and 32 (a block move, a one-line change, a section move); lane-sweep jobs on 2026-09-02 (shape, three). Run 9 kept both photographs, checked in a real browser. |
-| Page rung, full writer | Runs 11, 21, 24, 26 and 34 (34 on the current code, with the text guard and the judge); lane-sweep jobs on 2026-09-01/02 (three, components, purpose, tsx twice). |
+| Page rung, full writer | Runs 11, 21, 24, 26, 34 and 37 (34 and 37 on the current code; 34 with the text guard and the judge, 37 with the text guard on a page with photographs, both kept, and the kit-heading fix answering live); lane-sweep jobs on 2026-09-01/02 (three, components, purpose, tsx twice). |
 | Look lanes | 32 jobs, 2026-09-01 to 09-07: css, brand, favicon, lang, langs, theme, description, wordmark, qr and behavior. One also placed a QR code through the page rung, the only live message that ran two rungs. |
 | Menu | 2 jobs (the action lane), 2026-09-02. |
 | Site address | 1 published and 1 refused and refunded, 2026-09-02. |
@@ -77,20 +79,18 @@ missing is a real model, the real browser or the live database.
 6. **The rules rung on a site with a database.** Controlled:
    `edit-rules-backend`. Run 12 was blocked by a defect that has since been
    fixed.
-7. **The full writer on a page with photographs.** Controlled:
-   `edit-page-photos`, `edit-page-protect`. Live, only the quick writer has
-   done this (run 9).
-8. **The first schema change on a site built before 2026-09-13**, which
+7. **The first schema change on a site built before 2026-09-13**, which
    re-emits every table's grants in column-scoped form. Proven on a real
    PostgreSQL 16 locally (`local-pg-grants`), but not observed on a live form
    submission.
-9. **Real-model behaviour in general.** Why a quick attempt did not publish is
+8. **Real-model behaviour in general.** Why a quick attempt did not publish is
    not on the wire, and the writer's prompt is not captured.
-10. **The add-on through the browser since deploy 2154.** This is outside this
-    checklist; the last live add-on was run 53 (2026-09-20). Not proposed now.
-11. **The kit-heading fix with a real model.** Controlled: 39 route and unit
-    cases in `edit-page-keep` and the generator's guard, every answer
-    supplied. Test 4a's Part A is its live check.
+9. **The add-on through the browser since deploy 2154.** This is outside this
+   checklist; the last live add-on was run 53 (2026-09-20). Not proposed now.
+
+**Shown live since, by run 37 (Test 4a's Part A), and moved to the table
+above:** the full writer on a page with photographs (both kept), and the
+kit-heading fix with a real model.
 
 ### Reproduced product defects, still open
 
@@ -172,8 +172,8 @@ its own approval and its own recovery.**
 
 #### Test 4a — pages, photographs, an attachment and second messages
 
-**Prepared for the deployed code (2026-09-26, evening); step 0 done, the paid
-parts not dispatched.** Every press below is `edit-canary.yml`
+**Prepared for the deployed code (2026-09-26, evening); step 0 and Part A done
+(Part A passed as run 37, below); Parts B and C not dispatched.** Every press below is `edit-canary.yml`
 (<https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml>, "Run
 workflow"), with **"Use workflow from" set to `claude/help-needed-ehlwlj`**
 until the canary's reader fix (below) is merged; a merge of it deploys nothing.
@@ -271,7 +271,7 @@ What it should print, and what each part establishes:
   against is complete.** The supplied-answer rehearsal, re-run on the branch
   checkout, reads 13 of 13; its input (run 9's after-read) is byte-identical to
   run 36's read on all five bodies. That proves the route, never the model.
-- **Next: Part A, from the same branch.** It is paid and yours to press.
+- **Next was Part A, from the same branch**: it ran as run 37 (below).
 
 **The before-inventory, read free** (2026-09-26, 20:47–20:50Z):
 - **Version.** All five routes (`/`, `/gallery`, `/order`, `/the-starter`,
@@ -374,6 +374,68 @@ and the kit-heading fix, live.**
 - **Cost:** route 2 + edit about 8–10, so about 10–12 (8–15), plus about 1
   if it is routed through `look`. An estimate, not a cap.
 
+**Part A ran as run 37 and passed**
+([36274691376](https://github.com/canias7/isibi-app/actions/runs/36274691376),
+21:57:49 → 22:02:24Z, your paid press from the branch at `6ce873fc`). It counts
+as the test: the request sha matches (`26b7101c…`, 53 characters, `source:
+CANARY_INSTRUCTION`), its own before-read equals the five bodies, the
+preflight read deploy 2162, and a stored reply arrived (HTTP 200 under
+`x-gf-edit: final`, after 220.2 s, 65 polls, 0 transient). Against the expected
+list:
+1. **Routed through `look`.** Given the five pages, the router answered
+   `intent=edit layer=look page=/` in 16.1 s for 2 credits (`6,769 in / 19
+   out`). The lane picker chose `components` (`2,255 in / 20 out`), which
+   reaches the page rung for `/`.
+2. **The full writer published.** `tweak` is absent; `tweakUsage` is `1,894 in
+   / 56 out`, a quick attempt that did not publish (why is not captured); the
+   full writer is `15,257 in / 930 out`. The look door's reply lists all three
+   billed calls in `usage.langUsage`.
+3. **At the job's own version, VERIFIED.** `01789969693841-xqi8vs` →
+   `01790460007724-qwlcka`, minted 22:00:07.724Z (0.46 s after the reserve);
+   `published_at` 22:02:11.971Z. The after-read's wait matched on its first
+   read.
+4. **Exactly the section, and the code only it used.**
+   - `index.tsx` went 4,389 → 2,435 characters (`2c9421cf728d9823` →
+     `9ae87b30a1fa5d4a`). It is **byte-identical to the removal built by hand
+     as the control**: the section's 39 lines, plus the `useRows`/`Row`,
+     `Empty`, `MenuSection`, `SectionHeader` and `Skeleton` imports, the `Loaf`
+     type and the `loaves` read.
+   - 306 tokens were lost, all from those lines, and 0 gained.
+   - Both `<SafeImage>` elements and the header menu's "Today's bake" item are
+     unchanged. The other four pages are byte-identical, and there are no
+     components before or after.
+   - The checker was proved on six controls first: two correct removals pass,
+     and collateral prose, a removed menu item, no change and a reworded line
+     are each flagged.
+5. **No `keepUsage`, and `problems: []`**, as expected. The text guard let the
+   section's three literal sentences go, with the section named only by the kit
+   heading: the case refused before deploy 2162. The verdict is inferred from
+   the publish; it is not on the wire.
+6. **The reply is "✅ Updated /."** No render note came with it; a render
+   report rides on the reply only when the check failed or found something.
+7. **Money closes exactly: 73 → 65 = route 2 + edit 6.** The ledger's one row
+   for the job is a reserve of 6 (`balance_after 65`, ref `<job>#1`,
+   22:00:07Z), with no refund, and the job reads `done`, `finalized`, cost 6.
+   That is the bottom of the quoted 8–15.
+8. **The live pages, in a real Chromium** (before at 21:58:39Z, after at
+   22:02:27Z):
+   - `/` reads Harbour Loaf · Fed every morning since we opened · Order a loaf
+     for collection;
+   - its text is the before text with exactly the section cut out: 201 → 82
+     words, 0 gained, no loaf name and no price;
+   - both photographs load at the same sizes, and the home page no longer asks
+     for `/data/loaves`;
+   - the other four pages read exactly as before;
+   - there are 0 console errors, page errors, failed requests or non-OK
+     responses on any page.
+
+**What run 37 establishes**: on one sentence and one site, a real model's full
+page rewrite removed exactly the named section on a page with photographs, both
+photographs stayed, and the kit-heading fix let the correct removal through.
+**Not established**: the writer's prompt, why the quick attempt did not publish,
+and the text guard's own verdict. The link-and-component judge and the
+photograph wall had nothing to protect here, so neither was exercised.
+
 **Part B — in the app, one tab, no reload, no developer tools: three
 messages.** This is the real composer, and only your own tab is that: no
 existing workflow drives the signed-in app. Open Harbour Loaf from the start
@@ -397,15 +459,15 @@ the ledger (read-only), and the live pages in my own browser.
 "PUT ONE SAVED VERSION BACK" **blank**: with the version named, the press would
 restore it. It reads every stored body after Parts A and B, so the whole
 sitting is compared byte for byte:
-- `index.tsx` should change only by Part A's removal, B2's `focus="top"` and
-  B3's links;
+- `index.tsx` should change only by Part A's removal (known to the byte: run
+  37's `9ae87b30a1fa5d4a`), B2's `focus="top"` and B3's links;
 - `the-starter.tsx` should become `starter.tsx`;
 - the other pages should change only by B3's links.
 
 **Recovery for 4a — free, with no model call, and verified.** Use step 0's form
 exactly: "PUT ONE SAVED VERSION BACK" = `01789969693841-xqi8vs`.
 - **Why that version:**
-  - every route answers it now;
+  - every route answered it before Part A, and it is run 37's parent;
   - its first 14 digits mint it at 2026-09-21 05:48:13.841Z, inside run 9's job
     (created 05:47:43Z, published 05:50:09Z);
   - run 9 is the last job on the site;
@@ -423,8 +485,8 @@ exactly: "PUT ONE SAVED VERSION BACK" = `01789969693841-xqi8vs`.
   live one and its parent, and 4a makes four publishes (five with a correction
   round).
 
-**4a total:** about 17–20 credits (15–26), an estimate and not a cap. The
-balance is 73 (read 2026-09-26 20:46:59Z).
+**4a total:** Part A cost 8 (run 37); Parts B and C are about 7–8 more, an
+estimate and not a cap. The balance is 65 (read 2026-09-26 22:05:27Z).
 
 #### Test 4b — the database: a row and a permission change (separate approval)
 

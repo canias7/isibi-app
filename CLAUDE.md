@@ -56,10 +56,9 @@ restoration, no further CSS work.
 **What remains, and Test 4 (prepared, not dispatched)**: the top section of the
 [edit-path checklist](docs/investigations/edit-path-checklist.md), summarised in
 *remaining work after Test 3* below. Among the QUEUED jobs inspected, the logo,
-picture, data and rules rungs, a page move, a second message from one tab and the
-full writer on a photographed page have never published, and no job has been
-`exempt`; a synchronous edit makes no job row, so that is the queue's record, not
-proof nothing else ran. **The kit-heading fix is CLOSED BY THE OWNER and
+picture, data and rules rungs, a page move and a second message from one tab have
+never published, and no job has been `exempt`; a synchronous edit makes no job
+row, so that is the queue's record, not proof nothing else ran. **The kit-heading fix is CLOSED BY THE OWNER and
 MERGED AND DEPLOYED at `ab74d0d9`** (deploy 2162, 2026-09-26 20:31 UTC, image
 `369d7b1e5bae25b0`; *a section headed by the kit*, below), with the owner's
 review round (a kit heading the page may not render named its section) in it
@@ -69,7 +68,11 @@ at `5ec82214`. **Runtime-confirmed by the owner's free press, run 35**
 balance was 73 (*Test 4a, prepared*, below). **Step 0 ran again as run 36**
 (36273488436, 21:36 UTC, from the branch with the canary's reader fixed): all
 five stored bodies equal the record byte for byte, so Part A's before-state is
-complete. **Test 4 is split in
+complete. **Part A ran as run 37** (36274691376, published 22:02 UTC, the
+owner's paid press from the branch): the full writer removed exactly the
+"Today's bake" section and the code only it used, kept both photographs, and the
+kit-heading fix answered live; route 2 + edit 6 = 8, balance 65 (*Test 4a*,
+below). **Test 4 is split in
 two, each approved on its own**: 4a (pages, photographs, an attachment and second
 messages; a free restore undoes it) and 4b (the database; a free `grants preview`
 read first, and no permission change that could only be undone by another model
@@ -9304,7 +9307,7 @@ list, and Test 4's exact form values, are the top section of the
     - Part A, a paid canary press (the fix is deployed since 2162):
       'Remove the "Today's bake" section from the home page.' (53 characters,
       sha256 `26b7101c…`), the full writer on a photographed page and the fix,
-      live;
+      live — **ran as run 37 and passed** (*Test 4a*, below);
     - Part B, three messages in the owner's own tab — the real composer, no
       developer tools, since no workflow drives the signed-in app: a logo
       attached in the composer, a picture reframe, a page move;
@@ -9373,7 +9376,7 @@ the actual deployment and authenticated runtime readings."*
   preflight check `ok`, `ALL FREE CHECKS PASSED`, balance **73**. **The live
   Worker answering, not Wrangler reporting on itself.**
 
-### TEST 4a, PREPARED FOR THE DEPLOYED CODE (2026-09-26, evening — step 0 done, paid parts not dispatched)
+### TEST 4a, PREPARED FOR THE DEPLOYED CODE (2026-09-26, evening — step 0 and Part A done; Parts B and C not dispatched)
 
 Owner: *"prepare Test 4a on fold-lane-bakery using the existing workflow/browser
 facilities—no F12 … Keep Test 4b's database changes under separate approval. Do
@@ -9447,6 +9450,69 @@ expected results are the checklist's Test 4a section. What is law here:
   name deploy 2162, because the preflight checks the platform, not the script.
   The supplied-answer rehearsal re-run on that checkout: 13 of 13, its input
   byte-identical to run 36's read. **Part A is next, from the same branch.**
+- **PART A RAN AS RUN 37: THE FULL WRITER REMOVED EXACTLY THE SECTION, ON A
+  PHOTOGRAPHED PAGE** (`36274691376`, the owner's paid press from the branch at
+  `6ce873fc`, 21:57:49 → 22:02:24Z). It counts as the test: the request is 53
+  characters with sha256 `26b7101c…` (`source: CANARY_INSTRUCTION`), its own
+  before-read equals the five recorded bodies, the preflight read deploy 2162
+  (`ab74d0d94384` / `369d7b1e5bae25b0`), and a stored 200 arrived under
+  `x-gf-edit: final` at 220.2 s (65 polls, 0 transient).
+  - **The route**: given the five pages, the router answered `intent=edit
+    layer=look page=/` in 16.1 s for 2 (`6,769 in / 19 out`). The lane picker
+    chose `components` (`2,255 / 20`), which dispatches to the page rung.
+  - **Which writer**: `tweak` absent; `tweakUsage` `1,894 in / 56 out` — the
+    quick writer was attempted and did not publish, and why is not captured;
+    the full writer `15,257 in / 930 out`. **No `keepUsage`**: the section held
+    no link and the site stores no component, so `keepCheck` had nothing to ask
+    its judge. All calls `grok-4.6`. **The look door's merged reply lists every
+    billed call in `usage.langUsage`** (picker, writer, tweak), not the writer
+    alone.
+  - **The text guard let it through** (inferred from the publish; the verdict
+    is not on the wire). The section lost three literal sentences and is named
+    only by `<SectionHeader title="Today's bake">`, the case refused before
+    deploy 2162. **So the kit-heading fix answered live.**
+  - **The stored source is exactly the removal**: `index.tsx` 4,389 → 2,435
+    characters, `2c9421cf728d9823` → `9ae87b30a1fa5d4a`, **byte-identical to
+    the removal built by hand as the evaluator's control**. That is the section
+    (1,489 characters from `<section` to `</section>`) plus the code only it
+    used — the `useRows`/`Row`, `Empty`, `MenuSection`, `SectionHeader` and
+    `Skeleton` imports, the `Loaf` type and the `loaves` read — noted, not
+    failed. Tokens: 306 lost, all from those lines, 0 gained. Both
+    `<SafeImage>` elements and the header menu's "Today's bake" → `/` item are
+    unchanged, the other four pages are byte-identical, and parts are 0 → 0.
+  - **The evaluator was proved alive first on six controls** (two correct
+    removals pass; collateral prose, a removed menu item, no change and a
+    reworded line are flagged), after its first cut read a JSX apostrophe
+    ("Couldn't") as a string quote and reported a pure deletion as tokens
+    gained. *A tokenizer that pairs quotes across lines turns a deletion into a
+    change.*
+  - **Published at its own version**: `01789969693841-xqi8vs` →
+    `01790460007724-qwlcka`, minted 22:00:07.724Z, 0.46 s after the reserve;
+    `published_at` 22:02:11.971Z; `compare.json` VERIFIED, the wait matching on
+    its first read.
+  - **Money closes exactly: 73 → 65 = route 2 + edit 6**, at the bottom of the
+    8–15 band quoted. The ledger holds one row, `reserve −6`, `balance_after
+    65`, ref `<job>#1`, and no refund; the job reads `done`, `finalized`, cost
+    6.
+  - **The live pages, in a real Chromium over TLS-verified live bytes** (before
+    21:58:39Z at `xqi8vs`, after 22:02:27Z at `qwlcka`):
+    - `/` reads Harbour Loaf · Fed every morning since we opened · Order a loaf
+      for collection;
+    - its text is the before text with exactly the section cut out: 201 → 82
+      words, 0 gained, no loaf name and no price;
+    - both photographs load (2400×1792, shown at 976×549 and 720×540), and the
+      home page no longer calls `/data/loaves`;
+    - the other four routes' text, headings, pictures and links are identical;
+    - 0 console errors, page errors, failed requests or non-OK responses on any
+      route.
+  - **The reply**: "✅ Updated /." — true, and it names the page, not the
+    removal. `problems: []`, and no render report is on the wire (one rides only
+    when the check failed or found something).
+  - **Not established**: the writer's prompt, why the quick attempt did not
+    publish, and the text guard's verdict detail. The judge and the photograph
+    wall had nothing to do (`photosKept` absent). **Parts B and C are next**, and
+    the recovery target is unchanged: `01789969693841-xqi8vs` is run 37's
+    parent, which `pruneBuilds` keeps.
 
 ### A SECTION HEADED BY THE KIT (2026-09-26, `2f2fed58` + `5ec82214`, merged and deployed in deploy 2162)
 
@@ -12112,8 +12178,11 @@ at run 34's end (2026-09-26, Test 3: **91 → 73, moved 18**, route 2 + the page
 rung's 16, closing exactly, on a run that published; the ledger holds one reserve
 of 16 and no refund), **and read 73 again on 2026-09-26 at 20:46:59Z** off the
 balance row the canary itself reads, matching the last ledger row (run 34's
-reserve), and by the free presses of run 35 (21:08Z) and run 36 (21:36Z);
-nothing has spent since.
+reserve), and by the free presses of run 35 (21:08Z) and run 36 (21:36Z).
+**Balance 65** at run 37's end (2026-09-26, Test 4a's Part A: **73 → 65, moved
+8**, route 2 + the page rung's 6, closing exactly, on a run that published; the
+ledger holds one reserve of 6 and no refund), read on the balance row at
+22:05:27Z.
 **Between run 31 and
 run 32 the balance rose from 1 to 101** (read on the ledger at 18:09Z and by the
 canary before its paid call). **Only the readings are recorded; how it rose is
@@ -13136,7 +13205,8 @@ does name one — moved up to the supported list on 2026-09-20.)*
     deployed in deploy 2162 (`ab74d0d9`, image `369d7b1e5bae25b0`); the rule and
     its limits are in *a section headed by the kit*. The owner's review of
     `2f2fed58` found that a kit heading the page may not render still named its
-    section, closed at `5ec82214`. Its live check is Test 4a's Part A.
+    section, closed at `5ec82214`. **It answered live on Test 4a's Part A** (run
+    37, 2026-09-26): the correct removal published, and nothing else changed.
 - **A LITERAL HEADING NAMES ITS SECTION WHETHER OR NOT IT RENDERS (found
   2026-09-26 in the kit-heading review, not changed).** The kit heading now
   must render whenever its section does; the literal reader has no such check.

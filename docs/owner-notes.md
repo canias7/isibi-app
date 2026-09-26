@@ -176,6 +176,44 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-26 — Part A passed (run 37): the section is gone, nothing else changed, 8 credits
+
+Your paid press ran as
+[run 37](https://github.com/canias7/isibi-app/actions/runs/36274691376) and
+published at 22:02 UTC.
+- **The "Today's bake" section is off the home page, and nothing else
+  changed.** I compared the stored page with the one before it, line by line.
+  It lost that section and the few lines of code only that section used, and
+  it matches, byte for byte, the version I made by hand to compare against. The
+  other four pages are byte-identical.
+- **This was the full page writer, on a page with photographs, and both are
+  still there.** The quick writer tried first and didn't publish; the full
+  writer then made the change. It's the first time the job records show that.
+- **The heading fix works live.** The section is named only by the design
+  component's heading, which is exactly the case that was refused before the
+  fix.
+- **In a real browser, the home page now reads** Harbour Loaf, then "Fed every
+  morning since we opened", then "Order a loaf for collection". It went from
+  201 words to 82: exactly the 119 in that section went, so no loaf names or
+  prices are left. Both photographs load, and there are no errors. The other
+  four pages read exactly as before.
+- **It cost 8 credits: 2 to read your message and 6 for the edit.** The
+  balance went from 73 to 65. The ledger holds one charge of 6 for the job,
+  with no refund. That's the bottom of the range I gave you, because this page
+  is small and the writer had little to read and write.
+- The reply you'd see is "✅ Updated /.". It's true, but it names the page
+  rather than what was removed; that's the known limit of the current replies.
+- **Not shown by this run:** what the writer was told, and why the quick writer
+  didn't publish; neither is recorded. The check that guards links and the
+  site's own components had nothing to protect on this page, so it wasn't
+  tested.
+
+**Next is Part B, in your own browser tab:** three messages to Harbour Loaf
+(the logo with a picture attached, the boule photo reframed, the starter page
+moved), about 7–8 credits in all. Then Part C, a free press that reads every
+page file again. One free press can also put the site back to how it was
+before Part A, whenever you like.
+
 ## 2026-09-26 — Your second free check (run 36, from the branch) read every page file back exactly; Part A is ready for you
 
 Your press from the branch ran as
