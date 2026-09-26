@@ -20,8 +20,9 @@ found one gap — a kit heading the page may not render (inside `{false && …}`
 `<div hidden>` or an unknown wrapper) still named its section — closed at
 `5ec82214`, which is in the deploy. Test 4 below is split in two, each part with
 its own approval; **4a is prepared for the deployed code: its free step 0 is
-done (runs 35 and 36), Part A ran as run 37 and passed, and Parts B and C are
-not dispatched**.
+done (runs 35 and 36), Part A ran as run 37 and passed, and Parts B and C
+are now one press of the canary's new UI mode (the real app in a real browser),
+prepared on the branch and not dispatched**.
 
 ### What is already shown live (credited, not rerun)
 
@@ -173,7 +174,8 @@ its own approval and its own recovery.**
 #### Test 4a — pages, photographs, an attachment and second messages
 
 **Prepared for the deployed code (2026-09-26, evening); step 0 and Part A done
-(Part A passed as run 37, below); Parts B and C not dispatched.** Every press below is `edit-canary.yml`
+(Part A passed as run 37, below); Parts B and C are one UI-mode press, not
+dispatched.** Every press below is `edit-canary.yml`
 (<https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml>, "Run
 workflow"), with **"Use workflow from" set to `claude/help-needed-ehlwlj`**
 until the canary's reader fix (below) is merged; a merge of it deploys nothing.
@@ -436,12 +438,74 @@ photographs stayed, and the kit-heading fix let the correct removal through.
 and the text guard's own verdict. The link-and-component judge and the
 photograph wall had nothing to protect here, so neither was exercised.
 
-**Part B — in the app, one tab, no reload, no developer tools: three
-messages.** This is the real composer, and only your own tab is that: no
-existing workflow drives the signed-in app. Open Harbour Loaf from the start
-screen, and send each message only after the previous reply is on screen.
-Everything in the last column I read afterwards, for free: the job rows and
-the ledger (read-only), and the live pages in my own browser.
+**Part B — the real app in a real browser, driven by the canary's new UI
+mode: three messages, one tab, no reload.** No existing workflow drove the
+signed-in app, and the session has no owner credentials and cannot dispatch.
+A new workflow file would have no Run button until merged, so this is a MODE of
+the existing canary, like the restore mode. It is on the branch, so a branch
+dispatch offers its box (`ui_scenario`).
+- **What it does:**
+  - It signs in the way the canary already does: a magic link minted with the
+    service key, then verified.
+  - It plants that session where `auth.js` keeps one (`zephyr_session_v1`),
+    only for gofarther.dev itself, before the page's first script runs. The
+    site's own preview frame gets nothing.
+  - It opens gofarther.dev/projects in a real Chromium, and opens Harbour
+    Loaf's card on the start screen.
+  - It attaches `test/fixtures/ui-logo.png` through the + button's own file
+    chooser. The file is a 240×240 PNG of a loaf, 1,254 bytes, sha256
+    `2cc633d73b2d5ab38d29d94cf15c9ce67980a2401ee005f99e89e0781a4c3df5`.
+  - It types each message and presses Send only when the previous reply is on
+    screen and the composer is idle: the busy flag down, Send drawn and live,
+    no Stop button, no "Working" row, a box that takes typing.
+  - After each reply it types into the box and checks Send is live, so
+    "usable again" is a reading, not an assumption.
+  - It records each reply exactly as shown, and each routing and edit request
+    and reply, with an attachment reduced to its name, size and sha256. It
+    also records every job each message filed and the balance before and after
+    each message.
+  - After the last message it finds each job's published version in the
+    site's own list, and waits for the site to report the last one. It then
+    takes the byte-level after-read, checks each publish was built from the one
+    before it, and reads each job's row and ledger lines.
+- **Where it stops, sending nothing more:**
+  - a free check that failed;
+  - the sign-in gate, another account, or no card for the site;
+  - a file that never lands in the attachment strip, or words that do not land
+    in the box;
+  - a composer that is busy before a message;
+  - a reply that does not come within 12 minutes;
+  - a balance it cannot read, or 15 credits spent (checked before each
+    message).
+
+  Without `spend = yes` it stops before the first Send: a rehearsal that shows
+  the app opens signed in and the file attaches.
+- **What it blocks in the page:** any add-on, build or full-rewrite request.
+  That is the paid work this scenario never asks for, so the request is
+  aborted before it leaves the browser and recorded as BLOCKED. Whatever the
+  page then says is the harness's doing, and the record says so.
+- **Its limits, stated:**
+  - The budget is checked between messages, so one message's own cost is never
+    cut off mid-way. That cost includes a hand-off to another edit layer, which
+    the page makes as a second edit request with its own job, as the real app
+    does.
+  - Every other request goes to the live Worker. So the replies are the real
+    ones, and so is the money.
+  - A blocked request fails the run and does not stop the scenario: the page
+    answers it with its own not-knowing sentence, and the next message still
+    goes.
+- **Proven before any press, and what that proof is:**
+  - Locally, against the real app's code: the live gofarther.dev files served
+    into a real Chromium, with every API call answered in the page. It ran the
+    three messages, a rehearsal, a refused session, a message misrouted to the
+    add-on (blocked), and a job that never finished. That proves the driver,
+    never the live platform's answers.
+  - 22 unit cases, through a stand-in page that forces every stop.
+  - Targeted probes: 33 mutants, all killed; 3 comment-only controls, all
+    surviving.
+
+Everything in the last column is read afterwards, free: the job rows and the
+ledger (read-only), and the live pages in a real browser.
 
 | # | Send exactly | Expected rung | Expected reply | Established afterwards | Credits |
 | --- | --- | --- | --- | --- | --- |
@@ -453,12 +517,33 @@ the ledger (read-only), and the live pages in my own browser.
   own job and reply, and the send box must come back after each. A message
   that is routed and then hangs means the per-ask latch has failed. The job
   rows show one job per message, in order.
-- **Cost:** about 7–8 in total.
+- **Cost:** about 7–8 in total. The mode stops before a message once 15 are
+  spent.
+- **The press** (`edit-canary.yml`, "Use workflow from" = the branch
+  `claude/help-needed-ehlwlj`, where the new box exists):
+  - "RUN A SCENARIO THROUGH THE REAL APP IN A REAL BROWSER…"
+    (`ui_scenario`) = `4a-part-b`;
+  - "Run the ONE paid edit as well (yes/no)" (`spend`) = `yes`, which in this
+    mode sends the scenario's messages;
+  - "The site to edit…" = `fold-lane-bakery`; "A second site…" =
+    `washhouse-3`;
+  - "What to change…", "READ ONE EXISTING JOB…" and "PUT ONE SAVED VERSION
+    BACK…" blank;
+  - "Refuse to spend unless the Worker reports this deploy sha…" =
+    `ab74d0d94384e85db252176eaca623ba131932a5`;
+  - "Refuse to spend unless a cold container reports this image id…" =
+    `369d7b1e5bae25b0`.
 
-**Part C — your free press, after Parts A and B.** Use step 0's form, but with
-"PUT ONE SAVED VERSION BACK" **blank**: with the version named, the press would
-restore it. It reads every stored body after Parts A and B, so the whole
-sitting is compared byte for byte:
+  The same form with spend = `no` is a free rehearsal. The artifact holds
+  `ui.json`, `ui.txt`, a screenshot after each message, `job-<id>.txt` for each
+  job, and the before and after source.
+
+**Part C — the byte-level after-read, now taken by the UI mode itself.** Once
+its last message has published, the mode waits for the site to report that
+version and reads every stored body, so the whole sitting is compared byte for
+byte. A separate free press is needed only if its chain reads UNVERIFIED. It
+would use step 0's form with "PUT ONE SAVED VERSION BACK" **blank**; with the
+version named, the press would restore it. What the after-read should show:
 - `index.tsx` should change only by Part A's removal (known to the byte: run
   37's `9ae87b30a1fa5d4a`), B2's `focus="top"` and B3's links;
 - `the-starter.tsx` should become `starter.tsx`;
@@ -486,7 +571,8 @@ exactly: "PUT ONE SAVED VERSION BACK" = `01789969693841-xqi8vs`.
   round).
 
 **4a total:** Part A cost 8 (run 37); Parts B and C are about 7–8 more, an
-estimate and not a cap. The balance is 65 (read 2026-09-26 22:05:27Z).
+estimate and not a cap, and the UI mode sends no further message once 15 are
+spent. The balance is 65 (read 2026-09-26 22:05:27Z).
 
 #### Test 4b — the database: a row and a permission change (separate approval)
 

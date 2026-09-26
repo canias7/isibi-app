@@ -72,6 +72,9 @@ complete. **Part A ran as run 37** (36274691376, published 22:02 UTC, the
 owner's paid press from the branch): the full writer removed exactly the
 "Today's bake" section and the code only it used, kept both photographs, and the
 kit-heading fix answered live; route 2 + edit 6 = 8, balance 65 (*Test 4a*,
+below). **Parts B and C are one press of the canary's new UI mode** — the
+real app in a real Chromium, signed in as the owner, three messages from one
+tab — prepared on the branch and NOT dispatched (*the canary's UI mode*,
 below). **Test 4 is split in
 two, each approved on its own**: 4a (pages, photographs, an attachment and second
 messages; a free restore undoes it) and 4b (the database; a free `grants preview`
@@ -9308,10 +9311,12 @@ list, and Test 4's exact form values, are the top section of the
       'Remove the "Today's bake" section from the home page.' (53 characters,
       sha256 `26b7101c…`), the full writer on a photographed page and the fix,
       live — **ran as run 37 and passed** (*Test 4a*, below);
-    - Part B, three messages in the owner's own tab — the real composer, no
-      developer tools, since no workflow drives the signed-in app: a logo
-      attached in the composer, a picture reframe, a page move;
-    - Part C, a free canary press for the byte-level after-read.
+    - Part B, three messages from one tab of the real app: a logo attached in
+      the composer, a picture reframe, a page move — **now one press of the
+      canary's UI mode**, which drives the signed-in app in a real Chromium
+      (*the canary's UI mode*, below);
+    - Part C, the byte-level after-read, which the UI mode takes itself after
+      its last publish.
     - About 17–20 credits.
   - **4b — the database, its own approval and its own recovery**:
     - step 0, free: `grants preview` (preview mode) for the site — the stored
@@ -9376,7 +9381,7 @@ the actual deployment and authenticated runtime readings."*
   preflight check `ok`, `ALL FREE CHECKS PASSED`, balance **73**. **The live
   Worker answering, not Wrangler reporting on itself.**
 
-### TEST 4a, PREPARED FOR THE DEPLOYED CODE (2026-09-26, evening — step 0 and Part A done; Parts B and C not dispatched)
+### TEST 4a, PREPARED FOR THE DEPLOYED CODE (2026-09-26, evening — step 0 and Part A done; Parts B and C one UI-mode press, not dispatched)
 
 Owner: *"prepare Test 4a on fold-lane-bakery using the existing workflow/browser
 facilities—no F12 … Keep Test 4b's database changes under separate approval. Do
@@ -9513,6 +9518,105 @@ expected results are the checklist's Test 4a section. What is law here:
     wall had nothing to do (`photosKept` absent). **Parts B and C are next**, and
     the recovery target is unchanged: `01789969693841-xqi8vs` is run 37's
     parent, which `pruneBuilds` keeps.
+
+### THE CANARY'S UI MODE: THE REAL APP, IN A REAL BROWSER (2026-09-26, late — on the branch, not dispatched)
+
+Owner: *"Use browser automation for Part B. … Exercise the real app: upload a
+known test image through its attachment control, send the three planned
+messages in one tab without reloading, and wait for each completed reply. …
+Direct API calls alone do not cover this UI test. If existing tooling cannot do
+it, identify the exact blocker and prepare the smallest necessary browser-test
+addition."* `scripts/canary-ui.mjs`, the `ui_scenario` box on `edit-canary.yml`,
+`test/canary-ui.test.mjs`, `test/fixtures/ui-logo.png`. What is law here:
+
+- **THE BLOCKER WAS THREE WALLS, NOT ONE.**
+  - No tool drove the signed-in builder app: every harness posts to the API,
+    and the most any does is EXECUTE the reply composer in Node
+    (`editBrowserReply`).
+  - A session holds no owner credential, and must not mint or read one.
+  - A session cannot dispatch (403, `actions: write`), and a NEW workflow file
+    has no Run button until it is on main.
+
+  So the smallest addition is a MODE of the workflow the owner already presses,
+  like the read and restore modes: a branch dispatch offers its box.
+- **SIGNED IN WITH THE CANARY'S OWN SESSION, NOT A SECOND WAY IN.** The canary
+  already opens an owner session: a magic link minted with the service key,
+  then verified. `auth.js` keeps its session in localStorage
+  `zephyr_session_v1` as `{access_token, refresh_token, expires_at, user}`,
+  with `expires_at` in **milliseconds**. A seeded session makes boot run
+  `Auth.isSignedIn() → enterApp()`, so the app signs in through its own code.
+- **⚠ AN INIT SCRIPT RUNS IN EVERY FRAME, AND THE WORKSPACE FRAMES THE
+  CUSTOMER'S SITE.** Playwright's `addInitScript` runs in every frame, and the
+  preview frame is the site's own origin running the site's own JavaScript. So
+  a plant with no condition hands the owner's token to that site's scripts.
+  - The plant runs **only where `location.origin` is the app's and no session
+    is stored yet**.
+  - The second half matters too: the app rotates its tokens, and planting
+    again on a later navigation would overwrite the rotated session with a
+    used refresh token.
+  - Both halves are driven by running the script itself in both origins.
+- **WHAT IS SENT IS A NAMED SCENARIO, NEVER FORM TEXT, TIED TO ONE SITE.**
+  `UI_SCENARIOS["4a-part-b"]` is frozen and names fold-lane-bakery. The name is
+  refused whole before the sign-in (exit 2), and so is a scenario written for
+  another site, or one named beside a version to restore.
+- **IDLE IS EVERY SIGN OF IT AT ONCE** (`composerReady`): the page's busy flag
+  down, Send drawn and live, no Stop button (drawn in Send's place while
+  busy), no "Working" row, and a box that takes typing. Any one alone has been
+  true of a busy page. **"Usable again" is a reading**: after each reply the
+  mode types into the box, reads it back and checks idle.
+- **THE WALL IN THE PAGE.** Every scenario is edits, so a POST to the add-on,
+  build or full-rewrite route is aborted in the browser before it leaves, and
+  recorded as BLOCKED. A hand-off to another edit layer is let through: the
+  real app makes it as a second edit request, and it is part of one message.
+  Everything else goes to the live Worker.
+- **THE BUDGET IS BETWEEN MESSAGES.** 15 credits for the scenario, asked before
+  each Send from the balance the canary reads; an unreadable balance refuses.
+  One message's own cost is never cut off mid-way.
+- **EVERY JOB A MESSAGE FILED, IN ORDER** (`jobs`), because a hand-off has a job
+  of its own and can publish. The chain of publishes (`chainVerdict`) requires
+  each published version to have been built from the one before it (the first
+  from the before-read's), the wait to have matched, and every after page to
+  be at the last version.
+- **THE BROWSER IS INSTALLED ONLY FOR THE MODE**, before the canary step, on
+  `lane-sweep.yml`'s line (`playwright@1.49.1`, `--with-deps chromium`).
+  `test/ci-browser-order.test.mjs` reads only the script a step runs and cannot
+  see a launch inside an imported module, so the new census asserts the launch
+  in the module and the install above the step.
+- **⚠ THE SPEND GATE'S SPELLING IS A LANDMARK, AND THE MODE'S FIRST CUT MOVED
+  IT.** Its paid/rehearsal split was written `if (!SPEND)`, the exact text
+  every canary guard uses to find where spending begins, so the guards began
+  reading from the wrong line. It is `if (SPEND) … else …` now, and the census
+  asserts the landmark occurs once. *A landmark is only unique until somebody
+  writes the same line upstream.*
+- **WHAT IT CANNOT SHOW**: it is a headless Chromium on a GitHub runner at
+  1440×900, not the owner's browser, and what the screen shows is recorded as
+  text and screenshots, not judged by eye.
+- **A BLOCKED REQUEST FAILS THE RUN AND DOES NOT STOP THE SCENARIO.** The page
+  answers the aborted request with its own not-knowing sentence, the composer
+  comes back, and the next message goes: each message is its own test, and a
+  misrouted one has changed nothing.
+- **PROVEN BEFORE ANY PRESS, AND WHAT THAT PROOF IS.**
+  - **Locally against the real app's code.** The live gofarther.dev files were
+    fetched over TLS-verified Node fetch and served into a real Chromium, with
+    every `/api` and Supabase call answered in the page. Five paths were run:
+    the three messages, a rehearsal, a refused session, a message misrouted to
+    the add-on (BLOCKED, with the add-on's own not-knowing sentence on screen),
+    and a job that never finished. It was re-run on the final module: the
+    three messages, the block and the hang. **It proves the driver, never the
+    live platform's answers.**
+  - **Unit cases**: `test/canary-ui.test.mjs`, 22, through a stand-in page that
+    forces every stop, plus the wiring and workflow censuses.
+  - **Probes**: `scripts/mutants/canary-ui.json` — 33 mutants, 33 killed, 0
+    survived, 0 never applied, 3 comment-only controls surviving — over the
+    41 test files that can see the canary or a workflow. The three probed files
+    were byte-identical to a scratchpad backup afterwards.
+  - Three probes needed a case written for them first: a page that goes busy
+    again after a reply, a box that stops taking typing, and a hand-off's
+    second job. Two needed the census tightened: each pre-sign-in refusal must
+    exit on its own, and the spend switch must not read the scenario box.
+  - **Suite 8,040 locally** (`# tests 8040 / # pass 8038 / # fail 0 /
+    # skipped 2`, `duration_ms 144,142`): +22 against 8,018, exactly the new
+    file.
 
 ### A SECTION HEADED BY THE KIT (2026-09-26, `2f2fed58` + `5ec82214`, merged and deployed in deploy 2162)
 

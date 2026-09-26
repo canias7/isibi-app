@@ -14,7 +14,7 @@ merged/deployed at a5741864 (deployment 2157 / run 36099179983). Served chat.js
 matched the reviewed bytes at 2026-09-25 05:36:30 UTC. Deployment log reports
 container reuse; no repeated runtime container check or canary. This contains
 an escaped display error; publication and cleanup already succeeded. Other
-checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; see the dated entries below). Your free check (run 33, 06:24 UTC) confirmed deployment 2161 from the live server, and with it 2160's code. Test 3 ran as your paid run 34: the full page writer removed "The first eight chords" and nothing else, for 18 credits (balance 73), and all seven checks hold (the dated entry below). The page-text check now recognises a section heading shown by a design component, and your review's gap (such a heading counted when the page might not show it) is closed too. You closed that correction, and it is merged and deployed at `ab74d0d9` (deployment 2162, 2026-09-26 20:31 UTC, image `369d7b1e5bae25b0`). Your free press (run 35, 21:08 UTC) confirmed it from the live server. Test 4 is two parts, each for your separate approval: 4a (pages, photos, an attached picture, second messages) is now prepared for the deployed code, with the exact presses (the newest entry below), and 4b (the database) waits for its own approval.
+checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; see the dated entries below). Your free check (run 33, 06:24 UTC) confirmed deployment 2161 from the live server, and with it 2160's code. Test 3 ran as your paid run 34: the full page writer removed "The first eight chords" and nothing else, for 18 credits (balance 73), and all seven checks hold (the dated entry below). The page-text check now recognises a section heading shown by a design component, and your review's gap (such a heading counted when the page might not show it) is closed too. You closed that correction, and it is merged and deployed at `ab74d0d9` (deployment 2162, 2026-09-26 20:31 UTC, image `369d7b1e5bae25b0`). Your free press (run 35, 21:08 UTC) confirmed it from the live server. Test 4 is two parts, each for your separate approval: 4a (pages, photos, an attached picture, second messages) and 4b (the database), which waits for its own approval. In 4a, Part A passed as your paid run 37. Parts B and C are now one press of the canary's new browser mode, which drives the real app in a real browser. It is on the branch, waiting for your approval (the newest entry below).
 
 Kept for the owner. Two purposes:
 1. **How you like things done** — durable preferences, so a fresh session does not
@@ -175,6 +175,73 @@ owner signals one; move an item out of Open the moment it is resolved.
   trying to read.**
 
 ---
+
+## 2026-09-26 — Part B can now run in a real browser from GitHub; it waits for your approval
+
+You asked for Part B to be driven by a browser rather than by you. No existing
+tool could do that: every test we have talks to the server directly, and none
+of them opens the app. My session also can't sign in as you or press a
+workflow button, and a brand-new workflow wouldn't get a Run button until it
+was merged.
+
+So the canary you already press has a new browser mode, on the branch. When
+you pick it, it:
+- **signs in as you the way the canary already does**, and gives that sign-in
+  only to gofarther.dev itself. Your site's own preview inside the app never
+  gets it.
+- **opens Harbour Loaf from the start screen in a real browser**, attaches a
+  small test picture of a loaf with the + button, and sends the three Part B
+  messages from one tab, without reloading.
+- **sends each message only once the previous reply is on screen** and the
+  message box works again. After each reply it types into the box to check it
+  really does.
+- **records each reply exactly as shown**, a screenshot after each message,
+  every job, and the balance before and after each one.
+- **after the last message, reads every page file again** and checks that each
+  change was built on the one before. That is Part C, so no separate press is
+  needed if it reads clean.
+
+What keeps it safe:
+- It sends nothing unless spend is yes. With spend no it's a free rehearsal
+  that stops before the first Send.
+- It stops, sending nothing more, if a free check fails, the app asks to sign
+  in, the picture doesn't attach, a reply doesn't come within 12 minutes, or 15
+  credits have been spent (checked before each message).
+- It blocks anything that would start an add-on, a new build or a rewrite of
+  every page. None of the three messages should need those.
+- One limit: the 15-credit check runs between messages, so one message is never
+  stopped halfway.
+
+How I tested it without spending anything:
+- I ran it here, in a real browser, against the real app's own code, with the
+  server's answers supplied by me. I tried the normal three messages, a
+  rehearsal, a refused sign-in, a message the server sent to the add-on route
+  (it was blocked and the app said it couldn't tell what happened), and a job
+  that never finished (it stopped and sent nothing more). That shows the
+  browser side works; it can't show what the live server will answer.
+- There are 22 automated checks for it. I also made 33 deliberate breaks in the
+  new code, and every one was caught; 3 harmless comment edits passed, as they
+  should. All 8,040 tests pass.
+
+**The press, when you approve it** — about 7–8 credits (balance 65), and it
+stops before a message once 15 are spent:
+<https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml> → "Run
+workflow", with "Use workflow from" set to `claude/help-needed-ehlwlj`:
+- "RUN A SCENARIO THROUGH THE REAL APP IN A REAL BROWSER…" = `4a-part-b`
+- "Run the ONE paid edit as well (yes/no)" = `yes` (in this mode it sends the
+  three messages instead of the one edit)
+- "The site to edit…" = `fold-lane-bakery`
+- "A second site…" = `washhouse-3` (already the default)
+- "Refuse to spend unless the Worker reports this deploy sha…" =
+  `ab74d0d94384e85db252176eaca623ba131932a5`
+- "Refuse to spend unless a cold container reports this image id…" =
+  `369d7b1e5bae25b0`
+- leave "What to change…", "READ ONE EXISTING JOB…" and "PUT ONE SAVED VERSION
+  BACK…" blank.
+
+The same form with "Run the ONE paid edit as well" = `no` is a free rehearsal,
+if you'd like to see it open the app and attach the picture first. One free press can still put the site
+back to how it was before Part A (version `01789969693841-xqi8vs`).
 
 ## 2026-09-26 — Part A passed (run 37): the section is gone, nothing else changed, 8 credits
 

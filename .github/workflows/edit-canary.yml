@@ -68,6 +68,18 @@ on:
         description: 'PUT ONE SAVED VERSION BACK, THEN READ IT AND STOP: a version id (14 digits, a dash, up to 6 letters/digits). Free. Never spends.'
         required: false
         default: ''
+      ui_scenario:
+        # A MODE, like the two above. Filled in, the script runs the free checks
+        # and the before-read, then drives the REAL APP in a real Chromium,
+        # signed in as the owner: it opens the site's card, attaches a file with
+        # the + button, types each message, presses Send and waits for each
+        # reply before the next — one tab, no reload. What is sent is a named
+        # scenario in scripts/canary-ui.mjs, never text from this form, and it
+        # is tied to one site. With spend=yes each message is sent; otherwise it
+        # stops before the first Send. "What to change" is ignored.
+        description: 'RUN A SCENARIO THROUGH THE REAL APP IN A REAL BROWSER instead of the one edit: a scenario name (4a-part-b). Sends only with spend=yes; otherwise it stops before the first Send.'
+        required: false
+        default: ''
       site:
         description: 'The site to edit. Defaults to the canary site; name another to run this against it. Not needed with read_job.'
         required: false
@@ -95,7 +107,9 @@ jobs:
     # The free half is seconds. The paid half is one edit — a routing call, a
     # lane, a container build and a publish — plus the wait for the queue to
     # deliver. Bounded well above that, because a cancelled job reports nothing.
-    timeout-minutes: 30
+    # A UI scenario sends several messages, each bounded at 12 minutes by the
+    # script itself, and installs a browser first; 45 covers three of them.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -123,6 +137,13 @@ jobs:
       # the next widening cannot ship silent.
       - name: install what the canary imports
         run: npm ci
+      # THE UI MODE NEEDS A BROWSER, AND ONLY THE UI MODE: a scenario named on
+      # the form installs playwright's Chromium here, before the canary step
+      # that launches it (test/ci-browser-order.test.mjs's rule). Pinned to the
+      # line lane-sweep.yml uses. An ordinary canary run skips it.
+      - name: a browser for the UI mode
+        if: github.event.inputs.ui_scenario != ''
+        run: npm i --no-save --no-audit --no-fund playwright@1.49.1 && npx playwright install --with-deps chromium
       # ASK deploy.yml FOR ITS OWN RUNS — a find-by-name over
       # `actions/runs?head_sha=` silently stops finding the deploy once a push
       # fires more workflows than fit on one page. This repo lost a run to that.
@@ -171,6 +192,10 @@ jobs:
           # before anybody has compared the restored source is not that request.
           CANARY_RESTORE: ${{ github.event.inputs.restore_version }}
           CANARY_SPEND: ${{ github.event.inputs.read_job == '' && github.event.inputs.restore_version == '' && github.event.inputs.spend == 'yes' && '1' || '0' }}
+          # A SCENARIO FOR THE UI MODE. Refused by the script when it names no
+          # known scenario, names one written for another site, or arrives beside
+          # a version to put back.
+          CANARY_UI: ${{ github.event.inputs.ui_scenario }}
           CANARY_INSTRUCTION: ${{ github.event.inputs.instruction }}
           EXPECT_DEPLOY: ${{ github.event.inputs.expect_deploy }}
           EXPECT_IMAGE: ${{ github.event.inputs.expect_image }}

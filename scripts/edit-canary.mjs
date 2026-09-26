@@ -40,6 +40,11 @@ import { readJobRecords, describeJob } from "./canary-read-job.mjs";
 // THE RESTORE MODE. Its own module for the same reason: what it will and will
 // not post is worth driving, and it cannot be reached through this script.
 import { readRestoreId, restoreFlow, describeRestore } from "./canary-restore.mjs";
+// THE UI MODE. Its own module, for the reason the other modes have theirs: what
+// it will send, and where it stops, is decided there and driven by tests. It
+// loads a browser only when a scenario is named, so an ordinary run never does.
+import { readUiScenario, runUi, describeUi, chainVerdict } from "./canary-ui.mjs";
+import { publishedVersion } from "./canary-watch.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://ujrqdmmtcptvimazlhom.supabase.co";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || "";
@@ -66,6 +71,10 @@ const READ_JOB = String(process.env.CANARY_READ_JOB || "").trim();
 // the version is restored, the inventory reads the restored site, and nothing
 // past the inventory runs — see the branch above the inventory.
 const RESTORE = String(process.env.CANARY_RESTORE || "").trim();
+// RUN A SCENARIO THROUGH THE REAL APP, IN A REAL BROWSER. Set, the free checks
+// and the before-inventory run, then the scenario, and nothing past it runs —
+// see the branch below the balance.
+const UI = String(process.env.CANARY_UI || "").trim();
 
 // THE READ MODE DOES NOT NEED A SLUG, and demanding one would be a false
 // demand with a real cost: the job row CARRIES its slug, so asking the caller
@@ -82,6 +91,19 @@ if (!EMAIL || !SERVICE_KEY || (!CANARY && !READ_JOB)) {
 const RESTORE_ASK = RESTORE && !READ_JOB ? readRestoreId(RESTORE) : null;
 if (RESTORE_ASK && !RESTORE_ASK.ok) {
   console.error(`REFUSING TO RESTORE: ${RESTORE_ASK.msg}`);
+  process.exit(2);
+}
+// A SCENARIO IS A NAME, REFUSED WHOLE BEFORE THE SIGN-IN, and it is written for
+// one site: a site box naming another refuses too. A version to put back and a
+// scenario to run are two different runs, so naming both refuses rather than
+// letting one of them win quietly.
+const UI_ASK = UI && !READ_JOB ? readUiScenario(UI, CANARY) : null;
+if (UI_ASK && !UI_ASK.ok) {
+  console.error(`REFUSING THE UI MODE: ${UI_ASK.msg}`);
+  process.exit(2);
+}
+if (UI_ASK && RESTORE_ASK) {
+  console.error("REFUSING: a version to put back and a UI scenario are two different runs — name one of them");
   process.exit(2);
 }
 
@@ -513,6 +535,101 @@ console.log("");
 // site nobody has compared yet.
 if (RESTORE_ASK) {
   console.log("RESTORE MODE — stopping before the paid edit. Nothing was charged.");
+  process.exit(failed ? 1 : 0);
+}
+// ── THE UI MODE: THE REAL APP, IN A REAL BROWSER, AS THE OWNER ─────────────
+//
+// A MODE, LIKE THE RESTORE: it runs its scenario and EXITS, so the one API edit
+// below is unreachable from it. It sits below the free checks and the
+// before-inventory, so a platform that is not the expected build never has a
+// message typed into it, and the record starts from a complete before-read.
+// `spend` decides whether anything is SENT: without it the scenario stops at
+// the first Send, having shown that the app opens signed in and the file
+// attaches.
+if (UI_ASK) {
+  if (failed) {
+    console.log("REFUSING TO OPEN THE APP: a free check failed, so the platform is not the one this run expected.");
+    process.exit(1);
+  }
+  console.log(`UI MODE — scenario ${UI_ASK.name} on ${CANARY}, ${SPEND ? "PAID: each message is sent" : "a rehearsal: nothing is sent"}\n`);
+  const ui = await runUi({ base: BASE, session, slug: CANARY, scenario: UI_ASK.scenario, spend: SPEND, balanceNow, evid: EVID });
+  const told = describeUi(ui);
+  console.log("\n" + told + "\n");
+  check("the app opened signed in as the canary's account",
+    !!(ui.opened && ui.opened.signedIn && !ui.opened.gate && ui.opened.uid === UID), JSON.stringify(ui.opened));
+  const first = ui.steps[0];
+  if (first && first.attach) check("the file landed in the attachment strip", first.attached === true, String(first.attached));
+  // ONE BRANCH EACH WAY, and deliberately not spelled as the spend gate below:
+  // that line is the landmark every guard uses to find where spending begins.
+  if (SPEND) {
+    check("every message in the scenario was sent", ui.sent === UI_ASK.scenario.steps.length, `${ui.sent} of ${UI_ASK.scenario.steps.length}`);
+    for (const s of ui.steps.filter((x) => x.sent)) {
+      check(`message ${s.n} got a reply on screen`, !!s.reply, s.reply ? s.reply.slice(0, 80) : "(none)");
+      check(`the composer was usable again after message ${s.n}`, s.usable === true, JSON.stringify(s.composer));
+      if (s.file) {
+        const post = (s.network || []).find((e) => e.method === "POST" && /\/edit$/.test(e.path));
+        const got = post && post.req && Array.isArray(post.req.images) && post.req.images[0] ? post.req.images[0].sha256 : "";
+        check(`message ${s.n}'s file reached the edit request byte for byte`, got === s.file.sha256, got || "(no image on the request)");
+      }
+    }
+    check("nothing outside the scenario was started", ui.blocked.length === 0, JSON.stringify(ui.blocked));
+  } else {
+    check("the rehearsal stopped before sending anything",
+      ui.sent === 0 && !ui.network.some((e) => e.method === "POST"), `sent ${ui.sent}`);
+  }
+  let chain = null;
+  if (SPEND && ui.sent) {
+    // THE CHAIN OF PUBLISHES, read off the site's own version list by each
+    // job's id, and the after-read taken at the last one — the wait and the
+    // inventory the one-edit path uses, applied to however many published.
+    const beforeV = sameVersion(Object.values(BEFORE.render).map((v) => v.version));
+    // Every job each message filed, in order: a hand-off to another layer is a
+    // second job, and it can publish too.
+    const filed = ui.steps.flatMap((s) => (Array.isArray(s.jobs) ? s.jobs : []).map((job) => ({ n: s.n, job })));
+    const jobs = filed.map((f) => f.job);
+    const list = jobs.length ? await call("GET", `/api/site/${encodeURIComponent(CANARY)}/versions`) : null;
+    const published = [];
+    for (const f of filed) {
+      const pv = publishedVersion(list, f.job);
+      if (pv.ok) published.push({ n: f.n, job: f.job, id: pv.id, parent: pv.parent });
+    }
+    const target = published.length ? published[published.length - 1].id : beforeV;
+    const readHome = async () => {
+      try {
+        const r = await fetch(`${BEFORE.origin}/?after-check=${Date.now()}`, { headers: { "cache-control": "no-cache" } });
+        return { version: String(r.headers.get("x-site-version") || "") };
+      } catch { return { version: "" }; }
+    };
+    const wait = target ? await awaitVersion({ read: readHome, expect: target }) : { kind: "no-target", reads: 0, seen: "" };
+    console.log(`INVENTORY — after (written to ${EVID}/after)\n`);
+    const after = await inventory("after", wait.kind === "match" ? target : "");
+    for (const [r, v] of Object.entries(after.render)) {
+      console.log(`  ${r.padEnd(14)} version=${v.version || "(unreadable)"}  photos=${v.photos.length}  headings: ${v.headings.join(" | ")}`);
+    }
+    chain = chainVerdict({ before: beforeV, published, wait, after: after.render });
+    console.log(`\n  publishes  ${published.map((p) => `${p.n}: ${p.id} (from ${p.parent || "-"})`).join("; ") || "none"}`);
+    console.log(`  chain      ${chain.verified ? "VERIFIED" : "UNVERIFIED (" + chain.why + ")"} — before ${beforeV || "?"}, after-read at ${chain.target || "?"}`);
+    // THE MONEY, PER JOB, from its own row and the ledger: the read mode's
+    // reader, asked once for each job this scenario filed.
+    for (const job of jobs) {
+      const jr = await readJobRecords({
+        job,
+        sb: async (path) => {
+          const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: svc });
+          const rows = await r.json().catch(() => null);
+          return { status: r.status, rows };
+        },
+        poll: () => call("GET", `/api/site/edit/${encodeURIComponent(job)}`),
+      });
+      const account = describeJob(jr);
+      console.log("\n" + account);
+      writeFileSync(`${EVID}/job-${job}.txt`, account + "\n");
+    }
+  }
+  mkdirSync(EVID, { recursive: true });
+  writeFileSync(`${EVID}/ui.json`, JSON.stringify({ scenario: UI_ASK.name, spend: SPEND, ui, chain }, null, 2));
+  writeFileSync(`${EVID}/ui.txt`, told + (chain ? `\n  chain ${chain.verified ? "VERIFIED" : "UNVERIFIED (" + chain.why + ")"}\n` : "\n"));
+  console.log(`\n${failed ? "UI MODE FAILED" : "UI MODE PASSED"}: ${ui.sent} message${ui.sent === 1 ? "" : "s"} sent${ui.stopped ? `; stopped at ${ui.stopped.at}` : ""}`);
   process.exit(failed ? 1 : 0);
 }
 if (!SPEND) {
