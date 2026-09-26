@@ -1,28 +1,28 @@
 # Remaining edit-path checklist
 
-## The two findings from the rollback round (2026-09-26), and the two rule-key defects found in their review — fixed on the branch, for review, not merged
+## The two findings from the rollback round (2026-09-26), and the two rule-key defects found in their review — merged and deployed at `0de188ff` (deploy 2161)
 
 After reviewing the merged batch, the owner asked for both findings to be
 closed together before the paid Test 3. The work was to use focused tests and
 required CI, and to come back for review before another merge or deployment.
-Nothing here is merged, deployed or dispatched. Every model answer in the
-evidence is supplied, so the tests prove what the route and the browser do with
-an answer, never what a real model answers. **The runtime verification of
-deploy 2160 is still pending**: the session's dispatch was refused (403), so
-nothing here has read the live Worker (the press is at the end of this
-section).
+The owner's review passed at `0de188ff` (288 focused tests), and the batch was
+then merged and deployed as deploy 2161 (see *Merged and deployed at
+`0de188ff`* below). Nothing that spends was dispatched. Every model answer in
+the evidence is supplied, so the tests prove what the route and the browser do
+with an answer, never what a real model answers. **Neither deploy 2160 nor 2161 is
+runtime-confirmed yet** (see *Merged and deployed at `0de188ff`*).
 
 | Item | Status | Evidence |
 | --- | --- | --- |
-| An old stylesheet rule that matched nothing held an unrelated edit, and the correction round rewrote the stylesheet nobody asked about | reproduced defect, fixed on the branch | A publish is held only for the rules this request wrote. On the unfixed code the menu edit ran a correction and a second build, and the stored sheet was rewritten (each checked on its own). |
+| An old stylesheet rule that matched nothing held an unrelated edit, and the correction round rewrote the stylesheet nobody asked about | reproduced defect, fixed; deployed in 2161 | A publish is held only for the rules this request wrote. On the unfixed code the menu edit ran a correction and a second build, and the stored sheet was rewritten (each checked on its own). |
 | A new rule that points at nothing is still held and corrected | demonstrated (both money paths) | The correction is asked about that rule alone, never the old one. The job's second publish checks the corrected rule, and the correction that lands is stored. |
 | A container still on the previous image | demonstrated (job) | It judges every rule, and the route's own filter still holds the publish for the new rule alone. |
-| A failure of ours whose restore was refused too said only "our build service was restarting", while the change stayed saved and the next edit shipped it | reproduced defect, fixed on the branch | Every arm of the failed-publish sentence now says the change is still saved when the restore failed. Driven on both money paths, plus a gate refusal, a real compile failure and a cancel. |
-| The add-on route logged a revert that failed and still called the site untouched | reproduced defect (the same class, one route over), fixed on the branch | The reply now says the addition is still saved. |
-| Review finding: the rule key collapsed whitespace inside quoted values, so a lane that respaced `[data-label="a  b"]` to one space shipped a selector matching nothing, unjudged | reproduced defect (both money paths), fixed on the branch | The compiler was sent `cssVerify: []`, the job committed, and the screen said the look was updated. Now the respaced rule is sent to be judged, found dead against the page, and corrected (both paths), or refused when the correction still misses (job). |
-| The same collapse on quoted declarations, quoted at-rule conditions, escapes and whitespace before a colon inside a selector | reproduced (unit), fixed on the branch | Thirteen more pairs answered `[]` on the old module, each measured; each is now named. A quoted declaration and a quoted `@scope` root are also driven through the route. |
+| A failure of ours whose restore was refused too said only "our build service was restarting", while the change stayed saved and the next edit shipped it | reproduced defect, fixed; deployed in 2161 | Every arm of the failed-publish sentence now says the change is still saved when the restore failed. Driven on both money paths, plus a gate refusal, a real compile failure and a cancel. |
+| The add-on route logged a revert that failed and still called the site untouched | reproduced defect (the same class, one route over), fixed; deployed in 2161 | The reply now says the addition is still saved. |
+| Review finding: the rule key collapsed whitespace inside quoted values, so a lane that respaced `[data-label="a  b"]` to one space shipped a selector matching nothing, unjudged | reproduced defect (both money paths), fixed; deployed in 2161 | The compiler was sent `cssVerify: []`, the job committed, and the screen said the look was updated. Now the respaced rule is sent to be judged, found dead against the page, and corrected (both paths), or refused when the correction still misses (job). |
+| The same collapse on quoted declarations, quoted at-rule conditions, escapes and whitespace before a colon inside a selector | reproduced (unit), fixed; deployed in 2161 | Thirteen more pairs answered `[]` on the old module, each measured; each is now named. A quoted declaration and a quoted `@scope` root are also driven through the route. |
 | The harmless formatting control | demonstrated, kept | A sheet answered back with only the whitespace CSS ignores is sent to be judged for nothing (both paths); also held over 1,500 random sheets carrying quoted values and escapes. ⚠ That property's generator was degenerate and barely formatted anything until item 4 (below). Made exact and re-measured, it still holds. |
-| Second review finding: a comment read as whitespace. The key made `.a/**/.b` (the compound `.a.b`) and `.a .b` (a descendant) one rule, and `plainSelectors` handed the judge `.a    .b` for the first | reproduced defect (both money paths), fixed on the branch | On `e49a370c` the lane's `.a .b` shipped with `cssVerify: []`, nothing judged, and "Updated the look". Now it is sent, found dead against the page and corrected (both paths), or refused (job). A new rule written with a comment is judged as the compound it is. |
+| Second review finding: a comment read as whitespace. The key made `.a/**/.b` (the compound `.a.b`) and `.a .b` (a descendant) one rule, and `plainSelectors` handed the judge `.a    .b` for the first | reproduced defect (both money paths), fixed; deployed in 2161 | On `e49a370c` the lane's `.a .b` shipped with `cssVerify: []`, nothing judged, and "Updated the look". Now it is sent, found dead against the page and corrected (both paths), or refused (job). A new rule written with a comment is judged as the compound it is. |
 | Which spelling reaches the page | demonstrated in a real Chromium | A browser control in the site build (`site-build.mjs`) establishes the fixture table the unit cases judge by. |
 | Harmless formatting and a comment spelled another way | demonstrated, kept | A comment beside whitespace, a brace, a semicolon, a comma, a colon or a bracket names nothing; the same boundary spelled `/* x */` names nothing (both paths). |
 
@@ -191,9 +191,20 @@ uncertain differences classified as changed."*).
   - **Unit CI** on `3cee046f` (run 36220333869) reads `7973 / 7969 / 0 / 4`,
     with all 20 cases of the two changed test files found passing by name,
     7,973 distinct result numbers and no failure.
-  - **Pending at this commit**: unit CI on `9aef0ca2` (run 36220840818) and
-    both site builds (36220333864 on `3cee046f`, 36220840763 on `9aef0ca2`),
-    which run the browser control.
+  - **Unit CI** on `9aef0ca2` (run 36220840818) and on the documents commit
+    `0de188ff` (run 36220937877) both read `7973 / 7969 / 0 / 4`, with the 20
+    cases of the two changed test files passing by name on both.
+  - **Site build on `9aef0ca2`** (run 36220840763, 21m00s, all twenty steps)
+    has all twelve counts green: TAP 397, site-build **404** (382 plus the
+    control's 22) and the rest as recorded, with only the two known
+    annotations. **The browser control, read from that run's own step file:
+    22 ok, 0 FAIL.** For each of the six spellings, the cascade applies the
+    rule exactly where the table says; `plainSelectors` hands the judge the
+    table's string; and `querySelectorAll` agrees with the cascade. The real
+    render check, asked about `.a/**/.b` and `.a .b`, reports exactly
+    `.a .b` dead.
+  - The parent `3cee046f`'s site build (run 36220333864) passed the same way.
+    It is on record, and not used in place of `9aef0ca2`'s.
   - There was no mutation sweep, per the instruction; the red run is the
     evidence the cases bite.
 - **⚠ Found in my own evidence, fixed: the property tests' random generator
@@ -302,15 +313,16 @@ browser reply, the ledger and the next edit:
 - The check reads a rule's own selector, never an `@scope` root or another
   condition.
 
-**The press that would confirm deploy 2160 at runtime — free, and yours.** The
+**The press that would confirm deploy 2161 at runtime — free, and yours.** It
+also confirms everything deploy 2160 carried, since 2161 runs that code too. The
 form shows each box's description:
 - <https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml>, run
   from `main`.
 - "Run the ONE paid edit as well": `no`.
 - "Refuse to spend unless the Worker reports this deploy sha":
-  `7384ddbac4ba05b7251c52aa53d6fc9e018a9699`.
+  `0de188ff2d3a00d8096b01f8616c507aea2bbce4`.
 - "Refuse to spend unless a cold container reports this image id":
-  `c3cc126e45e93815`.
+  `05750a5120d33570`.
 - Every other box at its default.
 
 ## The consolidated milestone (2026-09-25, late) — merged and deployed at `7384ddba` (2026-09-26)
@@ -476,21 +488,20 @@ resolution, the quoted-page reader and the canary's after-read wait.
   - "What to change": the sentence above.
   - "The site to edit": `fretwork-1`. "A second site…": `washhouse-3`.
   - "READ ONE EXISTING JOB AND STOP" and "PUT ONE SAVED VERSION BACK": blank.
-  - "Refuse to spend unless the Worker reports this deploy sha": `7384ddbac4ba05b7251c52aa53d6fc9e018a9699`.
-  - "Refuse to spend unless a cold container reports this image id": `c3cc126e45e93815`.
-- **These two values name the build deployed today.** If the rollback round's
-  two fixes (top section) are merged before the press, both change: the sha to
-  the merge's, and the image to the one that deploy builds (the fixes move
-  image inputs; predicted `168a9f94d1e6783e` over the fix commit `c084e5c5`,
-  `1ee5606e09db1a67` over the rule-key correction `991b9204`, and
-  `05750a5120d33570` over the comment-boundary correction `9aef0ca2`, 187
-  inputs each). Read both off the deploy and the free press before pressing.
-  Neither fix is on the expected path: one needs the css lane picked, the other
-  a failure of ours whose restore also fails. Which rung the router picks is
-  itself part of what Test 3 measures, so that is an expectation, not a
-  promise.
-- **The starting state:** live `01790360265159-n7mtnq`, read again at
-  01:01:55Z on 2026-09-26, with the headings in run 32's order. The press's own
+  - "Refuse to spend unless the Worker reports this deploy sha": `0de188ff2d3a00d8096b01f8616c507aea2bbce4`.
+  - "Refuse to spend unless a cold container reports this image id": `05750a5120d33570`.
+- **These two values name deploy 2161**, read off its own log (see *Merged
+  and deployed at `0de188ff`*, below). The top section's fixes are in it. The
+  sentence's supplied-answer check was re-run on the deployed code (about
+  05:58Z): the correct removal passes, with or without the unused import and
+  with or without the page list, and a collateral loss or the wrong page is
+  refused. Neither is on the
+  expected path: one needs the css lane picked, the other a failure of ours
+  whose restore also fails. Which rung the router picks is itself part of what
+  Test 3 measures, so that is an expectation, not a promise.
+- **The starting state:** live `01790360265159-n7mtnq`: the header read again
+  on `/`, `/prices` and `/gear` at 05:38:24Z on 2026-09-26. The headings were
+  last read at 01:01:55Z, in run 32's order, on the same version. The press's own
   before-read must equal these six stored bodies:
   - `index.tsx` `6bb1fb500f7df623`;
   - `prices.tsx` `0d2d72dee56a2a71`;
@@ -590,16 +601,40 @@ again, so the press is yours:
   `c3cc126e45e93815`.
 - Every other box at its default.
 
-The same press takes the before-read Test 3 starts from.
+The same press takes the before-read Test 3 starts from. *(Superseded: deploy
+2161 below moved both values. Nobody pressed this one; there is no canary run
+after run 32.)*
+
+### Merged and deployed at `0de188ff` (2026-09-26)
+
+The top section's batch passed the owner's review at `0de188ff`. Its site build
+on `9aef0ca2` passed, browser control included (the top section's evidence).
+Main was then fast-forwarded `7384ddba` → `0de188ff` (9 commits, 20 files) at
+05:49:22Z, which deployed as deploy 2161 (run 36221930265, success, 05:49:27 →
+05:52:15Z):
+- Before the push: main was unmoved, nothing was in flight, and the rollback
+  (`git revert --no-commit 7384ddba..0de188ff`) gives main's own tree back.
+- The image was predicted from the merged tree as `05750a5120d33570` (187
+  inputs), and the deploy **built exactly that** (the registry answered 404).
+  It rolled over from `c3cc126e45e93815` under `SUCCESS Modified application`.
+- The Worker reports `DEPLOY_ID` `0de188ff…`; Wrangler's new version is
+  `c7c5567…`.
+- `public/` did not change, so no asset was uploaded and there is no
+  served-file check. The served `chat.js` stayed byte-identical to the merged
+  file.
+- The auth gates answer 401 / 401 / 401 / 404.
+
+A green deploy is Wrangler reporting on itself. **The runtime confirmation
+is the free canary press** with both expectations set (the press above). At
+this commit the session's one attempt is held until the image rollout settles,
+~06:08Z.
 
 ### Stopping point
 
-The batch is merged and deployed (deploy 2160). **Its runtime confirmation is
-pending**: the session's dispatch was refused (403), so the free press above is
-yours, and nothing here claims the preflight passed. The rollback round's two
-findings are fixed on the branch for review, not merged (the top section).
-Test 3 is prepared above and waits for your spending approval. Nothing that
-spends is dispatched.
+Deploys 2160 and 2161 are merged and deployed. **Neither is runtime-confirmed**:
+no free canary has run since run 32, and the session's one attempt for 2161
+is held until the rollout settles. Test 3 is prepared above for deploy 2161 and waits for your
+spending approval. Nothing that spends is dispatched.
 
 ## Status after run 32 (2026-09-25)
 

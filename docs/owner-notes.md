@@ -14,7 +14,7 @@ merged/deployed at a5741864 (deployment 2157 / run 36099179983). Served chat.js
 matched the reviewed bytes at 2026-09-25 05:36:30 UTC. Deployment log reports
 container reuse; no repeated runtime container check or canary. This contains
 an escaped display error; publication and cleanup already succeeded. Other
-checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are now merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC, image `c3cc126e45e93815`), and its runtime confirmation is still pending: my dispatch was refused (403), so the free canary press is yours, and I have not seen it pass. The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are fixed on the branch for your review, not merged (the first three entries below). Test 3 is prepared and waits for your spending approval.
+checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; the newest entry below). Neither deployment is runtime-confirmed yet: no free canary has run since run 32, and my one attempt waits for the new container image to finish rolling out. Test 3 is prepared for deployment 2161 and waits for your spending approval.
 
 Kept for the owner. Two purposes:
 1. **How you like things done** — durable preferences, so a fresh session does not
@@ -176,7 +176,74 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
-## 2026-09-26 — A comment between two selector parts now counts as what CSS reads it as (for your review, not merged)
+## 2026-09-26 — The stylesheet fixes are live (merged and deployed at `0de188ff`); the runtime check and test 3 are yours
+
+You passed the comment-boundary correction at `0de188ff` (288 focused tests)
+and asked me to finish its site build, merge and deploy, try the free canary
+once, and prepare test 3. Nothing was spent.
+
+**CI, each read from its own run.**
+- Unit tests on `9aef0ca2` (run 36220840818) and on `0de188ff` (run
+  36220937877): 7,973 run, 7,969 pass, 0 fail, 4 skipped, on both. The 20
+  cases of the two changed test files pass by name on both.
+- The site build on `9aef0ca2` (run 36220840763, 21 minutes) passed with all
+  twelve counts green. The browser check you asked for is in it, and all 22 of
+  its lines pass:
+  - for each of the six ways of writing the rule, the page styles the
+    paragraph exactly when the table says it does;
+  - the checker is handed the table's string each time;
+  - the page's own selector search agrees with its styling;
+  - the real render check reports `.a .b` as dead and `.a/**/.b` as alive.
+- The parent commit's site build (`3cee046f`) passed the same way. It is on
+  record, but not used in place of the one above.
+
+**The deploy.**
+- Main moved `7384ddba` → `0de188ff` as a fast-forward: 9 commits, and nothing
+  on main was lost. Before the push, main hadn't moved and nothing else was
+  running. Undoing it gives back main's exact files.
+- Deployment 2161 succeeded in under 3 minutes.
+- Its log shows:
+  - the new commit, `0de188ff`;
+  - a new container image, `05750a5120d33570`. That is exactly what I
+    predicted from the merged files beforehand, and it replaced
+    `c3cc126e45e93815`;
+  - a new Worker version.
+- No browser files changed, so there's no served-file check this time. The
+  live `chat.js` is unchanged and matches the merged file.
+- **That is the deployment reporting on itself.** It is not the live server
+  answering.
+
+**Runtime.** Not confirmed yet. No free canary has run since run 32, so
+deployment 2160 was never confirmed either. The container image changed, so my
+one attempt waits until the rollout settles (about 06:08 UTC); the next update
+says what it answered.
+
+**Test 3** (the full writer removes "The first eight chords"), ready for your
+approval and not dispatched:
+- <https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml>, run
+  from `main`. The form shows each box's description:
+  - "Run the ONE paid edit as well": `yes`.
+  - "What to change", pasted exactly: Remove the ‘The first eight chords’
+    section from the home page.
+    - That is 63 characters with curly quotes; its sha256 starts
+      `48bdbf475e1718e6`.
+  - "The site to edit": `fretwork-1`. "A second site…": `washhouse-3`.
+  - "READ ONE EXISTING JOB AND STOP" and "PUT ONE SAVED VERSION BACK": blank.
+  - "Refuse to spend unless the Worker reports this deploy sha":
+    `0de188ff2d3a00d8096b01f8616c507aea2bbce4`.
+  - "Refuse to spend unless a cold container reports this image id":
+    `05750a5120d33570`.
+- The site still starts from version `01790360265159-n7mtnq` (read at 05:38
+  UTC today).
+- **Cost: about 18–27 credits**, an estimate and not a cap. The balance was 91
+  after run 32, and no canary has run since. Press the free check first; it
+  prints the current balance and confirms the two values above.
+- Afterwards, read the result from the stored bodies and a real browser, not
+  from "published" or "refused" alone (the checklist's test 3 section).
+
+---
+
+## 2026-09-26 — A comment between two selector parts now counts as what CSS reads it as (merged and deployed since, in deployment 2161)
 
 You found that `.a/**/.b` and `.a .b` looked like the same stylesheet rule,
 although the first styles `<p class="a b">` and the second styles nothing
@@ -258,7 +325,7 @@ changes: the latest commit, `9aef0ca2`, is predicted to build
 
 ---
 
-## 2026-09-26 — Spacing inside a quoted value now counts: a respaced selector is checked, not shipped (for your review, not merged)
+## 2026-09-26 — Spacing inside a quoted value now counts: a respaced selector is checked, not shipped (merged and deployed since, in deployment 2161)
 
 You found that the comparison deciding which stylesheet rules a message wrote
 flattened the spacing inside quotes, so `[data-label="a  b"]` and
@@ -336,7 +403,7 @@ test 3, the image box changes: this commit is predicted to build
 
 ---
 
-## 2026-09-26 — The two findings are fixed on the branch: an old stylesheet rule no longer holds an unrelated edit, and a failed put-back is always said (for your review, not merged)
+## 2026-09-26 — The two findings are fixed: an old stylesheet rule no longer holds an unrelated edit, and a failed put-back is always said (merged and deployed since, in deployment 2161)
 
 You asked me to close both findings together before test 3, and to bring them
 back for review before any merge or deploy. Nothing is merged, deployed or

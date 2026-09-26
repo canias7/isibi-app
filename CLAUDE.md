@@ -23,18 +23,22 @@ NOT verify the full-writer text guard, and #418 stays open. Browser-verified 19:
 `edit-poll.js` byte-identical to the merged files): the canary's after-read wait
 (`72885ca9`), the page-qualified and quoted-page text guard (`ce913d06` + `8c0d67a1` +
 `d6f5e55e`), the consolidated edit-path milestone (`01222bab` → `8f66dfb9`) and the
-rollback round (`7384ddba`: tests and the checklist only). **Its runtime confirmation
-is PENDING**: the session's dispatch was refused (403), and the free canary press is
-the owner's. The rollback round's two findings — a stale stylesheet rule holding an
-unrelated edit, and a failed restore that was not said — are **fixed on the branch,
-for review, NOT merged** (*a publish is held only for the rules a request wrote*,
-below). So are the two defects the owner then found in that fix's stylesheet
-readers: whitespace inside a quoted value collapsed, so a respaced selector shipped
-unjudged (*a quoted value, an escape or a selector's own whitespace is part of the
-rule*, below); and a comment read as whitespace, so a compound rewritten as a
-descendant shipped unjudged and the judge was handed the wrong meaning (*a comment
-is a token boundary, not whitespace*, below).
-Test 3 (the full writer) is prepared and waits for spending approval.
+rollback round (`7384ddba`: tests and the checklist only). **Then merged and
+deployed at `0de188ff`** (deploy 2161, 2026-09-26 05:52 UTC, image
+`05750a5120d33570`, predicted from the merged tree and read off the deploy's own
+log; `public/` unchanged, so there is no served-file check): the rollback round's
+two findings — a stale stylesheet rule holding an unrelated edit, and a failed
+restore that was not said (*a publish is held only for the rules a request
+wrote*, below) — and the two defects the owner then found in that fix's
+stylesheet readers: whitespace inside a quoted value collapsed, so a respaced
+selector shipped unjudged (*a quoted value, an escape or a selector's own
+whitespace is part of the rule*, below); and a comment read as whitespace, so a
+compound rewritten as a descendant shipped unjudged and the judge was handed the
+wrong meaning (*a comment is a token boundary, not whitespace*, below). Its site
+build ran the new browser control in a real Chromium: 22 of 22.
+**Neither deploy is runtime-confirmed yet**: no free canary has run since run 32, and
+the session's one attempt for 2161 is held until the image rollout settles (~06:08Z).
+Test 3 (the full writer) is prepared for deploy 2161 and waits for spending approval.
 Remaining scope: [edit-path checklist](docs/investigations/edit-path-checklist.md).
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
@@ -456,6 +460,16 @@ log answered `built …:c3cc***26e45e938***5 (registry answered 404; ***87 input
 …)` and `- …:a5***d8b32e5869576` → `+ …:c3cc***26e45e938***5` under `SUCCESS
 Modified application`; **0 `CACHED` lines**, image step 2m14s, Wrangler ~19s
 (it reinstalled itself first), job 3m01s.
+**Deploy 2161 (2026-09-26) was predicted on both ends and confirmed on both
+channels**: `origin/main` `7384ddba` answered `c3cc126e45e93815` — what deploy
+2160 built — and the tip `0de188ff` answered `05750a5120d33570`, both from 187
+inputs and 157 distinct paths, with `worker.js`, `builder/build-server.mjs`,
+`builder/container-room.mjs` and `builder/site-freecss.mjs` the four of the
+push's 20 files among them. The predictor re-run over the MERGED tree (the
+fast-forward's `origin/main`) answered the same id. The log answered `built
+…:05750a5***20d33570 (registry answered 404; ***87 inputs …)` and
+`- …:c3cc***26e45e938***5` → `+ …:05750a5***20d33570` under `SUCCESS Modified
+application`; **0 `CACHED` lines**, image step 2m02s, Wrangler 18s, job 2m48s.
 The twelfth
 added a SECOND CHANNEL — **deploy 2139 (2026-09-21) was predicted before the
 push over the local merge commit `28e46e91` as `82bccb3bee50e4fd`, against
@@ -4096,9 +4110,9 @@ separate next tasks"*):
    the job path then refunds, so the stored reply disagrees with the ledger.
    **`compileMsg`'s `unbilled` half is FIXED (2026-09-25, from run 31), merged
    and deployed in deploy 2159**: see *a ledger refusal states the edit's
-   charge and the routing charge apart*. **The edit route's half is fixed on
-   the branch, not merged** (`908c12ee`, `90efa38d`, the consolidated milestone
-   section): no edit failure sentence claims money; a finished job's cost is
+   charge and the routing charge apart*. **The edit route's half is fixed,
+   merged and deployed in deploy 2160** (`908c12ee`, `90efa38d`, the consolidated
+   milestone section): no edit failure sentence claims money; a finished job's cost is
    read off its own row; a refused step's charge is said beside the change
    that shipped; and a change that landed before a failed publish is named,
    never called untouched. **Still unchanged**: the build-lease sentences,
@@ -4175,8 +4189,8 @@ separate next tasks"*):
    existing site's round, which is cleared before routing. The same loss the
    pre-routing stop had (*a message the page-list check stopped keeps its
    files*, below), one step later; that correction's hold is the mechanism,
-   and the owner scoped it to the pre-routing check. **Fixed on the branch
-   2026-09-25, not merged** (`9e70f093`): `lost()` holds the message on its
+   and the owner scoped it to the pre-routing check. **Fixed 2026-09-25,
+   merged and deployed in deploy 2160** (`9e70f093`): `lost()` holds the message on its
    origin site through the same hold.
 10. **The edit reader trusts a reply by truthiness** (found 2026-09-24, driven
    through the real handler on `f1dadcdc`'s `chat.js`, straight back AND
@@ -6880,7 +6894,7 @@ backend addition's outcome."* **Browser only (`public/chat.js`).**
   (`unreadEditMsg`) still ends *"Check the preview before asking for it
   again"*, which the owner's rule says cannot establish a backend change (a
   data or rules edit) — now also said by a queued edit's unreadable reply
-  (**reworded on the branch 2026-09-25, `a3efddef`, not merged**); a
+  (**reworded 2026-09-25, `a3efddef`, merged and deployed in deploy 2160**); a
   queued job whose poll answers 401 keeps polling behind the gate (no paid
   operation, pre-existing); and a queued REFUSAL whose redraw throws still
   escapes the watcher as an unhandled rejection after its sentence is out (no
@@ -7144,8 +7158,8 @@ legitimate no-layer escalation classification as its separate follow-up."*
 - **THE NOT-KNOWING SENTENCE IS REUSED, NOT REWORDED.** `unreadEditMsg` still
   ends *"Check the preview before asking for it again"* — the open wording
   question recorded last round (a `rules` edit leaves nothing on the preview),
-  now said for more shapes. The wording is the owner's. (**Reworded on the
-  branch 2026-09-25, `a3efddef`, not merged**: *"Asking for it again could make
+  now said for more shapes. The wording is the owner's. (**Reworded
+  2026-09-25, `a3efddef`, merged and deployed in deploy 2160**: *"Asking for it again could make
   the change twice."*)
 - **NOT CHANGED, AS SCOPED**: the add-on route's well-formed no-layer escalates
   still climb (the separate server step); the edit route's are classified
@@ -7439,7 +7453,7 @@ lock correction and the edit-reply validation, neither deployed.
     the change went through and the preview may show the old bundle until the
     next bump. The add-on's order is kept, as asked.
   - the not-knowing sentence's "Check the preview", recorded before
-    (reworded on the branch 2026-09-25, `a3efddef`, not merged).
+    (reworded 2026-09-25, `a3efddef`, merged and deployed in deploy 2160).
 - **EVIDENCE.** `test/edit-result-display.test.mjs`, **23 cases**: a success
   whose application throws before its sentence (queued — the owner's —
   straight back, a hop, a hop's queued answer, a resumed watch); a success
@@ -7889,7 +7903,7 @@ CANARY_INSTRUCTION`. **It counts as the test**:
     `lang="cy"` and its switcher labels the English home page "Cymraeg". Run
     30's and run 32's before-reads carry the same.
 
-### THE CANARY'S AFTER-READ WAITS FOR ITS JOB'S OWN VERSION (2026-09-25, on the branch at `72885ca9`, not merged)
+### THE CANARY'S AFTER-READ WAITS FOR ITS JOB'S OWN VERSION (2026-09-25, `72885ca9`, merged and deployed in deploy 2160)
 
 Owner: *"Fix the harness's early after-read with a bounded wait for the expected
 published version. A timeout means the comparison is unverified; an unrelated
@@ -7954,12 +7968,12 @@ newer version is not a match. Focused checks only, no paid rerun."*
 - **RE-ANCHORED, NOT APPEASED**: the reply-capture guard closed on
   `await inventory("after")`, which gained an argument. It now closes on the
   new block's first line, so the window is as wide as before.
-- **NOT MERGED, AND ON ITS OWN A MERGE DEPLOYS NOTHING.** `scripts/**` and
-  `test/**` are in `deploy.yml`'s `paths-ignore`. Until it is on main, **a
-  dispatch from main still reads early**. **Reviewed by the owner: the 40
+- **MERGED IN DEPLOY 2160; ON ITS OWN A MERGE WOULD HAVE DEPLOYED NOTHING.**
+  `scripts/**` and `test/**` are in `deploy.yml`'s `paths-ignore`. Before the
+  merge, **a dispatch from main read early**. **Reviewed by the owner: the 40
   focused tests passed independent review.**
 
-### THE TEXT GUARD HOLDS A PAGE QUALIFIER TO THE EDITED PAGE (2026-09-25, on the branch at `ce913d06` + `8c0d67a1`, not merged)
+### THE TEXT GUARD HOLDS A PAGE QUALIFIER TO THE EDITED PAGE (2026-09-25, `ce913d06` + `8c0d67a1`, merged and deployed in deploy 2160)
 
 Owner, having reproduced both with correct generated output: *"Customers
 should not need a specially shortened sentence to get a valid edit accepted.
@@ -8029,7 +8043,7 @@ chords’ to ‘Start here.’"*
   (187 inputs), against main's `a51d8b32e5869576`. `72885ca9` alone moves
   nothing.
 
-### A QUOTED OR UNREADABLE PAGE OPERAND GRANTS NOTHING (2026-09-25, on the branch at `d6f5e55e`, not merged)
+### A QUOTED OR UNREADABLE PAGE OPERAND GRANTS NOTHING (2026-09-25, `d6f5e55e`, merged and deployed in deploy 2160)
 
 Owner, on `db5babc`: *"“Remove the ‘Chords’ section on /menu.” correctly
 refuses. “Remove the ‘Chords’ section on ‘/menu’.” incorrectly accepts. Quote
@@ -8135,7 +8149,7 @@ Unrecognized or ambiguous page operands must not silently disappear."*
   (187 inputs). The same predictor re-derived main (`a51d8b32e5869576`) and
   `db5babc8` (`18725c075657d7e3`) as recorded.
 
-### THE CONSOLIDATED EDIT-PATH MILESTONE (2026-09-25, late, on the branch from `01222bab`, not merged)
+### THE CONSOLIDATED EDIT-PATH MILESTONE (2026-09-25, late, `01222bab` onward, merged and deployed in deploy 2160)
 
 Owner: *"complete one consolidated edit-path milestone … return one reviewable
 batch. Don't stop after each small finding to ask whether to continue."* Six
@@ -8327,17 +8341,17 @@ coverage-only test was added.
   was reached 0 times across the whole suite (7,934 tests). Probes
   `rollback-gaps.json`: 3 killed, 1 control.
   **⚠ AND THE FLAG'S LOAD-BEARING SHAPE WAS THE STYLESHEET-SCOPE DEFECT BELOW**
-  (fixed on the branch, not merged): a correction on an unchanged sheet can no
+  (fixed, merged and deployed in deploy 2161): a correction on an unchanged sheet can no
   longer be built, so a correction always follows the look step's own flagged
   write and the flag is a second wall. Measured by hand: removed alone, every
   case passes; removed beside the look step's flag, 14 fail. The four cases
   that drove the old shape went with it, and R-1 left the spec.
 - ~~**Reproduced, not fixed**: `compileMsg` drops the restore warning~~ —
-  **FIXED ON THE BRANCH, NOT MERGED** (*a publish is held only for the rules a
+  **FIXED, MERGED AND DEPLOYED IN DEPLOY 2161** (*a publish is held only for the rules a
   request wrote, and a failed restore is always said*, below): every arm takes
   the restore's result.
 - ~~**Found, not fixed**: the render check judges EVERY rule in the stored
-  sheet~~ — **FIXED ON THE BRANCH, NOT MERGED** (the same section): a publish
+  sheet~~ — **FIXED, MERGED AND DEPLOYED IN DEPLOY 2161** (the same section): a publish
   is held only for the rules the request wrote.
 - Drafts are session-only; the needs-review enqueue sentence is never shown.
 - Real-model compliance is unproven throughout.
@@ -8405,7 +8419,7 @@ workflow. No F12 and no paid dispatch."*
   `expect_deploy` `7384ddbac4ba05b7251c52aa53d6fc9e018a9699`, `expect_image`
   `c3cc126e45e93815`. It also takes the fresh before-read Test 3 starts from.
 
-### A PUBLISH IS HELD ONLY FOR THE RULES A REQUEST WROTE, AND A FAILED RESTORE IS ALWAYS SAID (2026-09-26, on the branch, NOT merged)
+### A PUBLISH IS HELD ONLY FOR THE RULES A REQUEST WROTE, AND A FAILED RESTORE IS ALWAYS SAID (2026-09-26, merged and deployed in deploy 2161)
 
 Owner, after the merged batch: *"Close the two concrete findings together before
 the paid Test 3 … Return the fixes for review before another merge or
@@ -8563,7 +8577,7 @@ before pressing. **It moved again with the rule-key correction below**
 correction** (`ca1fd6e66bc5bab9` over `3cee046f`, then `05750a5120d33570` over
 `9aef0ca2`).
 
-### A QUOTED VALUE, AN ESCAPE OR A SELECTOR'S OWN WHITESPACE IS PART OF THE RULE (2026-09-26, on the branch, NOT merged)
+### A QUOTED VALUE, AN ESCAPE OR A SELECTOR'S OWN WHITESPACE IS PART OF THE RULE (2026-09-26, merged and deployed in deploy 2161)
 
 Owner, after reviewing the round above: *"One new defect remains in ruleKey's
 whitespace normalization … Preserve meaningful whitespace and escapes inside
@@ -8694,7 +8708,7 @@ evidence is supplied.**
   `c084e5c5`'s `168a9f94d1e6783e`. If this merges before Test 3, its two
   expectation boxes change: read both off the deploy and the free press.
 
-### A COMMENT IS A TOKEN BOUNDARY, NOT WHITESPACE (2026-09-26, on the branch, NOT merged)
+### A COMMENT IS A TOKEN BOUNDARY, NOT WHITESPACE (2026-09-26, merged and deployed in deploy 2161)
 
 Owner, after the quoted-value correction passed review: *"One remaining
 equivalence error is reproduced on e49a370c … Preserve selector meaning across
@@ -8839,26 +8853,112 @@ evidence is supplied.**
     99,778`). The total is what matches; `pass` differs by CI's four skips. All
     20 cases of the two changed test files were found passing BY NAME, with
     7,973 distinct result numbers, no gap and zero `not ok N -`.
-  - **PENDING AT THIS COMMIT, and said rather than guessed**: unit CI on
-    `9aef0ca2` (run `36220840818`) and both site builds — `36220333864` on
-    `3cee046f` and `36220840763` on `9aef0ca2`, which run the browser control.
-    The next documents commit stamps them.
+  - **AND THE REST OF CI, READ AFTER THE REVIEW, EACH FROM ITS OWN RUN.**
+    - **Unit** run **`36220840818` on `9aef0ca2`** reads **`7973 / 7969 / 0 /
+      4`** (`duration_ms 125,323`), and run **`36220937877` on the documents
+      commit `0de188ff`** reads the same four numbers (`duration_ms 125,754`).
+      On both, all 20 cases of the two changed test files pass BY NAME, with
+      7,973 distinct result numbers, no gap and zero `not ok N -`.
+    - **`site build` run `36220840763` on `9aef0ca2`** (05:27:22 → 05:48:22Z,
+      **21m00s**, all twenty steps, the checkout at `9aef0ca2…`) read all
+      twelve counts green out of its per-step files: TAP 397/397/0/0,
+      kit-typecheck 4, site-build **404** (382 + the control's 22),
+      contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
+      site-runtime 47, and kit-render / kit-a11y / kit-effects / kit-paint
+      `all passed`; census 7 + 4 + 1 = **12**. The only `##[error]` lines are
+      the two known annotations, and `tsc`-format lines read 9 / 2 / 7.
+      `site-build.mjs` took **15m22s**.
+    - **THE BROWSER CONTROL, READ FROM THAT RUN'S OWN STEP FILE — 22 `ok`, 0
+      `FAIL`**: the browser read every spelling; for each of the six, the
+      page's cascade applies the rule exactly where the table says (`.a/**/.b`,
+      `.a/* the hours */.b` and `.a.b` applied, the browser reading each as
+      `.a.b`; `.a .b`, `.a /* the hours */ .b` and `.a    .b` not, read as
+      `.a .b`), `plainSelectors` hands the judge the table's string, and the
+      page's own `querySelectorAll` agrees with the cascade; then the real
+      `checkRender` is asked `[".a/**/.b", ".a .b"]`, looks at the page, and
+      reports exactly `[".a .b"]` dead.
+    - **`site build` run `36220333864` on `3cee046f`** (05:17:00 → 05:41:54Z,
+      24m54s) is the parent's record and is NOT substituted for the above: the
+      same twelve counts, site-build 404, the same 22 control lines `ok`.
   - **No mutation sweep**, per the instruction; the red runs are the evidence
     the cases bite.
 - **THE IMAGE MOVES AGAIN**: `builder/site-freecss.mjs` is an image input.
   **Predicted over `9aef0ca2`: `05750a5120d33570`** (187 inputs, 157 distinct
   paths; `ca1fd6e66bc5bab9` over `3cee046f`). The same reader reproduces main's
-  `c3cc126e45e93815` and `e49a370c`'s `1ee5606e09db1a67`. If this merges before
-  Test 3, its two expectation boxes change: read both off the deploy and the
-  free press.
+  `c3cc126e45e93815` and `e49a370c`'s `1ee5606e09db1a67`. **Deploy 2161 built
+  exactly that id** (the next section), so Test 3's two expectation boxes moved
+  with it.
+
+### MERGED AND DEPLOYED: THE STYLESHEET SCOPE, FAILED-RESTORE AND RULE-KEY CORRECTIONS (2026-09-26)
+
+Owner: *"The comment-boundary correction passes independent review at
+0de188ff: 288 focused tests passed … Finish the site-build check on 9aef0ca2.
+Read the new browser-control results from that run … Do not substitute the
+earlier commit's result. If it passes, merge and deploy the reviewed correction
+batch. Recompute the image from the actual merged tree and read the deployment
+identifiers from the deployment. Then verify runtime through the existing free
+GitHub canary, spend=no. If dispatch still returns 403, stop retrying … Keep
+deployment success separate from runtime confirmation."*
+
+The batch is the three sections above: *a publish is held only for the rules a
+request wrote, and a failed restore is always said*; *a quoted value, an escape
+or a selector's own whitespace is part of the rule*; and *a comment is a token
+boundary, not whitespace*. **Every model answer in its evidence is supplied.**
+
+- **THE SITE BUILD ON `9aef0ca2` PASSED, READ FROM THAT RUN** (`36220840763`,
+  the previous section): twelve counts green, site-build 404, and the browser
+  control's 22 lines `ok`.
+- **ASKED BEFORE THE PUSH** (05:49:12Z):
+  - `main` was unmoved at `7384ddba`, an ancestor of `0de188ff`;
+  - zero runs were in progress, queued, waiting, requested or pending;
+  - the image was predicted over both ends: `7384ddba` → `c3cc126e45e93815`
+    (what deploy 2160 built), `0de188ff` → **`05750a5120d33570`**, both from
+    187 inputs and 157 distinct paths. Four of the push's 20 files are inputs
+    (`worker.js`, `builder/build-server.mjs`, `builder/container-room.mjs`,
+    `builder/site-freecss.mjs`), the observer proved alive first;
+  - the rollback was verified: `git revert --no-commit 7384ddba..0de188ff` in a
+    throwaway worktree gives tree `950cd8c3…`, main's own, so a rollback reuses
+    `c3cc126e45e93815`;
+  - the served `chat.js` read 786,047 bytes, sha256 `e56f1c9f4ffca3da`,
+    byte-identical to both trees (`public/` is not in the push).
+- **A FAST-FORWARD**: `main` `7384ddba` → **`0de188ff`** at 05:49:22Z, 9
+  commits, 20 files (+3,278 / −258). The merged tree is `c2762cbf…`, the
+  candidate's own, and the predictor re-run over `origin/main` after the push
+  answered `05750a5120d33570` again.
+- **DEPLOY 2161 (`36221930265`)**, success, job 05:49:27 → 05:52:15Z
+  (**2m48s**):
+  - `DEPLOY_ID` `0de***88ff2d3a00d8096b0***f86***6c507aea2bbce4` (each `***`
+    a masked `1`), and the gate took over from `7384ddba…`;
+  - the image step (**2m02s, 0 `CACHED` lines**) answered `built
+    isibi-app-sitebuildcontainer:05750a5***20d33570 (registry answered 404;
+    ***87 inputs off ./Dockerfile)`;
+  - the drain found no live leases;
+  - Wrangler (18s): `No updated asset files to upload`, `Uploaded isibi-app`,
+    `EDIT isibi-app-sitebuildcontainer` with `- …:c3cc***26e45e938***5` →
+    `+ …:05750a5***20d33570` under `SUCCESS Modified application`, `Applied
+    changes`, `Deployed isibi-app triggers`, `Current Version ID:
+    c7c5567***-72fa-488f-8994-3d09***a7fe02***`.
+- **NO SERVED-FILE CHECK EXISTS FOR THIS DEPLOY**: `public/` did not change. The
+  served `chat.js` read the same `e56f1c9f4ffca3da` after it (05:52:49Z), which
+  proves only that nothing moved there. Gates **401 / 401 / 401 / 404** at
+  05:52:49Z.
+- **DEPLOYED, NOT RUNTIME-CONFIRMED.** No free canary has run since run 32,
+  so deploy 2160 was never confirmed either. The image rolled, so the session's
+  one dispatch attempt (spend `no`, `expect_deploy`
+  `0de188ff2d3a00d8096b01f8616c507aea2bbce4`, `expect_image`
+  `05750a5120d33570`) is held until the rollout settles, ~06:08Z. Its answer is
+  recorded in the next documents commit.
 
 ### TEST 3 — THE FULL PAGE WRITER, REVISED (2026-09-25, prepared, NOT dispatched)
 
 **PREREQUISITE — MET 2026-09-26**: merged and deployed at `7384ddba` (deploy
-2160, the section above), carrying the deployed guard (`ce913d06` + `8c0d67a1`
-+ `d6f5e55e` + `01222bab`) and the after-read wait (`72885ca9`).
-`expect_deploy` `7384ddbac4ba05b7251c52aa53d6fc9e018a9699`, `expect_image`
-`c3cc126e45e93815` (read off the deploy; the free press confirms them live).
+2160), carrying the deployed guard (`ce913d06` + `8c0d67a1` + `d6f5e55e` +
+`01222bab`) and the after-read wait (`72885ca9`), and **now at `0de188ff`
+(deploy 2161, the section above)**, which moved the image. `expect_deploy`
+**`0de188ff2d3a00d8096b01f8616c507aea2bbce4`**, `expect_image`
+**`05750a5120d33570`** (read off deploy 2161's log; the free press confirms
+them live). The batch 2161 added is not on Test 3's expected path: its fixes
+need the css lane picked, or a failure of ours whose restore also fails.
 **WHICH WRITER RAN IS READ OFF `terminal.json`'s stored reply**: `tweak: true` is
 the quick writer publishing (no full-writer coverage then); `tweak` absent with
 `usage` on a published page edit is the full writer (its model and tokens);
@@ -8877,6 +8977,10 @@ answers**, on fretwork-1's stored `n7mtnq` home page (`index.tsx`
   site's page list;
 - a removal that also loses the guitar paragraph refuses, naming that text;
 - the same removal judged as `/prices` refuses.
+
+**RE-RUN ON THE DEPLOYED CODE (`0de188ff`, 2026-09-26 ~05:58Z)**, the same five
+supplied-answer cases over run 32's stored `n7mtnq` source: all five as above.
+Deploy 2161 did not touch the text guard; this confirms it.
 
 - **Request**: *"Remove the ‘The first eight chords’ section from the home
   page."*, 63 chars / 67 bytes, sha256
@@ -8918,7 +9022,10 @@ answers**, on fretwork-1's stored `n7mtnq` home page (`index.tsx`
     only the grammar refusing a correct answer. **Carrying the blocked texts
     on the 409 is a one-line option, not in this patch.**
 - **COST**: ~18–27 (runs 21/24/26: 17/24/19, plus the judge's ~1), an estimate
-  and not a cap. Balance 91 at run 32's end.
+  and not a cap. Balance 91 at run 32's end, and no canary has run since; the
+  free press prints the current balance.
+- **THE STARTING STATE, READ AGAIN 2026-09-26 05:38Z**: `/`, `/prices` and
+  `/gear` each answer `x-site-version: 01790360265159-n7mtnq`.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
@@ -12471,28 +12578,6 @@ does name one — moved up to the supported list on 2026-09-20.)*
 
 ## Backlog
 
-- **THE PAID CANARY'S EARLY AFTER-READ IS FIXED ON THE BRANCH, NOT MERGED**
-  (`72885ca9`; the section after run 32). Until it is on main, a dispatch from
-  main still reads the site back without waiting.
-- **THE TEXT GUARD'S TWO REFUSED PHRASINGS ARE FIXED ON THE BRANCH, NOT MERGED**
-  (`ce913d06` + `8c0d67a1`; *"the text guard holds a page qualifier to the edited page"*,
-  after run 32). Until it is deployed, the live guard still refuses them.
-- **THE QUOTED-PAGE BYPASS IS FIXED ON THE BRANCH, NOT MERGED** (`d6f5e55e`).
-  ⚠ The deployed guard (`c2fa000c`) predates the page reader entirely. Any
-  page after on/at/off drops out there and never refuses, and a page after
-  from/in/of/for makes the target fail to resolve. Until the merge, the live
-  guard does not hold a request to its page at all.
-- **THE CONSOLIDATED EDIT-PATH MILESTONE IS ON THE BRANCH, NOT MERGED**
-  (`01222bab` → `8f66dfb9`, its own section after the quoted-page one). Until
-  it is deployed, the live product still has every defect it reproduced:
-  - "…on the menu" removes a section from `/`;
-  - a routing stop drops the message;
-  - a stopped edit's design can ship with the next edit;
-  - the logo rung refuses the composer's attachment;
-  - failure sentences claim money the ledger does not record;
-  - an unknown outcome points at the preview;
-  - a landed rename, row or rule is called "untouched";
-  - a full revise of an `incomplete` site gets the frontend rules.
 - **fretwork-1's stored language is Welsh (`lang="cy"`) over English copy**, so
   its switcher labels the home page "Cymraeg". Pre-existing, noticed 2026-09-25,
   parked with translation.
@@ -12521,7 +12606,7 @@ does name one — moved up to the supported list on 2026-09-20.)*
   repair is still the clean state. **The full revise did not**: it read
   `ownerConn` off `siteBackendRowFresh` (`conn: null` here), so a revise that
   declares no table rewrote every page of these four sites under the
-  no-database rules. **Fixed on the branch, not merged** (`80ce60f4` +
+  no-database rules. **Fixed, merged and deployed in deploy 2160** (`80ce60f4` +
   `8f66dfb9`, the milestone section): a separate read-only `revConn` for the
   writer's spec, with `needsDb` and so the heal untouched.
 - **THE TRANSLATOR CAN SEND PAGE CODE TO THE MODEL AND WRITE THE ANSWER BACK
