@@ -462,7 +462,7 @@ export function judgeableSelector(sel) {
 }
 
 /**
- * Every selector in a model-written stylesheet whose liveness we can judge.
+ * Every plain style rule in a stylesheet, in order, with what surrounds it.
  *
  * DESCENDS INTO `@media`/`@supports`/`@container`/`@layer` and REFUSES to
  * descend into `@keyframes`, whose "selectors" are `from`, `to` and `40%` —
@@ -470,15 +470,27 @@ export function judgeableSelector(sel) {
  * a false alarm on every animation anybody writes. `@font-face`, `@property`
  * and friends are skipped the same way: their blocks contain declarations, not
  * rules.
+ *
+ * ONE WALKER FOR BOTH READERS BELOW (2026-09-26). `plainSelectors` is what the
+ * build service judges against the real page and `changedSelectors` is what
+ * the edit route asks it to judge — and the second is only sound if it names a
+ * rule with EXACTLY the string the first produces, because the publish gate
+ * matches the two by equality. Two walkers would be two ideas of where a
+ * prelude starts, and the day they differed a rule this request broke would
+ * slip through the match unjudged: the silent direction. So each rule carries
+ * the selectors `plainSelectors` has always taken from it, and its `ctx` (the
+ * at-rules around it) and `body` (the declarations) ride beside them for the
+ * one question only the edit route asks — is this rule new?
  */
-export function plainSelectors(css) {
+function styleRules(css) {
   if (typeof css !== "string" || !css.trim()) return [];
   const src = blankComments(css);
-  const out = [];
-  const seen = new Set();
+  const rules = [];
   // A prelude is everything since the last `{`, `}` or `;` at this level.
   let buf = "", quote = "";
-  const stack = [];              // one entry per open block: true = descend
+  // One frame per open block: what `descend` was outside it, the at-rule it
+  // opened when that is one we read rules inside, and the rule it opened.
+  const stack = [];
   let descend = true;            // are we inside blocks we still read rules from?
   for (let i = 0; i < src.length; i++) {
     const ch = src[i];
@@ -494,23 +506,117 @@ export function plainSelectors(css) {
       // heard of is skipped rather than read as a selector.
       const nests = /^@(media|supports|container|layer|scope|document)\b/i.test(prelude);
       const into = isAt ? (nests && descend) : descend;
+      let rule = null;
       if (!isAt && descend) {
-        for (const one of splitSelectors(prelude)) {
-          if (judgeableSelector(one) && !seen.has(one)) { seen.add(one); out.push(one); }
-        }
+        rule = {
+          ctx: stack.filter((f) => f.at !== null).map((f) => f.at),
+          prelude, body: null, start: i,
+          selectors: splitSelectors(prelude).filter((one) => judgeableSelector(one)),
+        };
+        rules.push(rule);
       }
-      stack.push(descend);
+      stack.push({ descend, at: isAt && into ? prelude : null, rule });
       // Inside a plain style rule sit declarations, not rules — so stop reading
       // preludes until it closes. Nested CSS would put rules there, and those
       // carry `&`, which `judgeableSelector` already refuses.
       descend = isAt ? into : false;
       continue;
     }
-    if (ch === "}") { buf = ""; descend = stack.length ? stack.pop() : true; continue; }
+    if (ch === "}") {
+      buf = "";
+      const f = stack.pop();
+      if (f && f.rule) f.rule.body = src.slice(f.rule.start + 1, i);
+      descend = f ? f.descend : true;
+      continue;
+    }
     if (ch === ";" && !stack.length) { buf = ""; continue; }
     buf += ch;
   }
+  // A RULE THE SHEET NEVER CLOSED still names its selectors, as it always has;
+  // its body is whatever follows.
+  for (const r of rules) if (r.body === null) r.body = src.slice(r.start + 1);
+  return rules;
+}
+
+/** Every selector in a model-written stylesheet whose liveness we can judge. */
+export function plainSelectors(css) {
+  const out = [];
+  const seen = new Set();
+  for (const r of styleRules(css)) {
+    for (const one of r.selectors) if (!seen.has(one)) { seen.add(one); out.push(one); }
+  }
   return out;
+}
+
+/**
+ * WHAT MAKES TWO RULES THE SAME RULE: the at-rules around it, its selector list
+ * and its declarations, compared with the whitespace CSS ignores taken out — so
+ * a lane that answers the whole sheet back reformatted has changed nothing,
+ * while a rule whose colour, selector or place moved is a different rule.
+ *
+ * THE NORMALISATION ONLY EVER ERRS TOWARDS "CHANGED". It removes whitespace
+ * around punctuation where CSS gives it no meaning and collapses the rest; it
+ * never lowercases, reorders or unquotes. A rule respelled some other way is
+ * read as changed and judged, which is what every rule was before this existed.
+ */
+function ruleKey(r) {
+  const ws = (s) => String(s || "").replace(/\s+/g, " ").trim();
+  const ctx = r.ctx.map((c) => ws(c).replace(/\s*([:,])\s*/g, "$1")).join("\u0001");
+  const sel = splitSelectors(r.prelude).map(ws).join(",");
+  const body = ws(r.body).replace(/\s*([;:{},!])\s*/g, "$1").replace(/;+(?=}|$)/g, "");
+  return ctx + "\u0002" + sel + "\u0003" + body;
+}
+
+/**
+ * THE SELECTORS OF EVERY RULE `after` HAS THAT `before` DOES NOT (2026-09-26) —
+ * what an edit wrote, which is what its publish gate may hold it for.
+ *
+ * Owner: *"An unchanged stylesheet containing an old dead selector must not
+ * trigger an unsolicited stylesheet rewrite during an unrelated edit."* The
+ * render check judged EVERY rule in the stored sheet, so a rule that had matched
+ * nothing for months held the next edit that happened to pick the css lane, and
+ * the correction round rewrote a stylesheet nobody asked about. Scoped to the
+ * rules this request added or changed, a new rule that points at nothing is
+ * still held and corrected, and an old one is left alone.
+ *
+ * BY RULE, NOT BY SELECTOR NAME: a request that changes an existing rule's
+ * declarations — "make the newsletter band blue" on a rule that matches
+ * nothing — wrote that rule, and its change reaches no element, so it is judged.
+ *
+ * `before` UNREADABLE (not a string) IS NOT "EMPTY" HERE BY ACCIDENT — every
+ * rule of `after` then reads as new and is judged, which is the direction that
+ * cannot hide a broken rule. The edit route always has the sheet its lane was
+ * shown.
+ */
+export function changedSelectors(before, after) {
+  const was = new Set(styleRules(before).map(ruleKey));
+  const out = [];
+  const seen = new Set();
+  for (const r of styleRules(after)) {
+    if (was.has(ruleKey(r))) continue;
+    for (const one of r.selectors) if (!seen.has(one)) { seen.add(one); out.push(one); }
+  }
+  return out;
+}
+
+/**
+ * THE SELECTORS THE BUILD SERVICE JUDGES (2026-09-26): all of them, or — when
+ * the publish names which ones it may be held for — those of them the sheet
+ * really has.
+ *
+ * ABSENT MEANS ALL, so a build, and every publish that asks nothing, is judged
+ * exactly as before. A LIST MEANS THAT LIST AND NOTHING ELSE, read against the
+ * sheet's own selectors so the answer can only name a rule the file carries.
+ * Scoping the measurement, not only the decision, is what keeps a new rule in
+ * view: the report caps its dead list and the judge caps its selectors, and
+ * both count from the top of the sheet, where old rules sit and a new one is
+ * appended last.
+ */
+export function selectorsToJudge(css, only) {
+  const all = plainSelectors(css);
+  if (!Array.isArray(only)) return all;
+  const want = new Set(only.filter((s) => typeof s === "string"));
+  return all.filter((s) => want.has(s));
 }
 
 /**

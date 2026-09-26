@@ -339,8 +339,17 @@ test("after the publish: a refused apply is the schema sentence at 502 and ours;
     "a publish that failed after the apply does not mark the record applied_without_page — or marks a refused apply so, or a settled record again");
   assert.match(fail, /error: aSchemaFail \? "schema" : "compile", cost: 0,/, "a refused apply wears the compile's name");
   assert.match(fail, /\.\.\.\(aSchemaFail \? \{ ours: true \} : \{\}\),/, "a refused apply is not said to be ours");
-  assert.match(fail, /msg: aSchemaFail\s*\? ADDON_SCHEMA_FAIL_MSG\s*: \[migrationNote\(aMigration\), compileMsg\(aPub, "That addition didn't compile, so your site is untouched — try describing it differently\."\)\]\.filter\(Boolean\)\.join\(" "\),/,
-    "the customer is not told what stands in the database before the compile sentence, or a refused apply is not the schema sentence");
+  // RE-ANCHORED 2026-09-26, when a revert that failed began to be said: the
+  // message is still the schema sentence on a refused apply and the database's
+  // record before the compile sentence otherwise — and both arms now read
+  // whether the look went back (`aKept`), the untouched wording only when it did.
+  const msgAt = at(fail, "msg: aSchemaFail", "the failure sentence");
+  const msg = fail.slice(msgAt, at(fail, "migration: migrationSummary(aMigration),", "the record on the reply"));
+  assert.match(msg, /^msg: aSchemaFail\s*\? \(aKept\s*\? "[^"]+" \+ KEPT_CHANGE_NOTE\s*: ADDON_SCHEMA_FAIL_MSG\)\s*:/,
+    "a refused apply is not the schema sentence, or a revert that failed is not said on it");
+  assert.match(msg, /: \[migrationNote\(aMigration\), compileMsg\(aPub, aKept\s*\? "[^"]+"\s*: "That addition didn't compile, so your site is untouched — try describing it differently\.", false, aKept\)\]\.filter\(Boolean\)\.join\(" "\),/,
+    "the customer is not told what stands in the database before the compile sentence, or the revert's result does not reach it");
+  assert.ok(at(fail, "if (!back.ok) { aKept = true;", "the revert's result") < msgAt, "the revert's result is not known before the sentence is composed");
   assert.match(fail, /migration: migrationSummary\(aMigration\),/, "the failure reply does not carry the record");
   assert.match(fail, /\{ status: aSchemaFail \? 502 : 422 \}/, "a refused apply is not a 502");
   // The revert of the look still comes first.

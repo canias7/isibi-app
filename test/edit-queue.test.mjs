@@ -379,8 +379,10 @@ test("the correction gate is asked before the round, not during", () => {
   // BOTH LANDMARKS ARE CODE. The first draft closed this window on a comment
   // heading — in a file whose comments this test blanks — so the slice was empty
   // and the window's own guard caught it. Twice in three commits now.
+  // THE WINDOW CLOSES ON THE SECOND PUBLISH'S OWN LIST (2026-09-26): it read
+  // `verifyCss: !!eJob`, the spelling that became the rules the message wrote.
   const region = CODE.slice(at(CODE, "const eCanFix =", "correct gate"),
-                            at(CODE, "verifyCss: !!eJob", "correct gate end"));
+                            at(CODE, "const cssVerify2 =", "correct gate end"));
   const gate = region.indexOf("canCorrect(");
   const call = region.indexOf("runLane(");
   // THE GATE MUST ASK THE BUDGET, not merely be named. A mutation replacing the

@@ -67,7 +67,7 @@ import { readDeadline, makeTerminator, JOB_STOP_GRACE_MS } from "./job-clock.mjs
 import { checkRender, screenshotHtml } from "./render-check.mjs";
 import { cardHtml, cardColors, CARD_W, CARD_H } from "./site-card.mjs";
 import { routeOf, fileForRoute } from "./site-addon.mjs";
-import { readCss, plainSelectors, LABEL_GUARD, SHELL_GUARD } from "./site-freecss.mjs";
+import { readCss, selectorsToJudge, LABEL_GUARD, SHELL_GUARD } from "./site-freecss.mjs";
 import { runFanout, fanoutTally, MAX_FANOUT_REQS } from "./model-fanout.mjs";
 import { kitClosure } from "./kit-closure.mjs";
 
@@ -2473,7 +2473,15 @@ const server = http.createServer((req, res) => {
         // about a rule the site does not have would report it dead, correctly
         // and uselessly. `cssUsed.applied` is also the gate: a build that sent
         // no stylesheet asks nothing and its report is unchanged.
-        const cssSelectors = cssUsed && cssUsed.applied ? plainSelectors(readCss(payload.css).css) : [];
+        //
+        // AND ONLY THE RULES THE PUBLISH NAMES, WHEN IT NAMES THEM (2026-09-26).
+        // An edit sends `cssVerify` — the selectors of the rules it wrote — so
+        // the check judges those and nothing older: a rule that has matched
+        // nothing for months is not this edit's to hold, and judging it put it
+        // at the top of a dead list the report cuts at 24, above the new rule
+        // the gate is for. Absent means every rule, which is every build and
+        // every publish that asks nothing. See `selectorsToJudge`.
+        const cssSelectors = cssUsed && cssUsed.applied ? selectorsToJudge(readCss(payload.css).css, payload.cssVerify) : [];
         // THE PRIMARY PAGES FIRST, `/` first of all (task #80, 2026-09-04): the
         // loop has a 25 s budget, and read in directory order a three-language
         // site's `/es/*` and `/fr/*` came before `/` — run 34's check was cut

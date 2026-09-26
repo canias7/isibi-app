@@ -1,0 +1,163 @@
+[
+  {
+    "label": "CONTROL: the kept sentence's doc comment changes nothing",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": " * THE ONE SENTENCE FOR A CHANGE THE ROUTE COULD NOT PUT BACK (2026-09-26).",
+    "to": " * THE ONE SENTENCE FOR A CHANGE THE ROUTE COULD NOT PUT BACK (2026-09-26, control)."
+  },
+  {
+    "label": "S-1: the first publish is held for every rule of the new sheet, not the ones this request wrote",
+    "files": [
+      "worker.js"
+    ],
+    "from": "const cssVerify = cssCtx ? changedSelectors(cssCtx.before, cssCtx.after) : null;",
+    "to": "const cssVerify = cssCtx ? changedSelectors(\"\", cssCtx.after) : null;"
+  },
+  {
+    "label": "S-2: the publish no longer tells the container which rules it may be held for",
+    "files": [
+      "worker.js"
+    ],
+    "from": "cssVerify: Array.isArray(verifyCss) ? verifyCss : undefined,",
+    "to": "cssVerify: undefined,"
+  },
+  {
+    "label": "S-3: the spine holds the publish for every dead rule the container reports",
+    "files": [
+      "worker.js"
+    ],
+    "from": "? built.render.deadSelectors.filter((s) => verifyOnly.has(s)) : [];",
+    "to": "? built.render.deadSelectors : [];"
+  },
+  {
+    "label": "S-4: the job's second publish is held for every rule of the corrected sheet",
+    "files": [
+      "worker.js"
+    ],
+    "from": "const cssVerify2 = eJob ? changedSelectors(cssCtx.before, cssCtx.after) : null;",
+    "to": "const cssVerify2 = eJob ? changedSelectors(\"\", cssCtx.after) : null;"
+  },
+  {
+    "label": "S-5: a correction that lands does not move the sheet the second publish is judged against",
+    "files": [
+      "worker.js"
+    ],
+    "from": "if (put.ok) { cssFixed = { dead: finalPub.dead }; eConfigWritten = true; cssCtx.after = fix.value; }",
+    "to": "if (put.ok) { cssFixed = { dead: finalPub.dead }; eConfigWritten = true; }"
+  },
+  {
+    "label": "S-6: the build service judges every rule whatever the publish names",
+    "files": [
+      "builder/build-server.mjs"
+    ],
+    "from": "selectorsToJudge(readCss(payload.css).css, payload.cssVerify)",
+    "to": "selectorsToJudge(readCss(payload.css).css)"
+  },
+  {
+    "label": "S-7: selectorsToJudge ignores the list it is given",
+    "files": [
+      "builder/site-freecss.mjs"
+    ],
+    "from": "  if (!Array.isArray(only)) return all;",
+    "to": "  return all;"
+  },
+  {
+    "label": "S-8: a reformatted rule reads as a changed one",
+    "files": [
+      "builder/site-freecss.mjs"
+    ],
+    "from": "  const body = ws(r.body).replace(/\\s*([;:{},!])\\s*/g, \"$1\").replace(/;+(?=}|$)/g, \"\");",
+    "to": "  const body = String(r.body || \"\");"
+  },
+  {
+    "label": "S-9: changedSelectors names every rule, unchanged ones included",
+    "files": [
+      "builder/site-freecss.mjs"
+    ],
+    "from": "    if (was.has(ruleKey(r))) continue;\n",
+    "to": "\n"
+  },
+  {
+    "label": "S-10: a rule's surrounding at-rules are not part of what it is",
+    "files": [
+      "builder/site-freecss.mjs"
+    ],
+    "from": "          ctx: stack.filter((f) => f.at !== null).map((f) => f.at),",
+    "to": "          ctx: [],"
+  },
+  {
+    "label": "K-1: the failed-publish sentence never says the change is still saved",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  const said = (t) => t + (kept === true ? KEPT_CHANGE_NOTE : \"\");",
+    "to": "  const said = (t) => t;"
+  },
+  {
+    "label": "K-2: the edit route's failed publish does not pass the restore's result",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                    landed.length > 0, kept) + landedSaid(landed),",
+    "to": "                    landed.length > 0, false) + landedSaid(landed),"
+  },
+  {
+    "label": "K-3: with the change still saved, an arm still says nothing was changed",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    : kept === true ? \"so your live site wasn't changed\" : \"so nothing was changed\";\n  const said",
+    "to": "    : \"so nothing was changed\";\n  const said"
+  },
+  {
+    "label": "K-4: the room sentence is not told the change is still saved",
+    "files": [
+      "worker.js"
+    ],
+    "from": "roomSentence(pub.room, landed, kept)",
+    "to": "roomSentence(pub.room, landed)"
+  },
+  {
+    "label": "K-5: a truthy value that is not true claims the change is saved",
+    "files": [
+      "worker.js"
+    ],
+    "from": "(kept === true ? KEPT_CHANGE_NOTE : \"\")",
+    "to": "(kept ? KEPT_CHANGE_NOTE : \"\")"
+  },
+  {
+    "label": "K-6: the route's own compile sentence calls the site untouched with the change still saved",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                    : kept ? \"That didn't compile, so your live site wasn't changed.\" : \"That didn't compile, so your site is untouched.\",",
+    "to": "                    : \"That didn't compile, so your site is untouched.\","
+  },
+  {
+    "label": "K-7: a stop does not say the change is still saved",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  const keptNote = kept && !review ? KEPT_CHANGE_NOTE : \"\";",
+    "to": "  const keptNote = \"\";"
+  },
+  {
+    "label": "K-8: the add-on route does not record a revert that failed",
+    "files": [
+      "worker.js"
+    ],
+    "from": "if (!back.ok) { aKept = true; console.error(\"addon look revert failed:\"",
+    "to": "if (!back.ok) { console.error(\"addon look revert failed:\""
+  },
+  {
+    "label": "K-9: the room sentence itself ignores the kept state",
+    "files": [
+      "builder/container-room.mjs"
+    ],
+    "from": "    : kept === true ? \"so your live site wasn't changed\" : \"so nothing was changed\";",
+    "to": "    : \"so nothing was changed\";"
+  }
+]

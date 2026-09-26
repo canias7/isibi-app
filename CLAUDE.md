@@ -23,9 +23,13 @@ NOT verify the full-writer text guard, and #418 stays open. Browser-verified 19:
 `edit-poll.js` byte-identical to the merged files): the canary's after-read wait
 (`72885ca9`), the page-qualified and quoted-page text guard (`ce913d06` + `8c0d67a1` +
 `d6f5e55e`), the consolidated edit-path milestone (`01222bab` → `8f66dfb9`) and the
-rollback round (`7384ddba`: tests and the checklist only). Its runtime confirmation is
-the owner's free canary press. Test 3 (the full writer) is prepared and waits for
-spending approval. Remaining scope: [edit-path checklist](docs/investigations/edit-path-checklist.md).
+rollback round (`7384ddba`: tests and the checklist only). **Its runtime confirmation
+is PENDING**: the session's dispatch was refused (403), and the free canary press is
+the owner's. The rollback round's two findings — a stale stylesheet rule holding an
+unrelated edit, and a failed restore that was not said — are **fixed on the branch,
+for review, NOT merged** (*a publish is held only for the rules a request wrote*,
+below). Test 3 (the full writer) is prepared and waits for spending approval.
+Remaining scope: [edit-path checklist](docs/investigations/edit-path-checklist.md).
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -8316,16 +8320,19 @@ coverage-only test was added.
   every boundary (model call, write, store, gate), and a marker in the catch
   was reached 0 times across the whole suite (7,934 tests). Probes
   `rollback-gaps.json`: 3 killed, 1 control.
-- **Reproduced, not fixed**: `compileMsg` answers a publish failure of OURS
-  (and `unbilled`) with its own sentence and drops the one carrying *"the change
-  is saved"*, so a restore that ALSO fails is not said and the next edit ships
-  the change (both paths, scratch). Narrow: two store failures at once.
-- **Found, not fixed**: the render check judges EVERY rule in the stored sheet
-  (`plainSelectors(readCss(payload.css).css)` in the build service) while the
-  route's comment says "the selectors this message introduced" — so a stale
-  rule starts the correction on any later css-picked message, the correction
-  may rewrite a rule nobody asked about, and on a job a miss refuses the whole
-  message.
+  **⚠ AND THE FLAG'S LOAD-BEARING SHAPE WAS THE STYLESHEET-SCOPE DEFECT BELOW**
+  (fixed on the branch, not merged): a correction on an unchanged sheet can no
+  longer be built, so a correction always follows the look step's own flagged
+  write and the flag is a second wall. Measured by hand: removed alone, every
+  case passes; removed beside the look step's flag, 14 fail. The four cases
+  that drove the old shape went with it, and R-1 left the spec.
+- ~~**Reproduced, not fixed**: `compileMsg` drops the restore warning~~ —
+  **FIXED ON THE BRANCH, NOT MERGED** (*a publish is held only for the rules a
+  request wrote, and a failed restore is always said*, below): every arm takes
+  the restore's result.
+- ~~**Found, not fixed**: the render check judges EVERY rule in the stored
+  sheet~~ — **FIXED ON THE BRANCH, NOT MERGED** (the same section): a publish
+  is held only for the rules the request wrote.
 - Drafts are session-only; the needs-review enqueue sentence is never shown.
 - Real-model compliance is unproven throughout.
 
@@ -8391,6 +8398,137 @@ workflow. No F12 and no paid dispatch."*
   owner's free press: `edit-canary.yml` from `main`, spend `no`,
   `expect_deploy` `7384ddbac4ba05b7251c52aa53d6fc9e018a9699`, `expect_image`
   `c3cc126e45e93815`. It also takes the fresh before-read Test 3 starts from.
+
+### A PUBLISH IS HELD ONLY FOR THE RULES A REQUEST WROTE, AND A FAILED RESTORE IS ALWAYS SAID (2026-09-26, on the branch, NOT merged)
+
+Owner, after the merged batch: *"Close the two concrete findings together before
+the paid Test 3 … Return the fixes for review before another merge or
+deployment."* These are the two findings the rollback round recorded as not
+fixed (above). **Every model answer in the evidence is supplied.** The
+consolidated checklist's top section is the per-item record.
+
+**1. THE STYLESHEET CHECK IS SCOPED TO THE REQUEST.**
+- The route records two sheets on `cssCtx`: the one the css lane was SHOWN
+  (`before`) and the one it STORED (`after`). **`cssCtx` is made only once a
+  changed sheet is stored**; it had been made when the lane was PICKED, before
+  it answered.
+- `changedSelectors(before, after)` names the selectors of every rule that
+  differs. A rule is its surrounding at-rules, its selector list and its
+  declarations, with the whitespace CSS ignores taken out. A recoloured old
+  rule IS judged, because the request wrote it.
+- That list goes to the spine as `verifyCss` and on to the build service as
+  `cssVerify`. The service judges `selectorsToJudge(sheet, cssVerify)`:
+  - with the list absent (every build, and every publish that asks nothing),
+    every rule;
+  - with the list present, only the named rules the sheet has.
+- The spine filters the report by the list too. That is the belt for a
+  container still on the previous image, which judges every rule.
+- **SCOPING THE MEASUREMENT, NOT ONLY THE DECISION, IS LOAD-BEARING.**
+  `renderReport` caps the dead list at `MAX_FINDINGS` (24), and the judge caps
+  its selectors at `MAX_SELECTORS` (300). Both count from the top of the sheet,
+  and a lane appends its new rule last.
+- **ONE WALKER (`styleRules`) SERVES `plainSelectors` AND `changedSelectors`**,
+  because the gate matches the two lists by EQUALITY. Old and new
+  `plainSelectors` were compared over 27,622 stylesheet-like inputs (4,848
+  non-empty): 0 differences.
+- The job's second publish verifies the rules that differ between `before` and
+  the corrected sheet: `cssCtx.after` moves when the correction's write lands.
+
+**2. A FAILED RESTORE IS SAID BY EVERY FORMATTER.**
+- `compileMsg(pub, theirs, landed, kept)` carries a strict `kept === true` to
+  every arm. "Nothing was changed" becomes "your live site wasn't changed", and
+  every answer ends with `KEPT_CHANGE_NOTE`: *"The change itself is still
+  saved, though, so it could go out with your next edit."* `roomSentence` takes
+  the same third state.
+- The sentence is ONE constant. It is shared by `compileMsg`, `editStopped`,
+  the correction round's catch and the add-on route's failure reply. **The
+  add-on route had the same defect**: it logged a failed revert and called the
+  site untouched.
+- **The constant is declared at module level near `compileMsg`, so the add-on
+  route composes its kept schema sentence INLINE.** A module-level `const`
+  built from it above its declaration would be a load-time TDZ throw.
+- Nothing claims a rollback or a refund. The direct path keeps its collects,
+  and a job's refund is the consumer's, read off its row.
+
+**THE EVIDENCE.**
+- **Tests.** `test/edit-failure-paths.test.mjs` goes from 29 to 39 cases.
+  - 4 were removed: the previous round's "the correction was the only config
+    write" cases and their controls. Their premise, a correction on an
+    unchanged sheet, is the defect itself, so the shape cannot be built.
+  - 14 were added.
+  - `test/css-scope.test.mjs` is new, with 5 cases. The add-on route gains 1.
+  - Each route case asserts the stored config, the exact screen, the ledger
+    and the next edit.
+  - The render check is MODELLED as the build service's own selection
+    (`judge`, over the real `selectorsToJudge`), and the compiler fixture now
+    hands a render function the payload.
+- **Red on the unfixed `222d1182`: 14 failures** — the 12 new behaviour cases
+  and 2 re-anchored guards.
+  - Of the new cases, 10 are in `edit-failure-paths`, one is the add-on route
+    and one is the build service's wiring census.
+  - The new cases that pass there should pass there: the two restore-lands
+    controls, the cancel case (its sentence was already right), the
+    reachability case, and css-scope's reader cases.
+  - With the request-level assertions cut, the menu-edit case still fails on
+    the store alone ("the stylesheet was rewritten").
+- **Re-anchored, not appeased — four guards pinned to a spelling this change
+  moved** (the first two are the red run's two guard failures; the other two
+  pass on the old code too):
+  - `edit-queue`: the window closes on `const cssVerify2 =`.
+  - `site-migrations`: the add-on sentence's shape, with the revert's result
+    known before it.
+  - `edit-reserve-refused`: the `ours` test itself, not its `return`.
+  - **`publish-clock`**: its fallback landmark was `return pub.error ===
+    "read"`, which became `return said(…)`. Re-anchored on the clause and
+    asserted unique. An order mutant turns it red.
+- **⚠ THE LAST ONE WAS OUTSIDE THE 47-FILE FOCUSED SET**, and only the full
+  suite found it: it failed 1 of 7,950 on the first full run. That is the
+  recorded trap met again — a focused list is believed for a green, never for
+  completeness.
+- **Hand-measured before the probes**:
+  - The correction's `eConfigWritten = true` alone SURVIVES, because a
+    correction always follows the look step's own flagged write. The pair with
+    the look step's flag is KILLED (14 failing).
+  - The `cssMoved` condition alone SURVIVES, because an unmoved sheet names no
+    rule. The pair with a whole-sheet list (the defect back) is KILLED (6
+    failing).
+  - Both are kept, with the reason in the code. `rollback-gaps.json` drops R-1
+    and re-anchors R-3.
+- **Probes, not a sweep**, over the 47 focused files:
+  - `scripts/mutants/css-scope.json`: 19 mutants, 19 killed, 0 survived, 0
+    never applied, the comment-only control surviving;
+  - `rollback-gaps.json`: 2 killed, the control surviving.
+  - `worker.js` was byte-identical to its pre-run copy afterwards, and every
+    builder anchor was present once with no mutated text.
+- **⚠ AN ANCHOR CENSUS'S "replacement text found" IS NOT A LIVE MUTANT BY
+  ITSELF.** K-5's replacement, `(kept ? KEPT_CHANGE_NOTE : "")`, is also the
+  verify catch's own spelling, where `kept` is a real boolean. The byte
+  comparison with the pre-run copy is what settles it.
+- The 47 focused files read 1,682 / 1,682.
+- **Suite 7,950 locally** (`# tests 7950 / # pass 7948 / # fail 0 / # skipped
+  2`, `duration_ms 115,913`). That is **+16 against 7,934**, exactly this
+  round's net cases: `edit-failure-paths` +10, `css-scope` +5, the add-on route
+  +1. The first full run read `7950 / 7947 / 1 / 2`, and the one failure was
+  the `publish-clock` guard above.
+
+**⚠ ONE ARM IS CHECKED BY SHAPE ONLY, AND SAID**: the add-on route's
+schema-refusal sentence with a refused revert. Its compile arm is DRIVEN (the
+new add-on case). But no harness in the tree makes the add-on's database apply
+refuse, and that arm's plain sentence has only ever been asserted by shape
+(`site-migrations`) — so the kept variant is asserted the same way, as
+`aKept ? "…" + KEPT_CHANGE_NOTE : ADDON_SCHEMA_FAIL_MSG`.
+
+**FOUND ON THE WAY, NOT CHANGED**:
+- Beside an unchanged look, the menu change is not named in the reply (review
+  #9, asserted as it stands).
+- The look step's own rollback block after `publishStep` is unreachable, since
+  `publishStep` defers and always answers ok.
+
+**TEST 3 DOES NOT DEPEND ON EITHER FIX**, as an expectation rather than a
+promise: one fix needs the css lane picked, the other a failure of ours whose
+restore also fails. **If these merge first, Test 3's `expect_deploy` and
+`expect_image` change** to the merge's sha and the image its deploy builds
+(`worker.js` and three builder files are image inputs).
 
 ### TEST 3 — THE FULL PAGE WRITER, REVISED (2026-09-25, prepared, NOT dispatched)
 

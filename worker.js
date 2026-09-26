@@ -189,7 +189,7 @@ import { MIGRATIONS_KEY, readMigrations, newMigration, withApplied, upsertMigrat
 import { ASKABLE as SITE_TOKEN_NAMES } from "./builder/site-tokens.mjs";
 // THE MODEL'S OWN STYLESHEET — read, never validated. See site-freecss.mjs for
 // why that is the whole point and what it reports instead.
-import { readCss, cssNote, MAX_CSS } from "./builder/site-freecss.mjs";
+import { readCss, cssNote, MAX_CSS, changedSelectors } from "./builder/site-freecss.mjs";
 import { extractText, applyEdits, staleContactLinks } from "./builder/site-text.mjs";
 import { runTextEdit, runDataEdit, renamePages, renameRoute, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
 import { runRulesEdit } from "./builder/site-rules.mjs";
@@ -9686,7 +9686,21 @@ function keepRefusal(k, slug, extra = {}) {
   }, { status: 503 });
 }
 
-function compileMsg(pub, theirs, landed = false) {
+/**
+ * THE ONE SENTENCE FOR A CHANGE THE ROUTE COULD NOT PUT BACK (2026-09-26).
+ *
+ * An edit writes its design into the store before the one publish, and every
+ * way out that publishes nothing puts the old design back (`restoreEditConfig`).
+ * When that write is refused too, the change stays saved — not live, and not
+ * gone — and the next edit of any kind publishes it. Every formatter of a
+ * failed publish says so in these words: `compileMsg` on each of its arms,
+ * `editStopped`, the correction round's own catch, and the add-on route's
+ * failure reply. One string, so the four cannot drift into describing one
+ * state four ways.
+ */
+const KEPT_CHANGE_NOTE = " The change itself is still saved, though, so it could go out with your next edit.";
+
+function compileMsg(pub, theirs, landed = false, kept = false) {
   // ⚠ WHEN PART OF THE MESSAGE ALREADY WENT THROUGH (2026-09-25), "nothing was
   // changed" is false: an address, a row or a table rule is live the moment its
   // rung writes it, and only the publish failed. REPRODUCED through the route:
@@ -9694,7 +9708,21 @@ function compileMsg(pub, theirs, landed = false) {
   // didn't compile, so your site is untouched" with the site at its new name.
   // `landed` makes every arm say what did not happen — the rest of it was not
   // published — and the caller says what did.
-  const none = landed === true ? "so the rest of it wasn't published" : "so nothing was changed";
+  //
+  // ⚠ AND WHEN THE DESIGN IT WROTE COULD NOT BE PUT BACK (2026-09-26), the live
+  // site is unchanged and the STORE is not: "nothing was changed" is false of
+  // the saved design, which the next edit would publish. REPRODUCED through the
+  // route on both money paths — the build store refused the publish, the
+  // restore write was refused too, and the customer heard only that the build
+  // service was restarting while the next, unrelated edit shipped the change.
+  // `kept` makes every arm say the live site is what did not change, and every
+  // answer end with the one sentence that says the change is still saved
+  // (`KEPT_CHANGE_NOTE`) — the arm that names the failure differs, the fact
+  // about the store does not. `=== true` like `landed`, so nothing truthy that
+  // was not meant can claim a change is saved.
+  const none = landed === true ? "so the rest of it wasn't published"
+    : kept === true ? "so your live site wasn't changed" : "so nothing was changed";
+  const said = (t) => t + (kept === true ? KEPT_CHANGE_NOTE : "");
   // ── A LEDGER THAT SAID NO (2026-09-05) ────────────────────────────────
   //
   // The spine refuses the publish when any reserve of the job was refused —
@@ -9714,11 +9742,11 @@ function compileMsg(pub, theirs, landed = false) {
   // amounts recorded on each reply (`wholeRequestNote` in public/chat.js), and
   // this sentence says only what happened.
   if (pub && pub.error === "unbilled") {
-    return pub.detail === "insufficient"
+    return said(pub.detail === "insufficient"
       ? "That didn't go through — there aren't enough credits for it, so it wasn't published. Top up and send it again."
-      : "That didn't go through — our billing service didn't answer, so it wasn't published. Try again in a moment.";
+      : "That didn't go through — our billing service didn't answer, so it wasn't published. Try again in a moment.");
   }
-  if (!pub || !pub.ours) return theirs;
+  if (!pub || !pub.ours) return said(theirs);
   // ── AND A THIRD (2026-09-02) ─────────────────────────────────────────────
   //
   // The queue's publish gate refused a site the container had just built (a
@@ -9726,7 +9754,7 @@ function compileMsg(pub, theirs, landed = false) {
   // fallback told the customer it had not compiled — a failure wearing another
   // failure's sentence, the recorded trap. The gate's own reason rides along.
   if (pub.error === "not-granted") {
-    return "That didn't go through — your change was built but couldn't be published (" + String(pub.detail || "the queue refused") + "), " + none + ".";
+    return said("That didn't go through — your change was built but couldn't be published (" + String(pub.detail || "the queue refused") + "), " + none + ".");
   }
   // ── THE PUBLISH WAS UNDONE BECAUSE THE SCRIPT NEVER WENT UP (2026-09-06) ──
   //
@@ -9737,13 +9765,13 @@ function compileMsg(pub, theirs, landed = false) {
   // dispatch-upload failure, and "nothing was changed" is the sentence for a
   // publish that never began.
   if (pub.error === "not-served") {
-    return "That didn't go through — the new version was built but couldn't be put live, so your site is still serving what it was. This is on us; try again in a moment.";
+    return said("That didn't go through — the new version was built but couldn't be put live, so your site is still serving what it was. This is on us; try again in a moment.");
   }
   // A holder that lost the site's lease between its compile and its publish:
   // something else has the site, so refusing is the CORRECT outcome and the
   // sentence says to send it again rather than apologising for a fault.
   if (pub.error === "lease-lost") {
-    return "That didn't go through — something else was changing your site at the same time, " + (landed ? none : "so nothing was published") + ". Send it again.";
+    return said("That didn't go through — something else was changing your site at the same time, " + (landed ? none : "so nothing was published") + ". Send it again.");
   }
   // ── OUR FAULT IS TWO DIFFERENT FAULTS (2026-08-29) ──────────────────────
   //
@@ -9785,17 +9813,17 @@ function compileMsg(pub, theirs, landed = false) {
   // changed. A `transient` code keeps the sentence below: a store that did
   // not answer is, to the customer, the build service not answering.
   if (pub.code === "forbidden") {
-    return "That didn't go through — our storage refused to write " +
+    return said("That didn't go through — our storage refused to write " +
       (pub.key ? "“" + String(pub.key).slice(0, 120) + "”" : "a file this site needs") +
-      ", " + none + ". This is on us, not your change.";
+      ", " + none + ". This is on us, not your change.");
   }
-  if (pub.room) return roomSentence(pub.room, landed);
+  if (pub.room) return said(roomSentence(pub.room, landed, kept));
   if (pub.timedOut) {
-    return "That didn't go through — it took longer than the time we allow for one change, " + none + ". Try again, or ask for it in two smaller steps.";
+    return said("That didn't go through — it took longer than the time we allow for one change, " + none + ". Try again, or ask for it in two smaller steps.");
   }
-  return pub.error === "read"
+  return said(pub.error === "read"
     ? "That didn't go through — we couldn't read your site's saved design, " + none + "."
-    : "That didn't go through — our build service was restarting. Try again in a moment.";
+    : "That didn't go through — our build service was restarting. Try again in a moment.");
 }
 
 /**
@@ -9973,7 +10001,7 @@ function hasLookField(look, field) {
  *   every mark a no-op, so every existing caller is unchanged — which is what
  *   keeps this instrumentation and not a behaviour change.
  */
-async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = false, trace = null, job = null, parts = null, afterCompile = null, models = null, charge = null, charges = null }) {
+async function recompileAndPublish(env, { slug, pages, label, renamed = null, verifyCss = null, trace = null, job = null, parts = null, afterCompile = null, models = null, charge = null, charges = null }) {
   // ONE LOCAL, so the five call sites below read the same way whether or not
   // a trace was passed. Never throws — see `edit-trace.mjs`.
   const tm = (phase, status, detail) => { try { if (trace) trace.mark(phase, status, detail); } catch { /* never */ } };
@@ -10478,6 +10506,11 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
           // fetch above needed the url and the package, and nothing downstream
           // of it does.
           cssFonts: (cssRead.fontIds || []).length ? cssRead.fontIds : undefined,
+          // WHICH RULES THIS PUBLISH MAY BE HELD FOR (2026-09-26), so the
+          // render check judges those alone — see `selectorsToJudge` in the
+          // build service and the gate below. Absent when nothing asked,
+          // which the service reads as every rule, exactly as before.
+          cssVerify: Array.isArray(verifyCss) ? verifyCss : undefined,
           // THE SCRIPT IS REPACKAGED ON EVERY CHEAP EDIT, and it has to be.
           // The script bakes in the shell — which names this build's
           // content-hashed assets — so a text fix that republished the files
@@ -10603,8 +10636,19 @@ async function recompileAndPublish(env, { slug, pages, label, renamed = null, ve
   // THE MAP RIDES BACK WITH IT. The caller needs it to ask for a correction, and
   // it is captured by the same browser pass that found the dead rule — so
   // fetching it from anywhere else would be reading a different build's page.
-  const deadCss = verifyCss && built.render && Array.isArray(built.render.deadSelectors)
-    ? built.render.deadSelectors : [];
+  //
+  // ⚠ AND ONLY FOR THE RULES THIS PUBLISH WROTE (2026-09-26). `verifyCss` is
+  // the list of them (`changedSelectors`), not a switch: the check judged the
+  // whole stored sheet, so an old rule that had matched nothing for months held
+  // an unrelated edit and the correction round rewrote a stylesheet nobody had
+  // asked about (owner: *"An unchanged stylesheet containing an old dead
+  // selector must not trigger an unsolicited stylesheet rewrite"*). The
+  // service is sent the same list and judges it alone; the filter here is the
+  // belt for a container still on the previous image, which judges every rule
+  // and would otherwise hold this edit for one it never touched.
+  const verifyOnly = Array.isArray(verifyCss) ? new Set(verifyCss) : null;
+  const deadCss = verifyOnly && verifyOnly.size && built.render && Array.isArray(built.render.deadSelectors)
+    ? built.render.deadSelectors.filter((s) => verifyOnly.has(s)) : [];
   if (deadCss.length) {
     return {
       ok: false, error: "dead-css", ours: false,
@@ -12871,7 +12915,7 @@ async function editStopped(env, { job, why, phase, trace, ctx, msg, kept = false
   // restores the design the edit wrote before it stopped (`restoreEditConfig`);
   // when that restore failed the change is still saved, unpublished, and the
   // next edit would ship it — which the customer is owed before that happens.
-  const keptNote = kept && !review ? " The change itself is still saved, though, so it could go out with your next edit." : "";
+  const keptNote = kept && !review ? KEPT_CHANGE_NOTE : "";
   return Response.json({
     ok: false,
     error: why,
@@ -20980,7 +21024,11 @@ async function handleRequest(request, env, ctx) {
             //
             // So the look branch hands over exactly what the retry needs, and
             // `null` means no stylesheet was written this message — which is
-            // also the gate on verifying selectors at all.
+            // also the gate on verifying selectors at all. `before` and `after`
+            // are the sheet the css lane was shown and the one stored, so the
+            // publish is verified for the rules between them and no others
+            // (2026-09-26, `changedSelectors`); a correction that lands moves
+            // `after` to the sheet it stored.
             //
             // ITS KEY IS `sheet` AND NOT `themeSheet`, deliberately. The guard
             // above matches a bare `\bname\b`, so `cssCtx.themeSheet` reads to
@@ -23017,9 +23065,6 @@ async function handleRequest(request, env, ctx) {
                 // live in the code — and the partition test is what would
                 // actually catch the drift it was written for.
                 ranLanes = pickedFields;
-                // See `cssCtx` where it is declared: this is the hand-over that
-                // lets the publish below verify and correct a stylesheet.
-                if (pickedFields.includes("css")) cssCtx = { edb, sheet: themeSheet };
 
                 // ONE CALL PER LANE, IN TURN (owner's call, asked which way a
                 // two-part message should go: "run both lanes in turn"). They
@@ -23265,6 +23310,27 @@ async function handleRequest(request, env, ctx) {
                   cssMoved ? { look: merged, css: nextCss } : { look: merged });
                 if (!w.ok) throw new Error(w.error);
                 eConfigWritten = true;
+                // THE HAND-OVER THAT LETS THE PUBLISH BELOW VERIFY AND CORRECT A
+                // STYLESHEET — see `cssCtx` where it is declared — MADE ONLY ONCE
+                // A CHANGED SHEET IS STORED (2026-09-26). It was made when the
+                // css lane was PICKED, before it answered, so a lane that answered
+                // the sheet as it stood (the "already like that" case, which
+                // stores nothing) still armed the check — and the check read the
+                // whole stored sheet, so an old rule matching nothing held a menu
+                // change in the same message and the correction rewrote the
+                // stylesheet unasked. `before` is the sheet the lane was shown and
+                // `after` what it stored: the rules between the two are the ones
+                // this request wrote (`changedSelectors`), and the only ones the
+                // publish may be held for.
+                //
+                // TWO WALLS, DELIBERATELY, AND A SWEEP CANNOT KILL THEM ONE AT A
+                // TIME: an unmoved sheet also names no rule (`before` equals
+                // `after`), so without `cssMoved` the list would be empty and
+                // nothing held. MEASURED: cutting this condition alone survives;
+                // cutting it beside the list — holding for the whole new sheet —
+                // is the defect back and fails the menu-edit cases. Kept because
+                // `null` is this variable's stated meaning of "no sheet written".
+                if (cssMoved) cssCtx = { edb, sheet: themeSheet, before: priorCss, after: nextCss };
               } catch (e) {
                 // Nothing has been published yet, so the site is exactly as it
                 // was. Reported rather than escalated: a write that failed once
@@ -24580,8 +24646,12 @@ async function handleRequest(request, env, ctx) {
                 return await editStopped(env, { job: eJob, why: eGate.why, phase: "build", trace: editTrace, ctx, kept,
                   landed: done.filter((d) => !d.failed).map((d) => landedNote(d.body)) });
               }
-              editTrace.mark("publish:1", "start", { verifyCss: !!cssCtx });
-              finalPub = await publishSpine(env, { ...pendingPublish, verifyCss: !!cssCtx, trace: editTrace, job: eJob });
+              // THE RULES THIS REQUEST WROTE, and the publish is held for those
+              // alone — an old rule that matched nothing before this message is
+              // not its to correct. `null` when no stylesheet was written.
+              const cssVerify = cssCtx ? changedSelectors(cssCtx.before, cssCtx.after) : null;
+              editTrace.mark("publish:1", "start", { verifyCss: cssVerify ? cssVerify.length : 0 });
+              finalPub = await publishSpine(env, { ...pendingPublish, verifyCss: cssVerify, trace: editTrace, job: eJob });
               editTrace.mark("publish:1", finalPub && finalPub.ok ? "ok" : "fail",
                 { err: String((finalPub && finalPub.error) || ""), dead: Array.isArray(finalPub && finalPub.dead) ? finalPub.dead.length : 0 });
 
@@ -24671,7 +24741,14 @@ async function handleRequest(request, env, ctx) {
                   { chars: typeof fix.value === "string" ? fix.value.length : 0 });
                 if (!fix.failed && typeof fix.value === "string" && fix.value.trim()) {
                   const put = await patchSiteConfig(env, ownerSlug, cssCtx.edb, { css: fix.value });
-                  if (put.ok) { cssFixed = { dead: finalPub.dead }; eConfigWritten = true; }
+                  // EVERY WRITE SETS THE FLAG AT ITS OWN LINE, this one included,
+                  // though today it is already set: the hand-over this round
+                  // needs is made only after the look step's own write
+                  // (2026-09-26), so a correction always follows one. Kept as the
+                  // local rule rather than argued from a line a thousand away —
+                  // the day a correction can run without that write, this is what
+                  // still puts the sheet back.
+                  if (put.ok) { cssFixed = { dead: finalPub.dead }; eConfigWritten = true; cssCtx.after = fix.value; }
                 }
                 // ── REBUILD AND SEE, AND THE TWO PATHS DIFFER HERE ───────────
                 //
@@ -24691,8 +24768,12 @@ async function handleRequest(request, env, ctx) {
                 // IT IS STILL BOUNDED AT ONE ROUND either way: the second
                 // verification decides whether to PUBLISH, never whether to
                 // correct again.
-                editTrace.mark("publish:2", "start", { verify: !!eJob });
-                finalPub = await publishSpine(env, { ...pendingPublish, verifyCss: !!eJob, trace: editTrace, job: eJob });
+                // THE JOB VERIFIES THE RULES THE MESSAGE WROTE, AGAIN: the sheet
+                // the lane was shown against the one now stored — the
+                // correction's when it landed, the lane's when it did not.
+                const cssVerify2 = eJob ? changedSelectors(cssCtx.before, cssCtx.after) : null;
+                editTrace.mark("publish:2", "start", { verify: cssVerify2 ? cssVerify2.length : 0 });
+                finalPub = await publishSpine(env, { ...pendingPublish, verifyCss: cssVerify2, trace: editTrace, job: eJob });
                 editTrace.mark("publish:2", finalPub && finalPub.ok ? "ok" : "fail",
                   { err: String((finalPub && finalPub.error) || "") });
                 if (eJob && !finalPub.ok && finalPub.error === "dead-css") {
@@ -24719,7 +24800,7 @@ async function handleRequest(request, env, ctx) {
                     ok: false, error: "verify", cost: eJob ? 0 : syncLedger.taken,
                     msg: "I found that my change wouldn't have shown up on your page, and hit a problem putting " +
                       "it right, so nothing was published." +
-                      (kept ? " The change itself is still saved, though, so it could go out with your next edit." : "") +
+                      (kept ? KEPT_CHANGE_NOTE : "") +
                       landedSaid(done.filter((d) => !d.failed).map((d) => landedNote(d.body))),
                     kind: String((e && e.name) || "Error").slice(0, 40),
                     phase: cssFixed ? "republish" : "correct",
@@ -24728,10 +24809,10 @@ async function handleRequest(request, env, ctx) {
                 }
               } else if (!finalPub.ok && finalPub.error === "dead-css") {
                 // ASKED TO VERIFY WITH NOTHING TO CORRECT WITH. Not reachable
-                // today — `verifyCss` is `!!cssCtx` — and it is handled anyway
+                // today — `verifyCss` is null without `cssCtx` — and it is handled anyway
                 // because the alternative is the customer's edit vanishing over
                 // a rule that is merely inert. Publish what they asked for.
-                finalPub = await publishSpine(env, { ...pendingPublish, verifyCss: false, job: eJob });
+                finalPub = await publishSpine(env, { ...pendingPublish, verifyCss: null, job: eJob });
               }
               if (!finalPub.ok) {
                 // THE LEDGER'S REFUSAL GIVES BACK WHAT THE ROUTE COLLECTED
@@ -24757,20 +24838,26 @@ async function handleRequest(request, env, ctx) {
                 // one. The look lane has carried that exact note for weeks; with
                 // several rungs it is several changes, so the config is put back
                 // to the snapshot taken before any of them ran.
-                const restored = await restoreEditConfig();
+                //
+                // ⚠ AND A RESTORE THAT FAILED IS SAID ON EVERY ARM (2026-09-26).
+                // Only the compile's own sentence carried it: a failure of ours —
+                // a store that refused the publish, a container with no room, a
+                // clock — and the ledger's refusal each answered their own
+                // sentence and dropped the one that said the change was still
+                // saved. REPRODUCED on both money paths: the store refused the
+                // publish, the restore was refused too, the reply said only that
+                // the build service was restarting, and the next edit shipped
+                // the change. `compileMsg` now carries `kept` to every arm.
+                const kept = !(await restoreEditConfig());
                 // AND WHAT ALREADY WENT THROUGH IS SAID, not called untouched
                 // (2026-09-25; see `landedNote`).
                 const landed = done.filter((d) => !d.failed).map((d) => landedNote(d.body)).filter(Boolean);
                 return Response.json({
                   ok: false, error: finalPub.error === "unbilled" ? "unbilled" : "compile", cost: eJob ? 0 : syncKept,
                   msg: compileMsg(finalPub, landed.length
-                    ? (restored
-                      ? "That didn't compile, so the rest of it wasn't published."
-                      : "That didn't compile, so the rest of it wasn't published, but the change is saved — ask again and I'll try to apply it.")
-                    : (restored
-                      ? "That didn't compile, so your site is untouched."
-                      : "That didn't compile. Your site is still live and unchanged, but the change is saved — ask again and I'll try to apply it."),
-                    landed.length > 0) + landedSaid(landed),
+                    ? "That didn't compile, so the rest of it wasn't published."
+                    : kept ? "That didn't compile, so your live site wasn't changed." : "That didn't compile, so your site is untouched.",
+                    landed.length > 0, kept) + landedSaid(landed),
                   lanes: done.flatMap((d) => d.step.fields),
                   // WHAT WE COULD NOT DO SURVIVES THE FAILURE PATH TOO. Dropped
                   // here, an unbuilt ask is invisible whenever the publish also
@@ -28041,9 +28128,16 @@ async function handleRequest(request, env, ctx) {
             if (!aPub.ok) {
               // THE OLD LOOK GOES BACK, so a code or a scene nothing published
               // does not sit in the stored look waiting for the next publish.
+              //
+              // ⚠ AND A REVERT THAT FAILED IS SAID (2026-09-26). It was logged
+              // and the reply went on to call the site untouched — the edit
+              // route's own defect, one route over: the addition stays saved and
+              // the next publish of any kind ships it. This route's own comment
+              // above the store names the risk ("a restore … can itself fail").
+              let aKept = false;
               if (aStored) {
                 const back = await patchSiteConfig(env, ownerSlug, adb, { look: aLook, css: aCss });
-                if (!back.ok) console.error("addon look revert failed:", ownerSlug, back.error);
+                if (!back.ok) { aKept = true; console.error("addon look revert failed:", ownerSlug, back.error); }
               }
               // ── WHAT STANDS IN THE DATABASE IS SAID (stage 8) ──────────────
               //
@@ -28064,8 +28158,12 @@ async function handleRequest(request, env, ctx) {
                 ok: false, error: aSchemaFail ? "schema" : "compile", cost: 0,
                 ...(aSchemaFail ? { ours: true } : {}),
                 msg: aSchemaFail
-                  ? ADDON_SCHEMA_FAIL_MSG
-                  : [migrationNote(aMigration), compileMsg(aPub, "That addition didn't compile, so your site is untouched — try describing it differently.")].filter(Boolean).join(" "),
+                  ? (aKept
+                    ? "That change needed the site's database and it couldn't be applied — this is on us, and your live site wasn't changed. Try again in a few minutes." + KEPT_CHANGE_NOTE
+                    : ADDON_SCHEMA_FAIL_MSG)
+                  : [migrationNote(aMigration), compileMsg(aPub, aKept
+                    ? "That addition didn't compile, so your live site wasn't changed — try describing it differently."
+                    : "That addition didn't compile, so your site is untouched — try describing it differently.", false, aKept)].filter(Boolean).join(" "),
                 detail: aPub.detail,
                 migration: migrationSummary(aMigration),
               }, { status: aSchemaFail ? 502 : 422 });

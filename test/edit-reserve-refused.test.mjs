@@ -357,7 +357,9 @@ test("compileMsg names a refused ledger before it tests `ours`, and tells a shor
   const start = at(CODE, "function compileMsg(", "compileMsg");
   const body = blankComments(CODE.slice(start, CODE.indexOf("\n}\n", start)));
   const unbilled = at(body, 'pub.error === "unbilled"', "the unbilled branch");
-  const ours = at(body, "if (!pub || !pub.ours) return theirs;", "the ours test");
+  // THE TEST ITSELF, not how it returns (2026-09-26): every arm now returns
+  // through `said(...)`, which adds the sentence for a change still saved.
+  const ours = at(body, "if (!pub || !pub.ours)", "the ours test");
   assert.ok(unbilled < ours, "the unbilled branch sits after the ours test, so a short balance falls to the rung's own sentence");
   const branch = body.slice(unbilled, ours);
   assert.match(branch, /pub\.detail === "insufficient"/, "the branch does not read the ledger's reason");

@@ -125,7 +125,10 @@ export function installCompiler({ ok = true, error = "", render = null, worker =
       // THE RENDER REPORT, WHEN THE CASE ASKED FOR ONE. A function so a test can
       // answer differently on the second call — which is exactly what the
       // correction round needs: dead the first time, clean after the fix.
-      const rep = typeof render === "function" ? render(calls.length) : render;
+      // HANDED THE PAYLOAD TOO (2026-09-26), so a case can answer the way the
+      // build service does — from the sheet it was sent and the selectors the
+      // publish named — rather than from a script that does not look at either.
+      const rep = typeof render === "function" ? render(calls.length, body) : render;
       // THE PACKAGED SCRIPT, stamped from the payload the way the container
       // stamps it from the brand it just wrote — so `build` and `version` are
       // the caller's own and cannot drift from what it staged.

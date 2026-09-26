@@ -1,5 +1,140 @@
 # Remaining edit-path checklist
 
+## The two findings from the rollback round (2026-09-26) — fixed on the branch, for review, not merged
+
+After reviewing the merged batch, the owner asked for both findings to be
+closed together before the paid Test 3. The work was to use focused tests and
+required CI, and to come back for review before another merge or deployment.
+Nothing here is merged, deployed or dispatched. Every model answer in the
+evidence is supplied, so the tests prove what the route and the browser do with
+an answer, never what a real model answers. **The runtime verification of
+deploy 2160 is still pending**: the session's dispatch was refused (403), so
+nothing here has read the live Worker (the press is at the end of this
+section).
+
+| Item | Status | Evidence |
+| --- | --- | --- |
+| An old stylesheet rule that matched nothing held an unrelated edit, and the correction round rewrote the stylesheet nobody asked about | reproduced defect, fixed on the branch | A publish is held only for the rules this request wrote. On the unfixed code the menu edit ran a correction and a second build, and the stored sheet was rewritten (each checked on its own). |
+| A new rule that points at nothing is still held and corrected | demonstrated (both money paths) | The correction is asked about that rule alone, never the old one. The job's second publish checks the corrected rule, and the correction that lands is stored. |
+| A container still on the previous image | demonstrated (job) | It judges every rule, and the route's own filter still holds the publish for the new rule alone. |
+| A failure of ours whose restore was refused too said only "our build service was restarting", while the change stayed saved and the next edit shipped it | reproduced defect, fixed on the branch | Every arm of the failed-publish sentence now says the change is still saved when the restore failed. Driven on both money paths, plus a gate refusal, a real compile failure and a cancel. |
+| The add-on route logged a revert that failed and still called the site untouched | reproduced defect (the same class, one route over), fixed on the branch | The reply now says the addition is still saved. |
+
+**1. A publish is held only for the rules this request wrote.**
+- The route records the sheet the css lane was shown and the sheet it stored.
+  The rules that differ between the two are this request's
+  (`changedSelectors`). Only those are sent to the build service
+  (`cssVerify`), and only those can hold the publish.
+- "Differ" is decided per rule: the at-rules around it, its selector list and
+  its declarations. Whitespace that CSS ignores does not count. A rule the
+  request recoloured is judged even though its selector is old, because the
+  request wrote it.
+- The build service judges exactly the named rules the sheet has
+  (`selectorsToJudge`). With no list it judges every rule, which is what every
+  build and every publish that asks nothing does.
+- Scoping the measurement, not only the decision, keeps a new rule in view.
+  The report caps its dead list at 24 and the judge caps its selectors at 300.
+  Both count from the top of the sheet, where old rules sit, while a lane
+  appends its new rule last.
+- The spine also filters the report by the list. That is the belt for a
+  container still on the previous image, which judges every rule whatever it
+  is sent.
+- The hand-over to the publish is made only once a changed sheet is stored. It
+  used to be made when the css lane was picked, before the lane had answered.
+- One walker serves `plainSelectors` and `changedSelectors`, because the gate
+  matches the two lists by equality. Before the change, the old and new
+  `plainSelectors` were compared over 27,622 stylesheet-like inputs (4,848 with
+  selectors), and no difference was found.
+
+**2. A failed restore is said by every formatter.**
+- `compileMsg` takes the restore's result (`kept`) on every arm. Where an arm
+  said "nothing was changed", it now says "your live site wasn't changed". Every
+  answer then ends with one sentence: "The change itself is still saved,
+  though, so it could go out with your next edit."
+- That sentence (`KEPT_CHANGE_NOTE`) is one constant, shared by `compileMsg`,
+  the stop helper `editStopped`, the correction round's catch, and the add-on
+  route's failure reply.
+- The route's own compile sentence now reads "That didn't compile, so your live
+  site wasn't changed." when the change stays saved.
+- Nothing claims a rollback or a refund. Each path's money is stated from what
+  it recorded: the direct path keeps what it collected, and a queued job is
+  refunded by the consumer.
+- "Not published" and "not saved" are separate statements. The first sentence
+  says the change did not go through; the second says it is still saved.
+- The exact screens, driven:
+  - Direct, the store refusing the publish: "⚠️ That didn't go through — our
+    build service was restarting. Try again in a moment. The change itself is
+    still saved, though, so it could go out with your next edit. This edit
+    cost 2 credits. Reading your message cost 2 credits." The ledger holds the
+    one debit of 2.
+  - Queued, the same: the same first three sentences, then "This edit cost you
+    nothing." The job is refunded.
+
+**What these cases assert.** Each one checks the stored configuration, the exact
+browser reply, the ledger and the next edit:
+- The menu-edit case: the next edit builds once with the same sheet.
+- The failed-restore case: the next edit ships the saved change, exactly as the
+  sentence warns.
+- The controls: when the restore lands, nothing is said about a saved change,
+  and the next edit does not ship it.
+
+**Evidence.**
+- `test/edit-failure-paths.test.mjs` goes from 29 to 39 cases: 4 removed and 14
+  added. The 4 removed were the previous round's "the correction was the only
+  config write" cases and their controls. Their premise, a correction running on
+  an unchanged sheet, is exactly the defect this fixes, so the shape cannot be
+  built any more. `test/css-scope.test.mjs` is new, with 5 cases. The add-on
+  route gains 1 case.
+- **Red on the unfixed `222d1182`: 14 failures.** Those are the 12 new behaviour
+  cases and 2 re-anchored guards. The new cases that pass there should pass
+  there: the two restore-lands controls, the cancel case (its sentence was
+  already right), the reachability case, and css-scope's four reader cases.
+- **Re-anchored, not appeased**: four older guards read the exact code this
+  changes (`edit-queue`, `site-migrations`, `edit-reserve-refused`,
+  `publish-clock`). `publish-clock` sat outside the 47 focused files, and only
+  the full suite found it. It now asserts the order it cares about, and an
+  order mutant turns it red.
+- **Probes, not a sweep**: `scripts/mutants/css-scope.json` killed 19 of 19,
+  with 0 survived, 0 never applied and the control surviving. Separately,
+  `rollback-gaps.json` killed 2 of 2 with its control surviving. Both ran over
+  47 focused files, and every swept file was byte-identical afterwards.
+- **Two walls, measured by hand**:
+  - The correction's write flag alone survives, because a correction always
+    follows the look step's own flagged write. The pair dies, with 14 cases
+    failing.
+  - The look step's `cssMoved` condition alone survives, because an unmoved
+    sheet names no rule. The pair with a whole-sheet list dies, with 6 cases
+    failing.
+  - Both are kept, and the reason is written in the code.
+  - `rollback-gaps.json` drops R-1, the flag alone, and re-anchors R-3.
+- The 47 focused files read 1,682 / 1,682. The full suite reads
+  `7950 / 7948 / 0 / 2` locally: +16 against 7,934, which is 10 + 5 + 1 net
+  new cases.
+- **Checked by shape only**: the add-on route's schema-refusal sentence when
+  the revert is refused too. The add-on's compile arm is driven. But no harness
+  makes the add-on's database apply refuse, and that arm's plain sentence has
+  only ever been asserted by shape (`site-migrations`); the new variant is
+  asserted the same way.
+
+**Found on the way, not changed:**
+- Beside an unchanged look, the menu change is not named in the reply; it reads
+  only "The requested styling was already in place." This is the look branch's
+  recorded limitation (review #9).
+- The look step's own rollback block after `publishStep` is unreachable,
+  because `publishStep` defers and always answers ok. Its guard in `site-apply`
+  pins it.
+
+**The press that would confirm deploy 2160 at runtime — free, and yours.** The
+form shows each box's description:
+- <https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml>, run
+  from `main`.
+- "Run the ONE paid edit as well": `no`.
+- "Refuse to spend unless the Worker reports this deploy sha":
+  `7384ddbac4ba05b7251c52aa53d6fc9e018a9699`.
+- "Refuse to spend unless a cold container reports this image id":
+  `c3cc126e45e93815`.
+- Every other box at its default.
+
 ## The consolidated milestone (2026-09-25, late) — merged and deployed at `7384ddba` (2026-09-26)
 
 The owner asked for one batch across six areas. Each item below is marked
@@ -114,17 +249,17 @@ data and rules rungs.
   on/in/from reads as that page and fails closed. Trailing commentary voids a
   clause.
 - **The two rollback edges: closed** (the next round, `edit-failure-paths`).
-  - *The correction's write flag* is redundant when the look step has already
-    written, and it is the only record of a write when the css lane answered
-    the stylesheet unchanged beside a step that publishes. The render check
-    then still reads every rule in the stored sheet (below), so a stale rule
-    starts the correction round, and the round's write is the message's only
-    config write. Now driven through the route in that shape: a job whose
-    correction still misses, and a synchronous edit whose corrected build the
-    store refuses. Each checks the stored sheet put back, the reply, the
-    ledger, and a next edit that does not ship the correction. A control in
-    the same shape on both paths keeps a correction that lands. With the flag
-    removed, both stop cases fail and both controls pass.
+  - *The correction's write flag* was the only record of a write when the css
+    lane answered the stylesheet unchanged beside a step that publishes, and a
+    stale rule then started the correction round. **That shape was the
+    stylesheet-scope defect, and it cannot be built any more** (fixed on the
+    branch, see the top section). A correction now always follows the look
+    step's own flagged write, so the flag is a second wall rather than the only
+    one. Measured by hand: with the flag alone removed, every case passes; with
+    it removed beside the look step's flag, 14 cases fail. The four cases that
+    drove the old shape went with it. The direct path's corrected build refused
+    by the store is still driven, with the old sheet put back and a next edit
+    that does not ship the correction.
   - *The verify catch* cannot be reached by any failure the round can meet,
     because every operation inside it handles its own. Driven at each
     boundary: the correction's model call failing, its write refused, and the
@@ -132,23 +267,15 @@ data and rules rungs.
     on its own named outcome and puts the design back. With a marker in the
     catch, the whole suite (7,934 tests) reached it zero times. The catch
     stays as the defence against a defect in our own code.
-- **Reproduced, not fixed: a failed restore after a publish failure of ours
-  is not said.** `compileMsg` answers a failure of ours (and a refused
-  reservation) with its own sentence. That sentence replaces the one that
-  carries "the change is saved". So when the restore write fails too, the
-  screen says only "our build service was restarting", while the change stays
-  saved and the next edit ships it. Scratch reproduction on both paths, with
-  supplied answers. It is narrow: the publish must fail on our side and the
-  restore write must fail as well.
-- **Found, not fixed: the stylesheet check reads the whole stored sheet, not
-  this message's rules.** The code's comment says it verifies "the selectors
-  this message introduced". The build service judges every rule in the stored
-  sheet (`plainSelectors(readCss(payload.css).css)`). So a rule left dead by an
-  earlier change starts the correction round on any later message that picks
-  the css lane, even one whose css answer changed nothing. The correction then
-  rewrites a rule the customer never mentioned; the new control case publishes
-  exactly that, with supplied answers. On a job, a correction that still
-  misses refuses and refunds the whole message, other steps included.
+- **A failed restore after a publish failure of ours was not said — fixed on
+  the branch, not merged** (the top section). `compileMsg` answered a failure
+  of ours (and a refused reservation) with its own sentence, which dropped the
+  one carrying "the change is saved". Every arm now takes the restore's result.
+- **The stylesheet check read the whole stored sheet, not this message's rules
+  — fixed on the branch, not merged** (the top section). A rule left dead by an
+  earlier change started the correction round on any later message that picked
+  the css lane, and the correction rewrote a rule the customer never mentioned.
+  A publish is now held only for the rules the request wrote.
 - **A new cost.** A `ready` site whose tables cannot be recovered now has its
   revise refused, where before it was revised with the partial spec.
 - Drafts last for the session only. The needs-review enqueue sentence is never
@@ -173,6 +300,14 @@ resolution, the quoted-page reader and the canary's after-read wait.
   - "READ ONE EXISTING JOB AND STOP" and "PUT ONE SAVED VERSION BACK": blank.
   - "Refuse to spend unless the Worker reports this deploy sha": `7384ddbac4ba05b7251c52aa53d6fc9e018a9699`.
   - "Refuse to spend unless a cold container reports this image id": `c3cc126e45e93815`.
+- **These two values name the build deployed today.** If the rollback round's
+  two fixes (top section) are merged before the press, both change: the sha to
+  the merge's, and the image to the one that deploy builds (the fixes move
+  image inputs). Read both off the deploy and the free press before pressing.
+  Neither fix is on the expected path: one needs the css lane picked, the other
+  a failure of ours whose restore also fails. Which rung the router picks is
+  itself part of what Test 3 measures, so that is an expectation, not a
+  promise.
 - **The starting state:** live `01790360265159-n7mtnq`, read again at
   01:01:55Z on 2026-09-26, with the headings in run 32's order. The press's own
   before-read must equal these six stored bodies:
@@ -278,9 +413,12 @@ The same press takes the before-read Test 3 starts from.
 
 ### Stopping point
 
-The batch is merged and deployed, and the free press confirms it at runtime.
-Test 3 is prepared above and waits for your spending approval. Nothing is
-dispatched that spends.
+The batch is merged and deployed (deploy 2160). **Its runtime confirmation is
+pending**: the session's dispatch was refused (403), so the free press above is
+yours, and nothing here claims the preflight passed. The rollback round's two
+findings are fixed on the branch for review, not merged (the top section).
+Test 3 is prepared above and waits for your spending approval. Nothing that
+spends is dispatched.
 
 ## Status after run 32 (2026-09-25)
 

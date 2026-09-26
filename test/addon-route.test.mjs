@@ -5632,6 +5632,41 @@ test("a failed publish puts the old look back", async () => {
   assert.equal(look.three, undefined, "a scene this change designed survived a failed publish");
 });
 
+// ⚠ AND A REVERT THAT FAILED IS SAID (2026-09-26). The revert above was logged
+// and the reply went on to call the site untouched — the edit route's own
+// defect, one route over: REPRODUCED on the parent, the store kept the QR for a
+// page that never published and the customer read "your site is untouched".
+// The config's second write is the revert; the first, the store, lands.
+test("a failed publish whose look revert was refused says the addition is still saved, never that the site is untouched", async () => {
+  let writes = 0;
+  const r = await plainPage("fw-pubfail-kept", {
+    kinds: ["page", "qr"], compileFail: true,
+    answers: { page: { page: [{ path: "/gallery", name: "Gallery", purpose: "show our work",
+        sections: ["a grid of photographs"], components: ["card"] }] },
+      qr: { qr: { name: "gallery", points: "/gallery", label: "Our gallery" } } },
+    setup: (env, store, slug) => {
+      const put = store.put.bind(store);
+      store.put = async (k, v) => {
+        if (k === "config/" + slug + ".json" && ++writes === 2) throw new Error("R2 PutObject: connection reset");
+        return put(k, v);
+      };
+    },
+  });
+  assert.equal(writes, 2, "not the store and the refused revert");
+  assert.equal(r.compiles.length, 1, "nothing compiled, so no publish failed and nothing was reverted");
+  assert.equal(r.status, 422, JSON.stringify(r.body));
+  assert.equal(r.body.error, "compile");
+  // STILL SAVED: the QR this change designed is in the stored look.
+  const look = (storedConfig(r, "fw-pubfail-kept") || {}).look || {};
+  assert.deepEqual((Array.isArray(look.qr) ? look.qr : []).map((q) => q && q.name), ["gallery"], "the addition the revert failed to take back is not still saved: " + JSON.stringify(look.qr));
+  // THE SENTENCE: not published, and still saved — never "untouched".
+  assert.equal(r.body.msg, "That addition didn't compile, so your live site wasn't changed — try describing it differently. The change itself is still saved, though, so it could go out with your next edit.");
+  const said = browserReply(r.body, false);
+  assert.ok(said.ok, "the browser's own composer could not run: " + said.why);
+  assert.equal(said.text, "⚠️ " + r.body.msg, "the screen is not the route's sentence");
+  assert.doesNotMatch(said.text, /untouched/, "the screen calls the site untouched with the addition still saved");
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // RUN 51: SEVEN EMPTY FRAMES SAID AS ONE, AND A PUBLISHED CODE READ AS UNSEEN
 //

@@ -14,7 +14,7 @@ merged/deployed at a5741864 (deployment 2157 / run 36099179983). Served chat.js
 matched the reviewed bytes at 2026-09-25 05:36:30 UTC. Deployment log reports
 container reuse; no repeated runtime container check or canary. This contains
 an escaped display error; publication and cleanup already succeeded. Other
-checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are now merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC, image `c3cc126e45e93815`), and your free canary press is the runtime confirmation (first entry below). Test 3 is prepared and waits for your spending approval.
+checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are now merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC, image `c3cc126e45e93815`), and its runtime confirmation is still pending: my dispatch was refused (403), so the free canary press is yours, and I have not seen it pass. The rollback round's two findings are fixed on the branch for your review, not merged (first entry below). Test 3 is prepared and waits for your spending approval.
 
 Kept for the owner. Two purposes:
 1. **How you like things done** — durable preferences, so a fresh session does not
@@ -176,6 +176,88 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-26 — The two findings are fixed on the branch: an old stylesheet rule no longer holds an unrelated edit, and a failed put-back is always said (for your review, not merged)
+
+You asked me to close both findings together before test 3, and to bring them
+back for review before any merge or deploy. Nothing is merged, deployed or
+dispatched. The answers in every test are supplied.
+
+**1. The stylesheet check now looks only at the rules your message wrote.**
+- Before: if a message touched styling, the check read the whole saved
+  stylesheet. An old rule that matched nothing then held up an unrelated edit,
+  such as a menu change, and the correction round rewrote your stylesheet
+  unasked. On a queued edit it could refuse the whole message.
+- Now: the edit compares the stylesheet it was shown with the one it saved. Only
+  the rules that changed are checked, and only those can hold the edit. A rule
+  it recoloured is checked even if the rule is old, because the message changed
+  it.
+- The build service is told which rules to check. The edit also filters the
+  answer itself, so a container still on the old image cannot hold the edit for
+  an old rule either.
+- Checked through the real edit route both ways:
+  - A menu change beside an old dead rule: it publishes in one build, the
+    stylesheet is untouched, and the next edit uses the same stylesheet.
+  - A new rule that points at nothing: the edit is held, and the correction is
+    asked about that rule alone. When the correction works, it is saved and
+    published.
+- On the old code the first case ran a correction, built twice and rewrote the
+  stylesheet. Each of those checks fails there on its own.
+
+**2. A failed put-back is now said by every failure message.**
+- Before: if the publish failed on our side and putting the design back failed
+  too, the screen said only "our build service was restarting". The change
+  stayed saved, and your next edit shipped it.
+- Now every failure message adds: "The change itself is still saved, though, so
+  it could go out with your next edit." Where a message used to say nothing was
+  changed, it now says your live site wasn't changed.
+- It never claims a put-back or a refund that didn't happen. A direct edit keeps
+  what it charged; a queued edit is refunded, as its record shows.
+- Checked both ways, and also for a publish refused by the queue, a real compile
+  failure and a cancelled edit. In each case the saved change is still in the
+  settings and the next edit ships it, exactly as the message says. When the
+  put-back works, nothing is said about a saved change and the next edit doesn't
+  ship it.
+- The add-on step had the same problem. It logged a failed put-back but still
+  said "your site is untouched". It now says the addition is still saved.
+
+**How it was checked.**
+- On the old code, 14 checks fail: the 12 new ones that test the changed
+  behaviour, and 2 older checks that read the exact code this changes.
+- I deliberately broke the fix, and the put-back paths it touches, one piece at
+  a time: 21 breaks, and a test caught every one.
+- The full test suite also caught one more older check that looked for the
+  exact wording of a line I changed. It now checks the order it cares about
+  instead, and I confirmed it still fails when that order is wrong. It wasn't
+  in the smaller set of files I ran first, which is why the full run is the one
+  that counts.
+- Four older tests went, because the situation they set up — a correction
+  running on a stylesheet that didn't change — is exactly the bug this fixes.
+- All 7,950 tests pass here (2 are skipped in this sandbox, as usual).
+
+**Noticed, not changed:**
+- When a menu change sits beside a styling request that changed nothing, the
+  reply names only the styling ("The requested styling was already in place.").
+  This is the known look-reply limitation.
+- The look step's own put-back block can never run, because the look step never
+  publishes by itself.
+
+**Runtime check of the live deploy is still yours to press.** My dispatch was
+refused (403). The free press is
+[edit-canary.yml](https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml),
+run from `main`, with "Run the ONE paid edit as well" set to `no`, the deploy
+sha box set to `7384ddbac4ba05b7251c52aa53d6fc9e018a9699`, the image box set to
+`c3cc126e45e93815`, and everything else at its default. I have not seen it pass.
+
+**Test 3 is still prepared and not dispatched.** Neither fix should be on its
+path, since a section removal isn't expected to touch the stylesheet. But which
+step the router picks is part of what the test measures, so that is an
+expectation, not a promise. The values in the
+[checklist](investigations/edit-path-checklist.md) target the deploy that is
+live now. If you merge these fixes first, the two expectation boxes change, and
+I'll give you the new values from that deploy.
+
+---
+
 ## 2026-09-26 — The batch is live (merged and deployed at `7384ddba`); the two rollback gaps are closed; test 3 is ready
 
 You reviewed the batch at `4f6ab55c` (484 focused checks, CI green) and asked
@@ -197,7 +279,9 @@ supplied.
   change still being saved, the charges match what the ledger recorded, and
   the next unrelated edit doesn't ship the correction. When a correction does
   land, it stays saved (checked both ways). The checks fail if the flag is
-  removed.
+  removed. **Superseded later the same day:** that situation was the
+  stylesheet bug in the entry above, which the fix removes. The flag is now a
+  backup wall, and the four checks for that situation went with it.
 - **The verify fallback's restore.** Nothing the correction round can meet
   reaches it, because every step inside handles its own failure. I checked
   each one through the route: the correction's model call failing, its save
@@ -217,7 +301,8 @@ and schema, and the component files. The build settings must be in place too.
 The checklist now lists the exact conditions instead of calling every such
 case "deferred".
 
-**Two things found on the way, not fixed (outside this round):**
+**Two things found on the way, not fixed in that round — both are now fixed
+on the branch, not merged (the entry above):**
 - **A failed put-back after a failure on our side isn't mentioned.** If the
   publish fails on our side and putting the design back also fails, the screen
   only says "our build service was restarting". The change stays saved, and

@@ -30,6 +30,11 @@ import { pickTool, editTool } from "../builder/site-lanes.mjs";
 import { NAV_TOOL } from "../builder/site-nav.mjs";
 import { RENAME_TOOL } from "../builder/site-alias.mjs";
 import { editBrowserReply } from "../scripts/addon-sweep.mjs";
+// THE BUILD SERVICE'S OWN SELECTION OF WHAT TO JUDGE, and the room sentence the
+// failed-publish formatter hands back — the product's, never a copy.
+import fs from "node:fs";
+import { readCss, selectorsToJudge, plainSelectors } from "../builder/site-freecss.mjs";
+import { roomSentence } from "../builder/container-room.mjs";
 
 const T = { pick: pickTool().name, lane: editTool("css").name, nav: NAV_TOOL.name };
 const USER = { id: "u-failpaths-1", email: "owner@example.com" };
@@ -86,7 +91,7 @@ async function drive({ mode = "sync", routed, ask, pick = null, lanes = null, na
   const url = "https://gofarther.dev/api/site/" + slug + "/edit";
   const body = JSON.stringify({ layer: "look", page: "", remove: false, rename: "", tab: false, ...routed, instruction: ask, picker: "sonnet", idem: "idem" + hex32().slice(0, 20) });
   if (mode === "job") b.store.set(EDIT_JOB_PREFIX + id, JSON.stringify(packEditJob({ url, body, uid: USER.id, slug, secret, at: Date.now() })));
-  const seen = { rpc: [], debits: [], credited: [], models: [], aliases: [] };
+  const seen = { rpc: [], debits: [], credited: [], models: [], aliases: [], lanePrompts: [] };
   // THE JOB'S ROW, moved the way the real RPCs move it: a reserve holds
   // credits, a finalize with `p_ok` settles them, a refund gives them back.
   const row = { state: "routing", billing: "none", cost: 0, result: null };
@@ -150,6 +155,9 @@ async function drive({ mode = "sync", routed, ask, pick = null, lanes = null, na
       seen.models.push(tool);
       if (tool === T.pick && pick) return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: pick }], usage: { input_tokens: 1000, output_tokens: 500 } });
       if (tool === T.lane && lanes) {
+        // WHAT EACH LANE CALL WAS SHOWN, so a case can read what the correction
+        // round asked about.
+        seen.lanePrompts.push(JSON.stringify(args.messages || []));
         const a = lanes[Math.min(laneN++, lanes.length - 1)];
         // AN ERROR IN THE LIST IS A CALL THAT NEVER ANSWERED — the connection
         // dropped, or the provider timed out.
@@ -171,7 +179,7 @@ async function drive({ mode = "sync", routed, ask, pick = null, lanes = null, na
   const realNow = Date.now;
   let skewed = 0;
   Date.now = () => realNow() + skewed;
-  const report = typeof render === "function" ? (n) => { const r = render(n); if (n === 1 && skew) skewed = skew; return r; } : render;
+  const report = typeof render === "function" ? (n, sent) => { const r = render(n, sent); if (n === 1 && skew) skewed = skew; return r; } : render;
   // A COMPILE THAT FAILS on every build, the way the container answers a
   // page that does not compile.
   const c = installCompiler({ ...(report ? { render: report } : {}), ...(compileOk ? {} : { ok: false, error: "src/routes/index.tsx(3,1): error TS1005: ';' expected." }) });
@@ -203,6 +211,7 @@ async function drive({ mode = "sync", routed, ask, pick = null, lanes = null, na
       site: { slug, b }, status, reply, said, config,
       builds: c.calls.map((k) => JSON.stringify(k.body)),
       models: seen.models,
+      lanePrompts: seen.lanePrompts,
       debits: seen.debits,
       credited: seen.credited,
       reserves: seen.rpc.filter((r) => r.fn === "edit_reserve").map((r) => Number(r.args.p_cost)),
@@ -256,8 +265,12 @@ test("a job cancelled at the publish gate puts back the stylesheet it wrote, and
   await assertPutBack(r, "cancelled");
 });
 
+// THE RENDER CHECK IS THE BUILD SERVICE'S OWN SELECTION (`judge`, below): the
+// corrected build is judged for the rule the correction wrote, which also
+// points at nothing — a script answering "header button" for every build would
+// no longer describe a sheet that does not have it.
 test("a job whose correction still missed puts back the stylesheet it wrote, and the next edit does not ship it", async () => {
-  const r = await drive({ mode: "job", routed: { layer: "look" }, ask: CSS_ASK, pick: PICK_CSS, lanes: [DEAD_CSS, STILL_DEAD], render: () => DEAD });
+  const r = await drive({ mode: "job", routed: { layer: "look" }, ask: CSS_ASK, pick: PICK_CSS, lanes: [DEAD_CSS, STILL_DEAD], render: judge() });
   assert.equal(r.builds.length, 2, "not the build and the one correction");
   assert.equal(r.reply && r.reply.error, "unverified", "not the refused correction: " + JSON.stringify(r.reply));
   await assertPutBack(r, "unverified");
@@ -306,25 +319,47 @@ test("control: a correction that lands keeps the corrected stylesheet it publish
   assert.equal(r.config.css, CLEAN_CSS.css, "the published stylesheet was wound back under the live site");
 });
 
-// ── WHEN THE CORRECTION IS THE MESSAGE'S ONLY WRITE ─────────────────────────
+// ── A PUBLISH IS HELD ONLY FOR THE RULES THIS REQUEST WROTE (2026-09-26) ────
 //
-// The render check reads EVERY rule in the stored stylesheet, not only the ones
-// this message wrote (`plainSelectors(readCss(payload.css).css)` in the build
-// service), and the css hand-over (`cssCtx`) is made before the lane answers.
-// So a css lane that answers the stylesheet as it already stands writes
-// nothing — the look step says "already like that" — while a menu change in
-// the same message publishes, the stored sheet's stale rule is reported dead,
-// and the correction round rewrites the sheet. That write is the message's ONLY
-// config write, so the flag it sets is the only thing that makes a stop put the
-// stylesheet back.
+// Owner: *"An unchanged stylesheet containing an old dead selector must not
+// trigger an unsolicited stylesheet rewrite during an unrelated edit. Preserve
+// detection of newly introduced broken selectors and legitimate corrections."*
+//
+// REPRODUCED on the parent, both money paths. The css hand-over (`cssCtx`) was
+// made when the css lane was PICKED, before it answered, and the render check
+// judged every rule in the stored sheet. So a css lane that answered the sheet
+// as it stood, beside a menu change, still held the publish for the stylesheet's
+// old `.newsletter-band` rule, and the correction round rewrote a stylesheet
+// nobody had asked about — on a job the rewrite then failed its own check and
+// the whole message, the menu change included, was refused and refunded.
+//
+// THE RENDER CHECK HERE IS THE BUILD SERVICE'S OWN SELECTION (`judge`): it
+// judges `selectorsToJudge` over the sheet it was sent — every rule when the
+// publish names none, only the named ones otherwise — and a judged selector the
+// page does not have is dead. What the page has is the case's (`ON_PAGE`); which
+// rules are judged is the product's. `previous: true` is a container still on
+// the image before this change, which judges every rule whatever it is sent.
 
 const STALE = ".newsletter-band{background:#f4e9d8}";
-const STALE_DEAD = { ok: true, checked: 2, pages: 1, findings: [], deadSelectors: [".newsletter-band"], selectorsLooked: 1, landmarks: [] };
-const REPOINTED = { css: "[data-slot=\"cta-band\"]{background:#f4e9d8}" };
-const CLEAN = { ok: true, checked: 2, pages: 1, findings: [] };
 const LINK_ASK = "Keep the colours as they are, and send the Find us link to the home page.";
 const LINK_TO_HOME = { pageLinks: [{ label: "Find us", to: "/" }] };
 const PICK_CSS_LINK = { fields: ["css", "action"] };
+// A NEW RULE THAT POINTS AT NOTHING, written beside the old one — the lane
+// answers the whole sheet — and its correction.
+const NEW_DEAD = STALE + "\nheader button{background-color:" + GREEN + "}";
+const NEW_FIXED = STALE + "\n[data-slot=\"site-link\"]{background-color:" + GREEN + "}";
+const ON_PAGE = ["[data-slot=\"site-link\"]", "[data-slot=\"cta-band\"]"];
+const REPOINTED = { css: "[data-slot=\"cta-band\"]{background:#f4e9d8}" };
+
+function judge({ previous = false, seen = null } = {}) {
+  return (n, sent) => {
+    const sheet = readCss(sent && sent.css).css;
+    const looked = previous ? plainSelectors(sheet) : selectorsToJudge(sheet, sent && sent.cssVerify);
+    const dead = looked.filter((s) => !ON_PAGE.includes(s));
+    if (seen) seen.push({ looked, dead });
+    return { ok: true, checked: 2, pages: 1, findings: [], ...(dead.length ? { deadSelectors: dead, selectorsLooked: 2 } : {}), landmarks: [] };
+  };
+}
 
 function staleSite(mode) {
   const slug = "fail-" + mode + "-" + hex32().slice(0, 8);
@@ -333,66 +368,134 @@ function staleSite(mode) {
   return { slug, b };
 }
 
-// THE PREMISE, FROM WHAT WAS SENT: the first build carried the stored sheet
-// unchanged, so the look step wrote nothing; the correction's sheet reached the
-// second build, so it was stored.
-function assertOnlyTheCorrectionWrote(r, label) {
-  assert.deepEqual(r.models, [T.pick, T.lane, T.nav, T.lane], label + ": not the picker, the css lane, the menu call and the one correction");
-  assert.equal(r.builds.length, 2, label + ": not the build and the one correction");
-  assert.ok(r.builds[0].includes(".newsletter-band") && !r.builds[0].includes("cta-band"), label + ": the first build did not carry the stored sheet unchanged");
-  assert.ok(r.builds[1].includes("cta-band"), label + ": the correction's sheet did not reach the second build");
+// WHAT A PUBLISH ASKED TO BE HELD FOR, read off the payload it sent.
+const verified = (r) => r.builds.map((b) => JSON.parse(b).cssVerify);
+
+// WHAT THE CORRECTION ROUND WAS ASKED ABOUT: the dead selectors it lists, read
+// out of the second lane call — the sheet it is shown carries the old rule too,
+// so only the list itself can say which rules it was asked to fix.
+function correctionAsked(r) {
+  const texts = [];
+  const walk = (v) => { if (typeof v === "string") texts.push(v); else if (Array.isArray(v)) v.forEach(walk); else if (v && typeof v === "object") Object.values(v).forEach(walk); };
+  walk(JSON.parse(r.lanePrompts[1] || "[]"));
+  const all = texts.join("\n");
+  const head = "opened in a browser:\n";
+  const at = all.indexOf(head);
+  const to = all.indexOf("\n\nThey are not typos", at);
+  assert.ok(at >= 0 && to > at, "the correction round's list of dead selectors is not in its prompt");
+  return all.slice(at + head.length, to).split("\n").map((l) => l.trim());
 }
 
-// WHAT A STOP OWES THE STORE HERE: the stylesheet as it stood before the
-// message, not the correction nobody published — and the next, unrelated
-// message compiling without it.
-async function assertStaleSheetBack(r, label) {
-  assert.equal(r.config.css, STALE, label + ": the stopped correction is still in the stored stylesheet");
-  assert.deepEqual(r.config.look, LOOK, label + ": the stored look moved");
-  const next = await drive({ mode: "sync", routed: { layer: "look" }, ask: NAME_ASK, pick: { fields: ["brand"] }, lanes: [{ brand: "Harbour Loaf Co" }], site: r.site });
-  assert.equal(next.reply && next.reply.ok, true, label + ": the next message did not go through: " + JSON.stringify(next.reply));
-  assert.equal(next.builds.length, 1, label + ": the next message did not build once");
-  assert.ok(!next.builds[0].includes("cta-band"), label + ": the next, unrelated edit shipped the stopped correction");
+const NAMED_ONLY = "✅ The requested styling was already in place.";
+
+for (const mode of ["sync", "job"]) {
+  test("an old rule that matches nothing does not hold an unrelated edit: the menu change ships in one build, the stylesheet is not rewritten, and the next edit ships the same sheet (" + mode + ")", async () => {
+    const looked = [];
+    // THE SECOND ANSWER IS THE REWRITE THE OLD CORRECTION ROUND STORED — the old
+    // rule re-pointed at the call-to-action band. It is never asked for now; it
+    // is here so a correction that did run would show in the store as well.
+    const r = await drive({ mode, site: staleSite(mode), routed: { layer: "look" }, ask: LINK_ASK, pick: PICK_CSS_LINK, lanes: [{ css: STALE }, REPOINTED], nav: LINK_TO_HOME, render: judge({ seen: looked }) });
+    // NO CORRECTION, ONE BUILD — the defect was a second lane call and a
+    // second build for a rule this request did not write.
+    assert.deepEqual(r.models, [T.pick, T.lane, T.nav], "a correction ran for a rule this request did not write");
+    assert.equal(r.builds.length, 1, "not one build");
+    // THE OLD RULE WAS STILL REPORTED — the container was sent no list, so it
+    // judged every rule — and nothing acted on it.
+    assert.deepEqual(looked, [{ looked: [".newsletter-band"], dead: [".newsletter-band"] }], "the check did not report the old rule, so this proves nothing about ignoring it");
+    assert.deepEqual(verified(r), [undefined], "the publish asked to be held for rules this request did not write");
+    assert.equal(r.reply && r.reply.ok, true, "the edit did not publish: " + JSON.stringify(r.reply));
+    // THE MENU CHANGE IS WHAT SHIPPED, in the build and in the store.
+    assert.match(r.builds[0], /<Link to=\\"\/\\">Find us<\/Link>/, "the menu change is not in the build");
+    const pages = JSON.parse(r.site.b.store.get("source/" + r.site.slug + "/pages.json"));
+    assert.match(pages.find((p) => p.path === "index.tsx").source, /<Link to="\/">Find us<\/Link>/, "the menu change was not stored");
+    // THE STYLESHEET IS THE ONE THE SITE HAD, byte for byte, and the build carried it.
+    assert.equal(r.config.css, STALE, "the stylesheet was rewritten");
+    assert.deepEqual(r.config.look, LOOK, "the stored look moved");
+    assert.ok(r.builds[0].includes(".newsletter-band{background:#f4e9d8}"), "the build did not carry the stored sheet");
+    // THE LEDGER: the css lane and the menu call, once — nothing for a correction.
+    if (mode === "sync") {
+      assert.deepEqual(r.debits, [2, 1], "not the css lane and the menu call collected");
+      assert.deepEqual(r.credited, [], "a refund was made");
+    } else {
+      assert.deepEqual(r.reserves, [2, 1], "not the css lane and the menu call reserved");
+      assert.equal(r.row.billing, "finalized", "the job was not settled");
+    }
+    assert.equal(r.reply.cost, 3, "the reply's cost is not what the ledger holds");
+    // THE SCREEN NAMES THE STYLING AND NOT THE MENU CHANGE — the look branch's
+    // recorded limitation (review #9, next-task 3), not this change's to fix.
+    assert.equal(r.said.text, NAMED_ONLY);
+    assert.deepEqual(r.said.actions, ["refresh the credit balance"]);
+    // AND THE NEXT, UNRELATED EDIT BUILDS ONCE, WITH THE SAME SHEET.
+    const next = await drive({ mode: "sync", routed: { layer: "look" }, ask: NAME_ASK, pick: { fields: ["brand"] }, lanes: [{ brand: "Harbour Loaf Co" }], site: r.site, render: judge() });
+    assert.equal(next.reply && next.reply.ok, true, "the next message did not go through: " + JSON.stringify(next.reply));
+    assert.deepEqual(next.models, [T.pick, T.lane], "the next edit bought a correction");
+    assert.equal(next.builds.length, 1, "the next message did not build once");
+    assert.ok(next.builds[0].includes(".newsletter-band{background:#f4e9d8}"), "the next edit did not carry the stored sheet");
+    assert.equal(next.config.css, STALE, "the next edit rewrote the stylesheet");
+  });
 }
 
-test("a job whose only config write was the correction puts the stylesheet back when the correction still misses, and the next edit does not ship it", async () => {
-  const r = await drive({ mode: "job", site: staleSite("job"), routed: { layer: "look" }, ask: LINK_ASK, pick: PICK_CSS_LINK, lanes: [{ css: STALE }, REPOINTED], nav: LINK_TO_HOME, render: () => STALE_DEAD });
-  assertOnlyTheCorrectionWrote(r, "job");
-  assert.equal(r.status, 503, JSON.stringify(r.reply));
-  assert.equal(r.reply && r.reply.error, "unverified", "not the refused correction: " + JSON.stringify(r.reply));
-  assert.equal(r.committed, false, "the stopped edit was published");
-  // THE LEDGER: every reserve given back, and the reply the browser reads says so.
-  assert.equal(r.row.billing, "refunded", "the consumer did not refund the stopped job");
-  assert.equal(r.reply.cost, 0, "the poll route reported a refunded job's reserve as its cost");
-  assert.equal(r.reply.refunded, r.reserves.reduce((a, n) => a + n, 0), "the refund the row recorded is not every reserve");
-  // RESTORED, SO THE SENTENCE CLAIMS NOTHING IS STILL SAVED.
-  assert.equal(r.said.text, "⚠️ " + STOPPED + " This edit cost you nothing. Reading your message cost 2 credits.");
-  assert.deepEqual(r.said.actions, [], "a stop started something");
-  await assertStaleSheetBack(r, "job");
-});
+for (const [mode, previous] of [["sync", false], ["job", false], ["job", true]]) {
+  const on = previous ? "a container on the previous image" : "the current container";
+  test("a new rule that points at nothing is held and corrected, and the correction is asked about that rule alone (" + mode + ", " + on + ")", async () => {
+    const looked = [];
+    const r = await drive({ mode, site: staleSite(mode), routed: { layer: "look" }, ask: CSS_ASK, pick: PICK_CSS, lanes: [{ css: NEW_DEAD }, { css: NEW_FIXED }], render: judge({ previous, seen: looked }) });
+    assert.deepEqual(r.models, [T.pick, T.lane, T.lane], "not the picker, the css lane and the one correction");
+    assert.equal(r.builds.length, 2, "not the build and the one rebuild");
+    // THE FIRST PUBLISH ASKED TO BE HELD FOR THE NEW RULE AND NOTHING OLDER.
+    assert.deepEqual(verified(r)[0], ["header button"], "the first publish did not name the rule this request wrote, or named an older one");
+    // WHAT THE CONTAINER JUDGED: the new rule alone — or, on the previous image,
+    // every rule, which is what the route's own filter exists for.
+    assert.deepEqual(looked[0].looked, previous ? [".newsletter-band", "header button"] : ["header button"], "the container judged the wrong rules");
+    // THE CORRECTION WAS ASKED ABOUT THE NEW RULE, NEVER THE OLD ONE.
+    assert.deepEqual(correctionAsked(r), ["header button"], "the correction round was asked about a rule this request did not write");
+    // THE SECOND PUBLISH: a job verifies the rule the correction wrote; the
+    // synchronous path's second publish verifies nothing, as before.
+    assert.deepEqual(verified(r)[1], mode === "job" ? ["[data-slot=\"site-link\"]"] : undefined, "the second publish was held for the wrong rules");
+    assert.equal(r.reply && r.reply.ok, true, "the corrected edit did not publish: " + JSON.stringify(r.reply));
+    if (mode === "job") assert.equal(r.committed, true, "the corrected edit was not committed");
+    // THE CORRECTION IS WHAT IS STORED — the old rule as the model left it.
+    assert.equal(r.config.css, NEW_FIXED, "the published correction was not stored");
+    // THE LEDGER: the css lane once; the correction round is not billed.
+    if (mode === "sync") {
+      assert.deepEqual(r.debits, [2], "not the css lane alone collected");
+      assert.deepEqual(r.credited, [], "a refund was made");
+    } else {
+      assert.deepEqual(r.reserves, [2], "not the css lane alone reserved");
+      assert.equal(r.row.billing, "finalized", "the job was not settled");
+    }
+    assert.equal(r.reply.cost, 2, "the reply's cost is not what the ledger holds");
+    assert.equal(r.said.text, LOOK_SAID);
+    assert.deepEqual(r.said.actions, ["refresh the credit balance"]);
+  });
+}
 
-test("a synchronous edit whose only config write was the correction puts the stylesheet back when the corrected build cannot be stored, and the next edit does not ship it", async () => {
+// THE CORRECTED BUILD REFUSED BY THE STORE IS A NAMED FAILURE, NEVER THE VERIFY
+// CATCH (the round's reachability, below): the first build stops at its dead
+// rule before staging anything, so the corrected one is the first write under
+// builds/ — and the store refuses it.
+test("a synchronous edit whose corrected build cannot be stored is a named failure that puts the old stylesheet back, and the next edit does not ship the correction", async () => {
   const site = staleSite("sync");
-  // THE CORRECTED BUILD CANNOT BE STAGED: the first build stopped at the dead
-  // selector before staging anything, so the corrected one is the first write
-  // under builds/ — and the store refuses it.
   site.b.refuse = (k) => k.startsWith("builds/");
-  const r = await drive({ mode: "sync", site, routed: { layer: "look" }, ask: LINK_ASK, pick: PICK_CSS_LINK, lanes: [{ css: STALE }, REPOINTED], nav: LINK_TO_HOME, render: () => STALE_DEAD });
+  const r = await drive({ mode: "sync", site, routed: { layer: "look" }, ask: CSS_ASK, pick: PICK_CSS, lanes: [{ css: NEW_DEAD }, { css: NEW_FIXED }], render: judge() });
   site.b.refuse = null;
-  assertOnlyTheCorrectionWrote(r, "sync");
+  assert.deepEqual(r.models, [T.pick, T.lane, T.lane], "not the picker, the css lane and the one correction");
+  assert.equal(r.builds.length, 2, "not the build and the one correction");
+  assert.ok(r.builds[1].includes("site-link"), "the correction's sheet did not reach the second build");
   assert.equal(r.status, 422, JSON.stringify(r.reply));
   assert.equal(r.reply && r.reply.error, "compile", "not the failed publish: " + JSON.stringify(r.reply));
   // THE LEDGER: this path keeps what its rungs collected when a publish fails
-  // (the correction round is not billed), and the reply's cost is exactly that
-  // — the css lane and the menu call.
-  assert.deepEqual(r.debits, [2, 1], "not the css lane and the menu call collected");
+  // (the correction round is not billed), and the reply's cost is exactly that.
+  assert.deepEqual(r.debits, [2], "not the css lane collected");
   assert.deepEqual(r.credited, [], "a refund was made that this path does not make");
-  assert.equal(r.reply.cost, 3, "the reply's cost is not what the ledger holds");
-  // A STORE THAT DID NOT ANSWER IS OURS, in the platform's own sentence — and,
-  // the stylesheet being back, nothing about a change still saved.
-  assert.equal(r.said.text, "⚠️ That didn't go through — our build service was restarting. Try again in a moment. This edit cost 3 credits. Reading your message cost 2 credits.");
+  assert.equal(r.reply.cost, 2, "the reply's cost is not what the ledger holds");
+  // RESTORED, SO NOTHING ABOUT A CHANGE STILL SAVED.
+  assert.equal(r.said.text, "⚠️ That didn't go through — our build service was restarting. Try again in a moment. This edit cost 2 credits. Reading your message cost 2 credits.");
   assert.deepEqual(r.said.actions, [], "a failed publish started something");
-  await assertStaleSheetBack(r, "sync");
+  assert.equal(r.config.css, STALE, "the stylesheet was not put back to the one the site had");
+  const next = await drive({ mode: "sync", routed: { layer: "look" }, ask: NAME_ASK, pick: { fields: ["brand"] }, lanes: [{ brand: "Harbour Loaf Co" }], site: r.site, render: judge() });
+  assert.equal(next.builds.length, 1, "the next message did not build once");
+  assert.ok(!next.builds[0].includes("site-link"), "the next, unrelated edit shipped the correction nobody published");
 });
 
 // ── THE VERIFY CATCH IS NOT REACHED BY ANY FAILURE THE ROUND CAN MEET ───────
@@ -447,17 +550,178 @@ test("the corrected build refused at the publish gate is a named failure that pu
   await assertPutBack(r, "gate refused");
 });
 
-// THE SUCCESSFUL-PUBLICATION CONTROL, IN THE SAME SHAPE: a correction that
-// lands is the live stylesheet, and nothing winds it back under the site.
+// ── A RESTORE THAT FAILED IS SAID BY EVERY FORMATTER (2026-09-26) ───────────
+//
+// Owner: *"Preserve the failed-restoration warning through every
+// publish-failure formatter … the build store refuses publication, restoration
+// also fails, the changed stylesheet remains saved, and the next edit ships it.
+// The customer currently hears only that the build service was restarting."*
+//
+// REPRODUCED on the parent, both money paths: `compileMsg` answered every
+// failure of ours — and the ledger's refusal — with its own sentence and
+// dropped the only one that said the change was still saved. Each case below
+// asserts the store (the change is still saved), the exact screen (not
+// published, and still saved — never "untouched", never a rollback), the ledger
+// (what each path recorded, no refund invented) and the next edit (which ships
+// the saved change, exactly as the sentence warns). The controls are the same
+// failures with a restore that lands.
+
+const CLEAN_RULE = CLEAN_CSS.css;
+const STILL_SAVED = " The change itself is still saved, though, so it could go out with your next edit.";
+
+// A SITE WHOSE STORE REFUSES THE PUBLISH AND, WHEN `restore` IS "refused", THE
+// RESTORE: the css lane's config write is the first and lands, the restore is
+// the second.
+function refusingSite(mode, { builds = true, restore = "refused" } = {}) {
+  const slug = "fail-" + mode + "-" + hex32().slice(0, 8);
+  const site = { slug, b: bucket(slug), puts: 0 };
+  site.b.refuse = (k) => (builds && k.startsWith("builds/"))
+    || (k === CONFIG_KEY(slug) && ++site.puts === 2 && restore === "refused");
+  return site;
+}
+
+// THE NEXT, UNRELATED EDIT: a name change, which does not touch the stylesheet.
+async function nextEdit(r) {
+  const next = await drive({ mode: "sync", routed: { layer: "look" }, ask: NAME_ASK, pick: { fields: ["brand"] }, lanes: [{ brand: "Harbour Loaf Co" }], site: r.site, render: judge() });
+  assert.equal(next.reply && next.reply.ok, true, "the next message did not go through: " + JSON.stringify(next.reply));
+  assert.equal(next.builds.length, 1, "the next message did not build once");
+  return next;
+}
+
 for (const mode of ["sync", "job"]) {
-  test("control: when the correction was the only write and it lands, the published correction stays stored (" + mode + ")", async () => {
-    const r = await drive({ mode, site: staleSite(mode), routed: { layer: "look" }, ask: LINK_ASK, pick: PICK_CSS_LINK, lanes: [{ css: STALE }, REPOINTED], nav: LINK_TO_HOME, render: (n) => (n === 1 ? STALE_DEAD : CLEAN) });
-    assertOnlyTheCorrectionWrote(r, mode);
-    assert.equal(r.reply && r.reply.ok, true, "the corrected edit did not publish: " + JSON.stringify(r.reply));
-    if (mode === "job") assert.equal(r.committed, true, "the corrected edit was not committed");
-    assert.equal(r.config.css, REPOINTED.css, "the published correction was wound back under the live site");
+  test("a publish the store refused, whose restore was refused too, says the change is still saved — and the next edit ships it (" + mode + ")", async () => {
+    const site = refusingSite(mode);
+    const r = await drive({ mode, site, routed: { layer: "look" }, ask: CSS_ASK, pick: PICK_CSS, lanes: [CLEAN_CSS], render: judge() });
+    site.b.refuse = null;
+    assert.equal(site.puts, 2, "not the lane's write and the refused restore");
+    assert.equal(r.builds.length, 1, "not the one build");
+    assert.equal(r.status, 422, JSON.stringify(r.reply));
+    assert.equal(r.reply && r.reply.error, "compile", "not the failed publish: " + JSON.stringify(r.reply));
+    // NOT PUBLISHED: no build staged, the site's pointer never written.
+    assert.deepEqual([...site.b.store.keys()].filter((k) => k.startsWith("builds/") || k.startsWith("current/")), [], "something was published");
+    assert.equal(r.committed, false, "the failed edit was committed");
+    // STILL SAVED: the store holds the change the restore could not take back.
+    assert.equal(r.config.css, CLEAN_RULE, "the stored stylesheet is not the change the restore failed to take back");
+    // THE LEDGER, AS EACH PATH RECORDED IT — no refund the ledger does not show.
+    if (mode === "sync") {
+      assert.deepEqual(r.debits, [2], "not the css lane collected");
+      assert.deepEqual(r.credited, [], "a refund was made that this path does not make");
+      assert.equal(r.reply.cost, 2, "the reply's cost is not what the ledger holds");
+    } else {
+      assert.deepEqual(r.reserves, [2], "not the css lane reserved");
+      assert.equal(r.row.billing, "refunded", "the consumer did not refund the failed job");
+      assert.equal(r.reply.cost, 0, "the poll route reported a refunded job's reserve as its cost");
+    }
+    assert.equal(r.said.text, "⚠️ That didn't go through — our build service was restarting. Try again in a moment." + STILL_SAVED
+      + (mode === "sync" ? " This edit cost 2 credits." : " This edit cost you nothing.") + " Reading your message cost 2 credits.");
+    assert.doesNotMatch(r.said.text, /untouched|nothing was changed|put back|rolled back|undone/, "the screen claims a rollback that did not happen");
+    assert.deepEqual(r.said.actions, [], "a failed publish started something");
+    // AND THE NEXT EDIT SHIPS IT, which is what the sentence warns of.
+    const next = await nextEdit(r);
+    assert.ok(next.builds[0].includes(GREEN), "the saved change did not go out with the next edit — the warning would be false");
+  });
+
+  test("control: the same refused publish with a restore that lands says nothing is saved, and the next edit does not ship it (" + mode + ")", async () => {
+    const site = refusingSite(mode, { restore: "lands" });
+    const r = await drive({ mode, site, routed: { layer: "look" }, ask: CSS_ASK, pick: PICK_CSS, lanes: [CLEAN_CSS], render: judge() });
+    site.b.refuse = null;
+    assert.equal(site.puts, 2, "not the lane's write and the restore");
+    assert.equal(r.status, 422, JSON.stringify(r.reply));
+    assert.equal(r.config.css, "", "the restore did not put the stylesheet back");
+    assert.equal(r.said.text, "⚠️ That didn't go through — our build service was restarting. Try again in a moment."
+      + (mode === "sync" ? " This edit cost 2 credits." : " This edit cost you nothing.") + " Reading your message cost 2 credits.");
+    const next = await nextEdit(r);
+    assert.ok(!next.builds[0].includes(GREEN), "the next, unrelated edit shipped a change the restore took back");
   });
 }
+
+// A PAGE THAT DID NOT COMPILE — the compile's own sentence, the one arm the
+// route writes itself — with the restore refused too.
+test("a change that did not compile, whose restore was refused too, says the live site did not change and the change is still saved (sync)", async () => {
+  const site = refusingSite("sync", { builds: false });
+  const r = await drive({ mode: "sync", site, routed: { layer: "look" }, ask: CSS_ASK, pick: PICK_CSS, lanes: [CLEAN_CSS], compileOk: false });
+  site.b.refuse = null;
+  assert.equal(site.puts, 2, "not the lane's write and the refused restore");
+  assert.equal(r.status, 422, JSON.stringify(r.reply));
+  assert.equal(r.config.css, CLEAN_RULE, "the change the restore failed to take back is not still saved");
+  assert.deepEqual(r.debits, [2], "not the css lane collected");
+  assert.deepEqual(r.credited, [], "a refund was made that this path does not make");
+  assert.equal(r.said.text, "⚠️ That didn't compile, so your live site wasn't changed." + STILL_SAVED + " This edit cost 2 credits. Reading your message cost 2 credits.");
+});
+
+// THE SAME FACT THROUGH TWO OTHER FORMATTERS: the queue's publish gate refusing
+// the build (`compileMsg`'s `not-granted` arm), and a cancel at the gate
+// (`editStopped`, which already said it).
+test("a publish refused at the gate, whose restore was refused too, says the change is still saved and the live site did not change (job)", async () => {
+  const site = refusingSite("job", { builds: false });
+  const r = await drive({ mode: "job", site, routed: { layer: "look" }, ask: CSS_ASK, pick: PICK_CSS, lanes: [CLEAN_CSS], render: judge(), granted: false });
+  site.b.refuse = null;
+  assert.equal(site.puts, 2, "not the lane's write and the refused restore");
+  assert.equal(r.reply && r.reply.error, "compile", "not the refused publish: " + JSON.stringify(r.reply));
+  assert.equal(r.config.css, CLEAN_RULE, "the change the restore failed to take back is not still saved");
+  assert.equal(r.row.billing, "refunded", "the consumer did not refund the refused job");
+  assert.equal(r.said.text, "⚠️ That didn't go through — your change was built but couldn't be published (lease), so your live site wasn't changed." + STILL_SAVED + " This edit cost you nothing. Reading your message cost 2 credits.");
+  const next = await nextEdit(r);
+  assert.ok(next.builds[0].includes(GREEN), "the saved change did not go out with the next edit");
+});
+
+test("a job cancelled at the publish gate, whose restore was refused too, says the change is still saved (job)", async () => {
+  const site = refusingSite("job", { builds: false });
+  const r = await drive({ mode: "job", site, routed: { layer: "look" }, ask: CSS_ASK, pick: PICK_CSS, lanes: [CLEAN_CSS], cancel: true });
+  site.b.refuse = null;
+  assert.equal(site.puts, 2, "not the lane's write and the refused restore");
+  assert.equal(r.builds.length, 0, "the cancelled edit built");
+  assert.equal(r.reply && r.reply.error, "cancelled", "not the cancel: " + JSON.stringify(r.reply));
+  assert.equal(r.config.css, CLEAN_RULE, "the change the restore failed to take back is not still saved");
+  assert.equal(r.row.billing, "refunded", "the consumer did not refund the cancelled job");
+  assert.equal(r.said.text, "⚠️ I stopped that edit before anything was published." + STILL_SAVED + " This edit cost you nothing. Reading your message cost 2 credits.");
+  const next = await nextEdit(r);
+  assert.ok(next.builds[0].includes(GREEN), "the saved change did not go out with the next edit");
+});
+
+// EVERY ARM OF THE FAILED-PUBLISH SENTENCE, the function itself: the one the
+// route runs, cut out of worker.js and handed the real `roomSentence`. With the
+// restore failed each arm keeps its own account of what went wrong, says the
+// LIVE site did not change where it used to say nothing did, and ends with the
+// one sentence; with the restore landed each arm is what it was.
+test("every arm of the failed-publish sentence says the change is still saved when the restore failed, and none calls the site untouched", () => {
+  const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const note = src.match(/\nconst KEPT_CHANGE_NOTE = ("[^"\n]+");\n/);
+  assert.ok(note, "the one sentence for a change still saved is gone");
+  assert.equal(JSON.parse(note[1]), STILL_SAVED, "the sentence the screens assert is not the one the route says");
+  const fn = src.match(/\nfunction compileMsg\(pub, theirs, landed = false, kept = false\) \{\n[\s\S]*?\n\}\n/);
+  assert.ok(fn, "compileMsg is gone, or no longer takes the kept state");
+  const compileMsg = new Function("roomSentence", "KEPT_CHANGE_NOTE", fn[0] + "\nreturn compileMsg;")(roomSentence, STILL_SAVED);
+  const ARMS = [
+    { error: "unbilled", detail: "insufficient" }, { error: "unbilled", detail: "down" },
+    { error: "compile", ours: false },
+    { error: "not-granted", ours: true, detail: "lease" },
+    { error: "not-served", ours: true },
+    { error: "lease-lost", ours: true },
+    { error: "compile", ours: true, code: "forbidden", key: "builds/x/1/client/a.js" },
+    { error: "compile", ours: true, room: "full" }, { error: "compile", ours: true, room: "rate" }, { error: "compile", ours: true, room: "start" },
+    { error: "compile", ours: true, timedOut: true },
+    { error: "read", ours: true },
+    { error: "compile", ours: true },
+  ];
+  const THEIRS = "That didn't compile, so your live site wasn't changed.";
+  for (const pub of ARMS) {
+    for (const landed of [false, true]) {
+      const plain = compileMsg(pub, THEIRS, landed, false);
+      const kept = compileMsg(pub, THEIRS, landed, true);
+      const at = JSON.stringify(pub) + " landed=" + landed;
+      assert.ok(!plain.includes("still saved"), at + ": a restore that landed was said to have left the change saved");
+      assert.ok(kept.endsWith(STILL_SAVED), at + ": a failed restore is not said: " + kept);
+      assert.doesNotMatch(kept, /nothing was changed|untouched/, at + ": a failed restore still calls the site untouched");
+      // THE ARM'S OWN ACCOUNT IS KEPT: the same sentence, with "nothing was
+      // changed" narrowed to the live site.
+      assert.equal(kept.slice(0, -STILL_SAVED.length), plain.replace("so nothing was changed", "so your live site wasn't changed"), at + ": the arm's own sentence moved");
+    }
+  }
+  // AND A TRUTHY VALUE THAT IS NOT `true` CLAIMS NOTHING IS SAVED — the
+  // `landed` rule, one argument over.
+  assert.ok(!compileMsg({ error: "compile", ours: true }, THEIRS, false, 1).includes("still saved"), "a truthy non-true value claimed a change is saved");
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WHAT A REFUSED OR STOPPED EDIT COST, FROM WHAT EACH PATH RECORDED
