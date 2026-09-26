@@ -8244,8 +8244,14 @@ handlers:**
     spec.
 
 **REVIEWED, NO NEW DEFECT**: paid reconstruction from an edit or add-on
-escalation. The `EDIT_FAILURES` census and both readers' validation hold;
-**the add-on route's well-formed no-layer escalates still climb** (deferred).
+escalation. The `EDIT_FAILURES` census and both readers' validation hold.
+**The add-on route asks for a rebuild in ONE place** (`reconstruct: true`;
+`addonFailure` ignores the flag for any reason but `no-source`/`no-meta`), and
+only after the page read, the database state, the strict config and schema
+reads, the build configuration and a strict read of the remaining component
+files have all worked AND the saved pages read back empty or the saved look is
+absent with no stylesheet. Every earlier failure stops with a sentence; the
+list is in the checklist (2026-09-26).
 **COVERAGE**: every area the owner listed already has driven cases
 (`edit-lock`, `edit-result-display`, `edit-page-photos`/`-protect`,
 `edit-page-context`/`-contract`, `edit-failure`, `edit-rules-backend`,
@@ -8294,7 +8300,27 @@ coverage-only test was added.
   collects while the job path refunds everything, landed work included. Both
   are now reported from the ledger.
 - Text-guard grammar limits.
-- `eConfigWritten` and the verify catch's restore are read in code, not driven.
+- ~~`eConfigWritten` and the verify catch's restore are read in code, not
+  driven~~ — **CLOSED 2026-09-26** (`edit-failure-paths`, 22 → 29 cases). The
+  correction's flag is load-bearing when the css lane answered the sheet
+  unchanged beside a step that publishes: driven on both money paths (a job
+  whose correction still misses; a synchronous edit whose corrected build the
+  store refuses), with a same-shape control on both; removing the flag fails
+  both stop cases and passes both controls. The verify catch is UNREACHABLE by
+  any failure the round meets — each operation handles its own; driven at
+  every boundary (model call, write, store, gate), and a marker in the catch
+  was reached 0 times across the whole suite (7,934 tests). Probes
+  `rollback-gaps.json`: 3 killed, 1 control.
+- **Reproduced, not fixed**: `compileMsg` answers a publish failure of OURS
+  (and `unbilled`) with its own sentence and drops the one carrying *"the change
+  is saved"*, so a restore that ALSO fails is not said and the next edit ships
+  the change (both paths, scratch). Narrow: two store failures at once.
+- **Found, not fixed**: the render check judges EVERY rule in the stored sheet
+  (`plainSelectors(readCss(payload.css).css)` in the build service) while the
+  route's comment says "the selectors this message introduced" — so a stale
+  rule starts the correction on any later css-picked message, the correction
+  may rewrite a rule nobody asked about, and on a job a miss refuses the whole
+  message.
 - Drafts are session-only; the needs-review enqueue sentence is never shown.
 - Real-model compliance is unproven throughout.
 

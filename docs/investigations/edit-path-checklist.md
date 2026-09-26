@@ -23,12 +23,43 @@ model gives it.
 | Item | Status | Evidence |
 | --- | --- | --- |
 | A routing answer that cannot be acted on dropped the message's words and files | reproduced defect, fixed (`9e70f093`) | `lost()` holds them on the site they came from. 9 cases red on the parent; the 33 stop cases in `site-route-failure` now assert the hold. |
-| Unintended paid reconstruction from an edit or add-on escalation | demonstrated, no new defect | `EDIT_FAILURES` census, the add-on correction (`5cb8592`), and reply validation on both readers. **Deferred:** the add-on route's well-formed no-layer escalates still climb. |
+| Unintended paid reconstruction from an edit or add-on escalation | demonstrated, no new defect | `EDIT_FAILURES` census, the add-on correction (`5cb8592`), and reply validation on both readers. Ordinary add-on failures stop with a sentence; the add-on route asks for a rebuild only when saved state is verified missing (the conditions are listed below this table). |
 | A stopped edit's unpublished design was shipped by the next edit | reproduced defect, fixed (`324bc47a`) | Cancel, correction still missing, no time left: the design is put back. 3 of 4 red on the parent. |
 | The logo rung read bare strings, not the composer's `{name, data}` | reproduced defect, fixed (`51e39e3c`) | 4 of 5 red on the parent. |
 | Refusal and partial wording: the routing charge, the charged refused step, "nothing was charged" | reproduced defect, fixed (`908c12ee`) | Server sentences say what happened; the browser states the edit's cost from the reply and the routing call's from the routing reply. A finished job's cost comes from its own row. A refused step's charge is on its entry and said beside the change that shipped. 8 of 15 red on the parent. Probes `edit-money.json`: 17 killed, 2 controls. |
 | An unknown outcome sent the customer to the preview, which cannot show a data or rules change | reproduced defect, fixed (`a3efddef`) | It now says asking again could make the change twice. Red on the parent over four layers and three unknown shapes. |
 | A change that went through before a failed publish was called untouched | reproduced defect, fixed (`90efa38d`) | A new address, a table rule and a saved row are named ("Part of it did go through, though: …"). 6 of 7 red on the parent, the control green on both. Probes `landed-changes.json`: 11 killed, 1 control. |
+
+**When the add-on route may ask for a rebuild.** A no-layer escalate from the
+add-on route is the only add-on answer the browser turns into the full
+rewrite, and the route produces one in exactly one place: the
+`reconstruct: true` call in `worker.js` (`addonFailure` ignores the flag for
+every reason but `no-source` and `no-meta`). It is reached only when every one
+of these holds, in this order; each earlier failure stops with its own
+sentence instead:
+
+1. The message is not empty, and the picked model's key is configured.
+2. The editable-state check passes and the page read succeeds
+   (`loadSiteSourceForEdit` with `checked: true`). A failed read or a failed
+   recovery stops (`editable-state`, `no-source`).
+3. The database state is readable (`siteBackendDetail` is not `unreadable`).
+4. The strict config read succeeds and, when the site has a database, the
+   schema read succeeds (`specForAddon`). The spec must be well formed: a
+   `tables` list, each with a name and a columns list. Otherwise it stops
+   (`no-meta`).
+5. It is not a stylesheet with no saved look. That is existing design, and it
+   stops (`no-look`).
+6. The saved state is positively missing: the page list read back empty
+   (`no-source`), or no saved look and no stylesheet (`no-meta`).
+7. The build configuration is present: the site database, the service key and
+   the model key. Otherwise it stops (`unconfigured`).
+8. The remaining component files read back under a strict read. Otherwise it
+   stops (`no-meta`).
+
+Only then does it answer `{ok: false, escalate: true, reason}` with no layer.
+The browser climbs on that shape alone (`readAddonReply`'s `climb`); a
+malformed escalate stops. The one other hop is a photograph asked for alone,
+which goes sideways to the picture layer as a single edit, not a rebuild.
 
 ### 3. Database context on full rewrites
 
@@ -82,8 +113,42 @@ data and rules rungs.
 - **Text-guard grammar limits.** A site page name used as an ordinary word after
   on/in/from reads as that page and fails closed. Trailing commentary voids a
   clause.
-- **Untested edges.** The correction-write belt (`eConfigWritten`) has no case,
-  and the verify catch's restore is read in code but not driven.
+- **The two rollback edges: closed** (the next round, `edit-failure-paths`).
+  - *The correction's write flag* is redundant when the look step has already
+    written, and it is the only record of a write when the css lane answered
+    the stylesheet unchanged beside a step that publishes. The render check
+    then still reads every rule in the stored sheet (below), so a stale rule
+    starts the correction round, and the round's write is the message's only
+    config write. Now driven through the route in that shape: a job whose
+    correction still misses, and a synchronous edit whose corrected build the
+    store refuses. Each checks the stored sheet put back, the reply, the
+    ledger, and a next edit that does not ship the correction. A control in
+    the same shape on both paths keeps a correction that lands. With the flag
+    removed, both stop cases fail and both controls pass.
+  - *The verify catch* cannot be reached by any failure the round can meet,
+    because every operation inside it handles its own. Driven at each
+    boundary: the correction's model call failing, its write refused, and the
+    corrected build refused by the store and by the publish gate. Each lands
+    on its own named outcome and puts the design back. With a marker in the
+    catch, the whole suite (7,934 tests) reached it zero times. The catch
+    stays as the defence against a defect in our own code.
+- **Reproduced, not fixed: a failed restore after a publish failure of ours
+  is not said.** `compileMsg` answers a failure of ours (and a refused
+  reservation) with its own sentence. That sentence replaces the one that
+  carries "the change is saved". So when the restore write fails too, the
+  screen says only "our build service was restarting", while the change stays
+  saved and the next edit ships it. Scratch reproduction on both paths, with
+  supplied answers. It is narrow: the publish must fail on our side and the
+  restore write must fail as well.
+- **Found, not fixed: the stylesheet check reads the whole stored sheet, not
+  this message's rules.** The code's comment says it verifies "the selectors
+  this message introduced". The build service judges every rule in the stored
+  sheet (`plainSelectors(readCss(payload.css).css)`). So a rule left dead by an
+  earlier change starts the correction round on any later message that picks
+  the css lane, even one whose css answer changed nothing. The correction then
+  rewrites a rule the customer never mentioned; the new control case publishes
+  exactly that, with supplied answers. On a job, a correction that still
+  misses refuses and refunds the whole message, other steps included.
 - **A new cost.** A `ready` site whose tables cannot be recovered now has its
   revise refused, where before it was revised with the partial spec.
 - Drafts last for the session only. The needs-review enqueue sentence is never

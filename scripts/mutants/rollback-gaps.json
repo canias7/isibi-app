@@ -1,0 +1,27 @@
+[
+  {
+    "label": "CONTROL: the correction-billing comment changes nothing",
+    "control": true,
+    "files": ["worker.js"],
+    "from": "                // THE CORRECTION IS NOT BILLED, and that is a decision rather",
+    "to": "                // THE CORRECTION IS NOT BILLED (control), and that is a decision rather"
+  },
+  {
+    "label": "R-1: the correction's stylesheet write does not mark the config written",
+    "files": ["worker.js"],
+    "from": "if (put.ok) { cssFixed = { dead: finalPub.dead }; eConfigWritten = true; }",
+    "to": "if (put.ok) { cssFixed = { dead: finalPub.dead }; }"
+  },
+  {
+    "label": "R-2: a correction that still misses stops without putting the design back",
+    "files": ["worker.js"],
+    "from": "                if (eJob && !finalPub.ok && finalPub.error === \"dead-css\") {\n                  const kept = !(await restoreEditConfig());",
+    "to": "                if (eJob && !finalPub.ok && finalPub.error === \"dead-css\") {\n                  const kept = false;"
+  },
+  {
+    "label": "R-3: a failed publish after the round does not put the design back",
+    "files": ["worker.js"],
+    "from": "const restored = await restoreEditConfig();",
+    "to": "const restored = true;"
+  }
+]

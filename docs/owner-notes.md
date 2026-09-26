@@ -176,6 +176,58 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-26 — The two rollback gaps are closed, and the add-on rebuild conditions are named
+
+You reviewed the batch at `4f6ab55c` (484 focused checks, CI green) and asked
+me to finish it without expanding it. No product code changed in this round:
+it adds tests and corrects the checklist. The answers in every test are
+supplied.
+
+**1. The two rollback gaps.**
+- **The correction's write flag.** It matters when the stylesheet answer
+  changed nothing but another step in the same message (a menu change)
+  publishes. The stylesheet check still reads the stored sheet, so an old rule
+  that matches nothing starts the correction round, and the correction's write
+  is then the only stylesheet change the message made. I drove that through
+  the real edit route both ways:
+  - a queued edit whose correction still misses;
+  - a direct edit whose corrected build the store refuses.
+
+  Each time the old stylesheet is put back, the reply says nothing about a
+  change still being saved, the charges match what the ledger recorded, and
+  the next unrelated edit doesn't ship the correction. When a correction does
+  land, it stays saved (checked both ways). The checks fail if the flag is
+  removed.
+- **The verify fallback's restore.** Nothing the correction round can meet
+  reaches it, because every step inside handles its own failure. I checked
+  each one through the route: the correction's model call failing, its save
+  refused, and the corrected build refused by the store and by the publish
+  gate. Each ends with its own message and puts the design back. With a marker
+  in the fallback, the whole suite (7,934 tests) never reached it. It stays as
+  a safety net for a bug in our own code, and I didn't force a test into it.
+
+**2. When an add-on may ask for a rebuild.** Ordinary add-on failures already
+stop with a sentence. The add-on step asks for a rebuild in one place only,
+and only when the site's saved state has been checked and found missing:
+- the page read worked and came back empty; or
+- there is no saved design and no stylesheet.
+
+Before that, every other read has to have worked: the database, the settings
+and schema, and the component files. The build settings must be in place too.
+The checklist now lists the exact conditions instead of calling every such
+case "deferred".
+
+**Two things found on the way, not fixed (outside this round):**
+- **A failed put-back after a failure on our side isn't mentioned.** If the
+  publish fails on our side and putting the design back also fails, the screen
+  only says "our build service was restarting". The change stays saved, and
+  the next edit ships it. It needs two storage failures at once, so it's rare.
+- **The stylesheet check reads the whole saved sheet, not just this message's
+  rules.** An old rule left pointing at nothing starts a correction on any
+  later message that touches styling. The correction can restyle something
+  you never mentioned, and on a queued edit a failed correction refuses the
+  whole message. The code's own comment says it checks only the new rules.
+
 ## 2026-09-25 — The edit-path milestone: eight fixes in one batch (on the branch, not merged)
 
 You asked for one batch across six areas, without stopping to ask after each
