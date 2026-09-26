@@ -176,7 +176,131 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
-## 2026-09-26 — Test 3 passed: the full writer removed the section and nothing else
+## 2026-09-26 — What's left on the edit path, and test 4 ready for your approval
+
+You closed test 3 and the stylesheet fixes. I went through what's left: what
+has already been shown on the live site, what hasn't, what's broken, and what
+you've parked. Nothing was spent or deployed.
+
+**What's already been shown live.** I read the job records (read only). Every
+edit the queue has ever finished is there: 51 of them since 1 September, all
+but one on fretwork-1.
+- The page editor: eight canary runs, including test 3.
+- Look-and-layout changes (colours, the name, the tab icon, languages, the
+  theme, the description, the wordmark, QR codes, behaviour): 32 jobs in early
+  September.
+- The menu (2), the site address (1) and a wording change (1).
+
+These count, and I'm not proposing to repeat any of them. The early-September
+ones ran on older code, so they show the path works, not today's code.
+
+**What has never run live.** As far as we know none of these is broken, and
+each has tests with prepared answers, but none has run for real:
+- your logo, from a picture you attach;
+- reframing or swapping a photo;
+- changing a row in a site's data (a price, say);
+- a database rule (who can see a list, for example);
+- moving or removing a page;
+- a second message from the same tab after the first one finished;
+- the full page editor rewriting a page that has photos on it.
+
+No job has ever gone through the queue's free path (the logo, a page move), so
+the test below would be its first time.
+
+**What's broken (found, not fixed).**
+- **New: the page-text check can't find a section by a heading that comes
+  from a design component.**
+  - On the Harbour Loaf site, "Today's bake" looks like a heading to a
+    visitor, but in the code it's a setting on a component.
+  - So "Remove the "Today's bake" section from the home page." is refused,
+    even with a correct answer. The refusal asks for the heading, which you
+    gave.
+  - Nothing is lost, but the customer pays 2 credits for a refused message.
+  - It affects most sections across the example sites (59%).
+  - Fixing it means changing the check; your call.
+- When one message changes the look and something else (a photo, the menu,
+  the address), the reply mentions only the look.
+- "Add a QR code and make the footer navy" stops at the QR code, and the navy
+  never happens.
+- If the second half of an address change fails, the site is left between the
+  two names.
+- The reply lists at most three problems and doesn't say there are more.
+- The quick writer's reply lists no changed files even when it changed one.
+
+**What you've parked.**
+- the phone-size hydration error;
+- translation;
+- model-written replies;
+- any further stylesheet work;
+- photo protection in the full-site rewrite;
+- money wording outside edits;
+- drafts surviving a refresh;
+- the add-on's own escalations;
+- photo add-ons, which wait on fal.
+
+**Free checks I ran for this.**
+- the job records;
+- the Harbour Loaf site as it stands: still run 9's version, and its loaves
+  list serves six rows;
+- a rehearsal of test 4 through the real edit code with prepared answers: 13
+  of 13 pass;
+- a count of how many sections the text check can name.
+
+**Test 4 — ready for your approval.** Everything runs on Harbour Loaf, the one
+site with a database, photos and several pages. There are three parts, about
+26–31 credits in total, and you have 73.
+
+*Part A — one paid canary press (about 10–12 credits).* The full page editor
+removes the "Order a loaf for collection" section from the home page, which
+has two photos. The form, run from main:
+- "Run the ONE paid edit as well": `yes`
+- "What to change": `Remove the "Order a loaf for collection" section from the home page.`
+- "The site to edit": `fold-lane-bakery`; "A second site…": `washhouse-3`
+- the "READ ONE EXISTING JOB" and "PUT ONE SAVED VERSION BACK" boxes: blank
+- "Refuse to spend unless the Worker reports this deploy sha": `0de188ff2d3a00d8096b01f8616c507aea2bbce4`
+- "Refuse to spend unless a cold container reports this image id": `05750a5120d33570`
+
+What should happen: only that section goes, both photos stay, the other pages
+don't change, and the reply says "✅ Updated /."
+
+*Part B — six messages in the app (about 16–19 credits).* Open Harbour Loaf
+from the start screen. Send these in one tab, each after the previous reply
+appears, without reloading:
+1. Attach a PNG or JPEG under 2 MB (not an SVG) with the + button, then:
+   `Use this picture as the logo.`
+2. `Show more of the top of the photo of the sourdough boule cooling.`
+3. `In today's bake list, change the Sea Salt Focaccia's price to £4.60.`
+4. `Move the starter page to /starter.`
+5. `Only let signed-in members see the list of loaves.`
+6. `Let everyone see the list of loaves again, signed in or not.`
+
+A screenshot of the chat at the end helps. I'll read everything else from the
+job records and the live site.
+
+*Part C — one free canary press.* Use the same form as part A, with "Run the
+ONE paid edit as well" set to `no` and "What to change" left blank. It reads
+every page back, so I can compare the whole sitting byte by byte.
+
+**Before you press.**
+- Part A and messages 1, 2 and 4 publish new versions. Putting back the
+  current version (`01789969693841-xqi8vs`) is free.
+- Message 3 changes the price in the database, which a version restore
+  doesn't undo. "Change the Sea Salt Focaccia's price back to £4.50" puts it
+  back, for about 3 credits.
+- Between messages 5 and 6, a minute or two, visitors see "Couldn't load
+  today's bake."
+- Message 5 is this site's first database change since 13 September, so it
+  also re-applies every table's permissions in the newer, tighter form.
+  - The order form should keep working, but I can't confirm that for free,
+    because checking means placing a real order.
+  - One test order after message 6 would settle it; your call.
+
+The full list with evidence, and every expected reply, is at the top of the
+[edit-path checklist](investigations/edit-path-checklist.md).
+
+---
+
+## 2026-09-26 — Test 3 passed: the full writer removed the section and nothing else (closed by you, with the stylesheet fixes)
 
 You ran test 3 ([run 34](https://github.com/canias7/isibi-app/actions/runs/36224239033)).
 I read its log, its saved files, the billing records and the live site in a
@@ -186,7 +310,9 @@ real browser. **All seven checks hold.**
 - The request went through exactly as written.
 - The router sent it to the look-and-layout door, which handed it to the page
   editor.
-  - The quick writer looked at it and declined.
+  - The quick writer was tried first, and the full writer followed. Why the
+    quick attempt didn't publish wasn't recorded, and its usage alone doesn't
+    show that it declined.
   - The full writer rewrote the home page without the chords section.
   - Both safety checks, the one for your own components and links and the one
     for page text, let it through. That is the first time the full writer has
@@ -227,9 +353,8 @@ doesn't say what changed. After it comes the automatic page check's note that
 parked, and it's reported, not verified.
 
 **Worth knowing.**
-- The live site now serves the home page without the chords section. If you
-  want it back, putting version `01790360265159-n7mtnq` back is free; just say
-  so.
+- The live site keeps the home page without the chords section. You closed
+  the test with no restoration.
 - This covers one sentence on one site. The two safety checks don't record
   their decisions, so I know they let it through only because it published.
 
@@ -3641,7 +3766,8 @@ itself; I read those lines word for word.
 **Reported but not part of the pass**: the Spanish and French pages; the cost;
 and which layer the router picks.
 
-**What it can't show, said before it runs**: *why* the quick rung declined.
+**What it can't show, said before it runs**: *why* the quick rung's attempt
+didn't publish.
 The reason isn't on the reply or in the trace. So a pass proves the real model
 changes the calculation and the wording together — what you asked for — and
 that the door itself is what said no stays proven by the tests only. Putting

@@ -44,12 +44,21 @@ its code is live as part of 2161.
 **Test 3 ran as the owner's paid press, run 34** (36224239033, 2026-09-26 06:43 UTC),
 and **all seven acceptance items hold**. The full writer removed "The first eight
 chords" and nothing else. The route was the router's `look`, the `components` lane,
-then the page rung. The quick writer declined, and both preservation checks let the
-change through. It cost route 2 + edit 16 = 18, leaving a balance of 73. The live
+then the page rung. The quick writer was attempted and the full writer followed; why
+the quick attempt did not publish was not captured, and its usage alone does not
+establish that it declined. Both preservation checks let the full writer's change
+through. It cost route 2 + edit 16 = 18, leaving a balance of 73. The live
 page at the job's own version `01790404806543-kk6qsh` is exactly the before page
 without that section. The verdicts are inferred from the publish, not captured,
-and #418 stays open.
-Remaining scope: [edit-path checklist](docs/investigations/edit-path-checklist.md).
+and #418 stays open. **CLOSED BY THE OWNER** after independent review (2026-09-26),
+together with the CSS-correction milestone (deploy 2161's batch): no repeat run, no
+restoration, no further CSS work.
+**What remains, and Test 4 (prepared, not dispatched)**: the top section of the
+[edit-path checklist](docs/investigations/edit-path-checklist.md), summarised in
+*remaining work after Test 3* below. The logo, picture, data and rules rungs, a
+page move, a second message from one tab and the full writer on a photographed
+page have never published live; no job has ever been `exempt`. New, reproduced
+free: the text guard cannot name a section headed by a kit component's prop.
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -2772,9 +2781,10 @@ component's): the table catches it at 0 → *"0 places left"*.
 is on **neither the reply nor the trace** — the route reads it only to decide
 `twSpent`, and the trace has no mark for the tweak at all, only for the
 publish — so `tweak` absent beside `tweakUsage` present establishes that **a
-tweak was tried and declined**, never **why**. A pass therefore proves the real
+tweak was attempted and did not publish**, never **why**: usage alone does not
+establish that it declined (owner, 2026-09-26). A pass therefore proves the real
 model changes the calculation and the wording together, which is what was
-asked; that the DOOR is what declined stays evidenced by the contract tests
+asked; that the DOOR is what stopped it stays evidenced by the contract tests
 alone. Putting the reason on the wire would settle it, and it is a product
 change that would need its own deploy before the press.
 
@@ -2891,8 +2901,8 @@ edit that succeeded, and an acceptance that stays OPEN.**
 - **The one-file rung did not publish** ✓: `tweak` absent, `tweakUsage` `{in
   8314, out 53}`. 53 output tokens is far too few to hold the 26 KB page (run
   17's re-emission took 7,627), which is CONSISTENT WITH the tweak returning no
-  page at all. **Its decline reason was not observed and is not claimed** — it
-  is on neither the reply nor the trace. **The quick-writer guard is NOT
+  page at all. **Why it did not publish was not observed and is not claimed** —
+  it is on neither the reply nor the trace. **The quick-writer guard is NOT
   reopened** by this run: nothing here is a new reproduction against it.
 - **Published** ✓: a stored reply, HTTP 200 under `x-gf-edit: final`, after
   443.3 s (134 polls, 0 transient failures); the live header moved to
@@ -3227,13 +3237,13 @@ rather than silently passed.
   tokens, ~1.1 credits) and a schema digest of unmeasured size; the output is
   about the same, because run 21's writer already re-emitted the whole page.
   **So route 2 + edit ~16–18 ≈ 18–20.** Dearer: the quick writer re-emitting
-  the page before it declines (run 17's 7,627 output tokens, ~+5.7), or new
+  the page before its attempt fails (run 17's 7,627 output tokens, ~+5.7), or new
   page wording that needs French and Spanish (≥1 each) — perhaps ~30.
   **⚠ EVERY FIGURE HERE IS AN ESTIMATE, NOT A CAP** (owner, 2026-09-23):
   nothing enforces a per-request limit — `edit_reserve` raises only above
   100,000 — so the account balance is the only bound that binds. Cheaper: the
   lookup stops — 2. Balance **48**.
-- **THE SAME LIMITS AS RUN 21**: the tweak's decline reason is on neither the
+- **THE SAME LIMITS AS RUN 21**: why the tweak did not publish is on neither the
   reply nor the trace, the writer's prompt is not captured, and the guards'
   supplied answers prove the path, never the model.
 
@@ -3325,9 +3335,9 @@ the window.
 
 - **COST: route 2 + edit 22 = 24, balance 46 → 22, closing exactly.** `tweak`
   absent, `tweakUsage` **8,314 in / 7,602 out** — this time the quick writer
-  re-emitted the whole page before it was declined (run 21's was 53 tokens), so
-  the edit landed in the quoted "dearer" band; its decline reason is still on
-  neither the reply nor the trace. The full writer: **24,652 in / 9,410 out**.
+  re-emitted the whole page and still did not publish (run 21's attempt was 53
+  tokens), so the edit landed in the quoted "dearer" band; why it did not
+  publish is still on neither the reply nor the trace. The full writer: **24,652 in / 9,410 out**.
   `langs` fr/es `cached, missing 0`.
 - **TWO FILES CHANGED, FOUR BYTE-IDENTICAL.** `index.tsx` 26,276 → 26,248
   chars (`e8a2a0a6fc68f6ea`), two lines: the `useRpc` result is kept WHOLE
@@ -3614,8 +3624,8 @@ test, and it may change the site's database rules, recorded as what it is. A 503
 intent gate refuses to spend.
 
 **COST, ESTIMATED FROM MEASURED RUNS — NOT A CAP.** Run 21 was route 2 + edit
-15 (the quick writer declined in 53 tokens), run 24 route 2 + edit 22 (it
-re-emitted the page first). This press differs by ~300 tokens of rules and a
+15 (the quick attempt used 53 output tokens and did not publish), run 24 route
+2 + edit 22 (it re-emitted the page first). This press differs by ~300 tokens of rules and a
 component 466 characters longer, so **~17–24 credits, perhaps ~30** with a
 correction round. Nothing enforces a per-request limit; the balance is the only
 bound. **Balance 22 at run 24's end**: if press 1 prints under ~30, top up
@@ -3660,7 +3670,8 @@ Preflight `0d5137f0a7eb` / `ce67f25d132667d0`, `async`/`runner` true.
   layer=page page=/` in 30.1 s, cost 2 (`6,645 in / 19 out`).
 - **COST: route 2 + edit 17 = 19, balance 22 → 3, closing exactly.** No top-up
   was made and it fitted. `tweak` absent, `tweakUsage` `8,309 in / 53 out` (a
-  quick decline, as in run 21; the reason is still not on the wire); the full
+  quick attempt that did not publish, as in run 21; the reason is still not on
+  the wire); the full
   writer `25,027 in / 8,820 out`; two translation calls `980 in / 35 out` (fr
   and es `missing: 1` each — see the finding below). Job states `claimed`
   (cost 0) to ~194 s, `routing` (cost 16 → 17) from ~207 s, `publishing` at
@@ -3818,15 +3829,22 @@ logo layer (`chat.js:8973`), and wording + colour cannot both happen in one
 turn: the look door has no text lane, so the second half is an `alsoAsked`
 sentence at best.
 
-**EVIDENCE BY OPERATION** — live · supplied-output route tests · helper only:
-text — route tests, no live run · look/css — run 14 refused twice and
-refunded, run 41 wordmark finished, route tests · page layout — live runs 9 and
-11 · custom components — live runs 17, 21, 24, 26 · pictures — route tests, no
-live picture-rung run · remove/move — live run 11 (a section), route tests for
-page delete and lane removal, and for a layout beside a removal or a move
-(`edit-page-verb`), no live page delete or move · rules/data — route
-tests only (run 12 was blocked, since fixed) · combined — route tests and the
-driven money cases above.
+**EVIDENCE BY OPERATION — CORRECTED 2026-09-26 from a read-only census of
+`edit_jobs`**: every edit the queue has published, **51 jobs since 2026-09-01**,
+all on fretwork-1 but run 9's. **This paragraph said "text — no live run", and
+the census falsified it**: text — 1 (gap-sweep run 10, 2026-09-02) · look — 32
+published 2026-09-01 → 09-07 across css, brand, favicon, lang, langs, theme,
+description, wordmark, qr and behavior (and run 14's css refused twice and
+refunded) · menu — 2 · site address — 1 published, 1 refused and refunded ·
+page layout — lane-sweep jobs (three, shape, components, purpose, tsx) and
+canary runs 9, 11, 32, 34 · custom components — runs 17, 21, 24, 26 ·
+**pictures, logo, data, rules and a page move or removal — never published
+live**, route tests only · photographs — kept by the quick writer's block move
+(run 9, a real browser), never through the full writer · combined — one look job
+placed a QR code through the page rung (09-02); otherwise route tests and the
+driven money cases above. **No job has ever been `exempt`**, so the free-rung
+path has never published through the queue. The jobs before 09-08 ran on older
+code: live coverage of the path, not evidence about today's code.
 
 **THE NEXT TASK — BUILT THE SAME DAY, next section; `no-lane` ended up
 `explain`, not the control named here: no automatic full rewrite for a failure
@@ -9096,8 +9114,14 @@ reply arrived.
     2147 opened and no live run had shown filled until now. n=1, and `/` is
     also the default, so this does not show the router naming a non-home page.
 - **WHICH WRITER RAN, off the stored reply.** `tweak` is absent.
-  - `tweakUsage` is `8,359 in / 67 out`: the quick writer tried and declined
-    without re-emitting the page. Its reason is still not on the wire.
+  - `tweakUsage` is `8,359 in / 67 out`: **the quick writer was attempted, and
+    the full writer followed** (owner's wording, 2026-09-26). Why the attempt
+    did not publish was not captured — `readTweak`'s reason is on neither the
+    reply nor the trace — **and usage alone does not establish that it
+    declined**. Read from the code, not observed: 67 output tokens cannot
+    carry a 26,563-character page, so of `readTweak`'s eight refusals only
+    `cannot` (the model declining), `unreadable` and `truncated` fit, and
+    which one it was is unknown.
   - The full writer's call is on `usage`: `25,077 in / 8,011 out`.
   - `keepUsage` is `931 in / 46 out`: the preservation judge ran.
   - The fourth usage entry, `2,248 / 20`, is the lane picker.
@@ -9193,9 +9217,84 @@ reply arrived.
   - `changed: []` and `moved: []` are the recorded empty-merge quirk, not an
     inventory.
 - **WHAT IT DOES NOT ESTABLISH**: one sentence on one site. The writer's
-  prompt, the quick writer's decline reason and both preservation verdicts are
-  not captured. #418 stays open. **The site now serves the section removed**;
-  the restore mode puts `n7mtnq` back for free if the owner wants it.
+  prompt, why the quick attempt did not publish, and both preservation
+  verdicts are not captured. #418 stays open. **The site now serves the section
+  removed, and stays that way** (owner: *"No repeat run, restoration or further
+  CSS work"*).
+- **CLOSED BY THE OWNER, 2026-09-26**, after an independent review of the
+  downloaded source comparison (exactly the requested removal, the other five
+  files byte-identical), the terminal reply (full-writer usage and
+  `keepUsage`) and the after-read (at the published version). **The
+  CSS-correction milestone is closed with it** — deploy 2161's batch (the
+  stylesheet scope, the failed-restore sentence, the quoted-value and
+  comment-boundary rule keys), on controlled tests, CI and its browser
+  control. **No live css-lane run has used that code**, and none is proposed:
+  the owner closed the milestone without one.
+
+### REMAINING WORK AFTER TEST 3, AND TEST 4 PREPARED (2026-09-26)
+
+Owner: *"Credit existing tests and live runs; do not rerun completed coverage.
+Separate missing evidence, reproduced product defects and deliberately deferred
+work … Do not equate missing live coverage with a product defect."* The whole
+list, and Test 4's exact form values, are the top section of the
+[checklist](docs/investigations/edit-path-checklist.md). What is law here:
+
+- **THE LIVE-COVERAGE RECORD IS THE JOB TABLE, NOT THIS FILE'S PROSE.** A
+  read-only `select` over `edit_jobs`, parsing `result->>'body'` for `layer`,
+  `lanes` and `layers`, listed all 51 published edit jobs in one query and
+  falsified a paragraph that said the text rung had never run live. **Ask it
+  again before claiming a rung is unproven.** It cannot see an edit that ran
+  synchronously outside the queue, and a job from before 09-08 ran older code.
+- **NEVER PUBLISHED LIVE**: the logo, picture, data and rules rungs, and a page
+  move or removal. **`billing = 'exempt'` has never occurred**, so the
+  free-rung fix (`ed1e3b93`) has never published a job. Every canary message is
+  one scripted request, so no two messages have ever come from one browser
+  tab. All of that is **missing evidence, not a defect**: each decision has
+  controlled tests with supplied answers.
+- **A NEW REPRODUCED DEFECT, NOT FIXED: THE TEXT GUARD CANNOT NAME A SECTION
+  HEADED BY A KIT COMPONENT'S PROP.**
+  - **The case.** fold-lane-bakery's "Today's bake" is an `<h2>` to a visitor
+    and `<SectionHeader title="Today's bake">` in the source. The guard names a
+    section only by literal `<h1>`–`<h6>` text or a `<section>`'s id or
+    aria-label. So 'Remove the "Today's bake" section from the home page.',
+    answered correctly, is refused with `prose-preservation` /
+    `unconfirmed-target`, and the refusal asks for "the section by its unique
+    heading", which the request gave.
+  - **Reach, measured over the 324-page corpus.** 329 of the 555 sections
+    holding literal prose (59%) have no readable name; on 86 of the 251 pages
+    with such sections, none does. A regex over five heading components
+    (`SectionHeader`, `PageHeader`, `CtaBand`, `StoryLead`, `Hero`) counts 868
+    `title` or `headline` props.
+  - **Impact.** It fails closed, so nothing is lost, and costs the customer the
+    routing charge.
+  - **Next step.** Reproduced free through the real route. The fix is a
+    product change for its own review.
+- **A SECTION MADE ONLY OF KIT PROPS IS THE CLEAN FULL-WRITER FIXTURE.** Its
+  words are all quoted prop strings, which `sameProse` counts, so the quick
+  writer cannot remove it (`sameProse` false, 180 → 162 prose tokens,
+  measured). The text guard inventories no literal prose in it, so the guard
+  has nothing to refuse. That is why Test 4's Part A removes fold-lane-bakery's
+  `CtaBand` ("Order a loaf for collection") and not "Today's bake".
+- **TEST 4, PREPARED AND NOT DISPATCHED**, all on fold-lane-bakery, the one
+  site with a database, photographs and several pages:
+  - **Part A**, a paid canary press: the full writer on a photographed page.
+  - **Part B**, six messages in one app tab:
+    - a logo attached in the composer;
+    - a picture reframe;
+    - a price row;
+    - a page move;
+    - a read rule and its reversal.
+  - **Part C**, a free canary press for the byte-level after-read.
+  - **About 26–31 credits** (22–41), against a balance of 73.
+  - **Rehearsed free, 13 of 13**, through the real route on the site's stored
+    pages with supplied answers (scratch, not committed). Data and rules were
+    not rehearsed: their uncertainty is the router and the live database.
+- **THE SIDE EFFECTS ARE PART OF THE PREPARATION.**
+  - A row change survives any restore.
+  - A read rule hides the bake list until it is reversed.
+  - The first schema change on a site built before 2026-09-13 re-emits every
+    table's grants column-scoped. The order form then depends on the stored
+    schema declaring the five fields it sends, which no free check can confirm.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
@@ -12752,6 +12851,18 @@ does name one — moved up to the supported list on 2026-09-20.)*
 
 ## Backlog
 
+- **THE TEXT GUARD CANNOT NAME A SECTION HEADED BY A KIT COMPONENT'S PROP
+  (open, reproduced free 2026-09-26).**
+  - **What happens.** `proseInventory` names a section only by literal
+    `<h1>`–`<h6>` text or a `<section>`'s id or aria-label. A section headed by
+    `<SectionHeader title="…">` therefore cannot be the target of "Remove the
+    ‘…’ section", although the visitor sees that title as an `<h2>`. A correct
+    removal is refused with `unconfirmed-target`, and the sentence asks for the
+    heading the customer already gave.
+  - **Reach.** 59% of the corpus's prose-bearing sections (329 of 555).
+  - **Impact.** Fail-closed: no content lost, the routing charge spent.
+  - **Status.** The owner's call; it is a product change to the guard's
+    grammar. Details are in the checklist's top section.
 - **fretwork-1's stored language is Welsh (`lang="cy"`) over English copy**, so
   its switcher labels the home page "Cymraeg". Pre-existing, noticed 2026-09-25,
   parked with translation.

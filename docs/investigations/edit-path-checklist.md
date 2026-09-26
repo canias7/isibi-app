@@ -1,6 +1,278 @@
 # Remaining edit-path checklist
 
-## The two findings from the rollback round (2026-09-26), and the two rule-key defects found in their review — merged and deployed at `0de188ff` (deploy 2161)
+## Remaining work after Test 3 (2026-09-26), and Test 4 prepared for approval
+
+Test 3 (run 34) and the CSS-correction milestone (deploy 2161's batch) are
+**closed by the owner**: no repeat run, no restoration, no further CSS work.
+Main is `0de188ff` (deploy 2161, image `05750a5120d33570`), runtime-confirmed
+by run 33. Nothing has been dispatched since run 34, and the balance is 73.
+
+### What is already shown live (credited, not rerun)
+
+A read-only census of `edit_jobs` (2026-09-26, 07:40Z) lists every edit the
+queue has ever published: **51 jobs since 2026-09-01**. All of them are on
+fretwork-1 except one on fold-lane-bakery (run 9).
+
+| Rung or behaviour | Published live |
+| --- | --- |
+| Page rung, quick writer | Runs 9, 17 and 32 (a block move, a one-line change, a section move); lane-sweep jobs on 2026-09-02 (shape, three). Run 9 kept both photographs, checked in a real browser. |
+| Page rung, full writer | Runs 11, 21, 24, 26 and 34 (34 on the current code, with the text guard and the judge); lane-sweep jobs on 2026-09-01/02 (three, components, purpose, tsx twice). |
+| Look lanes | 32 jobs, 2026-09-01 to 09-07: css, brand, favicon, lang, langs, theme, description, wordmark, qr and behavior. One also placed a QR code through the page rung, the only live message that ran two rungs. |
+| Menu | 2 jobs (the action lane), 2026-09-02. |
+| Site address | 1 published and 1 refused and refunded, 2026-09-02. |
+| Text | 1 job (gap-sweep run 10), 2026-09-02. |
+| Queue, billing, reply, after-read | Every canary run. Runs 33 and 34 ran on the current code. |
+
+The jobs from 2026-09-01 to 09-07 ran on older code. They count as live
+coverage of those rungs' paths, not as evidence about today's code, and they
+are not rerun.
+
+**Never published live:** the logo, picture, data and rules rungs, and a page
+move or removal. **No job has ever been `exempt`**, so the free-rung path
+(logo, page move or removal) has never published through the queue since
+`ed1e3b93` fixed its gate. Every canary message is one request from a script,
+so two messages have never come from one browser tab.
+
+### Missing live evidence (not product defects)
+
+Controlled tests cover each decision below, with supplied answers. What is
+missing is a real model, the real browser or the live database.
+
+1. **A second message in the same tab**, after a queued job, a hop or a
+   failure. Controlled: `edit-lock`, `edit-result-display`,
+   `edit-failure-paths`.
+2. **An attachment sent from the real composer**, in the logo rung's
+   `{name, data}` shape (fixed in `51e39e3c`). Controlled: `site-logo`,
+   `edit-failure-paths`. The 2026-09-24 live check stopped the edit request in
+   the page.
+3. **The logo rung and a page move publishing through the queue** (the
+   free-rung exemption). Controlled: `edit-queue`. `edit_exempt` was driven on
+   the live database in a rolled-back transaction on 2026-09-02.
+4. **The picture rung** (reframe, swap). Controlled: `site-picture`,
+   `edit-page-once`, `edit-failure`.
+5. **The data rung.** Controlled: `site-apply`, `edit-failure` (including an
+   `incomplete` site).
+6. **The rules rung on a site with a database.** Controlled:
+   `edit-rules-backend`. Run 12 was blocked by a defect that has since been
+   fixed.
+7. **The full writer on a page with photographs.** Controlled:
+   `edit-page-photos`, `edit-page-protect`. Live, only the quick writer has
+   done this (run 9).
+8. **The first schema change on a site built before 2026-09-13**, which
+   re-emits every table's grants in column-scoped form. Proven on a real
+   PostgreSQL 16 locally (`local-pg-grants`), but not observed on a live form
+   submission.
+9. **Real-model behaviour in general.** Why a quick attempt did not publish is
+   not on the wire, and the writer's prompt is not captured.
+10. **The add-on through the browser since deploy 2154.** This is outside this
+    checklist; the last live add-on was run 53 (2026-09-20). Not proposed now.
+
+### Reproduced product defects, still open
+
+1. **New: the text guard cannot name a section whose heading comes from a kit
+   component's prop.**
+   - **The case.** 'Remove the "Today's bake" section from the home page.' was
+     run on fold-lane-bakery's stored pages with a correct answer, with and
+     without the unused imports cleaned up. It is refused: 409
+     `prose-preservation`, `unconfirmed-target`, with nothing compiled or
+     stored.
+   - **Why.** A visitor sees "Today's bake" as the section's heading (an
+     `<h2>`), but the source says `<SectionHeader title="Today's bake">`. The
+     guard names a section only by literal `<h1>`–`<h6>` text or by a
+     `<section>`'s id or aria-label. Its refusal then asks for "the section by
+     its unique heading", which is exactly what the request gave.
+   - **Reach, over the 324-page corpus.** 329 of the 555 sections that hold
+     literal prose (59%) have no name the guard can read. On 86 of the 251
+     pages with such sections, none of them has one.
+   - **Impact.** It fails closed, so nothing is lost; the customer pays the
+     routing charge for a refused message.
+   - **Status.** Reproduced free through the real route with supplied answers.
+     Not fixed: this is a product change that needs its own review.
+2. **Review #9:** a multi-step look reply names only the look, even when a
+   picture, menu or address change went through beside it.
+3. **An add-only answer ends the whole message.** A QR code, a 3D element or
+   an "add a page" in the look door stops everything, so an ordinary change in
+   the same message never runs (next-task 5).
+4. **A half-moved site address.** If the second alias write of an address
+   change fails, the old name is demoted and the new one is never written
+   (next-task 5).
+5. **The reply shows three problems of N** with no "and N more" (run 11).
+6. **The quick writer's reply carries empty `changed` and `moved` lists** (runs
+   17, 32 and 34). They are not an inventory.
+
+### Deliberately deferred (owner's decisions)
+
+- Hydration (#418), translation (including page code read as text), and
+  model-written replies.
+- CSS: no further work, including the css lane dropping an earlier rule (#8)
+  and a live css-lane run on deploy 2161's code.
+- The full-site revise: no photograph wall, and `imageDirective(0)` on a
+  photographed site.
+- Money wording on the build path and in the add-on reader; the two refund
+  policies; the routing charge, which is never refunded.
+- Text-guard grammar limits (a site page name used as an ordinary word;
+  trailing commentary).
+- Drafts are session-only, and the needs-review sentence is never shown.
+- The add-on route's no-layer climbs (the server-side classification).
+- The photo add-on kind, which waits on fal funding.
+
+### Free checks done for this assessment
+
+- **The job census** above (read-only).
+- **Live reads of fold-lane-bakery** (07:14–07:34Z):
+  - it still serves run 9's version, `01789969693841-xqi8vs`;
+  - its five routes' HTML was saved;
+  - the public `loaves` route answers 200 with six rows (Sea Salt Focaccia
+    4.5);
+  - `orders` answers 403 to a visitor, which is the shape a refused read takes.
+- **A rehearsal of Test 4 — 13 of 13 pass.** It ran through the real edit
+  route of the deployed tree, on fold-lane-bakery's stored pages (run 9's
+  after-read), on both money paths, with every model answer supplied:
+  - the logo, which makes no model call, is exempted and passes the publish
+    gate;
+  - the picture reframe changes only `focus="top"`;
+  - the page move rewrites every reference and publishes free;
+  - the removal of a section made only of kit props reaches the full writer
+    and keeps both photographs;
+  - an answer that also drops a photograph is withheld;
+  - the same removal, answered to a request naming a different section, is
+    refused;
+  - the new defect above reproduces.
+
+  The rehearsal is scratch work and is not committed. The controlled tests
+  already cover these decisions; this only pins them to this site's real
+  pages.
+- **The corpus heading census** behind defect 1.
+- **Data and rules were not rehearsed.** The uncertainty there is the router,
+  since an adopted site sends it no table names, and the live database. Only a
+  live run measures those.
+
+### Test 4 — prepared for approval, not dispatched
+
+Everything runs on one site, fold-lane-bakery (Harbour Loaf). It has a
+database, three photographs and five pages, which makes it the only site where
+every remaining rung has something to act on. There are three parts, in order.
+
+**Part A — your paid canary press: the full writer on a page with
+photographs.**
+
+- **The form.** `edit-canary.yml`, run from `main`:
+  - "Run the ONE paid edit as well": `yes`.
+  - "What to change": `Remove the "Order a loaf for collection" section from
+    the home page.` That is 68 characters with straight quotes, sha256
+    `54a55001238b9e2b84a10bca5a6af15c8a36b1e71b6c37a8ca227de16f242766`.
+  - "The site to edit": `fold-lane-bakery`. "A second site…": `washhouse-3`.
+  - "READ ONE EXISTING JOB AND STOP" and "PUT ONE SAVED VERSION BACK": blank.
+  - "Refuse to spend unless the Worker reports this deploy sha":
+    `0de188ff2d3a00d8096b01f8616c507aea2bbce4`.
+  - "Refuse to spend unless a cold container reports this image id":
+    `05750a5120d33570`.
+- **Why this sentence.** The section is a `CtaBand` whose words are all props.
+  The quick writer cannot remove it, because its words would change, and the
+  text guard loses no literal prose. The page keeps two photographs, so the
+  full writer rewrites a photographed page with the photograph wall live.
+- **It counts as the test only if** the request sha matches; the press's own
+  before-read equals these five bodies; the preflight passes; and a stored
+  reply arrives. The bodies:
+  - `index.tsx` `2c9421cf728d9823` (4,389 characters);
+  - `order.tsx` `4491c50d7cee45d8`;
+  - `the-starter.tsx` `e1172965a3644f5f`;
+  - `visit.tsx` `0963e3bc45f1d949`;
+  - `gallery.tsx` `1c940e38d7fe6ab0`;
+  - no components.
+- **Expected.**
+  1. It is routed to the page rung for `/`, either directly or through `look`.
+  2. The full writer publishes: `tweak` is absent, with `tweakUsage` and the
+     full writer's `usage`.
+  3. It publishes at the job's own version, and `compare.json` reads VERIFIED.
+  4. `index.tsx` loses that one `<section>`. The unused `CtaBand` import may go
+     too, which is noted, not failed. Both `<SafeImage>` elements and all the
+     other code stay byte-identical, and so do the other four pages.
+  5. There is no `keepUsage`, because no own component or literal link is
+     lost, and `problems` is empty.
+  6. The reply is "✅ Updated /.", with the render check's note passed on.
+  7. The balance moves by the routing charge plus the edit, and the ledger's
+     one reserve for the job equals the edit's cost.
+  8. The live page, in a real Chromium:
+     - its headings are Harbour Loaf · Fed every morning since we opened ·
+       Today's bake;
+     - both photographs load;
+     - the bake list shows six loaves;
+     - there are no console errors or failed requests.
+- **What a different result would mean.**
+  - `tweak: true`: the quick writer published a removal of words, which it
+    must never do.
+  - `prose-preservation`: a false refusal of a removal that loses no literal
+    prose.
+  - `withheld` with `photosBlocked`, or `photosKept`: the writer dropped a
+    photograph and the wall refused or restored it. That is the protection
+    working live, and a refusal publishes nothing.
+  - A `problems` line naming `loaves`: the rung read the wrong schema, a
+    lookup finding.
+- **Cost:** route 2 + edit about 8–10, so about 10–12 (8–15). An estimate, not
+  a cap.
+
+**Part B — in the app, one tab, no reload: six messages.**
+
+Open Harbour Loaf from the start screen. Send each message only after the
+previous reply is on screen.
+
+| # | Send exactly | Rung | Expected reply | Checked afterwards (free) | Credits |
+| --- | --- | --- | --- | --- | --- |
+| M1 | Attach a PNG or JPEG under 2 MB (not an SVG) with the + button, then `Use this picture as the logo.` | logo | "✅ That's your logo in the header now, on every page." | The header draws the image on every page. The job is `exempt`, cost 0. | 2 |
+| M2 | `Show more of the top of the photo of the sourdough boule cooling.` | picture | "✅ Moved “A sourdough boule cooling after the morning bake” to show the top." | Only that image gains `object-top`, and both photographs still load. | ~3 |
+| M3 | `In today's bake list, change the Sea Salt Focaccia's price to £4.60.` | data | "✅ Updated one entry in loaves." | The public `loaves` route shows 4.6 for Sea Salt Focaccia. No page changed. | ~3 |
+| M4 | `Move the starter page to /starter.` | page (move) | "✅ Moved /the-starter to /starter." | `/starter` answers 200; `/the-starter` answers 301 to `/starter`; every link follows. The job is `exempt`, cost 0. | 2 (3 through look) |
+| M5 | `Only let signed-in members see the list of loaves.` | rules | "✅ **loaves** — changed who can see it. It’s live now — nothing needed rebuilding." | The public `loaves` route answers 403, as `orders` does today, and a visitor sees "Couldn't load today's bake." | ~3 |
+| M6 | `Let everyone see the list of loaves again, signed in or not.` | rules | The same shape | The route answers 200 with the six rows again. | ~3 |
+
+- **Second messages.** Messages 2 to 6 each follow a finished job. Each must
+  get its own job and reply, and the send box must come back after each. A
+  message that is routed and then hangs means the per-ask latch has failed.
+- **Routing is part of what M3 and M5 measure.** The router is sent the site's
+  pages, but its table names only if this browser built the site.
+  - M3 sent to `text` (a sentence, nothing changed) or to `page` (a price
+    written into the page) is a routing finding.
+  - M5 sent to `page` (a display gate while the data stays public, so the
+    route still answers 200) is a wrong-layer finding.
+- **Cost:** about 16–19 in total (14–26; about 26 if M3 goes to the page
+  writer).
+
+**Part C — your free canary press.** Use the same form as Part A, with "Run
+the ONE paid edit as well" set to `no` and "What to change" left blank. It
+reads every stored body after Part B, so the whole sitting is compared byte
+for byte:
+- `index.tsx` should change only by Part A's removal, M2's `focus="top"` and
+  M4's links;
+- `the-starter.tsx` should become `starter.tsx`;
+- the other pages should change only by M4's links.
+
+**Side effects, said before the press.**
+- **Reversible for free.** Part A, M1, M2 and M4 publish new versions. The
+  restore mode puts back `01789969693841-xqi8vs` for free, including the
+  pages, the logo and the redirect.
+- **Not undone by a restore.** M3 changes a row. To put it back, send "Change
+  the Sea Salt Focaccia's price back to £4.50" (about 3 credits).
+- **A short outage of the bake list.** Between M5 and M6, which is a minute or
+  two, visitors see "Couldn't load today's bake."
+- **The grant re-emission.** M5 is this site's first schema change since
+  2026-09-13, so by design it re-emits every table's grants in column-scoped
+  form.
+  - The order form then relies on the stored schema declaring the five fields
+    it sends: `customer_name`, `phone`, `loaf`, `pickup_date` and
+    `pickup_time`.
+  - No free check can confirm that, because a test order writes a row. One
+    test order after M6 would confirm it — your call.
+
+**Total:** about 26–31 credits (22–41), an estimate and not a cap. The balance
+is 73.
+
+**What Test 4 does not cover:** hydration, translation, model-written replies,
+the add-on, a css-lane run, a page removal (the move exercises the same verb
+and publish path), a hop between rungs, and why a quick attempt did not
+publish.
+
+## The two findings from the rollback round (2026-09-26), and the two rule-key defects found in their review — merged and deployed at `0de188ff` (deploy 2161); CLOSED by the owner 2026-09-26
 
 After reviewing the merged batch, the owner asked for both findings to be
 closed together before the paid Test 3. The work was to use focused tests and
@@ -474,7 +746,7 @@ data and rules rungs.
   shown.
 - Real-model compliance is unproven throughout.
 
-### 6. Live acceptance — Test 3: pressed as run 34, all seven items hold (2026-09-26)
+### 6. Live acceptance — Test 3: pressed as run 34, all seven items hold; CLOSED by the owner (2026-09-26)
 
 **The result.** Run 34 (run 36224239033, your paid press, from `main` at
 `0de188ff`) counts as the test, and every acceptance item below holds:
@@ -508,8 +780,10 @@ data and rules rungs.
    (on `/`, `/es` and `/fr` at phone width) is passed on, not verified.
 
 **Which writer ran.** The router chose `look` for `/`, and the lane picker
-chose `components`, which runs the page rung. The quick writer tried and
-declined (`tweakUsage` 8,359 in / 67 out). The full writer made the change
+chose `components`, which runs the page rung. The quick writer was attempted
+(`tweakUsage` 8,359 in / 67 out), followed by the full writer. Why the quick
+attempt did not publish was not captured, and its usage alone does not
+establish that it declined. The full writer made the change
 (25,077 in / 8,011 out), and the judge ran (`keepUsage` 931 in / 46 out). So
 full-writer coverage is claimed, and both preservation checks, which run on
 the full writer's answer before anything publishes, let this answer through.
@@ -602,7 +876,7 @@ resolution, the quoted-page reader and the canary's after-read wait.
      the bundle. The render check's #418 finding is passed on, not verified.
 - **Cost:** about 18–27 credits, an estimate and not a cap. That is the
   routing charge (2), the full writer (~12–15, as in runs 21, 24 and 26), a
-  quick attempt (from under 1 when it declines at once up to ~6 when it
+  quick attempt (from under 1 when it stops at once up to ~6 when it
   rewrites the page first, as in run 24), and the judge (~1). The balance is
   91, read by run 33's free press (unchanged since run 32's end).
 - **The starting state, read by run 33 (06:24Z):** all three routes answer
