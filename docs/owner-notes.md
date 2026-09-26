@@ -14,7 +14,7 @@ merged/deployed at a5741864 (deployment 2157 / run 36099179983). Served chat.js
 matched the reviewed bytes at 2026-09-25 05:36:30 UTC. Deployment log reports
 container reuse; no repeated runtime container check or canary. This contains
 an escaped display error; publication and cleanup already succeeded. Other
-checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; the newest entry below). Your free check (run 33, 06:24 UTC) confirmed deployment 2161 from the live server, and with it 2160's code. Test 3 ran as your paid run 34: the full page writer removed "The first eight chords" and nothing else, for 18 credits (balance 73), and all seven checks hold (the newest entry below).
+checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; see the dated entries below). Your free check (run 33, 06:24 UTC) confirmed deployment 2161 from the live server, and with it 2160's code. Test 3 ran as your paid run 34: the full page writer removed "The first eight chords" and nothing else, for 18 credits (balance 73), and all seven checks hold (the dated entry below). The page-text check now recognises a section heading shown by a design component: fixed on the branch at `2f2fed58`, not merged or deployed, nothing spent. Test 4 is now two parts, each for your separate approval: 4a (pages, photos, an attached picture, second messages) and 4b (the database) (the newest entry below).
 
 Kept for the owner. Two purposes:
 1. **How you like things done** — durable preferences, so a fresh session does not
@@ -176,7 +176,103 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
-## 2026-09-26 — What's left on the edit path, and test 4 ready for your approval
+## 2026-09-26 — The kit-heading fix (on the branch, not merged), and test 4 split in two
+
+You reproduced the text-check defect yourself: a correct removal was refused
+when the section's heading came from the SectionHeader component, and accepted
+when the same heading was a plain `<h2>`. It is fixed on the branch at
+`2f2fed58`. Nothing is merged or deployed, and nothing was spent.
+
+**What changed.** The check now recognises a heading that a design component
+shows, but only when all of this is certain:
+- the page really imports that component from the design kit (a renamed import
+  counts; a component of the same name written for the site does not);
+- the kit's own code always shows that setting as a visible main or section
+  heading. I read this off all 2,112 kit components rather than listing names
+  by hand. 20 qualify, SectionHeader among them. A card's title is not one:
+  naming a card must not let the whole section around it go;
+- the heading's words are written out on the page, not worked out while it
+  runs;
+- it is the first heading in its section.
+
+Anything less stays "not sure", and "not sure" grants nothing, so the check
+refuses exactly as it did before. It names the whole section only: "the text
+under X" still needs a plain heading. Two sections with the same heading still
+grant nothing.
+
+**Evidence.** Every model answer is prepared, so this shows what the edit code
+does with an answer, not what a real model writes.
+- 30 new cases through the real edit code on both money paths, plus 5 for the
+  kit reading. The correct removal now publishes, and keeps both photos and the
+  order form. It is refused if it also loses an unrelated paragraph, names
+  another page, meets a duplicate heading, drops a photo or drops the order
+  form.
+- On the unfixed code exactly 5 of the first 29 fail: the kit-reading case and
+  the four removals that should publish. Every refusal and control passes on
+  both.
+- On Harbour Loaf's real stored page, with a prepared answer through the real
+  edit code, 'Remove the "Today's bake" section from the home page.' now
+  publishes.
+- Across the 324 example pages, 286 sections gain a name the check can use and
+  none loses one. Pages where no section could be named went from 86 to 10.
+- I deliberately broke the new code 31 ways, and the tests caught 30. The one
+  they missed was a check that could never matter (a default import can't
+  match the table), so I removed it. All 8,008 tests pass here and on GitHub
+  (35 new, none lost). The slower site-build check was still running when I
+  wrote this; I'll add its result.
+
+**Found, not changed.** A plain heading inside a section, such as a card's
+title, still names the whole section. So naming a card can let the section
+around it go. The kit rule is deliberately stricter; making the plain rule
+match is separate work.
+
+**Test 4, tightened as you asked: two parts, each approved on its own.** The
+exact form values and every expected result are at the top of the
+[edit-path checklist](investigations/edit-path-checklist.md).
+
+*4a — pages, photos, a picture you attach, and second messages.* Runs after
+the fix is merged and deployed.
+- **A: your paid canary press.** 'Remove the "Today's bake" section from the
+  home page.' This tests the full page editor on a page with photos and the
+  fix, live.
+- **B: in your own tab, three messages** (the real chat box, no developer
+  tools; no existing workflow drives the signed-in app):
+  - attach a picture and send "Use this picture as the logo.";
+  - "Show more of the top of the photo of the sourdough boule cooling.";
+  - "Move the starter page to /starter."
+
+  The logo is **expected** to reach the free logo step, but a model decides the
+  route. It only counts as free if the job's own record says logo, the job is
+  marked exempt, and the ledger shows no charge for it. I read those
+  afterwards.
+- **C: your free canary press**, which reads everything back.
+- **Undo:** free, with no model call: the canary's restore puts back the
+  version the site has now (run 9's, from 21 September; read again today).
+- **Cost:** about 17–20 credits.
+
+*4b — the database, only if you approve it separately.*
+- **Step 0 is free, your press, and comes first:** "grants preview" for
+  fold-lane-bakery. It changes nothing. It shows what each table is set to
+  allow, what visitors can write today, and what the next database change would
+  switch to. I check the order form's five fields against it. That is a
+  reading, not a test order: only a real order proves the form works.
+- **Then a price change** in the bake list. Undo: edit it back yourself in
+  Cloud → Data, no model and no credits.
+- **A permission change is only proposed after step 0,** and only one that
+  doesn't reduce what visitors can see. Nothing today can restore a
+  "who can see it" rule without another model request. So the old
+  hide-the-list-then-show-it pair is withdrawn. If no safe change exists on
+  this site, that check waits for a tool that can snapshot and restore those
+  rules.
+- **Optional:** one real test order, deleted afterwards in Cloud → Data.
+
+**The job records I read earlier** cover only edits that went through the
+queue. So "never ran live" really means "never ran through the queue";
+anything that ran the older direct way isn't in them.
+
+---
+
+## 2026-09-26 — What's left on the edit path, and test 4 ready for your approval (since then: the kit-heading defect is fixed on the branch, and test 4 is split in two — the entry above)
 
 You closed test 3 and the stylesheet fixes. I went through what's left: what
 has already been shown on the live site, what hasn't, what's broken, and what
@@ -194,8 +290,10 @@ but one on fretwork-1.
 These count, and I'm not proposing to repeat any of them. The early-September
 ones ran on older code, so they show the path works, not today's code.
 
-**What has never run live.** As far as we know none of these is broken, and
-each has tests with prepared answers, but none has run for real:
+**What has never run through the queue.** The job records cover only edits
+that went through the queue, so an edit that ran the older direct way isn't in
+them. As far as we know none of these is broken, and each has tests with
+prepared answers, but none has run through the queue:
 - your logo, from a picture you attach;
 - reframing or swapping a photo;
 - changing a row in a site's data (a price, say);
@@ -209,7 +307,7 @@ the test below would be its first time.
 
 **What's broken (found, not fixed).**
 - **New: the page-text check can't find a section by a heading that comes
-  from a design component.**
+  from a design component.** (Fixed on the branch since: the entry above.)
   - On the Harbour Loaf site, "Today's bake" looks like a heading to a
     visitor, but in the code it's a setting on a component.
   - So "Remove the "Today's bake" section from the home page." is refused,
@@ -246,7 +344,8 @@ the test below would be its first time.
   of 13 pass;
 - a count of how many sections the text check can name.
 
-**Test 4 — ready for your approval.** Everything runs on Harbour Loaf, which
+**Test 4 as first proposed — superseded by the two-part version in the entry
+above.** Messages 5 and 6 are withdrawn. Kept as it was proposed: everything runs on Harbour Loaf, which
 has a database, photos and several pages, so every step has something to
 change. There are three parts, about 26–31 credits in total, and you have 73.
 

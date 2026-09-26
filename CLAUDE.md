@@ -55,10 +55,16 @@ together with the CSS-correction milestone (deploy 2161's batch): no repeat run,
 restoration, no further CSS work.
 **What remains, and Test 4 (prepared, not dispatched)**: the top section of the
 [edit-path checklist](docs/investigations/edit-path-checklist.md), summarised in
-*remaining work after Test 3* below. The logo, picture, data and rules rungs, a
-page move, a second message from one tab and the full writer on a photographed
-page have never published live; no job has ever been `exempt`. New, reproduced
-free: the text guard cannot name a section headed by a kit component's prop.
+*remaining work after Test 3* below. Among the QUEUED jobs inspected, the logo,
+picture, data and rules rungs, a page move, a second message from one tab and the
+full writer on a photographed page have never published, and no job has been
+`exempt`; a synchronous edit makes no job row, so that is the queue's record, not
+proof nothing else ran. **The kit-heading defect is FIXED ON THE BRANCH, not
+merged** (`2f2fed58`, *a section headed by the kit*, below). **Test 4 is split in
+two, each approved on its own**: 4a (pages, photographs, an attachment and second
+messages; a free restore undoes it) and 4b (the database; a free `grants preview`
+read first, and no permission change that could only be undone by another model
+request).
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -3830,7 +3836,10 @@ turn: the look door has no text lane, so the second half is an `alsoAsked`
 sentence at best.
 
 **EVIDENCE BY OPERATION — CORRECTED 2026-09-26 from a read-only census of
-`edit_jobs`**: every edit the queue has published, **51 jobs since 2026-09-01**,
+`edit_jobs`, WHICH HOLDS QUEUED JOBS ONLY** (a synchronous edit — every edit
+before `EDIT_ASYNC_EVERYONE` on 2026-09-04, and any later synchronous fallback —
+makes no row, so an absence here is the queue's, never proof that no edit ran):
+every edit the queue has published, **51 jobs since 2026-09-01**,
 all on fretwork-1 but run 9's. **This paragraph said "text — no live run", and
 the census falsified it**: text — 1 (gap-sweep run 10, 2026-09-02) · look — 32
 published 2026-09-01 → 09-07 across css, brand, favicon, lang, langs, theme,
@@ -3839,11 +3848,11 @@ refunded) · menu — 2 · site address — 1 published, 1 refused and refunded 
 page layout — lane-sweep jobs (three, shape, components, purpose, tsx) and
 canary runs 9, 11, 32, 34 · custom components — runs 17, 21, 24, 26 ·
 **pictures, logo, data, rules and a page move or removal — never published
-live**, route tests only · photographs — kept by the quick writer's block move
+among the queued jobs inspected**, route tests only · photographs — kept by the quick writer's block move
 (run 9, a real browser), never through the full writer · combined — one look job
 placed a QR code through the page rung (09-02); otherwise route tests and the
-driven money cases above. **No job has ever been `exempt`**, so the free-rung
-path has never published through the queue. The jobs before 09-08 ran on older
+driven money cases above. **No queued job has ever been `exempt`**, so the
+free-rung path has never published through the queue. The jobs before 09-08 ran on older
 code: live coverage of the path, not evidence about today's code.
 
 **THE NEXT TASK — BUILT THE SAME DAY, next section; `no-lane` ended up
@@ -9243,59 +9252,142 @@ list, and Test 4's exact form values, are the top section of the
   read-only `select` over `edit_jobs`, parsing `result->>'body'` for `layer`,
   `lanes` and `layers`, listed all 51 published edit jobs in one query and
   falsified a paragraph that said the text rung had never run live. **Ask it
-  again before claiming a rung is unproven.** It cannot see an edit that ran
-  synchronously outside the queue, and a job from before 09-08 ran older code.
-- **NEVER PUBLISHED LIVE**: the logo, picture, data and rules rungs, and a page
-  move or removal. **`billing = 'exempt'` has never occurred**, so the
+  again before claiming a rung is unproven.** **IT HOLDS QUEUED JOBS ONLY**
+  (owner, 2026-09-26: *"Scope the historical census to the queued jobs
+  inspected; absence there does not establish that no synchronous edit ever
+  exercised a rung."*): an edit that ran synchronously — every edit before
+  `EDIT_ASYNC_EVERYONE` on 2026-09-04, and any later synchronous fallback —
+  never made a row. And a job from before 09-08 ran older code.
+- **NEVER PUBLISHED AMONG THE QUEUED JOBS INSPECTED**: the logo, picture, data
+  and rules rungs, and a page move or removal. **`billing = 'exempt'` has never
+  occurred in them**, so the
   free-rung fix (`ed1e3b93`) has never published a job. Every canary message is
   one scripted request, so no two messages have ever come from one browser
   tab. All of that is **missing evidence, not a defect**: each decision has
   controlled tests with supplied answers.
-- **A NEW REPRODUCED DEFECT, NOT FIXED: THE TEXT GUARD CANNOT NAME A SECTION
-  HEADED BY A KIT COMPONENT'S PROP.**
-  - **The case.** fold-lane-bakery's "Today's bake" is an `<h2>` to a visitor
-    and `<SectionHeader title="Today's bake">` in the source. The guard names a
-    section only by literal `<h1>`–`<h6>` text or a `<section>`'s id or
-    aria-label. So 'Remove the "Today's bake" section from the home page.',
-    answered correctly, is refused with `prose-preservation` /
-    `unconfirmed-target`, and the refusal asks for "the section by its unique
-    heading", which the request gave.
-  - **Reach, measured over the 324-page corpus.** 329 of the 555 sections
-    holding literal prose (59%) have no readable name; on 86 of the 251 pages
-    with such sections, none does. A regex over five heading components
-    (`SectionHeader`, `PageHeader`, `CtaBand`, `StoryLead`, `Hero`) counts 868
-    `title` or `headline` props.
-  - **Impact.** It fails closed, so nothing is lost, and costs the customer the
-    routing charge.
-  - **Next step.** Reproduced free through the real route. The fix is a
-    product change for its own review.
+- **THE KIT-HEADING DEFECT IS FIXED ON THE BRANCH, NOT MERGED** (`2f2fed58`;
+  *a section headed by the kit*, next section). The owner reproduced it
+  independently: 'Remove the "Today's bake" section from the home page.',
+  answered correctly, was refused with `SectionHeader`'s `title` and accepted
+  with the equivalent literal `<h2>`.
 - **A SECTION MADE ONLY OF KIT PROPS IS THE CLEAN FULL-WRITER FIXTURE.** Its
   words are all quoted prop strings, which `sameProse` counts, so the quick
   writer cannot remove it (`sameProse` false, 180 → 162 prose tokens,
   measured). The text guard inventories no literal prose in it, so the guard
-  has nothing to refuse. That is why Test 4's Part A removes fold-lane-bakery's
-  `CtaBand` ("Order a loaf for collection") and not "Today's bake".
-- **TEST 4, PREPARED AND NOT DISPATCHED**, all on fold-lane-bakery, which has
-  a database, photographs and several pages, and whose stored source run 9
-  already read:
-  - **Part A**, a paid canary press: the full writer on a photographed page.
-  - **Part B**, six messages in one app tab:
-    - a logo attached in the composer;
-    - a picture reframe;
-    - a price row;
-    - a page move;
-    - a read rule and its reversal.
-  - **Part C**, a free canary press for the byte-level after-read.
-  - **About 26–31 credits** (22–41), against a balance of 73.
-  - **Rehearsed free, 13 of 13**, through the real route on the site's stored
-    pages with supplied answers (scratch, not committed). Data and rules were
-    not rehearsed: their uncertainty is the router and the live database.
+  has nothing to refuse. It was Test 4's Part A while "Today's bake" was
+  refused; with the fix, Part A removes "Today's bake" and checks the fix live,
+  and the `CtaBand` sentence is the fallback if 4a runs before the merge.
+- **TEST 4, PREPARED AND NOT DISPATCHED, IN TWO PARTS APPROVED SEPARATELY**
+  (owner, 2026-09-26: *"Separate the photo/attachment/second-message checks from
+  database writes and permission changes."*), all on fold-lane-bakery:
+  - **4a — pages only, undone free by the canary's restore mode**:
+    - Part A, a paid canary press after this fix is merged and deployed:
+      'Remove the "Today's bake" section from the home page.' (53 characters,
+      sha256 `26b7101c…`), the full writer on a photographed page and the fix,
+      live;
+    - Part B, three messages in the owner's own tab — the real composer, no
+      developer tools, since no workflow drives the signed-in app: a logo
+      attached in the composer, a picture reframe, a page move;
+    - Part C, a free canary press for the byte-level after-read.
+    - About 17–20 credits.
+  - **4b — the database, its own approval and its own recovery**:
+    - step 0, free: `grants preview` (preview mode) for the site — the stored
+      access, today's client write grants and what the next schema change
+      would grant, and its artifact is the grants' exact rollback. It is a
+      reading, never proof that a real form submission works;
+    - a price row, undone in the app's Data panel (the owner rows route, no
+      model call);
+    - a permission change proposed only after step 0, and only one that does
+      not reduce what visitors can see or do;
+    - an optional real test order, deleted in the Data panel.
+- **THE LOGO ROUTE IS EXPECTED, NOT GUARANTEED, AND EXEMPTION IS READ OFF THE
+  JOB** (owner: *"Exemption is established by the actual selected rung and
+  ledger."*): the stored reply's `layer`, `billing = 'exempt'`, and no
+  `credit_events` row naming the job. A different layer is a routing finding,
+  not a result about the logo rung.
+- **NO MODEL-FREE PATH RESTORES A TABLE'S READ RULE TODAY**, so a permission
+  change that hides something from visitors cannot be tested live. The rules
+  rung is the only writer of an access policy and `_meta`, and the grants
+  rollback restores grants only. The owner ruled out relying on another model
+  request to restore public access, and the earlier hide-then-show pair (M5/M6)
+  is withdrawn.
 - **THE SIDE EFFECTS ARE PART OF THE PREPARATION.**
-  - A row change survives any restore.
-  - A read rule hides the bake list until it is reversed.
+  - A row change survives any restore; its recovery is the Data panel.
   - The first schema change on a site built before 2026-09-13 re-emits every
-    table's grants column-scoped. The order form then depends on the stored
-    schema declaring the five fields it sends, which no free check can confirm.
+    table's grants column-scoped. The order form writes `customer_name`,
+    `phone`, `loaf`, `pickup_date` and `pickup_time`, and step 0 shows whether
+    `orders` would be granted all five. A real order is still the only proof.
+
+### A SECTION HEADED BY THE KIT (2026-09-26, `2f2fed58`, fixed on the branch, not merged)
+
+Owner, having reproduced it independently: *"Resolve visible section headings
+from established kit-component behavior, respecting the actual import and any
+alias. Do not treat every arbitrary title prop as a heading. Unknown or computed
+headings must remain uncertain, and duplicate headings must not authorize
+removing the wrong section."* The full record is the checklist's *a section
+headed by the kit* section. **Every writer and judge answer in the evidence is
+supplied.** What is law here:
+
+- **A KIT HEADING NAMES THE SECTION IT OPENS, AND ONLY WHERE THAT IS
+  ESTABLISHED.** Anything short of it is uncertain, and uncertain names nothing,
+  so it authorizes nothing: the guard refuses exactly as it did before.
+- **THE COMPONENT IS THE PAGE'S OWN IMPORT, NEVER THE TAG'S SPELLING.**
+  `@/components/ui/<module>` (`.tsx` allowed), by name under any alias or
+  namespace, read through the parser adapter's `importsOf` (it now answers
+  `binds: [{local, imported, typeOnly}]`). A default or type-only import, a
+  relative path, a local component of the same name, a name two imports bind
+  and a name the page declares again are not it. **An import reader that is
+  missing or throws leaves every kit heading uncertain**, and the literal
+  headings still name.
+- **WHICH PROP HEADS IT IS READ OFF THE KIT'S OWN SOURCE, NEVER LISTED BY
+  HAND.** `builder/gen-kit-headings.mjs` (never shipped) writes
+  `builder/kit-headings.mjs` (shipped, on the Dockerfile's worker COPY line):
+  the prop a component ALWAYS shows whole in a visible `<h1>` or `<h2>` — one
+  `return`, reached from the function body itself, nothing around the heading
+  but intrinsic elements, fragments and brackets, no condition but the prop's
+  own truthiness, and nothing hiding it. **20 of the 64 components that show a
+  prop as a heading's whole text qualify** (`SectionHeader.title` among them).
+  **An `<h3>` is excluded on purpose**: it heads a card, and naming a card must
+  not authorize the section around it. `test/kit-headings.test.mjs` re-derives
+  the table and compares, the observer floored at 2,000 files scanned, so a kit
+  change cannot leave a stale copy granting permission.
+- **THE VALUE IS A LITERAL, GIVEN ONCE**: `title="…"` or `title={"…"}`, with no
+  spread and nothing hiding the element. A computed or template title is
+  uncertain.
+- **IT MUST OPEN ITS SECTION**: nothing that could show a heading comes before
+  it there — a literal heading or any component, `ui.Hero` included. A second
+  kit heading further down names its own part, never the section around it.
+- **IT NAMES THE WHOLE SECTION AND NOTHING NARROWER.** "The X section" and "X"
+  grant; "the X heading" and "the text under X" do not, because the kit's words
+  are a prop, not prose the guard reads. They still count as a MENTION, so a
+  name a kit heading shares with any other heading grants nothing for any form.
+- **MEASURED OVER THE 324-PAGE CORPUS, WITH THE PRODUCT'S OWN READER BEFORE AND
+  AFTER**: the table's components are used 890 times (878 with a literal value;
+  `SectionHeader.title` 839). Of 616 sections holding literal prose, **287 had a
+  name and 573 have one: 286 gained, 0 lost**, 43 still unnamed; pages where no
+  prose section had a name went **86 → 10**.
+- **EVIDENCE**: `test/edit-page-keep.test.mjs` +30 cases through the real edit
+  route (both money paths for the core set: the publish with both photographs
+  and the site's own component kept, the literal `<h2>` control, removal plus
+  unrelated prose refused, another page named, duplicates, the photograph wall,
+  the judge withholding the component) and `test/kit-headings.test.mjs` 5.
+  **Red on `6db00c42`: exactly 5 of the first 29** — the unit case and the four
+  route cases that must publish (the kit removal on both paths, the alias, the
+  namespace); every refusal and control passes on both. **Probes**
+  (`kit-headings.json`, four test files): 31 mutants, 30 killed; the survivor
+  (a default import taken for the component) was inert by construction — a
+  default binds `default`, which no table key can be — so the clause was
+  removed. **Suite 8,008 locally
+  and on CI** (unit run `36231283319` on `2f2fed58`: `8008 / 8004 / 0 / 4`,
+  +35 against the parent run's 7,973, all 35 new names passing, none lost,
+  8,008 distinct result numbers, zero `not ok`).
+- **THE IMAGE MOVES ON A MERGE**: predicted `209c520fb8b06cd3` at `2f2fed58`,
+  from **188** inputs (158 distinct paths), against main's `05750a5120d33570`
+  (187). **`container-images` failed until `kit-headings.mjs` was COMMITTED** —
+  the guard asks git, by design.
+- **FOUND, NOT CHANGED**: a LITERAL heading names its whole section wherever it
+  stands, so naming a card's `<h3>` authorizes the enclosing section (measured,
+  in the backlog). The kit rule is deliberately narrower.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
@@ -12853,7 +12945,8 @@ does name one — moved up to the supported list on 2026-09-20.)*
 ## Backlog
 
 - **THE TEXT GUARD CANNOT NAME A SECTION HEADED BY A KIT COMPONENT'S PROP
-  (open, reproduced free 2026-09-26).**
+  (FIXED ON THE BRANCH 2026-09-26, `2f2fed58`, not merged: *a section headed by
+  the kit*).**
   - **What happens.** `proseInventory` names a section only by literal
     `<h1>`–`<h6>` text or a `<section>`'s id or aria-label. A section headed by
     `<SectionHeader title="…">` therefore cannot be the target of "Remove the
@@ -12862,8 +12955,15 @@ does name one — moved up to the supported list on 2026-09-20.)*
     heading the customer already gave.
   - **Reach.** 59% of the corpus's prose-bearing sections (329 of 555).
   - **Impact.** Fail-closed: no content lost, the routing charge spent.
-  - **Status.** The owner's call; it is a product change to the guard's
-    grammar. Details are in the checklist's top section.
+  - **Status.** Fixed on the branch, awaiting review; the rule and its limits
+    are in *a section headed by the kit*.
+- **A LITERAL HEADING NAMES ITS WHOLE SECTION, WHEREVER IT STANDS (found
+  2026-09-26 while fixing the kit heading, not changed).** Measured:
+  'Remove the ‘Sourdough’ section.' naming a card's literal `<h3>` inside a
+  "Menu" section authorizes losing the whole Menu section's prose, the Rye card
+  included (`{ok: true}` on the whole removal; losing another section is still
+  refused). The kit rule is deliberately narrower (h1/h2 only, the heading that
+  opens the section). Aligning the literal reader is separate work.
 - **fretwork-1's stored language is Welsh (`lang="cy"`) over English copy**, so
   its switcher labels the home page "Cymraeg". Pre-existing, noticed 2026-09-25,
   parked with translation.
