@@ -9,9 +9,9 @@ The owner's review passed at `0de188ff` (288 focused tests), and the batch was
 then merged and deployed as deploy 2161 (see *Merged and deployed at
 `0de188ff`* below). Nothing that spends was dispatched. Every model answer in
 the evidence is supplied, so the tests prove what the route and the browser do
-with an answer, never what a real model answers. **Neither deploy 2160 nor 2161 is
-runtime-confirmed**: the session's one attempt answered 403 (see *Merged and
-deployed at `0de188ff`*).
+with an answer, never what a real model answers. **Deploy 2161 is
+runtime-confirmed** by your free canary, run 33 (see *Merged and deployed at
+`0de188ff`*). The session's own attempt had answered 403.
 
 | Item | Status | Evidence |
 | --- | --- | --- |
@@ -314,9 +314,10 @@ browser reply, the ledger and the next edit:
 - The check reads a rule's own selector, never an `@scope` root or another
   condition.
 
-**The press that would confirm deploy 2161 at runtime — free, and yours.** It
-also confirms everything deploy 2160 carried, since 2161 runs that code too. The
-form shows each box's description:
+**The press that confirmed deploy 2161 at runtime — free, pressed by you as
+run 33** (see *Merged and deployed at `0de188ff`*). It also confirms
+everything deploy 2160 carried, since 2161 runs that code too. The form shows
+each box's description:
 - <https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml>, run
   from `main`.
 - "Run the ONE paid edit as well": `no`.
@@ -556,8 +557,12 @@ resolution, the quoted-page reader and the canary's after-read wait.
 - **Cost:** about 18–27 credits, an estimate and not a cap. That is the
   routing charge (2), the full writer (~12–15, as in runs 21, 24 and 26), a
   quick attempt (from under 1 when it declines at once up to ~6 when it
-  rewrites the page first, as in run 24), and the judge (~1). The balance was
-  91 at run 32's end; the free press prints the current figure.
+  rewrites the page first, as in run 24), and the judge (~1). The balance is
+  91, read by run 33's free press (unchanged since run 32's end).
+- **The starting state, read by run 33 (06:24Z):** all three routes answer
+  `01790360265159-n7mtnq`. The six stored bodies are byte-identical to run
+  32's after-read, with the same path set, and each matches its recorded hash.
+  The paid run's own before-read must equal this, or it is not Test 3.
 - **Reversible for free** with the restore mode (`01790360265159-n7mtnq`).
 - **Limits:** one sentence on one site, and the writer's prompt is not
   captured. A text-guard refusal names no text and the refused answer is not
@@ -603,8 +608,8 @@ again, so the press is yours:
 - Every other box at its default.
 
 The same press takes the before-read Test 3 starts from. *(Superseded: deploy
-2161 below moved both values. Nobody pressed this one; there is no canary run
-after run 32.)*
+2161 below moved both values, and nobody pressed this one. Run 33 then
+confirmed 2161, which runs all of 2160's code.)*
 
 ### Merged and deployed at `0de188ff` (2026-09-26)
 
@@ -625,19 +630,34 @@ Main was then fast-forwarded `7384ddba` → `0de188ff` (9 commits, 20 files) at
   file.
 - The auth gates answer 401 / 401 / 401 / 404.
 
-A green deploy is Wrangler reporting on itself. **The runtime confirmation
-is the free canary press** with both expectations set (the press above). The
-session's one attempt, made at 06:08:20Z after the rollout hold, answered **403
-Resource not accessible by integration** and was not retried, so the press is
-yours.
+A green deploy is Wrangler reporting on itself. The session's one attempt at
+the free press, made at 06:08:20Z after the rollout hold, answered **403
+Resource not accessible by integration** and was not retried.
+
+**Runtime-confirmed by your free press, run 33** (run 36223626560, from
+`main`, 06:23:55 → 06:24:37Z, spending off, both expectations in their own
+boxes):
+- `build-health 200 deploy=0de188ff2d3a image=05750a5120d33570` and
+  `runtime 200 deploy=0de188ff2d3a async=true runner=true` (the control,
+  washhouse-3, async too).
+- Every preflight check is `ok`, including "the Worker is the expected build"
+  and "a cold container gets the expected image".
+- The zero-cost checks pass. The free job settled in about 6 s as
+  `{"ok":false,"escalate":true,"reason":"empty","cost":0}`.
+- `ALL FREE CHECKS PASSED`. The balance was 91, and the run stopped before the
+  paid edit with nothing charged.
+- Its before-read is Test 3's starting state (section 6 above).
+
+This is the live Worker answering. Deploy 2160's own moment was never read
+live, but every commit it shipped is in `0de188ff`.
 
 ### Stopping point
 
-Deploys 2160 and 2161 are merged and deployed. **Neither is runtime-confirmed**:
-no free canary has run since run 32, and the session's one attempt for 2161
-answered 403, so the free press above is yours. Nothing here claims the
-preflight passed. Test 3 is prepared above for deploy 2161 and waits for your
-spending approval. Nothing that spends is dispatched.
+Deploys 2160 and 2161 are merged and deployed, and **2161 is
+runtime-confirmed** by your free press, run 33, which also confirms 2160's code.
+Test 3 is prepared above for deploy 2161. Its starting source is confirmed by
+the same run, and it waits for your spending approval. Nothing that spends is
+dispatched.
 
 ## Status after run 32 (2026-09-25)
 

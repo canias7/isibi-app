@@ -14,7 +14,7 @@ merged/deployed at a5741864 (deployment 2157 / run 36099179983). Served chat.js
 matched the reviewed bytes at 2026-09-25 05:36:30 UTC. Deployment log reports
 container reuse; no repeated runtime container check or canary. This contains
 an escaped display error; publication and cleanup already succeeded. Other
-checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; the newest entry below). Neither deployment is runtime-confirmed: no free canary has run since run 32, and my one attempt was refused (403), so the free press is yours. Test 3 is prepared for deployment 2161 and waits for your spending approval.
+checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; the newest entry below). Your free check (run 33, 06:24 UTC) confirmed deployment 2161 from the live server, and with it 2160's code. Test 3 is prepared for deployment 2161, its starting point is confirmed, and it waits for your spending approval.
 
 Kept for the owner. Two purposes:
 1. **How you like things done** — durable preferences, so a fresh session does not
@@ -176,7 +176,59 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
-## 2026-09-26 — The stylesheet fixes are live (merged and deployed at `0de188ff`); the runtime check and test 3 are yours
+## 2026-09-26 — Your free check confirmed deployment 2161 from the live server; test 3 is ready for your approval
+
+You ran the free canary ([run 33](https://github.com/canias7/isibi-app/actions/runs/36223626560),
+spending off). I read its log and the evidence file it saved.
+
+**It passed.**
+- The live server reports the merged commit `0de188ff` and the new container
+  image `05750a5120d33570`. Both of its readers answered, and they agree.
+  Those are the two values you entered, so the two checks against them passed.
+- Queued work and the site's own container are both switched on.
+- The free safety checks passed. A forged replay and a stranger's job are
+  refused, and the free test job finished in about 6 seconds, charging
+  nothing.
+- It printed "ALL FREE CHECKS PASSED", then stopped before the paid edit, and
+  nothing was charged.
+- The balance is 91, the same as after run 32.
+
+**What that confirms.**
+- Deployment 2161 is now confirmed by the live server, not just by its own
+  log.
+- Deployment 2160 was never checked on its own, because 2161 replaced it first.
+  Everything it shipped is part of 2161, so its code is confirmed live too.
+
+**Test 3's starting point is confirmed.**
+- All three pages of fretwork-1 still serve version `01790360265159-n7mtnq`.
+- All six stored files (three pages, three components) are exactly what run 32
+  left, byte for byte, and each matches the fingerprint recorded for test 3.
+- I checked that the comparison catches a change: against run 32's earlier
+  read, it finds exactly the one file the section move changed.
+
+**Test 3 — ready, waiting for your go-ahead.** Nothing has been dispatched.
+- <https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml>,
+  "Run workflow" from `main`. The form shows each box's description:
+  - "Run the ONE paid edit as well": `yes`.
+  - "What to change", pasted exactly: Remove the ‘The first eight chords’
+    section from the home page.
+    - That is 63 characters with curly quotes; its sha256 starts
+      `48bdbf475e1718e6`.
+  - "The site to edit": `fretwork-1`. "A second site…": `washhouse-3`.
+  - "READ ONE EXISTING JOB AND STOP" and "PUT ONE SAVED VERSION BACK": blank.
+  - "Refuse to spend unless the Worker reports this deploy sha":
+    `0de188ff2d3a00d8096b01f8616c507aea2bbce4`.
+  - "Refuse to spend unless a cold container reports this image id":
+    `05750a5120d33570`.
+- **Cost: about 18–27 credits**, an estimate and not a cap. The balance of 91
+  covers it.
+- It can be undone for free by putting version `01790360265159-n7mtnq` back.
+- Afterwards I'll judge it from the stored files and a real browser, not from
+  "published" or "refused" alone.
+
+---
+
+## 2026-09-26 — The stylesheet fixes are live (merged and deployed at `0de188ff`); the runtime check and test 3 are yours (the runtime check since passed: run 33, the entry above)
 
 You passed the comment-boundary correction at `0de188ff` (288 focused tests)
 and asked me to finish its site build, merge and deploy, try the free canary

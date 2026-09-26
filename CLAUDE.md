@@ -36,10 +36,13 @@ whitespace is part of the rule*, below); and a comment read as whitespace, so a
 compound rewritten as a descendant shipped unjudged and the judge was handed the
 wrong meaning (*a comment is a token boundary, not whitespace*, below). Its site
 build ran the new browser control in a real Chromium: 22 of 22.
-**Neither deploy is runtime-confirmed**: no free canary has run since run 32, and the
-session's one attempt for 2161 (06:08:20Z, after the rollout hold) answered **403**
-(`actions: write`) and was not retried. The free press is the owner's.
+**Runtime-confirmed by the owner's free canary, run 33** (36223626560, 2026-09-26
+06:24 UTC, spending off): both readers answered `0de188ff2d3a` with image
+`05750a5120d33570`, all free checks passed, and the balance was 91. The session's own
+attempt at 06:08:20Z had answered **403**. Deploy 2160's moment was never read live;
+its code is live as part of 2161.
 Test 3 (the full writer) is prepared for deploy 2161 and waits for spending approval.
+Run 33's before-read matches its recorded starting source on all six bodies.
 Remaining scope: [edit-path checklist](docs/investigations/edit-path-checklist.md).
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
@@ -8419,6 +8422,9 @@ workflow. No F12 and no paid dispatch."*
   owner's free press: `edit-canary.yml` from `main`, spend `no`,
   `expect_deploy` `7384ddbac4ba05b7251c52aa53d6fc9e018a9699`, `expect_image`
   `c3cc126e45e93815`. It also takes the fresh before-read Test 3 starts from.
+  **Never pressed**: deploy 2161 replaced this build first. Run 33 then
+  confirmed 2161, whose tree carries all of 2160's code (*merged and deployed:
+  the stylesheet scope…*, below).
 
 ### A PUBLISH IS HELD ONLY FOR THE RULES A REQUEST WROTE, AND A FAILED RESTORE IS ALWAYS SAID (2026-09-26, merged and deployed in deploy 2161)
 
@@ -8943,16 +8949,42 @@ boundary, not whitespace*. **Every model answer in its evidence is supplied.**
   served `chat.js` read the same `e56f1c9f4ffca3da` after it (05:52:49Z), which
   proves only that nothing moved there. Gates **401 / 401 / 401 / 404** at
   05:52:49Z.
-- **DEPLOYED, NOT RUNTIME-CONFIRMED.** No free canary has run since run 32,
-  so deploy 2160 was never confirmed either. The image rolled, so the session's
-  one dispatch attempt waited out the hold and was made at **06:08:20Z** (from
+- **THE SESSION COULD NOT PRESS IT.** The image rolled, so the session's one
+  dispatch attempt waited out the hold. It was made at **06:08:20Z** (from
   `main`, spend `no`, `expect_deploy`
   `0de188ff2d3a00d8096b01f8616c507aea2bbce4`, `expect_image`
-  `05750a5120d33570`). It answered **403 Resource not accessible by
-  integration**, the `actions: write` wall again, and was not retried, per the
-  owner. **The confirmation is the owner's free press** with exactly those
-  inputs (the checklist's press). It also confirms deploy 2160's code, which
-  2161 carries.
+  `05750a5120d33570`) and answered **403 Resource not accessible by
+  integration**, the `actions: write` wall again. It was not retried, per the
+  owner.
+- **RUNTIME-CONFIRMED BY THE OWNER'S FREE PRESS, run 33 (`36223626560`, main
+  at `0de188ff`, 06:23:55 → 06:24:37Z, canary step 22 s)**. The env block
+  reads `CANARY_SPEND: 0`, blank instruction, read_job and restore, and both
+  expectations in their own boxes.
+  - `build-health 200 deploy=0de188ff2d3a image=05750a5120d33570` and
+    `runtime 200 deploy=0de188ff2d3a async=true runner=true`, with the control
+    `washhouse-3 async=true`.
+  - Every preflight check is `ok`: both readers answered and agree, async and
+    runner are true, the Worker is the expected build, and a cold container
+    gets the expected image.
+  - The zero-cost confirmations pass: both sites get the ASYNC shape, a forged
+    replay and a stranger's poll answer 404, and the free job settled in ~6 s
+    as `{"ok":false,"escalate":true,"reason":"empty","cost":0}`.
+  - `ALL FREE CHECKS PASSED`, balance **91** (unchanged since run 32's end),
+    and *"CANARY_SPEND is not 1 — stopping before the paid edit. Nothing was
+    charged."*
+  - **This is the live Worker answering, not Wrangler reporting on itself**,
+    so 2161 is deployed AND runtime-confirmed.
+  - **2160's own moment was never read live**, since no press ran between the
+    two deploys. What run 33 establishes is that `0de188ff` answers, and every
+    commit 2160 shipped is an ancestor of it.
+- **AND ITS BEFORE-READ IS TEST 3'S STARTING STATE.** The source read was
+  complete (`reads` all true). All three routes answer
+  `01790360265159-n7mtnq`. The six bodies in its `before/source.json` are
+  byte-identical to run 32's after-read and match every recorded hash, with the
+  same path set.
+  - The comparator was proved alive both ways: the recorded hashes reproduce on
+    run 32's after-read first (6 of 6), and against run 32's BEFORE-read it
+    finds exactly `index.tsx` changed, which is the section move.
 
 ### TEST 3 — THE FULL PAGE WRITER, REVISED (2026-09-25, prepared, NOT dispatched)
 
@@ -8961,8 +8993,9 @@ boundary, not whitespace*. **Every model answer in its evidence is supplied.**
 `01222bab`) and the after-read wait (`72885ca9`), and **now at `0de188ff`
 (deploy 2161, the section above)**, which moved the image. `expect_deploy`
 **`0de188ff2d3a00d8096b01f8616c507aea2bbce4`**, `expect_image`
-**`05750a5120d33570`** (read off deploy 2161's log; the free press confirms
-them live). The batch 2161 added is not on Test 3's expected path: its fixes
+**`05750a5120d33570`** (read off deploy 2161's log, **and confirmed live by
+the owner's free canary, run 33**, 2026-09-26 06:24Z). The batch 2161 added is
+not on Test 3's expected path: its fixes
 need the css lane picked, or a failure of ours whose restore also fails.
 **WHICH WRITER RAN IS READ OFF `terminal.json`'s stored reply**: `tweak: true` is
 the quick writer publishing (no full-writer coverage then); `tweak` absent with
@@ -9027,10 +9060,17 @@ Deploy 2161 did not touch the text guard; this confirms it.
     only the grammar refusing a correct answer. **Carrying the blocked texts
     on the 409 is a one-line option, not in this patch.**
 - **COST**: ~18–27 (runs 21/24/26: 17/24/19, plus the judge's ~1), an estimate
-  and not a cap. Balance 91 at run 32's end, and no canary has run since; the
-  free press prints the current balance.
+  and not a cap. **Balance 91**, read by run 33's free press (unchanged since
+  run 32's end).
 - **THE STARTING STATE, READ AGAIN 2026-09-26 05:38Z**: `/`, `/prices` and
   `/gear` each answer `x-site-version: 01790360265159-n7mtnq`.
+- **AND BY RUN 33'S BEFORE-READ, 06:24Z**: the same version on all three routes.
+  The six bodies are byte-identical to run 32's after-read, with the same path
+  set, and each matches its recorded hash: `index.tsx` `6bb1fb500f7df623`
+  (26,563 chars), `prices.tsx` `0d2d72dee56a2a71`, `gear.tsx`
+  `d580389f971cdd31`, `chord-diagram` `d0c20d52f91d69d2`, `trial-booking-form`
+  `4b66386c0ad46092`, `day-space-lookup` `4b162037f67df545`. The paid press's
+  own before-read must equal this, or the run is not Test 3.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
@@ -11584,7 +11624,8 @@ landed text IS the written text.
 because `buildFloor` refuses before spending and the refusal reads as a broken
 build. **Balance 91** at run 32's end (2026-09-25, the section move: **101 → 91,
 moved 10**, route 2 + the page rung's 8, closing exactly, on a run that
-published; the ledger holds one reserve of 8 and no refund). **Between run 31 and
+published; the ledger holds one reserve of 8 and no refund), **and run 33's free
+press read 91 again** (2026-09-26 06:24Z, nothing spent between). **Between run 31 and
 run 32 the balance rose from 1 to 101** (read on the ledger at 18:09Z and by the
 canary before its paid call). **Only the readings are recorded; how it rose is
 not.** Run 31 ended at **1** (3 → 1, the routing call alone, the edit's
