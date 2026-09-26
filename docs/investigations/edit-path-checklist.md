@@ -10,8 +10,11 @@ by run 33. Nothing has been dispatched since run 34, and the balance is 73.
 **The kit-heading defect is fixed on the branch, not merged or deployed**
 (the next section). The owner reproduced it independently: the correct removal
 was refused with `SectionHeader`'s `title` and accepted with the equivalent
-literal `<h2>`. Test 4 below is split in two, each part with its own approval,
-and its first part assumes the fix is merged and deployed first.
+literal `<h2>`. The owner's review then found one gap — a kit heading the page
+may not render (inside `{false && …}`, `<div hidden>` or an unknown wrapper)
+still named its section — and that is closed on the branch too, at
+`5ec82214`. Test 4 below is split in two, each part with its own approval, and
+its first part assumes the fix is merged and deployed first.
 
 ### What is already shown live (credited, not rerun)
 
@@ -80,7 +83,7 @@ missing is a real model, the real browser or the live database.
    not on the wire, and the writer's prompt is not captured.
 10. **The add-on through the browser since deploy 2154.** This is outside this
     checklist; the last live add-on was run 53 (2026-09-20). Not proposed now.
-11. **The kit-heading fix with a real model.** Controlled: 30 route and unit
+11. **The kit-heading fix with a real model.** Controlled: 39 route and unit
     cases in `edit-page-keep` and the generator's guard, every answer
     supplied. Test 4a's Part A is its live check.
 
@@ -436,12 +439,123 @@ after.**
 - **CI on `2f2fed58`**: unit run `36231283319` reads `8008 / 8004 / 0 / 4`
   (the total matches; `pass` differs by CI's four skips). All 35 new cases pass
   by name, and none of the parent run's 7,973 names is missing. There are 8,008
-  distinct result numbers and zero `not ok`. `site build` run `36231283322` was
-  still running when this was written; its result is added when it lands.
+  distinct result numbers and zero `not ok`. **`site build` run `36231283322`
+  on `2f2fed58` passed**, all twenty steps (08:56:38 → 09:17:07Z, 20m29s),
+  with all twelve counts read out of its per-step files: TAP 397/397/0/0,
+  kit-typecheck 4, site-build 404, contrast-cases 16, theme-seam 11,
+  theme-render 29, site-routing 14, site-runtime 47, and kit-render /
+  kit-a11y / kit-effects / kit-paint `all passed`; census 7 + 4 + 1 = 12. The
+  only `##[error]` lines are the two known annotations, and `site-build.mjs`
+  took 14m44s.
 - **The image.** `builder/kit-headings.mjs` joined the Dockerfile's worker COPY
   line, so a merge rebuilds. The predicted id at `2f2fed58` is
   `209c520fb8b06cd3`, from 188 inputs (158 distinct paths); main reads
   `05750a5120d33570` (187), as recorded.
+
+**The rendering context — the owner's review of `2f2fed58`, closed on the
+branch at `5ec82214`.** The owner found one gap before merging: the heading's
+own attributes were checked, but not what surrounds it. For 'Remove the
+‘Today’s bake’ section from the home page.', `2f2fed58` accepted deleting this
+whole section:
+
+```
+<section>
+  {false && <SectionHeader title="Today’s bake" />}
+  <p>Keep this unrelated public information.</p>
+</section>
+```
+
+It did the same with the heading inside `<div hidden>` or an unknown
+`<Opaque>` wrapper. *"A heading that cannot be established as rendering must
+not authorize deletion of visible siblings."* Reproduced first: 15 of 15 such
+shapes were accepted.
+
+- **The rule now.** A kit heading names its section only where it renders
+  whenever the section does:
+  - nothing on the heading may hide it: `hidden`, `aria-hidden`, `style`,
+    `popover`, a spread, a hiding class, or a class that is not a quoted
+    string;
+  - every step between it and its section is a fragment or one of a fixed list
+    of plain HTML elements that show their children (`div`, `span`, `header`,
+    `footer`, `main`, `nav`, `aside`, `p`, the list elements, `a` and a few
+    more), with nothing hiding it by the same rule;
+  - anything else leaves it uncertain: a braced expression (a condition, either
+    arm of a ternary, a fallback, a `.map`, even a bare `{<…/>}` or a prop
+    value), a component or member tag (`<Opaque>`, `<ui.Box>`,
+    `<motion.div>`), or an element that does not simply show its children
+    (`<details>`, `<dialog>`, `<template>`, `<noscript>`, `<svg>`, a custom
+    element);
+  - the section's own attributes are not asked: they show or hide the heading
+    and its neighbours together;
+  - an uncertain heading still comes first, so a heading after it does not
+    open the section.
+- **One class rule for the heading and every step**, the kit table's own:
+  `hidden`, `invisible` or `sr-only`, with any breakpoint or state prefix
+  (`md:hidden`, `group-hover:invisible`). Two effects on the heading element
+  itself: `overflow-hidden` no longer counts as hiding (the old word-boundary
+  test read it as `hidden`), and a computed or template class now counts as
+  uncertain.
+- **Measured over the 324-page corpus, with the product's own reader: no
+  change.** All 573 named prose sections stay named and none loses its name.
+  Every literal name is unchanged, and 701 sections carry a kit name before
+  and after. Of the 796 kit headings inside sections, 372 stand directly in
+  them, 419 sit behind plain `<div>`s (one also passing through an `<aside>`),
+  and 5 sit behind a condition or the kit's `MediaObject`. Those 5 already
+  named nothing on `2f2fed58`, because something came before them.
+- **Test 4a's Part A is unaffected**: the rehearsal on fold-lane-bakery's real
+  stored pages (scratch) still publishes the "Today's bake" removal, 13 of 13.
+- **Evidence.** 9 new cases in `test/edit-page-keep.test.mjs`, every answer
+  supplied:
+  - a unit case: 37 shapes that do not establish rendering name nothing — all
+    37 named the section on `2f2fed58` — and 9 positive controls name it
+    (directly, behind nested `<div>`s with `overflow-hidden`, a `<header>`, a
+    fragment, an id with a literal class, a braced literal class, an alias, a
+    namespace, and the heading's own `overflow-hidden`). It also covers the
+    uncertain-first rule and the section's own attributes;
+  - through the real edit route on both money paths: the owner's three shapes
+    are refused (409 `prose-preservation`, `unconfirmed-target`, nothing
+    compiled or stored, no charge or reservation, nothing bought by the
+    browser); the same heading inside ordinary visible elements publishes,
+    with both photographs and the order form kept;
+  - **red on `2f2fed58`: exactly 7 of the 39 kit cases** — the unit case and
+    the six route refusals. The two route controls and all 30 earlier kit
+    cases pass on both. The unit case fails first there on its one loosened
+    control (the heading's own `overflow-hidden`); with that control cut, it
+    fails on the owner's `{false && …}` section;
+  - **a positive control caught a trap before it shipped**: the parser
+    adapter's `k()` reads a template literal back as `FirstTemplateToken`, an
+    alias in TypeScript's kind enum, so a check against
+    `NoSubstitutionTemplateLiteral` could never match. A class is now read only
+    as a quoted string, which is how the title value was already read;
+  - **the value reader's own spread check was dead** once the heading's
+    attributes are cleared first, so it was removed; K-10, K-11 and K-12 in
+    `scripts/mutants/kit-headings.json` are re-anchored to the shared check;
+  - **probes, not a sweep**, over the same four test files (`edit-page-keep`,
+    `kit-headings`, `site-tweak`, `edit-page-contract`):
+    `scripts/mutants/kit-render.json`, one mutant per clause of the rule, 22
+    mutants, 22 killed, 0 survived, 0 never applied, its comment-only control
+    surviving; and `kit-headings.json` re-run, 30 mutants, 30 killed, both
+    controls surviving. The three probed files were byte-identical to their
+    pre-probe copies afterwards;
+  - **suite 8,017 locally** (`# tests 8017 / # pass 8015 / # fail 0 /
+    # skipped 2`, `duration_ms 117,272`), +9 against 8,008, exactly the new
+    cases;
+  - **CI on `5ec82214`**: unit run `36234086257` reads `# tests 8017 / # pass
+    8013 / # fail 0 / # skipped 4` (`duration_ms 119,899`); the total
+    matches, and `pass` differs by CI's four skips. All 9 new cases pass by
+    name, and none of the parent run's names is missing (run `36231869456` on
+    `e240f78a`, 8,008). There are 8,017 distinct result numbers and zero
+    `not ok`. **`site build` run `36234086268` on `5ec82214` passed**, all
+    twenty steps (09:52:35 → 10:17:13Z, 24m38s), with all twelve counts read
+    out of its per-step files: TAP 397/397/0/0, kit-typecheck 4, site-build
+    404, contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
+    site-runtime 47, and kit-render / kit-a11y / kit-effects / kit-paint `all
+    passed`; census 7 + 4 + 1 = 12. The only `##[error]` lines are the two
+    known annotations, and `site-build.mjs` took 17m59s.
+- **The image.** `builder/page-prose.mjs` is an image input, so a merge
+  rebuilds. The predicted id at `5ec82214` is `369d7b1e5bae25b0`, from 188
+  inputs (158 distinct paths); the same reader reproduces `2f2fed58`'s
+  `209c520fb8b06cd3` and main's `05750a5120d33570`.
 
 **Limits.**
 - Every writer and judge answer is supplied, so what a real model writes is
@@ -449,6 +563,18 @@ after.**
 - A heading this rule leaves uncertain still refuses, as before the fix: a
   component that can return without it, one that shows it through a variable,
   a computed title, and a kit heading that does not open its section.
+- A class that hides through CSS this check does not read — the site's own
+  stylesheet, `opacity-0`, a zero size — is not read, here or in the kit
+  table.
+- A kit wrapper that always shows its children (a layout component) is
+  treated as unknown: the table describes headings, not wrappers.
+- **Found, not changed: the literal reader has no rendering check.**
+  `{false && <h2>Today’s bake</h2>}`, `<div hidden><h2>…</h2></div>` and
+  `<Opaque><h2>…</h2></Opaque>` each name the section, and removing its
+  visible paragraph is accepted (measured). In the corpus, 4 of the 278 literal
+  headings with words inside sections sit behind a condition. The owner
+  bounded this correction to the kit recognition, so aligning the literal
+  reader is separate work.
 - **Found, not changed:** the literal reader names a section by **every**
   literal heading inside it. So "Remove the ‘Sourdough’ section", naming a
   card's `<h3>`, authorizes the whole enclosing section's prose. The kit rule

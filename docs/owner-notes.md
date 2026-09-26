@@ -14,7 +14,7 @@ merged/deployed at a5741864 (deployment 2157 / run 36099179983). Served chat.js
 matched the reviewed bytes at 2026-09-25 05:36:30 UTC. Deployment log reports
 container reuse; no repeated runtime container check or canary. This contains
 an escaped display error; publication and cleanup already succeeded. Other
-checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; see the dated entries below). Your free check (run 33, 06:24 UTC) confirmed deployment 2161 from the live server, and with it 2160's code. Test 3 ran as your paid run 34: the full page writer removed "The first eight chords" and nothing else, for 18 credits (balance 73), and all seven checks hold (the dated entry below). The page-text check now recognises a section heading shown by a design component: fixed on the branch at `2f2fed58`, not merged or deployed, nothing spent. Test 4 is now two parts, each for your separate approval: 4a (pages, photos, an attached picture, second messages) and 4b (the database) (the newest entry below).
+checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; see the dated entries below). Your free check (run 33, 06:24 UTC) confirmed deployment 2161 from the live server, and with it 2160's code. Test 3 ran as your paid run 34: the full page writer removed "The first eight chords" and nothing else, for 18 credits (balance 73), and all seven checks hold (the dated entry below). The page-text check now recognises a section heading shown by a design component: fixed on the branch at `2f2fed58`, not merged or deployed, nothing spent. Your review found that such a heading still counted when the page might not show it; that is closed on the branch at `5ec82214` (the newest entry below). Test 4 is now two parts, each for your separate approval: 4a (pages, photos, an attached picture, second messages) and 4b (the database) (the second entry below).
 
 Kept for the owner. Two purposes:
 1. **How you like things done** — durable preferences, so a fresh session does not
@@ -176,6 +176,54 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-26 — A design heading the page may not show no longer names its section (on the branch, not merged)
+
+You found the gap before merging. On `2f2fed58`, 'Remove the ‘Today’s bake’
+section from the home page.' was accepted for a section whose SectionHeader
+sat inside `{false && …}`, a `<div hidden>` or an unknown `<Opaque>` wrapper.
+So the visible paragraph beside it went too. This is closed on the branch at
+`5ec82214`. Nothing is merged or deployed, and nothing was spent.
+
+**What changed.** A design-kit heading now names its section only when the
+page is sure to show it whenever it shows the section:
+- nothing on the heading hides it;
+- everything between it and the section is a fragment or a plain HTML
+  container (a `div`, a `header`, a list and similar), with nothing hiding it.
+
+Anything else leaves the heading "not sure", which grants nothing, so the
+check refuses. That covers a condition, a list loop, a component the check
+doesn't know, a hidden or collapsed wrapper, and a class it can't read. The
+section's own settings aren't asked, because they show or hide the heading and
+the paragraphs together.
+
+**Evidence.** Every model answer is prepared, so this shows what the edit code
+does with an answer, not what a real model writes.
+- 9 new cases. Your three shapes are refused through the real edit code on
+  both money paths, with nothing built, stored or charged. The same heading
+  inside ordinary page containers still publishes and keeps both photos and the
+  order form. A unit case covers 37 shapes that must name nothing and 9 that
+  must still name it.
+- All 37 of those shapes named the section on `2f2fed58`. On that code exactly
+  7 of the 39 kit-heading cases fail: the unit case and your three shapes on
+  both money paths. All 30 earlier cases pass on both.
+- Across the 324 example pages nothing changes: every section that had a name
+  keeps it, because real pages put this heading directly in the section or
+  inside plain `div`s. On Harbour Loaf's real stored page the "Today's bake"
+  removal still publishes, so test 4a's first part is unaffected.
+- I deliberately broke the new rendering check 22 ways, and the tests caught
+  all 22. The 30 earlier breakages of the kit-heading code, re-run against the
+  new code, were all caught too. All 8,017 tests pass here and on GitHub
+  (9 new, none lost). The slower site-build check passed too, all twelve of
+  its counts (run 36234086268).
+
+**Found, not changed.** A plain written-out heading (`<h2>`) has the same gap:
+inside `{false && …}`, a hidden `div` or an unknown wrapper, it still names its
+section. You bounded this fix to the design-kit headings, so I left it. It is
+rare in the example pages (4 of the 278 plain section headings sit inside a
+condition) and is recorded as its own next item.
+
+Test 4 is unchanged (the entry below).
+
 ## 2026-09-26 — The kit-heading fix (on the branch, not merged), and test 4 split in two
 
 You reproduced the text-check defect yourself: a correct removal was refused
@@ -218,8 +266,8 @@ does with an answer, not what a real model writes.
 - I deliberately broke the new code 31 ways, and the tests caught 30. The one
   they missed was a check that could never matter (a default import can't
   match the table), so I removed it. All 8,008 tests pass here and on GitHub
-  (35 new, none lost). The slower site-build check was still running when I
-  wrote this; I'll add its result.
+  (35 new, none lost). The slower site-build check passed too, all twelve of
+  its counts (run 36231283322).
 
 **Found, not changed.** A plain heading inside a section, such as a card's
 title, still names the whole section. So naming a card can let the section

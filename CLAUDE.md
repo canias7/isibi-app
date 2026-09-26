@@ -60,7 +60,9 @@ picture, data and rules rungs, a page move, a second message from one tab and th
 full writer on a photographed page have never published, and no job has been
 `exempt`; a synchronous edit makes no job row, so that is the queue's record, not
 proof nothing else ran. **The kit-heading defect is FIXED ON THE BRANCH, not
-merged** (`2f2fed58`, *a section headed by the kit*, below). **Test 4 is split in
+merged** (`2f2fed58`, *a section headed by the kit*, below), and the owner's
+review of it — a kit heading the page may not render still named its section —
+is closed on the branch at `5ec82214`. **Test 4 is split in
 two, each approved on its own**: 4a (pages, photographs, an attachment and second
 messages; a free restore undoes it) and 4b (the database; a free `grants preview`
 read first, and no permission change that could only be undone by another model
@@ -9318,7 +9320,7 @@ list, and Test 4's exact form values, are the top section of the
     `phone`, `loaf`, `pickup_date` and `pickup_time`, and step 0 shows whether
     `orders` would be granted all five. A real order is still the only proof.
 
-### A SECTION HEADED BY THE KIT (2026-09-26, `2f2fed58`, fixed on the branch, not merged)
+### A SECTION HEADED BY THE KIT (2026-09-26, `2f2fed58` + `5ec82214`, fixed on the branch, not merged)
 
 Owner, having reproduced it independently: *"Resolve visible section headings
 from established kit-component behavior, respecting the actual import and any
@@ -9357,6 +9359,34 @@ supplied.** What is law here:
 - **IT MUST OPEN ITS SECTION**: nothing that could show a heading comes before
   it there — a literal heading or any component, `ui.Hero` included. A second
   kit heading further down names its own part, never the section around it.
+- **AND IT MUST RENDER WHENEVER ITS SECTION DOES (the owner's review of
+  `2f2fed58`, closed at `5ec82214`).** `{false && <SectionHeader title="Today’s
+  bake" />}`, one inside `<div hidden>` and one inside an unknown `<Opaque>` all
+  named their section, so deleting it took the visible paragraph beside them —
+  *"a heading that cannot be established as rendering must not authorize
+  deletion of visible siblings"*; 15 of 15 such shapes were accepted on
+  `2f2fed58`. Now nothing on the heading may hide it, and every step up to the
+  section is a fragment or a plain element from `SHOWS_CHILDREN` with nothing
+  hiding it (`mayHide`: `hidden`, `aria-hidden`, `style`, `popover`, a spread,
+  the kit table's own hiding-class rule, or a class that is not a quoted
+  string). A braced expression, a component or member tag,
+  `<details>`/`<template>`/`<svg>` and the rest are uncertain. **The section's
+  own attributes are not asked**: they show or hide the heading and its
+  neighbours together. **Measured: no change over the corpus** — all 573 named
+  prose sections kept, none lost; real pages put the heading directly in the
+  section (372) or behind plain `<div>`s (419). **Red on `2f2fed58`: exactly 7
+  of the 39 kit cases** (the unit case and the owner's three shapes on both
+  money paths). **Probes** over the same four test files:
+  `scripts/mutants/kit-render.json`, one per clause of the rule, 22 of 22
+  killed, and `kit-headings.json` re-run 30 of 30 (K-10..K-12 re-anchored to
+  `mayHide`), every control surviving and the probed files byte-identical
+  afterwards. **Suite 8,017 locally** (`8017 / 8015 / 0 / 2`, +9) and on CI
+  (unit run `36234086257` on `5ec82214`: `8017 / 8013 / 0 / 4`, all 9 new
+  names passing, none lost, 8,017 distinct result numbers, zero `not ok`);
+  **`site build` run `36234086268`** on `5ec82214` passed, all twenty steps
+  (24m38s), all twelve counts green (TAP 397, site-build 404, census 7 + 4 +
+  1 = 12), the two known `##[error]` annotations only, `site-build.mjs`
+  17m59s.
 - **IT NAMES THE WHOLE SECTION AND NOTHING NARROWER.** "The X section" and "X"
   grant; "the X heading" and "the text under X" do not, because the kit's words
   are a prop, not prose the guard reads. They still count as a MENTION, so a
@@ -9381,13 +9411,19 @@ supplied.** What is law here:
   and on CI** (unit run `36231283319` on `2f2fed58`: `8008 / 8004 / 0 / 4`,
   +35 against the parent run's 7,973, all 35 new names passing, none lost,
   8,008 distinct result numbers, zero `not ok`).
-- **THE IMAGE MOVES ON A MERGE**: predicted `209c520fb8b06cd3` at `2f2fed58`,
-  from **188** inputs (158 distinct paths), against main's `05750a5120d33570`
-  (187). **`container-images` failed until `kit-headings.mjs` was COMMITTED** —
-  the guard asks git, by design.
+- **THE IMAGE MOVES ON A MERGE**: predicted `209c520fb8b06cd3` at `2f2fed58`
+  and **`369d7b1e5bae25b0` at `5ec82214`**, each from **188** inputs (158
+  distinct paths), against main's `05750a5120d33570` (187).
+  **`container-images` failed until `kit-headings.mjs` was COMMITTED** — the
+  guard asks git, by design.
 - **FOUND, NOT CHANGED**: a LITERAL heading names its whole section wherever it
   stands, so naming a card's `<h3>` authorizes the enclosing section (measured,
-  in the backlog). The kit rule is deliberately narrower.
+  in the backlog). The kit rule is deliberately narrower. **And a literal
+  heading has no rendering check**: `{false && <h2>…</h2>}`, `<div
+  hidden><h2>…</h2></div>` and `<Opaque><h2>…</h2></Opaque>` each still name
+  the section (measured; 4 of the corpus's 278 literal section headings sit
+  behind a condition). The owner bounded the correction to the kit
+  recognition.
 
 ### THE THREE PRODUCT DEFECTS RUN 12 EXPOSED (2026-09-21)
 
@@ -12657,6 +12693,14 @@ rule and the measurement.
 - **A MODULE WITH NO IMPORT LINES** puts an anchor-based insertion below its use:
   `node --check` passes and the module throws `ReferenceError` on LOAD. Parsing is
   not loading.
+- **`ts.SyntaxKind[n]` ANSWERS AN ALIAS FOR SOME KINDS (2026-09-26).** The
+  parser adapter's `k()` is that reverse lookup, and a template literal reads
+  back as `FirstTemplateToken`, so `k(e) === "NoSubstitutionTemplateLiteral"`
+  can never match: a check that silently never fires. A positive control caught
+  it before it shipped. Compare `k()` only against names measured to read back
+  as themselves (`StringLiteral`, `JsxText`, `JsxExpression`, `JsxElement`,
+  `JsxSelfClosingElement`, `JsxFragment`, `JsxAttribute`, `JsxSpreadAttribute`
+  all do), or compare `n.kind` numerically.
 - **`node --check worker.js` PASSES A FILE THAT DOES NOT PARSE.** This package
   declares no `"type"`, so `--check` on a `.js` does not parse it as a module and
   says nothing about a duplicate declaration. **The honest parse is
@@ -12956,7 +13000,18 @@ does name one — moved up to the supported list on 2026-09-20.)*
   - **Reach.** 59% of the corpus's prose-bearing sections (329 of 555).
   - **Impact.** Fail-closed: no content lost, the routing charge spent.
   - **Status.** Fixed on the branch, awaiting review; the rule and its limits
-    are in *a section headed by the kit*.
+    are in *a section headed by the kit*. The owner's review of `2f2fed58` found
+    that a kit heading the page may not render still named its section; closed
+    on the branch at `5ec82214`.
+- **A LITERAL HEADING NAMES ITS SECTION WHETHER OR NOT IT RENDERS (found
+  2026-09-26 in the kit-heading review, not changed).** The kit heading now
+  must render whenever its section does; the literal reader has no such check.
+  Measured: for 'Remove the ‘Today’s bake’ section from the home page.',
+  `{false && <h2>Today’s bake</h2>}`, `<div hidden><h2>…</h2></div>` and
+  `<Opaque><h2>…</h2></Opaque>` each name the section, and removing its visible
+  paragraph is accepted. 4 of the corpus's 278 literal headings with words
+  inside sections sit behind a condition. The owner bounded the correction to
+  the kit recognition; aligning the literal reader is separate work.
 - **A LITERAL HEADING NAMES ITS WHOLE SECTION, WHEREVER IT STANDS (found
   2026-09-26 while fixing the kit heading, not changed).** Measured:
   'Remove the ‘Sourdough’ section.' naming a card's literal `<h3>` inside a
