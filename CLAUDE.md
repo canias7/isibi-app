@@ -9275,8 +9275,9 @@ list, and Test 4's exact form values, are the top section of the
   measured). The text guard inventories no literal prose in it, so the guard
   has nothing to refuse. That is why Test 4's Part A removes fold-lane-bakery's
   `CtaBand` ("Order a loaf for collection") and not "Today's bake".
-- **TEST 4, PREPARED AND NOT DISPATCHED**, all on fold-lane-bakery, the one
-  site with a database, photographs and several pages:
+- **TEST 4, PREPARED AND NOT DISPATCHED**, all on fold-lane-bakery, which has
+  a database, photographs and several pages, and whose stored source run 9
+  already read:
   - **Part A**, a paid canary press: the full writer on a photographed page.
   - **Part B**, six messages in one app tab:
     - a logo attached in the composer;

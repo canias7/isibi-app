@@ -246,9 +246,9 @@ the test below would be its first time.
   of 13 pass;
 - a count of how many sections the text check can name.
 
-**Test 4 — ready for your approval.** Everything runs on Harbour Loaf, the one
-site with a database, photos and several pages. There are three parts, about
-26–31 credits in total, and you have 73.
+**Test 4 — ready for your approval.** Everything runs on Harbour Loaf, which
+has a database, photos and several pages, so every step has something to
+change. There are three parts, about 26–31 credits in total, and you have 73.
 
 *Part A — one paid canary press (about 10–12 credits).* The full page editor
 removes the "Order a loaf for collection" section from the home page, which

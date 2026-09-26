@@ -150,8 +150,9 @@ missing is a real model, the real browser or the live database.
 ### Test 4 — prepared for approval, not dispatched
 
 Everything runs on one site, fold-lane-bakery (Harbour Loaf). It has a
-database, three photographs and five pages, which makes it the only site where
-every remaining rung has something to act on. There are three parts, in order.
+database, three photographs and five pages, so every remaining rung has
+something to act on, and run 9 already read its stored source. There are three
+parts, in order.
 
 **Part A — your paid canary press: the full writer on a page with
 photographs.**
