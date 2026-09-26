@@ -8385,10 +8385,12 @@ workflow. No F12 and no paid dispatch."*
   - Discriminators 0 → N: `refusedCost` 0 → 3 and *"could make the change
     twice"* 0 → 1 in `chat.js`; `wholeRequestNote` 0 → 1 in `edit-poll.js`.
   - Gates 401 / 401 / 401 / 404.
-- **DEPLOYED, NOT YET RUNTIME-CONFIRMED.** The image rolled, so the free
-  canary press is held until the rollout settles. The press is the
-  confirmation: `expect_deploy` `7384ddbac4ba05b7251c52aa53d6fc9e018a9699`,
-  `expect_image` `c3cc126e45e93815`.
+- **DEPLOYED, NOT YET RUNTIME-CONFIRMED.** The image rolled, so the press
+  was held until 01:22Z. The session's own dispatch, re-tested then (spend
+  `no`, both expectations), answered **403** again, so the confirmation is the
+  owner's free press: `edit-canary.yml` from `main`, spend `no`,
+  `expect_deploy` `7384ddbac4ba05b7251c52aa53d6fc9e018a9699`, `expect_image`
+  `c3cc126e45e93815`. It also takes the fresh before-read Test 3 starts from.
 
 ### TEST 3 — THE FULL PAGE WRITER, REVISED (2026-09-25, prepared, NOT dispatched)
 

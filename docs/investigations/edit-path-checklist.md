@@ -263,8 +263,18 @@ deploy 2160 (run 36207057160, success, 01:02:52 → 01:05:53Z):
 - The rollback was verified before the push: it restores main's own tree.
 
 A green deploy is Wrangler reporting on itself. **The runtime confirmation is
-the free canary press** with both expectations set, taken once the image
-rollout has settled.
+the free canary press** with both expectations set. The session's own dispatch
+was re-tested at 01:22Z, once the image rollout had settled, and answered 403
+again, so the press is yours:
+- `edit-canary.yml`, run from `main`.
+- "Run the ONE paid edit as well": `no`.
+- "Refuse to spend unless the Worker reports this deploy sha":
+  `7384ddbac4ba05b7251c52aa53d6fc9e018a9699`.
+- "Refuse to spend unless a cold container reports this image id":
+  `c3cc126e45e93815`.
+- Every other box at its default.
+
+The same press takes the before-read Test 3 starts from.
 
 ### Stopping point
 
