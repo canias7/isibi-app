@@ -1,0 +1,260 @@
+[
+  {
+    "label": "CONTROL: the kit-heading comment changes nothing",
+    "control": true,
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "// ── A SECTION HEADED BY THE KIT (2026-09-26, owner) ─────────────────────────",
+    "to": "// ── A SECTION HEADED BY THE KIT (2026-09-26, owner; control) ────────────────"
+  },
+  {
+    "label": "CONTROL: the generator's comment changes nothing",
+    "control": true,
+    "files": [
+      "builder/gen-kit-headings.mjs"
+    ],
+    "from": " * THE PARSER IS A DEVELOPMENT DEPENDENCY and this module is never shipped: the",
+    "to": " * THE PARSER IS A DEVELOPMENT DEPENDENCY and this module is never shipped (c): the"
+  },
+  {
+    "label": "K-1: a kit heading names no section (the defect restored)",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "        if (n && !block.before.some((end) => end <= start)) { block.names.push(n); block.kit.push(n); }\n",
+    "to": ""
+  },
+  {
+    "label": "K-2: a kit heading names its section wherever it stands",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "if (n && !block.before.some((end) => end <= start)) {",
+    "to": "if (n) {"
+  },
+  {
+    "label": "K-3: a kit heading grants \"the X heading\" and \"the text under X\" too",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "        if (scope === \"all\" || literal) hits.push({ block, scope });\n        if (scope !== \"all\" && kit) hits.push({ block, scope: \"none\" });\n",
+    "to": "        hits.push({ block, scope });\n"
+  },
+  {
+    "label": "K-4: a mention-only hit is returned as a target",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "return unique.length === 1 && unique[0].scope !== \"none\" ? unique[0] : null;",
+    "to": "return unique.length === 1 ? unique[0] : null;"
+  },
+  {
+    "label": "K-5: a kit heading is not a mention for a narrower form",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "        if (scope !== \"all\" && kit) hits.push({ block, scope: \"none\" });\n",
+    "to": ""
+  },
+  {
+    "label": "K-7: a type-only import is taken for the component",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "if (!b || b.typeOnly || typeof",
+    "to": "if (!b || typeof"
+  },
+  {
+    "label": "K-8: a name two imports bind is taken for the kit's",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": " || bound.get(b.local) !== 1) continue;",
+    "to": ") continue;"
+  },
+  {
+    "label": "K-9: a name the page declares again still counts",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "  for (const tag of [...tags.keys()]) if (declared.has(tag.split(\".\")[0])) tags.delete(tag);\n",
+    "to": ""
+  },
+  {
+    "label": "K-10: a spread cannot carry the title",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "    if (k(a) === \"JsxSpreadAttribute\") return null;\n",
+    "to": ""
+  },
+  {
+    "label": "K-11: a hiding class is ignored",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "    if (key === \"className\" && /\\b(?:hidden|invisible|sr-only)\\b/.test(a.initializer?.getText?.() || \"\")) return null;\n",
+    "to": ""
+  },
+  {
+    "label": "K-12: aria-hidden is ignored",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "if (key === \"hidden\" || key === \"aria-hidden\" || key === \"style\") return null;",
+    "to": "if (key === \"hidden\" || key === \"style\") return null;"
+  },
+  {
+    "label": "K-13: a prop given twice is read",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "return seen === 1 && typeof value",
+    "to": "return seen >= 1 && typeof value"
+  },
+  {
+    "label": "K-14: a braced literal is not read",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "      : init && k(init) === \"JsxExpression\" && init.expression && k(init.expression) === \"StringLiteral\" ? init.expression.text\n",
+    "to": ""
+  },
+  {
+    "label": "K-15: a namespace import is not read",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "        for (const comp of Object.keys(table)) tags.set(b.local + \".\" + comp, table[comp].prop);\n",
+    "to": ""
+  },
+  {
+    "label": "K-16: a namespaced component does not come before",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": " || tag.includes(\".\")) block.before.push(node.end);",
+    "to": ") block.before.push(node.end);"
+  },
+  {
+    "label": "K-17: a capitalised component does not come before",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "if (/^h[1-6]$/.test(tag) || /^[A-Z]/.test(tag) || tag.includes(\".\")) block.before.push",
+    "to": "if (/^h[1-6]$/.test(tag) || tag.includes(\".\")) block.before.push"
+  },
+  {
+    "label": "K-18: a literal heading does not come before",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "if (/^h[1-6]$/.test(tag) || /^[A-Z]/.test(tag) || tag.includes(\".\")) block.before.push",
+    "to": "if (/^[A-Z]/.test(tag) || tag.includes(\".\")) block.before.push"
+  },
+  {
+    "label": "K-19: any path ending in components/ui is the kit",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "const KIT_SPEC = /^@\\/components\\/ui\\/([a-z0-9-]+)(?:\\.tsx)?$/;",
+    "to": "const KIT_SPEC = /components\\/ui\\/([a-z0-9-]+)(?:\\.tsx)?$/;"
+  },
+  {
+    "label": "K-20: the .tsx spelling is not the kit",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "const KIT_SPEC = /^@\\/components\\/ui\\/([a-z0-9-]+)(?:\\.tsx)?$/;",
+    "to": "const KIT_SPEC = /^@\\/components\\/ui\\/([a-z0-9-]+)$/;"
+  },
+  {
+    "label": "K-21: an import reader that throws is not caught",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "  try { imports = importsOf(file); } catch { return tags; }\n",
+    "to": "  imports = importsOf(file);\n"
+  },
+  {
+    "label": "K-23: a literal name is not marked literal",
+    "files": [
+      "builder/page-prose.mjs"
+    ],
+    "from": "  const named = (block, n) => { block.names.push(n); block.literal.push(n); };",
+    "to": "  const named = (block, n) => { block.names.push(n); };"
+  },
+  {
+    "label": "T-1: an alias is read as the export's name",
+    "files": [
+      "builder/site-tweak.mjs"
+    ],
+    "from": "imported: (e.propertyName ?? e.name).text",
+    "to": "imported: e.name.text"
+  },
+  {
+    "label": "T-2: a type-only import clause is not marked",
+    "files": [
+      "builder/site-tweak.mjs"
+    ],
+    "from": "const typeOnly = !!clause?.isTypeOnly;",
+    "to": "const typeOnly = false;"
+  },
+  {
+    "label": "G-1: every heading level heads a section",
+    "files": [
+      "builder/gen-kit-headings.mjs"
+    ],
+    "from": "const SECTION_LEVEL = /^h[12]$/;",
+    "to": "const SECTION_LEVEL = /^h[1-6]$/;"
+  },
+  {
+    "label": "G-2: a component that can return without it is admitted",
+    "files": [
+      "builder/gen-kit-headings.mjs"
+    ],
+    "from": "        if (returns !== 1) why.push(",
+    "to": "        if (false) why.push("
+  },
+  {
+    "label": "G-3: a component between the heading and the return is trusted",
+    "files": [
+      "builder/gen-kit-headings.mjs"
+    ],
+    "from": "if (!/^[a-z]/.test(t)) why.push(",
+    "to": "if (false) why.push("
+  },
+  {
+    "label": "G-4: any && condition is trusted",
+    "files": [
+      "builder/gen-kit-headings.mjs"
+    ],
+    "from": "if (!(p.operatorToken.kind === K.AmpersandAmpersandToken && p.right === c && impliedBy(p.left, local))) why.push(",
+    "to": "if (false) why.push("
+  },
+  {
+    "label": "G-5: a hidden heading is admitted",
+    "files": [
+      "builder/gen-kit-headings.mjs"
+    ],
+    "from": "        for (const h of hiding(n.openingElement)) why.push(\"hidden by \" + h);\n",
+    "to": ""
+  },
+  {
+    "label": "G-6: a component with two heading props is admitted",
+    "files": [
+      "builder/gen-kit-headings.mjs"
+    ],
+    "from": "  for (const r of out) if (!r.why.length && props.get(r.component).size > 1) r.why.push(\"two of its props are headings\");\n",
+    "to": ""
+  },
+  {
+    "label": "G-7: a heading reached through a variable is admitted",
+    "files": [
+      "builder/gen-kit-headings.mjs"
+    ],
+    "from": "            why.push(\"reached through a \" + K[p.kind]);",
+    "to": "            void 0;"
+  }
+]

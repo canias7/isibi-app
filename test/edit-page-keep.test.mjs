@@ -56,7 +56,7 @@ import { installCompiler, dispatchEnv, isDispatchUpload, dispatchOk } from "./fi
 import { CONFIG_KEY } from "../site-config.mjs";
 import { packEditJob, EDIT_JOB_PREFIX, EDIT_JOB_KIND } from "../builder/edit-job.mjs";
 import { pickTool, editTool } from "../builder/site-lanes.mjs";
-import { TWEAK_TOOL } from "../builder/site-tweak.mjs";
+import { TWEAK_TOOL, tweakParser } from "../builder/site-tweak.mjs";
 import { SITE_PAGES_TOOL } from "../builder/page-gen.mjs";
 import { pageCredits } from "../builder/publish-pages.mjs";
 import { modelsFor } from "../builder/build-models.mjs";
@@ -66,7 +66,7 @@ import {
   KEEP_TOOL, KEEP_RULES, KEEP_UNCHECKED_MSG, KEEP_GROUPS, keepInventory, pairLinks, partStates, quoteInMessage,
   quoteNamesItem, groupCovers, readKeep, keepRequest, keepWithheldMsg,
 } from "../builder/page-keep.mjs";
-import { PROSE_WITHHELD, preservePageProse, sitePageNames, pageKey } from "../builder/page-prose.mjs";
+import { PROSE_WITHHELD, preservePageProse, proseInventory, sitePageNames, pageKey } from "../builder/page-prose.mjs";
 import { renderPart } from "./fixtures/render-part.mjs";
 import { editBrowserReply } from "../scripts/addon-sweep.mjs";
 
@@ -248,8 +248,10 @@ function shownFile(args) {
  * A model tool with no supplied answer is recorded and refused (503), so a case
  * passes only on the calls it names — and every call is in the log either way.
  */
-async function drive({ mode = "sync", route, ask, pick = null, tweak = null, answer = null, judge = null, lane = null, before = HOME, target = "index.tsx" }) {
-  const slug = "keep-" + mode + "-" + hex(4);
+async function drive({ mode = "sync", route, ask, pick = null, tweak = null, answer = null, judge = null, lane = null, before = HOME, target = "index.tsx", slug: named = "" }) {
+  // `slug` is given only by a case whose fixture carries the site's own
+  // photograph addresses (`/u/<slug>/…`), which must name this site.
+  const slug = named || "keep-" + mode + "-" + hex(4);
   const b = bucket(slug, before, target);
   const id = hex(16), secret = hex(16);
   const url = "https://gofarther.dev/api/site/" + slug + "/edit";
@@ -1755,5 +1757,220 @@ for (const mode of ["sync", "job"]) {
     const answer = bare(CHORD_SHAPES.replace("Eight shapes for your first month.", "We’re open late."), HOURS);
     const r = await drive({ mode, before: ON_HOME, ask: "Change the text under ‘Chords’ to ‘We’re open late.’", answer });
     publishedHere(r, answer, OTHER_PAGES.map((o) => o.source), UPDATED);
+  });
+}
+
+// ── A SECTION HEADED BY THE KIT (2026-09-26, owner) ─────────────────────────
+//
+// "The kit-heading defect is independently reproduced: the correct removal is
+// refused with SectionHeader's title prop and accepted with the equivalent
+// literal h2. Fix this next. Resolve visible section headings from established
+// kit-component behavior, respecting the actual import and any alias. Do not
+// treat every arbitrary title prop as a heading. Unknown or computed headings
+// must remain uncertain, and duplicate headings must not authorize removing the
+// wrong section."
+//
+// The page below is fold-lane-bakery's shape: a section headed by the kit's
+// SectionHeader over literal prose, a second one holding the site's two
+// photographs, the site's own order form, and literal-headed neighbours. Every
+// writer and judge answer is SUPPLIED; this proves what the route does with
+// the answer, never what a model writes.
+const KIT_SH = 'import { SectionHeader } from "@/components/ui/section-header"\n';
+const KIT_IMG = 'import { SafeImage } from "@/components/ui/safe-image"\n';
+const withImports = (imports, ...blocks) => IMPORTS + PART_IMPORT + imports + ROUTE + body(...blocks);
+const kitHome = (...blocks) => withImports(KIT_SH + KIT_IMG, ...blocks);
+const BAKE_BODY = "<p>Every loaf is shaped by hand before dawn.</p><p>Order by six for the morning.</p>";
+const bakeWith = (heading, body = BAKE_BODY) => '<section className="bake">' + heading + body + "</section>";
+const SH_BAKE = '<SectionHeader eyebrow="Today" title="Today\'s bake" description="Priced by the loaf." />';
+const BAKE = bakeWith(SH_BAKE);
+const BAKE_H2 = bakeWith("<h2>Today's bake</h2>");
+const PIC = (slug, file) => "/u/" + slug + "/" + file;
+const BENCH_A = (slug) => '<SafeImage src="' + PIC(slug, "a1b2c3d4e5f60718.jpg") + '" alt="the bench at dawn" />';
+const BENCH_B = (slug) => '<SafeImage src="' + PIC(slug, "b2c3d4e5f6071829.jpg") + '" alt="a boule on the rack" />';
+const BENCH = (slug, pics = BENCH_A(slug) + BENCH_B(slug)) => '<section className="bench"><SectionHeader title="From the bench" />' + pics + "<p>Shot on the bench this week.</p></section>";
+const REMOVE_BAKE = "Remove the ‘Today’s bake’ section from the home page.";
+const VISIT_QUIET = VISIT.replace("<p>Quay Street, by the lifeboat station.</p>", "");
+const kitSlug = (mode) => "kit-" + mode + "-" + hex(4);
+const OTHERS = OTHER_PAGES.map((o) => o.source);
+
+test("KIT: which headings name a section, read off the page's own imports", async () => {
+  const parse = await tweakParser();
+  assert.equal(typeof parse, "function", "the parser is here — this case would be vacuous without it");
+  const sectionNamed = (src, cls = "bake") => {
+    const inv = proseInventory(src, parse);
+    const b = inv.blocks.find((x) => x.section && x.anchor === "className:" + cls);
+    assert.ok(b, "the section is in the inventory: " + cls);
+    return { names: b.names, kit: b.kit };
+  };
+  const one = (imports, heading, body = BAKE_BODY) => sectionNamed(withImports(imports, bakeWith(heading, body)));
+  const named = { names: ["todays bake"], kit: ["todays bake"] };
+  const unnamed = { names: [], kit: [] };
+  // THE OBSERVER IS ALIVE: the literal <h2> names the section, as it always did.
+  assert.deepEqual(sectionNamed(bare(BAKE_H2)), { names: ["todays bake"], kit: [] });
+  // THE KIT'S OWN HEADING, BY THE PAGE'S OWN IMPORT — under any alias.
+  assert.deepEqual(one(KIT_SH, SH_BAKE), named);
+  assert.deepEqual(one('import { SectionHeader as Heading } from "@/components/ui/section-header"\n', '<Heading title="Today\'s bake" />'), named);
+  assert.deepEqual(one('import * as UI from "@/components/ui/section-header"\n', '<UI.SectionHeader title="Today\'s bake" />'), named);
+  assert.deepEqual(one('import * as ui from "@/components/ui/section-header"\n', '<ui.SectionHeader title="Today\'s bake" />'), named);
+  assert.deepEqual(one('import { SectionHeader } from "@/components/ui/section-header.tsx"\n', SH_BAKE), named);
+  assert.deepEqual(one(KIT_SH, '<SectionHeader title={"Today\'s bake"} />'), named, "a braced literal is a literal");
+  assert.deepEqual(one('import { PageHeader } from "@/components/ui/page-header"\n', '<PageHeader title="Today\'s bake" />'), named, "an h1 heading");
+  assert.deepEqual(one('import { CtaBand } from "@/components/ui/cta-band"\n', '<CtaBand title="Today\'s bake" />'), named, "a band with its own heading");
+  // A WRAPPER AROUND IT ENDS AFTER IT, so it never counts against it.
+  assert.deepEqual(one(KIT_SH, "<div className=\"reveal\">" + SH_BAKE + "</div>"), named);
+  // WHAT IS NOT ESTABLISHED NAMES NOTHING.
+  for (const [label, imports, heading] of [
+    ["no import at all: a page's own SectionHeader", "", SH_BAKE],
+    ["a default import (the kit exports it by name)", 'import SectionHeader from "@/components/ui/section-header"\n', SH_BAKE],
+    ["a type-only import renders nothing", 'import type { SectionHeader } from "@/components/ui/section-header"\n', SH_BAKE],
+    ["a component the site wrote itself, whatever it is called", 'import { SectionHeader } from "./-parts/section-header"\n', SH_BAKE],
+    ["a relative path this check does not resolve", 'import { SectionHeader } from "../components/ui/section-header"\n', SH_BAKE],
+    ["a title on a component that shows it in no heading", 'import { Callout } from "@/components/ui/callout"\n', '<Callout title="Today\'s bake">Fresh.</Callout>'],
+    ["a card's title is an h3, not the section's heading", 'import { FormSection } from "@/components/ui/form-section"\n', '<FormSection title="Today\'s bake" />'],
+    ["a computed title", KIT_SH, "<SectionHeader title={bakeTitle} />"],
+    ["a template literal is not read as prose", KIT_SH, "<SectionHeader title={`Today's bake`} />"],
+    ["a spread may carry the title", KIT_SH, "<SectionHeader {...header} title=\"Today's bake\" />"],
+    ["the title given twice", KIT_SH, "<SectionHeader title=\"Today's bake\" title=\"Bread\" />"],
+    ["a hidden heading", KIT_SH, "<SectionHeader title=\"Today's bake\" className=\"sr-only\" />"],
+    ["a heading marked aria-hidden", KIT_SH, "<SectionHeader title=\"Today's bake\" aria-hidden />"],
+    ["another component opens the section first", KIT_SH + KIT_IMG, "<SafeImage src=\"\" alt=\"bread\" />" + SH_BAKE],
+    ["a namespaced component opens it first", KIT_SH + 'import * as media from "@/components/ui/safe-image"\n', "<media.SafeImage src=\"\" alt=\"bread\" />" + SH_BAKE],
+    ["a name two imports bind", KIT_SH + 'import { SectionHeader } from "./-parts/other"\n', SH_BAKE],
+  ]) assert.deepEqual(one(imports, heading), unnamed, label);
+  // A NAME THE PAGE DECLARES AGAIN may be something else where it is drawn.
+  const shadowed = IMPORTS + KIT_SH + ROUTE + "function Home(){const SectionHeader = (p) => <p>{p.title}</p>;return <main>" + BAKE + "</main>}\n";
+  assert.deepEqual(sectionNamed(shadowed), unnamed);
+  // ONLY THE HEADING THAT OPENS A SECTION NAMES IT: a literal heading or a kit
+  // heading before it, and the second kit heading names nothing.
+  assert.deepEqual(one(KIT_SH, "<h2>Bread</h2>" + SH_BAKE), { names: ["bread"], kit: [] });
+  assert.deepEqual(one(KIT_SH, '<SectionHeader title="Bread" />' + SH_BAKE), { names: ["bread"], kit: ["bread"] });
+  // AN IMPORT READER THAT IS MISSING OR THROWS leaves the kit's headings
+  // uncertain: nothing is named by them, the literal headings still are.
+  const blind = (fn) => (text) => ({ ...parse(text), importsOf: fn });
+  for (const reader of [undefined, () => { throw new Error("nope"); }]) {
+    const inv = proseInventory(withImports(KIT_SH, BAKE, BAKE_H2.replace('"bake"', '"bake2"')), blind(reader));
+    assert.deepEqual(inv.blocks.filter((b) => b.section).map((b) => b.names), [[], ["todays bake"]]);
+  }
+});
+
+for (const mode of ["sync", "job"]) {
+  const { refusedHere, publishedHere } = pageGuardChecks(mode);
+  test(`KIT ${mode}: the SectionHeader-headed section's removal publishes, the photographs and the order form kept`, async () => {
+    const slug = kitSlug(mode);
+    const before = kitHome(HERO, BAKE, BENCH(slug), ORDER, VISIT);
+    const answer = kitHome(HERO, BENCH(slug), ORDER, VISIT);
+    const r = await drive({ mode, slug, before, ask: REMOVE_BAKE, answer });
+    publishedHere(r, answer, OTHERS, UPDATED);
+    assert.ok(r.compiled.includes(PIC(slug, "a1b2c3d4e5f60718.jpg")) && r.compiled.includes(PIC(slug, "b2c3d4e5f6071829.jpg")), "both photographs are still on the page");
+    assert.ok(r.compiled.includes("<OrderForm />"), "the site's own order form is still rendered");
+    assert.deepEqual(r.parts, [{ name: "order-form", source: ORDER_FORM }], "the component's file is untouched");
+    assert.equal(r.judged.length, 0, "nothing the preservation judge looks at was lost");
+  });
+  test(`KIT ${mode}: the literal <h2> equivalent publishes the same removal (the control)`, async () => {
+    const slug = kitSlug(mode);
+    const before = kitHome(HERO, BAKE_H2, BENCH(slug), ORDER, VISIT);
+    const answer = kitHome(HERO, BENCH(slug), ORDER, VISIT);
+    publishedHere(await drive({ mode, slug, before, ask: REMOVE_BAKE, answer }), answer, OTHERS, UPDATED);
+  });
+  for (const [label, bake] of [["kit", BAKE], ["literal", BAKE_H2]]) {
+    test(`KIT ${mode}: that removal plus an unrelated paragraph lost is refused (${label} heading)`, async () => {
+      const slug = kitSlug(mode);
+      const before = kitHome(HERO, bake, BENCH(slug), ORDER, VISIT);
+      refusedHere(await drive({ mode, slug, before, ask: REMOVE_BAKE, answer: kitHome(HERO, BENCH(slug), ORDER, VISIT_QUIET) }), before, OTHERS);
+    });
+    test(`KIT ${mode}: a request naming another page grants nothing (${label} heading)`, async () => {
+      const slug = kitSlug(mode);
+      const before = kitHome(HERO, bake, BENCH(slug), ORDER, VISIT);
+      const ask = "Remove the ‘Today’s bake’ section from the menu page.";
+      refusedHere(await drive({ mode, slug, before, ask, answer: kitHome(HERO, BENCH(slug), ORDER, VISIT) }), before, OTHERS);
+    });
+  }
+  // TWO SECTIONS HEADED ‘Today’s bake’ — whichever reader named each — are a
+  // name that says nothing about which one, and the removal is refused.
+  for (const [label, second] of [
+    ["two kit headings", '<section className="rye"><SectionHeader title="Today\'s bake" /><p>Rye on Saturdays.</p></section>'],
+    ["a kit heading and a literal one", "<section className=\"rye\"><h2>Today's bake</h2><p>Rye on Saturdays.</p></section>"],
+  ]) {
+    test(`KIT ${mode}: duplicate headings grant nothing — ${label}`, async () => {
+      const slug = kitSlug(mode);
+      const before = kitHome(HERO, BAKE, second, BENCH(slug), ORDER, VISIT);
+      refusedHere(await drive({ mode, slug, before, ask: REMOVE_BAKE, answer: kitHome(HERO, second, BENCH(slug), ORDER, VISIT) }), before, OTHERS);
+    });
+  }
+  test(`KIT ${mode}: the removal that also loses a photograph is withheld by the photograph wall`, async () => {
+    const slug = kitSlug(mode);
+    const before = kitHome(HERO, BAKE, BENCH(slug), ORDER, VISIT);
+    const r = await drive({ mode, slug, before, ask: REMOVE_BAKE, answer: kitHome(HERO, BENCH(slug, BENCH_A(slug)), ORDER, VISIT) });
+    refused(r, { calls: PAGE });
+    assert.equal(r.reply.error, "withheld");
+    assert.equal(r.reply.photosBlocked, 1, "the lost photograph is what refused it");
+    if (mode === "job") assert.deepEqual(r.reserves, []);
+  });
+  test(`KIT ${mode}: the removal that also drops the order form is withheld when the judge finds it was not asked`, async () => {
+    const slug = kitSlug(mode);
+    const before = kitHome(HERO, BAKE, BENCH(slug), ORDER, VISIT);
+    const answer = kitHome(HERO, BENCH(slug), ORDER.replace("<OrderForm />", ""), VISIT);
+    const r = await drive({ mode, slug, before, ask: REMOVE_BAKE, answer, judge: judged(no(1)) });
+    refused(r, { calls: PAGE_JUDGED });
+    assert.equal(r.reply.error, "withheld");
+    assert.deepEqual(r.reply.contentBlocked.map((it) => it.kind), ["part-gone"], "the order form is what refused it");
+    if (mode === "job") assert.deepEqual(r.reserves, []);
+  });
+}
+
+// Through the route, on the synchronous path: the import decides, not the spelling.
+{
+  const { refusedHere, publishedHere } = pageGuardChecks("sync");
+  for (const [label, imports, heading] of [
+    ["an alias", 'import { SectionHeader as Heading } from "@/components/ui/section-header"\n', '<Heading eyebrow="Today" title="Today\'s bake" />'],
+    ["a namespace import", 'import * as UI from "@/components/ui/section-header"\n', '<UI.SectionHeader title="Today\'s bake" />'],
+  ]) {
+    test(`KIT: ${label} is the kit's SectionHeader, and the removal publishes`, async () => {
+      const before = withImports(imports, HERO, bakeWith(heading), ORDER, VISIT);
+      const answer = withImports(imports, HERO, ORDER, VISIT);
+      publishedHere(await drive({ before, ask: REMOVE_BAKE, answer }), answer, OTHERS, UPDATED);
+    });
+  }
+  for (const [label, before, answer] of [
+    ["a page's own SectionHeader",
+      IMPORTS + ROUTE + "function SectionHeader({ title }){return <div>{title}</div>}\n" + body(HERO, BAKE, ORDER, VISIT), null],
+    ["the kit's name declared again on the page",
+      IMPORTS + PART_IMPORT + KIT_SH + ROUTE + "function Home(){const SectionHeader = (p) => <p>{p.title}</p>;return <main>" + HERO + BAKE + ORDER + VISIT + "</main>}\n", null],
+    ["a title on a component that shows it in no heading",
+      withImports('import { Callout } from "@/components/ui/callout"\n', HERO, bakeWith('<Callout title="Today\'s bake">Fresh.</Callout>'), ORDER, VISIT), null],
+    ["a computed title", withImports(KIT_SH, HERO, bakeWith("<SectionHeader title={bakeTitle} />"), ORDER, VISIT), null],
+    ["a heading that does not open its section",
+      withImports(KIT_SH, HERO, bakeWith("<h2>Bread</h2>" + SH_BAKE), ORDER, VISIT), null],
+  ]) {
+    test(`KIT: ${label} names nothing, and the removal is refused`, async () => {
+      const removed = before.replace(/<section className="bake">[\s\S]*?<\/section>/, "");
+      assert.notEqual(removed, before, "the fixture carries the section");
+      refusedHere(await drive({ before, ask: REMOVE_BAKE, answer: answer || removed }), before, OTHERS);
+    });
+  }
+  // A KIT HEADING NAMES THE WHOLE SECTION AND NOTHING NARROWER: its words are
+  // a prop, so "the text under" it is tied to no line and grants nothing. The
+  // literal heading, whose words this check reads, still can.
+  const ONE_LINE = "<p>Every loaf is shaped by hand before dawn.</p>";
+  const UNDER = "Change the text under ‘Today’s bake’ to ‘Every loaf is shaped by hand at night.’";
+  test("KIT: “the text under” a kit heading grants nothing; under the literal heading it does", async () => {
+    const reword = (b) => b.replace("before dawn", "at night");
+    const kitBefore = withImports(KIT_SH, HERO, bakeWith(SH_BAKE, ONE_LINE), ORDER, VISIT);
+    refusedHere(await drive({ before: kitBefore, ask: UNDER, answer: reword(kitBefore) }), kitBefore, OTHERS);
+    const litBefore = withImports(KIT_SH, HERO, bakeWith("<h2>Today's bake</h2>", ONE_LINE), ORDER, VISIT);
+    publishedHere(await drive({ before: litBefore, ask: UNDER, answer: reword(litBefore) }), reword(litBefore), OTHERS, UPDATED);
+  });
+  // …AND STILL A MENTION: a kit heading and a literal one that share the name
+  // make "the text under" it ambiguous, so the literal section's line is not
+  // granted either.
+  test("KIT: a kit heading sharing its name with a literal one makes “the text under” it ambiguous", async () => {
+    const RYE = "<section className=\"rye\"><h2>Today's bake</h2><p>Rye on Saturdays.</p></section>";
+    const before = withImports(KIT_SH, HERO, bakeWith(SH_BAKE, ONE_LINE), RYE, ORDER, VISIT);
+    const ask = "Change the text under ‘Today’s bake’ to ‘Rye on Sundays.’";
+    refusedHere(await drive({ before, ask, answer: before.replace("Rye on Saturdays.", "Rye on Sundays.") }), before, OTHERS);
+    // THE CONTROL: with the kit section gone from the page, the literal heading
+    // is the only one, and the same sentence and answer publish.
+    const alone = withImports(KIT_SH, HERO, RYE, ORDER, VISIT);
+    publishedHere(await drive({ before: alone, ask, answer: alone.replace("Rye on Saturdays.", "Rye on Sundays.") }), alone.replace("Rye on Saturdays.", "Rye on Sundays."), OTHERS, UPDATED);
   });
 }

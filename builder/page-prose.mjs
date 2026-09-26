@@ -5,6 +5,7 @@
 import { tweakParser } from "./site-tweak.mjs";
 import { routeOf } from "./site-addon.mjs";
 import { navSlots } from "./site-nav.mjs";
+import { KIT_HEADINGS } from "./kit-headings.mjs";
 
 const space = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
 const name = (s) => space(s).normalize("NFKC").toLowerCase().replace(/[“”‘’"']/g, "");
@@ -13,12 +14,103 @@ const contains = (s, part) => (" " + words(s) + " ").includes(" " + words(part) 
 
 export const PROSE_WITHHELD = "I couldn't confirm that this page change preserves text outside the requested target, so I didn't publish this change. Please identify the section by its unique heading or quote the exact text to change or remove.";
 
+// ── A SECTION HEADED BY THE KIT (2026-09-26, owner) ─────────────────────────
+// "Remove the ‘Today’s bake’ section from the home page." was refused with a
+// correct answer: the section's heading is `<SectionHeader title="Today's
+// bake" />`, which a visitor sees as an `<h2>`, and a section was named only
+// by a LITERAL `<h1>`–`<h6>`. The owner reproduced it independently: refused
+// with SectionHeader's `title`, accepted with the equivalent literal `<h2>`.
+//
+// So a section is also named by a kit component's heading — only where all of
+// this is established, and anything short of it is UNCERTAIN, which names
+// nothing and so authorizes nothing:
+//   - WHICH COMPONENT is the page's own import, never the tag's spelling:
+//     `@/components/ui/<module>` (the template's one path alias), by name,
+//     under any alias (`SectionHeader as Heading`) or namespace (`UI.Hero`).
+//     A default import, a type-only import, a local component that happens to
+//     be called SectionHeader, and a name the page declares again are not it.
+//   - WHICH PROP heads it comes from `kit-headings.mjs`, generated from each
+//     component's own source: the prop it always shows whole in a visible
+//     `<h1>`/`<h2>`. A `title` on any other component is not a heading.
+//   - THE VALUE is a literal (`title="…"` or `title={"…"}`), given once, on an
+//     element with no spread (which could carry the prop) and nothing hiding
+//     it. A computed title's words are not known here.
+//   - IT OPENS ITS SECTION: nothing that could show a heading comes before it
+//     there — no `<h1>`–`<h6>` and no other component. A visitor names a
+//     section by the heading it starts with; a second kit heading further down
+//     (a widget's own title, a closing call to action) names that part, not
+//     the section around it. (The literal reader keeps its own rule.)
+//   - IT NAMES THE WHOLE SECTION AND NOTHING NARROWER: "the X section" and
+//     "X". Its words are a prop, not prose this check reads, so "the X
+//     heading" and "the text under X" cannot be tied to any line here; they
+//     still count as a mention, so a name two headings share grants nothing.
+const KIT_SPEC = /^@\/components\/ui\/([a-z0-9-]+)(?:\.tsx)?$/;
+const DECLARES = /^(?:VariableDeclaration|Parameter|BindingElement|FunctionDeclaration|FunctionExpression|ClassDeclaration|ClassExpression|EnumDeclaration|ModuleDeclaration|ImportEqualsDeclaration|TypeAliasDeclaration|InterfaceDeclaration)$/;
+/** The JSX tags on this page that are one of the kit's section headings: tag → the prop it shows. */
+function kitHeadingTags(file, importsOf, k) {
+  const tags = new Map();
+  if (typeof importsOf !== "function") return tags;
+  let imports;
+  try { imports = importsOf(file); } catch { return tags; }
+  if (!Array.isArray(imports)) return tags;
+  const bound = new Map();
+  for (const imp of imports) for (const b of Array.isArray(imp?.binds) ? imp.binds : []) {
+    if (b && typeof b.local === "string") bound.set(b.local, (bound.get(b.local) || 0) + 1);
+  }
+  for (const imp of imports) {
+    const m = KIT_SPEC.exec(String(imp?.spec ?? ""));
+    const table = m && Object.hasOwn(KIT_HEADINGS, m[1]) ? KIT_HEADINGS[m[1]] : null;
+    if (!table) continue;
+    for (const b of Array.isArray(imp.binds) ? imp.binds : []) {
+      if (!b || b.typeOnly || typeof b.local !== "string" || !b.local || bound.get(b.local) !== 1) continue;
+      if (b.imported === "*") {
+        for (const comp of Object.keys(table)) tags.set(b.local + "." + comp, table[comp].prop);
+      } else if (typeof b.imported === "string" && Object.hasOwn(table, b.imported)) {
+        // A default import binds "default", which no table key can be: the
+        // table holds exported function names, and "default" is not a name.
+        tags.set(b.local, table[b.imported].prop);
+      }
+    }
+  }
+  if (!tags.size) return tags;
+  // A NAME THE PAGE DECLARES AGAIN may be something else where it is drawn.
+  const declared = new Set();
+  const walk = (n) => {
+    if (DECLARES.test(k(n)) && n.name && k(n.name) === "Identifier") declared.add(n.name.text);
+    n.forEachChild(walk);
+  };
+  walk(file);
+  for (const tag of [...tags.keys()]) if (declared.has(tag.split(".")[0])) tags.delete(tag);
+  return tags;
+}
+/** The literal words a kit heading element shows for `prop`, or null when they are not certain. */
+function kitHeadingText(attrs, prop, k) {
+  let value = null, seen = 0;
+  for (const a of attrs) {
+    if (k(a) === "JsxSpreadAttribute") return null;
+    const key = a.name?.getText?.();
+    if (key === "hidden" || key === "aria-hidden" || key === "style") return null;
+    if (key === "className" && /\b(?:hidden|invisible|sr-only)\b/.test(a.initializer?.getText?.() || "")) return null;
+    if (key !== prop) continue;
+    seen++;
+    const init = a.initializer;
+    value = init && k(init) === "StringLiteral" ? init.text
+      : init && k(init) === "JsxExpression" && init.expression && k(init.expression) === "StringLiteral" ? init.expression.text
+      : null;
+  }
+  return seen === 1 && typeof value === "string" ? value : null;
+}
+
 /** Literal JSX prose, tied to its nearest section, and never read from comments. */
 export function proseInventory(source, parse) {
-  const { file, k, isJsx, tagOf, openOf, attrsOf } = parse(source);
+  const { file, k, isJsx, tagOf, openOf, attrsOf, importsOf } = parse(source);
   if (file.parseDiagnostics?.length) throw new Error("unparsed");
+  const kitTags = kitHeadingTags(file, importsOf, k);
   const blocks = [], atoms = [];
-  const root = { names: [], atoms: [], section: false };
+  // `names` is every name a block answers to; `literal` the ones read off its
+  // own literal headings, id or label, `kit` the one a kit heading gives it.
+  // `before` is where each thing that could show a heading ends, in order.
+  const root = { names: [], literal: [], kit: [], before: [], atoms: [], section: false };
   blocks.push(root);
   const context = (node) => {
     const out = [];
@@ -36,20 +128,32 @@ export function proseInventory(source, parse) {
     }
     return out.join("|");
   };
+  const named = (block, n) => { block.names.push(n); block.literal.push(n); };
   const visit = (node, block, heading = false, role = "") => {
     if (isJsx(node)) {
       const tag = tagOf(node);
       if (tag === "section" || tag === "article") {
-        block = { names: [], atoms: [], section: true, anchor: "" };
+        block = { names: [], literal: [], kit: [], before: [], atoms: [], section: true, anchor: "" };
         blocks.push(block);
         for (const a of attrsOf(openOf(node))) {
           const key = a.name?.getText?.(), value = a.initializer?.text;
           if (typeof value !== "string") continue;
-          if (key === "id" || key === "aria-label") block.names.push(name(value));
+          if (key === "id" || key === "aria-label") named(block, name(value));
           if (key === "id" || (key === "className" && !block.anchor)) block.anchor = key + ":" + value;
-          if (key === "className" && value.split(/\s+/).includes("hero")) block.names.push("hero");
+          if (key === "className" && value.split(/\s+/).includes("hero")) named(block, "hero");
         }
       }
+      if (kitTags.has(tag)) {
+        // Only a heading that OPENS its section names it: nothing that could
+        // show a heading ends before this element starts. A wrapper around it
+        // ends after it, so it never counts against it.
+        const start = node.getStart();
+        const text = kitHeadingText(attrsOf(openOf(node)), kitTags.get(tag), k);
+        const n = text === null ? "" : name(text);
+        if (n && !block.before.some((end) => end <= start)) { block.names.push(n); block.kit.push(n); }
+      }
+      // A component is a capitalised tag or a member of one (`ui.Hero` too).
+      if (/^h[1-6]$/.test(tag) || /^[A-Z]/.test(tag) || tag.includes(".")) block.before.push(node.end);
       heading = /^h[1-6]$/.test(tag);
       role = tag;
     }
@@ -60,12 +164,13 @@ export function proseInventory(source, parse) {
     if (text) {
       const atom = { text, block, heading, role, context: context(node) };
       atoms.push(atom); block.atoms.push(atom);
-      if (heading) block.names.push(name(text));
+      if (heading) named(block, name(text));
     }
     node.forEachChild((c) => visit(c, block, heading, role));
   };
   visit(file, root);
-  for (const b of blocks) b.names = [...new Set(b.names.filter(Boolean))];
+  const uniq = (list) => [...new Set(list.filter(Boolean))];
+  for (const b of blocks) { b.names = uniq(b.names); b.literal = uniq(b.literal); b.kit = uniq(b.kit); }
   return { blocks, atoms };
 }
 
@@ -267,10 +372,17 @@ function permissions(message, before, pairs, page, names = null) {
       // one paragraph or no grant at all.
       const forms = [[label, "all"], [label + " section", "all"], [label + " heading", "heading"], [label + " title", "heading"],
         ...["line", "paragraph", "sentence", "text", "words"].flatMap(role => ["under", "in", "of"].map(prep => [role + " " + prep + " " + label, "line"]))];
-      for (const [phrase, scope] of forms) if (n === phrase) hits.push({ block, scope });
+      // A KIT HEADING names the whole section and nothing narrower: its words
+      // are a prop, so "the X heading" or "the text under X" is a mention
+      // ("none") that still makes a shared name ambiguous and grants nothing.
+      const literal = block.literal.includes(label), kit = block.kit.includes(label);
+      for (const [phrase, scope] of forms) if (n === phrase) {
+        if (scope === "all" || literal) hits.push({ block, scope });
+        if (scope !== "all" && kit) hits.push({ block, scope: "none" });
+      }
     }
     const unique = hits.filter((h, i) => hits.findIndex(x => x.block === h.block && x.scope === h.scope) === i);
-    return unique.length === 1 ? unique[0] : null;
+    return unique.length === 1 && unique[0].scope !== "none" ? unique[0] : null;
   };
   // The qualifiers taken out of the text they stand in. Used only once every
   // qualifier in the clause has been confirmed as the page being edited.

@@ -807,24 +807,33 @@ export async function tweakParser() {
       attrsOf: (open) => open?.attributes?.properties ?? [],
       childrenOf: (n) => n.children ?? [],
       isSpread: (a) => a.kind === ts.SyntaxKind.JsxSpreadAttribute,
-      // WHAT EACH IMPORT BINDS — `[{spec, names}]`, so a JSX tag can be tied
-      // back to the module it came from. All three clause forms are read
+      // WHAT EACH IMPORT BINDS — `[{spec, names, binds}]`, so a JSX tag can be
+      // tied back to the module it came from. All three clause forms are read
       // (default, `* as`, named), because a page may render one of its own
       // components under any of them and a form left out reads as a component
-      // this rung is free to move.
+      // this rung is free to move. `binds` says WHICH export each local name
+      // is — `"default"`, `"*"` for a namespace, or the export's own name, so
+      // `import { SectionHeader as Heading }` is `{local: "Heading", imported:
+      // "SectionHeader"}` — and whether it is a type only, which renders
+      // nothing. The text guard reads it; `names` is unchanged.
       importsOf: (file) => {
         const out = [];
         for (const st of file?.statements ?? []) {
           if (st.kind !== ts.SyntaxKind.ImportDeclaration) continue;
           const spec = st.moduleSpecifier?.text;
           if (typeof spec !== "string") continue;
-          const names = [];
+          const names = [], binds = [];
           const clause = st.importClause;
-          if (clause?.name?.text) names.push(clause.name.text);
+          const typeOnly = !!clause?.isTypeOnly;
+          if (clause?.name?.text) { names.push(clause.name.text); binds.push({ local: clause.name.text, imported: "default", typeOnly }); }
           const bound = clause?.namedBindings;
-          if (bound?.kind === ts.SyntaxKind.NamespaceImport && bound.name?.text) names.push(bound.name.text);
-          for (const e of bound?.elements ?? []) if (e.name?.text) names.push(e.name.text);
-          out.push({ spec, names });
+          if (bound?.kind === ts.SyntaxKind.NamespaceImport && bound.name?.text) { names.push(bound.name.text); binds.push({ local: bound.name.text, imported: "*", typeOnly }); }
+          for (const e of bound?.elements ?? []) {
+            if (!e.name?.text) continue;
+            names.push(e.name.text);
+            binds.push({ local: e.name.text, imported: (e.propertyName ?? e.name).text, typeOnly: typeOnly || !!e.isTypeOnly });
+          }
+          out.push({ spec, names, binds });
         }
         return out;
       },
