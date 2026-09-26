@@ -1,6 +1,6 @@
 # Remaining edit-path checklist
 
-## The two findings from the rollback round (2026-09-26), and the rule-key defect found in their review — fixed on the branch, for review, not merged
+## The two findings from the rollback round (2026-09-26), and the two rule-key defects found in their review — fixed on the branch, for review, not merged
 
 After reviewing the merged batch, the owner asked for both findings to be
 closed together before the paid Test 3. The work was to use focused tests and
@@ -21,7 +21,10 @@ section).
 | The add-on route logged a revert that failed and still called the site untouched | reproduced defect (the same class, one route over), fixed on the branch | The reply now says the addition is still saved. |
 | Review finding: the rule key collapsed whitespace inside quoted values, so a lane that respaced `[data-label="a  b"]` to one space shipped a selector matching nothing, unjudged | reproduced defect (both money paths), fixed on the branch | The compiler was sent `cssVerify: []`, the job committed, and the screen said the look was updated. Now the respaced rule is sent to be judged, found dead against the page, and corrected (both paths), or refused when the correction still misses (job). |
 | The same collapse on quoted declarations, quoted at-rule conditions, escapes and whitespace before a colon inside a selector | reproduced (unit), fixed on the branch | Thirteen more pairs answered `[]` on the old module, each measured; each is now named. A quoted declaration and a quoted `@scope` root are also driven through the route. |
-| The harmless formatting control | demonstrated, kept | A sheet answered back with only the whitespace CSS ignores is sent to be judged for nothing (both paths); also held over 1,500 random sheets carrying quoted values and escapes. |
+| The harmless formatting control | demonstrated, kept | A sheet answered back with only the whitespace CSS ignores is sent to be judged for nothing (both paths); also held over 1,500 random sheets carrying quoted values and escapes. ⚠ That property's generator was degenerate and barely formatted anything until item 4 (below). Made exact and re-measured, it still holds. |
+| Second review finding: a comment read as whitespace. The key made `.a/**/.b` (the compound `.a.b`) and `.a .b` (a descendant) one rule, and `plainSelectors` handed the judge `.a    .b` for the first | reproduced defect (both money paths), fixed on the branch | On `e49a370c` the lane's `.a .b` shipped with `cssVerify: []`, nothing judged, and "Updated the look". Now it is sent, found dead against the page and corrected (both paths), or refused (job). A new rule written with a comment is judged as the compound it is. |
+| Which spelling reaches the page | demonstrated in a real Chromium | A browser control in the site build (`site-build.mjs`) establishes the fixture table the unit cases judge by. |
+| Harmless formatting and a comment spelled another way | demonstrated, kept | A comment beside whitespace, a brace, a semicolon, a comma, a colon or a bracket names nothing; the same boundary spelled `/* x */` names nothing (both paths). |
 
 **1. A publish is held only for the rules this request wrote.**
 - The route records the sheet the css lane was shown and the sheet it stored.
@@ -97,6 +100,117 @@ changed."*).
   quote style, an empty selector-list item, a no-break space, whitespace inside
   an unquoted `url()`, and a second colon in a value. One equivalence is new:
   empty declarations, which the old key read as changed.
+
+**4. A comment is a token boundary, not whitespace** (the owner's second
+review: *"Preserve selector meaning across both readers. Do not simply delete
+every comment and concatenate tokens; that can change token boundaries. Keep
+uncertain differences classified as changed."*).
+- **Reproduced first**, on `e49a370c`, through the real edit route on both money
+  paths. The page carries `<p className="a b">` and nothing inside it. The
+  stored rule `.a/**/.b{…}` reaches it; the lane answered `.a .b{…}`, which
+  reaches nothing. The compiler was sent `cssVerify: []`, nothing was judged,
+  the sheet was stored and published, and the screen said "✅ Updated the look —
+  the design. …".
+- **Two readers, one cause.** CSS consumes a comment without producing
+  whitespace, so `.a/**/.b` is the compound `.a.b`: a real Chromium serialises
+  that rule as `.a.b` and applies it to the paragraph. The key read the comment
+  as whitespace, so the two spellings were one rule. And `plainSelectors` cut
+  its selectors from the comment-blanked copy, handing the judge `.a    .b` for
+  the compound — a descendant, the wrong meaning. (It also blanked a
+  comment-shaped attribute value, `[data-x="/* a */"]`, into spaces.)
+- **Why not just delete comments.** A comment is not nothing everywhere: `a/**/b`
+  is two tokens and `ab` one; so are `1/**/.5` and `1.5`.
+- **The rule, shared by both readers:**
+  - A comment touching whitespace, or at either end, is part of that whitespace.
+  - A comment beside a delimiter no token merges across is nothing. The
+    delimiters are `{ } ; , : [ ] )` on either side, plus `(` and `>` before
+    the comment. `x(` would make a function, and `-->` the end of an HTML
+    comment.
+  - Any other comment is kept as a boundary, spelled `/**/`. So an uncertain
+    difference (`.a/**/.b` against `.a.b`) reads as changed and is judged.
+- **What the judge is handed.** Each selector is cut from the sheet's own text
+  at the offsets the blanked copy gave. It is respelled only where a comment
+  touched it, so a comment-free selector is byte-for-byte what it was.
+- **During a roll, stated.** The build service spells the judged strings and
+  the edit route names them, and the gate matches the two by equality. A job
+  runs both halves in one container image. So only an edit that runs in the
+  Worker, against a container still on the previous image, can leave a
+  comment-bearing selector it changed unjudged, until the roll completes.
+  Comment-free selectors are spelled identically by both versions.
+- **Evidence:**
+  - **Old against new `plainSelectors`**: 0 differences over 21,332
+    comment-free inputs (4,440 with selectors). The inputs are the tests'
+    literals, the theme registry and a fuzzer on an exact generator.
+  - **The judged strings, audited in a real Chromium (run locally, not
+    committed)**: 6,000 random selectors with comments placed at random
+    (4,254 of them respelled). For every one, the browser's own parse and its
+    `querySelectorAll` read the written selector and the judged string
+    identically, or refuse both. The old reader fails the same audit on
+    1,959 of the 6,000.
+  - **Unit tests**: `test/css-scope.test.mjs` goes from 9 to 12 cases: the
+    owner's pair and the fixture table; a comment CSS reads as nothing; and a
+    comment beside what may merge, read as changed. The formatting property
+    now also wraps every delimiter in a bare comment (49,134 comments, naming
+    nothing).
+  - **Route tests**: `test/edit-failure-paths.test.mjs` goes from 47 to 55
+    cases, judged by the browser's table:
+    - the rewritten rule is sent, found dead and corrected (both paths);
+    - it is refused when the correction still misses (job), and the next edit
+      ships the stored rule;
+    - a new rule written with a comment is judged as the compound it is and
+      ships with no correction (both paths);
+    - formatting, and the same boundary spelled `/* x */`, send nothing (both
+      paths).
+  - **The browser control**: `test/integration/site-build.mjs` runs in the
+    site-build workflow with a real Chromium. For every spelling in
+    `test/fixtures/comment-boundary.mjs` it checks three things:
+    - that the page's cascade applies the rule as written or does not;
+    - that `plainSelectors` hands the judge the table's string;
+    - that the page's own `querySelectorAll` agrees with the cascade.
+
+    It then runs the real render check over the owner's pair, which reports
+    `.a .b` dead and `.a/**/.b` alive.
+  - Run locally: 22 of 22 checks pass. On the old reader 5 fail, and its render
+    check reports both rules dead. The workflow now runs when the table
+    changes.
+  - **Red on `e49a370c`: 9 of 67 in the two files.** Those are the three new
+    unit tests and six route cases. The two route formatting controls, both
+    properties and every retained case pass there.
+  - **The first cut judged junk, found by measuring the count changes.**
+    With the 200-character bound lifted, 9 of 203 remained, each junk with no
+    name in it (`~/**/+`). The kept boundary's `*` read as the universal
+    selector. No false alarm could follow (the browser throws, and a throw is a
+    hit), but it counted as judged. Fixed in `9aef0ca2`: now 194 of 194 count
+    changes are the length bound, none downward.
+  - The unit formatting control fails on the old code only on two lines:
+    `.a>/**/.b` and `.a/**/[x]`. The old key read those comments as
+    descendant spaces (`.a    [x]`, which is the wrong meaning) and named the
+    rules. That is the safe direction.
+  - The 67 focused files read 2,016 / 2,016. The suite locally reads
+    `7973 / 7971 / 0 / 2` (+11: `css-scope` +3, `edit-failure-paths` +8).
+  - **Unit CI** on `3cee046f` (run 36220333869) reads `7973 / 7969 / 0 / 4`,
+    with all 20 cases of the two changed test files found passing by name,
+    7,973 distinct result numbers and no failure.
+  - **Pending at this commit**: unit CI on `9aef0ca2` (run 36220840818) and
+    both site builds (36220333864 on `3cee046f`, 36220840763 on `9aef0ca2`),
+    which run the browser control.
+  - There was no mutation sweep, per the instruction; the red run is the
+    evidence the cases bite.
+- **⚠ Found in my own evidence, fixed: the property tests' random generator
+  was degenerate.** `(seed * 1103515245 + 12345) & 0x7fffffff` overflows 2^53,
+  so every seed became a multiple of 512 and `rnd(2)` answered 0 in 19,920 of
+  20,000 calls. Consequences:
+  - Item 3's formatting property inserted formatting only 183 times across its
+    1,500 sheets.
+  - The gate battery respaced a sheet 3 times in 3,000 pairs and used 6 of its
+    12 selectors.
+
+  Now it uses exact 32-bit arithmetic read from the high bits:
+  - 24,558 random insertions, plus 49,134 bare comments;
+  - every way a lane answers a sheet reached 475–513 times;
+  - both properties still hold.
+
+  The floors now prove it: a floor on the insertions, and every way reached.
 
 **What these cases assert.** Each one checks the stored configuration, the exact
 browser reply, the ledger and the next edit:
@@ -368,8 +482,9 @@ resolution, the quoted-page reader and the canary's after-read wait.
   two fixes (top section) are merged before the press, both change: the sha to
   the merge's, and the image to the one that deploy builds (the fixes move
   image inputs; predicted `168a9f94d1e6783e` over the fix commit `c084e5c5`,
-  and `1ee5606e09db1a67` over the rule-key correction `991b9204`, 187 inputs
-  each). Read both off the deploy and the free press before pressing.
+  `1ee5606e09db1a67` over the rule-key correction `991b9204`, and
+  `05750a5120d33570` over the comment-boundary correction `9aef0ca2`, 187
+  inputs each). Read both off the deploy and the free press before pressing.
   Neither fix is on the expected path: one needs the css lane picked, the other
   a failure of ours whose restore also fails. Which rung the router picks is
   itself part of what Test 3 measures, so that is an expectation, not a

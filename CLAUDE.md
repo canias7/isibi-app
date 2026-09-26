@@ -28,9 +28,12 @@ is PENDING**: the session's dispatch was refused (403), and the free canary pres
 the owner's. The rollback round's two findings — a stale stylesheet rule holding an
 unrelated edit, and a failed restore that was not said — are **fixed on the branch,
 for review, NOT merged** (*a publish is held only for the rules a request wrote*,
-below). So is the defect the owner then found in that fix's rule key — whitespace
-inside a quoted value collapsed, so a respaced selector shipped unjudged (*a quoted
-value, an escape or a selector's own whitespace is part of the rule*, below).
+below). So are the two defects the owner then found in that fix's stylesheet
+readers: whitespace inside a quoted value collapsed, so a respaced selector shipped
+unjudged (*a quoted value, an escape or a selector's own whitespace is part of the
+rule*, below); and a comment read as whitespace, so a compound rewritten as a
+descendant shipped unjudged and the judge was handed the wrong meaning (*a comment
+is a token boundary, not whitespace*, below).
 Test 3 (the full writer) is prepared and waits for spending approval.
 Remaining scope: [edit-path checklist](docs/investigations/edit-path-checklist.md).
 
@@ -8556,7 +8559,9 @@ restore also fails. **If these merge first, Test 3's `expect_deploy` and
 reader reproduces main's `c3cc126e45e93815` first. Documents-only commits on
 top do not move it, but **re-run the predictor over the merge commit itself**
 before pressing. **It moved again with the rule-key correction below**
-(`1ee5606e09db1a67` over `991b9204`).
+(`1ee5606e09db1a67` over `991b9204`), **and again with the comment-boundary
+correction** (`ca1fd6e66bc5bab9` over `3cee046f`, then `05750a5120d33570` over
+`9aef0ca2`).
 
 ### A QUOTED VALUE, AN ESCAPE OR A SELECTOR'S OWN WHITESPACE IS PART OF THE RULE (2026-09-26, on the branch, NOT merged)
 
@@ -8591,7 +8596,9 @@ evidence is supplied.**
   key reads that text with a small reader (`cssPieces`):
   - strings, escapes (a hex escape with the one whitespace it consumes) and an
     unquoted `url(…)` are kept as written;
-  - a comment is whitespace — the walker's reading, and so the judge's;
+  - a comment is whitespace — the walker's reading, and so the judge's
+    (**⚠ WRONG, and the owner's next review said so: a comment is a token
+    boundary, not whitespace** — the next section);
   - a whitespace run is one space, and whitespace is dropped only where CSS
     defines it as nothing: at either end; next to a comma; next to a block's
     top-level `{`, `}` or `;`; next to a declaration's own colon and its `!`;
@@ -8617,6 +8624,9 @@ evidence is supplied.**
     and comments added only where CSS ignores them name nothing in either
     direction and leave `plainSelectors` as it was. **Measured**: 3,470
     selectors judged, and 1,428 of the 1,500 sheets carrying a quoted value.
+    **⚠ AND IT BARELY FORMATTED ANYTHING**: its random generator was
+    degenerate, and it inserted formatting 183 times across the 1,500 sheets
+    (the next section, which made it exact and re-measured it).
   - **The battery's stamp moved by ONE pair** (511 → 512 named, 2,489 → 2,488
     quiet), measured pair by pair against the old module: its respacing
     mutation rewrites the brace inside `content:"{"`, a string whose value that
@@ -8683,6 +8693,164 @@ evidence is supplied.**
   paths). The same reader reproduces main's `c3cc126e45e93815` and
   `c084e5c5`'s `168a9f94d1e6783e`. If this merges before Test 3, its two
   expectation boxes change: read both off the deploy and the free press.
+
+### A COMMENT IS A TOKEN BOUNDARY, NOT WHITESPACE (2026-09-26, on the branch, NOT merged)
+
+Owner, after the quoted-value correction passed review: *"One remaining
+equivalence error is reproduced on e49a370c … Preserve selector meaning across
+both readers. Do not simply delete every comment and concatenate tokens; that
+can change token boundaries. Keep uncertain differences classified as
+changed. … Add this route regression and a browser-backed control
+establishing which selector matches the fixture."* **Every model answer in the
+evidence is supplied.**
+
+- **REPRODUCED FIRST, THROUGH THE REAL ROUTE, BOTH MONEY PATHS.** The page
+  carries `<p className="a b">` and nothing inside it; the stored rule is
+  `.a/**/.b{…}`; the css lane answered `.a .b{…}`. The compiler was sent
+  `cssVerify: []`, nothing was judged, one build shipped the descendant, the
+  job committed, and the screen said *"✅ Updated the look — the design. …"*.
+- **CSS CONSUMES A COMMENT WITHOUT PRODUCING WHITESPACE**, so `.a/**/.b` is the
+  compound `.a.b`. **Measured in a real Chromium**: the rule applies to the
+  paragraph, and the browser's own CSSOM serialises it as `.a.b`. `.a .b` is a
+  descendant that matches nothing there. `querySelectorAll` answers 1 for
+  `.a/**/.b` and `.a/* x */.b`, 0 for `.a    .b` and `.a .b`, and throws for
+  `a/**/b` — the render check counts a throw as a hit.
+- **TWO READERS, ONE CAUSE.**
+  - **The key** read a comment as whitespace (`GAP`), so the two spellings keyed
+    as one rule.
+  - **`plainSelectors`** cut its selectors from the walker's comment-BLANKED
+    copy, so the judge was handed `.a    .b` — a descendant, the wrong meaning —
+    for the compound. It blanked a comment-shaped attribute value
+    (`[data-x="/* a */"]`) into seven spaces the same way.
+- **AND A COMMENT IS NOT NOTHING EITHER.** `a/**/b` is two tokens and `ab` one;
+  `1/**/.5` is two numbers and `1.5` one; `x/**/(` is not a function and `x(`
+  is; `--/**/>` is not `-->`. Deleting comments and concatenating would merge
+  tokens — the owner's warning.
+- **THE RULE, ONE FUNCTION BOTH READERS SHARE** (`spell` and `keepsBoundary` in
+  `builder/site-freecss.mjs`):
+  - a comment touching whitespace, or at either end, is part of that
+    whitespace;
+  - a comment beside a delimiter no token merges across is NOTHING: `{ } ; , :
+    [ ] )` either side, and `(` and `>` only before it;
+  - any other comment is kept as a boundary and spelled `/**/` — so
+    `.a/**/.b` against `.a.b`, which the key cannot establish as equal, reads
+    as CHANGED and is judged.
+  - `cssPieces` answers a `COMMENT` piece where it answered `GAP`;
+    `conditionTight` and `blockTight` skip a comment exactly where they skip
+    whitespace.
+- **WHAT THE JUDGE IS HANDED** (`judgedSelectors`): `selectorSpans` splits the
+  blanked prelude — so a comma or quote inside a comment is still never a
+  split — and each span is cut from the sheet's OWN text at the same offsets.
+  A span no comment touched is kept byte for byte; one a comment touched is
+  respelled by the rule above (`asJudged`), strings kept whole. The gate
+  matches the two lists by equality, and both come from this one function.
+- **WHAT MOVED AND WHAT DID NOT, MEASURED:**
+  - **old against new `plainSelectors`: 0 differences over 21,332
+    comment-free inputs** (4,440 with selectors) — the tests' literals, the
+    theme registry and a fuzzer on an exact generator;
+  - on commented inputs every difference is one of four shapes: a boundary
+    kept as `/**/`, a quoted value kept whole, a comment absorbed into
+    whitespace or dropped beside a delimiter (the selector's whitespace runs
+    then collapsed to one), and a selector newly judged
+    because its blanked comment had pushed it past the 200-character bound.
+    **A selector can only get shorter**, so none is newly skipped;
+  - **⚠ AND THE FIRST CUT JUDGED JUNK, FOUND BY MEASURING THOSE COUNTS.** With
+    the length bound lifted on both sides, 9 of 203 count changes remained,
+    every one junk with no name in it — `~/**/+`, `+/**/>`. The kept boundary
+    carries a `*`, and `judgeableSelector` reads a `*` as the universal
+    selector. The browser throws on such a string and the render check counts
+    a throw as a hit, so no false alarm could follow, but it was counted as
+    judged. **Fixed in `9aef0ca2`**: the "selects something" test ignores the
+    marker, and now **194 of 194** count changes are the length bound, none
+    downward;
+  - **the judged strings, audited in a real Chromium (local, not
+    committed)**: 6,000 random selectors with comments placed at random,
+    4,254 of them respelled. For **every one**, the written selector and the
+    judged string get the same CSSOM `selectorText` and the same
+    `querySelectorAll` list, or both are refused. **The old reader fails that
+    audit on 1,959 of the 6,000.**
+- **THE BROWSER-BACKED CONTROL** (`test/integration/site-build.mjs`, run by the
+  site-build workflow with Chromium, beside a shared table in
+  `test/fixtures/comment-boundary.mjs`):
+  - for every spelling: the page's cascade applies it or not (a custom property
+    per spelling, read back through `getComputedStyle`); `plainSelectors` hands
+    the judge the table's string; and the page's own `querySelectorAll` agrees
+    with the cascade;
+  - the REAL `checkRender` over the owner's pair reports `.a .b` dead and
+    `.a/**/.b` alive, on the same pages;
+  - **run locally against real Chromium: 22 of 22**; against the old reader
+    **5 fail** (it hands the judge `.a    .b`, and the real render check then
+    reports BOTH rules dead — the stored one wrongly);
+  - the unit cases take their page judge from that table, so no liveness is
+    assumed in JavaScript; a judged string the table does not hold is recorded
+    as UNKNOWN and fails the case. **The site-build workflow's `paths` now
+    lists the table**, so changing it runs the browser half again.
+- **DURING A ROLL.** A job runs both halves in ONE image — inside the
+  container the Worker module's build call is a localhost request to the build
+  service beside it (`builder/containers-shim.mjs`). So only an edit that runs
+  in the Worker, against a container still on the previous image, can leave a
+  comment-bearing selector it changed unjudged, until the roll completes.
+  Comment-free selectors are spelled identically by both versions.
+- **⚠ AND THE PROPERTY TESTS' GENERATOR WAS DEGENERATE — MY OWN EVIDENCE, TWO
+  ROUNDS RUNNING.** `seed = (seed * 1103515245 + 12345) & 0x7fffffff` runs past
+  2^53, the product loses its low bits, and every seed becomes a multiple of
+  512: `rnd(2)` answered 0 in 19,920 of 20,000 calls. So the previous round's
+  formatting property **inserted formatting 183 times across its 1,500
+  sheets**, and the gate battery respaced a sheet 3 times in 3,000 pairs and
+  used 6 of its 12 selectors. Both now use exact 32-bit arithmetic read from
+  the high bits (`Math.imul`): **24,558 random insertions**, plus a
+  deterministic pass wrapping every delimiter in a bare comment (**49,134**);
+  the battery reaches every way a lane answers a sheet **475–513 times** and
+  reads **1,185 named of 7,035 judged, 1,975 of 3,000 quiet**. Both still
+  hold, and the floors now prove the formatting ran (a floor on the
+  insertions; every way reached). **A negative property must prove it did the
+  thing it negates** — the observer floors counted what was JUDGED, never what
+  was FORMATTED. Only `css-scope.test.mjs` used this generator. My scratch
+  comparison script did too, so its numbers were re-measured with the exact
+  generator before being quoted here.
+- **EVIDENCE.**
+  - `test/css-scope.test.mjs` 9 → **12 cases**: the owner's pair and the
+    fixture table spelled by the product, with the boundary's own `*`
+    selecting nothing (`~/**/+` skipped, `*/**/.a` judged); a comment CSS
+    reads as nothing (ten placements); a comment beside what may merge, read
+    as changed (seven); both properties on the exact generator.
+  - `test/edit-failure-paths.test.mjs` 47 → **55 cases**, judged by the
+    browser's table: the rewritten rule is sent, found dead and corrected
+    (both paths — `cssVerify` `[".a .b"]`, the correction asked about it
+    alone, the css lane billed 2, the correction not); refused when the
+    correction still misses (job — refunded, the sheet put back, the next edit
+    ships `.a/**/.b`); a new rule written `.a/* the hours */.b` is sent and
+    judged as `.a/**/.b`, live, and ships with no correction (both paths);
+    formatting and the same boundary spelled `/* x */` send nothing (both
+    paths).
+  - **Red on `e49a370c`: 9 of 67** across the two files — the three new unit
+    tests and six route cases. The two route formatting controls, both
+    properties and every retained case pass there. **The unit comment control
+    fails there only on `.a>/**/.b` and `.a/**/[x]`**, which the old key read
+    as descendant spaces and named (`.a    [x]` — the wrong meaning, the safe
+    direction).
+  - The 67 focused files (last round's 49, the files that parse
+    `site-build.yml`, and every test naming the harness or this module) read
+    **2,016 / 2,016**. **Suite 7,973 locally** (`# tests 7973 / # pass 7971 /
+    # fail 0 / # skipped 2`, `duration_ms 115,280`): **+11 against 7,962**,
+    which is `css-scope` +3 and `edit-failure-paths` +8.
+  - **AND THE CI UNIT HALF MATCHES**: run **`36220333869` on `3cee046f`** reads
+    **`# tests 7973 / # pass 7969 / # fail 0 / # skipped 4`** (`duration_ms
+    99,778`). The total is what matches; `pass` differs by CI's four skips. All
+    20 cases of the two changed test files were found passing BY NAME, with
+    7,973 distinct result numbers, no gap and zero `not ok N -`.
+  - **PENDING AT THIS COMMIT, and said rather than guessed**: unit CI on
+    `9aef0ca2` (run `36220840818`) and both site builds — `36220333864` on
+    `3cee046f` and `36220840763` on `9aef0ca2`, which run the browser control.
+    The next documents commit stamps them.
+  - **No mutation sweep**, per the instruction; the red runs are the evidence
+    the cases bite.
+- **THE IMAGE MOVES AGAIN**: `builder/site-freecss.mjs` is an image input.
+  **Predicted over `9aef0ca2`: `05750a5120d33570`** (187 inputs, 157 distinct
+  paths; `ca1fd6e66bc5bab9` over `3cee046f`). The same reader reproduces main's
+  `c3cc126e45e93815` and `e49a370c`'s `1ee5606e09db1a67`. If this merges before
+  Test 3, its two expectation boxes change: read both off the deploy and the
+  free press.
 
 ### TEST 3 — THE FULL PAGE WRITER, REVISED (2026-09-25, prepared, NOT dispatched)
 

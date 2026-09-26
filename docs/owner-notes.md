@@ -14,7 +14,7 @@ merged/deployed at a5741864 (deployment 2157 / run 36099179983). Served chat.js
 matched the reviewed bytes at 2026-09-25 05:36:30 UTC. Deployment log reports
 container reuse; no repeated runtime container check or canary. This contains
 an escaped display error; publication and cleanup already succeeded. Other
-checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are now merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC, image `c3cc126e45e93815`), and its runtime confirmation is still pending: my dispatch was refused (403), so the free canary press is yours, and I have not seen it pass. The rollback round's two findings are fixed on the branch for your review, not merged (first entry below). Test 3 is prepared and waits for your spending approval.
+checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are now merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC, image `c3cc126e45e93815`), and its runtime confirmation is still pending: my dispatch was refused (403), so the free canary press is yours, and I have not seen it pass. The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are fixed on the branch for your review, not merged (the first three entries below). Test 3 is prepared and waits for your spending approval.
 
 Kept for the owner. Two purposes:
 1. **How you like things done** — durable preferences, so a fresh session does not
@@ -176,6 +176,88 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
+## 2026-09-26 — A comment between two selector parts now counts as what CSS reads it as (for your review, not merged)
+
+You found that `.a/**/.b` and `.a .b` looked like the same stylesheet rule,
+although the first styles `<p class="a b">` and the second styles nothing
+there. Nothing is merged, deployed or dispatched. The answers in every test are
+supplied.
+
+**What went wrong, reproduced first.**
+- Through the real edit route, both ways (direct and queued), exactly as you
+  described. The page has `<p className="a b">`, the stored rule is
+  `.a/**/.b`, and the styling step rewrote it as `.a .b`. The build was told to
+  check nothing, the broken rule shipped, and the screen said "Updated the
+  look".
+- Two parts had the same cause. The comparison treated a comment as a space.
+  The list of rules the build checks was also cut from a copy with comments
+  turned into spaces, so the checker was handed `.a    .b`: a "descendant"
+  rule, which means something different from the rule as written.
+- In a real browser, `.a/**/.b` works like `.a.b`: it styles the paragraph.
+  `.a .b` does not.
+
+**What changed.**
+- A comment is now read the way CSS reads it:
+  - Next to a space, it is part of that space.
+  - Next to a brace, semicolon, comma, colon or bracket, it is nothing.
+  - Anywhere else it is kept as a boundary, so, as you asked, it never glues
+    two parts together. Where it isn't provably harmless, the rule counts as
+    changed and is checked.
+- The checker is now handed each rule in the spelling that means what the rule
+  means. A rule with no comment in it is handed exactly as before, byte for
+  byte.
+
+**How it was checked.**
+- Through the route, both ways:
+  - The rewritten rule is now sent to be checked. It is found to match nothing
+    on the page and is corrected.
+  - When the correction still misses on a queued edit, nothing is published.
+    The stylesheet is put back, the charge is refunded, and your next edit
+    ships the rule that works.
+  - A new rule written with a comment in the middle is checked as what it
+    means, finds the paragraph, and ships with no correction.
+  - Reformatting and comments that CSS ignores are sent for nothing: the
+    harmless-formatting control.
+- **The browser check you asked for** runs in the site build on GitHub, in a
+  real Chromium. For each way of writing the rule, it records whether the page
+  styles the paragraph. It then confirms the checker is handed a matching
+  string, and that the real render check reports `.a .b` as dead and
+  `.a/**/.b` as alive. Here, against a real Chromium, all 22 of its checks
+  pass; on the old code 5 fail. The unit tests take their answers from that
+  same table.
+- Also checked in a real browser here (not added to the tests): 6,000 random
+  selectors with comments in random places. The string the checker is handed
+  means exactly what the rule means for every one. The old code got 1,959 of
+  them wrong.
+- On the old code, 9 of these checks fail: the 3 new unit tests and 6 route
+  cases. The formatting controls pass there, as they should.
+- One follow-up of my own, fixed. The marker I use for a kept comment contains
+  a `*`, and the checker was counting junk such as `~/**/+` as a rule to check.
+  It couldn't cause a false alarm, but it shouldn't count, so it no longer
+  does.
+- All 7,973 tests pass here (2 are skipped in this sandbox, as usual), and the
+  same 7,973 pass on GitHub. The site build on GitHub, which runs the browser
+  check, had not finished when this was written; the next update says how it
+  went. No mutation sweep, as you asked.
+
+**A correction to my earlier evidence.** The two random tests in this area,
+written over the last two rounds, used a broken random-number helper. It
+almost always returned the same answer:
+- The "1,500 random stylesheets" test in the entry below inserted spacing only
+  183 times.
+- The other random test hardly varied its stylesheets.
+
+Both now use a correct helper. They insert 24,558 times and reach every kind
+of change about 500 times, and both still pass. They now also check that the
+formatting really happened.
+
+**The runtime check and test 3 are unchanged.** The free press is still yours,
+and I have not seen it pass. If you merge this before test 3, the image box
+changes: the latest commit, `9aef0ca2`, is predicted to build
+`05750a5120d33570`.
+
+---
+
 ## 2026-09-26 — Spacing inside a quoted value now counts: a respaced selector is checked, not shipped (for your review, not merged)
 
 You found that the comparison deciding which stylesheet rules a message wrote
@@ -226,7 +308,9 @@ dispatched. The answers in every test are supplied.
     harmless-formatting control.
 - A test over 1,500 random stylesheets with quoted values and escapes: adding
   spacing or comments only where CSS ignores them never marked a rule as
-  changed.
+  changed. ⚠ **Corrected in the entry above:** that test's random picks were
+  broken, and it inserted spacing only 183 times across the 1,500 sheets. Fixed
+  and re-run, it inserts 24,558 times and still passes.
 - On the old code, 8 of these checks fail: the 3 new unit tests and the 5
   route cases that carry the bug. The formatting controls pass there too,
   except two lines about empty declarations, which the old comparison counted
