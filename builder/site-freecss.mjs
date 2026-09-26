@@ -471,8 +471,10 @@ export function judgeableSelector(sel) {
   if (STATE_HOOKS.some((h) => s.toLowerCase().includes(h))) return false;
   // A selector has to actually select something. `*` is legal and always
   // matches, so it is judgeable but pointless; anything with no name, class,
-  // id, attribute or `*` in it is not a selector we understand.
-  return /[A-Za-z0-9_\-*]/.test(s);
+  // id, attribute or `*` in it is not a selector we understand. The `*` of a
+  // kept comment boundary (`/**/`, see `judgedSelectors`) is not the
+  // universal selector: without this, `~/**/+` would read as one.
+  return /[A-Za-z0-9_\-*]/.test(s.replace(/\/\*\*\//g, ""));
 }
 
 /**

@@ -148,6 +148,10 @@ test("the owner's pair is two rules, and the judge is handed what each one means
   assert.deepEqual(plainSelectors("[data-x=\"/* a */\"]{x:1}"), ["[data-x=\"/* a */\"]"], "a comment-shaped value was blanked");
   // DELETING THE COMMENT WOULD MERGE TWO NAMES INTO ONE: `ab` is one name.
   assert.deepEqual(plainSelectors("a/**/b{x:1}"), ["a/**/b"], "two names were merged, or read as a descendant");
+  // THE BOUNDARY'S OWN `*` SELECTS NOTHING: `~/**/+` names no element, and was
+  // never judged; a real universal selector beside a boundary still is.
+  assert.deepEqual(plainSelectors("~/**/+{x:1}"), [], "a kept boundary's `*` was read as the universal selector");
+  assert.deepEqual(plainSelectors("*/**/.a{x:1}"), ["*/**/.a"], "a universal selector beside a boundary was not judged");
   // A COMMENT'S LENGTH NO LONGER DECIDES WHETHER A RULE IS JUDGED: blanked
   // into spaces, this one ran past the 200-character bound and was never asked
   // about.
