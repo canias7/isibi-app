@@ -232,7 +232,13 @@ dispatched. The answers in every test are supplied.
   that counts.
 - Four older tests went, because the situation they set up — a correction
   running on a stylesheet that didn't change — is exactly the bug this fixes.
-- All 7,950 tests pass here (2 are skipped in this sandbox, as usual).
+- All 7,950 tests pass here (2 are skipped in this sandbox, as usual), and
+  the same 7,950 pass on GitHub. The site build on GitHub also passed, with
+  every count as before.
+- One message is checked by reading the code, not by running it: the add-on's
+  database-failure message when the put-back fails too. Nothing in the tests
+  can make the add-on's database step fail, and that message was never run by
+  a test before either. The add-on's compile-failure message is run.
 
 **Noticed, not changed:**
 - When a menu change sits beside a styling request that changed nothing, the

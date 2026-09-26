@@ -8510,6 +8510,26 @@ consolidated checklist's top section is the per-item record.
   round's net cases: `edit-failure-paths` +10, `css-scope` +5, the add-on route
   +1. The first full run read `7950 / 7947 / 1 / 2`, and the one failure was
   the `publish-clock` guard above.
+- **AND THE CI UNIT HALF MATCHES**: run **`36213341827` on `c084e5c5`** reads
+  **`# tests 7950 / # pass 7946 / # fail 0 / # skipped 4`** (`duration_ms
+  125,004`). The total is what matches; `pass` differs by CI's four skips.
+  All 24 new or re-anchored cases were found passing BY NAME in the downloaded
+  log archive, with 7,950 distinct result numbers, no gap and zero
+  `not ok N -`.
+- **AND `site build` run `36213341839` on `c084e5c5`** (02:58:19 → 03:22:58Z,
+  **24m39s**, all twenty steps) read all twelve counts green out of its
+  per-step files:
+  - TAP 397/397/0/0, kit-typecheck 4, site-build **382**, contrast-cases 16,
+    theme-seam 11, theme-render 29, site-routing 14, site-runtime 47;
+  - kit-render / kit-a11y / kit-effects / kit-paint `all passed`;
+  - census 7 + 4 + 1 = **12**.
+  - The only `##[error]` lines are the two known annotations
+    (`index.tsx(50,13) TS2322`, `menu.tsx(27,17) TS2339`); `tsc`-format lines
+    read 9 / 2 / 7.
+  - `site-build.mjs` took **18m07s**. This is the harness that runs the build
+    service's changed line against real compiled sites, with no `cssVerify`
+    sent — every rule judged, as before.
+  - **The stamp chain ends at `c084e5c5`.**
 
 **⚠ ONE ARM IS CHECKED BY SHAPE ONLY, AND SAID**: the add-on route's
 schema-refusal sentence with a refused revert. Its compile arm is DRIVEN (the
@@ -8527,8 +8547,12 @@ refuse, and that arm's plain sentence has only ever been asserted by shape
 **TEST 3 DOES NOT DEPEND ON EITHER FIX**, as an expectation rather than a
 promise: one fix needs the css lane picked, the other a failure of ours whose
 restore also fails. **If these merge first, Test 3's `expect_deploy` and
-`expect_image` change** to the merge's sha and the image its deploy builds
-(`worker.js` and three builder files are image inputs).
+`expect_image` change** to the merge's sha and the image its deploy builds.
+`worker.js` and three builder files are image inputs. **Predicted over
+`c084e5c5`: `168a9f94d1e6783e`** (187 inputs, 157 distinct paths). The same
+reader reproduces main's `c3cc126e45e93815` first. Documents-only commits on
+top do not move it, but **re-run the predictor over the merge commit itself**
+before pressing.
 
 ### TEST 3 — THE FULL PAGE WRITER, REVISED (2026-09-25, prepared, NOT dispatched)
 

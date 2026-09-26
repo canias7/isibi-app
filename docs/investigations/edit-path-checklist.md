@@ -99,17 +99,22 @@ browser reply, the ledger and the next edit:
   `rollback-gaps.json` killed 2 of 2 with its control surviving. Both ran over
   47 focused files, and every swept file was byte-identical afterwards.
 - **Two walls, measured by hand**:
-  - The correction's write flag alone survives, because a correction always
-    follows the look step's own flagged write. The pair dies, with 14 cases
-    failing.
-  - The look step's `cssMoved` condition alone survives, because an unmoved
-    sheet names no rule. The pair with a whole-sheet list dies, with 6 cases
-    failing.
+  - With the correction's write flag removed alone, every case passes, because
+    a correction always follows the look step's own flagged write. With it
+    removed beside the look step's flag, 14 cases fail.
+  - With the look step's `cssMoved` condition removed alone, every case passes,
+    because an unmoved sheet names no rule. With it removed beside a
+    whole-sheet list (the defect back), 6 cases fail.
   - Both are kept, and the reason is written in the code.
   - `rollback-gaps.json` drops R-1, the flag alone, and re-anchors R-3.
 - The 47 focused files read 1,682 / 1,682. The full suite reads
   `7950 / 7948 / 0 / 2` locally: +16 against 7,934, which is 10 + 5 + 1 net
   new cases.
+- **Unit CI** on `c084e5c5` (run 36213341827) reads `7950 / 7946 / 0 / 4`,
+  with all 24 new or re-anchored cases passing by name.
+- **Site build** on `c084e5c5` (run 36213341839, 24m39s, all twenty steps)
+  has all twelve counts green: TAP 397, site-build 382, and the rest as
+  recorded. The only annotations are the two known ones.
 - **Checked by shape only**: the add-on route's schema-refusal sentence when
   the revert is refused too. The add-on's compile arm is driven. But no harness
   makes the add-on's database apply refuse, and that arm's plain sentence has
@@ -303,7 +308,8 @@ resolution, the quoted-page reader and the canary's after-read wait.
 - **These two values name the build deployed today.** If the rollback round's
   two fixes (top section) are merged before the press, both change: the sha to
   the merge's, and the image to the one that deploy builds (the fixes move
-  image inputs). Read both off the deploy and the free press before pressing.
+  image inputs; predicted `168a9f94d1e6783e` over the fix commit `c084e5c5`,
+  187 inputs). Read both off the deploy and the free press before pressing.
   Neither fix is on the expected path: one needs the css lane picked, the other
   a failure of ours whose restore also fails. Which rung the router picks is
   itself part of what Test 3 measures, so that is an expectation, not a
