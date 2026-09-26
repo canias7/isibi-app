@@ -223,7 +223,7 @@ previous reply is on screen.
 | M1 | Attach a PNG or JPEG under 2 MB (not an SVG) with the + button, then `Use this picture as the logo.` | logo | "✅ That's your logo in the header now, on every page." | The header draws the image on every page. The job is `exempt`, cost 0. | 2 |
 | M2 | `Show more of the top of the photo of the sourdough boule cooling.` | picture | "✅ Moved “A sourdough boule cooling after the morning bake” to show the top." | Only that image gains `object-top`, and both photographs still load. | ~3 |
 | M3 | `In today's bake list, change the Sea Salt Focaccia's price to £4.60.` | data | "✅ Updated one entry in loaves." | The public `loaves` route shows 4.6 for Sea Salt Focaccia. No page changed. | ~3 |
-| M4 | `Move the starter page to /starter.` | page (move) | "✅ Moved /the-starter to /starter." | `/starter` answers 200; `/the-starter` answers 301 to `/starter`; every link follows. The job is `exempt`, cost 0. | 2 (3 through look) |
+| M4 | `Move the starter page to /starter.` | page (move) | "✅ Moved /the-starter to /starter." | `/starter` answers 200; `/the-starter` answers 301 to `/starter`; every link follows. Routed straight to the page rung, the job is `exempt`, cost 0; through `look`, the lane picker's call is billed instead, so M1 is the sure check of the free path. | 2 (3 through look) |
 | M5 | `Only let signed-in members see the list of loaves.` | rules | "✅ **loaves** — changed who can see it. It’s live now — nothing needed rebuilding." | The public `loaves` route answers 403, as `orders` does today, and a visitor sees "Couldn't load today's bake." | ~3 |
 | M6 | `Let everyone see the list of loaves again, signed in or not.` | rules | The same shape | The route answers 200 with the six rows again. | ~3 |
 
