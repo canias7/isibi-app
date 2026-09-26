@@ -60,6 +60,10 @@ on:
       - 'test/integration/kit-effects.mjs'
       - 'test/integration/kit-paint.mjs'
       - 'test/integration/contrast-cases.mjs'
+      # THE BROWSER ESTABLISHES THIS TABLE for the unit cases that judge a page
+      # by it (site-build.mjs, the comment-boundary control), so a change to it
+      # runs the browser half again.
+      - 'test/fixtures/comment-boundary.mjs'
       - 'test/page-gen.test.mjs'
       - '.github/workflows/site-build.yml'
   workflow_dispatch:

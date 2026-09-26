@@ -4616,6 +4616,84 @@ function P() {
       JSON.stringify((faint.render && faint.render.findings) || []).slice(0, 300));
   }
 
+  // ── A COMMENT BETWEEN TWO CLASSES, ASKED OF A REAL CHROMIUM (2026-09-26) ──
+  //
+  // Owner: *"Add this route regression and a browser-backed control
+  // establishing which selector matches the fixture."* `.a/**/.b` and `.a .b`
+  // read as ONE rule until today, and the judge was handed `.a    .b` for the
+  // first — a descendant. The unit cases take their page judge from
+  // test/fixtures/comment-boundary.mjs, and this is where that table is
+  // established: the unit workflow has no browser. Three readings, each the
+  // browser's own and none of them ours:
+  //
+  //   · THE CASCADE — every spelling's rule, as written, in the page's own
+  //     stylesheet: does it reach the paragraph? A custom property per
+  //     spelling, read back through getComputedStyle;
+  //   · THE STRING THE JUDGE IS HANDED — `plainSelectors` of that rule — asked
+  //     of the page's own querySelectorAll, which must agree with the cascade;
+  //   · THE REAL RENDER CHECK over the owner's pair: the rule the lane wrote is
+  //     reported dead and the stored rule is not, on the same pages.
+  //
+  // IT NEEDS NO BUILD SERVICE, so it stands on its own: the render check serves
+  // a scratch directory holding one document.
+  {
+    const { SPELLINGS, PARAGRAPH_HTML, RULE, STORED_SEL, WRITTEN_SEL } = await import("../fixtures/comment-boundary.mjs");
+    const { plainSelectors } = await import("../../builder/site-freecss.mjs");
+    const { checkRender, launchChromium } = await import("../../builder/render-check.mjs");
+    // THIS PROCESS LAUNCHES THE BROWSER HERE, not the build service, so it
+    // needs the path `chromiumEnv` would hand a spawned one.
+    if (!process.env.CHROMIUM_PATH && chromiumEnv().CHROMIUM_PATH) process.env.CHROMIUM_PATH = chromiumEnv().CHROMIUM_PATH;
+    const { chromium } = await import("playwright-core");
+    const { browser } = await launchChromium(chromium);
+    let seen = null;
+    try {
+      const pg = await browser.newPage();
+      const sheet = SPELLINGS.map((s, i) => s.written + "{--hit-" + i + ":1}").join("\n");
+      await pg.setContent("<!doctype html><html><head><style>" + sheet + "</style></head><body><main>" + PARAGRAPH_HTML + "</main></body></html>", { waitUntil: "load", timeout: 10000 });
+      seen = await pg.evaluate((list) => {
+        const p = document.querySelector("p");
+        const cs = getComputedStyle(p);
+        const count = (sel) => { try { return document.querySelectorAll(sel).length; } catch { return -1; } };
+        const rules = [...document.styleSheets[0].cssRules];
+        return list.map((s, i) => ({
+          applied: cs.getPropertyValue("--hit-" + i).trim() === "1",
+          read: rules[i] ? rules[i].selectorText : null,
+          judged: count(s.judged),
+        }));
+      }, SPELLINGS);
+    } finally { await browser.close(); }
+    // THE OBSERVER IS ALIVE: the page answered one reading per spelling, and
+    // its stylesheet held every rule — a rule the browser dropped would read
+    // as "does not apply" for a reason that has nothing to do with the page.
+    ok("the browser read every spelling of the fixture's rule",
+      Array.isArray(seen) && seen.length === SPELLINGS.length && seen.every((x) => typeof x.read === "string"),
+      JSON.stringify(seen).slice(0, 300));
+    SPELLINGS.forEach((s, i) => {
+      const x = (seen && seen[i]) || {};
+      ok(`the page's cascade ${s.live ? "applies" : "does not apply"} ${JSON.stringify(s.written)} to <p class="a b"> (the browser reads it as ${JSON.stringify(x.read)})`,
+        x.applied === s.live, JSON.stringify(x));
+      ok(`plainSelectors hands the judge ${JSON.stringify(s.judged)} for ${JSON.stringify(s.written)}`,
+        JSON.stringify(plainSelectors(RULE(s.written))) === JSON.stringify([s.judged]), JSON.stringify(plainSelectors(RULE(s.written))));
+      ok(`…and the page's own querySelectorAll ${s.live ? "finds" : "finds nothing for"} ${JSON.stringify(s.judged)}, as the cascade does`,
+        x.judged >= 0 && (x.judged > 0) === s.live, JSON.stringify(x));
+    });
+
+    // THE REAL RENDER CHECK, over the owner's pair on one page.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "comment-boundary-"));
+    try {
+      const pair = RULE(STORED_SEL) + "\n" + RULE(WRITTEN_SEL);
+      fs.writeFileSync(path.join(dir, "index.html"), "<!doctype html><html><head><meta charset=\"utf-8\"><title>Hours</title><style>" + pair + "</style></head><body><main>" + PARAGRAPH_HTML + "</main></body></html>");
+      const asked = plainSelectors(pair);
+      ok("the render check is asked about both rules, each in the spelling that means what the rule means",
+        JSON.stringify(asked) === JSON.stringify([".a/**/.b", ".a .b"]), JSON.stringify(asked));
+      const rep = await checkRender(dir, ["/"], null, null, { selectors: asked });
+      ok("the render check looked at the page",
+        !!rep && rep.ok === true && rep.selectorsLooked > 0, JSON.stringify(rep && { ok: rep.ok, error: rep.error, looked: rep.selectorsLooked }).slice(0, 200));
+      ok("…and reports the rule the lane wrote dead, and the stored rule alive",
+        JSON.stringify((rep && rep.deadSelectors) || []) === JSON.stringify([".a .b"]), JSON.stringify(rep && rep.deadSelectors));
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  }
+
   // ── STOPPING REFUSES A LAUNCH (stage 3a, 2026-09-05) — LAST, because it ends the service ──
   //
   // Cloudflare stops an instance with SIGTERM; the service drains what it

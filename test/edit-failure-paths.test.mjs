@@ -35,6 +35,9 @@ import { editBrowserReply } from "../scripts/addon-sweep.mjs";
 import fs from "node:fs";
 import { readCss, selectorsToJudge, plainSelectors } from "../builder/site-freecss.mjs";
 import { roomSentence } from "../builder/container-room.mjs";
+// WHICH SPELLING OF A RULE REACHES THE FIXTURE'S PARAGRAPH, as a real Chromium
+// answers it (test/integration/site-build.mjs establishes the table).
+import { SPELLINGS, PARAGRAPH_JSX, RULE, STORED_SEL, WRITTEN_SEL } from "./fixtures/comment-boundary.mjs";
 
 const T = { pick: pickTool().name, lane: editTool("css").name, nav: NAV_TOOL.name };
 const USER = { id: "u-failpaths-1", email: "owner@example.com" };
@@ -663,6 +666,159 @@ for (const mode of ["sync", "job"]) {
     assert.equal(r.builds.length, 1, "not one build");
     assert.equal(r.reply && r.reply.ok, true, JSON.stringify(r.reply));
     assert.equal(r.config.css, QUOTED_PRETTY, "the lane's answer was not stored");
+    assert.equal(r.said.text, LOOK_SAID);
+  });
+}
+
+// ── A COMMENT IS A TOKEN BOUNDARY, NOT WHITESPACE (2026-09-26) ──────────────
+//
+// Owner: *"Preserve selector meaning across both readers. Do not simply delete
+// every comment and concatenate tokens; that can change token boundaries. Keep
+// uncertain differences classified as changed."*
+//
+// REPRODUCED on e49a370c, through the queued edit route. The page carries
+// `<p className="a b">` and nothing inside it; the stored rule is `.a/**/.b{…}`
+// — the compound `.a.b`, which reaches the paragraph — and the lane answered
+// `.a .b{…}`, a descendant that reaches nothing. The rule key read the comment
+// as whitespace, so the two were one rule: `cssVerify: []`, no selector judged,
+// the stylesheet stored and published, and the screen said the look was
+// updated. The other reader had the same defect the other way round: a working
+// rule WRITTEN with a comment was handed to the judge with the comment turned
+// into spaces — a descendant the page does not have.
+//
+// THE PAGE JUDGE READS THE BROWSER'S TABLE (`SPELLINGS`,
+// test/fixtures/comment-boundary.mjs), which test/integration/site-build.mjs
+// establishes in a real Chromium. A judged string the table does not hold is
+// recorded as UNKNOWN and fails the case — never guessed at.
+
+const HOURS_ASK = "Make the opening hours forest green.";
+const HOURS_PAGES = [
+  { path: "index.tsx", source: page("/", "<section><h2>Opening hours</h2>" + PARAGRAPH_JSX + "<Link to=\"/visit\">Find us</Link></section>") },
+  STORED[1],
+];
+// The stored rule reaches the paragraph; the lane's rule reaches nothing.
+const STORED_RULE = RULE(STORED_SEL);
+const WRITTEN_RULE = RULE(WRITTEN_SEL);
+const BOUNDARY = new Map(SPELLINGS.map((s) => [s.judged, s.live]));
+
+function boundaryJudge({ seen = null } = {}) {
+  return (n, sent) => {
+    const sheet = readCss(sent && sent.css).css;
+    const looked = selectorsToJudge(sheet, sent && sent.cssVerify);
+    const src = Object.values((sent && sent.files) || {}).join("\n");
+    assert.ok(src.includes(PARAGRAPH_JSX), "the build carried no page with the paragraph, so this judges nothing");
+    const unknown = looked.filter((s) => !BOUNDARY.has(s));
+    const dead = looked.filter((s) => BOUNDARY.get(s) !== true);
+    if (seen) seen.push({ looked, dead, unknown });
+    return { ok: true, checked: 2, pages: 1, findings: [], ...(dead.length ? { deadSelectors: dead, selectorsLooked: looked.length } : {}), landmarks: [] };
+  };
+}
+
+function hoursSite(mode, css = STORED_RULE) {
+  const slug = "fail-" + mode + "-" + hex32().slice(0, 8);
+  const b = bucket(slug);
+  b.store.set("source/" + slug + "/pages.json", JSON.stringify(HOURS_PAGES));
+  b.store.set(CONFIG_KEY(slug), JSON.stringify({ look: LOOK, css }));
+  return { slug, b };
+}
+
+test("the page judge reads the browser's table: the stored rule reaches the paragraph and the one the lane wrote does not", () => {
+  const seen = [];
+  const files = { "src/routes/index.tsx": HOURS_PAGES[0].source };
+  boundaryJudge({ seen })(1, { css: STORED_RULE + "\n" + WRITTEN_RULE, files });
+  assert.deepEqual(seen, [{ looked: [STORED_SEL, WRITTEN_SEL], dead: [WRITTEN_SEL], unknown: [] }]);
+});
+
+for (const mode of ["sync", "job"]) {
+  test("a compound rule the lane rewrote as a descendant is sent to be judged, found dead against the page, and corrected (" + mode + ")", async () => {
+    const looked = [];
+    const r = await drive({ mode, site: hoursSite(mode), routed: { layer: "look" }, ask: HOURS_ASK, pick: PICK_CSS, lanes: [{ css: WRITTEN_RULE }, { css: STORED_RULE }], render: boundaryJudge({ seen: looked }) });
+    // THE VERIFICATION PAYLOAD: the first publish is held for the rule the
+    // lane wrote — the defect sent `[]` — and for nothing the request left as
+    // it was.
+    assert.deepEqual(verified(r)[0], [WRITTEN_SEL], "the first publish was not held for the rewritten rule");
+    assert.equal(sheetOf(r.builds[0]), WRITTEN_RULE, "the first build did not carry the lane's answer");
+    // JUDGED AGAINST THE PAGE, BY THE BROWSER'S TABLE, AND IT REACHES NOTHING.
+    assert.deepEqual(looked[0], { looked: [WRITTEN_SEL], dead: [WRITTEN_SEL], unknown: [] }, "the rewritten rule was not judged, or not found dead");
+    // THE CORRECTION WAS ASKED ABOUT IT, AND ONLY IT.
+    assert.deepEqual(r.models, [T.pick, T.lane, T.lane], "not the picker, the css lane and the one correction");
+    assert.deepEqual(correctionAsked(r), [WRITTEN_SEL], "the correction round was not asked about the rewritten rule");
+    assert.equal(r.builds.length, 2, "not the build and the one rebuild");
+    // THE SECOND PUBLISH: a job verifies what the corrected sheet still differs
+    // by — nothing, it is the sheet the site had — and the synchronous path
+    // verifies nothing, as before.
+    assert.deepEqual(verified(r)[1], mode === "job" ? [] : undefined, "the second publish was held for the wrong rules");
+    assert.equal(sheetOf(r.builds[1]), STORED_RULE, "the rebuild did not carry the correction");
+    assert.equal(r.reply && r.reply.ok, true, "the corrected edit did not publish: " + JSON.stringify(r.reply));
+    if (mode === "job") assert.equal(r.committed, true, "the corrected edit was not committed");
+    // WHAT IS STORED: the rule the page matches, comment and all.
+    assert.equal(r.config.css, STORED_RULE, "the stored stylesheet is not the correction");
+    // THE LEDGER: the css lane; the correction is not billed.
+    if (mode === "sync") {
+      assert.deepEqual(r.debits, [2], "not the css lane collected");
+      assert.deepEqual(r.credited, [], "a refund was made");
+    } else {
+      assert.deepEqual(r.reserves, [2], "not the css lane reserved");
+      assert.equal(r.row.billing, "finalized", "the job was not settled");
+    }
+    assert.equal(r.reply.cost, 2, "the reply's cost is not what the ledger holds");
+    assert.equal(r.said.text, LOOK_SAID);
+    assert.deepEqual(r.said.actions, ["refresh the credit balance"]);
+  });
+}
+
+test("a descendant the correction does not put right is refused: nothing published, the stylesheet put back, and the next edit ships the rule the page matches (job)", async () => {
+  const looked = [];
+  const r = await drive({ mode: "job", site: hoursSite("job"), routed: { layer: "look" }, ask: HOURS_ASK, pick: PICK_CSS, lanes: [{ css: WRITTEN_RULE }, { css: WRITTEN_RULE }], render: boundaryJudge({ seen: looked }) });
+  // BOTH PUBLISHES ASKED ABOUT THE REWRITTEN RULE, AND BOTH FOUND IT DEAD.
+  assert.deepEqual(verified(r), [[WRITTEN_SEL], [WRITTEN_SEL]], "the publishes were not held for the rewritten rule");
+  assert.deepEqual(looked.map((l) => [l.dead, l.unknown]), [[[WRITTEN_SEL], []], [[WRITTEN_SEL], []]], "the rewritten rule was not found dead twice");
+  assert.deepEqual(correctionAsked(r), [WRITTEN_SEL]);
+  // REFUSED, AND NOTHING WENT OUT.
+  assert.equal(r.reply && r.reply.ok, false, "a rule that still reaches nothing was published: " + JSON.stringify(r.reply));
+  assert.equal(r.reply.error, "unverified", JSON.stringify(r.reply));
+  assert.equal(r.committed, false, "the refused edit was committed");
+  assert.deepEqual([...r.site.b.store.keys()].filter((k) => k.startsWith("current/")), [], "a version was activated");
+  // PUT BACK: the stored sheet is the one the page matches.
+  assert.equal(r.config.css, STORED_RULE, "the rewritten stylesheet is still stored");
+  assert.deepEqual(r.reserves, [2], "not the css lane reserved");
+  assert.equal(r.row.billing, "refunded", "the refused job was not refunded");
+  assert.equal(r.said.text, "⚠️ " + STOPPED + " This edit cost you nothing. Reading your message cost 2 credits.");
+  assert.deepEqual(r.said.actions, [], "a refusal started something");
+  // AND THE NEXT, UNRELATED EDIT SHIPS THE RULE THE PAGE MATCHES.
+  const next = await drive({ mode: "sync", routed: { layer: "look" }, ask: NAME_ASK, pick: { fields: ["brand"] }, lanes: [{ brand: "Harbour Loaf Co" }], site: r.site, render: boundaryJudge() });
+  assert.equal(next.reply && next.reply.ok, true, "the next message did not go through: " + JSON.stringify(next.reply));
+  assert.equal(next.builds.length, 1, "the next message did not build once");
+  assert.equal(sheetOf(next.builds[0]), STORED_RULE, "the next, unrelated edit did not ship the stored rule");
+});
+
+for (const mode of ["sync", "job"]) {
+  test("a new rule written with a comment between its classes is judged by what it means, and ships without a correction (" + mode + ")", async () => {
+    const looked = [];
+    const wrote = STALE + "\n" + RULE(".a/* the hours */.b");
+    const r = await drive({ mode, site: hoursSite(mode, STALE), routed: { layer: "look" }, ask: HOURS_ASK, pick: PICK_CSS, lanes: [{ css: wrote }], render: boundaryJudge({ seen: looked }) });
+    // SENT, AND JUDGED, AS THE COMPOUND IT IS — the defect handed the judge the
+    // comment as spaces, a descendant the page does not have.
+    assert.deepEqual(verified(r), [[".a/**/.b"]], "the publish was not held for the new rule, in the spelling that means what it means");
+    assert.deepEqual(looked, [{ looked: [".a/**/.b"], dead: [], unknown: [] }], "the new rule was not judged as the compound it is");
+    assert.deepEqual(r.models, [T.pick, T.lane], "a correction ran for a rule the page matches");
+    assert.equal(r.builds.length, 1, "not one build");
+    assert.equal(r.reply && r.reply.ok, true, JSON.stringify(r.reply));
+    assert.equal(r.config.css, wrote, "the lane's answer was not stored");
+    assert.equal(r.said.text, LOOK_SAID);
+  });
+
+  test("control: comments CSS reads as nothing, and one boundary spelled another way, are sent to be judged for nothing (" + mode + ")", async () => {
+    const looked = [];
+    // NO TRAILING NEWLINE: the store trims one, and this compares what it holds.
+    const pretty = "/* the opening hours */\n.a/* the hours */.b {\n  color: #014421; /* forest */\n}";
+    const r = await drive({ mode, site: hoursSite(mode), routed: { layer: "look" }, ask: HOURS_ASK, pick: PICK_CSS, lanes: [{ css: pretty }], render: boundaryJudge({ seen: looked }) });
+    assert.deepEqual(verified(r), [[]], "a reformatted sheet was held for a rule");
+    assert.deepEqual(looked, [{ looked: [], dead: [], unknown: [] }], "a reformatted sheet had a rule judged");
+    assert.deepEqual(r.models, [T.pick, T.lane], "a reformatted sheet bought a correction");
+    assert.equal(r.builds.length, 1, "not one build");
+    assert.equal(r.reply && r.reply.ok, true, JSON.stringify(r.reply));
+    assert.equal(r.config.css, pretty, "the lane's answer was not stored");
     assert.equal(r.said.text, LOOK_SAID);
   });
 }

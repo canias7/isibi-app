@@ -423,23 +423,37 @@ export function cssNote(report) {
 // A selector this skips is not judged safe; it is judged UNJUDGEABLE, and the
 // difference matters — see `deadNote`, which counts what was looked at.
 
-/** Split a selector list on commas that are not inside `(`, `[` or a string. */
-function splitSelectors(list) {
+/**
+ * Where each selector in a list starts and ends: split on the commas that are
+ * not inside `(`, `[` or a string, each span trimmed, an empty one dropped.
+ *
+ * SPANS RATHER THAN STRINGS (2026-09-26), so the walker can cut each selector
+ * out of the sheet's own text at the offsets it found it at in the blanked copy
+ * — see `judgedSelectors`. Every boundary and every trim is the one the string
+ * splitter this replaced made.
+ */
+function selectorSpans(list) {
+  const s = String(list);
   const out = [];
-  let buf = "", depth = 0, quote = "";
-  for (const ch of String(list)) {
-    if (quote) { buf += ch; if (ch === quote) quote = ""; continue; }
-    if (ch === '"' || ch === "'") { quote = ch; buf += ch; continue; }
+  const push = (a, b) => {
+    while (a < b && /\s/.test(s[a])) a++;
+    while (b > a && /\s/.test(s[b - 1])) b--;
+    if (b > a) out.push([a, b]);
+  };
+  let depth = 0, quote = "", start = 0;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (quote) { if (ch === quote) quote = ""; continue; }
+    if (ch === '"' || ch === "'") { quote = ch; continue; }
     if (ch === "(" || ch === "[") depth++;
     else if (ch === ")" || ch === "]") depth--;
     // THE COMMA INSIDE `:is(a, b)` IS NOT A SELECTOR BOUNDARY, and a flat
     // `split(",")` is this repo's own recorded "flat scans where depth matters"
     // trap — written wrong five-plus times before this one.
-    if (ch === "," && depth <= 0) { out.push(buf.trim()); buf = ""; continue; }
-    buf += ch;
+    if (ch === "," && depth <= 0) { push(start, i); start = i + 1; }
   }
-  if (buf.trim()) out.push(buf.trim());
-  return out.filter(Boolean);
+  push(start, s.length);
+  return out;
 }
 
 /** The state hooks a static DOM cannot answer for. See the block above. */
@@ -478,9 +492,10 @@ export function judgeableSelector(sel) {
  * matches the two by equality. Two walkers would be two ideas of where a
  * prelude starts, and the day they differed a rule this request broke would
  * slip through the match unjudged: the silent direction. So each rule carries
- * the selectors `plainSelectors` has always taken from it, and its `ctx` (the
- * at-rules around it), `prelude` and `body` (the declarations) ride beside them
- * for the one question only the edit route asks — is this rule new?
+ * the selectors `plainSelectors` takes from it — each cut from the sheet's own
+ * text, respelled only where a comment touched it (`judgedSelectors`) — and its
+ * `ctx` (the at-rules around it), `prelude` and `body` (the declarations) ride
+ * beside them for the one question only the edit route asks — is this rule new?
  *
  * THOSE THREE ARE THE SHEET'S OWN TEXT, comments and all, cut at the walker's
  * offsets — which blanking comments does not move, being length-preserving —
@@ -506,6 +521,7 @@ function styleRules(css) {
     if (ch === "{") {
       const prelude = buf.trim();
       const text = css.slice(from, i);
+      const blank = src.slice(from, i);
       buf = "";
       from = i + 1;
       const isAt = prelude.startsWith("@");
@@ -520,7 +536,7 @@ function styleRules(css) {
         rule = {
           ctx: stack.filter((f) => f.at !== null).map((f) => f.at),
           prelude: text, body: null, start: i,
-          selectors: splitSelectors(prelude).filter((one) => judgeableSelector(one)),
+          selectors: judgedSelectors(text, blank),
         };
         rules.push(rule);
       }
@@ -574,11 +590,24 @@ export function plainSelectors(css) {
 // selector matching nothing with nothing judged — reproduced through the queued
 // edit route: `cssVerify: []`, one build, committed, "Updated the look".
 //
+// ⚠ AND IT THEN READ A COMMENT AS WHITESPACE, AND SO DID WHAT THE JUDGE IS
+// HANDED (2026-09-26, the owner's second review: *"Preserve selector meaning
+// across both readers. Do not simply delete every comment and concatenate
+// tokens; that can change token boundaries."*). CSS consumes a comment WITHOUT
+// producing whitespace, so `.a/**/.b` is the compound `.a.b` — measured in a
+// real Chromium, whose own CSSOM serialises that rule as `.a.b` and applies it
+// to `<p class="a b">` — while `.a .b` is a descendant matching nothing there.
+// The key read the two as one rule, and the walker's blanked copy handed the
+// judge `.a    .b`, a descendant too. Nor is a comment NOTHING everywhere:
+// `a/**/b` is two tokens, and deleting the comment makes one.
+//
 // SO THE KEY READS THE SHEET'S OWN TEXT THE WAY CSS DOES, AND APPLIES ONLY THE
 // EQUIVALENCES CSS ITSELF DEFINES:
 //
 //   · a run of whitespace is one whitespace — the tokenizer makes it one token;
-//   · a comment is whitespace — the walker's reading, and so the judge's;
+//   · a comment touching whitespace or an end is part of that whitespace, and a
+//     comment beside a delimiter no token merges across — see `keepsBoundary` —
+//     is nothing;
 //   · whitespace at either end, and next to: a `,`; a `{`, `}` or `;` at the top
 //     of a block; the `!` of a declaration; a declaration's own colon, and the
 //     colon of a feature in a condition — `(max-width: 600px)`;
@@ -589,19 +618,22 @@ export function plainSelectors(css) {
 // and is judged — what every rule was before the key existed. A string, all of
 // it; an escape, with the one whitespace a hex escape consumes (`\31 0` is the
 // class "10", `\31  0` a class and a descendant); an unquoted `url(…)`, which is
-// one token; and every colon in a SELECTOR — the rule's own, a nested rule's,
-// `@scope`'s root and `selector()`'s argument — where whitespace before it is a
-// combinator: `a :hover` is not `a:hover`. It never lowercases, reorders or
-// unquotes, so `'a'` and `"a"` are two spellings of one value and read as a
-// change: uncertain, therefore changed.
+// one token; any other comment, a token boundary that is not whitespace, which
+// is spelled `/**/`; and every colon in a SELECTOR — the rule's own, a nested
+// rule's, `@scope`'s root and `selector()`'s argument — where whitespace before
+// it is a combinator: `a :hover` is not `a:hover`. It never lowercases,
+// reorders or unquotes, so `'a'` and `"a"` are two spellings of one value and
+// read as a change: uncertain, therefore changed.
 
 const CSS_SPACE = /[ \t\n\r\f]/;
 const HEX_DIGIT = /[0-9a-fA-F]/;
 const NAME_CHAR = /[\w\-\u0080-\uffff]/;
-/** A run of whitespace, or a comment. */
+/** A run of whitespace. */
 const GAP = Object.freeze({ gap: true });
+/** A comment: never whitespace of its own — see `keepsBoundary`. */
+const COMMENT = Object.freeze({ comment: true });
 
-/** CSS text as pieces: a GAP, `{ raw }` kept exactly as written, or one character. */
+/** CSS text as pieces: a GAP, a COMMENT, `{ raw }` kept exactly as written, or one character. */
 function cssPieces(text) {
   const out = [];
   const n = text.length;
@@ -634,7 +666,7 @@ function cssPieces(text) {
       const end = text.indexOf("*/", i + 2);
       // AN UNCLOSED COMMENT IS KEPT: that what follows it is nothing is not established.
       if (end < 0) { out.push({ raw: text.slice(i) }); break; }
-      out.push(GAP);
+      out.push(COMMENT);
       i = end + 2;
       continue;
     }
@@ -669,6 +701,27 @@ function nameBefore(pieces, k) {
   return name;
 }
 
+/**
+ * IS A COMMENT BETWEEN THESE TWO PIECES A TOKEN BOUNDARY? — asked only of one
+ * with no whitespace beside it.
+ *
+ * CSS consumes a comment without producing anything, so it is NOTHING exactly
+ * where the pieces either side would be separate tokens anyway, and a boundary
+ * everywhere else. A piece after which nothing can merge into it, or before
+ * which nothing can merge onto it, settles that on its own: `{`, `}`, `;`, `,`,
+ * `:`, `[`, `]` and `)` either side, and `(` and `>` only before the comment —
+ * `x(` would be a function and `-->` the end of an HTML comment. Everything
+ * else — a name, a digit, `.` (`1.5` is one number), `+` and `-` (so is `+5`),
+ * `@`, `#`, `%`, `|`, `/`, `*`, a string, an escape — may merge, so the comment
+ * is kept: uncertain, therefore a boundary, and a difference.
+ */
+const MERGES_NOTHING_AFTER = new Set(["{", "}", ";", ",", ":", "[", "]", ")", "(", ">"]);
+const MERGES_NOTHING_BEFORE = new Set(["{", "}", ";", ",", ":", "[", "]", ")"]);
+function keepsBoundary(prev, next) {
+  return !(typeof prev === "string" && MERGES_NOTHING_AFTER.has(prev))
+    && !(typeof next === "string" && MERGES_NOTHING_BEFORE.has(next));
+}
+
 /** A selector list: only the comma separating two of them sheds its whitespace. */
 function selectorTight(pieces) {
   return pieces.map((p) => p === ",");
@@ -682,7 +735,7 @@ function selectorTight(pieces) {
 function conditionTight(pieces) {
   const tight = pieces.map(() => false);
   let k0 = 0;
-  while (pieces[k0] === GAP) k0++;
+  while (pieces[k0] === GAP || pieces[k0] === COMMENT) k0++;
   let head = pieces[k0] === "@" ? "@" : "";
   for (let j = k0 + 1; head && typeof pieces[j] === "string" && NAME_CHAR.test(pieces[j]); j++) head += pieces[j];
   const scope = head.toLowerCase() === "@scope";
@@ -732,17 +785,17 @@ function blockTight(pieces) {
   cuts.push([from, pieces.length, null]);
   for (const [a, b, end] of cuts) {
     const seg = pieces.slice(a, b);
-    const first = seg.find((p) => p !== GAP);
+    const first = seg.find((p) => p !== GAP && p !== COMMENT);
     const t = end !== "{" ? declarationTight(seg) : first === "@" ? conditionTight(seg) : selectorTight(seg);
     for (let k = 0; k < t.length; k++) tight[a + k] = t[k];
   }
   let kept = null;
   for (let k = 0; k < pieces.length; k++) {
     const p = pieces[k];
-    if (p === GAP) continue;
+    if (p === GAP || p === COMMENT) continue;
     if (p === ";" && tight[k]) {
       let j = k + 1;
-      while (pieces[j] === GAP) j++;
+      while (pieces[j] === GAP || pieces[j] === COMMENT) j++;
       const next = j < pieces.length ? pieces[j] : null;
       if (kept === null || kept === "{" || kept === "}" || kept === ";" || next === null || next === "}" || next === ";") { drop[k] = true; continue; }
     }
@@ -751,17 +804,27 @@ function blockTight(pieces) {
   return { tight, drop };
 }
 
-/** The pieces spelled one way: a GAP is one space unless a tight piece is beside it. */
+/**
+ * The pieces spelled one way: a GAP is one space unless a tight piece is beside
+ * it, a comment with whitespace beside it is that whitespace, and one with none
+ * is an empty comment where it is a token boundary and nothing where it is not.
+ */
 function spell(pieces, tight, drop = null) {
-  let out = "", gap = false, prevTight = true;
+  let out = "", gap = false, note = false, prev = null, prevTight = true;
   for (let k = 0; k < pieces.length; k++) {
     const p = pieces[k];
     if (p === GAP) { gap = true; continue; }
+    if (p === COMMENT) { note = true; continue; }
     if (drop && drop[k]) continue;
-    if (gap && !prevTight && !tight[k]) out += " ";
+    if (prev !== null) {
+      if (gap) { if (!prevTight && !tight[k]) out += " "; }
+      else if (note && keepsBoundary(prev, p)) out += "/**/";
+    }
     out += typeof p === "string" ? p : p.raw;
+    prev = p;
     prevTight = tight[k];
     gap = false;
+    note = false;
   }
   return out;
 }
@@ -773,6 +836,37 @@ function spellCss(text, kind) {
     return spell(pieces, tight, drop);
   }
   return spell(pieces, kind === "condition" ? conditionTight(pieces) : selectorTight(pieces));
+}
+
+// ── WHAT THE JUDGE IS HANDED MEANS WHAT THE RULE MEANS (2026-09-26) ─────────
+//
+// The build service asks the page's own `querySelectorAll` about each selector
+// `plainSelectors` gives it, so the STRING is the question. It was cut from the
+// blanked copy, where a comment is spaces: `.a/**/.b` — the compound `.a.b`,
+// live on `<p class="a b">` — reached the judge as the descendant `.a    .b`,
+// which matches nothing there, and `[data-x="/* a */"]` as an attribute value
+// of seven spaces. So each selector is cut from the sheet's own text at the same
+// offsets, and only where a comment touched it is it respelled, with the key's
+// own comment rule (`spell`): a comment that is a boundary stays one (`/**/`,
+// which the browser reads as the boundary it is), one that is not goes, and a
+// string is kept whole. A selector no comment touched is the string the old
+// cut produced, byte for byte — the gate matches these by equality, and every
+// report, prompt and sentence that quotes a selector reads it.
+
+function judgedSelectors(text, blank) {
+  const out = [];
+  for (const [a, b] of selectorSpans(blank)) {
+    const part = text.slice(a, b);
+    const one = part === blank.slice(a, b) ? part : asJudged(part);
+    if (judgeableSelector(one)) out.push(one);
+  }
+  return out;
+}
+
+/** One selector as written, each comment spelled as what CSS reads it as. */
+function asJudged(text) {
+  const pieces = cssPieces(String(text || ""));
+  return spell(pieces, pieces.map(() => false));
 }
 
 function ruleKey(r) {

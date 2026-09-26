@@ -22,6 +22,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { plainSelectors, changedSelectors, selectorsToJudge } from "../builder/site-freecss.mjs";
+import { SPELLINGS, RULE, STORED_SEL, WRITTEN_SEL } from "./fixtures/comment-boundary.mjs";
 
 const STALE = ".newsletter-band{background:#f4e9d8}";
 const NEW_DEAD = "header button{background-color:#014421}";
@@ -122,50 +123,135 @@ test("an equivalence CSS does not establish reads as changed and is judged — n
   assert.deepEqual(c(".a{--x:a:b}", ".a{--x:a : b}"), [".a"], "a second colon in a value");
 });
 
+// ── A COMMENT IS A TOKEN BOUNDARY, NOT WHITESPACE (2026-09-26) ─────────────
+//
+// Owner: *"Preserve selector meaning across both readers. Do not simply delete
+// every comment and concatenate tokens; that can change token boundaries. Keep
+// uncertain differences classified as changed."*
+//
+// REPRODUCED on e49a370c: `changedSelectors(".a/**/.b{…}", ".a .b{…}")`
+// answered `[]` — the key read the comment as whitespace — and `plainSelectors`
+// handed the judge `.a    .b` for the first rule, a descendant, where CSS reads
+// the compound `.a.b`. Which of the fixture's spellings reach `<p class="a b">`
+// is established in a real Chromium by test/integration/site-build.mjs; the
+// route cases are in test/edit-failure-paths.test.mjs.
+
+test("the owner's pair is two rules, and the judge is handed what each one means", () => {
+  const c = changedSelectors;
+  assert.deepEqual(c(RULE(STORED_SEL), RULE(WRITTEN_SEL)), [WRITTEN_SEL], "a comment and whitespace read as one rule");
+  assert.deepEqual(c(RULE(WRITTEN_SEL), RULE(STORED_SEL)), [STORED_SEL], "…the other way round");
+  // THE FIXTURE'S TABLE, SPELLED BY THE PRODUCT: every rule hands the judge the
+  // string the browser control asked the page about.
+  for (const s of SPELLINGS) assert.deepEqual(plainSelectors(RULE(s.written)), [s.judged], "the judge is handed another string for " + s.written);
+  assert.ok(SPELLINGS.some((s) => s.live) && SPELLINGS.some((s) => !s.live), "the table no longer holds both a live and a dead spelling");
+  // A COMMENT-SHAPED RUN INSIDE A QUOTED VALUE IS THE VALUE'S OWN TEXT.
+  assert.deepEqual(plainSelectors("[data-x=\"/* a */\"]{x:1}"), ["[data-x=\"/* a */\"]"], "a comment-shaped value was blanked");
+  // DELETING THE COMMENT WOULD MERGE TWO NAMES INTO ONE: `ab` is one name.
+  assert.deepEqual(plainSelectors("a/**/b{x:1}"), ["a/**/b"], "two names were merged, or read as a descendant");
+  // A COMMENT'S LENGTH NO LONGER DECIDES WHETHER A RULE IS JUDGED: blanked
+  // into spaces, this one ran past the 200-character bound and was never asked
+  // about.
+  assert.deepEqual(plainSelectors(".a/* " + "x".repeat(250) + " */.b{x:1}"), [".a/**/.b"], "a long comment hid the rule from the judge");
+  // A SELECTOR NO COMMENT TOUCHES IS THE STRING IT ALWAYS WAS, its whitespace
+  // included — the gate matches these by equality.
+  assert.deepEqual(plainSelectors("/* head */ .a  >  .b , .c/**/{x:1}"), [".a  >  .b", ".c"]);
+});
+
+test("control: a comment CSS reads as nothing, or as the whitespace beside it, names nothing", () => {
+  const c = changedSelectors;
+  assert.deepEqual(c(".a{x:1}", "/* the band */.a/* the band */{/* first */x:1/* last */}"), [], "at either end, and beside a brace");
+  assert.deepEqual(c(".a{color:red}", ".a{color:/**/red}"), [], "after a declaration's colon");
+  assert.deepEqual(c(".a,.b{x:1}", ".a/**/,/**/.b{x:1}"), [], "beside a comma");
+  assert.deepEqual(c(".a>.b{x:1}", ".a>/**/.b{x:1}"), [], "after a child combinator");
+  assert.deepEqual(c(".a[x]{y:1}", ".a/**/[x]{y:1}"), [], "before an attribute");
+  assert.deepEqual(c(".a{x:1;y:2}", ".a{x:1/**/;/**/y:2}"), [], "beside a semicolon");
+  assert.deepEqual(c(".a .b{x:1}", ".a /* the hours */ .b{x:1}"), [], "with whitespace beside it");
+  assert.deepEqual(c(".a .b{x:1}", ".a/* the hours */ .b{x:1}"), [], "with whitespace on one side");
+  assert.deepEqual(c(RULE(STORED_SEL), RULE(".a/* the hours */.b")), [], "one boundary, spelled two ways");
+  assert.deepEqual(c("@media (max-width:600px){.a{x:1}}", "@media (max-width:/**/600px)/**/{.a{x:1}}"), [], "in a condition");
+});
+
+test("a comment beside what may merge reads as changed, and is judged — never the other way", () => {
+  const c = changedSelectors;
+  // `.a.b` IS THE SAME ELEMENT — the browser control says so — but the key
+  // cannot establish that without knowing which tokens merge, so it is judged.
+  assert.deepEqual(c(RULE(STORED_SEL), RULE(".a.b")), [".a.b"], "a comment's boundary was read as nothing");
+  assert.deepEqual(c("a b{x:1}", "a/**/b{x:1}"), ["a/**/b"], "a boundary was read as whitespace");
+  assert.deepEqual(c("ab{x:1}", "a/**/b{x:1}"), ["a/**/b"], "two names were read as one");
+  assert.deepEqual(c(".a{margin:1.5em}", ".a{margin:1/**/.5em}"), [".a"], "a number split in two");
+  assert.deepEqual(c(".a{--w:1px}", ".a{--w:1/**/px}"), [".a"], "a dimension split in two");
+  assert.deepEqual(c(".a{x:a b}", ".a{x:a/**/b}"), [".a"], "a boundary in a value read as whitespace");
+  assert.deepEqual(c("@media (x){.a{y:1}}", "@media/**/(x){.a{y:1}}"), [".a"], "before a parenthesis, where a name and `(` make a function");
+});
+
 // A PROPERTY OVER RANDOM SHEETS, the formatting control at scale: whitespace and
-// comments added only where CSS ignores them — next to a `{`, `}`, `;` or `,`,
-// outside every string, escape and url — name nothing, in either direction;
-// and the sheets carry the constructs the key must not normalise.
+// comments — with whitespace beside them or none — added only where CSS ignores
+// them, next to a `{`, `}`, `;` or `,`, outside every string, escape and url,
+// name nothing, in either direction; and the sheets carry the constructs the
+// key must not normalise.
 test("formatting added only where CSS ignores it names nothing, over random sheets with quoted values and escapes", () => {
   const sels = ["[data-label=\"a  b\"]", "[data-x='p q']", ".md\\:flex", ".\\31 0", ".a\\ b", "header button", ".a, .b", "div > p", "& .n"];
   const decls = ["content:\"a  b\"", "--c:\"£  \"", "font-family:\"Open  Sans\", serif", "background:url(a.png)", "margin:0 auto !important", "color:rgb(1,2,3)", "content:\"{;}\""];
   const wrap = ["@media (max-width:600px)", "@supports selector([data-x=\"p  q\"])", "@scope ([data-label=\"a  b\"])", "@container style(--t:\"x  y\")"];
   let seed = 20260927;
-  const rnd = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
+  // EXACT INTEGER ARITHMETIC, READ FROM THE HIGH BITS (2026-09-26). This was
+  // `seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n`, and
+  // the product runs past 2^53, so it lost its low bits and every seed became a
+  // multiple of 512: `rnd(2)` answered 0 in 19,920 of 20,000 calls. MEASURED on
+  // the old generator, this property inserted formatting 183 times across its
+  // 1,500 sheets, and the battery below respaced a sheet 3 times in 3,000 pairs
+  // and used 6 of its 12 selectors. The floors below prove both now run.
+  const rnd = (n) => { seed = (Math.imul(seed, 1103515245) + 12345) >>> 0; return Math.floor((seed / 4294967296) * n); };
   const rule = () => sels[rnd(sels.length)] + "{" + decls[rnd(decls.length)] + ";" + decls[rnd(decls.length)] + "}";
   const sheet = () => {
     const out = [];
     for (let j = 1 + rnd(6); j > 0; j--) out.push(rnd(3) ? rule() : wrap[rnd(wrap.length)] + "{" + rule() + "}");
     return out.join("");
   };
-  const SPACES = [" ", "\n", "\n  ", "\t", " /* note; } { */ "];
-  // Whitespace beside the four delimiters, stepping over strings, escapes and urls.
-  const format = (css) => {
+  // A BARE COMMENT beside one of the four is nothing to CSS: nothing merges
+  // across a brace, a semicolon or a comma.
+  const SPACES = [" ", "\n", "\n  ", "\t", " /* note; } { */ ", "/* note */", "/**/"];
+  // Whitespace beside the four delimiters, stepping over strings, escapes and
+  // urls — what goes either side of each one is `pick`'s answer.
+  const format = (css, pick) => {
     let out = "";
     for (let i = 0; i < css.length; i++) {
       const ch = css[i];
       if (ch === "\"" || ch === "'") { const j = css.indexOf(ch, i + 1); out += css.slice(i, j + 1); i = j; continue; }
       if (ch === "\\") { out += css.slice(i, i + 2); i++; continue; }
       if (css.startsWith("url(", i)) { const j = css.indexOf(")", i); out += css.slice(i, j + 1); i = j; continue; }
-      if ("{};,".includes(ch)) { out += (rnd(2) ? SPACES[rnd(SPACES.length)] : "") + ch + (rnd(2) ? SPACES[rnd(SPACES.length)] : ""); continue; }
+      if ("{};,".includes(ch)) { out += pick() + ch + pick(); continue; }
       out += ch;
     }
     return out;
   };
-  let judged = 0, quoted = 0;
+  let inserted = 0;
+  const random = () => { if (!rnd(2)) return ""; inserted++; return SPACES[rnd(SPACES.length)]; };
+  let judged = 0, quoted = 0, bare = 0;
   for (let k = 0; k < 1500; k++) {
-    const before = sheet(), after = format(before);
+    const before = sheet(), after = format(before, random);
     assert.deepEqual(changedSelectors(before, after), [], "formatting named a rule: " + JSON.stringify([before, after]));
     assert.deepEqual(changedSelectors(after, before), [], "formatting named a rule (reversed): " + JSON.stringify([after, before]));
     assert.deepEqual(plainSelectors(after), plainSelectors(before), "formatting moved what the service judges: " + JSON.stringify([before, after]));
+    // AND A BARE COMMENT BOTH SIDES OF EVERY ONE OF THE FOUR, which the random
+    // picks reach only now and then — no whitespace anywhere beside it.
+    const wrapped = format(before, () => "/**/");
+    assert.deepEqual(changedSelectors(before, wrapped), [], "a bare comment beside a delimiter named a rule: " + JSON.stringify([before, wrapped]));
+    assert.deepEqual(changedSelectors(wrapped, before), [], "a bare comment beside a delimiter named a rule (reversed): " + JSON.stringify([wrapped, before]));
+    assert.deepEqual(plainSelectors(wrapped), plainSelectors(before), "a bare comment beside a delimiter moved what the service judges: " + JSON.stringify([before, wrapped]));
+    bare += wrapped.split("/**/").length - 1;
     judged += plainSelectors(before).length;
     if (/["']/.test(before)) quoted++;
   }
-  // THE OBSERVER IS ALIVE: the sheets had rules the service judges, and quoted
-  // values in them. MEASURED on this seed: 3,470 selectors judged, and 1,428 of
-  // the 1,500 sheets carrying a quoted value — the floors sit well under that.
+  // THE OBSERVER IS ALIVE: the sheets had rules the service judges and quoted
+  // values in them, the random picks really formatted them, and the wrapped
+  // sheets carried bare comments. MEASURED on this seed: 3,810 selectors
+  // judged, 1,462 of the 1,500 sheets carrying a quoted value, 24,558 random
+  // insertions and 49,134 bare comments — the floors sit well under each.
   assert.ok(judged > 2000, "the property judged almost nothing: " + judged);
   assert.ok(quoted > 1000, "the sheets carried no quoted values: " + quoted);
+  assert.ok(inserted > 10000, "the random picks formatted almost nothing: " + inserted);
+  assert.ok(bare > 20000, "the wrapped sheets carried almost no comments: " + bare);
 });
 
 // ── THE PROPERTY THE GATE RESTS ON ─────────────────────────────────────────
@@ -183,7 +269,8 @@ test("every selector changedSelectors names is one the build service would judge
   const decls = ["color:red", "background:#fff;", "--t: 1px", "content:\"{\"", "margin:0 auto"];
   const junk = ["/* { } ; */", "@layer a, b;", "@keyframes spin{from{opacity:0}to{opacity:1}}", "@font-face{font-family:x}", ";"];
   let seed = 20260926;
-  const rnd = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
+  // The formatting property above says why this generator is exact.
+  const rnd = (n) => { seed = (Math.imul(seed, 1103515245) + 12345) >>> 0; return Math.floor((seed / 4294967296) * n); };
   const rule = () => sels[rnd(sels.length)] + "{" + decls[rnd(decls.length)] + "}";
   const sheet = () => {
     const out = [];
@@ -194,9 +281,11 @@ test("every selector changedSelectors names is one the build service would judge
     }
     return out;
   };
+  const kinds = [0, 0, 0, 0, 0, 0];
   const mutate = (units) => {
     const u = units.slice();
     const k = rnd(6);
+    kinds[k]++;
     if (k === 0) return u.join("\n");
     if (k === 1) return u.join("\n").replace(/\{/g, " {\n  ").replace(/\}/g, "\n}\n");
     if (k === 2) { const i = rnd(u.length); u[i] = u[i].replace(/\{[^{}]*\}/, "{color:blue}"); return u.join("\n"); }
@@ -217,17 +306,17 @@ test("every selector changedSelectors names is one the build service would judge
     judgedAll += judged.size;
     if (!changed.length) quiet++;
   }
-  // THE OBSERVER IS ALIVE, both ways: the battery produced selectors to compare
-  // and pairs that name some and pairs that name none. MEASURED on this seed —
-  // 512 named of 1,062 judged, 2,488 of the 3,000 pairs naming nothing — and the
-  // floors sit well under that, so a walker that stopped reading rules fails
-  // here rather than passing over nothing. (511 and 2,489 before the key kept
-  // quoted text: ONE pair moved, measured pair by pair against the old module —
-  // the respacing mutation (`k === 1`) rewrites the brace inside `content:"{"`, a
-  // string whose value it changes, which the old key read as unchanged.)
-  assert.ok(judgedAll > 800, "the battery judged almost nothing: " + judgedAll);
-  assert.ok(named > 300 && named < judgedAll, "the battery named " + named + " of " + judgedAll);
+  // THE OBSERVER IS ALIVE, both ways: the battery produced selectors to
+  // compare, pairs that name some and pairs that name none, and reached every
+  // one of the six ways a lane answers a sheet. MEASURED on this seed — 1,185
+  // named of 7,035 judged, 1,975 of the 3,000 pairs naming nothing, each way
+  // reached 475–513 times — and the floors sit well under that, so a walker
+  // that stopped reading rules fails here rather than passing over nothing. (On
+  // the old generator it read 512 of 1,062 and 2,488, respacing 3 times.)
+  assert.ok(judgedAll > 3000, "the battery judged almost nothing: " + judgedAll);
+  assert.ok(named > 500 && named < judgedAll, "the battery named " + named + " of " + judgedAll);
   assert.ok(quiet > 1000 && quiet < 3000, "the battery did not exercise both an unchanged and a changed sheet: " + quiet);
+  assert.ok(kinds.every((n) => n > 300), "the battery did not reach every way a lane answers a sheet: " + kinds.join(", "));
 });
 
 test("selectorsToJudge judges every rule when asked nothing, and only the named rules the sheet has when asked", () => {
