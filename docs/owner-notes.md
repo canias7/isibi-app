@@ -219,9 +219,16 @@ How I tested it without spending anything:
   (it was blocked and the app said it couldn't tell what happened), and a job
   that never finished (it stopped and sent nothing more). That shows the
   browser side works; it can't show what the live server will answer.
-- There are 22 automated checks for it. I also made 33 deliberate breaks in the
-  new code, and every one was caught; 3 harmless comment edits passed, as they
-  should. All 8,040 tests pass.
+- There are 22 automated checks for it, and GitHub's own test run passed them
+  all. I also made 33 deliberate breaks in the new code, and every one was
+  caught; 3 harmless comment edits passed, as they should. All 8,041 tests
+  pass.
+- **One fix on the way:** the canary read a balance it couldn't parse as 0,
+  which would have switched off the 15-credit stop. It now treats that as
+  "unknown" and stops. I made 5 more deliberate breaks there, and all were
+  caught.
+- I tried to start the free rehearsal myself once; GitHub refused my session
+  again (403), so the press is yours.
 
 **The press, when you approve it** — about 7–8 credits (balance 65), and it
 stops before a message once 15 are spent:

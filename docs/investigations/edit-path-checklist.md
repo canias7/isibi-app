@@ -500,9 +500,13 @@ dispatch offers its box (`ui_scenario`).
     three messages, a rehearsal, a refused session, a message misrouted to the
     add-on (blocked), and a job that never finished. That proves the driver,
     never the live platform's answers.
-  - 22 unit cases, through a stand-in page that forces every stop.
+  - 22 unit cases, through a stand-in page that forces every stop; unit CI
+    green on `ca3a6fae` (8,040 tests), all 22 found passing by name.
   - Targeted probes: 33 mutants, all killed; 3 comment-only controls, all
     surviving.
+  - The canary's balance reader used to read an answer it could not parse as a
+    balance of 0, which would switch off the budget stop. It answers "unknown"
+    now, and unknown refuses (5 more probes, all killed).
 
 Everything in the last column is read afterwards, free: the job rows and the
 ledger (read-only), and the live pages in a real browser.

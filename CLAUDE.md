@@ -9616,7 +9616,27 @@ addition."* `scripts/canary-ui.mjs`, the `ui_scenario` box on `edit-canary.yml`,
     exit on its own, and the spend switch must not read the scenario box.
   - **Suite 8,040 locally** (`# tests 8040 / # pass 8038 / # fail 0 /
     # skipped 2`, `duration_ms 144,142`): +22 against 8,018, exactly the new
-    file.
+    file. **CI matches**: unit run `36278361266` on `ca3a6fae` reads `8040 /
+    8036 / 0 / 4` (`duration_ms 120,507`). All 22 cases were found passing by
+    name in the downloaded log, with 8,040 distinct result numbers and zero
+    `not ok`.
+- **⚠ AND THE CANARY'S BALANCE READER TURNED CANNOT-TELL INTO 0.**
+  - `balanceNow` was `Number((rows[0] || {}).balance || 0)`. So a missing row, a
+    PostgREST error body at any status and a null balance all read as a real
+    balance of 0. The canary's free check "the balance is readable" passed on
+    it, and the UI mode's budget could never trip when both readings were that
+    0.
+  - `readBalance(ok, rows)` in `scripts/canary-watch.mjs` answers -1 for
+    anything but exactly one row carrying a finite, non-negative number (or
+    the digits PostgREST can send). It never coerces: `Number(null)` is 0.
+  - Driven over 14 shapes in `test/canary-watch.test.mjs`, beside a check that
+    `balanceNow` goes through it. Probes `scripts/mutants/canary-balance.json`:
+    5 mutants, 5 killed, the comment-only control surviving.
+  - Found after `ca3a6fae` was pushed, and fixed before the handover. The
+    session's one try at the free rehearsal dispatch (spend `no`) answered
+    **403** again and was not retried.
+  - **Suite 8,041 locally** (`# tests 8041 / # pass 8039 / # fail 0 /
+    # skipped 2`, `duration_ms 143,296`): +1, the new case.
 
 ### A SECTION HEADED BY THE KIT (2026-09-26, `2f2fed58` + `5ec82214`, merged and deployed in deploy 2162)
 

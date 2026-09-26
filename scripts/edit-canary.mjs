@@ -32,7 +32,7 @@ import { EditPoll, readInstruction, instructionRefusal, watchEdit, watchReport, 
 // THE AFTER-READ'S WAIT AND ITS VERDICT (run 32), in the same module for the
 // same reason: whether a comparison is about this job is a decision worth
 // driving, and it cannot be reached through a script that spends money.
-import { afterReadTarget, awaitVersion, afterReadVerdict, sameVersion, verdictSentence } from "./canary-watch.mjs";
+import { afterReadTarget, awaitVersion, afterReadVerdict, sameVersion, verdictSentence, readBalance } from "./canary-watch.mjs";
 // THE READ-ONLY LOOKUP. Its own module for the same reason: the decisions it
 // makes about billing and about what the old watch would have seen are worth
 // driving, and they cannot be reached through a script that spends money.
@@ -520,9 +520,14 @@ check("the source read is complete (reads all true)", BEFORE.readsComplete === t
 //
 // THE NUMBER ONLY. The service key is in the header and never in the output,
 // and nothing here prints a token, a url with credentials in it, or a row.
+//
+// CANNOT-TELL IS -1, NEVER 0: a missing row or an error body used to read as a
+// balance of 0 (`readBalance`, in canary-watch.mjs, says why that matters).
 async function balanceNow() {
-  return fetch(`${SUPABASE_URL}/rest/v1/credits?user_id=eq.${UID}&select=balance`, { headers: svc })
-    .then((r) => r.json()).then((r) => Number((r[0] || {}).balance || 0)).catch(() => -1);
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/credits?user_id=eq.${UID}&select=balance`, { headers: svc });
+    return readBalance(r.ok, await r.json().catch(() => null));
+  } catch { return -1; }
 }
 const BAL = await balanceNow();
 console.log(`  balance ${BAL < 0 ? "UNREADABLE" : BAL}`);

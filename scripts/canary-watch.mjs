@@ -224,6 +224,25 @@ export function routesRefusal(slug, why) {
     "Routing without the site's page list lets the router name a page the site does not have.";
 }
 
+// ── THE BALANCE, OR "CANNOT TELL" ───────────────────────────────────────────
+//
+// The canary's balance reader was `Number((rows[0] || {}).balance || 0)`, so a
+// missing row, a PostgREST error object answered at any status and a null
+// balance all read as a real balance of 0. The free check "the balance is
+// readable" passed on it, and the UI mode's budget — the spend so far against
+// the balance before the first message — can never trip when both readings
+// are that 0. Cannot-tell is -1 now, and every reader of -1 refuses.
+
+/** One balance from the `credits` read: a finite number of credits, or -1 when that is not known. */
+export function readBalance(ok, rows) {
+  if (ok !== true || !Array.isArray(rows) || rows.length !== 1 || !rows[0] || typeof rows[0] !== "object") return -1;
+  const v = rows[0].balance;
+  // A number, or the digits PostgREST can send for a numeric column. Never a
+  // coercion: Number(null) is 0 and Number([]) is 0.
+  const n = typeof v === "number" ? v : typeof v === "string" && /^\d+(\.\d+)?$/.test(v) ? Number(v) : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : -1;
+}
+
 // ── THE AFTER-READ WAITS FOR THIS JOB'S OWN VERSION (run 32, 2026-09-25) ────
 //
 // Run 32 published a section move, and its after-read was the PREVIOUS build:

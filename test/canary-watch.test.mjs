@@ -20,6 +20,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { EditPoll, readInstruction, instructionRefusal, watchEdit, watchReport, readRoutes, routesRefusal, MAX_ROUTER_PAGES } from "../scripts/canary-watch.mjs";
 import { publishedVersion, afterReadTarget, sameVersion, awaitVersion, afterReadVerdict, verdictSentence } from "../scripts/canary-watch.mjs";
+import { readBalance } from "../scripts/canary-watch.mjs";
 import { readFileSync } from "node:fs";
 
 const CANARY_RAW = readFileSync(new URL("../scripts/edit-canary.mjs", import.meta.url), "utf8");
@@ -505,4 +506,37 @@ test("every way a comparison cannot be tied to this job is UNVERIFIED, with its 
   assert.equal(un.why, "superseded", "a site that moved under an unpublished edit is not this job's outcome");
   assert.match(verdictSentence({ why: "something-new" }), /^UNVERIFIED — unrecognised outcome/);
   assert.match(verdictSentence(null), /^UNVERIFIED/);
+});
+
+// ── THE BALANCE, OR "CANNOT TELL" ───────────────────────────────────────────
+
+test("the balance is a number of credits or -1, never a 0 made from an answer that could not be read", () => {
+  assert.equal(readBalance(true, [{ balance: 65 }]), 65);
+  assert.equal(readBalance(true, [{ balance: 0 }]), 0, "a real zero is a balance");
+  assert.equal(readBalance(true, [{ balance: "65" }]), 65, "the digits a numeric column can arrive as");
+  assert.equal(readBalance(true, [{ balance: "12.5" }]), 12.5);
+  for (const [ok, rows, why] of [
+    [true, [], "no row"],
+    [true, [{ balance: 65 }, { balance: 3 }], "two rows"],
+    [true, { message: "JWT expired", code: "PGRST301" }, "an error object"],
+    [false, [{ balance: 65 }], "a failing status"],
+    ["true", [{ balance: 65 }], "a status that is not the boolean"],
+    [true, null, "a body that would not parse"],
+    [true, [null], "a null row"],
+    [true, [{}], "no balance field"],
+    [true, [{ balance: null }], "a null balance"],
+    [true, [{ balance: [] }], "a list"],
+    [true, [{ balance: -3 }], "a negative balance"],
+    [true, [{ balance: "sixty" }], "words"],
+    [true, [{ balance: "" }], "an empty string"],
+    [true, [{ balance: Infinity }], "infinity"],
+  ]) assert.equal(readBalance(ok, rows), -1, `${why} read as a balance`);
+  // The canary's own reader goes through it, and no longer makes a 0.
+  const src = readFileSync(new URL("../scripts/edit-canary.mjs", import.meta.url), "utf8");
+  const at = src.indexOf("async function balanceNow()");
+  const end = src.indexOf("\n}\n", at);
+  assert.ok(at > 0 && end > at, "the canary's balance reader is gone");
+  const body = src.slice(at, end);
+  assert.match(body, /readBalance\(r\.ok,/, "the canary reads the balance without readBalance");
+  assert.doesNotMatch(body, /\|\|\s*0\b/, "the reader still turns an unreadable answer into 0");
 });
