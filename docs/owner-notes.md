@@ -14,7 +14,7 @@ merged/deployed at a5741864 (deployment 2157 / run 36099179983). Served chat.js
 matched the reviewed bytes at 2026-09-25 05:36:30 UTC. Deployment log reports
 container reuse; no repeated runtime container check or canary. This contains
 an escaped display error; publication and cleanup already succeeded. Other
-checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back (on the branch, not merged). The text check now accepts everyday wording like "…from the home page" (on the branch, not merged), and test 3 is revised to use it; see the first entry below. What is left on the edit path is in the second. Nothing is dispatched.
+checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that is on the branch, not merged. So is the edit-path milestone you asked for next: eight fixes, the checklist and test 3 (the first entry below). Nothing is merged, deployed or dispatched.
 
 Kept for the owner. Two purposes:
 1. **How you like things done** — durable preferences, so a fresh session does not
@@ -175,6 +175,129 @@ owner signals one; move an item out of Open the moment it is resolved.
   trying to read.**
 
 ---
+
+## 2026-09-25 — The edit-path milestone: eight fixes in one batch (on the branch, not merged)
+
+You asked for one batch across six areas, without stopping to ask after each
+finding. It's done, and it stops here for your review. Everything below is on
+the branch. Nothing is merged, deployed or dispatched. The writers' and the
+judge's answers in every test are supplied, so the tests show what the edit
+path and the browser do with an answer, not that a real model gives it.
+
+The full checklist is in the
+[edit-path checklist](investigations/edit-path-checklist.md). Each item there
+is marked demonstrated, reproduced defect, unverified or deferred, with its
+evidence.
+
+**What was wrong, and is now fixed.** Each was reproduced before it was
+changed.
+1. **"Remove the ‘Chords’ section on the menu" removed it from the home page.**
+   The text check now knows the site's own page names: each page's address,
+   and the words the site's own menu uses for it.
+   - A name two pages share names neither.
+   - Words that name no page ("at the top") keep their meaning.
+   - An apostrophe inside a word ("Fred's") no longer reads as a quote mark.
+2. **When the routing call failed, the message was lost.** The words and
+   pictures now come back to that site's chat box, and no other. Nothing sends
+   it again on its own, because the routing call is billed.
+3. **A stopped edit's unpublished design went out with the next edit.** If an
+   edit is cancelled or stopped after writing the stylesheet or the logo, that
+   change is now put back. The next, unrelated edit no longer carries it.
+4. **"Use this picture as the logo", with the picture attached, asked you to
+   attach one.** The logo step now reads attachments in the shape the chat box
+   sends them.
+5. **The money sentences said things the ledger didn't.**
+   - "Nothing was charged" appeared beside a charge.
+   - A refused step's charge was never mentioned.
+
+   Now the screen says what the edit cost and what reading your message cost,
+   each from what was actually recorded. A finished job's cost comes from its
+   own record, and a refused step's charge is said beside the change that went
+   through.
+6. **An unknown outcome sent you to the preview,** which can't show a data or
+   rules change. It now says that asking again could make the change twice.
+7. **"Your site is untouched" was said after part of it had gone through.** A
+   new address, a saved row and a table rule take effect the moment they're
+   written; only the final publish can fail. The reply now names what went
+   through ("Part of it did go through, though: …"). Nothing is rolled back.
+8. **A full rewrite of a site whose database reference is blank was told the
+   site has no database.** That's fretwork-1 and three other sites. The rewrite
+   now reads the database, read-only.
+   - If it can't read it, it stops and refunds rather than rewriting the site
+     as if the database weren't there.
+   - Nothing is repaired or created. The blank reference still needs your two
+     presses per site.
+   - While writing this up, I found that the new stop could also fire on a
+     first build, straight after its database had been created. I reproduced
+     that and scoped the stop to rewrites only; a first build carries on, as it
+     did before.
+
+**Reviewed, with no new defect:** a paid rewrite started by an edit or an
+add-on handing off. The earlier corrections hold.
+
+**Coverage:** every area you listed is already covered by existing tests. I
+found no concrete gap, so I added no coverage-only test.
+
+**Evidence.**
+- 55 new tests. On the code before each fix, the new tests fail where they
+  should (for example, 6 of 201 for the page names) and the controls pass on
+  both sides.
+- Targeted probes, each breaking one part of a fix on purpose, were all caught:
+  - page names: 18 of 18;
+  - money wording: 17 of 17;
+  - what went through: 11 of 11;
+  - the full rewrite: 9 of 9.
+
+  Every comment-only control survived.
+- The 25 test files this work touched: 995 of 995 pass.
+- The whole suite passes locally: 7,927 tests, none failing (2 skipped, which
+  need the site template's own packages).
+- **Required CI passed.**
+  - Unit tests on the final code read 7,927 total, 7,923 passed, 4 skipped,
+    no failures (run 36202704161). All 57 new or renamed tests passed by
+    name.
+  - The site build passed on each of the three code pushes, every time with
+    all twelve counts matching the record (runs 36200973701, 36201665364
+    and 36202704088, the last on the final code).
+- **Merging this rebuilds the site builder's image.** The predicted image is
+  `c3cc126e45e93815`; today's is `a51d8b32e5869576`.
+- fretwork-1 is still on the version run 32 published (`…n7mtnq`, read at
+  23:44 UTC).
+
+**Still open, on purpose.**
+- The phone-width hydration error (#418).
+- The build and add-on money sentences don't yet mention the routing charge,
+  and the add-on's lost-photos sentence still says "nothing was charged".
+- The two money paths still differ when a publish fails. The quick path keeps
+  what it collected, while a queued job refunds everything, including a change
+  that already went through. Both are now reported as recorded.
+- A site whose tables can't be recovered now has its full rewrite refused.
+  Before, it was rewritten from what could be read. That's a new cost of this
+  change.
+- The text check still has grammar limits. For example, a page name used as an
+  ordinary word after "on" or "in" is read as that page, and the edit is
+  refused.
+- Two small protections are read in the code but not driven by a test: the
+  write flag behind item 3, and the put-back when the final check itself
+  crashes.
+- Drafts still last only for the session.
+- Nothing here proves a real model follows the rules.
+
+**Test 3, prepared and not dispatched.** The request is "Remove the ‘The first
+eight chords’ section from the home page." on fretwork-1. It needs this branch
+merged and deployed first. I re-checked the sentence against the current text
+check on fretwork-1's stored page, with supplied answers:
+- the correct removal passes, with or without the chord data and import that
+  only that section used;
+- a removal that also loses the guitar paragraph is refused;
+- the same removal judged against another page is refused.
+
+A publish will be judged by the stored files and the live page, never taken on
+its own as proof, and a refusal by its reason. It should cost about 17–25
+credits (an estimate, not a cap). The balance was 91 at run 32's end.
+
+**Stopping point.** The milestone ends here. Next, in order and each only on
+your say: review, merge and deploy; the free canary press; then test 3.
 
 ## 2026-09-25 — A page the text check can't read no longer drops out of the request (on the branch, not merged)
 
@@ -355,17 +478,17 @@ not a real model):
   - "On the home page, change the text under ‘…’ to …"
 
   Until the fix is merged and deployed, the live site still refuses them.
-- Billing wording. Some other failure messages still claim "nothing was
-  charged", and a refused step inside a message with several steps stays
-  charged.
-- A full rewrite still tells the writer that fretwork-1 has no database. It is
-  one of the four sites missing a database reference, and repairing each one
-  takes your two presses.
-- If the routing answer can't be used, the files attached to the message are
-  dropped.
+- **Fixed on the branch since, not merged (the milestone entry above):**
+  - the edit's failure messages no longer claim "nothing was charged", and a
+    refused step's charge is now said;
+  - a full rewrite reads fretwork-1's database, read-only, instead of being
+    told there is none (the missing reference still takes your two presses per
+    site);
+  - the files attached to a message whose routing answer can't be used now
+    come back;
+  - an unknown outcome no longer says "Check the preview".
+- Still open: the build and add-on messages' money wording.
 - When an add-on escalates on its own, it still starts the full rewrite.
-- When the page can't tell whether an edit went through, it still says "Check
-  the preview", which can't show a data or rules change.
 
 **Parked:** translation (including fretwork-1's "Cymraeg" label), video
 hosting, and replies written by a model.

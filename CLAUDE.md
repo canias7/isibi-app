@@ -21,9 +21,13 @@ NOT verify the full-writer text guard, and #418 stays open. Browser-verified 19:
 (a real Chromium over TLS-verified live bytes). On the branch, not merged: the canary's
 after-read waits for its job's version (`72885ca9`, reviewed: 40 focused tests), and the
 text guard accepts page-qualified requests held to the edited page (`ce913d06` + `8c0d67a1`)
-and reads a quoted or unreadable page instead of dropping it (`d6f5e55e`). Test 3
-(the full writer) is revised and waits on that merge (the run 32 section and the three
-after it).
+and reads a quoted or unreadable page instead of dropping it (`d6f5e55e`). Also on the
+branch, not merged: the consolidated edit-path milestone, nine commits from `01222bab`
+to `8f66dfb9` (page names from the site's own pages, the routing stop keeps the message,
+a stopped edit's design put back, the logo's attachment shape, money from the ledger, the
+unknown-outcome sentence, what went through before a failed publish, and a full revise's
+read-only database context). Its section follows the quoted-page one, and its checklist
+heads the remaining-scope file. Test 3 (the full writer) waits on the merge.
 Remaining scope: [edit-path checklist](docs/investigations/edit-path-checklist.md).
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
@@ -3014,7 +3018,9 @@ rewrite of EVERY page. That is the browser's `up` fallback, the ~25-credit one.
 (ask `siteBackendDetail` when the row carries no connection) makes `needsDb`
 true and so reaches `ensureSiteBackend`, which TRIES to heal the reference — a
 write the owner has not approved, and one the job gateway may refuse anyway (the
-next backlog entry). In the backlog.
+next backlog entry). **Reproduced and fixed on the branch 2026-09-25, not
+merged, WITHOUT that obvious fix**: the resolved connection feeds only the
+writer's spec, and `needsDb` is untouched (the consolidated milestone section).
 
 **NOT BUILT, and said so**: the optional kit component, and the report-only
 publish check (the proposal's item 3). **NOT ESTABLISHED**: that a real model
@@ -4075,7 +4081,16 @@ separate next tasks"*):
    the job path then refunds, so the stored reply disagrees with the ledger.
    **`compileMsg`'s `unbilled` half is FIXED (2026-09-25, from run 31), merged
    and deployed in deploy 2159**: see *a ledger refusal states the edit's
-   charge and the routing charge apart*. The other sentences in this list are unchanged.
+   charge and the routing charge apart*. **The edit route's half is fixed on
+   the branch, not merged** (`908c12ee`, `90efa38d`, the consolidated milestone
+   section): no edit failure sentence claims money; a finished job's cost is
+   read off its own row; a refused step's charge is said beside the change
+   that shipped; and a change that landed before a failed publish is named,
+   never called untouched. **Still unchanged**: the build-lease sentences,
+   `NO_CONTAINER_MSG` and the add-on's `lostPhotosMsg`; the routing call is
+   still never refunded; and the two money paths still differ on a failed
+   publish (the synchronous path keeps its collects, the job refunds
+   everything, landed work included).
 5. **Found on the way, out of scope**: the rename's SECOND alias write failing
    leaves the old name demoted and the new one unwritten (explained with
    `unchanged: false`; the half-moved state is not repaired); `siteRoute`'s own
@@ -4145,7 +4160,9 @@ separate next tasks"*):
    existing site's round, which is cleared before routing. The same loss the
    pre-routing stop had (*a message the page-list check stopped keeps its
    files*, below), one step later; that correction's hold is the mechanism,
-   and the owner scoped it to the pre-routing check.
+   and the owner scoped it to the pre-routing check. **Fixed on the branch
+   2026-09-25, not merged** (`9e70f093`): `lost()` holds the message on its
+   origin site through the same hold.
 10. **The edit reader trusts a reply by truthiness** (found 2026-09-24, driven
    through the real handler on `f1dadcdc`'s `chat.js`, straight back AND
    queued): a 503 escalate naming the add-on posts the paid add-on; one naming
@@ -6847,7 +6864,8 @@ backend addition's outcome."* **Browser only (`public/chat.js`).**
 - **FOUND ON THE WAY, NOT CHANGED**: the edit's own not-knowing sentence
   (`unreadEditMsg`) still ends *"Check the preview before asking for it
   again"*, which the owner's rule says cannot establish a backend change (a
-  data or rules edit) — now also said by a queued edit's unreadable reply; a
+  data or rules edit) — now also said by a queued edit's unreadable reply
+  (**reworded on the branch 2026-09-25, `a3efddef`, not merged**); a
   queued job whose poll answers 401 keeps polling behind the gate (no paid
   operation, pre-existing); and a queued REFUSAL whose redraw throws still
   escapes the watcher as an unhandled rejection after its sentence is out (no
@@ -7111,7 +7129,9 @@ legitimate no-layer escalation classification as its separate follow-up."*
 - **THE NOT-KNOWING SENTENCE IS REUSED, NOT REWORDED.** `unreadEditMsg` still
   ends *"Check the preview before asking for it again"* — the open wording
   question recorded last round (a `rules` edit leaves nothing on the preview),
-  now said for more shapes. The wording is the owner's.
+  now said for more shapes. The wording is the owner's. (**Reworded on the
+  branch 2026-09-25, `a3efddef`, not merged**: *"Asking for it again could make
+  the change twice."*)
 - **NOT CHANGED, AS SCOPED**: the add-on route's well-formed no-layer escalates
   still climb (the separate server step); the edit route's are classified
   already (`builder/edit-failure.mjs`) and still climb where it says `up`. A
@@ -7403,7 +7423,8 @@ lock correction and the edit-reply validation, neither deployed.
     preview bump, the picker update and the undo record: the customer is told
     the change went through and the preview may show the old bundle until the
     next bump. The add-on's order is kept, as asked.
-  - the not-knowing sentence's "Check the preview", recorded before.
+  - the not-knowing sentence's "Check the preview", recorded before
+    (reworded on the branch 2026-09-25, `a3efddef`, not merged).
 - **EVIDENCE.** `test/edit-result-display.test.mjs`, **23 cases**: a success
   whose application throws before its sentence (queued — the owner's —
   straight back, a hop, a hop's queued answer, a resumed watch); a success
@@ -8099,13 +8120,209 @@ Unrecognized or ambiguous page operands must not silently disappear."*
   (187 inputs). The same predictor re-derived main (`a51d8b32e5869576`) and
   `db5babc8` (`18725c075657d7e3`) as recorded.
 
+### THE CONSOLIDATED EDIT-PATH MILESTONE (2026-09-25, late, on the branch from `01222bab`, not merged)
+
+Owner: *"complete one consolidated edit-path milestone … return one reviewable
+batch. Don't stop after each small finding to ask whether to continue."* Six
+areas: the checklist, target selection, failure and billing paths, database
+context on full rewrites, free coverage, and the final live acceptance. **The
+checklist, every item marked demonstrated / reproduced defect / unverified /
+deferred with its evidence, is the top section of
+`docs/investigations/edit-path-checklist.md`.** **Every model answer in the
+evidence is SUPPLIED**: the tests establish what the route and the browser do
+with an answer, never what a real model answers.
+
+**NINE COMMITS, each reproduced first through the real route or the real
+handlers:**
+
+- **`01222bab` — PAGE NAMES COME FROM THE SITE'S OWN PAGES.** *"Remove the
+  ‘Chords’ section on the menu"* published on `/` of a site with `/menu`: the
+  guard knew no bare page names, so the target ended at "on".
+  `sitePageNames(pages)` (`builder/page-prose.mjs`) reads each page's last
+  address segment (`/` is "home") and every label the site's own menu links to
+  it with; the route passes `pages: eSrc`.
+  - **A name two pages share names neither**, and grants nothing.
+  - The longest name wins ("Menu Board" before "menu"), and a name never
+    crosses punctuation.
+  - A form's own in/of still names a section ("the text in Hours").
+  - `/#hours`, an outside link and a `-parts/` file name no page; a quoted
+    site page name is that page.
+  - **An apostrophe between two letters is part of the word** ("Fred's"),
+    never a quote mark.
+  - **Words that name no page on the site are not a page**, so "at the top"
+    keeps its meaning. The cost: a site page name used as an ordinary word
+    after on/in/from reads as that page and fails closed.
+  - 13 cases, red 6 of 201 on the parent; probes `page-names.json` 18/18 with
+    2 controls, `page-qualifier.json` re-anchored and 30/30 with 3.
+- **`9e70f093` — A ROUTING STOP KEEPS THE MESSAGE** (next-task 9). `lost()`
+  holds the words and files on the ORIGIN site through `siteHoldUnsent`,
+  before `finish` redraws, so that site's composer gets them back and no
+  other; a newer draft is left alone; nothing resends it (the routing call is
+  billed). An existing site's round, cleared before routing, gives back the
+  ORIGINAL request and its picture. 9 cases, all red on the parent; the 33
+  stop cases in `site-route-failure` assert the hold too.
+- **`324bc47a` — A STOPPED EDIT'S UNPUBLISHED DESIGN IS PUT BACK.** A rung
+  writes its look or stylesheet into the stored config BEFORE the one publish,
+  and only a compile failure restored the snapshot. So a job cancelled at the
+  publish gate, a correction that still missed or ran out of time, or a verify
+  that threw left the change stored and unpublished — **and the next,
+  unrelated edit compiled from the store and shipped it** (reproduced:
+  `#014421` went out with a name change).
+  - `restoreEditConfig` runs on all of those exits.
+  - `eConfigWritten` is set at each rung's own successful write, so a message
+    that wrote nothing writes nothing back.
+  - A restore that fails is SAID: the change could go out with the next edit.
+  - The verify catch does not wind back a design the second publish already
+    shipped.
+  - Red 3 of 4 on the parent.
+- **`51e39e3c` — THE LOGO RUNG READS `{name, data}`**, the composer's own
+  attachment shape. It read bare strings, so *"Use this picture as the logo"*
+  with the picture attached answered *"Attach the logo with the 📎 button"*.
+  **Every test of the rung posted a bare string, and the 2026-09-24 live check
+  stopped the edit POST in the page** — the browser half was proved and the
+  reader of it never ran, which is why neither could see it. Red 4 of 5 on the
+  parent.
+- **`908c12ee` — MONEY IS STATED FROM THE LEDGER, BY THE READER THAT HOLDS
+  IT.** Server failure sentences claim no money. `wholeRequestNote` states the
+  edit's cost from the reply (a real number only) and the routing call's from
+  the routing reply.
+  - **A job's reply is stored BEFORE the consumer's refund**, so the poll
+    route overlays a finished non-done job's cost from its own row
+    (`ledgerEditCost`: `refunded`/`none`/`exempt` → 0, `finalized` → its
+    cost, anything else → no cost at all) through `servedEditReply`.
+  - The synchronous reply reports what its ledger still holds after
+    `refundCredits` (`syncKept`).
+  - **A refused step's own charge rides on its `partial[]` entry** and is said
+    beside the change that shipped (*"That part still cost N credits."*).
+  - A refused move carries `unchanged: true`, as a refused removal did, and
+    `editGateRefusal` claims no money.
+  - `edit-failure-paths` 6 → 16 cases, red 8 of 15 on the parent; 39 cases in
+    15 files re-anchored from the old wording to the property; probes
+    `edit-money.json` 17/17, 2 controls.
+- **`a3efddef` — AN UNKNOWN OUTCOME NEVER POINTS AT THE PREVIEW.**
+  `unreadEditMsg` is *"I couldn’t read the answer to that change, so I can’t
+  tell whether it went through. Asking for it again could make the change
+  twice."* — the add-on's not-knowing sentence one noun over, true whatever
+  the layer (the preview shows no row and no rule). Red on the parent over
+  four layers and three unknown shapes.
+- **`90efa38d` — WHAT WENT THROUGH BEFORE A FAILED PUBLISH IS NAMED.** A new
+  address, a saved row and a table rule are live when their rung writes them;
+  only the one publish can fail, and the reply said *"your site is
+  untouched"*.
+  - `landedNote(body)` names each (`renamed`/`forgot`; `layer === "rules"` or
+    `"data"` with `applied[].table`), and `landedSaid` appends *"Part of it did
+    go through, though: …"*.
+  - `compileMsg(pub, theirs, landed)` and `roomSentence(kind, landed)` take a
+    STRICT `landed === true` flag — `.map(roomSentence)` hands an index in,
+    which a truthy test would read as landed — so no arm says "nothing was
+    changed" over a change that landed. `editStopped` names them too.
+  - **Nothing is rolled back.**
+  - 7 cases, 6 red on the parent and the control green on both; probes
+    `landed-changes.json` 11/11, 1 control.
+- **`80ce60f4` + `8f66dfb9` — A FULL REVISE KNOWS THE DATABASE THE SITE
+  HAS, READ-ONLY.** This closes the backlog's *"THE FULL REVISE DOES NOT"*, and
+  **NOT by "the obvious fix"** recorded on 2026-09-22: `needsDb`, and so
+  `ensureSiteBackend`'s heal and provisioning, is decided exactly as before.
+  - When the ownership row carries no connection, the revise asks
+    `siteBackendDetail` (resolves and proves, writes nothing) into a SEPARATE
+    `revConn`. `unreadable` stops it: 503 `backend-unreadable`, the deposit
+    reversed.
+  - The writer's spec is read with `specForAddon` (catalog first) from
+    `db || revConn` and merged by `withStoredSpec`: tables, functions AND apis
+    by name, the request's own entry winning. A `ready` site's revise had lost
+    its functions from the digest.
+  - **A revise whose stored spec cannot be read stops**, refunded. **A first
+    build does not**: its read can only repeat the schema it has just applied,
+    so it builds on `spec` as before.
+  - **That scoping was found while recording**: the first cut stopped a first
+    build with a supplied schema right after provisioning, reproduced through
+    `react-build` with the catalog refused.
+  - 6 cases: red 4 of 5 on the parent, and the first-build case red on
+    `80ce60f4`. Probes `revise-backend.json` 9/9, 1 control.
+  - **The new cost, stated**: a `ready` site whose tables cannot be recovered
+    now has its revise REFUSED, where before it was revised from the partial
+    spec.
+
+**REVIEWED, NO NEW DEFECT**: paid reconstruction from an edit or add-on
+escalation. The `EDIT_FAILURES` census and both readers' validation hold;
+**the add-on route's well-formed no-layer escalates still climb** (deferred).
+**COVERAGE**: every area the owner listed already has driven cases
+(`edit-lock`, `edit-result-display`, `edit-page-photos`/`-protect`,
+`edit-page-context`/`-contract`, `edit-failure`, `edit-rules-backend`,
+`edit-page-once`, `edit-reply-validation`); no concrete gap was found, so no
+coverage-only test was added.
+
+**NUMBERS.**
+- 55 new cases (13 + 9 + 4 + 5 + 10 + 1 + 7 + 6). The 25 test files the
+  milestone touched (`git diff --name-only c4707515..8f66dfb9 -- test/`) read
+  **995 / 995** together.
+- Suite locally **`7927 / 7925 / 0 / 2`** at `8f66dfb9` (`duration_ms
+  115,553`), +1 against `80ce60f4`'s 7,926: the first-build case.
+- Unit CI on `8f66dfb9` reads **`7927 / 7923 / 0 / 4`** (run `36202704161`,
+  `duration_ms 125,236`), on `80ce60f4` **`7926 / 7922 / 0 / 4`** (run
+  `36201665438`) and on `90efa38d` **`7921 / 7917 / 0 / 4`** (run
+  `36200973819`). Every total matches its local run, `pass` differing by CI's
+  four skips.
+- **57 new-or-renamed test names were found passing BY NAME** in `8f66dfb9`'s
+  downloaded log against `c4707515`'s (run `36188563432`), with 7,927 distinct
+  result numbers and zero `not ok N -`. Two are renames of cases whose names
+  said "nothing was charged".
+  - ⚠ **The BOM trap, met a third time and one layer further out.** Result
+    5200's line opens with a byte-order mark BEFORE its timestamp, so a name
+    parser that strips the timestamp first misses it and reports that case
+    "gone" while its number is present. Strip the BOM first, then the
+    timestamp, then a BOM again.
+- **`site build` passed on each product push**, all twenty steps, with all
+  twelve counts matching the record: TAP 397/397/0/0, kit-typecheck 4,
+  site-build **382**, contrast-cases 16, theme-seam 11, theme-render 29,
+  site-routing 14, site-runtime 47, kit-render / kit-a11y / kit-effects /
+  kit-paint `all passed`; census 7 + 4 + 1 = **12**. The only `##[error]`
+  lines are the two known annotations.
+  - run `36200973701` on `90efa38d`: 25m21s, `site-build.mjs` 18m45s;
+  - run `36201665364` on `80ce60f4`: 23m10s, 16m55s;
+  - run `36202704088` on `8f66dfb9`: 24m09s, 17m41s.
+- **The stamp chain ends at `8f66dfb9`.**
+
+**STILL OPEN, SAID.**
+- #418.
+- The build path's money sentences (`BUSY_BUILD_MSG`, `GATED_BUILD_MSG`,
+  `STALE_BUILD_MSG`, the build timeout, `NO_CONTAINER_MSG`, *"you weren't
+  charged"*), and *"Your database is live"* said on a site that has none.
+- The add-on reader states no routing charge, and `lostPhotosMsg` still says
+  *"nothing was charged"*.
+- **Two refund policies**: the synchronous path keeps a failed publish's
+  collects while the job path refunds everything, landed work included. Both
+  are now reported from the ledger.
+- Text-guard grammar limits.
+- `eConfigWritten` and the verify catch's restore are read in code, not driven.
+- Drafts are session-only; the needs-review enqueue sentence is never shown.
+- Real-model compliance is unproven throughout.
+
+**THE IMAGE.** `worker.js`, `site-owner.mjs`, `builder/page-prose.mjs`,
+`builder/site-logo.mjs`, `builder/container-room.mjs`,
+`builder/build-lease.mjs`, `builder/edit-job.mjs` and
+`builder/site-reconcile.mjs` are inputs, so a merge rebuilds: predicted
+**`c3cc126e45e93815`** at `8f66dfb9` (187 inputs, 157 distinct paths), from
+main's `a51d8b32e5869576`.
+
 ### TEST 3 — THE FULL PAGE WRITER, REVISED (2026-09-25, prepared, NOT dispatched)
 
-**PREREQUISITE**: `ce913d06` + `8c0d67a1` + `d6f5e55e` merged and deployed,
-since the natural sentence needs the deployed guard. The merge carries the
-after-read wait (`72885ca9`) with it. `expect_deploy` is the merge sha.
-`expect_image` is predicted `3d1d8d585b309152` at `d6f5e55e`, to be
-re-predicted over the real merge.
+**PREREQUISITE**: the branch merged and deployed through the milestone above,
+since the natural sentence needs the deployed guard (`ce913d06` + `8c0d67a1` +
+`d6f5e55e` + `01222bab`). The merge carries the after-read wait (`72885ca9`)
+with it. `expect_deploy` is the merge sha. `expect_image` is predicted
+`c3cc126e45e93815` at the branch tip, to be re-predicted over the real merge.
+
+**RE-CHECKED AGAINST THE CURRENT GUARD (2026-09-25, 23:44Z), free, supplied
+answers**, on fretwork-1's stored `n7mtnq` home page (`index.tsx`
+`6bb1fb500f7df623`, the chords block lines 584–605; the live header still read
+`01790360265159-n7mtnq`):
+- the correct removal passes, with or without the now-unused `ChordDiagram`
+  import (line 41) and `CHORDS` data (lines 76–121, used only by that block —
+  object literals, which the guard does not read), and with or without the
+  site's page list;
+- a removal that also loses the guitar paragraph refuses, naming that text;
+- the same removal judged as `/prices` refuses.
 
 - **Request**: *"Remove the ‘The first eight chords’ section from the home
   page."*, 63 chars / 67 bytes, sha256
@@ -8128,8 +8345,8 @@ re-predicted over the real merge.
     actual output:
     - the after `source.json` bodies, with index.tsx block by block (the
       chords block gone, every other block and the code above the render
-      byte-identical, any change to the now-unused import noted) and the
-      other five files byte-identical;
+      byte-identical, any removal of the now-unused import or `CHORDS` data
+      noted) and the other five files byte-identical;
     - the harness's comparison VERIFIED at the job's own version;
     - a browser render (the order, the guitar draws, the day box);
     - `usage` (a quick-writer attempt, the full writer, the judge);
@@ -11711,6 +11928,17 @@ does name one — moved up to the supported list on 2026-09-20.)*
   page after on/at/off drops out there and never refuses, and a page after
   from/in/of/for makes the target fail to resolve. Until the merge, the live
   guard does not hold a request to its page at all.
+- **THE CONSOLIDATED EDIT-PATH MILESTONE IS ON THE BRANCH, NOT MERGED**
+  (`01222bab` → `8f66dfb9`, its own section after the quoted-page one). Until
+  it is deployed, the live product still has every defect it reproduced:
+  - "…on the menu" removes a section from `/`;
+  - a routing stop drops the message;
+  - a stopped edit's design can ship with the next edit;
+  - the logo rung refuses the composer's attachment;
+  - failure sentences claim money the ledger does not record;
+  - an unknown outcome points at the preview;
+  - a landed rename, row or rule is called "untouched";
+  - a full revise of an `incomplete` site gets the frontend rules.
 - **fretwork-1's stored language is Welsh (`lang="cy"`) over English copy**, so
   its switcher labels the home page "Cymraeg". Pre-existing, noticed 2026-09-25,
   parked with translation.
@@ -11736,11 +11964,12 @@ does name one — moved up to the supported list on 2026-09-20.)*
   `--verify`. `repairbench-1` is repaired and verified. **The rules rung, the
   addon and (since 2026-09-22, deploy 2144) the page rung resolve these sites
   themselves**, so the blank column no longer costs an edit its rules; the
-  repair is still the clean state. **⚠ THE FULL REVISE DOES NOT** — it reads
+  repair is still the clean state. **The full revise did not**: it read
   `ownerConn` off `siteBackendRowFresh` (`conn: null` here), so a revise that
-  declares no table rewrites every page of these four sites under the
-  no-database rules. Read out of the code, not driven; the obvious fix reaches
-  `ensureSiteBackend`'s heal, which is the owner's call.
+  declares no table rewrote every page of these four sites under the
+  no-database rules. **Fixed on the branch, not merged** (`80ce60f4` +
+  `8f66dfb9`, the milestone section): a separate read-only `revConn` for the
+  writer's spec, with `needsDb` and so the heal untouched.
 - **THE TRANSLATOR CAN SEND PAGE CODE TO THE MODEL AND WRITE THE ANSWER BACK
   INTO THE CODE (open, found live on run 26; PARKED by the owner 2026-09-23).** `extractText`
   (`builder/site-text.mjs`) reads a `>` in page-level code as the end of a JSX
