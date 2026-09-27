@@ -192,8 +192,8 @@ What happened, in order:
    (2 credits). The app showed: "✅ \*\*bookings\*\* — changed whether it's
    open. It’s live now — nothing needed rebuilding."
 3. **The change itself cost 1 credit.** It changed exactly one thing: it
-   marked `bookings` as closed. That removes every permission visitors had on
-   that table.
+   marked `bookings` as closed. In the code, closing a table removes every
+   permission visitors had on it; the free check below reads that directly.
 4. **Then one real test booking went in through the site's own form**:
    "Canary rules 36337146911", 07700 900999, 2 people, 31 December 2099,
    17:00. It was sent once, exactly as planned, and the database refused it:
@@ -248,9 +248,9 @@ https://github.com/canias7/isibi-app/actions/workflows/grants-preview.yml
 
 What to expect:
 - **bookings**: visitors should hold nothing. Its line will still say
-  `[read=none write=anyone]`, because the check prints the table's old
-  access setting, not whether it's closed. The proof is in the file it saves:
-  no permissions recorded for visitors.
+  `[read=none write=anyone]`, because the check prints the table's access
+  setting, which closing doesn't change, not whether it's closed. The proof
+  is in the file it saves: no permissions recorded for visitors.
 - **the menu**: exactly as at 09:32, visitors can read it.
 
 Nothing else was spent, and nothing was deleted.
