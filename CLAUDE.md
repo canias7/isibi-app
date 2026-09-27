@@ -193,6 +193,9 @@ message is walled to its own kind of edit (the UI mode's new per-message wall,
 scenario `5-page-remove`, on the branch), and it was rehearsed free through the
 real edit route, 8 of 8. The recovery is the existing restore mode, free, to
 `01790468089054-8btpep`. Cost about 3–5 credits (*Test 5*, below).
+**Both free checks passed** (runs 45 and 46, 22:25Z and 22:45Z): the restore
+target is listed and restorable, the before-read equals the recorded bodies,
+and the rehearsal typed message 1 and sent nothing. The paid press is next.
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -10529,7 +10532,7 @@ after it hold the test and the proposal. What is law here:
   uploaded `if: always()`. So D2's artifact must equal step 0's, a free check
   that nothing moved the grants between the two presses.
 
-### TEST 5: A PAGE REMOVAL AND ITS RESTORATION, PREPARED (2026-09-27; nothing paid)
+### TEST 5: A PAGE REMOVAL AND ITS RESTORATION, PREPARED, AND BOTH FREE CHECKS PASSED (2026-09-27; nothing paid yet)
 
 Owner: *"Prepare one bounded page-removal-and-restoration test using an
 existing suitable fixture and the existing workflow … First reconcile this
@@ -10610,6 +10613,24 @@ The full plan, the expected bodies and the presses are the checklist's
 - **THE SESSION'S ONE DISPATCH (press 1, 20:48Z) ANSWERED 403** and was not
   retried; the live reading just before it (20:47Z) had all five routes at
   `8btpep`, balance 53 and no edit job since 18:30Z.
+- **BOTH FREE PRESSES PASSED.**
+  - **Run 45** (36355204326, from `main`, 22:25Z) was the restore mode at the
+    live version. It read the preflight `14df0225be90` / `9038e90ab1d5d7fe`,
+    listed 9 versions with row 1 `8btpep` restorable, and posted nothing
+    (`already-live`). The before-read is complete, every route at `8btpep`,
+    and all five bodies equal the recorded before column by full sha256.
+  - **Run 46** (36356315217, from the branch at `539dce9a`, 22:45Z) was the
+    `5-page-remove` rehearsal. The app opened signed in, loaded the page list
+    (three GETs, nothing blocked), typed message 1 and did not send it. 0
+    errors, and the balance 53 → 53.
+  - Both runs' confirmation jobs are `failed`/`none`/0, and the ledger has
+    nothing newer than run 44's reserve. **The paid press is next.**
+- **⚠ AND THE SESSION'S FIRST BODY COMPARISON WAS VACUOUS (2026-09-27).** It
+  read `sha` where the record stores `sha256`, so every file compared
+  `''` with `''` and read identical. It was caught and redone with the full
+  hashes and a control that must differ. This is the negative-assertion trap
+  met in a one-off script: **assert the key exists, and that its value is 64
+  characters, before comparing.**
 - **COST, AN ESTIMATE AND NOT A CAP**: routing 1–2 per message, the menu about
   1, the removal 0 — about 3–5 credits. Balance 53.
 

@@ -158,7 +158,7 @@ items are in *the rules rung — the recommended next test, revised*, after
 Test 4, and the built harness, its evidence and the exact presses are in *the
 rules test, built* at the end of that section.
 
-## Test 5 — a page removal and its restoration (prepared 2026-09-27; nothing paid)
+## Test 5 — a page removal and its restoration (prepared 2026-09-27; both free checks passed as runs 45 and 46; nothing paid yet)
 
 The owner: *"Prepare one bounded page-removal-and-restoration test using an
 existing suitable fixture and the existing workflow. Capture the saved version
@@ -349,6 +349,39 @@ different list.
 - **The session's one attempt at press 1 (20:48Z) answered 403** ("Resource
   not accessible by integration") and was not retried, so all four presses are
   the owner's.
+- **Press 1 ran as run 45 and passed** (36355204326, the owner's, from `main`
+  at `14df0225`, 22:24:56–22:25:47Z; nothing spent):
+  - the preflight read `14df0225be90` / `9038e90ab1d5d7fe`, both readers
+    agreeing, async and runner true;
+  - the site lists 9 versions; row 1 is `8btpep` (parent `pi9qwd`, the page
+    move's job), marked restorable;
+  - it printed `RESTORED — the site already reported
+    01790468089054-8btpep, so nothing was posted` (`why: already-live`,
+    `posted: null`);
+  - the source read was complete, and every route answered at `8btpep`;
+  - all five stored bodies are byte-identical to the recorded before column,
+    compared by full sha256. The control against the expected after-menu
+    column differs on exactly the four files message 1 changes, and against
+    the after-removal column it also finds the gallery extra;
+  - the balance was 53.
+- **Press 2 ran as run 46 and passed** (36356315217, from the branch at
+  `539dce9a`, 22:44:14–22:45:10Z; nothing spent):
+  - the same preflight and the same five bodies;
+  - the app opened signed in and loaded the page list (`GET
+    /api/site/routes?slug=fold-lane-bakery` 200; three GETs in all, nothing
+    blocked);
+  - it typed "Take Gallery out of the menu." and did not send it;
+  - 0 console or page errors, and the balance 53 → 53.
+- **Read-only after both (22:47Z)**: each run's two zero-cost confirmation
+  jobs are `failed`/`none`/0, unpublished, and the newest ledger row is still
+  run 44's reserve (id 332). The paid press is next.
+- **⚠ A slip in the session's own check, caught before it was reported.** The
+  first body comparison read a key the record does not have (`sha` against
+  the stored `sha256`), so every file compared a blank with a blank and read
+  identical. It was redone with the full hashes (both asserted 64 characters)
+  and with the controls above, which must differ. That is the recorded "a
+  negative assertion must prove its observer is alive" trap, met in a one-off
+  script.
 
 ### What it will not establish
 
