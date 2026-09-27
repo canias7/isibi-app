@@ -225,14 +225,14 @@ nothing was saved.
 - **Fail**: the booking is saved, or it's refused for a data reason (a
   duplicate, say). The database checks permission before it looks at the
   data, so getting that far means visitors could still book.
-- **Unclear**: it's refused before it reaches the database (a bot check, a
-  server error, a dropped connection). Your view of the table still says
-  whether a row appeared.
+- **Unclear**: anything else, such as a refusal before it reaches the
+  database (a bot check), a different error, a server error or a dropped
+  connection. Your view of the table still says whether a row appeared.
 
-**Was the "before" measured? No.** Nobody has ever submitted a booking to
-`lido-axes-b`: not me, not any test. Its "email me about bookings" setting is
-on and has never fired. That fits with no booking ever having gone through, but
-it doesn't prove one would. So a pass would show two things:
+**Was the "before" measured? No.** I've never submitted a booking to
+`lido-axes-b`, and none of our tests does. Its "email me about bookings"
+setting is on and has never fired. That fits with no booking having gone
+through since it was built, but it doesn't prove one would. So a pass would show two things:
 - before the change, visitors had permission to book (read from the database's
   own settings);
 - after it, a real booking is refused.

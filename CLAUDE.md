@@ -10102,12 +10102,13 @@ after it hold the test and the proposal. What is law here:
       row**, so reaching a constraint means visitors could still insert.
     - **Partial**: `42501` with "new row violates row-level security policy":
       refused, but the privilege is still there.
-    - **Inconclusive**: a refusal before Postgres (403 `turnstile`), a 5xx or
-      a dropped request.
-  - **THE BASELINE IS NOT MEASURED, AND IS SAID SO.** No booking has ever been
-    submitted to `lido-axes-b` by this work or any test. `site_backends.notify`
-    is on and `notified_at` is empty, which is consistent with no booking ever
-    having gone through and proves nothing about whether one would. A pass
+    - **Inconclusive**: any other answer, such as a refusal before Postgres
+      (403 `turnstile`), another error code, a 5xx or a dropped request.
+  - **THE BASELINE IS NOT MEASURED, AND IS SAID SO.** This work has never
+    submitted a booking to `lido-axes-b`, and nothing in the tree does.
+    `site_backends.notify` is on and `notified_at` is empty, which is
+    consistent with no booking having gone through since the site was built
+    (the hook predates it) and proves nothing about whether one would. A pass
     rests on configuration before (`grants preview`: the visitor roles hold
     INSERT) and behaviour after. A measured baseline is its own approval item.
   - **THE FORM'S EXACT REQUEST, READ FROM THE LIVE BUNDLE**: `POST

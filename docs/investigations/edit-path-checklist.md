@@ -1601,9 +1601,9 @@ misread the workflow.
   this page turns Postgres's `42501` into "That isn't available.".
 
 **What was measured before the edit, and what was not.**
-- **No booking has been submitted to `lido-axes-b`, by this work or by any
-  test. The baseline — that a booking would go through today — is NOT
-  measured.**
+- **This work has never submitted a booking to `lido-axes-b`, and nothing in
+  the repository's tests or tools does. The baseline — that a booking would go
+  through today — is NOT measured.**
 - What exists is not a submission:
   - a visitor reading `bookings` gets 403, `42501`, "permission denied for
     table bookings" (re-read 07:24Z). That is the READ rule: a booking table
@@ -1612,8 +1612,9 @@ misread the workflow.
   - the first `grants preview` press will read who may insert: that is
     configuration, not behaviour.
 - The site's notification setting is on and its stamp (`notified_at`) is
-  empty. That is consistent with no booking ever having gone through here, and
-  proves nothing about whether one would.
+  empty. That is consistent with no booking having gone through here since the
+  site was built (the hook predates it), and proves nothing about whether one
+  would.
 - **So a pass rests on configuration before and behaviour after**: before the
   edit the visitor roles hold the insert privilege (press 1); after it a real
   booking is refused at the privilege check and no row appears (press 3), and
@@ -1750,9 +1751,9 @@ baseline that is not measured.
 - **Partial**: `42501` with "new row violates row-level security policy". The
   booking is refused, but the insert privilege is still there. Press 4 shows
   which of the apply's statements landed.
-- **Inconclusive**: a refusal before Postgres (a 403 with code `turnstile`), a
-  5xx, or a dropped request. The owner's view still says whether a row
-  appeared.
+- **Inconclusive**: any other answer. That covers a refusal before Postgres (a
+  403 with code `turnstile`), another error code, a 5xx and a dropped request.
+  The owner's view still says whether a row appeared.
 
 **Exact cleanup, if the booking goes in.**
 - **Find it**: exactly one id that is in the after-read and not in the
