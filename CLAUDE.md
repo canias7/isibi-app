@@ -64,8 +64,9 @@ independent review (2026-09-27); D2 and D3 parked; step 0, `grants preview` run
 36286991932, kept as maintenance evidence; the rules test recommended next, on
 the candidate site `lido-axes-b`, revised on the owner's two corrections and
 BUILT on the branch at `ebf53761` as the scenario `4b-rules-close`, its
-booking decided before it leaves the browser since `717bb5b2` — not
-approved or pressed)**: the top section of the
+booking decided before it leaves the browser since `717bb5b2` (that correction
+CLOSED BY THE OWNER after review) — its two free checks the owner's presses,
+nothing paid approved or pressed)**: the top section of the
 [edit-path checklist](docs/investigations/edit-path-checklist.md), summarised in
 *remaining work after Test 3* below. Among the QUEUED jobs inspected, the rules
 rung and a page removal have never published, and **run 42 was the data
@@ -137,7 +138,9 @@ One message should close its `bookings` table, for about 3 credits, and then
 ONE real visitor booking must be refused at the privilege check with no row
 added. **The harness is built on the branch (`ebf53761`, 2026-09-27; *the
 rules test, built*, below), and since `717bb5b2` only the exact marker booking
-may leave the browser; nothing is approved or pressed.**
+may leave the browser (closed by the owner after review, 105 focused tests);
+its two free checks are the owner's presses, and nothing paid is approved or
+pressed.**
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -10197,7 +10200,8 @@ after it hold the test and the proposal. What is law here:
     closing verdict passes**, once, and only through the gate below.
   - **THE GATE DECIDES BEFORE THE REQUEST LEAVES** (`717bb5b2`; owner: *"Run
     the existing bookingBodyVerdict inside the request interceptor before
-    forwarding. Only the exact marker payload may leave."*). The paid press
+    forwarding. Only the exact marker payload may leave."*; **CLOSED BY THE
+    OWNER** after an independent review, 105 focused tests). The paid press
     had forwarded the first booking POST whatever it held and checked the
     body afterwards, once it had reached the database; the owner reproduced a
     form holding the marker's phone while the page sent another. Now
@@ -10231,9 +10235,12 @@ after it hold the test and the proposal. What is law here:
       reaching the network; suite `8143 / 8141 / 0 / 2` locally and unit CI
       run 36308781985 on `717bb5b2` at `8143 / 8139 / 0 / 4`, the five new
       cases by name, no gap, no `not ok`. **The stamp chain ends at
-      `717bb5b2`.**
+      `717bb5b2`**; the documents commit `8990bee5` reads the same four
+      numbers on run 36309049041.
     - **THE FREE CHECKS (09:11–09:18Z)**: both free presses answered **403**
-      to the session and were not retried; read-only, `main` `14df0225`,
+      to the session, and again at about 09:27Z when the owner asked for
+      them; neither was retried, and both went to the owner with their exact
+      inputs; read-only, `main` `14df0225`,
       balance 56 (newest ledger row run 42's), `lido-axes-b` notifications on
       and never fired, no queued edit job ever filed for it, none running
       anywhere, the pages, stylesheet, menu and the refused visitor read all

@@ -95,8 +95,9 @@ means only that its name is taken.
 - The baseline, whether a booking goes through today, is not measured.
 - It costs about 3 credits. The harness is built on the branch (`ebf53761`,
   scenario `4b-rules-close`), and since `717bb5b2` its booking is decided
-  before it leaves the browser (*the booking gate*); nothing is approved or
-  pressed.
+  before it leaves the browser (*the booking gate*, closed by the owner after
+  review). Its two free checks are the owner's presses; nothing paid is
+  approved or pressed.
 
 The scope, the checks, the cleanup, the notification account and the approval
 items are in *the rules rung — the recommended next test, revised*, after
@@ -2075,7 +2076,7 @@ not to build it or run it against an active site yet. The earlier plan (R0–R2
 on fold-lane-bakery) is in git: `git show
 4d385201:docs/investigations/edit-path-checklist.md`.
 
-#### The booking gate: decided before the request leaves (2026-09-27, `717bb5b2`; nothing approved or pressed)
+#### The booking gate: decided before the request leaves (2026-09-27, `717bb5b2`; closed by the owner; nothing paid approved or pressed)
 
 Owner, having reproduced it against the real helper with an injected browser:
 *"In bookInPage, the first POST to the booking endpoint is forwarded whenever
@@ -2083,6 +2084,10 @@ submit=true. bookingBodyVerdict runs later, after the request has already
 left. … Run the existing bookingBodyVerdict inside the request interceptor
 before forwarding. Only the exact marker payload may leave. … Do not rewrite
 the submitted payload to make it pass."*
+
+**CLOSED BY THE OWNER (2026-09-27)** after an independent review: *"the wrong
+payload is blocked before transmission, the valid control passes, and 105
+focused tests passed."*
 
 - **The defect.** With the paid press on, the booking tab forwarded the first
   POST to the bookings endpoint whatever it held, and its body was checked
@@ -2165,13 +2170,19 @@ the submitted payload to make it pass."*
   Unit CI run `36308781985` on `717bb5b2`: `8143 / 8139 / 0 / 4`
   (`duration_ms` 114,210), 8,143 distinct result numbers with no gap, zero
   `not ok`, and all five new cases passing by name. No `site build` fires:
-  none of the files is on its paths.
+  none of the files is on its paths. The documents commit after it,
+  `8990bee5`, reads the same four numbers on unit CI run `36309049041`
+  (`duration_ms` 103,247), so it moved the suite by zero.
 
 **The free preparation checks (2026-09-27, 09:11–09:18Z).**
 - **The two free presses, tried once each from the session**: `grants
   preview` (from `main`, `preview`, `lido-axes-b`) and the rehearsal (from the
   branch, spend `no`). Both answered **403** and were not retried; they are
   the owner's presses.
+- **Tried once more at about 09:27Z**, when the owner asked for the two free
+  checks: both answered **403** again and were not retried. They went to the
+  owner with their exact inputs (the owner's notes, 2026-09-27, *"You closed
+  the booking check"*).
 - **Read-only, and each as recorded**:
   - `main` is still `14df0225`;
   - the balance is 56, and the newest ledger row is run 42's reserve
