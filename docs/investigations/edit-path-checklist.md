@@ -25,7 +25,8 @@ found one gap — a kit heading the page may not render (inside `{false && …}`
 `5ec82214`, which is in the deploy. Test 4 below is split in two, each part with
 its own approval; **4a is closed: its free step 0 ran as runs 35 and 36, Part A
 passed as run 37, and Parts B and C passed as run 39, through the canary's new
-UI mode (the real app in a real browser)**. 4b waits for its own approval.
+UI mode (the real app in a real browser)**. 4b is proposed (2026-09-27) and
+waits for its own approval; its free step 0 is your press.
 
 ### What is already shown live (credited, not rerun)
 
@@ -185,7 +186,7 @@ other. None blocks anything; none is being worked on.
   since an adopted site sends it no table names, and the live database. Only a
   live run measures those.
 
-### Test 4 — two parts, approved separately: 4a closed (runs 37 and 39), 4b prepared and not dispatched
+### Test 4 — two parts, approved separately: 4a closed (runs 37 and 39), 4b proposed and not approved
 
 Both parts run on fold-lane-bakery (Harbour Loaf): a database, three
 photographs (two on the home page), five pages, and run 9's stored source
@@ -712,65 +713,138 @@ all, against an estimate of about 17–20. The balance is 59 (read 2026-09-27
 00:45:33Z). The site keeps 4a's changes; the recovery above undoes them for
 free if you want that.
 
-#### Test 4b — the database: a row and a permission change (separate approval)
+#### Test 4b — the database: a row and a permission change (proposed 2026-09-27; not approved, not dispatched)
 
-**Step 0 — free, your press, before any permission change is proposed.**
-`grants-preview.yml`, run from `main`: mode `preview`, slug
-`fold-lane-bakery`, the other two boxes blank. It writes nothing. For each of
-the site's tables it prints:
-- the access its stored schema declares (`[read=… write=…]`);
-- what the visitor and member roles can write today;
-- which columns the site's next schema change would grant — the column-scoped
-  form every table on a site built before 2026-09-13 gets at its first schema
-  change;
-- any column the stored schema names that the table has not got.
+**Free checks already done (2026-09-27, 01:31–01:39Z):**
+- **The site's job history** (read-only, `edit_jobs`): its database has had no
+  schema change since it was built on 2026-08-21. The one later add-on (run
+  51, 2026-09-19) designed a page, a QR code and a photograph, and the add-on
+  applies a schema only when it designs a backend. So its client write grants
+  are still the table-wide form from before 2026-09-13, and the first schema
+  change on it (any rules request, or an add-on with a table) will change more
+  than it was asked to.
+- **A visitor's read of the data API:** `loaves` answers 200 with six rows (ids
+  1–6); the Sea Salt Focaccia is id 6 at 4.5, and no row has a photo. `orders`
+  answers 403 (`permission denied for table orders`). Those six rows, as read,
+  are the recovery record for D1.
+- **The live order page in a real Chromium** (version `8btpep`): it lists the
+  six loaves with prices, the focaccia at £4.50. The form was filled and
+  submitted with every write blocked inside the browser, so nothing was sent.
+  It builds exactly one request: `POST /api/db/fold-lane-bakery/data/orders`
+  with an `Idempotency-Key` header and the body `{customer_name, phone, loaf,
+  pickup_date, pickup_time}` (the loaf as its id, a number). There is no
+  spam-check field and no other column.
+- **`grants preview` is the only existing reader of this site's stored schema
+  and grants** (`backend repair` is scoped to five other sites). The session's
+  dispatch of it answered 403, so step 0 is your press.
 
-It also uploads the grants as they stand, as an artifact, which is the exact
-recovery for the grants (below). I then compare the order form's five fields
-with the columns it would grant `orders`.
+**Step 0 — free, your press.** `grants preview` from `main`: the mode box
+`preview`, the site box `fold-lane-bakery` (blank means every site), the other
+two boxes blank. It reads each table's stored columns and access and its live
+grants, prints what the next schema change would grant, and uploads the
+grants as they stand; that artifact is D2's exact recovery. **The gate for
+D2:** `orders` must list all five form fields under "would grant", and no
+column the form sends may be missing from the table.
 
-**What step 0 establishes and what it does not.** It reads the declared schema
-and the live grants. It does not prove that a real order goes through: only a
-real submission, which writes a row, proves that (D3).
+**D1 — a row, through the real app (paid, about 2–3 credits).** The canary's
+UI mode, a new scenario `4b-d1-price`, one message: "In today's bake list,
+change the Sea Salt Focaccia's price to £4.60." (68 characters, 69 bytes,
+sha256 `550cf87497ef7a8f…`).
+- **Safe by construction.** The scenario lets exactly one kind of edit leave
+  the page: an edit whose layer is `data`. Anything else (text, page, rules,
+  look, the add-on, a build, the full rewrite) is aborted in the browser and
+  recorded, so a misroute costs only the routing call and changes nothing. The
+  data rung writes rows of display tables only; it cannot touch a grant, a
+  policy or the stored schema.
+- **Expected change:** `loaves` id 6, `price` 4.5 → 4.6, and nothing else.
+  Nothing publishes; the site stays on `8btpep`.
+- **Expected reply:** "✅ Updated one entry in loaves."
+- **Checks, independent of the run:** the visitor's `loaves` read (only id 6's
+  price differs); the order page in a real browser (the focaccia at £4.60,
+  nothing else different); every route still on `8btpep`; the job row (layer
+  `data`, `applied` = loaves id 6, price) and the ledger (one reserve); the
+  balance before and after.
 
-**D1 — a row.** In the app: `In today's bake list, change the Sea Salt
-Focaccia's price to £4.60.`
-- Expected: the data rung, "✅ Updated one entry in loaves."; the public
-  `loaves` route shows 4.6; no page changes. About 3 credits.
-- **Routing is part of what it measures.** The router gets the site's pages,
-  but its table names only if this browser built the site. Sent to `text` (a
-  sentence, nothing changed) or to `page` (a price written into the page), it
-  is a routing finding.
-- **Recovery, with no model call:** Cloud → Data → loaves, edit the row back
-  to 4.50. The app's own row editor writes through the owner route directly,
-  for no credits. The value before is 4.5 (read free).
+**D2 — a permission change (free, your press).** `grants preview`, mode
+`apply`, the word `apply`, the site `fold-lane-bakery`. It changes grants
+only: for every table, `REVOKE ALL` from the two visitor roles and then the
+grants today's engine emits.
+- **Expected:** `orders`' table-wide INSERT becomes INSERT on its declared
+  columns, for both roles; `loaves` keeps SELECT only, as now; no row, policy,
+  stored schema, function or page changes.
+- **It does not reduce what visitors can do through the site:** the form sends
+  only the five declared columns (read above). What a visitor loses is writing
+  the platform's own columns (`id`, `created_at`) by hand through the API,
+  which is the point of the column-scoped form.
+- **Checks:** the apply prints its own verify line per table; a visitor's
+  `loaves` read is still 200 with the same rows; `orders` is still 403.
+- **Stop rule:** any `REFUSED` or `FAIL` line → press rollback at once
+  (below) and skip D3.
 
-**D2 — a permission change: proposed after step 0, and only one that meets
-both conditions.**
-- **It does not reduce what visitors can see or do.** No model-free path
-  restores a table's read rule today. The rules rung is the only writer of a
-  table's access policy and its stored schema, and the grants rollback restores
-  grants only. So a change that hid the bake list could be undone only by
-  another model request, which is not an acceptable recovery. **The previous
-  M5/M6 pair did exactly that and is withdrawn.**
-- **Step 0 shows every field the order form sends among the columns `orders`
-  would be granted.** Otherwise any schema change, this one included, would
-  start refusing orders, and D2 waits until that is fixed.
-- **Its recovery.** The grants go back exactly with `grants-preview.yml` mode
-  `rollback` and step 0's run number, with no model call. The rule itself has
-  no model-free recovery, which is why the change must leave visitor access as
-  it was.
-- If no change on this site meets both conditions, the live permission check
-  waits for a tool that snapshots and restores a table's policies. That is
-  separate work, for your approval.
+**D3 — one real order under the new grants (free).** Submitted from my real
+browser session through the published order page: Country White, "TEST -
+please ignore", `07700 900000` (Ofcom's range reserved for drama, which
+reaches no one), 10 October 2026, 10:00. Expected: 201 and the "Order
+received" panel.
+- **What else it can do:** an email to the owner only if the site has a mail
+  key in its Secrets; a text only if `orders` declares a text rule and the site
+  has an SMS key (to that unreachable number); no confirmation email (the
+  table has no email column); webhooks only if declared with a URL set.
+- **If it is refused:** press rollback, and one more order at 10:30 tells
+  whether D2 caused it.
 
-**D3 — optional, a real order.** After D2, submit one order through the
-published order page from any browser (no sign-in), named "TEST — please
-ignore". It proves the form writes a row under the grants as they then stand.
-**Recovery:** Cloud → Data → orders, delete that row (no model call).
+**Recovery — deterministic, with no model request anywhere.**
+- **Rows: a second new scenario, `4b-rows-back` (free, your press).** It runs
+  inside the signed-in app with the app's own authenticated request helper, on
+  the owner routes the Data panel uses.
+  - `loaves`: each recorded row is read back through the visitor route; any
+    field that differs from the record is written back alone (`PATCH
+    /api/site/fold-lane-bakery/rows/loaves/<id>`), and then the visitor read
+    must equal the record byte for byte. An added or missing row is refused,
+    and nothing is written.
+  - `orders`: the one row carrying all five test values is deleted (`DELETE
+    …/rows/orders/<id>`); none is nothing to do, and more than one is refused.
+    It never prints another customer's order.
+  - With `spend` no it only shows what it would write: a free dry run to press
+    before D1, which should find nothing to do.
+  - **Not the Data panel's Save:** it sends every field as text, so the
+    focaccia's empty `photo` (NULL) would come back as an empty string, which
+    is not the row that was there.
+- **Permissions:** `grants preview`, mode `rollback`, the site, and step 0's
+  run ID (the number in its URL): `REVOKE ALL` and then the grants exactly as
+  recorded, table and column level, within the artifact's 90 days. Keeping
+  the column-scoped grants instead is the owner's call; they are what every
+  site gets now, and what the next schema change would apply anyway.
+- **Pages:** nothing in 4b publishes.
+- **Left behind, unavoidably:** the `orders` id counter advances by one (two
+  with a retry), and any email or text D3 sent.
 
-**4b cost:** step 0 and D3 are free; D1 is about 3 credits; D2 about 3, plus
-the routing charge on each message.
+**What 4b does not cover, and why: the rules rung.** Every rules change also
+rewrites the stored schema, drops and re-creates every table's policies,
+re-creates the helper and trigger functions, and re-issues every grant. Only
+the grants have a model-free restore, and on this site the first such change
+would also carry five weeks of engine changes. So no rules request can meet
+the recovery requirement today. Testing it needs a tool that snapshots and
+restores policies, the stored schema and functions, or a throwaway site:
+separate work, for approval.
+
+**To build first (after approval, before any press that writes):** the two
+scenarios above in the canary's UI mode (the per-scenario layer wall and the
+row steps), with tests and CI. The workflow form gains no box; both use the
+existing scenario box.
+
+**Presses in order:** step 0 → (build) → rows dry run → D1 → D2 → D3 → rows
+back → rollback or keep.
+
+**4b cost:** D1 about 2–3 credits (routing 1–2 and the data rung's one call);
+everything else is free. The balance is 59.
+
+**Found on the way, not changed:**
+- The Data panel's Save turns an empty (NULL) field into an empty string
+  (above).
+- The API canary treats any successful edit reply as a publish, so for a data
+  edit its page comparison would read `not-listed`; the UI mode's chain
+  handles an edit that publishes nothing.
 
 **What Test 4 does not cover:** hydration, translation, model-written replies,
 the add-on, a css-lane run, a page removal (the move exercises the same verb

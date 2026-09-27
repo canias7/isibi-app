@@ -53,7 +53,7 @@ without that section. The verdicts are inferred from the publish, not captured,
 and #418 stays open. **CLOSED BY THE OWNER** after independent review (2026-09-26),
 together with the CSS-correction milestone (deploy 2161's batch): no repeat run, no
 restoration, no further CSS work.
-**What remains, and Test 4b (prepared, not dispatched)**: the top section of the
+**What remains, and Test 4b (proposed 2026-09-27, not approved)**: the top section of the
 [edit-path checklist](docs/investigations/edit-path-checklist.md), summarised in
 *remaining work after Test 3* below. Among the QUEUED jobs inspected, the data
 and rules rungs and a page removal have never published; **run 39 was the
@@ -9318,7 +9318,7 @@ list, and Test 4's exact form values, are the top section of the
   refused; with the fix, Part A removes "Today's bake" and checks the fix live,
   and the `CtaBand` sentence is the fallback if 4a runs before the merge.
 - **TEST 4, IN TWO PARTS APPROVED SEPARATELY — 4a CLOSED BY THE OWNER (RUNS 37
-  AND 39), 4b PREPARED AND NOT DISPATCHED**
+  AND 39), 4b PROPOSED 2026-09-27 AND NOT APPROVED**
   (owner, 2026-09-26: *"Separate the photo/attachment/second-message checks from
   database writes and permission changes."*), all on fold-lane-bakery:
   - **4a — pages only, undone free by the canary's restore mode**:
@@ -9333,16 +9333,19 @@ list, and Test 4's exact form values, are the top section of the
     - Part C, the byte-level after-read, which run 39 took itself: every
       stored page byte-identical to the expected.
     - 14 credits in all (8 + 6), against an estimate of about 17–20.
-  - **4b — the database, its own approval and its own recovery**:
+  - **4b — the database, its own approval and its own recovery** (proposed
+    2026-09-27, not approved; *Test 4b, proposed*, below):
     - step 0, free: `grants preview` (preview mode) for the site — the stored
       access, today's client write grants and what the next schema change
       would grant, and its artifact is the grants' exact rollback. It is a
       reading, never proof that a real form submission works;
-    - a price row, undone in the app's Data panel (the owner rows route, no
-      model call);
-    - a permission change proposed only after step 0, and only one that does
-      not reduce what visitors can see or do;
-    - an optional real test order, deleted in the Data panel.
+    - D1, a price row through the real app, with only a `data` edit allowed
+      to leave the page;
+    - D2, the grants themselves (`grants preview` apply), undone exactly by its
+      rollback;
+    - D3, one real test order under D2's grants;
+    - the rows put back by a scenario that writes only the changed field
+      through the owner route, and deletes only the test order.
 - **THE LOGO ROUTE IS EXPECTED, NOT GUARANTEED, AND EXEMPTION IS READ OFF THE
   JOB** (owner: *"Exemption is established by the actual selected rung and
   ledger."*): the stored reply's `layer`, `billing = 'exempt'`, and no
@@ -9355,7 +9358,10 @@ list, and Test 4's exact form values, are the top section of the
   request to restore public access, and the earlier hide-then-show pair (M5/M6)
   is withdrawn.
 - **THE SIDE EFFECTS ARE PART OF THE PREPARATION.**
-  - A row change survives any restore; its recovery is the Data panel.
+  - A row change survives any restore. Its recovery is the owner rows route
+    with only the changed field — **not the Data panel's Save**, which sends
+    every field as text and so turns an empty (NULL) field into an empty
+    string.
   - The first schema change on a site built before 2026-09-13 re-emits every
     table's grants column-scoped. The order form writes `customer_name`,
     `phone`, `loaf`, `pickup_date` and `pickup_time`, and step 0 shows whether
@@ -9710,6 +9716,40 @@ addition."* `scripts/canary-ui.mjs`, the `ui_scenario` box on `edit-canary.yml`,
   the idle reading held across three messages, the in-page wall had nothing to
   block, the balance was read before each message, every filed job was
   followed, and the after-read waited for the last published version.
+
+### TEST 4b, PROPOSED (2026-09-27; not approved, not dispatched)
+
+Owner: *"return one concrete proposal: exact requests, expected database
+changes, independent checks, estimated cost and deterministic recovery for both
+rows and permissions. A saved site version does not undo database changes."*
+The proposal is the checklist's Test 4b section. What is law here:
+
+- **FOLD-LANE-BAKERY'S DATABASE HAS HAD NO SCHEMA CHANGE SINCE ITS BUILD
+  (2026-08-21)**, read off its job rows: the one later add-on (run 51) designed
+  no backend, and the add-on applies a schema only when it designs one
+  (`if (aBackend.length)`). So its grants are the table-wide pre-2026-09-13
+  form, and its first schema change carries five weeks of engine changes.
+- **EVERY SCHEMA APPLY REWRITES FOUR THINGS BESIDE THE ONE ASKED FOR**:
+  `_meta.schema`, every table's policies (`DROP POLICY IF EXISTS` then
+  `CREATE POLICY`), the helper and trigger functions (`CREATE OR REPLACE`), and
+  every table's grants. Only the grants have a model-free restore (`grants
+  preview` rollback), so **no rules-rung request can meet a deterministic-
+  recovery requirement today**.
+- **THE ORDER FORM'S EXACT WRITE, read in a real Chromium with every write
+  blocked inside the browser**: `POST /api/db/fold-lane-bakery/data/orders`,
+  an `Idempotency-Key` header, and exactly `{customer_name, phone, loaf,
+  pickup_date, pickup_time}`. A form's real payload is readable for free this
+  way, which is what a column-scoped grant must cover.
+- **THE DATA PANEL'S SAVE IS NOT AN EXACT RECOVERY**: its edit form renders
+  NULL as `''` and Save sends every field as text (`pickWritable` passes `''`
+  through), so a NULL field comes back as an empty string. An exact row
+  recovery PATCHes only the changed field through the same owner route.
+  Found, not changed.
+- **THE API CANARY READS A DATA EDIT'S PAGE COMPARISON AS `not-listed`**:
+  `published = body.ok === true`, and a data edit publishes no version. The UI
+  mode's chain handles an edit that publishes nothing. Found, not changed.
+- **`grants preview`'s rollback box wants the run ID** (the number in the
+  run's URL), not the `#N` run number, and the artifact is kept 90 days.
 
 ### A SECTION HEADED BY THE KIT (2026-09-26, `2f2fed58` + `5ec82214`, merged and deployed in deploy 2162)
 
