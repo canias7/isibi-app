@@ -1168,7 +1168,13 @@ all main's. The boxes, by their descriptions:
 
 **Cost:** about 2–3 credits. That is the routing charge (1–2; run 39's three
 routing calls cost 2, 1 and 2) plus the data rung's one call, rounded once
-with a floor of 1. The scenario's budget is 5. The rehearsal, the recovery and
+with a floor of 1. **That figure is an estimate, not a cap.** The scenario's
+budget of 5 is checked only before a message is sent: `budgetRefusal` refuses
+to send when the spend since the run began is already 5 or more, or when the
+balance cannot be read. D1 sends one message, so the check cannot stop
+anything, and it never caps what that one request costs. Nothing on the server
+caps it either (`edit_reserve` refuses only above 100,000), so the balance is
+the only bound. The rehearsal, the recovery and
 `4b-d1-restore` are free. The balance is 59 (read on the balance row at
 05:17:01Z, after deploy 2163; the last ledger row is still run 39's).
 

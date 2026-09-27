@@ -9666,9 +9666,12 @@ addition."* `scripts/canary-ui.mjs`, the `ui_scenario` box on `edit-canary.yml`,
   recorded as BLOCKED. A hand-off to another edit layer is let through: the
   real app makes it as a second edit request, and it is part of one message.
   Everything else goes to the live Worker.
-- **THE BUDGET IS BETWEEN MESSAGES.** 15 credits for the scenario, asked before
-  each Send from the balance the canary reads; an unreadable balance refuses.
-  One message's own cost is never cut off mid-way.
+- **THE BUDGET IS BETWEEN MESSAGES, SO IT CAPS NO SINGLE REQUEST** (owner,
+  2026-09-27, correcting *"the test won't go past 5"*). D1's single message
+  meets the check with nothing spent, so there the balance is the only bound.
+  Each scenario's budget (Part B's 15, D1's 5) is asked before each Send from
+  the balance the canary reads; an unreadable balance refuses. One message's
+  own cost is never cut off mid-way.
 - **EVERY JOB A MESSAGE FILED, IN ORDER** (`jobs`), because a hand-off has a job
   of its own and can publish. The chain of publishes (`chainVerdict`) requires
   each published version to have been built from the one before it (the first
@@ -9884,7 +9887,8 @@ after it hold the test and the proposal. What is law here:
   first run's two survivors were fixtures too shallow to separate the
   readings); suite 8,073 / 8,071 / 0 / 2 locally; unit CI run 36290449793 at
   8,073 / 8,069 / 0 / 4, all 54 cases by name. The inputs and the cost (about
-  2–3 credits; budget 5) are in the checklist.
+  2–3 credits, an ESTIMATE; the scenario's budget of 5 is checked only before
+  a message is sent and never caps the one request) are in the checklist.
 - **D1'S FREE REHEARSAL RAN AS RUN 40 AND PASSED** (`36291812275`, 03:34Z,
   the owner's press from the branch at `95eb36da`; canary step 38 s):
   - the preflight read deploy 2162 with both expectations matched;

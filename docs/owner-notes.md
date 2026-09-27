@@ -223,9 +223,14 @@ view, and at £4.50 on the order page; the put-back ready with nothing to do;
 and the balance unchanged.
 
 **The paid run** is the same form with "Run the ONE paid edit as well" →
-`yes`. It should cost about 2–3 credits (a routing charge of 1–2 plus one
-database edit, rounded once; the test won't go past 5). I'll read it the
-moment you've run it. Nothing is spent until you press it. The permission step
+`yes`. **About 2–3 credits is an estimate, not a limit** (a routing charge of
+1–2 plus one database edit, rounded once). *Corrected at your request:* I first
+wrote here that the test "won't go past 5", which was wrong. The test's budget
+of 5 is only checked before a message is sent: it refuses to send when 5 or
+more has already been spent since the run began, or when the balance can't be
+read. With one message that check can't stop anything, and it never caps what
+the request itself costs. Nothing on the server caps it either, so your
+balance is the only real limit. I'll read it the moment you've run it. Nothing is spent until you press it. The permission step
 and the real order stay parked.
 
 ## 2026-09-27 — The price test's put-back can no longer overwrite someone else's change (merged and deployed since, in deployment 2163: the entry above)
