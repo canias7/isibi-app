@@ -89,7 +89,12 @@ on:
         # booking through the site's own /book form, which must be refused. The
         # rehearsal presses "Book a table" in a tab whose wall stops the request,
         # so it sends nothing. See the approvals box below.
-        description: 'RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: 4a-part-b, 4b-d1-price (the focaccia price through the real app, then put back), 4b-d1-restore (the put-back alone), or 4b-rules-close (close the bookings on lido-axes-b, then one real booking that must be refused). Acts only with spend=yes; otherwise it reads and stops before sending or writing.'
+        #
+        # THE PAGE-REMOVAL TEST (5-page-remove, on fold-lane-bakery) sends two
+        # messages: the gallery out of the menu, then the gallery page off the
+        # site. Each may leave the app only as its own kind of edit. Putting
+        # the page back is the restore box above, pressed on its own, free.
+        description: 'RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: 4a-part-b, 4b-d1-price (the focaccia price through the real app, then put back), 4b-d1-restore (the put-back alone), 4b-rules-close (close the bookings on lido-axes-b, then one real booking that must be refused), or 5-page-remove (the gallery out of the menu, then the gallery page off fold-lane-bakery; put back afterwards with the restore box). Acts only with spend=yes; otherwise it reads and stops before sending or writing.'
         required: false
         default: ''
       rules_allow:

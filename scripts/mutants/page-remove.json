@@ -1,0 +1,99 @@
+[
+  {
+    "label": "CONTROL: the Test 5 scenario's heading comment changes nothing",
+    "control": true,
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "  // TEST 5 — A PAGE TAKEN OFF THROUGH THE REAL APP; PUT BACK FOR FREE AFTER.",
+    "to": "  // TEST 5 (control) — A PAGE TAKEN OFF THROUGH THE REAL APP; PUT BACK FREE."
+  },
+  {
+    "label": "P-1: the wall ignores a message's own layers",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "  const layers = step && Array.isArray(step.layers) ? step.layers\n    : scenario && Array.isArray(scenario.layers) ? scenario.layers : null;",
+    "to": "  const layers = scenario && Array.isArray(scenario.layers) ? scenario.layers : null;"
+  },
+  {
+    "label": "P-2: the driver never tells the wall which message is being sent",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "        body: typeof req.postData === \"function\" ? req.postData() : null, scenario, step: current,",
+    "to": "        body: typeof req.postData === \"function\" ? req.postData() : null, scenario, step: null,"
+  },
+  {
+    "label": "P-3: the message is named to the wall only after its Send",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "      current = step;\n      await page.click(\"#stSend\");",
+    "to": "      await page.click(\"#stSend\");\n      current = step;"
+  },
+  {
+    "label": "P-4: a message that names no layers walls everything",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "  const layers = step && Array.isArray(step.layers) ? step.layers\n",
+    "to": "  const layers = step ? (step.layers || []) : scenario && Array.isArray(scenario.layers) ? scenario.layers : null; const _l0 = step && Array.isArray(step.layers) ? step.layers\n"
+  },
+  {
+    "label": "P-5: the menu message may also leave as a page edit",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "      Object.freeze({ say: \"Take Gallery out of the menu.\", layers: Object.freeze([\"nav\"]) }),",
+    "to": "      Object.freeze({ say: \"Take Gallery out of the menu.\", layers: Object.freeze([\"nav\", \"page\"]) }),"
+  },
+  {
+    "label": "P-6: the removal may also leave through the look door",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "      Object.freeze({ say: \"Remove the gallery page.\", layers: Object.freeze([\"page\"]) }),",
+    "to": "      Object.freeze({ say: \"Remove the gallery page.\", layers: Object.freeze([\"page\", \"look\"]) }),"
+  },
+  {
+    "label": "P-7: the removal is sent before the menu change",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "      Object.freeze({ say: \"Take Gallery out of the menu.\", layers: Object.freeze([\"nav\"]) }),\n      Object.freeze({ say: \"Remove the gallery page.\", layers: Object.freeze([\"page\"]) }),",
+    "to": "      Object.freeze({ say: \"Remove the gallery page.\", layers: Object.freeze([\"page\"]) }),\n      Object.freeze({ say: \"Take Gallery out of the menu.\", layers: Object.freeze([\"nav\"]) }),"
+  },
+  {
+    "label": "P-8: the budget allows a run far dearer than the estimate",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "    budget: 8,\n    layers: Object.freeze([\"nav\", \"page\"]),",
+    "to": "    budget: 25,\n    layers: Object.freeze([\"nav\", \"page\"]),"
+  },
+  {
+    "label": "P-9: before a Send the scenario lets out the look door too",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "    budget: 8,\n    layers: Object.freeze([\"nav\", \"page\"]),",
+    "to": "    budget: 8,\n    layers: Object.freeze([\"nav\", \"page\", \"look\"]),"
+  },
+  {
+    "label": "P-10: the form's scenario box does not name Test 5",
+    "files": [
+      ".github/workflows/edit-canary.yml"
+    ],
+    "from": "or 5-page-remove (the gallery out of the menu",
+    "to": "or 5-page-removal (the gallery out of the menu"
+  },
+  {
+    "label": "P-11: Test 5 is tied to another site",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "  \"5-page-remove\": Object.freeze({\n    site: \"fold-lane-bakery\",",
+    "to": "  \"5-page-remove\": Object.freeze({\n    site: \"fretwork-1\","
+  }
+]

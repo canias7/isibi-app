@@ -173,6 +173,24 @@ export const UI_SCENARIOS = Object.freeze({
       Object.freeze({ say: "We're fully booked, so stop taking bookings on the website for now." }),
     ]),
   }),
+  // TEST 5 — A PAGE TAKEN OFF THROUGH THE REAL APP; PUT BACK FOR FREE AFTER.
+  // A page another page still names is refused (`mergeAddonPages`), and the
+  // gallery is named by the home page's menu, so the menu goes first and the
+  // page second. EACH MESSAGE HAS ITS OWN WALL: the first may leave the app
+  // only as a menu edit, the second only as a page edit, so a misrouted message
+  // costs its routing call and changes nothing. The recovery is the restore
+  // mode, a separate free press, to the version the before-read saw.
+  "5-page-remove": Object.freeze({
+    site: "fold-lane-bakery",
+    // Routing 1-2 for each message, the menu rung's one call about 1, and the
+    // removal free (it makes no model call).
+    budget: 8,
+    layers: Object.freeze(["nav", "page"]),
+    steps: Object.freeze([
+      Object.freeze({ say: "Take Gallery out of the menu.", layers: Object.freeze(["nav"]) }),
+      Object.freeze({ say: "Remove the gallery page.", layers: Object.freeze(["page"]) }),
+    ]),
+  }),
 });
 
 // Bounds. A step is one message: its routing call, its job and its publish.
@@ -274,10 +292,17 @@ export function blocksPost(method, pathname) {
  * leave the page only if it is the routing call, or an edit of this
  * scenario's own site at one of its layers. An edit whose layer cannot be
  * read is refused, not guessed. Returns the reason to abort, or "".
+ *
+ * AND PER MESSAGE, when the message being sent names its own `layers`: then
+ * that message may leave the page only as its own kind of edit, so a message
+ * the router sends somewhere else costs its routing call and changes nothing.
+ * Before the first Send, and for a message that names none, the scenario's
+ * list stands.
  */
-export function wallRefusal({ method, pathname, body, scenario } = {}) {
+export function wallRefusal({ method, pathname, body, scenario, step } = {}) {
   if (blocksPost(method, pathname)) return "work this scenario never asks for";
-  const layers = scenario && Array.isArray(scenario.layers) ? scenario.layers : null;
+  const layers = step && Array.isArray(step.layers) ? step.layers
+    : scenario && Array.isArray(scenario.layers) ? scenario.layers : null;
   if (!layers) return "";
   if (method === "GET" || method === "HEAD") return "";
   if (method === "POST" && pathname === "/api/site/route") return layers.length ? "" : "a message this scenario never sends";
@@ -772,6 +797,8 @@ export async function runUi(opts) {
     network: [], consoleErrors: [], pageErrors: [], balance: { start: null, end: null },
   };
   const stop = (at, msg) => { rec.stopped = { at, msg }; log(`  STOPPED at ${at}: ${msg}`); };
+  // The message being sent, for the wall: none before the first Send.
+  let current = null;
   const spec = scenario && scenario.row ? scenario.row : null;
   if (spec) {
     rec.row = { spec, shown: {} };
@@ -849,13 +876,15 @@ export async function runUi(opts) {
     // Registered after any test route, so it is asked first; anything it does
     // not refuse falls back to that route, or to the network. It sees every API
     // call the app makes, because a scenario that names its layers refuses
-    // every write that is not its own (`wallRefusal`).
+    // every write that is not its own (`wallRefusal`). `current` is the
+    // message being sent, set just before its Send, so a message that names
+    // its own layers is walled to them.
     await context.route((u) => u.origin === origin && u.pathname.startsWith("/api/"), async (r) => {
       const req = r.request();
       const u = new URL(req.url());
       const why = wallRefusal({
         method: req.method(), pathname: u.pathname,
-        body: typeof req.postData === "function" ? req.postData() : null, scenario,
+        body: typeof req.postData === "function" ? req.postData() : null, scenario, step: current,
       });
       if (!why) return r.fallback();
       rec.blocked.push({ ms: Date.now() - t0, method: req.method(), path: u.pathname, why });
@@ -1013,6 +1042,7 @@ export async function runUi(opts) {
       const before = typed.messages.length;
       const netFrom = rec.network.length;
       const sentAt = Date.now();
+      current = step;
       await page.click("#stSend");
       rec.sent++;
       r.sent = true;

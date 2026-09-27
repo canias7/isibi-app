@@ -29,6 +29,29 @@ unchanged. So every pass item holds. A booking that went through before the
 edit was never measured. The site's bookings stay closed, and its pages still
 show "Book a table".
 
+**The rules acceptance is closed by the owner** (2026-09-27: *"Run 44 and the
+after-permissions preview check out. Close the scoped rules acceptance"*). It
+is closed for exactly what it showed:
+- the booking permissions were removed;
+- a real visitor submission was rejected;
+- no row was added;
+- the menu's permissions were unchanged;
+- the stored pages and components were unchanged.
+
+**The evidence boundary stays explicit.** No successful booking was measured
+before the edit, so this proves this closure request, not every rules
+operation (item 2 of the second list below stays open). Bookings stay closed.
+
+**A separate UX gap, recorded and not part of this milestone** (the owner:
+*"don't expand this milestone to fix it"*):
+- after the closing, the pages still invite bookings ("Book a table" in the
+  header and hero, and the `/book` form);
+- a visitor who fills the form in is told only "That isn't available.", not
+  that the café is fully booked.
+
+Whether a closing message should also change the pages, and what the refusal
+should say, is the owner's call.
+
 Each list puts the material gaps first. The evidence is in the sections below,
 and nothing in the first list is to be rerun.
 
@@ -45,7 +68,8 @@ and nothing in the first list is to be rerun.
 - **One database row changed through the app and put back** (run 42, D1).
 - **A rules change through the app, enforced by the database** (run 44):
   `bookings` closed on `lido-axes-b`, then a real visitor booking refused at
-  the privilege check with no row added.
+  the privilege check with no row added. Closed by the owner for this closure
+  request only.
 - **Second messages from one tab** after a finished job (run 39).
 - **The machinery around every edit**, shown on every canary run and on
   recent deploys in runs 32–42:
@@ -61,8 +85,10 @@ and nothing in the first list is to be rerun.
 **Tested only with supplied model output** (the route and the browser are
 proven; a real model is not)
 1. **A page removal** (`edit-page-verb`, `removal-door`). It has never
-   published live. It makes no model call and the free restore undoes it, so
-   it is the cheapest gap left.
+   published live. It makes no model call and the free restore undoes it.
+   **But one message alone is refused on every existing multi-page site**,
+   because each page is in another page's menu, so the prepared test (Test 5,
+   next section) takes the menu link out first.
 2. **The rules rung beyond one closing**: reopening, the other way of closing
    (taking write access away), limits and the other rules, and any other
    wording or site. Run 44 closed one table once.
@@ -124,11 +150,170 @@ means only that its name is taken.
   added, for 3 credits. **Press 4, the permissions read after it (`grants
   preview` run `36339825502`), agrees**, so every pass item holds. Its
   bookings stay closed, as the owner approved by pressing it.
+- **Closed by the owner (2026-09-27)** for this closure request, with no
+  successful booking measured before the edit (above).
 
 The scope, the checks, the cleanup, the notification account and the approval
 items are in *the rules rung — the recommended next test, revised*, after
 Test 4, and the built harness, its evidence and the exact presses are in *the
 rules test, built* at the end of that section.
+
+## Test 5 — a page removal and its restoration (prepared 2026-09-27; nothing paid)
+
+The owner: *"Prepare one bounded page-removal-and-restoration test using an
+existing suitable fixture and the existing workflow. Capture the saved version
+and complete source inventory before spending. Check the removed route,
+navigation, unrelated pages/components, customer reply, and successful
+restoration. First reconcile this against the existing acceptance checklist so
+we don't repeat a closed test."*
+
+### Reconciled against the checklist
+
+It repeats nothing that is closed:
+- **A page removal has never published through the queue** (the job census).
+  Run 39 moved a page, which is a different verb; runs 34 and 37 removed
+  sections, not pages.
+- **Restoring a saved version has run live only on fretwork-1** (runs 20 and
+  22). Restoring a removed page has never been done live.
+- **The menu rung has not run on today's code.** The census lists two menu
+  jobs, both from 2026-09-02, on older code.
+
+### What the free preparation found
+
+1. **A removal on its own is refused on every existing multi-page site.**
+   - The removal refuses a page that another page's source still names
+     (`mergeAddonPages`), and a generated site keeps a copy of its menu in
+     every page file.
+   - A survey of the building account's sites, read live (each sitemap and
+     each page's links): 40 of the 42 asked answered, and 17 have more than one
+     page. On those 17, every page but the home page is linked from at least
+     one other page. The only exceptions are the `/deal` pages of two older CRM
+     sites (northgroup-3 and northgroup-9), and their source was not read; a
+     link drawn from data does not show in the page as served.
+   - So on the bakery, "Remove the gallery page." alone answers, in the
+     rehearsal: *"⚠️ I left /gallery — / still links to it. Ask me to take
+     the link out first. Nothing on your site changed, and this edit cost you
+     nothing. Reading your message cost 2 credits."* That holds on both money
+     paths, through the page layer and through the look door.
+   - **The refusal's stated reason has expired, and this is recorded, not
+     changed.** The code comment says a link to a missing page "does not
+     compile". Since 2026-08-30 a type error no longer stops a build, and a
+     menu entry's `href` is a plain string that was never type-checked. What
+     the refusal still prevents is a menu link that leads nowhere.
+2. **So the test is two messages: the menu first, then the page.**
+3. **The menu rung never lists the home page on the home page**, and the
+   bakery's home page lists itself ("Today's bake → /").
+   - So taking Gallery out of the menu also takes "Today's bake" out of the
+     home page's own menu. That is a visible change nobody asked for.
+   - The rung also rewrites every page's menu onto one line, which changes no
+     visible item.
+   - This is recorded as a finding and not changed; the restore puts it back.
+
+### The test
+
+- **Fixture: fold-lane-bakery.** All five routes serve
+  `01790468089054-8btpep` (read live, 20:39Z), and the gallery page is named
+  only by the home page's menu.
+- **The two messages, exactly:**
+  1. "Take Gallery out of the menu."
+  2. "Remove the gallery page."
+
+  These are the router's own examples: "take Pricing out of the menu" is the
+  menu layer, and "Remove the gallery page" is the page layer with `remove`.
+- **The workflow**: the existing edit canary's UI mode, with a new scenario,
+  `5-page-remove`, on the branch. It sends both messages from one tab of the
+  real app.
+- **Each message has its own wall.** The first may leave the app only as a menu
+  edit and the second only as a page edit; anything else is aborted in the
+  browser, so a misrouted message costs its routing call and changes nothing.
+  The budget is 8 credits, checked before each Send.
+- **Before anything is spent**, the canary's free checks and its before-read
+  run first: the saved version on every route and every page body.
+
+### Expected results
+
+These come from the free rehearsal, through the real edit route on the
+bakery's stored pages, with the menu answer supplied. A real model may choose a
+different list.
+
+- **Message 1 (the menu):**
+  - routed to the `nav` layer;
+  - one job, finalized, about 1 credit;
+  - it publishes a version built from `8btpep`;
+  - the reply: "✅ Updated the menu on 4 pages: Today's bake · The starter ·
+    Visit.";
+  - the home page's menu becomes "The starter · Visit"; the order, visit and
+    gallery pages' menus become "Today's bake · The starter · Visit";
+  - the starter page (a stub with no menu) is untouched.
+
+  The expected bodies, if the model returns that list:
+
+  | page | before (chars, sha256) | after message 1 |
+  | --- | --- | --- |
+  | `index.tsx` | 2,439 `51b5af6af6ee25ca` | 2,340 `d409219c9516b920` |
+  | `order.tsx` | 9,258 `4ead778eea41faaf` | 9,241 `0a0b5f41877a3b25` |
+  | `visit.tsx` | 4,045 `bdb02abecad96c56` | 4,028 `ddd1fe39e6d3d932` |
+  | `gallery.tsx` | 3,007 `4e8b82aa901741e0` | 2,946 `da53a37595977e4b` |
+  | `starter.tsx` | 951 `37fb0e176f22a44b` | unchanged |
+
+- **Message 2 (the removal):**
+  - routed to the `page` layer, page `/gallery`, `remove`;
+  - one job, `exempt`, cost 0, no ledger row (the removal makes no model
+    call);
+  - it publishes a version built from message 1's;
+  - the reply: "✅ Took /gallery off the site. Every publish is kept, so say
+    the word if you want it back.";
+  - `gallery.tsx` is gone, and the four other pages are byte-identical to
+    after message 1.
+- **The site afterwards:**
+  - `/gallery` answers **301 to `/`**, because a route that existed in the
+    last publish and is gone redirects home;
+  - the sitemap lists four pages;
+  - no page links to `/gallery`;
+  - `/the-starter` still answers 301 to `/starter`;
+  - the other pages' words, headings and photographs are unchanged apart from
+    the menus.
+- **Components:** the bakery stores none, so "components unchanged" is 0 → 0
+  and says nothing here.
+- **The chain:** `8btpep` → the menu's version → the removal's version,
+  VERIFIED, with every page read at the last one.
+- **Money:** routing 1–2 for each message, the menu about 1, and the removal 0,
+  so about 3–5 credits. That is an estimate, not a cap. The balance is 53
+  (read 20:40Z, the newest ledger row still run 44's).
+
+### Recovery: the restore mode, free
+
+- Press the existing restore mode with `restore_version`
+  `01790468089054-8btpep`.
+- It lists the site's versions and refuses a target that is not listed or not
+  restorable. Then it posts the app's own restore call, waits until the site
+  itself reports that version, and only then reads the site.
+- **Pass**: every route serves `8btpep`, every page body is byte-identical to
+  the before-read (the five hashes above), `/gallery` answers 200 again, the
+  sitemap lists five pages, and the menus are as before.
+- Nothing else needs undoing: the test writes no database row, no design
+  setting and no upload.
+- `8btpep` stays restorable: the newest 10 versions are kept, plus the live
+  one and its parent, and after the test it is the third newest.
+
+### The presses
+
+- **Free, first**:
+  1. The restore mode pointed at the live version, `8btpep`, from `main`. It
+     posts nothing, and it proves the recovery target is listed and
+     restorable.
+  2. The UI rehearsal of `5-page-remove` with spend `no`, from the branch. It
+     types message 1 and stops.
+- **Paid, after approval**: `5-page-remove` with spend `yes`, from the branch.
+- **Free, straight after it**: the restore mode to `8btpep`.
+
+### What it will not establish
+
+- How a real model reads any other wording.
+- The refusal live. Starting with "Remove the gallery page." on its own would
+  show it, for about 2 more credits; it is rehearsed free and left out.
+- Components, which this site does not store.
+- Hydration (#418) and translation, both parked.
 
 ## Remaining work after Test 3 (2026-09-26), and Test 4 prepared for approval
 
@@ -1525,7 +1710,7 @@ the add-on, a css-lane run, a page removal (the move exercises the same verb
 and publish path), a hop between rungs, why a quick attempt did not publish,
 and the rules rung (the recommended next test, next).
 
-### The rules rung — the recommended next test, revised (2026-09-27; the harness built on the branch at `ebf53761`; its paid press passed as run 44)
+### The rules rung — the recommended next test, revised (2026-09-27; the harness built on the branch at `ebf53761`; its paid press passed as run 44; closed by the owner)
 
 Owner, first: *"Prepare a separate rules-test proposal using an isolated fixture
 or complete deterministic recovery."* Then: *"For the rules test, compare the
@@ -2541,6 +2726,14 @@ the rules test holds.
   check (run 44), no row added, the stamp unchanged, nothing published, the
   money matching the ledger, and the permissions after the edit (press 4).
   Closing it is the owner's call after review.
+
+**Closed by the owner (2026-09-27)**, scoped to this closure request. The
+booking permissions were removed, a real visitor submission was rejected, no
+row was added, the menu's permissions were unchanged, and the stored pages and
+components were unchanged. No successful booking was measured before the edit,
+so this proves this closure request, not every rules operation. Bookings stay
+closed. The pages' remaining invitation and the generic refusal are a separate
+UX gap (the top of this file), not part of this milestone.
 
 ## A section headed by the kit — fixed (2026-09-26), merged and deployed in deploy 2162
 

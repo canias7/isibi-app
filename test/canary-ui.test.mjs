@@ -1559,3 +1559,120 @@ test("the approvals are read whole before the sign-in, refused on an unknown wor
   // An approval never arms spending.
   assert.doesNotMatch(FLOW.match(/CANARY_SPEND:.*/)[0], /rules_allow/, "the approvals box arms the spend switch");
 });
+
+// ── TEST 5: A PAGE TAKEN OFF THROUGH THE REAL APP ────────────────────────────
+//
+// Two messages on the bakery: the gallery out of the menu (a page another page
+// still names is refused), then the gallery page off the site. Each message
+// may leave the app only as its own kind of edit, so a misrouted one costs its
+// routing call and changes nothing. Putting the page back is the restore mode,
+// pressed on its own — not part of this scenario.
+
+const T5 = UI_SCENARIOS["5-page-remove"];
+const T5_MENU = "Take Gallery out of the menu.";
+const T5_REMOVE = "Remove the gallery page.";
+
+test("Test 5 is two messages on the bakery, the menu first and then the page, each walled to its own kind of edit", () => {
+  assert.equal(T5.site, "fold-lane-bakery");
+  assert.deepEqual(T5.steps.map((s) => s.say), [T5_MENU, T5_REMOVE]);
+  assert.deepEqual(T5.steps.map((s) => [...s.layers]), [["nav"], ["page"]]);
+  // Before the first Send the scenario's list stands, and it is no wider than
+  // its messages together.
+  assert.deepEqual([...T5.layers].sort(), [...new Set(T5.steps.flatMap((s) => s.layers))].sort());
+  assert.ok(T5.budget >= 4 && T5.budget <= 10, `budget ${T5.budget}`);
+  // Nothing here changes a row, closes a table or claims to publish nothing.
+  for (const k of ["row", "rules", "publishes", "attach"]) assert.equal(T5[k], undefined, `the scenario carries ${k}`);
+  assert.ok(T5.steps.every((s) => !s.attach), "a message carries a file");
+  for (const o of [T5, T5.steps, T5.layers, ...T5.steps, ...T5.steps.map((s) => s.layers)]) {
+    assert.ok(Object.isFrozen(o), "the scenario can be changed at run time");
+  }
+  assert.equal(readUiScenario("5-page-remove", "fold-lane-bakery").ok, true);
+  assert.equal(readUiScenario("5-page-remove", "fretwork-1").ok, false, "Test 5 runs against another site");
+});
+
+test("a message that names its layers is walled to them; before a Send, and for a message that names none, the scenario's list stands", () => {
+  const edit = (layer, step, scenario = T5) => ({ method: "POST", pathname: "/api/site/fold-lane-bakery/edit", body: JSON.stringify({ layer, instruction: "x" }), scenario, step });
+  const [menu, remove] = T5.steps;
+  // The first message: a menu edit and nothing else.
+  assert.equal(wallRefusal(edit("nav", menu)), "");
+  for (const l of ["page", "look", "text", "data", "rules", "picture", "logo", "rename", "", "addon"]) {
+    assert.match(wallRefusal(edit(l, menu)), /does not allow/, `the menu message let out an edit at ${l || "(blank)"}`);
+  }
+  // The second: a page edit and nothing else.
+  assert.equal(wallRefusal(edit("page", remove)), "");
+  for (const l of ["nav", "look", "text"]) assert.match(wallRefusal(edit(l, remove)), /does not allow/, `the removal let out an edit at ${l}`);
+  // The routing call and every read go out during either message.
+  for (const step of [menu, remove]) {
+    assert.equal(wallRefusal({ method: "POST", pathname: "/api/site/route", body: "{}", scenario: T5, step }), "");
+    assert.equal(wallRefusal({ method: "GET", pathname: "/api/site/edit/abc", scenario: T5, step }), "");
+    assert.notEqual(wallRefusal({ method: "POST", pathname: "/api/site/fold-lane-bakery/addon", scenario: T5, step }), "");
+  }
+  // Before any Send: the scenario's own list.
+  for (const step of [null, undefined]) {
+    assert.equal(wallRefusal(edit("nav", step)), "");
+    assert.equal(wallRefusal(edit("page", step)), "");
+    assert.match(wallRefusal(edit("look", step)), /does not allow/);
+  }
+  // A message that names no layers leaves every other scenario's wall as it was.
+  const plain = { say: "x" };
+  assert.equal(wallRefusal(edit("data", plain, D1)), "");
+  assert.match(wallRefusal(edit("text", plain, D1)), /does not allow/);
+  const b = UI_SCENARIOS["4a-part-b"];
+  assert.equal(wallRefusal(edit("page", b.steps[2], b)), "");
+  assert.notEqual(wallRefusal({ method: "POST", pathname: "/api/site/fold-lane-bakery/addon", scenario: b, step: b.steps[0] }), "");
+});
+
+test("the driver walls each message to its own layers from the moment it is sent", async () => {
+  const seen = [];
+  let wall = null;
+  const act = (method, path, body) => new Promise((done) => {
+    wall.handler({
+      request: () => ({ method: () => method, url: () => ORIGIN + path, postData: () => (body === undefined ? null : JSON.stringify(body)) }),
+      abort: async () => done("abort"), fallback: async () => done("fallback"),
+    });
+  });
+  const h = standIn({
+    routed: (n) => ({ ok: true, intent: "edit", layer: ["nav", "page"][n], cost: 2 }),
+    editBody: (n, said) => ({ layer: ["nav", "page"][n], instruction: said }),
+    reply: (n) => [
+      { ok: true, layer: "nav", msg: "✅ Updated the menu on 4 pages: Today's bake · The starter · Visit." },
+      { ok: true, layer: "page", removed: ["gallery.tsx"], msg: "✅ Took /gallery off the site. Every publish is kept, so say the word if you want it back." },
+    ][n],
+    // AT EACH SEND, what the wall would do with a menu edit and a page edit.
+    onSend: (n) => {
+      wall = wall || h.routes.find((r) => typeof r.pattern === "function" && r.pattern(new URL(ORIGIN + "/api/credits")));
+      seen.push(Promise.all([
+        act("POST", "/api/site/fold-lane-bakery/edit", { layer: "nav", instruction: T5.steps[n].say }),
+        act("POST", "/api/site/fold-lane-bakery/edit", { layer: "page", instruction: T5.steps[n].say }),
+        act("POST", "/api/site/route", { message: T5.steps[n].say }),
+      ]).then((d) => [n, ...d]));
+    },
+  });
+  const rec = await drive(h, { scenario: T5 });
+  assert.equal(rec.stopped, null, JSON.stringify(rec.stopped));
+  assert.equal(rec.sent, 2);
+  assert.deepEqual(rec.steps.map((s) => s.reply), [
+    "✅ Updated the menu on 4 pages: Today's bake · The starter · Visit.",
+    "✅ Took /gallery off the site. Every publish is kept, so say the word if you want it back.",
+  ]);
+  assert.deepEqual(await Promise.all(seen), [[0, "fallback", "abort", "fallback"], [1, "abort", "fallback", "fallback"]]);
+  assert.deepEqual(rec.blocked.map((b) => b.why), [
+    "an edit at the page layer, which this scenario does not allow",
+    "an edit at the nav layer, which this scenario does not allow",
+  ]);
+});
+
+test("a rehearsal of Test 5 types the menu message and sends nothing, behind the scenario's own list", async () => {
+  const h = standIn();
+  const rec = await drive(h, { scenario: T5, spend: false });
+  assert.equal(rec.sent, 0);
+  assert.equal(rec.stopped.at, "rehearsal");
+  assert.ok(h.calls.includes("fill " + T5_MENU), "the menu message was not typed");
+  assert.ok(!h.calls.includes("click #stSend"), "the rehearsal pressed Send");
+  const wall = h.routes.find((r) => typeof r.pattern === "function" && r.pattern(new URL(ORIGIN + "/api/credits")));
+  const act = (layer) => new Promise((done) => wall.handler({
+    request: () => ({ method: () => "POST", url: () => ORIGIN + "/api/site/fold-lane-bakery/edit", postData: () => JSON.stringify({ layer }) }),
+    abort: async () => done("abort"), fallback: async () => done("fallback"),
+  }));
+  assert.deepEqual([await act("nav"), await act("page"), await act("look")], ["fallback", "fallback", "abort"]);
+});

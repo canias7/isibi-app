@@ -73,7 +73,14 @@ AS RUN 44 (36337146911, 2026-09-27 17:29–17:31 UTC): routed to `rules`, the
 rung marked `bookings` closed, and one real visitor booking was then refused
 at the privilege check with no row added, for 3 credits; and the permissions
 read after it, `grants preview` run 36339825502, found visitors holding
-nothing on `bookings` and the menu unchanged, so every pass item holds)**: the
+nothing on `bookings` and the menu unchanged, so every pass item holds — and
+THE SCOPED RULES ACCEPTANCE IS CLOSED BY THE OWNER (2026-09-27): booking
+permissions removed, the real visitor submission rejected, no row added, the
+menu's permissions unchanged, the stored pages and components unchanged;
+there was no successful booking measured before the edit, so it proves this
+closure request and not every rules operation; bookings stay closed, and the
+still-visible invitation and the generic rejection are a separate UX gap,
+not this milestone)**: the
 top section of the
 [edit-path checklist](docs/investigations/edit-path-checklist.md), summarised in
 *remaining work after Test 3* below. Among the QUEUED jobs inspected, a page
@@ -168,7 +175,23 @@ at 09:32. **So every pass item holds.** A booking that went through before
 the edit was never measured, so this shows the configuration changing and a
 booking refused afterwards. **`lido-axes-b`'s bookings stay closed**, as the
 owner approved; its pages still show "Book a table" (*the rules test, built*,
-below).
+below). **CLOSED BY THE OWNER, 2026-09-27** (*"Run 44 and the
+after-permissions preview check out. Close the scoped rules acceptance"*), for
+exactly what it showed: booking permissions removed, the real visitor
+submission rejected, no row added, the menu's permissions unchanged, and the
+stored pages and components unchanged. **The evidence boundary stays
+explicit**: no successful booking was measured before the edit, so this proves
+this closure request, not every rules operation. The invitation the pages still
+show and the generic "That isn't available." are **a separate UX gap** (the
+Backlog), not part of this milestone. **Test 5, a page removal and its
+restoration, is PREPARED (2026-09-27; nothing paid)** on fold-lane-bakery.
+**A page removal on its own is refused on every existing multi-page site**,
+because every page is in another page's menu, so the test is two messages from
+one tab: "Take Gallery out of the menu." then "Remove the gallery page.". Each
+message is walled to its own kind of edit (the UI mode's new per-message wall,
+scenario `5-page-remove`, on the branch), and it was rehearsed free through the
+real edit route, 8 of 8. The recovery is the existing restore mode, free, to
+`01790468089054-8btpep`. Cost about 3–5 credits (*Test 5*, below).
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -10385,6 +10408,13 @@ after it hold the test and the proposal. What is law here:
       - **Not read by anything here**: the row policies (dropped, per the
         code). The privilege refusal needs no policy to be read, and it is
         what run 44's booking met.
+    - **CLOSED BY THE OWNER (2026-09-27)**, scoped to what runs 44 and press 4
+      showed: booking permissions removed, the real visitor submission
+      rejected, no row added, the menu's permissions unchanged, the stored
+      pages and components unchanged. **No successful booking was measured
+      before the edit, so this proves this closure request, not every rules
+      operation.** Bookings stay closed. The still-visible invitation and the
+      generic refusal are a separate UX gap (the Backlog), not this milestone.
   - **THE PAGE A BROWSER GETS IS NOT THE PAGE NODE GETS (measured
     2026-09-27).** Cloudflare's edge adds its analytics beacon
     (`static.cloudflareinsights.com/beacon.min.js`, `data-cf-beacon`) only
@@ -10497,6 +10527,78 @@ after it hold the test and the proposal. What is law here:
   `planSite` before `applyPlan` and written after it, and the artifact is
   uploaded `if: always()`. So D2's artifact must equal step 0's, a free check
   that nothing moved the grants between the two presses.
+
+### TEST 5: A PAGE REMOVAL AND ITS RESTORATION, PREPARED (2026-09-27; nothing paid)
+
+Owner: *"Prepare one bounded page-removal-and-restoration test using an
+existing suitable fixture and the existing workflow … First reconcile this
+against the existing acceptance checklist so we don't repeat a closed test."*
+The full plan, the expected bodies and the presses are the checklist's
+*Test 5* section. What is law here:
+
+- **IT REPEATS NOTHING CLOSED.** A page removal has never published through the
+  queue (run 39 moved a page; runs 34 and 37 removed sections). Restoring a
+  version has run live only on fretwork-1 (runs 20 and 22), and never over a
+  removed page. The menu rung's last live jobs were 2026-09-02, on older code.
+- **A PAGE ANOTHER PAGE NAMES CANNOT BE REMOVED, AND ON A GENERATED SITE EVERY
+  PAGE IS NAMED.** `mergeAddonPages` refuses a removal while any other page's
+  source contains `"<route>"`, and a site keeps a copy of its menu in every
+  page file. Read live on 2026-09-27: 40 of the building account's 42 sites
+  answered, 17 have more than one page, and on those every page but the home
+  page is linked from another page; the only exceptions are two older CRM
+  `/deal` pages whose source was not read (a link drawn from data does not show
+  in the served page). **So "remove the X page" on its own is refused on every
+  existing multi-page site**, with *"I left /x — / still links to it. Ask me to
+  take the link out first."*, and a live removal takes two messages: the menu,
+  then the page.
+- **⚠ THAT REFUSAL'S STATED REASON EXPIRED ON 2026-08-30, NOT CHANGED.** Its
+  comment says a link to a missing route "does not compile", which stopped
+  being a refusal when `tsc` became report-only, and a menu entry's `href` is a
+  plain string that was never type-checked. What it still prevents is a menu
+  link that leads nowhere. *A rule true because of a layer below it expires
+  when that layer moves.*
+- **⚠ THE MENU RUNG NEVER LISTS THE HOME PAGE ON THE HOME PAGE, SO ON A SITE
+  WHOSE HOME PAGE LISTS ITSELF, EVERY MENU EDIT TAKES THAT ITEM OFF**
+  (`applyNav`'s `forHere` filter; found, not changed). The rule was written so
+  that no home page gains a "Home" link; on the bakery, whose home menu has
+  "Today's bake → /", it removes a visible item nobody asked about. The rung
+  also rewrites every page's menu array onto one line.
+- **THE FIXTURE AND THE MESSAGES.** fold-lane-bakery, live `8btpep` on all five
+  routes; the gallery page named only by the home page's menu. "Take Gallery
+  out of the menu." then "Remove the gallery page." — the router's own
+  examples for the `nav` layer and for the `page` layer with `remove`.
+- **A WALL PER MESSAGE, NEW IN THE UI MODE** (`wallRefusal`'s `step`,
+  `scripts/canary-ui.mjs`, on the branch). A message that names its own
+  `layers` may leave the app only as that kind of edit; before the first Send,
+  and for a message that names none, the scenario's list stands, so every
+  earlier scenario behaves as before. `runUi` names the message to the wall
+  just before its Send (`current`). Scenario `5-page-remove`: the menu message
+  walled to `nav`, the removal to `page`, budget 8.
+- **REHEARSED FREE, THROUGH THE REAL EDIT ROUTE ON THE BAKERY'S STORED PAGES,
+  BOTH MONEY PATHS, EVERY MODEL ANSWER SUPPLIED: 8 of 8.** The removal alone is
+  refused and builds nothing; the menu message rewrites four menus (the home
+  page's to "The starter · Visit") and says "✅ Updated the menu on 4 pages:
+  Today's bake · The starter · Visit."; the removal then publishes with no model
+  call (`exempt` on the job path), removes `gallery.tsx` alone and says "✅ Took
+  /gallery off the site. Every publish is kept, so say the word if you want it
+  back."; its compile payload carries four pages.
+- **WHAT A VISITOR GETS AT THE OLD ADDRESS: A 301 TO THE HOME PAGE**, not a
+  404: `mergeRedirects` redirects every route the last publish had and this one
+  has not.
+- **THE RECOVERY IS THE EXISTING RESTORE MODE, FREE**, to
+  `01790468089054-8btpep`: it lists the versions, refuses a target not listed
+  or not restorable, posts the restore, and waits for the site's own header
+  before reading it. Nothing else needs undoing: no row, no design setting, no
+  upload.
+- **EVIDENCE**: `test/canary-ui.test.mjs` 57 → 61 cases. **Red on the unfixed
+  script with only the scenario added: exactly the two per-message wall cases**
+  (the scenario, the rehearsal and all 57 earlier cases pass there). Probes
+  `scripts/mutants/page-remove.json`: 11 killed, 0 survived, 0 never applied,
+  the comment-only control surviving, over nine canary and workflow test files;
+  both swept files byte-identical afterwards. Suite `8147 / 8145 / 0 / 2`
+  locally, +4.
+- **COST, AN ESTIMATE AND NOT A CAP**: routing 1–2 per message, the menu about
+  1, the removal 0 — about 3–5 credits. Balance 53.
 
 ### A SECTION HEADED BY THE KIT (2026-09-26, `2f2fed58` + `5ec82214`, merged and deployed in deploy 2162)
 
@@ -14201,14 +14303,20 @@ does name one — moved up to the supported list on 2026-09-20.)*
   "✅ **bookings** — changed whether it's open." with the asterisks visible
   (the run's own screenshot). Kept with the model-written replies work, beside
   the generic "changed whether it's open".
-- **CLOSING A TABLE LEAVES THE SITE INVITING IT (run 44, recorded; not
-  changed).** The rules rung changes the database and publishes nothing, so
-  after "stop taking bookings on the website for now" `lido-axes-b` still
-  shows "Book a table" in its header and hero and the `/book` form, and a
-  visitor who fills it in is told "That isn't available.", not that the café
-  is fully booked. The database half of the request is done and the page half
-  is not. Whether such a message should also change the pages is the owner's
-  call.
+- **A SEPARATE UX GAP: CLOSING A TABLE LEAVES THE SITE INVITING IT, AND THE
+  REFUSAL IS GENERIC (run 44; recorded by the owner's instruction as its own
+  item when the rules acceptance closed, 2026-09-27: *"don't expand this
+  milestone to fix it"*; not changed).** Two halves:
+  - **the invitation stays**: the rules rung changes the database and
+    publishes nothing, so after "stop taking bookings on the website for now"
+    `lido-axes-b` still shows "Book a table" in its header and hero, and the
+    `/book` form;
+  - **the refusal is generic**: a visitor who fills the form in is told
+    "That isn't available.", not that the café is fully booked.
+
+  The database half of the request is done and the page half is not. Whether
+  such a message should also change the pages, and what the refusal should
+  say, is the owner's call. **`lido-axes-b`'s bookings stay closed** meanwhile.
 - **THE LOGO REPLY SAYS "ON EVERY PAGE" (run 39, recorded separately when the
   owner closed Test 4a, 2026-09-27; not changed).** The logo rung answers
   "✅ That's your logo in the header now, on every page.", and fold-lane-bakery's
