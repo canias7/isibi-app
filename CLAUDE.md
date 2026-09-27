@@ -53,7 +53,8 @@ without that section. The verdicts are inferred from the publish, not captured,
 and #418 stays open. **CLOSED BY THE OWNER** after independent review (2026-09-26),
 together with the CSS-correction milestone (deploy 2161's batch): no repeat run, no
 restoration, no further CSS work.
-**What remains, and Test 4b (proposed 2026-09-27, not approved)**: the top section of the
+**What remains, and Test 4b (proposed 2026-09-27, not approved; its free step 0 ran
+as `grants preview` run 36286991932 and met D2's gate)**: the top section of the
 [edit-path checklist](docs/investigations/edit-path-checklist.md), summarised in
 *remaining work after Test 3* below. Among the QUEUED jobs inspected, the data
 and rules rungs and a page removal have never published; **run 39 was the
@@ -9338,7 +9339,9 @@ list, and Test 4's exact form values, are the top section of the
     - step 0, free: `grants preview` (preview mode) for the site — the stored
       access, today's client write grants and what the next schema change
       would grant, and its artifact is the grants' exact rollback. It is a
-      reading, never proof that a real form submission works;
+      reading, never proof that a real form submission works. **Ran
+      2026-09-27 as run 36286991932 and met D2's gate** (*Test 4b, proposed*,
+      below);
     - D1, a price row through the real app, with only a `data` edit allowed
       to leave the page;
     - D2, the grants themselves (`grants preview` apply), undone exactly by its
@@ -9364,8 +9367,9 @@ list, and Test 4's exact form values, are the top section of the
     string.
   - The first schema change on a site built before 2026-09-13 re-emits every
     table's grants column-scoped. The order form writes `customer_name`,
-    `phone`, `loaf`, `pickup_date` and `pickup_time`, and step 0 shows whether
-    `orders` would be granted all five. A real order is still the only proof.
+    `phone`, `loaf`, `pickup_date` and `pickup_time`, and step 0 showed that
+    `orders` would be granted exactly those five (run 36286991932). A real
+    order is still the only proof.
 
 ### MERGED AND DEPLOYED: THE KIT-HEADING FIX (2026-09-26, evening)
 
@@ -9717,7 +9721,7 @@ addition."* `scripts/canary-ui.mjs`, the `ui_scenario` box on `edit-canary.yml`,
   block, the balance was read before each message, every filed job was
   followed, and the after-read waited for the last published version.
 
-### TEST 4b, PROPOSED (2026-09-27; not approved, not dispatched)
+### TEST 4b, PROPOSED (2026-09-27; not approved; the free step 0 ran)
 
 Owner: *"return one concrete proposal: exact requests, expected database
 changes, independent checks, estimated cost and deterministic recovery for both
@@ -9749,7 +9753,39 @@ The proposal is the checklist's Test 4b section. What is law here:
   `published = body.ok === true`, and a data edit publishes no version. The UI
   mode's chain handles an edit that publishes nothing. Found, not changed.
 - **`grants preview`'s rollback box wants the run ID** (the number in the
-  run's URL), not the `#N` run number, and the artifact is kept 90 days.
+  run's URL), not the `#N` run number, and the artifact is kept 90 days. **The
+  box's own description says "the run number"**, which names the wrong one:
+  step 0 is #1 and its ID is 36286991932. Typing 1 should fail the download,
+  and the grants step never runs after a failed step, so nothing is written.
+  That is read in the workflow, not driven.
+- **STEP 0 RAN: `grants preview` run 36286991932, the owner's free press,
+  2026-09-27 01:55:29Z, from `main` at `ab74d0d9`.** The env block reads `MODE:
+  preview` and `SLUG: fold-lane-bakery`, and the apply guard and the rollback
+  download were both skipped, so nothing was written.
+  - `loaves` (read public, write none): SELECT for both visitor roles,
+    table-level, `ok`.
+  - `orders` (read none, write anyone): INSERT for both, table-level, `NEEDS`,
+    and it would grant exactly `customer_name, phone, loaf, pickup_date,
+    pickup_time`.
+  - No missing column, no warning, 0 sites unreadable. **D2's gate is met.**
+  - The artifact (id 10920728641, a 1,980-byte JSON, kept until 2026-12-26)
+    carries the statements an apply would issue. The rollback's statements
+    come from the script's own `grantsFromAcls` over that file, computed
+    offline: for `loaves` both are the same four statements, and for `orders`
+    the rollback is `REVOKE ALL` then `GRANT INSERT ON "orders"` to each role.
+- **A REFUSED STATEMENT EXITS 0** (read in `scripts/grants-backfill.mjs`,
+  found, not changed). `applyPlan` catches each failure and logs `REFUSED`, and
+  the verify after it logs `FAIL`, but `main` sets no exit code for either, so
+  an apply reads green whether or not it applied. A rollback also logs
+  `REFUSED` and carries on. **Read the lines, never the conclusion.**
+- **AFTER A CORRECT ROLLBACK, `verify` READS `FAIL`**, because it checks for the
+  column-scoped form and the rollback restores the table-wide one. A rollback
+  is checked by a `preview`: its lines must read step 0's again, and its
+  artifact's recorded grants must equal step 0's.
+- **AN APPLY UPLOADS ITS OWN BEFORE-STATE TOO.** The grants are read in
+  `planSite` before `applyPlan` and written after it, and the artifact is
+  uploaded `if: always()`. So D2's artifact must equal step 0's, a free check
+  that nothing moved the grants between the two presses.
 
 ### A SECTION HEADED BY THE KIT (2026-09-26, `2f2fed58` + `5ec82214`, merged and deployed in deploy 2162)
 

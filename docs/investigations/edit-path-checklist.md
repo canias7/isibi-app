@@ -26,7 +26,9 @@ found one gap — a kit heading the page may not render (inside `{false && …}`
 its own approval; **4a is closed: its free step 0 ran as runs 35 and 36, Part A
 passed as run 37, and Parts B and C passed as run 39, through the canary's new
 UI mode (the real app in a real browser)**. 4b is proposed (2026-09-27) and
-waits for its own approval; its free step 0 is your press.
+waits for its own approval. Its free step 0 ran as `grants preview` run
+36286991932 and met D2's gate: the columns it would grant are exactly the five
+the order form sends.
 
 ### What is already shown live (credited, not rerun)
 
@@ -186,7 +188,7 @@ other. None blocks anything; none is being worked on.
   since an adopted site sends it no table names, and the live database. Only a
   live run measures those.
 
-### Test 4 — two parts, approved separately: 4a closed (runs 37 and 39), 4b proposed and not approved
+### Test 4 — two parts, approved separately: 4a closed (runs 37 and 39), 4b proposed and not approved (its free step 0 ran)
 
 Both parts run on fold-lane-bakery (Harbour Loaf): a database, three
 photographs (two on the home page), five pages, and run 9's stored source
@@ -713,7 +715,7 @@ all, against an estimate of about 17–20. The balance is 59 (read 2026-09-27
 00:45:33Z). The site keeps 4a's changes; the recovery above undoes them for
 free if you want that.
 
-#### Test 4b — the database: a row and a permission change (proposed 2026-09-27; not approved, not dispatched)
+#### Test 4b — the database: a row and a permission change (proposed 2026-09-27, not approved; step 0, the free reading, ran and met D2's gate)
 
 **Free checks already done (2026-09-27, 01:31–01:39Z):**
 - **The site's job history** (read-only, `edit_jobs`): its database has had no
@@ -745,6 +747,42 @@ grants, prints what the next schema change would grant, and uploads the
 grants as they stand; that artifact is D2's exact recovery. **The gate for
 D2:** `orders` must list all five form fields under "would grant", and no
 column the form sends may be missing from the table.
+
+**Step 0 ran: the owner's free press, run
+[36286991932](https://github.com/canias7/isibi-app/actions/runs/36286991932)
+(#1 in the list), 2026-09-27 01:55:29Z, from `main` at `ab74d0d9`. The gate
+is met.**
+- **It wrote nothing.** The env block reads `MODE: preview` and `SLUG:
+  fold-lane-bakery`. The apply guard and the rollback download were both
+  skipped, and the script's one writing path runs only in apply mode.
+- **What it read**, verbatim: `fold-lane-bakery: 2 table(s), 1 carrying a
+  table-wide client write`.
+  - `ok loaves [read=public write=none] now: (no table-wide write)`.
+  - `NEEDS orders [read=none write=anyone] now: anonymous INSERT,
+    authenticated INSERT`, and `would grant: customer_name, phone, loaf,
+    pickup_date, pickup_time`.
+  - No missing-column note, no warning, and `0 site(s) could not be read`.
+
+  **So the columns it would grant are exactly the five the form sends**, no
+  more and no fewer.
+- **The saved grants** (artifact `grants-before-state`, id 10920728641, 569
+  bytes zipped, a 1,980-byte JSON, kept until 2026-12-26). Downloaded and read:
+  - `loaves`: SELECT for `anonymous` and `authenticated`, table-level.
+  - `orders`: INSERT for both roles, table-level.
+  - No column-level grant and no other privilege for either role, so a
+    visitor has no UPDATE or DELETE anywhere and no SELECT on `orders`.
+- **D2's statements are known before it runs.** The preview records, per
+  table, what an apply would issue.
+  - `loaves`: `REVOKE ALL` from both roles, then `GRANT SELECT` to both. That
+    is the same end state it has now.
+  - `orders`: `REVOKE ALL` from both roles, then `GRANT INSERT
+    ("customer_name", "phone", "loaf", "pickup_date", "pickup_time") ON
+    "orders"` to each.
+- **Its rollback is known too.** It was computed offline with the script's own
+  `grantsFromAcls` over the downloaded file, with no database involved.
+  - `loaves`: the same four statements.
+  - `orders`: `REVOKE ALL` from both roles, then `GRANT INSERT ON "orders"` to
+    each. That is today's table-wide form, exactly.
 
 **D1 — a row, through the real app (paid, about 2–3 credits).** The canary's
 UI mode, a new scenario `4b-d1-price`, one message: "In today's bake list,
@@ -778,6 +816,14 @@ grants today's engine emits.
   which is the point of the column-scoped form.
 - **Checks:** the apply prints its own verify line per table; a visitor's
   `loaves` read is still 200 with the same rows; `orders` is still 403.
+  - **A green run is not the check** (read in the script, found, not changed).
+    A refused statement is logged as `REFUSED` and the verify after it as
+    `FAIL`, but nothing sets an exit code for either, so the run reads green
+    whether or not it applied. The check is the lines: no `REFUSED`, `  ok `
+    for both tables, and `orders`' granted columns exactly the five.
+  - **The apply uploads its own before-state too**: the grants it read just
+    before writing. It must equal step 0's, which is a free check that nothing
+    moved the grants between the two presses.
 - **Stop rule:** any `REFUSED` or `FAIL` line → press rollback at once
   (below) and skip D3.
 
@@ -811,10 +857,21 @@ received" panel.
     focaccia's empty `photo` (NULL) would come back as an empty string, which
     is not the row that was there.
 - **Permissions:** `grants preview`, mode `rollback`, the site, and step 0's
-  run ID (the number in its URL): `REVOKE ALL` and then the grants exactly as
-  recorded, table and column level, within the artifact's 90 days. Keeping
-  the column-scoped grants instead is the owner's call; they are what every
-  site gets now, and what the next schema change would apply anyway.
+  run ID: `REVOKE ALL` and then the grants exactly as recorded, table and
+  column level, within the artifact's 90 days (until 2026-12-26). Keeping the
+  column-scoped grants instead is the owner's call; they are what every site
+  gets now, and what the next schema change would apply anyway.
+  - **The run ID is 36286991932**, the number in the run's address. The box's
+    own description says "the run number", but the download step needs the
+    ID; step 0's number is 1. Typing 1 should fail the download, and the grants
+    step never runs after a failed step, so nothing is written. That is read
+    in the workflow, not driven.
+  - **The check after a rollback is another `preview`**, whose lines must read
+    step 0's again (`NEEDS orders … now: anonymous INSERT, authenticated
+    INSERT`) and whose artifact's recorded grants must equal step 0's. **Not
+    `verify`**: it checks for the column-scoped form, so it reads `FAIL` after
+    a correct rollback. A rollback also prints `REFUSED` and carries on, as an
+    apply does, so its lines are read too.
 - **Pages:** nothing in 4b publishes.
 - **Left behind, unavoidably:** the `orders` id counter advances by one (two
   with a retry), and any email or text D3 sent.
@@ -833,8 +890,8 @@ scenarios above in the canary's UI mode (the per-scenario layer wall and the
 row steps), with tests and CI. The workflow form gains no box; both use the
 existing scenario box.
 
-**Presses in order:** step 0 → (build) → rows dry run → D1 → D2 → D3 → rows
-back → rollback or keep.
+**Presses in order:** step 0 (done, run 36286991932) → (build) → rows dry run
+→ D1 → D2 → D3 → rows back → rollback or keep.
 
 **4b cost:** D1 about 2–3 credits (routing 1–2 and the data rung's one call);
 everything else is free. The balance is 59.
