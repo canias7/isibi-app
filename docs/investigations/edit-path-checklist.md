@@ -35,8 +35,10 @@ rows route itself, which is Worker code. The owner closed the correction after
 review (165 focused tests), and it is **merged and deployed at `14df0225`
 (deploy 2163, 2026-09-27 05:15 UTC, image `9038e90ab1d5d7fe`)**. **The fresh
 free rehearsal on that deployment passed as run 41** (05:37 UTC; its preflight
-is deploy 2163's runtime confirmation), so **the paid press is ready and is the
-owner's call** (*the recovery's write is conditional*, in Test 4b). D2
+is deploy 2163's runtime confirmation), and **the owner's paid press passed as
+run 42** (06:03–06:05 UTC). The price went to £4.60 through the `data` layer and
+showed on the order page. The canary's conditional write then put it back to
+£4.50. It cost 3 credits (*the paid press ran as run 42*, in Test 4b). D2
 (the grants apply) and D3 (a real order) are parked as maintenance and
 integration checks: applying grants through `grants preview` does not exercise
 the rules rung. Step 0 (`grants preview` run 36286991932) is kept as evidence.
@@ -66,6 +68,7 @@ exercised it.
 | Logo | Run 39 (Test 4a's B1): a PNG attached in the real composer became the header logo, byte for byte; published free (`exempt`, no ledger row). |
 | Picture (reframe) | Run 39 (B2): the named photograph moved to show the top, and nothing else; 1 credit. |
 | Page move | Run 39 (B3): `/the-starter` → `/starter`, every link followed and the old address answers 301; published free (`exempt`). |
+| Data (one row) | Run 42 (Test 4b's D1): one price, routed to the `data` layer, changed on the live database exactly as asked and shown on the order page, then put back by the canary; 3 credits. A row edit publishes no version, so this is an applied change, not a publish. |
 | Second messages from one tab | Run 39: three messages from one browser tab, each after a finished job, each with its own job, reply and working composer. |
 | Queue, billing, reply, after-read | Every canary run. Runs 33 and 34 ran on the current code. |
 
@@ -73,8 +76,12 @@ The jobs from 2026-09-01 to 09-07 ran on older code. They count as live
 coverage of those rungs' paths, not as evidence about today's code, and they
 are not rerun.
 
-**Never published among the queued jobs inspected:** the data and rules rungs,
-and a page removal. **Run 39 (2026-09-27) was the first queued publish of the
+**Never published among the queued jobs inspected:** the rules rung and a page
+removal. **The data rung changed its first row through the queue in run 42**
+(2026-09-27). The census had 290 queued jobs since 2026-09-01, 197 of them
+with a stored reply, and run 42's reply is the only one that names the `data`
+layer or lists changed rows (read-only, 06:13Z). A row edit publishes no
+version. **Run 39 (2026-09-27) was the first queued publish of the
 logo rung, the picture rung and a page move**, and its logo and move jobs are
 the only `exempt` jobs in the queue's history (a read-only count of
 `edit_jobs` by billing state), so the free-rung path has now published through
@@ -92,10 +99,11 @@ missing is a real model, the real browser or the live database.
 2. **The picture rung's swap** (a new picture into a slot). The reframe is
    shown (run 39). Controlled: `site-picture`, `edit-page-once`,
    `edit-failure`.
-3. **The data rung.** Controlled: `site-apply`, `edit-failure` (including an
-   `incomplete` site). **D1 is its live test** (rehearsed free as run 40 and, on
-   deploy 2163 with the conditional write, as run 41; the paid press is ready,
-   not pressed).
+3. **The data rung beyond one row change.** Run 42 (D1) showed one price
+   routed to `data`, changed live and put back. Still covered by controlled
+   tests only (`site-apply`, `edit-failure`):
+   - adding, removing and reordering rows;
+   - a site whose backend reference is blank (`incomplete`).
 4. **The rules rung on a site with a database.** Controlled:
    `edit-rules-backend`. Run 12 was blocked by a defect that has since been
    fixed. It has its own proposal (after Test 4); neither D2 nor D3 would
@@ -204,7 +212,7 @@ other. None blocks anything; none is being worked on.
   since an adopted site sends it no table names, and the live database. Only a
   live run measures those.
 
-### Test 4 — two parts, approved separately: 4a closed (runs 37 and 39); 4b is D1 alone, rehearsed free as run 40 and again on deploy 2163 as run 41, with its put-back write conditional; the paid press is ready, not pressed
+### Test 4 — two parts, approved separately: 4a closed (runs 37 and 39); 4b is D1 alone, rehearsed free as runs 40 and 41, with its put-back write conditional; the paid press passed as run 42
 
 Both parts run on fold-lane-bakery (Harbour Loaf): a database, three
 photographs (two on the home page), five pages, and run 9's stored source
@@ -731,7 +739,7 @@ all, against an estimate of about 17–20. The balance is 59 (read 2026-09-27
 00:45:33Z). The site keeps 4a's changes; the recovery above undoes them for
 free if you want that.
 
-#### Test 4b — the database: D1 alone, built and rehearsed free as run 40; its put-back write made conditional, deployed in 2163 and rehearsed free again as run 41 (2026-09-27); the paid press is ready, not pressed; D2 and D3 parked; step 0 kept as evidence
+#### Test 4b — the database: D1 alone, built and rehearsed free as run 40; its put-back write made conditional, deployed in 2163 and rehearsed free again as run 41; the paid press passed as run 42 (2026-09-27); D2 and D3 parked; step 0 kept as evidence
 
 **Narrowed by the owner (2026-09-27):** *"separate maintenance from edit-path
 acceptance: applying grants through grants-preview does not exercise the rules
@@ -804,7 +812,7 @@ writes grants directly and never goes through an edit.
   - `orders`: `REVOKE ALL` from both roles, then `GRANT INSERT ON "orders"` to
     each. That is today's table-wide form, exactly.
 
-**D1 — a row, through the real app: built at `6602be37`, rehearsed free as run 40 (below); the put-back's write made conditional since (below), deployed in 2163, and rehearsed free again on that deployment as run 41 (below), which passed. The paid press is ready and is the owner's call.** A new
+**D1 — a row, through the real app: built at `6602be37`, rehearsed free as run 40 (below); the put-back's write made conditional since (below), deployed in 2163, and rehearsed free again on that deployment as run 41 (below), which passed. The owner's paid press passed as run 42 (below).** A new
 scenario of the canary's UI mode, `4b-d1-price`, on fold-lane-bakery. One
 message: "In today's bake list, change the Sea Salt Focaccia's price to
 £4.60." (68 characters, 69 bytes, sha256 `550cf87497ef7a8f…`).
@@ -929,8 +937,10 @@ Worker that cannot enforce the condition.
   rehearsal, a misroute, a hang, a recovery dry run and a recovery write. Each
   behaved as described above, and no request but a GET left for the network.
 
-**Not established until a live run:** which layer the router picks for this
-sentence, the data rung's real answer, and the live database.
+**Not established until a live run** (written before the press): which layer
+the router picks for this sentence, the data rung's real answer, and the live
+database. Run 42 established all three, for this sentence on this site
+(below).
 
 **The free rehearsal ran as run 40 and passed** (`36291812275`, 2026-09-27
 03:34:40 → 03:36:03Z; the owner's press from the branch at `95eb36da`; canary
@@ -1129,8 +1139,8 @@ and the paid run stopped before Send. What it needed, in order:
 2. **A fresh free rehearsal with the new identifiers — done: run 41 passed**
    (below). It made one PATCH that changes nothing, the probe, and the new
    route answered 409.
-3. **The paid press**, the same form with spend `yes` — **ready, not
-   pressed**; it is the owner's call.
+3. **The paid press**, the same form with spend `yes` — **done: run 42
+   passed** (below).
 
 **Ready-to-run inputs.** [`edit canary`](https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml)
 → Run workflow → **branch `main`**. Since the merge, main carries the UI mode
@@ -1218,7 +1228,110 @@ canary step 38 s):
 - **So the paid press starts from an established before-state on the deployed
   code.** It is the same form with spend `yes`, and it is the owner's call.
 
-**Cost:** about 2–3 credits. That is the routing charge (1–2; run 39's three
+**The paid press ran as run 42 and passed** ([`36298962234`](https://github.com/canias7/isibi-app/actions/runs/36298962234),
+2026-09-27 06:03:09 → 06:05:06Z; the owner's press from `main` at `14df0225`;
+canary step 77 s). Everything below is read off the run's log and its
+evidence artifact, then checked again by the session, read-only.
+- **The env block:** spend 1, scenario `4b-d1-price`, site fold-lane-bakery,
+  control washhouse-3; the instruction, job and version boxes blank; both
+  expectations set.
+- **The preflight:** build-health and runtime both answered `14df0225be90`
+  with image `9038e90ab1d5d7fe`; async and runner true; both readers agreeing;
+  both expectations matched. The zero-cost confirmations passed. Their two
+  jobs are `failed`, billing `none`, cost 0, and published nothing.
+- **The before-read:** complete (`reads` all true), every route on
+  `01790468089054-8btpep`, and all five page bodies byte-identical to run 41's
+  before-read. The control: against run 39's BEFORE-read the same comparison
+  differs on every page.
+- **Before Send**, in the code's order:
+  - **The probe** answered **409** (`enforced`).
+  - **The order page** (06:04:04Z, at `8btpep`) showed the focaccia at £4.50.
+  - **The fresh baseline** (06:04:11.393Z): six rows on both readers, and row
+    6 at 4.5 on both. The visitor read is 1,045 bytes, sha256
+    `ef870ebcf8353634`, equal to the proposal's record. The recovery's plan
+    at the baseline: none.
+  - **The balance** read 59, so the budget check let the message go.
+- **The request:**
+  - The message left word for word.
+  - The routing call answered `intent=edit layer=data`, cost 2 (`6,774 in /
+    15 out`, 512 cached). It was sent the site's five pages and `tables: []`,
+    which is what a browser sends for a site it adopted off the list, so the
+    router picked `data` with no table names to go on.
+  - Then exactly **one** edit POST, 202, at the `data` layer, with the same
+    instruction: job `dfb7ca810fa2469395917b315c5db71f`.
+  - Nothing else was started: 0 blocked, 0 console errors, 0 page errors.
+- **The reply**, 36 s after Send: "✅ Updated one entry in loaves." (the
+  scenario's expected sentence). The composer came back usable: not busy,
+  Send live, no Stop button, no "Working" row, and the box took typing.
+- **The stored reply** (200 under `x-gf-edit: final`):
+  - `ok`, layer `data`, cost 1 (`1,370 in / 37 out`, 512 cached, one call);
+  - `applied` exactly `[{table: "loaves", id: 6, columns: ["price"]}]`, and
+    `failed: 0`.
+- **The job row:**
+  - `done`, billing `finalized`, cost 1;
+  - created 06:04:24.140Z and settled 06:04:40.986Z;
+  - `publish_started_at` and `published_at` empty.
+  - The trace candidate ended 06:04:40.527Z after 11,769 ms, ok.
+- **The database change, on both readers** (06:04:50.360Z): row 6's price
+  4.5 → 4.6, and nothing else. No other field or row changed, and no row was
+  added or removed. The visitor body is still 1,045 bytes and differs from
+  the baseline in exactly one character, the `5` of `"price":4.5` (sha256
+  `f939ed91502d913f`).
+- **The order page after the edit** (06:04:50Z, at `8btpep`): the focaccia at
+  **£4.60**, and the other five cards as they were.
+- **The recovery**, with no model call:
+  - It read both readers again at 06:04:52.968Z (4.6) and planned a patch
+    (`reads-what-this-test-set`).
+  - `PATCH /rows/loaves/6 {"$set":{"price":4.5},"$if":{"name":"Sea Salt
+    Focaccia","price":4.6}}` answered **200**, with the route's `conditional:
+    true` (the canary refuses a 200 without it) and the row back at 4.5.
+  - There was no conflict.
+  - **This is the first live conditional write that matched.** Run 41 showed
+    the other side: a write no row can meet answered 409.
+- **Restored** (06:04:53.484Z):
+  - the row equals its baseline field for field on both readers;
+  - the visitor body is byte-identical to the baseline (`ef870ebcf8353634`);
+  - the order page is back to every line it had, the focaccia at £4.50.
+
+  So the site showed £4.60 for seconds, not minutes: from the job's write
+  (inside 06:04:24–06:04:41Z) to the put-back at 06:04:53Z.
+- **Nothing published:**
+  - no version names the job, and the job row's publish fields are empty;
+  - the after-read (06:04:58Z) found every route still on `8btpep`, and the
+    chain reads VERIFIED;
+  - the five route pages are identical to the before-read once render times
+    are masked (the control: a one-word change is seen);
+  - the stored bodies are identical.
+- **The money closes exactly: 59 → 56 = routing 2 + edit 1**, at the top of
+  the 2–3 estimate. `credit_events` holds one row for the job, `reserve −1`,
+  `balance_after 56`, ref `<job>#1`, at 06:04:40.179Z, and no refund. The
+  routing charge writes no ledger row. The reserve's `after 56` puts the
+  balance at 57 just before it.
+- **Checked by the session afterwards** (06:13–06:17Z, read-only):
+  - the balance row reads 56 (06:13:03Z);
+  - `credit_events` since midnight holds only run 39's reserve and run 42's;
+  - `edit_jobs` since 05:50Z holds only the two confirmation jobs and run
+    42's job;
+  - the visitor route answers 1,045 bytes, byte-identical to run 41's
+    reading, with the focaccia at 4.5 (06:16:34Z);
+  - all five routes answer 200 on `8btpep`;
+  - a real Chromium, GET only, reads the same six cards on `/order` as after
+    run 41, with the focaccia at £4.50, no page errors and no request but a
+    GET (06:16:55Z).
+- **What it established, for this sentence on this site:**
+  - the router picks `data`;
+  - the data rung changes exactly the one field on the live database, and its
+    `applied` report matches the database;
+  - the order page reads the new value at once, with no publish;
+  - the reply and the composer behave;
+  - the recovery's conditional write lands and puts the one field back.
+- **What it did not establish:**
+  - adding, removing or reordering rows;
+  - a data edit on an `incomplete` site;
+  - the rules rung;
+  - the router's handling of any other wording.
+
+**Cost, estimated before the press:** about 2–3 credits. That is the routing charge (1–2; run 39's three
 routing calls cost 2, 1 and 2) plus the data rung's one call, rounded once
 with a floor of 1. **That figure is an estimate, not a cap.** The scenario's
 budget of 5 is checked only before a message is sent: `budgetRefusal` refuses
@@ -1227,9 +1340,12 @@ balance cannot be read. D1 sends one message, so the check cannot stop
 anything, and it never caps what that one request costs. Nothing on the server
 caps it either (`edit_reserve` refuses only above 100,000), so the balance is
 the only bound. The rehearsal, the recovery and
-`4b-d1-restore` are free. The balance is 59 (read by run 41 at 05:37:23Z and
-on the balance row at 05:48:40Z after it; the last ledger row is still run
-39's).
+`4b-d1-restore` are free. The balance was 59 before run 42 (read by run 41 at
+05:37:23Z, on the balance row at 05:48:40Z, and by run 42 at 06:04:00Z).
+**Measured on run 42: 3 credits**, routing 2 and the data rung's 1, at the
+top of the estimate. The balance is now **56** (read by run 42 and on the
+balance row at 06:13:03Z; the last ledger row is run 42's reserve at
+06:04:40Z).
 
 **D2 and D3 — parked (owner, 2026-09-27).** Kept prepared, not scheduled:
 - **D2** is `grants preview` in `apply` mode on fold-lane-bakery, undone by its
@@ -1261,6 +1377,13 @@ on the balance row at 05:48:40Z after it; the last ledger row is still run
   mode, whose chain handles an edit that publishes nothing.
 - ~~The owner rows route has no conditional write.~~ It has one now, deployed
   in 2163: *the recovery's write is conditional*, above.
+- **The data rung's reply names the table, not what changed** (run 42). The
+  customer asked for "the Sea Salt Focaccia's price" in "today's bake list";
+  the screen said "✅ Updated one entry in loaves." The composer builds the
+  sentence from `applied`, which carries only the table, the row id and the
+  column names, so it cannot say which loaf or the new price. The sentence is
+  true. This is recorded for the model-written replies preference and not
+  changed.
 
 **What Test 4 does not cover:** hydration, translation, model-written replies,
 the add-on, a css-lane run, a page removal (the move exercises the same verb

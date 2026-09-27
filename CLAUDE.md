@@ -58,13 +58,15 @@ built on the branch at `6602be37`, rehearsed free as run 40; its recovery's
 write made CONDITIONAL in the owner rows route, which is Worker code — CLOSED
 BY THE OWNER after review (165 focused tests) and MERGED AND DEPLOYED at
 `14df0225`, deploy 2163, 2026-09-27 05:15 UTC, image `9038e90ab1d5d7fe` — and
-rehearsed free again on that deployment as run 41, which passed, so the paid
-press is ready and waits only for the owner; D2 and D3 parked; step 0,
+rehearsed free again on that deployment as run 41, which passed — and THE
+OWNER'S PAID PRESS PASSED AS RUN 42; D2 and D3 parked; step 0,
 `grants preview` run 36286991932, kept as maintenance evidence; the rules rung
 has its own proposal)**: the top section of the
 [edit-path checklist](docs/investigations/edit-path-checklist.md), summarised in
-*remaining work after Test 3* below. Among the QUEUED jobs inspected, the data
-and rules rungs and a page removal have never published; **run 39 was the
+*remaining work after Test 3* below. Among the QUEUED jobs inspected, the rules
+rung and a page removal have never published, and **run 42 was the data
+rung's first queued job to change a row** (a row edit publishes no version);
+**run 39 was the
 first queued publish of the logo rung, the picture rung and a page move**, its
 logo and move jobs are the only `exempt` jobs in the queue's history, and it
 sent the first messages from one browser tab. A synchronous edit makes no job
@@ -105,8 +107,17 @@ UTC, from `main`): both readers answered `14df0225be90` with image
 `9038e90ab1d5d7fe`; the conditional write no row can meet answered **409** and
 changed nothing; after it, the focaccia read £4.50 on the order page and 4.5 on
 both readers; balance 59 → 59. The session's own dispatch at 05:31:35Z had
-answered **403** and was not retried. **D1's paid press is ready and is the
-owner's call; nothing has been sent** (*Test 4b*, below).
+answered **403** and was not retried. **D1's paid press ran as run 42 and
+passed** (36298962234, 2026-09-27 06:03–06:05 UTC, the owner's press from
+`main`):
+- the message was routed to the `data` layer and filed one data edit;
+- row 6's price went 4.5 → 4.6 on both readers and nothing else changed;
+- the order page showed £4.60;
+- the canary's conditional put-back answered 200 (the first live conditional
+  write that matched) and left the row, the visitor read (byte for byte) and
+  the order page exactly as before;
+- nothing published;
+- routing 2 + edit 1 = 3, balance 59 → 56 (*Test 4b*, below).
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -3909,9 +3920,10 @@ description, wordmark, qr and behavior (and run 14's css refused twice and
 refunded) · menu — 2 · site address — 1 published, 1 refused and refunded ·
 page layout — lane-sweep jobs (three, shape, components, purpose, tsx) and
 canary runs 9, 11, 32, 34 · custom components — runs 17, 21, 24, 26 ·
-**data, rules and a page removal — never published among the queued jobs
-inspected**, route tests only · **logo, picture (a reframe) and a page move —
-first published by run 39 (2026-09-27)** · photographs — kept by the quick writer's block move
+**rules and a page removal — never published among the queued jobs
+inspected**, route tests only · **data — its first queued row change is run 42
+(2026-09-27), which publishes no version** · **logo, picture (a reframe) and a
+page move — first published by run 39 (2026-09-27)** · photographs — kept by the quick writer's block move
 (run 9, a real browser) and by the full writer (run 37) · combined — one look job
 placed a QR code through the page rung (09-02); otherwise route tests and the
 driven money cases above. **The only `exempt` jobs in the queue's history are
@@ -9322,8 +9334,11 @@ list, and Test 4's exact form values, are the top section of the
   exercised a rung."*): an edit that ran synchronously — every edit before
   `EDIT_ASYNC_EVERYONE` on 2026-09-04, and any later synchronous fallback —
   never made a row. And a job from before 09-08 ran older code.
-- **NEVER PUBLISHED AMONG THE QUEUED JOBS INSPECTED**: the data and rules
-  rungs, and a page removal. **Run 39 (2026-09-27) was the first queued
+- **NEVER PUBLISHED AMONG THE QUEUED JOBS INSPECTED**: the rules rung and a
+  page removal. **Run 42 (2026-09-27) was the data rung's first queued job to
+  change a row**: of 290 queued jobs, 197 with a stored reply, its reply is
+  the only one naming the `data` layer (read-only, 06:13Z). A row edit
+  publishes no version. **Run 39 (2026-09-27) was the first queued
   publish of the logo rung, the picture rung and a page move, and its logo and
   move jobs are the only `exempt` jobs in the queue's history** (a read-only
   count by billing state), so the free-rung fix (`ed1e3b93`) has now published.
@@ -9346,7 +9361,7 @@ list, and Test 4's exact form values, are the top section of the
   AND 39), 4b NARROWED TO D1 ALONE (2026-09-27), REHEARSED FREE AS RUN 40, ITS
   RECOVERY'S WRITE MADE CONDITIONAL SINCE, CLOSED BY THE OWNER AND MERGED AND
   DEPLOYED IN DEPLOY 2163, AND REHEARSED FREE AGAIN ON THAT DEPLOYMENT AS RUN
-  41, WHICH PASSED — THE PAID PRESS IS READY, NOT PRESSED**
+  41, WHICH PASSED — AND THE PAID PRESS PASSED AS RUN 42**
   (owner, 2026-09-26: *"Separate the photo/attachment/second-message checks from
   database writes and permission changes."*), all on fold-lane-bakery:
   - **4a — pages only, undone free by the canary's restore mode**:
@@ -9370,7 +9385,9 @@ list, and Test 4's exact form values, are the top section of the
     write conditional in the owner rows route (Worker code). The owner closed
     it after review, and it is merged and deployed at `14df0225` (deploy 2163,
     image `9038e90ab1d5d7fe`), and its fresh free rehearsal on that
-    deployment passed as run 41, so the paid press is ready, not pressed.**
+    deployment passed as run 41. The owner's paid press passed as run 42:
+    one price changed through the real app at the `data` layer, shown on the
+    order page, and put back by the canary's conditional write; 3 credits.**
     - step 0, free, **ran 2026-09-27 as `grants preview` run 36286991932** and
       is kept as MAINTENANCE evidence: what the grants are and what an apply
       or a rollback would issue. It never goes through an edit.
@@ -9756,7 +9773,7 @@ addition."* `scripts/canary-ui.mjs`, the `ui_scenario` box on `edit-canary.yml`,
   block, the balance was read before each message, every filed job was
   followed, and the after-read waited for the last published version.
 
-### TEST 4b: D1 ALONE, REHEARSED FREE AS RUN 40, ITS RECOVERY'S WRITE CONDITIONAL SINCE (MERGED AND DEPLOYED IN DEPLOY 2163) AND REHEARSED AGAIN AS RUN 41; THE PAID PRESS READY, NOT PRESSED; D2 AND D3 PARKED; THE RULES RUNG'S OWN PROPOSAL (2026-09-27)
+### TEST 4b: D1 ALONE, REHEARSED FREE AS RUN 40, ITS RECOVERY'S WRITE CONDITIONAL SINCE (MERGED AND DEPLOYED IN DEPLOY 2163) AND REHEARSED AGAIN AS RUN 41; THE PAID PRESS PASSED AS RUN 42; D2 AND D3 PARKED; THE RULES RUNG'S OWN PROPOSAL (2026-09-27)
 
 Owner, first: *"return one concrete proposal: exact requests, expected database
 changes, independent checks, estimated cost and deterministic recovery for both
@@ -9876,7 +9893,10 @@ after it hold the test and the proposal. What is law here:
     (05:31:35Z, spend `no`, both expectations set) answered **403**, so the
     rehearsal was the owner's press. **Runtime-confirmed by that rehearsal,
     run 41** (below): the live Worker answered `14df0225be90` and a cold
-    container `9038e90ab1d5d7fe`, both readers agreeing.
+    container `9038e90ab1d5d7fe`, both readers agreeing. **The first live
+    conditional write that MATCHED was run 42's put-back** (200, with
+    `conditional: true`); run 41's probe had shown the side that matches
+    nothing (409).
 - **A FULL PAGE FROM THE OWNER ROUTE IS NOT THE TABLE.** It reads at most 200
   rows (`MAX_LIMIT`), so a read of 200 is refused as possibly partial: a
   comparison over part of a table would call the rest unchanged.
@@ -9885,7 +9905,7 @@ after it hold the test and the proposal. What is law here:
   site at those layers — and everything else is aborted in the page and fails
   the run. Part B's scenario names none and keeps its old wall. A visitor page
   is read in a tab of its own whose wall lets only a GET out.
-- **D1 IS BUILT AND READY, NOT PRESSED** (`6602be37`; the UI-mode scenario
+- **D1 IS BUILT** (`6602be37`; the UI-mode scenario
   `4b-d1-price`, and `4b-d1-restore` for the recovery alone): `test/canary-rows.test.mjs`
   17 cases, `test/canary-ui.test.mjs` 22 → 37; probes
   `scripts/mutants/canary-rows.json` 52 of 52 killed with 3 controls kept (the
@@ -9943,8 +9963,82 @@ after it hold the test and the proposal. What is law here:
     at £4.50; the balance row reads 59 at 05:48:40Z, with no ledger row since
     run 39's reserve; the only edit jobs since 05:30Z are the two confirmation
     jobs.
-  - **So the paid press is ready**: the same form with spend `yes`. About 2–3
-    credits, an ESTIMATE and not a cap. Not pressed.
+  - **So the paid press was ready**: the same form with spend `yes`. About 2–3
+    credits, an ESTIMATE and not a cap.
+- **D1'S PAID PRESS RAN AS RUN 42 AND PASSED** (`36298962234`, 2026-09-27
+  06:03:09 → 06:05:06Z, the owner's press from `main` at `14df0225`; canary
+  step 77 s). The env block: spend 1, scenario `4b-d1-price`, site
+  fold-lane-bakery, control washhouse-3, the instruction, job and version
+  boxes blank, both expectations set.
+  - **Preflight and before-read as run 41's**:
+    - build-health and runtime answered `14df0225be90` /
+      `9038e90ab1d5d7fe`, both readers agreeing;
+    - the before-read is complete, every route on `8btpep`, and all five
+      bodies byte-identical to run 41's (the control against run 39's
+      BEFORE-read differs on every page);
+    - the probe answered 409;
+    - the order page showed £4.50;
+    - the baseline (06:04:11.393Z) read 4.5 on both readers, the visitor
+      body `ef870ebcf8353634`;
+    - balance 59.
+  - **The request**:
+    - routed `intent=edit layer=data`, cost 2 (`6,774 in / 15 out`). The
+      browser sent the five pages and `tables: []`, so the router picked
+      `data` with no table names;
+    - then ONE edit POST at `data`, job `dfb7ca810fa2469395917b315c5db71f`;
+    - 0 blocked, 0 console or page errors.
+  - **The reply**, 36 s after Send: "✅ Updated one entry in loaves.", and the
+    composer usable again. The stored reply: `ok`, layer `data`, cost 1
+    (`1,370 in / 37 out`), `applied` exactly `[{loaves, 6, [price]}]`,
+    `failed: 0`.
+  - **The job row**: `done`, `finalized`, cost 1, created 06:04:24.140Z,
+    settled 06:04:40.986Z, **`publish_started_at` and `published_at` empty**.
+    **SO A DATA ROW EDIT PUBLISHES NO VERSION**, read off the row rather
+    than the prose: the pages kept `8btpep`, and the chain read VERIFIED with
+    no publish.
+  - **The change, on both readers** (06:04:50Z): row 6's price 4.5 → 4.6 and
+    nothing else. The visitor body differs from the baseline in exactly one
+    character. The order page showed the focaccia at **£4.60**, the other
+    five cards unchanged.
+  - **The put-back**:
+    - it read 4.6 again at 06:04:52.968Z, then `PATCH /rows/loaves/6
+      {"$set":{"price":4.5},"$if":{"name":"Sea Salt Focaccia","price":4.6}}`
+      → **200 with `conditional: true`**, no conflict;
+    - at 06:04:53.484Z the row equals its baseline on both readers, the
+      visitor body is byte-identical (`ef870ebcf8353634`), and the order page
+      is back to every line it had;
+    - so the site showed £4.60 for seconds.
+  - **Nothing else moved**: the five route pages are identical once render
+    times are masked (the control sees a one-word change), and the stored
+    bodies are identical.
+  - **Money: 59 → 56 = routing 2 + edit 1, closing exactly**, at the top of
+    the estimate. The ledger holds one row, `reserve −1`, `balance_after 56`,
+    ref `<job>#1`, 06:04:40.179Z, and no refund.
+  - **Checked by the session afterwards (06:13–06:17Z, read-only)**:
+    - the balance row reads 56;
+    - `credit_events` since midnight holds only run 39's reserve and this
+      one;
+    - `edit_jobs` since 05:50Z holds only the two confirmation jobs and this
+      job;
+    - the visitor route answers 1,045 bytes, byte-identical to run 41's
+      reading;
+    - all five routes answer on `8btpep`;
+    - a real Chromium, GET only, reads the six cards with the focaccia at
+      £4.50.
+  - **Established for this sentence on this site**:
+    - the router picks `data`;
+    - the data rung changes exactly one field, and its `applied` matches the
+      database;
+    - the page reads the new value at once with no publish;
+    - the conditional put-back lands.
+
+    **Not established**: adding, removing or reordering rows; a data edit on
+    an `incomplete` site; the rules rung; any other wording.
+  - **Found, not changed**: the reply names the TABLE ("loaves") and neither
+    the loaf nor the new price. The composer builds the sentence from
+    `applied`, which carries only the table, the row id and the column names.
+    The sentence is true, and the finding is kept for the model-written
+    replies preference.
 - **THE RULES RUNG'S OWN PROPOSAL, NOT BUILT OR APPROVED.** Its footprint is the
   site's own Postgres alone (it publishes nothing), and since 2026-07-29 each
   site has its own Neon project. So the recommended recovery is **Neon's
@@ -12693,6 +12787,10 @@ refund), read on the balance row at 00:45:33Z, and read 59 again by run 40's
 free rehearsal (03:35Z), on the balance row at 03:43Z, on the balance row at
 05:17:01Z after deploy 2163, by run 41's free rehearsal (05:37Z), and on the
 balance row at 05:48:40Z after it (the last ledger row still run 39's reserve).
+**Balance 56** at run 42's end (2026-09-27, Test 4b's D1: **59 → 56, moved
+3**, routing 2 + the data rung's 1, closing exactly; the ledger holds one
+reserve of 1 and no refund; a row edit publishes nothing), read on the balance
+row at 06:13:03Z.
 **Between run 31 and
 run 32 the balance rose from 1 to 101** (read on the ledger at 18:09Z and by the
 canary before its paid call). **Only the readings are recorded; how it rose is

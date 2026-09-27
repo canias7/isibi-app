@@ -176,7 +176,68 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
-## 2026-09-27 — Your free rehearsal on the new deployment (run 41) passed; the paid price test is ready for your press
+## 2026-09-27 — Your paid price test (run 42) passed: the price changed through the app and was put back
+
+I read your paid run
+([run 42](https://github.com/canias7/isibi-app/actions/runs/36298962234),
+06:03–06:05 UTC, from `main`). It passed on every point, and I checked the
+database and the live site again myself afterwards.
+
+- **It started where the rehearsal did.**
+  - The live server was the new code (`14df0225`, image `9038e90ab1d5d7fe`).
+  - The five pages were exactly as after run 39.
+  - The safety check answered "409" again.
+  - The Sea Salt Focaccia was £4.50 on the order page and 4.5 in both views
+    of the price list.
+  - The balance was 59.
+- **The message went where it should.** The app sent "In today's bake list,
+  change the Sea Salt Focaccia's price to £4.60." The builder sent it to the
+  database step, and nothing else was started. The reply appeared after 36
+  seconds: "✅ Updated one entry in loaves." Then the message box was ready
+  for the next message.
+- **Exactly one thing changed.** The focaccia's price went from 4.5 to 4.6 in
+  both views, and nothing else changed: no other loaf, no other field, and no
+  row added or removed. The order page showed £4.60 straight away, without
+  republishing the site.
+- **The put-back worked.** The test read the price again (4.6), then used the
+  safe write: "set it to 4.5, but only if it still says 4.6". The server
+  applied it and confirmed it had checked the condition. The public price list
+  is now byte for byte what it was before, and the order page shows £4.50
+  again. The site showed £4.60 for only a few seconds. This was the first time
+  the safe write has put a value back on the live site; the rehearsal only
+  proved that it refuses when the value doesn't match.
+- **Nothing was published.** A price change in the database doesn't make a new
+  version of the site, and all five pages kept the same version throughout.
+- **Cost: 3 credits.** That was 2 to read the message and 1 for the change, at
+  the top of the 2–3 estimate. The ledger shows one charge of 1 for the job and
+  no refund. **Your balance is 56.**
+
+I checked again afterwards (06:13–06:17 UTC), read-only, and everything agreed:
+- the balance reads 56;
+- the only jobs are this run's;
+- the public price list and the order page (in a real browser) show £4.50;
+- all five pages are on the same version as before.
+
+**One thing I noticed and didn't change.** The reply says "Updated one entry
+in loaves": it names the database table, not the loaf or the new price. That's
+true, but not very clear. The reply is built from a record that holds only the
+table, the row number and the column, so it can't say "the Sea Salt Focaccia
+is now £4.60". I've noted it for when replies become model-written.
+
+**What it covers.** This was the first time the database step has changed a
+row through the job queue. For this sentence on this site it shows four things:
+- the message goes to the database step;
+- exactly the one field changes;
+- the page shows the new price at once;
+- the safe put-back works.
+
+**What it doesn't cover:** adding, removing or reordering rows, a site whose
+database link is missing, and rule changes.
+
+**Nothing else is waiting for you to press.** The permission step and the real
+order stay parked, and the rules test is a proposal you haven't approved.
+
+## 2026-09-27 — Your free rehearsal on the new deployment (run 41) passed; the paid price test is ready for your press (you pressed it since: run 42 passed, the entry above)
 
 I read your rehearsal
 ([run 41](https://github.com/canias7/isibi-app/actions/runs/36297687383),
