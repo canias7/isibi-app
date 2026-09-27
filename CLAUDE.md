@@ -9770,7 +9770,8 @@ after it hold the test and the proposal. What is law here:
   site at those layers — and everything else is aborted in the page and fails
   the run. Part B's scenario names none and keeps its old wall. A visitor page
   is read in a tab of its own whose wall lets only a GET out.
-- **D1 IS BUILT AND READY, NOT PRESSED** (`6602be37`): `test/canary-rows.test.mjs`
+- **D1 IS BUILT AND READY, NOT PRESSED** (`6602be37`; the UI-mode scenario
+  `4b-d1-price`, and `4b-d1-restore` for the recovery alone): `test/canary-rows.test.mjs`
   17 cases, `test/canary-ui.test.mjs` 22 → 37; probes
   `scripts/mutants/canary-rows.json` 52 of 52 killed with 3 controls kept (the
   first run's two survivors were fixtures too shallow to separate the
