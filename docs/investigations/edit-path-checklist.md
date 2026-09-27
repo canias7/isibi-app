@@ -86,9 +86,9 @@ and nothing in the first list is to be rerun.
 proven; a real model is not)
 1. **A page removal** (`edit-page-verb`, `removal-door`). It has never
    published live. It makes no model call and the free restore undoes it.
-   **But one message alone is refused on every existing multi-page site**,
-   because each page is in another page's menu, so the prepared test (Test 5,
-   next section) takes the menu link out first.
+   **But one message alone is refused on the existing multi-page sites**,
+   because every page but the home page is linked from another page, so the
+   prepared test (Test 5, next section) takes the menu link out first.
 2. **The rules rung beyond one closing**: reopening, the other way of closing
    (taking write access away), limits and the other rules, and any other
    wording or site. Run 44 closed one table once.

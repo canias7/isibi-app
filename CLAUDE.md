@@ -185,9 +185,10 @@ this closure request, not every rules operation. The invitation the pages still
 show and the generic "That isn't available." are **a separate UX gap** (the
 Backlog), not part of this milestone. **Test 5, a page removal and its
 restoration, is PREPARED (2026-09-27; nothing paid)** on fold-lane-bakery.
-**A page removal on its own is refused on every existing multi-page site**,
-because every page is in another page's menu, so the test is two messages from
-one tab: "Take Gallery out of the menu." then "Remove the gallery page.". Each
+**A page removal on its own is refused on the existing multi-page sites**:
+every page but the home page is linked from another page (a site keeps its menu
+in every page file; the survey's only unread exceptions are two CRM `/deal`
+pages), so the test is two messages from one tab: "Take Gallery out of the menu." then "Remove the gallery page.". Each
 message is walled to its own kind of edit (the UI mode's new per-message wall,
 scenario `5-page-remove`, on the branch), and it was rehearsed free through the
 real edit route, 8 of 8. The recovery is the existing restore mode, free, to

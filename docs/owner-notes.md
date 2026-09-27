@@ -196,12 +196,14 @@ page removal has ever gone through live, and putting a version back has only
 been done on fretwork-1.
 
 **What I found first, which changes the plan:**
-- **"Remove the gallery page" on its own is refused on every one of your sites
-  that has more than one page.** A site keeps a copy of its menu in every
-  page, and the builder won't remove a page that another page still links to.
-  I read all your sites live: on each one with several pages, every page but
-  the home page is linked from another page. So a customer is told: *"I left
-  /gallery — / still links to it. Ask me to take the link out first."*
+- **"Remove the gallery page" on its own is refused on your sites that have
+  more than one page.** A site keeps a copy of its menu in every page, and the
+  builder won't remove a page that another page still links to. I read all
+  your sites live: on each one with several pages, every page but the home
+  page is linked from another page. The only pages I couldn't check are two on
+  older CRM sites, whose links come from their data. So a customer is told:
+  *"I left /gallery — / still links to it. Ask me to take the link out
+  first."*
 - **So the test is two messages**: take Gallery out of the menu, then remove
   the page.
 - **One side effect you'd see**: the menu tool never shows the home page in the
