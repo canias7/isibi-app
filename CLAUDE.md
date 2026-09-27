@@ -71,8 +71,10 @@ free rehearsal, `edit canary` run 43 (36333244182), stopped exactly the marker
 booking in the browser and changed nothing — and THE OWNER'S PAID PRESS PASSED
 AS RUN 44 (36337146911, 2026-09-27 17:29–17:31 UTC): routed to `rules`, the
 rung marked `bookings` closed, and one real visitor booking was then refused
-at the privilege check with no row added, for 3 credits; the permissions read
-after it, `grants preview` again, is still to press)**: the top section of the
+at the privilege check with no row added, for 3 credits; and the permissions
+read after it, `grants preview` run 36339825502, found visitors holding
+nothing on `bookings` and the menu unchanged, so every pass item holds)**: the
+top section of the
 [edit-path checklist](docs/investigations/edit-path-checklist.md), summarised in
 *remaining work after Test 3* below. Among the QUEUED jobs inspected, a page
 removal has never published; **run 44 was the rules rung's first queued
@@ -158,9 +160,12 @@ layer=rules` (2 credits); one job whose stored reply applied exactly
 site's own form, exactly the marker, answered **403 `42501` "permission denied
 for table bookings"**, the page said "That isn't available.", no row was
 added and the notification stamp did not move; nothing published; 56 → 53.
-**What is still to come is press 4**, `grants preview` again from `main`,
-the permissions read after the edit. A booking that went through before the
-edit was never measured, so this shows the configuration changing and a
+**And press 4, the permissions read after it** (`grants preview` run
+36339825502, the owner's, from `main`, 18:13Z), **agrees**: visitors hold
+nothing on `bookings` (its planned statements are the two `REVOKE ALL` lines
+alone, so the stored schema records it closed) and `menu_items` exactly as
+at 09:32. **So every pass item holds.** A booking that went through before
+the edit was never measured, so this shows the configuration changing and a
 booking refused afterwards. **`lido-axes-b`'s bookings stay closed**, as the
 owner approved; its pages still show "Book a table" (*the rules test, built*,
 below).
@@ -9837,7 +9842,7 @@ addition."* `scripts/canary-ui.mjs`, the `ui_scenario` box on `edit-canary.yml`,
   block, the balance was read before each message, every filed job was
   followed, and the after-read waited for the last published version.
 
-### TEST 4b: D1 ALONE, REHEARSED FREE AS RUN 40, ITS RECOVERY'S WRITE CONDITIONAL SINCE (MERGED AND DEPLOYED IN DEPLOY 2163) AND REHEARSED AGAIN AS RUN 41; THE PAID PRESS PASSED AS RUN 42 AND D1 IS CLOSED BY THE OWNER; D2 AND D3 PARKED; THE RULES TEST RECOMMENDED ON A CANDIDATE SITE, REVISED, ITS HARNESS BUILT ON THE BRANCH, AND ITS PAID PRESS PASSED AS RUN 44 (2026-09-27)
+### TEST 4b: D1 ALONE, REHEARSED FREE AS RUN 40, ITS RECOVERY'S WRITE CONDITIONAL SINCE (MERGED AND DEPLOYED IN DEPLOY 2163) AND REHEARSED AGAIN AS RUN 41; THE PAID PRESS PASSED AS RUN 42 AND D1 IS CLOSED BY THE OWNER; D2 AND D3 PARKED; THE RULES TEST RECOMMENDED ON A CANDIDATE SITE, REVISED, ITS HARNESS BUILT ON THE BRANCH, ITS PAID PRESS PASSED AS RUN 44 AND THE PERMISSIONS READ AFTER IT AGREES (2026-09-27)
 
 Owner, first: *"return one concrete proposal: exact requests, expected database
 changes, independent checks, estimated cost and deterministic recovery for both
@@ -10348,13 +10353,38 @@ after it hold the test and the proposal. What is law here:
         nothing running (295 jobs: 169 done, 124 failed, 2 `lost`);
         notifications on and never fired; the live pages, stylesheet, menu
         and visitor read exactly as the run's after-read.
-      - **Still to come: press 4**, `grants preview` again. Read in the code:
-        its `bookings` line will still print `[read=none write=anyone]`,
-        because it prints the access pair and not the closed flag; the proof
-        of closing is its recorded grants (none) and its planned statements
-        (the two `REVOKE ALL` lines alone).
+      - **Press 4 was predicted from the code**: its `bookings` line would
+        still print `[read=none write=anyone]`, because it prints the access
+        pair and not the closed flag; the proof of closing would be its
+        recorded grants (none) and its planned statements (the two `REVOKE
+        ALL` lines alone). It read exactly that (next bullet).
       - **Two findings, not changed** (the Backlog): the reply shows literal
         `**bookings**`, and the site still invites bookings.
+    - **PRESS 4 READ: `grants preview` run 36339825502** (the owner's, from
+      `main`, 18:13:07–18:13:27Z). **It agrees, so every pass item holds.**
+      - Nothing was written: the env block reads `MODE: preview`, `SLUG:
+        lido-axes-b`, and the apply guard and the rollback download were
+        skipped.
+      - Its lines: `lido-axes-b: 2 table(s), 0 carrying a table-wide client
+        write`; `ok menu_items [read=public write=none] now: (no table-wide
+        write)`; `ok bookings [read=none write=anyone] now: (no table-wide
+        write)`; `0 site(s) … could not be read`.
+      - Its artifact (id 10938338900, a 499-byte zip holding a 1,265-byte
+        JSON, sha256 `75daa541…`, kept to 2026-12-26), compared field by
+        field with press 1's (10928500920):
+        - `bookings`: recorded grants `INSERT` for both visitor roles →
+          **none**; planned statements `REVOKE ALL` ×2 + `GRANT INSERT (the
+          five columns)` ×2 → **the two `REVOKE ALL` lines alone**, which is
+          what `grantsFor` answers for a closed table, so the stored schema
+          records `bookings` closed;
+        - `menu_items`: recorded grants and planned statements **identical**
+          (SELECT for both visitor roles, table-wide).
+      - Read-only afterwards: balance 53, the newest ledger row still run
+        44's reserve (id 332), no edit job since 17:35Z, notifications on and
+        never fired.
+      - **Not read by anything here**: the row policies (dropped, per the
+        code). The privilege refusal needs no policy to be read, and it is
+        what run 44's booking met.
   - **THE PAGE A BROWSER GETS IS NOT THE PAGE NODE GETS (measured
     2026-09-27).** Cloudflare's edge adds its analytics beacon
     (`static.cloudflareinsights.com/beacon.min.js`, `data-cf-beacon`) only

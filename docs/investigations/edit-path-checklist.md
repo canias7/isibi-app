@@ -23,9 +23,11 @@ reopened.
   the menu stayed the same;
 - it cost 3 credits (routing 2 + the rules rung 1), matching the ledger.
 
-The permissions read after it (press 4, `grants preview` again) is still to
-press. A booking that went through before the edit was never measured. The
-site's bookings stay closed, and its pages still show "Book a table".
+The permissions read after it (press 4, `grants preview` run `36339825502`)
+agrees: visitors hold nothing on `bookings`, and the menu's permissions are
+unchanged. So every pass item holds. A booking that went through before the
+edit was never measured. The site's bookings stay closed, and its pages still
+show "Book a table".
 
 Each list puts the material gaps first. The evidence is in the sections below,
 and nothing in the first list is to be rerun.
@@ -119,8 +121,9 @@ means only that its name is taken.
 - **The owner's paid press, run 44 (`36337146911`), passed every check it
   makes**: routed to `rules`, the rung marked `bookings` closed, and the one
   real booking afterwards was refused at the privilege check with no row
-  added, for 3 credits. **Press 4, the permissions read after it, is still to
-  press.** Its bookings stay closed, as the owner approved by pressing it.
+  added, for 3 credits. **Press 4, the permissions read after it (`grants
+  preview` run `36339825502`), agrees**, so every pass item holds. Its
+  bookings stay closed, as the owner approved by pressing it.
 
 The scope, the checks, the cleanup, the notification account and the approval
 items are in *the rules rung — the recommended next test, revised*, after
@@ -1889,7 +1892,7 @@ below); nothing else is approved or pressed.
 - **G. A measured baseline** (optional, and not recommended by default): one
   real booking before the edit, cleaned up the same way.
 
-#### The rules test, built (2026-09-27, `ebf53761`; the free checks passed, and the paid press passed as run 44)
+#### The rules test, built (2026-09-27, `ebf53761`; the free checks passed, the paid press passed as run 44, and the permissions read after it agrees)
 
 Owner: *"Proceed with building the bounded rules-test harness and focused tests
 on the branch. … Accept either supported way of closing bookings based on the
@@ -2491,8 +2494,8 @@ canary step 73 s).** It passed every check it makes. The last pass item, press
   again", about 3 credits). It would reopen the table in today's form, insert
   on the form's five columns only, not the old table-wide grant. Nothing is
   reopened.
-- **Press 4 is next**: `grants preview` from `main`, as press 1. Read in the
-  code, not yet measured:
+- **Press 4, as predicted from the code before it ran**: `grants preview`
+  from `main`, as press 1:
   - `bookings`: no privilege for either visitor role, and its planned
     statements are only the two `REVOKE ALL` lines. **Its printed line will
     still read `[read=none write=anyone]`**, because the preview prints the
@@ -2501,6 +2504,43 @@ canary step 73 s).** It passed every check it makes. The last pass item, press
     should read `ok`, since nothing table-wide is left;
   - `menu_items`: SELECT for both visitor roles, table-wide, exactly as in
     press 1 (artifact `10928500920`).
+
+**Press 4 read: `grants preview` run `36339825502` (the owner's, 2026-09-27
+18:13:07 → 18:13:27Z).** It agrees with the prediction, so every pass item of
+the rules test holds.
+- **Nothing was written.** From `main` at `14df0225`. The env block reads
+  `MODE: preview` and `SLUG: lido-axes-b`. The apply guard and the rollback
+  download were skipped.
+- **Its lines, verbatim:**
+  - `lido-axes-b: 2 table(s), 0 carrying a table-wide client write`;
+  - `ok  menu_items  [read=public write=none]  now: (no table-wide write)`;
+  - `ok  bookings  [read=none write=anyone]  now: (no table-wide write)`;
+  - `0 site(s) and 0 table(s) carry a table-wide client write; 0 site(s) could
+    not be read`.
+- **Its artifact**: `grants-before-state`, id `10938338900`, a 499-byte zip
+  (sha256 `06e67590…`, equal to the digest the upload printed) holding a
+  1,265-byte JSON (sha256 `75daa541…`), kept until 2026-12-26.
+- **Compared field by field with press 1's artifact (`10928500920`):**
+  - `bookings`: the recorded grants went from INSERT for both visitor roles,
+    table-wide, to **none**. The planned statements went from the two `REVOKE
+    ALL` lines and two `GRANT INSERT` on the form's five columns to **the two
+    `REVOKE ALL` lines alone**. That is what `grantsFor` answers for a closed
+    table, so the site's stored schema records `bookings` as closed.
+  - `menu_items`: the recorded grants and the planned statements are
+    **identical** (SELECT for both visitor roles, table-wide).
+- **The printed `bookings` line still reads `[read=none write=anyone]`**, as
+  predicted: the preview prints the table's access pair, which closing does
+  not change.
+- **What it does not read**: the row policies. The code drops every policy on
+  a closed table; nothing here reads them. The refusal run 44's booking met
+  was at the privilege check, which needs no policy to be read.
+- **Read again afterwards, read-only**: the balance is 53, the newest ledger
+  row is still run 44's reserve (id 332), no edit job has been filed since
+  17:35Z, and `lido-axes-b`'s notifications are on and have never fired.
+- **So the rules test's pass items all hold**: the refusal at the privilege
+  check (run 44), no row added, the stamp unchanged, nothing published, the
+  money matching the ledger, and the permissions after the edit (press 4).
+  Closing it is the owner's call after review.
 
 ## A section headed by the kit — fixed (2026-09-26), merged and deployed in deploy 2162
 
