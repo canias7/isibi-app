@@ -250,6 +250,14 @@ version to put back is available, and one is a dry run of the two messages
 that types the first one and stops. Nothing is spent until you approve the
 paid run.
 
+**Since then:** the automatic tests passed on GitHub (8,147, the four new ones
+included). The bakery still showed the same version on every page at 20:47
+UTC, and the balance was still 53. My one attempt to start your first free
+check was refused, as before (I can't start workflows), so all the presses
+are yours. After putting the site back, I'll check the gallery address
+answers itself, not a redirect to the home page, because the canary's own
+reader can't tell those two apart.
+
 ## 2026-09-27 — Your permissions check after the rules test agrees: every part of the test passed (nothing paid)
 
 Your free check

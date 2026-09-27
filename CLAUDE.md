@@ -10596,7 +10596,19 @@ The full plan, the expected bodies and the presses are the checklist's
   `scripts/mutants/page-remove.json`: 11 killed, 0 survived, 0 never applied,
   the comment-only control surviving, over nine canary and workflow test files;
   both swept files byte-identical afterwards. Suite `8147 / 8145 / 0 / 2`
-  locally, +4.
+  locally, +4, and unit CI run 36349134900 on `dec8a012` at `8147 / 8143 / 0 /
+  4`, the four new cases found by name, 8,147 distinct result numbers, no gap,
+  no `not ok`. No site build is owed: none of the commit's seven files is on
+  its 22 paths.
+- **THE RESTORE SHOULD TAKE THE NEW REDIRECT AWAY, READ IN THE CODE.** The
+  routes and redirects live in the meta sidecar, and `restoreVersion`
+  activates a build with its own staged sidecar, so `8btpep`'s list comes
+  back. **Read `/gallery` WITHOUT following redirects**: the canary's page
+  reader follows a 301, so a redirect to the home page reads as a page at the
+  right version.
+- **THE SESSION'S ONE DISPATCH (press 1, 20:48Z) ANSWERED 403** and was not
+  retried; the live reading just before it (20:47Z) had all five routes at
+  `8btpep`, balance 53 and no edit job since 18:30Z.
 - **COST, AN ESTIMATE AND NOT A CAP**: routing 1–2 per message, the menu about
   1, the removal 0 — about 3–5 credits. Balance 53.
 
@@ -13875,6 +13887,11 @@ rule and the measurement.
   covered the file plus the count, and the count never printed. Downloaded to
   a file and read on its own, the sheet was the recorded bytes. **Read a
   reference value into a file first, then measure the file.**
+- **A STATUS READ OFF `curl -D -` THROUGH THE PROXY IS THE PROXY'S
+  (2026-09-27).** The first header block is the proxy's own `HTTP/1.1 200
+  Connection established`, so a reader taking the first status line reported
+  `/the-starter`'s 301 as a 200. Read the site's status with
+  `-w '%{http_code}'`.
 - **A DEFECT THAT ONLY EXISTS IN TIME IS INVISIBLE TO EVERY STILL.** An entrance
   animation on an element something rebuilds is a 220 ms twitch; the finished panel
   is pixel-perfect in every frame. **The picture looks like evidence.** Sample one

@@ -291,10 +291,46 @@ different list.
 - **Pass**: every route serves `8btpep`, every page body is byte-identical to
   the before-read (the five hashes above), `/gallery` answers 200 again, the
   sitemap lists five pages, and the menus are as before.
+- **`/gallery` is read without following redirects.** The canary's page reader
+  follows a 301, so a redirect to the home page would still read as a page at
+  `8btpep`; only the status says which it is.
+- **Why the redirect should go**: the list of routes and redirects lives in the
+  site's meta file, and a restore writes back that version's own copy of it
+  (`restoreVersion` activates the build with its own sidecar), so `8btpep`'s
+  list, with `/gallery` and without the new redirect, comes back. Read in the
+  code, not yet seen live.
 - Nothing else needs undoing: the test writes no database row, no design
   setting and no upload.
 - `8btpep` stays restorable: the newest 10 versions are kept, plus the live
   one and its parent, and after the test it is the third newest.
+
+### What each outcome would mean
+
+- **Message 1 routed anywhere but `nav`** (runs 34 and 37 show the router can
+  answer `look` for a page-shaped request): the wall stops its edit request in
+  the browser, the run fails on "nothing outside the scenario was started",
+  and it costs the routing call. Message 2 is still sent and should be refused
+  ("I left /gallery — / still links to it"), at no edit cost. A routing
+  finding, not a product defect.
+- **Message 1 publishes but a page still names `/gallery`** (the model's list
+  kept it, or it answered no change): message 2 is refused the same way. The
+  refusal is then seen live, and the finding is about the menu answer.
+- **Message 1 changes a page beyond its menu**: the menu tool can also rewrite
+  the header button, links in the copy, the footer's contact details and lists
+  and the header layout, but only the parts the model's answer names, and a
+  correct answer to this message names only the menu. Anything more is the
+  model over-answering, a finding about the real model, and the restore undoes
+  it. A different but sensible menu list only changes the expected hashes, and
+  is inspected, not failed.
+- **Message 2 routed anywhere but `page`**: the wall stops it; the site keeps
+  message 1's menu change until the restore.
+- **Message 2 changes a page other than removing `gallery.tsx`**: the top
+  finding of the test.
+- **`/gallery` answers 404 rather than 301 after the removal**: the redirect
+  rule did not run for a removal; a finding.
+- **The restore leaves `/gallery` redirecting, or not listed**: the restore did
+  not put the version's meta file back; a restore finding, and the site is left
+  with a redirect until it is fixed.
 
 ### The presses
 
@@ -306,6 +342,13 @@ different list.
      types message 1 and stops.
 - **Paid, after approval**: `5-page-remove` with spend `yes`, from the branch.
 - **Free, straight after it**: the restore mode to `8btpep`.
+- **Read again before handing them over (20:47Z)**: all five routes answered
+  200 at `8btpep`, `/the-starter` 301 to `/starter`, an unknown address 404,
+  and the sitemap five pages; the balance 53, the newest ledger row still run
+  44's, no edit job since 18:30Z and none unfinished.
+- **The session's one attempt at press 1 (20:48Z) answered 403** ("Resource
+  not accessible by integration") and was not retried, so all four presses are
+  the owner's.
 
 ### What it will not establish
 
