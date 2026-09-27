@@ -1072,12 +1072,33 @@ not close this gap."*
     killed, 3 controls surviving.
 - **The full suite, locally:** 8,094 tests, 8,092 pass, 0 fail, 2 skipped;
   +21 against 8,073, exactly the new cases.
+- **Unit CI** (run 36294546760 on `5c000598`): 8,094 / 8,090 / 0 / 4 skipped
+  (`duration_ms` 127,100). The total matches, and `pass` differs by CI's four
+  skips. All 138 cases of the three changed files pass by name, with 8,094
+  distinct result numbers, no gap and no `not ok`.
+- **`site build`** (run 36294546743 on `5c000598`, 04:31:19 → 04:57:03Z,
+  25m44s; all twenty steps green): TAP 397/397/0/0, kit-typecheck 4,
+  site-build 404, contrast-cases 16, theme-seam 11, theme-render 29,
+  site-routing 14, site-runtime 47, and kit-render / kit-a11y / kit-effects /
+  kit-paint all passed; census 7 + 4 + 1 = 12. The only `##[error]` lines are
+  the two known annotations. `site-build.mjs` took 18m43s.
 
 **The order now, because the fix is Worker code.** The paid press cannot run
 on today's deploy (2162): its route has no conditional write, so the probe
 answers 400 and the paid run stops before Send. What it needs, in order:
 1. **Your approval to merge and deploy this branch.** `site-owner.mjs` is part
    of the Worker's module graph, so the container image rolls too.
+   - **Predicted before any merge:** main (`ab74d0d9`) answers
+     `369d7b1e5bae25b0`, the image runs 35 and 40 read live. `5c000598`
+     answers **`9038e90ab1d5d7fe`**, from 188 inputs and 158 distinct paths.
+     Of the 21 files the branch changes against main, `site-owner.mjs` is the
+     only input. Re-run the predictor over the merge commit itself before
+     believing it.
+   - **A rollback is clean:** reverting the branch's range
+     (`origin/main..5c000598`, 16 commits) in a throwaway worktree gives tree
+     `61271c36…`, main's own, so a rollback reuses `369d7b1e5bae25b0`.
+   - The hold: the image rolls, so the fresh rehearsal waits 15–20 minutes
+     after the deploy.
 2. **A fresh free rehearsal with the new identifiers** in the last two boxes,
    read off the new deploy. It makes one PATCH that changes nothing, the
    probe, and its check must pass: 409 from the new route.

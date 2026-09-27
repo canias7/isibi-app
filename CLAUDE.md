@@ -9819,7 +9819,19 @@ after it hold the test and the proposal. What is law here:
     D1's own spec re-anchored and re-run, 52 of 52 killed. A real PostgreSQL
     16 (`test/integration/local-pg-owner-cas.mjs`, by hand) passed 17 of 17,
     on REAL and NUMERIC columns and under a held lock. Suite 8,094 / 8,092 /
-    0 / 2 locally, +21, exactly the new cases.
+    0 / 2 locally, +21, exactly the new cases; unit CI run 36294546760 on
+    `5c000598` at 8,094 / 8,090 / 0 / 4, all 138 cases of the three files by
+    name, no gap, no `not ok`; `site build` run 36294546743 on `5c000598`
+    (25m44s, all twenty steps) read all twelve counts green (site-build 404,
+    census 7 + 4 + 1 = 12), the two known annotations only, `site-build.mjs`
+    18m43s. **The stamp chain ends at `5c000598`.**
+  - **A MERGE ROLLS THE IMAGE**: `site-owner.mjs` is in the Worker's module
+    graph. Predicted over `5c000598`: **`9038e90ab1d5d7fe`** (188 inputs,
+    158 distinct paths) against main's `369d7b1e5bae25b0`, with
+    `site-owner.mjs` the one input among the branch's 21 changed files.
+    Reverting `origin/main..5c000598` gives main's own tree (`61271c36…`), so
+    a rollback reuses main's image. **D1's paid press waits for the owner's
+    merge, the deploy, and a fresh free rehearsal with both new identifiers.**
 - **A FULL PAGE FROM THE OWNER ROUTE IS NOT THE TABLE.** It reads at most 200
   rows (`MAX_LIMIT`), so a read of 200 is refused as possibly partial: a
   comparison over part of a table would call the rest unchanged.
