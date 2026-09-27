@@ -140,12 +140,12 @@ the table, not the change) is kept for the later model-written-replies work and
 is not reopened. **The short edit-path checklist** — demonstrated live, tested
 only with supplied model output, still untested, material gaps first — is the
 top of the [edit-path checklist](docs/investigations/edit-path-checklist.md).
-**The recommended next test is the rules rung on `lido-axes-b`, a CANDIDATE
-site, revised 2026-09-27 on the owner's two corrections** (*Test 4b*, below).
-One message should close its `bookings` table, for about 3 credits, and then
-ONE real visitor booking must be refused at the privilege check with no row
-added. **The harness is built on the branch (`ebf53761`, 2026-09-27; *the
-rules test, built*, below), and since `717bb5b2` only the exact marker booking
+**The rules test on `lido-axes-b`, a CANDIDATE site, revised 2026-09-27 on
+the owner's two corrections, has run** (*Test 4b*, below). One message was to
+close its `bookings` table, for about 3 credits, and then ONE real visitor
+booking had to be refused at the privilege check with no row added. **The
+harness is built on the branch (`ebf53761`, 2026-09-27; *the rules test,
+built*, below), and since `717bb5b2` only the exact marker booking
 may leave the browser (closed by the owner after review, 105 focused tests).
 Both free checks pass: `grants preview` run 36309691339 read the starting
 permissions it was written for (visitors may insert into `bookings`,
