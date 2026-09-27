@@ -14,7 +14,7 @@ merged/deployed at a5741864 (deployment 2157 / run 36099179983). Served chat.js
 matched the reviewed bytes at 2026-09-25 05:36:30 UTC. Deployment log reports
 container reuse; no repeated runtime container check or canary. This contains
 an escaped display error; publication and cleanup already succeeded. Other
-checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; see the dated entries below). Your free check (run 33, 06:24 UTC) confirmed deployment 2161 from the live server, and with it 2160's code. Test 3 ran as your paid run 34: the full page writer removed "The first eight chords" and nothing else, for 18 credits (balance 73), and all seven checks hold (the dated entry below). The page-text check now recognises a section heading shown by a design component, and your review's gap (such a heading counted when the page might not show it) is closed too. You closed that correction, and it is merged and deployed at `ab74d0d9` (deployment 2162, 2026-09-26 20:31 UTC, image `369d7b1e5bae25b0`). Your free press (run 35, 21:08 UTC) confirmed it from the live server. Test 4 is two parts, each for your separate approval: 4a (pages, photos, an attached picture, second messages) and 4b (the database), which waits for its own approval. In 4a, Part A passed as your paid run 37, and Parts B and C passed as your paid run 39 through the canary's new browser mode, which drives the real app in a real browser. **You closed Test 4a on 2026-09-27** after your own review of run 39's workflow and evidence; three small findings are kept separately. Test 4b is now just the price test (D1): built, and its free rehearsal passed as your run 40 (03:34 UTC). You then found its put-back could overwrite a change made at the same moment. You closed that fix after review, and it's merged and deployed at `14df0225` (deployment 2163, 2026-09-27 05:15 UTC, image `9038e90ab1d5d7fe`). The paid run now waits only for a fresh free rehearsal on that deployment (the newest entry below). Its free first step ran on 2026-09-27 and stays on record, the permission step and the test order are parked, and the rules step has its own plan (an entry below). The balance is 59.
+checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; see the dated entries below). Your free check (run 33, 06:24 UTC) confirmed deployment 2161 from the live server, and with it 2160's code. Test 3 ran as your paid run 34: the full page writer removed "The first eight chords" and nothing else, for 18 credits (balance 73), and all seven checks hold (the dated entry below). The page-text check now recognises a section heading shown by a design component, and your review's gap (such a heading counted when the page might not show it) is closed too. You closed that correction, and it is merged and deployed at `ab74d0d9` (deployment 2162, 2026-09-26 20:31 UTC, image `369d7b1e5bae25b0`). Your free press (run 35, 21:08 UTC) confirmed it from the live server. Test 4 is two parts, each for your separate approval: 4a (pages, photos, an attached picture, second messages) and 4b (the database), which waits for its own approval. In 4a, Part A passed as your paid run 37, and Parts B and C passed as your paid run 39 through the canary's new browser mode, which drives the real app in a real browser. **You closed Test 4a on 2026-09-27** after your own review of run 39's workflow and evidence; three small findings are kept separately. Test 4b is now just the price test (D1): built, and its free rehearsal passed as your run 40 (03:34 UTC). You then found its put-back could overwrite a change made at the same moment. You closed that fix after review, and it's merged and deployed at `14df0225` (deployment 2163, 2026-09-27 05:15 UTC, image `9038e90ab1d5d7fe`). Your fresh free rehearsal on that deployment passed as run 41 (05:37 UTC), which also confirmed deployment 2163 from the live server, so the paid price test is ready for your press (the newest entry below). Its free first step ran on 2026-09-27 and stays on record, the permission step and the test order are parked, and the rules step has its own plan (an entry below). The balance is 59.
 
 Kept for the owner. Two purposes:
 1. **How you like things done** — durable preferences, so a fresh session does not
@@ -176,7 +176,62 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
-## 2026-09-27 — The put-back fix is merged and deployed (deployment 2163); the free rehearsal is yours to press
+## 2026-09-27 — Your free rehearsal on the new deployment (run 41) passed; the paid price test is ready for your press
+
+I read your rehearsal
+([run 41](https://github.com/canias7/isibi-app/actions/runs/36297687383),
+05:36–05:37 UTC, from `main`). It passed on every point:
+
+- **The live server is the new code.** Its first checks read the server
+  version `14df0225` and the container image `9038e90ab1d5d7fe`, both
+  matching what you entered. That confirms deployment 2163 from the live
+  server itself, not just from its log.
+- **The new safety check works.** The test asked the server to change a
+  price only on a row that can't exist. The server answered "409": it checked
+  the condition, refused, and changed nothing. So the put-back can only ever
+  write when the row still holds the value the test set.
+- **The shop, read after that check:** the Sea Salt Focaccia was £4.50 on the
+  order page, and 4.5 in both the owner's view and the public view of the
+  price list. The public list was byte for byte what run 40 recorded.
+- **The app** opened signed in as your account, typed "In today's bake list,
+  change the Sea Salt Focaccia's price to £4.60." and did not send it. It made
+  only three read requests, with no errors. The site's five pages are exactly
+  as they were after run 39.
+- **The put-back** had nothing to do: the price already reads 4.5.
+- **The balance** stayed at 59. No credits moved.
+
+I checked again myself afterwards (05:46–05:48 UTC), read-only: the public
+price list, the order page in a real browser, the site's version and the
+balance all read the same. The only jobs the run made are the two free
+checks it always makes; both were free and published nothing.
+
+**The paid run is ready, and it's your call.** Same place and the same boxes
+as the rehearsal, with one change: open the
+[edit canary workflow](https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml),
+choose **Run workflow**, pick branch **`main`**, and fill in:
+- "Run the ONE paid edit as well" → **`yes`**
+- "RUN A NAMED SCENARIO IN A REAL BROWSER" → `4b-d1-price`
+- "The site to edit" → `fold-lane-bakery` (it defaults to `fretwork-1`, so
+  this one needs changing)
+- "Refuse to spend unless the Worker reports this deploy sha" →
+  `14df0225be90e2637764ea33771d64f4a393b628`
+- "Refuse to spend unless a cold container reports this image id" →
+  `9038e90ab1d5d7fe`
+- everything else as it is.
+
+**What it does:** the same checks as the rehearsal, then it sends the one
+message through the real app, waits for the reply, and checks the price reads
+£4.60 in both views and on the order page. Then it puts £4.50 back itself
+with the safe write, with no model call. **Cost: about 2–3 credits, and that's
+an estimate, not a limit.** The test's budget of 5 is only checked before the
+message is sent, so it can't cap what that one request costs. Nothing on the
+server caps it either, so your balance (59) is the only real limit. If the run
+ends without putting the price back, the recovery-only scenario
+(`4b-d1-restore`, same boxes) does just that, for free. The permission step
+and the real order stay parked. Nothing is spent until you press it, and I'll
+read the run as soon as you have.
+
+## 2026-09-27 — The put-back fix is merged and deployed (deployment 2163); the free rehearsal is yours to press (your rehearsal passed since: run 41, the entry above)
 
 You closed the fix after your review, and it's now live. Here's what I did and
 what I checked, all free:

@@ -33,9 +33,10 @@ gap in the put-back: a change landing between its read and its write was
 overwritten. **That is closed**: the write is now conditional in the owner
 rows route itself, which is Worker code. The owner closed the correction after
 review (165 focused tests), and it is **merged and deployed at `14df0225`
-(deploy 2163, 2026-09-27 05:15 UTC, image `9038e90ab1d5d7fe`)**. So **the
-paid press waits for a fresh free rehearsal on that deployment** (*the
-recovery's write is conditional*, in Test 4b). D2
+(deploy 2163, 2026-09-27 05:15 UTC, image `9038e90ab1d5d7fe`)**. **The fresh
+free rehearsal on that deployment passed as run 41** (05:37 UTC; its preflight
+is deploy 2163's runtime confirmation), so **the paid press is ready and is the
+owner's call** (*the recovery's write is conditional*, in Test 4b). D2
 (the grants apply) and D3 (a real order) are parked as maintenance and
 integration checks: applying grants through `grants preview` does not exercise
 the rules rung. Step 0 (`grants preview` run 36286991932) is kept as evidence.
@@ -92,9 +93,9 @@ missing is a real model, the real browser or the live database.
    shown (run 39). Controlled: `site-picture`, `edit-page-once`,
    `edit-failure`.
 3. **The data rung.** Controlled: `site-apply`, `edit-failure` (including an
-   `incomplete` site). **D1 is its live test** (rehearsed free as run 40; the
-   conditional-write fix is deployed in 2163, and the paid press waits for a
-   fresh free rehearsal on it).
+   `incomplete` site). **D1 is its live test** (rehearsed free as run 40 and, on
+   deploy 2163 with the conditional write, as run 41; the paid press is ready,
+   not pressed).
 4. **The rules rung on a site with a database.** Controlled:
    `edit-rules-backend`. Run 12 was blocked by a defect that has since been
    fixed. It has its own proposal (after Test 4); neither D2 nor D3 would
@@ -203,7 +204,7 @@ other. None blocks anything; none is being worked on.
   since an adopted site sends it no table names, and the live database. Only a
   live run measures those.
 
-### Test 4 — two parts, approved separately: 4a closed (runs 37 and 39); 4b is D1 alone, rehearsed free as run 40; its put-back write is conditional now and deployed in 2163, so the paid press waits for a fresh free rehearsal
+### Test 4 — two parts, approved separately: 4a closed (runs 37 and 39); 4b is D1 alone, rehearsed free as run 40 and again on deploy 2163 as run 41, with its put-back write conditional; the paid press is ready, not pressed
 
 Both parts run on fold-lane-bakery (Harbour Loaf): a database, three
 photographs (two on the home page), five pages, and run 9's stored source
@@ -730,7 +731,7 @@ all, against an estimate of about 17–20. The balance is 59 (read 2026-09-27
 00:45:33Z). The site keeps 4a's changes; the recovery above undoes them for
 free if you want that.
 
-#### Test 4b — the database: D1 alone, built and rehearsed free as run 40; its put-back write made conditional and deployed in 2163, so the paid press waits for a fresh free rehearsal (2026-09-27); D2 and D3 parked; step 0 kept as evidence
+#### Test 4b — the database: D1 alone, built and rehearsed free as run 40; its put-back write made conditional, deployed in 2163 and rehearsed free again as run 41 (2026-09-27); the paid press is ready, not pressed; D2 and D3 parked; step 0 kept as evidence
 
 **Narrowed by the owner (2026-09-27):** *"separate maintenance from edit-path
 acceptance: applying grants through grants-preview does not exercise the rules
@@ -803,7 +804,7 @@ writes grants directly and never goes through an edit.
   - `orders`: `REVOKE ALL` from both roles, then `GRANT INSERT ON "orders"` to
     each. That is today's table-wide form, exactly.
 
-**D1 — a row, through the real app: built at `6602be37`, rehearsed free as run 40 (below); the put-back's write made conditional since (below) and deployed in 2163, so the paid press waits for a fresh free rehearsal.** A new
+**D1 — a row, through the real app: built at `6602be37`, rehearsed free as run 40 (below); the put-back's write made conditional since (below), deployed in 2163, and rehearsed free again on that deployment as run 41 (below), which passed. The paid press is ready and is the owner's call.** A new
 scenario of the canary's UI mode, `4b-d1-price`, on fold-lane-bakery. One
 message: "In today's bake list, change the Sea Salt Focaccia's price to
 £4.60." (68 characters, 69 bytes, sha256 `550cf87497ef7a8f…`).
@@ -1116,18 +1117,20 @@ and the paid run stopped before Send. What it needed, in order:
      found no live leases; `No updated asset files to upload`, so there is no
      served-file check; a fresh Worker version. Gates 401 / 401 / 401 / 404 at
      05:15:42Z.
-   - **Deployed, not yet runtime-confirmed.** That is the deploy reporting on
-     itself; the live Worker's own sha and a cold container's image are read
-     by the rehearsal's preflight.
+   - **Runtime-confirmed by the rehearsal, run 41** (below). The log above is
+     the deploy reporting on itself; run 41's preflight read the live Worker's
+     own sha (`14df0225be90`) and a cold container's image
+     (`9038e90ab1d5d7fe`), both readers agreeing.
    - **The hold:** the image rolled at 05:15Z, so the rehearsal waited until
      05:31Z. The session's one dispatch attempt then (05:31:35Z, from `main`,
      spend `no`, both expectations set) answered **403 Resource not
-     accessible by integration**, so the rehearsal is the owner's press. It
+     accessible by integration**, so the rehearsal was the owner's press. It
      was not retried.
-2. **A fresh free rehearsal with the new identifiers**, below. It makes one
-   PATCH that changes nothing, the probe, and its check must pass: 409 from
-   the new route.
-3. **The paid press**, the same form with spend `yes`.
+2. **A fresh free rehearsal with the new identifiers — done: run 41 passed**
+   (below). It made one PATCH that changes nothing, the probe, and the new
+   route answered 409.
+3. **The paid press**, the same form with spend `yes` — **ready, not
+   pressed**; it is the owner's call.
 
 **Ready-to-run inputs.** [`edit canary`](https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml)
 → Run workflow → **branch `main`**. Since the merge, main carries the UI mode
@@ -1169,6 +1172,52 @@ all main's. The boxes, by their descriptions:
   row as that write left it. Pressing `4b-d1-restore` then reads the row again
   and writes only if it reads 4.6.
 
+**The fresh rehearsal ran as run 41 and passed** ([`36297687383`](https://github.com/canias7/isibi-app/actions/runs/36297687383),
+2026-09-27 05:36:23 → 05:37:44Z; the owner's press from `main` at `14df0225`;
+canary step 38 s):
+- **The env block:** spend 0, scenario `4b-d1-price`, site fold-lane-bakery,
+  control washhouse-3; the instruction, job and version boxes blank; both
+  expectations set.
+- **The preflight, deploy 2163's runtime confirmation:** build-health and
+  runtime both answered `14df0225be90` with image `9038e90ab1d5d7fe`; async and
+  runner true; both readers agreeing; both expectations matched. The zero-cost
+  confirmations passed (both sites got the async shape, a forged replay and a
+  stranger's poll answered 404, and the free job settled in ~8 s at cost 0).
+  Their two jobs are `failed`, billing `none`, cost 0, and published nothing.
+- **The before-read:** complete (`reads` all true), every route on
+  `01790468089054-8btpep`, and all five page bodies byte-identical to run 40's
+  before-read, with the same path set and no components. The control: against
+  run 39's BEFORE-read the same comparison differs on every page.
+- **The app:** signed in as the building account, the site's card opened, and
+  the message typed and not sent (`ui-step-1-rehearsal.png` shows it in the
+  composer over an empty thread). The page made three GETs (the credits, the
+  site list, the page list) and nothing else: 0 blocked, 0 console errors,
+  0 page errors.
+- **The probe:** `capability: enforced`, status **409**. It runs first: the
+  code's order is the probe, then the order page, then both readers
+  (`scripts/canary-ui.mjs`), so everything below was read after it.
+- **The order page** (05:37:28Z, at `8btpep`, in its GET-only tab): six cards,
+  including "Sea Salt Focaccia £4.50 · A tray bake, heavy on the oil, finished
+  with flaky salt."
+- **The fresh baseline at 05:37:39.318Z:** six rows on both readers, the two
+  lists equal, and row 6, "Sea Salt Focaccia", at 4.5 on both (a JSON number on
+  the owner route). The visitor read is 1,045 bytes, sha256
+  `ef870ebcf8353634`, byte-identical to run 40's and equal to the proposal's
+  record.
+- **The recovery's plan at the baseline:** none (`at-baseline`). The balance
+  read 59 → 59.
+- **Checked by the session afterwards** (05:46–05:48Z, read-only):
+  - the visitor route answers the same 1,045 bytes, byte-identical to the
+    05:16Z read and to run 40's, with the focaccia at 4.5;
+  - `/` and `/order` answer `01790468089054-8btpep`;
+  - a real Chromium, GET only, reads the same six cards on `/order`, the
+    focaccia at £4.50, with no page errors;
+  - the balance row reads 59 (05:48:40Z), `credit_events` has no row after
+    run 39's reserve at 00:12:09Z, and `edit_jobs` since 05:30Z holds only the
+    two confirmation jobs.
+- **So the paid press starts from an established before-state on the deployed
+  code.** It is the same form with spend `yes`, and it is the owner's call.
+
 **Cost:** about 2–3 credits. That is the routing charge (1–2; run 39's three
 routing calls cost 2, 1 and 2) plus the data rung's one call, rounded once
 with a floor of 1. **That figure is an estimate, not a cap.** The scenario's
@@ -1178,8 +1227,9 @@ balance cannot be read. D1 sends one message, so the check cannot stop
 anything, and it never caps what that one request costs. Nothing on the server
 caps it either (`edit_reserve` refuses only above 100,000), so the balance is
 the only bound. The rehearsal, the recovery and
-`4b-d1-restore` are free. The balance is 59 (read on the balance row at
-05:17:01Z, after deploy 2163; the last ledger row is still run 39's).
+`4b-d1-restore` are free. The balance is 59 (read by run 41 at 05:37:23Z and
+on the balance row at 05:48:40Z after it; the last ledger row is still run
+39's).
 
 **D2 and D3 — parked (owner, 2026-09-27).** Kept prepared, not scheduled:
 - **D2** is `grants preview` in `apply` mode on fold-lane-bakery, undone by its

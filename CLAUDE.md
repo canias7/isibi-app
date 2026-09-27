@@ -57,9 +57,9 @@ restoration, no further CSS work.
 built on the branch at `6602be37`, rehearsed free as run 40; its recovery's
 write made CONDITIONAL in the owner rows route, which is Worker code — CLOSED
 BY THE OWNER after review (165 focused tests) and MERGED AND DEPLOYED at
-`14df0225`, deploy 2163, 2026-09-27 05:15 UTC, image `9038e90ab1d5d7fe` — so
-the paid press waits only for a fresh free rehearsal on that deployment; D2
-and D3 parked; step 0,
+`14df0225`, deploy 2163, 2026-09-27 05:15 UTC, image `9038e90ab1d5d7fe` — and
+rehearsed free again on that deployment as run 41, which passed, so the paid
+press is ready and waits only for the owner; D2 and D3 parked; step 0,
 `grants preview` run 36286991932, kept as maintenance evidence; the rules rung
 has its own proposal)**: the top section of the
 [edit-path checklist](docs/investigations/edit-path-checklist.md), summarised in
@@ -100,11 +100,13 @@ messages; a free restore undoes it) and 4b (one row of the database, changed
 through the real app and put back by the canary with no model call). **Applying
 grants through `grants preview` is maintenance, not edit-path acceptance: it
 never goes through the rules rung** (owner, 2026-09-27). **Deploy 2163 is
-deployed, NOT YET runtime-confirmed**: its log names the sha and the image, and
-the live Worker's own answer is the fresh rehearsal's preflight. The
-session's one dispatch attempt after the hold (05:31:35Z, from `main`, spend
-`no`) answered **403** again, so the rehearsal is the owner's press, not
-retried (*Test 4b*, below).
+runtime-confirmed by the owner's free rehearsal, run 41** (36297687383, 05:37
+UTC, from `main`): both readers answered `14df0225be90` with image
+`9038e90ab1d5d7fe`; the conditional write no row can meet answered **409** and
+changed nothing; after it, the focaccia read £4.50 on the order page and 4.5 on
+both readers; balance 59 → 59. The session's own dispatch at 05:31:35Z had
+answered **403** and was not retried. **D1's paid press is ready and is the
+owner's call; nothing has been sent** (*Test 4b*, below).
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -9343,8 +9345,8 @@ list, and Test 4's exact form values, are the top section of the
 - **TEST 4, IN TWO PARTS APPROVED SEPARATELY — 4a CLOSED BY THE OWNER (RUNS 37
   AND 39), 4b NARROWED TO D1 ALONE (2026-09-27), REHEARSED FREE AS RUN 40, ITS
   RECOVERY'S WRITE MADE CONDITIONAL SINCE, CLOSED BY THE OWNER AND MERGED AND
-  DEPLOYED IN DEPLOY 2163, SO THE PAID PRESS WAITS FOR A FRESH FREE REHEARSAL
-  ON THAT DEPLOYMENT**
+  DEPLOYED IN DEPLOY 2163, AND REHEARSED FREE AGAIN ON THAT DEPLOYMENT AS RUN
+  41, WHICH PASSED — THE PAID PRESS IS READY, NOT PRESSED**
   (owner, 2026-09-26: *"Separate the photo/attachment/second-message checks from
   database writes and permission changes."*), all on fold-lane-bakery:
   - **4a — pages only, undone free by the canary's restore mode**:
@@ -9367,8 +9369,8 @@ list, and Test 4's exact form values, are the top section of the
     reproduced the recovery overwriting a concurrent write; the fix makes the
     write conditional in the owner rows route (Worker code). The owner closed
     it after review, and it is merged and deployed at `14df0225` (deploy 2163,
-    image `9038e90ab1d5d7fe`), so the paid press waits for a fresh free
-    rehearsal on that deployment.**
+    image `9038e90ab1d5d7fe`), and its fresh free rehearsal on that
+    deployment passed as run 41, so the paid press is ready, not pressed.**
     - step 0, free, **ran 2026-09-27 as `grants preview` run 36286991932** and
       is kept as MAINTENANCE evidence: what the grants are and what an apply
       or a rollback would issue. It never goes through an edit.
@@ -9754,7 +9756,7 @@ addition."* `scripts/canary-ui.mjs`, the `ui_scenario` box on `edit-canary.yml`,
   block, the balance was read before each message, every filed job was
   followed, and the after-read waited for the last published version.
 
-### TEST 4b: D1 ALONE, REHEARSED FREE AS RUN 40, ITS RECOVERY'S WRITE CONDITIONAL SINCE (MERGED AND DEPLOYED IN DEPLOY 2163); D2 AND D3 PARKED; THE RULES RUNG'S OWN PROPOSAL (2026-09-27)
+### TEST 4b: D1 ALONE, REHEARSED FREE AS RUN 40, ITS RECOVERY'S WRITE CONDITIONAL SINCE (MERGED AND DEPLOYED IN DEPLOY 2163) AND REHEARSED AGAIN AS RUN 41; THE PAID PRESS READY, NOT PRESSED; D2 AND D3 PARKED; THE RULES RUNG'S OWN PROPOSAL (2026-09-27)
 
 Owner, first: *"return one concrete proposal: exact requests, expected database
 changes, independent checks, estimated cost and deterministic recovery for both
@@ -9868,13 +9870,13 @@ after it hold the test and the proposal. What is law here:
     `9038e90ab1d5d7fe` and rolled from `369d7b1e5bae25b0`** (the deploy
     section), the drain found no live leases, `No updated asset files to
     upload` (so there is no served-file check), `Current Version ID:
-    f89474***c-…`. Gates 401 / 401 / 401 / 404 at 05:15:42Z. **Deployed, not
-    runtime-confirmed**: the live Worker's own sha and a cold container's
-    image are the fresh rehearsal's preflight. **Since the merge, `main`
-    carries the UI mode and both D1 scenarios**, so the canary is dispatched
-    from `main`. The session's one attempt after the hold (05:31:35Z, spend
-    `no`, both expectations set) answered **403**, so the rehearsal is the
-    owner's press.
+    f89474***c-…`. Gates 401 / 401 / 401 / 404 at 05:15:42Z. **Since the
+    merge, `main` carries the UI mode and both D1 scenarios**, so the canary
+    is dispatched from `main`. The session's one attempt after the hold
+    (05:31:35Z, spend `no`, both expectations set) answered **403**, so the
+    rehearsal was the owner's press. **Runtime-confirmed by that rehearsal,
+    run 41** (below): the live Worker answered `14df0225be90` and a cold
+    container `9038e90ab1d5d7fe`, both readers agreeing.
 - **A FULL PAGE FROM THE OWNER ROUTE IS NOT THE TABLE.** It reads at most 200
   rows (`MAX_LIMIT`), so a read of 200 is refused as possibly partial: a
   comparison over part of a table would call the rest unchanged.
@@ -9908,6 +9910,41 @@ after it hold the test and the proposal. What is law here:
   too). The session's read-only check at 03:42Z agreed on every reading. The
   paid press was to be the same form with spend `yes` — until the conditional
   write below, which moves both expectation boxes.
+- **D1'S FRESH REHEARSAL ON DEPLOY 2163 RAN AS RUN 41 AND PASSED**
+  (`36297687383`, 2026-09-27 05:36:23 → 05:37:44Z, the owner's press from
+  `main` at `14df0225`; canary step 38 s). The env block: spend 0, scenario
+  `4b-d1-price`, site fold-lane-bakery, control washhouse-3, the instruction,
+  job and version boxes blank, both expectations set.
+  - **Its preflight is deploy 2163's runtime confirmation**: build-health and
+    runtime both answered `14df0225be90`, image `9038e90ab1d5d7fe`, async and
+    runner true, both readers agreeing and both expectations matched. The
+    zero-cost confirmations passed; their two jobs are `failed`, billing
+    `none`, cost 0, unpublished.
+  - **The before-read is complete** (`reads` all true), every route on
+    `01790468089054-8btpep`, and all five bodies byte-identical to run 40's
+    before-read, same path set. The control against run 39's BEFORE-read
+    differs on every page, so the comparison sees a change when there is one.
+  - **The app** opened signed in and typed the message without sending it:
+    three GETs (the credits, the site list, the page list), 0 blocked, 0
+    console or page errors; the screenshot shows the message in the composer
+    over an empty thread.
+  - **The probe ran first and answered 409** (`capability: enforced`): the
+    live Worker enforces a write's condition, and a write no row can meet
+    changed nothing. The code's order is the probe, the order page, then the
+    baseline (`scripts/canary-ui.mjs`), so what follows was read after it.
+  - **The order page** (05:37:28Z, at `8btpep`) showed the focaccia at £4.50.
+  - **The baseline** (05:37:39.318Z): six rows on both readers, row 6 "Sea Salt
+    Focaccia" at 4.5 on both (a JSON number on the owner route); the visitor
+    body 1,045 bytes, sha256 `ef870ebcf8353634`, byte-identical to run 40's and
+    equal to the proposal's record. The recovery's plan: none. Balance 59 → 59.
+  - **Checked by the session afterwards (05:46–05:48Z, read-only):** the
+    visitor route answers the same 1,045 bytes; `/` and `/order` answer
+    `8btpep`; a real Chromium (GET only) reads the same six cards, the focaccia
+    at £4.50; the balance row reads 59 at 05:48:40Z, with no ledger row since
+    run 39's reserve; the only edit jobs since 05:30Z are the two confirmation
+    jobs.
+  - **So the paid press is ready**: the same form with spend `yes`. About 2–3
+    credits, an ESTIMATE and not a cap. Not pressed.
 - **THE RULES RUNG'S OWN PROPOSAL, NOT BUILT OR APPROVED.** Its footprint is the
   site's own Postgres alone (it publishes nothing), and since 2026-07-29 each
   site has its own Neon project. So the recommended recovery is **Neon's
@@ -12653,8 +12690,9 @@ ledger holds one reserve of 6 and no refund), read on the balance row at
 **65 → 59, moved 6**, routing 2 + 1 + 2 and one edit of 1, closing exactly, on
 a run that published three times; the ledger holds one reserve of 1 and no
 refund), read on the balance row at 00:45:33Z, and read 59 again by run 40's
-free rehearsal (03:35Z), on the balance row at 03:43Z, and on the balance row
-at 05:17:01Z after deploy 2163 (the last ledger row still run 39's reserve).
+free rehearsal (03:35Z), on the balance row at 03:43Z, on the balance row at
+05:17:01Z after deploy 2163, by run 41's free rehearsal (05:37Z), and on the
+balance row at 05:48:40Z after it (the last ledger row still run 39's reserve).
 **Between run 31 and
 run 32 the balance rose from 1 to 101** (read on the ledger at 18:09Z and by the
 canary before its paid call). **Only the readings are recorded; how it rose is
