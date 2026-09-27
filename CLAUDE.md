@@ -65,8 +65,9 @@ independent review (2026-09-27); D2 and D3 parked; step 0, `grants preview` run
 the candidate site `lido-axes-b`, revised on the owner's two corrections and
 BUILT on the branch at `ebf53761` as the scenario `4b-rules-close`, its
 booking decided before it leaves the browser since `717bb5b2` (that correction
-CLOSED BY THE OWNER after review) — its two free checks the owner's presses,
-nothing paid approved or pressed)**: the top section of the
+CLOSED BY THE OWNER after review) — its first free check, `grants preview`
+run 36309691339, reading the starting permissions it was written for, the
+free rehearsal next, nothing paid approved or pressed)**: the top section of the
 [edit-path checklist](docs/investigations/edit-path-checklist.md), summarised in
 *remaining work after Test 3* below. Among the QUEUED jobs inspected, the rules
 rung and a page removal have never published, and **run 42 was the data
@@ -138,9 +139,11 @@ One message should close its `bookings` table, for about 3 credits, and then
 ONE real visitor booking must be refused at the privilege check with no row
 added. **The harness is built on the branch (`ebf53761`, 2026-09-27; *the
 rules test, built*, below), and since `717bb5b2` only the exact marker booking
-may leave the browser (closed by the owner after review, 105 focused tests);
-its two free checks are the owner's presses, and nothing paid is approved or
-pressed.**
+may leave the browser (closed by the owner after review, 105 focused tests).
+Its first free check, `grants preview` run 36309691339, read the starting
+permissions it was written for (visitors may insert into `bookings`,
+table-wide, and not read it; they may read the menu); the free rehearsal is
+next, and nothing paid is approved or pressed.**
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -10245,6 +10248,15 @@ after it hold the test and the proposal. What is law here:
       and never fired, no queued edit job ever filed for it, none running
       anywhere, the pages, stylesheet, menu and the refused visitor read all
       as recorded.
+    - **PRESS 1 READ: `grants preview` run 36309691339** (the owner's, from
+      `main`, 09:32Z): nothing written (the apply guard and the rollback
+      download skipped); `bookings` INSERT for both visitor roles, table-wide,
+      and no SELECT (read none / write anyone); `menu_items` SELECT for both,
+      table-wide (read public / write none); 0 sites unreadable. The five
+      columns a grants apply would narrow `bookings` to are the booking
+      form's own five; that apply is maintenance and is not pressed. Its
+      artifact (10928500920, 2,003-byte JSON, kept to 2026-12-26) is press
+      4's comparison. Re-read at 09:40Z: balance 56, no edit job since run 42.
   - **THE WALL HANDS THE ONE ALLOWED BOOKING ON WITH `route.fallback()`, NEVER
     `continue()`**: Playwright runs the last-registered handler first, and
     `fallback` passes to the one registered before it — the default network

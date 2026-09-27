@@ -96,8 +96,9 @@ means only that its name is taken.
 - It costs about 3 credits. The harness is built on the branch (`ebf53761`,
   scenario `4b-rules-close`), and since `717bb5b2` its booking is decided
   before it leaves the browser (*the booking gate*, closed by the owner after
-  review). Its two free checks are the owner's presses; nothing paid is
-  approved or pressed.
+  review). Its first free check, `grants preview` (run `36309691339`), read
+  the starting permissions the test was written for; the free rehearsal is
+  next. Nothing paid is approved or pressed.
 
 The scope, the checks, the cleanup, the notification account and the approval
 items are in *the rules rung — the recommended next test, revised*, after
@@ -2205,6 +2206,46 @@ focused tests passed."*
   byte count went into the same pipe as the file, so the hash covered the
   file plus the count. Downloaded to a file and read on its own, it is the
   recorded 209,105 bytes, `6f7ca4bc…`.
+
+**Press 1 read: `grants preview` run `36309691339` (the owner's, 2026-09-27
+09:32Z).**
+- **Nothing was written.** From `main` at `14df0225`, 09:32:17 → 09:32:43Z.
+  The env block reads `MODE: preview` and `SLUG: lido-axes-b`. The two steps
+  that can write, the apply guard and the rollback download, were skipped.
+- **Its lines, verbatim:**
+  - `lido-axes-b: 2 table(s), 1 carrying a table-wide client write`;
+  - `ok  menu_items  [read=public write=none]  now: (no table-wide write)`;
+  - `NEEDS bookings  [read=none write=anyone]  now: anonymous INSERT,
+    authenticated INSERT`, and under it `would grant: name, phone,
+    party_size, booking_date, booking_time`;
+  - `0 site(s) could not be read`.
+- **Its artifact records the grants themselves**: `grants-before-state`, id
+  `10928500920`, a 565-byte zip (sha256 `a88c3681…`) holding a 2,003-byte
+  JSON (sha256 `39a98569…`), kept until 2026-12-26.
+  - `bookings`: INSERT for both visitor roles, table-wide, and nothing else.
+    There is no SELECT, which agrees with a visitor's read answering 403
+    `42501`.
+  - `menu_items`: SELECT for both visitor roles, table-wide, and nothing
+    else.
+- **So the starting permissions are the ones the test was written for.**
+  Visitors may add a booking and may not read one. They may read the menu and
+  may not change it. The site's stored schema says the same: `bookings` read
+  none, write anyone; `menu_items` read public, write none.
+- **The insert privilege is the older, table-wide form**: it covers every
+  column, not only the form's five. The five columns a grants apply would
+  narrow it to are exactly the five the booking form sends. That apply is
+  maintenance and is not part of this test; the rules edit re-writes these
+  grants itself.
+- **What it does not show**: row policies and the closed flag, which it does
+  not read, and whether a booking would really go through. That is
+  configuration, not behaviour.
+- **Press 4 is compared against this artifact.** After the rules edit,
+  `bookings` should hold nothing for either visitor role, and `menu_items`
+  SELECT for both, exactly as here.
+- **Read again at 09:40:29Z, read-only**: the balance is 56, the newest ledger
+  row is still run 42's reserve (06:04:40Z), no edit job has been filed
+  anywhere since 06:10Z, none has ever been filed for `lido-axes-b`, and its
+  notifications are on and have never fired.
 
 ## A section headed by the kit — fixed (2026-09-26), merged and deployed in deploy 2162
 
