@@ -1119,8 +1119,11 @@ and the paid run stopped before Send. What it needed, in order:
    - **Deployed, not yet runtime-confirmed.** That is the deploy reporting on
      itself; the live Worker's own sha and a cold container's image are read
      by the rehearsal's preflight.
-   - **The hold:** the image rolled at 05:15Z, so the rehearsal waits until
-     about 05:31Z.
+   - **The hold:** the image rolled at 05:15Z, so the rehearsal waited until
+     05:31Z. The session's one dispatch attempt then (05:31:35Z, from `main`,
+     spend `no`, both expectations set) answered **403 Resource not
+     accessible by integration**, so the rehearsal is the owner's press. It
+     was not retried.
 2. **A fresh free rehearsal with the new identifiers**, below. It makes one
    PATCH that changes nothing, the probe, and its check must pass: 409 from
    the new route.

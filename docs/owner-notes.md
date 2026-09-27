@@ -194,10 +194,10 @@ what I checked, all free:
   - no browser files changed, so there's no downloaded-file check this time.
 - **Still to confirm from the live server:** a deploy's log only says what it
   sent. The free rehearsal's first checks read the live server's own version
-  and image, so that's where the confirmation comes from. The new image needs
-  about 15 minutes to settle, so I'll try to start the rehearsal myself once
-  that's over (about 05:31 UTC). GitHub has refused every earlier attempt of
-  mine (403), so expect it to be your press.
+  and image, so that's where the confirmation comes from. After the new
+  image had 15 minutes to settle, I tried to start the rehearsal myself at
+  05:31:35 UTC. GitHub refused it (403), as on every earlier attempt, so the
+  rehearsal is your press. I didn't retry.
 - **The shop is as it was:** at 05:16 UTC the Sea Salt Focaccia still read
   £4.50 on the public price list, byte for byte what run 40 recorded. The
   balance is 59, and nothing has been spent since run 39.
@@ -220,9 +220,11 @@ test needs), and fill in:
 the new safety check answering "409" and changing nothing; then, read after
 that check, the focaccia at £4.50 on both the owner's view and the public
 view, and at £4.50 on the order page; the put-back ready with nothing to do;
-and the balance unchanged.
+and the balance unchanged. Everything happens in GitHub: no app or console
+steps.
 
-**The paid run** is the same form with "Run the ONE paid edit as well" →
+**The paid run** — press it only after I've read your rehearsal and confirmed
+it passed — is the same form with "Run the ONE paid edit as well" →
 `yes`. **About 2–3 credits is an estimate, not a limit** (a routing charge of
 1–2 plus one database edit, rounded once). *Corrected at your request:* I first
 wrote here that the test "won't go past 5", which was wrong. The test's budget

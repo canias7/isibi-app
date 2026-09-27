@@ -101,9 +101,10 @@ through the real app and put back by the canary with no model call). **Applying
 grants through `grants preview` is maintenance, not edit-path acceptance: it
 never goes through the rules rung** (owner, 2026-09-27). **Deploy 2163 is
 deployed, NOT YET runtime-confirmed**: its log names the sha and the image, and
-the live Worker's own answer is the fresh rehearsal's preflight. The session
-makes one dispatch attempt after the hold; every earlier attempt answered 403,
-which makes the press the owner's (*Test 4b*, below).
+the live Worker's own answer is the fresh rehearsal's preflight. The
+session's one dispatch attempt after the hold (05:31:35Z, from `main`, spend
+`no`) answered **403** again, so the rehearsal is the owner's press, not
+retried (*Test 4b*, below).
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -9871,7 +9872,9 @@ after it hold the test and the proposal. What is law here:
     runtime-confirmed**: the live Worker's own sha and a cold container's
     image are the fresh rehearsal's preflight. **Since the merge, `main`
     carries the UI mode and both D1 scenarios**, so the canary is dispatched
-    from `main`.
+    from `main`. The session's one attempt after the hold (05:31:35Z, spend
+    `no`, both expectations set) answered **403**, so the rehearsal is the
+    owner's press.
 - **A FULL PAGE FROM THE OWNER ROUTE IS NOT THE TABLE.** It reads at most 200
   rows (`MAX_LIMIT`), so a read of 200 is refused as possibly partial: a
   comparison over part of a table would call the rest unchanged.
