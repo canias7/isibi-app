@@ -176,7 +176,122 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
-## 2026-09-27 — The rules test is built (nothing pressed, nothing approved)
+## 2026-09-27 — The test booking is now checked before it leaves (nothing pressed, nothing approved)
+
+You found that the paid run let the first booking request out whatever it
+held, and only checked it afterwards, when it had already reached the
+database. You were right, and it's fixed on the branch (`717bb5b2`). The full
+account is in the [edit-path checklist](investigations/edit-path-checklist.md),
+under *the booking gate*.
+
+**What changed.**
+- The check now runs inside the browser, before the request is let out. It
+  uses the same check as before (`bookingBodyVerdict`), just earlier.
+- Only one request can leave: the first one, carrying exactly the test
+  booking's five fields and values.
+- Anything else is stopped in the browser and recorded with the reason. That
+  covers broken data, a changed value, a missing or extra field, and a second
+  request. Nothing is changed to make it pass.
+- A stopped booking never reaches the database, so there's nothing to clean
+  up. The run calls it inconclusive ("never sent"), never a pass.
+- **Two more things are refused**, because the platform passes them on to the
+  database:
+  - a request asking for the new row back. The visitor can't read bookings,
+    so the database would answer "permission denied for table bookings",
+    exactly like a closed table. That would be a false pass;
+  - a request carrying a sign-in, which would make it a member's booking, not
+    a visitor's.
+  The live page sends neither, and I checked that in a real browser.
+- The booking tab also blocks "service workers" (background scripts a site can
+  install), so none could send the booking around the check. The site has
+  none today.
+- The free rehearsal now also checks that its booking would get through this
+  check. So a page that would be stopped is found before anything is spent.
+
+**How I checked it.**
+- Your reproduction is now a test: the form holds the test phone number, the
+  page sends a different one, and the booking is stopped. It fails on the
+  code from before, where that booking reached the stand-in database.
+- Eleven more altered requests are each stopped before they leave, and a
+  stopped request that the page tries again is stopped too. The one valid
+  request still goes out.
+- I broke the new check on purpose 16 ways, and the tests caught all 16.
+- A real browser on my side ran the booking tab against the live `/book`
+  page, with every write answered inside the browser. The page's own booking
+  passed the check. A changed phone number, a "send the row back" header and
+  an extra address part were each stopped before leaving. Only page reads
+  reached the site.
+- All 8,143 tests pass, on my side and on GitHub.
+
+**The free checks I could do (09:11–09:18 UTC).**
+- I tried both free presses once each. GitHub refused both (403): this
+  session can't start workflows. I didn't retry. They're yours to press (the
+  list below).
+- Everything I could read matches what's recorded:
+  - `main` hasn't moved;
+  - your balance is 56, and nothing has been spent since the price test
+    (run 42);
+  - `lido-axes-b`'s "email me about bookings" is on and has never fired;
+  - no edit job has ever been queued for it, and none is running anywhere;
+  - its pages, stylesheet and menu are exactly as recorded, and visitors
+    still can't read the bookings list.
+- Only your presses can read the deploy's identifiers, your view of the
+  bookings table and the site's key names.
+- One of my own readings was wrong at first: my first stylesheet fingerprint
+  didn't match. The way I'd written the command mixed the file's size into
+  the data it was fingerprinting. Read properly, the stylesheet is exactly as
+  recorded.
+
+**The presses** (named by the descriptions the form shows):
+1. **`grants preview`, from `main`** (free):
+   - "preview (reads only) | …": `preview`;
+   - "One site, e.g. fretwork-1. …": `lido-axes-b`;
+   - the other two boxes blank.
+2. **`edit canary`, from the branch `claude/help-needed-ehlwlj`** (free):
+   - "Run the ONE paid edit as well (yes/no)": `no`;
+   - "RUN A NAMED SCENARIO IN A REAL BROWSER …": `4b-rules-close`;
+   - "Rules test only (4b-rules-close): what you approve …": `cleanup` (what
+     press 3 will carry);
+   - "The site to edit. …": `lido-axes-b` (it defaults to `fretwork-1`);
+   - "A second site, …": leave `washhouse-3`;
+   - "Refuse to spend unless the Worker reports this deploy sha …":
+     `14df0225be90e2637764ea33771d64f4a393b628`;
+   - "Refuse to spend unless a cold container reports this image id …":
+     `9038e90ab1d5d7fe`;
+   - everything else blank.
+3. **The same as 2, with "Run the ONE paid edit as well" set to `yes`.** Only
+   after I've read 1 and 2 and they pass.
+4. **`grants preview` again**, as in 1.
+
+**What I need from you: one yes or no for press 3, covering:**
+- **Cost**: about 3 credits (an estimate, not a cap). Your balance is 56.
+  Presses 1, 2 and 4 are free.
+- **The permanent change**: `lido-axes-b`'s database changes for good. It's
+  its first database change since it was built, so its permissions are
+  rewritten in today's form, and bookings close to visitors and stay closed.
+  Its pages, stylesheet and stored source stay as they are, and the run
+  checks that. Reopening later would be a separate ask.
+- **Clean-up**: `cleanup` in the box. If a test booking goes in anyway (the
+  rule failed), the one row carrying every test value is deleted in the same
+  run. A booking the new check stops never reaches the database, so it needs
+  no clean-up.
+- **Notifications, as found**: a refused booking sets off nothing. A booking
+  that went in would mark the site's notification as fired, and the clean-up
+  can't undo that mark. There's no confirmation email to the booker (the form
+  has no email field). An email to you, a text or a webhook could only happen
+  if the site holds those keys. Press 2 reads the key names, and press 3 won't
+  start while one could send without your word for it in the box.
+- **One consequence of the new check**: the message goes before the booking.
+  So if the check stopped the booking in press 3, the rules change would
+  already be made and paid for, and the result would be inconclusive. Press 2
+  runs the same check first, so this should show up for free.
+- **What a pass shows**: the setting changing, and a booking refused
+  afterwards. Not a measured switch from accepted to refused, because no
+  booking is measured going through first.
+
+Nothing was spent, pressed, booked, written or deleted.
+
+## 2026-09-27 — The rules test is built (the booking check was tightened since: the entry above)
 
 You approved building it (item A). It's done, on the branch, and nothing was
 sent, booked, written to a database or deleted. The full account is in the

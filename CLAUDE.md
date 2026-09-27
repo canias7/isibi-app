@@ -63,7 +63,8 @@ OWNER'S PAID PRESS PASSED AS RUN 42 — D1 CLOSED BY THE OWNER after an
 independent review (2026-09-27); D2 and D3 parked; step 0, `grants preview` run
 36286991932, kept as maintenance evidence; the rules test recommended next, on
 the candidate site `lido-axes-b`, revised on the owner's two corrections and
-BUILT on the branch at `ebf53761` as the scenario `4b-rules-close` — not
+BUILT on the branch at `ebf53761` as the scenario `4b-rules-close`, its
+booking decided before it leaves the browser since `717bb5b2` — not
 approved or pressed)**: the top section of the
 [edit-path checklist](docs/investigations/edit-path-checklist.md), summarised in
 *remaining work after Test 3* below. Among the QUEUED jobs inspected, the rules
@@ -135,7 +136,8 @@ site, revised 2026-09-27 on the owner's two corrections** (*Test 4b*, below).
 One message should close its `bookings` table, for about 3 credits, and then
 ONE real visitor booking must be refused at the privilege check with no row
 added. **The harness is built on the branch (`ebf53761`, 2026-09-27; *the
-rules test, built*, below); nothing is approved or pressed.**
+rules test, built*, below), and since `717bb5b2` only the exact marker booking
+may leave the browser; nothing is approved or pressed.**
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -10192,7 +10194,50 @@ after it hold the test and the proposal. What is law here:
     no success); fail = a 2xx, or a `22xxx`/`23xxx` refusal (reaching the row
     means the privilege was there); partial = `42501` with the RLS message;
     inconclusive = everything else. **A booking is submitted only after the
-    closing verdict passes**, once, and a second request is stopped.
+    closing verdict passes**, once, and only through the gate below.
+  - **THE GATE DECIDES BEFORE THE REQUEST LEAVES** (`717bb5b2`; owner: *"Run
+    the existing bookingBodyVerdict inside the request interceptor before
+    forwarding. Only the exact marker payload may leave."*). The paid press
+    had forwarded the first booking POST whatever it held and checked the
+    body afterwards, once it had reached the database; the owner reproduced a
+    form holding the marker's phone while the page sent another. Now
+    `bookingGate` runs in the interceptor, wraps `bookingBodyVerdict`, and
+    lets out only the FIRST request that is exactly the marker's five fields
+    and values, with no query string and no `prefer` or `authorization`
+    header. Everything else is aborted in the browser, recorded with its
+    reason, never rewritten, and reads **inconclusive ("never sent")**, with
+    nothing to clean up.
+    - **The query string and the two headers because the data route passes
+      them on** (`proxySiteService`: `url.search` and `content-type`,
+      `authorization`, `accept`, `prefer`, `cookie`). `Prefer:
+      return=representation` needs a read visitors lack on `bookings`, so
+      Postgres answers the same "permission denied for table bookings" as a
+      closed table: a false pass. `authorization` makes it a member's
+      request. A case pins the proxy's list.
+    - **Service workers are blocked in the booking context**: a request a
+      service worker makes can go round the page's route handlers. The site
+      registers none today; the wall does not depend on that.
+    - **A stopped paid booking still leaves the rules change made and paid
+      for**, since the message goes first. The rehearsal asks the same gate,
+      so that is found for free.
+    - **EVIDENCE**: `canary-rules` 31 → 33, `canary-ui` 54 → 57 (the owner's
+      reproduction, eleven altered requests, a stopped request retried); red
+      on `7db03084` 7 of 90, and with its first assertions cut the
+      reproduction fails on the altered booking reaching the service; probes
+      G-1..G-16 16 of 16 killed, 3 controls surviving (`canary-rules.json`,
+      103 entries); a local Chromium against the live `/book`, every write
+      answered in the page, let the page's own request out and stopped an
+      altered phone, an added `prefer` and a query string, with only GETs
+      reaching the network; suite `8143 / 8141 / 0 / 2` locally and unit CI
+      run 36308781985 on `717bb5b2` at `8143 / 8139 / 0 / 4`, the five new
+      cases by name, no gap, no `not ok`. **The stamp chain ends at
+      `717bb5b2`.**
+    - **THE FREE CHECKS (09:11–09:18Z)**: both free presses answered **403**
+      to the session and were not retried; read-only, `main` `14df0225`,
+      balance 56 (newest ledger row run 42's), `lido-axes-b` notifications on
+      and never fired, no queued edit job ever filed for it, none running
+      anywhere, the pages, stylesheet, menu and the refused visitor read all
+      as recorded.
   - **THE WALL HANDS THE ONE ALLOWED BOOKING ON WITH `route.fallback()`, NEVER
     `continue()`**: Playwright runs the last-registered handler first, and
     `fallback` passes to the one registered before it — the default network
@@ -10224,8 +10269,8 @@ after it hold the test and the proposal. What is law here:
     201 as a fail ("Table held — see you by the water."); suite `8138 / 8136 /
     0 / 2` locally (+44 against 8,094) and unit CI run 36307245182 on
     `ebf53761` at `8138 / 8134 / 0 / 4`, all 100 cases of the three touched
-    files by name, no gap, no `not ok`. **The stamp chain ends at
-    `ebf53761`.**
+    files by name, no gap, no `not ok`. **That round's stamp chain ended at
+    `ebf53761`**; the gate's ends at `717bb5b2` (above).
   - **THE MENU'S RECORDED HASH IS `f2b64cb26abe7c14`** (1,208 bytes, the
     plain, `select=*` and ordered reads alike); the proposal's `8e1d493c…` does
     not reproduce and is withdrawn.
@@ -13554,6 +13599,13 @@ rule and the measurement.
   section BLANK. **When the instrument and the thing disagree, suspect the
   instrument first** — and screenshot each section scrolled INTO VIEW, asserting
   computed opacity.
+- **A MISMATCH FROM A BROKEN READER READS LIKE A CHANGE (2026-09-27).**
+  `curl … | tee >(wc -c) | sha256sum` hashed `lido-axes-b`'s stylesheet as
+  `484438e4…` against a recorded `6f7ca4bc…`: the process substitution
+  inherits `tee`'s stdout, so the byte count went into the pipe and the hash
+  covered the file plus the count, and the count never printed. Downloaded to
+  a file and read on its own, the sheet was the recorded bytes. **Read a
+  reference value into a file first, then measure the file.**
 - **A DEFECT THAT ONLY EXISTS IN TIME IS INVISIBLE TO EVERY STILL.** An entrance
   animation on an element something rebuilds is a 220 ms twitch; the finished panel
   is pixel-perfect in every frame. **The picture looks like evidence.** Sample one

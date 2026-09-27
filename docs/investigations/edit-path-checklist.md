@@ -94,7 +94,9 @@ means only that its name is taken.
   the owner's approval.
 - The baseline, whether a booking goes through today, is not measured.
 - It costs about 3 credits. The harness is built on the branch (`ebf53761`,
-  scenario `4b-rules-close`); nothing is approved or pressed.
+  scenario `4b-rules-close`), and since `717bb5b2` its booking is decided
+  before it leaves the browser (*the booking gate*); nothing is approved or
+  pressed.
 
 The scope, the checks, the cleanup, the notification account and the approval
 items are in *the rules rung — the recommended next test, revised*, after
@@ -1899,8 +1901,9 @@ is pure; `scripts/canary-ui.mjs` drives the app and the booking tab;
   the marker booking through the page's own fields, checks the form holds
   exactly those values, and presses "Book a table" once. The tab's wall stops
   the request inside the browser and records what would have been sent: it
-  must be exactly the marker's five fields. The owner's view of `bookings` is
-  then read again and must be unchanged.
+  must be exactly the marker's five fields, and the gate the paid press uses
+  must say it would let that request out (*the booking gate*, below). The
+  owner's view of `bookings` is then read again and must be unchanged.
 - **The paid press** (spend yes) sends nothing unless every start reading is
   where the test was written to start and every send a booking could set off
   is approved (below). Then:
@@ -1915,11 +1918,15 @@ is pure; `scripts/canary-ui.mjs` drives the app and the booking tab;
     moves; the same tables are there. **Either way of closing passes.** The
     screen must start with a tick and name `bookings`; no more of its wording
     is required;
-  - **only then** does the tab submit the marker booking, once. Its wall lets
-    exactly that one request out; a second one would be stopped. The status,
-    the body and the page's own words are recorded, and the answer classified
-    as above (pass, fail, partial, inconclusive). A pass also needs the page
-    not to show a successful booking;
+  - **only then** does the tab submit the marker booking, once. Its wall
+    decides before anything leaves (*the booking gate*, below): only the
+    first request that is exactly the marker's five fields and values, with
+    no query string and no `prefer` or `authorization` header, goes out.
+    Anything else is stopped in the browser, recorded with its reason, and
+    reads inconclusive. The status, the body and the page's own words are
+    recorded, and the answer classified as above (pass, fail, partial,
+    inconclusive). A pass also needs the page not to show a successful
+    booking;
   - the owner's view again: every new row is named, as ours (every marker
     value) or somebody else's, and a row that went is named too. They are
     never offset against each other;
@@ -2067,6 +2074,126 @@ It is the way to test a rules change on a site people use. The owner has said
 not to build it or run it against an active site yet. The earlier plan (R0–R2
 on fold-lane-bakery) is in git: `git show
 4d385201:docs/investigations/edit-path-checklist.md`.
+
+#### The booking gate: decided before the request leaves (2026-09-27, `717bb5b2`; nothing approved or pressed)
+
+Owner, having reproduced it against the real helper with an injected browser:
+*"In bookInPage, the first POST to the booking endpoint is forwarded whenever
+submit=true. bookingBodyVerdict runs later, after the request has already
+left. … Run the existing bookingBodyVerdict inside the request interceptor
+before forwarding. Only the exact marker payload may leave. … Do not rewrite
+the submitted payload to make it pass."*
+
+- **The defect.** With the paid press on, the booking tab forwarded the first
+  POST to the bookings endpoint whatever it held, and its body was checked
+  afterwards, once it had reached the database. The owner's case: the form
+  held the marker's phone, the page's code sent another, and that request went
+  out. A row like that is also the one the cleanup cannot find, because the
+  cleanup looks for every marker value.
+- **The fix.** `bookingGate` (`scripts/canary-rules.mjs`, pure) runs inside
+  the interceptor, before the request is handed on, and wraps the existing
+  `bookingBodyVerdict`. The paid press lets a request out only when all of
+  these hold:
+  - it is the first booking request the tab has seen;
+  - its body is exactly the marker's five fields and values, in their types;
+  - its URL carries no query string;
+  - it carries no `prefer` and no `authorization` header.
+
+  Anything else is aborted in the browser, recorded with the gate's reason,
+  and never rewritten. The run then reads **inconclusive ("never sent")**:
+  nothing reached the database, so there is nothing to classify and nothing
+  to clean up.
+- **Why the query string and the two headers** (read in `worker.js`, not
+  driven live). The platform's data route passes the query string and
+  `content-type`, `authorization`, `accept`, `prefer` and `cookie` on to the
+  site's database API.
+  - `Prefer: return=representation` asks for the new row back. That needs a
+    read permission visitors do not have on `bookings`, so Postgres refuses
+    with the same "permission denied for table bookings" a closed table gives:
+    a false pass.
+  - An `authorization` header makes it a member's request, not a visitor's.
+  - A query string can change what the database API does with the write.
+
+  The live page sends none of them: its request is a plain JSON POST to
+  `/api/db/lido-axes-b/data/bookings`, read out of the live bundle and shown
+  passing the gate in a real browser (below). A case pins the proxy's list
+  of forwarded headers, so a new one is noticed.
+- **Service workers are blocked** in the booking tab. A request a service
+  worker makes for the page can go round the page's route handlers. The site
+  registers none today (no `serviceWorker` in the page or any of its seven
+  scripts); the block means the wall does not depend on that.
+- **The rehearsal** now also asks the gate: the request it stopped must be
+  one the paid press would let out. **The paid press** checks that the
+  request went out and was the exact one.
+- **What it costs.** A request the gate stops in the paid press is stopped
+  after the message has gone, so the rules change is already made and paid
+  for, and the run reads inconclusive. The rehearsal asks the same gate first,
+  so a page whose request would be stopped is found for free.
+
+**The evidence.**
+- **Cases**: `test/canary-rules.test.mjs` 31 → 33 (the gate over every shape,
+  and a census of the headers the data route passes on);
+  `test/canary-ui.test.mjs` 54 → 57:
+  - the owner's reproduction: the form holds the marker's phone and the page
+    sends `07700 900111`. The request is stopped, never reaches the service,
+    and no row, stamp, delete or cleanup follows; the run reads inconclusive;
+  - eleven altered requests, each stopped before it leaves: malformed JSON, no
+    body, a list, a changed value, a changed type, a missing field, an extra
+    field, a query string, a `prefer` header, an `authorization` header, and
+    headers that cannot be read;
+  - a stopped request that the page retries, even exactly: stopped too;
+  - the valid one-request control, the rehearsal and the second-request case,
+    updated to say what the gate decided.
+- **Red on the previous commit `7db03084`** (the pure gate appended so the
+  file loads): 7 of 90 fail. They are the rehearsal, the valid control, the
+  second-request case, the three rejection cases and the census. The
+  reproduction fails first on `sent: true` for the altered request. With its
+  first four assertions cut, it fails on "the request left the tab": the
+  booking carrying `07700 900111` reached the service stand-in.
+- **Probes** (`scripts/mutants/canary-rules.json`, G-1 to G-16, over seven
+  canary test files): 16 of 16 killed, 3 comment-only controls surviving, and
+  the probed files byte-identical afterwards. The spec holds 103 entries.
+- **A real Chromium against the live `/book` page**, locally: every GET was
+  fetched through a TLS-verified reader and every write answered in the page.
+  - The page's own request passed the gate and read as a pass on a 403
+    `42501` answered in the page ("That isn't available.").
+  - A page made to send another phone, to add `Prefer:
+    return=representation`, or to add `?on_conflict=id` was each stopped
+    before it left, read inconclusive, and the page said "Failed to fetch".
+  - 32 requests reached the network, all GETs to the site; no write did.
+- **The suite**: locally `8143 / 8141 / 0 / 2` (+5, exactly the new cases).
+  Unit CI run `36308781985` on `717bb5b2`: `8143 / 8139 / 0 / 4`
+  (`duration_ms` 114,210), 8,143 distinct result numbers with no gap, zero
+  `not ok`, and all five new cases passing by name. No `site build` fires:
+  none of the files is on its paths.
+
+**The free preparation checks (2026-09-27, 09:11–09:18Z).**
+- **The two free presses, tried once each from the session**: `grants
+  preview` (from `main`, `preview`, `lido-axes-b`) and the rehearsal (from the
+  branch, spend `no`). Both answered **403** and were not retried; they are
+  the owner's presses.
+- **Read-only, and each as recorded**:
+  - `main` is still `14df0225`;
+  - the balance is 56, and the newest ledger row is run 42's reserve
+    (06:04:40Z), so nothing has been spent since;
+  - `lido-axes-b`: notifications on, never fired, not offline. No queued edit
+    job has ever been filed for it (the table holds queued jobs only). No edit
+    job anywhere is running: the only two not `done`, `failed` or `cancelled`
+    are `lost` and refunded, from 2026-09-01 and 09-02;
+  - `/`, `/book` and `/menu` answer 200 on build `mt50cg7h-l19hre` with no
+    version header; the stylesheet is 209,105 bytes, `6f7ca4bc…`; the menu
+    read is 1,208 bytes, `f2b64cb26abe7c14`; a visitor's read of `bookings`
+    answers 403 `42501`;
+  - the Worker's gates answer 401 / 401 / 401 / 404. That shows it is up and
+    routing, and says nothing about which build answers.
+- **What only the owner's presses can read**: the deploy sha and image (the
+  preflight), the owner's view of `bookings` (count and rows), and the site's
+  secret names.
+- **A reading of mine that was wrong, and why.** My first stylesheet hash read
+  `484438e4…`. The command piped the download through `tee >(wc -c)`, and the
+  byte count went into the same pipe as the file, so the hash covered the
+  file plus the count. Downloaded to a file and read on its own, it is the
+  recorded 209,105 bytes, `6f7ca4bc…`.
 
 ## A section headed by the kit — fixed (2026-09-26), merged and deployed in deploy 2162
 
