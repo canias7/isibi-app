@@ -158,7 +158,7 @@ items are in *the rules rung — the recommended next test, revised*, after
 Test 4, and the built harness, its evidence and the exact presses are in *the
 rules test, built* at the end of that section.
 
-## Test 5 — a page removal and its restoration (prepared 2026-09-27; both free checks passed as runs 45 and 46; nothing paid yet)
+## Test 5 — a page removal and its restoration (prepared 2026-09-27; both free checks passed as runs 45 and 46; the paid press, run 47, stopped at its first message and changed nothing: a product finding, reproduced free, with a correction proposed)
 
 The owner: *"Prepare one bounded page-removal-and-restoration test using an
 existing suitable fixture and the existing workflow. Capture the saved version
@@ -382,6 +382,117 @@ different list.
   and with the controls above, which must differ. That is the recorded "a
   negative assertion must prove its observer is alive" trap, met in a one-off
   script.
+- **Press 3, the paid run, ran as run 47 and stopped at message 1**
+  (36357524151, the owner's, from the branch at `5bad91f2`,
+  23:05:43–23:09:25Z). It spent 3 credits on the two routing calls and changed
+  nothing on the site. The next section has the finding.
+- **Press 4, the restore, is not needed**: nothing published, so `8btpep` is
+  still live on every route.
+
+### Run 47: the menu message went to the wrong part of the editor
+
+- **Before anything was spent**, the run matched runs 45 and 46:
+  - the preflight read `14df0225be90` / `9038e90ab1d5d7fe`, both readers
+    agreeing;
+  - the source read was complete, every route was at `8btpep`, and all five
+    bodies equal the before column;
+  - the balance was 53.
+- **Message 1, "Take Gallery out of the menu."**
+  - The router answered `intent=edit layer=nav remove=true`, cost 2 (`6,771
+    in / 23 out`). That is what its own instructions say: the `remove` field
+    says, for layer `nav`, "true when a menu item … should GO", with "take
+    Pricing out of the menu" as its example.
+  - The app posted one edit at `nav` with `remove: true` (job `5b03bc99…`).
+    The wall let it through, because it is a menu edit.
+  - In the edit route, `nav` with `remove` opens the part-picker door
+    (`DOOR_LAYERS` is `picture` and `nav`). The stored trace shows the picker
+    answered `fields: ["behavior"]` after 83.9 seconds.
+  - **No lane describes the items in the menu.** `action` says "only that
+    button". The one lane whose description mentions a menu is `behavior`
+    ("what something on the page DOES when someone uses it — … a menu …").
+  - `behavior` is a look lane, so a look step ran it. Its model call answered
+    nothing (`answered: false`, 0 characters), and the route answered
+    `look/no-change`: 422, cost 0.
+  - **The menu rung never ran.** When the picker names any lane, the router's
+    own step is not added. It is put back only when the picker names nothing.
+  - The screen: "⚠️ I couldn't work out how to change the site's look that
+    way. Say which part — a colour, the fonts, a section — and what it should
+    look like. Nothing on your site changed, and this edit cost you nothing.
+    Reading your message cost 2 credits." Every clause is true of what
+    happened, but it answers a question about the look that the customer never
+    asked.
+  - The job is `failed` / `none` / 0 and unpublished; the message took 111
+    seconds.
+- **Message 2, "Remove the gallery page."**
+  - Routed `page page=/gallery remove=true`, cost 1 (7,168 cached / 113 fresh
+    tokens); job `462b1887…`.
+  - Refused `kept`, 422: "⚠️ I left /gallery — / still links to it. Ask me to
+    take the link out first. Nothing on your site changed, and this edit cost
+    you nothing. Reading your message cost 1 credit."
+  - That is the refusal the outcome list predicted when message 1 leaves the
+    link, and it is the link rule's first live answer; it had only been
+    rehearsed.
+- **Nothing changed**:
+  - no version was published, and the chain reads VERIFIED at `8btpep`;
+  - the stored bodies before and after are byte-identical to the before column
+    (full sha256; the two after columns differ, as the controls must);
+  - the route pages are identical once render times are masked;
+  - read live at 23:09Z, every route answered 200 at `8btpep`, `/gallery`
+    included.
+- **Money: 53 → 50 = routing 2 + 1.** Both edits are `billing: none`, cost 0.
+  There is no ledger row newer than run 44's reserve (id 332), because a
+  routing charge writes none. Nothing is running.
+- The two console errors are the browser's own "Failed to load resource … 422"
+  for the two refusals' final polls. There were 0 page errors and nothing was
+  blocked.
+- **Reproduced free, exactly.** A scratch test drove the real `POST
+  /api/site/<slug>/edit` on the bakery's stored pages, on both money paths,
+  with every answer supplied:
+  - `{layer: nav, remove: true}`, with the picker answering `behavior` and the
+    lane answering nothing, gives the same 422;
+  - through the browser's own composer it gives the same screen, word for word;
+  - the models called are `pick_lanes` and `edit_site`, never `write_nav`, and
+    nothing compiles.
+- **The controls** (same test):
+  - the picker naming nothing: the menu rung runs and the menu changes, for 3
+    credits;
+  - the picker naming `action`: the same;
+  - `nav` without `remove`: the menu rung runs directly, for 2 credits.
+- **⚠ The rehearsal supplied the wrong router answer, and that is the
+  session's miss.** Test 5's free rehearsal posted this message as
+  `{layer: "nav"}` without `remove`, although the router's instructions set
+  `remove: true` for exactly this wording. So the rehearsal proved a path the
+  live run never took. A supplied router answer has to be the one the router
+  is told to give for that wording.
+- **What it establishes**:
+  - the router routes this sentence as instructed;
+  - a menu-item removal meets the part-picker door, which has no lane for menu
+    items;
+  - when the picker names an unrelated lane, the menu rung never runs;
+  - the page removal's link rule refuses live.
+
+  It does not establish a page removal, the redirect or the restore; none of
+  them ran.
+- **The proposed correction, for the owner's approval (not built).**
+  - **The rule**: when the router opened the door for its own removal (`nav`
+    or `picture`), the picker may only choose lanes that lead back to that
+    rung: `action` for the menu, `images` for pictures. Anything else it names
+    is dropped before anything acts on it. With nothing left, the router's own
+    step runs, as it already does when the picker names nothing.
+  - **Its size**: one condition in `worker.js` and no prompt change.
+  - **What it leaves alone**: nothing changes for removals the router sends to
+    `look`, or for menu edits that are not removals.
+  - **Its cost**: the picker call is still made and billed, about 1 credit.
+  - **Tests**: the reproduction flipped, plus cases for the picker naming
+    `pages`, `css` or `behavior` on both doors, on both money paths, each red
+    on the unfixed code.
+  - **Then**: `worker.js` is an image input, so a merge rolls the container.
+    The free press confirms the deploy, then Test 5's paid press runs again,
+    unchanged, for about 4–6 credits.
+- **The bigger alternative**: take `nav` and `picture` off the door. That also
+  saves the picker call, but it leaves the router's `remove` flag on those two
+  layers read by nothing, so the router's instructions would have to change as
+  well.
 
 ### What it will not establish
 

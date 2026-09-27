@@ -195,7 +195,17 @@ real edit route, 8 of 8. The recovery is the existing restore mode, free, to
 `01790468089054-8btpep`. Cost about 3–5 credits (*Test 5*, below).
 **Both free checks passed** (runs 45 and 46, 22:25Z and 22:45Z): the restore
 target is listed and restorable, the before-read equals the recorded bodies,
-and the rehearsal typed message 1 and sent nothing. The paid press is next.
+and the rehearsal typed message 1 and sent nothing. **The paid press ran as run
+47 (23:05–23:09Z) and stopped at message 1, changing nothing.**
+- The router answered `nav` with `remove`, which sends a menu removal through
+  the part-picker door.
+- The picker named `behavior`, because no lane describes the menu's items.
+  That lane answered nothing, and the menu rung never ran.
+- Message 2 was then refused by the link rule, as designed.
+
+It cost 2 + 1 = 3 credits for routing, and the balance is 50. It is reproduced
+free, word for word, and a correction is proposed for the owner's approval
+(*Test 5*, below).
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -10532,7 +10542,7 @@ after it hold the test and the proposal. What is law here:
   uploaded `if: always()`. So D2's artifact must equal step 0's, a free check
   that nothing moved the grants between the two presses.
 
-### TEST 5: A PAGE REMOVAL AND ITS RESTORATION, PREPARED, AND BOTH FREE CHECKS PASSED (2026-09-27; nothing paid yet)
+### TEST 5: A PAGE REMOVAL AND ITS RESTORATION, PREPARED, BOTH FREE CHECKS PASSED, AND THE PAID PRESS (RUN 47) STOPPED AT ITS FIRST MESSAGE (2026-09-27)
 
 Owner: *"Prepare one bounded page-removal-and-restoration test using an
 existing suitable fixture and the existing workflow … First reconcile this
@@ -10624,7 +10634,8 @@ The full plan, the expected bodies and the presses are the checklist's
     (three GETs, nothing blocked), typed message 1 and did not send it. 0
     errors, and the balance 53 → 53.
   - Both runs' confirmation jobs are `failed`/`none`/0, and the ledger has
-    nothing newer than run 44's reserve. **The paid press is next.**
+    nothing newer than run 44's reserve. The paid press followed as run 47
+    (below).
 - **⚠ AND THE SESSION'S FIRST BODY COMPARISON WAS VACUOUS (2026-09-27).** It
   read `sha` where the record stores `sha256`, so every file compared
   `''` with `''` and read identical. It was caught and redone with the full
@@ -10633,6 +10644,55 @@ The full plan, the expected bodies and the presses are the checklist's
   characters, before comparing.**
 - **COST, AN ESTIMATE AND NOT A CAP**: routing 1–2 per message, the menu about
   1, the removal 0 — about 3–5 credits. Balance 53.
+- **RUN 47, THE PAID PRESS, STOPPED AT MESSAGE 1 AND CHANGED NOTHING**
+  (36357524151, the owner's, from the branch at `5bad91f2`,
+  23:05:43–23:09:25Z; routing 2 + 1, balance 53 → 50, no ledger row, both
+  edits `billing: none`).
+  - **THE ROUTER DID WHAT ITS INSTRUCTIONS SAY.** "Take Gallery out of the
+    menu." → `intent=edit layer=nav remove=true`. The `remove` field's own
+    `nav` example is "take Pricing out of the menu".
+  - **A ROUTER-OPENED REMOVAL CAN BE SENT ELSEWHERE BY THE PICKER.** `nav`
+    with `remove` opens the part-picker door (`DOOR_LAYERS` is
+    `["picture","nav"]`).
+    - The picker answered `fields: ["behavior"]` after 83.9 s (the stored
+      trace). **No lane describes the menu's items**: `action` is "only that
+      button", and `behavior`'s hint is the only one that says "a menu".
+    - A look step ran `behavior`, whose call answered nothing (`answered:
+      false`), and the route answered `look/no-change`: 422, cost 0.
+    - **The router's own step is added back only when the picker names
+      NOTHING**, so the menu rung never ran.
+    - The code comment's premise, *"a `remove` flag set on a message that is
+      not one names nothing"*, is false live: a real picker named something
+      unrelated.
+  - **Message 2 was refused `kept`** ("I left /gallery — / still links to
+    it"), the link rule's first live answer. Nothing published. The stored
+    bodies before and after equal the before column by full sha256, and every
+    route still serves `8btpep`, so **the restore (press 4) is not needed**.
+  - **REPRODUCED FREE, EXACTLY.** A scratch test drove the real edit route on
+    the bakery's stored pages, on both money paths, with every answer
+    supplied:
+    - the same 422, and the same screen word for word through the browser's
+      own composer;
+    - `pick_lanes` and `edit_site` called, never `write_nav`.
+
+    **Controls**: the picker naming nothing, or `action`, → the menu rung runs
+    (3 credits); `nav` without `remove` → the menu rung directly (2).
+  - **⚠ THE REHEARSAL SUPPLIED A ROUTER ANSWER THE ROUTER IS NOT TOLD TO
+    GIVE**: it posted this message as `{layer: "nav"}` without `remove`. See
+    the trap under *Fixtures and instruments*.
+  - **THE CORRECTION PROPOSED, NOT BUILT (owner's approval)**:
+    - on a door the router opened for its own removal, keep only the picked
+      lanes whose `laneLayer` is the router's layer (`action` for `nav`,
+      `images` for `picture`), dropped BEFORE the removal refusals and the
+      walls read them;
+    - with none left, the existing fall-through runs the router's step;
+    - one condition in `worker.js`, no prompt change, and `look` removals
+      untouched;
+    - the picker call is still made and billed.
+
+    The bigger alternative, taking `nav` and `picture` off the door, leaves
+    their `remove` flag read by nothing and so changes the router's
+    instructions.
 
 ### A SECTION HEADED BY THE KIT (2026-09-26, `2f2fed58` + `5ec82214`, merged and deployed in deploy 2162)
 
@@ -13317,6 +13377,10 @@ row at 06:13:03Z.
 3**, routing 2 + the rules rung's 1, closing exactly; the ledger holds one
 reserve of 1 and no refund; a rules edit publishes nothing), read on the
 balance row at 17:52:51Z.
+**Balance 50** at run 47's end (2026-09-27, Test 5's paid press: **53 → 50,
+moved 3**, the two routing calls 2 + 1; both edits `billing: none` and
+unpublished, so no ledger row; the newest is still run 44's reserve), read on
+the balance row at 23:15Z.
 **Between run 31 and
 run 32 the balance rose from 1 to 101** (read on the ledger at 18:09Z and by the
 canary before its paid call). **Only the readings are recorded; how it rose is
@@ -13861,6 +13925,18 @@ rule and the measurement.
   `/\d{7}/` against `"07700 900000"` — the format the contract it was proving
   says is accepted — found **no run of seven consecutive digits** and dropped the
   message, reporting a working feature as broken.
+- **A SUPPLIED ROUTER ANSWER MUST BE THE ONE THE ROUTER IS TOLD TO GIVE
+  (2026-09-27, Test 5, cost a paid run).**
+  - The free rehearsal posted "Take Gallery out of the menu." as
+    `{layer: "nav"}`.
+  - The router's own `remove` description sets the flag for `nav` with "take
+    Pricing out of the menu" as its example, so the live answer carried
+    `remove: true`.
+  - That flag opens the part-picker door, a path the rehearsal never took, and
+    run 47 failed on it.
+
+  **Read the router tool's description for the exact wording before supplying
+  its answer.** A rehearsal is only as good as its least-examined fixture.
 - **A FIXTURE THAT NAMES A THING THE PRODUCT DOES NOT HAVE PASSES UNTIL THE
   PRODUCT STARTS CHECKING.** Two guards used the kit component `form-shell`,
   which sounds exactly like one of the 2,112 and is not one; both went red the
