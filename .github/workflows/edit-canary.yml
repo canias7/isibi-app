@@ -83,7 +83,24 @@ on:
         # puts the one field back through the owner route with no model call —
         # only while it reads the value the message set. 4b-d1-restore is that
         # put-back alone, for a run that could not finish it: no app, no message.
-        description: 'RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: 4a-part-b, 4b-d1-price (the focaccia price through the real app, then put back), or 4b-d1-restore (the put-back alone). Acts only with spend=yes; otherwise it reads and stops before sending or writing.'
+        #
+        # THE RULES TEST (4b-rules-close, on lido-axes-b) sends one message that
+        # should close the site's bookings, then submits ONE real visitor
+        # booking through the site's own /book form, which must be refused. The
+        # rehearsal presses "Book a table" in a tab whose wall stops the request,
+        # so it sends nothing. See the approvals box below.
+        description: 'RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: 4a-part-b, 4b-d1-price (the focaccia price through the real app, then put back), 4b-d1-restore (the put-back alone), or 4b-rules-close (close the bookings on lido-axes-b, then one real booking that must be refused). Acts only with spend=yes; otherwise it reads and stops before sending or writing.'
+        required: false
+        default: ''
+      rules_allow:
+        # THE RULES TEST'S APPROVALS, and only its: a filled box beside any
+        # other run refuses. Words, comma or space separated: `cleanup` lets
+        # the run delete its OWN test booking if the booking goes in anyway (the
+        # rule failed) — that one row, found by every value it sent; `email`,
+        # `text` and `webhook` accept what such a booking could send, if the
+        # site's secrets make it possible. The paid press refuses while any
+        # possible send is unapproved. Any other word refuses the whole run.
+        description: 'Rules test only (4b-rules-close): what you approve if its test booking goes in anyway. Any of: cleanup, email, text, webhook. Blank approves nothing.'
         required: false
         default: ''
       site:
@@ -202,6 +219,10 @@ jobs:
           # known scenario, names one written for another site, or arrives beside
           # a version to put back.
           CANARY_UI: ${{ github.event.inputs.ui_scenario }}
+          # THE RULES TEST'S APPROVALS. Read whole by the script before it signs
+          # in; a word it does not know, or a filled box beside any other run,
+          # refuses.
+          CANARY_ALLOW: ${{ github.event.inputs.rules_allow }}
           CANARY_INSTRUCTION: ${{ github.event.inputs.instruction }}
           EXPECT_DEPLOY: ${{ github.event.inputs.expect_deploy }}
           EXPECT_IMAGE: ${{ github.event.inputs.expect_image }}

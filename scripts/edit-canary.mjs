@@ -50,6 +50,13 @@ import { readUiScenario, runUi, describeUi, chainVerdict } from "./canary-ui.mjs
 import { requestVerdict, storedReplyVerdict, moneyVerdict, unpublishedVerdict, routeCostsOf } from "./canary-ui.mjs";
 import { OWNER_ROWS_LIMIT } from "./canary-rows.mjs";
 import { publishedVersion } from "./canary-watch.mjs";
+// AND THE RULES TEST'S (lido-axes-b): its approvals, its readers' verdicts, and
+// what "nothing published" means on a site with no version header — each
+// decided in the module, where tests drive it.
+import {
+  readAllow, runIdOf, NEWEST_ROWS, readSurface, surfaceSame, sourceSame, legacyUnpublishedVerdict,
+  bookingBodyVerdict, EVIDENCE_BOUNDARY, rulesRecordable,
+} from "./canary-rules.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://ujrqdmmtcptvimazlhom.supabase.co";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || "";
@@ -111,6 +118,23 @@ if (UI_ASK && RESTORE_ASK) {
   console.error("REFUSING: a version to put back and a UI scenario are two different runs — name one of them");
   process.exit(2);
 }
+// THE RULES TEST'S APPROVALS, from their own box: `cleanup`, and the send
+// channels the owner accepts if the test booking goes in anyway. Read whole
+// before the sign-in — a word that is not one of those refuses rather than
+// being guessed at — and only for the rules scenario: approvals beside any
+// other run are a box filled in for a different press.
+const ALLOW_RAW = String(process.env.CANARY_ALLOW || "").trim();
+const ALLOW = readAllow(ALLOW_RAW);
+if (!ALLOW.ok) {
+  console.error(`REFUSING THE APPROVALS: ${ALLOW.msg}`);
+  process.exit(2);
+}
+if (ALLOW_RAW && !(UI_ASK && UI_ASK.scenario.rules)) {
+  console.error("REFUSING: the approvals box is for the rules scenario only, and this run names no rules scenario");
+  process.exit(2);
+}
+// THIS RUN'S OWN ID, which goes into the rules test's marker booking's name.
+const RUN_ID = runIdOf(process.env);
 
 const svc = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, "content-type": "application/json" };
 const gl = await fetch(`${SUPABASE_URL}/auth/v1/admin/generate_link`, {
@@ -472,8 +496,10 @@ async function inventory(label, expect = "") {
     const readPage = async () => {
       try {
         const x = await fetch(origin + r);
-        return { version: String(x.headers.get("x-site-version") || ""), html: await x.text() };
-      } catch { return { version: "", html: "" }; }
+        // A SITE ON THE OLDER LAYOUT carries no version header, and its build
+        // header is the one that says which build served the page.
+        return { version: String(x.headers.get("x-site-version") || ""), build: String(x.headers.get("x-site-build") || ""), html: await x.text() };
+      } catch { return { version: "", build: "", html: "" }; }
     };
     let got;
     if (expect) {
@@ -485,7 +511,7 @@ async function inventory(label, expect = "") {
     const html = got.html || "";
     const file = (r === "/" ? "_home" : r.replace(/[^a-z0-9]+/gi, "_"));
     writeFileSync(`${EVID}/${label}/route${file}.html`, html);
-    render[r] = { bytes: html.length, version: got.version, reads: got.reads, photos: onPagePhotos(html, CANARY), headings: headingOrder(html), words: proseBag(html).length };
+    render[r] = { bytes: html.length, version: got.version, build: got.build || "", reads: got.reads, photos: onPagePhotos(html, CANARY), headings: headingOrder(html), words: proseBag(html).length };
   }
 
   const inv = {
@@ -500,9 +526,12 @@ async function inventory(label, expect = "") {
   };
   // THE BODIES TOO, because "complete before-inventory" means the source a
   // comparison can be made against, not a table of sizes.
-  writeFileSync(`${EVID}/${label}/source.json`, JSON.stringify({ pages: sb.pages || [], parts: sb.parts || [] }, null, 2));
+  const source = { pages: sb.pages || [], parts: sb.parts || [] };
+  writeFileSync(`${EVID}/${label}/source.json`, JSON.stringify(source, null, 2));
   writeFileSync(`${EVID}/${label}/inventory.json`, JSON.stringify(inv, null, 2));
-  return inv;
+  // The bodies ride along in memory, not in inventory.json: a run that must
+  // publish nothing compares them before and after, file by file.
+  return { ...inv, source };
 }
 
 console.log(`INVENTORY — before (written to ${EVID}/before)\n`);
@@ -511,7 +540,7 @@ console.log(`  source ${BEFORE.status}  reads=${JSON.stringify(BEFORE.reads)}  c
 console.log(`  pages  ${BEFORE.pages.map((p) => `${p.path}(${p.bytes}b)`).join(" ") || "(none)"}`);
 console.log(`  parts  ${BEFORE.parts.map((p) => `${p.path}(${p.bytes}b)`).join(" ") || "(NONE — component coverage is outstanding for this run)"}`);
 for (const [r, v] of Object.entries(BEFORE.render)) {
-  console.log(`  ${r.padEnd(14)} ${String(v.bytes).padStart(6)}b  version=${v.version || "(unreadable)"}  photos=${v.photos.length}  headings: ${v.headings.join(" | ")}`);
+  console.log(`  ${r.padEnd(14)} ${String(v.bytes).padStart(6)}b  version=${v.version || (v.build ? "(none; build " + v.build + ")" : "(unreadable)")}  photos=${v.photos.length}  headings: ${v.headings.join(" | ")}`);
 }
 check("the source read is complete (reads all true)", BEFORE.readsComplete === true, JSON.stringify(BEFORE.reads));
 
@@ -557,6 +586,16 @@ if (RESTORE_ASK) {
 // the first Send, having shown that the app opens signed in and the file
 // attaches.
 if (UI_ASK) {
+  // THE RULES TEST NEEDS THE APP'S PAGE LIST TOO: on a site that has pages the
+  // app will not route a message without it, so a run that cannot read it
+  // stops here, before the browser, rather than reading as a test of the rules
+  // rung. The browser's own filter reads it; a GET, and nothing else.
+  const RULES = UI_ASK.scenario.rules || null;
+  if (RULES) {
+    const rr = await call("GET", `/api/site/routes?slug=${encodeURIComponent(CANARY)}`);
+    const pl = readRoutes(rr.status, rr.json);
+    check("the app can read the site's page list (without one it stops before routing a message)", pl.ok, pl.ok ? pl.pages.join(" ") : pl.why);
+  }
   if (failed) {
     console.log("REFUSING TO OPEN THE APP: a free check failed, so the platform is not the one this run expected.");
     process.exit(1);
@@ -577,9 +616,41 @@ if (UI_ASK) {
     },
     patch: (id, body) => call("PATCH", `/api/site/${encodeURIComponent(CANARY)}/rows/${encodeURIComponent(ROW.table)}/${id}`, { body }),
   } : null;
+  // THE RULES TEST'S READERS, AND ITS ONE WRITE. The owner's table listing and
+  // the newest rows of the booking table (the exact count and the newest ids),
+  // the owner's secrets list (NAMES are all that is kept — `readSecretNames`),
+  // the platform's notification record for the site (two columns, nothing
+  // secret), a visitor's reads of the menu and of the booking table, and the
+  // site's surface — every page on its build, and its stylesheet byte for byte.
+  // The DELETE is the exact cleanup's, made only for this run's own row.
+  const visitorText = async (path) => {
+    try {
+      const r = await fetch(`${BEFORE.origin}${path}`, { headers: { "cache-control": "no-cache" } });
+      return { status: r.status, text: Buffer.from(await r.arrayBuffer()).toString("utf8") };
+    } catch (e) { return { status: 0, why: String((e && e.message) || e) }; }
+  };
+  const rulesIo = RULES ? {
+    tables: () => call("GET", `/api/site/${encodeURIComponent(CANARY)}/rows`),
+    newest: () => call("GET", `/api/site/${encodeURIComponent(CANARY)}/rows/${encodeURIComponent(RULES.table)}?order=id&dir=desc&limit=${NEWEST_ROWS}`),
+    secrets: () => call("GET", `/api/site/${encodeURIComponent(CANARY)}/secrets`),
+    stamp: async () => {
+      const r = await fetch(`${SUPABASE_URL}/rest/v1/site_backends?slug=eq.${encodeURIComponent(CANARY)}&select=notify,notified_at`, { headers: svc });
+      return { status: r.status, rows: await r.json().catch(() => null) };
+    },
+    menu: () => visitorText(`/api/db/${encodeURIComponent(CANARY)}/data/${encodeURIComponent(RULES.record.menu.table)}?${RULES.record.menu.query}`),
+    bookingsRead: () => visitorText(`/api/db/${encodeURIComponent(CANARY)}/data/${encodeURIComponent(RULES.table)}?select=*`),
+    surface: () => readSurface({
+      origin: BEFORE.origin, routes: RULES.record.routes,
+      get: async (url) => {
+        const r = await fetch(url, { headers: { "cache-control": "no-cache" } });
+        return { status: r.status, headers: r.headers, bytes: Buffer.from(await r.arrayBuffer()) };
+      },
+    }),
+    del: (id) => call("DELETE", `/api/site/${encodeURIComponent(CANARY)}/rows/${encodeURIComponent(RULES.table)}/${id}`),
+  } : null;
   // D1's RECOVERY ON ITS OWN: a row scenario with no messages opens no app.
   const recoverOnly = !!ROW && !UI_ASK.scenario.steps.length;
-  const ui = await runUi({ base: BASE, session, slug: CANARY, scenario: UI_ASK.scenario, spend: SPEND, balanceNow, evid: EVID, rows: rowReaders, siteOrigin: BEFORE.origin });
+  const ui = await runUi({ base: BASE, session, slug: CANARY, scenario: UI_ASK.scenario, spend: SPEND, balanceNow, evid: EVID, rows: rowReaders, siteOrigin: BEFORE.origin, rules: rulesIo, allow: ALLOW, runId: RUN_ID });
   const told = describeUi(ui);
   console.log("\n" + told + "\n");
   if (!recoverOnly) {
@@ -660,8 +731,76 @@ if (UI_ASK) {
       }
     }
   }
+  // ── THE RULES TEST: WHERE IT STARTED, WHAT CLOSED, WHAT A BOOKING GOT ────
+  // Either supported way of closing is accepted: the verdict reads what the
+  // job's stored reply says it changed, what the owner's listing shows, and
+  // what a real booking gets back — never one implementation's wording.
+  if (RULES) {
+    const R = ui.rules || {};
+    const b0 = R.before || {};
+    if (R.start) {
+      for (const c of R.start.checks) check(`the rules test starts where it was written to — ${c.name}`, c.ok, c.why);
+    } else {
+      check("the rules test's starting point was read", false, ui.stopped ? ui.stopped.msg : "not read");
+    }
+    // ONE BRANCH EACH WAY, spelled like the ones above and never like the
+    // spend gate below: that line is the landmark every guard finds it by.
+    if (SPEND) {
+      const s = ui.steps[0] || {};
+      const rq = requestVerdict(s, UI_ASK.scenario);
+      check(`the message left word for word, was routed to the ${UI_ASK.scenario.layers.join("/")} layer, and went out as one edit there`, rq.ok, JSON.stringify(rq));
+      check(`the reply on screen is a success that names ${RULES.table}`, /^✅/.test(s.reply || "") && String(s.reply || "").includes(RULES.table), JSON.stringify(s.reply || ""));
+      const cl = R.closing || null;
+      check(`the job's stored reply closed ${RULES.table} by a supported way and changed nothing else, and the owner's listing agrees`, !!(cl && cl.ok),
+        cl ? (cl.ok ? `by ${cl.method} (fields ${cl.fields.join(", ")}; ${cl.access.before} -> ${cl.access.after})${cl.refused.length ? `; refused beside it: ${JSON.stringify(cl.refused)}` : ""}` : cl.why)
+          : (R.booking && R.booking.skipped) || "not decided");
+      const bk = R.booking || {};
+      const post = Array.isArray(bk.posts) ? bk.posts[0] : null;
+      check("one visitor booking went out through the site's own form, exactly once", !!(bk.pressed && bk.posts.length === 1 && post && post.sent === true),
+        bk.skipped || bk.why || `${Array.isArray(bk.posts) ? bk.posts.length : 0} booking request(s)`);
+      const body = post ? bookingBodyVerdict(post.body, R.marker) : { ok: false, why: "no booking request was made" };
+      check("the booking sent exactly the marker booking's five fields", body.ok, body.why);
+      const v = R.bookingVerdict || { verdict: "none", why: bk.skipped || "no booking was submitted" };
+      check(`the booking was refused at the privilege check: 403, 42501, "permission denied for table ${RULES.table}"`, v.verdict === "pass", `${String(v.verdict).toUpperCase()}: ${v.why}`);
+      check("the page did not say the table was booked", !!(bk.message && bk.message.success === false),
+        bk.message ? `the page said ${JSON.stringify(bk.message.toasts)}` : "the page's own words were not read");
+      const ins = R.insertion || null;
+      check(`no row was added to ${RULES.table}: the count and the newest ids as before, and no row carries the marker`, !!(ins && ins.ok), ins ? ins.why : "the owner's view was not read afterwards");
+      if (R.cleanup) {
+        const x = R.cleanup;
+        check("the test's own booking was deleted, that row alone, and the table is back to its count", !!(x.verified && x.verified.ok),
+          x.skipped || (x.recheck && !x.recheck.ok ? x.recheck.why : "") || (x.deleted && !x.deleted.ok ? x.deleted.why : "") || (x.verified ? x.verified.why : x.plan.why));
+      }
+      const a0 = R.after || {};
+      check("the notification stamp did not move", !!(a0.stamp && a0.stamp.ok && b0.stamp && b0.stamp.ok && a0.stamp.notifiedAt === b0.stamp.notifiedAt),
+        `before ${b0.stamp && b0.stamp.ok ? b0.stamp.notifiedAt || "never" : "UNREADABLE"}, after ${a0.stamp && a0.stamp.ok ? a0.stamp.notifiedAt || "never" : "UNREADABLE"}`);
+      check("a visitor's read of the menu is byte for byte what it was", !!(a0.menu && b0.menu && a0.menu.status === 200 && a0.menu.bytes === b0.menu.bytes && a0.menu.sha256 === b0.menu.sha256),
+        a0.menu && b0.menu ? `${b0.menu.status} ${b0.menu.bytes} b -> ${a0.menu.status} ${a0.menu.bytes} b` : "not read");
+      const rr = RULES.record.bookingsRead;
+      check(`a visitor's read of ${RULES.table} is still refused as it was`, !!(a0.bookingsRead && a0.bookingsRead.status === rr.status && a0.bookingsRead.code === rr.code && a0.bookingsRead.message === rr.message),
+        a0.bookingsRead ? `${a0.bookingsRead.status} ${a0.bookingsRead.code} "${a0.bookingsRead.message}"` : "not read");
+    } else {
+      const d = R.dry || {};
+      const post = Array.isArray(d.posts) ? d.posts[0] : null;
+      check("the rehearsal filled the site's own booking form and pressed once, and the request was stopped in the browser",
+        !!(d.pressed && d.posts.length === 1 && post && post.sent === false && !d.response), d.why || `${Array.isArray(d.posts) ? d.posts.length : 0} booking request(s)${d.response ? ", and an answer arrived" : ""}`);
+      const body = post ? bookingBodyVerdict(post.body, R.marker) : { ok: false, why: "no booking request was made" };
+      check("what it would have sent is exactly the marker booking's five fields", body.ok, body.why);
+      check("the booking page made no other write", !!(Array.isArray(d.aborted) && !d.aborted.length), (d.aborted || []).join("; ") || "not read");
+      const da = R.dryAfter || null;
+      const same = !!(da && da.ok && b0.census && b0.census.ok && da.count === b0.census.count && JSON.stringify(da.ids) === JSON.stringify(b0.census.ids));
+      check(`the rehearsal left ${RULES.table} as it was`, same, da ? (da.ok ? `${b0.census && b0.census.ok ? b0.census.count : "?"} -> ${da.count} rows` : da.why) : "not read");
+    }
+    console.log(`\n  ${EVIDENCE_BOUNDARY}`);
+  }
   let chain = null;
   if (SPEND && ui.sent) {
+    // THE OLDER LAYOUT (a site published before the versioned builds) serves no
+    // version header, so there is no version to wait for and no chain to walk:
+    // "nothing published" is read off the build header, the pages, the
+    // stylesheet and the stored source instead, beside the version list and
+    // the job's own row.
+    const legacy = UI_ASK.scenario.layout === "legacy";
     // THE CHAIN OF PUBLISHES, read off the site's own version list by each
     // job's id, and the after-read taken at the last one — the wait and the
     // inventory the one-edit path uses, applied to however many published.
@@ -676,22 +815,32 @@ if (UI_ASK) {
       const pv = publishedVersion(list, f.job);
       if (pv.ok) published.push({ n: f.n, job: f.job, id: pv.id, parent: pv.parent });
     }
-    const target = published.length ? published[published.length - 1].id : beforeV;
-    const readHome = async () => {
-      try {
-        const r = await fetch(`${BEFORE.origin}/?after-check=${Date.now()}`, { headers: { "cache-control": "no-cache" } });
-        return { version: String(r.headers.get("x-site-version") || "") };
-      } catch { return { version: "" }; }
-    };
-    const wait = target ? await awaitVersion({ read: readHome, expect: target }) : { kind: "no-target", reads: 0, seen: "" };
-    console.log(`INVENTORY — after (written to ${EVID}/after)\n`);
-    const after = await inventory("after", wait.kind === "match" ? target : "");
-    for (const [r, v] of Object.entries(after.render)) {
-      console.log(`  ${r.padEnd(14)} version=${v.version || "(unreadable)"}  photos=${v.photos.length}  headings: ${v.headings.join(" | ")}`);
+    let after = null;
+    if (legacy) {
+      console.log(`INVENTORY — after (written to ${EVID}/after)\n`);
+      after = await inventory("after");
+      for (const [r, v] of Object.entries(after.render)) {
+        console.log(`  ${r.padEnd(14)} version=${v.version || (v.build ? "(none; build " + v.build + ")" : "(unreadable)")}  photos=${v.photos.length}  headings: ${v.headings.join(" | ")}`);
+      }
+      console.log(`\n  versions   ${list ? list.status : "not read"}; publishes ${published.map((p) => `${p.n}: ${p.id}`).join("; ") || "none"}`);
+    } else {
+      const target = published.length ? published[published.length - 1].id : beforeV;
+      const readHome = async () => {
+        try {
+          const r = await fetch(`${BEFORE.origin}/?after-check=${Date.now()}`, { headers: { "cache-control": "no-cache" } });
+          return { version: String(r.headers.get("x-site-version") || "") };
+        } catch { return { version: "" }; }
+      };
+      const wait = target ? await awaitVersion({ read: readHome, expect: target }) : { kind: "no-target", reads: 0, seen: "" };
+      console.log(`INVENTORY — after (written to ${EVID}/after)\n`);
+      after = await inventory("after", wait.kind === "match" ? target : "");
+      for (const [r, v] of Object.entries(after.render)) {
+        console.log(`  ${r.padEnd(14)} version=${v.version || "(unreadable)"}  photos=${v.photos.length}  headings: ${v.headings.join(" | ")}`);
+      }
+      chain = chainVerdict({ before: beforeV, published, wait, after: after.render });
+      console.log(`\n  publishes  ${published.map((p) => `${p.n}: ${p.id} (from ${p.parent || "-"})`).join("; ") || "none"}`);
+      console.log(`  chain      ${chain.verified ? "VERIFIED" : "UNVERIFIED (" + chain.why + ")"} — before ${beforeV || "?"}, after-read at ${chain.target || "?"}`);
     }
-    chain = chainVerdict({ before: beforeV, published, wait, after: after.render });
-    console.log(`\n  publishes  ${published.map((p) => `${p.n}: ${p.id} (from ${p.parent || "-"})`).join("; ") || "none"}`);
-    console.log(`  chain      ${chain.verified ? "VERIFIED" : "UNVERIFIED (" + chain.why + ")"} — before ${beforeV || "?"}, after-read at ${chain.target || "?"}`);
     // THE MONEY, PER JOB, from its own row and the ledger: the read mode's
     // reader, asked once for each job this scenario filed.
     const jobRecords = [];
@@ -717,14 +866,28 @@ if (UI_ASK) {
     // the ledger both say it took.
     if (UI_ASK.scenario.publishes === 0) {
       check("the message filed exactly one job", jobs.length === 1, jobs.join(", ") || "none");
-      const up = unpublishedVerdict({ published, jobs: jobRecords, chain });
-      check("no page was published: no version names the job, its row says no publish began, and every page is still the before version", up.ok, up.why);
+      if (legacy) {
+        // THE READERS, EACH ITS OWN: the version list, the job's row, every
+        // page on the same build and the same once render times are masked,
+        // the stylesheet byte for byte, and every stored page and component.
+        check("the site's version list was read", !!(list && list.status === 200), list ? String(list.status) : "not read");
+        const R = ui.rules || {};
+        const surface = surfaceSame(R.before && R.before.surface, R.after && R.after.surface);
+        const source = sourceSame(BEFORE.source, after && after.source);
+        const up = legacyUnpublishedVerdict({ published, jobs: jobRecords, surface, source });
+        check("nothing was published: no version names the job, its row says no publish began, every page is on the same build and the same, the stylesheet and the stored source are byte for byte what they were", up.ok, up.why);
+      } else {
+        const up = unpublishedVerdict({ published, jobs: jobRecords, chain });
+        check("no page was published: no version names the job, its row says no publish began, and every page is still the before version", up.ok, up.why);
+      }
       const money = moneyVerdict({ start: ui.balance.start, end: ui.balance.end, routeCosts: routeCostsOf(ui.steps), jobs: jobRecords });
       check(`the money closes: routing ${money.routing ?? "?"} + edit ${money.edits ?? "?"} = the balance's move of ${money.spent ?? "?"}`, money.ok, money.why || `${ui.balance.start} -> ${ui.balance.end}`);
     }
   }
   mkdirSync(EVID, { recursive: true });
-  writeFileSync(`${EVID}/ui.json`, JSON.stringify({ scenario: UI_ASK.name, spend: SPEND, ui, chain }, null, 2));
+  // THE RULES RECORD IS WRITTEN WITH ROW IDS AND NEVER ROW CONTENTS: a
+  // booking table's rows are its visitors' names and numbers.
+  writeFileSync(`${EVID}/ui.json`, JSON.stringify({ scenario: UI_ASK.name, spend: SPEND, ui: ui.rules ? { ...ui, rules: rulesRecordable(ui.rules) } : ui, chain }, null, 2));
   writeFileSync(`${EVID}/ui.txt`, told + (chain ? `\n  chain ${chain.verified ? "VERIFIED" : "UNVERIFIED (" + chain.why + ")"}\n` : "\n"));
   console.log(`\n${failed ? "UI MODE FAILED" : "UI MODE PASSED"}: ${ui.sent} message${ui.sent === 1 ? "" : "s"} sent${ui.stopped ? `; stopped at ${ui.stopped.at}` : ""}`);
   process.exit(failed ? 1 : 0);

@@ -17,6 +17,7 @@ import {
   conditionProbe,
 } from "../scripts/canary-ui.mjs";
 import { probeBody } from "../scripts/canary-rows.mjs";
+import { readAllow, bookingBodyVerdict, EVIDENCE_BOUNDARY } from "../scripts/canary-rules.mjs";
 import { MAX_LOGO_BYTES } from "../builder/site-logo.mjs";
 import { handleOwnerWrite } from "../site-owner.mjs";
 import { ownerTable } from "./fixtures/owner-table.mjs";
@@ -255,7 +256,14 @@ function standIn(opt = {}) {
     newPage: async () => page,
     close: async () => { calls.push("close context"); },
   };
-  const browser = { newContext: async () => context, close: async () => { calls.push("close"); } };
+  // THE VISITOR'S TAB (the rules test's booking) is a context of its own: the
+  // first context is the app's, and a scenario that books gets its visitor
+  // stand-in for every context after that.
+  let contexts = 0;
+  const browser = {
+    newContext: async () => (contexts++ > 0 && opt.visitor ? opt.visitor() : context),
+    close: async () => { calls.push("close"); },
+  };
   return { st, calls, inits, routes, launch: async () => browser };
 }
 
@@ -938,7 +946,9 @@ test("the canary refuses a bad scenario before it signs in, and runs the mode be
   assert.match(win.slice(run, win.indexOf("\n", run)), /session,/, "the mode is not handed the canary's own session");
   // It EXITS, so the one API edit is unreachable from it — and it posts no edit itself.
   assert.match(win.slice(win.lastIndexOf("writeFileSync")), /process\.exit\(failed \? 1 : 0\)/);
-  assert.doesNotMatch(win, /api\/site\/route/, "the mode makes its own routing call");
+  // `\b` keeps the page list (`/api/site/routes`, a free GET the rules test
+  // reads before the browser opens) from reading as the routing call.
+  assert.doesNotMatch(win, /api\/site\/route\b/, "the mode makes its own routing call");
   assert.doesNotMatch(win, /call\("POST"/, "the mode posts on its own rather than through the page");
   // The chain and the money follow every job a message filed, a hand-off's included.
   assert.match(win, /s\.jobs/, "the chain follows only the first job a message filed");
@@ -985,8 +995,9 @@ test("a row scenario is handed the owner route, the visitor route and one PATCH,
   assert.match(readers, /Buffer\.from\(await r\.arrayBuffer\(\)\)\.toString\("utf8"\)/, "the visitor body is not decoded once from its bytes");
   assert.match(readers, /patch: \(id, body\) => call\("PATCH", `\/api\/site\/\$\{encodeURIComponent\(CANARY\)\}\/rows\/\$\{encodeURIComponent\(ROW\.table\)\}\/\$\{id\}`, \{ body \}\)/,
     "the one write is not the owner route's PATCH of that row");
-  // THE ONLY WRITE THE MODE MAKES ON ITS OWN is that PATCH; the message is the page's.
-  assert.deepEqual(win.match(/call\("(POST|PATCH|PUT|DELETE)"/g), ['call("PATCH"'], "the mode writes on its own beyond the one PATCH");
+  // THE ONLY WRITES THE MODE MAKES ON ITS OWN are that PATCH and the rules
+  // test's cleanup DELETE of one booking row; the message is the page's.
+  assert.deepEqual(win.match(/call\("(POST|PATCH|PUT|DELETE)"/g), ['call("PATCH"', 'call("DELETE"'], "the mode writes on its own beyond the row PATCH and the rules cleanup");
   const run = win.slice(win.indexOf("await runUi("), win.indexOf("\n", win.indexOf("await runUi(")));
   assert.match(run, /rows: rowReaders/, "the readers are not handed to the driver");
   assert.match(run, /siteOrigin: BEFORE\.origin/, "the site's origin is not handed to the driver");
@@ -1012,4 +1023,450 @@ test("the scenario box names every scenario there is", () => {
   const desc = (box.match(/description: '([^']*)'/) || [])[1] || "";
   assert.ok(desc.length > 40, "the box has no description");
   for (const name of Object.keys(UI_SCENARIOS)) assert.ok(desc.includes(name), `the form does not name ${name}`);
+});
+
+// ── THE RULES TEST, THROUGH THE STAND-IN ────────────────────────────────────
+//
+// The app's half is the stand-in above, answering at the rules layer. The
+// visitor's booking is a tab of its own (`bookingTab`): the page's form, and
+// the request its "Book a table" makes, which the tab's wall either lets out or
+// stops. A let-out request is answered by `lido`, a database that refuses a
+// visitor's booking at the privilege check once it is closed and otherwise
+// takes it as a row (and stamps the notification record, as the platform does
+// before it sends). Every read and the one cleanup write go through `db.io`,
+// the shape the canary hands the driver.
+
+const RULES = UI_SCENARIOS["4b-rules-close"];
+const LIDO = "https://lido-axes-b.gofarther.app";
+const DENIED_BOOKING = { code: "42501", details: null, hint: null, message: "permission denied for table bookings" };
+const rulesReply = (fields = ["retired"], over = {}) => ({
+  ok: true, layer: "rules", applied: [{ table: "bookings", fields }], refused: [], cost: 1,
+  msg: fields.includes("write") ? "✅ **bookings** — changed who can add to it." : "✅ **bookings** — changed whether it's open.", ...over,
+});
+const LIDO_SURFACE = () => {
+  const r = RULES.rules.record;
+  return {
+    at: "t",
+    routes: Object.fromEntries(r.routes.map((p) => [p, { status: 200, build: r.build, version: "", bytes: 100, masked: 1, sha256: "p" + p, styles: [r.stylesheet.path] }])),
+    styles: { [r.stylesheet.path]: { status: 200, bytes: r.stylesheet.bytes, sha256: r.stylesheet.sha256 } },
+  };
+};
+
+function lido(calls, opt = {}) {
+  const db = {
+    access: "collect", closed: false, notify: true, notifiedAt: null,
+    rows: (opt.rows || [{ id: 5, name: "Real Person", phone: "07123 456789", party_size: 4, booking_date: "2026-10-01", booking_time: "12:00:00" }]).map((r) => ({ ...r })),
+    nextId: opt.nextId || 6, names: opt.names || [], deletes: [], newestReads: 0, onNewest: null,
+  };
+  const rows = () => [...db.rows].sort((a, b) => b.id - a.id).slice(0, 50).map((r) => ({ ...r }));
+  db.io = {
+    tables: async () => {
+      calls.push("tables");
+      return { status: 200, json: { tables: [{ name: "bookings", access: db.access, rows: db.rows.length, columns: ["name", "phone", "party_size", "booking_date", "booking_time"] }, { name: "menu_items", access: "display", rows: 6, columns: ["name", "price"] }] } };
+    },
+    newest: async () => { calls.push("newest"); db.newestReads++; if (db.onNewest) db.onNewest(db.newestReads, db); return { status: 200, json: { rows: rows() } }; },
+    secrets: async () => { calls.push("secrets"); return { status: 200, json: { ok: true, secrets: db.names.map((name) => ({ name, prefix: "re_9Zx", last4: "Q7w2", created_at: "t" })) } }; },
+    stamp: async () => { calls.push("stamp"); return { status: 200, rows: [{ notify: db.notify, notified_at: db.notifiedAt }] }; },
+    menu: async () => { calls.push("menu"); return { status: 200, text: "[{\"id\":1,\"name\":\"Toastie\"}]" }; },
+    bookingsRead: async () => { calls.push("bookings read"); return { status: 403, text: JSON.stringify(DENIED_BOOKING) }; },
+    surface: async () => { calls.push("surface"); return LIDO_SURFACE(); },
+    del: async (id) => {
+      calls.push(`delete ${id}`);
+      db.deletes.push(id);
+      const i = db.rows.findIndex((r) => r.id === id);
+      if (i < 0) return { status: 404, json: { error: "no such row" } };
+      db.rows.splice(i, 1);
+      return { status: 200, json: { ok: true, id, soft: false } };
+    },
+  };
+  // A VISITOR'S BOOKING: refused at the privilege check once closed; otherwise a row, and the stamp.
+  db.book = (body) => {
+    if (db.closed) return { status: 403, body: DENIED_BOOKING };
+    db.rows.push({ id: db.nextId++, ...body, booking_time: body.booking_time + ":00" });
+    if (db.notify && !db.notifiedAt) db.notifiedAt = "2026-09-27T12:00:00Z";
+    return { status: 201, body: "" };
+  };
+  return db;
+}
+
+function bookingTab(calls, opt = {}) {
+  const listeners = {};
+  let wall = null;
+  const form = { name: "", phone: "", date: "", times: [], hydrated: !opt.neverHydrates };
+  let said = { toasts: [], success: false, form: true };
+  const out = [];
+  const fire = (ev, x) => Promise.all((listeners[ev] || []).map((f) => f(x)));
+  const req = (method, url, body, errorText = "net::ERR_BLOCKED_BY_CLIENT") => ({
+    method: () => method, url: () => url, postData: () => (body === undefined ? null : JSON.stringify(body)), failure: () => ({ errorText }),
+  });
+  const send = async (method, url, body) => {
+    let decided = "";
+    await wall({ request: () => req(method, url, body), fallback: async () => { decided = "out"; }, abort: async () => { decided = "stopped"; } });
+    calls.push(`${method} ${new URL(url).pathname} ${decided}`);
+    if (decided !== "out") { await fire("requestfailed", req(method, url, body)); return null; }
+    out.push({ method, path: new URL(url).pathname, body });
+    const a = opt.answer ? opt.answer(body) : { status: 403, body: DENIED_BOOKING };
+    if (a.drop) { await fire("requestfailed", req(method, url, body, "net::ERR_CONNECTION_RESET")); return { dropped: true }; }
+    await fire("response", { request: () => req(method, url, body), status: () => a.status, text: async () => (typeof a.body === "string" ? a.body : JSON.stringify(a.body)) });
+    return a;
+  };
+  const page = {
+    on: (ev, f) => { (listeners[ev] = listeners[ev] || []).push(f); },
+    goto: async (url) => { calls.push(`visit ${url}`); },
+    evaluate: async (fn) => {
+      if (fn.name === "bookingFormInPage") return { hydrated: form.hydrated, name: form.name, phone: form.phone, date: form.date, times: form.times, party: true, submit: "Book a table" };
+      if (fn.name === "bookingOutcomeInPage") return said;
+      throw new Error("unexpected page function " + fn.name);
+    },
+    fill: async (sel, v) => {
+      if (sel === 'input[name="name"]') form.name = opt.mangleName ? v + "!" : v;
+      else if (sel === "#phone") form.phone = v;
+      else if (sel === 'input[name="booking_date"]') form.date = v;
+      else throw new Error("unexpected field " + sel);
+    },
+    click: async (sel) => {
+      calls.push(`press ${sel}`);
+      if (sel.startsWith('form button[type="button"]')) form.times = ["17:00"];
+      if (sel !== 'form button[type="submit"]') return;
+      const body = { name: form.name, phone: form.phone, party_size: 2, booking_date: form.date, booking_time: form.times[0] };
+      if (opt.otherWrite) await send("POST", LIDO + "/api/telemetry", { e: 1 });
+      const a = await send("POST", LIDO + "/api/db/lido-axes-b/data/bookings", body);
+      if (opt.twice) await send("POST", LIDO + "/api/db/lido-axes-b/data/bookings", body);
+      said = a && a.status >= 200 && a.status < 300 ? { toasts: ["Table held — see you by the water."], success: true, form: false }
+        : a && a.status ? { toasts: ["That isn't available."], success: false, form: true }
+          : { toasts: ["We couldn't reach the booking system."], success: false, form: true };
+    },
+  };
+  const ctx = { route: async (p, f) => { wall = f; }, newPage: async () => page, close: async () => { calls.push("close visitor"); } };
+  return { ctx, out, form };
+}
+
+function rulesHarness(opt = {}) {
+  let db = null;
+  const tabs = [];
+  const h = standIn({
+    routed: () => ({ ok: true, intent: "edit", layer: "rules", cost: 2 }),
+    editBody: (n, said) => ({ layer: "rules", instruction: said, idem: "k" }),
+    reply: () => opt.reply || rulesReply(),
+    onDone: () => (opt.onDone ? opt.onDone(db) : (db.closed = true)),
+    hangAt: opt.hangAt,
+    visitor: () => {
+      const t = bookingTab(h.calls, { answer: (body) => (opt.answer ? opt.answer(body, db) : db.book(body)), ...(opt.tab || {}) });
+      tabs.push(t);
+      return t.ctx;
+    },
+  });
+  db = lido(h.calls, opt);
+  return { h, db, tabs };
+}
+const driveRules = (h, db, over = {}) => runUi({
+  base: ORIGIN, session: SESSION, slug: "lido-axes-b", scenario: RULES, spend: true, balanceNow: async () => 56,
+  evid: "", launch: h.launch, log: () => {}, openMs: 50, attachMs: 50, startMs: 50, stepMs: 60, pollMs: 1, settleMs: 0,
+  bookMs: 80, answerMs: 60, bookSettleMs: 30, rules: db.io, allow: readAllow(""), runId: "36300000001", siteOrigin: LIDO, ...over,
+});
+const BOOKINGS = "/api/db/lido-axes-b/data/bookings";
+
+test("the rules rehearsal reads where it starts, presses Book a table once behind a wall, and sends and writes nothing", async () => {
+  const { h, db, tabs } = rulesHarness();
+  const start = JSON.stringify(db.rows);
+  const rec = await driveRules(h, db, { spend: false });
+  assert.equal(rec.stopped.at, "rehearsal", JSON.stringify(rec.stopped));
+  assert.equal(rec.sent, 0);
+  assert.ok(!h.calls.includes("click #stSend"), "the rehearsal sent the message");
+  assert.equal(rec.rules.start.ok, true, rec.rules.start.why);
+  assert.equal(rec.rules.marker.name, "Canary rules 36300000001", "the marker does not name this run");
+  // THE BOOKING: pressed once, the request stopped in the tab, and exactly the marker's five fields.
+  const d = rec.rules.dry;
+  assert.equal(d.pressed, true, d.why);
+  assert.equal(d.posts.length, 1);
+  assert.equal(d.posts[0].sent, false);
+  assert.match(d.posts[0].stopped, /rehearsal/);
+  assert.equal(bookingBodyVerdict(d.posts[0].body, rec.rules.marker).ok, true, JSON.stringify(d.posts[0].body));
+  assert.equal(d.response, null, "an answer arrived for a request that was stopped");
+  assert.equal(tabs.length, 1);
+  assert.deepEqual(tabs[0].out, [], "the rehearsal's booking left the tab");
+  assert.ok(h.calls.includes(`POST ${BOOKINGS} stopped`));
+  // NOTHING MOVED: the rows, the stamp, and nothing deleted.
+  assert.equal(JSON.stringify(db.rows), start);
+  assert.equal(db.notifiedAt, null);
+  assert.deepEqual(db.deletes, []);
+  assert.deepEqual({ count: rec.rules.dryAfter.count, ids: rec.rules.dryAfter.ids }, { count: rec.rules.before.census.count, ids: rec.rules.before.census.ids });
+  // THE ORDER: every start reading, then the press, and all of it after the message was typed.
+  const typed = h.calls.indexOf(`fill ${RULES.steps[0].say}`);
+  const press = h.calls.indexOf('press form button[type="submit"]');
+  assert.ok(typed >= 0 && h.calls.indexOf("tables") > typed && h.calls.indexOf("secrets") > typed && press > h.calls.indexOf("surface"), "the start was not read after the message was typed and before the press");
+  assert.equal(h.calls.filter((c) => c === "secrets").length, 1);
+  const told = describeUi(rec);
+  assert.ok(told.includes(EVIDENCE_BOUNDARY));
+  assert.ok(!told.includes("Real Person") && !told.includes("07123 456789"), "a visitor's row reached the account");
+});
+
+test("the rehearsal's after-read is a real second read: a row that lands after its press is seen, not the start again", async () => {
+  // Nothing the rehearsal does can add a row, so the only way to tell a second
+  // read from the first one reused is a row somebody else adds in between.
+  const { h, db } = rulesHarness();
+  db.onNewest = (n, d) => {
+    if (n === 2) d.rows.push({ id: 6, name: "Walk-in", phone: "07123 000000", party_size: 2, booking_date: "2026-10-02", booking_time: "13:00:00" });
+  };
+  const rec = await driveRules(h, db, { spend: false });
+  assert.equal(rec.stopped.at, "rehearsal", JSON.stringify(rec.stopped));
+  assert.deepEqual(rec.rules.before.census.ids, [5]);
+  assert.deepEqual(rec.rules.dryAfter.ids, [5, 6], "the rehearsal's after-read is the start's census again");
+  const press = h.calls.indexOf('press form button[type="submit"]');
+  assert.ok(press >= 0 && h.calls.lastIndexOf("newest") > press, "the owner's view was not read again after the press");
+});
+
+test("either supported way of closing lets the one real booking out, and a refusal at the privilege check with no row is a pass", async () => {
+  for (const [fields, access, method] of [[["retired"], "collect", "retired"], [["write"], "read none / write none", "write none"], [["retired", "write"], "read none / write none", "retired and write none"]]) {
+    const { h, db, tabs } = rulesHarness({ reply: rulesReply(fields), onDone: (d) => { d.closed = true; d.access = access; } });
+    const start = JSON.stringify(db.rows);
+    const rec = await driveRules(h, db);
+    assert.equal(rec.stopped, null, JSON.stringify(rec.stopped));
+    assert.equal(rec.sent, 1);
+    assert.deepEqual({ ok: rec.rules.closing.ok, method: rec.rules.closing.method }, { ok: true, method }, rec.rules.closing.why);
+    const b = rec.rules.booking;
+    assert.equal(b.pressed, true, b.why);
+    assert.deepEqual(b.posts.map((p) => p.sent), [true]);
+    assert.equal(tabs[0].out.length, 1, "not exactly one booking left the tab");
+    assert.equal(bookingBodyVerdict(tabs[0].out[0].body, rec.rules.marker).ok, true);
+    assert.deepEqual({ status: b.response.status, code: b.response.json.code }, { status: 403, code: "42501" });
+    assert.equal(rec.rules.bookingVerdict.verdict, "pass", rec.rules.bookingVerdict.why);
+    assert.equal(b.message.success, false);
+    assert.equal(rec.rules.insertion.ok, true, rec.rules.insertion.why);
+    assert.equal(rec.rules.cleanup, undefined, "a cleanup ran with no row to clean up");
+    assert.deepEqual(db.deletes, []);
+    assert.equal(JSON.stringify(db.rows), start);
+    assert.equal(rec.rules.after.stamp.notifiedAt, null);
+    // THE BOOKING ONLY AFTER THE MESSAGE'S REPLY, and in its own tab.
+    const send = h.calls.indexOf("click #stSend");
+    const visit = h.calls.indexOf(`visit ${LIDO}/book`);
+    assert.ok(send >= 0 && visit > send, "the booking was not made after the message");
+    assert.ok(h.calls.includes("close visitor"));
+    assert.match(describeUi(rec), /answer     PASS: refused at the privilege check/);
+  }
+});
+
+test("a reply that did not close bookings, or no reply at all, submits no booking", async () => {
+  for (const [opt, re] of [
+    [{ reply: rulesReply(["maxRows"]) }, /changed maxRows on bookings, which is not closing it/],
+    [{ reply: rulesReply(["retired"], { layer: "data" }) }, /data layer's/],
+    [{ reply: rulesReply(["retired"], { applied: [{ table: "menu_items", fields: ["retired"] }] }) }, /changed menu_items, not bookings/],
+    [{ reply: rulesReply(["write"]), onDone: (d) => { d.closed = true; } }, /write rule became anyone/],
+  ]) {
+    const { h, db, tabs } = rulesHarness(opt);
+    const rec = await driveRules(h, db);
+    assert.equal(rec.sent, 1);
+    assert.equal(rec.rules.closing.ok, false);
+    assert.match(rec.rules.booking.skipped, re);
+    assert.match(rec.rules.booking.skipped, /no booking was submitted/);
+    assert.equal(tabs.length, 0, "a booking tab was opened");
+    assert.ok(!h.calls.some((c) => c.startsWith("visit ")), "the booking page was visited");
+    assert.equal(rec.rules.bookingVerdict, undefined);
+    assert.equal(rec.rules.insertion.ok, true, "the owner's view was not read again");
+  }
+  const { h, db, tabs } = rulesHarness({ hangAt: 0 });
+  const rec = await driveRules(h, db);
+  assert.match(rec.rules.booking.skipped, /a reply never came/);
+  assert.equal(tabs.length, 0);
+  assert.equal(rec.rules.after, undefined, "the after-state was read while the job may still be running");
+});
+
+test("a booking that goes in is found by every marker value and deleted — that row alone — only with the owner's approval", async () => {
+  // The reply says closed; the database stays open (the rule did not take).
+  const run = async (allow) => {
+    const { h, db, tabs } = rulesHarness({ onDone: () => {} });
+    const rec = await driveRules(h, db, { allow: readAllow(allow) });
+    return { h, db, tabs, rec };
+  };
+  const yes = await run("cleanup");
+  assert.equal(yes.rec.rules.bookingVerdict.verdict, "fail");
+  assert.match(yes.rec.rules.bookingVerdict.why, /the booking went in \(HTTP 201\)/);
+  assert.equal(yes.rec.rules.booking.message.success, true);
+  assert.deepEqual({ markers: yes.rec.rules.insertion.markers, others: yes.rec.rules.insertion.others }, { markers: [6], others: [] });
+  const x = yes.rec.rules.cleanup;
+  assert.deepEqual({ act: x.plan.act, id: x.plan.id, recheck: x.recheck.ok, deleted: x.deleted.ok, verified: x.verified.ok }, { act: "delete", id: 6, recheck: true, deleted: true, verified: true }, JSON.stringify(x));
+  assert.deepEqual(yes.db.deletes, [6], "not exactly this run's row was deleted");
+  assert.deepEqual(yes.db.rows.map((r) => r.id), [5], "the real booking went too, or ours stayed");
+  // The stamp is the one thing a cleanup cannot put back, and it is said.
+  assert.equal(yes.rec.rules.after.stamp.notifiedAt, "2026-09-27T12:00:00Z");
+  assert.match(describeUi(yes.rec), /stamp      before never, after 2026-09-27T12:00:00Z/);
+  // THE DELETE IS AFTER THE RE-READ, and the re-read after the booking.
+  const calls = yes.h.calls;
+  assert.equal(calls[calls.indexOf("delete 6") - 1], "newest", "the row was not read again immediately before the delete");
+  assert.ok(calls.indexOf("delete 6") > calls.indexOf(`POST ${BOOKINGS} out`), "the delete came before the booking");
+  // Without approval nothing is deleted, and the row is named for the owner.
+  const no = await run("");
+  assert.deepEqual(no.db.deletes, []);
+  assert.match(no.rec.rules.cleanup.skipped, /NOT APPROVED: row 6 holds this run's booking/);
+  assert.deepEqual(no.db.rows.map((r) => r.id), [5, 6]);
+});
+
+test("an unexpected row beside ours is reported and never touched; two of ours delete nothing; a row that changes is left", async () => {
+  // Somebody else's booking lands beside ours.
+  const walkIn = rulesHarness({ onDone: () => {}, answer: (body, d) => { const a = d.book(body); d.rows.push({ id: d.nextId++, name: "Walk-in", phone: "07123 000000", party_size: 2, booking_date: "2026-10-02", booking_time: "13:00:00" }); return a; } });
+  const w = await driveRules(walkIn.h, walkIn.db, { allow: readAllow("cleanup") });
+  assert.deepEqual({ markers: w.rules.insertion.markers, others: w.rules.insertion.others }, { markers: [6], others: [7] });
+  assert.match(w.rules.insertion.why, /row\(s\) 7 appeared without the marker/);
+  assert.deepEqual(walkIn.db.deletes, [6], "somebody else's row was deleted");
+  assert.deepEqual(walkIn.db.rows.map((r) => r.id), [5, 7]);
+  // Our booking twice (a retry below the page): which one is ours cannot be told, so neither goes.
+  const twice = rulesHarness({ onDone: () => {}, answer: (body, d) => { d.book(body); return d.book(body); } });
+  const t = await driveRules(twice.h, twice.db, { allow: readAllow("cleanup") });
+  assert.deepEqual({ act: t.rules.cleanup.plan.act, ids: t.rules.cleanup.plan.ids }, { act: "refuse", ids: [6, 7] });
+  assert.deepEqual(twice.db.deletes, []);
+  // The row changes between the plan and the delete: nothing is deleted.
+  const moved = rulesHarness({ onDone: () => {} });
+  moved.db.onNewest = (n, d) => { if (n === 3) d.rows.find((r) => r.id === 6).phone = "07700 900111"; };
+  const m = await driveRules(moved.h, moved.db, { allow: readAllow("cleanup") });
+  assert.equal(m.rules.cleanup.recheck.ok, false);
+  assert.match(m.rules.cleanup.recheck.why, /no longer holds every marker value/);
+  assert.deepEqual(moved.db.deletes, []);
+});
+
+test("an answer that is not the privilege refusal, or no answer at all, is inconclusive — never a pass", async () => {
+  for (const [answer, re] of [
+    [() => ({ status: 403, body: { error: "turnstile" } }), /HTTP 403 — not the privilege refusal/],
+    [() => ({ status: 503, body: "<html>unavailable</html>" }), /HTTP 503 with an answer that is not a JSON object/],
+    [() => ({ drop: true }), /no answer arrived \(net::ERR_CONNECTION_RESET\)/],
+    [() => ({ status: 403, body: { code: "42501", message: 'new row violates row-level security policy for table "bookings"' } }), /row security/],
+  ]) {
+    const { h, db } = rulesHarness({ answer });
+    const rec = await driveRules(h, db);
+    const v = rec.rules.bookingVerdict;
+    assert.ok(v.verdict === "inconclusive" || v.verdict === "partial", `${v.verdict}: ${v.why}`);
+    assert.notEqual(v.verdict, "pass");
+    assert.match(v.why, re);
+    assert.equal(rec.rules.insertion.ok, true);
+    assert.equal(rec.rules.cleanup, undefined);
+  }
+});
+
+test("only the first booking request leaves the tab, and any other write the page makes is stopped", async () => {
+  const { h, db, tabs } = rulesHarness({ tab: { twice: true, otherWrite: true } });
+  const rec = await driveRules(h, db);
+  const b = rec.rules.booking;
+  assert.deepEqual(b.posts.map((p) => p.sent), [true, false]);
+  assert.match(b.posts[1].stopped, /only one is ever let out/);
+  assert.deepEqual(tabs[0].out.map((o) => o.path), [BOOKINGS], "more than the one booking left the tab");
+  assert.deepEqual(b.aborted, [`POST ${LIDO}/api/telemetry`]);
+  assert.ok(h.calls.includes("POST /api/telemetry stopped"));
+});
+
+test("a form that does not hold the marker, or never becomes interactive, is not pressed", async () => {
+  for (const [tab, re] of [[{ mangleName: true }, /does not hold the marker booking/], [{ neverHydrates: true }, /never became interactive/]]) {
+    const { h, db, tabs } = rulesHarness({ tab });
+    const rec = await driveRules(h, db);
+    assert.equal(rec.rules.booking.pressed, false);
+    assert.match(rec.rules.booking.why, re);
+    assert.deepEqual(tabs[0].out, [], "a request left the tab");
+    assert.ok(!h.calls.includes('press form button[type="submit"]'));
+    assert.equal(rec.rules.bookingVerdict.verdict, "inconclusive");
+  }
+});
+
+test("a start the test was not written for sends nothing; approving the possible send is what clears it", async () => {
+  const mail = rulesHarness({ names: ["RESEND_KEY", "EMAIL_FROM"] });
+  const r1 = await driveRules(mail.h, mail.db);
+  assert.equal(r1.stopped && r1.stopped.at, "start", JSON.stringify(r1.stopped));
+  assert.match(r1.stopped.msg, /could send by email, which is not approved/);
+  assert.match(r1.stopped.msg, /nothing was sent/);
+  assert.equal(r1.sent, 0);
+  assert.ok(!mail.h.calls.includes("click #stSend"));
+  assert.equal(mail.tabs.length, 0);
+  const ok = rulesHarness({ names: ["RESEND_KEY", "EMAIL_FROM"] });
+  const r2 = await driveRules(ok.h, ok.db, { allow: readAllow("email") });
+  assert.equal(r2.stopped, null, JSON.stringify(r2.stopped));
+  assert.equal(r2.sent, 1);
+  // A row an earlier run left behind stops it too.
+  const left = rulesHarness({ rows: [{ id: 5, name: "Canary rules 36299999999", phone: "07700 900999", party_size: 2, booking_date: "2099-12-31", booking_time: "17:00:00" }] });
+  const r3 = await driveRules(left.h, left.db);
+  assert.equal(r3.stopped.at, "start");
+  assert.match(r3.stopped.msg, /from an earlier run of this test/);
+  // And the record of the secrets is names alone.
+  assert.deepEqual(r2.rules.before.secrets, { ok: true, names: ["EMAIL_FROM", "RESEND_KEY"] });
+  assert.ok(!JSON.stringify(r2.rules).includes("re_9Zx") && !JSON.stringify(r2.rules).includes("Q7w2"), "a key's characters reached the record");
+});
+
+test("a rules scenario handed no readers never opens a browser", async () => {
+  const { h, db } = rulesHarness();
+  const rec = await driveRules(h, db, { rules: null });
+  assert.match(rec.stopped.msg, /tests the rules rung and was not handed its readers/);
+  assert.ok(!h.calls.includes("close"), "a browser was launched without the readers");
+  const partial = await driveRules(h, db, { rules: { ...db.io, del: undefined } });
+  assert.match(partial.stopped.msg, /not handed its readers/);
+});
+
+// ── THE RULES TEST'S WIRING, IN THE CANARY AND THE WORKFLOW ─────────────────
+
+test("the rules test is handed its readers, its one DELETE, the approvals and the run id, and every check is there", () => {
+  const branch = CANARY.indexOf("if (UI_ASK) {");
+  const gate = CANARY.indexOf("if (!SPEND)");
+  const win = CANARY.slice(branch, gate);
+  const from = win.indexOf("const rulesIo = RULES ?"), to = win.indexOf("const recoverOnly");
+  assert.ok(from > 0 && to > from, "the rules readers are gone");
+  const io = win.slice(from, to);
+  const enc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  for (const [key, pattern] of [
+    ["tables", 'tables: () => call("GET", `/api/site/${encodeURIComponent(CANARY)}/rows`)'],
+    ["newest", 'newest: () => call("GET", `/api/site/${encodeURIComponent(CANARY)}/rows/${encodeURIComponent(RULES.table)}?order=id&dir=desc&limit=${NEWEST_ROWS}`)'],
+    ["secrets", 'secrets: () => call("GET", `/api/site/${encodeURIComponent(CANARY)}/secrets`)'],
+    ["stamp", "site_backends?slug=eq.${encodeURIComponent(CANARY)}&select=notify,notified_at`, { headers: svc }"],
+    ["menu", "menu: () => visitorText(`/api/db/${encodeURIComponent(CANARY)}/data/${encodeURIComponent(RULES.record.menu.table)}?${RULES.record.menu.query}`)"],
+    ["bookingsRead", "bookingsRead: () => visitorText(`/api/db/${encodeURIComponent(CANARY)}/data/${encodeURIComponent(RULES.table)}?select=*`)"],
+    ["surface", "origin: BEFORE.origin, routes: RULES.record.routes"],
+    ["del", 'del: (id) => call("DELETE", `/api/site/${encodeURIComponent(CANARY)}/rows/${encodeURIComponent(RULES.table)}/${id}`)'],
+  ]) assert.match(io, new RegExp(enc(pattern)), `the ${key} reader is not the one it should be`);
+  // The platform record is read for two columns, and never a connection string.
+  assert.doesNotMatch(io, /neon_conn|neon_role|site_project/, "the readers reach for a database credential");
+  assert.equal((io.match(/site_backends\?[^`]*`/g) || []).length, 1);
+  assert.match(io, /site_backends\?slug=eq\.\$\{encodeURIComponent\(CANARY\)\}&select=notify,notified_at`/);
+  const run = win.slice(win.indexOf("await runUi("), win.indexOf("\n", win.indexOf("await runUi(")));
+  for (const k of ["rules: rulesIo", "allow: ALLOW", "runId: RUN_ID", "siteOrigin: BEFORE.origin"]) assert.ok(run.includes(k), `${k} is not handed to the driver`);
+  // THE PAGE LIST IS READ BEFORE THE REFUSAL THAT GUARDS THE BROWSER, so a site
+  // the app cannot route on never has the browser opened on it.
+  const pl = win.indexOf("the app can read the site's page list");
+  assert.ok(pl > 0 && pl < win.indexOf("if (failed)"), "the page list is not read before the browser opens");
+  assert.match(win.slice(win.indexOf("if (RULES) {"), pl), /readRoutes\(rr\.status, rr\.json\)/);
+  // Every check the proposal names.
+  for (const needle of ["R.start.checks", "requestVerdict(s, UI_ASK.scenario)", "cl && cl.ok", "bk.posts.length === 1 && post && post.sent === true",
+    "bookingBodyVerdict(post.body, R.marker)", 'v.verdict === "pass"', "bk.message.success === false", "ins && ins.ok", "x.verified && x.verified.ok",
+    "a0.stamp.notifiedAt === b0.stamp.notifiedAt", "a0.menu.sha256 === b0.menu.sha256", "a0.bookingsRead.message === rr.message",
+    "post.sent === false && !d.response", "d.aborted.length", "da.count === b0.census.count", "EVIDENCE_BOUNDARY"]) {
+    assert.ok(win.includes(needle), `the check on ${needle} is gone`);
+  }
+  // THE OLDER LAYOUT: nothing published is read off the build, the pages, the
+  // stylesheet and the stored source, beside the version list and the job's row.
+  const legacy = win.slice(win.indexOf("if (legacy) {", win.indexOf("UI_ASK.scenario.publishes === 0")));
+  assert.match(legacy, /surfaceSame\(R\.before && R\.before\.surface, R\.after && R\.after\.surface\)/);
+  assert.match(legacy, /sourceSame\(BEFORE\.source, after && after\.source\)/);
+  assert.match(legacy, /legacyUnpublishedVerdict\(\{ published, jobs: jobRecords, surface, source \}\)/);
+  assert.match(legacy, /list && list\.status === 200/);
+  // AND THE RECORD CARRIES ROW IDS, NEVER A VISITOR'S ROW.
+  assert.match(win, /ui\.rules \? \{ \.\.\.ui, rules: rulesRecordable\(ui\.rules\) \} : ui/, "the rules record is written with its rows");
+});
+
+test("the approvals are read whole before the sign-in, refused on an unknown word, and refused beside any other run", () => {
+  const signIn = CANARY.indexOf("auth/v1/admin/generate_link");
+  const read = CANARY.indexOf("const ALLOW = readAllow(ALLOW_RAW)");
+  assert.ok(read > 0 && read < signIn, "the approvals are read after the sign-in");
+  // Each refusal is its own block, read landmark to landmark (a `[^}]*` scan
+  // stops inside the `${ALLOW.msg}` of the message and proves nothing).
+  const block = (head) => {
+    const at = CANARY.indexOf(head, read);
+    assert.ok(at > read && at < signIn, `no "${head}" before the sign-in`);
+    return CANARY.slice(at, CANARY.indexOf("\n}", at));
+  };
+  const bad = block("if (!ALLOW.ok) {");
+  assert.match(bad, /REFUSING THE APPROVALS/);
+  assert.match(bad, /process\.exit\(2\)/, "an unknown word does not stop the run");
+  assert.match(block("if (ALLOW_RAW && !(UI_ASK && UI_ASK.scenario.rules)) {"), /process\.exit\(2\)/, "approvals beside another run do not stop it");
+  assert.match(CANARY, /const ALLOW_RAW = String\(process\.env\.CANARY_ALLOW \|\| ""\)\.trim\(\)/);
+  assert.match(CANARY, /const RUN_ID = runIdOf\(process\.env\)/);
+  // The form: a box of its own, mapped to the script's variable, and the ten-input cap kept.
+  assert.match(FLOW, /\n {6}rules_allow:\n/, "the workflow has no approvals box");
+  assert.match(FLOW, /CANARY_ALLOW:\s*\$\{\{\s*github\.event\.inputs\.rules_allow\s*\}\}/);
+  const box = FLOW.slice(FLOW.indexOf("\n      rules_allow:\n"), FLOW.indexOf("\n      site:\n"));
+  for (const w of ["cleanup", "email", "text", "webhook", "4b-rules-close"]) assert.ok(box.includes(w), `the approvals box does not say ${w}`);
+  // An approval never arms spending.
+  assert.doesNotMatch(FLOW.match(/CANARY_SPEND:.*/)[0], /rules_allow/, "the approvals box arms the spend switch");
 });

@@ -33,6 +33,10 @@ import {
   readBoth, baselineVerdict, changeVerdict, restorePlan, restoreRow, recoverRow, rowDiff, shownVerdict, lineIsFor,
   describeRows, describeRecovery, probeBody, probeVerdict,
 } from "./canary-rows.mjs";
+import {
+  markerBooking, readRulesState, rulesStartVerdict, closingVerdict, classifyBooking, insertionVerdict,
+  cleanupPlan, stillMarker, deleteVerdict, cleanupVerified, censusOf, tablesOf, describeRules, bookingBodyVerdict,
+} from "./canary-rules.mjs";
 
 export const SESSION_KEY = "zephyr_session_v1";
 
@@ -65,6 +69,38 @@ const D1_ROW = Object.freeze({
   to: "4.6",
   shown: Object.freeze({ path: "/order", sel: 'input[type="radio"]', before: "£4.50", after: "£4.60" }),
   record: LOAVES_RECORD,
+});
+
+// ── THE RULES TEST ON lido-axes-b ───────────────────────────────────────────
+//
+// What the site is kept for, read at 2026-09-27 07:59:28Z with a visitor's
+// GETs: the three pages on build `mt50cg7h-l19hre` with no version header, one
+// stylesheet byte for byte (the comparison evidence `build-as-owner.yml` keeps
+// this site for), exactly two tables, a visitor refused a read of bookings,
+// and the menu's visitor read. The test starts only from here, and must leave
+// the pages, the stylesheet and the stored source as they are.
+const LIDO_RECORD = Object.freeze({
+  at: "2026-09-27T07:59:28Z",
+  build: "mt50cg7h-l19hre",
+  routes: Object.freeze(["/", "/book", "/menu"]),
+  tables: Object.freeze(["bookings", "menu_items"]),
+  stylesheet: Object.freeze({ path: "/assets/index-glpAegzo.css", bytes: 209105, sha256: "6f7ca4bc53e559a7228609e30a400567b37aaf6c14b410c49a164274bd3aa360" }),
+  menu: Object.freeze({ table: "menu_items", query: "select=*&order=id.asc", bytes: 1208, sha256: "f2b64cb26abe7c14b641f4b61d97a0c06c4246a0f5a8317aeb9206122d2e1ed8" }),
+  bookingsRead: Object.freeze({ status: 403, code: "42501", message: "permission denied for table bookings" }),
+});
+
+// THE BOOKING THIS TEST MAKES, AND HOW ITS ANSWER IS READ. The marker passes
+// the page's own checks and involves nobody real: a phone number in the range
+// Ofcom keeps for drama, a date nobody books, and this run's id in the name.
+// `closing` lists the rule fields that close a table — marking it closed, or
+// taking its write access away — and either is accepted on what the job says
+// it changed, what the owner's listing shows and what a real booking gets.
+const RULES_SPEC = Object.freeze({
+  table: "bookings",
+  book: Object.freeze({ path: "/book", api: "/api/db/lido-axes-b/data/bookings" }),
+  marker: Object.freeze({ name: "Canary rules", phone: "07700 900999", party_size: 2, booking_date: "2099-12-31", booking_time: "17:00" }),
+  closing: Object.freeze({ fields: Object.freeze(["retired", "write"]) }),
+  record: LIDO_RECORD,
 });
 
 /**
@@ -117,6 +153,24 @@ export const UI_SCENARIOS = Object.freeze({
     publishes: 0,
     row: D1_ROW,
     steps: Object.freeze([]),
+  }),
+  // THE RULES TEST — one message that should close lido-axes-b's `bookings`,
+  // then ONE real visitor booking through the site's own form, which must be
+  // refused at the privilege check with no row added. `layers` is the wall: the
+  // one edit that may leave the app is at the rules layer. The site predates
+  // the versioned layout, so what "nothing published" means is read off its
+  // build header, its pages, its stylesheet and its stored source.
+  "4b-rules-close": Object.freeze({
+    site: "lido-axes-b",
+    // Routing 1-2 and the rules rung's one call, about 1.
+    budget: 5,
+    layers: Object.freeze(["rules"]),
+    publishes: 0,
+    layout: "legacy",
+    rules: RULES_SPEC,
+    steps: Object.freeze([
+      Object.freeze({ say: "We're fully booked, so stop taking bookings on the website for now." }),
+    ]),
   }),
 });
 
@@ -437,6 +491,35 @@ function shownListInPage(sel) {
   });
 }
 
+/**
+ * THE SITE'S OWN BOOKING FORM, as its page holds it: whether React has taken
+ * the page over (a field filled before that is lost), and what each field
+ * holds. Runs in the site's page, not the app's.
+ */
+function bookingFormInPage() {
+  const name = document.querySelector('input[name="name"]');
+  const phone = document.getElementById("phone");
+  const date = document.querySelector('input[name="booking_date"]');
+  const submit = document.querySelector('form button[type="submit"]');
+  const live = (el) => !!el && Object.keys(el).some((k) => k.startsWith("__reactProps") || k.startsWith("__reactFiber"));
+  return {
+    hydrated: live(name) && live(submit),
+    name: name ? name.value : null,
+    phone: phone ? phone.value : null,
+    date: date ? date.value : null,
+    times: [...document.querySelectorAll('form button[aria-pressed="true"]')].map((b) => String(b.textContent || "").trim()),
+    party: !!document.querySelector('[role="group"][aria-label="Party size"]'),
+    submit: submit ? String(submit.textContent || "").trim() : null,
+  };
+}
+
+/** What the page said about the booking: its pop-ups, and whether it showed the booked screen. */
+function bookingOutcomeInPage() {
+  const toasts = [...document.querySelectorAll("[data-sonner-toast]")].map((t) => String(t.innerText || t.textContent || "").trim()).filter(Boolean);
+  const text = String((document.body && document.body.textContent) || "");
+  return { toasts, success: text.includes("We've got your table") || text.includes("We’ve got your table"), form: !!document.querySelector('form button[type="submit"]') };
+}
+
 /** The start screen's card for a slug: the id the app itself gave it, or "". */
 function cardIdInPage(slug) {
   try {
@@ -500,6 +583,137 @@ export async function readShownSite(browser, { url, sel, name, ms = 45_000, poll
 }
 
 /**
+ * ONE VISITOR BOOKING, THROUGH THE SITE'S OWN FORM. A context of its own (no
+ * planted session: a visitor signed in to nothing), the form filled field by
+ * field and "Book a table" pressed once. THE WALL: a read goes out; the one
+ * booking request goes out only when `submit` is set, and only the first; any
+ * other write is stopped in the browser and recorded. So a rehearsal records
+ * exactly what would have been sent and sends nothing, and the paid run sends
+ * one booking and nothing else. The answer is captured as the page received it.
+ */
+export async function bookInPage(browser, {
+  origin, spec, marker, submit = false, ms = 45_000, answerMs = 30_000, settleMs = 6_000, pollMs = 250, route = null,
+} = {}) {
+  const api = spec.book.api;
+  const out = {
+    at: new Date().toISOString(), url: origin + spec.book.path, submit: submit === true,
+    ready: null, filled: null, pressed: false, posts: [], response: null, failed: null, message: null,
+    aborted: [], errors: [], why: "",
+  };
+  const onApi = (u) => { try { const x = new URL(String(u)); return x.origin === origin && x.pathname === api; } catch { return false; } };
+  const sleep = (t) => new Promise((r) => setTimeout(r, t));
+  let ctx = null;
+  try {
+    ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
+    if (route) await route(ctx, "visitor");
+    await ctx.route(() => true, async (r) => {
+      const req = r.request();
+      const m = req.method();
+      if (m === "GET" || m === "HEAD") return r.fallback();
+      const u = String(req.url());
+      if (m === "POST" && onApi(u)) {
+        let body = null;
+        try { body = JSON.parse(req.postData() || "null"); } catch { body = { unparsed: String(req.postData() || "").slice(0, 200) }; }
+        const entry = { method: m, path: api, body, sent: false };
+        out.posts.push(entry);
+        if (out.submit && out.posts.length === 1) { entry.sent = true; return r.fallback(); }
+        entry.stopped = out.submit ? "a second booking request — only one is ever let out" : "a rehearsal stops the booking inside the browser";
+        return r.abort("blockedbyclient");
+      }
+      if (!u.includes("/cdn-cgi/")) out.aborted.push(`${m} ${u}`);
+      return r.abort("blockedbyclient");
+    });
+    const page = await ctx.newPage();
+    page.on("pageerror", (e) => out.errors.push(String((e && e.message) || e).slice(0, 300)));
+    page.on("console", (m) => { if (m.type() === "error") out.errors.push(m.text().slice(0, 300)); });
+    page.on("response", async (res) => {
+      const req = res.request();
+      if (req.method() !== "POST" || !onApi(req.url()) || out.response) return;
+      const e = { status: res.status(), text: "" };
+      try { e.text = String(await res.text()).slice(0, 2000); } catch { /* a body the browser no longer holds */ }
+      try { e.json = JSON.parse(e.text); } catch { /* not JSON: kept as text */ }
+      out.response = e;
+    });
+    page.on("requestfailed", (req) => {
+      if (req.method() !== "POST" || !onApi(req.url()) || out.failed) return;
+      const f = typeof req.failure === "function" ? req.failure() : null;
+      out.failed = (f && f.errorText) || "failed";
+    });
+    await page.goto(out.url, { waitUntil: "domcontentloaded", timeout: ms });
+    const end = Date.now() + ms;
+    for (;;) {
+      out.ready = await page.evaluate(bookingFormInPage).catch(() => null);
+      if (out.ready && out.ready.hydrated && out.ready.party && out.ready.submit) break;
+      if (Date.now() >= end) { out.why = "the booking form never became interactive — nothing was pressed"; return out; }
+      await sleep(pollMs);
+    }
+    const people = `${marker.party_size} ${marker.party_size === 1 ? "person" : "people"}`;
+    await page.fill('input[name="name"]', marker.name);
+    await page.fill("#phone", marker.phone);
+    await page.click(`[role="group"][aria-label="Party size"] button[aria-label="${people}"]`);
+    await page.fill('input[name="booking_date"]', marker.booking_date);
+    await page.click(`form button[type="button"]:text-is("${marker.booking_time}")`);
+    out.filled = await page.evaluate(bookingFormInPage).catch(() => null);
+    const f = out.filled || {};
+    if (f.name !== marker.name || f.phone !== marker.phone || f.date !== marker.booking_date || !(f.times || []).includes(marker.booking_time)) {
+      out.why = "the form does not hold the marker booking — nothing was pressed";
+      return out;
+    }
+    await page.click('form button[type="submit"]');
+    out.pressed = true;
+    // THE BOOKING REQUEST'S END: its answer, its failure, or the rehearsal's stop.
+    const aEnd = Date.now() + answerMs;
+    while (!(out.response || out.failed || (out.posts[0] && !out.posts[0].sent)) && Date.now() < aEnd) await sleep(pollMs);
+    // THE PAGE'S OWN WORDS, once they arrive.
+    const mEnd = Date.now() + settleMs;
+    for (;;) {
+      out.message = await page.evaluate(bookingOutcomeInPage).catch(() => null);
+      if ((out.message && (out.message.toasts.length || out.message.success)) || Date.now() >= mEnd) break;
+      await sleep(pollMs);
+    }
+    if (!out.posts.length) out.why = "the form made no booking request";
+  } catch (e) {
+    out.why = String((e && e.message) || e).slice(0, 200);
+  } finally {
+    if (ctx) { try { await ctx.close(); } catch { /* already gone */ } }
+  }
+  return out;
+}
+
+/** The job's own stored reply, as the page read it under `x-gf-edit: final`. */
+export function finalReplyOf(step) {
+  const fin = (Array.isArray(step && step.network) ? step.network : []).filter((e) => e.final && e.res && typeof e.res === "object");
+  return fin.length ? fin[fin.length - 1].res : null;
+}
+
+/**
+ * THE EXACT CLEANUP, IF THE BOOKING WENT IN: the one new row holding every
+ * marker value, read again just before it is deleted, deleted through the
+ * owner route by its id, and checked. Without the owner's approval nothing is
+ * deleted and the row's id is reported for them to decide.
+ */
+export async function rulesCleanup(io, r, spec) {
+  const x = { plan: cleanupPlan(r.before.census, r.after.census, r.marker) };
+  if (x.plan.act !== "delete") return x;
+  if (!(r.allow && r.allow.cleanup === true)) {
+    x.skipped = `NOT APPROVED: row ${x.plan.id} holds this run's booking and is left for the owner to decide`;
+    return x;
+  }
+  x.recheck = stillMarker(await Promise.resolve().then(() => io.newest()).catch(() => null), x.plan.id, r.marker);
+  if (!x.recheck.ok) return x;
+  const res = await Promise.resolve().then(() => io.del(x.plan.id)).catch((e) => ({ status: 0, json: { error: String((e && e.message) || e).slice(0, 200) } }));
+  x.deleted = deleteVerdict(res, x.plan.id);
+  if (!x.deleted.ok) return x;
+  const [t, n] = await Promise.all([
+    Promise.resolve().then(() => io.tables()).catch(() => null),
+    Promise.resolve().then(() => io.newest()).catch(() => null),
+  ]);
+  x.final = censusOf(tablesOf(t), n, spec);
+  x.verified = cleanupVerified(r.before.census, x.final, r.marker, x.deleted.soft);
+  return x;
+}
+
+/**
  * Drive one scenario. Every dependency that touches the world is handed in, so
  * a test can drive the same code with a browser whose API answers are supplied.
  *   base        the app's origin (https://gofarther.dev)
@@ -526,6 +740,12 @@ export async function runUi(opts) {
     // the visitor route's read and the owner route's PATCH — and the site's
     // origin, where the page a visitor sees it on lives.
     rows = null, siteOrigin = "", shownMs = 45_000,
+    // THE RULES TEST (`scenario.rules`) is handed its readers and its one
+    // write: `rules = { tables, newest, secrets, stamp, menu, bookingsRead,
+    // surface, del }` (see `readRulesState`; `del` is the owner route's DELETE,
+    // used only by the exact cleanup), the owner's approvals from the form, and
+    // this run's id, which goes into the marker booking's name.
+    rules: rulesIo = null, allow = null, runId = "", bookMs = 45_000, answerMs = 30_000, bookSettleMs = 6_000,
     root = new URL("../", import.meta.url).pathname,
   } = opts;
   const origin = new URL(base).origin;
@@ -544,6 +764,24 @@ export async function runUi(opts) {
       return rec;
     }
   }
+  const rspec = scenario && scenario.rules ? scenario.rules : null;
+  if (rspec) {
+    rec.rules = {
+      spec: rspec, site: slug, marker: markerBooking(rspec.marker, runId || `local-${t0}`),
+      allow: allow && allow.ok === true ? allow : { ok: true, cleanup: false, sends: [], words: [] },
+    };
+    const need = ["tables", "newest", "secrets", "stamp", "menu", "bookingsRead", "surface", "del"];
+    if (!rulesIo || need.some((k) => typeof rulesIo[k] !== "function") || !siteOrigin) {
+      stop("open", "this scenario tests the rules rung and was not handed its readers — nothing was sent or written");
+      return rec;
+    }
+  }
+  // The visitor's booking, in a tab of its own: a dry run presses the button
+  // and stops the request in the browser; the paid run sends it once.
+  const book = (submit) => bookInPage(browser, {
+    origin: siteOrigin, spec: rspec, marker: rec.rules.marker, submit,
+    ms: bookMs, answerMs, settleMs: bookSettleMs, pollMs: Math.max(pollMs, 50), route,
+  });
   const shot = async (page, name) => {
     if (!evid) return "";
     fs.mkdirSync(evid, { recursive: true });
@@ -724,6 +962,28 @@ export async function runUi(opts) {
           break;
         }
       }
+      // ── THE RULES TEST'S STARTING POINT, IMMEDIATELY BEFORE THE MESSAGE ────
+      // The owner's view, the secret names, the notification stamp, a
+      // visitor's reads and the site's surface, all read now; the paid press
+      // sends nothing unless every one is where the test was written to start
+      // and every send a booking could set off is approved. A rehearsal then
+      // presses "Book a table" once in a tab whose wall stops the request, and
+      // reads the owner's view again to show nothing moved.
+      if (rspec && n === 1) {
+        rec.rules.before = await readRulesState(rulesIo, rspec);
+        rec.rules.start = rulesStartVerdict(rec.rules.before, rspec, rec.rules.allow);
+        if (!spend) {
+          rec.rules.dry = await book(false);
+          const [t, nw] = await Promise.all([
+            Promise.resolve().then(() => rulesIo.tables()).catch(() => null),
+            Promise.resolve().then(() => rulesIo.newest()).catch(() => null),
+          ]);
+          rec.rules.dryAfter = censusOf(tablesOf(t), nw, rspec);
+        } else if (!rec.rules.start.ok) {
+          stop("start", `the site is not where this test starts (${rec.rules.start.why}) — nothing was sent`);
+          break;
+        }
+      }
       if (!spend) {
         await shot(page, `ui-step-${n}-rehearsal`);
         stop("rehearsal", `spend is not yes: message ${n} is typed${step.attach ? " with its file attached" : ""} and NOT sent`);
@@ -800,6 +1060,38 @@ export async function runUi(opts) {
         log(`  row: ${rec.row.change ? (rec.row.change.exact ? "the one expected change" : "NOT exactly the expected change") : "UNREADABLE after the edit"}; recovery ${rec.row.restore.plan ? rec.row.restore.plan.act : "-"}${rec.row.restore.verdict ? (rec.row.restore.verdict.restored ? ", restored" : ", NOT restored") : ""}`);
       }
     }
+    // ── THE RULES TEST: WAS IT CLOSED, AND DOES A REAL BOOKING GET REFUSED ──
+    // Only once the message's reply is on screen, so the job has finished. The
+    // booking is submitted only when the job's own stored reply is a rules
+    // success that closed the table by a supported way and the owner's listing
+    // agrees; otherwise nothing is submitted. Then the owner's view is read
+    // again, and a row carrying this run's marker — if the rule failed — is
+    // deleted only with the owner's approval, and only that row.
+    if (rspec && rec.rules.before && spend) {
+      const sentSteps = rec.steps.filter((s) => s.sent);
+      if (!sentSteps.length) {
+        rec.rules.booking = { skipped: "nothing was sent" };
+      } else if (!sentSteps.every((s) => s.completed)) {
+        rec.rules.booking = { skipped: "a reply never came, so whether the rule changed is not known — no booking was submitted" };
+      } else {
+        const t = await Promise.resolve().then(() => rulesIo.tables()).catch(() => null);
+        rec.rules.closing = closingVerdict({ stored: finalReplyOf(sentSteps[0]), before: rec.rules.before.tables, after: tablesOf(t), spec: rspec });
+        if (!rec.rules.closing.ok) {
+          rec.rules.booking = { skipped: `the reply is not a rules success that closed ${rspec.table} (${rec.rules.closing.why}), so no booking was submitted` };
+        } else {
+          const b = rec.rules.booking = await book(true);
+          rec.rules.bookingVerdict = b.pressed && b.posts.length
+            ? classifyBooking(b.response || { failed: b.failed }, rspec)
+            : { verdict: "inconclusive", why: b.why || "no booking request was made" };
+        }
+        rec.rules.after = await readRulesState(rulesIo, rspec, { secrets: false });
+        rec.rules.insertion = insertionVerdict(rec.rules.before.census, rec.rules.after.census, rec.rules.marker);
+        if (rec.rules.insertion.readable && rec.rules.insertion.markers.length) {
+          rec.rules.cleanup = await rulesCleanup(rulesIo, rec.rules, rspec);
+        }
+        log(`  rules: ${rec.rules.closing.ok ? "closed by " + rec.rules.closing.method : "NOT CLOSED"}; booking ${rec.rules.bookingVerdict ? rec.rules.bookingVerdict.verdict.toUpperCase() : "not submitted"}; rows ${rec.rules.insertion.readable ? (rec.rules.insertion.ok ? "none added" : rec.rules.insertion.why) : "UNREADABLE"}`);
+      }
+    }
     rec.balance.end = await balanceNow();
     return rec;
   } finally {
@@ -840,6 +1132,7 @@ export function describeUi(rec) {
       }
     }
   }
+  if (rec.rules) out.push(describeRules(rec.rules));
   if (rec.stopped) out.push(`  STOPPED at ${rec.stopped.at}: ${rec.stopped.msg}`);
   out.push(recovery
     ? `  balance ${rec.balance.start} -> ${rec.balance.end}`

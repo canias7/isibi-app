@@ -259,7 +259,10 @@ test("the free checks still cost nothing, and the paid one is still opt-in", () 
   assert.ok(free.length > 400, "the free half came out empty");
   assert.ok((free.match(/instruction: ""/g) || []).length >= 3,
     "a free check stopped sending an empty instruction, so it now costs money");
-  assert.doesNotMatch(free, /api\/site\/route/,
+  // THE ROUTING CALL, NOT THE PAGE LIST: `/api/site/routes` is the site's page
+  // list, a free GET the browser itself makes, and the rules test reads it in
+  // this half. `\b` stops the pattern at `route`, so only the router matches.
+  assert.doesNotMatch(free, /api\/site\/route\b/,
     "the free half routes — a routing call is a real charge and this half must stay free");
   // AND SPENDING IS STILL A SWITCH, defaulting off.
   assert.match(SRC, /const SPEND = process\.env\.CANARY_SPEND === "1"/, "the spend switch is gone");

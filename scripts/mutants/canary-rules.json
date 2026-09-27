@@ -1,0 +1,701 @@
+[
+ {
+  "label": "CONTROL: the rules module's heading comment changes nothing",
+  "control": true,
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "// ── THE CANARY'S RULES TEST: BOOKINGS CLOSED, AND ONE REAL BOOKING REFUSED ──",
+  "to": "// ── THE CANARY'S RULES TEST (control): BOOKINGS CLOSED, ONE BOOKING REFUSED ──"
+ },
+ {
+  "label": "CONTROL: the booking tab's comment changes nothing",
+  "control": true,
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": " * ONE VISITOR BOOKING, THROUGH THE SITE'S OWN FORM. A context of its own (no",
+  "to": " * ONE VISITOR BOOKING, THROUGH THE SITE'S OWN FORM (control). A context (no"
+ },
+ {
+  "label": "CONTROL: the canary's rules-reader comment changes nothing",
+  "control": true,
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "  // THE RULES TEST'S READERS, AND ITS ONE WRITE. The owner's table listing and",
+  "to": "  // THE RULES TEST'S READERS AND ITS ONE WRITE (control). The owner's listing and"
+ },
+ {
+  "label": "K-1: a row is the marker without its phone",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "    row.phone === marker.phone &&\n",
+  "to": ""
+ },
+ {
+  "label": "K-2: a row is the marker on any date",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "    dateOf(row.booking_date) === marker.booking_date &&\n",
+  "to": ""
+ },
+ {
+  "label": "K-3: a row is the marker at any party size",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "    decimalOf(row.party_size) === decimalOf(marker.party_size) &&\n",
+  "to": ""
+ },
+ {
+  "label": "K-4: the form may send more than the five fields",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  if (JSON.stringify(keys) !== JSON.stringify(want)) return { ok: false, why: `the fields sent were ${keys.join(\", \") || \"none\"}, not ${want.join(\", \")}` };\n",
+  "to": ""
+ },
+ {
+  "label": "K-5: any status with the privilege message is a pass",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  if (r.status === 403 && code === \"42501\" && message === want) {",
+  "to": "  if (code === \"42501\" && message === want) {"
+ },
+ {
+  "label": "K-6: any 42501 is a pass",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  if (r.status === 403 && code === \"42501\" && message === want) {",
+  "to": "  if (r.status === 403 && code === \"42501\") {"
+ },
+ {
+  "label": "K-7: a booking that went in is not a fail",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  if (r.status >= 200 && r.status < 300) return { verdict: \"fail\", why: `the booking went in (HTTP ${r.status})`, ...at };\n",
+  "to": ""
+ },
+ {
+  "label": "K-8: a constraint refusal is not a fail",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  if (/^2[23][0-9A-Z]{3}$/.test(code)) {",
+  "to": "  if (/^9[23][0-9A-Z]{3}$/.test(code)) {"
+ },
+ {
+  "label": "K-9: a row-security refusal is a pass",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "    return { verdict: \"partial\", why: `refused by row security, not the privilege check: the insert privilege is still there (${message})`, ...at };",
+  "to": "    return { verdict: \"pass\", why: `refused by row security, not the privilege check: the insert privilege is still there (${message})`, ...at };"
+ },
+ {
+  "label": "K-10: no answer is a pass",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  if (!r.status) return { verdict: \"inconclusive\", why: `no answer arrived${r.failed ? \" (\" + r.failed + \")\" : \"\"}` };",
+  "to": "  if (!r.status) return { verdict: \"pass\", why: `no answer arrived${r.failed ? \" (\" + r.failed + \")\" : \"\"}` };"
+ },
+ {
+  "label": "K-11: a table named twice is read",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "    if (Object.hasOwn(tables, name)) return { ok: false, why: `${name} appears twice` };\n",
+  "to": ""
+ },
+ {
+  "label": "K-12: somebody else's new row is not named",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "    others: added.filter((id) => !markers.includes(id)),",
+  "to": "    others: [],"
+ },
+ {
+  "label": "K-13: a count that moved alone is nothing",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  const none = delta === 0 && !added.length && !gone.length && !markers.length;",
+  "to": "  const none = !added.length && !gone.length && !markers.length;"
+ },
+ {
+  "label": "K-14: a row that went is nothing",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  const none = delta === 0 && !added.length && !gone.length && !markers.length;",
+  "to": "  const none = delta === 0 && !added.length && !markers.length;"
+ },
+ {
+  "label": "K-15: an earlier run's row is not a leftover without the space",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  const prefix = `${(template && template.name) || \"\"} `;",
+  "to": "  const prefix = `${(template && template.name) || \"\"}`;"
+ },
+ {
+  "label": "K-16: a marker row that was there before can be deleted",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  const found = after.rows.filter((r) => r.id > top && !had.has(r.id) && rowIsMarker(r, marker)).map((r) => r.id);",
+  "to": "  const found = after.rows.filter((r) => rowIsMarker(r, marker)).map((r) => r.id);"
+ },
+ {
+  "label": "K-17: two of ours delete the first",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  if (found.length === 1) return { act: \"delete\", why: \"one new row holds every marker value\", id: found[0], ids: found };",
+  "to": "  if (found.length >= 1) return { act: \"delete\", why: \"one new row holds every marker value\", id: found[0], ids: found };"
+ },
+ {
+  "label": "K-18: any new row is ours",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  const found = after.rows.filter((r) => r.id > top && !had.has(r.id) && rowIsMarker(r, marker)).map((r) => r.id);",
+  "to": "  const found = after.rows.filter((r) => r.id > top && !had.has(r.id)).map((r) => r.id);"
+ },
+ {
+  "label": "K-19: the re-read before the delete always agrees",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  return rowIsMarker(row, marker) ? { ok: true, why: \"\" } : { ok: false, why: `row ${id} no longer holds every marker value` };",
+  "to": "  return { ok: true, why: \"\" };"
+ },
+ {
+  "label": "K-20: the delete's answer need not name the row",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  if (status === 200 && j.ok === true && j.id === id) {",
+  "to": "  if (status === 200 && j.ok === true) {"
+ },
+ {
+  "label": "K-21: the cleanup is verified without the count",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  if (final.count !== before.count) return { ok: false, why: `the count is ${final.count}, not ${before.count}` };\n",
+  "to": ""
+ },
+ {
+  "label": "K-22: a secret's characters reach the record",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "    names.push(n.toUpperCase());",
+  "to": "    names.push(n.toUpperCase() + \":\" + s.prefix);"
+ },
+ {
+  "label": "K-23: a mail key alone can send",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "    { channel: \"email\", names: emailNames, possible: mailKeys.length > 0 && has.has(\"EMAIL_FROM\"),",
+  "to": "    { channel: \"email\", names: emailNames, possible: mailKeys.length > 0,"
+ },
+ {
+  "label": "K-24: half a text provider can send",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  const smsWhole = SMS_PROVIDERS.filter((p) => has.has(p.secret) && (!p.also || has.has(p.also)));",
+  "to": "  const smsWhole = SMS_PROVIDERS.filter((p) => has.has(p.secret));"
+ },
+ {
+  "label": "K-25: a text provider sends without SMS_FROM",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "    { channel: \"text\", names: smsNames, possible: smsWhole.length > 0 && has.has(\"SMS_FROM\"),",
+  "to": "    { channel: \"text\", names: smsNames, possible: smsWhole.length > 0,"
+ },
+ {
+  "label": "K-26: any WEBHOOK secret can send",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "possible: hooks.some((n) => n.startsWith(\"WEBHOOK_URL\")),",
+  "to": "possible: hooks.length > 0,"
+ },
+ {
+  "label": "K-27: an unknown approval word is read",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  const bad = words.filter((w) => !known.includes(w));",
+  "to": "  const bad = [];"
+ },
+ {
+  "label": "K-28: a bot check does not stop the press",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  if (p.turnstile.length) return { ok: false, why: `a bot check is configured (${p.turnstile.join(\", \")}): it could refuse the booking for its own reason`, possible: p };\n",
+  "to": ""
+ },
+ {
+  "label": "K-29: unreadable secret names are no secrets",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  if (!secrets || !secrets.ok) return { ok: false, why: `the site's secret names could not be read (${secrets ? secrets.why : \"not read\"}), so what a booking could send is not known` };",
+  "to": "  if (!secrets || !secrets.ok) return { ok: true, why: \"\" };"
+ },
+ {
+  "label": "K-30: a possible send needs no approval",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  const needs = p.possible.filter((c) => !sends.includes(c));",
+  "to": "  const needs = [];"
+ },
+ {
+  "label": "K-31: the notify setting may be anything",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  if (rows.length !== 1 || typeof rows[0].notify !== \"boolean\") return { ok: false, why: `${rows.length} rows, or no notify setting` };",
+  "to": "  if (rows.length !== 1) return { ok: false, why: `${rows.length} rows, or no notify setting` };"
+ },
+ {
+  "label": "K-32: another layer's reply closes bookings",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  if (stored.ok !== true || stored.layer !== \"rules\") return bad(",
+  "to": "  if (stored.ok !== true) return bad("
+ },
+ {
+  "label": "K-33: a reply naming two tables closes bookings",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  if (!applied || applied.length !== 1) return bad(",
+  "to": "  if (!applied || !applied.length) return bad("
+ },
+ {
+  "label": "K-34: another field beside the closing is accepted",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  const odd = fields.filter((f) => !allowed.includes(f) && f !== \"read\");",
+  "to": "  const odd = [];"
+ },
+ {
+  "label": "K-35: a reply that only moved read closes bookings",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  if (!fields.some((f) => allowed.includes(f))) return bad(",
+  "to": "  if (!fields.length) return bad("
+ },
+ {
+  "label": "K-36: who can read may move",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  if (now.pair.read !== was.pair.read) return bad(`who can read ${spec.table} moved from ${was.pair.read} to ${now.pair.read}`, { fields });\n",
+  "to": ""
+ },
+ {
+  "label": "K-37: a write change need not reach none",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  if (byWrite && now.pair.write !== \"none\") return bad(",
+  "to": "  if (byWrite && now.pair.write === \"members\") return bad("
+ },
+ {
+  "label": "K-38: the write may move without the reply saying so",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  if (!byWrite && now.pair.write !== was.pair.write) return bad(",
+  "to": "  if (false) return bad("
+ },
+ {
+  "label": "K-39: another table's access may change",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  const moved = before.names.filter((n) => n !== spec.table && before.tables[n].access !== after.tables[n].access);",
+  "to": "  const moved = [];"
+ },
+ {
+  "label": "K-40: the tables may come and go",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  if (JSON.stringify(before.names) !== JSON.stringify(after.names)) return bad(",
+  "to": "  if (false) return bad("
+ },
+ {
+  "label": "K-41: the verdict reads one implementation's wording",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  const method = byWrite && fields.includes(\"retired\") ? \"retired and write none\" : byWrite ? \"write none\" : \"retired\";",
+  "to": "  if (!String(stored.msg || \"\").includes(\"whether it's open\")) return bad(\"not the closing wording\");\n  const method = byWrite && fields.includes(\"retired\") ? \"retired and write none\" : byWrite ? \"write none\" : \"retired\";"
+ },
+ {
+  "label": "K-42: the render time is not masked",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "export const maskRenderTimes = (html) => String(html || \"\").replace(/([{,]u:)\\d{10,16}(?=[,}])/g, \"$10\");",
+  "to": "export const maskRenderTimes = (html) => String(html || \"\");"
+ },
+ {
+  "label": "K-43: another build is where the test starts",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "    if (p.build !== record.build) return bad(`${r} is on build ${p.build || \"(none)\"}, not ${record.build}`);\n",
+  "to": ""
+ },
+ {
+  "label": "K-44: a version header is where the test starts",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "    if (p.version) return bad(`${r} carries a version header (${p.version}): the site is not on the older layout`);\n",
+  "to": ""
+ },
+ {
+  "label": "K-45: any stylesheet bytes are the recorded ones",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  if (css.bytes !== record.stylesheet.bytes || css.sha256 !== record.stylesheet.sha256) {",
+  "to": "  if (false) {"
+ },
+ {
+  "label": "K-46: a page that changed is the same",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "    if (a.sha256 !== b.sha256) return bad(`${r} changed (masked sha256 ${String(b.sha256).slice(0, 12)} -> ${String(a.sha256).slice(0, 12)})`);\n",
+  "to": ""
+ },
+ {
+  "label": "K-47: a stylesheet that changed is the same",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "    if (!(b.status === 200 && a.status === 200) || b.bytes !== a.bytes || b.sha256 !== a.sha256) return bad(`${h} is not byte for byte the same`);\n",
+  "to": ""
+ },
+ {
+  "label": "K-48: a build that moved is the same",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "    if (!b.build || a.build !== b.build) return bad(`${r} moved from build ${b.build || \"(none)\"} to ${a.build || \"(none)\"}`);\n",
+  "to": ""
+ },
+ {
+  "label": "K-49: a changed stored file is the same",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  const changed = b.filter(([k, s], i) => a[i][1] !== s).map(([k]) => k);",
+  "to": "  const changed = [];"
+ },
+ {
+  "label": "K-50: a job row that began a publish is nothing",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "    if (j.row.publish_started_at || j.row.published_at) return { ok: false, why: `job ${j.job}'s row says a publish began` };\n",
+  "to": ""
+ },
+ {
+  "label": "K-51: the stored source need not be compared",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  if (!source || !source.ok) return { ok: false, why: `the stored source: ${source ? source.why : \"not compared\"}` };\n",
+  "to": ""
+ },
+ {
+  "label": "K-52: a closed table is where the test starts",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  add(\"open\", bt && bt.pair && bt.pair.write === \"anyone\",",
+  "to": "  add(\"open\", true,"
+ },
+ {
+  "label": "K-53: an earlier run's rows are ignored",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  add(\"census\", c && c.ok && !left.length,",
+  "to": "  add(\"census\", c && c.ok,"
+ },
+ {
+  "label": "K-54: a visitor's read of bookings need not be refused",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  add(\"read-refused\", br && br.status === rr.status && br.code === rr.code && br.message === rr.message,",
+  "to": "  add(\"read-refused\", true,"
+ },
+ {
+  "label": "K-55: the surface need not be where it was recorded",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "  add(\"surface\", s.ok, s.ok ? `every page on build ${spec.record.build}, the recorded stylesheet byte for byte` : s.why);",
+  "to": "  add(\"surface\", true, s.ok ? `every page on build ${spec.record.build}, the recorded stylesheet byte for byte` : s.why);"
+ },
+ {
+  "label": "K-56: the record keeps the rows",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "    ? { ok: true, count: c.count, ids: c.ids, markers: c.rows.filter((row) => rowIsMarker(row, r.marker)).map((row) => row.id) }",
+  "to": "    ? { ...c, markers: c.rows.filter((row) => rowIsMarker(row, r.marker)).map((row) => row.id) }"
+ },
+ {
+  "label": "K-57: the secret names are read again after the edit",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "    safe(() => io.tables()), safe(() => io.newest()), secrets ? safe(() => io.secrets()) : Promise.resolve(null),",
+  "to": "    safe(() => io.tables()), safe(() => io.newest()), safe(() => io.secrets()),"
+ },
+ {
+  "label": "U-1: every booking request leaves the tab",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "        if (out.submit && out.posts.length === 1) { entry.sent = true; return r.fallback(); }",
+  "to": "        if (out.submit) { entry.sent = true; return r.fallback(); }"
+ },
+ {
+  "label": "U-2: a rehearsal's booking leaves the tab",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "        if (out.submit && out.posts.length === 1) { entry.sent = true; return r.fallback(); }",
+  "to": "        if (out.posts.length === 1) { entry.sent = true; return r.fallback(); }"
+ },
+ {
+  "label": "U-3: any other write leaves the tab",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "        entry.stopped = out.submit ? \"a second booking request — only one is ever let out\" : \"a rehearsal stops the booking inside the browser\";\n        return r.abort(\"blockedbyclient\");\n      }\n      if (!u.includes(\"/cdn-cgi/\")) out.aborted.push(`${m} ${u}`);\n      return r.abort(\"blockedbyclient\");",
+  "to": "        entry.stopped = out.submit ? \"a second booking request — only one is ever let out\" : \"a rehearsal stops the booking inside the browser\";\n        return r.abort(\"blockedbyclient\");\n      }\n      if (!u.includes(\"/cdn-cgi/\")) out.aborted.push(`${m} ${u}`);\n      return r.fallback();"
+ },
+ {
+  "label": "U-4: a form that does not hold the marker is pressed",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "    if (f.name !== marker.name || f.phone !== marker.phone || f.date !== marker.booking_date || !(f.times || []).includes(marker.booking_time)) {",
+  "to": "    if (false) {"
+ },
+ {
+  "label": "U-5: a form that never hydrated is pressed",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "      if (out.ready && out.ready.hydrated && out.ready.party && out.ready.submit) break;",
+  "to": "      if (out.ready) break;"
+ },
+ {
+  "label": "U-6: the paid press sends from a start the test was not written for",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "        } else if (!rec.rules.start.ok) {",
+  "to": "        } else if (false) {"
+ },
+ {
+  "label": "U-7: a booking is submitted when bookings did not close",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "        if (!rec.rules.closing.ok) {",
+  "to": "        if (false) {"
+ },
+ {
+  "label": "U-8: a booking is submitted when the reply never came",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "      } else if (!sentSteps.every((s) => s.completed)) {\n        rec.rules.booking = { skipped: \"a reply never came, so whether the rule changed is not known — no booking was submitted\" };",
+  "to": "      } else if (false) {\n        rec.rules.booking = { skipped: \"a reply never came, so whether the rule changed is not known — no booking was submitted\" };"
+ },
+ {
+  "label": "U-9: the cleanup runs without approval",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "  if (!(r.allow && r.allow.cleanup === true)) {",
+  "to": "  if (false) {"
+ },
+ {
+  "label": "U-10: the row is not read again before the delete",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "  x.recheck = stillMarker(await Promise.resolve().then(() => io.newest()).catch(() => null), x.plan.id, r.marker);\n  if (!x.recheck.ok) return x;",
+  "to": "  x.recheck = { ok: true, why: \"\" };"
+ },
+ {
+  "label": "U-11: the delete is not one of the readers demanded",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "    const need = [\"tables\", \"newest\", \"secrets\", \"stamp\", \"menu\", \"bookingsRead\", \"surface\", \"del\"];",
+  "to": "    const need = [\"tables\", \"newest\", \"secrets\", \"stamp\", \"menu\", \"bookingsRead\", \"surface\"];"
+ },
+ {
+  "label": "U-12: the rehearsal presses nothing",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "          rec.rules.dry = await book(false);",
+  "to": "          rec.rules.dry = null;"
+ },
+ {
+  "label": "U-13: the rehearsal's table is not read again",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "          rec.rules.dryAfter = censusOf(tablesOf(t), nw, rspec);",
+  "to": "          rec.rules.dryAfter = rec.rules.before.census;"
+ },
+ {
+  "label": "U-14: the owner's view is not read after the booking",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "        rec.rules.after = await readRulesState(rulesIo, rspec, { secrets: false });",
+  "to": "        rec.rules.after = rec.rules.before;"
+ },
+ {
+  "label": "U-15: the recorded stylesheet is another",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "  stylesheet: Object.freeze({ path: \"/assets/index-glpAegzo.css\", bytes: 209105,",
+  "to": "  stylesheet: Object.freeze({ path: \"/assets/index-glpAegzo.css\", bytes: 209106,"
+ },
+ {
+  "label": "U-16: the scenario may leave at the data layer too",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "    layers: Object.freeze([\"rules\"]),\n    publishes: 0,\n    layout: \"legacy\",",
+  "to": "    layers: Object.freeze([\"rules\", \"data\"]),\n    publishes: 0,\n    layout: \"legacy\","
+ },
+ {
+  "label": "U-17: the marker is a real-looking number",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "phone: \"07700 900999\", party_size: 2,",
+  "to": "phone: \"07123 456789\", party_size: 2,"
+ },
+ {
+  "label": "E-1: the page list is not read",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "    const pl = readRoutes(rr.status, rr.json);",
+  "to": "    const pl = { ok: true, pages: [] };"
+ },
+ {
+  "label": "E-2: the notification record is read whole",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "&select=notify,notified_at`, { headers: svc });",
+  "to": "&select=*`, { headers: svc });"
+ },
+ {
+  "label": "E-3: the cleanup deletes from the menu",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "    del: (id) => call(\"DELETE\", `/api/site/${encodeURIComponent(CANARY)}/rows/${encodeURIComponent(RULES.table)}/${id}`),",
+  "to": "    del: (id) => call(\"DELETE\", `/api/site/${encodeURIComponent(CANARY)}/rows/menu_items/${id}`),"
+ },
+ {
+  "label": "E-4: the approvals are not handed to the driver",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "rules: rulesIo, allow: ALLOW, runId: RUN_ID });",
+  "to": "rules: rulesIo, runId: RUN_ID });"
+ },
+ {
+  "label": "E-5: anything but a failure passes the booking",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "v.verdict === \"pass\", `${String(v.verdict).toUpperCase()}: ${v.why}`);",
+  "to": "v.verdict !== \"fail\", `${String(v.verdict).toUpperCase()}: ${v.why}`);"
+ },
+ {
+  "label": "E-6: the rules record is written with its rows",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "ui: ui.rules ? { ...ui, rules: rulesRecordable(ui.rules) } : ui, chain }",
+  "to": "ui, chain }"
+ },
+ {
+  "label": "E-7: an unknown approval word does not stop the run",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "  console.error(`REFUSING THE APPROVALS: ${ALLOW.msg}`);\n  process.exit(2);",
+  "to": "  console.error(`REFUSING THE APPROVALS: ${ALLOW.msg}`);"
+ },
+ {
+  "label": "E-8: the older layout is read through the version chain",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "        const up = legacyUnpublishedVerdict({ published, jobs: jobRecords, surface, source });",
+  "to": "        const up = unpublishedVerdict({ published, jobs: jobRecords, chain });"
+ },
+ {
+  "label": "E-9: the stamp is not compared",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "a0.stamp.notifiedAt === b0.stamp.notifiedAt),",
+  "to": "true),"
+ },
+ {
+  "label": "W-1: the approvals box reaches the script as the scenario",
+  "files": [
+   ".github/workflows/edit-canary.yml"
+  ],
+  "from": "          CANARY_ALLOW: ${{ github.event.inputs.rules_allow }}",
+  "to": "          CANARY_ALLOW: ${{ github.event.inputs.ui_scenario }}"
+ }
+]
