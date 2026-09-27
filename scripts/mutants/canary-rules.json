@@ -697,5 +697,133 @@
   ],
   "from": "          CANARY_ALLOW: ${{ github.event.inputs.rules_allow }}",
   "to": "          CANARY_ALLOW: ${{ github.event.inputs.ui_scenario }}"
+ },
+ {
+  "label": "G-1: the gate is asked after the booking would have left (the defect restored)",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "if (out.submit && gate.ok) { entry.sent = true; return r.fallback(); }",
+  "to": "if (out.submit && out.posts.length === 1) { entry.sent = true; return r.fallback(); }"
+ },
+ {
+  "label": "G-2: every booking request the paid press makes leaves",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "if (out.submit && gate.ok) { entry.sent = true; return r.fallback(); }",
+  "to": "if (out.submit) { entry.sent = true; return r.fallback(); }"
+ },
+ {
+  "label": "G-3: the body is not checked before it leaves",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "if (!check.ok) return no(`not the marker booking: ${check.why}`);",
+  "to": "if (false) return no(`not the marker booking: ${check.why}`);"
+ },
+ {
+  "label": "G-4: a second booking request may leave",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "if (n !== 1) return no(\"a second booking request: only the first is ever let out\");",
+  "to": "if (n < 1) return no(\"a second booking request: only the first is ever let out\");"
+ },
+ {
+  "label": "G-5: a query string is let out",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "if (typeof search !== \"string\" || search !== \"\") return no(",
+  "to": "if (typeof search !== \"string\") return no("
+ },
+ {
+  "label": "G-6: headers that cannot be read are let out",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "if (!headers || typeof headers !== \"object\") return no(",
+  "to": "if (headers === undefined) return no("
+ },
+ {
+  "label": "G-7: no header is refused",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "export const BOOKING_HEADERS_REFUSED = Object.freeze([\"prefer\", \"authorization\"]);",
+  "to": "export const BOOKING_HEADERS_REFUSED = Object.freeze([]);"
+ },
+ {
+  "label": "G-8: a header's name is compared case by case",
+  "files": [
+   "scripts/canary-rules.mjs"
+  ],
+  "from": "const names = Object.keys(headers).map((h) => h.toLowerCase());",
+  "to": "const names = Object.keys(headers).map((h) => h);"
+ },
+ {
+  "label": "G-9: service workers are not blocked in the booking tab",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": ", serviceWorkers: \"block\" });",
+  "to": " });"
+ },
+ {
+  "label": "G-10: the booking request's headers are never read",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "try { headers = await req.allHeaders(); } catch { headers = null; }",
+  "to": "headers = {};"
+ },
+ {
+  "label": "G-11: the booking request's query string is never read",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "try { search = new URL(u).search; } catch { search = null; }",
+  "to": "search = \"\";"
+ },
+ {
+  "label": "G-12: a stopped booking is read off the browser's own failure",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": ": first.sent !== true",
+  "to": ": false"
+ },
+ {
+  "label": "G-13: the run does not say why the booking was stopped",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "if (out.submit && out.posts.length === 1) out.why = ",
+  "to": "if (false) out.why = "
+ },
+ {
+  "label": "G-14: the gate's reason is not recorded on the request",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "exactWhy: gate.why,",
+  "to": "exactWhy: \"\","
+ },
+ {
+  "label": "G-15: the rehearsal no longer asks whether the paid run would let its request out",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "!!(post && post.exact === true), post ? post.exactWhy",
+  "to": "true, post ? post.exactWhy"
+ },
+ {
+  "label": "G-16: the paid run no longer asks whether the gate let the booking out",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "!!(post && post.sent === true && post.exact === true)",
+  "to": "!!(post && post.sent === true)"
  }
 ]

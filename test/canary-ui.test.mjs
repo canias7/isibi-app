@@ -260,11 +260,12 @@ function standIn(opt = {}) {
   // first context is the app's, and a scenario that books gets its visitor
   // stand-in for every context after that.
   let contexts = 0;
+  const contextOptions = [];
   const browser = {
-    newContext: async () => (contexts++ > 0 && opt.visitor ? opt.visitor() : context),
+    newContext: async (o) => { contextOptions.push(o); return contexts++ > 0 && opt.visitor ? opt.visitor() : context; },
     close: async () => { calls.push("close"); },
   };
-  return { st, calls, inits, routes, launch: async () => browser };
+  return { st, calls, inits, routes, contextOptions, launch: async () => browser };
 }
 
 const SESSION = { access_token: "a", refresh_token: "r", expires_at: 2_000_000_000, user: { id: UID, email: "o@example.com" } };
@@ -1096,12 +1097,18 @@ function bookingTab(calls, opt = {}) {
   let said = { toasts: [], success: false, form: true };
   const out = [];
   const fire = (ev, x) => Promise.all((listeners[ev] || []).map((f) => f(x)));
-  const req = (method, url, body, errorText = "net::ERR_BLOCKED_BY_CLIENT") => ({
-    method: () => method, url: () => url, postData: () => (body === undefined ? null : JSON.stringify(body)), failure: () => ({ errorText }),
+  // A request as the page made it. A string body is sent as that exact text
+  // (malformed JSON included); headers are the lower-case names a browser
+  // reports, `content-type` alone unless the case says otherwise.
+  const req = (method, url, body, errorText = "net::ERR_BLOCKED_BY_CLIENT", headers = { "content-type": "application/json" }) => ({
+    method: () => method, url: () => url,
+    postData: () => (body === undefined ? null : typeof body === "string" ? body : JSON.stringify(body)),
+    allHeaders: async () => { if (opt.headersUnreadable) throw new Error("the request is gone"); return { ...headers }; },
+    failure: () => ({ errorText }),
   });
-  const send = async (method, url, body) => {
+  const send = async (method, url, body, headers) => {
     let decided = "";
-    await wall({ request: () => req(method, url, body), fallback: async () => { decided = "out"; }, abort: async () => { decided = "stopped"; } });
+    await wall({ request: () => req(method, url, body, undefined, headers), fallback: async () => { decided = "out"; }, abort: async () => { decided = "stopped"; } });
     calls.push(`${method} ${new URL(url).pathname} ${decided}`);
     if (decided !== "out") { await fire("requestfailed", req(method, url, body)); return null; }
     out.push({ method, path: new URL(url).pathname, body });
@@ -1128,10 +1135,14 @@ function bookingTab(calls, opt = {}) {
       calls.push(`press ${sel}`);
       if (sel.startsWith('form button[type="button"]')) form.times = ["17:00"];
       if (sel !== 'form button[type="submit"]') return;
-      const body = { name: form.name, phone: form.phone, party_size: 2, booking_date: form.date, booking_time: form.times[0] };
+      // What the form holds, and what the page's own code then sends: the two
+      // can differ (`sendAs`), which is the case the gate exists for.
+      const held = { name: form.name, phone: form.phone, party_size: 2, booking_date: form.date, booking_time: form.times[0] };
+      const body = opt.sendAs ? opt.sendAs(held) : held;
+      const to = LIDO + "/api/db/lido-axes-b/data/bookings" + (opt.query || "");
       if (opt.otherWrite) await send("POST", LIDO + "/api/telemetry", { e: 1 });
-      const a = await send("POST", LIDO + "/api/db/lido-axes-b/data/bookings", body);
-      if (opt.twice) await send("POST", LIDO + "/api/db/lido-axes-b/data/bookings", body);
+      const a = await send("POST", to, body, opt.headers);
+      if (opt.twice) await send("POST", to, opt.retryAs ? opt.retryAs(held) : body, opt.headers);
       said = a && a.status >= 200 && a.status < 300 ? { toasts: ["Table held — see you by the water."], success: true, form: false }
         : a && a.status ? { toasts: ["That isn't available."], success: false, form: true }
           : { toasts: ["We couldn't reach the booking system."], success: false, form: true };
@@ -1183,6 +1194,9 @@ test("the rules rehearsal reads where it starts, presses Book a table once behin
   assert.match(d.posts[0].stopped, /rehearsal/);
   assert.equal(bookingBodyVerdict(d.posts[0].body, rec.rules.marker).ok, true, JSON.stringify(d.posts[0].body));
   assert.equal(d.response, null, "an answer arrived for a request that was stopped");
+  assert.equal(d.posts[0].exact, true, `the paid run would not let this request out: ${d.posts[0].exactWhy}`);
+  assert.equal(h.contextOptions.length, 2);
+  assert.equal(h.contextOptions[1].serviceWorkers, "block", "a service worker could take the booking past the wall");
   assert.equal(tabs.length, 1);
   assert.deepEqual(tabs[0].out, [], "the rehearsal's booking left the tab");
   assert.ok(h.calls.includes(`POST ${BOOKINGS} stopped`));
@@ -1227,6 +1241,7 @@ test("either supported way of closing lets the one real booking out, and a refus
     const b = rec.rules.booking;
     assert.equal(b.pressed, true, b.why);
     assert.deepEqual(b.posts.map((p) => p.sent), [true]);
+    assert.deepEqual({ exact: b.posts[0].exact, why: b.posts[0].exactWhy, check: b.posts[0].check.ok }, { exact: true, why: "", check: true });
     assert.equal(tabs[0].out.length, 1, "not exactly one booking left the tab");
     assert.equal(bookingBodyVerdict(tabs[0].out[0].body, rec.rules.marker).ok, true);
     assert.deepEqual({ status: b.response.status, code: b.response.json.code }, { status: 403, code: "42501" });
@@ -1346,10 +1361,83 @@ test("only the first booking request leaves the tab, and any other write the pag
   const rec = await driveRules(h, db);
   const b = rec.rules.booking;
   assert.deepEqual(b.posts.map((p) => p.sent), [true, false]);
-  assert.match(b.posts[1].stopped, /only one is ever let out/);
+  assert.deepEqual(b.posts.map((p) => p.exact), [true, false], "the gate did not tell the first request from the second");
+  assert.match(b.posts[1].stopped, /second booking request: only the first is ever let out/);
   assert.deepEqual(tabs[0].out.map((o) => o.path), [BOOKINGS], "more than the one booking left the tab");
   assert.deepEqual(b.aborted, [`POST ${LIDO}/api/telemetry`]);
   assert.ok(h.calls.includes("POST /api/telemetry stopped"));
+});
+
+test("the gate decides before the booking leaves: the form holds the marker, the page sends another phone, and it never reaches the service", async () => {
+  // THE REPRODUCTION: the form's own fields read the marker's phone; the page's
+  // code sends a different one. Checked after it left, it was already booked.
+  const other = "07700 900111";
+  const { h, db, tabs } = rulesHarness({ tab: { sendAs: (b) => ({ ...b, phone: other }) } });
+  const start = JSON.stringify(db.rows);
+  const rec = await driveRules(h, db, { allow: readAllow("cleanup") });
+  const b = rec.rules.booking;
+  assert.equal(b.filled.phone, rec.rules.marker.phone, "the form did not hold the marker's phone");
+  assert.equal(b.posts.length, 1);
+  assert.deepEqual({ phone: b.posts[0].body.phone, sent: b.posts[0].sent, exact: b.posts[0].exact }, { phone: other, sent: false, exact: false });
+  assert.match(b.posts[0].stopped, /not the marker booking: phone was sent as "07700 900111"/);
+  assert.equal(b.posts[0].exactWhy, b.posts[0].stopped, "the gate's own reason was not recorded");
+  assert.match(b.why, /stopped in the browser and never sent/);
+  // NEVER REACHED THE SERVICE, AND NOTHING TO CLEAN UP.
+  assert.deepEqual(tabs[0].out, [], "the request left the tab");
+  assert.ok(h.calls.includes(`POST ${BOOKINGS} stopped`));
+  assert.equal(JSON.stringify(db.rows), start, "a row was written");
+  assert.equal(db.notifiedAt, null, "the notification stamp moved");
+  assert.deepEqual(db.deletes, []);
+  assert.equal(rec.rules.cleanup, undefined, "a cleanup ran for a booking that never left");
+  assert.equal(rec.rules.insertion.ok, true, rec.rules.insertion.why);
+  assert.equal(rec.rules.bookingVerdict.verdict, "inconclusive");
+  assert.match(rec.rules.bookingVerdict.why, /never sent/);
+});
+
+test("malformed JSON, a changed value or type, a missing or extra field, a query string and a prefer or authorization header are each stopped before they leave", async () => {
+  const cases = [
+    ["malformed JSON", { sendAs: () => '{"name": "Canary rules 36300000001", "phone": ' }, /the request body is not JSON/],
+    ["no body", { sendAs: () => undefined }, /the request body is not an object/],
+    ["a list", { sendAs: (b) => [b] }, /the request body is not an object/],
+    ["a changed value", { sendAs: (b) => ({ ...b, name: b.name + " " }) }, /name was sent as/],
+    ["a changed type", { sendAs: (b) => ({ ...b, party_size: "2" }) }, /party_size was sent as "2"/],
+    ["a missing field", { sendAs: ({ booking_time, ...b }) => b }, /the fields sent were booking_date, name, party_size, phone,/],
+    ["an extra field", { sendAs: (b) => ({ ...b, cf_turnstile_response: "t" }) }, /the fields sent were .*cf_turnstile_response/],
+    ["a query string", { query: "?on_conflict=id" }, /query string \(\?on_conflict=id\)/],
+    ["a prefer header", { headers: { "content-type": "application/json", prefer: "return=representation" } }, /must not send: prefer/],
+    ["an authorization header", { headers: { "content-type": "application/json", authorization: "Bearer member" } }, /must not send: authorization/],
+    ["headers that cannot be read", { headersUnreadable: true }, /headers could not be read/],
+  ];
+  for (const [what, tab, re] of cases) {
+    const { h, db, tabs } = rulesHarness({ tab });
+    const start = JSON.stringify(db.rows);
+    const rec = await driveRules(h, db, { allow: readAllow("cleanup") });
+    const b = rec.rules.booking;
+    assert.equal(b.posts.length, 1, what);
+    assert.deepEqual({ sent: b.posts[0].sent, exact: b.posts[0].exact }, { sent: false, exact: false }, what);
+    assert.match(b.posts[0].stopped, re, what);
+    assert.deepEqual(tabs[0].out, [], `${what}: the request left the tab`);
+    assert.equal(JSON.stringify(db.rows), start, `${what}: a row was written`);
+    assert.equal(db.notifiedAt, null, what);
+    assert.deepEqual(db.deletes, [], what);
+    assert.equal(rec.rules.cleanup, undefined, what);
+    assert.equal(rec.rules.bookingVerdict.verdict, "inconclusive", what);
+  }
+});
+
+test("a stopped booking is not retried into the database: a second request, even the exact one, is stopped too", async () => {
+  const { h, db, tabs } = rulesHarness({ tab: { sendAs: (b) => ({ ...b, phone: "07700 900111" }), twice: true, retryAs: (b) => b } });
+  const start = JSON.stringify(db.rows);
+  const rec = await driveRules(h, db, { allow: readAllow("cleanup") });
+  const b = rec.rules.booking;
+  assert.deepEqual(b.posts.map((p) => [p.sent, p.exact]), [[false, false], [false, false]]);
+  assert.equal(bookingBodyVerdict(b.posts[1].body, rec.rules.marker).ok, true, "the retry was not the marker body, so it proves nothing");
+  assert.match(b.posts[1].stopped, /second booking request: only the first is ever let out/);
+  assert.deepEqual(tabs[0].out, [], "a request left the tab");
+  assert.equal(JSON.stringify(db.rows), start);
+  assert.deepEqual(db.deletes, []);
+  assert.equal(rec.rules.cleanup, undefined);
+  assert.equal(rec.rules.bookingVerdict.verdict, "inconclusive");
 });
 
 test("a form that does not hold the marker, or never becomes interactive, is not pressed", async () => {
@@ -1431,7 +1519,8 @@ test("the rules test is handed its readers, its one DELETE, the approvals and th
   for (const needle of ["R.start.checks", "requestVerdict(s, UI_ASK.scenario)", "cl && cl.ok", "bk.posts.length === 1 && post && post.sent === true",
     "bookingBodyVerdict(post.body, R.marker)", 'v.verdict === "pass"', "bk.message.success === false", "ins && ins.ok", "x.verified && x.verified.ok",
     "a0.stamp.notifiedAt === b0.stamp.notifiedAt", "a0.menu.sha256 === b0.menu.sha256", "a0.bookingsRead.message === rr.message",
-    "post.sent === false && !d.response", "d.aborted.length", "da.count === b0.census.count", "EVIDENCE_BOUNDARY"]) {
+    "post.sent === false && !d.response", "d.aborted.length", "da.count === b0.census.count", "EVIDENCE_BOUNDARY",
+    "post && post.exact === true", "post && post.sent === true && post.exact === true"]) {
     assert.ok(win.includes(needle), `the check on ${needle} is gone`);
   }
   // THE OLDER LAYOUT: nothing published is read off the build, the pages, the

@@ -760,6 +760,8 @@ if (UI_ASK) {
         bk.skipped || bk.why || `${Array.isArray(bk.posts) ? bk.posts.length : 0} booking request(s)`);
       const body = post ? bookingBodyVerdict(post.body, R.marker) : { ok: false, why: "no booking request was made" };
       check("the booking sent exactly the marker booking's five fields", body.ok, body.why);
+      check("the gate let it out before it left, as the one exact request", !!(post && post.sent === true && post.exact === true),
+        post ? (post.exact ? "" : post.exactWhy || "") : "no booking request was made");
       const v = R.bookingVerdict || { verdict: "none", why: bk.skipped || "no booking was submitted" };
       check(`the booking was refused at the privilege check: 403, 42501, "permission denied for table ${RULES.table}"`, v.verdict === "pass", `${String(v.verdict).toUpperCase()}: ${v.why}`);
       check("the page did not say the table was booked", !!(bk.message && bk.message.success === false),
@@ -786,6 +788,8 @@ if (UI_ASK) {
         !!(d.pressed && d.posts.length === 1 && post && post.sent === false && !d.response), d.why || `${Array.isArray(d.posts) ? d.posts.length : 0} booking request(s)${d.response ? ", and an answer arrived" : ""}`);
       const body = post ? bookingBodyVerdict(post.body, R.marker) : { ok: false, why: "no booking request was made" };
       check("what it would have sent is exactly the marker booking's five fields", body.ok, body.why);
+      check("the paid run's gate would let that request out: the first, exactly the marker, no query string, no prefer or authorization header",
+        !!(post && post.exact === true), post ? post.exactWhy || "" : "no booking request was made");
       check("the booking page made no other write", !!(Array.isArray(d.aborted) && !d.aborted.length), (d.aborted || []).join("; ") || "not read");
       const da = R.dryAfter || null;
       const same = !!(da && da.ok && b0.census && b0.census.ok && da.count === b0.census.count && JSON.stringify(da.ids) === JSON.stringify(b0.census.ids));

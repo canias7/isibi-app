@@ -111,6 +111,48 @@ export function bookingBodyVerdict(raw, marker) {
   return { ok: true, why: "" };
 }
 
+/**
+ * The request headers the platform's data route passes on to the database,
+ * beside `content-type`, `accept` and `cookie`. Each changes what the database
+ * checks:
+ * - `prefer` can turn the insert into an upsert, or ask for the new row back.
+ *   Asking for it back needs the READ privilege visitors do not have on this
+ *   table, and is refused with the very answer a pass looks for.
+ * - `authorization` makes it a signed-in member's request, not a visitor's.
+ * The site's own booking request carries neither (read from its live code).
+ */
+export const BOOKING_HEADERS_REFUSED = Object.freeze(["prefer", "authorization"]);
+
+/**
+ * IS THIS THE ONE BOOKING REQUEST THE TEST WAS WRITTEN FOR? Asked in the
+ * tab's interceptor BEFORE the request can leave, never afterwards. It must be:
+ * - the first booking request;
+ * - exactly the marker's five fields and values (`bookingBodyVerdict`), so
+ *   malformed JSON, a changed value or a missing or extra field all fail;
+ * - sent to the endpoint with no query string, which the data route would
+ *   pass on to the database too;
+ * - without a `prefer` or `authorization` header.
+ * Anything else answers `ok: false` with the reason. Nothing is rewritten to
+ * pass. The caller lets the request out only on the paid press, and only when
+ * this answers `ok`.
+ *   n        its position among the tab's booking requests (1 = the first)
+ *   raw      its body exactly as the page sent it
+ *   search   its URL's query string ("" for none)
+ *   headers  its headers by name, or null when they could not be read
+ */
+export function bookingGate({ n, raw, search, headers, marker } = {}) {
+  const check = bookingBodyVerdict(raw, marker);
+  const no = (why) => ({ ok: false, check, why });
+  if (n !== 1) return no("a second booking request: only the first is ever let out");
+  if (!check.ok) return no(`not the marker booking: ${check.why}`);
+  if (typeof search !== "string" || search !== "") return no(`the request carries a query string (${String(search).slice(0, 80)})`);
+  if (!headers || typeof headers !== "object") return no("the request's headers could not be read");
+  const names = Object.keys(headers).map((h) => h.toLowerCase());
+  const bad = BOOKING_HEADERS_REFUSED.filter((h) => names.includes(h));
+  if (bad.length) return no(`the request carries a header this test must not send: ${bad.join(", ")}`);
+  return { ok: true, check, why: "" };
+}
+
 // ── WHAT THE VISITOR'S BOOKING GOT BACK ─────────────────────────────────────
 
 /**

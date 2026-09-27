@@ -36,6 +36,7 @@ import {
 import {
   markerBooking, readRulesState, rulesStartVerdict, closingVerdict, classifyBooking, insertionVerdict,
   cleanupPlan, stillMarker, deleteVerdict, cleanupVerified, censusOf, tablesOf, describeRules, bookingBodyVerdict,
+  bookingGate,
 } from "./canary-rules.mjs";
 
 export const SESSION_KEY = "zephyr_session_v1";
@@ -585,11 +586,18 @@ export async function readShownSite(browser, { url, sel, name, ms = 45_000, poll
 /**
  * ONE VISITOR BOOKING, THROUGH THE SITE'S OWN FORM. A context of its own (no
  * planted session: a visitor signed in to nothing), the form filled field by
- * field and "Book a table" pressed once. THE WALL: a read goes out; the one
- * booking request goes out only when `submit` is set, and only the first; any
- * other write is stopped in the browser and recorded. So a rehearsal records
- * exactly what would have been sent and sends nothing, and the paid run sends
- * one booking and nothing else. The answer is captured as the page received it.
+ * field and "Book a table" pressed once. THE WALL: a read goes out; any other
+ * write is stopped in the browser and recorded; and a booking request goes out
+ * only when `submit` is set AND `bookingGate` says, BEFORE it leaves, that it
+ * is the one request the test was written for: the first, exactly the marker's
+ * fields and values, no query string, no `prefer` or `authorization` header.
+ * Checked afterwards, a wrong payload would already have reached the database.
+ * A request that is not exact is stopped, recorded with its reason, and never
+ * rewritten to pass. So a rehearsal records exactly what would have been sent,
+ * and whether the paid run would let it out, and sends nothing; and the paid
+ * run sends that one booking and nothing else. Service workers are blocked in
+ * this context, because a request a service worker handles never reaches the
+ * wall. The answer is captured as the page received it.
  */
 export async function bookInPage(browser, {
   origin, spec, marker, submit = false, ms = 45_000, answerMs = 30_000, settleMs = 6_000, pollMs = 250, route = null,
@@ -604,7 +612,7 @@ export async function bookInPage(browser, {
   const sleep = (t) => new Promise((r) => setTimeout(r, t));
   let ctx = null;
   try {
-    ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
+    ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 }, serviceWorkers: "block" });
     if (route) await route(ctx, "visitor");
     await ctx.route(() => true, async (r) => {
       const req = r.request();
@@ -612,12 +620,20 @@ export async function bookInPage(browser, {
       if (m === "GET" || m === "HEAD") return r.fallback();
       const u = String(req.url());
       if (m === "POST" && onApi(u)) {
+        const raw = req.postData();
         let body = null;
-        try { body = JSON.parse(req.postData() || "null"); } catch { body = { unparsed: String(req.postData() || "").slice(0, 200) }; }
-        const entry = { method: m, path: api, body, sent: false };
+        try { body = JSON.parse(raw || "null"); } catch { body = { unparsed: String(raw || "").slice(0, 200) }; }
+        let headers = null;
+        try { headers = await req.allHeaders(); } catch { headers = null; }
+        let search = null;
+        try { search = new URL(u).search; } catch { search = null; }
+        // DECIDED HERE, BEFORE ANYTHING LEAVES: the one exact request, or none.
+        const gate = bookingGate({ n: out.posts.length + 1, raw, search, headers, marker });
+        const entry = { method: m, path: api, body, sent: false, exact: gate.ok, exactWhy: gate.why, check: gate.check };
         out.posts.push(entry);
-        if (out.submit && out.posts.length === 1) { entry.sent = true; return r.fallback(); }
-        entry.stopped = out.submit ? "a second booking request — only one is ever let out" : "a rehearsal stops the booking inside the browser";
+        if (out.submit && gate.ok) { entry.sent = true; return r.fallback(); }
+        entry.stopped = out.submit ? gate.why : "a rehearsal stops the booking inside the browser";
+        if (out.submit && out.posts.length === 1) out.why = `the booking request was stopped in the browser and never sent — ${gate.why}`;
         return r.abort("blockedbyclient");
       }
       if (!u.includes("/cdn-cgi/")) out.aborted.push(`${m} ${u}`);
@@ -1080,9 +1096,15 @@ export async function runUi(opts) {
           rec.rules.booking = { skipped: `the reply is not a rules success that closed ${rspec.table} (${rec.rules.closing.why}), so no booking was submitted` };
         } else {
           const b = rec.rules.booking = await book(true);
-          rec.rules.bookingVerdict = b.pressed && b.posts.length
-            ? classifyBooking(b.response || { failed: b.failed }, rspec)
-            : { verdict: "inconclusive", why: b.why || "no booking request was made" };
+          const first = b.posts[0];
+          // A booking stopped in the tab never reached the database: nothing
+          // was tested, so it is inconclusive, never read off the browser's
+          // own "blocked" failure as though the site had answered.
+          rec.rules.bookingVerdict = !(b.pressed && first)
+            ? { verdict: "inconclusive", why: b.why || "no booking request was made" }
+            : first.sent !== true
+              ? { verdict: "inconclusive", why: `the booking was never sent: ${first.stopped || "it was stopped in the browser"}` }
+              : classifyBooking(b.response || { failed: b.failed }, rspec);
         }
         rec.rules.after = await readRulesState(rulesIo, rspec, { secrets: false });
         rec.rules.insertion = insertionVerdict(rec.rules.before.census, rec.rules.after.census, rec.rules.marker);

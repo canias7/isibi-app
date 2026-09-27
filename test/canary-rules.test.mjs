@@ -11,7 +11,9 @@ import {
   cleanupVerified, readSecretNames, SEND_CHANNELS, sendsPossible, readAllow, sendsGate, readStamp,
   closingVerdict, maskRenderTimes, readSurface, surfaceStart, surfaceSame, bodyFacts, readRefusal, sourceSame,
   legacyUnpublishedVerdict, readRulesState, rulesStartVerdict, rulesRecordable, describeRules,
+  bookingGate, BOOKING_HEADERS_REFUSED,
 } from "../scripts/canary-rules.mjs";
+import { readFileSync } from "node:fs";
 import { UI_SCENARIOS } from "../scripts/canary-ui.mjs";
 import { MAIL_PROVIDERS } from "../site-mail.mjs";
 import { SMS_PROVIDERS } from "../site-sms.mjs";
@@ -77,6 +79,55 @@ test("what the form sent must be exactly the marker's five fields, each its valu
   assert.match(bookingBodyVerdict({ ...body, name: "Canary rules" }, MARKER).why, /name was sent/);
   assert.match(bookingBodyVerdict("{not json", MARKER).why, /not JSON/);
   assert.match(bookingBodyVerdict([body], MARKER).why, /not an object/);
+});
+
+test("the booking gate lets out only the first request, exactly the marker, with no query string and no prefer or authorization header", () => {
+  const raw = JSON.stringify({ name: MARKER.name, phone: MARKER.phone, party_size: 2, booking_date: "2099-12-31", booking_time: "17:00" });
+  const H = { "content-type": "application/json" };
+  const gate = (over = {}) => bookingGate({ n: 1, raw, search: "", headers: H, marker: MARKER, ...over });
+  // THE ONE EXACT REQUEST is let out, and nothing about it is rewritten.
+  const ok = gate();
+  assert.deepEqual({ ok: ok.ok, why: ok.why, check: ok.check }, { ok: true, why: "", check: { ok: true, why: "" } });
+  assert.deepEqual(Object.keys(ok).sort(), ["check", "ok", "why"], "the gate hands back something to send in place of what the page sent");
+  assert.equal(gate({ headers: { ...H, accept: "*/*" } }).ok, true, "a harmless header refused");
+  // EVERYTHING ELSE IS STOPPED, WITH ITS REASON.
+  for (const [over, re] of [
+    [{ n: 2 }, /a second booking request: only the first is ever let out/],
+    [{ n: 0 }, /a second booking request/],
+    [{ raw: raw.slice(0, -1) }, /not the marker booking: the request body is not JSON/],
+    [{ raw: null }, /not the marker booking: the request body is not an object/],
+    [{ raw: JSON.stringify({ ...JSON.parse(raw), phone: "07700 900111" }) }, /phone was sent as "07700 900111", not "07700 900999"/],
+    [{ raw: JSON.stringify({ ...JSON.parse(raw), party_size: "2" }) }, /party_size was sent as "2"/],
+    [{ raw: JSON.stringify({ ...JSON.parse(raw), note: "x" }) }, /the fields sent were/],
+    [{ search: "?on_conflict=id" }, /query string \(\?on_conflict=id\)/],
+    [{ search: undefined }, /query string/],
+    [{ search: null }, /query string/],
+    [{ headers: null }, /headers could not be read/],
+    [{ headers: "content-type: application/json" }, /headers could not be read/],
+    [{ headers: { ...H, prefer: "return=representation" } }, /must not send: prefer$/],
+    [{ headers: { ...H, Prefer: "return=minimal" } }, /must not send: prefer$/],
+    [{ headers: { ...H, authorization: "Bearer member" } }, /must not send: authorization$/],
+    [{ headers: { ...H, prefer: "x", authorization: "y" } }, /must not send: prefer, authorization$/],
+  ]) {
+    const g = gate(over);
+    assert.equal(g.ok, false, JSON.stringify(over));
+    assert.match(g.why, re, JSON.stringify(over));
+  }
+  // The body's own verdict rides along even when something else stopped it.
+  assert.equal(gate({ n: 2 }).check.ok, true);
+});
+
+test("the refused headers are exactly the ones the platform's data route passes on that change what the database checks", () => {
+  // Read out of worker.js, so a route that starts passing another header on
+  // fails here and the gate has to decide about it.
+  const src = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const m = src.match(/const target = base \+ "\/" \+ path \+ \(url\.search \|\| ""\);\n[\s\S]*?for \(const h of (\[[^\]]*\])\) \{/);
+  assert.ok(m, "the data route's forwarding lines were not found");
+  const forwarded = JSON.parse(m[1]);
+  assert.ok(forwarded.includes("content-type") && forwarded.length >= 3, "the forwarded list was not read");
+  // The query string is passed on too (the first line of the match), which is why the gate refuses one.
+  const harmless = ["content-type", "accept", "cookie"];
+  assert.deepEqual(forwarded.filter((h) => !harmless.includes(h)).sort(), [...BOOKING_HEADERS_REFUSED].sort());
 });
 
 // ── THE BOOKING'S ANSWER ────────────────────────────────────────────────────
