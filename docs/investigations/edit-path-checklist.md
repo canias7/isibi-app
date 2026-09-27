@@ -1522,7 +1522,7 @@ the add-on, a css-lane run, a page removal (the move exercises the same verb
 and publish path), a hop between rungs, why a quick attempt did not publish,
 and the rules rung (the recommended next test, next).
 
-### The rules rung — the recommended next test, revised (2026-09-27; the harness built on the branch at `ebf53761`; not approved, nothing pressed)
+### The rules rung — the recommended next test, revised (2026-09-27; the harness built on the branch at `ebf53761`; its paid press passed as run 44)
 
 Owner, first: *"Prepare a separate rules-test proposal using an isolated fixture
 or complete deterministic recovery."* Then: *"For the rules test, compare the
@@ -1889,7 +1889,7 @@ below); nothing else is approved or pressed.
 - **G. A measured baseline** (optional, and not recommended by default): one
   real booking before the edit, cleaned up the same way.
 
-#### The rules test, built (2026-09-27, `ebf53761`; nothing approved or pressed)
+#### The rules test, built (2026-09-27, `ebf53761`; the free checks passed, and the paid press passed as run 44)
 
 Owner: *"Proceed with building the bounded rules-test harness and focused tests
 on the branch. … Accept either supported way of closing bookings based on the
