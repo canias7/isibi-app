@@ -59,9 +59,10 @@ write made CONDITIONAL in the owner rows route, which is Worker code — CLOSED
 BY THE OWNER after review (165 focused tests) and MERGED AND DEPLOYED at
 `14df0225`, deploy 2163, 2026-09-27 05:15 UTC, image `9038e90ab1d5d7fe` — and
 rehearsed free again on that deployment as run 41, which passed — and THE
-OWNER'S PAID PRESS PASSED AS RUN 42; D2 and D3 parked; step 0,
-`grants preview` run 36286991932, kept as maintenance evidence; the rules rung
-has its own proposal)**: the top section of the
+OWNER'S PAID PRESS PASSED AS RUN 42 — D1 CLOSED BY THE OWNER after an
+independent review (2026-09-27); D2 and D3 parked; step 0, `grants preview` run
+36286991932, kept as maintenance evidence; the rules test recommended next, on
+the existing throwaway site `lido-axes-b`, not built)**: the top section of the
 [edit-path checklist](docs/investigations/edit-path-checklist.md), summarised in
 *remaining work after Test 3* below. Among the QUEUED jobs inspected, the rules
 rung and a page removal have never published, and **run 42 was the data
@@ -118,6 +119,20 @@ passed** (36298962234, 2026-09-27 06:03–06:05 UTC, the owner's press from
   the order page exactly as before;
 - nothing published;
 - routing 2 + edit 1 = 3, balance 59 → 56 (*Test 4b*, below).
+
+**D1 is CLOSED BY THE OWNER** after an independent review of run 42
+(2026-09-27): exactly one price change on both readers, £4.60 in the browser,
+the conditional put-back to £4.50, the page and component source unchanged, 3
+credits. The reply's generic wording ("✅ Updated one entry in loaves." names
+the table, not the change) is kept for the later model-written-replies work and
+is not reopened. **The short edit-path checklist** — demonstrated live, tested
+only with supplied model output, still untested, material gaps first — is the
+top of the [edit-path checklist](docs/investigations/edit-path-checklist.md).
+**The recommended next test is the rules rung on `lido-axes-b`**: an existing
+throwaway site with its own database, so no build is bought and no restore is
+needed. One message closes its `bookings` table, for about 3 credits. Neither
+the scenario nor the restore is built, and nothing is pressed (*Test 4b*,
+below).
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -285,7 +300,11 @@ unreachable CSS**. The law that survives:
   started. Until then replies are composed deterministically in `editReply` —
   and the half that carries over is already the rule: **what a reply states
   comes from what the operations really did** (`pageOps`, `partial`, the diff,
-  the ledger), never from the request's wording.
+  the ledger), never from the request's wording. **Kept for that work, not
+  reopened** (owner, closing D1, 2026-09-27): the data rung's "✅ Updated one
+  entry in loaves." names the table and not the change, because `applied`
+  carries only the table, the row id and the column; the rules rung's "changed
+  whether it's open" is the same kind of sentence.
 
 ---
 
@@ -9361,7 +9380,8 @@ list, and Test 4's exact form values, are the top section of the
   AND 39), 4b NARROWED TO D1 ALONE (2026-09-27), REHEARSED FREE AS RUN 40, ITS
   RECOVERY'S WRITE MADE CONDITIONAL SINCE, CLOSED BY THE OWNER AND MERGED AND
   DEPLOYED IN DEPLOY 2163, AND REHEARSED FREE AGAIN ON THAT DEPLOYMENT AS RUN
-  41, WHICH PASSED — AND THE PAID PRESS PASSED AS RUN 42**
+  41, WHICH PASSED — AND THE PAID PRESS PASSED AS RUN 42; D1 CLOSED BY THE
+  OWNER**
   (owner, 2026-09-26: *"Separate the photo/attachment/second-message checks from
   database writes and permission changes."*), all on fold-lane-bakery:
   - **4a — pages only, undone free by the canary's restore mode**:
@@ -9387,16 +9407,19 @@ list, and Test 4's exact form values, are the top section of the
     image `9038e90ab1d5d7fe`), and its fresh free rehearsal on that
     deployment passed as run 41. The owner's paid press passed as run 42:
     one price changed through the real app at the `data` layer, shown on the
-    order page, and put back by the canary's conditional write; 3 credits.**
+    order page, and put back by the canary's conditional write; 3 credits.
+    The owner closed D1 after an independent review of it (2026-09-27).**
     - step 0, free, **ran 2026-09-27 as `grants preview` run 36286991932** and
       is kept as MAINTENANCE evidence: what the grants are and what an apply
       or a rollback would issue. It never goes through an edit.
     - **D2** (the grants apply) and **D3** (one real order under D2's grants)
       are **PARKED**: a maintenance check and an integration check, and
       neither closes rules-edit coverage.
-    - **The rules rung has its own proposal** (*Test 4b*, below): recommended,
-      Neon's point-in-time restore of the site's own database; the fallback, a
-      throwaway site built for the test.
+    - **The rules test is recommended on an existing throwaway site,
+      `lido-axes-b`** (*Test 4b*, below): no build to buy, no restore to build,
+      and no site anyone uses touched. Neon's point-in-time restore stays a
+      later option; the owner said not to build it or run it against an active
+      site yet.
 - **THE LOGO ROUTE IS EXPECTED, NOT GUARANTEED, AND EXEMPTION IS READ OFF THE
   JOB** (owner: *"Exemption is established by the actual selected rung and
   ledger."*): the stored reply's `layer`, `billing = 'exempt'`, and no
@@ -9407,8 +9430,9 @@ list, and Test 4's exact form values, are the top section of the
   rung is the only writer of an access policy and `_meta`, and the grants
   rollback restores grants only. The owner ruled out relying on another model
   request to restore public access, and the earlier hide-then-show pair (M5/M6)
-  is withdrawn. **The proposed way round is Neon's own point-in-time restore**
-  (*Test 4b*, below), not built.
+  is withdrawn. **So a rules test runs on a throwaway site, where nothing has
+  to be put back** (*Test 4b*, below); Neon's own point-in-time restore is the
+  later option for a site people use, not built.
 - **THE SIDE EFFECTS ARE PART OF THE PREPARATION.**
   - A row change survives any restore. Its recovery is the owner rows route
     with only the changed field — **not the Data panel's Save**, which sends
@@ -9773,7 +9797,7 @@ addition."* `scripts/canary-ui.mjs`, the `ui_scenario` box on `edit-canary.yml`,
   block, the balance was read before each message, every filed job was
   followed, and the after-read waited for the last published version.
 
-### TEST 4b: D1 ALONE, REHEARSED FREE AS RUN 40, ITS RECOVERY'S WRITE CONDITIONAL SINCE (MERGED AND DEPLOYED IN DEPLOY 2163) AND REHEARSED AGAIN AS RUN 41; THE PAID PRESS PASSED AS RUN 42; D2 AND D3 PARKED; THE RULES RUNG'S OWN PROPOSAL (2026-09-27)
+### TEST 4b: D1 ALONE, REHEARSED FREE AS RUN 40, ITS RECOVERY'S WRITE CONDITIONAL SINCE (MERGED AND DEPLOYED IN DEPLOY 2163) AND REHEARSED AGAIN AS RUN 41; THE PAID PRESS PASSED AS RUN 42 AND D1 IS CLOSED BY THE OWNER; D2 AND D3 PARKED; THE RULES TEST RECOMMENDED ON A THROWAWAY SITE (2026-09-27)
 
 Owner, first: *"return one concrete proposal: exact requests, expected database
 changes, independent checks, estimated cost and deterministic recovery for both
@@ -10039,18 +10063,52 @@ after it hold the test and the proposal. What is law here:
     `applied`, which carries only the table, the row id and the column names.
     The sentence is true, and the finding is kept for the model-written
     replies preference.
-- **THE RULES RUNG'S OWN PROPOSAL, NOT BUILT OR APPROVED.** Its footprint is the
-  site's own Postgres alone (it publishes nothing), and since 2026-07-29 each
-  site has its own Neon project. So the recommended recovery is **Neon's
-  point-in-time restore of that project's root branch** to the LSN read just
-  before the message: per Neon's documentation it replaces all data and schema
-  on the branch, `neon_auth` included, and keeps the pre-restore state as a
-  backup branch. It is complete by construction and reversible, and it
-  refuses on a shared project, a non-root branch, a point outside retention, or
-  anything written since the point besides the test's own change. It is
-  rehearsed first on a throwaway Neon project. About 3–4 credits. The
-  fallback is an isolated fixture site (about 27–62 credits before the first
-  rules request), torn down by the product's own delete.
+- **THE RULES TEST: RECOMMENDED ON AN EXISTING THROWAWAY SITE, NOT BUILT OR
+  APPROVED** (owner, 2026-09-27: *"compare the smallest isolated fixture
+  against your proposed database restore approach. First check whether an
+  existing disposable fixture can avoid buying another build. Do not implement
+  a whole-database restore or run it against an active site yet."*). The whole
+  comparison and scope are in the checklist's *rules rung — the recommended
+  next test*. What is law here:
+  - **AN EXISTING SITE AVOIDS THE BUILD.** `lido-axes-b` is the building
+    account's, built 2026-08-22 by `build as owner` (arm B, which its workflow
+    calls "spent", and keeps with arm A because a stylesheet comparison rests
+    on the pair — a rules edit publishes nothing and leaves the stylesheet
+    alone). It has its own Neon project and a present reference (`ready`), and
+    no edit jobs and no aliases. Nothing in the tree reads it: two workflow
+    comments name it.
+    As a visitor it shows `/`, `/menu` and `/book`, a public `menu_items` (6
+    rows; the page's own read is 1,208 bytes, sha256 `8e1d493cd891abc8`), and
+    a `bookings` table refused to a visitor (403, `42501`), which the `/book`
+    form writes. That is fold-lane-bakery's shape. The access rules are
+    INFERRED from what a visitor sees; `grants preview` reads them.
+  - **A FREE NEW FIXTURE CANNOT BE DRIVEN.** A schema-only build (`{schema,
+    slug}`, no brief, `member-smoke`'s path) gets a database for no model spend
+    but publishes a placeholder with no stored pages, so the app has no page
+    list and stops before sending, and the API canary refuses. A new fixture
+    with pages is a paid build: about 27–62 credits before the first rules
+    message.
+  - **THE RECOMMENDED MESSAGE**: "We're fully booked, so stop taking bookings
+    on the website for now." (67 characters, ASCII, sha256
+    `3ccbae0b202aa2e2…`), which should set `bookings.retired` and nothing
+    else. About 3 credits, an estimate, not a cap. Checked by `grants preview`
+    before and after (free), the job and the ledger, a no-publish check, and
+    visitor reads. **Recovery: none is needed**; `bookings` stays closed on a
+    spent fixture.
+  - **THE APPLY LOGS A FAILED STATEMENT AND CARRIES ON** (`applySiteSchema`
+    runs each policy and grant statement in its own `try/catch`), so a "✅"
+    from the rules rung does not prove the rule took effect. The grants read
+    afterwards does.
+  - **`lido-axes-b` PREDATES THE VERSIONED LAYOUT**: its pages send
+    `x-site-build` (`mt50cg7h-l19hre`) and no `x-site-version`. The UI mode's
+    `chainVerdict` answers `before-unknown` without a version, so D1's
+    no-publish check would fail it; the scenario needs a check for the older
+    header.
+  - **NEON'S POINT-IN-TIME RESTORE IS THE LATER OPTION**, for a rules test on
+    a site people use: complete by construction, reversible through its backup
+    branch, but it needs a tool that refuses on a shared project, a non-root
+    branch, a point outside retention or any other write since, and a
+    rehearsal on a throwaway Neon project. Not built.
 
 - **FOLD-LANE-BAKERY'S DATABASE HAS HAD NO SCHEMA CHANGE SINCE ITS BUILD
   (2026-08-21)**, read off its job rows: the one later add-on (run 51) designed

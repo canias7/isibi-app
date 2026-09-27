@@ -1,5 +1,97 @@
 # Remaining edit-path checklist
 
+## The short checklist (2026-09-27, after D1)
+
+**D1 is closed by the owner** after an independent review of run 42:
+- exactly one price changed, on both readers;
+- the browser showed £4.60;
+- the conditional put-back restored £4.50;
+- the page and component source was unchanged;
+- it cost 3 credits.
+
+The reply's generic wording ("✅ Updated one entry in loaves." names the table,
+not the change) is kept for the later model-written-replies work and is not
+reopened.
+
+Each list puts the material gaps first. The evidence is in the sections below,
+and nothing in the first list is to be rerun.
+
+**Demonstrated live**
+- **The page rung.**
+  - The quick writer: runs 9, 17 and 32.
+  - The full writer: runs 11, 21, 24, 26, 34 and 37.
+  - A component's wording and calculation: runs 21, 24 and 26.
+  - The text guard and the judge letting a correct removal through: run 34.
+  - A photographed page keeping both photographs, with the kit-heading fix:
+    run 37.
+- **A logo from an attachment, a picture reframe and a page move** (run 39),
+  each published through the queue. The logo and the move were free.
+- **One database row changed through the app and put back** (run 42, D1).
+- **Second messages from one tab** after a finished job (run 39).
+- **The machinery around every edit**, shown on every canary run and on
+  recent deploys in runs 32–42:
+  - the queue and billing;
+  - the reply on screen;
+  - the after-read at the job's own version;
+  - the money closing exactly.
+
+  Restoring a saved version is shown too (runs 20 and 22).
+- **Older code, counted as path coverage only**: the look lanes, the menu, the
+  site address and the text rung (2026-09-01 to 09-07).
+
+**Tested only with supplied model output** (the route and the browser are
+proven; a real model is not)
+1. **The rules rung on a site with a database** (`edit-rules-backend`). It is
+   the one edit rung that changes what a site accepts, and it has never run
+   live: run 12 routed there and stopped on a defect fixed since. **This is the
+   recommended next test** (below).
+2. **A page removal** (`edit-page-verb`, `removal-door`). It has never
+   published live. It makes no model call and the free restore undoes it, so
+   it is the cheapest gap after the rules test.
+3. **A protection refusing a real model's answer.** The photograph wall, the
+   link and component judge and the text guard have only been seen letting a
+   correct answer through (runs 34 and 37). The same holds for reply
+   validation, and for the failure classification (a refusal never buys the
+   full rewrite), which live has met only run 31's credit refusal.
+4. **A named page other than the home page** on a look edit
+   (`edit-page-target`). Live only on `/`.
+5. **The data rung beyond one row**: adding, removing and reordering rows, and a
+   site whose database link is blank.
+6. **Two changes in one message** (`edit-page-once`, `edit-page-verb`), and a
+   second message after a hop or a failure (`edit-lock`,
+   `edit-result-display`, `edit-failure-paths`).
+7. **The picture swap** (a new photograph into a slot).
+8. **The stylesheet scope and the rule keys** (deploy 2161, with a real-browser
+   control in the site build). The owner closed it without a live css-lane run.
+
+**Still untested** (no live run, and no test drives it end to end)
+1. **An older site's first schema change, through a real form.** A site built
+   before 2026-09-13 gets column-scoped write grants on its next schema change.
+   That is proven only on a local PostgreSQL, and D2 and D3 are parked. The
+   recommended test makes that first change on its site, but it closes the only
+   writable table, so the write grants are not exercised.
+2. **What a real model decided, where nothing records it**: why a quick attempt
+   did not publish, the writer's prompt, and the judge's and the text guard's
+   verdicts. So far these are inferred from what published.
+3. **Outside this checklist, listed so they are not lost**: the add-on through
+   the browser since deploy 2154 (the last live add-on was run 53), and the
+   photo add-on kind, which waits on fal funding.
+
+Deferred by the owner and not counted: hydration (#418), translation,
+model-written replies, and drafts surviving a refresh.
+
+**The recommended next test: the rules rung on `lido-axes-b`, an existing
+throwaway site.** One message, "We're fully booked, so stop taking bookings on
+the website for now.", which should close that site's `bookings` table to
+visitors.
+- It costs about 3 credits.
+- It needs no new build and no restore, and it changes nothing on a site
+  anyone uses.
+- Nothing is built or pressed.
+
+The scope, the checks, the side effects and the recovery are in *the rules rung
+— the recommended next test*, after Test 4.
+
 ## Remaining work after Test 3 (2026-09-26), and Test 4 prepared for approval
 
 Test 3 (run 34) and the CSS-correction milestone (deploy 2161's batch) are
@@ -9,8 +101,9 @@ Runs 35 and 36 were free. **Test 4a's Part A ran as run 37** (your paid press,
 canary's browser mode, 6 credits; run 38 was refused before signing in and
 spent nothing). **Test 4a is closed by the owner** after an independent review
 of run 39's workflow and evidence (2026-09-27), for the behaviours runs 37 and
-39 demonstrated. The balance is 59 (read on the balance row at 2026-09-27
-00:45Z).
+39 demonstrated. The balance was 59 after Test 4a (read on the balance row at
+2026-09-27 00:45Z) and is 56 after run 42 (read on the balance row at
+06:13:03Z).
 
 **The kit-heading defect is fixed, closed by the owner, and merged and
 deployed**: main is `ab74d0d9` (deploy 2162, 2026-09-26 20:31 UTC, image
@@ -38,11 +131,13 @@ free rehearsal on that deployment passed as run 41** (05:37 UTC; its preflight
 is deploy 2163's runtime confirmation), and **the owner's paid press passed as
 run 42** (06:03–06:05 UTC). The price went to £4.60 through the `data` layer and
 showed on the order page. The canary's conditional write then put it back to
-£4.50. It cost 3 credits (*the paid press ran as run 42*, in Test 4b). D2
+£4.50. It cost 3 credits (*the paid press ran as run 42*, in Test 4b). **D1 is
+closed by the owner** after an independent review of run 42 (2026-09-27). D2
 (the grants apply) and D3 (a real order) are parked as maintenance and
 integration checks: applying grants through `grants preview` does not exercise
 the rules rung. Step 0 (`grants preview` run 36286991932) is kept as evidence.
-The rules rung has its own proposal, after Test 4.
+The rules rung is the recommended next test, on an existing throwaway site
+(after Test 4).
 
 ### What is already shown live (credited, not rerun)
 
@@ -106,8 +201,8 @@ missing is a real model, the real browser or the live database.
    - a site whose backend reference is blank (`incomplete`).
 4. **The rules rung on a site with a database.** Controlled:
    `edit-rules-backend`. Run 12 was blocked by a defect that has since been
-   fixed. It has its own proposal (after Test 4); neither D2 nor D3 would
-   cover it.
+   fixed. It is the recommended next test, on the existing throwaway site
+   `lido-axes-b` (after Test 4); neither D2 nor D3 would cover it.
 5. **The first schema change on a site built before 2026-09-13**, which
    re-emits every table's grants in column-scoped form. Proven on a real
    PostgreSQL 16 locally (`local-pg-grants`), but not observed on a live form
@@ -212,7 +307,7 @@ other. None blocks anything; none is being worked on.
   since an adopted site sends it no table names, and the live database. Only a
   live run measures those.
 
-### Test 4 — two parts, approved separately: 4a closed (runs 37 and 39); 4b is D1 alone, rehearsed free as runs 40 and 41, with its put-back write conditional; the paid press passed as run 42
+### Test 4 — two parts, approved separately: 4a closed (runs 37 and 39); 4b is D1 alone, rehearsed free as runs 40 and 41, with its put-back write conditional; the paid press passed as run 42, and D1 is closed by the owner
 
 Both parts run on fold-lane-bakery (Harbour Loaf): a database, three
 photographs (two on the home page), five pages, and run 9's stored source
@@ -739,15 +834,16 @@ all, against an estimate of about 17–20. The balance is 59 (read 2026-09-27
 00:45:33Z). The site keeps 4a's changes; the recovery above undoes them for
 free if you want that.
 
-#### Test 4b — the database: D1 alone, built and rehearsed free as run 40; its put-back write made conditional, deployed in 2163 and rehearsed free again as run 41; the paid press passed as run 42 (2026-09-27); D2 and D3 parked; step 0 kept as evidence
+#### Test 4b — the database: D1 alone, built and rehearsed free as run 40; its put-back write made conditional, deployed in 2163 and rehearsed free again as run 41; the paid press passed as run 42 (2026-09-27) and D1 is closed by the owner; D2 and D3 parked; step 0 kept as evidence
 
 **Narrowed by the owner (2026-09-27):** *"separate maintenance from edit-path
 acceptance: applying grants through grants-preview does not exercise the rules
 rung."* So 4b is now **D1 alone**: one row changed through the real app, and
 put back with no model call. **D2** (the grants apply) and **D3** (one real
 order under the new grants) are **parked**. They are a maintenance check and an
-integration check, and neither closes rules-edit coverage. The rules rung has
-its own proposal, in the next section.
+integration check, and neither closes rules-edit coverage. The rules rung is
+the recommended next test, on an existing throwaway site, in the section after
+Test 4.
 
 **Free checks already done (2026-09-27, 01:31–01:39Z):**
 - **The site's job history** (read-only, `edit_jobs`): its database has had no
@@ -812,7 +908,8 @@ writes grants directly and never goes through an edit.
   - `orders`: `REVOKE ALL` from both roles, then `GRANT INSERT ON "orders"` to
     each. That is today's table-wide form, exactly.
 
-**D1 — a row, through the real app: built at `6602be37`, rehearsed free as run 40 (below); the put-back's write made conditional since (below), deployed in 2163, and rehearsed free again on that deployment as run 41 (below), which passed. The owner's paid press passed as run 42 (below).** A new
+**D1 — a row, through the real app: built at `6602be37`, rehearsed free as run 40 (below); the put-back's write made conditional since (below), deployed in 2163, and rehearsed free again on that deployment as run 41 (below), which passed. The owner's paid press passed as run 42 (below), and the owner
+closed D1 after an independent review of it (2026-09-27).** A new
 scenario of the canary's UI mode, `4b-d1-price`, on fold-lane-bakery. One
 message: "In today's bake list, change the Sea Salt Focaccia's price to
 £4.60." (68 characters, 69 bytes, sha256 `550cf87497ef7a8f…`).
@@ -1383,126 +1480,196 @@ balance row at 06:13:03Z; the last ledger row is run 42's reserve at
   sentence from `applied`, which carries only the table, the row id and the
   column names, so it cannot say which loaf or the new price. The sentence is
   true. This is recorded for the model-written replies preference and not
-  changed.
+  changed. **The owner kept it there when closing D1, not reopened.**
 
 **What Test 4 does not cover:** hydration, translation, model-written replies,
 the add-on, a css-lane run, a page removal (the move exercises the same verb
 and publish path), a hop between rungs, why a quick attempt did not publish,
-and the rules rung (its own proposal, next).
+and the rules rung (the recommended next test, next).
 
-### The rules rung — a separate test, proposed (2026-09-27; not approved, nothing built)
+### The rules rung — the recommended next test (2026-09-27; not approved, nothing built)
 
-Owner: *"Prepare a separate rules-test proposal using an isolated fixture or
-complete deterministic recovery."*
+Owner, first: *"Prepare a separate rules-test proposal using an isolated fixture
+or complete deterministic recovery."* Then: *"For the rules test, compare the
+smallest isolated fixture against your proposed database restore approach.
+First check whether an existing disposable fixture can avoid buying another
+build. Do not implement a whole-database restore or run it against an active
+site yet."*
 
-**Why it needs its own.** A rules edit ends in one `applySiteSchema` over the
-whole merged spec (the rules branch of the edit route). Besides the rule asked
-for, that apply:
+**Why it needs its own test.** A rules edit ends in one `applySiteSchema` over
+the whole merged spec. Besides the rule asked for, that apply:
 - rewrites the stored schema (`_meta`);
 - drops and re-creates every table's policies;
 - re-creates the helper and trigger functions;
 - re-issues every table's grants.
 
-On fold-lane-bakery, whose database has had no schema change since
-2026-08-21, it would also carry five weeks of engine changes: the grants move
-to the column-scoped form. Five rules cannot be taken off through an edit at
-all (`unique`, `uniqueci`, `noOverlap`, `oncePerUser` and `maxRows` are DDL
-added `IF NOT EXISTS`). Only the grants have a model-free restore today.
+On a site built before 2026-09-13, it also carries every engine change since.
+Five rules cannot be taken off through an edit: `unique`, `uniqueci`,
+`noOverlap`, `oncePerUser` and `maxRows`.
 
-**What bounds it.** The rules rung publishes nothing and needs no container, so
-its whole footprint is the site's own Postgres; the job and ledger rows are
-records. And since 2026-07-29 each new site gets its own Neon project
-(`createSiteProject`, named `isibi-<slug>`). That project's root branch holds
-the site's database and Neon's default `neondb`, and nothing of any other
-site. A site provisioned before that date shares a per-user project, and the
-tool below refuses one.
+**The apply runs its statements one at a time and logs a failed one rather
+than stopping.** So a "✅" in the reply does not prove the rule took effect;
+reading the grants afterwards does.
 
-**Recommended: complete deterministic recovery with Neon's own point-in-time
-restore.** Neon restores a root branch to its own past: `POST
-/projects/{id}/branches/{branch}/restore`, with the branch as its own source,
-an LSN or a timestamp, and `preserve_under_name`.
-- **What it restores.** Per Neon's documentation it replaces "all Postgres
-  data and schema on your branch", the `neon_auth` schema included. It keeps
-  the branch's state from before the restore as a separate backup branch, so
-  the recovery itself can be undone.
-- **What it costs.** No model call and no credits.
-- **Its limits, also from the documentation.** Root branches only.
-  Connections to the branch drop briefly. It applies to every database on the
-  branch. The point must be inside the project's history retention. And it
-  overwrites anything written after the point, so the tool must refuse when
-  anything but the test's own change has happened since.
+**The three ways, compared**
 
-What would be built, after approval:
-- **A restore tool**, as a mode of the canary. The Neon key is already a
-  GitHub secret, used by five workflows. Its decisions would be pure and
-  tested, like `canary-rows.mjs`. It refuses unless all of these hold:
-  - the site's project holds only `neondb` and `site_<slug>`;
-  - its branch is a root branch;
-  - the point is inside the retention window;
-  - every table's rows and the site's members are exactly as recorded at the
-    point. Anything else would be lost, so it is reported and nothing is
-    restored.
-- **A rehearsal on a throwaway Neon project**, model-free, like `neon e2e`. It
-  provisions a project, applies a schema, writes rows and records the LSN. It
-  then applies a rules-shaped change (retiring a table, adding a unique index)
-  and writes another row. Then it restores to the LSN, checks that the catalog
-  and the rows equal the recorded ones, and deletes the backup branch and the
-  project. That proves the tool on real Neon before it touches a live site.
+| | The existing throwaway site `lido-axes-b` | A new throwaway site | Rewinding fold-lane-bakery's database (Neon's point-in-time restore) |
+| --- | --- | --- | --- |
+| Build credits | 0 | about 27–62 (a page build of 11–45, then an add-on that designs a table, about 12–13) | 0 |
+| The rules message | about 3 | about 3 | about 3–4 |
+| New tooling | a scenario, and a no-publish check for the older page layout | a scenario | a restore tool, and a rehearsal on a throwaway Neon project |
+| Touches a site anyone uses | no | no | yes: it rewinds a live site's whole database |
+| Recovery | none needed | the product's own delete | the restore, itself undoable through Neon's backup branch |
+| An older site's first schema change | yes, except the write grants | no: a new site starts on today's grants | yes, then undone |
 
-The test, after the rehearsal passes:
-- **R0 (free).** Read fold-lane-bakery's Neon project: its name, the root
-  branch, its databases and its history retention. Record a snapshot:
-  - the `_meta` row;
-  - every table's columns, policies, grants, triggers, indexes and
-    constraints;
-  - the functions in `public`, with their settings;
-  - every table's rows and the member count.
-- **R1 (paid, about 3–4 credits).** One rules request through the real app, in
-  a new scenario whose wall lets only a `rules` edit leave the page. Proposed:
-  "We're fully booked this week — stop taking orders on the website."
-  - Expected: layer `rules`; `orders` retired and nothing else in the answer;
-    nothing published; the money closing exactly.
-  - The reply is composed by `rulesReply`: "✅ **orders** — changed whether
-    it's open." The screen's exact wording is computed through the real
-    composer when the scenario is built.
-  - Which layer the router picks for this sentence is part of what is
-    measured. The wall makes a misroute cost only the routing charge.
-  - The LSN and the snapshot are read immediately before Send.
-- **The checks.** `_meta` shows `orders` retired. Neither visitor role holds
-  INSERT on `orders` (read from the catalog). `loaves` reads exactly as
-  before. Optionally, a visitor-shaped POST to `orders` is refused with
-  Postgres's permission error (not the spam gate's), and no row appears.
-- **R2 (free): the restore.** To the recorded LSN, and only if everything but
-  the rule is exactly as recorded. Afterwards the snapshot (`_meta`, the
-  catalog, every table's rows, the member count) must equal R0's exactly, and
-  a visitor's `loaves` and `orders` reads must answer as before. That also
-  shows whether Neon's Data API still holds the retired schema in its cache.
-  The backup branch is deleted once the checks pass, or kept for the owner.
-- **Cost:** about 3–4 credits in all.
+**No new build is needed: an existing site will do.** These are read-only
+checks from 2026-09-27.
+- **`lido-axes-b` is the owner's and has never been edited.**
+  - It was built on 2026-08-22 by the `build as owner` evaluation (arm B),
+    which its own workflow calls "spent". The same workflow keeps arms A and B
+    because a stylesheet comparison rests on them. A rules edit publishes
+    nothing and leaves the stylesheet and pages alone, so that comparison is
+    unaffected.
+  - It has its own Neon project, created after 2026-07-29, when each site got
+    one.
+  - Its database reference is present (`ready`).
+  - It has no edit jobs and no other addresses.
+  - Nothing in the repository's tests or tools reads it.
+- **It has the shape the test needs**, read as a visitor (06:52Z):
+  - three pages (`/`, `/menu`, `/book`), each answering 200;
+  - a public `menu_items` table. The page's own read
+    (`?select=*&order=name.asc`) returns 6 rows, 1,208 bytes, sha256
+    `8e1d493cd891abc8`;
+  - a `bookings` table a visitor cannot read (403 with Postgres's
+    `42501`). The `/book` form writes it with a name, a phone, a party size, a
+    date and a time.
 
-**The alternative: an isolated fixture site.** A new site built only for the
-test, through the product: a first build (11–45 credits measured) and an
-add-on that designs a table (about 12–13; the first backend kind provisions
-the site's own Neon project). Then the rules requests (about 3–4 each), then
-the product's own delete, which drops the site's Neon project, its Worker
-script, its files and its rows.
-- **What it gives.** Nothing on a live site changes. Any rule can be tested,
-  including the ones that cannot be taken off. No restore tooling is needed.
-- **What it costs.** About 27–62 credits before the first rules request,
-  which can exceed what is left after D1 (about 56). The fixture's tables are
-  the model's design, so the exact rules request can only be written once the
-  fixture exists. And a fresh site gets today's grants from the start, so the
-  test would not show the first schema change on an older site.
+  So it mirrors fold-lane-bakery's `loaves` and `orders`. The stored access
+  rules are inferred from this, not read; the first `grants preview` press
+  below reads them.
+- **It uses the older page layout.** It last published before 2026-09-05, when
+  every publish became a saved version. So its pages send `x-site-build`
+  (`mt50cg7h-l19hre`) and no `x-site-version`. A rules edit publishes nothing,
+  so that stays true, but the canary's no-publish check needs a version and has
+  to learn the older header.
+- **The other candidates, rejected**:
+  - `lido-free-a`: its `/book` page does not load;
+  - the other lido copies: they answer 404;
+  - `pierhead-lido` and `the-lido-cafe`: scripts and tests read them;
+  - `repairbench-1`: it is the add-on bench, with scheduled jobs of its own.
+- **A free new fixture cannot work.** A schema-only build (`{schema, slug}` and
+  no brief, as `member-smoke` uses) gets a database for no model spend. But it
+  publishes only a placeholder with no stored pages, so the app has no page
+  list to route with and stops before sending, and the API canary refuses too.
 
-**Recommendation: the Neon restore.** The rule's whole footprint is one
-per-site database, and the restore puts back everything in it by construction,
-rather than only the objects a snapshot tool happens to list. The backup
-branch makes the recovery itself reversible. And the test costs about 3–4
-credits instead of about 30–65. The fixture is the fallback if R0 finds
-fold-lane-bakery on a shared project or with too short a retention window, or
-if the owner would rather not rewind a live site's database.
+**Recommended: one rules message on `lido-axes-b`.** The exact scope:
+- **The message**, sent by a named UI-mode scenario, never as form text: "We're
+  fully booked, so stop taking bookings on the website for now." It is 67
+  characters, all ASCII, sha256 `3ccbae0b202aa2e2…`.
+  - "stop taking bookings" and "we're fully booked" are the rules tool's own
+    examples for closing a table.
+  - "close the booking form" is the router's example for the rules layer.
+- **What is expected**:
+  - one routing call answering `intent=edit layer=rules`;
+  - one job, with one quick-model call (`write_table_rules`) that sets
+    `bookings.retired` and nothing else;
+  - the ledger reserving before any schema change, and nothing published;
+  - the rung's reply "✅ **bookings** — changed whether it's open.", to which
+    the browser's composer adds "It’s live now — nothing needed rebuilding."
+    (composed locally). The exact screen text is taken when the scenario is
+    built. It says what kind of thing changed, not that bookings are closed:
+    the same generic wording as D1's, kept for model-written replies.
+  - The wall lets only a `rules` edit leave the page, so a misroute costs the
+    routing charge and changes nothing.
+- **What changes**, all of it in `lido-axes-b`'s own database:
+  - `bookings` closes to visitors. Both visitor roles lose every privilege and
+    its row policies are dropped. Its rows stay.
+  - `_meta.schema` is rewritten, marking `bookings` as retired.
+  - `menu_items`' policies and read grants are dropped and re-issued, with the
+    same effect as before.
+  - The helper and trigger functions are re-created with today's pinned
+    `search_path`, and `_secrets` and `_errors` are created if they are
+    absent. This is the older site's first schema change.
+- **What a visitor sees**: every page as before, and the menu as before. The
+  `/book` form still shows, but a booking is refused from then on.
+- **The checks**, in four presses. All four are the owner's, because a
+  session's dispatch answers 403.
+  1. **`grants preview`** (free), mode preview, site `lido-axes-b`. This is the
+     before-state: `_meta.schema` present, `bookings` INSERT for both visitor
+     roles, and `menu_items` SELECT for both.
+  2. **The canary's UI mode from the branch**, with the new scenario and spend
+     no (free):
+     - the preflight;
+     - the before-read, which also shows that the stored pages read back (the
+       app needs them to send);
+     - the app opening the site and typing without sending.
+  3. **The same with spend yes** (the paid press). It checks:
+     - the message, the job, and the ledger, with the money closing exactly;
+     - that nothing published: the same stored source, the same `x-site-build`
+       on every route, the pages the same once render times are masked, no
+       version naming the job, and no publish on the job's row;
+     - that a visitor's menu read is byte-identical, and a visitor is still
+       refused `bookings`.
+  4. **`grants preview` again** (free):
+     - `bookings` holds nothing for either visitor role;
+     - its planned statements are the two REVOKEs a retired table gets;
+     - `menu_items` is unchanged.
+- **Cost**: about 3 credits. Routing is 1–2, and the rules call is about 1: its
+  prompt measures about 6,700 characters, about 2,200 tokens. That is D1's
+  shape. It is an estimate, not a cap: the balance is the only bound, and it
+  is 56.
+- **Side effects**: only `lido-axes-b`'s database and the job and ledger
+  records. There is no publish and no container build, and no other site is
+  touched.
+  - If the apply fails part way, some statements may have run while the reply
+    says the change could not be saved. The fourth press shows exactly what
+    landed.
+- **Recovery**: none is needed. The recommended end state is `bookings` left
+  closed on a spent fixture. Two options, both the owner's call:
+  - reopen it with a second rules message ("start taking bookings again"),
+    about 3 credits and a model call;
+  - delete the site with the product's own delete, which is not reversible.
 
-**Neither is built or approved, and nothing is pressed.**
+  No restore is involved.
+- **Stop conditions**:
+  - the first press finds no `_meta.schema`, or tables other than the two
+    expected;
+  - the free rehearsal finds that the stored pages do not read back.
+
+  Either means `lido-axes-b` cannot serve, and the choice goes back to a new
+  throwaway site or the restore.
+- **What it will not show**:
+  - a real booking being refused (the grants are read instead, and no visitor
+    write is attempted);
+  - column-scoped write grants;
+  - a rule that cannot be taken off;
+  - any restore.
+- **To build before any press** (not built; it waits for the owner's
+  go-ahead):
+  - the scenario, with `layers: ["rules"]`, `publishes: 0`, the expected reply
+    and a rules-shaped check of the stored reply;
+  - the no-publish check for the older layout;
+  - the visitor-read checks;
+  - as for D1: focused tests, a red check, targeted probes, the suite and CI.
+
+  It lives in `scripts/`, which a merge does not deploy, so it is dispatched
+  from the branch, as runs 36–40 were.
+
+**The restore stays a later option, not built.** Neon restores a root branch to
+its own past: `POST /projects/{id}/branches/{branch}/restore`, with an LSN or a
+timestamp and `preserve_under_name`. It replaces all data and schema on the
+branch and keeps the old state as a backup branch. Before it could be used:
+- a tool that refuses unless all of these hold:
+  - the project holds only that site's database;
+  - the branch is a root branch;
+  - the point is inside retention;
+  - nothing but the test's own change has happened since;
+- a rehearsal on a throwaway Neon project first.
+
+It is the way to test a rules change on a site people use. The owner has said
+not to build it or run it against an active site yet. The earlier plan (R0–R2
+on fold-lane-bakery) is in git: `git show
+4d385201:docs/investigations/edit-path-checklist.md`.
 
 ## A section headed by the kit — fixed (2026-09-26), merged and deployed in deploy 2162
 
