@@ -28,7 +28,12 @@ passed as run 37, and Parts B and C passed as run 39, through the canary's new
 UI mode (the real app in a real browser)**. **4b is now D1 alone** (owner,
 2026-09-27): one price in the site's database, changed through the real app
 and put back with no model call. It is built at `6602be37`, with tests, probes
-and CI; its free rehearsal passed as run 40, and the paid press is next. D2
+and CI, and its free rehearsal passed as run 40. The owner then reproduced a
+gap in the put-back: a change landing between its read and its write was
+overwritten. **That is closed on the branch**: the write is now conditional in
+the owner rows route itself, which is Worker code. So **the paid press waits
+for an approved merge and deploy, then a fresh free rehearsal with the new
+identifiers** (*the recovery's write is conditional*, in Test 4b). D2
 (the grants apply) and D3 (a real order) are parked as maintenance and
 integration checks: applying grants through `grants preview` does not exercise
 the rules rung. Step 0 (`grants preview` run 36286991932) is kept as evidence.
@@ -86,7 +91,7 @@ missing is a real model, the real browser or the live database.
    `edit-failure`.
 3. **The data rung.** Controlled: `site-apply`, `edit-failure` (including an
    `incomplete` site). **D1 is its live test** (rehearsed free as run 40; the
-   paid press is next).
+   paid press waits for the conditional-write fix to be merged and deployed).
 4. **The rules rung on a site with a database.** Controlled:
    `edit-rules-backend`. Run 12 was blocked by a defect that has since been
    fixed. It has its own proposal (after Test 4); neither D2 nor D3 would
@@ -195,7 +200,7 @@ other. None blocks anything; none is being worked on.
   since an adopted site sends it no table names, and the live database. Only a
   live run measures those.
 
-### Test 4 — two parts, approved separately: 4a closed (runs 37 and 39); 4b is D1 alone, rehearsed free as run 40, the paid press next
+### Test 4 — two parts, approved separately: 4a closed (runs 37 and 39); 4b is D1 alone, rehearsed free as run 40; its put-back write is conditional now, so the paid press waits for a merge and deploy
 
 Both parts run on fold-lane-bakery (Harbour Loaf): a database, three
 photographs (two on the home page), five pages, and run 9's stored source
@@ -722,7 +727,7 @@ all, against an estimate of about 17–20. The balance is 59 (read 2026-09-27
 00:45:33Z). The site keeps 4a's changes; the recovery above undoes them for
 free if you want that.
 
-#### Test 4b — the database: D1 alone, built and rehearsed free as run 40, the paid press next (2026-09-27); D2 and D3 parked; step 0 kept as evidence
+#### Test 4b — the database: D1 alone, built and rehearsed free as run 40; its put-back write made conditional (on the branch), so the paid press waits for a merge and deploy (2026-09-27); D2 and D3 parked; step 0 kept as evidence
 
 **Narrowed by the owner (2026-09-27):** *"separate maintenance from edit-path
 acceptance: applying grants through grants-preview does not exercise the rules
@@ -795,7 +800,7 @@ writes grants directly and never goes through an edit.
   - `orders`: `REVOKE ALL` from both roles, then `GRANT INSERT ON "orders"` to
     each. That is today's table-wide form, exactly.
 
-**D1 — a row, through the real app: built at `6602be37`, rehearsed free as run 40 (below), the paid press next.** A new
+**D1 — a row, through the real app: built at `6602be37`, rehearsed free as run 40 (below); the put-back's write made conditional since (below), so the paid press waits for a merge and deploy.** A new
 scenario of the canary's UI mode, `4b-d1-price`, on fold-lane-bakery. One
 message: "In today's bake list, change the Sea Salt Focaccia's price to
 £4.60." (68 characters, 69 bytes, sha256 `550cf87497ef7a8f…`).
@@ -804,26 +809,38 @@ What the run does, in order:
 1. The canary's free checks and its before-read, as on every run.
 2. It signs in to the real app in a real Chromium, opens the site's card and
    types the message.
-3. It reads the order page in a browser tab of its own, whose wall lets only a
+3. **Whether the put-back can be conditional** (added 2026-09-27, below). One
+   PATCH of row 6 that no row can meet: `{"$set": {"price": "4.5"}, "$if":
+   {"id": 0}}` asks for a row whose id is 6 and 0 at once. It changes nothing
+   on any Worker. One with the conditional write runs the UPDATE, matches
+   nothing and answers 409 conflict. One from before it finds nothing it can
+   write in that body and answers 400 "nothing to update". **A paid run is
+   sent only after a 409** (or a 404 if the row is gone). Anything else stops
+   it before Send; the rehearsal reports the answer.
+4. It reads the order page in a browser tab of its own, whose wall lets only a
    GET out, so the visitor's page can submit nothing. The focaccia's card must
    read £4.50.
-4. **The fresh baseline, immediately before Send.** Both readers: the owner
+5. **The fresh baseline, immediately before Send.** Both readers: the owner
    rows route (what the database holds) and the visitor data route (what the
    site's pages read, kept as text). Both must find row 6, named "Sea Salt
    Focaccia", with the price exactly 4.5. Otherwise nothing is sent and the
    run says why. The proposal's six-row record is compared with the baseline
    too; a difference is reported, not refused.
-5. **Send.** The page's wall is a positive list of writes: the routing call,
+6. **Send.** The page's wall is a positive list of writes: the routing call,
    and one edit of this site at the `data` layer. Anything else (text, page,
    rules, look, the add-on, a build, the full rewrite, any other write) is
    aborted in the browser, recorded, and fails the run. A misroute costs the
-   routing call and changes nothing.
-6. It waits for the reply, then reads both readers and the order page again.
-7. **The recovery, with no model call.** It reads both readers once more, just
+   routing call and changes nothing. (The probe is the canary's own request,
+   not the page's, so the wall never sees it.)
+7. It waits for the reply, then reads both readers and the order page again.
+8. **The recovery, with no model call.** It reads both readers once more, just
    before writing. Only if row 6 still reads exactly 4.6, the value this test
-   set, does it PATCH that one field back to the baseline's own value, through
-   the owner rows route the Data panel uses. Then it reads both readers and
-   the order page back.
+   set, does it write that one field back to the baseline's own value, through
+   the owner rows route the Data panel uses, **as a conditional write**:
+   `{"$set": {"price": 4.5}, "$if": {"name": "Sea Salt Focaccia", "price":
+   4.6}}`. Postgres writes it only if, when the write runs, row 6 is still
+   named that and still reads the value just read. Then it reads both readers
+   and the order page back.
 
 What the recovery refuses rather than writes:
 - A value nobody here set (4.7, say, from a concurrent change), a missing row,
@@ -833,12 +850,13 @@ What the recovery refuses rather than writes:
 - A reply that never came. The job may still be writing, so the recovery is
   skipped and the run says to press the recovery scenario once the job has
   finished.
-- **A limit, stated:** the owner route's PATCH is a plain `UPDATE … WHERE
-  id=?` with no condition, so the check and the write are two requests about
-  a second apart. A change landing between them would be overwritten. No
-  visitor can write `loaves` (its write access is none), so only the owner
-  acting at that moment could. A conditional write would close it; that is a
-  product change, not made.
+- **A write that lands between the recovery's read and its own write.** The
+  recovery's write is conditional (below): Postgres writes the price only if,
+  when the write runs, row 6 is still "Sea Salt Focaccia" and still reads
+  the value the recovery just read. Otherwise nothing is written, and the run
+  says CONFLICT and fails. It is never retried and never called restored.
+  (This bullet used to record the gap as a limit; the owner reproduced it and
+  had it closed, 2026-09-27.)
 
 The checks (each one fails the run):
 - **The exact request:** the routing call carries the message byte for byte;
@@ -857,16 +875,21 @@ The checks (each one fails the run):
 - **The money:** the balance moves by exactly the routing charge plus the
   job's own cost. The job is `finalized` with ledger debits equal to its cost
   and no refund (or `exempt` with no ledger row).
-- **The recovery:** the PATCH answered with that one field changed; the target
-  row equals its baseline on both readers, and the visitor body byte for
-  byte; the order page is back to every line it had.
+- **The condition probe:** the Worker answered the write no row can meet with
+  409 conflict (or 404 for a row that is gone), and nothing changed.
+- **The recovery:** the conditional write answered 200, said its condition
+  held (`conditional: true`), and changed that one field alone; there was no
+  conflict; the target row equals its baseline on both readers, and the
+  visitor body byte for byte; the order page is back to every line it had.
 
 **The recovery alone: `4b-d1-restore`.** For a run that could not finish its
 recovery. It opens no app and sends no message. It reads the row; with spend
 `yes` it writes the price back to 4.5 only if it reads 4.6 (in the type the
-owner route reads it as), and with spend `no` it only says what it would
-write. It compares the visitor read with the proposal's record and reports any
-difference without writing it.
+owner route reads it as), with the same condition as the automatic recovery,
+and with spend `no` it only says what it would write. It compares the visitor
+read with the proposal's record and reports any difference without writing
+it. It asks the condition probe first too, and never sends its write to a
+Worker that cannot enforce the condition.
 
 **Evidence, none of it live:**
 - `test/canary-rows.test.mjs` (17 cases, new): the decisions. They cover the
@@ -943,6 +966,123 @@ step 38 s):
 - **So the paid press starts from an established before-state.** It is the same
   form with spend `yes`.
 
+**The recovery's write is conditional (2026-09-27, on the branch, not
+merged).** The owner, after run 40: *"restoreRow/recoverRow read the price,
+then call an unconditional owner PATCH. site-owner.mjs updates WHERE id=?
+only. Reproduced locally: Recovery reads 4.6. Another writer changes the price
+to 5.2 before PATCH executes. Recovery overwrites it with 4.5 and reports
+restored. Make the recovery's expected-value check and write atomic … A
+conflict must change nothing and be reported explicitly. Another pre-read does
+not close this gap."*
+- **Reproduced first**, through the real route, in both recoveries. A second
+  writer set 5.2 after the recovery's read; the plain PATCH wrote 4.5 over it,
+  and the account said RESTORED. On a real PostgreSQL 16 the plain statement
+  did the same when the other write had committed first, and also when the
+  other write held the row while the recovery's UPDATE waited.
+- **The fix is in the owner rows route** (`site-owner.mjs`, which is Worker
+  code). A PATCH body `{"$set": {…}, "$if": {…}}` becomes ONE statement:
+  `UPDATE … SET … WHERE id=? AND "col" IS NOT DISTINCT FROM ? … RETURNING *`.
+  Postgres judges the condition against the row as it stands when the write
+  runs, so there is no window between a check and a write for another write to
+  land in. The answers:
+  - the row matched: 200, the row, and `conditional: true`;
+  - the row no longer matched: nothing written, 409 `code: "conflict"`, with
+    the row as read afterwards (that read decides nothing);
+  - the row is gone: 404;
+  - a malformed form: 400 `bad_condition`, before any statement. That covers
+    an extra key, a condition on a column the table lacks, a `$set` key the
+    route would drop, a value that is not a string, number, boolean or null,
+    and an empty condition.
+  - The plain PATCH is unchanged.
+- **A Worker from before the form can refuse it, and can never make it
+  unconditionally.** `$` never begins a column name, so such a Worker finds
+  nothing it can write in the body and answers 400 "nothing to update" before
+  any statement. This was measured by running the unfixed route itself
+  (`HEAD`'s `site-owner.mjs`) on the recovery's body and the probe's: 400 and
+  no statement, both times. A plain body, as a control, wrote.
+- **The values go untyped, as the Neon driver sends them**, so Postgres casts
+  each to its column's type: `'4.6'` matches a REAL 4.6 and a NUMERIC 4.60. A
+  float8-typed 4.6 never matches a REAL 4.6 (measured).
+- **The canary.** Both recoveries send `{"$set": {"price": <the baseline>},
+  "$if": {"name": "Sea Salt Focaccia", "price": <the value just read>}}`.
+  - A 409 is a CONFLICT: it gets its own line in the account, the check "no
+    other write changed the row between the recovery's read and its write"
+    fails, the final state reads NOT RESTORED, and nothing is retried.
+  - A 200 without `conditional: true` is not taken as the recovery's write.
+  - RESTORED is said only after a write that landed. A row back at its
+    baseline because somebody else wrote it reads "AT BASELINE, but NOT by
+    this recovery".
+- **The probe, before anything changes.** It sends the write no row can meet
+  (the row's own id and the id 0 at once). A Worker with the form answers 409
+  (or 404 for a row that is gone) and changes nothing; one without it answers
+  400.
+  - The paid run is not sent unless the probe answered 409 or 404 (a
+    "condition" stop).
+  - `4b-d1-restore` never sends its write then.
+  - The rehearsal reports the answer, and its check fails.
+  - The probe is a write REQUEST to the live owner route that matches no row.
+    On a real PostgreSQL the table's hash and the row's `xmin` are unchanged
+    after it. The engine creates only row-level triggers, so an UPDATE of no
+    rows fires none.
+- **On a real PostgreSQL 16** (`test/integration/local-pg-owner-cas.mjs`, run
+  by hand, not in CI). It uses the statement the real route builds, with
+  placeholders converted by the real `toPgPlaceholders`/`pgParams` and the
+  parameters sent untyped through psql's `\bind`, on REAL and NUMERIC
+  columns. The control lands. A 5.2 committed before the write: UPDATE 0, and
+  5.2 kept. Another transaction holding the row and committing 5.2 while the
+  conditional write waits on its lock: UPDATE 0, and 5.2 kept. The plain
+  statement overwrites in both cases. A concurrent change to another field:
+  the price is written and the other field kept. A renamed row: nothing
+  written. The probe: UPDATE 0, nothing changed.
+  - **17 of 17 pass** on the final files. The conditional write waited
+    1,491–1,504 ms on the other transaction's lock, then matched nothing.
+- **Tests** (every competing write lands immediately before the owner route's
+  UPDATE runs, through the real route over an in-memory table,
+  `test/fixtures/owner-table.mjs`, new):
+  - `test/site-owner.test.mjs`, 63 → 70 cases: one statement carrying every
+    condition, conflict, gone, null and `id` conditions, the declared column
+    name, every malformed form refused before any statement, and the plain
+    PATCH unchanged.
+  - `test/canary-rows.test.mjs`, 17 → 27: both recoveries against a
+    competing write on NUMERIC and REAL columns, a row renamed or deleted, a
+    competing write that puts the value back first, a change to another
+    field, a Worker from before the form, a 200 that does not say its
+    condition held, and the probe.
+  - `test/canary-ui.test.mjs`, 37 → 41: the paid run's recovery and the
+    standalone recovery with a competing write, a Worker without the form
+    (the paid run sends nothing, the recovery writes nothing, the rehearsal
+    reports it), and a probe whose transport throws.
+- **Red on the unfixed product** (a worktree of `3e0c8d7e`, with only the new
+  test files and fixture copied in, and the probe's two helpers appended so
+  they load): **33 cases fail**, 6 of 70 in `site-owner`, 16 of 27 in
+  `canary-rows` and 11 of 41 in `canary-ui`. Every race case fails on the
+  overwritten value, "4.5 !== 5.2". The two UI race cases fail first on the
+  request's shape; with that assertion cut, they fail on the overwritten
+  value too.
+- **Probes** (`scripts/mutants/owner-cas.json`): 37 mutants, 37 killed, 0
+  survived, 0 never applied, 3 comment-only controls surviving. They ran over
+  the four changed files against 13 test files, and the files were
+  byte-identical afterwards.
+  - The first run left one survivor. C-6 skipped an unknown column in the
+    condition instead of refusing it. Alone, such a column also leaves no
+    condition, so it was refused anyway; one case now puts it beside a known
+    column, where skipping it would write on less than was asked.
+  - D1's own spec (`scripts/mutants/canary-rows.json`, three mutants
+    re-anchored to the new lines) re-ran over the final files: 52 of 52
+    killed, 3 controls surviving.
+- **The full suite, locally:** 8,094 tests, 8,092 pass, 0 fail, 2 skipped;
+  +21 against 8,073, exactly the new cases.
+
+**The order now, because the fix is Worker code.** The paid press cannot run
+on today's deploy (2162): its route has no conditional write, so the probe
+answers 400 and the paid run stops before Send. What it needs, in order:
+1. **Your approval to merge and deploy this branch.** `site-owner.mjs` is part
+   of the Worker's module graph, so the container image rolls too.
+2. **A fresh free rehearsal with the new identifiers** in the last two boxes,
+   read off the new deploy. It makes one PATCH that changes nothing, the
+   probe, and its check must pass: 409 from the new route.
+3. **The paid press**, the same form with spend `yes`.
+
 **Ready-to-run inputs.** `edit canary` → Run workflow → **branch
 `claude/help-needed-ehlwlj`** (the mode exists there only; the Worker and
 image it checks are main's). The boxes, by their descriptions:
@@ -956,18 +1096,21 @@ image it checks are main's). The boxes, by their descriptions:
 | RUN A NAMED SCENARIO IN A REAL BROWSER… | `4b-d1-price` | `4b-d1-price` |
 | The site to edit… (defaults to `fretwork-1`) | **`fold-lane-bakery`** | **`fold-lane-bakery`** |
 | A second site… | leave `washhouse-3` | leave `washhouse-3` |
-| Refuse to spend unless the Worker reports this deploy sha… | `ab74d0d94384e85db252176eaca623ba131932a5` | the same |
-| Refuse to spend unless a cold container reports this image id… | `369d7b1e5bae25b0` | the same |
+| Refuse to spend unless the Worker reports this deploy sha… | **the merge's sha**, read off its deploy (it was `ab74d0d9…` for run 40) | the same |
+| Refuse to spend unless a cold container reports this image id… | **the merge's image**, read off its deploy (it was `369d7b1e5bae25b0` for run 40) | the same |
 
-- **The rehearsal** signs in, opens the card, types the message, reads the
-  order page and the baseline, prints the recovery's plan at the baseline
-  ("none"), and stops before Send. It writes nothing and spends nothing.
+- **The rehearsal** signs in, opens the card, types the message, asks the
+  probe, reads the order page and the baseline, prints the recovery's plan at
+  the baseline ("none"), and stops before Send. It changes nothing and spends
+  nothing. **Its one write request is the probe**, which matches no row.
 - **The paid press** is the same form with spend `yes`.
 - **If the paid run ends without its recovery**, press `4b-d1-restore` with the
   same boxes: first with spend `no`, to see what it would write, then with
-  spend `yes`.
-- **A merge to main before the press changes the last two boxes.** Read both
-  off the new deploy and its free press.
+  spend `yes`. It asks the probe too.
+- **A conflict is not retried.** If another write lands between the
+  recovery's read and its write, the run says CONFLICT, fails, and leaves the
+  row as that write left it. Pressing `4b-d1-restore` then reads the row again
+  and writes only if it reads 4.6.
 
 **Cost:** about 2–3 credits. That is the routing charge (1–2; run 39's three
 routing calls cost 2, 1 and 2) plus the data rung's one call, rounded once
@@ -1002,7 +1145,8 @@ with a floor of 1. The scenario's budget is 5. The rehearsal, the recovery and
 - The API canary treats any successful edit reply as a publish, so for a data
   edit its page comparison would read `not-listed`. D1 runs through the UI
   mode, whose chain handles an edit that publishes nothing.
-- The owner rows route has no conditional write (above).
+- ~~The owner rows route has no conditional write.~~ It has one now, on the
+  branch: *the recovery's write is conditional*, below.
 
 **What Test 4 does not cover:** hydration, translation, model-written replies,
 the add-on, a css-lane run, a page removal (the move exercises the same verb

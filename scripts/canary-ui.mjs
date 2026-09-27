@@ -31,7 +31,7 @@ import fs from "node:fs";
 import crypto from "node:crypto";
 import {
   readBoth, baselineVerdict, changeVerdict, restorePlan, restoreRow, recoverRow, rowDiff, shownVerdict, lineIsFor,
-  describeRows, describeRecovery,
+  describeRows, describeRecovery, probeBody, probeVerdict,
 } from "./canary-rows.mjs";
 
 export const SESSION_KEY = "zephyr_session_v1";
@@ -157,6 +157,14 @@ export function composerReady(s) {
 export function newReplies(beforeCount, messages) {
   const list = Array.isArray(messages) ? messages : [];
   return list.slice(Math.max(0, Number(beforeCount) || 0)).filter((m) => m && m.who === "a" && !m.busy);
+}
+
+/** The recovery's condition probe through the canary's own PATCH; a throw is cannot-tell. */
+export async function conditionProbe(rows, spec) {
+  const res = await Promise.resolve()
+    .then(() => rows.patch(spec.id, probeBody(spec)))
+    .catch((e) => ({ status: 0, json: { error: String((e && e.message) || e).slice(0, 200) } }));
+  return probeVerdict(res);
 }
 
 /**
@@ -569,12 +577,16 @@ export async function runUi(opts) {
     if (spec && !scenario.steps.length) {
       rec.balance.start = await balanceNow();
       const before = rec.row.shown.before = await shown();
-      rec.row.recovery = await recoverRow({ spec, record: spec.record, readers: rows, patch: rows.patch, write: spend === true });
-      if (rec.row.recovery.wrote) {
+      // Whether the write would be conditional is asked first, with a write no
+      // row can meet; a Worker that cannot enforce it is never sent the real one.
+      rec.row.capability = await conditionProbe(rows, spec);
+      rec.row.recovery = await recoverRow({ spec, record: spec.record, readers: rows, patch: rows.patch, write: spend === true && rec.row.capability.ok });
+      if (rec.row.recovery.sent) {
         const now = rec.row.shown.afterRestore = await shown();
         now.verdict = before.ok && now.ok ? shownVerdict(before.lines, now.lines, spec, spec.shown.before) : { ok: false, why: now.ok ? "no-before" : now.why };
       }
       if (!spend) stop("rehearsal", "spend is not yes: the recovery was read and decided, and nothing was written");
+      else if (!rec.row.capability.ok) stop("condition", `${rec.row.capability.detail || rec.row.capability.why} — nothing was written`);
       rec.balance.end = await balanceNow();
       return rec;
     }
@@ -679,12 +691,18 @@ export async function runUi(opts) {
       const typed = await page.evaluate(readComposerInPage);
       if (typed.value !== step.say) { stop(`step ${n}`, "the words did not land in the message box — nothing was sent"); break; }
       // ── THE FRESH BASELINE, IMMEDIATELY BEFORE THE FIRST MESSAGE ──────────
-      // The page a visitor sees first, then both database readers last, so
-      // nothing but the budget's balance read stands between the baseline and
-      // the Send. It is where the test must start: the target row must be the
-      // one named and read exactly `from` on both readers, and the page must
-      // show it at `shown.before` — or nothing is sent.
+      // The condition probe first, then the page a visitor sees, then both
+      // database readers last, so nothing but the budget's balance read stands
+      // between the baseline and the Send. It is where the test must start: the
+      // target row must be the one named and read exactly `from` on both
+      // readers, and the page must show it at `shown.before` — or nothing is
+      // sent.
       if (spec && n === 1) {
+        // FIRST, WHETHER THE RECOVERY CAN BE CONDITIONAL AT ALL — asked with a
+        // write no row can meet, so it changes nothing. A Worker that cannot
+        // enforce a write's condition could not put the value back safely, so
+        // a paid run is never sent on one; a rehearsal reports it.
+        rec.row.capability = await conditionProbe(rows, spec);
         const before = rec.row.shown.before = await shown();
         before.verdict = before.ok && before.target.includes(spec.shown.before) ? { ok: true } : { ok: false, why: before.ok ? "wrong-price" : before.why };
         rec.row.baseline = await readBoth(rows);
@@ -701,6 +719,10 @@ export async function runUi(opts) {
         // What the recovery would write against this baseline, decided now:
         // with nothing sent it must be nothing at all.
         rec.row.planAtBaseline = restorePlan(rec.row.baseline.owner.rows, spec, rec.row.baselineVerdict.raw);
+        if (spend && !rec.row.capability.ok) {
+          stop("condition", `${rec.row.capability.detail || rec.row.capability.why} — nothing was sent`);
+          break;
+        }
       }
       if (!spend) {
         await shot(page, `ui-step-${n}-rehearsal`);
@@ -810,7 +832,7 @@ export function describeUi(rec) {
   }
   for (const b of rec.blocked || []) out.push(`  BLOCKED ${b.method} ${b.path}: ${b.why || "the page tried to start work this scenario never asks for"}`);
   if (rec.row && rec.row.spec) {
-    out.push(rec.row.recovery ? describeRecovery(rec.row.recovery, rec.row.spec, { write: rec.spend }) : describeRows(rec.row, rec.row.spec));
+    out.push(rec.row.recovery ? describeRecovery(rec.row.recovery, rec.row.spec, { write: rec.spend, capability: rec.row.capability }) : describeRows(rec.row, rec.row.spec));
     if (rec.row.recovery) {
       for (const [k, label] of [["before", "before  "], ["afterRestore", "restored"]]) {
         const sh = rec.row.shown && rec.row.shown[k];

@@ -1,13 +1,17 @@
 // THE CANARY'S ONE ROW: the decisions that say where D1 may start, what its
 // message changed, and what the recovery may write back — driven here with
-// supplied reads, no site, no token and no database.
+// supplied reads and, for the recovery end to end, the REAL owner route
+// (site-owner.mjs) over one table held in memory: no site, no token and no
+// database.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   OWNER_ROWS_LIMIT, decimalOf, readRowList, rowDiff, findTarget, baselineVerdict, changeVerdict,
   restorePlan, patchVerdict, restoreVerdict, restoreRow, recoverRow, readBoth, shownVerdict,
-  describeRows, describeRecovery, lineIsFor,
+  describeRows, describeRecovery, lineIsFor, probeBody, probeVerdict,
 } from "../scripts/canary-rows.mjs";
+import { handleOwnerData, handleOwnerWrite } from "../site-owner.mjs";
+import { ownerTable } from "./fixtures/owner-table.mjs";
 
 const SPEC = Object.freeze({
   table: "loaves", id: 6, match: Object.freeze({ name: "Sea Salt Focaccia" }), field: "price", from: "4.5", to: "4.6",
@@ -154,10 +158,14 @@ test("the expected change is the target field from `from` to `to`, and anything 
 test("the recovery writes the baseline's own value into that one field, only while it reads `to`", () => {
   const now = ownerRows(withPrice(RECORD, 6, 4.6));
   const p = restorePlan(now, SPEC, "4.5");
-  assert.deepEqual(p, { act: "patch", why: "reads-what-this-test-set", id: 6, body: { price: "4.5" }, from: "4.6" });
-  assert.deepEqual(Object.keys(p.body), ["price"], "the write names more than the one field");
-  // The baseline's representation travels: a number stays a number.
-  assert.deepEqual(restorePlan(withPrice(RECORD, 6, 4.6), SPEC, 4.5).body, { price: 4.5 });
+  // THE WRITE CARRIES ITS OWN CONDITION: made only while the row, when the
+  // write runs, is still the one named and still reads what was just read.
+  assert.deepEqual(p, { act: "patch", why: "reads-what-this-test-set", id: 6, body: { $set: { price: "4.5" }, $if: { name: "Sea Salt Focaccia", price: "4.6" } }, from: "4.6" });
+  assert.deepEqual(Object.keys(p.body.$set), ["price"], "the write names more than the one field");
+  // The baseline's representation travels: a number stays a number, and the
+  // condition is the value as read.
+  assert.deepEqual(restorePlan(withPrice(RECORD, 6, 4.6), SPEC, 4.5).body, { $set: { price: 4.5 }, $if: { name: "Sea Salt Focaccia", price: 4.6 } });
+  assert.deepEqual(restorePlan(now.map((r) => (r.id === 6 ? { ...r, price: "4.60" } : r)), SPEC, "4.5").body.$if, { name: "Sea Salt Focaccia", price: "4.60" });
   assert.deepEqual(restorePlan(now.map((r) => (r.id === 6 ? { ...r, price: "4.60" } : r)), SPEC, "4.5").act, "patch");
   // Already back, or never changed: nothing to write.
   assert.deepEqual(restorePlan(ownerRows(RECORD), SPEC, "4.5").act, "none");
@@ -182,14 +190,24 @@ test("the recovery writes the baseline's own value into that one field, only whi
 
 test("the write's own answer must be that field alone, at the baseline value", () => {
   const pre = { ...ownerRows(RECORD)[2], price: "4.6" };
-  const good = { status: 200, json: { row: { ...pre, price: "4.5" } } };
+  const good = { status: 200, json: { row: { ...pre, price: "4.5" }, conditional: true } };
   assert.equal(patchVerdict(good, pre, SPEC, "4.5").ok, true);
   assert.match(patchVerdict({ status: 404, json: { error: "no such row" } }, pre, SPEC, "4.5").why, /404/);
   assert.match(patchVerdict({ status: 0 }, pre, SPEC, "4.5").why, /answered 0/);
-  assert.equal(patchVerdict({ status: 200, json: { row: { ...pre } } }, pre, SPEC, "4.5").why, "not-written");
-  const moved = patchVerdict({ status: 200, json: { row: { ...pre, price: "4.5", description: "x" } } }, pre, SPEC, "4.5");
+  assert.equal(patchVerdict({ status: 200, json: { row: { ...pre }, conditional: true } }, pre, SPEC, "4.5").why, "not-written");
+  const moved = patchVerdict({ status: 200, json: { row: { ...pre, price: "4.5", description: "x" }, conditional: true } }, pre, SPEC, "4.5");
   assert.equal(moved.why, "row-moved");
   assert.match(moved.detail, /description/);
+  // ANOTHER WRITE GOT THERE FIRST: said, and never read as written.
+  const conflict = patchVerdict({ status: 409, json: { code: "conflict", error: "…", row: { ...pre, price: "5.2" } } }, pre, SPEC, "4.5");
+  assert.deepEqual({ ok: conflict.ok, why: conflict.why, conflict: conflict.conflict }, { ok: false, why: "conflict", conflict: true });
+  assert.match(conflict.detail, /read price as "4\.6" \(it now reads "5\.2"\), so the write matched nothing and nothing was written/);
+  const renamed = patchVerdict({ status: 409, json: { code: "conflict", row: { ...pre, name: "Baguette" } } }, pre, SPEC, "4.5");
+  assert.match(renamed.detail, /no longer Sea Salt Focaccia/);
+  // A WORKER FROM BEFORE THE FORM refuses it, and nothing was written.
+  assert.equal(patchVerdict({ status: 400, json: { error: "nothing to update" } }, pre, SPEC, "4.5").why, "no-conditional-write");
+  // A 200 that does not say its condition held is not trusted as a write.
+  assert.equal(patchVerdict({ status: 200, json: { row: { ...pre, price: "4.5" } } }, pre, SPEC, "4.5").why, "not-conditional");
 });
 
 test("the table is back when the target equals its baseline on both readers, and byte for byte only if nothing else moved", () => {
@@ -213,20 +231,33 @@ test("the table is back when the target equals its baseline on both readers, and
 
 // ── THE RECOVERY, END TO END, OVER A SUPPLIED TABLE ─────────────────────────
 
-function table(rows) {
+// The owner route itself, reading and writing one table held in memory. The
+// price is a NUMERIC by default, which the driver hands back as a string; a
+// REAL (what the site engine gives a `number` column, and what run 40 read
+// live) comes back as a number. `db.rows` IS the table, so a test can change a
+// row by hand as another writer would.
+const COLS = (price) => ({ name: "text", description: "text", price, photo: "text", created_at: "text" });
+function table(rows, { price = "numeric" } = {}) {
   const db = { rows: clone(rows), patches: [], readsOwner: 0, failPatch: 0, ownerDown: false };
-  db.owner = async () => { db.readsOwner++; return db.ownerDown ? { status: 503, json: { error: "down" } } : { status: 200, json: { rows: ownerRows(db.rows) } }; };
+  db.t = ownerTable({ types: COLS(price), rows: db.rows, inPlace: true });
+  const who = { slug: "fold-lane-bakery", table: "loaves", uid: "owner-1" };
+  db.owner = async () => {
+    db.readsOwner++;
+    if (db.ownerDown) return { status: 503, json: { error: "down" } };
+    const r = await handleOwnerData(db.t.deps, { ...who, params: { order: "id", dir: "asc", limit: "200" } });
+    return { status: r.status, json: r.body };
+  };
   db.pub = async () => ({ status: 200, text: JSON.stringify(db.rows) });
   db.patch = async (id, body) => {
     db.patches.push({ id, body });
     if (db.failPatch) return { status: db.failPatch, json: { error: "that didn't work" } };
-    const r = db.rows.find((x) => x.id === id);
-    if (!r) return { status: 404, json: { error: "no such row" } };
-    for (const [k, v] of Object.entries(body)) r[k] = k === "price" ? Number(v) : v;
-    return { status: 200, json: { row: { ...r, price: String(r.price) } } };
+    const r = await handleOwnerWrite(db.t.deps, { ...who, method: "PATCH", rowId: String(id), body });
+    return { status: r.status, json: r.body };
   };
+  db.focaccia = () => db.rows.find((r) => r.id === 6);
   return db;
 }
+const CAS = (price, was) => ({ $set: { price }, $if: { name: "Sea Salt Focaccia", price: was } });
 
 test("the recovery reads, writes the one field once, and reads the table back to its baseline", async () => {
   const db = table(RECORD);
@@ -234,8 +265,9 @@ test("the recovery reads, writes the one field once, and reads the table back to
   db.rows.find((r) => r.id === 6).price = 4.6;
   const after = await readBoth(db);
   const out = await restoreRow({ spec: SPEC, base, after, readers: db, patch: db.patch });
-  assert.deepEqual(db.patches, [{ id: 6, body: { price: "4.5" } }], "not exactly one write, of that field");
+  assert.deepEqual(db.patches, [{ id: 6, body: CAS("4.5", "4.6") }], "not exactly one write, of that field, on that condition");
   assert.equal(out.plan.act, "patch");
+  assert.equal(out.wrote, true);
   assert.equal(out.patched.verdict.ok, true, JSON.stringify(out.patched));
   assert.deepEqual({ restored: out.verdict.restored, bytes: out.verdict.bytes }, { restored: true, bytes: true });
   assert.deepEqual(out.moved, { changed: [], added: [], gone: [] });
@@ -265,7 +297,7 @@ test("another row's change is reported and kept, and only the target field is pu
   db.rows.find((r) => r.id === 2).description = "changed by somebody";
   const after = await readBoth(db);
   const out = await restoreRow({ spec: SPEC, base, after, readers: db, patch: db.patch });
-  assert.deepEqual(db.patches, [{ id: 6, body: { price: "4.5" } }]);
+  assert.deepEqual(db.patches, [{ id: 6, body: CAS("4.5", "4.6") }]);
   assert.equal(db.rows.find((r) => r.id === 2).description, "changed by somebody", "another row's change was overwritten");
   assert.deepEqual({ restored: out.verdict.restored, bytes: out.verdict.bytes }, { restored: true, bytes: false });
   assert.deepEqual(out.verdict.others.map((o) => [o.id, o.field]), [[2, "description"]]);
@@ -291,16 +323,159 @@ test("an unreadable table or a failed write is said, never read as done", async 
   assert.deepEqual({ ok: threw.owner.ok, pub: threw.pub.ok }, { ok: false, pub: true });
 });
 
+// ── A WRITE THAT LANDS BETWEEN THE RECOVERY'S READ AND ITS WRITE ────────────
+//
+// Reproduced before the write carried its condition: the recovery read 4.6,
+// another writer set 5.2 before the PATCH ran, and the recovery put 4.5 over
+// it and reported the row restored. `beforeUpdate` lands that other write
+// immediately before the route's UPDATE executes — after every read the
+// recovery makes, so another pre-read could not have seen it.
+
+const UPDATES = (db) => db.t.statements.filter((x) => x.sql.startsWith("UPDATE"));
+
+for (const price of ["numeric", "real"]) {
+  test(`the automatic recovery does not overwrite a write that lands after its read, and says so (${price})`, async () => {
+    const db = table(RECORD, { price });
+    const base = await readBoth(db);
+    db.focaccia().price = 4.6; // the edit
+    const after = await readBoth(db);
+    db.t.beforeUpdate(() => { db.focaccia().price = 5.2; });
+    const out = await restoreRow({ spec: SPEC, base, after, readers: db, patch: db.patch });
+    assert.equal(db.focaccia().price, 5.2, "the other writer's value was overwritten");
+    assert.equal(db.patches.length, 1, "the write was retried");
+    assert.deepEqual({ status: out.patched.status, why: out.patched.verdict.why, wrote: out.wrote }, { status: 409, why: "conflict", wrote: false });
+    assert.match(out.conflict, /read price as "?4\.6"? \(it now reads "?5\.2"?\), so the write matched nothing and nothing was written/);
+    assert.deepEqual({ restored: out.verdict.restored, why: out.verdict.why }, { restored: false, why: "target-differs" });
+    // ONE statement, conditional, and it matched nothing.
+    const u = UPDATES(db);
+    assert.equal(u.length, 1);
+    assert.match(u[0].sql, /WHERE id=\? AND "name" IS NOT DISTINCT FROM \? AND "price" IS NOT DISTINCT FROM \? RETURNING \*$/);
+    const told = describeRows({ spec: SPEC, restore: out }, SPEC);
+    assert.match(told, /CONFLICT   the row changed after the recovery read price/);
+    assert.match(told, /final      NOT RESTORED \(target-differs\)/);
+    assert.doesNotMatch(told, /RESTORED: the row is its baseline again/);
+  });
+
+  test(`the standalone recovery does not overwrite a write that lands after its read, and says so (${price})`, async () => {
+    const db = table(withPrice(RECORD, 6, 4.6), { price });
+    db.t.beforeUpdate(() => { db.focaccia().price = 5.2; });
+    const out = await recoverRow({ spec: SPEC, record: RECORD, readers: db, patch: db.patch, write: true });
+    assert.equal(db.focaccia().price, 5.2, "the other writer's value was overwritten");
+    assert.deepEqual({ sent: out.sent, wrote: out.wrote, status: out.patched.status, why: out.patched.verdict.why }, { sent: true, wrote: false, status: 409, why: "conflict" });
+    assert.match(out.conflict, /nothing was written/);
+    assert.equal(out.verdict.restored, false);
+    // The table is read again after the write, so what it says is the table now.
+    assert.equal(decimalOf(findTarget(out.final.owner.rows, SPEC).row.price), "5.2", "the account was drawn from the read before the write");
+    assert.equal(UPDATES(db).length, 1);
+    const told = describeRecovery(out, SPEC, { write: true });
+    assert.match(told, /CONFLICT   the row changed after the recovery read price/);
+    assert.match(told, /final      NOT RESTORED/);
+    assert.doesNotMatch(told, /RESTORED: the row is its recorded value again/);
+  });
+}
+
+test("a row renamed or deleted after the recovery's read is not written either", async () => {
+  // Renamed: no longer the row this test names.
+  let db = table(withPrice(RECORD, 6, 4.6));
+  db.t.beforeUpdate(() => { db.focaccia().name = "Baguette"; });
+  let out = await recoverRow({ spec: SPEC, record: RECORD, readers: db, patch: db.patch, write: true });
+  assert.deepEqual({ why: out.patched.verdict.why, wrote: out.wrote }, { why: "conflict", wrote: false });
+  assert.match(out.conflict, /no longer Sea Salt Focaccia/);
+  assert.deepEqual([db.rows.find((r) => r.id === 6).name, db.rows.find((r) => r.id === 6).price], ["Baguette", 4.6]);
+  // Deleted: there is nothing to write, and the route says so.
+  db = table(withPrice(RECORD, 6, 4.6));
+  const base = await readBoth(table(RECORD));
+  db.t.beforeUpdate(() => { db.t.remove(6); });
+  out = await restoreRow({ spec: SPEC, base, readers: db, patch: db.patch });
+  assert.deepEqual({ status: out.patched.status, wrote: out.wrote, restored: out.verdict.restored }, { status: 404, wrote: false, restored: false });
+  assert.equal(db.rows.some((r) => r.id === 6), false, "a deleted row came back");
+});
+
+test("another writer who puts the value back first leaves nothing to write, and it is not called the recovery's work", async () => {
+  const db = table(RECORD);
+  const base = await readBoth(db);
+  db.focaccia().price = 4.6;
+  db.t.beforeUpdate(() => { db.focaccia().price = 4.5; });
+  const out = await restoreRow({ spec: SPEC, base, readers: db, patch: db.patch });
+  assert.deepEqual({ why: out.patched.verdict.why, wrote: out.wrote, restored: out.verdict.restored }, { why: "conflict", wrote: false, restored: true });
+  const told = describeRows({ spec: SPEC, restore: out }, SPEC);
+  assert.match(told, /CONFLICT/);
+  assert.match(told, /AT BASELINE, but NOT by this recovery: its write changed nothing/);
+});
+
+test("a change to another field of the row does not block the one field, and is kept and reported", async () => {
+  const db = table(RECORD);
+  const base = await readBoth(db);
+  db.focaccia().price = 4.6;
+  db.t.beforeUpdate(() => { db.focaccia().description = "changed by somebody"; });
+  const out = await restoreRow({ spec: SPEC, base, readers: db, patch: db.patch });
+  // The condition is the row's identity and the one field, so the price goes back…
+  assert.deepEqual({ wrote: out.wrote, conflict: out.conflict, price: db.focaccia().price }, { wrote: true, conflict: null, price: 4.5 });
+  // …and the other field is left as somebody else set it, and named.
+  assert.equal(db.focaccia().description, "changed by somebody");
+  assert.deepEqual({ why: out.patched.verdict.why }, { why: "row-moved" });
+  assert.match(out.patched.verdict.detail, /description/);
+  assert.equal(out.verdict.restored, false, "a row with another field changed was called its baseline");
+});
+
+test("a Worker from before the conditional form refuses the recovery's write, and nothing is written", async () => {
+  const db = table(withPrice(RECORD, 6, 4.6));
+  // What the route answered before this form: `$set`/`$if` are not columns, so
+  // a plain PATCH found nothing to update (measured on the unfixed route).
+  const old = async (id, body) => { db.patches.push({ id, body }); return { status: 400, json: { error: "nothing to update" } }; };
+  const out = await recoverRow({ spec: SPEC, record: RECORD, readers: db, patch: old, write: true });
+  assert.deepEqual({ why: out.patched.verdict.why, wrote: out.wrote, restored: out.verdict.restored }, { why: "no-conditional-write", wrote: false, restored: false });
+  assert.equal(db.focaccia().price, 4.6);
+  assert.match(describeRecovery(out, SPEC, { write: true }), /does not take a conditional write, so it refused it and nothing was written/);
+});
+
+test("a 200 that does not say its condition held is never read as the recovery's write", async () => {
+  const db = table(RECORD);
+  const base = await readBoth(db);
+  db.focaccia().price = 4.6;
+  // A Worker that wrote and did not say it was conditional: nobody can tell.
+  const unknown = async (id, body) => {
+    db.patches.push({ id, body });
+    db.focaccia().price = 4.5;
+    return { status: 200, json: { row: { ...db.focaccia(), price: "4.5" } } };
+  };
+  const out = await restoreRow({ spec: SPEC, base, readers: db, patch: unknown });
+  assert.deepEqual({ why: out.patched.verdict.why, wrote: out.wrote }, { why: "not-conditional", wrote: false });
+  const told = describeRows({ spec: SPEC, restore: out }, SPEC);
+  assert.doesNotMatch(told, /RESTORED: the row is its baseline again/);
+  assert.match(told, /FAIL not-conditional/);
+});
+
+test("the probe asks the Worker with a conditional write no row can meet, and changes nothing", async () => {
+  const db = table(RECORD);
+  const before = JSON.stringify(db.rows);
+  assert.deepEqual(probeBody(SPEC), { $set: { price: "4.5" }, $if: { id: 0 } });
+  const v = probeVerdict(await db.patch(6, probeBody(SPEC)));
+  assert.deepEqual({ ok: v.ok, why: v.why, status: v.status }, { ok: true, why: "enforced", status: 409 });
+  assert.equal(JSON.stringify(db.rows), before, "the probe changed the table");
+  assert.equal(UPDATES(db).length, 1, "the probe did not reach the database's own condition");
+  assert.match(UPDATES(db)[0].sql, /WHERE id=\? AND "id" IS NOT DISTINCT FROM \?/);
+  // A row that is gone still shows the condition was applied.
+  db.t.remove(6);
+  assert.deepEqual(probeVerdict(await db.patch(6, probeBody(SPEC))).why, "enforced");
+  // A Worker from before the form, or any other answer, is a refusal.
+  assert.deepEqual(probeVerdict({ status: 400, json: { error: "nothing to update" } }).why, "no-conditional-write");
+  for (const res of [{ status: 200, json: { row: {} } }, { status: 409, json: {} }, { status: 500, json: { error: "that didn't work" } }, { status: 404, json: { error: "no such site" } }, { status: 0 }, null]) {
+    assert.deepEqual(probeVerdict(res).ok, false, JSON.stringify(res));
+  }
+});
+
 // ── THE RECOVERY RUN ON ITS OWN ─────────────────────────────────────────────
 
 test("the recovery run writes only with `write`, only from `to`, and in the type the owner route reads", async () => {
   const db = table(withPrice(RECORD, 6, 4.6));
   const dry = await recoverRow({ spec: SPEC, record: RECORD, readers: db, patch: db.patch, write: false });
   assert.deepEqual(db.patches, [], "a dry run wrote");
-  assert.deepEqual({ act: dry.plan.act, body: dry.plan.body, wrote: dry.wrote }, { act: "patch", body: { price: "4.5" }, wrote: false });
+  assert.deepEqual({ act: dry.plan.act, body: dry.plan.body, sent: dry.sent, wrote: dry.wrote }, { act: "patch", body: CAS("4.5", "4.6"), sent: false, wrote: false });
   assert.match(describeRecovery(dry, SPEC, { write: false }), /NOT SENT \(dry run\)/);
   const wet = await recoverRow({ spec: SPEC, record: RECORD, readers: db, patch: db.patch, write: true });
-  assert.deepEqual(db.patches, [{ id: 6, body: { price: "4.5" } }]);
+  assert.deepEqual(db.patches, [{ id: 6, body: CAS("4.5", "4.6") }]);
+  assert.deepEqual({ sent: wet.sent, wrote: wet.wrote, conflict: wet.conflict }, { sent: true, wrote: true, conflict: null });
   assert.equal(wet.patched.verdict.ok, true, JSON.stringify(wet.patched));
   assert.equal(wet.verdict.restored, true, JSON.stringify(wet.verdict));
   assert.deepEqual(wet.record, { changed: [], added: [], gone: [] });
@@ -309,19 +484,19 @@ test("the recovery run writes only with `write`, only from `to`, and in the type
   const again = await recoverRow({ spec: SPEC, record: RECORD, readers: db, patch: db.patch, write: true });
   assert.equal(again.plan.act, "none");
   assert.equal(db.patches.length, 1);
-  // A number read as a number goes back as a number.
-  const num = table(withPrice(RECORD, 6, 4.6));
-  num.owner = async () => ({ status: 200, json: { rows: clone(num.rows) } });
+  // A number read as a number goes back as a number: a REAL, as run 40 read.
+  const num = table(withPrice(RECORD, 6, 4.6), { price: "real" });
   const n = await recoverRow({ spec: SPEC, record: RECORD, readers: num, patch: num.patch, write: true });
-  assert.deepEqual(num.patches, [{ id: 6, body: { price: 4.5 } }]);
-  assert.equal(n.verdict.restored, true);
+  assert.deepEqual(num.patches, [{ id: 6, body: { $set: { price: 4.5 }, $if: { name: "Sea Salt Focaccia", price: 4.6 } } }]);
+  assert.equal(n.verdict.restored, true, JSON.stringify(n.verdict));
+  assert.equal(num.focaccia().price, 4.5);
 });
 
 test("the recovery run refuses a value nobody here set, and reports what differs from the record", async () => {
   const db = table(withPrice(RECORD, 6, 4.7).map((r) => (r.id === 1 ? { ...r, description: "new words" } : r)));
   const out = await recoverRow({ spec: SPEC, record: RECORD, readers: db, patch: db.patch, write: true });
   assert.deepEqual(db.patches, []);
-  assert.deepEqual({ act: out.plan.act, why: out.plan.why, wrote: out.wrote }, { act: "refuse", why: "unexpected-value", wrote: false });
+  assert.deepEqual({ act: out.plan.act, why: out.plan.why, sent: out.sent, wrote: out.wrote }, { act: "refuse", why: "unexpected-value", sent: false, wrote: false });
   assert.deepEqual(out.record.changed.map((c) => [c.id, c.field]), [[1, "description"], [6, "price"]]);
   assert.match(describeRecovery(out, SPEC, { write: true }), /differs from the proposal's record/);
 });

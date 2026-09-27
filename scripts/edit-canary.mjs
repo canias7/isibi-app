@@ -611,6 +611,10 @@ if (UI_ASK) {
     const r = ui.row || {};
     const shownOk = (k) => !!(r.shown && r.shown[k] && r.shown[k].verdict && r.shown[k].verdict.ok);
     const shownSays = (k) => (r.shown && r.shown[k] ? (r.shown[k].target || r.shown[k].why || "") + (r.shown[k].verdict && !r.shown[k].verdict.ok ? ` [${r.shown[k].verdict.why}]` : "") : "not read");
+    // THE RECOVERY'S WRITE IS CONDITIONAL, OR IT IS NOT MADE: asked with a
+    // write no row can meet, before anything else is written.
+    check("the Worker writes a row only while it still matches: a conditional write no row can meet changed nothing",
+      !!(r.capability && r.capability.ok), r.capability ? `${r.capability.why} (${r.capability.status})${r.capability.detail ? " — " + r.capability.detail : ""}` : "not asked");
     if (recoverOnly) {
       const x = r.recovery || null;
       check("the recovery read the row on both readers", !!(x && x.pre && x.pre.owner.ok && x.pre.pub.ok),
@@ -618,6 +622,7 @@ if (UI_ASK) {
       check("the recovery refused nothing: it writes the one field back, or nothing", !!(x && x.plan && x.plan.act !== "refuse"),
         x && x.plan ? `${x.plan.act} (${x.plan.why})${x.plan.detail ? " — " + x.plan.detail : ""}` : "no plan");
       if (SPEND && x && x.plan && x.plan.act === "patch") {
+        check("no other write changed the row between the recovery's read and its write", !x.conflict, x.conflict || (x.sent ? "" : "no write was sent"));
         check(`${ROW.field} was written back, that field alone`, !!(x.patched && x.patched.verdict.ok), x.patched ? `${x.patched.status} ${x.patched.verdict.why || ""}` : "not sent");
         check("the row is its recorded value again on both readers", !!(x.verdict && x.verdict.restored), x.verdict ? x.verdict.why : "not read");
         check(`the ${ROW.shown.path} page shows ${ROW.match.name} at ${ROW.shown.before} and every other card as it was`, shownOk("afterRestore"), shownSays("afterRestore"));
@@ -642,6 +647,7 @@ if (UI_ASK) {
           r.visitorChange ? JSON.stringify({ target: r.visitorChange.target, others: r.visitorChange.others.length }) : "not read");
         check(`the ${ROW.shown.path} page showed ${ROW.shown.after} for ${ROW.match.name} and every other card unchanged`, shownOk("afterEdit"), shownSays("afterEdit"));
         const x = r.restore || {};
+        check("no other write changed the row between the recovery's read and its write", !x.conflict, x.conflict || (x.patched ? "" : "no write was sent"));
         check(`the recovery wrote ${ROW.field} back alone, from the baseline`,
           !!(x.plan && x.plan.act === "patch" && x.patched && x.patched.verdict.ok),
           x.skipped || (x.plan ? `${x.plan.act} (${x.plan.why})${x.patched ? " -> " + x.patched.status + " " + (x.patched.verdict.why || "") : ""}` : "no plan"));

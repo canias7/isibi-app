@@ -12,6 +12,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { assertOwner, handleOwnerData, handleOwnerTables, handleOwnerWrite, handleOwnerMembers, handleOwnerAnalytics } from "../site-owner.mjs";
+import { sqlIdent } from "../site-schema.mjs";
 
 const SPEC = {
   tables: [
@@ -412,6 +413,115 @@ test("a constraint is the owner's answer, not a 500", async () => {
 test("an unknown method is 405, not a silent success", async () => {
   const { deps } = wharness();
   assert.equal((await write(deps, { table: "services", method: "PUT", rowId: "4", body: { price: "1" } })).status, 405);
+});
+
+// ─────────────────────────────────────── a write made only while the row matches
+//
+// `{$set, $if}`: the check and the write are ONE statement, so a row that
+// changed after the caller read it is not written. Reproduced before this form
+// existed: the canary's D1 recovery read the price as 4.6, another writer set
+// 5.2, and the plain PATCH put 4.5 over it and reported the row restored.
+
+/** The route over a recording executor: the UPDATE answers `updated`, a later read answers `now`. */
+function cas({ updated = [{ id: 4, title: "Cut", price: "25", _fts: "'cut':1" }], now = [] } = {}) {
+  const seen = [];
+  const { deps } = wharness({ deps: {
+    query: async (_db, sql, args) => { seen.push({ sql, args }); return sql.startsWith("UPDATE") ? updated : now; },
+    exec: async (_db, sql, args) => { seen.push({ sql, args }); return { changes: 1 }; },
+  } });
+  return { deps, seen };
+}
+const condWrite = (deps, body) => write(deps, { table: "services", method: "PATCH", rowId: "4", body });
+
+test("a conditional write is ONE UPDATE whose WHERE carries every condition", async () => {
+  const { deps, seen } = cas();
+  const r = await condWrite(deps, { $set: { price: "25" }, $if: { title: "Cut", price: "20" } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.conditional, true, "a 200 that does not say its condition was applied");
+  assert.equal(r.body.row.price, "25");
+  assert.ok(!("_fts" in r.body.row), "the search vector came back");
+  assert.deepEqual(seen, [{
+    sql: 'UPDATE "services" SET "price"=? WHERE id=? AND "title" IS NOT DISTINCT FROM ? AND "price" IS NOT DISTINCT FROM ? RETURNING *',
+    args: ["25", 4, "Cut", "20"],
+  }], "not exactly one statement, with the conditions in its own WHERE");
+});
+
+test("a conditional write that matches nothing writes nothing and says conflict, with the row as it reads now", async () => {
+  const { deps, seen } = cas({ updated: [], now: [{ id: 4, title: "Cut", price: "5.2", _fts: "x" }] });
+  const r = await condWrite(deps, { $set: { price: "4.5" }, $if: { title: "Cut", price: "4.6" } });
+  assert.equal(r.status, 409);
+  assert.equal(r.body.code, "conflict");
+  assert.match(r.body.error, /nothing was written/);
+  assert.deepEqual(r.body.row, { id: 4, title: "Cut", price: "5.2" }, "the row as it reads now is not reported");
+  assert.deepEqual(seen.map((x) => x.sql.split(" ")[0]), ["UPDATE", "SELECT"], "a second write was made after the condition failed");
+  assert.equal(seen[1].sql, 'SELECT * FROM "services" WHERE id=?');
+});
+
+test("a conditional write on a row that is gone is 404, and writes nothing", async () => {
+  const { deps, seen } = cas({ updated: [], now: [] });
+  const r = await condWrite(deps, { $set: { price: "4.5" }, $if: { price: "4.6" } });
+  assert.deepEqual([r.status, r.body.error], [404, "no such row"]);
+  assert.equal(seen.filter((x) => x.sql.startsWith("UPDATE")).length, 1);
+});
+
+test("a null condition means is-null, and `id` may be a condition — which makes a write no row can meet", async () => {
+  let { deps, seen } = cas();
+  await condWrite(deps, { $set: { price: "1" }, $if: { title: null } });
+  assert.deepEqual(seen[0].args, ["1", 4, null]);
+  assert.match(seen[0].sql, /AND "title" IS NOT DISTINCT FROM \? RETURNING \*$/);
+  ({ deps, seen } = cas({ updated: [], now: [{ id: 4, title: "Cut" }] }));
+  const r = await condWrite(deps, { $set: { price: "1" }, $if: { id: 0 } });
+  assert.match(seen[0].sql, /WHERE id=\? AND "id" IS NOT DISTINCT FROM \? RETURNING \*$/);
+  assert.deepEqual(seen[0].args, ["1", 4, 0]);
+  assert.equal(r.status, 409);
+});
+
+test("a condition's column is matched to its declared name", async () => {
+  const { deps, seen } = cas();
+  await condWrite(deps, { $set: { price: "1" }, $if: { TITLE: "Cut" } });
+  assert.match(seen[0].sql, /AND "title" IS NOT DISTINCT FROM \?/);
+});
+
+test("a malformed conditional write is refused whole, before any statement", async () => {
+  const { deps, seen } = cas();
+  for (const body of [
+    { $set: { price: "1" } },                                  // no condition
+    { $if: { price: "1" } },                                    // nothing to set
+    { $set: { price: "1" }, $if: {} },                          // an empty condition
+    { $set: { price: "1" }, $if: null },
+    { $set: { price: "1" }, $if: [["price", "1"]] },
+    { $set: [["price", "1"]], $if: { price: "1" } },
+    { $set: { price: "1" }, $if: { nope: "1" } },               // a column the table does not have
+    // …and BESIDE one it has, the shape that matters: alone, a skipped unknown
+    // column also leaves no condition and is refused for that; beside a known
+    // one, skipping it writes on less than was asked (the sweep's C-6).
+    { $set: { price: "1" }, $if: { price: "1", nope: "1" } },
+    { $set: { price: "1" }, $if: { price: { a: 1 } } },         // not a scalar
+    { $set: { price: "1" }, $if: { price: ["1"] } },
+    { $set: { price: "1" }, $if: { price: Infinity } },
+    { $set: { nope: "1" }, $if: { price: "1" } },               // nothing writable to set
+    { $set: { price: "1", id: 5 }, $if: { price: "1" } },       // one key it would drop
+    { $set: { price: "1", created_at: "x" }, $if: { price: "1" } },
+    { $set: { price: "1" }, $if: { price: "1" }, title: "x" },  // a value beside the condition
+  ]) {
+    const r = await condWrite(deps, body);
+    assert.deepEqual([r.status, r.body.code], [400, "bad_condition"], JSON.stringify(body));
+  }
+  assert.deepEqual(seen, [], "a malformed condition reached the database");
+});
+
+test("the plain PATCH is unchanged, and no `$` key is ever a column", async () => {
+  const { deps, seen } = wharness();
+  await write(deps, { table: "services", method: "PATCH", rowId: "4", body: { price: "25" } });
+  assert.deepEqual(seen[0], { sql: 'UPDATE "services" SET "price"=? WHERE id=?', args: ["25", 4] });
+  // A PLAIN body finds nothing writable in a `$` key — which is what a Worker
+  // from before the conditional form does with `{$set, $if}`: 400, no statement.
+  const old = wharness();
+  const r = await write(old.deps, { table: "services", method: "PATCH", rowId: "4", body: { $sets: { price: "4.5" }, $iff: { price: "4.6" } } });
+  assert.deepEqual([r.status, r.body.error], [400, "nothing to update"]);
+  assert.deepEqual(old.seen, []);
+  // And the reason it holds for every table: an identifier cannot begin with `$`.
+  for (const k of ["$set", "$if"]) assert.throws(() => sqlIdent(k), /bad identifier/);
 });
 
 // ─────────────────────────────────────────────────── writes are behind the gate

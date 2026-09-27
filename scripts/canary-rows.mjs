@@ -22,6 +22,16 @@
 // can be asked byte for byte rather than after a JSON parse that forgets
 // `4.50` was ever `4.50`.
 //
+// THE CHECK AND THE WRITE ARE ONE STATEMENT. A read that finds the value this
+// test set, followed by a plain `UPDATE … WHERE id=?`, leaves a window in which
+// another write can land and be overwritten — reproduced: the recovery read
+// 4.6, another writer set 5.2, and the write put 4.5 over it and reported the
+// row restored. So the recovery's write is the owner route's CONDITIONAL form,
+// `{$set, $if}`: Postgres writes the row only if, when the write runs, it is
+// still the row named, with the value this test set. A row that no longer
+// matches is not written, and the route answers 409 conflict — reported here,
+// never retried and never called restored.
+//
 // PURE AND INJECTED. The canary hands in the three transports (the two reads
 // and the owner route's PATCH), so every decision here is driven by tests with
 // no site, no token and no database.
@@ -172,7 +182,11 @@ export function restorePlan(nowRows, spec, baseRaw) {
   const now = t.row[spec.field];
   if (decimalOf(baseRaw) !== spec.from) return { act: "refuse", why: "no-baseline", detail: `the baseline value ${JSON.stringify(baseRaw)} is not ${spec.from}` };
   if (same(now, baseRaw)) return { act: "none", why: "at-baseline", detail: `${spec.field} already reads ${JSON.stringify(now)}` };
-  if (decimalOf(now) === spec.to) return { act: "patch", why: "reads-what-this-test-set", id: spec.id, body: { [spec.field]: baseRaw }, from: now };
+  if (decimalOf(now) === spec.to) {
+    // Written only while the row, when the write runs, is still the one named
+    // and still reads the value just read — in the form the owner route read it.
+    return { act: "patch", why: "reads-what-this-test-set", id: spec.id, body: { $set: { [spec.field]: baseRaw }, $if: { ...(spec.match || {}), [spec.field]: now } }, from: now };
+  }
   return { act: "refuse", why: "unexpected-value", detail: `${spec.field} reads ${JSON.stringify(now)}, which is neither the baseline ${JSON.stringify(baseRaw)} nor ${spec.to}, the value this test set — left as it is` };
 }
 
@@ -182,10 +196,29 @@ export function restorePlan(nowRows, spec, baseRaw) {
  * what the read just before the write held.
  */
 export function patchVerdict(res, preRow, spec, baseRaw) {
-  if (!res || res.status !== 200 || !res.json || !res.json.row || typeof res.json.row !== "object") {
-    return { ok: false, why: `the write answered ${(res && res.status) || 0}`, detail: res && res.json && res.json.error ? res.json.error : "" };
+  const status = (res && res.status) || 0;
+  const j = res && res.json && typeof res.json === "object" ? res.json : {};
+  if (status === 409 && j.code === "conflict") {
+    // ANOTHER WRITE GOT THERE FIRST: the row no longer matched when the write
+    // ran, so Postgres wrote nothing. What it reads now is read after, and
+    // decides nothing.
+    const cur = j.row && typeof j.row === "object" ? j.row : null;
+    const was = preRow ? JSON.stringify(preRow[spec.field] === undefined ? null : preRow[spec.field]) : "?";
+    return {
+      ok: false, why: "conflict", conflict: true, current: cur,
+      detail: `the row changed after the recovery read ${spec.field} as ${was}${cur ? ` (it now reads ${JSON.stringify(cur[spec.field] === undefined ? null : cur[spec.field])}${Object.entries(spec.match || {}).some(([k, v]) => cur[k] !== v) ? `, and it is no longer ${Object.values(spec.match || {}).join(", ")}` : ""})` : ""}, so the write matched nothing and nothing was written`,
+    };
   }
-  const row = res.json.row;
+  if (status === 400 && j.error === "nothing to update") {
+    return { ok: false, why: "no-conditional-write", detail: "this Worker does not take a conditional write, so it refused it and nothing was written" };
+  }
+  if (status !== 200 || !j.row || typeof j.row !== "object") {
+    return { ok: false, why: `the write answered ${status}`, detail: j.error || "" };
+  }
+  // A write answered 200 without saying its condition held is a write nobody
+  // can tell was conditional.
+  if (j.conditional !== true) return { ok: false, why: "not-conditional", detail: "the write answered 200 without saying its condition was applied" };
+  const row = j.row;
   if (!same(row[spec.field], baseRaw)) return { ok: false, why: "not-written", detail: `${spec.field} came back ${JSON.stringify(row[spec.field])}` };
   const d = rowDiff([{ ...preRow, [spec.field]: baseRaw }], [row]);
   return d.changed.length ? { ok: false, why: "row-moved", detail: d.changed.map((c) => c.field).join(", "), changed: d.changed } : { ok: true, row };
@@ -220,6 +253,11 @@ export function restoreVerdict(base, final, spec) {
   };
 }
 
+/** Did the route say it wrote the row? Only a 200 that says its condition held. */
+function routeWrote(res) {
+  return !!(res && res.status === 200 && res.json && res.json.conditional === true && res.json.row);
+}
+
 /**
  * THE RECOVERY, END TO END: read, decide, write one field, read again.
  *   readers  { owner: () => Promise<res>, pub: () => Promise<res> }
@@ -231,7 +269,7 @@ export function restoreVerdict(base, final, spec) {
  * change that landed since the after-read is seen here and not overwritten.
  */
 export async function restoreRow({ spec, base, after = null, readers, patch }) {
-  const out = { at: new Date().toISOString(), pre: null, plan: null, patched: null, final: null, verdict: null, moved: null };
+  const out = { at: new Date().toISOString(), pre: null, plan: null, patched: null, wrote: false, conflict: null, final: null, verdict: null, moved: null };
   out.pre = await readBoth(readers);
   if (!out.pre.owner.ok) {
     out.plan = { act: "refuse", why: "owner-unreadable", detail: out.pre.owner.why };
@@ -244,6 +282,8 @@ export async function restoreRow({ spec, base, after = null, readers, patch }) {
     const res = await patch(out.plan.id, out.plan.body);
     const preRow = findTarget(out.pre.owner.rows, spec).row;
     out.patched = { status: (res && res.status) || 0, verdict: patchVerdict(res, preRow, spec, baseRaw) };
+    out.conflict = out.patched.verdict.conflict ? out.patched.verdict.detail : null;
+    out.wrote = routeWrote(res);
   }
   out.final = await readBoth(readers);
   out.verdict = restoreVerdict(base, out.final, spec);
@@ -260,7 +300,7 @@ export async function restoreRow({ spec, base, after = null, readers, patch }) {
  *   write  false reads and decides only — nothing is written
  */
 export async function recoverRow({ spec, record, readers, patch, write = false }) {
-  const out = { at: new Date().toISOString(), pre: null, plan: null, patched: null, final: null, verdict: null, record: null, wrote: false };
+  const out = { at: new Date().toISOString(), pre: null, plan: null, patched: null, conflict: null, final: null, verdict: null, record: null, sent: false, wrote: false };
   out.pre = await readBoth(readers);
   if (!out.pre.owner.ok) {
     out.plan = { act: "refuse", why: "owner-unreadable", detail: out.pre.owner.why };
@@ -272,10 +312,12 @@ export async function recoverRow({ spec, record, readers, patch, write = false }
   out.plan = restorePlan(out.pre.owner.rows, spec, baseRaw);
   if (out.plan.act === "patch" && write) {
     const res = await patch(out.plan.id, out.plan.body);
-    out.wrote = true;
+    out.sent = true;
     out.patched = { status: (res && res.status) || 0, verdict: patchVerdict(res, t.row, spec, baseRaw) };
+    out.conflict = out.patched.verdict.conflict ? out.patched.verdict.detail : null;
+    out.wrote = routeWrote(res);
   }
-  out.final = out.wrote ? await readBoth(readers) : out.pre;
+  out.final = out.sent ? await readBoth(readers) : out.pre;
   // The baseline this is judged against: what the read before the write held,
   // with the one field at its recorded value, and the proposal's record for
   // what a visitor is served.
@@ -286,6 +328,30 @@ export async function recoverRow({ spec, record, readers, patch, write = false }
   out.verdict = restoreVerdict(base, out.final, spec);
   out.record = out.final.pub.ok ? rowDiff(Array.isArray(record) ? record : [], out.final.pub.rows) : null;
   return out;
+}
+
+/**
+ * DOES THIS WORKER WRITE ONLY WHILE THE ROW STILL MATCHES? Asked before the
+ * test changes anything, with a conditional write no row can meet: the row
+ * must have its own id and the id 0 at once. It changes nothing on any
+ * Worker. One that takes the form runs the UPDATE, which matches nothing, and
+ * answers 409 conflict (or 404 if the row is gone). One that predates the form
+ * finds nothing writable in the body and answers 400 "nothing to update"
+ * before any statement. Anything else cannot tell, and cannot-tell refuses.
+ */
+export function probeBody(spec) {
+  return { $set: { [spec.field]: spec.from }, $if: { id: 0 } };
+}
+
+export function probeVerdict(res) {
+  const status = (res && res.status) || 0;
+  const j = res && res.json && typeof res.json === "object" ? res.json : {};
+  if (status === 409 && j.code === "conflict") return { ok: true, why: "enforced", status };
+  if (status === 404 && j.error === "no such row") return { ok: true, why: "enforced", status, detail: "the row is gone" };
+  if (status === 400 && j.error === "nothing to update") {
+    return { ok: false, why: "no-conditional-write", status, detail: "this Worker does not take a conditional write, so the recovery could not put the value back" };
+  }
+  return { ok: false, why: "cannot-tell", status, detail: `a conditional write that cannot match answered ${status}${j.error ? " " + JSON.stringify(j.error) : ""}` };
 }
 
 /** Both readers, each answer checked. */
@@ -339,6 +405,7 @@ export function describeRows(r, spec) {
     if (r.record) L.push(`  record     ${r.record.same ? "the baseline's visitor read equals the proposal's record" : `the table moved since the proposal's record: ${describeDiff(r.record.diff)}`}`);
     if (r.planAtBaseline) L.push(`  recovery   against this baseline: ${r.planAtBaseline.act} (${r.planAtBaseline.why})${r.planAtBaseline.detail ? " — " + r.planAtBaseline.detail : ""}`);
   }
+  if (r.capability) L.push(capabilityLine(r.capability));
   const shownLine = (k, label) => {
     const s = r.shown && r.shown[k];
     if (s) L.push(`  shown      ${label}  ${s.ok ? s.url + " (" + (s.version || "?") + "): " + (s.target || "(no line)") : "UNREADABLE (" + s.why + ")"}${s.verdict ? (s.verdict.ok ? "  ok" : "  FAIL " + s.verdict.why) : ""}`);
@@ -358,10 +425,15 @@ export function describeRows(r, spec) {
     else {
       L.push(`  restore    plan ${x.plan ? x.plan.act + " (" + x.plan.why + ")" + (x.plan.detail ? " — " + x.plan.detail : "") : "-"}`);
       if (x.plan && x.plan.act === "patch") L.push(`             PATCH /rows/${spec.table}/${spec.id} ${JSON.stringify(x.plan.body)} -> ${x.patched ? x.patched.status : "not sent"}  ${x.patched && x.patched.verdict.ok ? "that field alone changed" : "FAIL " + (x.patched ? x.patched.verdict.why + " " + (x.patched.verdict.detail || "") : "")}`);
+      if (x.conflict) L.push(`  CONFLICT   ${x.conflict}`);
       if (x.moved && (x.moved.changed.length || x.moved.added.length || x.moved.gone.length)) L.push(`             moved since the after-read: ${describeDiff(x.moved)}  (reported, not put back)`);
       if (x.verdict) {
-        const wrote = x.plan && x.plan.act === "patch";
-        L.push(`  final      ${x.verdict.restored ? (wrote ? "RESTORED: the row is its baseline again on both readers" : "AT BASELINE: nothing was written, and the row is its baseline on both readers") : "NOT RESTORED (" + x.verdict.why + ")"}; visitor read ${x.verdict.bytes ? "byte-identical to the baseline" : "NOT byte-identical to the baseline"}`);
+        const sent = x.plan && x.plan.act === "patch";
+        const state = !x.verdict.restored ? "NOT RESTORED (" + x.verdict.why + ")"
+          : x.wrote ? "RESTORED: the row is its baseline again on both readers"
+          : sent ? "AT BASELINE, but NOT by this recovery: its write changed nothing"
+          : "AT BASELINE: nothing was written, and the row is its baseline on both readers";
+        L.push(`  final      ${state}; visitor read ${x.verdict.bytes ? "byte-identical to the baseline" : "NOT byte-identical to the baseline"}`);
         for (const o of x.verdict.others || []) L.push(`             still different: id ${o.id} ${o.field} ${val(o.before)} -> ${val(o.after)}  (not ours to put back)`);
       }
     }
@@ -371,22 +443,30 @@ export function describeRows(r, spec) {
 }
 
 /** The recovery run's own account. */
-export function describeRecovery(x, spec, { write = false } = {}) {
+export function describeRecovery(x, spec, { write = false, capability = null } = {}) {
   const L = [];
   const val = (v) => JSON.stringify(v === undefined ? null : v);
   L.push(`ROW RECOVERY — ${spec.table} id ${spec.id} (${Object.values(spec.match || {}).join(", ")}), ${spec.field} back to ${spec.from} only if it reads ${spec.to}; ${write ? "WRITES" : "a dry run: nothing is written"}`);
   if (!x) { L.push("  not run"); return L.join("\n"); }
   const t = x.pre && x.pre.owner.ok ? findTarget(x.pre.owner.rows, spec) : null;
   L.push(`  read       ${x.pre ? x.pre.at : "-"}  owner ${x.pre && x.pre.owner.ok ? x.pre.owner.rows.length + " rows" : "UNREADABLE"}, visitor ${x.pre && x.pre.pub.ok ? x.pre.pub.rows.length + " rows" : "UNREADABLE"}${t && t.ok ? `; the target reads ${val(t.row[spec.field])}` : t ? "; target " + t.why : ""}`);
+  if (capability) L.push(capabilityLine(capability));
   L.push(`  plan       ${x.plan ? x.plan.act + " (" + x.plan.why + ")" + (x.plan.detail ? " — " + x.plan.detail : "") : "-"}`);
   if (x.plan && x.plan.act === "patch") {
-    L.push(x.wrote
+    L.push(x.sent
       ? `  write      PATCH /rows/${spec.table}/${spec.id} ${JSON.stringify(x.plan.body)} -> ${x.patched.status}  ${x.patched.verdict.ok ? "that field alone changed" : "FAIL " + x.patched.verdict.why + " " + (x.patched.verdict.detail || "")}`
-      : `  write      NOT SENT (dry run): PATCH /rows/${spec.table}/${spec.id} ${JSON.stringify(x.plan.body)}`);
+      : `  write      NOT SENT (${capability && !capability.ok ? "the Worker cannot make a conditional write" : "dry run"}): PATCH /rows/${spec.table}/${spec.id} ${JSON.stringify(x.plan.body)}`);
   }
-  if (x.verdict && x.wrote) L.push(`  final      ${x.verdict.restored ? "RESTORED: the row is its recorded value again on both readers" : "NOT RESTORED (" + x.verdict.why + ")"}`);
+  if (x.conflict) L.push(`  CONFLICT   ${x.conflict}`);
+  if (x.verdict && x.sent) {
+    L.push(`  final      ${!x.verdict.restored ? "NOT RESTORED (" + x.verdict.why + ")" : x.wrote ? "RESTORED: the row is its recorded value again on both readers" : "AT ITS RECORDED VALUE, but NOT by this recovery: its write changed nothing"}`);
+  }
   if (x.record) L.push(`  record     ${!x.record.changed.length && !x.record.added.length && !x.record.gone.length ? "the visitor read equals the proposal's record" : "differs from the proposal's record: " + describeDiff(x.record) + "  (reported, not put back)"}`);
   return L.join("\n");
+}
+
+function capabilityLine(c) {
+  return `  condition  ${c.ok ? "the Worker writes only while the row still matches: a conditional write no row can meet answered " + c.status + " and changed nothing" : "REFUSED: " + (c.detail || c.why)}`;
 }
 
 function describeDiff(d) {

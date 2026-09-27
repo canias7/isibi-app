@@ -1,0 +1,325 @@
+[
+ {
+  "label": "CONTROL: the conditional write's heading comment changes nothing",
+  "control": true,
+  "files": [
+   "site-owner.mjs"
+  ],
+  "from": " * A CONDITIONAL WRITE: `{\"$set\": {...}, \"$if\": {...}}`.",
+  "to": " * A CONDITIONAL WRITE (control): `{\"$set\": {...}, \"$if\": {...}}`."
+ },
+ {
+  "label": "CONTROL: the recovery module's comment changes nothing",
+  "control": true,
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "// THE CHECK AND THE WRITE ARE ONE STATEMENT. A read that finds the value this",
+  "to": "// THE CHECK AND THE WRITE ARE ONE STATEMENT (control). A read finding the value"
+ },
+ {
+  "label": "CONTROL: the probe's comment in the runner changes nothing",
+  "control": true,
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "        // FIRST, WHETHER THE RECOVERY CAN BE CONDITIONAL AT ALL — asked with a",
+  "to": "        // FIRST (control), WHETHER THE RECOVERY CAN BE CONDITIONAL — asked with a"
+ },
+ {
+  "label": "C-1: the conditional form is not recognised (read as a plain body)",
+  "files": [
+   "site-owner.mjs"
+  ],
+  "from": "    (Object.hasOwn(body, SET_KEY) || Object.hasOwn(body, IF_KEY));",
+  "to": "    false;"
+ },
+ {
+  "label": "C-2: THE DEFECT AT THE ROUTE — the condition is dropped from the UPDATE",
+  "files": [
+   "site-owner.mjs"
+  ],
+  "from": "      ifCols.map((c) => \" AND \" + deps.ident(c) + \" IS NOT DISTINCT FROM ?\").join(\"\") + \" RETURNING *\",\n    vals.concat([id], ifVals),",
+  "to": "      \" RETURNING *\",\n    vals.concat([id]),"
+ },
+ {
+  "label": "C-3: equality instead of IS NOT DISTINCT FROM",
+  "files": [
+   "site-owner.mjs"
+  ],
+  "from": "\" IS NOT DISTINCT FROM ?\").join(\"\")",
+  "to": "\" = ?\").join(\"\")"
+ },
+ {
+  "label": "C-4: a value beside the condition is allowed",
+  "files": [
+   "site-owner.mjs"
+  ],
+  "from": "  if (extra.length) return refuse(",
+  "to": "  if (false) return refuse("
+ },
+ {
+  "label": "C-5: a $set key the route would drop is allowed",
+  "files": [
+   "site-owner.mjs"
+  ],
+  "from": "  if (cols.length !== asked.length) {",
+  "to": "  if (false) {"
+ },
+ {
+  "label": "C-6: a condition on a column the table lacks is skipped, not refused",
+  "files": [
+   "site-owner.mjs"
+  ],
+  "from": "    if (!col) return refuse(\"$if names a column this table does not have: \" + k);",
+  "to": "    if (!col) continue;"
+ },
+ {
+  "label": "C-7: a condition that is not a scalar is accepted",
+  "files": [
+   "site-owner.mjs"
+  ],
+  "from": "    if (!scalar) return refuse(",
+  "to": "    if (false) return refuse("
+ },
+ {
+  "label": "C-8: an empty condition is accepted",
+  "files": [
+   "site-owner.mjs"
+  ],
+  "from": "  if (!ifCols.length) return refuse(\"$if names no condition\");",
+  "to": ""
+ },
+ {
+  "label": "C-9: a write that matched nothing is answered as written",
+  "files": [
+   "site-owner.mjs"
+  ],
+  "from": "  return json({ error: \"that row no longer matched the condition when the write ran, so nothing was written\", code: \"conflict\", row: stripFts(now[0]) }, 409);",
+  "to": "  return json({ row: stripFts(now[0]), conditional: true });"
+ },
+ {
+  "label": "C-10: a row that is gone is answered as a conflict",
+  "files": [
+   "site-owner.mjs"
+  ],
+  "from": "  if (!now.length) return json({ error: \"no such row\" }, 404);\n  return json({ error: \"that row no longer matched",
+  "to": "  if (!now.length) return json({ error: \"gone\", code: \"conflict\", row: null }, 409);\n  return json({ error: \"that row no longer matched"
+ },
+ {
+  "label": "C-11: the answer does not say its condition held",
+  "files": [
+   "site-owner.mjs"
+  ],
+  "from": "  if (rows.length) return json({ row: stripFts(rows[0]), conditional: true });",
+  "to": "  if (rows.length) return json({ row: stripFts(rows[0]) });"
+ },
+ {
+  "label": "C-12: `id` cannot be a condition",
+  "files": [
+   "site-owner.mjs"
+  ],
+  "from": "  const declared = new Map([\"id\", ...columnNames(def)]",
+  "to": "  const declared = new Map([...columnNames(def)]"
+ },
+ {
+  "label": "C-13: a condition's column is matched by its exact spelling only",
+  "files": [
+   "site-owner.mjs"
+  ],
+  "from": "    const col = declared.get(String(k).toLowerCase());",
+  "to": "    const col = declared.get(String(k));"
+ },
+ {
+  "label": "C-14: the plain PATCH takes the conditional path's place",
+  "files": [
+   "site-owner.mjs"
+  ],
+  "from": "    if (isConditional(body)) return conditionalPatch(deps, { db, def, tn, id, body });",
+  "to": "    if (false) return conditionalPatch(deps, { db, def, tn, id, body });"
+ },
+ {
+  "label": "K-1: THE DEFECT AT THE CANARY — the recovery sends a plain body",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "body: { $set: { [spec.field]: baseRaw }, $if: { ...(spec.match || {}), [spec.field]: now } }",
+  "to": "body: { [spec.field]: baseRaw }"
+ },
+ {
+  "label": "K-2: the condition leaves out the row's identity",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "$if: { ...(spec.match || {}), [spec.field]: now } }",
+  "to": "$if: { [spec.field]: now } }"
+ },
+ {
+  "label": "K-3: the condition leaves out the value",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "$if: { ...(spec.match || {}), [spec.field]: now } }",
+  "to": "$if: { ...(spec.match || {}) } }"
+ },
+ {
+  "label": "K-4: a conflict is read as an ordinary failed write",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "  if (status === 409 && j.code === \"conflict\") {",
+  "to": "  if (false) {"
+ },
+ {
+  "label": "K-5: a 200 that does not say its condition held is trusted",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "  if (j.conditional !== true) return { ok: false, why: \"not-conditional\"",
+  "to": "  if (false) return { ok: false, why: \"not-conditional\""
+ },
+ {
+  "label": "K-6: a Worker from before the form is not named",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "  if (status === 400 && j.error === \"nothing to update\") {\n    return { ok: false, why: \"no-conditional-write\", detail: \"this Worker does not take a conditional write, so it refused it",
+  "to": "  if (false) {\n    return { ok: false, why: \"no-conditional-write\", detail: \"this Worker does not take a conditional write, so it refused it"
+ },
+ {
+  "label": "K-7: a write is counted as made without its condition",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "res.json.conditional === true && res.json.row",
+  "to": "res.json.row"
+ },
+ {
+  "label": "K-8: the automatic recovery drops the conflict",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "    out.conflict = out.patched.verdict.conflict ? out.patched.verdict.detail : null;\n    out.wrote = routeWrote(res);\n  }\n  out.final = await readBoth(readers);",
+  "to": "    out.wrote = routeWrote(res);\n  }\n  out.final = await readBoth(readers);"
+ },
+ {
+  "label": "K-9: the standalone recovery drops the conflict",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "    out.conflict = out.patched.verdict.conflict ? out.patched.verdict.detail : null;\n    out.wrote = routeWrote(res);\n  }\n  out.final = out.sent",
+  "to": "    out.wrote = routeWrote(res);\n  }\n  out.final = out.sent"
+ },
+ {
+  "label": "K-10: the standalone recovery reads again only after a write that landed",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "  out.final = out.sent ? await readBoth(readers) : out.pre;",
+  "to": "  out.final = out.wrote ? await readBoth(readers) : out.pre;"
+ },
+ {
+  "label": "K-11: the probe can match a row",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "  return { $set: { [spec.field]: spec.from }, $if: { id: 0 } };",
+  "to": "  return { $set: { [spec.field]: spec.from }, $if: { id: spec.id } };"
+ },
+ {
+  "label": "K-12: the probe reads a Worker from before the form as enforcing",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "  if (status === 400 && j.error === \"nothing to update\") {\n    return { ok: false, why: \"no-conditional-write\", status,",
+  "to": "  if (status === 400 && j.error === \"nothing to update\") {\n    return { ok: true, why: \"no-conditional-write\", status,"
+ },
+ {
+  "label": "K-13: the probe takes any 409 as enforcing",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "  if (status === 409 && j.code === \"conflict\") return { ok: true, why: \"enforced\", status };",
+  "to": "  if (status === 409) return { ok: true, why: \"enforced\", status };"
+ },
+ {
+  "label": "K-14: the probe takes any 404 as enforcing",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "  if (status === 404 && j.error === \"no such row\") return",
+  "to": "  if (status === 404) return"
+ },
+ {
+  "label": "K-15: the account says RESTORED after a write that changed nothing",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "          : x.wrote ? \"RESTORED: the row is its baseline again on both readers\"",
+  "to": "          : x.plan ? \"RESTORED: the row is its baseline again on both readers\""
+ },
+ {
+  "label": "K-16: the account leaves the conflict out",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "      if (x.conflict) L.push(`  CONFLICT   ${x.conflict}`);",
+  "to": ""
+ },
+ {
+  "label": "U-1: the paid run is sent on a Worker that cannot make a conditional write",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "        if (spend && !rec.row.capability.ok) {",
+  "to": "        if (false) {"
+ },
+ {
+  "label": "U-2: the standalone recovery writes although the probe failed",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "write: spend === true && rec.row.capability.ok });",
+  "to": "write: spend === true });"
+ },
+ {
+  "label": "U-3: the paid run never asks the probe",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "        rec.row.capability = await conditionProbe(rows, spec);\n        const before = rec.row.shown.before = await shown();",
+  "to": "        rec.row.capability = { ok: true, why: \"enforced\", status: 409 };\n        const before = rec.row.shown.before = await shown();"
+ },
+ {
+  "label": "U-4: a probe whose transport throws is a yes",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "    .catch((e) => ({ status: 0, json: { error: String((e && e.message) || e).slice(0, 200) } }));",
+  "to": "    .catch(() => ({ status: 409, json: { code: \"conflict\" } }));"
+ },
+ {
+  "label": "E-1: the probe's check always passes",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "      !!(r.capability && r.capability.ok), r.capability ?",
+  "to": "      true, r.capability ?"
+ },
+ {
+  "label": "E-2: the paid run's conflict check always passes",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "        check(\"no other write changed the row between the recovery's read and its write\", !x.conflict, x.conflict || (x.patched ?",
+  "to": "        check(\"no other write changed the row between the recovery's read and its write\", true, x.conflict || (x.patched ?"
+ },
+ {
+  "label": "E-3: the standalone recovery's conflict check always passes",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "        check(\"no other write changed the row between the recovery's read and its write\", !x.conflict, x.conflict || (x.sent ?",
+  "to": "        check(\"no other write changed the row between the recovery's read and its write\", true, x.conflict || (x.sent ?"
+ }
+]

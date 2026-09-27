@@ -317,6 +317,7 @@ async function runWrite(deps, { db, def, access, tn, method, rowId, body }) {
   if (!id) return json({ error: "no row id" }, 400);
 
   if (method === "PATCH") {
+    if (isConditional(body)) return conditionalPatch(deps, { db, def, tn, id, body });
     const { cols, vals } = pickWritable(def, body);
     if (!cols.length) return json({ error: "nothing to update" }, 400);
     // No owner scoping, unlike the visitor path. This door is already gated on
@@ -339,6 +340,88 @@ async function runWrite(deps, { db, def, access, tn, method, rowId, body }) {
   }
 
   return json({ error: "method not allowed" }, 405);
+}
+
+/**
+ * A CONDITIONAL WRITE: `{"$set": {...}, "$if": {...}}`.
+ *
+ * The plain PATCH is `UPDATE … WHERE id=?`, so a caller that reads a row,
+ * decides from what it read and then writes has a window between the two in
+ * which another write can land and be overwritten. The canary's D1 recovery
+ * is such a caller, and reproduced it: it read the price as 4.6, another
+ * writer set 5.2, and the recovery's PATCH put 4.5 over the 5.2 and reported
+ * the row restored.
+ *
+ * Here the condition is part of the one UPDATE statement — `WHERE id=? AND
+ * "col" IS NOT DISTINCT FROM ? …` — so Postgres judges it against the row as
+ * it stands when the write runs, and a row that no longer matches is not
+ * written. A second read before the write could not close that window; the
+ * statement's own WHERE is the only place the check and the write are one.
+ *
+ * WHY THESE TWO KEYS. `$` can never begin a column name (`sqlIdent` admits
+ * letters, digits and `_`), so a Worker that predates this form finds nothing
+ * writable in such a body and answers 400 "nothing to update": it can refuse
+ * a conditional write, and it can never make one unconditionally.
+ *
+ * Every condition is applied or the request is refused; none is dropped, since
+ * a dropped condition is the unconditional write again. `IS NOT DISTINCT FROM`
+ * so that a condition of null means "is null". The values go as untyped
+ * parameters, which Postgres casts to each column's type — measured on
+ * PostgreSQL 16: '4.6' matches a REAL 4.6 and a NUMERIC 4.60, where a
+ * float8-typed 4.6 would never match a REAL.
+ */
+const SET_KEY = "$set";
+const IF_KEY = "$if";
+
+function isConditional(body) {
+  return !!body && typeof body === "object" && !Array.isArray(body) &&
+    (Object.hasOwn(body, SET_KEY) || Object.hasOwn(body, IF_KEY));
+}
+
+async function conditionalPatch(deps, { db, def, tn, id, body }) {
+  const refuse = (error) => json({ error, code: "bad_condition" }, 400);
+  const plain = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+  // Values beside the condition would be written unconditionally by a Worker
+  // that ignores it, so the form carries nothing else.
+  const extra = Object.keys(body).filter((k) => k !== SET_KEY && k !== IF_KEY);
+  if (extra.length) return refuse("a conditional write carries $set and $if and nothing else: " + extra.join(", "));
+  if (!plain(body[SET_KEY]) || !plain(body[IF_KEY])) return refuse("a conditional write needs $set and $if, each an object");
+
+  // What it sets: writable columns only, as the plain PATCH decides — but a key
+  // it would drop is refused here, so the write is exactly the one asked for.
+  const { cols, vals } = pickWritable(def, body[SET_KEY]);
+  const asked = Object.keys(body[SET_KEY]);
+  if (!cols.length) return refuse("$set names nothing writable");
+  if (cols.length !== asked.length) {
+    const kept = new Set(cols);
+    return refuse("$set names a column this table does not let you write: " + asked.filter((k) => !kept.has(k)).join(", "));
+  }
+
+  // What it requires: any column of the table, or `id`, by its declared name.
+  const declared = new Map(["id", ...columnNames(def)].map((c) => [c.toLowerCase(), c]));
+  const ifCols = [], ifVals = [];
+  for (const [k, v] of Object.entries(body[IF_KEY])) {
+    const col = declared.get(String(k).toLowerCase());
+    if (!col) return refuse("$if names a column this table does not have: " + k);
+    const scalar = v === null || typeof v === "string" || typeof v === "boolean" || (typeof v === "number" && Number.isFinite(v));
+    if (!scalar) return refuse("$if compares " + k + " with a value that is not a string, a number, a boolean or null");
+    ifCols.push(col);
+    ifVals.push(v);
+  }
+  if (!ifCols.length) return refuse("$if names no condition");
+
+  const rows = await deps.query(
+    db,
+    "UPDATE " + tn + " SET " + cols.map((c) => deps.ident(c) + "=?").join(",") + " WHERE id=?" +
+      ifCols.map((c) => " AND " + deps.ident(c) + " IS NOT DISTINCT FROM ?").join("") + " RETURNING *",
+    vals.concat([id], ifVals),
+  );
+  if (rows.length) return json({ row: stripFts(rows[0]), conditional: true });
+  // Nothing matched, so nothing was written. Which of two things it was is read
+  // afterwards and decides nothing: the row is gone, or it no longer matched.
+  const now = await deps.query(db, "SELECT * FROM " + tn + " WHERE id=?", [id]);
+  if (!now.length) return json({ error: "no such row" }, 404);
+  return json({ error: "that row no longer matched the condition when the write ran, so nothing was written", code: "conflict", row: stripFts(now[0]) }, 409);
 }
 
 

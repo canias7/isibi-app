@@ -54,8 +54,10 @@ and #418 stays open. **CLOSED BY THE OWNER** after independent review (2026-09-2
 together with the CSS-correction milestone (deploy 2161's batch): no repeat run, no
 restoration, no further CSS work.
 **What remains, and Test 4b (2026-09-27: narrowed by the owner to D1 alone —
-built on the branch at `6602be37`, rehearsed free as run 40, the paid press
-next; D2 and D3 parked; step 0,
+built on the branch at `6602be37`, rehearsed free as run 40; its recovery's
+write made CONDITIONAL on the branch since, in the owner rows route, which is
+Worker code, so the paid press waits for an approved merge and deploy and a
+fresh free rehearsal; D2 and D3 parked; step 0,
 `grants preview` run 36286991932, kept as maintenance evidence; the rules rung
 has its own proposal)**: the top section of the
 [edit-path checklist](docs/investigations/edit-path-checklist.md), summarised in
@@ -9323,8 +9325,9 @@ list, and Test 4's exact form values, are the top section of the
   refused; with the fix, Part A removes "Today's bake" and checks the fix live,
   and the `CtaBand` sentence is the fallback if 4a runs before the merge.
 - **TEST 4, IN TWO PARTS APPROVED SEPARATELY — 4a CLOSED BY THE OWNER (RUNS 37
-  AND 39), 4b NARROWED TO D1 ALONE (2026-09-27), REHEARSED FREE AS RUN 40, THE
-  PAID PRESS NEXT**
+  AND 39), 4b NARROWED TO D1 ALONE (2026-09-27), REHEARSED FREE AS RUN 40, ITS
+  RECOVERY'S WRITE MADE CONDITIONAL SINCE, SO THE PAID PRESS WAITS FOR A MERGE
+  AND DEPLOY**
   (owner, 2026-09-26: *"Separate the photo/attachment/second-message checks from
   database writes and permission changes."*), all on fold-lane-bakery:
   - **4a — pages only, undone free by the canary's restore mode**:
@@ -9343,8 +9346,10 @@ list, and Test 4's exact form values, are the top section of the
     only"*; *Test 4b*, below): one price row through the real app, with only
     a `data` edit allowed to leave the page, put back by the canary itself
     with no model call — that one field, and only from the value it set.
-    **Built at `6602be37`; its free rehearsal passed as run 40; the paid press
-    is next.**
+    **Built at `6602be37`; its free rehearsal passed as run 40. The owner then
+    reproduced the recovery overwriting a concurrent write; the fix makes the
+    write conditional in the owner rows route (Worker code), so the paid press
+    waits for an approved merge and deploy, then a fresh free rehearsal.**
     - step 0, free, **ran 2026-09-27 as `grants preview` run 36286991932** and
       is kept as MAINTENANCE evidence: what the grants are and what an apply
       or a rollback would issue. It never goes through an edit.
@@ -9727,7 +9732,7 @@ addition."* `scripts/canary-ui.mjs`, the `ui_scenario` box on `edit-canary.yml`,
   block, the balance was read before each message, every filed job was
   followed, and the after-read waited for the last published version.
 
-### TEST 4b: D1 ALONE, REHEARSED FREE AS RUN 40; D2 AND D3 PARKED; THE RULES RUNG'S OWN PROPOSAL (2026-09-27)
+### TEST 4b: D1 ALONE, REHEARSED FREE AS RUN 40, ITS RECOVERY'S WRITE CONDITIONAL SINCE; D2 AND D3 PARKED; THE RULES RUNG'S OWN PROPOSAL (2026-09-27)
 
 Owner, first: *"return one concrete proposal: exact requests, expected database
 changes, independent checks, estimated cost and deterministic recovery for both
@@ -9761,10 +9766,60 @@ after it hold the test and the proposal. What is law here:
   difference: reported, never written. A reply that never came is not
   recovered automatically — the job may still be writing — and the recovery
   scenario (`4b-d1-restore`) is pressed once it has finished.
-- **THE OWNER ROWS ROUTE HAS NO CONDITIONAL WRITE** (`UPDATE … WHERE id=?` in
-  `site-owner.mjs`), so the compare and the write are two requests about a
-  second apart, and a change landing between them would be overwritten.
-  Stated rather than hidden; closing it is a product change, not made.
+- **THE OWNER ROWS ROUTE TAKES A CONDITIONAL WRITE, AND D1'S RECOVERY USES IT**
+  (2026-09-27, on the branch, not merged; owner, reproducing the gap this
+  bullet used to record: *"Make the recovery's expected-value check and write
+  atomic … Another pre-read does not close this gap."*). The plain PATCH is
+  `UPDATE … WHERE id=?`, so a caller that reads, decides and then writes has a
+  window. Reproduced through the real route: the recovery read 4.6, another
+  writer set 5.2, the PATCH wrote 4.5 over it, and the account said RESTORED.
+  - **`{"$set": {…}, "$if": {…}}` IS ONE STATEMENT**: `UPDATE … SET … WHERE
+    id=? AND "col" IS NOT DISTINCT FROM ? … RETURNING *`. The condition lives
+    in the write's own WHERE, the only place a check and a write are one. It
+    answers 200 with `conditional: true`; 409 `code: "conflict"` when the row
+    no longer matched, with the row as read afterwards (which decides
+    nothing); 404 for a row that is gone; and 400 `bad_condition` before any
+    statement for a malformed form.
+  - **EVERY CONDITION IS APPLIED, OR THE REQUEST IS REFUSED.** A dropped
+    condition is the unconditional write again. The sweep's one survivor
+    (C-6, an unknown column skipped rather than refused) was exactly that: it
+    stayed invisible until a case put the unknown column BESIDE a known one,
+    because alone it also leaves no condition and is refused for that.
+  - **`$` IS WHAT MAKES THE ROLLOUT SAFE.** No column can begin with it
+    (`sqlIdent`), so a Worker from before the form finds nothing writable in
+    the body and answers 400 "nothing to update" before any statement. That
+    was measured by running the UNFIXED route itself on the recovery's body
+    and the probe's. Such a Worker can refuse the form, and can never perform
+    it unconditionally.
+  - **UNTYPED PARAMETERS, NEVER A TYPED COMPARISON.** Postgres casts `'4.6'`
+    to the column's type, so it matches REAL 4.6 and NUMERIC 4.60. A float8
+    4.6 never equals a REAL 4.6, which widens to 4.599999904632568. Measured
+    on a real PostgreSQL 16.
+  - **READ COMMITTED DOES THE REST.** An UPDATE blocked on a row lock
+    re-evaluates its WHERE on the committed row. On a real PostgreSQL 16 the
+    conditional write waited on another transaction's lock and then matched
+    nothing, while the plain one waited and overwrote.
+  - **THE CANARY ASKS A PROBE FIRST**: a write no row can meet (`$if: {id: 0}`
+    beside the row's own id). 409 or 404 means the Worker enforces the
+    condition, 400 means a Worker without the form, and anything else is
+    cannot-tell. A paid run is never sent on a Worker that cannot enforce it,
+    and the standalone recovery never sends its write then. **The probe is a
+    write REQUEST.** A zero-row UPDATE fires no row-level trigger, and the
+    site engine emits no other kind; on a real PostgreSQL the table's hash and
+    the row's `xmin` were unchanged after it.
+  - **A CONFLICT IS SAID, FAILS THE RUN, AND IS NEVER RETRIED. RESTORED IS
+    SAID ONLY AFTER A WRITE THAT LANDED**; a row back at its baseline through
+    somebody else's write is "AT BASELINE, but NOT by this recovery".
+  - **EVIDENCE**: `site-owner` 63 → 70 cases, `canary-rows` 17 → 27,
+    `canary-ui` 37 → 41, with every competing write landing immediately
+    before the route's UPDATE, through the real route over an in-memory table
+    (`test/fixtures/owner-table.mjs`). **Red on the unfixed product: 33
+    cases** (6 + 16 + 11), every race case on "4.5 !== 5.2". Probes
+    `scripts/mutants/owner-cas.json`: 37 of 37 killed, 3 controls surviving;
+    D1's own spec re-anchored and re-run, 52 of 52 killed. A real PostgreSQL
+    16 (`test/integration/local-pg-owner-cas.mjs`, by hand) passed 17 of 17,
+    on REAL and NUMERIC columns and under a held lock. Suite 8,094 / 8,092 /
+    0 / 2 locally, +21, exactly the new cases.
 - **A FULL PAGE FROM THE OWNER ROUTE IS NOT THE TABLE.** It reads at most 200
   rows (`MAX_LIMIT`), so a read of 200 is refused as possibly partial: a
   comparison over part of a table would call the rest unchanged.
@@ -9795,7 +9850,8 @@ after it hold the test and the proposal. What is law here:
   **THE OWNER ROUTE READS THE PRICE AS A JSON NUMBER**, measured here, so the
   recovery writes the number 4.5 back (the unit cases drove the string form
   too). The session's read-only check at 03:42Z agreed on every reading. The
-  paid press is the same form with spend `yes`.
+  paid press was to be the same form with spend `yes` — until the conditional
+  write below, which moves both expectation boxes.
 - **THE RULES RUNG'S OWN PROPOSAL, NOT BUILT OR APPROVED.** Its footprint is the
   site's own Postgres alone (it publishes nothing), and since 2026-07-29 each
   site has its own Neon project. So the recommended recovery is **Neon's

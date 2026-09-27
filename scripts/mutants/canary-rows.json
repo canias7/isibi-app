@@ -119,16 +119,16 @@
   "files": [
    "scripts/canary-rows.mjs"
   ],
-  "from": "  if (decimalOf(now) === spec.to) return { act: \"patch\"",
-  "to": "  if (true) return { act: \"patch\""
+  "from": "  if (decimalOf(now) === spec.to) {",
+  "to": "  if (true) {"
  },
  {
   "label": "R-13: the recovery writes a re-typed value, not the baseline's own",
   "files": [
    "scripts/canary-rows.mjs"
   ],
-  "from": "id: spec.id, body: { [spec.field]: baseRaw }, from: now };",
-  "to": "id: spec.id, body: { [spec.field]: Number(spec.from) }, from: now };"
+  "from": "body: { $set: { [spec.field]: baseRaw }, $if:",
+  "to": "body: { $set: { [spec.field]: Number(spec.from) }, $if:"
  },
  {
   "label": "R-14: a row already at its baseline is written again",
@@ -351,8 +351,8 @@
   "files": [
    "scripts/canary-ui.mjs"
   ],
-  "from": "write: spend === true });",
-  "to": "write: true });"
+  "from": "write: spend === true && rec.row.capability.ok });",
+  "to": "write: rec.row.capability.ok });"
  },
  {
   "label": "U-18: the visitor's page may write",

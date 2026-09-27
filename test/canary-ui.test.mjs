@@ -14,8 +14,12 @@ import {
   UI_SCENARIOS, SESSION_KEY, readUiScenario, composerReady, newReplies, budgetRefusal,
   imageFacts, recordableRequest, recordsBody, blocksPost, chainVerdict, runUi, describeUi,
   wallRefusal, requestVerdict, storedReplyVerdict, moneyVerdict, unpublishedVerdict, routeCostsOf,
+  conditionProbe,
 } from "../scripts/canary-ui.mjs";
+import { probeBody } from "../scripts/canary-rows.mjs";
 import { MAX_LOGO_BYTES } from "../builder/site-logo.mjs";
+import { handleOwnerWrite } from "../site-owner.mjs";
+import { ownerTable } from "./fixtures/owner-table.mjs";
 
 const ROOT = new URL("../", import.meta.url).pathname;
 const FIXTURE = "test/fixtures/ui-logo.png";
@@ -564,10 +568,14 @@ test("nothing published is three readers agreeing, never one", () => {
 
 // A supplied bakery: the owner route answers the price as a string (NUMERIC,
 // as the database driver does), the visitor route as the site's JSON, and the
-// order page draws one card per loaf, by name. Every read and write is logged
-// into the stand-in's own call list, so its order against the Send is visible.
-function bakery(calls, rows = UI_SCENARIOS["4b-d1-price"].row.record) {
+// order page draws one card per loaf, by name. Its PATCH is the REAL owner
+// route (site-owner.mjs) over the same rows, so the recovery's condition is
+// judged by the route's own UPDATE. Every read and write is logged into the
+// stand-in's own call list, so its order against the Send is visible.
+// `oldWorker` answers a conditional write as the route did before the form.
+function bakery(calls, rows = UI_SCENARIOS["4b-d1-price"].row.record, { oldWorker = false } = {}) {
   const db = { rows: JSON.parse(JSON.stringify(rows)), patches: [], ownerReads: 0, onOwnerRead: null };
+  db.t = ownerTable({ types: { name: "text", description: "text", price: "numeric", photo: "text", created_at: "text" }, rows: db.rows, inPlace: true });
   db.owner = async () => {
     calls.push("owner read");
     db.ownerReads++;
@@ -579,9 +587,9 @@ function bakery(calls, rows = UI_SCENARIOS["4b-d1-price"].row.record) {
   db.patch = async (id, body) => {
     calls.push(`patch ${id} ${JSON.stringify(body)}`);
     db.patches.push({ id, body });
-    const r = db.rows.find((x) => x.id === id);
-    for (const [k, v] of Object.entries(body)) r[k] = k === "price" ? Number(v) : v;
-    return { status: 200, json: { row: { ...r, price: String(r.price) } } };
+    if (oldWorker) return { status: 400, json: { error: "nothing to update" } };
+    const r = await handleOwnerWrite(db.t.deps, { slug: "fold-lane-bakery", table: "loaves", uid: "owner-1", method: "PATCH", rowId: String(id), body });
+    return { status: r.status, json: r.body };
   };
   db.lines = () => [...db.rows].sort((a, b) => a.name.localeCompare(b.name)).map((r) => `${r.name} £${Number(r.price).toFixed(2)} · ${r.description}`);
   db.focaccia = () => db.rows.find((r) => r.id === 6);
@@ -598,9 +606,12 @@ function d1Harness(opt = {}) {
     shown: () => (opt.shown ? opt.shown(db) : db.lines()),
     hangAt: opt.hangAt,
   });
-  db = bakery(h.calls, opt.rows);
+  db = bakery(h.calls, opt.rows, { oldWorker: !!opt.oldWorker });
   return { h, db };
 }
+// The probe (a conditional write no row can meet) and the recovery's write.
+const PROBE = { id: 6, body: probeBody(UI_SCENARIOS["4b-d1-price"].row) };
+const BACK = { id: 6, body: { $set: { price: "4.5" }, $if: { name: "Sea Salt Focaccia", price: "4.6" } } };
 const driveD1 = (h, db, over = {}) => runUi({
   base: ORIGIN, session: SESSION, slug: "fold-lane-bakery", scenario: D1, spend: true, balanceNow: async () => 59,
   evid: "", launch: h.launch, log: () => {}, openMs: 50, attachMs: 50, startMs: 50, stepMs: 60, pollMs: 1, settleMs: 0, shownMs: 50,
@@ -622,9 +633,14 @@ test("D1 takes its baseline just before the Send, sees the one change on the row
   const pageBefore = h.calls.findIndex((c) => c.startsWith("goto " + SITE + "/order"));
   assert.ok(pageBefore > 0 && pageBefore < lastReadBeforeSend, "the page was not read before the baseline, or not before the Send");
   assert.deepEqual(h.calls.slice(lastReadBeforeSend + 1, send), [], "something stands between the baseline and the Send");
-  const patchAt = h.calls.findIndex((c) => c.startsWith("patch "));
-  assert.ok(patchAt > send, "the row was written before the message was sent");
-  assert.deepEqual(db.patches, [{ id: 6, body: { price: "4.5" } }], "not exactly one write, of the price, in the baseline's own form");
+  // THE PROBE FIRST, BEFORE THE PAGE: a conditional write no row can meet.
+  // Then the only write after the Send is the recovery's, on its condition.
+  const patches = h.calls.map((c, i) => [c, i]).filter(([c]) => c.startsWith("patch "));
+  assert.equal(patches.length, 2, JSON.stringify(patches));
+  assert.ok(patches[0][1] < pageBefore, "the condition was not asked before anything else");
+  assert.ok(patches[1][1] > send, "the row was written before the message was sent");
+  assert.deepEqual(db.patches, [PROBE, BACK], "not the probe and then one write, of the price, on its condition");
+  assert.deepEqual({ ok: rec.row.capability.ok, status: rec.row.capability.status }, { ok: true, status: 409 });
   // What the run saw.
   const r = rec.row;
   assert.equal(r.baselineVerdict.ok, true);
@@ -634,8 +650,8 @@ test("D1 takes its baseline just before the Send, sees the one change on the row
   assert.equal(r.visitorChange.exact, true);
   assert.match(r.shown.before.target, /^Sea Salt Focaccia £4\.50/);
   assert.deepEqual({ ok: r.shown.afterEdit.verdict.ok, line: r.shown.afterEdit.target.slice(0, 23) }, { ok: true, line: "Sea Salt Focaccia £4.60" });
-  assert.deepEqual({ plan: r.restore.plan.act, patched: r.restore.patched.verdict.ok, restored: r.restore.verdict.restored, bytes: r.restore.verdict.bytes },
-    { plan: "patch", patched: true, restored: true, bytes: true });
+  assert.deepEqual({ plan: r.restore.plan.act, patched: r.restore.patched.verdict.ok, wrote: r.restore.wrote, conflict: r.restore.conflict, restored: r.restore.verdict.restored, bytes: r.restore.verdict.bytes },
+    { plan: "patch", patched: true, wrote: true, conflict: null, restored: true, bytes: true });
   assert.deepEqual(r.shown.afterRestore.verdict, { ok: true, exact: true });
   assert.equal(JSON.stringify(db.rows), start, "the table is not what it was");
   // The page's own record of the message.
@@ -655,7 +671,11 @@ test("the rehearsal reads the baseline and the page, decides the recovery would 
   assert.equal(rec.stopped.at, "rehearsal");
   assert.equal(rec.sent, 0);
   assert.ok(!h.calls.includes("click #stSend"));
-  assert.deepEqual(db.patches, []);
+  // The one request to the owner route's PATCH is the probe, which no row can meet.
+  assert.deepEqual(db.patches, [PROBE]);
+  assert.equal(JSON.stringify(db.rows), JSON.stringify(UI_SCENARIOS["4b-d1-price"].row.record), "the rehearsal changed the table");
+  assert.equal(rec.row.capability.ok, true);
+  assert.match(describeUi(rec), /condition  the Worker writes only while the row still matches/);
   assert.equal(rec.row.baselineVerdict.ok, true);
   assert.equal(rec.row.planAtBaseline.act, "none");
   assert.equal(rec.row.restore, undefined, "a rehearsal decided a recovery beyond the plan");
@@ -677,7 +697,7 @@ test("a row that is not where the test starts, or a page that does not show it, 
     assert.match(rec.stopped.msg, /nothing was sent/);
     assert.equal(rec.sent, 0);
     assert.ok(!h.calls.includes("click #stSend"), "a message was sent from a wrong starting point");
-    assert.deepEqual(db.patches, []);
+    assert.deepEqual(db.patches, [PROBE], "anything but the probe was sent to the owner route");
     assert.equal(rec.row.restore.skipped, "nothing was sent, so there is nothing to put back");
   }
   // And a run handed no readers never opens a browser.
@@ -693,7 +713,7 @@ test("a price somebody else set after the edit is refused and left, and said", a
   // The second owner read is the after-read; right after it somebody sets 4.7.
   db.onOwnerRead = (n, d) => { if (n === 2) d.focaccia().price = 4.7; };
   const rec = await driveD1(h, db);
-  assert.deepEqual(db.patches, [], "a value nobody here set was overwritten");
+  assert.deepEqual(db.patches, [PROBE], "a value nobody here set was overwritten");
   assert.equal(db.focaccia().price, 4.7);
   const x = rec.row.restore;
   assert.deepEqual({ act: x.plan.act, why: x.plan.why, restored: x.verdict.restored }, { act: "refuse", why: "unexpected-value", restored: false });
@@ -711,7 +731,7 @@ test("a change beside the expected one is reported and kept, and only the price 
   assert.deepEqual({ expected: r.change.expected, exact: r.change.exact }, { expected: true, exact: false });
   assert.deepEqual(r.change.others.map((o) => [o.id, o.field]), [[2, "description"]]);
   assert.equal(r.shown.afterEdit.verdict.why, "other-lines-changed");
-  assert.deepEqual(db.patches, [{ id: 6, body: { price: "4.5" } }]);
+  assert.deepEqual(db.patches, [PROBE, BACK]);
   assert.equal(db.rows.find((x) => x.id === 2).description, "Dense, malty, changed.", "another row's change was overwritten");
   assert.deepEqual({ restored: r.restore.verdict.restored, bytes: r.restore.verdict.bytes }, { restored: true, bytes: false });
   assert.match(describeUi(rec), /other change: id 2 description/);
@@ -725,7 +745,7 @@ test("a reply that never comes writes nothing and names the recovery run", async
   assert.equal(rec.steps[0].completed, false);
   assert.match(rec.row.restore.skipped, /reply never came/);
   assert.match(rec.row.restore.skipped, /price back only if it reads 4\.6/);
-  assert.deepEqual(db.patches, []);
+  assert.deepEqual(db.patches, [PROBE]);
   assert.equal(rec.row.after, undefined, "the row was read as if the job had finished");
 });
 
@@ -762,8 +782,9 @@ test("the recovery run opens no app, writes only with spend and only from 4.6, a
   // Dry run: decided, not written.
   let { h, db } = d1Harness({ rows: at46 });
   let rec = await drive(h, db, false);
-  assert.deepEqual(db.patches, []);
-  assert.deepEqual({ act: rec.row.recovery.plan.act, wrote: rec.row.recovery.wrote }, { act: "patch", wrote: false });
+  assert.deepEqual(db.patches, [PROBE], "a dry run sent more than the probe");
+  assert.deepEqual({ act: rec.row.recovery.plan.act, sent: rec.row.recovery.sent, wrote: rec.row.recovery.wrote }, { act: "patch", sent: false, wrote: false });
+  assert.equal(rec.row.capability.ok, true);
   assert.equal(rec.stopped.at, "rehearsal");
   assert.equal(h.inits.length, 0, "the owner's session was planted by a run that opens no app");
   assert.ok(!h.calls.some((c) => c.startsWith("goto " + ORIGIN) || c.startsWith("click")), "the recovery opened the app");
@@ -784,7 +805,8 @@ test("the recovery run opens no app, writes only with spend and only from 4.6, a
   // With spend: one write, the row back, the page back.
   ({ h, db } = d1Harness({ rows: at46 }));
   rec = await drive(h, db, true);
-  assert.deepEqual(db.patches, [{ id: 6, body: { price: "4.5" } }]);
+  assert.deepEqual(db.patches, [PROBE, BACK]);
+  assert.deepEqual({ wrote: rec.row.recovery.wrote, conflict: rec.row.recovery.conflict }, { wrote: true, conflict: null });
   assert.equal(rec.row.recovery.verdict.restored, true);
   assert.equal(rec.row.shown.afterRestore.verdict.ok, true, JSON.stringify(rec.row.shown.afterRestore.verdict));
   assert.equal(rec.stopped, null);
@@ -795,9 +817,86 @@ test("the recovery run opens no app, writes only with spend and only from 4.6, a
     ({ h, db } = d1Harness({ rows }));
     rec = await drive(h, db, true);
     assert.equal(rec.row.recovery.plan.act, act);
-    assert.deepEqual(db.patches, []);
+    assert.deepEqual(db.patches, [PROBE]);
     assert.equal(rec.row.shown.afterRestore, undefined);
   }
+});
+
+// ── A WRITE THAT LANDS BETWEEN THE RECOVERY'S READ AND ITS WRITE ────────────
+//
+// Armed at the recovery's own last read, so the other write lands after every
+// read it makes and immediately before the owner route's UPDATE runs.
+
+test("the paid run's recovery does not overwrite a write that lands after its read, and the run says conflict", async () => {
+  const { h, db } = d1Harness();
+  // Owner reads: the baseline (1), the after-read (2), the recovery's own read (3).
+  db.onOwnerRead = (n, d) => { if (n === 3) d.t.beforeUpdate(() => { d.focaccia().price = 5.2; }); };
+  const rec = await driveD1(h, db);
+  assert.equal(rec.sent, 1);
+  const x = rec.row.restore;
+  assert.deepEqual(db.patches, [PROBE, BACK], "not the probe and the one conditional write");
+  assert.equal(db.focaccia().price, 5.2, "the other writer's value was overwritten");
+  assert.deepEqual({ plan: x.plan.act, status: x.patched.status, why: x.patched.verdict.why, wrote: x.wrote, restored: x.verdict.restored },
+    { plan: "patch", status: 409, why: "conflict", wrote: false, restored: false });
+  assert.match(x.conflict, /read price as "4\.6" \(it now reads "5\.2"\), so the write matched nothing and nothing was written/);
+  assert.equal(rec.row.shown.afterRestore.verdict.ok, false, "the page was called back where it started");
+  const told = describeUi(rec);
+  assert.match(told, /CONFLICT   the row changed after the recovery read price/);
+  assert.match(told, /final      NOT RESTORED/);
+  assert.doesNotMatch(told, /RESTORED: the row is its baseline again/);
+});
+
+test("the standalone recovery does not overwrite a write that lands after its read, and says conflict", async () => {
+  const at46 = UI_SCENARIOS["4b-d1-price"].row.record.map((r) => (r.id === 6 ? { ...r, price: 4.6 } : r));
+  const { h, db } = d1Harness({ rows: at46 });
+  // The recovery's own read is the first owner read of that run.
+  db.onOwnerRead = (n, d) => { if (n === 1) d.t.beforeUpdate(() => { d.focaccia().price = 5.2; }); };
+  const rec = await runUi({
+    base: ORIGIN, session: SESSION, slug: "fold-lane-bakery", scenario: D1_BACK, spend: true, balanceNow: async () => 59,
+    evid: "", launch: h.launch, log: () => {}, pollMs: 1, shownMs: 50, rows: { owner: db.owner, pub: db.pub, patch: db.patch }, siteOrigin: SITE,
+  });
+  const x = rec.row.recovery;
+  assert.deepEqual(db.patches, [PROBE, BACK]);
+  assert.equal(db.focaccia().price, 5.2, "the other writer's value was overwritten");
+  assert.deepEqual({ sent: x.sent, wrote: x.wrote, why: x.patched.verdict.why, restored: x.verdict.restored }, { sent: true, wrote: false, why: "conflict", restored: false });
+  assert.match(x.conflict, /nothing was written/);
+  const told = describeUi(rec);
+  assert.match(told, /CONFLICT   the row changed after the recovery read price/);
+  assert.doesNotMatch(told, /RESTORED: the row is its recorded value again/);
+});
+
+test("on a Worker that cannot make a conditional write, the paid run sends nothing and the recovery writes nothing", async () => {
+  // Paid: refused before the Send, with nothing changed.
+  let { h, db } = d1Harness({ oldWorker: true });
+  let rec = await driveD1(h, db);
+  assert.deepEqual({ at: rec.stopped && rec.stopped.at, sent: rec.sent }, { at: "condition", sent: 0 });
+  assert.match(rec.stopped.msg, /does not take a conditional write.*nothing was sent/);
+  assert.ok(!h.calls.includes("click #stSend"), "a message was sent although its recovery could not be conditional");
+  assert.deepEqual(db.patches, [PROBE]);
+  assert.equal(JSON.stringify(db.rows), JSON.stringify(UI_SCENARIOS["4b-d1-price"].row.record));
+  assert.equal(rec.row.restore.skipped, "nothing was sent, so there is nothing to put back");
+  // The rehearsal says so and stops where it always does.
+  ({ h, db } = d1Harness({ oldWorker: true }));
+  rec = await driveD1(h, db, { spend: false });
+  assert.deepEqual({ at: rec.stopped.at, ok: rec.row.capability.ok, why: rec.row.capability.why }, { at: "rehearsal", ok: false, why: "no-conditional-write" });
+  assert.match(describeUi(rec), /condition  REFUSED: this Worker does not take a conditional write/);
+  // The standalone recovery with spend: its write is never sent.
+  const at46 = UI_SCENARIOS["4b-d1-price"].row.record.map((r) => (r.id === 6 ? { ...r, price: 4.6 } : r));
+  ({ h, db } = d1Harness({ rows: at46, oldWorker: true }));
+  rec = await runUi({
+    base: ORIGIN, session: SESSION, slug: "fold-lane-bakery", scenario: D1_BACK, spend: true, balanceNow: async () => 59,
+    evid: "", launch: h.launch, log: () => {}, pollMs: 1, shownMs: 50, rows: { owner: db.owner, pub: db.pub, patch: db.patch }, siteOrigin: SITE,
+  });
+  assert.deepEqual({ at: rec.stopped && rec.stopped.at, sent: rec.row.recovery.sent }, { at: "condition", sent: false });
+  assert.deepEqual(db.patches, [PROBE]);
+  assert.equal(db.focaccia().price, 4.6);
+  assert.match(describeUi(rec), /NOT SENT \(the Worker cannot make a conditional write\)/);
+});
+
+test("a probe whose transport throws is cannot-tell, never a yes", async () => {
+  const v = await conditionProbe({ patch: async () => { throw new Error("socket hang up"); } }, UI_SCENARIOS["4b-d1-price"].row);
+  assert.deepEqual({ ok: v.ok, why: v.why, status: v.status }, { ok: false, why: "cannot-tell", status: 0 });
+  assert.match(v.detail, /socket hang up/);
 });
 
 // ── THE WIRING ─────────────────────────────────────────────────────────────
@@ -893,9 +992,12 @@ test("a row scenario is handed the owner route, the visitor route and one PATCH,
   assert.match(run, /siteOrigin: BEFORE\.origin/, "the site's origin is not handed to the driver");
   for (const needle of ["r.baselineVerdict.ok", 'shownOk("before")', 'r.planAtBaseline.act === "none"', "requestVerdict(", "storedReplyVerdict(",
     "r.change.exact", "r.visitorChange.exact", 'shownOk("afterEdit")', 'x.plan.act === "patch"', "x.verdict.restored", "x.verdict.bytes === true",
-    'shownOk("afterRestore")', "unpublishedVerdict(", "moneyVerdict(", "routeCostsOf(ui.steps)", "jobs.length === 1"]) {
+    'shownOk("afterRestore")', "unpublishedVerdict(", "moneyVerdict(", "routeCostsOf(ui.steps)", "jobs.length === 1",
+    "r.capability && r.capability.ok", "!x.conflict"]) {
     assert.ok(win.includes(needle), `the check on ${needle} is gone`);
   }
+  // A conflict is its own failing check on BOTH recoveries, the paid run's and the standalone one.
+  assert.equal(win.split("!x.conflict").length - 1, 2, "a recovery has no check of its own for a conflict");
   // The money and the no-publish proof are read after the chain, for a scenario that publishes nothing.
   const chainAt = win.indexOf("chain = chainVerdict(");
   const pub0 = win.indexOf("UI_ASK.scenario.publishes === 0");
