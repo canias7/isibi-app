@@ -65,9 +65,11 @@ independent review (2026-09-27); D2 and D3 parked; step 0, `grants preview` run
 the candidate site `lido-axes-b`, revised on the owner's two corrections and
 BUILT on the branch at `ebf53761` as the scenario `4b-rules-close`, its
 booking decided before it leaves the browser since `717bb5b2` (that correction
-CLOSED BY THE OWNER after review) — its first free check, `grants preview`
-run 36309691339, reading the starting permissions it was written for, the
-free rehearsal next, nothing paid approved or pressed)**: the top section of the
+CLOSED BY THE OWNER after review) — both free checks passing: `grants preview`
+run 36309691339 read the starting permissions it was written for, and the
+free rehearsal, `edit canary` run 43 (36333244182), stopped exactly the marker
+booking in the browser and changed nothing; the paid press waits for the
+owner's approval, nothing paid approved or pressed)**: the top section of the
 [edit-path checklist](docs/investigations/edit-path-checklist.md), summarised in
 *remaining work after Test 3* below. Among the QUEUED jobs inspected, the rules
 rung and a page removal have never published, and **run 42 was the data
@@ -140,10 +142,12 @@ ONE real visitor booking must be refused at the privilege check with no row
 added. **The harness is built on the branch (`ebf53761`, 2026-09-27; *the
 rules test, built*, below), and since `717bb5b2` only the exact marker booking
 may leave the browser (closed by the owner after review, 105 focused tests).
-Its first free check, `grants preview` run 36309691339, read the starting
+Both free checks pass: `grants preview` run 36309691339 read the starting
 permissions it was written for (visitors may insert into `bookings`,
-table-wide, and not read it; they may read the menu); the free rehearsal is
-next, and nothing paid is approved or pressed.**
+table-wide, and not read it; they may read the menu), and the free rehearsal,
+`edit canary` run 43 (36333244182), stopped exactly the marker booking in the
+browser and changed nothing. The paid press waits for the owner's approval,
+and nothing paid is approved or pressed.**
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -10257,6 +10261,51 @@ after it hold the test and the proposal. What is law here:
       form's own five; that apply is maintenance and is not pressed. Its
       artifact (10928500920, 2,003-byte JSON, kept to 2026-12-26) is press
       4's comparison. Re-read at 09:40Z: balance 56, no edit job since run 42.
+    - **PRESS 2 READ: the free rehearsal, `edit canary` run 43
+      (36333244182)**, the owner's, from the branch at `a2a989ad`,
+      16:26–16:27Z, canary step 38 s.
+      - The env block: spend 0, scenario `4b-rules-close`, approvals
+        `cleanup`, site `lido-axes-b`, both expectations set.
+      - Preflight: `14df0225be90` / `9038e90ab1d5d7fe`, both readers
+        agreeing.
+      - Inventory complete: every route on `mt50cg7h-l19hre`, the stylesheet
+        byte for byte.
+      - All eight start checks `ok`:
+        - **the site has no secrets at all**, so no email, text, webhook or
+          bot check is possible;
+        - the stamp has never been set;
+        - `bookings` collect with 0 rows; `menu_items` display with 6;
+        - the visitor read is refused 403 `42501`;
+        - the menu is the recorded 1,208 bytes.
+      - The app typed the message and did not send it: 3 GETs, 0 errors.
+      - The booking tab filled the marker booking and pressed once. The one
+        request was exactly the marker's five fields, `exact: true`, stopped
+        in the browser; the page said "Failed to fetch"; the census read 0 → 0.
+      - Balance 56 → 56.
+      - Its two zero-cost confirmation jobs are `failed`/`none`/0,
+        unpublished. **The `lido-axes-b` one is the first edit job ever filed
+        for that site.**
+      - No script has changed since `717bb5b2`, so the paid press runs the
+        harness this rehearsal ran.
+      - Re-read at 16:37Z: balance 56, no ledger row since run 42's reserve,
+        nothing running (292 jobs: 168 done, 122 failed, 2 `lost` from
+        1–2 September).
+  - **THE PAGE A BROWSER GETS IS NOT THE PAGE NODE GETS (measured
+    2026-09-27).** Cloudflare's edge adds its analytics beacon
+    (`static.cloudflareinsights.com/beacon.min.js`, `data-cf-beacon`) only
+    when a browser asks for the page. So the canary's saved HTML, fetched by
+    Node, lacks it; in a real browser, `lido-axes-b`'s `/book` posts
+    `/cdn-cgi/rum` three times.
+    - The booking tab's wall blocks a `/cdn-cgi/` request without listing it.
+      That is why run 43's console showed four blocked requests beside an
+      empty list of other writes.
+    - A local census with every request that is not a GET listed: exactly
+      three beacons and the booking, all four blocked in the browser, only
+      GETs to the network.
+    - **Its "no other write" line prints `not read` for a list that was read
+      and empty** (an empty list joins to nothing). That is wording only, in
+      the rehearsal branch, and left as it is so the paid press runs the same
+      harness.
   - **THE WALL HANDS THE ONE ALLOWED BOOKING ON WITH `route.fallback()`, NEVER
     `continue()`**: Playwright runs the last-registered handler first, and
     `fallback` passes to the one registered before it — the default network

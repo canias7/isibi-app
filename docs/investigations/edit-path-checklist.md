@@ -96,9 +96,11 @@ means only that its name is taken.
 - It costs about 3 credits. The harness is built on the branch (`ebf53761`,
   scenario `4b-rules-close`), and since `717bb5b2` its booking is decided
   before it leaves the browser (*the booking gate*, closed by the owner after
-  review). Its first free check, `grants preview` (run `36309691339`), read
-  the starting permissions the test was written for; the free rehearsal is
-  next. Nothing paid is approved or pressed.
+  review). Both free checks pass: `grants preview` (run `36309691339`) read
+  the starting permissions the test was written for, and the free rehearsal
+  (`edit canary` run 43, `36333244182`) stopped exactly the marker booking in
+  the browser and changed nothing. The paid press waits for the owner's
+  approval. Nothing paid is approved or pressed.
 
 The scope, the checks, the cleanup, the notification account and the approval
 items are in *the rules rung — the recommended next test, revised*, after
@@ -2246,6 +2248,101 @@ focused tests passed."*
   row is still run 42's reserve (06:04:40Z), no edit job has been filed
   anywhere since 06:10Z, none has ever been filed for `lido-axes-b`, and its
   notifications are on and have never fired.
+
+**Press 2 read: the free rehearsal, `edit canary` run 43 (`36333244182`, the
+owner's, from the branch at `a2a989ad`, 2026-09-27 16:26:22 → 16:27:46Z;
+canary step 38 s).** It passed, and it sent, booked and wrote nothing.
+- **The env block**: `CANARY_SPEND: 0`, `CANARY_UI: 4b-rules-close`,
+  `CANARY_ALLOW: cleanup`, `CANARY_SLUG: lido-axes-b`, `CONTROL_SLUG:
+  washhouse-3`. The instruction, read-job and restore boxes are blank, and
+  both expectations are set.
+- **The build answering**: `build-health 200 deploy=14df0225be90
+  image=9038e90ab1d5d7fe` and `runtime 200 … async=true runner=true`.
+  - The two readers agree, and both expectations match.
+  - `main` is still `14df0225`, re-read at 16:37Z.
+  - The paid press runs the same scripts: no file under `scripts/` has
+    changed since the gate commit `717bb5b2`, and every commit after it is
+    documents only.
+- **The zero-cost confirmations passed.**
+  - Both sites got the queued shape: job `9e783678…` on `lido-axes-b` and
+    `df8feb12…` on `washhouse-3`.
+  - A forged replay and a stranger's poll each answered 404.
+  - The free job settled in about 6 s as `escalate empty, cost 0`.
+  - Read afterwards on `edit_jobs`, both are `failed`, billing `none`, cost 0,
+    never published.
+  - **The `lido-axes-b` one is the first edit job ever filed for that site.**
+    So press 1's *"none has ever been filed"* no longer holds; that job
+    changed nothing.
+- **The inventory is complete**: `reads` all true.
+  - Three pages (`index.tsx`, `menu.tsx`, `book.tsx`) and no components.
+  - Every route answered 200 on build `mt50cg7h-l19hre`, with no version
+    header.
+  - The stylesheet is the recorded 209,105 bytes, byte for byte
+    (`6f7ca4bc…`).
+  - The app reads the page list as `/ /menu /book`. The balance is 56.
+- **The starting point: all eight checks `ok`.**
+  - **The site has no secrets at all** (names `[]`). So a booking can send no
+    email, text or webhook, and there is no bot check. There were no key
+    values or hints to drop.
+  - Notifications are on, and the stamp has never been set.
+  - The tables are `bookings` and `menu_items`.
+    - `bookings` is `collect` (read none, write anyone). It has 0 rows and
+      the columns `name, phone, party_size, booking_date, booking_time`.
+    - `menu_items` is `display` (read public, write none), with 6 rows.
+  - The owner's view of `bookings`: 0 rows, no ids, no marker.
+  - A visitor's read of `bookings` answers 403 `42501` "permission denied for
+    table bookings".
+  - The menu read answers 200 with 1,208 bytes, sha256 `f2b64cb26abe7c14…`,
+    the recorded bytes.
+- **The app**:
+  - It opened signed in as the building account, on the card
+    `srv_lido-axes-b`.
+  - It typed the message and did not send it. The screenshot shows it in the
+    composer over an empty thread.
+  - It made three GETs (the site list, the credits, the page list). Nothing
+    was blocked, and there were 0 console or page errors.
+- **The booking, stopped in the browser.**
+  - The form became interactive and was filled with the marker booking. "Book
+    a table" was pressed once.
+  - The one booking request held exactly `{"name":"Canary rules
+    36333244182","phone":"07700 900999","party_size":2,
+    "booking_date":"2099-12-31","booking_time":"17:00"}`.
+  - The gate read it as the one exact request (`exact: true`).
+  - The rehearsal stopped it (`net::ERR_BLOCKED_BY_CLIENT`), so no answer
+    arrived. The page showed "Failed to fetch".
+  - `bookings` read 0 rows before and after, with no marker.
+- **The booking tab's other requests, measured.** Its console shows four
+  blocked requests, and its list of other writes is empty. The wall blocks a
+  request to a `/cdn-cgi/` path without listing it.
+  - Measured locally the same afternoon, with the rehearsal's own
+    `bookInPage` and every request that is not a GET listed, the page issues
+    exactly four:
+    - three `POST /cdn-cgi/rum`, Cloudflare's page-view analytics beacon. The
+      edge adds its script to the page when a browser asks for the page; a
+      Node fetch gets the page without it, which is why the canary's saved
+      HTML does not show it;
+    - the booking.
+  - All four end blocked in the browser, and only GETs reached the network.
+  - So the booking page makes no other write, and the paid run's wall blocks
+    those three beacons the same way.
+- **A wording defect in the rehearsal's own line, not changed.** The line is
+  *"the booking page made no other write -> not read"*. The check passes only
+  on a real, empty list; the detail prints "not read" because an empty list
+  joins to nothing. It is in the rehearsal branch only. It is left as it is so
+  that the paid press runs exactly the harness this rehearsal ran.
+- **The evidence boundary was printed.** The balance went 56 → 56, and 0 of 1
+  messages were sent.
+- **The artifact**: `canary-evidence`, id `10936721575`, 1,890,208 bytes,
+  sha256 `8edc3e27…`. That equals the digest the upload printed.
+- **Read again at 16:37Z, read-only.**
+  - The balance is 56. The newest ledger row is still run 42's reserve (id
+    331, 06:04:40Z), and nothing has been written to the ledger since.
+  - The only edit jobs since run 42 are this run's two confirmations.
+  - Nothing is running: 292 jobs in all, 168 done, 122 failed, and 2 `lost`
+    from 1–2 September.
+  - `lido-axes-b`'s notifications are on and have never fired.
+  - Unit CI on `a2a989ad` (run `36310169094`) reads `8143 / 8139 / 0 / 4`.
+- **So both free checks pass, and press 3 waits for the owner's approval.**
 
 ## A section headed by the kit — fixed (2026-09-26), merged and deployed in deploy 2162
 
