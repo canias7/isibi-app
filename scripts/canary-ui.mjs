@@ -29,8 +29,43 @@
 
 import fs from "node:fs";
 import crypto from "node:crypto";
+import {
+  readBoth, baselineVerdict, changeVerdict, restorePlan, restoreRow, recoverRow, rowDiff, shownVerdict, lineIsFor,
+  describeRows, describeRecovery,
+} from "./canary-rows.mjs";
 
 export const SESSION_KEY = "zephyr_session_v1";
+
+// ── TEST 4b's D1: ONE ROW OF A LIVE SITE'S DATABASE ─────────────────────────
+//
+// The proposal's record of fold-lane-bakery's `loaves`, as a visitor's read
+// answered it at 2026-09-27 01:31:00Z. D1 takes its own baseline immediately
+// before its message and judges everything against THAT; the record is what
+// that baseline is compared with (said, not refused), and what the recovery
+// run compares a visitor's read with when D1's own run could not finish.
+const LOAVES_RECORD = Object.freeze([
+  Object.freeze({ id: 1, name: "Country White", description: "Our everyday loaf. Open crumb, thin crisp crust, a little wheat sweetness.", price: 4.8, photo: null, created_at: "2026-08-21 23:06:22" }),
+  Object.freeze({ id: 2, name: "Dark Rye", description: "Dense and malty. Good with smoked fish or a sharp cheddar.", price: 5.2, photo: null, created_at: "2026-08-21 23:06:22" }),
+  Object.freeze({ id: 3, name: "Seeded Wholemeal", description: "Toasted sunflower, flax and sesame through a wholemeal dough.", price: 5.4, photo: null, created_at: "2026-08-21 23:06:22" }),
+  Object.freeze({ id: 4, name: "Olive & Rosemary", description: "Green olives and a handful of rosemary from the morning bunches.", price: 5.8, photo: null, created_at: "2026-08-21 23:06:23" }),
+  Object.freeze({ id: 5, name: "Walnut Levain", description: "Butter walnuts folded through a long-fermented white dough.", price: 6, photo: null, created_at: "2026-08-21 23:06:23" }),
+  Object.freeze({ id: 6, name: "Sea Salt Focaccia", description: "A tray bake, heavy on the oil, finished with flaky salt.", price: 4.5, photo: null, created_at: "2026-08-21 23:06:23" }),
+]);
+
+// THE ONE CHANGE, AND THE ONLY FIELD EVER WRITTEN BACK: loaves id 6 (it must
+// still be the Sea Salt Focaccia), price 4.5 -> 4.6. `from`/`to` are compared
+// as decimals, so a NUMERIC read back as "4.60" is 4.6. `shown` is where a
+// visitor sees it: the order page's loaf list, one radio card per loaf.
+const D1_ROW = Object.freeze({
+  table: "loaves",
+  id: 6,
+  match: Object.freeze({ name: "Sea Salt Focaccia" }),
+  field: "price",
+  from: "4.5",
+  to: "4.6",
+  shown: Object.freeze({ path: "/order", sel: 'input[type="radio"]', before: "£4.50", after: "£4.60" }),
+  record: LOAVES_RECORD,
+});
 
 /**
  * THE SCENARIOS, BY NAME. A form box takes a name and never a script: what is
@@ -48,6 +83,40 @@ export const UI_SCENARIOS = Object.freeze({
       Object.freeze({ say: "Show more of the top of the photo of the sourdough boule cooling." }),
       Object.freeze({ say: "Move the starter page to /starter." }),
     ]),
+  }),
+  // TEST 4b's D1 — one row, through the real app, and back with no model call.
+  // `layers` is the wall: the one edit that may leave the page is an edit at
+  // the data layer; text, page, rules, look, the add-on, a build and the full
+  // rewrite are aborted in the browser and recorded, so a misroute costs the
+  // routing call and changes nothing. The data rung writes display rows only.
+  "4b-d1-price": Object.freeze({
+    site: "fold-lane-bakery",
+    // Routing 1-2 and the data rung's one call, about 1.
+    budget: 5,
+    layers: Object.freeze(["data"]),
+    // A data edit publishes nothing: no page, no version, the site stays on
+    // the version its before-read saw.
+    publishes: 0,
+    // What the screen and the job's own stored reply must say.
+    reply: "✅ Updated one entry in loaves.",
+    applied: Object.freeze([Object.freeze({ table: "loaves", id: 6, columns: Object.freeze(["price"]) })]),
+    row: D1_ROW,
+    steps: Object.freeze([
+      Object.freeze({ say: "In today's bake list, change the Sea Salt Focaccia's price to £4.60." }),
+    ]),
+  }),
+  // D1's RECOVERY ON ITS OWN, for a run that could not finish it (a reply that
+  // never came, a runner that died between the edit and the write). It sends
+  // no message and opens no app: it reads the row and, with spend=yes, writes
+  // the focaccia's price back to 4.5 ONLY while it reads 4.6 — that field
+  // alone. With spend=no it reads and says what it would write. Free.
+  "4b-d1-restore": Object.freeze({
+    site: "fold-lane-bakery",
+    budget: 0,
+    layers: Object.freeze([]),
+    publishes: 0,
+    row: D1_ROW,
+    steps: Object.freeze([]),
   }),
 });
 
@@ -135,6 +204,155 @@ export function blocksPost(method, pathname) {
   return /^\/api\/site\/[^/]+\/addon$/.test(pathname);
 }
 
+/**
+ * THE WALL, PER SCENARIO. Every scenario refuses the work none of them asks for
+ * (`blocksPost`). A scenario that names its `layers` goes further and is a
+ * POSITIVE list for everything that writes: a request that is not a read may
+ * leave the page only if it is the routing call, or an edit of this
+ * scenario's own site at one of its layers. An edit whose layer cannot be
+ * read is refused, not guessed. Returns the reason to abort, or "".
+ */
+export function wallRefusal({ method, pathname, body, scenario } = {}) {
+  if (blocksPost(method, pathname)) return "work this scenario never asks for";
+  const layers = scenario && Array.isArray(scenario.layers) ? scenario.layers : null;
+  if (!layers) return "";
+  if (method === "GET" || method === "HEAD") return "";
+  if (method === "POST" && pathname === "/api/site/route") return layers.length ? "" : "a message this scenario never sends";
+  const m = /^\/api\/site\/([^/]+)\/edit$/.exec(String(pathname || ""));
+  if (method === "POST" && m) {
+    let slug = "";
+    try { slug = decodeURIComponent(m[1]); } catch { slug = ""; }
+    if (slug !== scenario.site) return `an edit of ${slug || "another site"}, which is not this scenario's site`;
+    let layer = null;
+    try {
+      const b = JSON.parse(String(body || ""));
+      layer = b && typeof b.layer === "string" ? b.layer : null;
+    } catch { layer = null; }
+    if (layer === null) return "an edit whose layer cannot be read";
+    return layers.includes(layer) ? "" : `an edit at the ${layer || "(blank)"} layer, which this scenario does not allow`;
+  }
+  return `a ${method} this scenario never makes`;
+}
+
+/**
+ * WHAT LEFT THE PAGE FOR ONE MESSAGE, against what the scenario sends: one
+ * routing call carrying the words exactly, answered with one of the
+ * scenario's layers, and exactly one edit at that layer carrying the same
+ * words. The request bodies are the page's own, as its network listener saw
+ * them — not a second copy composed here.
+ */
+export function requestVerdict(step, scenario) {
+  const net = Array.isArray(step && step.network) ? step.network : [];
+  const said = step && step.say;
+  const routes = net.filter((e) => e.method === "POST" && e.path === "/api/site/route");
+  const edits = net.filter((e) => e.method === "POST" && /^\/api\/site\/[^/]+\/edit$/.test(e.path));
+  const route = routes[0] || null;
+  const res = route && route.res && typeof route.res === "object" ? route.res : {};
+  const layers = scenario && Array.isArray(scenario.layers) ? scenario.layers : [];
+  const out = {
+    routes: routes.length,
+    routedWords: !!(route && route.req && route.req.message === said),
+    routedIntent: typeof res.intent === "string" ? res.intent : "",
+    routedLayer: typeof res.layer === "string" ? res.layer : "",
+    routeCost: Number.isFinite(res.cost) ? res.cost : null,
+    edits: edits.length,
+    editLayers: edits.map((e) => (e.req && typeof e.req.layer === "string" ? e.req.layer : null)),
+    editWords: edits.length > 0 && edits.every((e) => e.req && e.req.instruction === said),
+  };
+  out.ok = out.routes === 1 && out.routedWords && out.routedIntent === "edit" && layers.includes(out.routedLayer) &&
+    out.edits === 1 && out.editWords && out.editLayers.every((l) => layers.includes(l));
+  return out;
+}
+
+/**
+ * THE JOB'S OWN STORED REPLY, the one the page was handed under
+ * `x-gf-edit: final`: it must be the scenario's layer answering ok, naming
+ * exactly the rows and columns the scenario changes, with nothing failed and
+ * nothing compiled.
+ */
+export function storedReplyVerdict(step, scenario) {
+  const fin = (Array.isArray(step && step.network) ? step.network : []).filter((e) => e.final && e.res && typeof e.res === "object");
+  const r = fin.length ? fin[fin.length - 1].res : null;
+  if (!r) return { ok: false, why: "no stored reply was read" };
+  const layer = scenario && Array.isArray(scenario.layers) ? scenario.layers[0] : "";
+  const applied = JSON.stringify(Array.isArray(r.applied) ? r.applied : null) === JSON.stringify(scenario.applied || null);
+  const out = { ok: false, layer: r.layer, applied: r.applied, failed: r.failed, files: r.files, sort: r.sort, cost: r.cost };
+  if (r.ok !== true) return { ...out, why: "the stored reply is not ok" };
+  if (r.layer !== layer) return { ...out, why: `the stored reply is the ${r.layer} layer's` };
+  if (!applied) return { ...out, why: "the stored reply names other rows or columns" };
+  if (r.failed) return { ...out, why: `${r.failed} change(s) failed` };
+  if (r.files !== undefined || r.sort !== undefined) return { ...out, why: "the stored reply compiled or reordered pages" };
+  return { ...out, ok: true, why: "" };
+}
+
+/**
+ * What each routing call the page made said it cost, message by message, read
+ * off the page's own recorded answers. A call whose answer carried no readable
+ * cost gives `undefined`, which `moneyVerdict` refuses rather than counts as 0.
+ */
+export function routeCostsOf(steps) {
+  return (Array.isArray(steps) ? steps : []).flatMap((s) => (Array.isArray(s && s.network) ? s.network : [])
+    .filter((e) => e.method === "POST" && e.path === "/api/site/route")
+    .map((e) => (e.res && typeof e.res === "object" ? e.res.cost : undefined)));
+}
+
+/**
+ * THE MONEY, CLOSED OR NOT. The balance before the first message less the
+ * balance at the end must be exactly the routing calls' own costs plus each
+ * job's charge — and each job's charge must be what its own row says AND what
+ * the ledger took under it, with nothing refunded. An exempt job takes no
+ * ledger row. Anything that cannot be read is a refusal, never a zero.
+ */
+export function moneyVerdict({ start, end, routeCosts, jobs } = {}) {
+  const bad = (why, extra = {}) => ({ ok: false, why, ...extra });
+  if (!(Number.isFinite(start) && start >= 0 && Number.isFinite(end) && end >= 0)) return bad("the balance could not be read at both ends");
+  const costs = Array.isArray(routeCosts) ? routeCosts : [];
+  if (costs.some((c) => !Number.isFinite(c) || c < 0)) return bad("a routing call's cost is not a number");
+  const routing = costs.reduce((a, b) => a + b, 0);
+  let edits = 0;
+  for (const j of Array.isArray(jobs) ? jobs : []) {
+    const id = (j && j.job) || "?";
+    if (!j || !j.row) return bad(`job ${id} has no readable row`);
+    if (!j.ledgerRead || j.ledgerRead.ok !== true || !Array.isArray(j.ledger)) return bad(`job ${id}'s ledger could not be read`);
+    let debits = 0, refunds = 0;
+    for (const e of j.ledger) {
+      const d = Number(e && e.delta);
+      if (!Number.isFinite(d)) return bad(`job ${id} has a ledger row with no amount`);
+      if (d < 0) debits -= d; else refunds += d;
+    }
+    if (j.row.billing === "finalized") {
+      if (!(Number.isSafeInteger(j.row.cost) && j.row.cost >= 0)) return bad(`job ${id}'s cost is not a whole number`);
+      if (debits !== j.row.cost || refunds !== 0) return bad(`job ${id}: its row says ${j.row.cost}; the ledger took ${debits} and returned ${refunds}`);
+      edits += j.row.cost;
+    } else if (j.row.billing === "exempt") {
+      if (j.ledger.length) return bad(`job ${id} is exempt and the ledger names it`);
+    } else {
+      return bad(`job ${id} is ${j.row.billing}, not settled`);
+    }
+  }
+  const spent = start - end;
+  return spent === routing + edits
+    ? { ok: true, why: "", spent, routing, edits }
+    : bad(`the balance moved ${spent}; routing ${routing} + edits ${edits} is ${routing + edits}`, { spent, routing, edits });
+}
+
+/**
+ * NOTHING PUBLISHED, from three readers that do not borrow from each other:
+ * the site's own version list names no build for any job, every job's row
+ * says no publish ever began, and the after-read saw the version the
+ * before-read saw (the chain, with no links).
+ */
+export function unpublishedVerdict({ published, jobs, chain } = {}) {
+  const pub = Array.isArray(published) ? published : [];
+  if (pub.length) return { ok: false, why: `the version list names ${pub.length} build(s) for this scenario's jobs` };
+  for (const j of Array.isArray(jobs) ? jobs : []) {
+    if (!j || !j.row) return { ok: false, why: `job ${(j && j.job) || "?"} has no readable row` };
+    if (j.row.publish_started_at || j.row.published_at) return { ok: false, why: `job ${j.job}'s row says a publish began` };
+  }
+  if (!chain || chain.verified !== true || chain.links !== 0) return { ok: false, why: `the after-read is ${chain ? chain.why : "not taken"}` };
+  return { ok: true, why: "" };
+}
+
 /** The API calls whose bodies are the evidence; everything else is recorded by status alone. */
 export function recordsBody(method, pathname) {
   if (method === "POST" && pathname === "/api/site/route") return true;
@@ -199,6 +417,18 @@ function readComposerInPage() {
   };
 }
 
+/**
+ * A list a visitor sees, read off the SITE's own page: each matching control's
+ * card as text (the order page draws one radio card per loaf). Runs in the
+ * site's page, not the app's.
+ */
+function shownListInPage(sel) {
+  return [...document.querySelectorAll(sel)].map((el) => {
+    const card = el.closest("label") || el.parentElement;
+    return card ? String(card.innerText || card.textContent || "").trim().replace(/\s+/g, " ") : "";
+  });
+}
+
 /** The start screen's card for a slug: the id the app itself gave it, or "". */
 function cardIdInPage(slug) {
   try {
@@ -217,6 +447,48 @@ export async function defaultLaunch() {
   try { pw = await import("playwright"); } catch { pw = await import("playwright-core"); }
   const chromium = pw.chromium || (pw.default && pw.default.chromium);
   return chromium.launch({ args: ["--no-sandbox"], executablePath: process.env.CHROMIUM_PATH || undefined });
+}
+
+/**
+ * THE SITE AS A VISITOR SEES IT: its page opened in a context of its own (no
+ * planted session, no app), every request that is not a read aborted — so the
+ * look can never submit the form on it — and the list read once the target's
+ * card is drawn. Returns the lines, the target's own line and the version the
+ * page was served at.
+ */
+export async function readShownSite(browser, { url, sel, name, ms = 45_000, pollMs = 500, route = null } = {}) {
+  const out = { at: new Date().toISOString(), ok: false, why: "", url, version: "", lines: [], target: "", errors: [], aborted: [] };
+  let ctx = null;
+  try {
+    ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
+    if (route) await route(ctx, "site");
+    await ctx.route(() => true, async (r) => {
+      const req = r.request();
+      const m = req.method();
+      if (m === "GET" || m === "HEAD") return r.fallback();
+      const u = String(req.url());
+      if (!u.includes("/cdn-cgi/")) out.aborted.push(`${m} ${u}`);
+      return r.abort("blockedbyclient");
+    });
+    const page = await ctx.newPage();
+    page.on("pageerror", (e) => out.errors.push(String((e && e.message) || e).slice(0, 300)));
+    const res = await page.goto(url, { waitUntil: "domcontentloaded", timeout: ms });
+    out.version = res && typeof res.headers === "function" ? String(res.headers()["x-site-version"] || "") : "";
+    const end = Date.now() + ms;
+    for (;;) {
+      out.lines = await page.evaluate(shownListInPage, sel).catch(() => []);
+      out.target = (out.lines || []).find((l) => lineIsFor(l, name)) || "";
+      if (out.target || Date.now() >= end) break;
+      await new Promise((r) => setTimeout(r, pollMs));
+    }
+    out.ok = !!out.target;
+    if (!out.ok) out.why = `the page never drew a card for ${name}`;
+  } catch (e) {
+    out.why = String((e && e.message) || e).slice(0, 200);
+  } finally {
+    if (ctx) { try { await ctx.close(); } catch { /* already gone */ } }
+  }
+  return out;
 }
 
 /**
@@ -241,6 +513,11 @@ export async function runUi(opts) {
     // share of the record is taken: the listener reads the body after the page
     // has already drawn the reply.
     settleMs = 1500,
+    // A SCENARIO THAT CHANGES A ROW (`scenario.row`) is handed the canary's
+    // own readers: `rows = { owner, pub, patch }` — the owner route's read,
+    // the visitor route's read and the owner route's PATCH — and the site's
+    // origin, where the page a visitor sees it on lives.
+    rows = null, siteOrigin = "", shownMs = 45_000,
     root = new URL("../", import.meta.url).pathname,
   } = opts;
   const origin = new URL(base).origin;
@@ -251,6 +528,14 @@ export async function runUi(opts) {
     network: [], consoleErrors: [], pageErrors: [], balance: { start: null, end: null },
   };
   const stop = (at, msg) => { rec.stopped = { at, msg }; log(`  STOPPED at ${at}: ${msg}`); };
+  const spec = scenario && scenario.row ? scenario.row : null;
+  if (spec) {
+    rec.row = { spec, shown: {} };
+    if (!rows || typeof rows.owner !== "function" || typeof rows.pub !== "function" || typeof rows.patch !== "function" || !siteOrigin) {
+      stop("open", "this scenario checks a database row and was not handed the row readers — nothing was sent or written");
+      return rec;
+    }
+  }
   const shot = async (page, name) => {
     if (!evid) return "";
     fs.mkdirSync(evid, { recursive: true });
@@ -270,17 +555,45 @@ export async function runUi(opts) {
   };
 
   const browser = await launch();
+  // The visitor's page, read in a context of its own. The verdict against the
+  // first reading is the caller's: what it must show changes from step to step.
+  const shown = () => readShownSite(browser, {
+    url: siteOrigin + spec.shown.path, sel: spec.shown.sel, name: String(spec.match.name || ""),
+    ms: shownMs, pollMs: Math.max(pollMs, 250), route,
+  });
   try {
+    // ── A RECOVERY RUN: NO APP, NO MESSAGE, ONE FIELD AT MOST ──────────────
+    // A row scenario with no steps is D1's recovery on its own. It never opens
+    // the app and never sends anything; `spend` decides whether its one write
+    // is made or only described.
+    if (spec && !scenario.steps.length) {
+      rec.balance.start = await balanceNow();
+      const before = rec.row.shown.before = await shown();
+      rec.row.recovery = await recoverRow({ spec, record: spec.record, readers: rows, patch: rows.patch, write: spend === true });
+      if (rec.row.recovery.wrote) {
+        const now = rec.row.shown.afterRestore = await shown();
+        now.verdict = before.ok && now.ok ? shownVerdict(before.lines, now.lines, spec, spec.shown.before) : { ok: false, why: now.ok ? "no-before" : now.why };
+      }
+      if (!spend) stop("rehearsal", "spend is not yes: the recovery was read and decided, and nothing was written");
+      rec.balance.end = await balanceNow();
+      return rec;
+    }
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     if (route) await route(context);
     // Registered after any test route, so it is asked first; anything it does
-    // not refuse falls back to that route, or to the network.
-    await context.route((u) => u.origin === origin && u.pathname.startsWith("/api/site/"), async (r) => {
+    // not refuse falls back to that route, or to the network. It sees every API
+    // call the app makes, because a scenario that names its layers refuses
+    // every write that is not its own (`wallRefusal`).
+    await context.route((u) => u.origin === origin && u.pathname.startsWith("/api/"), async (r) => {
       const req = r.request();
       const u = new URL(req.url());
-      if (!blocksPost(req.method(), u.pathname)) return r.fallback();
-      rec.blocked.push({ ms: Date.now() - t0, method: req.method(), path: u.pathname });
-      log(`  BLOCKED ${req.method()} ${u.pathname}: work this scenario never asks for`);
+      const why = wallRefusal({
+        method: req.method(), pathname: u.pathname,
+        body: typeof req.postData === "function" ? req.postData() : null, scenario,
+      });
+      if (!why) return r.fallback();
+      rec.blocked.push({ ms: Date.now() - t0, method: req.method(), path: u.pathname, why });
+      log(`  BLOCKED ${req.method()} ${u.pathname}: ${why}`);
       return r.abort("blockedbyclient");
     });
     // THE OWNER'S SESSION, PLANTED FOR THE APP'S ORIGIN AND NO OTHER. The same
@@ -365,6 +678,30 @@ export async function runUi(opts) {
       await page.fill("#stRevise", step.say);
       const typed = await page.evaluate(readComposerInPage);
       if (typed.value !== step.say) { stop(`step ${n}`, "the words did not land in the message box — nothing was sent"); break; }
+      // ── THE FRESH BASELINE, IMMEDIATELY BEFORE THE FIRST MESSAGE ──────────
+      // The page a visitor sees first, then both database readers last, so
+      // nothing but the budget's balance read stands between the baseline and
+      // the Send. It is where the test must start: the target row must be the
+      // one named and read exactly `from` on both readers, and the page must
+      // show it at `shown.before` — or nothing is sent.
+      if (spec && n === 1) {
+        const before = rec.row.shown.before = await shown();
+        before.verdict = before.ok && before.target.includes(spec.shown.before) ? { ok: true } : { ok: false, why: before.ok ? "wrong-price" : before.why };
+        rec.row.baseline = await readBoth(rows);
+        rec.row.baselineVerdict = baselineVerdict(rec.row.baseline, spec);
+        if (rec.row.baseline.pub.ok) {
+          const d = rowDiff(spec.record, rec.row.baseline.pub.rows);
+          rec.row.record = { same: !d.changed.length && !d.added.length && !d.gone.length, diff: d };
+        }
+        if (!rec.row.baselineVerdict.ok) {
+          stop("baseline", `the row is not where this test starts (${rec.row.baselineVerdict.why}${rec.row.baselineVerdict.detail ? ": " + rec.row.baselineVerdict.detail : ""}) — nothing was sent`);
+          break;
+        }
+        if (!before.verdict.ok) { stop("baseline", `the ${spec.shown.path} page does not show ${spec.match.name} at ${spec.shown.before} (${before.verdict.why}) — nothing was sent`); break; }
+        // What the recovery would write against this baseline, decided now:
+        // with nothing sent it must be nothing at all.
+        rec.row.planAtBaseline = restorePlan(rec.row.baseline.owner.rows, spec, rec.row.baselineVerdict.raw);
+      }
       if (!spend) {
         await shot(page, `ui-step-${n}-rehearsal`);
         stop("rehearsal", `spend is not yes: message ${n} is typed${step.attach ? " with its file attached" : ""} and NOT sent`);
@@ -398,6 +735,7 @@ export async function runUi(opts) {
         .filter((e) => e.method === "POST" && /\/(edit|addon)$/.test(e.path) && e.res && typeof e.res.job === "string" && e.res.job)
         .map((e) => e.res.job);
       r.job = r.jobs[0] || "";
+      r.completed = done.ok;
       if (!done.ok) {
         await shot(page, `ui-step-${n}`);
         const mins = Math.max(1, Math.round(stepMs / 60000));
@@ -413,6 +751,33 @@ export async function runUi(opts) {
       await shot(page, `ui-step-${n}`);
       log(`  step ${n} (${Math.round(r.ms / 1000)} s): ${r.reply.split("\n")[0].slice(0, 160)}  | composer ${r.usable ? "usable again" : "NOT usable"}${r.job ? `  | job ${r.job}` : ""}`);
     }
+    // ── WHAT THE MESSAGE DID TO THE ROW, AND PUTTING IT BACK ───────────────
+    // Only once every message that was sent has its reply on screen: the job
+    // behind a reply has finished, so its write, if any, has landed. A reply
+    // that never came leaves the outcome unknown, and writing then could race
+    // the job — so nothing is written, and the recovery run is named instead.
+    if (spec && rec.row.baseline && spend) {
+      const sentSteps = rec.steps.filter((s) => s.sent);
+      if (!sentSteps.length) {
+        rec.row.restore = { skipped: "nothing was sent, so there is nothing to put back" };
+      } else if (!sentSteps.every((s) => s.completed)) {
+        rec.row.restore = { skipped: `a reply never came, so whether the edit wrote the row is not known yet — once its job has finished, run the recovery scenario, which writes ${spec.field} back only if it reads ${spec.to}` };
+      } else {
+        const base = rec.row.baseline;
+        const after = rec.row.after = await readBoth(rows);
+        rec.row.change = after.owner.ok ? changeVerdict(base.owner.rows, after.owner.rows, spec) : null;
+        rec.row.visitorChange = after.pub.ok ? changeVerdict(base.pub.rows, after.pub.rows, spec) : null;
+        const edited = rec.row.shown.afterEdit = await shown();
+        edited.verdict = rec.row.shown.before.ok && edited.ok
+          ? shownVerdict(rec.row.shown.before.lines, edited.lines, spec, spec.shown.after)
+          : { ok: false, why: edited.ok ? "no-before" : edited.why };
+        rec.row.restore = await restoreRow({ spec, base, after, readers: rows, patch: rows.patch });
+        const back = rec.row.shown.afterRestore = await shown();
+        const same = JSON.stringify(back.lines) === JSON.stringify(rec.row.shown.before.lines);
+        back.verdict = back.ok && same ? { ok: true, exact: true } : { ok: false, why: back.ok ? "differs-from-before" : back.why };
+        log(`  row: ${rec.row.change ? (rec.row.change.exact ? "the one expected change" : "NOT exactly the expected change") : "UNREADABLE after the edit"}; recovery ${rec.row.restore.plan ? rec.row.restore.plan.act : "-"}${rec.row.restore.verdict ? (rec.row.restore.verdict.restored ? ", restored" : ", NOT restored") : ""}`);
+      }
+    }
     rec.balance.end = await balanceNow();
     return rec;
   } finally {
@@ -423,8 +788,11 @@ export async function runUi(opts) {
 /** The account a person reads: each message, its reply, the composer, the money. */
 export function describeUi(rec) {
   const out = [];
-  out.push(`UI MODE — ${rec.base}, site ${rec.slug}, ${rec.spend ? "PAID" : "rehearsal (nothing sent)"}`);
-  out.push(`  opened: ${rec.opened ? `signed in ${rec.opened.signedIn} as ${rec.opened.uid || "?"}${rec.opened.gate ? ", SIGN-IN GATE SHOWN" : ""}` : "no"}  card ${rec.card || "(none)"}`);
+  const recovery = !!(rec.row && rec.row.recovery);
+  out.push(recovery
+    ? `UI MODE — a row recovery on site ${rec.slug}, no app and no message, ${rec.spend ? "WRITES" : "a dry run (nothing written)"}`
+    : `UI MODE — ${rec.base}, site ${rec.slug}, ${rec.spend ? "PAID" : "rehearsal (nothing sent)"}`);
+  if (!recovery) out.push(`  opened: ${rec.opened ? `signed in ${rec.opened.signedIn} as ${rec.opened.uid || "?"}${rec.opened.gate ? ", SIGN-IN GATE SHOWN" : ""}` : "no"}  card ${rec.card || "(none)"}`);
   for (const s of rec.steps) {
     out.push(`  ${s.n}. "${s.say}"${s.attach ? `  [attached ${s.attach}${s.file ? `, ${s.file.bytes} b, sha256 ${s.file.sha256.slice(0, 16)}` : ""}${s.attached === false ? ", DID NOT LAND" : ""}]` : ""}`);
     if (!s.sent) { out.push("     not sent"); continue; }
@@ -440,9 +808,20 @@ export function describeUi(rec) {
     if (fin.length) out.push(`     final reply: ${fin[fin.length - 1].status} ${JSON.stringify(fin[fin.length - 1].res).slice(0, 400)}`);
     if (Number.isFinite(s.balanceBefore) && Number.isFinite(s.balanceAfter)) out.push(`     balance ${s.balanceBefore} -> ${s.balanceAfter}`);
   }
-  for (const b of rec.blocked || []) out.push(`  BLOCKED ${b.method} ${b.path}: the page tried to start work this scenario never asks for`);
+  for (const b of rec.blocked || []) out.push(`  BLOCKED ${b.method} ${b.path}: ${b.why || "the page tried to start work this scenario never asks for"}`);
+  if (rec.row && rec.row.spec) {
+    out.push(rec.row.recovery ? describeRecovery(rec.row.recovery, rec.row.spec, { write: rec.spend }) : describeRows(rec.row, rec.row.spec));
+    if (rec.row.recovery) {
+      for (const [k, label] of [["before", "before  "], ["afterRestore", "restored"]]) {
+        const sh = rec.row.shown && rec.row.shown[k];
+        if (sh) out.push(`  shown      ${label}  ${sh.ok ? sh.url + " (" + (sh.version || "?") + "): " + sh.target : "UNREADABLE (" + sh.why + ")"}${sh.verdict ? (sh.verdict.ok ? "  ok" : "  FAIL " + sh.verdict.why) : ""}`);
+      }
+    }
+  }
   if (rec.stopped) out.push(`  STOPPED at ${rec.stopped.at}: ${rec.stopped.msg}`);
-  out.push(`  sent ${rec.sent} of ${rec.steps.length ? rec.steps.length : 0} reached; balance ${rec.balance.start} -> ${rec.balance.end}`);
+  out.push(recovery
+    ? `  balance ${rec.balance.start} -> ${rec.balance.end}`
+    : `  sent ${rec.sent} of ${rec.steps.length ? rec.steps.length : 0} reached; balance ${rec.balance.start} -> ${rec.balance.end}`);
   out.push(`  console errors ${rec.consoleErrors.length}, page errors ${rec.pageErrors.length}`);
   return out.join("\n");
 }

@@ -44,6 +44,11 @@ import { readRestoreId, restoreFlow, describeRestore } from "./canary-restore.mj
 // it will send, and where it stops, is decided there and driven by tests. It
 // loads a browser only when a scenario is named, so an ordinary run never does.
 import { readUiScenario, runUi, describeUi, chainVerdict } from "./canary-ui.mjs";
+// AND ITS VERDICTS FOR A SCENARIO THAT CHANGES A ROW (Test 4b's D1): what left
+// the page, what the job stored, the money and the publish that must not have
+// happened — each decided in the module, where tests drive it.
+import { requestVerdict, storedReplyVerdict, moneyVerdict, unpublishedVerdict, routeCostsOf } from "./canary-ui.mjs";
+import { OWNER_ROWS_LIMIT } from "./canary-rows.mjs";
 import { publishedVersion } from "./canary-watch.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://ujrqdmmtcptvimazlhom.supabase.co";
@@ -557,11 +562,30 @@ if (UI_ASK) {
     process.exit(1);
   }
   console.log(`UI MODE — scenario ${UI_ASK.name} on ${CANARY}, ${SPEND ? "PAID: each message is sent" : "a rehearsal: nothing is sent"}\n`);
-  const ui = await runUi({ base: BASE, session, slug: CANARY, scenario: UI_ASK.scenario, spend: SPEND, balanceNow, evid: EVID });
+  // A SCENARIO THAT CHANGES A ROW IS HANDED ITS READERS. The owner route reads
+  // the stored rows whole and is the one door the recovery writes through —
+  // one field, by the rules in canary-rows.mjs; the visitor route is what the
+  // site's own pages read, kept as text so "as it was" is asked byte for byte.
+  const ROW = UI_ASK.scenario.row || null;
+  const rowReaders = ROW ? {
+    owner: () => call("GET", `/api/site/${encodeURIComponent(CANARY)}/rows/${encodeURIComponent(ROW.table)}?order=id&dir=asc&limit=${OWNER_ROWS_LIMIT}`),
+    pub: async () => {
+      try {
+        const r = await fetch(`${BEFORE.origin}/api/db/${encodeURIComponent(CANARY)}/data/${encodeURIComponent(ROW.table)}?select=*&order=id.asc`, { headers: { "cache-control": "no-cache" } });
+        return { status: r.status, text: Buffer.from(await r.arrayBuffer()).toString("utf8") };
+      } catch (e) { return { status: 0, why: String((e && e.message) || e) }; }
+    },
+    patch: (id, body) => call("PATCH", `/api/site/${encodeURIComponent(CANARY)}/rows/${encodeURIComponent(ROW.table)}/${id}`, { body }),
+  } : null;
+  // D1's RECOVERY ON ITS OWN: a row scenario with no messages opens no app.
+  const recoverOnly = !!ROW && !UI_ASK.scenario.steps.length;
+  const ui = await runUi({ base: BASE, session, slug: CANARY, scenario: UI_ASK.scenario, spend: SPEND, balanceNow, evid: EVID, rows: rowReaders, siteOrigin: BEFORE.origin });
   const told = describeUi(ui);
   console.log("\n" + told + "\n");
-  check("the app opened signed in as the canary's account",
-    !!(ui.opened && ui.opened.signedIn && !ui.opened.gate && ui.opened.uid === UID), JSON.stringify(ui.opened));
+  if (!recoverOnly) {
+    check("the app opened signed in as the canary's account",
+      !!(ui.opened && ui.opened.signedIn && !ui.opened.gate && ui.opened.uid === UID), JSON.stringify(ui.opened));
+  }
   const first = ui.steps[0];
   if (first && first.attach) check("the file landed in the attachment strip", first.attached === true, String(first.attached));
   // ONE BRANCH EACH WAY, and deliberately not spelled as the spend gate below:
@@ -581,6 +605,54 @@ if (UI_ASK) {
   } else {
     check("the rehearsal stopped before sending anything",
       ui.sent === 0 && !ui.network.some((e) => e.method === "POST"), `sent ${ui.sent}`);
+  }
+  // ── THE ROW: WHERE IT STARTED, WHAT CHANGED, AND THAT IT WENT BACK ────────
+  if (ROW) {
+    const r = ui.row || {};
+    const shownOk = (k) => !!(r.shown && r.shown[k] && r.shown[k].verdict && r.shown[k].verdict.ok);
+    const shownSays = (k) => (r.shown && r.shown[k] ? (r.shown[k].target || r.shown[k].why || "") + (r.shown[k].verdict && !r.shown[k].verdict.ok ? ` [${r.shown[k].verdict.why}]` : "") : "not read");
+    if (recoverOnly) {
+      const x = r.recovery || null;
+      check("the recovery read the row on both readers", !!(x && x.pre && x.pre.owner.ok && x.pre.pub.ok),
+        x && x.pre ? `owner ${x.pre.owner.ok ? "ok" : x.pre.owner.why}, visitor ${x.pre.pub.ok ? "ok" : x.pre.pub.why}` : "not read");
+      check("the recovery refused nothing: it writes the one field back, or nothing", !!(x && x.plan && x.plan.act !== "refuse"),
+        x && x.plan ? `${x.plan.act} (${x.plan.why})${x.plan.detail ? " — " + x.plan.detail : ""}` : "no plan");
+      if (SPEND && x && x.plan && x.plan.act === "patch") {
+        check(`${ROW.field} was written back, that field alone`, !!(x.patched && x.patched.verdict.ok), x.patched ? `${x.patched.status} ${x.patched.verdict.why || ""}` : "not sent");
+        check("the row is its recorded value again on both readers", !!(x.verdict && x.verdict.restored), x.verdict ? x.verdict.why : "not read");
+        check(`the ${ROW.shown.path} page shows ${ROW.match.name} at ${ROW.shown.before} and every other card as it was`, shownOk("afterRestore"), shownSays("afterRestore"));
+      }
+      check("nothing was spent", ui.balance.start >= 0 && ui.balance.start === ui.balance.end, `${ui.balance.start} -> ${ui.balance.end}`);
+    } else {
+      check(`the fresh baseline, immediately before the message: ${ROW.table} id ${ROW.id} is ${ROW.match.name} and reads ${ROW.from} on both readers`,
+        !!(r.baselineVerdict && r.baselineVerdict.ok), r.baselineVerdict ? `${r.baselineVerdict.why}${r.baselineVerdict.detail ? " — " + r.baselineVerdict.detail : ""}` : "not read");
+      check(`the ${ROW.shown.path} page showed ${ROW.match.name} at ${ROW.shown.before} before anything was sent`, shownOk("before"), shownSays("before"));
+      // ONE BRANCH EACH WAY, spelled like the one above it and never like the
+      // spend gate below: that line is the landmark every guard finds it by.
+      if (SPEND) {
+        const s = ui.steps[0] || {};
+        const rq = requestVerdict(s, UI_ASK.scenario);
+        check(`the message left word for word, was routed to the ${UI_ASK.scenario.layers.join("/")} layer, and went out as one edit there`, rq.ok, JSON.stringify(rq));
+        check("the reply on screen is the one the scenario expects", s.reply === UI_ASK.scenario.reply, JSON.stringify(s.reply || ""));
+        const sr = storedReplyVerdict(s, UI_ASK.scenario);
+        check(`the job's stored reply names exactly ${ROW.table} id ${ROW.id}, ${ROW.field}`, sr.ok, sr.why || JSON.stringify(sr.applied));
+        check(`the database change is exactly ${ROW.table} id ${ROW.id} ${ROW.field} ${ROW.from} -> ${ROW.to}, and nothing else`,
+          !!(r.change && r.change.exact), r.change ? JSON.stringify({ target: r.change.target, others: r.change.others.length, added: r.change.added, gone: r.change.gone }) : "not read");
+        check("a visitor's read shows that one change and nothing else", !!(r.visitorChange && r.visitorChange.exact),
+          r.visitorChange ? JSON.stringify({ target: r.visitorChange.target, others: r.visitorChange.others.length }) : "not read");
+        check(`the ${ROW.shown.path} page showed ${ROW.shown.after} for ${ROW.match.name} and every other card unchanged`, shownOk("afterEdit"), shownSays("afterEdit"));
+        const x = r.restore || {};
+        check(`the recovery wrote ${ROW.field} back alone, from the baseline`,
+          !!(x.plan && x.plan.act === "patch" && x.patched && x.patched.verdict.ok),
+          x.skipped || (x.plan ? `${x.plan.act} (${x.plan.why})${x.patched ? " -> " + x.patched.status + " " + (x.patched.verdict.why || "") : ""}` : "no plan"));
+        check("the row is its baseline again, field for field, on both readers", !!(x.verdict && x.verdict.restored), x.verdict ? x.verdict.why : (x.skipped || "not read"));
+        check("a visitor's read is byte-identical to the baseline", !!(x.verdict && x.verdict.bytes === true), x.verdict ? String(x.verdict.bytes) : "not read");
+        check(`the ${ROW.shown.path} page is exactly as it was before`, shownOk("afterRestore"), shownSays("afterRestore"));
+      } else {
+        check("against this baseline the recovery would write nothing", !!(r.planAtBaseline && r.planAtBaseline.act === "none"),
+          r.planAtBaseline ? `${r.planAtBaseline.act} (${r.planAtBaseline.why})` : "not decided");
+      }
+    }
   }
   let chain = null;
   if (SPEND && ui.sent) {
@@ -616,6 +688,7 @@ if (UI_ASK) {
     console.log(`  chain      ${chain.verified ? "VERIFIED" : "UNVERIFIED (" + chain.why + ")"} — before ${beforeV || "?"}, after-read at ${chain.target || "?"}`);
     // THE MONEY, PER JOB, from its own row and the ledger: the read mode's
     // reader, asked once for each job this scenario filed.
+    const jobRecords = [];
     for (const job of jobs) {
       const jr = await readJobRecords({
         job,
@@ -629,6 +702,19 @@ if (UI_ASK) {
       const account = describeJob(jr);
       console.log("\n" + account);
       writeFileSync(`${EVID}/job-${job}.txt`, account + "\n");
+      jobRecords.push(jr);
+    }
+    // A SCENARIO THAT MUST PUBLISH NOTHING, AND WHOSE MONEY MUST CLOSE. Three
+    // readers say nothing published (the site's version list, each job's own
+    // row, the after-read at the before-read's version); the balance's move
+    // must be exactly the routing calls' costs plus what each job's row and
+    // the ledger both say it took.
+    if (UI_ASK.scenario.publishes === 0) {
+      check("the message filed exactly one job", jobs.length === 1, jobs.join(", ") || "none");
+      const up = unpublishedVerdict({ published, jobs: jobRecords, chain });
+      check("no page was published: no version names the job, its row says no publish began, and every page is still the before version", up.ok, up.why);
+      const money = moneyVerdict({ start: ui.balance.start, end: ui.balance.end, routeCosts: routeCostsOf(ui.steps), jobs: jobRecords });
+      check(`the money closes: routing ${money.routing ?? "?"} + edit ${money.edits ?? "?"} = the balance's move of ${money.spent ?? "?"}`, money.ok, money.why || `${ui.balance.start} -> ${ui.balance.end}`);
     }
   }
   mkdirSync(EVID, { recursive: true });

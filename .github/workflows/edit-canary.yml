@@ -77,7 +77,13 @@ on:
         # scenario in scripts/canary-ui.mjs, never text from this form, and it
         # is tied to one site. With spend=yes each message is sent; otherwise it
         # stops before the first Send. "What to change" is ignored.
-        description: 'RUN A SCENARIO THROUGH THE REAL APP IN A REAL BROWSER instead of the one edit: a scenario name (4a-part-b). Sends only with spend=yes; otherwise it stops before the first Send.'
+        #
+        # A SCENARIO THAT CHANGES A ROW (4b-d1-price) also reads that row
+        # immediately before its message, reads it again after the reply, and
+        # puts the one field back through the owner route with no model call —
+        # only while it reads the value the message set. 4b-d1-restore is that
+        # put-back alone, for a run that could not finish it: no app, no message.
+        description: 'RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: 4a-part-b, 4b-d1-price (the focaccia price through the real app, then put back), or 4b-d1-restore (the put-back alone). Acts only with spend=yes; otherwise it reads and stops before sending or writing.'
         required: false
         default: ''
       site:

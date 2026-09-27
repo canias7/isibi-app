@@ -13,6 +13,7 @@ import crypto from "node:crypto";
 import {
   UI_SCENARIOS, SESSION_KEY, readUiScenario, composerReady, newReplies, budgetRefusal,
   imageFacts, recordableRequest, recordsBody, blocksPost, chainVerdict, runUi, describeUi,
+  wallRefusal, requestVerdict, storedReplyVerdict, moneyVerdict, unpublishedVerdict, routeCostsOf,
 } from "../scripts/canary-ui.mjs";
 import { MAX_LOGO_BYTES } from "../builder/site-logo.mjs";
 
@@ -183,9 +184,11 @@ function standIn(opt = {}) {
   };
   const page = {
     on: (ev, h) => { (listeners[ev] = listeners[ev] || []).push(h); },
-    goto: async () => { calls.push("goto"); },
-    evaluate: async (fn) => {
+    goto: async (url) => { calls.push(`goto ${url}`); return { headers: () => ({ "x-site-version": "01790468089054-8btpep" }) }; },
+    evaluate: async (fn, arg) => {
       if (fn.name === "cardIdInPage") return st.card ? "srv_fold-lane-bakery" : "";
+      // THE SITE'S OWN PAGE (a row scenario reads what a visitor sees there).
+      if (fn.name === "shownListInPage") { calls.push(`shown ${arg}`); return opt.shown ? opt.shown() : []; }
       if (fn.name !== "readComposerInPage") throw new Error("unexpected page function " + fn.name);
       if (st.pending && --st.pending.polls <= 0) {
         const p = st.pending; st.pending = null;
@@ -200,6 +203,9 @@ function standIn(opt = {}) {
           } else {
             await respond("GET", `/api/site/edit/${p.job}`, 200, null, p.reply, { "x-gf-edit": "final" });
           }
+          // THE JOB'S OWN WRITE lands before its reply is on screen, as it does
+          // live: the handler writes, then the stored reply is read.
+          if (opt.onDone) opt.onDone(p.n);
           st.messages.push({ who: "a", busy: false, text: p.reply.msg || "✅ Done." });
           st.busy = false;
         } else st.pending = p;
@@ -210,15 +216,17 @@ function standIn(opt = {}) {
       calls.push("click " + sel);
       if (sel.includes(".st-card-name")) st.workspace = true;
       if (sel === "#stSend") {
-        st.messages.push({ who: "u", busy: false, text: st.value });
+        const said = st.value;
+        st.messages.push({ who: "u", busy: false, text: said });
         const n = st.step++;
         const images = st.attached ? [{ name: "ui-logo.png", data: "data:image/png;base64," + fs.readFileSync(ROOT + FIXTURE).toString("base64") }] : undefined;
         st.value = ""; st.attached = 0; st.strip = 0; st.busy = true;
         const job = String(n + 1).padStart(32, "0");
-        await respond("POST", "/api/site/route", 200, { message: "…", attached: !!images }, { ok: true, intent: "edit", layer: ["logo", "picture", "page"][n], cost: 2 });
-        await respond("POST", "/api/site/fold-lane-bakery/edit", 202, { layer: "x", images }, { ok: true, job, status: "queued" });
+        await respond("POST", "/api/site/route", 200, { message: said, attached: !!images },
+          opt.routed ? opt.routed(n) : { ok: true, intent: "edit", layer: ["logo", "picture", "page"][n], cost: 2 });
+        await respond("POST", "/api/site/fold-lane-bakery/edit", 202, opt.editBody ? opt.editBody(n, said) : { layer: "x", images }, { ok: true, job, status: "queued" });
         opt.onSend && opt.onSend(n);
-        st.pending = { job, polls: 2, hang: opt.hangAt === n, hop: opt.hopAt === n ? "9".repeat(32) : "", reply: { ok: true, msg: `reply ${n + 1}` } };
+        st.pending = { n, job, polls: 2, hang: opt.hangAt === n, hop: opt.hopAt === n ? "9".repeat(32) : "", reply: opt.reply ? opt.reply(n) : { ok: true, msg: `reply ${n + 1}` } };
       }
     },
     fill: async (sel, v) => {
@@ -241,6 +249,7 @@ function standIn(opt = {}) {
     route: async (pattern, handler) => { routes.push({ pattern, handler }); },
     addInitScript: async (fn, arg) => { inits.push({ fn, arg }); },
     newPage: async () => page,
+    close: async () => { calls.push("close context"); },
   };
   const browser = { newContext: async () => context, close: async () => { calls.push("close"); } };
   return { st, calls, inits, routes, launch: async () => browser };
@@ -408,6 +417,389 @@ test("the wall aborts the work a scenario never asks for, and passes everything 
   assert.deepEqual(rec.blocked.map((b) => b.path), ["/api/site/fold-lane-bakery/addon", "/api/site/react-revise"]);
 });
 
+// ── TEST 4b's D1: ONE ROW, THROUGH THE REAL APP, AND BACK ──────────────────
+
+const D1 = UI_SCENARIOS["4b-d1-price"];
+const D1_BACK = UI_SCENARIOS["4b-d1-restore"];
+const D1_SAY = "In today's bake list, change the Sea Salt Focaccia's price to £4.60.";
+const D1_REPLY = { ok: true, layer: "data", applied: [{ table: "loaves", id: 6, columns: ["price"] }], failed: 0, cost: 1, msg: "✅ Updated one entry in loaves." };
+const SITE = "https://fold-lane-bakery.gofarther.app";
+
+test("D1 is one message, tied to the bakery, with a data-only wall and the proposal's record", () => {
+  assert.deepEqual(D1.steps.map((s) => s.say), [D1_SAY]);
+  assert.equal(D1_SAY.length, 68);
+  assert.equal(Buffer.byteLength(D1_SAY), 69);
+  assert.equal(crypto.createHash("sha256").update(D1_SAY).digest("hex").slice(0, 16), "550cf87497ef7a8f", "the words are not the proposal's");
+  assert.equal(D1.site, "fold-lane-bakery");
+  assert.deepEqual([...D1.layers], ["data"]);
+  assert.equal(D1.publishes, 0);
+  assert.equal(D1.reply, "✅ Updated one entry in loaves.");
+  assert.deepEqual(JSON.parse(JSON.stringify(D1.applied)), [{ table: "loaves", id: 6, columns: ["price"] }]);
+  assert.ok(D1.budget >= 3 && D1.budget <= 6, `budget ${D1.budget}`);
+  const row = D1.row;
+  assert.deepEqual({ table: row.table, id: row.id, match: { ...row.match }, field: row.field, from: row.from, to: row.to },
+    { table: "loaves", id: 6, match: { name: "Sea Salt Focaccia" }, field: "price", from: "4.5", to: "4.6" });
+  assert.deepEqual({ ...row.shown }, { path: "/order", sel: 'input[type="radio"]', before: "£4.50", after: "£4.60" });
+  // The record is the proposal's visitor read, ids 1-6, the focaccia at 4.5.
+  assert.deepEqual(row.record.map((r) => [r.id, r.name, r.price]), [[1, "Country White", 4.8], [2, "Dark Rye", 5.2],
+    [3, "Seeded Wholemeal", 5.4], [4, "Olive & Rosemary", 5.8], [5, "Walnut Levain", 6], [6, "Sea Salt Focaccia", 4.5]]);
+  assert.ok(row.record.every((r) => r.photo === null), "a recorded photo is not null");
+  for (const o of [D1, D1.steps, D1.layers, D1.row, D1.row.match, D1.row.shown, D1.row.record, ...D1.row.record, D1_BACK, D1_BACK.steps]) {
+    assert.ok(Object.isFrozen(o), "a scenario can be changed at run time");
+  }
+  // The recovery on its own sends nothing, on the same row.
+  assert.equal(D1_BACK.row, D1.row, "the recovery is not about the row D1 changes");
+  assert.deepEqual([...D1_BACK.steps], []);
+  assert.deepEqual([...D1_BACK.layers], []);
+  for (const name of ["4b-d1-price", "4b-d1-restore"]) {
+    assert.equal(readUiScenario(name, "fold-lane-bakery").ok, true);
+    assert.equal(readUiScenario(name, "fretwork-1").ok, false, `${name} runs against another site`);
+  }
+});
+
+test("the wall lets out the routing call and one data edit of this site, and refuses every other write", () => {
+  const edit = (layer, slug = "fold-lane-bakery") => ({ method: "POST", pathname: `/api/site/${slug}/edit`, body: JSON.stringify({ layer, instruction: D1_SAY }), scenario: D1 });
+  assert.equal(wallRefusal(edit("data")), "");
+  for (const l of ["text", "page", "rules", "look", "picture", "logo", "nav", "rename", "", "addon"]) {
+    assert.match(wallRefusal(edit(l)), /does not allow/, `an edit at ${l || "(blank)"} would leave the page`);
+  }
+  assert.match(wallRefusal(edit("data", "fretwork-1")), /not this scenario's site/);
+  for (const body of [null, "", "{not json", JSON.stringify({ instruction: "x" }), JSON.stringify({ layer: 7 }), JSON.stringify(["data"])]) {
+    assert.match(wallRefusal({ method: "POST", pathname: "/api/site/fold-lane-bakery/edit", body, scenario: D1 }), /cannot be read/, `body ${body}`);
+  }
+  assert.equal(wallRefusal({ method: "POST", pathname: "/api/site/route", body: "{}", scenario: D1 }), "");
+  for (const [method, pathname] of [["GET", "/api/site/list"], ["GET", "/api/site/edit/abc"], ["HEAD", "/api/credits"], ["GET", "/api/site/fold-lane-bakery/rows/loaves"]]) {
+    assert.equal(wallRefusal({ method, pathname, scenario: D1 }), "", `${method} ${pathname} refused`);
+  }
+  for (const [method, pathname] of [["POST", "/api/site/fold-lane-bakery/addon"], ["POST", "/api/site/react-revise"], ["POST", "/api/site/react-build"],
+    ["PATCH", "/api/site/fold-lane-bakery/rows/loaves/6"], ["POST", "/api/site/fold-lane-bakery/rows/loaves"], ["DELETE", "/api/site/fold-lane-bakery/rows/loaves/6"],
+    ["DELETE", "/api/site/edit/abc"], ["POST", "/api/site/fold-lane-bakery/jobs"], ["POST", "/api/agent/send"], ["PUT", "/api/site/x"]]) {
+    assert.notEqual(wallRefusal({ method, pathname, body: "{}", scenario: D1 }), "", `${method} ${pathname} would leave the page`);
+  }
+  // The recovery scenario sends no message at all.
+  assert.match(wallRefusal({ method: "POST", pathname: "/api/site/route", body: "{}", scenario: D1_BACK }), /never sends/);
+  // Part B's wall is the one it always had: only the work none of them asks for.
+  const b = UI_SCENARIOS["4a-part-b"];
+  for (const [method, pathname] of [["POST", "/api/site/fold-lane-bakery/edit"], ["PATCH", "/api/site/fold-lane-bakery/rows/loaves/6"], ["DELETE", "/api/site/edit/abc"]]) {
+    assert.equal(wallRefusal({ method, pathname, body: JSON.stringify({ layer: "page" }), scenario: b }), "", `Part B's wall moved for ${method} ${pathname}`);
+  }
+  assert.notEqual(wallRefusal({ method: "POST", pathname: "/api/site/fold-lane-bakery/addon", scenario: b }), "");
+});
+
+test("what left the page is judged from the page's own record, word for word and layer by layer", () => {
+  const step = (over = {}) => ({
+    say: D1_SAY,
+    network: [
+      { method: "POST", path: "/api/site/route", status: 200, req: { message: D1_SAY }, res: { ok: true, intent: "edit", layer: "data", cost: 2 } },
+      { method: "POST", path: "/api/site/fold-lane-bakery/edit", status: 202, req: { layer: "data", instruction: D1_SAY }, res: { ok: true, job: "a".repeat(32) } },
+      { method: "GET", path: "/api/site/edit/" + "a".repeat(32), status: 200, final: true, res: D1_REPLY },
+      ...(over.extra || []),
+    ].map((e) => (over.map ? over.map(e) : e)),
+  });
+  const ok = requestVerdict(step(), D1);
+  assert.deepEqual({ ok: ok.ok, layer: ok.routedLayer, cost: ok.routeCost, edits: ok.edits }, { ok: true, layer: "data", cost: 2, edits: 1 });
+  const bad = [
+    step({ map: (e) => (e.path === "/api/site/route" ? { ...e, req: { message: D1_SAY + " " } } : e) }),
+    step({ map: (e) => (e.path === "/api/site/route" ? { ...e, res: { ...e.res, layer: "text" } } : e) }),
+    step({ map: (e) => (e.path === "/api/site/route" ? { ...e, res: { ...e.res, intent: "addon" } } : e) }),
+    step({ map: (e) => (/\/edit$/.test(e.path) ? { ...e, req: { layer: "data", instruction: "something else" } } : e) }),
+    step({ extra: [{ method: "POST", path: "/api/site/fold-lane-bakery/edit", status: 202, req: { layer: "data", instruction: D1_SAY }, res: {} }] }),
+    step({ extra: [{ method: "POST", path: "/api/site/route", status: 200, req: { message: D1_SAY }, res: { intent: "edit", layer: "data" } }] }),
+    { say: D1_SAY, network: [] },
+  ];
+  for (const [i, s2] of bad.entries()) assert.equal(requestVerdict(s2, D1).ok, false, `case ${i} passed`);
+  // The job's own stored reply.
+  assert.equal(storedReplyVerdict(step(), D1).ok, true);
+  for (const [res, why] of [[{ ...D1_REPLY, ok: false }, /not ok/], [{ ...D1_REPLY, layer: "text" }, /text layer/],
+    [{ ...D1_REPLY, applied: [{ table: "loaves", id: 6, columns: ["price", "name"] }] }, /other rows/],
+    [{ ...D1_REPLY, applied: [{ table: "loaves", id: 5, columns: ["price"] }] }, /other rows/],
+    [{ ...D1_REPLY, failed: 1 }, /failed/], [{ ...D1_REPLY, files: 24 }, /compiled/], [{ ...D1_REPLY, sort: { table: "loaves" } }, /reordered/]]) {
+    const got = storedReplyVerdict(step({ map: (e) => (e.final ? { ...e, res } : e) }), D1);
+    assert.equal(got.ok, false, JSON.stringify(res));
+    assert.match(got.why, why);
+  }
+  assert.match(storedReplyVerdict({ network: [] }, D1).why, /no stored reply/);
+  assert.deepEqual(routeCostsOf([step(), { network: [{ method: "POST", path: "/api/site/route", res: "<html>" }] }]), [2, undefined]);
+});
+
+test("the money closes only when the balance's move is the routing costs plus what each job's row and ledger both say", () => {
+  const job = (over = {}) => ({ job: "j", row: { billing: "finalized", cost: 1, ...over.row }, ledgerRead: { ok: true }, ledger: over.ledger || [{ delta: -1, kind: "reserve" }] });
+  assert.deepEqual(moneyVerdict({ start: 59, end: 56, routeCosts: [2], jobs: [job()] }), { ok: true, why: "", spent: 3, routing: 2, edits: 1 });
+  const bad = [
+    [{ start: 59, end: 57, routeCosts: [2], jobs: [job()] }, /moved 2/],
+    [{ start: 59, end: 56, routeCosts: [2], jobs: [job({ ledger: [{ delta: -1 }, { delta: 1 }] })] }, /returned 1/],
+    [{ start: 59, end: 56, routeCosts: [2], jobs: [job({ ledger: [] })] }, /took 0/],
+    [{ start: 59, end: 56, routeCosts: [2], jobs: [{ ...job(), ledgerRead: { ok: false } }] }, /could not be read/],
+    [{ start: 59, end: 56, routeCosts: [2], jobs: [job({ row: { billing: "reserved" } })] }, /not settled/],
+    [{ start: 59, end: 56, routeCosts: [2], jobs: [job({ row: { billing: "refunded" } })] }, /not settled/],
+    [{ start: 59, end: 56, routeCosts: [2], jobs: [job({ row: { cost: "1" } })] }, /whole number/],
+    [{ start: 59, end: 56, routeCosts: [undefined], jobs: [job()] }, /not a number/],
+    [{ start: -1, end: 56, routeCosts: [2], jobs: [job()] }, /could not be read/],
+    [{ start: 59, end: null, routeCosts: [2], jobs: [job()] }, /could not be read/],
+    [{ start: 59, end: 56, routeCosts: [2], jobs: [{ job: "j" }] }, /no readable row/],
+    [{ start: 59, end: 56, routeCosts: [2], jobs: [job({ ledger: [{ delta: "x" }] })] }, /no amount/],
+  ];
+  for (const [args, why] of bad) {
+    const got = moneyVerdict(args);
+    assert.equal(got.ok, false, JSON.stringify(args));
+    assert.match(got.why, why);
+  }
+  // An exempt job takes no ledger row, and one that does is a finding.
+  assert.equal(moneyVerdict({ start: 59, end: 57, routeCosts: [2], jobs: [{ job: "e", row: { billing: "exempt", cost: 0 }, ledgerRead: { ok: true }, ledger: [] }] }).ok, true);
+  assert.match(moneyVerdict({ start: 59, end: 57, routeCosts: [2], jobs: [{ job: "e", row: { billing: "exempt", cost: 0 }, ledgerRead: { ok: true }, ledger: [{ delta: -1 }] }] }).why, /exempt/);
+});
+
+test("nothing published is three readers agreeing, never one", () => {
+  const row = { publish_started_at: null, published_at: null };
+  const chain = { verified: true, why: "verified", target: "v", links: 0 };
+  assert.deepEqual(unpublishedVerdict({ published: [], jobs: [{ job: "j", row }], chain }), { ok: true, why: "" });
+  assert.match(unpublishedVerdict({ published: [{ id: "v2" }], jobs: [{ job: "j", row }], chain }).why, /names 1 build/);
+  assert.match(unpublishedVerdict({ published: [], jobs: [{ job: "j", row: { ...row, publish_started_at: "t" } }], chain }).why, /publish began/);
+  assert.match(unpublishedVerdict({ published: [], jobs: [{ job: "j", row: { ...row, published_at: "t" } }], chain }).why, /publish began/);
+  assert.match(unpublishedVerdict({ published: [], jobs: [{ job: "j" }], chain }).why, /no readable row/);
+  assert.match(unpublishedVerdict({ published: [], jobs: [{ job: "j", row }], chain: { verified: false, why: "page-version" } }).why, /page-version/);
+  assert.match(unpublishedVerdict({ published: [], jobs: [{ job: "j", row }], chain: { ...chain, links: 1 } }).why, /verified/);
+  assert.match(unpublishedVerdict({ published: [], jobs: [{ job: "j", row }], chain: null }).why, /not taken/);
+});
+
+// A supplied bakery: the owner route answers the price as a string (NUMERIC,
+// as the database driver does), the visitor route as the site's JSON, and the
+// order page draws one card per loaf, by name. Every read and write is logged
+// into the stand-in's own call list, so its order against the Send is visible.
+function bakery(calls, rows = UI_SCENARIOS["4b-d1-price"].row.record) {
+  const db = { rows: JSON.parse(JSON.stringify(rows)), patches: [], ownerReads: 0, onOwnerRead: null };
+  db.owner = async () => {
+    calls.push("owner read");
+    db.ownerReads++;
+    const res = { status: 200, json: { rows: db.rows.map((r) => ({ ...r, price: String(r.price) })) } };
+    if (db.onOwnerRead) db.onOwnerRead(db.ownerReads, db);
+    return res;
+  };
+  db.pub = async () => { calls.push("visitor read"); return { status: 200, text: JSON.stringify(db.rows) }; };
+  db.patch = async (id, body) => {
+    calls.push(`patch ${id} ${JSON.stringify(body)}`);
+    db.patches.push({ id, body });
+    const r = db.rows.find((x) => x.id === id);
+    for (const [k, v] of Object.entries(body)) r[k] = k === "price" ? Number(v) : v;
+    return { status: 200, json: { row: { ...r, price: String(r.price) } } };
+  };
+  db.lines = () => [...db.rows].sort((a, b) => a.name.localeCompare(b.name)).map((r) => `${r.name} £${Number(r.price).toFixed(2)} · ${r.description}`);
+  db.focaccia = () => db.rows.find((r) => r.id === 6);
+  return db;
+}
+
+function d1Harness(opt = {}) {
+  let db = null;
+  const h = standIn({
+    routed: () => ({ ok: true, intent: "edit", layer: "data", cost: 2 }),
+    editBody: (n, said) => ({ layer: "data", instruction: said, idem: "k" }),
+    reply: () => D1_REPLY,
+    onDone: () => (opt.onDone ? opt.onDone(db) : (db.focaccia().price = 4.6)),
+    shown: () => (opt.shown ? opt.shown(db) : db.lines()),
+    hangAt: opt.hangAt,
+  });
+  db = bakery(h.calls, opt.rows);
+  return { h, db };
+}
+const driveD1 = (h, db, over = {}) => runUi({
+  base: ORIGIN, session: SESSION, slug: "fold-lane-bakery", scenario: D1, spend: true, balanceNow: async () => 59,
+  evid: "", launch: h.launch, log: () => {}, openMs: 50, attachMs: 50, startMs: 50, stepMs: 60, pollMs: 1, settleMs: 0, shownMs: 50,
+  rows: { owner: db.owner, pub: db.pub, patch: db.patch }, siteOrigin: SITE, ...over,
+});
+
+test("D1 takes its baseline just before the Send, sees the one change on the row and the page, and puts that field back", async () => {
+  const { h, db } = d1Harness();
+  const start = JSON.stringify(db.rows);
+  const rec = await driveD1(h, db);
+  assert.equal(rec.stopped, null, JSON.stringify(rec.stopped));
+  assert.equal(rec.sent, 1);
+  // THE ORDER: the page, then both readers, then the Send; the recovery's
+  // write after the reply, and only one.
+  const at = (c) => h.calls.indexOf(c);
+  const send = at("click #stSend");
+  const lastReadBeforeSend = Math.max(h.calls.slice(0, send).lastIndexOf("visitor read"), h.calls.slice(0, send).lastIndexOf("owner read"));
+  assert.ok(lastReadBeforeSend > 0 && h.calls.slice(0, send).includes("owner read") && h.calls.slice(0, send).includes("visitor read"), "the baseline was not read before the Send");
+  const pageBefore = h.calls.findIndex((c) => c.startsWith("goto " + SITE + "/order"));
+  assert.ok(pageBefore > 0 && pageBefore < lastReadBeforeSend, "the page was not read before the baseline, or not before the Send");
+  assert.deepEqual(h.calls.slice(lastReadBeforeSend + 1, send), [], "something stands between the baseline and the Send");
+  const patchAt = h.calls.findIndex((c) => c.startsWith("patch "));
+  assert.ok(patchAt > send, "the row was written before the message was sent");
+  assert.deepEqual(db.patches, [{ id: 6, body: { price: "4.5" } }], "not exactly one write, of the price, in the baseline's own form");
+  // What the run saw.
+  const r = rec.row;
+  assert.equal(r.baselineVerdict.ok, true);
+  assert.equal(r.record.same, true, "the baseline did not match the proposal's record");
+  assert.deepEqual(r.planAtBaseline.act, "none");
+  assert.deepEqual({ exact: r.change.exact, before: r.change.target.before, after: r.change.target.after }, { exact: true, before: "4.5", after: "4.6" });
+  assert.equal(r.visitorChange.exact, true);
+  assert.match(r.shown.before.target, /^Sea Salt Focaccia £4\.50/);
+  assert.deepEqual({ ok: r.shown.afterEdit.verdict.ok, line: r.shown.afterEdit.target.slice(0, 23) }, { ok: true, line: "Sea Salt Focaccia £4.60" });
+  assert.deepEqual({ plan: r.restore.plan.act, patched: r.restore.patched.verdict.ok, restored: r.restore.verdict.restored, bytes: r.restore.verdict.bytes },
+    { plan: "patch", patched: true, restored: true, bytes: true });
+  assert.deepEqual(r.shown.afterRestore.verdict, { ok: true, exact: true });
+  assert.equal(JSON.stringify(db.rows), start, "the table is not what it was");
+  // The page's own record of the message.
+  assert.equal(requestVerdict(rec.steps[0], D1).ok, true, JSON.stringify(requestVerdict(rec.steps[0], D1)));
+  assert.equal(storedReplyVerdict(rec.steps[0], D1).ok, true);
+  assert.equal(rec.steps[0].reply, D1.reply);
+  // Each visitor-page read ran in its own context and closed it.
+  assert.equal(h.calls.filter((c) => c === "close context").length, 3);
+  const told = describeUi(rec);
+  assert.match(told, /EXACT: the one expected change and nothing else/);
+  assert.match(told, /RESTORED: the row is its baseline again/);
+});
+
+test("the rehearsal reads the baseline and the page, decides the recovery would write nothing, and sends and writes nothing", async () => {
+  const { h, db } = d1Harness();
+  const rec = await driveD1(h, db, { spend: false });
+  assert.equal(rec.stopped.at, "rehearsal");
+  assert.equal(rec.sent, 0);
+  assert.ok(!h.calls.includes("click #stSend"));
+  assert.deepEqual(db.patches, []);
+  assert.equal(rec.row.baselineVerdict.ok, true);
+  assert.equal(rec.row.planAtBaseline.act, "none");
+  assert.equal(rec.row.restore, undefined, "a rehearsal decided a recovery beyond the plan");
+  assert.match(describeUi(rec), /recovery   against this baseline: none/);
+});
+
+test("a row that is not where the test starts, or a page that does not show it, stops before anything is sent", async () => {
+  for (const [rows, shown, why] of [
+    [UI_SCENARIOS["4b-d1-price"].row.record.map((r) => (r.id === 6 ? { ...r, price: 4.7 } : r)), null, /unexpected-value/],
+    [UI_SCENARIOS["4b-d1-price"].row.record.filter((r) => r.id !== 6), null, /row-missing/],
+    [UI_SCENARIOS["4b-d1-price"].row.record.map((r) => (r.id === 6 ? { ...r, name: "Baguette" } : r)), null, /not-the-row/],
+    [null, (db) => db.lines().map((l) => l.replace("£4.50", "£4.55")), /does not show Sea Salt Focaccia at £4\.50/],
+    [null, () => [], /never drew a card/],
+  ]) {
+    const { h, db } = d1Harness({ rows: rows || undefined, shown: shown || undefined });
+    const rec = await driveD1(h, db);
+    assert.equal(rec.stopped && rec.stopped.at, "baseline", JSON.stringify(rec.stopped));
+    assert.match(rec.stopped.msg, why);
+    assert.match(rec.stopped.msg, /nothing was sent/);
+    assert.equal(rec.sent, 0);
+    assert.ok(!h.calls.includes("click #stSend"), "a message was sent from a wrong starting point");
+    assert.deepEqual(db.patches, []);
+    assert.equal(rec.row.restore.skipped, "nothing was sent, so there is nothing to put back");
+  }
+  // And a run handed no readers never opens a browser.
+  const { h, db } = d1Harness();
+  const rec = await driveD1(h, db, { rows: null });
+  assert.match(rec.stopped.msg, /not handed the row readers/);
+  assert.ok(!h.calls.some((c) => c.startsWith("goto")), "a browser was opened without the readers");
+  assert.ok(!h.calls.includes("close"), "a browser was launched without the readers");
+});
+
+test("a price somebody else set after the edit is refused and left, and said", async () => {
+  const { h, db } = d1Harness();
+  // The second owner read is the after-read; right after it somebody sets 4.7.
+  db.onOwnerRead = (n, d) => { if (n === 2) d.focaccia().price = 4.7; };
+  const rec = await driveD1(h, db);
+  assert.deepEqual(db.patches, [], "a value nobody here set was overwritten");
+  assert.equal(db.focaccia().price, 4.7);
+  const x = rec.row.restore;
+  assert.deepEqual({ act: x.plan.act, why: x.plan.why, restored: x.verdict.restored }, { act: "refuse", why: "unexpected-value", restored: false });
+  assert.deepEqual(x.moved.changed.map((c) => [c.id, c.field, c.after]), [[6, "price", "4.7"]]);
+  assert.equal(rec.row.change.exact, true, "the edit itself was the expected change");
+  assert.match(describeUi(rec), /refuse \(unexpected-value\)/);
+});
+
+test("a change beside the expected one is reported and kept, and only the price is put back", async () => {
+  const { h, db } = d1Harness({
+    onDone: (d) => { d.focaccia().price = 4.6; d.rows.find((r) => r.id === 2).description = "Dense, malty, changed."; },
+  });
+  const rec = await driveD1(h, db);
+  const r = rec.row;
+  assert.deepEqual({ expected: r.change.expected, exact: r.change.exact }, { expected: true, exact: false });
+  assert.deepEqual(r.change.others.map((o) => [o.id, o.field]), [[2, "description"]]);
+  assert.equal(r.shown.afterEdit.verdict.why, "other-lines-changed");
+  assert.deepEqual(db.patches, [{ id: 6, body: { price: "4.5" } }]);
+  assert.equal(db.rows.find((x) => x.id === 2).description, "Dense, malty, changed.", "another row's change was overwritten");
+  assert.deepEqual({ restored: r.restore.verdict.restored, bytes: r.restore.verdict.bytes }, { restored: true, bytes: false });
+  assert.match(describeUi(rec), /other change: id 2 description/);
+  assert.match(describeUi(rec), /still different: id 2 description/);
+});
+
+test("a reply that never comes writes nothing and names the recovery run", async () => {
+  const { h, db } = d1Harness({ hangAt: 0 });
+  const rec = await driveD1(h, db);
+  assert.equal(rec.sent, 1);
+  assert.equal(rec.steps[0].completed, false);
+  assert.match(rec.row.restore.skipped, /reply never came/);
+  assert.match(rec.row.restore.skipped, /price back only if it reads 4\.6/);
+  assert.deepEqual(db.patches, []);
+  assert.equal(rec.row.after, undefined, "the row was read as if the job had finished");
+});
+
+test("the wall the driver registers for D1 sees every API call and aborts a misrouted edit with its reason", async () => {
+  const { h, db } = d1Harness();
+  const rec = await driveD1(h, db, { spend: false });
+  const wall = h.routes.find((r) => typeof r.pattern === "function" && r.pattern(new URL(ORIGIN + "/api/credits")));
+  assert.ok(wall, "the wall does not look at every API path on the app's origin");
+  assert.ok(!wall.pattern(new URL(SITE + "/api/db/fold-lane-bakery/data/orders")), "the wall reaches the customer's site");
+  const act = async (method, path, body) => {
+    let did = "";
+    await wall.handler({
+      request: () => ({ method: () => method, url: () => ORIGIN + path, postData: () => (body === undefined ? null : JSON.stringify(body)) }),
+      abort: async () => { did = "abort"; }, fallback: async () => { did = "fallback"; },
+    });
+    return did;
+  };
+  assert.equal(await act("POST", "/api/site/route", { message: D1_SAY }), "fallback");
+  assert.equal(await act("POST", "/api/site/fold-lane-bakery/edit", { layer: "data", instruction: D1_SAY }), "fallback");
+  assert.equal(await act("POST", "/api/site/fold-lane-bakery/edit", { layer: "text", instruction: D1_SAY }), "abort");
+  assert.equal(await act("PATCH", "/api/site/fold-lane-bakery/rows/loaves/6", { price: 9 }), "abort");
+  assert.equal(await act("GET", "/api/site/list"), "fallback");
+  assert.deepEqual(rec.blocked.map((b) => [b.path, /text layer/.test(b.why) || /never makes/.test(b.why)]),
+    [["/api/site/fold-lane-bakery/edit", true], ["/api/site/fold-lane-bakery/rows/loaves/6", true]]);
+  assert.match(describeUi(rec), /BLOCKED POST \/api\/site\/fold-lane-bakery\/edit: an edit at the text layer/);
+});
+
+test("the recovery run opens no app, writes only with spend and only from 4.6, and reads the page back", async () => {
+  const at46 = UI_SCENARIOS["4b-d1-price"].row.record.map((r) => (r.id === 6 ? { ...r, price: 4.6 } : r));
+  const drive = (h, db, spend) => runUi({
+    base: ORIGIN, session: SESSION, slug: "fold-lane-bakery", scenario: D1_BACK, spend, balanceNow: async () => 59,
+    evid: "", launch: h.launch, log: () => {}, pollMs: 1, shownMs: 50, rows: { owner: db.owner, pub: db.pub, patch: db.patch }, siteOrigin: SITE,
+  });
+  // Dry run: decided, not written.
+  let { h, db } = d1Harness({ rows: at46 });
+  let rec = await drive(h, db, false);
+  assert.deepEqual(db.patches, []);
+  assert.deepEqual({ act: rec.row.recovery.plan.act, wrote: rec.row.recovery.wrote }, { act: "patch", wrote: false });
+  assert.equal(rec.stopped.at, "rehearsal");
+  assert.equal(h.inits.length, 0, "the owner's session was planted by a run that opens no app");
+  assert.ok(!h.calls.some((c) => c.startsWith("goto " + ORIGIN) || c.startsWith("click")), "the recovery opened the app");
+  assert.match(describeUi(rec), /NOT SENT \(dry run\)/);
+  // THE VISITOR'S PAGE MAY WRITE NOTHING: its own context aborts every request
+  // that is not a read, and names it (the analytics beacon aside).
+  const siteWall = h.routes.find((r) => typeof r.pattern === "function" && r.pattern(new URL(SITE + "/order")) && r.pattern(new URL("https://anywhere.example/")));
+  assert.ok(siteWall, "the visitor's page has no wall of its own");
+  const on = async (method, url) => {
+    let did = "";
+    await siteWall.handler({ request: () => ({ method: () => method, url: () => url }), abort: async () => { did = "abort"; }, fallback: async () => { did = "fallback"; } });
+    return did;
+  };
+  assert.equal(await on("GET", SITE + "/api/db/fold-lane-bakery/data/loaves"), "fallback");
+  assert.equal(await on("HEAD", SITE + "/order"), "fallback");
+  assert.equal(await on("POST", SITE + "/api/db/fold-lane-bakery/data/orders"), "abort", "the visitor's page could submit the order form");
+  assert.equal(await on("PATCH", SITE + "/api/db/fold-lane-bakery/data/loaves"), "abort");
+  // With spend: one write, the row back, the page back.
+  ({ h, db } = d1Harness({ rows: at46 }));
+  rec = await drive(h, db, true);
+  assert.deepEqual(db.patches, [{ id: 6, body: { price: "4.5" } }]);
+  assert.equal(rec.row.recovery.verdict.restored, true);
+  assert.equal(rec.row.shown.afterRestore.verdict.ok, true, JSON.stringify(rec.row.shown.afterRestore.verdict));
+  assert.equal(rec.stopped, null);
+  assert.deepEqual([rec.balance.start, rec.balance.end], [59, 59]);
+  assert.match(describeUi(rec), /RESTORED: the row is its recorded value again/);
+  // At the baseline already: nothing to write. At a value nobody here set: refused.
+  for (const [rows, act] of [[UI_SCENARIOS["4b-d1-price"].row.record, "none"], [at46.map((r) => (r.id === 6 ? { ...r, price: 4.7 } : r)), "refuse"]]) {
+    ({ h, db } = d1Harness({ rows }));
+    rec = await drive(h, db, true);
+    assert.equal(rec.row.recovery.plan.act, act);
+    assert.deepEqual(db.patches, []);
+    assert.equal(rec.row.shown.afterRestore, undefined);
+  }
+});
+
 // ── THE WIRING ─────────────────────────────────────────────────────────────
 
 const CANARY = fs.readFileSync(ROOT + "scripts/edit-canary.mjs", "utf8");
@@ -477,4 +869,45 @@ test("the workflow carries the mode and installs the browser only for it, before
   const block = FLOW.slice(FLOW.lastIndexOf("- name:", install), install);
   assert.match(block, /if: github\.event\.inputs\.ui_scenario != ''/, "every canary run installs a browser now");
   assert.match(FLOW.slice(FLOW.lastIndexOf("\n", install), FLOW.indexOf("\n", install)), /npm i --no-save[^\n]*playwright@/);
+});
+
+test("a row scenario is handed the owner route, the visitor route and one PATCH, and every one of its checks is there", () => {
+  const branch = CANARY.indexOf("if (UI_ASK) {");
+  const gate = CANARY.indexOf("if (!SPEND)");
+  assert.ok(branch > 0 && gate > branch, "the mode's branch or the spend gate is gone");
+  const win = CANARY.slice(branch, gate);
+  const from = win.indexOf("const rowReaders"), to = win.indexOf("const recoverOnly");
+  assert.ok(from > 0 && to > from, "the row readers are gone");
+  const readers = win.slice(from, to);
+  assert.match(readers, /owner: \(\) => call\("GET", `\/api\/site\/\$\{encodeURIComponent\(CANARY\)\}\/rows\/\$\{encodeURIComponent\(ROW\.table\)\}\?order=id&dir=asc&limit=\$\{OWNER_ROWS_LIMIT\}`\)/,
+    "the owner route is not read whole, in id order, at its own page size");
+  assert.match(readers, /\$\{BEFORE\.origin\}\/api\/db\/\$\{encodeURIComponent\(CANARY\)\}\/data\/\$\{encodeURIComponent\(ROW\.table\)\}\?select=\*&order=id\.asc/,
+    "the visitor route is not the site's own, in id order");
+  assert.match(readers, /Buffer\.from\(await r\.arrayBuffer\(\)\)\.toString\("utf8"\)/, "the visitor body is not decoded once from its bytes");
+  assert.match(readers, /patch: \(id, body\) => call\("PATCH", `\/api\/site\/\$\{encodeURIComponent\(CANARY\)\}\/rows\/\$\{encodeURIComponent\(ROW\.table\)\}\/\$\{id\}`, \{ body \}\)/,
+    "the one write is not the owner route's PATCH of that row");
+  // THE ONLY WRITE THE MODE MAKES ON ITS OWN is that PATCH; the message is the page's.
+  assert.deepEqual(win.match(/call\("(POST|PATCH|PUT|DELETE)"/g), ['call("PATCH"'], "the mode writes on its own beyond the one PATCH");
+  const run = win.slice(win.indexOf("await runUi("), win.indexOf("\n", win.indexOf("await runUi(")));
+  assert.match(run, /rows: rowReaders/, "the readers are not handed to the driver");
+  assert.match(run, /siteOrigin: BEFORE\.origin/, "the site's origin is not handed to the driver");
+  for (const needle of ["r.baselineVerdict.ok", 'shownOk("before")', 'r.planAtBaseline.act === "none"', "requestVerdict(", "storedReplyVerdict(",
+    "r.change.exact", "r.visitorChange.exact", 'shownOk("afterEdit")', 'x.plan.act === "patch"', "x.verdict.restored", "x.verdict.bytes === true",
+    'shownOk("afterRestore")', "unpublishedVerdict(", "moneyVerdict(", "routeCostsOf(ui.steps)", "jobs.length === 1"]) {
+    assert.ok(win.includes(needle), `the check on ${needle} is gone`);
+  }
+  // The money and the no-publish proof are read after the chain, for a scenario that publishes nothing.
+  const chainAt = win.indexOf("chain = chainVerdict(");
+  const pub0 = win.indexOf("UI_ASK.scenario.publishes === 0");
+  assert.ok(chainAt > 0 && pub0 > chainAt, "the no-publish proof is read before the after-read");
+  assert.ok(win.indexOf("unpublishedVerdict(", pub0) > pub0 && win.indexOf("moneyVerdict(", pub0) > pub0);
+  assert.match(CANARY, /import \{ requestVerdict, storedReplyVerdict, moneyVerdict, unpublishedVerdict, routeCostsOf \} from "\.\/canary-ui\.mjs"/);
+});
+
+test("the scenario box names every scenario there is", () => {
+  const at = FLOW.indexOf("\n      ui_scenario:\n");
+  const box = FLOW.slice(at, FLOW.indexOf("\n      site:\n", at));
+  const desc = (box.match(/description: '([^']*)'/) || [])[1] || "";
+  assert.ok(desc.length > 40, "the box has no description");
+  for (const name of Object.keys(UI_SCENARIOS)) assert.ok(desc.includes(name), `the form does not name ${name}`);
 });

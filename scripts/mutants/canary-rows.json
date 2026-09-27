@@ -1,0 +1,445 @@
+[
+ {
+  "label": "CONTROL: the row module's heading comment changes nothing",
+  "control": true,
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "// ── THE CANARY'S ONE ROW: SEEN BEFORE, SEEN AFTER, AND PUT BACK ─────────────",
+  "to": "// ── THE CANARY'S ONE ROW (control): SEEN BEFORE, SEEN AFTER, PUT BACK ─────────"
+ },
+ {
+  "label": "CONTROL: D1's scenario comment changes nothing",
+  "control": true,
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "  // TEST 4b's D1 — one row, through the real app, and back with no model call.",
+  "to": "  // TEST 4b's D1 (control) — one row, through the real app, and back again."
+ },
+ {
+  "label": "CONTROL: the canary's row-reader comment changes nothing",
+  "control": true,
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "  // A SCENARIO THAT CHANGES A ROW IS HANDED ITS READERS. The owner route reads",
+  "to": "  // A SCENARIO THAT CHANGES A ROW IS HANDED ITS READERS (control). The owner route"
+ },
+ {
+  "label": "R-1: any string reads as a price",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "  if (!DECIMAL.test(s)) return null;",
+  "to": "  if (!s) return null;"
+ },
+ {
+  "label": "R-2: 4.60 is not 4.6",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "  frac = frac.replace(/0+$/, \"\");",
+  "to": "  frac = frac;"
+ },
+ {
+  "label": "R-3: a full page from the owner route is read as the whole table",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "  if (owner && list.length >= OWNER_ROWS_LIMIT) return",
+  "to": "  if (false) return"
+ },
+ {
+  "label": "R-4: an id twice is accepted",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "    if (seen.has(r.id)) return",
+  "to": "    if (false) return"
+ },
+ {
+  "label": "R-5: a row without an id is accepted",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "    if (!Number.isSafeInteger(r.id) || r.id <= 0) return",
+  "to": "    if (false) return"
+ },
+ {
+  "label": "R-6: a field on one side only is not a difference",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "    for (const k of [...new Set([...Object.keys(row), ...Object.keys(now)])].sort()) {",
+  "to": "    for (const k of Object.keys(row).sort()) {"
+ },
+ {
+  "label": "R-7: an added row is not a difference",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "  for (const id of a.keys()) if (!b.has(id)) added.push(id);",
+  "to": ""
+ },
+ {
+  "label": "R-8: the target is not checked against its name",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "    if (row[k] !== v) return { ok: false, why: \"not-the-row\"",
+  "to": "    if (false) return { ok: false, why: \"not-the-row\""
+ },
+ {
+  "label": "R-9: the baseline asks the owner route alone",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "  if (od !== spec.from || pd !== spec.from) {",
+  "to": "  if (od !== spec.from) {"
+ },
+ {
+  "label": "R-10: exact ignores what changed beside the target",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "    exact: expected && !others.length && !d.added.length && !d.gone.length,",
+  "to": "    exact: expected,"
+ },
+ {
+  "label": "R-11: the expected change ignores where it started",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "nowT.ok && decimalOf(beforeRaw) === spec.from && decimalOf(afterRaw) === spec.to;",
+  "to": "nowT.ok && decimalOf(afterRaw) === spec.to;"
+ },
+ {
+  "label": "R-12: the recovery writes over any value",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "  if (decimalOf(now) === spec.to) return { act: \"patch\"",
+  "to": "  if (true) return { act: \"patch\""
+ },
+ {
+  "label": "R-13: the recovery writes a re-typed value, not the baseline's own",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "id: spec.id, body: { [spec.field]: baseRaw }, from: now };",
+  "to": "id: spec.id, body: { [spec.field]: Number(spec.from) }, from: now };"
+ },
+ {
+  "label": "R-14: a row already at its baseline is written again",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "  if (same(now, baseRaw)) return { act: \"none\"",
+  "to": "  if (false) return { act: \"none\""
+ },
+ {
+  "label": "R-15: a baseline that is not `from` is written back",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "  if (decimalOf(baseRaw) !== spec.from) return { act: \"refuse\", why: \"no-baseline\"",
+  "to": "  if (false) return { act: \"refuse\", why: \"no-baseline\""
+ },
+ {
+  "label": "R-16: the write's answer may move other fields",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "  return d.changed.length ? { ok: false, why: \"row-moved\"",
+  "to": "  return false ? { ok: false, why: \"row-moved\""
+ },
+ {
+  "label": "R-17: the visitor bytes always match",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "? base.pub.text === final.pub.text : null;",
+  "to": "? true : null;"
+ },
+ {
+  "label": "R-18: restored asks the owner route alone",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "    restored: ownerSame && visitorSame,",
+  "to": "    restored: ownerSame,"
+ },
+ {
+  "label": "R-19: the recovery plans from the after-read, not the read just before the write",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "  out.plan = restorePlan(out.pre.owner.rows, spec, baseRaw);\n  if (out.plan.act === \"patch\") {",
+  "to": "  out.plan = restorePlan((after && after.owner && after.owner.ok ? after : out.pre).owner.rows, spec, baseRaw);\n  if (out.plan.act === \"patch\") {"
+ },
+ {
+  "label": "R-20: the recovery run writes on a dry run",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "  if (out.plan.act === \"patch\" && write) {",
+  "to": "  if (out.plan.act === \"patch\") {"
+ },
+ {
+  "label": "R-21: the recovery run writes a string over a number",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "  const baseRaw = typeof nowRaw === \"number\" ? Number(spec.from) : spec.from;",
+  "to": "  const baseRaw = spec.from;"
+ },
+ {
+  "label": "R-22: a longer name's card is the target's",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "  return /^\\s+[^\\p{L}\\p{N}\\s]/u.test(line.slice(name.length));",
+  "to": "  return /^\\s/.test(line.slice(name.length));"
+ },
+ {
+  "label": "R-23: the page may change other cards",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "  return othersSame ? { ok: true, line: t[0] }",
+  "to": "  return true ? { ok: true, line: t[0] }"
+ },
+ {
+  "label": "R-24: the page may show any price",
+  "files": [
+   "scripts/canary-rows.mjs"
+  ],
+  "from": "  if (!t[0].includes(want)) return { ok: false, why: \"wrong-price\", line: t[0] };",
+  "to": ""
+ },
+ {
+  "label": "U-1: the wall lets any layer out",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "    return layers.includes(layer) ? \"\" :",
+  "to": "    return true ? \"\" :"
+ },
+ {
+  "label": "U-2: the wall lets an edit of another site out",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "    if (slug !== scenario.site) return",
+  "to": "    if (false) return"
+ },
+ {
+  "label": "U-3: the wall lets an unreadable edit out",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "    if (layer === null) return \"an edit whose layer cannot be read\";",
+  "to": "    if (layer === null) return \"\";"
+ },
+ {
+  "label": "U-4: the wall lets every other write out",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "  return `a ${method} this scenario never makes`;",
+  "to": "  return \"\";"
+ },
+ {
+  "label": "U-5: the wall looks at /api/site/ only",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "u.pathname.startsWith(\"/api/\"), async (r) => {",
+  "to": "u.pathname.startsWith(\"/api/site/\"), async (r) => {"
+ },
+ {
+  "label": "U-6: the wall is not handed the request body",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "        body: typeof req.postData === \"function\" ? req.postData() : null, scenario,",
+  "to": "        body: null, scenario,"
+ },
+ {
+  "label": "U-7: the wall is not handed the scenario",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "        body: typeof req.postData === \"function\" ? req.postData() : null, scenario,",
+  "to": "        body: typeof req.postData === \"function\" ? req.postData() : null, scenario: null,"
+ },
+ {
+  "label": "U-8: the routed words are not compared",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "    routedWords: !!(route && route.req && route.req.message === said),",
+  "to": "    routedWords: true,"
+ },
+ {
+  "label": "U-9: two edits read as one",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "    out.edits === 1 && out.editWords",
+  "to": "    out.edits >= 1 && out.editWords"
+ },
+ {
+  "label": "U-10: the stored reply may name other rows",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "  if (!applied) return { ...out, why: \"the stored reply names other rows or columns\" };",
+  "to": ""
+ },
+ {
+  "label": "U-11: a refund does not open the money",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "      if (debits !== j.row.cost || refunds !== 0) return",
+  "to": "      if (debits !== j.row.cost) return"
+ },
+ {
+  "label": "U-12: the money never has to close",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "  return spent === routing + edits\n",
+  "to": "  return true\n"
+ },
+ {
+  "label": "U-13: a job's row saying a publish began is not read",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "    if (j.row.publish_started_at || j.row.published_at) return",
+  "to": "    if (false) return"
+ },
+ {
+  "label": "U-14: a wrong baseline does not stop the message",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "        if (!rec.row.baselineVerdict.ok) {",
+  "to": "        if (false) {"
+ },
+ {
+  "label": "U-15: a page not showing the start does not stop the message",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "        if (!before.verdict.ok) { stop(\"baseline\"",
+  "to": "        if (false) { stop(\"baseline\""
+ },
+ {
+  "label": "U-16: the recovery writes before the reply came",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "      } else if (!sentSteps.every((s) => s.completed)) {",
+  "to": "      } else if (false) {"
+ },
+ {
+  "label": "U-17: the recovery run writes without spend",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "write: spend === true });",
+  "to": "write: true });"
+ },
+ {
+  "label": "U-18: the visitor's page may write",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "      if (m === \"GET\" || m === \"HEAD\") return r.fallback();",
+  "to": "      return r.fallback();"
+ },
+ {
+  "label": "U-19: D1 sends other words",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "change the Sea Salt Focaccia's price to £4.60.\" }),",
+  "to": "change the Sea Salt Focaccia's price to £4.70.\" }),"
+ },
+ {
+  "label": "U-20: D1's wall lets the text layer out too",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "    layers: Object.freeze([\"data\"]),",
+  "to": "    layers: Object.freeze([\"data\", \"text\"]),"
+ },
+ {
+  "label": "U-21: the record is not the proposal's",
+  "files": [
+   "scripts/canary-ui.mjs"
+  ],
+  "from": "description: \"A tray bake, heavy on the oil, finished with flaky salt.\", price: 4.5,",
+  "to": "description: \"A tray bake, heavy on the oil, finished with flaky salt.\", price: 4.6,"
+ },
+ {
+  "label": "C-1: the row readers are not handed to the driver",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "evid: EVID, rows: rowReaders, siteOrigin: BEFORE.origin });",
+  "to": "evid: EVID, siteOrigin: BEFORE.origin });"
+ },
+ {
+  "label": "C-2: the write goes to a fixed row",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "/rows/${encodeURIComponent(ROW.table)}/${id}`, { body }),",
+  "to": "/rows/${encodeURIComponent(ROW.table)}/6`, { body }),"
+ },
+ {
+  "label": "C-3: the visitor body is decoded as text chunk by chunk",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "return { status: r.status, text: Buffer.from(await r.arrayBuffer()).toString(\"utf8\") };",
+  "to": "return { status: r.status, text: await r.text() };"
+ },
+ {
+  "label": "C-4: the byte check is dropped",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "!!(x.verdict && x.verdict.bytes === true)",
+  "to": "!!(x.verdict)"
+ },
+ {
+  "label": "C-5: the no-publish and money proof never run",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "    if (UI_ASK.scenario.publishes === 0) {",
+  "to": "    if (UI_ASK.scenario.publishes === 1) {"
+ },
+ {
+  "label": "C-6: nothing-published is assumed",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "      const up = unpublishedVerdict({ published, jobs: jobRecords, chain });",
+  "to": "      const up = { ok: true, why: \"\" };"
+ },
+ {
+  "label": "W-1: the form stops naming the recovery",
+  "files": [
+   ".github/workflows/edit-canary.yml"
+  ],
+  "from": "or 4b-d1-restore (the put-back alone)",
+  "to": "or the put-back alone"
+ }
+]
