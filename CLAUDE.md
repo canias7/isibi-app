@@ -54,7 +54,8 @@ and #418 stays open. **CLOSED BY THE OWNER** after independent review (2026-09-2
 together with the CSS-correction milestone (deploy 2161's batch): no repeat run, no
 restoration, no further CSS work.
 **What remains, and Test 4b (2026-09-27: narrowed by the owner to D1 alone —
-built on the branch at `6602be37`, not pressed; D2 and D3 parked; step 0,
+built on the branch at `6602be37`, rehearsed free as run 40, the paid press
+next; D2 and D3 parked; step 0,
 `grants preview` run 36286991932, kept as maintenance evidence; the rules rung
 has its own proposal)**: the top section of the
 [edit-path checklist](docs/investigations/edit-path-checklist.md), summarised in
@@ -9322,7 +9323,8 @@ list, and Test 4's exact form values, are the top section of the
   refused; with the fix, Part A removes "Today's bake" and checks the fix live,
   and the `CtaBand` sentence is the fallback if 4a runs before the merge.
 - **TEST 4, IN TWO PARTS APPROVED SEPARATELY — 4a CLOSED BY THE OWNER (RUNS 37
-  AND 39), 4b NARROWED TO D1 ALONE (2026-09-27), BUILT AND NOT PRESSED**
+  AND 39), 4b NARROWED TO D1 ALONE (2026-09-27), REHEARSED FREE AS RUN 40, THE
+  PAID PRESS NEXT**
   (owner, 2026-09-26: *"Separate the photo/attachment/second-message checks from
   database writes and permission changes."*), all on fold-lane-bakery:
   - **4a — pages only, undone free by the canary's restore mode**:
@@ -9341,7 +9343,8 @@ list, and Test 4's exact form values, are the top section of the
     only"*; *Test 4b*, below): one price row through the real app, with only
     a `data` edit allowed to leave the page, put back by the canary itself
     with no model call — that one field, and only from the value it set.
-    **Built at `6602be37`, not pressed.**
+    **Built at `6602be37`; its free rehearsal passed as run 40; the paid press
+    is next.**
     - step 0, free, **ran 2026-09-27 as `grants preview` run 36286991932** and
       is kept as MAINTENANCE evidence: what the grants are and what an apply
       or a rollback would issue. It never goes through an edit.
@@ -9724,7 +9727,7 @@ addition."* `scripts/canary-ui.mjs`, the `ui_scenario` box on `edit-canary.yml`,
   block, the balance was read before each message, every filed job was
   followed, and the after-read waited for the last published version.
 
-### TEST 4b: D1 ALONE, BUILT AND NOT PRESSED; D2 AND D3 PARKED; THE RULES RUNG'S OWN PROPOSAL (2026-09-27)
+### TEST 4b: D1 ALONE, REHEARSED FREE AS RUN 40; D2 AND D3 PARKED; THE RULES RUNG'S OWN PROPOSAL (2026-09-27)
 
 Owner, first: *"return one concrete proposal: exact requests, expected database
 changes, independent checks, estimated cost and deterministic recovery for both
@@ -9778,6 +9781,21 @@ after it hold the test and the proposal. What is law here:
   readings); suite 8,073 / 8,071 / 0 / 2 locally; unit CI run 36290449793 at
   8,073 / 8,069 / 0 / 4, all 54 cases by name. The inputs and the cost (about
   2–3 credits; budget 5) are in the checklist.
+- **D1'S FREE REHEARSAL RAN AS RUN 40 AND PASSED** (`36291812275`, 03:34Z,
+  the owner's press from the branch at `95eb36da`; canary step 38 s):
+  - the preflight read deploy 2162 with both expectations matched;
+  - the before-read equals run 39's after-read on all five bodies, and every
+    route is on `01790468089054-8btpep`;
+  - the app opened signed in and typed the message without sending it (three
+    GETs, 0 blocked, 0 errors);
+  - the order page showed the focaccia at £4.50;
+  - the baseline read row 6 at 4.5 on both readers, the visitor read (1,045
+    bytes, sha256 `ef870ebcf8353634`) equalled the record, and the recovery
+    plan was none; balance 59 → 59.
+  **THE OWNER ROUTE READS THE PRICE AS A JSON NUMBER**, measured here, so the
+  recovery writes the number 4.5 back (the unit cases drove the string form
+  too). The session's read-only check at 03:42Z agreed on every reading. The
+  paid press is the same form with spend `yes`.
 - **THE RULES RUNG'S OWN PROPOSAL, NOT BUILT OR APPROVED.** Its footprint is the
   site's own Postgres alone (it publishes nothing), and since 2026-07-29 each
   site has its own Neon project. So the recommended recovery is **Neon's
@@ -12522,7 +12540,8 @@ ledger holds one reserve of 6 and no refund), read on the balance row at
 22:05:27Z. **Balance 59** at run 39's end (2026-09-27, Test 4a's Parts B and C:
 **65 → 59, moved 6**, routing 2 + 1 + 2 and one edit of 1, closing exactly, on
 a run that published three times; the ledger holds one reserve of 1 and no
-refund), read on the balance row at 00:45:33Z.
+refund), read on the balance row at 00:45:33Z, and read 59 again by run 40's
+free rehearsal (03:35Z) and on the balance row at 03:43Z.
 **Between run 31 and
 run 32 the balance rose from 1 to 101** (read on the ledger at 18:09Z and by the
 canary before its paid call). **Only the readings are recorded; how it rose is

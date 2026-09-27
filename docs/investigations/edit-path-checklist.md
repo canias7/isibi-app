@@ -28,11 +28,11 @@ passed as run 37, and Parts B and C passed as run 39, through the canary's new
 UI mode (the real app in a real browser)**. **4b is now D1 alone** (owner,
 2026-09-27): one price in the site's database, changed through the real app
 and put back with no model call. It is built at `6602be37`, with tests, probes
-and CI, and not pressed. D2 (the grants apply) and D3 (a real order) are
-parked as maintenance and integration checks: applying grants through `grants
-preview` does not exercise the rules rung. Step 0 (`grants preview` run
-36286991932) is kept as evidence. The rules rung has its own proposal, after
-Test 4.
+and CI; its free rehearsal passed as run 40, and the paid press is next. D2
+(the grants apply) and D3 (a real order) are parked as maintenance and
+integration checks: applying grants through `grants preview` does not exercise
+the rules rung. Step 0 (`grants preview` run 36286991932) is kept as evidence.
+The rules rung has its own proposal, after Test 4.
 
 ### What is already shown live (credited, not rerun)
 
@@ -85,7 +85,8 @@ missing is a real model, the real browser or the live database.
    shown (run 39). Controlled: `site-picture`, `edit-page-once`,
    `edit-failure`.
 3. **The data rung.** Controlled: `site-apply`, `edit-failure` (including an
-   `incomplete` site). **D1 is its live test** (built, not pressed).
+   `incomplete` site). **D1 is its live test** (rehearsed free as run 40; the
+   paid press is next).
 4. **The rules rung on a site with a database.** Controlled:
    `edit-rules-backend`. Run 12 was blocked by a defect that has since been
    fixed. It has its own proposal (after Test 4); neither D2 nor D3 would
@@ -194,7 +195,7 @@ other. None blocks anything; none is being worked on.
   since an adopted site sends it no table names, and the live database. Only a
   live run measures those.
 
-### Test 4 — two parts, approved separately: 4a closed (runs 37 and 39); 4b is D1 alone, built and not pressed
+### Test 4 — two parts, approved separately: 4a closed (runs 37 and 39); 4b is D1 alone, rehearsed free as run 40, the paid press next
 
 Both parts run on fold-lane-bakery (Harbour Loaf): a database, three
 photographs (two on the home page), five pages, and run 9's stored source
@@ -721,7 +722,7 @@ all, against an estimate of about 17–20. The balance is 59 (read 2026-09-27
 00:45:33Z). The site keeps 4a's changes; the recovery above undoes them for
 free if you want that.
 
-#### Test 4b — the database: D1 alone, built and not pressed (2026-09-27); D2 and D3 parked; step 0 kept as evidence
+#### Test 4b — the database: D1 alone, built and rehearsed free as run 40, the paid press next (2026-09-27); D2 and D3 parked; step 0 kept as evidence
 
 **Narrowed by the owner (2026-09-27):** *"separate maintenance from edit-path
 acceptance: applying grants through grants-preview does not exercise the rules
@@ -794,7 +795,7 @@ writes grants directly and never goes through an edit.
   - `orders`: `REVOKE ALL` from both roles, then `GRANT INSERT ON "orders"` to
     each. That is today's table-wide form, exactly.
 
-**D1 — a row, through the real app: built at `6602be37`, not pressed.** A new
+**D1 — a row, through the real app: built at `6602be37`, rehearsed free as run 40 (below), the paid press next.** A new
 scenario of the canary's UI mode, `4b-d1-price`, on fold-lane-bakery. One
 message: "In today's bake list, change the Sea Salt Focaccia's price to
 £4.60." (68 characters, 69 bytes, sha256 `550cf87497ef7a8f…`).
@@ -903,6 +904,44 @@ difference without writing it.
 
 **Not established until a live run:** which layer the router picks for this
 sentence, the data rung's real answer, and the live database.
+
+**The free rehearsal ran as run 40 and passed** (`36291812275`, 2026-09-27
+03:34:40 → 03:36:03Z; the owner's press from the branch at `95eb36da`; canary
+step 38 s):
+- **The env block:** spend 0, scenario `4b-d1-price`, site fold-lane-bakery,
+  control washhouse-3; the instruction, job and version boxes blank; both
+  expectations set.
+- **The preflight:** build-health and runtime both answered `ab74d0d94384`
+  with image `369d7b1e5bae25b0`; async and runner true; both readers agreeing.
+  The zero-cost confirmations passed. Their two jobs are `failed`, billing
+  `none`, cost 0, and published nothing.
+- **The before-read:** complete (`reads` all true), every route on
+  `01790468089054-8btpep` (run 39's last publish), and all five page bodies
+  byte-identical to run 39's after-read, with no U+FFFD.
+- **The app:** signed in as the building account, and the site's card opened.
+  The message was typed and not sent (`ui-step-1-rehearsal.png`). The page
+  made three GETs (the site list, the credits and the page list) and nothing
+  else: 0 blocked, 0 console errors, 0 page errors.
+- **The order page**, at `8btpep` in its GET-only tab, showed six cards,
+  including "Sea Salt Focaccia £4.50 · A tray bake, heavy on the oil, finished
+  with flaky salt."
+- **The fresh baseline at 03:35:57.388Z:** six rows on both readers, and row 6,
+  "Sea Salt Focaccia", at 4.5 on both.
+  - **The owner route reads the price as a JSON number**, so the recovery will
+    write the number 4.5 back. The unit cases drove the string form too.
+  - The visitor read (1,045 bytes, sha256 `ef870ebcf8353634`) equals the
+    proposal's six-row record.
+- **The recovery's plan at the baseline:** none (`at-baseline`). The balance
+  read 59 → 59.
+- **Checked again by the session afterwards** (03:42Z, read-only):
+  - the visitor route answers the same 1,045 bytes, sha256
+    `ef870ebcf8353634`, with the focaccia at 4.5;
+  - `/` and `/order` answer `01790468089054-8btpep`;
+  - `edit_jobs` since 03:00Z holds only the two confirmation jobs;
+  - `credit_events` has no row after run 39's reserve at 00:12:09Z;
+  - the balance row reads 59.
+- **So the paid press starts from an established before-state.** It is the same
+  form with spend `yes`.
 
 **Ready-to-run inputs.** `edit canary` → Run workflow → **branch
 `claude/help-needed-ehlwlj`** (the mode exists there only; the Worker and
