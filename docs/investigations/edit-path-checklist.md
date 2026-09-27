@@ -69,7 +69,8 @@ proven; a real model is not)
    before 2026-09-13 gets column-scoped write grants on its next schema change.
    That is proven only on a local PostgreSQL, and D2 and D3 are parked. The
    recommended test makes that first change on its site, but it closes the only
-   writable table, so the write grants are not exercised.
+   writable table, so the write grants are not exercised. Its reopening option
+   (item F) would exercise them, with one real booking that is then deleted.
 2. **What a real model decided, where nothing records it**: why a quick attempt
    did not publish, the writer's prompt, and the judge's and the text guard's
    verdicts. So far these are inferred from what published.
@@ -80,17 +81,23 @@ proven; a real model is not)
 Deferred by the owner and not counted: hydration (#418), translation,
 model-written replies, and drafts surviving a refresh.
 
-**The recommended next test: the rules rung on `lido-axes-b`, an existing
-throwaway site.** One message, "We're fully booked, so stop taking bookings on
-the website for now.", which should close that site's `bookings` table to
-visitors.
-- It costs about 3 credits.
-- It needs no new build and no restore, and it changes nothing on a site
-  anyone uses.
-- Nothing is built or pressed.
+**The recommended next test: the rules rung on `lido-axes-b`, a candidate
+site** (revised 2026-09-27 on the owner's two corrections). It is the owner's
+kept stylesheet-comparison site, not a disposable one: "spent" in its workflow
+means only that its name is taken.
+- One message, "We're fully booked, so stop taking bookings on the website for
+  now.", should close that site's `bookings` table to visitors.
+- Then one real visitor booking goes through the page's own form. It must be
+  refused at the privilege check, with no row added.
+- The pages, the stylesheet, the stored source and the menu are checked
+  unchanged. Its database changes for good, so leaving bookings closed needs
+  the owner's approval.
+- The baseline, whether a booking goes through today, is not measured.
+- It costs about 3 credits. Nothing is built or pressed.
 
-The scope, the checks, the side effects and the recovery are in *the rules rung
-— the recommended next test*, after Test 4.
+The scope, the checks, the cleanup, the notification account and the approval
+items are in *the rules rung — the recommended next test, revised*, after
+Test 4.
 
 ## Remaining work after Test 3 (2026-09-26), and Test 4 prepared for approval
 
@@ -136,8 +143,8 @@ closed by the owner** after an independent review of run 42 (2026-09-27). D2
 (the grants apply) and D3 (a real order) are parked as maintenance and
 integration checks: applying grants through `grants preview` does not exercise
 the rules rung. Step 0 (`grants preview` run 36286991932) is kept as evidence.
-The rules rung is the recommended next test, on an existing throwaway site
-(after Test 4).
+The rules rung is the recommended next test, on the candidate site
+`lido-axes-b` (after Test 4).
 
 ### What is already shown live (credited, not rerun)
 
@@ -201,7 +208,7 @@ missing is a real model, the real browser or the live database.
    - a site whose backend reference is blank (`incomplete`).
 4. **The rules rung on a site with a database.** Controlled:
    `edit-rules-backend`. Run 12 was blocked by a defect that has since been
-   fixed. It is the recommended next test, on the existing throwaway site
+   fixed. It is the recommended next test, on the candidate site
    `lido-axes-b` (after Test 4); neither D2 nor D3 would cover it.
 5. **The first schema change on a site built before 2026-09-13**, which
    re-emits every table's grants in column-scoped form. Proven on a real
@@ -842,8 +849,8 @@ rung."* So 4b is now **D1 alone**: one row changed through the real app, and
 put back with no model call. **D2** (the grants apply) and **D3** (one real
 order under the new grants) are **parked**. They are a maintenance check and an
 integration check, and neither closes rules-edit coverage. The rules rung is
-the recommended next test, on an existing throwaway site, in the section after
-Test 4.
+the recommended next test, on the candidate site `lido-axes-b`, in the
+section after Test 4.
 
 **Free checks already done (2026-09-27, 01:31–01:39Z):**
 - **The site's job history** (read-only, `edit_jobs`): its database has had no
@@ -1487,14 +1494,23 @@ the add-on, a css-lane run, a page removal (the move exercises the same verb
 and publish path), a hop between rungs, why a quick attempt did not publish,
 and the rules rung (the recommended next test, next).
 
-### The rules rung — the recommended next test (2026-09-27; not approved, nothing built)
+### The rules rung — the recommended next test, revised (2026-09-27; not approved, nothing built)
 
 Owner, first: *"Prepare a separate rules-test proposal using an isolated fixture
 or complete deterministic recovery."* Then: *"For the rules test, compare the
 smallest isolated fixture against your proposed database restore approach.
 First check whether an existing disposable fixture can avoid buying another
 build. Do not implement a whole-database restore or run it against an active
-site yet."*
+site yet."* Then, on the first version of this section: *"Correct the fixture
+claim. build-as-owner.yml uses “spent” to mean the slug was already claimed,
+not that the site is disposable; it also says the comparison sites are kept."*
+And: *"A GET on bookings already returns 403 before the change, so that is not
+evidence that submitting bookings became forbidden. Include a valid booking
+submission through the real visitor route after the rules edit, capture the
+actual refusal, and confirm no row was inserted. Prepare exact cleanup and
+account for notification side effects if the rule fails and the submission
+succeeds. State separately whether baseline submission behavior was actually
+measured."*
 
 **Why it needs its own test.** A rules edit ends in one `applySiteSchema` over
 the whole merged spec. Besides the rule asked for, that apply:
@@ -1508,52 +1524,56 @@ Five rules cannot be taken off through an edit: `unique`, `uniqueci`,
 `noOverlap`, `oncePerUser` and `maxRows`.
 
 **The apply runs its statements one at a time and logs a failed one rather
-than stopping.** So a "✅" in the reply does not prove the rule took effect;
-reading the grants afterwards does.
+than stopping.** So a "✅" in the reply does not prove the rule took effect. A
+real booking being refused, and the grants read afterwards, do.
 
 **The three ways, compared**
 
-| | The existing throwaway site `lido-axes-b` | A new throwaway site | Rewinding fold-lane-bakery's database (Neon's point-in-time restore) |
+| | `lido-axes-b`, an existing site (a candidate) | A new throwaway site | Rewinding fold-lane-bakery's database (Neon's point-in-time restore) |
 | --- | --- | --- | --- |
 | Build credits | 0 | about 27–62 (a page build of 11–45, then an add-on that designs a table, about 12–13) | 0 |
-| The rules message | about 3 | about 3 | about 3–4 |
-| New tooling | a scenario, and a no-publish check for the older page layout | a scenario | a restore tool, and a rehearsal on a throwaway Neon project |
-| Touches a site anyone uses | no | no | yes: it rewinds a live site's whole database |
-| Recovery | none needed | the product's own delete | the restore, itself undoable through Neon's backup branch |
-| An older site's first schema change | yes, except the write grants | no: a new site starts on today's grants | yes, then undone |
+| The rules test | about 3 | about 3 | about 3–4 |
+| New tooling | a scenario with one visitor booking, and a no-publish check for the older page layout | a scenario with one visitor booking | a restore tool, and a rehearsal on a throwaway Neon project |
+| Touches a site anyone uses | its pages, no; its database, yes (the owner's kept comparison site) | no | yes: it rewinds a live site's whole database |
+| Afterwards | its database stays changed either way (bookings closed, or reopened in today's grant form), so it needs the owner's approval to repurpose it | the product's own delete | the restore, itself undoable through Neon's backup branch |
+| An older site's first schema change | yes | no: a new site starts on today's grants | yes, then undone |
 
-**No new build is needed: an existing site will do.** These are read-only
-checks from 2026-09-27.
-- **`lido-axes-b` is the owner's and has never been edited.**
-  - It was built on 2026-08-22 by the `build as owner` evaluation (arm B),
-    which its own workflow calls "spent". The same workflow keeps arms A and B
-    because a stylesheet comparison rests on them. A rules edit publishes
-    nothing and leaves the stylesheet and pages alone, so that comparison is
-    unaffected.
-  - It has its own Neon project, created after 2026-07-29, when each site got
-    one.
-  - Its database reference is present (`ready`).
-  - It has no edit jobs and no other addresses.
-  - Nothing in the repository's tests or tools reads it.
-- **It has the shape the test needs**, read as a visitor (06:52Z):
-  - three pages (`/`, `/menu`, `/book`), each answering 200;
-  - a public `menu_items` table. The page's own read
-    (`?select=*&order=name.asc`) returns 6 rows, 1,208 bytes, sha256
-    `8e1d493cd891abc8`;
-  - a `bookings` table a visitor cannot read (403 with Postgres's
-    `42501`). The `/book` form writes it with a name, a phone, a party size, a
-    date and a time.
+**`lido-axes-b` is a candidate, not a disposable site.** The first version of
+this section called it a throwaway that its workflow calls "spent". That
+misread the workflow.
+- `build-as-owner.yml` says: "`lido-axes-b`, `lido-free-a` and `lido-cafe` are
+  all spent — a slug is claimed by whoever builds it first, and ownership is
+  what decides `revise`, so naming any of them again would be read as an edit
+  of a husk rather than a fresh build." So "spent" means its name cannot be
+  built fresh again. It says nothing about the site being disposable.
+- The same file keeps it: "THE PREVIOUS TWO ARMS, KEPT because the comparison
+  rests on them." Arm B (`lido-axes-b`) and arm A (`lido-free-a`) were built
+  from one brief, and the comparison is a rule-level diff of their two
+  stylesheets.
+- **The test must leave that evidence as it is**, and checks it byte for byte:
+  - the published stylesheet `/assets/index-glpAegzo.css`, 209,105 bytes,
+    sha256 `6f7ca4bc53e559a7`, the one sheet on all three pages;
+  - the three pages, each at `x-site-build: mt50cg7h-l19hre` with no version
+    header (all read 07:24Z);
+  - the stored source.
 
-  So it mirrors fold-lane-bakery's `loaves` and `orders`. The stored access
-  rules are inferred from this, not read; the first `grants preview` press
-  below reads them.
-- **It uses the older page layout.** It last published before 2026-09-05, when
-  every publish became a saved version. So its pages send `x-site-build`
-  (`mt50cg7h-l19hre`) and no `x-site-version`. A rules edit publishes nothing,
-  so that stays true, but the canary's no-publish check needs a version and has
-  to learn the older header.
+  A rules edit publishes nothing, so all three should stay as they are.
+- **What the test changes for good is the database.** It would be this older
+  site's first schema change, and the apply re-issues every table's grants in
+  today's column-scoped form. Afterwards `bookings` is either left closed or
+  reopened with a second rules message. Neither end state is today's database,
+  and there is no restore.
+- **So leaving bookings closed repurposes the site's database, and needs the
+  owner's explicit approval** (item F below). Without it, the test does not run
+  on `lido-axes-b`, and the fallback is a new site built for the test.
+- **The rest, read-only on 2026-09-27**:
+  - it is the owner's (the building account);
+  - it has its own Neon project, and its database reference is present;
+  - it has 0 edit jobs and 0 other addresses (re-read 07:25Z);
+  - nothing in the repository's tests or tools reads it.
 - **The other candidates, rejected**:
-  - `lido-free-a`: its `/book` page does not load;
+  - `lido-free-a`: its `/book` page does not load, and it is arm A of the same
+    comparison;
   - the other lido copies: they answer 404;
   - `pierhead-lido` and `the-lido-cafe`: scripts and tests read them;
   - `repairbench-1`: it is the add-on bench, with scheduled jobs of its own.
@@ -1562,98 +1582,298 @@ checks from 2026-09-27.
   publishes only a placeholder with no stored pages, so the app has no page
   list to route with and stops before sending, and the API canary refuses too.
 
-**Recommended: one rules message on `lido-axes-b`.** The exact scope:
-- **The message**, sent by a named UI-mode scenario, never as form text: "We're
-  fully booked, so stop taking bookings on the website for now." It is 67
-  characters, all ASCII, sha256 `3ccbae0b202aa2e2…`.
-  - "stop taking bookings" and "we're fully booked" are the rules tool's own
-    examples for closing a table.
-  - "close the booking form" is the router's example for the rules layer.
-- **What is expected**:
-  - one routing call answering `intent=edit layer=rules`;
-  - one job, with one quick-model call (`write_table_rules`) that sets
-    `bookings.retired` and nothing else;
-  - the ledger reserving before any schema change, and nothing published;
-  - the rung's reply "✅ **bookings** — changed whether it's open.", to which
-    the browser's composer adds "It’s live now — nothing needed rebuilding."
-    (composed locally). The exact screen text is taken when the scenario is
-    built. It says what kind of thing changed, not that bookings are closed:
-    the same generic wording as D1's, kept for model-written replies.
-  - The wall lets only a `rules` edit leave the page, so a misroute costs the
-    routing charge and changes nothing.
-- **What changes**, all of it in `lido-axes-b`'s own database:
-  - `bookings` closes to visitors. Both visitor roles lose every privilege and
-    its row policies are dropped. Its rows stay.
-  - `_meta.schema` is rewritten, marking `bookings` as retired.
-  - `menu_items`' policies and read grants are dropped and re-issued, with the
-    same effect as before.
-  - The helper and trigger functions are re-created with today's pinned
-    `search_path`, and `_secrets` and `_errors` are created if they are
-    absent. This is the older site's first schema change.
-- **What a visitor sees**: every page as before, and the menu as before. The
-  `/book` form still shows, but a booking is refused from then on.
-- **The checks**, in four presses. All four are the owner's, because a
-  session's dispatch answers 403.
-  1. **`grants preview`** (free), mode preview, site `lido-axes-b`. This is the
-     before-state: `_meta.schema` present, `bookings` INSERT for both visitor
-     roles, and `menu_items` SELECT for both.
-  2. **The canary's UI mode from the branch**, with the new scenario and spend
-     no (free):
-     - the preflight;
-     - the before-read, which also shows that the stored pages read back (the
-       app needs them to send);
-     - the app opening the site and typing without sending.
-  3. **The same with spend yes** (the paid press). It checks:
-     - the message, the job, and the ledger, with the money closing exactly;
-     - that nothing published: the same stored source, the same `x-site-build`
-       on every route, the pages the same once render times are masked, no
-       version naming the job, and no publish on the job's row;
-     - that a visitor's menu read is byte-identical, and a visitor is still
-       refused `bookings`.
-  4. **`grants preview` again** (free):
-     - `bookings` holds nothing for either visitor role;
-     - its planned statements are the two REVOKEs a retired table gets;
-     - `menu_items` is unchanged.
-- **Cost**: about 3 credits. Routing is 1–2, and the rules call is about 1: its
-  prompt measures about 6,700 characters, about 2,200 tokens. That is D1's
-  shape. It is an estimate, not a cap: the balance is the only bound, and it
-  is 56.
-- **Side effects**: only `lido-axes-b`'s database and the job and ledger
-  records. There is no publish and no container build, and no other site is
-  touched.
-  - If the apply fails part way, some statements may have run while the reply
-    says the change could not be saved. The fourth press shows exactly what
-    landed.
-- **Recovery**: none is needed. The recommended end state is `bookings` left
-  closed on a spent fixture. Two options, both the owner's call:
-  - reopen it with a second rules message ("start taking bookings again"),
-    about 3 credits and a model call;
-  - delete the site with the product's own delete, which is not reversible.
+**What a booking sends, read from the live page's own code (2026-09-27).**
+- `/book` sends `POST /api/db/lido-axes-b/data/bookings` with a JSON body of
+  exactly five fields:
+  - `name` (two characters or more);
+  - `phone` (six or more; the field's own placeholder is "07700 900123");
+  - `party_size`, a number from 1 to 8;
+  - `booking_date`, today or later;
+  - `booking_time`, one of 15 half-hour slots from 10:00 to 17:00.
+- It sends no idempotency key, so a repeated press could book twice. The test
+  presses once and never retries.
+- It asks for no row back, so a new row's id has to come from the owner's view
+  of the table.
+- It loads no bot check: the site's `/api/db/lido-axes-b/turnstile` answers
+  `{}` (07:24Z).
+- A booking that goes through shows "Table held — see you by the water." and
+  then "We've got your table". A refused one shows its error as a pop-up, and
+  this page turns Postgres's `42501` into "That isn't available.".
 
-  No restore is involved.
-- **Stop conditions**:
-  - the first press finds no `_meta.schema`, or tables other than the two
-    expected;
-  - the free rehearsal finds that the stored pages do not read back.
+**What was measured before the edit, and what was not.**
+- **No booking has been submitted to `lido-axes-b`, by this work or by any
+  test. The baseline — that a booking would go through today — is NOT
+  measured.**
+- What exists is not a submission:
+  - a visitor reading `bookings` gets 403, `42501`, "permission denied for
+    table bookings" (re-read 07:24Z). That is the READ rule: a booking table
+    is not public. It says nothing about submitting;
+  - the form and its exact request (above);
+  - the first `grants preview` press will read who may insert: that is
+    configuration, not behaviour.
+- The site's notification setting is on and its stamp (`notified_at`) is
+  empty. That is consistent with no booking ever having gone through here, and
+  proves nothing about whether one would.
+- **So a pass rests on configuration before and behaviour after**: before the
+  edit the visitor roles hold the insert privilege (press 1); after it a real
+  booking is refused at the privilege check and no row appears (press 3), and
+  the visitor roles hold nothing (press 4). That bookings worked before stays
+  an inference.
+- A measured baseline is an option (item G): one real booking before the edit.
+  It inserts a row, which the cleanup below then deletes, and it sets off
+  whatever the notification check below finds.
 
-  Either means `lido-axes-b` cannot serve, and the choice goes back to a new
-  throwaway site or the restore.
-- **What it will not show**:
-  - a real booking being refused (the grants are read instead, and no visitor
-    write is attempted);
-  - column-scoped write grants;
-  - a rule that cannot be taken off;
-  - any restore.
-- **To build before any press** (not built; it waits for the owner's
-  go-ahead):
-  - the scenario, with `layers: ["rules"]`, `publishes: 0`, the expected reply
-    and a rules-shaped check of the stored reply;
-  - the no-publish check for the older layout;
-  - the visitor-read checks;
-  - as for D1: focused tests, a red check, targeted probes, the suite and CI.
+**What the result covers: closing bookings, and nothing wider.**
+- **If it passes, it shows, for this message on this site through the real
+  app:**
+  - the message went to the rules step;
+  - the rules step closed `bookings` to visitor bookings: one real booking was
+    refused at the privilege check, and no row was added;
+  - nothing was published, and the pages, the stylesheet, the stored source
+    and the menu stayed the same;
+  - the money matches the ledger.
+- **It does not show**:
+  - reopening;
+  - limits, uniqueness, overlap or one-per-person rules;
+  - member or owner scoping, or column-level rules;
+  - confirmations, texts or webhooks;
+  - any other wording, or any other site, including a newer one or one whose
+    database link is missing;
+  - which of two ways the model closes a table (marking it closed, or removing
+    its write access), beyond this one run;
+  - the row policies or the "closed" flag themselves: no existing reader reads
+    them.
 
-  It lives in `scripts/`, which a merge does not deploy, so it is dispatched
-  from the branch, as runs 36–40 were.
+**The message.** Sent by a named UI-mode scenario, never as form text: "We're
+fully booked, so stop taking bookings on the website for now." It is 67
+characters, all ASCII, sha256 `3ccbae0b202aa2e2…`.
+- "stop taking bookings" and "we're fully booked" are the rules tool's own
+  examples for closing a table.
+- "close the booking form" is the router's example for the rules layer.
+
+**What is expected from the edit**:
+- one routing call answering `intent=edit layer=rules`;
+- one job, with one quick-model call (`write_table_rules`) that closes
+  `bookings` and changes nothing else. It may mark the table closed
+  (`retired`) or take its write access away; both refuse a visitor's booking
+  at the privilege check;
+- the ledger reserving before any schema change, and nothing published;
+- the rung's reply "✅ **bookings** — changed whether it's open.", to which
+  the browser adds "It’s live now — nothing needed rebuilding." The exact
+  screen text is taken when the scenario is built;
+- in `lido-axes-b`'s own database:
+  - `bookings` closes to visitors, and its rows stay;
+  - `_meta.schema` is rewritten;
+  - every other table's policies and grants are re-issued with the same
+    effect, so the menu stays readable;
+  - the helper and trigger functions are re-created with today's pinned
+    `search_path`;
+  - `_secrets` and `_errors` are created if they are absent.
+
+**The presses.** All four are the owner's, because a session's dispatch
+answers 403. The two canary presses are dispatched from the branch, because
+`scripts/` does not deploy.
+1. **`grants preview`** (free; mode preview, site `lido-axes-b`). This is the
+   before-state.
+   - It reads, from the database's own catalog, which privileges the two
+     visitor roles hold on each table, and prints each table's access as
+     `_meta.schema` states it.
+   - It does not read row policies or the "closed" flag.
+   - Expected: `bookings` INSERT for the visitor roles, and `menu_items`
+     SELECT.
+2. **The free rehearsal** (the canary's UI mode, the new scenario, spend no).
+   Nothing is written. It reads:
+   - the preflight: both deploy readers, and the expected deploy and image;
+   - the before-state: the stored source (which must read back complete),
+     `x-site-build` on each route, the route pages, the stylesheet, and the
+     menu (6 rows, 1,208 bytes, sha256 `8e1d493cd891abc8`, re-read 07:24Z);
+   - the owner's view of `bookings`: its exact row count and its newest ids;
+   - the site's secret NAMES, from the owner's secrets list. That list also
+     carries a few characters of each key; those are dropped before anything
+     is recorded, and no value is ever read;
+   - the site's notification setting and stamp;
+   - the balance.
+
+   Then:
+   - the app opens the site and types the message without sending it;
+   - a separate signed-out tab opens `/book`, fills in the marker booking
+     through the page's own fields, and presses "Book a table" once. Its wall
+     stops the request inside the browser and records exactly what would have
+     been sent.
+3. **The paid press** (the same with spend yes; about 3 credits).
+   - Everything in press 2, then the message. Only the routing call and one
+     `rules` edit may leave the app.
+   - The job's stored reply must be a rules success that changed `bookings`
+     and nothing else. **Only then** does the signed-out tab submit the marker
+     booking, once, for real. Its wall lets exactly that one request out. The
+     status, the response body and the page's own message are recorded.
+   - Then the owner's view of `bookings` again: the count, the newest ids, and
+     no row carrying the marker.
+   - The unchanged checks:
+     - `x-site-build` the same on every route, and no version header
+       appearing;
+     - the pages the same once render times are masked;
+     - the stored source and the stylesheet byte-identical;
+     - the menu read byte-identical;
+     - the job's row showing no publish.
+   - The notification stamp, and the ledger with the money closing exactly.
+4. **`grants preview` again** (free): `bookings` holds nothing for either
+   visitor role, and `menu_items` holds what it held in press 1.
+
+**The marker booking.** It passes the page's own checks, involves nobody real,
+and cannot be mistaken for a real booking:
+- name: `Canary rules <run id>`;
+- phone: `07700 900999`, in the range Ofcom reserves for drama, which no real
+  phone has;
+- party size: 2;
+- date: 2099-12-31;
+- time: 17:00.
+
+It is valid for the form. Whether the table itself would take it is the
+baseline that is not measured.
+
+**How the booking's answer is read**:
+- **Pass**:
+  - HTTP 403, code `42501`, "permission denied for table bookings";
+  - the page does not show "We've got your table" (its pop-up text is
+    recorded; "That isn't available." is expected);
+  - the row count and the newest ids are unchanged, and no row carries the
+    marker;
+  - the notification stamp is unchanged;
+  - press 4 agrees.
+- **Fail: the rule did not take effect.**
+  - A 2xx: the booking went in, and the cleanup below runs.
+  - A constraint or format refusal (`23xxx` or `22xxx`): Postgres checks the
+    privilege before it looks at the row, so reaching those means visitors
+    could still insert. There is no row and nothing to clean up, but the rule
+    failed.
+- **Partial**: `42501` with "new row violates row-level security policy". The
+  booking is refused, but the insert privilege is still there. Press 4 shows
+  which of the apply's statements landed.
+- **Inconclusive**: a refusal before Postgres (a 403 with code `turnstile`), a
+  5xx, or a dropped request. The owner's view still says whether a row
+  appeared.
+
+**Exact cleanup, if the booking goes in.**
+- **Find it**: exactly one id that is in the after-read and not in the
+  before-read, whose row holds every marker value. For any other count nothing
+  is deleted, and the ids are reported to the owner.
+- **Delete it**: `DELETE /api/site/lido-axes-b/rows/bookings/<id>` through the
+  owner rows route. That route deletes by primary key, and the id comes from an
+  identity column, so it can only be the row this run's own booking created.
+  - If the table keeps deleted rows (`trash`), the route answers `soft: true`:
+    the row is hidden rather than gone, and the run says so.
+- **Check it**: the count is back to the before-read, and no row carries the
+  marker.
+- **The limit, stated**: the route has no conditional delete, so the marker is
+  checked just before the delete, not inside it. That matters only if somebody
+  edits this test row in between, and even then the delete removes only this
+  run's own row. A conditional delete (the conditional write's twin, one
+  `DELETE … WHERE id = ? AND "col" IS NOT DISTINCT FROM ?`) would close that
+  gap, but it is Worker code, needing a review, a merge and a deploy. It is
+  offered, not proposed.
+- **What the cleanup cannot undo**: the notification stamp on the platform's
+  own record, and anything already sent (below).
+
+**What a booking that goes in would set off.** A refused booking sets off
+nothing: every hook below runs only after a successful insert.
+- **An email to the site owner.** This site's notifications are on and have
+  never fired, so the platform stamps `site_backends.notified_at` whether or
+  not anything is sent. An email goes out only if the site's own secrets hold
+  a mail key (`RESEND_KEY`, `SENDGRID_KEY` or `POSTMARK_KEY`) and `EMAIL_FROM`.
+  Then one email, "New bookings on lido-axes-b", listing the marker values,
+  goes to the site owner's own address (the building account). It cannot be
+  recalled. The platform's own login sender is never used for this.
+- **A confirmation email to the visitor**: impossible here. It needs the table
+  to declare one and the row to carry an email address, and the form collects
+  none.
+- **A text to the visitor**: only if the table declares one and the secrets
+  hold an SMS key (`TWILIO_SID` with `TWILIO_TOKEN`, `MESSAGEBIRD_KEY`, or
+  `VONAGE_KEY` with `VONAGE_SECRET`) and `SMS_FROM`. It would go to the marker
+  number, which no real phone has, but the provider may still charge the site
+  owner for the attempt.
+- **A webhook**: only if the table declares one and the secrets hold a
+  `WEBHOOK_URL`. It would send the row to that address and record the attempt
+  in `_meta`.
+- **The rehearsal's list of secret names decides which of these are
+  possible.** With none of those keys present, a booking that goes in sends
+  nothing anywhere: it leaves the row, which the cleanup deletes, and the
+  stamp. If any is present, the paid press waits until the owner approves that
+  consequence by name (item E).
+
+**Stop conditions, all before the paid call**:
+- press 1:
+  - no `_meta.schema`;
+  - `bookings` or `menu_items` missing, or any other table present;
+  - the visitor roles cannot insert into `bookings` (then a refusal afterwards
+    would show nothing new);
+- press 2:
+  - the stored source does not read back complete, or the app has no page
+    list;
+  - a `TURNSTILE_*` secret, because a bot check could refuse the booking for
+    its own reason;
+  - a mail, SMS or webhook key the owner has not approved;
+  - the recorded booking request differs from the one above;
+  - the balance is unreadable;
+- the preflight fails.
+
+During the paid press:
+- if the router answers anything but `rules`, the wall stops the edit, only
+  the routing call is spent, and no booking is submitted;
+- if the reply is not a rules success that changed `bookings`, no booking is
+  submitted.
+
+**Cost**: about 3 credits. Routing is 1–2, and the rules call is about 1 (its
+prompt measures about 6,700 characters, about 2,200 tokens). That is an
+estimate, not a cap: the balance is the only bound, and it is 56 (read 07:25Z;
+the last ledger row is run 42's, 06:04:40Z). The free presses and the visitor
+booking cost no credits.
+
+**The approval scope, item by item.** None of it is approved, built or
+pressed.
+- **A. Build the harness on the branch**: code and tests only, with no spend
+  and no press.
+- **B. The three free presses**: `grants preview` before; the free rehearsal,
+  which also reads the secret names and the bookings count; and `grants
+  preview` after the paid press.
+- **C. The paid press**, about 3 credits: the rules message, then one real
+  visitor booking that is expected to be refused. Approving C accepts that
+  `lido-axes-b`'s database changes for good (its first schema change).
+- **D. If the booking goes in** (the rule failed): delete exactly that one test
+  row in the same run (recommended). Without this approval, the run stops and
+  reports the row's id for a separate decision.
+- **E. Only if the rehearsal finds such a key**: whatever it would send if the
+  booking went in — an email to the owner's own address, a text attempt to a
+  number nobody has, or the row sent to the webhook address.
+- **F. `lido-axes-b`'s end state**, one of:
+  - leave `bookings` closed. This repurposes the site's database; its pages,
+    its stylesheet and its stored source stay as they are;
+  - reopen it with a second rules message ("Start taking bookings on the
+    website again."), about 3 more credits. The grants come back in today's
+    column-scoped form, so the database is still not today's. Checking the
+    reopening needs a booking that should go in: a real row, deleted afterwards
+    the same way, with the same notification check. That booking would also be
+    the first live proof of column-scoped write grants through a real form
+    (untested item 1 at the top).
+- **G. A measured baseline** (optional, and not recommended by default): one
+  real booking before the edit, cleaned up the same way.
+
+**To build before any press** (after A; not built):
+- the scenario: `lido-axes-b`, the message, `layers: ["rules"]`,
+  `publishes: 0`, a budget, and a check that the stored reply is a rules
+  success naming `bookings` and nothing else;
+- a signed-out visitor tab whose wall lets exactly one `POST` to
+  `/api/db/lido-axes-b/data/bookings` out (none in the rehearsal), recording
+  the request, the response and the page's own message;
+- the marker values, with the run id in the name;
+- the no-publish check for the older layout: `x-site-build` unchanged on every
+  route, no version header appearing, and the job's row showing no publish;
+- the owner's-view census of `bookings`: the exact count from the owner's table
+  list, and the newest ids from its rows route;
+- the secret-names read (names only) and the notification stamp read;
+- the answer classification above;
+- the cleanup above, and its report;
+- as for D1: focused tests, a red check, targeted probes, the suite and CI.
 
 **The restore stays a later option, not built.** Neon restores a root branch to
 its own past: `POST /projects/{id}/branches/{branch}/restore`, with an LSN or a

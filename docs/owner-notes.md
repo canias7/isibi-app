@@ -14,7 +14,7 @@ merged/deployed at a5741864 (deployment 2157 / run 36099179983). Served chat.js
 matched the reviewed bytes at 2026-09-25 05:36:30 UTC. Deployment log reports
 container reuse; no repeated runtime container check or canary. This contains
 an escaped display error; publication and cleanup already succeeded. Other
-checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; see the dated entries below). Your free check (run 33, 06:24 UTC) confirmed deployment 2161 from the live server, and with it 2160's code. Test 3 ran as your paid run 34: the full page writer removed "The first eight chords" and nothing else, for 18 credits (balance 73), and all seven checks hold (the dated entry below). The page-text check now recognises a section heading shown by a design component, and your review's gap (such a heading counted when the page might not show it) is closed too. You closed that correction, and it is merged and deployed at `ab74d0d9` (deployment 2162, 2026-09-26 20:31 UTC, image `369d7b1e5bae25b0`). Your free press (run 35, 21:08 UTC) confirmed it from the live server. Test 4 is two parts, each for your separate approval: 4a (pages, photos, an attached picture, second messages) and 4b (the database), which waits for its own approval. In 4a, Part A passed as your paid run 37, and Parts B and C passed as your paid run 39 through the canary's new browser mode, which drives the real app in a real browser. **You closed Test 4a on 2026-09-27** after your own review of run 39's workflow and evidence; three small findings are kept separately. Test 4b is now just the price test (D1): built, and its free rehearsal passed as your run 40 (03:34 UTC). You then found its put-back could overwrite a change made at the same moment. You closed that fix after review, and it's merged and deployed at `14df0225` (deployment 2163, 2026-09-27 05:15 UTC, image `9038e90ab1d5d7fe`). Your fresh free rehearsal on that deployment passed as run 41 (05:37 UTC), which also confirmed deployment 2163 from the live server, and your paid price test passed as run 42 (06:03–06:05 UTC, 3 credits). **You closed D1 on 2026-09-27** after your own review of run 42. Its free first step stays on record, and the permission step and the real order are parked. The short list of what's left, and the rules test I recommend next (on an existing throwaway site, about 3 credits, not built yet), are in the newest entry below. The balance is 56.
+checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; see the dated entries below). Your free check (run 33, 06:24 UTC) confirmed deployment 2161 from the live server, and with it 2160's code. Test 3 ran as your paid run 34: the full page writer removed "The first eight chords" and nothing else, for 18 credits (balance 73), and all seven checks hold (the dated entry below). The page-text check now recognises a section heading shown by a design component, and your review's gap (such a heading counted when the page might not show it) is closed too. You closed that correction, and it is merged and deployed at `ab74d0d9` (deployment 2162, 2026-09-26 20:31 UTC, image `369d7b1e5bae25b0`). Your free press (run 35, 21:08 UTC) confirmed it from the live server. Test 4 is two parts, each for your separate approval: 4a (pages, photos, an attached picture, second messages) and 4b (the database), which waits for its own approval. In 4a, Part A passed as your paid run 37, and Parts B and C passed as your paid run 39 through the canary's new browser mode, which drives the real app in a real browser. **You closed Test 4a on 2026-09-27** after your own review of run 39's workflow and evidence; three small findings are kept separately. Test 4b is now just the price test (D1): built, and its free rehearsal passed as your run 40 (03:34 UTC). You then found its put-back could overwrite a change made at the same moment. You closed that fix after review, and it's merged and deployed at `14df0225` (deployment 2163, 2026-09-27 05:15 UTC, image `9038e90ab1d5d7fe`). Your fresh free rehearsal on that deployment passed as run 41 (05:37 UTC), which also confirmed deployment 2163 from the live server, and your paid price test passed as run 42 (06:03–06:05 UTC, 3 credits). **You closed D1 on 2026-09-27** after your own review of run 42. Its free first step stays on record, and the permission step and the real order are parked. The short list of what's left is in the second-newest entry below. The rules test I recommend next is revised on your two corrections in the newest entry: it runs on `lido-axes-b`, a candidate site whose database you'd need to agree to repurpose, it submits one real booking that must be refused, and it's about 3 credits. Nothing is built or pressed. The balance is 56.
 
 Kept for the owner. Two purposes:
 1. **How you like things done** — durable preferences, so a fresh session does not
@@ -176,7 +176,129 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
-## 2026-09-27 — You closed the price test (D1); what's left, in one short list; the rules test I recommend next
+## 2026-09-27 — The rules test, revised on your two corrections (nothing built, nothing pressed)
+
+You were right on both points. The full version is in the
+[edit-path checklist](investigations/edit-path-checklist.md), under *the rules
+rung — the recommended next test, revised*.
+
+**1. `lido-axes-b` isn't a throwaway site. I misread "spent".**
+- The build workflow uses "spent" to mean the name is taken: "a slug is
+  claimed by whoever builds it first … naming any of them again would be read
+  as an edit". It doesn't mean the site can be thrown away.
+- The same file keeps it: "THE PREVIOUS TWO ARMS, KEPT because the comparison
+  rests on them". So `lido-axes-b` is a candidate, not a spare.
+- **What the comparison rests on stays untouched, and the test checks it byte
+  for byte**: its stylesheet (209,105 bytes, fingerprint `6f7ca4bc…`, read
+  today), its three pages and its stored source. A rules change doesn't
+  republish anything, so they should stay exactly as they are.
+- **Its database would change for good.** This would be its first database
+  change since it was built, and the builder rewrites its permissions in
+  today's form whatever you ask for. Afterwards, bookings are either left
+  closed or reopened with a second message, and neither is exactly today's
+  database. There's no restore.
+- **So leaving bookings closed needs your OK to repurpose that database**
+  (item F below). Without it I wouldn't use `lido-axes-b`, and the fallback is
+  building a new site for the test (about 27–62 credits).
+
+**2. A refused read isn't a refused booking.** Visitors already can't *read*
+the bookings list, which is normal for a booking form, so that "403" says
+nothing about *submitting* one. The revised test submits one real booking after
+the change, through the page's own form, and checks that it's refused and that
+nothing was saved.
+- **What the form sends**, read from the live page: a name, a phone number,
+  how many people (1–8), a date (today or later) and a time (15 half-hour
+  slots, 10:00–17:00).
+  - It has no protection against a double press, so the test presses once and
+    never retries.
+  - The page has no bot check.
+- **The test booking**:
+  - name "Canary rules" and the run number;
+  - phone 07700 900999, from a range Ofcom keeps for TV and radio drama, so no
+    real phone has it;
+  - 2 people, 31 December 2099, 17:00.
+- **Pass**:
+  - the database refuses it with "permission denied for table bookings";
+  - the page doesn't say "We've got your table";
+  - your own view of the bookings table shows the same rows as before, and no
+    test row.
+- **Fail**: the booking is saved, or it's refused for a data reason (a
+  duplicate, say). The database checks permission before it looks at the
+  data, so getting that far means visitors could still book.
+- **Unclear**: it's refused before it reaches the database (a bot check, a
+  server error, a dropped connection). Your view of the table still says
+  whether a row appeared.
+
+**Was the "before" measured? No.** Nobody has ever submitted a booking to
+`lido-axes-b`: not me, not any test. Its "email me about bookings" setting is
+on and has never fired. That fits with no booking ever having gone through, but
+it doesn't prove one would. So a pass would show two things:
+- before the change, visitors had permission to book (read from the database's
+  own settings);
+- after it, a real booking is refused.
+
+That bookings actually *worked* before would stay an assumption. Measuring it
+takes one real booking before the change (item G), which saves a row that's
+then deleted.
+
+**If the booking goes through anyway (the rule failed):**
+- **Clean-up.** The test finds the one new row carrying its marker, and deletes
+  exactly that row by its row number, through the same delete your data panel
+  uses. It can't touch any other row.
+  - One limit: that delete can't double-check the marker at the same instant,
+    because the route has no "delete only if" form. So the test checks just
+    before deleting. That only matters if someone edits the test row in the
+    same second, and even then it's still the test's own row.
+  - A stricter delete would be a server change. I'm offering it, not proposing
+    it.
+- **What a saved booking would set off.** Nothing happens if the booking is
+  refused.
+  - The platform marks the site as "notified", even if no email goes out.
+  - An email to you, only if `lido-axes-b` has its own mail key in its
+    Secrets. The platform's own login email is never used for this.
+  - A confirmation email to the visitor can't happen: the form doesn't ask for
+    an email address.
+  - A text to the test number, only if the site has an SMS key. Nobody would
+    receive it, but the provider might charge for the attempt.
+  - A webhook, only if the site has one set up.
+  - The free rehearsal reads the *names* of the site's secrets, never the
+    values, to see which of these could happen. If any could, the paid run
+    waits for your OK on exactly that.
+
+**The checks I'm keeping:**
+- the free permissions check (`grants preview`) before and after. It reads
+  which permissions visitors hold on each table. It doesn't read the
+  database's row rules or the "closed" flag;
+- the pages, the stylesheet, the stored source and the menu, all unchanged;
+- the job showing nothing was published;
+- the credits closing exactly.
+
+**What a pass would prove:** only that this message, on this site, closed
+bookings to visitors. It wouldn't prove reopening, limits, duplicates,
+members-only rules, confirmations, other wordings or other sites.
+
+**Cost:** about 3 credits, an estimate, not a cap. Your balance is 56.
+
+**What I need from you. Each is a separate yes or no:**
+- **A.** Build the test script (code only, no spend).
+- **B.** The three free runs: the permissions check before, the rehearsal, and
+  the permissions check after.
+- **C.** The paid run, about 3 credits: the message, then one real booking
+  that should be refused. This changes `lido-axes-b`'s database for good.
+- **D.** If the booking goes through anyway: delete that one test row in the
+  same run. I recommend yes.
+- **E.** Only if the rehearsal finds a mail, SMS or webhook key: accept what it
+  would send.
+- **F.** After the test, either:
+  - leave bookings closed, repurposing `lido-axes-b`'s database; or
+  - reopen them with a second message: about 3 more credits, plus a booking
+    that should go through and is then deleted.
+- **G.** Optional: measure the "before" with one real booking first.
+
+**Nothing was spent, pressed or changed.** Everything above was read-only: the
+live pages, the site's settings on our side, and the code.
+
+## 2026-09-27 — You closed the price test (D1); what's left, in one short list; the rules test I recommend next (revised since on your two corrections: the entry above)
 
 **D1 is closed**, as you said after reviewing run 42. The reply wording ("✅
 Updated one entry in loaves." names the table, not the loaf or the price) stays
@@ -332,8 +454,8 @@ row through the job queue. For this sentence on this site it shows four things:
 database link is missing, and rule changes.
 
 **Nothing else is waiting for you to press.** The permission step and the real
-order stay parked, and the rules test is a proposal you haven't approved (now
-recommended on a throwaway site: the entry above).
+order stay parked, and the rules test is a proposal you haven't approved
+(recommended since on `lido-axes-b`, a candidate site: the entries above).
 
 ## 2026-09-27 — Your free rehearsal on the new deployment (run 41) passed; the paid price test is ready for your press (you pressed it since: run 42 passed, the entry above)
 
