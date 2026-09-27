@@ -7,8 +7,10 @@ Test 3 (run 34) and the CSS-correction milestone (deploy 2161's batch) are
 Runs 35 and 36 were free. **Test 4a's Part A ran as run 37** (your paid press,
 8 credits), and **Parts B and C ran as run 39** (your paid press of the
 canary's browser mode, 6 credits; run 38 was refused before signing in and
-spent nothing). **Test 4a is complete.** The balance is 59 (read on the balance
-row at 2026-09-27 00:45Z).
+spent nothing). **Test 4a is closed by the owner** after an independent review
+of run 39's workflow and evidence (2026-09-27), for the behaviours runs 37 and
+39 demonstrated. The balance is 59 (read on the balance row at 2026-09-27
+00:45Z).
 
 **The kit-heading defect is fixed, closed by the owner, and merged and
 deployed**: main is `ab74d0d9` (deploy 2162, 2026-09-26 20:31 UTC, image
@@ -21,7 +23,7 @@ defect independently: the correct removal was refused with `SectionHeader`'s
 found one gap — a kit heading the page may not render (inside `{false && …}`,
 `<div hidden>` or an unknown wrapper) still named its section — closed at
 `5ec82214`, which is in the deploy. Test 4 below is split in two, each part with
-its own approval; **4a is done: its free step 0 ran as runs 35 and 36, Part A
+its own approval; **4a is closed: its free step 0 ran as runs 35 and 36, Part A
 passed as run 37, and Parts B and C passed as run 39, through the canary's new
 UI mode (the real app in a real browser)**. 4b waits for its own approval.
 
@@ -116,6 +118,20 @@ second messages after a finished job in one tab.
 **Fixed, merged and deployed in deploy 2162:** the text guard could not name a
 section whose heading comes from a kit component's prop (the next section).
 
+### Recorded separately when Test 4a closed (2026-09-27, not fixed)
+
+Three findings from run 39, kept apart from the closed test and from each
+other. None blocks anything; none is being worked on.
+
+1. **The logo reply says "on every page".** The placeholder `/starter` page has
+   no header, so the logo shows on four of the five pages. Reply wording.
+2. **The message bubble in the thread does not show the attached picture.** The
+   words show; nothing stores an attachment on a thread message. The picture
+   itself was sent and used.
+3. **The canary's job reader says `exempt` means "a founder account".**
+   `billingMeans` predates the free-rung exemption (`ed1e3b93`), which is what
+   run 39's two exempt jobs were. Harness wording, not the product.
+
 ### Deliberately deferred (owner's decisions)
 
 - Hydration (#418), translation (including page code read as text), and
@@ -169,7 +185,7 @@ section whose heading comes from a kit component's prop (the next section).
   since an adopted site sends it no table names, and the live database. Only a
   live run measures those.
 
-### Test 4 — two parts, approved separately: 4a done (runs 37 and 39), 4b prepared and not dispatched
+### Test 4 — two parts, approved separately: 4a closed (runs 37 and 39), 4b prepared and not dispatched
 
 Both parts run on fold-lane-bakery (Harbour Loaf): a database, three
 photographs (two on the home page), five pages, and run 9's stored source

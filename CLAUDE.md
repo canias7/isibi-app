@@ -82,7 +82,11 @@ page move each published as asked, the composer came back after every reply,
 the chain read VERIFIED and every stored page is byte-identical to the
 expected; routing 2 + 1 + 2 and one edit of 1 = 6, balance 59 (*Test 4a* and
 *the canary's UI mode*, below). Run 38 was refused before signing in (the site
-box), spending nothing. **Test 4a is complete.** **Test 4 is split in
+box), spending nothing. **Test 4a is CLOSED BY THE OWNER** after an
+independent review of run 39's workflow and evidence (2026-09-27), for the
+behaviours runs 37 and 39 demonstrated; three findings are kept as separate
+backlog items (the logo reply's "on every page", the message bubble without its
+picture, and the job reader's `exempt` wording). **Test 4 is split in
 two, each approved on its own**: 4a (pages, photographs, an attachment and second
 messages; a free restore undoes it) and 4b (the database; a free `grants preview`
 read first, and no permission change that could only be undone by another model
@@ -9313,8 +9317,8 @@ list, and Test 4's exact form values, are the top section of the
   has nothing to refuse. It was Test 4's Part A while "Today's bake" was
   refused; with the fix, Part A removes "Today's bake" and checks the fix live,
   and the `CtaBand` sentence is the fallback if 4a runs before the merge.
-- **TEST 4, IN TWO PARTS APPROVED SEPARATELY — 4a DONE (RUNS 37 AND 39), 4b
-  PREPARED AND NOT DISPATCHED**
+- **TEST 4, IN TWO PARTS APPROVED SEPARATELY — 4a CLOSED BY THE OWNER (RUNS 37
+  AND 39), 4b PREPARED AND NOT DISPATCHED**
   (owner, 2026-09-26: *"Separate the photo/attachment/second-message checks from
   database writes and permission changes."*), all on fold-lane-bakery:
   - **4a — pages only, undone free by the canary's restore mode**:
@@ -9392,7 +9396,7 @@ the actual deployment and authenticated runtime readings."*
   preflight check `ok`, `ALL FREE CHECKS PASSED`, balance **73**. **The live
   Worker answering, not Wrangler reporting on itself.**
 
-### TEST 4a, PREPARED FOR THE DEPLOYED CODE (2026-09-26, evening — step 0 and Part A done; Parts B and C passed as run 39, 2026-09-27)
+### TEST 4a, PREPARED FOR THE DEPLOYED CODE (2026-09-26, evening — step 0 and Part A done; Parts B and C passed as run 39; CLOSED BY THE OWNER 2026-09-27)
 
 Owner: *"prepare Test 4a on fold-lane-bakery using the existing workflow/browser
 facilities—no F12 … Keep Test 4b's database changes under separate approval. Do
@@ -13386,6 +13390,20 @@ does name one — moved up to the supported list on 2026-09-20.)*
 
 ## Backlog
 
+- **THE LOGO REPLY SAYS "ON EVERY PAGE" (run 39, recorded separately when the
+  owner closed Test 4a, 2026-09-27; not changed).** The logo rung answers
+  "✅ That's your logo in the header now, on every page.", and fold-lane-bakery's
+  `/starter` is a salvage stub with no header, so the logo shows on four of its
+  five pages. Wording only; the upload itself was byte for byte.
+- **THE THREAD'S MESSAGE BUBBLE DOES NOT SHOW AN ATTACHED PICTURE (run 39,
+  recorded separately; not changed).** The words show and the picture does not,
+  because nothing stores an attachment on a thread message. The picture was
+  sent and used: it became the logo.
+- **THE CANARY'S JOB READER SAYS `exempt` MEANS "A FOUNDER ACCOUNT" (run 39,
+  recorded separately; not changed).** `billingMeans` in
+  `scripts/canary-read-job.mjs` dates from when only a founder was exempt.
+  Since `ed1e3b93` a rung that makes no model call is exempt too, which is what
+  run 39's logo and move jobs were. Harness wording, not the product.
 - **THE TEXT GUARD CANNOT NAME A SECTION HEADED BY A KIT COMPONENT'S PROP
   (FIXED, MERGED AND DEPLOYED in deploy 2162, `ab74d0d9`: *a section headed by
   the kit*).**
