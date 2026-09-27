@@ -62,8 +62,9 @@ rehearsed free again on that deployment as run 41, which passed — and THE
 OWNER'S PAID PRESS PASSED AS RUN 42 — D1 CLOSED BY THE OWNER after an
 independent review (2026-09-27); D2 and D3 parked; step 0, `grants preview` run
 36286991932, kept as maintenance evidence; the rules test recommended next, on
-the candidate site `lido-axes-b`, revised on the owner's two corrections, not
-built or approved)**: the top section of the
+the candidate site `lido-axes-b`, revised on the owner's two corrections and
+BUILT on the branch at `ebf53761` as the scenario `4b-rules-close` — not
+approved or pressed)**: the top section of the
 [edit-path checklist](docs/investigations/edit-path-checklist.md), summarised in
 *remaining work after Test 3* below. Among the QUEUED jobs inspected, the rules
 rung and a page removal have never published, and **run 42 was the data
@@ -133,7 +134,8 @@ top of the [edit-path checklist](docs/investigations/edit-path-checklist.md).
 site, revised 2026-09-27 on the owner's two corrections** (*Test 4b*, below).
 One message should close its `bookings` table, for about 3 credits, and then
 ONE real visitor booking must be refused at the privilege check with no row
-added. Nothing is built, approved or pressed.
+added. **The harness is built on the branch (`ebf53761`, 2026-09-27; *the
+rules test, built*, below); nothing is approved or pressed.**
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -9417,7 +9419,8 @@ list, and Test 4's exact form values, are the top section of the
       are **PARKED**: a maintenance check and an integration check, and
       neither closes rules-edit coverage.
     - **The rules test is recommended on the CANDIDATE site `lido-axes-b`**
-      (*Test 4b*, below): no build to buy and no restore to build. Its pages
+      (*Test 4b*, below), and its harness is built on the branch
+      (`ebf53761`): no build to buy and no restore to build. Its pages
       are kept and checked; its database changes for good, so leaving bookings
       closed needs the owner's approval. Neon's point-in-time restore stays a
       later option; the owner said not to build it or run it against an active
@@ -9801,7 +9804,7 @@ addition."* `scripts/canary-ui.mjs`, the `ui_scenario` box on `edit-canary.yml`,
   block, the balance was read before each message, every filed job was
   followed, and the after-read waited for the last published version.
 
-### TEST 4b: D1 ALONE, REHEARSED FREE AS RUN 40, ITS RECOVERY'S WRITE CONDITIONAL SINCE (MERGED AND DEPLOYED IN DEPLOY 2163) AND REHEARSED AGAIN AS RUN 41; THE PAID PRESS PASSED AS RUN 42 AND D1 IS CLOSED BY THE OWNER; D2 AND D3 PARKED; THE RULES TEST RECOMMENDED ON A CANDIDATE SITE, REVISED (2026-09-27)
+### TEST 4b: D1 ALONE, REHEARSED FREE AS RUN 40, ITS RECOVERY'S WRITE CONDITIONAL SINCE (MERGED AND DEPLOYED IN DEPLOY 2163) AND REHEARSED AGAIN AS RUN 41; THE PAID PRESS PASSED AS RUN 42 AND D1 IS CLOSED BY THE OWNER; D2 AND D3 PARKED; THE RULES TEST RECOMMENDED ON A CANDIDATE SITE, REVISED, AND ITS HARNESS BUILT ON THE BRANCH (2026-09-27)
 
 Owner, first: *"return one concrete proposal: exact requests, expected database
 changes, independent checks, estimated cost and deterministic recovery for both
@@ -10068,7 +10071,7 @@ after it hold the test and the proposal. What is law here:
     The sentence is true, and the finding is kept for the model-written
     replies preference.
 - **THE RULES TEST: RECOMMENDED ON THE CANDIDATE SITE `lido-axes-b`, REVISED,
-  NOT BUILT OR APPROVED** (owner, 2026-09-27: *"compare the smallest isolated
+  NOT APPROVED — ITS HARNESS BUILT SINCE (next bullet)** (owner, 2026-09-27: *"compare the smallest isolated
   fixture against your proposed database restore approach. First check whether
   an existing disposable fixture can avoid buying another build. Do not
   implement a whole-database restore or run it against an active site yet."*;
@@ -10155,13 +10158,77 @@ after it hold the test and the proposal. What is law here:
   - **`lido-axes-b` PREDATES THE VERSIONED LAYOUT**: its pages send
     `x-site-build` (`mt50cg7h-l19hre`) and no `x-site-version`. The UI mode's
     `chainVerdict` answers `before-unknown` without a version, so D1's
-    no-publish check would fail it; the scenario needs a check for the older
-    header.
+    no-publish check would fail it. **Built since** (`legacyUnpublishedVerdict`):
+    on the older layout the version list, the job's row, the surface and the
+    stored source each say nothing published, without borrowing from each
+    other.
   - **NEON'S POINT-IN-TIME RESTORE IS THE LATER OPTION**, for a rules test on
     a site people use: complete by construction, reversible through its backup
     branch, but it needs a tool that refuses on a shared project, a non-root
     branch, a point outside retention or any other write since, and a
     rehearsal on a throwaway Neon project. Not built.
+- **THE RULES TEST IS BUILT ON THE BRANCH, NOT PRESSED** (`ebf53761`,
+  2026-09-27; owner: *"Accept either supported way of closing bookings based
+  on the actual applied result and behavior; don't require wording specific to
+  only one implementation. Keep the evidence boundary explicit"*). The UI-mode
+  scenario `4b-rules-close`; every decision in `scripts/canary-rules.mjs`
+  (pure); the approvals box `rules_allow`. The checklist's *the rules test,
+  built* has the flow and the exact presses. What is law here:
+  - **CLOSING IS READ OFF WHAT THE JOB APPLIED AND WHAT THE LISTING SHOWS,
+    NEVER OFF THE WORDING.** The stored reply must be a rules success naming
+    exactly `bookings` with only `retired`, `write` (and `read`) among its
+    fields, at least one of the first two; the listing must agree (`write`
+    named → "read none / write none"; read never moves; no other table's
+    access moves; the same tables). Either way of closing passes.
+  - **A CLOSED TABLE STAYS IN THE OWNER'S LISTING WITH ITS LABEL UNCHANGED**:
+    `declaredTables` is `spec.tables` unfiltered and `normalizeSchema` keeps a
+    `retired` table, and `accessLabel` resolves access alone. So the listing
+    cannot show the closed flag, and a reply recording `retired` passes the
+    closing check whether the table closed or not: **the booking is the other
+    half of the verdict**. `ebf53761`'s commit message says a closed table is
+    "gone from" the listing; that is wrong, and the code is right.
+  - **A BOOKING'S ANSWER IS CLASSIFIED BY WHAT POSTGRES CHECKS FIRST**: pass =
+    403 + `42501` + "permission denied for table bookings" (and the page shows
+    no success); fail = a 2xx, or a `22xxx`/`23xxx` refusal (reaching the row
+    means the privilege was there); partial = `42501` with the RLS message;
+    inconclusive = everything else. **A booking is submitted only after the
+    closing verdict passes**, once, and a second request is stopped.
+  - **THE WALL HANDS THE ONE ALLOWED BOOKING ON WITH `route.fallback()`, NEVER
+    `continue()`**: Playwright runs the last-registered handler first, and
+    `fallback` passes to the one registered before it — the default network
+    only when there is none. That is what let a local proof answer the booking
+    in the page while the live page ran: register the proof's own handler
+    FIRST, or `fallback` sends the write to the site.
+  - **THE CLEANUP IS APPROVAL-GATED AND EXACT**: one new row holding every
+    marker value, read again just before a `DELETE` by id through the owner
+    route, the count checked back; none or several candidates delete nothing.
+    The route has no conditional delete, so the marker check sits just before
+    the delete, not inside it.
+  - **A POSSIBLE SEND IS A REFUSAL UNTIL APPROVED**: the paid press refuses
+    while the site's secret NAMES (hints dropped) make an email, a text or a
+    webhook possible and the box does not approve it, while the names cannot
+    be read, or when a `TURNSTILE_*` secret exists. **The platform's
+    notification stamp is written before any send and survives the cleanup**;
+    `lido-axes-b`'s is empty with notifications on (08:37Z).
+  - **THE EVIDENCE BOUNDARY IS PRINTED BY EVERY RUN**: without a measured
+    successful booking before the edit, a pass shows the configuration
+    changing and a refusal afterwards, not a measured accepted-to-refused
+    change.
+  - **EVIDENCE**: `test/canary-rules.test.mjs` 31 cases, `canary-ui` 41 → 54;
+    red on `a819d13a` 15 of 70 (by construction: the scenario is not there);
+    probes `scripts/mutants/canary-rules.json` 84 of 84 killed, 3 controls
+    surviving (two first-run survivors each got a case first); a local
+    Chromium ran the booking tab against the live `/book` with every write
+    answered in the page — 24 GETs to the site, nothing else — and read a
+    stopped rehearsal, a 403 `42501` as a pass ("That isn't available.") and a
+    201 as a fail ("Table held — see you by the water."); suite `8138 / 8136 /
+    0 / 2` locally (+44 against 8,094) and unit CI run 36307245182 on
+    `ebf53761` at `8138 / 8134 / 0 / 4`, all 100 cases of the three touched
+    files by name, no gap, no `not ok`. **The stamp chain ends at
+    `ebf53761`.**
+  - **THE MENU'S RECORDED HASH IS `f2b64cb26abe7c14`** (1,208 bytes, the
+    plain, `select=*` and ordered reads alike); the proposal's `8e1d493c…` does
+    not reproduce and is withdrawn.
 
 - **FOLD-LANE-BAKERY'S DATABASE HAS HAD NO SCHEMA CHANGE SINCE ITS BUILD
   (2026-08-21)**, read off its job rows: the one later add-on (run 51) designed

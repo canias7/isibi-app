@@ -93,11 +93,13 @@ means only that its name is taken.
   unchanged. Its database changes for good, so leaving bookings closed needs
   the owner's approval.
 - The baseline, whether a booking goes through today, is not measured.
-- It costs about 3 credits. Nothing is built or pressed.
+- It costs about 3 credits. The harness is built on the branch (`ebf53761`,
+  scenario `4b-rules-close`); nothing is approved or pressed.
 
 The scope, the checks, the cleanup, the notification account and the approval
 items are in *the rules rung — the recommended next test, revised*, after
-Test 4.
+Test 4, and the built harness, its evidence and the exact presses are in *the
+rules test, built* at the end of that section.
 
 ## Remaining work after Test 3 (2026-09-26), and Test 4 prepared for approval
 
@@ -1494,7 +1496,7 @@ the add-on, a css-lane run, a page removal (the move exercises the same verb
 and publish path), a hop between rungs, why a quick attempt did not publish,
 and the rules rung (the recommended next test, next).
 
-### The rules rung — the recommended next test, revised (2026-09-27; not approved, nothing built)
+### The rules rung — the recommended next test, revised (2026-09-27; the harness built on the branch at `ebf53761`; not approved, nothing pressed)
 
 Owner, first: *"Prepare a separate rules-test proposal using an isolated fixture
 or complete deterministic recovery."* Then: *"For the rules test, compare the
@@ -1687,7 +1689,9 @@ answers 403. The two canary presses are dispatched from the branch, because
    - the preflight: both deploy readers, and the expected deploy and image;
    - the before-state: the stored source (which must read back complete),
      `x-site-build` on each route, the route pages, the stylesheet, and the
-     menu (6 rows, 1,208 bytes, sha256 `8e1d493cd891abc8`, re-read 07:24Z);
+     menu (6 rows, 1,208 bytes, sha256 `f2b64cb26abe7c14`; the `8e1d493c…`
+     first written here does not reproduce and is withdrawn — *two
+     corrections*, below);
    - the owner's view of `bookings`: its exact row count and its newest ids;
    - the site's secret NAMES, from the owner's secrets list. That list also
      carries a few characters of each key; those are dropped before anything
@@ -1830,10 +1834,10 @@ estimate, not a cap: the balance is the only bound, and it is 56 (read 07:25Z;
 the last ledger row is run 42's, 06:04:40Z). The free presses and the visitor
 booking cost no credits.
 
-**The approval scope, item by item.** None of it is approved, built or
-pressed.
+**The approval scope, item by item.** Item A is done (*the rules test, built*,
+below); nothing else is approved or pressed.
 - **A. Build the harness on the branch**: code and tests only, with no spend
-  and no press.
+  and no press. **Done 2026-09-27 (`ebf53761`).**
 - **B. The three free presses**: `grants preview` before; the free rehearsal,
   which also reads the secret names and the bookings count; and `grants
   preview` after the paid press.
@@ -1859,22 +1863,194 @@ pressed.
 - **G. A measured baseline** (optional, and not recommended by default): one
   real booking before the edit, cleaned up the same way.
 
-**To build before any press** (after A; not built):
-- the scenario: `lido-axes-b`, the message, `layers: ["rules"]`,
-  `publishes: 0`, a budget, and a check that the stored reply is a rules
-  success naming `bookings` and nothing else;
-- a signed-out visitor tab whose wall lets exactly one `POST` to
-  `/api/db/lido-axes-b/data/bookings` out (none in the rehearsal), recording
-  the request, the response and the page's own message;
-- the marker values, with the run id in the name;
-- the no-publish check for the older layout: `x-site-build` unchanged on every
-  route, no version header appearing, and the job's row showing no publish;
-- the owner's-view census of `bookings`: the exact count from the owner's table
-  list, and the newest ids from its rows route;
-- the secret-names read (names only) and the notification stamp read;
-- the answer classification above;
-- the cleanup above, and its report;
-- as for D1: focused tests, a red check, targeted probes, the suite and CI.
+#### The rules test, built (2026-09-27, `ebf53761`; nothing approved or pressed)
+
+Owner: *"Proceed with building the bounded rules-test harness and focused tests
+on the branch. … Accept either supported way of closing bookings based on the
+actual applied result and behavior; don't require wording specific to only one
+implementation. Keep the evidence boundary explicit … No paid dispatch, live
+booking submission, database mutation or site deletion yet."*
+
+Item A is done: the canary's browser mode has a scenario, `4b-rules-close`,
+and the form one new box. `scripts/canary-rules.mjs` holds every decision and
+is pure; `scripts/canary-ui.mjs` drives the app and the booking tab;
+`scripts/edit-canary.mjs` reads and checks. In the order a run takes:
+
+- **Before anything, the app's page list is read**: without one the app stops
+  before routing a message, so the run would test nothing.
+- **The start, read immediately before the message** (both presses):
+  - the owner's view: every table's access label and exact row count (the
+    tables must be exactly `bookings` and `menu_items`, and visitors must still
+    be able to add to `bookings`), and `bookings`' newest 50 rows by id. A row
+    carrying the marker's name prefix ("Canary rules ") is an earlier run's
+    leftover and stops the paid press;
+  - the site's secret NAMES. The owner's list also carries a few characters of
+    each key; they are dropped before anything is recorded, and no value is
+    read;
+  - the notification setting and stamp, with the service key, selecting
+    `notify` and `notified_at` only;
+  - a visitor's side: the menu read byte for byte (1,208 bytes, sha256
+    `f2b64cb26abe7c14`), a visitor's read of `bookings` refused as recorded
+    (403, `42501`), and the surface: `/`, `/book` and `/menu` on build
+    `mt50cg7h-l19hre` with no version header, and the one stylesheet
+    (`/assets/index-glpAegzo.css`, 209,105 bytes, `6f7ca4bc…`) byte for byte.
+- **The rehearsal** (spend no) types the message and does not send it. A
+  signed-out tab opens `/book`, waits until the form is interactive, fills in
+  the marker booking through the page's own fields, checks the form holds
+  exactly those values, and presses "Book a table" once. The tab's wall stops
+  the request inside the browser and records what would have been sent: it
+  must be exactly the marker's five fields. The owner's view of `bookings` is
+  then read again and must be unchanged.
+- **The paid press** (spend yes) sends nothing unless every start reading is
+  where the test was written to start and every send a booking could set off
+  is approved (below). Then:
+  - the message goes; only the routing call and one edit at the `rules` layer
+    may leave the page, and exactly one job must be filed;
+  - **closing is read off what the job applied and what the listing shows,
+    never off the reply's wording.** The job's stored reply must be a rules
+    success naming exactly `bookings`, whose changed fields are only
+    `retired`, `write` (and `read`), with at least one of the first two. The
+    listing afterwards must agree: if `write` changed, the label is now "read
+    none / write none"; the read rule never moves; no other table's access
+    moves; the same tables are there. **Either way of closing passes.** The
+    screen must start with a tick and name `bookings`; no more of its wording
+    is required;
+  - **only then** does the tab submit the marker booking, once. Its wall lets
+    exactly that one request out; a second one would be stopped. The status,
+    the body and the page's own words are recorded, and the answer classified
+    as above (pass, fail, partial, inconclusive). A pass also needs the page
+    not to show a successful booking;
+  - the owner's view again: every new row is named, as ours (every marker
+    value) or somebody else's, and a row that went is named too. They are
+    never offset against each other;
+  - if a row carrying the marker went in: the cleanup below;
+  - nothing published, from readers that do not borrow from each other: the
+    site's version list, the job's own row, the surface (the build header on
+    every route, no version header appearing, the pages the same once render
+    times are masked, the stylesheet byte for byte), and the stored source
+    file by file;
+  - the stamp unchanged, the menu byte-identical, and a visitor's read of
+    `bookings` refused as before;
+  - the money: the balance's move must be exactly the routing call's cost plus
+    what the job's row and the ledger both say it took.
+- **The cleanup, only with approval.** With `cleanup` in the approvals box:
+  exactly one new row holding every marker value is chosen; it is read again
+  just before the delete; it is deleted by id through the owner route; and the
+  count is checked back with no marker left (a table that keeps deleted rows
+  is said as hidden). Without approval, or with none or several candidates,
+  nothing is deleted and the ids are reported. The route has no conditional
+  delete, so the marker is checked just before the delete, not inside it.
+- **The approvals box** ("Rules test only (4b-rules-close): what you approve if
+  its test booking goes in anyway."): any of `cleanup`, `email`, `text`,
+  `webhook`, comma or space separated. It is read whole before the sign-in. An
+  unknown word refuses, and so does a filled box beside any other run. The
+  paid press refuses while a send the site's secrets make possible is not
+  approved, or while the secret names cannot be read; a bot-check secret
+  (`TURNSTILE_*`) refuses outright.
+- **The evidence boundary, printed by every run**: with no measured successful
+  booking before the edit, a pass shows the configuration changing and a
+  refusal afterwards, not a measured change from accepted to refused.
+- **What it cannot see.** The reply carries field names only and the listing
+  never shows the closed flag, so a reply that recorded `retired` passes the
+  closing check whether the table really closed or not. The booking is the
+  other half: on a table that did not close it goes in, which fails the run
+  (and the cleanup runs if approved).
+
+**The evidence (2026-09-27).**
+- **Cases**: `test/canary-rules.test.mjs`, 31, drives every decision:
+  classification, the census, insertion, cleanup, secret names, what a secret
+  can send, the approvals, the stamp, closing both ways, the surface, the
+  stored source and the no-publish verdict. `test/canary-ui.test.mjs` gains
+  13 (41 → 54) through a stand-in database and booking tab: the rehearsal and
+  a second read after its press, both ways of closing, no booking without a
+  closing reply, a booking that goes in with and without approval, somebody
+  else's row, answers that are not the privilege refusal, a second request, a
+  form that does not hold the marker, the start refusals, and the wiring and
+  approvals censuses. Three older guards were re-anchored to what they assert,
+  because the run now reads the page list (`/api/site/routes` matched the
+  routing-call pattern) and can delete (the census of the canary's own
+  writes).
+- **Red on the unchanged head `a819d13a`**, with only the pure module copied
+  in: 15 of 70 fail — the rules file whole (the scenario is not there), the 13
+  new cases, and the re-anchored writes census (it names the cleanup's
+  delete). That is red by construction; the probes are the evidence.
+- **Probes** (`scripts/mutants/canary-rules.json`, over seven canary test
+  files): 84 mutants, 84 killed, 0 never applied, 3 comment-only controls
+  surviving, and the probed files byte-identical afterwards. Two survived the
+  first run, and each got a case first: a row that went counted as nothing (a
+  stale count beside a row gone), and the rehearsal's after-read reusing the
+  start.
+- **A real browser against the live `/book` page**, read-only: a local
+  Chromium ran the booking tab with every GET fetched through a
+  TLS-verified reader and every write answered in the page. 24 GETs reached
+  the network, to the site alone, and nothing else did.
+  - The rehearsal stopped the request, which held exactly the marker's five
+    fields; the page said "Failed to fetch".
+  - A 403 `42501` answered in the page read as a pass, and the page said
+    "That isn't available.".
+  - A 201 answered in the page read as a fail, and the page said "Table held —
+    see you by the water."
+  - The surface, the stylesheet, the menu and the refused read of `bookings`
+    matched the record.
+- **The suite**: locally `8138 / 8136 / 0 / 2` (+44 against the parent's
+  8,094, exactly the new cases); unit CI run `36307245182` on `ebf53761`:
+  `8138 / 8134 / 0 / 4` (`duration_ms` 100,302), 8,138 distinct result
+  numbers with no gap and zero `not ok`, and all 100 cases of the three
+  touched test files passing by name. No `site build` fires: none of the
+  files is on its paths.
+
+**Two corrections.**
+- `ebf53761`'s commit message says a closed table is "gone from" the listing.
+  It is not: a closed (`retired`) table stays in the owner's listing with its
+  label unchanged, and the check requires the same tables before and after.
+  The code does this; the message was wrong.
+- The proposal quoted the menu read as sha256 `8e1d493cd891abc8`. That does
+  not reproduce: the menu answers 1,208 bytes, `f2b64cb26abe7c14`, for the
+  plain, the `select=*` and the ordered read alike (~08:50Z). The harness
+  records `f2b64cb2…`; the earlier figure is withdrawn.
+
+**What a booking that goes in would set off, as found.** A refused booking
+sets off nothing.
+- The site's notifications are on and have never fired (`notified_at` empty,
+  read 08:37Z), so the platform would stamp its own record. The stamp is
+  written before any send, and the cleanup cannot undo it.
+- A confirmation email to the booker is impossible: the form collects no
+  email address.
+- A text to the marker number would be refused by the sender where the number
+  comes straight from the row: it has no country code.
+- An email to the owner, a text from a function, or a webhook: only if the
+  site's secrets make it possible. Only the owner's rehearsal can read the
+  secret names, and the paid press will not start until any such send is
+  approved in the box.
+- The free checks every canary run makes also file two zero-cost empty edit
+  jobs, on `lido-axes-b` and on `washhouse-3`. They change nothing.
+
+**The exact presses.** All are the owner's; a session's dispatch answers 403.
+The form shows descriptions, not names, so each box is named by its
+description.
+1. **`grants preview`, from `main`**, free:
+   - "preview (reads only) | verify (reads only) | apply (WRITES grants) |
+     rollback": `preview`;
+   - "One site, e.g. fretwork-1. …": `lido-axes-b`;
+   - the other two boxes blank.
+2. **`edit canary`, from branch `claude/help-needed-ehlwlj`** (the scenario is
+   there only), free:
+   - "Run the ONE paid edit as well (yes/no)": `no`;
+   - "RUN A NAMED SCENARIO IN A REAL BROWSER …": `4b-rules-close`;
+   - "Rules test only (4b-rules-close): what you approve …": what press 3 will
+     carry, e.g. `cleanup`, so the rehearsal checks the start exactly as the
+     paid press will;
+   - "The site to edit. …": `lido-axes-b` (not the default `fretwork-1`);
+   - "A second site, …": as is (`washhouse-3`);
+   - "Refuse to spend unless the Worker reports this deploy sha …":
+     `14df0225be90e2637764ea33771d64f4a393b628`;
+   - "Refuse to spend unless a cold container reports this image id …":
+     `9038e90ab1d5d7fe`;
+   - every other box blank.
+3. **The same as 2 with "Run the ONE paid edit as well (yes/no)" `yes`**,
+   pressed only after 1 and 2 are read and pass. About 3 credits.
+4. **`grants preview` again**, as 1: `bookings` should hold nothing for either
+   visitor role, and `menu_items` what it held in 1.
 
 **The restore stays a later option, not built.** Neon restores a root branch to
 its own past: `POST /projects/{id}/branches/{branch}/restore`, with an LSN or a
