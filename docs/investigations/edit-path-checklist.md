@@ -1,6 +1,6 @@
 # Remaining edit-path checklist
 
-## The short checklist (2026-09-27, after D1)
+## The short checklist (2026-09-27, after D1 and the rules test)
 
 **D1 is closed by the owner** after an independent review of run 42:
 - exactly one price changed, on both readers;
@@ -12,6 +12,20 @@
 The reply's generic wording ("✅ Updated one entry in loaves." names the table,
 not the change) is kept for the later model-written-replies work and is not
 reopened.
+
+**The rules test passed its paid run** (run 44, the owner's press, 2026-09-27;
+*press 3 read*, near the end of *the rules test, built*):
+- one message closed `lido-axes-b`'s `bookings` table (the rules rung marked it
+  closed);
+- one real visitor booking afterwards, through the site's own form, was refused
+  at the privilege check (403 `42501`), and no row was added;
+- nothing was published, and the pages, the stylesheet, the stored source and
+  the menu stayed the same;
+- it cost 3 credits (routing 2 + the rules rung 1), matching the ledger.
+
+The permissions read after it (press 4, `grants preview` again) is still to
+press. A booking that went through before the edit was never measured. The
+site's bookings stay closed, and its pages still show "Book a table".
 
 Each list puts the material gaps first. The evidence is in the sections below,
 and nothing in the first list is to be rerun.
@@ -27,6 +41,9 @@ and nothing in the first list is to be rerun.
 - **A logo from an attachment, a picture reframe and a page move** (run 39),
   each published through the queue. The logo and the move were free.
 - **One database row changed through the app and put back** (run 42, D1).
+- **A rules change through the app, enforced by the database** (run 44):
+  `bookings` closed on `lido-axes-b`, then a real visitor booking refused at
+  the privilege check with no row added.
 - **Second messages from one tab** after a finished job (run 39).
 - **The machinery around every edit**, shown on every canary run and on
   recent deploys in runs 32–42:
@@ -41,13 +58,12 @@ and nothing in the first list is to be rerun.
 
 **Tested only with supplied model output** (the route and the browser are
 proven; a real model is not)
-1. **The rules rung on a site with a database** (`edit-rules-backend`). It is
-   the one edit rung that changes what a site accepts, and it has never run
-   live: run 12 routed there and stopped on a defect fixed since. **This is the
-   recommended next test** (below).
-2. **A page removal** (`edit-page-verb`, `removal-door`). It has never
+1. **A page removal** (`edit-page-verb`, `removal-door`). It has never
    published live. It makes no model call and the free restore undoes it, so
-   it is the cheapest gap after the rules test.
+   it is the cheapest gap left.
+2. **The rules rung beyond one closing**: reopening, the other way of closing
+   (taking write access away), limits and the other rules, and any other
+   wording or site. Run 44 closed one table once.
 3. **A protection refusing a real model's answer.** The photograph wall, the
    link and component judge and the text guard have only been seen letting a
    correct answer through (runs 34 and 37). The same holds for reply
@@ -67,10 +83,10 @@ proven; a real model is not)
 **Still untested** (no live run, and no test drives it end to end)
 1. **An older site's first schema change, through a real form.** A site built
    before 2026-09-13 gets column-scoped write grants on its next schema change.
-   That is proven only on a local PostgreSQL, and D2 and D3 are parked. The
-   recommended test makes that first change on its site, but it closes the only
-   writable table, so the write grants are not exercised. Its reopening option
-   (item F) would exercise them, with one real booking that is then deleted.
+   That is proven only on a local PostgreSQL, and D2 and D3 are parked. Run 44
+   made that first change on `lido-axes-b`, but it closed the only writable
+   table, so the new write grants are not exercised. Reopening (item F) would
+   exercise them, with one real booking that is then deleted.
 2. **What a real model decided, where nothing records it**: why a quick attempt
    did not publish, the writer's prompt, and the judge's and the text guard's
    verdicts. So far these are inferred from what published.
@@ -81,8 +97,8 @@ proven; a real model is not)
 Deferred by the owner and not counted: hydration (#418), translation,
 model-written replies, and drafts surviving a refresh.
 
-**The recommended next test: the rules rung on `lido-axes-b`, a candidate
-site** (revised 2026-09-27 on the owner's two corrections). It is the owner's
+**The rules test on `lido-axes-b`, a candidate site: its paid run passed
+(run 44, 2026-09-27)** (revised 2026-09-27 on the owner's two corrections). It is the owner's
 kept stylesheet-comparison site, not a disposable one: "spent" in its workflow
 means only that its name is taken.
 - One message, "We're fully booked, so stop taking bookings on the website for
@@ -99,8 +115,12 @@ means only that its name is taken.
   review). Both free checks pass: `grants preview` (run `36309691339`) read
   the starting permissions the test was written for, and the free rehearsal
   (`edit canary` run 43, `36333244182`) stopped exactly the marker booking in
-  the browser and changed nothing. The paid press waits for the owner's
-  approval. Nothing paid is approved or pressed.
+  the browser and changed nothing.
+- **The owner's paid press, run 44 (`36337146911`), passed every check it
+  makes**: routed to `rules`, the rung marked `bookings` closed, and the one
+  real booking afterwards was refused at the privilege check with no row
+  added, for 3 credits. **Press 4, the permissions read after it, is still to
+  press.** Its bookings stay closed, as the owner approved by pressing it.
 
 The scope, the checks, the cleanup, the notification account and the approval
 items are in *the rules rung — the recommended next test, revised*, after
@@ -2343,6 +2363,144 @@ canary step 38 s).** It passed, and it sent, booked and wrote nothing.
   - `lido-axes-b`'s notifications are on and have never fired.
   - Unit CI on `a2a989ad` (run `36310169094`) reads `8143 / 8139 / 0 / 4`.
 - **So both free checks pass, and press 3 waits for the owner's approval.**
+
+**Press 3 read: the paid rules test, `edit canary` run 44 (`36337146911`, the
+owner's, from the branch at `d64072ec`, 2026-09-27 17:29:46 → 17:31:44Z;
+canary step 73 s).** It passed every check it makes. The last pass item, press
+4 (the permissions read after the edit), has not been pressed yet.
+- **The env block**: `CANARY_SPEND: 1`, `CANARY_UI: 4b-rules-close`,
+  `CANARY_ALLOW: cleanup`, `CANARY_SLUG: lido-axes-b`, `CONTROL_SLUG:
+  washhouse-3`. The instruction, read-job and restore boxes are blank, and
+  both expectations are set. The checkout fetched `d64072ec`; no script has
+  changed since `717bb5b2`, so this ran exactly the harness run 43 rehearsed.
+- **The build answering**: `build-health 200 deploy=14df0225be90
+  image=9038e90ab1d5d7fe` and `runtime 200 … async=true runner=true`. The two
+  readers agree, and both expectations match.
+- **The zero-cost confirmations passed**: job `2dff97cf…` on `lido-axes-b` and
+  `7fd69935…` on `washhouse-3`, both `failed`, billing `none`, cost 0, never
+  published; a forged replay and a stranger's poll answered 404; the free job
+  settled in about 8 s as `escalate empty, cost 0`.
+- **The inventory is complete** (`reads` all true): three pages and no
+  components, every route 200 on build `mt50cg7h-l19hre` with no version
+  header. The balance was 56, and the app read the page list `/ /menu /book`.
+- **The starting point: all eight checks `ok`, as in run 43** (read
+  17:30:51–17:30:59Z): no secrets, so no send was possible; notifications on
+  and the stamp never set; `bookings` collect with 0 rows and `menu_items`
+  display with 6; the owner's view of `bookings` 0 rows; a visitor's read of
+  `bookings` 403 `42501`; the menu 1,208 bytes, `f2b64cb2…`; every page on the
+  build and the stylesheet byte for byte.
+- **The message, sent once through the real app** (about 17:31:06Z):
+  - routed `intent=edit layer=rules`, 2 credits (`6,771 in / 18 out`, 512
+    cached). The browser sent the three page paths and `tables: []`;
+  - one edit POST at `rules`, answered 202 with job `46d167e1…`;
+  - the reply on screen 31 s after Send: "✅ **bookings** — changed whether
+    it's open. It’s live now — nothing needed rebuilding." The composer was
+    usable again. Nothing was blocked, and there were 0 console or page errors.
+- **The job's stored reply**: `ok`, layer `rules`, cost 1 (one quick-model
+  call, `1,864 in / 24 out`, 512 cached), `applied` exactly
+  `[{table: bookings, fields: [retired]}]`, and nothing refused.
+  - **So the model closed the table by marking it closed (`retired`)**, not by
+    taking its write access away. In the schema engine a closed table gets no
+    row policy at all, both visitor roles have every privilege revoked, and it
+    gets no public view (`site-rls.mjs`: `policiesFor`, `grantsFor` and the
+    view builder each return early for a closed table).
+  - The owner's listing still reads `bookings` as `collect` with 0 rows, as
+    designed: it shows access, not the closed flag. The closing check passed
+    on the stored reply (only `bookings`, only `retired`) and a listing that
+    did not move.
+- **The job row**: `done`, `finalized`, cost 1, created 17:31:06.800Z, updated
+  17:31:27.466Z, no publish started or finished. Its trace ran 12,175 ms and
+  ended ok.
+- **The booking, after the edit** (17:31:34Z):
+  - The form became interactive and was filled with the marker booking, and
+    "Book a table" was pressed once.
+  - The one request was exactly `{"name":"Canary rules
+    36337146911","phone":"07700 900999","party_size":2,
+    "booking_date":"2099-12-31","booking_time":"17:00"}`. The gate read it as
+    the one exact request and let it out.
+  - It answered **403 `{"code":"42501","message":"permission denied for table
+    bookings","details":null,"hint":null}`**, and the page showed the pop-up
+    "That isn't available.", never "We've got your table".
+  - **Verdict: PASS, refused at the privilege check.**
+  - The tab's other requests were the three `/cdn-cgi/rum` beacons, blocked in
+    the browser, and the browser's own report of the 403. Its list of other
+    writes is empty.
+- **After the booking** (17:31:36–17:31:38Z):
+  - no row was added: the owner's view of `bookings` read 0 before and after,
+    with no new id and no marker. There was nothing to clean up, so no delete
+    was sent;
+  - the notification stamp: never before and never after;
+  - the menu read: 200, 1,208 bytes, the same sha;
+  - a visitor's read of `bookings`: still 403 `42501`;
+  - every page on the same build and byte for byte once render times are
+    masked, and the stylesheet byte for byte.
+- **Nothing published**: the version list answered 200 with no publish; the job
+  row says no publish began; the stored source is byte-identical (the before
+  and after `source.json` share sha256 `273556ba…`); and the route pages
+  differ only in their render times.
+- **The money closes: 56 → 53 = routing 2 + edit 1.** The ledger holds one row
+  for the job: `reserve −1`, `balance_after 53`, ref `<job>#1`, 17:31:24.377Z,
+  and no refund. The routing call writes no ledger row, as recorded.
+- **The evidence boundary was printed**: no booking was submitted before the
+  edit, so this shows the configuration changing and a booking refused
+  afterwards, not a measured change from a booking that went through to one
+  that was refused.
+- **The artifact**: `canary-evidence`, id `10938135578`, 1,902,224 bytes,
+  sha256 `8e97f926…`. That equals the digest the upload printed.
+- **Checked by the session afterwards (17:52–17:55Z, read-only).**
+  - The balance row reads 53, updated at the reserve (17:31:24Z). The only
+    ledger row since run 42's is this job's reserve (id 332).
+  - `edit_jobs`: this run's three jobs as above. Nothing is running: 295 jobs
+    in all, 169 done, 124 failed, and 2 `lost` from 1–2 September.
+  - **Of the 202 queued jobs with a stored reply, this is the only one naming
+    the `rules` layer**: the rules rung's first queued success. It changed the
+    database and published nothing, by design.
+  - `lido-axes-b`: notifications on, `notified_at` empty, not offline.
+  - The live `/`, `/book` and `/menu` answer 200 on build `mt50cg7h-l19hre`,
+    byte for byte the run's after-read once render times are masked. The
+    stylesheet is 209,105 bytes, `6f7ca4bc…`; the menu read is 1,208 bytes,
+    `f2b64cb2…`; a visitor's read of `bookings` answers 403 `42501`.
+- **What it establishes**, for this message on this site through the real app:
+  the router chose `rules`; the rules rung closed `bookings` in one quick call
+  for 1 credit; afterwards one real visitor booking through the site's own
+  form was refused at the privilege check and added no row; nothing was
+  published, and the pages, the stylesheet, the stored source and the menu
+  stayed the same; the money matches the ledger.
+- **What it does not establish**:
+  - that a booking went through before the edit (not measured);
+  - the permissions read directly after the edit: that is press 4;
+  - reopening, the other way of closing (taking write access away), any other
+    rule, wording or site.
+- **Two findings, recorded and not changed**:
+  1. **The reply shows literal asterisks.** `rulesReply`
+     (`builder/site-rules.mjs`) writes the table name as `**bookings**`, and
+     the chat shows replies as plain text, so the customer sees "✅
+     **bookings** — changed whether it's open." with the asterisks (the run's
+     screenshot). Kept with the model-written replies work, beside the generic
+     "changed whether it's open".
+  2. **The site still invites bookings.** The rules rung changes the database
+     and publishes nothing, so the header's and the hero's "Book a table"
+     buttons and the `/book` form stay. A visitor who fills it in is told
+     "That isn't available.", not that the café is fully booked. The request
+     was "stop taking bookings on the website"; the database half is done and
+     the page half is not. Whether such a message should also change the
+     pages is the owner's call.
+- **The state it leaves**: `lido-axes-b`'s `bookings` is closed and stays
+  closed, as the owner approved by pressing it; its rows (0) stay. Reopening is
+  one more rules message (for example "Start taking bookings on the website
+  again", about 3 credits). It would reopen the table in today's form, insert
+  on the form's five columns only, not the old table-wide grant. Nothing is
+  reopened.
+- **Press 4 is next**: `grants preview` from `main`, as press 1. Read in the
+  code, not yet measured:
+  - `bookings`: no privilege for either visitor role, and its planned
+    statements are only the two `REVOKE ALL` lines. **Its printed line will
+    still read `[read=none write=anyone]`**, because the preview prints the
+    table's access pair and not the closed flag. The artifact's recorded
+    grants (`beforeAcls`) and its `statements` are what show it closed. It
+    should read `ok`, since nothing table-wide is left;
+  - `menu_items`: SELECT for both visitor roles, table-wide, exactly as in
+    press 1 (artifact `10928500920`).
 
 ## A section headed by the kit — fixed (2026-09-26), merged and deployed in deploy 2162
 
