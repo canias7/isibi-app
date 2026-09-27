@@ -14,7 +14,7 @@ merged/deployed at a5741864 (deployment 2157 / run 36099179983). Served chat.js
 matched the reviewed bytes at 2026-09-25 05:36:30 UTC. Deployment log reports
 container reuse; no repeated runtime container check or canary. This contains
 an escaped display error; publication and cleanup already succeeded. Other
-checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; see the dated entries below). Your free check (run 33, 06:24 UTC) confirmed deployment 2161 from the live server, and with it 2160's code. Test 3 ran as your paid run 34: the full page writer removed "The first eight chords" and nothing else, for 18 credits (balance 73), and all seven checks hold (the dated entry below). The page-text check now recognises a section heading shown by a design component, and your review's gap (such a heading counted when the page might not show it) is closed too. You closed that correction, and it is merged and deployed at `ab74d0d9` (deployment 2162, 2026-09-26 20:31 UTC, image `369d7b1e5bae25b0`). Your free press (run 35, 21:08 UTC) confirmed it from the live server. Test 4 is two parts, each for your separate approval: 4a (pages, photos, an attached picture, second messages) and 4b (the database), which waits for its own approval. In 4a, Part A passed as your paid run 37, and Parts B and C passed as your paid run 39 through the canary's new browser mode, which drives the real app in a real browser. **You closed Test 4a on 2026-09-27** after your own review of run 39's workflow and evidence; three small findings are kept separately. Test 4b is proposed and waits for your approval. Its free first step ran on 2026-09-27 and passed its check (the newest entry below). The balance is 59.
+checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; see the dated entries below). Your free check (run 33, 06:24 UTC) confirmed deployment 2161 from the live server, and with it 2160's code. Test 3 ran as your paid run 34: the full page writer removed "The first eight chords" and nothing else, for 18 credits (balance 73), and all seven checks hold (the dated entry below). The page-text check now recognises a section heading shown by a design component, and your review's gap (such a heading counted when the page might not show it) is closed too. You closed that correction, and it is merged and deployed at `ab74d0d9` (deployment 2162, 2026-09-26 20:31 UTC, image `369d7b1e5bae25b0`). Your free press (run 35, 21:08 UTC) confirmed it from the live server. Test 4 is two parts, each for your separate approval: 4a (pages, photos, an attached picture, second messages) and 4b (the database), which waits for its own approval. In 4a, Part A passed as your paid run 37, and Parts B and C passed as your paid run 39 through the canary's new browser mode, which drives the real app in a real browser. **You closed Test 4a on 2026-09-27** after your own review of run 39's workflow and evidence; three small findings are kept separately. Test 4b is now just the price test (D1): built, and ready for your press. Its free first step ran on 2026-09-27 and stays on record, the permission step and the test order are parked, and the rules step has its own plan (the newest entry below). The balance is 59.
 
 Kept for the owner. Two purposes:
 1. **How you like things done** — durable preferences, so a fresh session does not
@@ -175,6 +175,58 @@ owner signals one; move an item out of Open the moment it is resolved.
   trying to read.**
 
 ---
+
+## 2026-09-27 — The price test (D1) is built and ready for your press; the permission and order steps are parked; a separate plan for the rules step
+
+**As you asked, the permission step and the test order are parked.**
+Changing permissions through `grants preview` is maintenance: it never goes
+through an edit, so it doesn't test the rules step, and neither does a test
+order. Your free check from step 0 stays on record (the entry below).
+
+**The price test is built** (on the branch, commit `6602be37`), not run:
+- **What it sends:** "In today's bake list, change the Sea Salt Focaccia's
+  price to £4.60.", typed into the real app in a real browser, signed in as
+  you.
+- **Just before sending,** it reads the focaccia's row two ways: as stored,
+  and as a visitor's page reads it. It sends only if both say £4.50, and only
+  if the order page shows £4.50.
+- **Only a database edit can leave the page.** Anything else (a page edit, a
+  rules edit, the add-on, a rebuild) is stopped in the browser, so a
+  misunderstanding costs only the charge for reading the message, and changes
+  nothing.
+- **It checks:** the exact message sent; the reply on screen ("✅ Updated one
+  entry in loaves."); the job's saved reply (one row, the price); the price
+  now £4.60 and nothing else changed; the order page showing £4.60 and nothing
+  else different; no page published; and the credits adding up exactly.
+- **Then it puts the price back itself, without the AI.** It reads the row
+  again, and only if it still reads £4.60 does it write £4.50 back: that one
+  field, nothing else. If it reads anything else (someone changed it in the
+  meantime), or anything else in the table changed, it stops and reports it
+  instead of overwriting. Then it checks the table and the page are exactly as
+  before.
+- **If a run can't finish putting it back** (say, the reply never comes),
+  there's a second scenario, `4b-d1-restore`, that only puts the price back,
+  under the same rules.
+- **One limit:** the tool that writes the price back checks and then writes, a
+  second apart. A change made in exactly that second would be overwritten.
+  Visitors can't change the bake list, so only you could.
+
+**Tested:** 54 new or updated checks, all 52 deliberate faults caught, and the
+whole suite and GitHub's run green.
+
+**To run it:** the form values are in my reply. First a free rehearsal, which
+stops before sending, then the paid run. About 2–3 credits; the balance is
+59.
+
+**The rules step has its own plan (not built; it needs your approval).** My
+recommendation is to test it on fold-lane-bakery and then rewind that site's
+database with Neon's own "restore to a point in time", to just before the
+message. That puts back everything the rules change touched, and Neon keeps a
+copy of the state before the rewind, in case anything needs undoing. It uses
+no AI and costs nothing, and I'd rehearse it on a throwaway database first.
+The test itself would be about 3–4 credits. The alternative is a throwaway site
+built just for the test and deleted after: nothing live is touched, but it
+costs about 30–65 credits to set up. The details are in the checklist.
 
 ## 2026-09-27 — Your free check (step 0) passed: the permission step is safe to propose
 

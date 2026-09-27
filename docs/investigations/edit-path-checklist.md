@@ -25,10 +25,14 @@ found one gap — a kit heading the page may not render (inside `{false && …}`
 `5ec82214`, which is in the deploy. Test 4 below is split in two, each part with
 its own approval; **4a is closed: its free step 0 ran as runs 35 and 36, Part A
 passed as run 37, and Parts B and C passed as run 39, through the canary's new
-UI mode (the real app in a real browser)**. 4b is proposed (2026-09-27) and
-waits for its own approval. Its free step 0 ran as `grants preview` run
-36286991932 and met D2's gate: the columns it would grant are exactly the five
-the order form sends.
+UI mode (the real app in a real browser)**. **4b is now D1 alone** (owner,
+2026-09-27): one price in the site's database, changed through the real app
+and put back with no model call. It is built at `6602be37`, with tests, probes
+and CI, and not pressed. D2 (the grants apply) and D3 (a real order) are
+parked as maintenance and integration checks: applying grants through `grants
+preview` does not exercise the rules rung. Step 0 (`grants preview` run
+36286991932) is kept as evidence. The rules rung has its own proposal, after
+Test 4.
 
 ### What is already shown live (credited, not rerun)
 
@@ -81,14 +85,16 @@ missing is a real model, the real browser or the live database.
    shown (run 39). Controlled: `site-picture`, `edit-page-once`,
    `edit-failure`.
 3. **The data rung.** Controlled: `site-apply`, `edit-failure` (including an
-   `incomplete` site).
+   `incomplete` site). **D1 is its live test** (built, not pressed).
 4. **The rules rung on a site with a database.** Controlled:
    `edit-rules-backend`. Run 12 was blocked by a defect that has since been
-   fixed.
+   fixed. It has its own proposal (after Test 4); neither D2 nor D3 would
+   cover it.
 5. **The first schema change on a site built before 2026-09-13**, which
    re-emits every table's grants in column-scoped form. Proven on a real
    PostgreSQL 16 locally (`local-pg-grants`), but not observed on a live form
-   submission.
+   submission. D2 and D3 would have shown it on fold-lane-bakery, and both
+   are parked.
 6. **Real-model behaviour in general.** Why a quick attempt did not publish is
    not on the wire, and the writer's prompt is not captured.
 7. **The add-on through the browser since deploy 2154.** This is outside this
@@ -188,7 +194,7 @@ other. None blocks anything; none is being worked on.
   since an adopted site sends it no table names, and the live database. Only a
   live run measures those.
 
-### Test 4 — two parts, approved separately: 4a closed (runs 37 and 39), 4b proposed and not approved (its free step 0 ran)
+### Test 4 — two parts, approved separately: 4a closed (runs 37 and 39); 4b is D1 alone, built and not pressed
 
 Both parts run on fold-lane-bakery (Harbour Loaf): a database, three
 photographs (two on the home page), five pages, and run 9's stored source
@@ -715,7 +721,15 @@ all, against an estimate of about 17–20. The balance is 59 (read 2026-09-27
 00:45:33Z). The site keeps 4a's changes; the recovery above undoes them for
 free if you want that.
 
-#### Test 4b — the database: a row and a permission change (proposed 2026-09-27, not approved; step 0, the free reading, ran and met D2's gate)
+#### Test 4b — the database: D1 alone, built and not pressed (2026-09-27); D2 and D3 parked; step 0 kept as evidence
+
+**Narrowed by the owner (2026-09-27):** *"separate maintenance from edit-path
+acceptance: applying grants through grants-preview does not exercise the rules
+rung."* So 4b is now **D1 alone**: one row changed through the real app, and
+put back with no model call. **D2** (the grants apply) and **D3** (one real
+order under the new grants) are **parked**. They are a maintenance check and an
+integration check, and neither closes rules-edit coverage. The rules rung has
+its own proposal, in the next section.
 
 **Free checks already done (2026-09-27, 01:31–01:39Z):**
 - **The site's job history** (read-only, `edit_jobs`): its database has had no
@@ -728,7 +742,8 @@ free if you want that.
 - **A visitor's read of the data API:** `loaves` answers 200 with six rows (ids
   1–6); the Sea Salt Focaccia is id 6 at 4.5, and no row has a photo. `orders`
   answers 403 (`permission denied for table orders`). Those six rows, as read,
-  are the recovery record for D1.
+  are D1's record: its fresh baseline is compared with them, and
+  `4b-d1-restore` compares a visitor's read with them.
 - **The live order page in a real Chromium** (version `8btpep`): it lists the
   six loaves with prices, the focaccia at £4.50. The form was filled and
   submitted with every write blocked inside the browser, so nothing was sent.
@@ -738,20 +753,15 @@ free if you want that.
   spam-check field and no other column.
 - **`grants preview` is the only existing reader of this site's stored schema
   and grants** (`backend repair` is scoped to five other sites). The session's
-  dispatch of it answered 403, so step 0 is your press.
+  dispatch of it answered 403, so step 0 was your press.
 
-**Step 0 — free, your press.** `grants preview` from `main`: the mode box
-`preview`, the site box `fold-lane-bakery` (blank means every site), the other
-two boxes blank. It reads each table's stored columns and access and its live
-grants, prints what the next schema change would grant, and uploads the
-grants as they stand; that artifact is D2's exact recovery. **The gate for
-D2:** `orders` must list all five form fields under "would grant", and no
-column the form sends may be missing from the table.
-
-**Step 0 ran: the owner's free press, run
+**Step 0, kept as maintenance evidence: `grants preview` run
 [36286991932](https://github.com/canias7/isibi-app/actions/runs/36286991932)
-(#1 in the list), 2026-09-27 01:55:29Z, from `main` at `ab74d0d9`. The gate
-is met.**
+(#1 in the list), the owner's free press, 2026-09-27 01:55:29Z, from `main` at
+`ab74d0d9`.** It read this site's grants and what `grants preview` would do
+with them, and met the gate D2 had: `orders` lists exactly the five form
+fields under "would grant". **It is not edit-path coverage**: `grants preview`
+writes grants directly and never goes through an edit.
 - **It wrote nothing.** The env block reads `MODE: preview` and `SLUG:
   fold-lane-bakery`. The apply guard and the rollback download were both
   skipped, and the script's one writing path runs only in apply mode.
@@ -784,129 +794,295 @@ is met.**
   - `orders`: `REVOKE ALL` from both roles, then `GRANT INSERT ON "orders"` to
     each. That is today's table-wide form, exactly.
 
-**D1 — a row, through the real app (paid, about 2–3 credits).** The canary's
-UI mode, a new scenario `4b-d1-price`, one message: "In today's bake list,
-change the Sea Salt Focaccia's price to £4.60." (68 characters, 69 bytes,
-sha256 `550cf87497ef7a8f…`).
-- **Safe by construction.** The scenario lets exactly one kind of edit leave
-  the page: an edit whose layer is `data`. Anything else (text, page, rules,
-  look, the add-on, a build, the full rewrite) is aborted in the browser and
-  recorded, so a misroute costs only the routing call and changes nothing. The
-  data rung writes rows of display tables only; it cannot touch a grant, a
-  policy or the stored schema.
-- **Expected change:** `loaves` id 6, `price` 4.5 → 4.6, and nothing else.
-  Nothing publishes; the site stays on `8btpep`.
-- **Expected reply:** "✅ Updated one entry in loaves."
-- **Checks, independent of the run:** the visitor's `loaves` read (only id 6's
-  price differs); the order page in a real browser (the focaccia at £4.60,
-  nothing else different); every route still on `8btpep`; the job row (layer
-  `data`, `applied` = loaves id 6, price) and the ledger (one reserve); the
-  balance before and after.
+**D1 — a row, through the real app: built at `6602be37`, not pressed.** A new
+scenario of the canary's UI mode, `4b-d1-price`, on fold-lane-bakery. One
+message: "In today's bake list, change the Sea Salt Focaccia's price to
+£4.60." (68 characters, 69 bytes, sha256 `550cf87497ef7a8f…`).
 
-**D2 — a permission change (free, your press).** `grants preview`, mode
-`apply`, the word `apply`, the site `fold-lane-bakery`. It changes grants
-only: for every table, `REVOKE ALL` from the two visitor roles and then the
-grants today's engine emits.
-- **Expected:** `orders`' table-wide INSERT becomes INSERT on its declared
-  columns, for both roles; `loaves` keeps SELECT only, as now; no row, policy,
-  stored schema, function or page changes.
-- **It does not reduce what visitors can do through the site:** the form sends
-  only the five declared columns (read above). What a visitor loses is writing
-  the platform's own columns (`id`, `created_at`) by hand through the API,
-  which is the point of the column-scoped form.
-- **Checks:** the apply prints its own verify line per table; a visitor's
-  `loaves` read is still 200 with the same rows; `orders` is still 403.
-  - **A green run is not the check** (read in the script, found, not changed).
-    A refused statement is logged as `REFUSED` and the verify after it as
-    `FAIL`, but nothing sets an exit code for either, so the run reads green
-    whether or not it applied. The check is the lines: no `REFUSED`, `  ok `
-    for both tables, and `orders`' granted columns exactly the five.
-  - **The apply uploads its own before-state too**: the grants it read just
-    before writing. It must equal step 0's, which is a free check that nothing
-    moved the grants between the two presses.
-- **Stop rule:** any `REFUSED` or `FAIL` line → press rollback at once
-  (below) and skip D3.
+What the run does, in order:
+1. The canary's free checks and its before-read, as on every run.
+2. It signs in to the real app in a real Chromium, opens the site's card and
+   types the message.
+3. It reads the order page in a browser tab of its own, whose wall lets only a
+   GET out, so the visitor's page can submit nothing. The focaccia's card must
+   read £4.50.
+4. **The fresh baseline, immediately before Send.** Both readers: the owner
+   rows route (what the database holds) and the visitor data route (what the
+   site's pages read, kept as text). Both must find row 6, named "Sea Salt
+   Focaccia", with the price exactly 4.5. Otherwise nothing is sent and the
+   run says why. The proposal's six-row record is compared with the baseline
+   too; a difference is reported, not refused.
+5. **Send.** The page's wall is a positive list of writes: the routing call,
+   and one edit of this site at the `data` layer. Anything else (text, page,
+   rules, look, the add-on, a build, the full rewrite, any other write) is
+   aborted in the browser, recorded, and fails the run. A misroute costs the
+   routing call and changes nothing.
+6. It waits for the reply, then reads both readers and the order page again.
+7. **The recovery, with no model call.** It reads both readers once more, just
+   before writing. Only if row 6 still reads exactly 4.6, the value this test
+   set, does it PATCH that one field back to the baseline's own value, through
+   the owner rows route the Data panel uses. Then it reads both readers and
+   the order page back.
 
-**D3 — one real order under the new grants (free).** Submitted from my real
-browser session through the published order page: Country White, "TEST -
-please ignore", `07700 900000` (Ofcom's range reserved for drama, which
-reaches no one), 10 October 2026, 10:00. Expected: 201 and the "Order
-received" panel.
-- **What else it can do:** an email to the owner only if the site has a mail
-  key in its Secrets; a text only if `orders` declares a text rule and the site
-  has an SMS key (to that unreachable number); no confirmation email (the
-  table has no email column); webhooks only if declared with a URL set.
-- **If it is refused:** press rollback, and one more order at 10:30 tells
-  whether D2 caused it.
+What the recovery refuses rather than writes:
+- A value nobody here set (4.7, say, from a concurrent change), a missing row,
+  or a row no longer named "Sea Salt Focaccia". Said, and nothing is written.
+- Every other difference (another field, another row, a row added or gone).
+  Reported, and never written back.
+- A reply that never came. The job may still be writing, so the recovery is
+  skipped and the run says to press the recovery scenario once the job has
+  finished.
+- **A limit, stated:** the owner route's PATCH is a plain `UPDATE … WHERE
+  id=?` with no condition, so the check and the write are two requests about
+  a second apart. A change landing between them would be overwritten. No
+  visitor can write `loaves` (its write access is none), so only the owner
+  acting at that moment could. A conditional write would close it; that is a
+  product change, not made.
 
-**Recovery — deterministic, with no model request anywhere.**
-- **Rows: a second new scenario, `4b-rows-back` (free, your press).** It runs
-  inside the signed-in app with the app's own authenticated request helper, on
-  the owner routes the Data panel uses.
-  - `loaves`: each recorded row is read back through the visitor route; any
-    field that differs from the record is written back alone (`PATCH
-    /api/site/fold-lane-bakery/rows/loaves/<id>`), and then the visitor read
-    must equal the record byte for byte. An added or missing row is refused,
-    and nothing is written.
-  - `orders`: the one row carrying all five test values is deleted (`DELETE
-    …/rows/orders/<id>`); none is nothing to do, and more than one is refused.
-    It never prints another customer's order.
-  - With `spend` no it only shows what it would write: a free dry run to press
-    before D1, which should find nothing to do.
-  - **Not the Data panel's Save:** it sends every field as text, so the
-    focaccia's empty `photo` (NULL) would come back as an empty string, which
-    is not the row that was there.
-- **Permissions:** `grants preview`, mode `rollback`, the site, and step 0's
-  run ID: `REVOKE ALL` and then the grants exactly as recorded, table and
-  column level, within the artifact's 90 days (until 2026-12-26). Keeping the
-  column-scoped grants instead is the owner's call; they are what every site
-  gets now, and what the next schema change would apply anyway.
-  - **The run ID is 36286991932**, the number in the run's address. The box's
-    own description says "the run number", but the download step needs the
-    ID; step 0's number is 1. Typing 1 should fail the download, and the grants
-    step never runs after a failed step, so nothing is written. That is read
-    in the workflow, not driven.
-  - **The check after a rollback is another `preview`**, whose lines must read
-    step 0's again (`NEEDS orders … now: anonymous INSERT, authenticated
-    INSERT`) and whose artifact's recorded grants must equal step 0's. **Not
-    `verify`**: it checks for the column-scoped form, so it reads `FAIL` after
-    a correct rollback. A rollback also prints `REFUSED` and carries on, as an
-    apply does, so its lines are read too.
-- **Pages:** nothing in 4b publishes.
-- **Left behind, unavoidably:** the `orders` id counter advances by one (two
-  with a retry), and any email or text D3 sent.
+The checks (each one fails the run):
+- **The exact request:** the routing call carries the message byte for byte;
+  there is exactly one edit POST, at the `data` layer, with the same
+  instruction.
+- **The customer's reply, on the screen:** "✅ Updated one entry in loaves."
+- **The job's stored reply:** `ok`, layer `data`, and `applied` exactly
+  `[{table: "loaves", id: 6, columns: ["price"]}]`, with no files, no reorder
+  and nothing failed.
+- **The database change, on both readers:** row 6's price from 4.5 to 4.6,
+  and nothing else.
+- **The order page:** the focaccia's card at £4.60, and every other card as it
+  was.
+- **Nothing published:** no version in the chain, the job row's publish fields
+  empty, and every route still on the before-read's version.
+- **The money:** the balance moves by exactly the routing charge plus the
+  job's own cost. The job is `finalized` with ledger debits equal to its cost
+  and no refund (or `exempt` with no ledger row).
+- **The recovery:** the PATCH answered with that one field changed; the target
+  row equals its baseline on both readers, and the visitor body byte for
+  byte; the order page is back to every line it had.
 
-**What 4b does not cover, and why: the rules rung.** Every rules change also
-rewrites the stored schema, drops and re-creates every table's policies,
-re-creates the helper and trigger functions, and re-issues every grant. Only
-the grants have a model-free restore, and on this site the first such change
-would also carry five weeks of engine changes. So no rules request can meet
-the recovery requirement today. Testing it needs a tool that snapshots and
-restores policies, the stored schema and functions, or a throwaway site:
-separate work, for approval.
+**The recovery alone: `4b-d1-restore`.** For a run that could not finish its
+recovery. It opens no app and sends no message. It reads the row; with spend
+`yes` it writes the price back to 4.5 only if it reads 4.6 (in the type the
+owner route reads it as), and with spend `no` it only says what it would
+write. It compares the visitor read with the proposal's record and reports any
+difference without writing it.
 
-**To build first (after approval, before any press that writes):** the two
-scenarios above in the canary's UI mode (the per-scenario layer wall and the
-row steps), with tests and CI. The workflow form gains no box; both use the
-existing scenario box.
+**Evidence, none of it live:**
+- `test/canary-rows.test.mjs` (17 cases, new): the decisions. They cover the
+  price as a decimal ("4.60" is 4.6), the row lists, the fresh baseline, the
+  change, the recovery's plan, the write's own answer, the restore verdict,
+  both recovery paths over a supplied table (a concurrent 4.7 refused, another
+  row's change kept), and the page's lines.
+- `test/canary-ui.test.mjs` (22 → 37 cases): the scenario's facts, the wall,
+  and the request, reply, money and nothing-published checks. Then the whole
+  run through the driver, with a stand-in page and a supplied database:
+  - the paid path: the page and both readers read with nothing between them
+    and Send, then exactly one PATCH, `{price: "4.5"}`, after the Send;
+  - the rehearsal, each baseline refusal, a concurrent change refused, another
+    row's change kept, and a reply that never came;
+  - the recovery scenario: a dry run, a write, nothing to do, a refusal, and
+    the visitor tab's GET-only wall.
+- **Probes** (`scripts/mutants/canary-rows.json`): 52 mutants, 52 killed, 0
+  never applied, 3 comment-only controls surviving. They ran over the four
+  changed files against seven test files, and the files were byte-identical
+  afterwards. The first run left two survivors: `changeVerdict` ignoring the
+  value a change started from, and `restored` asking the owner route alone.
+  Both were fixtures too shallow to tell the readings apart, and one assertion
+  each killed them.
+- **The full suite, locally:** 8,073 tests, 8,071 pass, 0 fail, 2 skipped;
+  +32, exactly the new cases.
+- **Unit CI** (run 36290449793 on `6602be37`): 8,073 / 8,069 / 0 / 4 skipped.
+  The total matches, and `pass` differs by CI's four skips. All 54 cases of
+  the two files pass by name, with 8,073 distinct result numbers, no gap and
+  no `not ok`. No site build fires, since none of the files is on its paths.
+- **A local proof in a real Chromium** (scratch, not committed): the live
+  app's code and the live order page's code, fetched with GET only, with every
+  API answer and the `loaves` table supplied in memory. Six modes: paid,
+  rehearsal, a misroute, a hang, a recovery dry run and a recovery write. Each
+  behaved as described above, and no request but a GET left for the network.
 
-**Presses in order:** step 0 (done, run 36286991932) → (build) → rows dry run
-→ D1 → D2 → D3 → rows back → rollback or keep.
+**Not established until a live run:** which layer the router picks for this
+sentence, the data rung's real answer, and the live database.
 
-**4b cost:** D1 about 2–3 credits (routing 1–2 and the data rung's one call);
-everything else is free. The balance is 59.
+**Ready-to-run inputs.** `edit canary` → Run workflow → **branch
+`claude/help-needed-ehlwlj`** (the mode exists there only; the Worker and
+image it checks are main's). The boxes, by their descriptions:
+
+| Box | Rehearsal (free) | The paid press |
+| --- | --- | --- |
+| Run the ONE paid edit as well (yes/no) | `no` | `yes` |
+| What to change. REQUIRED when spend=1… | blank | blank |
+| READ ONE EXISTING JOB AND STOP… | blank | blank |
+| PUT ONE SAVED VERSION BACK… | blank | blank |
+| RUN A NAMED SCENARIO IN A REAL BROWSER… | `4b-d1-price` | `4b-d1-price` |
+| The site to edit… (defaults to `fretwork-1`) | **`fold-lane-bakery`** | **`fold-lane-bakery`** |
+| A second site… | leave `washhouse-3` | leave `washhouse-3` |
+| Refuse to spend unless the Worker reports this deploy sha… | `ab74d0d94384e85db252176eaca623ba131932a5` | the same |
+| Refuse to spend unless a cold container reports this image id… | `369d7b1e5bae25b0` | the same |
+
+- **The rehearsal** signs in, opens the card, types the message, reads the
+  order page and the baseline, prints the recovery's plan at the baseline
+  ("none"), and stops before Send. It writes nothing and spends nothing.
+- **The paid press** is the same form with spend `yes`.
+- **If the paid run ends without its recovery**, press `4b-d1-restore` with the
+  same boxes: first with spend `no`, to see what it would write, then with
+  spend `yes`.
+- **A merge to main before the press changes the last two boxes.** Read both
+  off the new deploy and its free press.
+
+**Cost:** about 2–3 credits. That is the routing charge (1–2; run 39's three
+routing calls cost 2, 1 and 2) plus the data rung's one call, rounded once
+with a floor of 1. The scenario's budget is 5. The rehearsal, the recovery and
+`4b-d1-restore` are free. The balance is 59.
+
+**D2 and D3 — parked (owner, 2026-09-27).** Kept prepared, not scheduled:
+- **D2** is `grants preview` in `apply` mode on fold-lane-bakery, undone by its
+  `rollback` mode with step 0's run ID (36286991932), within the artifact's 90
+  days (until 2026-12-26). It is maintenance: it moves the site's grants to
+  the column-scoped form every site now gets. What it would issue, and its
+  rollback, are in step 0's record above.
+  - A green run is not its check. A refused statement is logged as `REFUSED`
+    and the verify after it as `FAIL`, but nothing sets an exit code, so the
+    lines are the check.
+  - The rollback box's description says "the run number", but it needs the run
+    ID (36286991932, not 1).
+  - After a correct rollback, `verify` reads `FAIL`, so the check is another
+    `preview`, whose lines and recorded grants must equal step 0's.
+- **D3** is one real order under those grants, from a real browser session.
+  It is an integration check of the order form.
+- **Neither exercises the rules rung, and neither closes rules-edit
+  coverage.**
+- **The rows scenario the proposal named `4b-rows-back` is not built.** D1's
+  own recovery and `4b-d1-restore` do its row half, bounded to the one field
+  D1 changes; its order-deletion half belonged to D3.
 
 **Found on the way, not changed:**
-- The Data panel's Save turns an empty (NULL) field into an empty string
-  (above).
+- The Data panel's Save turns an empty (NULL) field into an empty string,
+  because it sends every field as text. D1's recovery writes only the changed
+  field for that reason.
 - The API canary treats any successful edit reply as a publish, so for a data
-  edit its page comparison would read `not-listed`; the UI mode's chain
-  handles an edit that publishes nothing.
+  edit its page comparison would read `not-listed`. D1 runs through the UI
+  mode, whose chain handles an edit that publishes nothing.
+- The owner rows route has no conditional write (above).
 
 **What Test 4 does not cover:** hydration, translation, model-written replies,
 the add-on, a css-lane run, a page removal (the move exercises the same verb
-and publish path), a hop between rungs, and why a quick attempt did not
-publish.
+and publish path), a hop between rungs, why a quick attempt did not publish,
+and the rules rung (its own proposal, next).
+
+### The rules rung — a separate test, proposed (2026-09-27; not approved, nothing built)
+
+Owner: *"Prepare a separate rules-test proposal using an isolated fixture or
+complete deterministic recovery."*
+
+**Why it needs its own.** A rules edit ends in one `applySiteSchema` over the
+whole merged spec (the rules branch of the edit route). Besides the rule asked
+for, that apply:
+- rewrites the stored schema (`_meta`);
+- drops and re-creates every table's policies;
+- re-creates the helper and trigger functions;
+- re-issues every table's grants.
+
+On fold-lane-bakery, whose database has had no schema change since
+2026-08-21, it would also carry five weeks of engine changes: the grants move
+to the column-scoped form. Five rules cannot be taken off through an edit at
+all (`unique`, `uniqueci`, `noOverlap`, `oncePerUser` and `maxRows` are DDL
+added `IF NOT EXISTS`). Only the grants have a model-free restore today.
+
+**What bounds it.** The rules rung publishes nothing and needs no container, so
+its whole footprint is the site's own Postgres; the job and ledger rows are
+records. And since 2026-07-29 each new site gets its own Neon project
+(`createSiteProject`, named `isibi-<slug>`). That project's root branch holds
+the site's database and Neon's default `neondb`, and nothing of any other
+site. A site provisioned before that date shares a per-user project, and the
+tool below refuses one.
+
+**Recommended: complete deterministic recovery with Neon's own point-in-time
+restore.** Neon restores a root branch to its own past: `POST
+/projects/{id}/branches/{branch}/restore`, with the branch as its own source,
+an LSN or a timestamp, and `preserve_under_name`.
+- **What it restores.** Per Neon's documentation it replaces "all Postgres
+  data and schema on your branch", the `neon_auth` schema included. It keeps
+  the branch's state from before the restore as a separate backup branch, so
+  the recovery itself can be undone.
+- **What it costs.** No model call and no credits.
+- **Its limits, also from the documentation.** Root branches only.
+  Connections to the branch drop briefly. It applies to every database on the
+  branch. The point must be inside the project's history retention. And it
+  overwrites anything written after the point, so the tool must refuse when
+  anything but the test's own change has happened since.
+
+What would be built, after approval:
+- **A restore tool**, as a mode of the canary. The Neon key is already a
+  GitHub secret, used by five workflows. Its decisions would be pure and
+  tested, like `canary-rows.mjs`. It refuses unless all of these hold:
+  - the site's project holds only `neondb` and `site_<slug>`;
+  - its branch is a root branch;
+  - the point is inside the retention window;
+  - every table's rows and the site's members are exactly as recorded at the
+    point. Anything else would be lost, so it is reported and nothing is
+    restored.
+- **A rehearsal on a throwaway Neon project**, model-free, like `neon e2e`. It
+  provisions a project, applies a schema, writes rows and records the LSN. It
+  then applies a rules-shaped change (retiring a table, adding a unique index)
+  and writes another row. Then it restores to the LSN, checks that the catalog
+  and the rows equal the recorded ones, and deletes the backup branch and the
+  project. That proves the tool on real Neon before it touches a live site.
+
+The test, after the rehearsal passes:
+- **R0 (free).** Read fold-lane-bakery's Neon project: its name, the root
+  branch, its databases and its history retention. Record a snapshot:
+  - the `_meta` row;
+  - every table's columns, policies, grants, triggers, indexes and
+    constraints;
+  - the functions in `public`, with their settings;
+  - every table's rows and the member count.
+- **R1 (paid, about 3–4 credits).** One rules request through the real app, in
+  a new scenario whose wall lets only a `rules` edit leave the page. Proposed:
+  "We're fully booked this week — stop taking orders on the website."
+  - Expected: layer `rules`; `orders` retired and nothing else in the answer;
+    nothing published; the money closing exactly.
+  - The reply is composed by `rulesReply`: "✅ **orders** — changed whether
+    it's open." The screen's exact wording is computed through the real
+    composer when the scenario is built.
+  - Which layer the router picks for this sentence is part of what is
+    measured. The wall makes a misroute cost only the routing charge.
+  - The LSN and the snapshot are read immediately before Send.
+- **The checks.** `_meta` shows `orders` retired. Neither visitor role holds
+  INSERT on `orders` (read from the catalog). `loaves` reads exactly as
+  before. Optionally, a visitor-shaped POST to `orders` is refused with
+  Postgres's permission error (not the spam gate's), and no row appears.
+- **R2 (free): the restore.** To the recorded LSN, and only if everything but
+  the rule is exactly as recorded. Afterwards the snapshot (`_meta`, the
+  catalog, every table's rows, the member count) must equal R0's exactly, and
+  a visitor's `loaves` and `orders` reads must answer as before. That also
+  shows whether Neon's Data API still holds the retired schema in its cache.
+  The backup branch is deleted once the checks pass, or kept for the owner.
+- **Cost:** about 3–4 credits in all.
+
+**The alternative: an isolated fixture site.** A new site built only for the
+test, through the product: a first build (11–45 credits measured) and an
+add-on that designs a table (about 12–13; the first backend kind provisions
+the site's own Neon project). Then the rules requests (about 3–4 each), then
+the product's own delete, which drops the site's Neon project, its Worker
+script, its files and its rows.
+- **What it gives.** Nothing on a live site changes. Any rule can be tested,
+  including the ones that cannot be taken off. No restore tooling is needed.
+- **What it costs.** About 27–62 credits before the first rules request,
+  which can exceed what is left after D1 (about 56). The fixture's tables are
+  the model's design, so the exact rules request can only be written once the
+  fixture exists. And a fresh site gets today's grants from the start, so the
+  test would not show the first schema change on an older site.
+
+**Recommendation: the Neon restore.** The rule's whole footprint is one
+per-site database, and the restore puts back everything in it by construction,
+rather than only the objects a snapshot tool happens to list. The backup
+branch makes the recovery itself reversible. And the test costs about 3–4
+credits instead of about 30–65. The fixture is the fallback if R0 finds
+fold-lane-bakery on a shared project or with too short a retention window, or
+if the owner would rather not rewind a live site's database.
+
+**Neither is built or approved, and nothing is pressed.**
 
 ## A section headed by the kit — fixed (2026-09-26), merged and deployed in deploy 2162
 

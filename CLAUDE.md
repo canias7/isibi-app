@@ -53,8 +53,10 @@ without that section. The verdicts are inferred from the publish, not captured,
 and #418 stays open. **CLOSED BY THE OWNER** after independent review (2026-09-26),
 together with the CSS-correction milestone (deploy 2161's batch): no repeat run, no
 restoration, no further CSS work.
-**What remains, and Test 4b (proposed 2026-09-27, not approved; its free step 0 ran
-as `grants preview` run 36286991932 and met D2's gate)**: the top section of the
+**What remains, and Test 4b (2026-09-27: narrowed by the owner to D1 alone —
+built on the branch at `6602be37`, not pressed; D2 and D3 parked; step 0,
+`grants preview` run 36286991932, kept as maintenance evidence; the rules rung
+has its own proposal)**: the top section of the
 [edit-path checklist](docs/investigations/edit-path-checklist.md), summarised in
 *remaining work after Test 3* below. Among the QUEUED jobs inspected, the data
 and rules rungs and a page removal have never published; **run 39 was the
@@ -89,9 +91,10 @@ behaviours runs 37 and 39 demonstrated; three findings are kept as separate
 backlog items (the logo reply's "on every page", the message bubble without its
 picture, and the job reader's `exempt` wording). **Test 4 is split in
 two, each approved on its own**: 4a (pages, photographs, an attachment and second
-messages; a free restore undoes it) and 4b (the database; a free `grants preview`
-read first, and no permission change that could only be undone by another model
-request).
+messages; a free restore undoes it) and 4b (one row of the database, changed
+through the real app and put back by the canary with no model call). **Applying
+grants through `grants preview` is maintenance, not edit-path acceptance: it
+never goes through the rules rung** (owner, 2026-09-27).
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -9319,7 +9322,7 @@ list, and Test 4's exact form values, are the top section of the
   refused; with the fix, Part A removes "Today's bake" and checks the fix live,
   and the `CtaBand` sentence is the fallback if 4a runs before the merge.
 - **TEST 4, IN TWO PARTS APPROVED SEPARATELY — 4a CLOSED BY THE OWNER (RUNS 37
-  AND 39), 4b PROPOSED 2026-09-27 AND NOT APPROVED**
+  AND 39), 4b NARROWED TO D1 ALONE (2026-09-27), BUILT AND NOT PRESSED**
   (owner, 2026-09-26: *"Separate the photo/attachment/second-message checks from
   database writes and permission changes."*), all on fold-lane-bakery:
   - **4a — pages only, undone free by the canary's restore mode**:
@@ -9334,21 +9337,20 @@ list, and Test 4's exact form values, are the top section of the
     - Part C, the byte-level after-read, which run 39 took itself: every
       stored page byte-identical to the expected.
     - 14 credits in all (8 + 6), against an estimate of about 17–20.
-  - **4b — the database, its own approval and its own recovery** (proposed
-    2026-09-27, not approved; *Test 4b, proposed*, below):
-    - step 0, free: `grants preview` (preview mode) for the site — the stored
-      access, today's client write grants and what the next schema change
-      would grant, and its artifact is the grants' exact rollback. It is a
-      reading, never proof that a real form submission works. **Ran
-      2026-09-27 as run 36286991932 and met D2's gate** (*Test 4b, proposed*,
-      below);
-    - D1, a price row through the real app, with only a `data` edit allowed
-      to leave the page;
-    - D2, the grants themselves (`grants preview` apply), undone exactly by its
-      rollback;
-    - D3, one real test order under D2's grants;
-    - the rows put back by a scenario that writes only the changed field
-      through the owner route, and deletes only the test order.
+  - **4b — D1 alone** (owner, 2026-09-27: *"Proceed with preparing D1
+    only"*; *Test 4b*, below): one price row through the real app, with only
+    a `data` edit allowed to leave the page, put back by the canary itself
+    with no model call — that one field, and only from the value it set.
+    **Built at `6602be37`, not pressed.**
+    - step 0, free, **ran 2026-09-27 as `grants preview` run 36286991932** and
+      is kept as MAINTENANCE evidence: what the grants are and what an apply
+      or a rollback would issue. It never goes through an edit.
+    - **D2** (the grants apply) and **D3** (one real order under D2's grants)
+      are **PARKED**: a maintenance check and an integration check, and
+      neither closes rules-edit coverage.
+    - **The rules rung has its own proposal** (*Test 4b*, below): recommended,
+      Neon's point-in-time restore of the site's own database; the fallback, a
+      throwaway site built for the test.
 - **THE LOGO ROUTE IS EXPECTED, NOT GUARANTEED, AND EXEMPTION IS READ OFF THE
   JOB** (owner: *"Exemption is established by the actual selected rung and
   ledger."*): the stored reply's `layer`, `billing = 'exempt'`, and no
@@ -9359,7 +9361,8 @@ list, and Test 4's exact form values, are the top section of the
   rung is the only writer of an access policy and `_meta`, and the grants
   rollback restores grants only. The owner ruled out relying on another model
   request to restore public access, and the earlier hide-then-show pair (M5/M6)
-  is withdrawn.
+  is withdrawn. **The proposed way round is Neon's own point-in-time restore**
+  (*Test 4b*, below), not built.
 - **THE SIDE EFFECTS ARE PART OF THE PREPARATION.**
   - A row change survives any restore. Its recovery is the owner rows route
     with only the changed field — **not the Data panel's Save**, which sends
@@ -9721,12 +9724,71 @@ addition."* `scripts/canary-ui.mjs`, the `ui_scenario` box on `edit-canary.yml`,
   block, the balance was read before each message, every filed job was
   followed, and the after-read waited for the last published version.
 
-### TEST 4b, PROPOSED (2026-09-27; not approved; the free step 0 ran)
+### TEST 4b: D1 ALONE, BUILT AND NOT PRESSED; D2 AND D3 PARKED; THE RULES RUNG'S OWN PROPOSAL (2026-09-27)
 
-Owner: *"return one concrete proposal: exact requests, expected database
+Owner, first: *"return one concrete proposal: exact requests, expected database
 changes, independent checks, estimated cost and deterministic recovery for both
 rows and permissions. A saved site version does not undo database changes."*
-The proposal is the checklist's Test 4b section. What is law here:
+Then, after step 0: *"separate maintenance from edit-path acceptance: applying
+grants through grants-preview does not exercise the rules rung. Proceed with
+preparing D1 only … Recovery must target only the recorded loaves row's price.
+Capture a fresh baseline immediately before the test; refuse unexpected values
+or concurrent changes … Park D2's grants mutation and D3's order submission …
+Prepare a separate rules-test proposal using an isolated fixture or complete
+deterministic recovery."* The checklist's Test 4b section and the section
+after it hold the test and the proposal. What is law here:
+
+- **MAINTENANCE IS NOT EDIT-PATH ACCEPTANCE.** `grants preview` writes grants
+  directly and never goes through an edit, so an apply there (D2) and an
+  order under its grants (D3) close no rules-edit coverage. Both are PARKED;
+  step 0 (run 36286991932) is kept as maintenance evidence.
+- **A ROW TEST TAKES ITS OWN BASELINE IMMEDIATELY BEFORE ITS MESSAGE, ON TWO
+  READERS** (`scripts/canary-rows.mjs`). The owner rows route answers what the
+  database holds, as the driver returns it — a NUMERIC may arrive as a string,
+  so a price is compared as a decimal (`"4.60"` is 4.6). The visitor data
+  route answers what a page reads, and its body is kept as TEXT so "the same
+  as before" is asked byte for byte. The target must read exactly the value
+  the message changes FROM on both, as the row named, or nothing is sent. An
+  older record (the proposal's) is compared and reported, never used as the
+  baseline.
+- **THE RECOVERY WRITES ONE FIELD, AND ONLY FROM THE VALUE THE TEST SET.** It
+  reads again just before writing, PATCHes only while the target reads
+  exactly `to`, and writes the baseline's OWN value in its own type. A value
+  nobody here set, a missing or renamed row: refused and said. Every other
+  difference: reported, never written. A reply that never came is not
+  recovered automatically — the job may still be writing — and the recovery
+  scenario (`4b-d1-restore`) is pressed once it has finished.
+- **THE OWNER ROWS ROUTE HAS NO CONDITIONAL WRITE** (`UPDATE … WHERE id=?` in
+  `site-owner.mjs`), so the compare and the write are two requests about a
+  second apart, and a change landing between them would be overwritten.
+  Stated rather than hidden; closing it is a product change, not made.
+- **A FULL PAGE FROM THE OWNER ROUTE IS NOT THE TABLE.** It reads at most 200
+  rows (`MAX_LIMIT`), so a read of 200 is refused as possibly partial: a
+  comparison over part of a table would call the rest unchanged.
+- **THE UI MODE'S WALL IS PER SCENARIO NOW.** A scenario naming `layers` gets a
+  positive list of writes — GETs, the routing call, and one edit of its own
+  site at those layers — and everything else is aborted in the page and fails
+  the run. Part B's scenario names none and keeps its old wall. A visitor page
+  is read in a tab of its own whose wall lets only a GET out.
+- **D1 IS BUILT AND READY, NOT PRESSED** (`6602be37`): `test/canary-rows.test.mjs`
+  17 cases, `test/canary-ui.test.mjs` 22 → 37; probes
+  `scripts/mutants/canary-rows.json` 52 of 52 killed with 3 controls kept (the
+  first run's two survivors were fixtures too shallow to separate the
+  readings); suite 8,073 / 8,071 / 0 / 2 locally; unit CI run 36290449793 at
+  8,073 / 8,069 / 0 / 4, all 54 cases by name. The inputs and the cost (about
+  2–3 credits; budget 5) are in the checklist.
+- **THE RULES RUNG'S OWN PROPOSAL, NOT BUILT OR APPROVED.** Its footprint is the
+  site's own Postgres alone (it publishes nothing), and since 2026-07-29 each
+  site has its own Neon project. So the recommended recovery is **Neon's
+  point-in-time restore of that project's root branch** to the LSN read just
+  before the message: per Neon's documentation it replaces all data and schema
+  on the branch, `neon_auth` included, and keeps the pre-restore state as a
+  backup branch. It is complete by construction and reversible, and it
+  refuses on a shared project, a non-root branch, a point outside retention, or
+  anything written since the point besides the test's own change. It is
+  rehearsed first on a throwaway Neon project. About 3–4 credits. The
+  fallback is an isolated fixture site (about 27–62 credits before the first
+  rules request), torn down by the product's own delete.
 
 - **FOLD-LANE-BAKERY'S DATABASE HAS HAD NO SCHEMA CHANGE SINCE ITS BUILD
   (2026-08-21)**, read off its job rows: the one later add-on (run 51) designed
@@ -9738,7 +9800,8 @@ The proposal is the checklist's Test 4b section. What is law here:
   `CREATE POLICY`), the helper and trigger functions (`CREATE OR REPLACE`), and
   every table's grants. Only the grants have a model-free restore (`grants
   preview` rollback), so **no rules-rung request can meet a deterministic-
-  recovery requirement today**.
+  recovery requirement today** without the restore the rules proposal
+  describes.
 - **THE ORDER FORM'S EXACT WRITE, read in a real Chromium with every write
   blocked inside the browser**: `POST /api/db/fold-lane-bakery/data/orders`,
   an `Idempotency-Key` header, and exactly `{customer_name, phone, loaf,
