@@ -53,11 +53,13 @@ without that section. The verdicts are inferred from the publish, not captured,
 and #418 stays open. **CLOSED BY THE OWNER** after independent review (2026-09-26),
 together with the CSS-correction milestone (deploy 2161's batch): no repeat run, no
 restoration, no further CSS work.
-**What remains, and Test 4 (prepared, not dispatched)**: the top section of the
+**What remains, and Test 4b (prepared, not dispatched)**: the top section of the
 [edit-path checklist](docs/investigations/edit-path-checklist.md), summarised in
-*remaining work after Test 3* below. Among the QUEUED jobs inspected, the logo,
-picture, data and rules rungs, a page move and a second message from one tab have
-never published, and no job has been `exempt`; a synchronous edit makes no job
+*remaining work after Test 3* below. Among the QUEUED jobs inspected, the data
+and rules rungs and a page removal have never published; **run 39 was the
+first queued publish of the logo rung, the picture rung and a page move**, its
+logo and move jobs are the only `exempt` jobs in the queue's history, and it
+sent the first messages from one browser tab. A synchronous edit makes no job
 row, so that is the queue's record, not proof nothing else ran. **The kit-heading fix is CLOSED BY THE OWNER and
 MERGED AND DEPLOYED at `ab74d0d9`** (deploy 2162, 2026-09-26 20:31 UTC, image
 `369d7b1e5bae25b0`; *a section headed by the kit*, below), with the owner's
@@ -72,10 +74,15 @@ complete. **Part A ran as run 37** (36274691376, published 22:02 UTC, the
 owner's paid press from the branch): the full writer removed exactly the
 "Today's bake" section and the code only it used, kept both photographs, and the
 kit-heading fix answered live; route 2 + edit 6 = 8, balance 65 (*Test 4a*,
-below). **Parts B and C are one press of the canary's new UI mode** — the
-real app in a real Chromium, signed in as the owner, three messages from one
-tab — prepared on the branch and NOT dispatched (*the canary's UI mode*,
-below). **Test 4 is split in
+below). **Parts B and C ran as run 39** (36281551801, 2026-09-27 00:17 UTC,
+the owner's paid press of the canary's new UI mode from the branch — the real
+app in a real Chromium, signed in as the owner, three messages from one tab):
+the logo (attached in the composer, served byte for byte), the reframe and the
+page move each published as asked, the composer came back after every reply,
+the chain read VERIFIED and every stored page is byte-identical to the
+expected; routing 2 + 1 + 2 and one edit of 1 = 6, balance 59 (*Test 4a* and
+*the canary's UI mode*, below). Run 38 was refused before signing in (the site
+box), spending nothing. **Test 4a is complete.** **Test 4 is split in
 two, each approved on its own**: 4a (pages, photographs, an attachment and second
 messages; a free restore undoes it) and 4b (the database; a free `grants preview`
 read first, and no permission change that could only be undone by another model
@@ -3873,12 +3880,14 @@ description, wordmark, qr and behavior (and run 14's css refused twice and
 refunded) · menu — 2 · site address — 1 published, 1 refused and refunded ·
 page layout — lane-sweep jobs (three, shape, components, purpose, tsx) and
 canary runs 9, 11, 32, 34 · custom components — runs 17, 21, 24, 26 ·
-**pictures, logo, data, rules and a page move or removal — never published
-among the queued jobs inspected**, route tests only · photographs — kept by the quick writer's block move
-(run 9, a real browser), never through the full writer · combined — one look job
+**data, rules and a page removal — never published among the queued jobs
+inspected**, route tests only · **logo, picture (a reframe) and a page move —
+first published by run 39 (2026-09-27)** · photographs — kept by the quick writer's block move
+(run 9, a real browser) and by the full writer (run 37) · combined — one look job
 placed a QR code through the page rung (09-02); otherwise route tests and the
-driven money cases above. **No queued job has ever been `exempt`**, so the
-free-rung path has never published through the queue. The jobs before 09-08 ran on older
+driven money cases above. **The only `exempt` jobs in the queue's history are
+run 39's logo and move**, so the free-rung path first published through the
+queue then. The jobs before 09-08 ran on older
 code: live coverage of the path, not evidence about today's code.
 
 **THE NEXT TASK — BUILT THE SAME DAY, next section; `no-lane` ended up
@@ -9284,13 +9293,14 @@ list, and Test 4's exact form values, are the top section of the
   exercised a rung."*): an edit that ran synchronously — every edit before
   `EDIT_ASYNC_EVERYONE` on 2026-09-04, and any later synchronous fallback —
   never made a row. And a job from before 09-08 ran older code.
-- **NEVER PUBLISHED AMONG THE QUEUED JOBS INSPECTED**: the logo, picture, data
-  and rules rungs, and a page move or removal. **`billing = 'exempt'` has never
-  occurred in them**, so the
-  free-rung fix (`ed1e3b93`) has never published a job. Every canary message is
-  one scripted request, so no two messages have ever come from one browser
-  tab. All of that is **missing evidence, not a defect**: each decision has
-  controlled tests with supplied answers.
+- **NEVER PUBLISHED AMONG THE QUEUED JOBS INSPECTED**: the data and rules
+  rungs, and a page removal. **Run 39 (2026-09-27) was the first queued
+  publish of the logo rung, the picture rung and a page move, and its logo and
+  move jobs are the only `exempt` jobs in the queue's history** (a read-only
+  count by billing state), so the free-rung fix (`ed1e3b93`) has now published.
+  It also sent the first messages from one browser tab. What is still missing
+  is **missing evidence, not a defect**: each decision has controlled tests
+  with supplied answers.
 - **THE KIT-HEADING DEFECT IS FIXED, MERGED AND DEPLOYED** (`2f2fed58` +
   `5ec82214`, deploy 2162 at `ab74d0d9`; *a section headed by the kit*, below).
   The owner reproduced it independently: 'Remove the "Today's bake" section
@@ -9303,7 +9313,8 @@ list, and Test 4's exact form values, are the top section of the
   has nothing to refuse. It was Test 4's Part A while "Today's bake" was
   refused; with the fix, Part A removes "Today's bake" and checks the fix live,
   and the `CtaBand` sentence is the fallback if 4a runs before the merge.
-- **TEST 4, PREPARED AND NOT DISPATCHED, IN TWO PARTS APPROVED SEPARATELY**
+- **TEST 4, IN TWO PARTS APPROVED SEPARATELY — 4a DONE (RUNS 37 AND 39), 4b
+  PREPARED AND NOT DISPATCHED**
   (owner, 2026-09-26: *"Separate the photo/attachment/second-message checks from
   database writes and permission changes."*), all on fold-lane-bakery:
   - **4a — pages only, undone free by the canary's restore mode**:
@@ -9312,12 +9323,12 @@ list, and Test 4's exact form values, are the top section of the
       sha256 `26b7101c…`), the full writer on a photographed page and the fix,
       live — **ran as run 37 and passed** (*Test 4a*, below);
     - Part B, three messages from one tab of the real app: a logo attached in
-      the composer, a picture reframe, a page move — **now one press of the
-      canary's UI mode**, which drives the signed-in app in a real Chromium
-      (*the canary's UI mode*, below);
-    - Part C, the byte-level after-read, which the UI mode takes itself after
-      its last publish.
-    - About 17–20 credits.
+      the composer, a picture reframe, a page move — **ran as run 39 and
+      passed**, through the canary's UI mode, which drives the signed-in app
+      in a real Chromium (*Test 4a* and *the canary's UI mode*, below);
+    - Part C, the byte-level after-read, which run 39 took itself: every
+      stored page byte-identical to the expected.
+    - 14 credits in all (8 + 6), against an estimate of about 17–20.
   - **4b — the database, its own approval and its own recovery**:
     - step 0, free: `grants preview` (preview mode) for the site — the stored
       access, today's client write grants and what the next schema change
@@ -9381,7 +9392,7 @@ the actual deployment and authenticated runtime readings."*
   preflight check `ok`, `ALL FREE CHECKS PASSED`, balance **73**. **The live
   Worker answering, not Wrangler reporting on itself.**
 
-### TEST 4a, PREPARED FOR THE DEPLOYED CODE (2026-09-26, evening — step 0 and Part A done; Parts B and C one UI-mode press, not dispatched)
+### TEST 4a, PREPARED FOR THE DEPLOYED CODE (2026-09-26, evening — step 0 and Part A done; Parts B and C passed as run 39, 2026-09-27)
 
 Owner: *"prepare Test 4a on fold-lane-bakery using the existing workflow/browser
 facilities—no F12 … Keep Test 4b's database changes under separate approval. Do
@@ -9518,8 +9529,51 @@ expected results are the checklist's Test 4a section. What is law here:
     wall had nothing to do (`photosKept` absent). **Parts B and C are next**, and
     the recovery target is unchanged: `01789969693841-xqi8vs` is run 37's
     parent, which `pruneBuilds` keeps.
+- **PARTS B AND C RAN AS RUN 39 AND PASSED** (`36281551801`, the owner's paid
+  press of the UI mode from the branch at `403f294e`, 00:07:42 → 00:17:14Z,
+  canary step 8m43s; run 38 before it was refused before the sign-in). It
+  counts as the test: the preflight read deploy 2162 with both expectations
+  matched, every free check passed, its before-read equals run 37's after-read
+  on all five bodies, and each message got a stored reply.
+  - **The three replies are the checklist table's, word for word**: "✅ That's
+    your logo in the header now, on every page." (167 s), "✅ Moved “A
+    sourdough boule cooling after the morning bake” to show the top." (164 s),
+    "✅ Moved /the-starter to /starter." (147 s). After each, the composer was
+    usable again, read rather than assumed. One job per message, in order; no
+    request BLOCKED; 0 console and 0 page errors.
+  - **Routing named each rung**: `logo` (2), `picture` (1), and `page
+    page=/the-starter rename=/starter` (2). **A routing charge moves with the
+    prompt cache**: the picture message's call read 7,168 cached tokens and
+    117 fresh and cost 1; the other two read 512 cached and about 6,760 fresh
+    and cost 2.
+  - **Money closes exactly: 65 → 59 = routing 5 + one edit of 1.** The logo
+    and move jobs are `done`/`exempt`, cost 0, no ledger row; the reframe is
+    `finalized`, cost 1, one reserve of 1. **Those two are the queue's first
+    `exempt` jobs ever** (a read-only count by billing state), and the first
+    queued publishes of the logo rung, the picture rung and a page move.
+  - **The chain VERIFIED** (`qwlcka → 4f73ev → pi9qwd → 8btpep`), and **every
+    stored page is byte-identical to the expected**, built by hand from the
+    before-read: ` focus="top"` after the boule's `<SafeImage`, every quoted
+    `"/the-starter"` → `"/starter"` (the route declaration included), and the
+    file renamed. The checker was proved on six controls first.
+  - **The live site, in a real Chromium over TLS-verified live bytes**: the
+    four pages with a header draw the logo, and **its bytes are the attached
+    file byte for byte** (1,254 bytes, sha256 `2cc633d7…`; `uploadName` names
+    a file by its content hash); only the boule moved (`50% 50%` → `50% 0%`);
+    `/the-starter` answers 301 → `/starter`, which answers 200; links to the
+    old address 9 → 0; everything else identical, with 0 console errors, page
+    errors, failed requests or non-OK responses.
+  - **Found, not changed**: the job reader's `billingMeans` says `exempt` means
+    "a founder account" — true when written, and this run's two exempt jobs are
+    the other cause, a rung that made no model call; the logo reply says "on
+    every page" and the placeholder page has no header; the thread's message
+    bubble does not show the attached picture; and the checklist's B1 row
+    expected the logo to replace "today's SVG mark" when the old mark was the
+    name in text (the header's one SVG is the mobile menu icon).
+  - **Not established**: a second message after a hop or a failure, the
+    picture swap, the data and rules rungs (4b), and the writer's prompt.
 
-### THE CANARY'S UI MODE: THE REAL APP, IN A REAL BROWSER (2026-09-26, late — on the branch, not dispatched)
+### THE CANARY'S UI MODE: THE REAL APP, IN A REAL BROWSER (2026-09-26, late — on the branch; run 39 used it and passed, 2026-09-27)
 
 Owner: *"Use browser automation for Part B. … Exercise the real app: upload a
 known test image through its attachment control, send the three planned
@@ -9641,6 +9695,17 @@ addition."* `scripts/canary-ui.mjs`, the `ui_scenario` box on `edit-canary.yml`,
     (`duration_ms 127,276`). All 23 new cases (22 in `canary-ui`, 1 in
     `canary-watch`) were found passing by name, with 8,041 distinct result
     numbers and zero `not ok`. **The stamp chain ends at `714cd952`.**
+- **RUN 38 WAS THE SCENARIO-TO-SITE WALL, LIVE** (`36281161831`, 2026-09-27
+  00:00Z): the owner's first press left "The site to edit" at its default,
+  `fretwork-1`, and the canary refused with exit 2 before the sign-in, spending
+  nothing. **A form box with a default is the one most likely to be left as
+  it is**, which is why the refusal names the box and both sites.
+- **RUN 39 IS THE MODE'S FIRST LIVE PRESS, AND IT PASSED** — the record is
+  under Test 4a above. What it proves about the mode itself: the planted
+  session signed the live app in, the + button's file chooser landed the file,
+  the idle reading held across three messages, the in-page wall had nothing to
+  block, the balance was read before each message, every filed job was
+  followed, and the after-read waited for the last published version.
 
 ### A SECTION HEADED BY THE KIT (2026-09-26, `2f2fed58` + `5ec82214`, merged and deployed in deploy 2162)
 
@@ -12310,7 +12375,10 @@ reserve), and by the free presses of run 35 (21:08Z) and run 36 (21:36Z).
 **Balance 65** at run 37's end (2026-09-26, Test 4a's Part A: **73 → 65, moved
 8**, route 2 + the page rung's 6, closing exactly, on a run that published; the
 ledger holds one reserve of 6 and no refund), read on the balance row at
-22:05:27Z.
+22:05:27Z. **Balance 59** at run 39's end (2026-09-27, Test 4a's Parts B and C:
+**65 → 59, moved 6**, routing 2 + 1 + 2 and one edit of 1, closing exactly, on
+a run that published three times; the ledger holds one reserve of 1 and no
+refund), read on the balance row at 00:45:33Z.
 **Between run 31 and
 run 32 the balance rose from 1 to 101** (read on the ledger at 18:09Z and by the
 canary before its paid call). **Only the readings are recorded; how it rose is

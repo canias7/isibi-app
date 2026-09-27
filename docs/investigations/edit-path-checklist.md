@@ -5,8 +5,10 @@
 Test 3 (run 34) and the CSS-correction milestone (deploy 2161's batch) are
 **closed by the owner**: no repeat run, no restoration, no further CSS work.
 Runs 35 and 36 were free. **Test 4a's Part A ran as run 37** (your paid press,
-8 credits), and the balance is 65 (read on the balance row at 2026-09-26
-22:05Z).
+8 credits), and **Parts B and C ran as run 39** (your paid press of the
+canary's browser mode, 6 credits; run 38 was refused before signing in and
+spent nothing). **Test 4a is complete.** The balance is 59 (read on the balance
+row at 2026-09-27 00:45Z).
 
 **The kit-heading defect is fixed, closed by the owner, and merged and
 deployed**: main is `ab74d0d9` (deploy 2162, 2026-09-26 20:31 UTC, image
@@ -19,10 +21,9 @@ defect independently: the correct removal was refused with `SectionHeader`'s
 found one gap — a kit heading the page may not render (inside `{false && …}`,
 `<div hidden>` or an unknown wrapper) still named its section — closed at
 `5ec82214`, which is in the deploy. Test 4 below is split in two, each part with
-its own approval; **4a is prepared for the deployed code: its free step 0 is
-done (runs 35 and 36), Part A ran as run 37 and passed, and Parts B and C
-are now one press of the canary's new UI mode (the real app in a real browser),
-prepared on the branch and not dispatched**.
+its own approval; **4a is done: its free step 0 ran as runs 35 and 36, Part A
+passed as run 37, and Parts B and C passed as run 39, through the canary's new
+UI mode (the real app in a real browser)**. 4b waits for its own approval.
 
 ### What is already shown live (credited, not rerun)
 
@@ -45,53 +46,58 @@ exercised it.
 | Menu | 2 jobs (the action lane), 2026-09-02. |
 | Site address | 1 published and 1 refused and refunded, 2026-09-02. |
 | Text | 1 job (gap-sweep run 10), 2026-09-02. |
+| Logo | Run 39 (Test 4a's B1): a PNG attached in the real composer became the header logo, byte for byte; published free (`exempt`, no ledger row). |
+| Picture (reframe) | Run 39 (B2): the named photograph moved to show the top, and nothing else; 1 credit. |
+| Page move | Run 39 (B3): `/the-starter` → `/starter`, every link followed and the old address answers 301; published free (`exempt`). |
+| Second messages from one tab | Run 39: three messages from one browser tab, each after a finished job, each with its own job, reply and working composer. |
 | Queue, billing, reply, after-read | Every canary run. Runs 33 and 34 ran on the current code. |
 
 The jobs from 2026-09-01 to 09-07 ran on older code. They count as live
 coverage of those rungs' paths, not as evidence about today's code, and they
 are not rerun.
 
-**Never published among the queued jobs inspected:** the logo, picture, data
-and rules rungs, and a page move or removal. **No queued job has ever been
-`exempt`**, so the free-rung path (logo, page move or removal) has never
-published through the queue since `ed1e3b93` fixed its gate. Every canary
-message is one request from a script, so two messages have never come from one
-browser tab.
+**Never published among the queued jobs inspected:** the data and rules rungs,
+and a page removal. **Run 39 (2026-09-27) was the first queued publish of the
+logo rung, the picture rung and a page move**, and its logo and move jobs are
+the only `exempt` jobs in the queue's history (a read-only count of
+`edit_jobs` by billing state), so the free-rung path has now published through
+the queue since `ed1e3b93` fixed its gate. Run 39 was also the first time
+messages came from one browser tab rather than one scripted request each.
 
 ### Missing live evidence (not product defects)
 
 Controlled tests cover each decision below, with supplied answers. What is
 missing is a real model, the real browser or the live database.
 
-1. **A second message in the same tab**, after a queued job, a hop or a
-   failure. Controlled: `edit-lock`, `edit-result-display`,
-   `edit-failure-paths`.
-2. **An attachment sent from the real composer**, in the logo rung's
-   `{name, data}` shape (fixed in `51e39e3c`). Controlled: `site-logo`,
-   `edit-failure-paths`. The 2026-09-24 live check stopped the edit request in
-   the page.
-3. **The logo rung and a page move publishing through the queue** (the
-   free-rung exemption). Controlled: `edit-queue`. `edit_exempt` was driven on
-   the live database in a rolled-back transaction on 2026-09-02.
-4. **The picture rung** (reframe, swap). Controlled: `site-picture`,
-   `edit-page-once`, `edit-failure`.
-5. **The data rung.** Controlled: `site-apply`, `edit-failure` (including an
+1. **A second message in the same tab after a hop or a failure.** After a
+   finished queued job it is shown (run 39). Controlled: `edit-lock`,
+   `edit-result-display`, `edit-failure-paths`.
+2. **The picture rung's swap** (a new picture into a slot). The reframe is
+   shown (run 39). Controlled: `site-picture`, `edit-page-once`,
+   `edit-failure`.
+3. **The data rung.** Controlled: `site-apply`, `edit-failure` (including an
    `incomplete` site).
-6. **The rules rung on a site with a database.** Controlled:
+4. **The rules rung on a site with a database.** Controlled:
    `edit-rules-backend`. Run 12 was blocked by a defect that has since been
    fixed.
-7. **The first schema change on a site built before 2026-09-13**, which
+5. **The first schema change on a site built before 2026-09-13**, which
    re-emits every table's grants in column-scoped form. Proven on a real
    PostgreSQL 16 locally (`local-pg-grants`), but not observed on a live form
    submission.
-8. **Real-model behaviour in general.** Why a quick attempt did not publish is
+6. **Real-model behaviour in general.** Why a quick attempt did not publish is
    not on the wire, and the writer's prompt is not captured.
-9. **The add-on through the browser since deploy 2154.** This is outside this
+7. **The add-on through the browser since deploy 2154.** This is outside this
    checklist; the last live add-on was run 53 (2026-09-20). Not proposed now.
 
 **Shown live since, by run 37 (Test 4a's Part A), and moved to the table
 above:** the full writer on a page with photographs (both kept), and the
 kit-heading fix with a real model.
+
+**Shown live since, by run 39 (Test 4a's Parts B and C), and moved to the
+table above:** an attachment sent from the real composer (the logo rung's
+`{name, data}` shape, fixed in `51e39e3c`), the logo rung and a page move
+publishing through the queue as `exempt`, the picture rung's reframe, and
+second messages after a finished job in one tab.
 
 ### Reproduced product defects, still open
 
@@ -163,7 +169,7 @@ section whose heading comes from a kit component's prop (the next section).
   since an adopted site sends it no table names, and the live database. Only a
   live run measures those.
 
-### Test 4 — prepared for approval, not dispatched: two parts, approved separately
+### Test 4 — two parts, approved separately: 4a done (runs 37 and 39), 4b prepared and not dispatched
 
 Both parts run on fold-lane-bakery (Harbour Loaf): a database, three
 photographs (two on the home page), five pages, and run 9's stored source
@@ -173,9 +179,8 @@ its own approval and its own recovery.**
 
 #### Test 4a — pages, photographs, an attachment and second messages
 
-**Prepared for the deployed code (2026-09-26, evening); step 0 and Part A done
-(Part A passed as run 37, below); Parts B and C are one UI-mode press, not
-dispatched.** Every press below is `edit-canary.yml`
+**Done on the deployed code: step 0 ran as runs 35 and 36, Part A passed as
+run 37, and Parts B and C passed as run 39 (below).** Every press below is `edit-canary.yml`
 (<https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml>, "Run
 workflow"), with **"Use workflow from" set to `claude/help-needed-ehlwlj`**
 until the canary's reader fix (below) is merged; a merge of it deploys nothing.
@@ -553,6 +558,118 @@ version named, the press would restore it. What the after-read should show:
 - `the-starter.tsx` should become `starter.tsx`;
 - the other pages should change only by B3's links.
 
+**Run 38 was refused before it signed in, and spent nothing**
+([36281161831](https://github.com/canias7/isibi-app/actions/runs/36281161831),
+2026-09-27 00:00Z). "The site to edit" was left at `fretwork-1`, and the
+scenario is written for `fold-lane-bakery`, so the canary refused with exit 2
+before any network call: *REFUSING THE UI MODE: scenario "4a-part-b" is written
+for fold-lane-bakery, and the site box says fretwork-1*. The balance stayed 65,
+no job or ledger row appeared, and both sites kept their versions. That is the
+scenario-to-site wall working live.
+
+**Parts B and C ran as run 39 and passed**
+([36281551801](https://github.com/canias7/isibi-app/actions/runs/36281551801),
+00:07:42 → 00:17:14Z, your paid press from the branch at `403f294e`; the
+canary step took 8m43s). It counts as the test: the preflight read deploy 2162
+(`ab74d0d94384`, image `369d7b1e5bae25b0`, async and runner true) with both
+expectations matched, every free check passed, its own before-read (all reads
+true) equals Part A's after-read on all five bodies, and each message got a
+stored reply. Against the table:
+- **B1, the logo — the logo rung, as expected.** Routed `layer=logo` for 2
+  (`6,763 in / 15 out`). The file reached the edit request byte for byte
+  (1,254 bytes, sha256 `2cc633d7…`). The job published free: its stored reply
+  names the `logo` layer, `billing` is `exempt`, and no ledger row names it.
+  The reply is the table's, word for word: "✅ That's your logo in the header
+  now, on every page." 167 s from Send to reply.
+- **B2, the reframe — the picture rung.** Routed `layer=picture` for **1**:
+  that routing call read 7,168 prompt tokens from the cache and 117 fresh,
+  where the other two read 512 and about 6,760. One model call (`1,401 in / 41
+  out`), cost 1, `finalized`, and the job's one ledger row is that reserve of
+  1. The reply is the table's, word for word. 164 s.
+- **B3, the move — the page rung, directly.** Routed `layer=page
+  page=/the-starter rename=/starter` for 2 (`6,764 in / 27 out`). The stored
+  reply names the page layer with `pageOps` `[{page: "/the-starter",
+  renamedTo: "/starter"}]`; `exempt`, no ledger row. The reply is the table's,
+  word for word: "✅ Moved /the-starter to /starter." 147 s.
+- **Second messages.** B2 and B3 each followed a finished job, and each got its
+  own job and reply: one job per message, in order. After every reply the
+  composer was usable again (busy down, Send drawn and live, no Stop, no
+  "Working" row, and a box that took typing). Nothing outside the scenario was
+  started (no BLOCKED request), and the page logged 0 console errors and 0 page
+  errors.
+- **Money closes exactly: 65 → 59 = routing 2 + 1 + 2, plus one edit of 1**, so
+  6, under the quoted 7–8. The ledger holds one row for the three jobs (B2's
+  reserve); a routing charge writes no row, as recorded.
+- **The chain is VERIFIED**: `qwlcka → 4f73ev → pi9qwd → 8btpep`, each built
+  from the one before, with the after-read taken at `8btpep`. The versions were
+  minted at 00:09:18.987Z, 00:12:10.063Z and 00:14:49.054Z. A separate watch of
+  the live site's version header saw them serve at 00:11:44Z, 00:14:24Z and
+  00:17:06Z.
+
+**Part C, read by run 39 itself: every stored page is exactly the expected
+page, byte for byte.** The expected set was built by hand from the before-read,
+the way each rung writes:
+- B2: ` focus="top"` inserted just after `<SafeImage` on the boule's element;
+- B3: every quoted `"/the-starter"` changed to `"/starter"` on all five pages
+  (the route declaration included), and `the-starter.tsx` renamed
+  `starter.tsx`;
+- B1 changes no page: the logo lives in the stored look.
+
+`index.tsx` goes 2,435 → 2,439 characters (`51b5af6af6ee25ca`); `order.tsx`
+(`4ead778eea41faaf`), `gallery.tsx` (`4e8b82aa901741e0`), `visit.tsx`
+(`bdb02abecad96c56`) and `starter.tsx` (`37fb0e176f22a44b`) each lose four
+characters; there are still no components. The checker was proved on six
+controls first: the correct set passes, and a missing reframe, a link left
+behind, a collateral word change, the wrong focus value and an unrenamed file
+are each flagged.
+
+**The live site, in a real Chromium over TLS-verified live bytes** (before at
+00:10:31Z on `qwlcka`, after on `8btpep`):
+- the four pages with a header now draw the logo instead of the name, as a
+  240×240 image shown at 28×28 with "Harbour Loaf" as its alt text, and **the
+  bytes each page loaded are the test image byte for byte** (1,254 bytes,
+  sha256 `2cc633d7…4c3df5`). The stored file's name is that hash's first 32
+  hex digits, which is how `uploadName` names every upload;
+- only the boule photograph moved: object-position `50% 50%` → `50% 0%`. The
+  shopfront photograph, the visit page's photograph and the QR code are
+  unchanged;
+- `/the-starter` answers **301 → `/starter`**, `/starter` answers 200 with the
+  same placeholder page, and the sitemap lists `/starter`. Links to
+  `/the-starter` went 9 → 0 in the served HTML, and links to `/starter` 0 → 9;
+- each page's rendered text, headings and pictures are otherwise identical,
+  with 0 console errors, page errors, failed requests or non-OK responses.
+
+**What run 39 establishes**: on one site, through the real app in a real
+browser, a picture attached in the composer became the logo byte for byte; a
+real model reframed the named photograph and nothing else; a page moved with
+every link following and the old address redirecting; and three messages from
+one tab each got their own job, reply and working composer. The logo rung, the
+picture rung and a page move each published through the queue for the first
+time, and the free-rung exemption published twice. **Not established**: a
+second message after a hop or a failure, the picture swap, the data and rules
+rungs (4b), and the writer's prompt.
+
+**Found, not changed:**
+- **The table's B1 row was wrong about the old mark.** It said the header
+  would draw the image "instead of today's SVG mark". The old mark was the
+  name in plain text; the header's one SVG is the mobile menu icon, before and
+  after.
+- **The canary's job reader names only one cause for `exempt`.** It prints
+  "exempt — a founder account takes no debit and writes no row", and this
+  account is not a founder (its routing calls were debited). Here `exempt` is
+  the free rung: a step that makes no model call never reserves, so the
+  publish exempts its job (the `publish:exempt:ok` mark on the matching
+  traces). `billingMeans` in `scripts/canary-read-job.mjs` dates from when
+  only a founder was exempt.
+- **The logo reply says "on every page"**, and the placeholder page has no
+  header, so the logo shows on four of the five. The table predicted this; it
+  is a wording note.
+- **The message bubble in the thread shows the words and not the attached
+  picture**: nothing stores an attachment on a thread message, as recorded.
+- **The workspace opened reading "Previewing last saved version"** (the page
+  list not loaded yet) and read "5 pages" after the first reply. Every routing
+  call carried the site's real page list, the first one included.
+
 **Recovery for 4a — free, with no model call, and verified.** Use step 0's form
 exactly: "PUT ONE SAVED VERSION BACK" = `01789969693841-xqi8vs`.
 - **Why that version:**
@@ -574,9 +691,10 @@ exactly: "PUT ONE SAVED VERSION BACK" = `01789969693841-xqi8vs`.
   live one and its parent, and 4a makes four publishes (five with a correction
   round).
 
-**4a total:** Part A cost 8 (run 37); Parts B and C are about 7–8 more, an
-estimate and not a cap, and the UI mode sends no further message once 15 are
-spent. The balance is 65 (read 2026-09-26 22:05:27Z).
+**4a total:** Part A cost 8 (run 37) and Parts B and C cost 6 (run 39): 14 in
+all, against an estimate of about 17–20. The balance is 59 (read 2026-09-27
+00:45:33Z). The site keeps 4a's changes; the recovery above undoes them for
+free if you want that.
 
 #### Test 4b — the database: a row and a permission change (separate approval)
 

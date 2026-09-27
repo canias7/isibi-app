@@ -14,7 +14,7 @@ merged/deployed at a5741864 (deployment 2157 / run 36099179983). Served chat.js
 matched the reviewed bytes at 2026-09-25 05:36:30 UTC. Deployment log reports
 container reuse; no repeated runtime container check or canary. This contains
 an escaped display error; publication and cleanup already succeeded. Other
-checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; see the dated entries below). Your free check (run 33, 06:24 UTC) confirmed deployment 2161 from the live server, and with it 2160's code. Test 3 ran as your paid run 34: the full page writer removed "The first eight chords" and nothing else, for 18 credits (balance 73), and all seven checks hold (the dated entry below). The page-text check now recognises a section heading shown by a design component, and your review's gap (such a heading counted when the page might not show it) is closed too. You closed that correction, and it is merged and deployed at `ab74d0d9` (deployment 2162, 2026-09-26 20:31 UTC, image `369d7b1e5bae25b0`). Your free press (run 35, 21:08 UTC) confirmed it from the live server. Test 4 is two parts, each for your separate approval: 4a (pages, photos, an attached picture, second messages) and 4b (the database), which waits for its own approval. In 4a, Part A passed as your paid run 37. Parts B and C are now one press of the canary's new browser mode, which drives the real app in a real browser. It is on the branch, waiting for your approval (the newest entry below).
+checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; see the dated entries below). Your free check (run 33, 06:24 UTC) confirmed deployment 2161 from the live server, and with it 2160's code. Test 3 ran as your paid run 34: the full page writer removed "The first eight chords" and nothing else, for 18 credits (balance 73), and all seven checks hold (the dated entry below). The page-text check now recognises a section heading shown by a design component, and your review's gap (such a heading counted when the page might not show it) is closed too. You closed that correction, and it is merged and deployed at `ab74d0d9` (deployment 2162, 2026-09-26 20:31 UTC, image `369d7b1e5bae25b0`). Your free press (run 35, 21:08 UTC) confirmed it from the live server. Test 4 is two parts, each for your separate approval: 4a (pages, photos, an attached picture, second messages) and 4b (the database), which waits for its own approval. In 4a, Part A passed as your paid run 37, and Parts B and C passed as your paid run 39 through the canary's new browser mode, which drives the real app in a real browser (the newest entry below). Test 4a is done; 4b waits for its own approval. The balance is 59.
 
 Kept for the owner. Two purposes:
 1. **How you like things done** — durable preferences, so a fresh session does not
@@ -176,7 +176,56 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
-## 2026-09-26 — Part B can now run in a real browser from GitHub; it waits for your approval
+## 2026-09-27 — Part B passed in a real browser (run 39): logo, photo and page move all went through, 6 credits
+
+Your first press (run 38) stopped before it started: "The site to edit" still
+said `fretwork-1`, and the scenario only runs on `fold-lane-bakery`. It made no
+network calls and spent nothing; the balance, the jobs and both sites were
+unchanged. Your second press (run 39) ran the whole thing.
+
+What it did, in the real app in a real browser, signed in as you, in one tab:
+1. **Attached the test picture and asked for it as the logo.** Reply: "✅
+   That's your logo in the header now, on every page." It cost only the
+   2-credit message check; the logo step itself was free. The live site's
+   header now shows the picture instead of the name "Harbour Loaf", and the
+   file it shows is the test picture byte for byte.
+2. **Asked to show more of the top of the boule photo.** Reply: "✅ Moved “A
+   sourdough boule cooling after the morning bake” to show the top." 2 credits
+   (1 for the message check, 1 for the edit). Only that photo moved.
+3. **Asked to move the starter page to /starter.** Reply: "✅ Moved /the-starter
+   to /starter." 2 credits for the message check; the move itself was free.
+   The old address now forwards to the new one, and all nine links follow it.
+
+After each reply the message box worked again, and each message got its own
+job. Nothing else was started, and the app logged no errors.
+
+**Checked afterwards, separately from the run:**
+- every page file is exactly the old one plus the photo's new framing and the
+  moved links, byte for byte (I tested that check on six made-up cases first);
+- a real browser shows only those three changes on the live site;
+- the charges: 65 → 59, so 6 credits, with one edit charge of 1 on record.
+  That is under the 7–8 I estimated.
+
+**Firsts:** the logo step, the photo step and a page move had never published
+through the job queue before, and neither had a free step. All of them did in
+this run.
+
+**Noticed, not changed:**
+- the canary's job summary says those free jobs were free because "a founder
+  account" made them. That's wrong here: they were free because the steps made
+  no AI call. It's the summary's wording, not the product.
+- the logo reply says "on every page", but the unfinished starter page has no
+  header, so the logo shows on four of the five pages.
+- your message in the chat shows your words but not the picture you attached.
+- my prep notes said the logo would replace "today's SVG mark"; it replaced the
+  name written in text.
+
+**Test 4a is done:** 14 credits in all (8 for Part A, 6 for Part B), balance
+59. The site keeps these changes. One free press puts it back to how it was
+before Part A (version `01789969693841-xqi8vs`), if you want that. Test 4b (the
+database) waits for its own approval.
+
+## 2026-09-26 — Part B can now run in a real browser from GitHub (it ran as run 39 and passed: the entry above)
 
 You asked for Part B to be driven by a browser rather than by you. No existing
 tool could do that: every test we have talks to the server directly, and none
