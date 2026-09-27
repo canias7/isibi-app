@@ -30,10 +30,12 @@ UI mode (the real app in a real browser)**. **4b is now D1 alone** (owner,
 and put back with no model call. It is built at `6602be37`, with tests, probes
 and CI, and its free rehearsal passed as run 40. The owner then reproduced a
 gap in the put-back: a change landing between its read and its write was
-overwritten. **That is closed on the branch**: the write is now conditional in
-the owner rows route itself, which is Worker code. So **the paid press waits
-for an approved merge and deploy, then a fresh free rehearsal with the new
-identifiers** (*the recovery's write is conditional*, in Test 4b). D2
+overwritten. **That is closed**: the write is now conditional in the owner
+rows route itself, which is Worker code. The owner closed the correction after
+review (165 focused tests), and it is **merged and deployed at `14df0225`
+(deploy 2163, 2026-09-27 05:15 UTC, image `9038e90ab1d5d7fe`)**. So **the
+paid press waits for a fresh free rehearsal on that deployment** (*the
+recovery's write is conditional*, in Test 4b). D2
 (the grants apply) and D3 (a real order) are parked as maintenance and
 integration checks: applying grants through `grants preview` does not exercise
 the rules rung. Step 0 (`grants preview` run 36286991932) is kept as evidence.
@@ -91,7 +93,8 @@ missing is a real model, the real browser or the live database.
    `edit-failure`.
 3. **The data rung.** Controlled: `site-apply`, `edit-failure` (including an
    `incomplete` site). **D1 is its live test** (rehearsed free as run 40; the
-   paid press waits for the conditional-write fix to be merged and deployed).
+   conditional-write fix is deployed in 2163, and the paid press waits for a
+   fresh free rehearsal on it).
 4. **The rules rung on a site with a database.** Controlled:
    `edit-rules-backend`. Run 12 was blocked by a defect that has since been
    fixed. It has its own proposal (after Test 4); neither D2 nor D3 would
@@ -200,7 +203,7 @@ other. None blocks anything; none is being worked on.
   since an adopted site sends it no table names, and the live database. Only a
   live run measures those.
 
-### Test 4 — two parts, approved separately: 4a closed (runs 37 and 39); 4b is D1 alone, rehearsed free as run 40; its put-back write is conditional now, so the paid press waits for a merge and deploy
+### Test 4 — two parts, approved separately: 4a closed (runs 37 and 39); 4b is D1 alone, rehearsed free as run 40; its put-back write is conditional now and deployed in 2163, so the paid press waits for a fresh free rehearsal
 
 Both parts run on fold-lane-bakery (Harbour Loaf): a database, three
 photographs (two on the home page), five pages, and run 9's stored source
@@ -727,7 +730,7 @@ all, against an estimate of about 17–20. The balance is 59 (read 2026-09-27
 00:45:33Z). The site keeps 4a's changes; the recovery above undoes them for
 free if you want that.
 
-#### Test 4b — the database: D1 alone, built and rehearsed free as run 40; its put-back write made conditional (on the branch), so the paid press waits for a merge and deploy (2026-09-27); D2 and D3 parked; step 0 kept as evidence
+#### Test 4b — the database: D1 alone, built and rehearsed free as run 40; its put-back write made conditional and deployed in 2163, so the paid press waits for a fresh free rehearsal (2026-09-27); D2 and D3 parked; step 0 kept as evidence
 
 **Narrowed by the owner (2026-09-27):** *"separate maintenance from edit-path
 acceptance: applying grants through grants-preview does not exercise the rules
@@ -800,7 +803,7 @@ writes grants directly and never goes through an edit.
   - `orders`: `REVOKE ALL` from both roles, then `GRANT INSERT ON "orders"` to
     each. That is today's table-wide form, exactly.
 
-**D1 — a row, through the real app: built at `6602be37`, rehearsed free as run 40 (below); the put-back's write made conditional since (below), so the paid press waits for a merge and deploy.** A new
+**D1 — a row, through the real app: built at `6602be37`, rehearsed free as run 40 (below); the put-back's write made conditional since (below) and deployed in 2163, so the paid press waits for a fresh free rehearsal.** A new
 scenario of the canary's UI mode, `4b-d1-price`, on fold-lane-bakery. One
 message: "In today's bake list, change the Sea Salt Focaccia's price to
 £4.60." (68 characters, 69 bytes, sha256 `550cf87497ef7a8f…`).
@@ -966,8 +969,8 @@ step 38 s):
 - **So the paid press starts from an established before-state.** It is the same
   form with spend `yes`.
 
-**The recovery's write is conditional (2026-09-27, on the branch, not
-merged).** The owner, after run 40: *"restoreRow/recoverRow read the price,
+**The recovery's write is conditional (2026-09-27; closed by the owner after
+review, and merged and deployed in deploy 2163).** The owner, after run 40: *"restoreRow/recoverRow read the price,
 then call an unconditional owner PATCH. site-owner.mjs updates WHERE id=?
 only. Reproduced locally: Recovery reads 4.6. Another writer changes the price
 to 5.2 before PATCH executes. Recovery overwrites it with 4.5 and reports
@@ -1083,30 +1086,50 @@ not close this gap."*
   kit-paint all passed; census 7 + 4 + 1 = 12. The only `##[error]` lines are
   the two known annotations. `site-build.mjs` took 18m43s.
 
-**The order now, because the fix is Worker code.** The paid press cannot run
-on today's deploy (2162): its route has no conditional write, so the probe
-answers 400 and the paid run stops before Send. What it needs, in order:
-1. **Your approval to merge and deploy this branch.** `site-owner.mjs` is part
-   of the Worker's module graph, so the container image rolls too.
-   - **Predicted before any merge:** main (`ab74d0d9`) answers
-     `369d7b1e5bae25b0`, the image runs 35 and 40 read live. `5c000598`
-     answers **`9038e90ab1d5d7fe`**, from 188 inputs and 158 distinct paths.
-     Of the 21 files the branch changes against main, `site-owner.mjs` is the
-     only input. Re-run the predictor over the merge commit itself before
-     believing it.
-   - **A rollback is clean:** reverting the branch's range
-     (`origin/main..5c000598`, 16 commits) in a throwaway worktree gives tree
-     `61271c36…`, main's own, so a rollback reuses `369d7b1e5bae25b0`.
-   - The hold: the image rolls, so the fresh rehearsal waits 15–20 minutes
-     after the deploy.
-2. **A fresh free rehearsal with the new identifiers** in the last two boxes,
-   read off the new deploy. It makes one PATCH that changes nothing, the
-   probe, and its check must pass: 409 from the new route.
+**The order, because the fix is Worker code.** The paid press could not run
+on deploy 2162: its route had no conditional write, so the probe answered 400
+and the paid run stopped before Send. What it needed, in order:
+1. **The owner's approval to merge and deploy — given and done (2026-09-27).**
+   The owner closed the correction after review (165 focused tests, the
+   product commit's unit CI and site build green): *"Once the current tip's CI
+   passes, merge and deploy the reviewed changes, preserving any newer main
+   commits."*
+   - **Checked before the push:** unit CI on the tip `14df0225` (run
+     36295887583) read 8,094 / 8,090 / 0 / 4; no workflow run in progress,
+     queued, waiting or requested; no edit job in a live state; main unmoved
+     at `ab74d0d9` and an ancestor of the tip, so nothing newer on main could
+     be lost.
+   - **Predicted, and re-read over the merged tree:** main (`ab74d0d9`)
+     answered `369d7b1e5bae25b0`, the image runs 35 and 40 read live; the tip
+     `14df0225` answered **`9038e90ab1d5d7fe`**, from 188 inputs and 158
+     distinct paths, `site-owner.mjs` the only input among the 21 files.
+   - **A rollback is clean:** reverting `ab74d0d9..14df0225` (17 commits) in a
+     throwaway worktree gives tree `61271c36…`, main's own, so a rollback
+     reuses `369d7b1e5bae25b0`.
+   - **A fast-forward:** main `ab74d0d9` → **`14df0225`** at 05:11:56Z.
+   - **Deploy 2163 ([run 36296506076](https://github.com/canias7/isibi-app/actions/runs/36296506076)),
+     success, 05:12:02 → 05:15:03Z**, read off its own log: `DEPLOY_ID`
+     `14df0225be90…` (masked in the log as `***4df0225be90e…`); the gate took
+     over from `ab74d0d9…`; the image **built `9038e90ab1d5d7fe`** (the
+     registry answered 404, 188 inputs, 0 cached layers, 2m10s) and **rolled
+     from `369d7b1e5bae25b0`** under `SUCCESS Modified application`; the drain
+     found no live leases; `No updated asset files to upload`, so there is no
+     served-file check; a fresh Worker version. Gates 401 / 401 / 401 / 404 at
+     05:15:42Z.
+   - **Deployed, not yet runtime-confirmed.** That is the deploy reporting on
+     itself; the live Worker's own sha and a cold container's image are read
+     by the rehearsal's preflight.
+   - **The hold:** the image rolled at 05:15Z, so the rehearsal waits until
+     about 05:31Z.
+2. **A fresh free rehearsal with the new identifiers**, below. It makes one
+   PATCH that changes nothing, the probe, and its check must pass: 409 from
+   the new route.
 3. **The paid press**, the same form with spend `yes`.
 
-**Ready-to-run inputs.** `edit canary` → Run workflow → **branch
-`claude/help-needed-ehlwlj`** (the mode exists there only; the Worker and
-image it checks are main's). The boxes, by their descriptions:
+**Ready-to-run inputs.** [`edit canary`](https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml)
+→ Run workflow → **branch `main`**. Since the merge, main carries the UI mode
+and both D1 scenarios, so the script, the Worker and the image it checks are
+all main's. The boxes, by their descriptions:
 
 | Box | Rehearsal (free) | The paid press |
 | --- | --- | --- |
@@ -1117,13 +1140,23 @@ image it checks are main's). The boxes, by their descriptions:
 | RUN A NAMED SCENARIO IN A REAL BROWSER… | `4b-d1-price` | `4b-d1-price` |
 | The site to edit… (defaults to `fretwork-1`) | **`fold-lane-bakery`** | **`fold-lane-bakery`** |
 | A second site… | leave `washhouse-3` | leave `washhouse-3` |
-| Refuse to spend unless the Worker reports this deploy sha… | **the merge's sha**, read off its deploy (it was `ab74d0d9…` for run 40) | the same |
-| Refuse to spend unless a cold container reports this image id… | **the merge's image**, read off its deploy (it was `369d7b1e5bae25b0` for run 40) | the same |
+| Refuse to spend unless the Worker reports this deploy sha… | **`14df0225be90e2637764ea33771d64f4a393b628`** | the same |
+| Refuse to spend unless a cold container reports this image id… | **`9038e90ab1d5d7fe`** | the same |
 
 - **The rehearsal** signs in, opens the card, types the message, asks the
   probe, reads the order page and the baseline, prints the recovery's plan at
   the baseline ("none"), and stops before Send. It changes nothing and spends
   nothing. **Its one write request is the probe**, which matches no row.
+- **What the rehearsal must show:**
+  - the preflight reads `14df0225be90` and `9038e90ab1d5d7fe` on both readers;
+  - `condition  the Worker writes only while the row still matches: a
+    conditional write no row can meet answered 409 and changed nothing`;
+  - the baseline, read AFTER the probe: row 6, "Sea Salt Focaccia", 4.5 on
+    both readers, and the visitor read byte-identical to the record (1,045
+    bytes, sha256 `ef870ebcf8353634`);
+  - the order page shows the focaccia at £4.50;
+  - the recovery's plan at the baseline is "none";
+  - the balance does not move.
 - **The paid press** is the same form with spend `yes`.
 - **If the paid run ends without its recovery**, press `4b-d1-restore` with the
   same boxes: first with spend `no`, to see what it would write, then with
@@ -1136,7 +1169,8 @@ image it checks are main's). The boxes, by their descriptions:
 **Cost:** about 2–3 credits. That is the routing charge (1–2; run 39's three
 routing calls cost 2, 1 and 2) plus the data rung's one call, rounded once
 with a floor of 1. The scenario's budget is 5. The rehearsal, the recovery and
-`4b-d1-restore` are free. The balance is 59.
+`4b-d1-restore` are free. The balance is 59 (read on the balance row at
+05:17:01Z, after deploy 2163; the last ledger row is still run 39's).
 
 **D2 and D3 — parked (owner, 2026-09-27).** Kept prepared, not scheduled:
 - **D2** is `grants preview` in `apply` mode on fold-lane-bakery, undone by its
@@ -1166,8 +1200,8 @@ with a floor of 1. The scenario's budget is 5. The rehearsal, the recovery and
 - The API canary treats any successful edit reply as a publish, so for a data
   edit its page comparison would read `not-listed`. D1 runs through the UI
   mode, whose chain handles an edit that publishes nothing.
-- ~~The owner rows route has no conditional write.~~ It has one now, on the
-  branch: *the recovery's write is conditional*, below.
+- ~~The owner rows route has no conditional write.~~ It has one now, deployed
+  in 2163: *the recovery's write is conditional*, above.
 
 **What Test 4 does not cover:** hydration, translation, model-written replies,
 the add-on, a css-lane run, a page removal (the move exercises the same verb

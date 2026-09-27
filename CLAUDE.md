@@ -55,9 +55,11 @@ together with the CSS-correction milestone (deploy 2161's batch): no repeat run,
 restoration, no further CSS work.
 **What remains, and Test 4b (2026-09-27: narrowed by the owner to D1 alone —
 built on the branch at `6602be37`, rehearsed free as run 40; its recovery's
-write made CONDITIONAL on the branch since, in the owner rows route, which is
-Worker code, so the paid press waits for an approved merge and deploy and a
-fresh free rehearsal; D2 and D3 parked; step 0,
+write made CONDITIONAL in the owner rows route, which is Worker code — CLOSED
+BY THE OWNER after review (165 focused tests) and MERGED AND DEPLOYED at
+`14df0225`, deploy 2163, 2026-09-27 05:15 UTC, image `9038e90ab1d5d7fe` — so
+the paid press waits only for a fresh free rehearsal on that deployment; D2
+and D3 parked; step 0,
 `grants preview` run 36286991932, kept as maintenance evidence; the rules rung
 has its own proposal)**: the top section of the
 [edit-path checklist](docs/investigations/edit-path-checklist.md), summarised in
@@ -97,7 +99,11 @@ two, each approved on its own**: 4a (pages, photographs, an attachment and secon
 messages; a free restore undoes it) and 4b (one row of the database, changed
 through the real app and put back by the canary with no model call). **Applying
 grants through `grants preview` is maintenance, not edit-path acceptance: it
-never goes through the rules rung** (owner, 2026-09-27).
+never goes through the rules rung** (owner, 2026-09-27). **Deploy 2163 is
+deployed, NOT YET runtime-confirmed**: its log names the sha and the image, and
+the live Worker's own answer is the fresh rehearsal's preflight. The session
+makes one dispatch attempt after the hold; every earlier attempt answered 403,
+which makes the press the owner's (*Test 4b*, below).
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -539,6 +545,15 @@ predictor re-run over the MERGED tree answered the same id. The log answered
 `built …:369d7b***e5bae25b0 (registry answered 404; ***88 inputs …)` and
 `- …:05750a5***20d33570` → `+ …:369d7b***e5bae25b0` under `SUCCESS Modified
 application`; **0 `CACHED` lines**, image step 2m05s, Wrangler 16s, job 2m53s.
+**Deploy 2163 (2026-09-27) was predicted on both ends and confirmed on both
+channels**: `origin/main` `ab74d0d9` answered `369d7b1e5bae25b0` — what runs 35
+and 40 read LIVE — and the tip `14df0225` answered `9038e90ab1d5d7fe`, both
+from 188 inputs and 158 distinct paths, with `site-owner.mjs` the one of the
+push's 21 files among them. The predictor re-run over the MERGED tree (the
+fast-forward's `origin/main`) answered the same id. The log answered `built
+…:9038e90ab***d5d7fe (registry answered 404; ***88 inputs …)` and
+`- …:369d7b***e5bae25b0` → `+ …:9038e90ab***d5d7fe` under `SUCCESS Modified
+application`; **0 `CACHED` lines**, image step 2m10s, Wrangler 17s, job 3m01s.
 The twelfth
 added a SECOND CHANNEL — **deploy 2139 (2026-09-21) was predicted before the
 push over the local merge commit `28e46e91` as `82bccb3bee50e4fd`, against
@@ -9326,8 +9341,9 @@ list, and Test 4's exact form values, are the top section of the
   and the `CtaBand` sentence is the fallback if 4a runs before the merge.
 - **TEST 4, IN TWO PARTS APPROVED SEPARATELY — 4a CLOSED BY THE OWNER (RUNS 37
   AND 39), 4b NARROWED TO D1 ALONE (2026-09-27), REHEARSED FREE AS RUN 40, ITS
-  RECOVERY'S WRITE MADE CONDITIONAL SINCE, SO THE PAID PRESS WAITS FOR A MERGE
-  AND DEPLOY**
+  RECOVERY'S WRITE MADE CONDITIONAL SINCE, CLOSED BY THE OWNER AND MERGED AND
+  DEPLOYED IN DEPLOY 2163, SO THE PAID PRESS WAITS FOR A FRESH FREE REHEARSAL
+  ON THAT DEPLOYMENT**
   (owner, 2026-09-26: *"Separate the photo/attachment/second-message checks from
   database writes and permission changes."*), all on fold-lane-bakery:
   - **4a — pages only, undone free by the canary's restore mode**:
@@ -9348,8 +9364,10 @@ list, and Test 4's exact form values, are the top section of the
     with no model call — that one field, and only from the value it set.
     **Built at `6602be37`; its free rehearsal passed as run 40. The owner then
     reproduced the recovery overwriting a concurrent write; the fix makes the
-    write conditional in the owner rows route (Worker code), so the paid press
-    waits for an approved merge and deploy, then a fresh free rehearsal.**
+    write conditional in the owner rows route (Worker code). The owner closed
+    it after review, and it is merged and deployed at `14df0225` (deploy 2163,
+    image `9038e90ab1d5d7fe`), so the paid press waits for a fresh free
+    rehearsal on that deployment.**
     - step 0, free, **ran 2026-09-27 as `grants preview` run 36286991932** and
       is kept as MAINTENANCE evidence: what the grants are and what an apply
       or a rollback would issue. It never goes through an edit.
@@ -9732,7 +9750,7 @@ addition."* `scripts/canary-ui.mjs`, the `ui_scenario` box on `edit-canary.yml`,
   block, the balance was read before each message, every filed job was
   followed, and the after-read waited for the last published version.
 
-### TEST 4b: D1 ALONE, REHEARSED FREE AS RUN 40, ITS RECOVERY'S WRITE CONDITIONAL SINCE; D2 AND D3 PARKED; THE RULES RUNG'S OWN PROPOSAL (2026-09-27)
+### TEST 4b: D1 ALONE, REHEARSED FREE AS RUN 40, ITS RECOVERY'S WRITE CONDITIONAL SINCE (MERGED AND DEPLOYED IN DEPLOY 2163); D2 AND D3 PARKED; THE RULES RUNG'S OWN PROPOSAL (2026-09-27)
 
 Owner, first: *"return one concrete proposal: exact requests, expected database
 changes, independent checks, estimated cost and deterministic recovery for both
@@ -9767,7 +9785,9 @@ after it hold the test and the proposal. What is law here:
   recovered automatically — the job may still be writing — and the recovery
   scenario (`4b-d1-restore`) is pressed once it has finished.
 - **THE OWNER ROWS ROUTE TAKES A CONDITIONAL WRITE, AND D1'S RECOVERY USES IT**
-  (2026-09-27, on the branch, not merged; owner, reproducing the gap this
+  (2026-09-27; CLOSED BY THE OWNER after independent review — 165 focused
+  tests, the product commit's unit CI and site build green — and MERGED AND
+  DEPLOYED at `14df0225`, deploy 2163; owner, reproducing the gap this
   bullet used to record: *"Make the recovery's expected-value check and write
   atomic … Another pre-read does not close this gap."*). The plain PATCH is
   `UPDATE … WHERE id=?`, so a caller that reads, decides and then writes has a
@@ -9825,13 +9845,30 @@ after it hold the test and the proposal. What is law here:
     (25m44s, all twenty steps) read all twelve counts green (site-build 404,
     census 7 + 4 + 1 = 12), the two known annotations only, `site-build.mjs`
     18m43s. **The stamp chain ends at `5c000598`.**
-  - **A MERGE ROLLS THE IMAGE**: `site-owner.mjs` is in the Worker's module
-    graph. Predicted over `5c000598`: **`9038e90ab1d5d7fe`** (188 inputs,
-    158 distinct paths) against main's `369d7b1e5bae25b0`, with
+  - **THE MERGE ROLLED THE IMAGE, AS PREDICTED**: `site-owner.mjs` is in the
+    Worker's module graph. Predicted over `5c000598`: **`9038e90ab1d5d7fe`**
+    (188 inputs, 158 distinct paths) against main's `369d7b1e5bae25b0`, with
     `site-owner.mjs` the one input among the branch's 21 changed files.
     Reverting `origin/main..5c000598` gives main's own tree (`61271c36…`), so
-    a rollback reuses main's image. **D1's paid press waits for the owner's
-    merge, the deploy, and a fresh free rehearsal with both new identifiers.**
+    a rollback reuses main's image.
+  - **MERGED AND DEPLOYED (2026-09-27, owner: *"Close this correction. Once
+    the current tip's CI passes, merge and deploy the reviewed changes"*).**
+    Unit CI on the tip `14df0225` (run 36295887583) read 8,094 / 8,090 / 0 /
+    4; nothing was in flight on GitHub or in `edit_jobs`; the prediction and
+    the rollback tree were re-read against the tip. **A fast-forward**: main
+    `ab74d0d9` → **`14df0225`** at 05:11:56Z, 17 commits, 21 files, so
+    nothing on main could be lost. **Deploy 2163 (`36296506076`)**, success,
+    job 05:12:02 → 05:15:03Z: `DEPLOY_ID`
+    `***4df0225be90e2637764ea3377***d64f4a393b628` (each `***` a masked `1`),
+    the gate took over from `ab74d0d9…`, the image **built
+    `9038e90ab1d5d7fe` and rolled from `369d7b1e5bae25b0`** (the deploy
+    section), the drain found no live leases, `No updated asset files to
+    upload` (so there is no served-file check), `Current Version ID:
+    f89474***c-…`. Gates 401 / 401 / 401 / 404 at 05:15:42Z. **Deployed, not
+    runtime-confirmed**: the live Worker's own sha and a cold container's
+    image are the fresh rehearsal's preflight. **Since the merge, `main`
+    carries the UI mode and both D1 scenarios**, so the canary is dispatched
+    from `main`.
 - **A FULL PAGE FROM THE OWNER ROUTE IS NOT THE TABLE.** It reads at most 200
   rows (`MAX_LIMIT`), so a read of 200 is refused as possibly partial: a
   comparison over part of a table would call the rest unchanged.
@@ -12609,7 +12646,8 @@ ledger holds one reserve of 6 and no refund), read on the balance row at
 **65 → 59, moved 6**, routing 2 + 1 + 2 and one edit of 1, closing exactly, on
 a run that published three times; the ledger holds one reserve of 1 and no
 refund), read on the balance row at 00:45:33Z, and read 59 again by run 40's
-free rehearsal (03:35Z) and on the balance row at 03:43Z.
+free rehearsal (03:35Z), on the balance row at 03:43Z, and on the balance row
+at 05:17:01Z after deploy 2163 (the last ledger row still run 39's reserve).
 **Between run 31 and
 run 32 the balance rose from 1 to 101** (read on the ledger at 18:09Z and by the
 canary before its paid call). **Only the readings are recorded; how it rose is
