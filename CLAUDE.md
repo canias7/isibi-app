@@ -10713,10 +10713,11 @@ The full plan, the expected bodies and the presses are the checklist's
     dropped lane is marked in the trace (`door:dropped`). With nothing left,
     the existing fall-through pushes the router's own step. **A layer the
     helper cannot read keeps NOTHING**: `laneLayer` answers `null` for every
-    lane acted on in this module, so comparing against a `null` layer would
-    keep them all. The `look` door never takes the branch.
-  - **THE MENU RUNG'S HOME RULE** (the bullet above), because the owner's
-    acceptance is that the menu edit removes ONLY the Gallery link.
+    lane the look step acts on itself, so comparing against a `null` layer
+    would keep them all. The `look` door never takes the branch.
+  - **THE MENU RUNG'S HOME RULE** (the ⚠ bullet earlier in this section),
+    because the owner's acceptance is that the menu edit removes ONLY the
+    Gallery link.
   - **THE CANARY.** `5-page-remove`'s second message carries `needs: {step:
     1, layer: "nav"}`, and `dependencyVerdict` lets it go only when message
     1's job stored `ok === true` at `layer === "nav"`; otherwise `runUi`
