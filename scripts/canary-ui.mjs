@@ -180,15 +180,31 @@ export const UI_SCENARIOS = Object.freeze({
   // only as a menu edit, the second only as a page edit, so a misrouted message
   // costs its routing call and changes nothing. The recovery is the restore
   // mode, a separate free press, to the version the before-read saw.
+  //
+  // THE SECOND MESSAGE DEPENDS ON THE FIRST (`needs`), and since run 47 that is
+  // enforced rather than hoped for: it is sent only once the first message's
+  // job stored a menu success. Run 47 sent it after a menu edit that changed
+  // nothing, paid its routing call, and was refused as designed. And the
+  // scenario passes on what its operations did (`removal`, judged by
+  // `removalVerdict`), never on how many replies came back — run 47 printed
+  // "UI MODE PASSED" over two refusals.
   "5-page-remove": Object.freeze({
     site: "fold-lane-bakery",
     // Routing 1-2 for each message, the menu rung's one call about 1, and the
     // removal free (it makes no model call).
     budget: 8,
     layers: Object.freeze(["nav", "page"]),
+    removal: Object.freeze({
+      page: "gallery.tsx",
+      route: "/gallery",
+      link: Object.freeze({ label: "Gallery", href: "/gallery" }),
+    }),
     steps: Object.freeze([
       Object.freeze({ say: "Take Gallery out of the menu.", layers: Object.freeze(["nav"]) }),
-      Object.freeze({ say: "Remove the gallery page.", layers: Object.freeze(["page"]) }),
+      Object.freeze({
+        say: "Remove the gallery page.", layers: Object.freeze(["page"]),
+        needs: Object.freeze({ step: 1, layer: "nav" }),
+      }),
     ]),
   }),
 });
@@ -728,6 +744,25 @@ export function finalReplyOf(step) {
 }
 
 /**
+ * WHETHER A MESSAGE THAT DEPENDS ON AN EARLIER ONE MAY BE SENT: only once that
+ * one's job stored a success at the layer it was sent to do. Everything short
+ * of that — not sent, no reply, no stored reply read, a refusal, a success at
+ * another layer — is a reason, and the dependent message is not sent: its
+ * routing call is billed, and on Test 5 its removal would only be refused.
+ */
+export function dependencyVerdict(steps, needs) {
+  if (!needs) return { ok: true, why: "" };
+  const dep = (Array.isArray(steps) ? steps : []).find((s) => s && s.n === needs.step);
+  if (!dep || !dep.sent) return { ok: false, why: `message ${needs.step} was not sent` };
+  if (!dep.completed) return { ok: false, why: `message ${needs.step}'s reply never came, so whether it did its work is not known` };
+  const fin = finalReplyOf(dep);
+  if (!fin) return { ok: false, why: `no stored reply to message ${needs.step} was read, so whether it did its work is not known` };
+  if (fin.ok !== true) return { ok: false, why: `message ${needs.step} did not do its work (${fin.error || "no error named"})` };
+  if (fin.layer !== needs.layer) return { ok: false, why: `message ${needs.step} succeeded at ${fin.layer || "no layer"}, not at ${needs.layer}` };
+  return { ok: true, why: "" };
+}
+
+/**
  * THE EXACT CLEANUP, IF THE BOOKING WENT IN: the one new row holding every
  * marker value, read again just before it is deleted, deleted through the
  * owner route by its id, and checked. Without the owner's approval nothing is
@@ -958,6 +993,12 @@ export async function runUi(opts) {
       const n = i + 1;
       const r = { n, say: step.say, attach: step.attach || null };
       rec.steps.push(r);
+      // A MESSAGE THAT DEPENDS ON AN EARLIER ONE is sent only once that one
+      // really did its work — never typed, never sent, never billed otherwise.
+      if (step.needs) {
+        r.dependency = dependencyVerdict(rec.steps, step.needs);
+        if (!r.dependency.ok) { stop(`step ${n}`, `${r.dependency.why} — message ${n} depends on it and is NOT sent`); break; }
+      }
       const pre = await until(page, composerReady, pollMs);
       if (!pre.ok) { stop(`step ${n}`, "the composer is not idle, so nothing more is sent"); break; }
       if (step.attach) {
@@ -1161,7 +1202,7 @@ export function describeUi(rec) {
   if (!recovery) out.push(`  opened: ${rec.opened ? `signed in ${rec.opened.signedIn} as ${rec.opened.uid || "?"}${rec.opened.gate ? ", SIGN-IN GATE SHOWN" : ""}` : "no"}  card ${rec.card || "(none)"}`);
   for (const s of rec.steps) {
     out.push(`  ${s.n}. "${s.say}"${s.attach ? `  [attached ${s.attach}${s.file ? `, ${s.file.bytes} b, sha256 ${s.file.sha256.slice(0, 16)}` : ""}${s.attached === false ? ", DID NOT LAND" : ""}]` : ""}`);
-    if (!s.sent) { out.push("     not sent"); continue; }
+    if (!s.sent) { out.push(s.dependency && !s.dependency.ok ? `     not sent: ${s.dependency.why}` : "     not sent"); continue; }
     out.push(`     reply (${Math.round((s.ms || 0) / 1000)} s): ${s.reply ? s.reply.replace(/\n/g, " / ") : "(none)"}`);
     out.push(`     composer after: ${s.usable ? "usable again (took typing, Send live)" : "NOT usable"}  ${JSON.stringify(s.composer)}`);
     const route = (s.network || []).find((e) => e.path === "/api/site/route" && e.res);

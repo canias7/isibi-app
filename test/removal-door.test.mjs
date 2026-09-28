@@ -186,10 +186,41 @@ test("a removal-opened door falls back to the router's own layer, never to the r
     "an empty step list does not put the router's own step back");
   // BOTH of them, or the fall-through is half wired — which is the shape this
   // whole change exists because of.
-  // Its own declaration plus the two climbs, and nothing else. Comments are
-  // blanked above, or this counts the paragraphs that explain it.
-  assert.equal((block.match(/eRemovalDoor/g) || []).length, 3,
-    "`eRemovalDoor` is read somewhere other than the two climbs it was written for");
+  // RE-ANCHORED 2026-09-28: the door also FILTERS the picker's answer now
+  // (`doorLanes`, run 47: the picker named `behavior` on the menu door and the
+  // menu rung never ran), a third read beside the two climbs. So the census is
+  // by LANDMARK rather than by count: every read must be one of the four named
+  // here — the declaration, the filter and the two climbs — and each must be
+  // there. A read nobody listed still fails. Comments are blanked above, or
+  // this counts the paragraphs that explain it.
+  const named = [
+    "const eRemovalDoor = eLooking && eLayer !== \"look\";",
+    "if (eRemovalDoor) {\n",
+    "if (!picked.fields.length && !eRemovalDoor) return explain(\"picker/no-lane\")",
+    "if (eRemovalDoor) steps.push({ layer: eLayer, page: ePage, fields: [], remove: eRemove, rename: eRename })",
+  ];
+  const spans = named.map((n) => {
+    const i = block.indexOf(n);
+    assert.ok(i >= 0, "a named read of `eRemovalDoor` is gone: " + JSON.stringify(n));
+    assert.equal(block.indexOf(n, i + 1), -1, "a named read occurs twice: " + JSON.stringify(n));
+    return [i, i + n.length];
+  });
+  const reads = [...block.matchAll(/eRemovalDoor/g)].map((m) => m.index);
+  assert.equal(reads.length, named.length, "`eRemovalDoor` is read somewhere other than the four places named here");
+  for (const at of reads) {
+    assert.ok(spans.some(([a, b]) => at >= a && at < b),
+      "`eRemovalDoor` is read at offset " + at + ", which is none of the four named reads");
+  }
+  // THE FILTER IS THE DOOR'S AND NOTHING ELSE'S: its block hands the picker's
+  // answer to `doorLanes` with the router's layer and writes both halves back.
+  const filter = block.slice(spans[1][0], block.indexOf("\n              }", spans[1][0]));
+  assert.match(filter, /const door = doorLanes\(picked, eLayer\);/, "the door no longer asks `doorLanes` with the router's layer");
+  assert.match(filter, /picked\.fields = door\.fields;/, "the door's filtered lanes are not what runs");
+  assert.match(filter, /picked\.removes = door\.removes;/, "the door's removals are not narrowed with its lanes");
+  // AND IT SITS WHERE IT MUST: after the picker's own failure, before the
+  // empty-answer climb — so everything below reads the filtered answer.
+  assert.ok(block.indexOf("if (picked.failed) return modelDown(") < spans[1][0] && spans[1][0] < spans[2][0],
+    "the door's filter is not between the picker's answer and the first thing that reads it");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

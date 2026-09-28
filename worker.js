@@ -240,7 +240,7 @@ import { routeMessage, clarifiedBrief, siteDigest, DOOR_LAYERS } from "./builder
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
-import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage, themeNote, landmarkNote, verbLayer, REMOVABLE_LANES, mergePageSteps, pageStepDone, samePageOperation } from "./builder/site-lanes.mjs";
+import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage, themeNote, landmarkNote, verbLayer, REMOVABLE_LANES, mergePageSteps, pageStepDone, samePageOperation, doorLanes } from "./builder/site-lanes.mjs";
 // EVERY WAY THE EDIT ROUTE DECLINES, CLASSIFIED (2026-09-23): rewrite, add-on,
 // hop or explain, one table, and `test/edit-failure.test.mjs` holds the route to it.
 import { editFailure, failureMsg, stepMsg } from "./builder/edit-failure.mjs";
@@ -21408,14 +21408,20 @@ async function handleRequest(request, env, ctx) {
             // best, which is exactly today's behaviour rather than a new
             // failure.
             //
-            // A REMOVAL THAT ARRIVES WRONG COSTS ONE PICKER CALL. `readRemoves`
-            // acts only on lanes `pick_lanes` itself named, so a `remove` flag
-            // set on a message that is not one names nothing and the ask
-            // dispatches to the same rung it would have reached anyway.
+            // A REMOVAL THAT ARRIVES WRONG COSTS ONE PICKER CALL, and since
+            // 2026-09-28 that is true by construction rather than by hope. This
+            // said a `remove` flag on a message that is not one "names nothing"
+            // — and run 47's real picker named `behavior` for a menu removal,
+            // which ran a look step instead of the menu rung. `doorLanes`, just
+            // below the picker call, keeps only lanes that lead back to the
+            // router's own rung, so the ask reaches the rung it would have
+            // reached anyway whatever the picker says.
             const eLooking = eLayer === "look" || (eRemove && DOOR_LAYERS.includes(eLayer));
             // WHETHER THIS ROUTE OPENED THE DOOR RATHER THAN THE ROUTER.
-            // Read twice below, at the two places a picker with nothing to say
-            // would otherwise climb to the revise.
+            // Read three times below: once to keep only the lanes that lead
+            // back to the router's own rung (`doorLanes`, run 47), and at the
+            // two places a picker with nothing to say would otherwise climb to
+            // the revise.
             const eRemovalDoor = eLooking && eLayer !== "look";
             if (eLooking) {
               // ── A NAMED PAGE IS FOUND BEFORE ANYTHING RUNS (2026-09-23) ──
@@ -21448,6 +21454,32 @@ async function handleRequest(request, env, ctx) {
                 { fields: Array.isArray(picked.fields) ? picked.fields : [] });
               pickUsage = picked.usage;
               if (picked.failed) return modelDown(picked.error, "The editor is busy — try again in a moment.");
+              // ── ON THE ROUTER'S OWN REMOVAL DOOR, ONLY THE ROUTER'S RUNG ACTS ──
+              //
+              // Run 47 (2026-09-27): "Take Gallery out of the menu." was routed
+              // `nav` with `remove`, which opens this door, and the picker named
+              // `behavior` — the one lane whose hint mentions a menu, and not one
+              // that edits a menu's items. A look step ran it, it answered
+              // nothing, the route said `look/no-change`, and the menu rung the
+              // router chose never ran. The door is here so a removal can reach
+              // the lane machinery; it was never meant to let the picker overrule
+              // the router's layer, which nothing else in this route allows.
+              //
+              // SO ONLY A LANE THAT LEADS BACK TO THE ROUTER'S RUNG STAYS —
+              // `action` on `nav`, `images` on `picture` — exactly as picked, and
+              // everything else is dropped HERE: before the refusals, the addon
+              // wall, the `pages` fold and the plan read the answer. With nothing
+              // left, the fall-through at the bottom of this block runs the
+              // router's own step, as it always has for an empty answer. `look`
+              // never comes through this condition, so its lanes, its refusals
+              // and its walls are untouched. The picker call is still made and
+              // billed; what it cannot do any more is send the message elsewhere.
+              if (eRemovalDoor) {
+                const door = doorLanes(picked, eLayer);
+                if (door.dropped.length) editTrace.mark("door:dropped", "ok", { fields: door.dropped, layer: eLayer });
+                picked.fields = door.fields;
+                picked.removes = door.removes;
+              }
               // A DOOR THIS ROUTE OPENED ITSELF NEVER ESCALATES FOR BEING WRONG.
               //
               // `no-lane` used to climb to the ~25-credit revise, read as the

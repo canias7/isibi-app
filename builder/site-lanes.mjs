@@ -1229,6 +1229,42 @@ export function readRemoves(reply, picked = []) {
 }
 
 /**
+ * ON A DOOR THE ROUTER OPENED FOR ITS OWN REMOVAL, ONLY THE ROUTER'S RUNG ACTS
+ * (2026-09-28, run 47).
+ *
+ * The edit route opens the lane picker for a `nav` or `picture` message the
+ * router marked `remove`, so the removal can reach the lane machinery. The
+ * picker then answers from the whole lane list, and on run 47 it named
+ * `behavior` for "Take Gallery out of the menu." — the one lane whose hint
+ * mentions a menu, and not one that edits a menu's items. A look step ran it,
+ * it answered nothing, and the menu rung the router chose never ran.
+ *
+ * So the answer is scoped to the router's layer: a lane stays only when it
+ * dispatches to that same rung (`action` on `nav`, `images` on `picture`), and
+ * it stays exactly as picked. Everything else is DROPPED and named, never run.
+ * The removals are scoped with it, because `readRemoves` promises they are a
+ * subset of what was picked, and every reader below leans on that promise.
+ *
+ * A layer this cannot read keeps NOTHING. `laneLayer` answers `null` for every
+ * lane this module acts on itself, so comparing against a `null` layer would
+ * keep all of them — the diversion this exists to stop.
+ */
+export function doorLanes(picked, layer) {
+  const fields = picked && Array.isArray(picked.fields) ? picked.fields : [];
+  const keep = typeof layer === "string" && layer ? fields.filter((f) => laneLayer(f) === layer) : [];
+  const r = (picked && picked.removes) || {};
+  return {
+    fields: keep,
+    removes: {
+      remove: (Array.isArray(r.remove) ? r.remove : []).filter((f) => keep.includes(f)),
+      refused: (Array.isArray(r.refused) ? r.refused : []).filter((x) => x && keep.includes(x.field)),
+      pages: !!r.pages && keep.includes("pages"),
+    },
+    dropped: fields.filter((f) => !keep.includes(f)),
+  };
+}
+
+/**
  * The verb, the page and the destination — refused down to shapes we can use.
  *
  * REFUSED, NEVER DEFAULTED. A `pages` ask whose verb we cannot read escalates,

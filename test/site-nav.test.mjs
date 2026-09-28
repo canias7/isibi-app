@@ -149,6 +149,30 @@ test("THE HOME PAGE DOES NOT LINK TO ITSELF — measured, 1 of 93 in the corpus"
   assert.deepEqual(book, [{ label: "Home", href: "/" }, { label: "Book", href: "/book" }]);
 });
 
+test("A HOME PAGE THAT ALREADY LISTS ITSELF KEEPS THAT ITEM — the rule stops a gain, never forces a loss", () => {
+  // fold-lane-bakery (2026-09-28): the home menu reads "Today's bake → /", and
+  // the rule dropped `/` from every home-page menu, so "Take Gallery out of the
+  // menu" took "Today's bake" off too. A slot keeps `/` exactly when it had it.
+  const listed = `{ label: "Today's bake", href: "/" }, { label: "Visit", href: "/visit" }, { label: "Gallery", href: "/gallery" }`;
+  const pages = [page("index.tsx", listed), page("visit.tsx", listed)];
+  const wanted = [{ label: "Today's bake", href: "/" }, { label: "Visit", href: "/visit" }];
+  const { pages: next } = applyNav(pages, wanted);
+  for (const p of next) assert.deepEqual(navSlots([p])[0].items, wanted, p.path + " did not get exactly the asked-for menu");
+  // …and the new list still decides: asked to take the item off, it goes.
+  const { pages: gone } = applyNav(pages, [{ label: "Visit", href: "/visit" }]);
+  assert.deepEqual(navSlots([gone.find((p) => p.path === "index.tsx")])[0].items, [{ label: "Visit", href: "/visit" }]);
+  // PER SLOT, not per page: a second menu on the home page that did not list
+  // itself still does not gain the item.
+  const two = {
+    path: "index.tsx",
+    source: `<A links={[${listed}]} />\n<B links={[{ label: "Visit", href: "/visit" }]} />`,
+  };
+  const slots = navSlots(applyNav([two], wanted).pages);
+  assert.equal(slots.length, 2);
+  assert.deepEqual(slots[0].items, wanted, "the menu that listed the home page lost it");
+  assert.deepEqual(slots[1].items, [{ label: "Visit", href: "/visit" }], "a home-page menu gained a link to itself");
+});
+
 test("a page whose own route it already lists keeps listing itself", () => {
   const pages = [page("book.tsx", NAV)];
   const { pages: next } = applyNav(pages, [{ label: "Book", href: "/book" }]);

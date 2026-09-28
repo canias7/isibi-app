@@ -14,7 +14,7 @@ import {
   UI_SCENARIOS, SESSION_KEY, readUiScenario, composerReady, newReplies, budgetRefusal,
   imageFacts, recordableRequest, recordsBody, blocksPost, chainVerdict, runUi, describeUi,
   wallRefusal, requestVerdict, storedReplyVerdict, moneyVerdict, unpublishedVerdict, routeCostsOf,
-  conditionProbe,
+  conditionProbe, dependencyVerdict, finalReplyOf,
 } from "../scripts/canary-ui.mjs";
 import { probeBody } from "../scripts/canary-rows.mjs";
 import { readAllow, bookingBodyVerdict, EVIDENCE_BOUNDARY } from "../scripts/canary-rules.mjs";
@@ -954,7 +954,12 @@ test("the canary refuses a bad scenario before it signs in, and runs the mode be
   // The chain and the money follow every job a message filed, a hand-off's included.
   assert.match(win, /s\.jobs/, "the chain follows only the first job a message filed");
   assert.doesNotMatch(win, /s\.job\b(?!s)/, "the chain still reads a message's first job alone");
-  assert.match(CANARY, /import \{ readUiScenario, runUi, describeUi, chainVerdict \} from "\.\/canary-ui\.mjs"/);
+  // THE PROPERTY IS WHAT IS IMPORTED, NOT HOW THE LINE IS SPELLED (2026-09-28):
+  // this pinned the whole import line, and an honest fifth name — the stored
+  // reply's reader, for Test 5's verdict — read as the four going missing.
+  const fromUi = [...CANARY.matchAll(/import \{([^}]*)\} from "\.\/canary-ui\.mjs"/g)].flatMap((m) => m[1].split(",").map((x) => x.trim()).filter(Boolean));
+  assert.ok(fromUi.length >= 4, "the canary's imports from the UI module were not found");
+  for (const name of ["readUiScenario", "runUi", "describeUi", "chainVerdict"]) assert.ok(fromUi.includes(name), `the canary does not import ${name}`);
 });
 
 test("the workflow carries the mode and installs the browser only for it, before the step that launches it", () => {
@@ -1583,7 +1588,14 @@ test("Test 5 is two messages on the bakery, the menu first and then the page, ea
   // Nothing here changes a row, closes a table or claims to publish nothing.
   for (const k of ["row", "rules", "publishes", "attach"]) assert.equal(T5[k], undefined, `the scenario carries ${k}`);
   assert.ok(T5.steps.every((s) => !s.attach), "a message carries a file");
-  for (const o of [T5, T5.steps, T5.layers, ...T5.steps, ...T5.steps.map((s) => s.layers)]) {
+  // THE REMOVAL DEPENDS ON THE MENU EDIT, and the dependency is declared, not
+  // left to the order of the list: message 2 is sent only once message 1's job
+  // stored a menu success.
+  assert.equal(T5.steps[0].needs, undefined, "the first message depends on nothing");
+  assert.deepEqual({ ...T5.steps[1].needs }, { step: 1, layer: "nav" });
+  // And the scenario says what a removal IS, so it passes on the operations.
+  assert.deepEqual({ ...T5.removal, link: { ...T5.removal.link } }, { page: "gallery.tsx", route: "/gallery", link: { label: "Gallery", href: "/gallery" } });
+  for (const o of [T5, T5.steps, T5.layers, ...T5.steps, ...T5.steps.map((s) => s.layers), T5.steps[1].needs, T5.removal, T5.removal.link]) {
     assert.ok(Object.isFrozen(o), "the scenario can be changed at run time");
   }
   assert.equal(readUiScenario("5-page-remove", "fold-lane-bakery").ok, true);
@@ -1660,6 +1672,106 @@ test("the driver walls each message to its own layers from the moment it is sent
     "an edit at the page layer, which this scenario does not allow",
     "an edit at the nav layer, which this scenario does not allow",
   ]);
+  // The removal went out because the menu message's job stored a menu success.
+  assert.deepEqual(rec.steps[1].dependency, { ok: true, why: "" });
+});
+
+// ── THE SECOND MESSAGE WAITS FOR THE FIRST TO HAVE DONE ITS WORK ─────────────
+//
+// Run 47 sent "Remove the gallery page." after a menu edit that had answered
+// `look/no-change`: it paid its routing call and was refused `kept`, as
+// designed, and the harness printed "UI MODE PASSED". A dependent message is
+// now sent only once the message it depends on stored a success at its layer.
+
+const RUN47_MENU = { ok: false, error: "no-change", cost: 0, unchanged: true, msg: "I couldn't work out how to change the site's look that way. Say which part — a colour, the fonts, a section — and what it should look like." };
+const stepWith = (n, reply, extra = {}) => ({
+  n, sent: true, completed: true,
+  network: reply === undefined ? [] : [{ method: "GET", path: "/api/site/edit/j", status: 200, final: true, res: reply }],
+  ...extra,
+});
+
+test("a dependent message may go only once the one it needs stored a success at that message's layer", () => {
+  const needs = T5.steps[1].needs;
+  assert.deepEqual(dependencyVerdict([], null), { ok: true, why: "" });
+  assert.deepEqual(dependencyVerdict([stepWith(1, { ok: true, layer: "nav", links: [] })], needs), { ok: true, why: "" });
+  for (const [steps, why] of [
+    [[], /message 1 was not sent/],
+    [[{ n: 1, sent: false }], /message 1 was not sent/],
+    [[stepWith(1, { ok: true, layer: "nav" }, { completed: false })], /reply never came/],
+    [[stepWith(1, undefined)], /no stored reply/],
+    // RUN 47'S OWN MENU REPLY, verbatim.
+    [[stepWith(1, RUN47_MENU)], /did not do its work \(no-change\)/],
+    [[stepWith(1, { ok: true, layer: "look" })], /succeeded at look, not at nav/],
+    [[stepWith(1, { ok: true })], /succeeded at no layer/],
+    // Truthiness is not a success: the edit reader's own rule.
+    [[stepWith(1, { ok: "true", layer: "nav" })], /did not do its work/],
+  ]) {
+    const v = dependencyVerdict(steps, needs);
+    assert.equal(v.ok, false, JSON.stringify(steps));
+    assert.match(v.why, why);
+  }
+  // The stored reply is the LAST final answer the page read (a hop's own job).
+  const hop = stepWith(1, { ok: false, escalate: true, layer: "nav" });
+  hop.network.push({ method: "GET", path: "/api/site/edit/k", status: 200, final: true, res: { ok: true, layer: "nav" } });
+  assert.deepEqual(finalReplyOf(hop), { ok: true, layer: "nav" });
+  assert.equal(dependencyVerdict([hop], needs).ok, true);
+});
+
+test("RUN 47's SHAPE: the menu message answers no-change, so the removal is never typed or sent, and the run says why", async () => {
+  const h = standIn({
+    routed: (n) => ({ ok: true, intent: "edit", layer: ["nav", "page"][n], cost: 2 }),
+    editBody: (n, said) => ({ layer: ["nav", "page"][n], instruction: said }),
+    reply: () => RUN47_MENU,
+  });
+  const rec = await drive(h, { scenario: T5 });
+  assert.equal(rec.sent, 1, "the dependent message was sent");
+  assert.equal(h.calls.filter((c) => c === "click #stSend").length, 1);
+  assert.ok(!h.calls.includes("fill " + T5_REMOVE), "the removal was typed");
+  assert.equal(rec.stopped.at, "step 2");
+  assert.match(rec.stopped.msg, /message 1 did not do its work \(no-change\) — message 2 depends on it and is NOT sent/);
+  assert.equal(rec.steps[1].sent, undefined);
+  assert.deepEqual(rec.steps[1].dependency, { ok: false, why: "message 1 did not do its work (no-change)" });
+  // THE EVIDENCE IS KEPT: the first message's routing call, its edit and its
+  // job's stored reply are all on the record.
+  const net = rec.steps[0].network;
+  assert.ok(net.some((e) => e.path === "/api/site/route" && e.method === "POST"));
+  assert.ok(net.some((e) => /\/edit$/.test(e.path) && e.method === "POST"));
+  assert.deepEqual(finalReplyOf(rec.steps[0]), RUN47_MENU);
+  // Only ONE routing call was made in the whole run: nothing billed for message 2.
+  assert.equal(rec.network.filter((e) => e.path === "/api/site/route").length, 1);
+  const told = describeUi(rec);
+  assert.match(told, /not sent: message 1 did not do its work \(no-change\)/);
+  assert.match(told, /STOPPED at step 2/);
+});
+
+test("the canary judges Test 5 by its operations — each stored reply, the chain, both source reads and the old address — and keeps the verdict", () => {
+  const branch = CANARY.indexOf("if (UI_ASK) {");
+  const gate = CANARY.indexOf("if (!SPEND)");
+  assert.ok(branch > 0 && gate > branch, "the mode's branch or the spend gate is gone");
+  const win = CANARY.slice(branch, gate);
+  const sentGate = win.indexOf("if (SPEND && ui.sent) {");
+  const chainAt = win.indexOf("chain = chainVerdict(");
+  const at = win.indexOf("if (UI_ASK.scenario.removal) {");
+  const end = win.indexOf("if (UI_ASK.scenario.publishes === 0)", at);
+  // Inside the paid branch whenever ANY message was sent, after the chain: a
+  // run the gate stopped at message 2 still records why it did not pass.
+  assert.ok(sentGate > 0 && chainAt > sentGate && at > chainAt && end > at, "the removal is not judged after the chain, inside the paid branch");
+  const block = win.slice(at, end);
+  assert.match(block, /removalVerdict\(/, "the removal is never judged");
+  assert.match(block, /ui\.steps\[i\] && ui\.steps\[i\]\.sent \? finalReplyOf\(ui\.steps\[i\]\) : null/,
+    "the replies are not each message's own stored reply, or a message that was never sent reads as one");
+  assert.match(block, /\bchain,/, "the chain is not handed to the verdict");
+  assert.match(block, /complete: BEFORE\.readsComplete === true/, "the before-read's completeness is not carried");
+  assert.match(block, /complete: after\.readsComplete === true/, "the after-read's completeness is not carried");
+  assert.match(block, /redirect: "manual"/, "the old address is read by following its redirect");
+  assert.match(block, /for \(const c of removal\.checks\) check\(c\.name, c\.ok, c\.why\)/, "a removal check does not fail the run");
+  // KEPT: ui.json carries the verdict, and ui.txt says whether the removal happened.
+  const write = win.slice(win.indexOf("writeFileSync(`${EVID}/ui.json`"));
+  assert.match(write, /chain, removal \}/, "ui.json does not carry the removal verdict");
+  assert.match(write, /page removal \$\{removal\.ok \? "HAPPENED" : "DID NOT HAPPEN"\}/, "ui.txt does not say whether the removal happened");
+  assert.match(CANARY, /import \{ removalVerdict \} from "\.\/canary-remove\.mjs"/);
+  // The evidence upload runs on a failed run too.
+  assert.match(FLOW, /- name: keep the evidence\n\s+if: always\(\)/, "the evidence is not kept when the run fails");
 });
 
 test("a rehearsal of Test 5 types the menu message and sends nothing, behind the scenario's own list", async () => {

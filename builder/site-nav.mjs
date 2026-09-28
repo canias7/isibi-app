@@ -994,10 +994,19 @@ function hrefProblem(href, known) {
 /**
  * Write one menu into every slot on every page.
  *
- * THE HOME PAGE DOES NOT LINK TO ITSELF, and that is the single exception —
- * measured, not chosen: across the 93 families with a nav, `index.tsx` lists
- * `/` in exactly ONE. The convention is overwhelming and writing "Home" onto
- * every home page would be a visible change nobody asked for.
+ * THE HOME PAGE DOES NOT GAIN A LINK TO ITSELF, and that is the single
+ * exception — measured, not chosen: across the 93 families with a nav,
+ * `index.tsx` lists `/` in exactly ONE. The convention is overwhelming and
+ * writing "Home" onto every home page would be a visible change nobody asked
+ * for.
+ *
+ * ⚠ AND IT DOES NOT LOSE ONE IT ALREADY HAS (2026-09-28). The rule dropped `/`
+ * from every home-page menu, so on a site whose home page lists itself
+ * (fold-lane-bakery's "Today's bake → /") ANY menu edit took that item off —
+ * "Take Gallery out of the menu" removed two items. That is the same visible
+ * change nobody asked for, in the other direction. So a slot on the home page
+ * keeps `/` exactly when it listed `/` before; the new list still decides
+ * whether `/` is there at all, so asking for the item to go still takes it off.
  *
  * NO SUCH RULE FOR ANY OTHER PAGE, deliberately. There the corpus is split — 31
  * of 209 pages list themselves — so there is no convention to preserve, and
@@ -1021,11 +1030,15 @@ export function applyNav(pages, links) {
   const next = (Array.isArray(pages) ? pages : []).map((p) => {
     const mine = byPage.get(p && p.path);
     if (!mine || !mine.length) return p;
-    const forHere = p && routeOf(p.path) === "/" ? list.filter((it) => it.href !== "/") : list;
-    const body = renderNav(forHere);
+    const home = routeOf(p.path) === "/";
+    const without = renderNav(list.filter((it) => it.href !== "/"));
+    const whole = renderNav(list);
     let src = p.source;
     for (const s of [...mine].sort((a, b) => b.at - a.at)) {
-      src = src.slice(0, s.at) + body + src.slice(s.to);
+      // PER SLOT: each menu on the home page keeps its own link to `/` only
+      // when it already had one. Every other page takes the list as it is.
+      const self = !home || s.items.some((it) => it.href === "/");
+      src = src.slice(0, s.at) + (self ? whole : without) + src.slice(s.to);
     }
     if (src === p.source) return p;
     changed.push(p.path);

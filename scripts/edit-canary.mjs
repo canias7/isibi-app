@@ -43,11 +43,14 @@ import { readRestoreId, restoreFlow, describeRestore } from "./canary-restore.mj
 // THE UI MODE. Its own module, for the reason the other modes have theirs: what
 // it will send, and where it stops, is decided there and driven by tests. It
 // loads a browser only when a scenario is named, so an ordinary run never does.
-import { readUiScenario, runUi, describeUi, chainVerdict } from "./canary-ui.mjs";
+import { readUiScenario, runUi, describeUi, chainVerdict, finalReplyOf } from "./canary-ui.mjs";
 // AND ITS VERDICTS FOR A SCENARIO THAT CHANGES A ROW (Test 4b's D1): what left
 // the page, what the job stored, the money and the publish that must not have
 // happened — each decided in the module, where tests drive it.
 import { requestVerdict, storedReplyVerdict, moneyVerdict, unpublishedVerdict, routeCostsOf } from "./canary-ui.mjs";
+// TEST 5: a page removal is judged by what its operations did, never by how
+// many replies came back.
+import { removalVerdict } from "./canary-remove.mjs";
 import { OWNER_ROWS_LIMIT } from "./canary-rows.mjs";
 import { publishedVersion } from "./canary-watch.mjs";
 // AND THE RULES TEST'S (lido-axes-b): its approvals, its readers' verdicts, and
@@ -798,6 +801,7 @@ if (UI_ASK) {
     console.log(`\n  ${EVIDENCE_BOUNDARY}`);
   }
   let chain = null;
+  let removal = null;
   if (SPEND && ui.sent) {
     // THE OLDER LAYOUT (a site published before the versioned builds) serves no
     // version header, so there is no version to wait for and no chain to walk:
@@ -868,6 +872,29 @@ if (UI_ASK) {
     // row, the after-read at the before-read's version); the balance's move
     // must be exactly the routing calls' costs plus what each job's row and
     // the ledger both say it took.
+    // A PAGE REMOVAL PASSES ON WHAT ITS OPERATIONS DID: each job's stored
+    // reply, the chain of publishes, the stored source before and after, and
+    // the old address read without following redirects. Taken whether or not
+    // both messages were sent, so a stopped run records why it did not pass.
+    if (UI_ASK.scenario.removal) {
+      const rm = UI_ASK.scenario.removal;
+      let address = null;
+      try {
+        const x = await fetch(`${BEFORE.origin}${rm.route}`, { redirect: "manual", headers: { "cache-control": "no-cache" } });
+        address = { status: x.status, location: String(x.headers.get("location") || "") };
+      } catch { address = null; }
+      removal = removalVerdict({
+        spec: rm,
+        replies: UI_ASK.scenario.steps.map((_, i) => (ui.steps[i] && ui.steps[i].sent ? finalReplyOf(ui.steps[i]) : null)),
+        chain,
+        before: { ...BEFORE.source, complete: BEFORE.readsComplete === true },
+        after: after ? { ...after.source, complete: after.readsComplete === true } : null,
+        address, origin: BEFORE.origin,
+      });
+      removal.address = address;
+      console.log("");
+      for (const c of removal.checks) check(c.name, c.ok, c.why);
+    }
     if (UI_ASK.scenario.publishes === 0) {
       check("the message filed exactly one job", jobs.length === 1, jobs.join(", ") || "none");
       if (legacy) {
@@ -891,8 +918,9 @@ if (UI_ASK) {
   mkdirSync(EVID, { recursive: true });
   // THE RULES RECORD IS WRITTEN WITH ROW IDS AND NEVER ROW CONTENTS: a
   // booking table's rows are its visitors' names and numbers.
-  writeFileSync(`${EVID}/ui.json`, JSON.stringify({ scenario: UI_ASK.name, spend: SPEND, ui: ui.rules ? { ...ui, rules: rulesRecordable(ui.rules) } : ui, chain }, null, 2));
-  writeFileSync(`${EVID}/ui.txt`, told + (chain ? `\n  chain ${chain.verified ? "VERIFIED" : "UNVERIFIED (" + chain.why + ")"}\n` : "\n"));
+  writeFileSync(`${EVID}/ui.json`, JSON.stringify({ scenario: UI_ASK.name, spend: SPEND, ui: ui.rules ? { ...ui, rules: rulesRecordable(ui.rules) } : ui, chain, removal }, null, 2));
+  writeFileSync(`${EVID}/ui.txt`, told + (chain ? `\n  chain ${chain.verified ? "VERIFIED" : "UNVERIFIED (" + chain.why + ")"}\n` : "\n")
+    + (removal ? `  page removal ${removal.ok ? "HAPPENED" : "DID NOT HAPPEN"}\n${removal.checks.map((c) => `    ${c.ok ? "ok  " : "FAIL"}  ${c.name}${c.ok ? "" : " — " + c.why}`).join("\n")}\n` : ""));
   console.log(`\n${failed ? "UI MODE FAILED" : "UI MODE PASSED"}: ${ui.sent} message${ui.sent === 1 ? "" : "s"} sent${ui.stopped ? `; stopped at ${ui.stopped.at}` : ""}`);
   process.exit(failed ? 1 : 0);
 }
