@@ -57,6 +57,39 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-28 — Test 6's paid run (run 52): the new search description is live; the Visit page change was put off to a later turn; the restore is yours to press
+
+**What you asked for, in one message**: a new default search description,
+and, on the Visit page only, the "Order a collection so we hold a loaf" band
+moved above "Come to the bakery".
+
+**What happened:**
+- **The description is done, exactly.** The site's settings hold the new
+  sentence, and the home page and the starter page now show it to Google and
+  in link previews. The Visit, Gallery and Order pages kept their own
+  descriptions, and nothing else in any page's head changed.
+- **The Visit page was not changed.** The part of the builder that reads a
+  message first decided it held two separate changes. It did the first and put
+  the Visit move off to a later turn. The reply says so: "I only did one thing
+  this time. Say “on the Visit page only, put the … band above …” and I’ll do
+  that next."
+- **Everything else is as it was**: the other pages, the menus and links, and
+  the photographs, checked in a real browser with no errors.
+- **The redirect fix worked live for the first time.** The publish kept
+  /the-starter → /starter, checked at once and again ten minutes later.
+- **It cost 3 credits**: 2 to read the message and 1 for the description,
+  under the 5–6 estimated. The balance is 42.
+
+**One thing found, kept separate** (it's in the backlog). Although the move was
+put off, the builder still tried it, on the home page, because the put-off
+part was the only part that named a page. It changed nothing and cost
+nothing, but it added a confusing line to the reply: "⚠️ I read the / page and
+couldn't find a change to make for that." Whether the builder should do both
+changes in one turn, or simply not try the put-off half, is your call.
+
+**Next**: the free restore to `8btpep`, which also puts the old description
+back. Then Test 6 is yours to review.
+
 ## 2026-09-28 — Your free check (run 51) confirms deployment 2165 on the live server; Test 6's paid run is ready for your approval
 
 **Deployment 2165 is confirmed.** Your free press (run 51, 22:57 UTC, from the

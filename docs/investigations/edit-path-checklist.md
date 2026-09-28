@@ -21,7 +21,8 @@ the owner's free press, run 51, at 22:57 UTC):
 - a publish now carries the redirects the previous one stored, and a removed
   page gets its own 301 home;
 - it is proven through the real edit route and dispatcher with supplied answers
-  (4 cases), and its first live exercise is the next publish;
+  (4 cases), and run 52's publish kept the bakery's stored redirect live, read
+  at once and ten minutes later;
 - it preserves saved mappings from now on and reconstructs none.
 
 **Proven live** (credited; not to be rerun)
@@ -49,14 +50,16 @@ the owner's free press, run 51, at 22:57 UTC):
   address and the text rung (2026-09-01 to 09-07).
 
 **Outstanding acceptance** (not yet shown live; each has controlled tests)
-1. **The redirect fix live**: the next publish of a site keeping its stored
-   redirects, and a removed page answering 301 home. Test 6 (prepared, below)
-   covers the first half.
+1. **The redirect fix live**: the first half, a publish keeping a site's
+   stored redirects, was shown by Test 6's paid run (run 52, below), pending
+   the owner's review. A removed page answering 301 home is still outstanding.
 2. **A protection refusing a real model's answer**: the photograph wall, the
    link and component judge, the text guard, reply validation and the failure
    classification. Live, each has only let a correct answer through.
 3. **Two changes in one message**, which is two separate items:
-   - **through the look door**: Test 6 (prepared, below) covers it;
+   - **through the look door**: not shown by Test 6's paid run (run 52). The
+     live router put the second change off to a later turn (`alsoAsked`), so
+     only the site description shipped;
    - **through the removal door, with a real model**: a `nav` or `picture`
      removal given other work, where the picker is told the routed change and
      lists anything else separately. Only supplied answers have exercised it.
@@ -64,8 +67,8 @@ the owner's free press, run 51, at 22:57 UTC):
      this door, so it stays outstanding whatever Test 6 shows.
 
    A second message after a hop or a failure is outstanding too.
-4. **A named page other than the home page** on a look edit. Test 6
-   (prepared, below) covers it.
+4. **A named page other than the home page** on a look edit. Not shown by
+   run 52: the router put the Visit half off and named no page.
 5. **The data rung beyond one row**: adding, removing or reordering rows, and a
    site whose database link is blank.
 6. **The rules rung beyond one closing**: reopening, closing by taking write
@@ -98,6 +101,9 @@ stylesheet scope and rule keys (deploy 2161).
   - the rules reply's literal asterisks;
   - a literal heading naming its whole section whether or not it renders;
   - a reply saying a second part was not done when it was (`alsoAsked`);
+  - its mirror, found by run 52: a half the router put off (`alsoAsked`) is
+    still attempted, on the home page, and the reply says both that the home
+    page could not be changed and that the put-off change comes next;
   - a multi-step look reply naming the look change and not a page change made
     beside it (review #9). Test 6's reply is expected to show it, and it is
     judged separately from that test;
@@ -106,7 +112,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Test 6 — two changes in one message, one on a named page (prepared 2026-09-28, request clarified the same evening; the free check, run 51, passed; nothing paid)
+## Test 6 — two changes in one message, one on a named page (prepared 2026-09-28, request clarified the same evening; the free check, run 51, passed; the paid run, run 52, shipped the description, and the router put the Visit move off to a later turn; the restore is pending)
 
 Owner, 2026-09-28: *"prepare one bounded test combining two requested changes
 in one message, ideally also covering a named non-home page. Use an existing
@@ -462,6 +468,80 @@ bytes, sha256 `3bb2190d…`).
 - **Money**: the run read a balance of 45, and so does the table; the newest
   ledger row is still 333 (run 49's reserve). Nothing was charged.
 - No edit job is left in flight on the bakery.
+
+### Run 52 — the paid run: the description shipped, and the router put the Visit move off to a later turn (2026-09-28)
+
+Pressed by the owner from the branch at `db7080f4` with the values in press 2
+([run 36497835327](https://github.com/canias7/isibi-app/actions/runs/36497835327),
+23:24–23:29 UTC; the evidence artifact is 46,305 bytes, sha256
+`10c6d592…`). The preflight read deploy `f5e941f494fd` and image
+`8a10715339cdc780` again, and every free check passed.
+
+**What ran**
+- **The router** (22.8 s, 2 credits): `intent: edit`, `layer: look`, **no
+  page**, and `alsoAsked`: "on the Visit page only, put the "Order a
+  collection so we hold a loaf" band above "Come to the bakery"". It read the
+  move as a second change to another part of the site and put it off: one
+  change per turn, as its tool description says.
+- **The job** (`c7aab7629f77c268144699842781e18c`; its stored reply came
+  209.8 s after the post): the picker named `description` and `shape`. The
+  description lane wrote the new sentence. The `shape` step went to the page
+  rung on `/`, because no page was named, and answered `page/no-change`. One
+  publish, `01790637993219-u51eu0`, built from `8btpep`.
+- **The reply**, through the browser's own composer: "✅ Updated the look — the
+  description. ⚠️ I read the / page and couldn't find a change to make for
+  that. Say what should look different, or which section you mean.", then "I
+  only did one thing this time. Say “on the Visit page only, put the "Order a
+  collection so we hold a loaf" band above "Come to the bakery"” and I’ll do
+  that next."
+
+**Acceptance, judged on what was stored and published**
+1. **The request**: `request.json` carries sha256 `484b3feb…`. Holds.
+2. **The description**: stored exactly (the original before, the new sentence
+   after); `/` and `/starter` publish it in `description` and
+   `og:description`; `/visit`, `/gallery` and `/order` keep their own; every
+   other head tag on the five pages is identical. Holds.
+3. **The band move**: **not made.** `visit.tsx` is still the before-page
+   (`bdb02abe…`), not the expected swap (`35b008fd…`), and `/visit` still reads
+   "Come to the bakery", "The shutters and the street", "Order a collection so
+   we hold a loaf". **Fails.**
+4. **Everything else preserved**: the other four stored pages are
+   byte-identical, and there are still no components; every page's menus and
+   links are identical; a real Chromium renders all five pages exactly as
+   before (headings, sections, buttons, colours and text; every photograph
+   loaded; 0 page errors). Holds.
+5. **Redirects**: the publish kept the stored redirect, the redirect fix's
+   first live use. Read at 23:29:12, as the new version went live, and at
+   23:39:30: `/the-starter`, `?x=1` and the trailing slash answer 301 to
+   `/starter` with `public, max-age=600`; all five routes answer 200 at the new
+   version; the sitemap lists the same five; `/nonexistent-page` answers 404.
+   Holds.
+6. **One publish**: `01790637993219-u51eu0` from `8btpep`, and the comparison
+   reads VERIFIED. Holds.
+7. **Money**: 3 credits, closing exactly: the routing call 2 (45 → 43) and the
+   job's one reserve of 1 (ledger row 334, `c7aab762…#1`, balance 42); no
+   refund; the job reads `done`, `finalized`, cost 1. The plan expected two
+   reserves; the page step changed nothing and charged nothing. Holds.
+
+**Inspected**: the QR file is byte-identical; `/card.png` changed, as
+expected (33,358 bytes, sha256 `467d9cdb…`); every page's build files, the
+stylesheet among them, are unchanged.
+
+**Against the outcomes decided in advance**: this is the router leaving
+`page` out, in its one-change-per-turn form. Nothing reached the wrong page,
+because the home page's writer found nothing to change. So **item 3 through
+the look door and item 4 were not shown**, and item 1's first half (a publish
+keeping stored redirects) was. The reply's tail is accurate about the move; the
+⚠️ sentence before it is the finding below.
+
+**Found, recorded separately** (`docs/backlog.md`): when the router puts half
+of a message off (`alsoAsked`), the job is still sent the whole message. The
+picker picked a lane for the put-off half and ran it on the home page, because
+the only page named belonged to that half. It changed nothing and cost nothing
+more, but the reply tells the customer both that the home page could not be
+changed and that the move comes next.
+
+**Next**: the free restore to `8btpep` (press 3), then the owner's review.
 
 ### A visible alternative, not recommended
 

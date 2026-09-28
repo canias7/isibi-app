@@ -39,33 +39,33 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   press, run 51** (22:57 UTC, from the branch on `fold-lane-bakery`): both
   readers answer `f5e941f494fd`, a cold container gets `8a10715339cdc780`, and
   queued jobs and the runner are on. It carries the redirect fix (a publish
-  reads the stored sidecar through `manifestFromCsv`); the next real publish is
-  its first live use, and redirects dropped between 2026-08-17 and this deploy
-  are not rebuilt.
+  reads the stored sidecar through `manifestFromCsv`): run 52's publish kept
+  the bakery's stored redirect, read at once and ten minutes later. Redirects
+  dropped between 2026-08-17 and this deploy are not rebuilt.
 - **The branch `claude/help-needed-ehlwlj`** is ahead of `main` by the canary's
   read of the description stored in a site's settings (`2a7767cc`:
   `readStoredHead`, the app's own SEO route read in every inventory) and by
   documents. None of it deploys; a press from the branch runs the branch's
   script against main's Worker.
-- **Balance 45** on the building account, read by run 51 (22:57 UTC) and in
-  the ledger; the newest ledger row is still 333, run 49's menu edit. The unit
-  suite is **8,207** at `f08c3ba1`.
+- **Balance 42** on the building account after run 52 (23:25 UTC): routing 2
+  and the job's reserve of 1, ledger row 334. The unit suite is **8,207** at
+  `f08c3ba1`.
 - **Closed by the owner, not to be repeated**: live test 2 (run 32); Test 3
   (run 34) with the stylesheet corrections (deploy 2161); the kit-heading fix
   (2162); Test 4a (runs 37 and 39); Test 4b's D1 (run 42) and the conditional
   recovery write (2163); the scoped rules acceptance (run 44 — `lido-axes-b`'s
   bookings stay closed); Test 5's page removal (run 49) and restoration (run 50)
   with the removal-door correction (2164).
-- **Next: Test 6, PREPARED and not dispatched; its free check passed (run
-  51)** — two changes in one message on `fold-lane-bakery` through the existing
-  canary: the site's default search description, then a band moved on the
-  Visit page only. Run 51 read the fixture unchanged and the stored description
-  equal to the published default. The frozen sentence
-  (358 characters, sha256 `484b3feb…`), the acceptance judged on what was
-  stored and published, the restore to `01790468089054-8btpep` and the paid
-  inputs are the checklist's *Test 6*. About 5–6 credits, up to about 10, when
-  the owner approves. It covers mixed work through the look door only;
-  **real-model mixed work through the removal door stays outstanding.**
+- **Test 6: the paid run (run 52) shipped half; the restore is pending** —
+  one message asking for a new default search description and a band moved on
+  the Visit page. The description was stored and published exactly,
+  everything else was kept, and the publish kept the stored redirect. The live
+  router put the Visit move off to a later turn (`alsoAsked`, no page named),
+  so the move was not made: item 3 through the look door and item 4 stay
+  unshown, and the finding is in the backlog. 3 credits. Next is the free
+  restore to `01790468089054-8btpep`, then the owner's review; the plan and
+  every reading are the checklist's *Test 6*. **Real-model mixed work through
+  the removal door stays outstanding.**
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
   `docs/investigations/edit-path-checklist.md`, and every test's plan, readings
@@ -239,8 +239,9 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
 - **Balance 45** on the building account at run 50's end (2026-09-28 18:41
   UTC): run 49 took it 50 → 45 (routing 2 + 1 and the menu edit's reserve of 2,
   ledger row 333; the page removal `exempt`). Run 51 (22:57 UTC, free) read 45
-  again, with row 333 still the newest. `GET /api/fal-balance` answers fal's
-  balance separately.
+  again. Run 52 (Test 6's paid run) took it 45 → 42: routing 2 and the job's
+  reserve of 1 (ledger row 334). `GET /api/fal-balance` answers fal's balance
+  separately.
 - **The building account is `aniascristian@gmail.com`**, not the session's own
   address. It owns every live site and holds that balance; look at the wrong
   row and the balance reads zero.
@@ -249,12 +250,14 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
   `ben-crowe-guitar`, and the older `fold-lane-bakery`, `harbourside-roast`,
   `the-lido-cafe`, `oak-and-ash`, `forno-and-co`. **Reusing one of those slugs
   revises that site.** The test fixtures now: `fold-lane-bakery` live at
-  `01790468089054-8btpep` (restored by run 50), `fretwork-1` at
+  `01790637993219-u51eu0` (run 52's new description) until the free restore to
+  `01790468089054-8btpep`, `fretwork-1` at
   `01790404806543-kk6qsh` (Test 3's removal kept), and `lido-axes-b` with its
   bookings closed (run 44, kept).
 - **What things cost, measured** — routing 1–2 per message (it moves with the
   prompt cache); the page rung 6–22 (runs 21–37); a data or rules edit 1; a
-  reframe 1; the logo rung, a page move and a page removal 0 (`exempt`); a
+  reframe 1; a site description 1 (run 52); the logo rung, a page move and a
+  page removal 0 (`exempt`); a
   first build 11–45; a revise of the same site 17; an add-on 2–13 (runs
   47–52). **Quote a range or measure the run.** Nothing enforces a per-request
   cap (`edit_reserve` raises only above 100,000), so the balance is the only

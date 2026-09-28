@@ -20,6 +20,8 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
+- A half of a message the router puts off (`alsoAsked`) is still attempted,
+  on the home page, and the reply contradicts itself (run 52).
 - The header's button carries no `data-slot="button"`, so a rule against the
   kit's button hook misses it.
 - The render check judges each selector of a list on its own, so a common
@@ -69,6 +71,19 @@ here; take a closed one out of both.**
 
 ## Backlog
 
+- **A HALF OF A MESSAGE THE ROUTER PUTS OFF IS STILL ATTEMPTED (found
+  2026-09-28 by Test 6's paid run, run 52; not changed).** The router answered
+  `look` with the Visit page's band move in `alsoAsked` and named no page: one
+  change per turn. The browser posts the whole message to the edit job (the
+  canary does the same), so the look picker picked `shape` for the put-off
+  half too, and that step ran on the home page, because the only page named
+  belonged to the put-off half. The home page's writer found nothing to change
+  (`page/no-change`), so nothing wrong was published or charged. But the reply
+  says both "⚠️ I read the / page and couldn't find a change to make for that…"
+  and "I only did one thing this time. Say “…” and I’ll do that next." Two
+  questions meet here, and both are the owner's: whether the job should do
+  only what the routing decided, and whether the router should put a band move
+  on a named page off at all, when the look rung can do both in one turn.
 - **THE HEADER'S BUTTON HAS NO `data-slot="button"` (found 2026-09-28 preparing
   Test 6; not changed).** `SiteHeader` renders its action as `<Button asChild>`
   around `SiteLink`, and `SiteLink` passes on only `href`, `className` and
