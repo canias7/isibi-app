@@ -245,7 +245,11 @@ the Visit page only.
   - 2 cases in `test/canary-watch.test.mjs`: the reader over 15 answer shapes,
     and the wiring, which fails on the canary without the read;
   - the 156 cases of the five canary test files pass;
-  - the whole suite reads 8,207 / 8,205 / 0 / 2 locally.
+  - the whole suite reads 8,207 / 8,205 / 0 / 2 locally, and unit CI run
+    36481473984 on `f08c3ba1` reads 8,207 / 8,203 / 0 / 4 (the total matches;
+    CI skips four), with both new cases found passing by name, 8,207 distinct
+    results and no `not ok`;
+  - no site build is owed: none of the files is on that workflow's paths.
 - **Where the presses run.** `scripts/**` and `test/**` deploy nothing, and
   the change is not merged, so Test 6's presses are made from the branch. A
   branch press runs the branch's script against main's Worker, which is what
