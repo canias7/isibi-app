@@ -37,9 +37,11 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 - **`main` is `f5e941f4`, deploy 2165** (19:07 UTC, image `8a10715339cdc780`,
   predicted on both ends and built) — **deployed, not runtime-confirmed.** The
   session's dispatch answers 403, so the confirmation is the owner's free
-  canary press: `edit canary` from `main`, spend `no`, `expect_deploy`
+  canary press: `edit canary` from the branch, spend `no`, `expect_deploy`
   `f5e941f494fd96c039eeee4e6f1d44120b80e062`, `expect_image`
-  `8a10715339cdc780`. It carries the redirect fix (a publish reads the stored
+  `8a10715339cdc780`, site `fold-lane-bakery` (the press also takes Test 6's
+  reading of the stored description; from `main` it confirms the deploy
+  without that reading). It carries the redirect fix (a publish reads the stored
   sidecar through `manifestFromCsv`); the next real publish is its first live
   use, and redirects dropped between 2026-08-17 and this deploy are not rebuilt.
 - **The branch `claude/help-needed-ehlwlj`** is ahead of `main` by the canary's

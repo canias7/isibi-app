@@ -407,10 +407,14 @@ All three are `edit-canary.yml` from the branch `claude/help-needed-ehlwlj`.
    - "Run the ONE paid edit as well": `no`;
    - the two "Refuse to spend unless…" boxes:
      `f5e941f494fd96c039eeee4e6f1d44120b80e062` and `8a10715339cdc780`;
+   - "The site to edit": `fold-lane-bakery`;
    - everything else as it is.
 
    From the branch it also takes the first reading of the stored description.
-   From `main` it confirms the deploy just the same, without that reading.
+   The canary reads the site named in "The site to edit", whose default is
+   `fretwork-1`, so the box names the fixture (corrected 2026-09-28, before
+   the press). From `main` it confirms the deploy just the same, without that
+   reading.
 2. **The paid run, after approval**:
    - "Run the ONE paid edit as well": `yes`;
    - "What to change": the frozen sentence above, pasted exactly;
