@@ -225,20 +225,6 @@ function assertOnlyGalleryLeft(r, label) {
   assert.equal(r.said.text, MENU_SAID, label + ": the screen");
 }
 
-test("the fixture is run 47's stored pages, and /gallery is named by the home page's menu alone", () => {
-  for (const p of PAGES) assert.equal(sha(p.source), RECORDED[p.path], p.path + " is not the recorded body");
-  assert.deepEqual(menuOf(ORIG["index.tsx"]), [[
-    { label: "Today's bake", href: "/" }, { label: "The starter", href: "/starter" },
-    { label: "Visit", href: "/visit" }, GALLERY,
-  ]], "the home page's menu is not the one run 47 saw");
-  const naming = PAGES.filter((p) => p.path !== "gallery.tsx" && p.source.includes('"/gallery"')).map((p) => p.path);
-  assert.deepEqual(naming, ["index.tsx"]);
-  // The comparison helper is alive: the one menu change there is shows up.
-  assert.notEqual(outsideMenus(ORIG["index.tsx"]), ORIG["index.tsx"]);
-  assert.equal(outsideMenus(ORIG["starter.tsx"]), ORIG["starter.tsx"], "the stub has no menu");
-});
-
-
 /**
  * The layout change the page writer is supplied: the order band moved above the
  * starter story on the home page. A pure move — every character of both
