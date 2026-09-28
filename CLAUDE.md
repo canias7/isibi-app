@@ -205,23 +205,38 @@ and the rehearsal typed message 1 and sent nothing. **The paid press ran as run
 
 It cost 2 + 1 = 3 credits for routing, and the balance is 50. It is reproduced
 free, word for word. **The owner approved a correction (2026-09-28) and held
-its first version (`a9fc516a`)**: keeping only the lanes that lead back to the
-router's rung also dropped work asked for beside the removal. **The corrected
-version is BUILT on the branch at `50b97183`, not merged** (*Test 5*, below):
+it TWICE**:
+- **the first version (`a9fc516a`)** kept only the lanes that lead back to the
+  router's rung, and so also dropped work asked for beside the removal;
+- **the second (`50b97183`)** read the request from how many lanes the picker
+  named: one lane was the routed removal, two or more were extra work. So "take
+  the photo off and move the opening hours up" answered with `shape` alone
+  lost the layout, on both money paths, and with the photo refused the whole
+  message was refused with it. The owner: *"Replace the lane-count assumption
+  with an explicit distinction between the already-routed operation and
+  additional requested work."*
+
+**The third version is BUILT on the branch at `d6f564a5`, not merged** (*Test
+5*, below):
 - on a door the router opened for its own `nav` or `picture` removal, the
-  router's own step always runs, where its lane would run (`doorDispatch`);
-  a single picked lane on another rung is set aside (`doorAnswer`, run 47's
-  shape); two or more are separate things asked, and each runs as its own
-  step with its own verb;
+  picker is TOLD the routed change, in the router's own words for that layer
+  (`layerLine`), and asked two lists: `additional` (other work asked for, the
+  only list that makes steps) and `routed` (which part the routed change is
+  about, recorded and never run). Nothing is read from how many lanes either
+  list holds;
+- the router's own step runs exactly once, with the router's verbs, where its
+  lane would run (`doorDispatch`); a removal or page verb applies only to the
+  additional work;
 - a home page's menu keeps a link to itself it already has, so the menu edit
   removes only the Gallery link;
 - the canary sends message 2 only after message 1's job stored a menu
   success, and passes the scenario on nine operation checks, never on two
   replies (run 47 printed "UI MODE PASSED").
 
-Every model answer in its evidence is supplied; unit CI and the site build
-(twelve counts green, site-build 404) are green on `50b97183`, and a merge
-rolls the container (predicted `776b004f79e11a6a`).
+Every model answer in its evidence is supplied, and whether a real picker fills
+the two lists as asked is unmeasured. Unit CI is green on `d6f564a5` (8,201,
+all 86 cases of the three changed files by name), and a merge rolls the
+container (predicted `a217f74c81122512`).
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -10558,7 +10573,7 @@ after it hold the test and the proposal. What is law here:
   uploaded `if: always()`. So D2's artifact must equal step 0's, a free check
   that nothing moved the grants between the two presses.
 
-### TEST 5: A PAGE REMOVAL AND ITS RESTORATION, PREPARED, BOTH FREE CHECKS PASSED, THE PAID PRESS (RUN 47) STOPPED AT ITS FIRST MESSAGE, AND THE APPROVED CORRECTION — ITS FIRST VERSION HELD, ITS SECOND BUILT — IS ON THE BRANCH (2026-09-27 → 09-28, not merged)
+### TEST 5: A PAGE REMOVAL AND ITS RESTORATION, PREPARED, BOTH FREE CHECKS PASSED, THE PAID PRESS (RUN 47) STOPPED AT ITS FIRST MESSAGE, AND THE APPROVED CORRECTION — ITS FIRST TWO VERSIONS HELD, ITS THIRD BUILT — IS ON THE BRANCH (2026-09-27 → 09-28, not merged)
 
 Owner: *"Prepare one bounded page-removal-and-restoration test using an
 existing suitable fixture and the existing workflow … First reconcile this
@@ -10715,27 +10730,54 @@ The full plan, the expected bodies and the presses are the checklist's
   acceptable refusal"* — the first version had re-anchored `edit-page-verb`'s
   picture-door case to accept the loss (the trap *a re-anchor that flips what
   the customer gets*).
-- **THE CORRECTED ROUTE (`50b97183`, on the branch, NOT merged; no deploy, no
+- **THE SECOND VERSION WAS HELD TOO (2026-09-28).** `50b97183` guaranteed the
+  router's step, set a SINGLE picked lane on another rung aside as "the
+  picker's reading of the one thing asked" (`doorAnswer`), and ran TWO OR MORE
+  lanes as separate requests: a guess about what was asked, made from how many
+  lanes came back. Owner: *"doorAnswer still infers request identity from
+  fields.length. That leaves the mixed-request regression open. … change the
+  supplied picker fields from ["images","shape"] to ["shape"]. The layout
+  writer never runs. Both sync and queued cases fail; when the photo step
+  refuses, the valid layout work is lost too. The router already supplies the
+  photo operation. One additional selected lane can therefore represent a
+  second requested change. Conversely, two selected lanes do not prove two
+  independent requests. Replace the lane-count assumption with an explicit
+  distinction between the already-routed operation and additional requested
+  work. Give the selector that context and preserve the association through
+  planning. … No keyword or fixture-specific rules."* **Reproduced on
+  `1e0c3e34` through the route, both money paths**: with `["shape"]` alone the
+  page writer never ran, and with the photo refused the reply was 422 and the
+  layout was lost with it.
+- **THE CURRENT ROUTE (`d6f564a5`, on the branch, NOT merged; no deploy, no
   paid run).** On `eRemovalDoor` (`nav` or `picture` with `remove`):
-  - **the router's own step ALWAYS runs**: `doorDispatch(pickedFields,
-    doorLane(eLayer))` puts the router's lane (`action` for `nav`, `images`
-    for `picture` — `doorLane` answers the one lane leading to a layer, and a
-    guard pins exactly one for each door layer) into the picker's own
-    `LANE_FIELDS` order when the picker did not name it, and the dispatch
-    loop pushes THE ROUTER'S STEP there — `{layer: eLayer, page: ePage,
-    fields: [], remove: eRemove, rename: eRename}`, the step it always got.
-    Named by the picker, its own dispatched step is already there. The old
-    fall-through (router's step only when the plan came out empty) is gone;
-  - **one picked lane on another rung is SET ASIDE** (`doorAnswer`), with its
-    removals and refusals, before anything reads the answer, and traced as
-    `door:set-aside`. The reason is the picker's own contract — one lane is
-    the ordinary answer, a second only for a second, separate thing — so a
-    lone lane is its reading of the one thing asked, which the router already
-    placed. Run 47's `behavior` is this;
-  - **two or more lanes are separate things asked**, and each runs as its own
-    step with its own verb; `runLayer` reads the STEP's verb, so a layout step
-    never deletes its page beside a photo removal;
-  - the `look` door never takes the branch.
+  - **THE PICKER IS TOLD WHAT WAS ROUTED.** `pickLanes` takes `routed:
+    {layer, remove, page}`, and `routedDoor` accepts it only for a door layer
+    with `remove === true`. The request then carries `PICK_DOOR_SYSTEM` and,
+    above the customer's message, the routed change in THE ROUTER'S OWN WORDS
+    for that layer: `layerLine(layer)` (`site-ask.mjs`) reads the line
+    `ASK_TOOL`'s `layer` description opens that layer with, so the router and
+    the picker cannot hold two wordings of one layer.
+  - **ITS TOOL ASKS TWO LISTS** (`doorPickTool`, still named `pick_lanes`):
+    `additional` — work asked beside the routed change, required, and "EMPTY
+    IS THE ORDINARY ANSWER" — and `routed` — which part the routed change is
+    about, recorded and never run. `removes` and the page-verb properties
+    refer to `additional`. **The door tool has no `fields` property**, so an
+    answer in the ordinary tool's shape (run 47's recorded `{fields:
+    ["behavior"]}`) names no work.
+  - **PLANNING KEEPS THE ASSOCIATION** (`doorPicked`): only `additional`
+    becomes steps. The routed change's own lane named under `additional` IS
+    that change and folds into it (its rung is the router's rung and reads the
+    whole sentence, so a second step would be one operation twice). `removes`
+    and the page verb are read against the work list alone. **Nothing is read
+    from how many lanes either list holds.**
+  - **THE ROUTER'S STEP RUNS EXACTLY ONCE** (`doorDispatch`, unchanged): its
+    layer, page and verbs, where its lane would run in the picker's order,
+    carrying `fields: [doorLane]` when the picker tied that lane to it and
+    `[]` otherwise (so `lanes` never names a lane the picker did not).
+  - **THE TRACE RECORDS BOTH LISTS** (`door:answer`, `{layer, routed,
+    additional}`), replacing `door:set-aside`.
+  - **THE LOOK DOOR IS UNCHANGED BYTE FOR BYTE**: its picker request was
+    captured before and after the change and compares identical.
 - **THE MENU RUNG'S HOME RULE** (the ⚠ bullet earlier in this section) and
   **THE CANARY** — `5-page-remove`'s second message gated on message 1's
   stored `ok === true` at `layer === "nav"` (`dependencyVerdict`, stopping
@@ -10758,96 +10800,107 @@ The full plan, the expected bodies and the presses are the checklist's
   (25m44s) all twelve counts green, `site-build.mjs` 18m56s. Its image was
   predicted `560b4bfcacff62f5`, superseded by this version's.
 - **THE EVIDENCE, EVERY MODEL ANSWER SUPPLIED.** `test/edit-removal-door.test.mjs`
-  (**27 cases**) on run 47's own stored pages (hashes asserted), the router's
-  actual shapes, both money paths wherever money moves:
-  - **run 47** (`behavior` alone): `pick_lanes` then `write_nav`, only the
-    Gallery link leaves every menu, the page stays, nothing outside a menu
-    moves, 3 credits (sync debit 3; job one reserve, `finalized` 3), and then
-    the page removal: `gallery.tsx` alone, no model call, free (job `exempt`);
-  - **photo removal + layout** (`images` + `shape` on the picture door): the
-    page writer runs first (the picker's order), the picture rung then takes
-    the one photograph off, ONE compile, the home page exactly the moved
-    layout with that one `src` emptied, every page still there, 5 credits
+  **27 → 41 cases**, on run 47's own stored pages (hashes asserted), with the
+  router's actual shapes, on both money paths wherever money moves, and with
+  **the picker's actual request as the stub received it** (`seen.sent`): the
+  door tool's properties and `required: ["additional"]`, the system text, the
+  routed note carrying `layerLine(layer)`, and the customer's message last.
+  - **The owner's request with both answer shapes** — `{routed: ["images"],
+    additional: ["shape"]}`, `{additional: ["images","shape"], removes:
+    ["images"]}` and `{additional: ["shape"]}`: the page writer runs, then the
+    picture rung, ONE compile, the home page exactly the moved layout with
+    that one `src` emptied, every other page byte for byte, 5 credits
     (3 + 2), *"✅ Updated the look. One photograph is no longer on the site.
     If that was not what you wanted, say “put the photo back”. There is a
-    space for a photo — upload yours in the Data panel and it’ll fill in."*;
-  - **photo refusal + layout**: the layout ships exactly, *"✅ Updated /. ⚠️ I
+    space for a photo — upload yours in the Data panel and it’ll fill in."*
+  - **The photo refused, the layout kept**, with `{additional: ["shape"]}` and
+    with `{routed: ["images"], additional: ["shape"]}`: *"✅ Updated /. ⚠️ I
     couldn't match that to any of the pictures on your site. That part still
-    cost 2 credits."*, 5 credits; and `edit-page-verb`'s original case
-    **restored byte for byte** (a site with no photograph: *"✅ Updated
-    /prices. ⚠️ I couldn't find a photograph on your site that I can change.
-    If you'd like one added, say which page it should go on and where."*);
-  - **menu + layout**, with `action` + `shape` and with `behavior` + `shape`
-    (no lane for the menu — the router's step is put in where `action` would
-    run): both requested changes ship, 5 credits;
-  - **ordinary requests**: none / `action` on the menu door, and a lone
-    `pages` or `backend` removal set aside (the page never deleted, nothing
-    refused); none / `images` / `behavior` / `shape` on the picture door, the
-    lone misplaced lane never running; the still-linked refusal, `nav`
-    without `remove`, look + `behavior` and the look door's `not-removable`
-    unchanged.
-  - **Red, in throwaway worktrees** (63 cases as run across this file and
-    `edit-page-verb`, one a fixture case the file then declared twice, green
-    in both): **main's route** with the kept home-link fix carried in → 10
-    fail, every one the door (run 47 and the removal after it, the menu
-    message placed elsewhere, each on both paths, and the four lone misplaced
-    lanes), while photo+layout, photo refusal+layout and `action`+`shape`
-    pass on main as they should; **the held first version** → 15 fail, 9 on
-    behaviour (the restored `edit-page-verb` case, photo+layout, photo
-    refusal+layout, menu+layout and placed-elsewhere, each on both paths — the
-    owner's regression) and 6 only on the renamed trace mark.
-  - `removal-door`'s census re-anchored to the four reads of `eRemovalDoor`
-    (declaration, `doorAnswer`, the no-lane climb, `doorOwn`) and to the
-    dispatch pushing the router's step where its lane was not picked.
-  - **Suites**: the 42 files that can see the door or the lanes 1,269 /
-    1,269; the whole suite **`8187 / 8185 / 0 / 2`** locally at `d9e3f0f1`,
-    **+7 against 8,180**, exactly the file's 20 → 27; unit CI run
-    **`36376498949` on `50b97183` at `8188 / 8184 / 0 / 4`** (that tree still
-    carried the duplicated fixture case), every new or changed case by name,
-    8,188 distinct results, no gap, no `not ok`; and **unit CI run
-    `36376714716` on `d9e3f0f1` at `8187 / 8183 / 0 / 4`**, the total
-    matching the local run, all 72 cases of the three changed test files
-    (27 + 35 + 10) by name, 8,187 distinct results, no gap, no `not ok`;
-    **`site build` run `36376499742` on `50b97183`** (04:09:27 →
-    04:32:00Z, **22m33s**, all twenty steps, the checkout at `50b97183`)
-    read all twelve counts green out of its per-step files: TAP
-    397/397/0/0, kit-typecheck 4, site-build **404**, contrast-cases 16,
-    theme-seam 11, theme-render 29, site-routing 14, site-runtime 47, and
-    kit-render / kit-a11y / kit-effects / kit-paint `all passed`; census 7
-    + 4 + 1 = **12**; the only `##[error]` lines the two known annotations
-    (the second followed by the two SSR-stream lines, then its own `ok`),
-    `tsc`-format lines 9 / 2 / 7, `site-build.mjs` **16m13s**. `d9e3f0f1`
-    (a test file off the workflow's paths) and the notes commit `49b5921a`
-    start no site build, and unit CI run `36377518611` on `49b5921a` reads
-    `8187 / 8183 / 0 / 4`, so the notes moved the suite by zero. **The stamp
-    chain ends at `d9e3f0f1`.** No sweep (the owner's instruction).
-  - **The image**: predicted over `50b97183` **`776b004f79e11a6a`** (188
-    inputs, 158 distinct paths) against main's `9038e90ab1d5d7fe`, which the
-    predictor reproduces first; `worker.js`, `builder/site-lanes.mjs` and
-    `builder/site-nav.mjs` are the range's inputs, so a merge rolls the
-    container. `d9e3f0f1` is a test file and moves nothing.
-- **WHAT THE CORRECTED RULE CANNOT TELL, EACH DRIVEN THROUGH THE ROUTE.**
-  (1) **A two-part message answered with only the OTHER part looks exactly like
-  run 47 and is set aside SILENTLY**: "Take Gallery out of the menu and make
-  the footer navy." answered `css` alone changes only the menu and says
-  *"✅ Updated the menu on 4 pages: …"*. Likeliest on the menu door, where no
-  lane describes a menu's items. (2) **A two-lane answer runs a misplaced lane
-  too**: `behavior` + `shape` for the menu + layout message ships both changes,
-  runs `behavior` (it answered nothing, as on run 47) and adds *"⚠️ I couldn't
-  work out how to change the site's look that way…"*; a real behaviour lane that
-  answered would change the stored behaviour list. (3) **A second lane that ends
-  the whole message on the look door still ends it here, and the router's change
-  does not run either**: a not-removable part → 422 whole (driven, `action` +
-  `backend`); an addition → the whole message to the PAID add-on route, no
-  photo change (driven, `images` + `three`); an unreadable `pages` verb or a
-  missing page → a sentence for the whole message (read). **All three are the
-  same on main** (the recorded look-door limitation) and are the remaining ways
-  the router's operation can be displaced — a separate decision. (4) Two
-  operations are reported as *"✅ Updated the look."* (the multi-step
-  composer's recorded limit).
+    cost 2 credits."*, 5 credits.
+  - **Run 47**, with `{routed: ["behavior"], additional: []}` and with its
+    recorded answer `{fields: ["behavior"]}`: the picker then the menu rung,
+    only the Gallery link leaves every menu, 3 credits; then the page removal,
+    `gallery.tsx` alone, free.
+  - **Menu + layout** with `behavior` tied to the routed change and `shape` as
+    work, with `action` tied, and with `shape` alone: the menu change and the
+    layout both ship and nothing else runs, 5 credits.
+  - **Controls**: `additional: []` on either door runs the routed change alone;
+    a `pages` or `backend` removal tied to the routed change deletes and
+    refuses nothing; `nav` without `remove` never asks the picker; the look
+    door's request and its not-removable refusal are unchanged; the page
+    another page still links to is still refused.
+  - **The unit contract**: the door tool for every door layer, the exact
+    message and system text, and the look request byte-identical for every
+    non-door `routed` (null, no `remove`, `remove: "true"`, look, page, logo,
+    a list, a string); 17 door answers driven through `pickLanes`, the cap
+    included.
+  - **`edit-page-verb`'s one door case** supplies its answer in the door's
+    shape (`{routed: ["images"], additional: ["shape"]}`); every outcome
+    assertion is unchanged. **`removal-door`'s census** is re-anchored to the
+    five reads of `eRemovalDoor` and to the routed context sitting inside the
+    picker call.
+  - **Red, re-run in throwaway worktrees.** As written, the three files fail
+    the same **34 of 86** on the held version and on main (with the kept menu
+    fix carried in), each first on the new contract, so they cannot tell the
+    two bases apart. **Behaviour only** (answers translated to the old tool's
+    nearest, `fields` = routed ∪ additional, the contract assertions cut): the
+    held version fails **10 of 41** — the two contract cases, and the owner's
+    shapes: `["shape"]` alone with the photo shipped and refused, and menu +
+    layout with the extra work alone or with `behavior` tied to the removal,
+    each on both money paths — and main fails **22 of 41**.
+  - **Suites**: the focused set (the 242 files that can see the lanes, the
+    router, the picker, `eRemovalDoor`, the worker harness or `worker.js`)
+    6,414 / 6,414; the whole suite **`8201 / 8199 / 0 / 2`** locally, **+14
+    against 8,187**, exactly the file's 27 → 41; **unit CI run `36444601748`
+    on `d6f564a5` at `8201 / 8197 / 0 / 4`** (`duration_ms 127,430`), the
+    checkout at `d6f564a5`, all 86 cases of the three changed files by name,
+    8,201 distinct results, no gap, no `not ok`. No sweep (the owner's
+    instruction).
+  - **The image**: predicted over `d6f564a5` **`a217f74c81122512`** (188
+    inputs, 158 distinct paths) against main's `9038e90ab1d5d7fe` and
+    `50b97183`'s `776b004f79e11a6a`, which the predictor reproduces first.
+    `worker.js`, `builder/site-lanes.mjs` and `builder/site-ask.mjs` are this
+    commit's inputs, and `builder/site-nav.mjs` is one too across the range,
+    so a merge rolls the container.
+- **THE SECOND VERSION'S NUMBERS, KEPT**: unit CI run `36376498949` on
+  `50b97183` at `8188 / 8184 / 0 / 4` and run `36376714716` on `d9e3f0f1` at
+  `8187 / 8183 / 0 / 4`; `site build` run `36376499742` on `50b97183`
+  (22m33s, all twelve counts green, site-build 404, `site-build.mjs` 16m13s);
+  its predicted image `776b004f79e11a6a`.
+- **WHAT THIS STILL CANNOT TELL.**
+  1. **Whether a real picker fills the two lists as asked** is unmeasured;
+     every answer is supplied.
+  2. **A lane the picker lists under `additional` runs.** `behavior` + `shape`
+     for the menu + layout message ships both changes, runs `behavior` (it
+     answered nothing) and adds *"⚠️ I couldn't work out how to change the
+     site's look that way…"*; the route honours the list it is given.
+  3. **A second request the picker files under `routed` does not run.**
+  4. **A door answer with no readable `additional`** (run 47's recorded shape,
+     a list of non-strings) reads as nothing additional: the routed change
+     alone.
+  5. **The look door's whole-message walls still end the whole message here**
+     (a part this route will not remove, an add-only part to the paid add-on
+     route, an unreadable page verb or a missing page), as on main.
+  6. **Two operations are reported as "✅ Updated the look."**
+  7. **⚠ FOUND, NOT CHANGED — THE REPLY CAN SAY THE SECOND PART WAS NOT DONE
+     WHEN IT WAS.** `ASK_TOOL`'s `alsoAsked` tells the router to copy out a
+     second ask that belongs to a DIFFERENT part of the site — exactly a
+     layout beside a photo removal — and the browser appends `alsoTail`.
+     Driven through the route with `{additional: ["shape"]}` and a routing
+     reply carrying `alsoAsked`: the layout shipped, and the screen read
+     *"✅ Updated the look. One photograph is no longer on the site. …\nI only
+     did one thing this time. Say “put the order band above the starter
+     story” and I’ll do that next."* The class is pre-existing (the look door,
+     and main's door whenever two lanes run) and likelier now that the door is
+     asked for extra work by design. Matching the sentence to the lanes would
+     be reading English; the options — the route saying it ran extra work and
+     the browser dropping the tail, or the router leaving `alsoAsked` out on a
+     removal door — are the owner's.
+  8. Read, not driven: an additional page removal the picker gave no
+     `pageName` targets the router's page or the default page, as before.
 - **THE PRESSES AFTER REVIEW, NONE DISPATCHED**: merge and deploy (the
   container rolls; wait for it); the free canary from `main` with the merge's
-  sha and the deploy's image (predicted `776b004f79e11a6a`, re-predicted over
+  sha and the deploy's image (predicted `a217f74c81122512`, re-predicted over
   the merge commit); the free rehearsal of `5-page-remove`; the paid run,
   about 4–6 credits (an estimate, not a cap; balance 50); the free restore to
   `8btpep`, reading `/gallery` without following redirects.
@@ -12092,6 +12145,12 @@ TRUST IT** — it has gone stale twice: `node -e` over `site-lanes.mjs` and prin
   `DOOR_LAYERS` is derived from the two meanings collapsed into one constant.
   **`page` is NOT widened and must never be** — `remove` there deletes the page.
   `NOT_REMOVABLE` is `backend · lang · slug · kind · purpose`.
+  **On a door the router opened for its OWN `nav` or `picture` removal, the
+  picker is asked a different question** (on the branch, not merged, 2026-09-28;
+  *Test 5*): it is told the routed change in the router's own words and answers
+  `additional` (other work, the only list that makes steps) and `routed`
+  (recorded, never run), and the router's step runs exactly once. The look
+  door's request is unchanged byte for byte.
 
 **A RULE PER LANE, IN FOUR NAMED PARTS** (owner: *"i want a rule per everysingle
 one of them"*): `is` · `yours` · `wide` · `keep`, and only `wide` is genuinely
@@ -14424,6 +14483,16 @@ rule and the measurement.
   the expectation flips from *the requested work ships* to *it does not*, the
   guard was reporting a regression. **Ask what the customer now gets that they
   did not before; if the answer is less, it is not a re-anchor.**
+- **HOW MANY ANSWERS CAME BACK IS NOT WHAT WAS ASKED (2026-09-28, the owner
+  held the same merge a second time).** The removal door's second correction
+  read the request from how many lanes the picker named: one meant the routed
+  removal, two meant extra work. So a photo removal answered with `shape` alone
+  lost its layout, and a two-lane misreading ran. **When one model's answer
+  decides what work another step does, give that model the context and ask the
+  question in the tool's own shape** — here, the change already routed, and a
+  separate list for anything else — rather than inferring intent from the
+  answer's size. The add-on reporting learned the same rule one layer over: *a
+  count of a step's output is not an association with a requirement.*
 - **A NAME THE HARNESS DID NOT KNOW WAS DROPPED WITHOUT A WORD.** A filter on a
   person's input is a silent drop; a check is a sentence.
 - **A KEY WHOSE INVARIANT EXPIRED WHEN THE LAYER BELOW IT MOVED.** The idempotency
