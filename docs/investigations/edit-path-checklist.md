@@ -277,8 +277,10 @@ scratch cases, not committed.
 
 - The canary's restore mode, to `01790468089054-8btpep`. It will be the new
   version's parent, and pruning keeps a version's parent.
-- A restore reactivates `8btpep`'s own saved pages, its whole look (the
-  description included) and its own redirect map; run 50 showed exactly that.
+- A restore reactivates `8btpep`'s own saved pages and its own redirect map;
+  run 50 showed both. It also puts back the whole saved look, the description
+  included; that is read in the restore code (`STATE_CONFIG_FIELDS`), since
+  run 50 had no changed description to put back.
 - Recommended right after the readings, so the fixture stays at its recorded
   state.
 

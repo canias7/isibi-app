@@ -227,8 +227,9 @@ is spent.
 **Cost**: about 5–6 credits, and about 10 if the page needs the bigger writer.
 That's an estimate, not a cap. The balance is 45.
 
-**Afterwards**: a free restore puts the bakery back exactly as it is now,
-including its redirect and its description.
+**Afterwards**: a free restore puts the bakery back as it is now. Your last
+restore (run 50) showed the pages and the redirect coming back. The description
+comes back through the same restore code, though no run has shown that yet.
 
 **Your three presses, all on `edit canary` from `main`:**
 1. **The free check for deployment 2165** (still to come; I'm watching for
