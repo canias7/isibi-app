@@ -204,8 +204,19 @@ and the rehearsal typed message 1 and sent nothing. **The paid press ran as run
 - Message 2 was then refused by the link rule, as designed.
 
 It cost 2 + 1 = 3 credits for routing, and the balance is 50. It is reproduced
-free, word for word, and a correction is proposed for the owner's approval
-(*Test 5*, below).
+free, word for word. **The owner approved the correction (2026-09-28), and it
+is BUILT on the branch at `a9fc516a`, not merged** (*Test 5*, below):
+- on a door the router opened for its own `nav` or `picture` removal, the
+  picker may only keep lanes that lead back to that rung (`doorLanes`); with
+  none left, the router's own step runs;
+- a home page's menu keeps a link to itself it already has, so the menu edit
+  removes only the Gallery link;
+- the canary sends message 2 only after message 1's job stored a menu
+  success, and passes the scenario on nine operation checks, never on two
+  replies (run 47 printed "UI MODE PASSED").
+
+Every model answer in its evidence is supplied; unit CI is green, and a merge
+rolls the container (predicted `560b4bfcacff62f5`).
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -10542,7 +10553,7 @@ after it hold the test and the proposal. What is law here:
   uploaded `if: always()`. So D2's artifact must equal step 0's, a free check
   that nothing moved the grants between the two presses.
 
-### TEST 5: A PAGE REMOVAL AND ITS RESTORATION, PREPARED, BOTH FREE CHECKS PASSED, AND THE PAID PRESS (RUN 47) STOPPED AT ITS FIRST MESSAGE (2026-09-27)
+### TEST 5: A PAGE REMOVAL AND ITS RESTORATION, PREPARED, BOTH FREE CHECKS PASSED, THE PAID PRESS (RUN 47) STOPPED AT ITS FIRST MESSAGE, AND THE APPROVED CORRECTION IS BUILT ON THE BRANCH (2026-09-27 → 09-28, not merged)
 
 Owner: *"Prepare one bounded page-removal-and-restoration test using an
 existing suitable fixture and the existing workflow … First reconcile this
@@ -10571,12 +10582,15 @@ The full plan, the expected bodies and the presses are the checklist's
   plain string that was never type-checked. What it still prevents is a menu
   link that leads nowhere. *A rule true because of a layer below it expires
   when that layer moves.*
-- **⚠ THE MENU RUNG NEVER LISTS THE HOME PAGE ON THE HOME PAGE, SO ON A SITE
-  WHOSE HOME PAGE LISTS ITSELF, EVERY MENU EDIT TAKES THAT ITEM OFF**
-  (`applyNav`'s `forHere` filter; found, not changed). The rule was written so
-  that no home page gains a "Home" link; on the bakery, whose home menu has
-  "Today's bake → /", it removes a visible item nobody asked about. The rung
-  also rewrites every page's menu array onto one line.
+- **⚠ THE MENU RUNG NEVER LISTED THE HOME PAGE ON THE HOME PAGE, SO ON A SITE
+  WHOSE HOME PAGE LISTS ITSELF, EVERY MENU EDIT TOOK THAT ITEM OFF**
+  (`applyNav`'s `forHere` filter; found 2026-09-27, **fixed on the branch
+  2026-09-28, not merged**). The rule was written so that no home page gains a
+  "Home" link; on the bakery, whose home menu has "Today's bake → /", it
+  removed a visible item nobody asked about. **Now per menu: a home page's menu
+  keeps `/` exactly when it listed `/` before**, never gains it, and loses it
+  when the new list drops it. The rung still rewrites every page's menu array
+  onto one line.
 - **THE FIXTURE AND THE MESSAGES.** fold-lane-bakery, live `8btpep` on all five
   routes; the gallery page named only by the home page's menu. "Take Gallery
   out of the menu." then "Remove the gallery page." — the router's own
@@ -10680,19 +10694,99 @@ The full plan, the expected bodies and the presses are the checklist's
   - **⚠ THE REHEARSAL SUPPLIED A ROUTER ANSWER THE ROUTER IS NOT TOLD TO
     GIVE**: it posted this message as `{layer: "nav"}` without `remove`. See
     the trap under *Fixtures and instruments*.
-  - **THE CORRECTION PROPOSED, NOT BUILT (owner's approval)**:
-    - on a door the router opened for its own removal, keep only the picked
-      lanes whose `laneLayer` is the router's layer (`action` for `nav`,
-      `images` for `picture`), dropped BEFORE the removal refusals and the
-      walls read them;
-    - with none left, the existing fall-through runs the router's step;
-    - one condition in `worker.js`, no prompt change, and `look` removals
-      untouched;
-    - the picker call is still made and billed.
-
-    The bigger alternative, taking `nav` and `picture` off the door, leaves
-    their `remove` flag read by nothing and so changes the router's
-    instructions.
+  - **THE CORRECTION WAS PROPOSED FOR THE OWNER'S APPROVAL, AND APPROVED
+    2026-09-28** (*"Proceed with the bounded removal-routing correction"*).
+    Built on the branch; the next bullet.
+- **THE CORRECTION, BUILT (2026-09-28, `a9fc516a`, on the branch, NOT
+  merged; no deploy, no paid run).** The owner: *"For a removal entering
+  through nav or picture, prevent the secondary lane selector from diverting
+  it into an unrelated editor. Preserve compatible selections and the existing
+  fallback to the router's original editor. Keep ordinary look requests and
+  genuine removal refusals unchanged."* Three changes:
+  - **THE ROUTE.** `doorLanes(picked, eLayer)` (`builder/site-lanes.mjs`),
+    asked in `worker.js` right after the picker's own failure and before
+    anything reads its answer (the removal refusals, the add-on wall, the
+    `pages` fold, the plan): on `eRemovalDoor` a lane stays only when
+    `laneLayer(lane) === eLayer` (`action` on `nav`, `images` on `picture`),
+    exactly as picked; the removals are narrowed with it, because
+    `readRemoves` promises they are a subset of what was picked; every
+    dropped lane is marked in the trace (`door:dropped`). With nothing left,
+    the existing fall-through pushes the router's own step. **A layer the
+    helper cannot read keeps NOTHING**: `laneLayer` answers `null` for every
+    lane acted on in this module, so comparing against a `null` layer would
+    keep them all. The `look` door never takes the branch.
+  - **THE MENU RUNG'S HOME RULE** (the bullet above), because the owner's
+    acceptance is that the menu edit removes ONLY the Gallery link.
+  - **THE CANARY.** `5-page-remove`'s second message carries `needs: {step:
+    1, layer: "nav"}`, and `dependencyVerdict` lets it go only when message
+    1's job stored `ok === true` at `layer === "nav"`; otherwise `runUi`
+    stops BEFORE typing it (its routing call is never paid), the run fails
+    ("every message in the scenario was sent"), and the evidence upload runs
+    `if: always()`. And the scenario passes on `removalVerdict`
+    (`scripts/canary-remove.mjs`), nine checks each read off its own record:
+    message 1's stored menu success without the link; message 2's stored
+    success removing exactly `gallery.tsx`; two publishes, in order, the
+    after-read at the last; both source reads complete; the source lost
+    `gallery.tsx` and nothing else; the components byte-identical; every
+    other page changed only in its menu, which lost exactly that link; no
+    other page names `/gallery`; `/gallery` read with `redirect: "manual"`
+    is a 301 to this origin's `/`. **Run 47 printed "UI MODE PASSED: 2
+    messages sent" and its job concluded success** — two replies and a usable
+    composer are not a removal (owner); its own record fails 7 of the 9.
+- **THE EVIDENCE, EVERY MODEL ANSWER SUPPLIED.**
+  `test/edit-removal-door.test.mjs` (20 cases) drives the real edit route
+  on run 47's own stored pages (`test/fixtures/run47/`, hashes asserted)
+  with the router's ACTUAL request shape `{layer: "nav", remove: true}` and
+  the picker's actual `behavior`, both money paths: `pick_lanes` then
+  `write_nav`, only the Gallery link leaves every menu, the page stays,
+  nothing outside a menu moves, 3 credits (sync debit 3; job one reserve,
+  `finalized` 3), the trace records the drop. Then the page removal on that
+  site: `gallery.tsx` alone, no model call, free (job `exempt`), the other
+  four byte-identical to after message 1, *"✅ Took /gallery off the site.
+  Every publish is kept, so say the word if you want it back."* Controls: the
+  still-linked refusal unchanged (both paths), empty, `action`, `action` +
+  `behavior`, `nav` without `remove`, `pages`/`backend` on the menu door,
+  look + `behavior`, the look door's `not-removable`, and the picture door
+  with none/`images`/`behavior`/`images` + `shape`. Plus
+  `test/canary-remove.test.mjs` 9, `test/canary-ui.test.mjs` 61 → 64,
+  `test/site-nav.test.mjs` +1.
+  - **Red, in throwaway worktrees**: the route fix absent → 9 of 20 fail,
+    each on its first gate (run 47's on the rungs called), the other 11 being
+    the controls; the home-link fix absent → 10 of 20, every case reaching
+    the menu rung, each on the home page's menu losing "Today's bake".
+  - **Two existing guards moved with the change, re-anchored to their
+    property**: `removal-door` now names all four reads of `eRemovalDoor` by
+    landmark (the declaration, the filter, the two climbs) and fails on a
+    read nobody listed — probed three ways (filter off, an unlisted read,
+    removals not narrowed), each red, `worker.js` restored byte for byte;
+    `edit-page-verb`'s picture-door case keeps "no page is deleted" and now
+    asserts the first consequence below.
+  - **Suites**: the 50 focused files 1,554 / 1,554; the whole suite `8180 /
+    8178 / 0 / 2` locally, **+33 against 8,147**, exactly the new cases; unit
+    CI run `36372529452` on `a9fc516a` at `8180 / 8176 / 0 / 4`, every new or
+    changed case by name, 8,180 distinct results, none missing, no `not ok`.
+    The docs-only `fb875267` read `8147 / 8143 / 0 / 4` (run `36358413010`).
+    No sweep (the owner's instruction).
+  - **The image**: predicted over `a9fc516a` **`560b4bfcacff62f5`** (188
+    inputs, 158 distinct paths) against main's `9038e90ab1d5d7fe`; the
+    range's image inputs are `worker.js`, `builder/site-lanes.mjs` and
+    `builder/site-nav.mjs`, so a merge rolls the container.
+- **CONSEQUENCES, STATED.** (1) **A removal routed `picture` or `nav` that
+  also asks for another change makes only the router's change**, exactly as
+  the same route without `remove`: "Take the photo off the prices page and
+  put the price list above the introduction." used to publish the layout
+  beside the picture step's refusal; on a site with no photograph it is now
+  the picture rung's `no-slots` alone, nothing compiled, nothing charged. The
+  alternative, if the owner prefers the old behaviour, is to drop the answer
+  only when none of its lanes leads back to the router's rung — one
+  condition. (2) **An unrelated not-removable lane on that door no longer
+  refuses the message**; the router's rung runs. The look door's refusal is
+  unchanged.
+- **THE PRESSES AFTER REVIEW, NONE DISPATCHED**: merge and deploy (the
+  container rolls; wait for it); the free canary from `main` with the merge's
+  sha and the deploy's image; the free rehearsal of `5-page-remove`; the paid
+  run, about 4–6 credits (an estimate, not a cap; balance 50); the free
+  restore to `8btpep`, reading `/gallery` without following redirects.
 
 ### A SECTION HEADED BY THE KIT (2026-09-26, `2f2fed58` + `5ec82214`, merged and deployed in deploy 2162)
 
@@ -14246,6 +14340,17 @@ rule and the measurement.
   queued, claimed, terminal, cost 0 — with **not one model call, lane, compile or
   publish**. **A green harness proves the path it took, not the path you meant**,
   and the danger is that a blind post PASSES. The fix is a refusal, not a fixture.
+- **A HARNESS THAT COUNTED REPLIES (run 47, 2026-09-27; owner: *"receiving two
+  replies is not page-removal success"*).** Test 5's UI mode printed "UI MODE
+  PASSED: 2 messages sent" and its job concluded `success` over two refusals
+  (`look/no-change`, then `kept`), with the site byte for byte unchanged and
+  the chain VERIFIED over zero publishes. Every check it made was true: each
+  message got a reply and the composer came back. None of them asked whether
+  the work happened. **A scenario passes on what its operations did, each read
+  off its own record** (the stored reply, the publishes, the source, the
+  address), and **a message that depends on an earlier one is not sent until
+  that one stored its success**: sending it anyway costs a routing call to
+  collect a refusal the harness then counts as a reply.
 - **A NAME THE HARNESS DID NOT KNOW WAS DROPPED WITHOUT A WORD.** A filter on a
   person's input is a silent drop; a check is a sentence.
 - **A KEY WHOSE INVARIANT EXPIRED WHEN THE LAYER BELOW IT MOVED.** The idempotency

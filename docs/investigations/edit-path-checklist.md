@@ -88,7 +88,11 @@ proven; a real model is not)
    published live. It makes no model call and the free restore undoes it.
    **But one message alone is refused on the existing multi-page sites**,
    because every page but the home page is linked from another page, so the
-   prepared test (Test 5, next section) takes the menu link out first.
+   prepared test (Test 5, next section) takes the menu link out first. Its
+   paid run (run 47) sent the menu message to the wrong part of the editor
+   and changed nothing; the correction is built on the branch (2026-09-28),
+   not merged, and the removal is proven through the real route with
+   supplied answers only.
 2. **The rules rung beyond one closing**: reopening, the other way of closing
    (taking write access away), limits and the other rules, and any other
    wording or site. Run 44 closed one table once.
@@ -158,7 +162,7 @@ items are in *the rules rung — the recommended next test, revised*, after
 Test 4, and the built harness, its evidence and the exact presses are in *the
 rules test, built* at the end of that section.
 
-## Test 5 — a page removal and its restoration (prepared 2026-09-27; both free checks passed as runs 45 and 46; the paid press, run 47, stopped at its first message and changed nothing: a product finding, reproduced free, with a correction proposed)
+## Test 5 — a page removal and its restoration (prepared 2026-09-27; both free checks passed as runs 45 and 46; the paid press, run 47, stopped at its first message and changed nothing: a product finding, reproduced free; the owner approved the correction, and it is built on the branch with its tests, 2026-09-28, not merged)
 
 The owner: *"Prepare one bounded page-removal-and-restoration test using an
 existing suitable fixture and the existing workflow. Capture the saved version
@@ -207,7 +211,11 @@ It repeats nothing that is closed:
      home page's own menu. That is a visible change nobody asked for.
    - The rung also rewrites every page's menu onto one line, which changes no
      visible item.
-   - This is recorded as a finding and not changed; the restore puts it back.
+   - This was recorded as a finding and not changed. **It is fixed on the
+     branch (2026-09-28, not merged)**, because the owner's acceptance for the
+     corrected run is that the menu edit removes only the Gallery link: a home
+     page keeps its link to itself when it already has one, and still never
+     gains one.
 
 ### The test
 
@@ -242,15 +250,18 @@ different list.
   - it publishes a version built from `8btpep`;
   - the reply: "✅ Updated the menu on 4 pages: Today's bake · The starter ·
     Visit.";
-  - the home page's menu becomes "The starter · Visit"; the order, visit and
-    gallery pages' menus become "Today's bake · The starter · Visit";
+  - every page's menu becomes "Today's bake · The starter · Visit", the home
+    page's included (with the home-link fix; before it, the home page's menu
+    became "The starter · Visit");
   - the starter page (a stub with no menu) is untouched.
 
-  The expected bodies, if the model returns that list:
+  The expected bodies, if the model returns that list (re-computed 2026-09-28
+  on the fixed menu rung, through the real edit route and by the rung's own
+  writer, which agree):
 
   | page | before (chars, sha256) | after message 1 |
   | --- | --- | --- |
-  | `index.tsx` | 2,439 `51b5af6af6ee25ca` | 2,340 `d409219c9516b920` |
+  | `index.tsx` | 2,439 `51b5af6af6ee25ca` | 2,378 `637b779375472391` (was 2,340 `d409219c9516b920` before the home-link fix) |
   | `order.tsx` | 9,258 `4ead778eea41faaf` | 9,241 `0a0b5f41877a3b25` |
   | `visit.tsx` | 4,045 `bdb02abecad96c56` | 4,028 `ddd1fe39e6d3d932` |
   | `gallery.tsx` | 3,007 `4e8b82aa901741e0` | 2,946 `da53a37595977e4b` |
@@ -473,32 +484,151 @@ different list.
 
   It does not establish a page removal, the redirect or the restore; none of
   them ran.
-- **The proposed correction, for the owner's approval (not built).**
-  - **The rule**: when the router opened the door for its own removal (`nav`
-    or `picture`), the picker may only choose lanes that lead back to that
-    rung: `action` for the menu, `images` for pictures. Anything else it names
-    is dropped before anything acts on it. With nothing left, the router's own
-    step runs, as it already does when the picker names nothing.
-  - **Its size**: one condition in `worker.js` and no prompt change.
-  - **What it leaves alone**: nothing changes for removals the router sends to
-    `look`, or for menu edits that are not removals.
-  - **Its cost**: the picker call is still made and billed, about 1 credit.
-  - **Tests**: the reproduction flipped, plus cases for the picker naming
-    `pages`, `css` or `behavior` on both doors, on both money paths, each red
-    on the unfixed code.
-  - **Then**: `worker.js` is an image input, so a merge rolls the container.
-    The free press confirms the deploy, then Test 5's paid press runs again,
-    unchanged, for about 4–6 credits.
-- **The bigger alternative**: take `nav` and `picture` off the door. That also
-  saves the picker call, but it leaves the router's `remove` flag on those two
-  layers read by nothing, so the router's instructions would have to change as
-  well.
+- **The correction was proposed for the owner's approval, and approved on
+  2026-09-28.** It is built on the branch with its tests and is not merged:
+  the next section.
+
+### The correction, built (2026-09-28, on the branch at `a9fc516a`, not merged)
+
+The owner: *"For a removal entering through nav or picture, prevent the
+secondary lane selector from diverting it into an unrelated editor. Preserve
+compatible selections and the existing fallback to the router's original
+editor. Keep ordinary look requests and genuine removal refusals unchanged."*
+And: *"receiving two replies is not page-removal success. Stop before the
+dependent paid message if the menu edit fails, and report the scenario as
+unsuccessful. Preserve the evidence."* Focused tests and required CI only; no
+merge, deploy or paid run.
+
+**Three changes.**
+1. **The route** (`worker.js`, with `doorLanes` in `builder/site-lanes.mjs`).
+   When the router opened the lane door for its own removal (`nav` or
+   `picture` with `remove`), the picker's answer keeps only the lanes that
+   lead back to that editor (`action` for the menu, `images` for pictures),
+   exactly as picked. Everything else is dropped before anything reads the
+   answer (the refusals, the add-on wall, the page-verb fold, the plan), and
+   the edit's trace records what was dropped (`door:dropped`). With nothing
+   left, the existing fall-through runs the router's own step, as it always
+   did when the picker named nothing. The `look` door never takes this
+   branch, so its lanes, refusals and walls are unchanged. The picker call is
+   still made and billed (about 1 credit).
+2. **The menu editor** (`applyNav` in `builder/site-nav.mjs`). A home page's
+   menu keeps its link to the home page when it already has one; it still
+   never gains one, and asking for that item to go still takes it off. This is
+   decided per menu. It is part of this change because the owner's check is
+   that the menu edit removes only the Gallery link: without it, the bakery's
+   home page also loses "Today's bake" (item 3 of *what the free preparation
+   found*).
+3. **The canary** (`scripts/canary-ui.mjs`, `scripts/canary-remove.mjs`,
+   `scripts/edit-canary.mjs`).
+   - **Message 2 now depends on message 1.** It is sent only when message 1's
+     job stored a success at the menu layer (`ok: true`, `layer: "nav"`).
+     Anything else (no reply, no stored reply read, a refusal, a success at
+     another layer) stops the run before message 2 is typed, so its routing
+     call is never paid. The run fails and says why, and the evidence is
+     uploaded as before (the upload step runs whatever the result).
+   - **The scenario passes only on what its operations did**, nine checks:
+     message 1's job stored a menu success whose menu has no link to
+     `/gallery`; message 2's job stored a success that removed exactly
+     `gallery.tsx`; both published, in order, and the after-read saw the last
+     version; both source reads are complete; the stored source lost
+     `gallery.tsx` and no other page; the components are byte for byte what
+     they were; every other page changed only in its menu, which lost exactly
+     the Gallery link; no other page links to `/gallery`; and `/gallery`,
+     read without following redirects, is a 301 to the site's home page.
+   - **Run 47 printed "UI MODE PASSED: 2 messages sent"** and its job was
+     green, because both messages got a reply and the composer came back. Its
+     own record fails 7 of the 9 checks, which a unit case drives.
+
+**The evidence.** Every model answer is supplied.
+- **Run 47 through the real edit route** (`test/edit-removal-door.test.mjs`,
+  20 cases, on run 47's own stored pages, their hashes asserted), with the
+  router's actual request shape `{layer: "nav", remove: true}` and the
+  picker's actual answer `behavior`, on both money paths:
+  - the models called are the picker and the menu editor (`write_nav`); the
+    look lane never runs;
+  - only the Gallery link leaves every page's menu, the gallery page itself
+    stays, and nothing outside a menu changes by a byte;
+  - it costs 3 (a direct charge of 3; on the queue one reservation,
+    finalized at 3), and the trace records `behavior` dropped.
+- **Then "Remove the gallery page."**, on that result: `gallery.tsx` alone is
+  removed, with no model call and for nothing (queued: `exempt`), the four
+  other pages are byte-identical to after message 1, and the reply is "✅ Took
+  /gallery off the site. Every publish is kept, so say the word if you want it
+  back."
+- **Controls**: a page another page still links to is still refused, with the
+  same sentence, nothing compiled and nothing charged (both money paths); the
+  picker naming nothing, `action`, or `action` beside `behavior` (only
+  `action` runs); `nav` without `remove`, which never opens the door; `pages`
+  or `backend` named on the menu door (dropped); an ordinary look request
+  still runs the lane its picker chose; a look-door removal of the database is
+  still refused `not-removable`; and the picture door with the picker naming
+  nothing, `images` or `behavior` takes exactly the one photograph off.
+- **The canary**: `test/canary-remove.test.mjs` (9 cases: run 47's record
+  fails, a real removal built by the menu editor's own writer passes, and each
+  way of falling short fails its own check); `test/canary-ui.test.mjs` 61 → 64
+  (the dependency rule, run 47's shape stopping before message 2 with one
+  routing call, and the wiring); `test/site-nav.test.mjs` +1 (the home-link
+  rule).
+- **Two existing guards moved with the change, re-anchored to what they
+  protect**: `removal-door` names every read of the door's flag by landmark
+  (four now, the filter among them); `edit-page-verb`'s picture-door case
+  still checks that no page is deleted, and now states the first consequence
+  below.
+- **Red checks**, each in a throwaway worktree:
+  - the route fix absent: 9 of the 20 fail, each on its first check (for run
+    47, the rungs called: the look lane ran and the menu editor never did);
+    the 11 that pass are the controls that must pass either way; the two
+    re-anchored guards fail too;
+  - the home-link fix absent: 10 of the 20 fail, every case that reaches the
+    menu editor, each on the home page's menu losing "Today's bake";
+  - the re-anchored `removal-door` guard, probed three ways (the filter
+    switched off, an unlisted read, the removals not narrowed), fails each
+    time; `worker.js` was restored byte for byte.
+- **Suites**: the focused set (50 files) 1,554 / 1,554; the whole suite
+  8,180 / 8,178 / 0 / 2 locally, +33 against 8,147, exactly the new cases.
+  Unit CI run `36372529452` on `a9fc516a`: 8,180 / 8,176 / 0 / 4, every new
+  or changed case passing by name, 8,180 distinct results, none missing, none
+  failing. No mutation sweep (the owner's instruction).
+- **The image**: `worker.js`, `builder/site-lanes.mjs` and
+  `builder/site-nav.mjs` are container inputs, so a merge rebuilds and rolls
+  it. Predicted over `a9fc516a`: `560b4bfcacff62f5` (188 inputs, 158 distinct
+  paths), against main's `9038e90ab1d5d7fe`.
+
+**Consequences, stated.**
+1. **A removal routed to `picture` or `nav` that also asks for another change
+   now makes only the router's change.** "Take the photo off the prices page
+   and put the price list above the introduction.", routed `picture` with
+   `remove`, used to run the layout beside the picture step; now the picture
+   editor alone answers, exactly as for the same route without `remove`. On
+   a site with no photograph that is the picture editor's refusal: nothing
+   compiled, nothing charged. If the owner prefers the old behaviour here,
+   the alternative is to drop the picker's answer only when none of its lanes
+   leads back to the router's editor: one condition.
+2. **An unrelated lane that cannot be removed, named on that door, no longer
+   refuses the message**: the router's editor runs. The look door's refusal is
+   unchanged.
+
+**Not established by any of this**: what a real picker or menu model answers.
+The page removal, the redirect and the restore still have never run live; the
+re-run does that.
+
+**The presses after the owner's review** (none dispatched; each the owner's):
+1. merge and deploy; the container rolls, so the next press waits for the
+   rollout;
+2. the free canary from `main`, spend `no`, with the merge's sha and the
+   deploy's image (predicted `560b4bfcacff62f5`; re-predicted over the merge
+   commit before the push);
+3. the free rehearsal of `5-page-remove` from `main`;
+4. the paid run of `5-page-remove`: about 4–6 credits, an estimate and not a
+   cap (balance 50);
+5. the free restore to `01790468089054-8btpep`, reading `/gallery` without
+   following redirects.
 
 ### What it will not establish
 
 - How a real model reads any other wording.
-- The refusal live. Starting with "Remove the gallery page." on its own would
-  show it, for about 2 more credits; it is rehearsed free and left out.
+- The link rule's refusal: run 47's second message already showed it live, so
+  the re-run does not repeat it.
 - Components, which this site does not store.
 - Hydration (#418) and translation, both parked.
 
