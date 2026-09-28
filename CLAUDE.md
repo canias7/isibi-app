@@ -204,19 +204,23 @@ and the rehearsal typed message 1 and sent nothing. **The paid press ran as run
 - Message 2 was then refused by the link rule, as designed.
 
 It cost 2 + 1 = 3 credits for routing, and the balance is 50. It is reproduced
-free, word for word. **The owner approved the correction (2026-09-28), and it
-is BUILT on the branch at `a9fc516a`, not merged** (*Test 5*, below):
+free, word for word. **The owner approved a correction (2026-09-28) and held
+its first version (`a9fc516a`)**: keeping only the lanes that lead back to the
+router's rung also dropped work asked for beside the removal. **The corrected
+version is BUILT on the branch at `50b97183`, not merged** (*Test 5*, below):
 - on a door the router opened for its own `nav` or `picture` removal, the
-  picker may only keep lanes that lead back to that rung (`doorLanes`); with
-  none left, the router's own step runs;
+  router's own step always runs, where its lane would run (`doorDispatch`);
+  a single picked lane on another rung is set aside (`doorAnswer`, run 47's
+  shape); two or more are separate things asked, and each runs as its own
+  step with its own verb;
 - a home page's menu keeps a link to itself it already has, so the menu edit
   removes only the Gallery link;
 - the canary sends message 2 only after message 1's job stored a menu
   success, and passes the scenario on nine operation checks, never on two
   replies (run 47 printed "UI MODE PASSED").
 
-Every model answer in its evidence is supplied; unit CI and the site build are
-green, and a merge rolls the container (predicted `560b4bfcacff62f5`).
+Every model answer in its evidence is supplied; unit CI is green on
+`50b97183`, and a merge rolls the container (predicted `776b004f79e11a6a`).
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -10553,7 +10557,7 @@ after it hold the test and the proposal. What is law here:
   uploaded `if: always()`. So D2's artifact must equal step 0's, a free check
   that nothing moved the grants between the two presses.
 
-### TEST 5: A PAGE REMOVAL AND ITS RESTORATION, PREPARED, BOTH FREE CHECKS PASSED, THE PAID PRESS (RUN 47) STOPPED AT ITS FIRST MESSAGE, AND THE APPROVED CORRECTION IS BUILT ON THE BRANCH (2026-09-27 → 09-28, not merged)
+### TEST 5: A PAGE REMOVAL AND ITS RESTORATION, PREPARED, BOTH FREE CHECKS PASSED, THE PAID PRESS (RUN 47) STOPPED AT ITS FIRST MESSAGE, AND THE APPROVED CORRECTION — ITS FIRST VERSION HELD, ITS SECOND BUILT — IS ON THE BRANCH (2026-09-27 → 09-28, not merged)
 
 Owner: *"Prepare one bounded page-removal-and-restoration test using an
 existing suitable fixture and the existing workflow … First reconcile this
@@ -10697,105 +10701,143 @@ The full plan, the expected bodies and the presses are the checklist's
   - **THE CORRECTION WAS PROPOSED FOR THE OWNER'S APPROVAL, AND APPROVED
     2026-09-28** (*"Proceed with the bounded removal-routing correction"*).
     Built on the branch; the next bullet.
-- **THE CORRECTION, BUILT (2026-09-28, `a9fc516a`, on the branch, NOT
-  merged; no deploy, no paid run).** The owner: *"For a removal entering
-  through nav or picture, prevent the secondary lane selector from diverting
-  it into an unrelated editor. Preserve compatible selections and the existing
-  fallback to the router's original editor. Keep ordinary look requests and
-  genuine removal refusals unchanged."* Three changes:
-  - **THE ROUTE.** `doorLanes(picked, eLayer)` (`builder/site-lanes.mjs`),
-    asked in `worker.js` right after the picker's own failure and before
-    anything reads its answer (the removal refusals, the add-on wall, the
-    `pages` fold, the plan): on `eRemovalDoor` a lane stays only when
-    `laneLayer(lane) === eLayer` (`action` on `nav`, `images` on `picture`),
-    exactly as picked; the removals are narrowed with it, because
-    `readRemoves` promises they are a subset of what was picked; every
-    dropped lane is marked in the trace (`door:dropped`). With nothing left,
-    the existing fall-through pushes the router's own step. **A layer the
-    helper cannot read keeps NOTHING**: `laneLayer` answers `null` for every
-    lane the look step acts on itself, so comparing against a `null` layer
-    would keep them all. The `look` door never takes the branch.
-  - **THE MENU RUNG'S HOME RULE** (the ⚠ bullet earlier in this section),
-    because the owner's acceptance is that the menu edit removes ONLY the
-    Gallery link.
-  - **THE CANARY.** `5-page-remove`'s second message carries `needs: {step:
-    1, layer: "nav"}`, and `dependencyVerdict` lets it go only when message
-    1's job stored `ok === true` at `layer === "nav"`; otherwise `runUi`
-    stops BEFORE typing it (its routing call is never paid), the run fails
-    ("every message in the scenario was sent"), and the evidence upload runs
-    `if: always()`. And the scenario passes on `removalVerdict`
-    (`scripts/canary-remove.mjs`), nine checks each read off its own record:
-    message 1's stored menu success without the link; message 2's stored
-    success removing exactly `gallery.tsx`; two publishes, in order, the
-    after-read at the last; both source reads complete; the source lost
-    `gallery.tsx` and nothing else; the components byte-identical; every
-    other page changed only in its menu, which lost exactly that link; no
-    other page names `/gallery`; `/gallery` read with `redirect: "manual"`
-    is a 301 to this origin's `/`. **Run 47 printed "UI MODE PASSED: 2
-    messages sent" and its job concluded success** — two replies and a usable
-    composer are not a removal (owner); its own record fails 7 of the 9.
-- **THE EVIDENCE, EVERY MODEL ANSWER SUPPLIED.**
-  `test/edit-removal-door.test.mjs` (20 cases) drives the real edit route
-  on run 47's own stored pages (`test/fixtures/run47/`, hashes asserted)
-  with the router's ACTUAL request shape `{layer: "nav", remove: true}` and
-  the picker's actual `behavior`, both money paths: `pick_lanes` then
-  `write_nav`, only the Gallery link leaves every menu, the page stays,
-  nothing outside a menu moves, 3 credits (sync debit 3; job one reserve,
-  `finalized` 3), the trace records the drop. Then the page removal on that
-  site: `gallery.tsx` alone, no model call, free (job `exempt`), the other
-  four byte-identical to after message 1, *"✅ Took /gallery off the site.
-  Every publish is kept, so say the word if you want it back."* Controls: the
-  still-linked refusal unchanged (both paths), empty, `action`, `action` +
-  `behavior`, `nav` without `remove`, `pages`/`backend` on the menu door,
-  look + `behavior`, the look door's `not-removable`, and the picture door
-  with none/`images`/`behavior`/`images` + `shape`. Plus
-  `test/canary-remove.test.mjs` 9, `test/canary-ui.test.mjs` 61 → 64,
-  `test/site-nav.test.mjs` +1.
-  - **Red, in throwaway worktrees**: the route fix absent → 9 of 20 fail,
-    each on its first gate (run 47's on the rungs called), the other 11 being
-    the controls; the home-link fix absent → 10 of 20, every case reaching
-    the menu rung, each on the home page's menu losing "Today's bake".
-  - **Two existing guards moved with the change, re-anchored to their
-    property**: `removal-door` now names all four reads of `eRemovalDoor` by
-    landmark (the declaration, the filter, the two climbs) and fails on a
-    read nobody listed — probed three ways (filter off, an unlisted read,
-    removals not narrowed), each red, `worker.js` restored byte for byte;
-    `edit-page-verb`'s picture-door case keeps "no page is deleted" and now
-    asserts the first consequence below.
-  - **Suites**: the 50 focused files 1,554 / 1,554; the whole suite `8180 /
-    8178 / 0 / 2` locally, **+33 against 8,147**, exactly the new cases; unit
-    CI run `36372529452` on `a9fc516a` at `8180 / 8176 / 0 / 4`, every new or
-    changed case by name, 8,180 distinct results, none missing, no `not ok`.
-    The docs-only `fb875267` read `8147 / 8143 / 0 / 4` (run `36358413010`),
-    and the two docs-only commits after `a9fc516a` read its four numbers again
-    (runs `36373121777`, `36373232717`). **`site build` run `36372529460` on
-    `a9fc516a`** (25m44s, all twenty steps) read all twelve counts green out
-    of its per-step files: TAP 397/397/0/0, kit-typecheck 4, site-build
-    **404**, contrast-cases 16, theme-seam 11, theme-render 29, site-routing
-    14, site-runtime 47, kit-render / kit-a11y / kit-effects / kit-paint `all
-    passed`; census 7 + 4 + 1 = **12**; only the two known `##[error]`
-    annotations; `site-build.mjs` 18m56s. **The stamp chain ends at
-    `a9fc516a`.** No sweep (the owner's instruction).
-  - **The image**: predicted over `a9fc516a` **`560b4bfcacff62f5`** (188
-    inputs, 158 distinct paths) against main's `9038e90ab1d5d7fe`; the
-    range's image inputs are `worker.js`, `builder/site-lanes.mjs` and
-    `builder/site-nav.mjs`, so a merge rolls the container.
-- **CONSEQUENCES, STATED.** (1) **A removal routed `picture` or `nav` that
-  also asks for another change makes only the router's change**, exactly as
-  the same route without `remove`: "Take the photo off the prices page and
-  put the price list above the introduction." used to publish the layout
-  beside the picture step's refusal; on a site with no photograph it is now
-  the picture rung's `no-slots` alone, nothing compiled, nothing charged. The
-  alternative, if the owner prefers the old behaviour, is to drop the answer
-  only when none of its lanes leads back to the router's rung — one
-  condition. (2) **An unrelated not-removable lane on that door no longer
-  refuses the message**; the router's rung runs. The look door's refusal is
-  unchanged.
+- **THE FIRST VERSION WAS HELD BY THE OWNER (2026-09-28).** `a9fc516a`'s
+  `doorLanes` kept only the picked lanes leading back to the router's rung and
+  dropped the rest — which fixed run 47 and ALSO dropped "move the opening
+  hours up" from a photo-removal message. Owner: *"Hold the merge: the blanket
+  doorLanes filter regresses genuine multi-part requests… My earlier
+  instruction to constrain every secondary selection was too broad. Correct
+  the mechanism so the original nav/picture operation cannot be displaced,
+  while independently requested work remains executable. Preserve per-step
+  removal semantics: removing a photo must never make a layout step delete its
+  page."* And: *"Do not redefine the older mixed-request success as an
+  acceptable refusal"* — the first version had re-anchored `edit-page-verb`'s
+  picture-door case to accept the loss (the trap *a re-anchor that flips what
+  the customer gets*).
+- **THE CORRECTED ROUTE (`50b97183`, on the branch, NOT merged; no deploy, no
+  paid run).** On `eRemovalDoor` (`nav` or `picture` with `remove`):
+  - **the router's own step ALWAYS runs**: `doorDispatch(pickedFields,
+    doorLane(eLayer))` puts the router's lane (`action` for `nav`, `images`
+    for `picture` — `doorLane` answers the one lane leading to a layer, and a
+    guard pins exactly one for each door layer) into the picker's own
+    `LANE_FIELDS` order when the picker did not name it, and the dispatch
+    loop pushes THE ROUTER'S STEP there — `{layer: eLayer, page: ePage,
+    fields: [], remove: eRemove, rename: eRename}`, the step it always got.
+    Named by the picker, its own dispatched step is already there. The old
+    fall-through (router's step only when the plan came out empty) is gone;
+  - **one picked lane on another rung is SET ASIDE** (`doorAnswer`), with its
+    removals and refusals, before anything reads the answer, and traced as
+    `door:set-aside`. The reason is the picker's own contract — one lane is
+    the ordinary answer, a second only for a second, separate thing — so a
+    lone lane is its reading of the one thing asked, which the router already
+    placed. Run 47's `behavior` is this;
+  - **two or more lanes are separate things asked**, and each runs as its own
+    step with its own verb; `runLayer` reads the STEP's verb, so a layout step
+    never deletes its page beside a photo removal;
+  - the `look` door never takes the branch.
+- **THE MENU RUNG'S HOME RULE** (the ⚠ bullet earlier in this section) and
+  **THE CANARY** — `5-page-remove`'s second message gated on message 1's
+  stored `ok === true` at `layer === "nav"` (`dependencyVerdict`, stopping
+  BEFORE the paid routing call), and the scenario judged by `removalVerdict`'s
+  nine operation checks (`scripts/canary-remove.mjs`) — are kept unchanged
+  from the first version. **Run 47 printed "UI MODE PASSED: 2 messages sent"
+  over two refusals**; its own record fails 7 of the 9.
+- **THE FIRST VERSION'S EVIDENCE, KEPT FOR THE PARTS THAT CARRY OVER.** The
+  canary: message 2 carries `needs: {step: 1, layer: "nav"}`; on anything but
+  that stored menu success `runUi` stops before typing it, the run fails
+  ("every message in the scenario was sent") and the evidence uploads
+  `if: always()`; `removalVerdict`'s nine checks include `/gallery` read with
+  `redirect: "manual"` answering a 301 to this origin's `/`.
+  `test/canary-remove.test.mjs` 9 cases, `test/canary-ui.test.mjs` 61 → 64,
+  `test/site-nav.test.mjs` +1; with the home-link fix absent, 10 of that
+  file's then 20 cases failed, each on the home page's menu losing "Today's
+  bake". At `a9fc516a`: 50 focused files 1,554 / 1,554; the whole suite
+  `8180 / 8178 / 0 / 2` locally (+33 against 8,147); unit CI run
+  `36372529452` at `8180 / 8176 / 0 / 4`; **`site build` run `36372529460`**
+  (25m44s) all twelve counts green, `site-build.mjs` 18m56s. Its image was
+  predicted `560b4bfcacff62f5`, superseded by this version's.
+- **THE EVIDENCE, EVERY MODEL ANSWER SUPPLIED.** `test/edit-removal-door.test.mjs`
+  (**27 cases**) on run 47's own stored pages (hashes asserted), the router's
+  actual shapes, both money paths wherever money moves:
+  - **run 47** (`behavior` alone): `pick_lanes` then `write_nav`, only the
+    Gallery link leaves every menu, the page stays, nothing outside a menu
+    moves, 3 credits (sync debit 3; job one reserve, `finalized` 3), and then
+    the page removal: `gallery.tsx` alone, no model call, free (job `exempt`);
+  - **photo removal + layout** (`images` + `shape` on the picture door): the
+    page writer runs first (the picker's order), the picture rung then takes
+    the one photograph off, ONE compile, the home page exactly the moved
+    layout with that one `src` emptied, every page still there, 5 credits
+    (3 + 2), *"✅ Updated the look. One photograph is no longer on the site.
+    If that was not what you wanted, say “put the photo back”. There is a
+    space for a photo — upload yours in the Data panel and it’ll fill in."*;
+  - **photo refusal + layout**: the layout ships exactly, *"✅ Updated /. ⚠️ I
+    couldn't match that to any of the pictures on your site. That part still
+    cost 2 credits."*, 5 credits; and `edit-page-verb`'s original case
+    **restored byte for byte** (a site with no photograph: *"✅ Updated
+    /prices. ⚠️ I couldn't find a photograph on your site that I can change.
+    If you'd like one added, say which page it should go on and where."*);
+  - **menu + layout**, with `action` + `shape` and with `behavior` + `shape`
+    (no lane for the menu — the router's step is put in where `action` would
+    run): both requested changes ship, 5 credits;
+  - **ordinary requests**: none / `action` on the menu door, and a lone
+    `pages` or `backend` removal set aside (the page never deleted, nothing
+    refused); none / `images` / `behavior` / `shape` on the picture door, the
+    lone misplaced lane never running; the still-linked refusal, `nav`
+    without `remove`, look + `behavior` and the look door's `not-removable`
+    unchanged.
+  - **Red, in throwaway worktrees** (63 cases as run across this file and
+    `edit-page-verb`, one a fixture case the file then declared twice, green
+    in both): **main's route** with the kept home-link fix carried in → 10
+    fail, every one the door (run 47 and the removal after it, the menu
+    message placed elsewhere, each on both paths, and the four lone misplaced
+    lanes), while photo+layout, photo refusal+layout and `action`+`shape`
+    pass on main as they should; **the held first version** → 15 fail, 9 on
+    behaviour (the restored `edit-page-verb` case, photo+layout, photo
+    refusal+layout, menu+layout and placed-elsewhere, each on both paths — the
+    owner's regression) and 6 only on the renamed trace mark.
+  - `removal-door`'s census re-anchored to the four reads of `eRemovalDoor`
+    (declaration, `doorAnswer`, the no-lane climb, `doorOwn`) and to the
+    dispatch pushing the router's step where its lane was not picked.
+  - **Suites**: the 42 files that can see the door or the lanes 1,269 /
+    1,269; the whole suite **`8187 / 8185 / 0 / 2`** locally at `d9e3f0f1`,
+    **+7 against 8,180**, exactly the file's 20 → 27; unit CI run
+    **`36376498949` on `50b97183` at `8188 / 8184 / 0 / 4`** (that tree still
+    carried the duplicated fixture case), every new or changed case by name,
+    8,188 distinct results, no gap, no `not ok`; and **unit CI run
+    `36376714716` on `d9e3f0f1` at `8187 / 8183 / 0 / 4`**, the total
+    matching the local run, all 72 cases of the three changed test files
+    (27 + 35 + 10) by name, 8,187 distinct results, no gap, no `not ok`. No
+    sweep (the owner's instruction).
+  - **The image**: predicted over `50b97183` **`776b004f79e11a6a`** (188
+    inputs, 158 distinct paths) against main's `9038e90ab1d5d7fe`, which the
+    predictor reproduces first; `worker.js`, `builder/site-lanes.mjs` and
+    `builder/site-nav.mjs` are the range's inputs, so a merge rolls the
+    container. `d9e3f0f1` is a test file and moves nothing.
+- **WHAT THE CORRECTED RULE CANNOT TELL, EACH DRIVEN THROUGH THE ROUTE.**
+  (1) **A two-part message answered with only the OTHER part looks exactly like
+  run 47 and is set aside SILENTLY**: "Take Gallery out of the menu and make
+  the footer navy." answered `css` alone changes only the menu and says
+  *"✅ Updated the menu on 4 pages: …"*. Likeliest on the menu door, where no
+  lane describes a menu's items. (2) **A two-lane answer runs a misplaced lane
+  too**: `behavior` + `shape` for the menu + layout message ships both changes,
+  runs `behavior` (it answered nothing, as on run 47) and adds *"⚠️ I couldn't
+  work out how to change the site's look that way…"*; a real behaviour lane that
+  answered would change the stored behaviour list. (3) **A second lane that ends
+  the whole message on the look door still ends it here, and the router's change
+  does not run either**: a not-removable part → 422 whole (driven, `action` +
+  `backend`); an addition → the whole message to the PAID add-on route, no
+  photo change (driven, `images` + `three`); an unreadable `pages` verb or a
+  missing page → a sentence for the whole message (read). **All three are the
+  same on main** (the recorded look-door limitation) and are the remaining ways
+  the router's operation can be displaced — a separate decision. (4) Two
+  operations are reported as *"✅ Updated the look."* (the multi-step
+  composer's recorded limit).
 - **THE PRESSES AFTER REVIEW, NONE DISPATCHED**: merge and deploy (the
   container rolls; wait for it); the free canary from `main` with the merge's
-  sha and the deploy's image; the free rehearsal of `5-page-remove`; the paid
-  run, about 4–6 credits (an estimate, not a cap; balance 50); the free
-  restore to `8btpep`, reading `/gallery` without following redirects.
+  sha and the deploy's image (predicted `776b004f79e11a6a`, re-predicted over
+  the merge commit); the free rehearsal of `5-page-remove`; the paid run,
+  about 4–6 credits (an estimate, not a cap; balance 50); the free restore to
+  `8btpep`, reading `/gallery` without following redirects.
 
 ### A SECTION HEADED BY THE KIT (2026-09-26, `2f2fed58` + `5ec82214`, merged and deployed in deploy 2162)
 
@@ -14360,6 +14402,15 @@ rule and the measurement.
   address), and **a message that depends on an earlier one is not sent until
   that one stored its success**: sending it anyway costs a routing call to
   collect a refusal the harness then counts as a reply.
+- **A RE-ANCHOR THAT FLIPS WHAT THE CUSTOMER GETS IS NOT A RE-ANCHOR
+  (2026-09-28, the owner held a merge for it).** The first removal-door fix made
+  `edit-page-verb`'s mixed case go red — a photo removal beside a layout change,
+  where the layout had always shipped — and the case was rewritten to expect
+  the layout REFUSED, with the loss written up as a "stated consequence". A
+  re-anchor is legitimate when the spelling moved and the property held; when
+  the expectation flips from *the requested work ships* to *it does not*, the
+  guard was reporting a regression. **Ask what the customer now gets that they
+  did not before; if the answer is less, it is not a re-anchor.**
 - **A NAME THE HARNESS DID NOT KNOW WAS DROPPED WITHOUT A WORD.** A filter on a
   person's input is a silent drop; a check is a sentence.
 - **A KEY WHOSE INVARIANT EXPIRED WHEN THE LAYER BELOW IT MOVED.** The idempotency

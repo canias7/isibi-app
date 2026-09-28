@@ -14,7 +14,7 @@ merged/deployed at a5741864 (deployment 2157 / run 36099179983). Served chat.js
 matched the reviewed bytes at 2026-09-25 05:36:30 UTC. Deployment log reports
 container reuse; no repeated runtime container check or canary. This contains
 an escaped display error; publication and cleanup already succeeded. Other
-checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; see the dated entries below). Your free check (run 33, 06:24 UTC) confirmed deployment 2161 from the live server, and with it 2160's code. Test 3 ran as your paid run 34: the full page writer removed "The first eight chords" and nothing else, for 18 credits (balance 73), and all seven checks hold (the dated entry below). The page-text check now recognises a section heading shown by a design component, and your review's gap (such a heading counted when the page might not show it) is closed too. You closed that correction, and it is merged and deployed at `ab74d0d9` (deployment 2162, 2026-09-26 20:31 UTC, image `369d7b1e5bae25b0`). Your free press (run 35, 21:08 UTC) confirmed it from the live server. Test 4 is two parts, each for your separate approval: 4a (pages, photos, an attached picture, second messages) and 4b (the database), which waits for its own approval. In 4a, Part A passed as your paid run 37, and Parts B and C passed as your paid run 39 through the canary's new browser mode, which drives the real app in a real browser. **You closed Test 4a on 2026-09-27** after your own review of run 39's workflow and evidence; three small findings are kept separately. Test 4b is now just the price test (D1): built, and its free rehearsal passed as your run 40 (03:34 UTC). You then found its put-back could overwrite a change made at the same moment. You closed that fix after review, and it's merged and deployed at `14df0225` (deployment 2163, 2026-09-27 05:15 UTC, image `9038e90ab1d5d7fe`). Your fresh free rehearsal on that deployment passed as run 41 (05:37 UTC), which also confirmed deployment 2163 from the live server, and your paid price test passed as run 42 (06:03–06:05 UTC, 3 credits). **You closed D1 on 2026-09-27** after your own review of run 42. Its free first step stays on record, and the permission step and the real order are parked. The short list of what's left is in the entry *"You closed the price test (D1)…"* below. The rules test I recommend next is built (the entry *"The rules test is built"*; your two corrections to its plan are the entry after it): it runs on `lido-axes-b`, a candidate site whose database you'd need to agree to repurpose, it submits one real booking that must be refused, and it's about 3 credits. Its booking is now checked before it leaves the browser, and you closed that correction after your review. Both free checks passed. The permissions read (09:32 UTC) showed exactly the starting permissions the test was written for. The free rehearsal (your run 43, 16:27 UTC) stopped exactly the test booking inside the browser and changed nothing. **Your paid rules test passed as run 44** (17:29–17:31 UTC, 3 credits): the message closed bookings on `lido-axes-b`, and one real test booking made afterwards through the site's own form was refused, with nothing added and nothing published (the newest entry). Its bookings stay closed, as you agreed by pressing it. Your free permissions check afterwards (18:13 UTC) agrees: visitors can no longer do anything with bookings, and the menu is unchanged. **You closed the rules test on 2026-09-27**, for exactly what it showed; no booking was measured going through before the change, so it proves this one closing, not every kind of rules change. Bookings stay closed. The pages still inviting bookings, and the plain "That isn't available." a visitor gets, are kept as a separate item for later. **The next test, taking a page off and putting it back (Test 5), is prepared, and both its free checks passed** (your runs 45 and 46). **Your paid run (run 47) stopped at its first message and changed nothing.** The menu request went to the wrong part of the editor, so the page removal was then correctly refused. You approved the fix; it's built and tested on the branch, not merged, together with a small menu fix and a stricter pass rule for the test (the newest entry). The balance is 50.
+checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; see the dated entries below). Your free check (run 33, 06:24 UTC) confirmed deployment 2161 from the live server, and with it 2160's code. Test 3 ran as your paid run 34: the full page writer removed "The first eight chords" and nothing else, for 18 credits (balance 73), and all seven checks hold (the dated entry below). The page-text check now recognises a section heading shown by a design component, and your review's gap (such a heading counted when the page might not show it) is closed too. You closed that correction, and it is merged and deployed at `ab74d0d9` (deployment 2162, 2026-09-26 20:31 UTC, image `369d7b1e5bae25b0`). Your free press (run 35, 21:08 UTC) confirmed it from the live server. Test 4 is two parts, each for your separate approval: 4a (pages, photos, an attached picture, second messages) and 4b (the database), which waits for its own approval. In 4a, Part A passed as your paid run 37, and Parts B and C passed as your paid run 39 through the canary's new browser mode, which drives the real app in a real browser. **You closed Test 4a on 2026-09-27** after your own review of run 39's workflow and evidence; three small findings are kept separately. Test 4b is now just the price test (D1): built, and its free rehearsal passed as your run 40 (03:34 UTC). You then found its put-back could overwrite a change made at the same moment. You closed that fix after review, and it's merged and deployed at `14df0225` (deployment 2163, 2026-09-27 05:15 UTC, image `9038e90ab1d5d7fe`). Your fresh free rehearsal on that deployment passed as run 41 (05:37 UTC), which also confirmed deployment 2163 from the live server, and your paid price test passed as run 42 (06:03–06:05 UTC, 3 credits). **You closed D1 on 2026-09-27** after your own review of run 42. Its free first step stays on record, and the permission step and the real order are parked. The short list of what's left is in the entry *"You closed the price test (D1)…"* below. The rules test I recommend next is built (the entry *"The rules test is built"*; your two corrections to its plan are the entry after it): it runs on `lido-axes-b`, a candidate site whose database you'd need to agree to repurpose, it submits one real booking that must be refused, and it's about 3 credits. Its booking is now checked before it leaves the browser, and you closed that correction after your review. Both free checks passed. The permissions read (09:32 UTC) showed exactly the starting permissions the test was written for. The free rehearsal (your run 43, 16:27 UTC) stopped exactly the test booking inside the browser and changed nothing. **Your paid rules test passed as run 44** (17:29–17:31 UTC, 3 credits): the message closed bookings on `lido-axes-b`, and one real test booking made afterwards through the site's own form was refused, with nothing added and nothing published (the newest entry). Its bookings stay closed, as you agreed by pressing it. Your free permissions check afterwards (18:13 UTC) agrees: visitors can no longer do anything with bookings, and the menu is unchanged. **You closed the rules test on 2026-09-27**, for exactly what it showed; no booking was measured going through before the change, so it proves this one closing, not every kind of rules change. Bookings stay closed. The pages still inviting bookings, and the plain "That isn't available." a visitor gets, are kept as a separate item for later. **The next test, taking a page off and putting it back (Test 5), is prepared, and both its free checks passed** (your runs 45 and 46). **Your paid run (run 47) stopped at its first message and changed nothing.** The menu request went to the wrong part of the editor, so the page removal was then correctly refused. You approved the fix, then held its first version because it also dropped other changes asked for in the same message. The corrected version is built and tested on the branch, not merged, with the small menu fix and the stricter pass rule for the test kept (the newest entry). The balance is 50.
 
 Kept for the owner. Two purposes:
 1. **How you like things done** — durable preferences, so a fresh session does not
@@ -176,7 +176,106 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ---
 
-## 2026-09-28 — The menu-removal fix is built and tested (on the branch, not merged); the page-removal test now passes only on what actually happened
+## 2026-09-28 — You held the menu-removal fix; the corrected version keeps the other things you ask for (on the branch, not merged)
+
+**Nothing is merged, deployed or run live, and nothing was spent.** Everything
+below is on the branch at `50b97183`, with one test tidy-up at `d9e3f0f1`, for
+your review.
+
+- **What you held, and why.** The first version (the entry below) set aside
+  everything the picker chose that didn't lead back to the menu or photo
+  editor. That fixed run 47, but it also dropped real work asked for in the
+  same message: "take the photo off and move the opening hours up" only took
+  the photo off. I had written a test that accepted that loss, and changed an
+  older test that required the layout change to ship even when the photo part
+  was refused. You were right that this was a regression. **The older test is
+  back exactly as it was.**
+- **The corrected rule.** When the router says a menu (or photo) removal:
+  - **the menu (or photo) editor always runs**, in the order the picker's
+    choices run in, so whatever the picker chose can no longer push it out;
+  - **if the picker chose just one thing, and it isn't that editor, it is set
+    aside.** That's run 47: the picker read "take Gallery out of the menu" as
+    a behaviour change. The picker's own instructions say one choice is the
+    normal answer and a second choice means a second, separate thing was
+    asked, so a single choice is its reading of the one thing the router
+    already placed. The edit's own log says what was set aside;
+  - **if it chose two or more, each is a separate thing you asked for, and
+    each runs as its own step with its own rules.** Taking a photo off never
+    makes a layout step delete its page;
+  - removals the router sends to the design editor, and ordinary design
+    requests, are unchanged.
+- **Kept from the first version**: the home page keeping its own "Today's
+  bake" link, and the test's stricter pass rule (nine checks, and the second
+  message only after the first really changed the menu).
+
+**Your four checks, through the real editor code** (the models' answers are
+supplied, so this proves what the editor does with an answer, not what a real
+model will answer), each both ways an edit can run (straight away and queued):
+1. **Run 47**: only the Gallery link leaves the menu, on every page; the
+   gallery page stays; 3 credits. The reply: "✅ Updated the menu on 4 pages:
+   Today's bake · The starter · Visit." Then "Remove the gallery page." removes
+   that page and nothing else, free.
+2. **A photo removal and a layout change both ship**, in one publish: the
+   layout is moved and exactly the one photo is gone, and every page is still
+   there. 5 credits (3 + 2). The reply: "✅ Updated the look. One photograph is
+   no longer on the site. If that was not what you wanted, say “put the photo
+   back”. There is a space for a photo — upload yours in the Data panel and
+   it’ll fill in."
+3. **A photo that can't be found beside a valid layout change**: the layout
+   ships and the reply says both: "✅ Updated /. ⚠️ I couldn't match that to
+   any of the pictures on your site. That part still cost 2 credits." 5
+   credits. The older test is back as it was: "✅ Updated /prices. ⚠️ I
+   couldn't find a photograph on your site that I can change. If you'd like
+   one added, say which page it should go on and where."
+4. **Ordinary menu and photo requests don't set off unrelated edits**: a
+   single stray choice never runs, and nothing is deleted or refused because
+   of it.
+
+Also: "Take Gallery out of the menu and put the order band above the starter
+story." ships both changes, whether or not the picker names the header button.
+
+**Compared with the old code**, the same tests: on `main`, 10 fail, all of them
+the removal problem (run 47 and the removal after it, the menu part placed
+elsewhere, and the single stray choices), while the photo-and-layout ones pass
+there, because that always worked on `main`. On the version you held, 15 fail,
+9 of them the dropped work you found.
+
+**Numbers**: the 42 test files that can see this pass (1,269 tests); all 8,187
+tests pass here; GitHub's unit runs read 8,188 on `50b97183` and 8,187 on
+`d9e3f0f1` (the tidy-up removed a test I had declared twice), none failing.
+GitHub's site-build check on `50b97183` was still running when this was
+written; its result is stamped below when it finishes.
+
+**What it still can't tell, each tried through the editor:**
+1. If a two-part message ("take Gallery out of the menu and make the footer
+   navy") gets only one choice from the picker, for the footer, it looks
+   exactly like run 47, so the footer part is set aside and **the reply doesn't
+   say so** ("✅ Updated the menu on 4 pages: …").
+2. If the picker's two choices include its misreading of the removal, that
+   misreading runs too, and the reply adds "⚠️ I couldn't work out how to
+   change the site's look that way…".
+3. **A second part that ends the whole message on the design path still ends
+   it here, and then the menu or photo change doesn't happen either**: asking
+   to delete the database alongside is refused whole, and asking to add
+   something new alongside sends the whole message to the paid add-on step.
+   `main` does the same today. These are the remaining ways the router's change
+   can be pushed out; changing them is a separate decision for you.
+4. The reply for two changes says only "Updated the look".
+
+**Next, after your review (each one yours to press):**
+1. Merge and deploy. The editor is part of the container, so it rebuilds
+   (predicted image `776b004f79e11a6a`).
+2. The free check on `main` with the new expected values.
+3. The free rehearsal of the page-removal test.
+4. The paid run again: about 4–6 credits (an estimate, not a cap). The
+   balance is 50.
+5. The free restore that puts the gallery page back.
+
+## 2026-09-28 — The menu-removal fix is built and tested (on the branch, not merged); the page-removal test now passes only on what actually happened (you held this version since: the entry above)
+
+**You held this version (the entry above).** Point 1 under "Two things now
+behave differently" was a regression, not an acceptable change: the corrected
+version keeps the other work asked for in the same message.
 
 **Nothing is merged, deployed or run live, and nothing was spent.** Everything
 below is on the branch at `a9fc516a`, for your review.
