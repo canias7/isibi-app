@@ -588,7 +588,15 @@ merge, deploy or paid run.
   8,180 / 8,178 / 0 / 2 locally, +33 against 8,147, exactly the new cases.
   Unit CI run `36372529452` on `a9fc516a`: 8,180 / 8,176 / 0 / 4, every new
   or changed case passing by name, 8,180 distinct results, none missing, none
-  failing. No mutation sweep (the owner's instruction).
+  failing; the docs-only commits after it read the same four numbers (runs
+  `36373121777`, `36373232717`). **`site build` run `36372529460` on
+  `a9fc516a`** (25m44s, all twenty steps) read all twelve counts green out of
+  its per-step logs: TAP 397/397/0/0, kit-typecheck 4, site-build 404,
+  contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
+  site-runtime 47, and kit-render, kit-a11y, kit-effects and kit-paint "all
+  passed" (7 + 4 + 1 = 12); the only error annotations are the two known ones
+  from the case that compiles a broken page on purpose; `site-build.mjs` took
+  18m56s. No mutation sweep (the owner's instruction).
 - **The image**: `worker.js`, `builder/site-lanes.mjs` and
   `builder/site-nav.mjs` are container inputs, so a merge rebuilds and rolls
   it. Predicted over `a9fc516a`: `560b4bfcacff62f5` (188 inputs, 158 distinct

@@ -215,8 +215,8 @@ is BUILT on the branch at `a9fc516a`, not merged** (*Test 5*, below):
   success, and passes the scenario on nine operation checks, never on two
   replies (run 47 printed "UI MODE PASSED").
 
-Every model answer in its evidence is supplied; unit CI is green, and a merge
-rolls the container (predicted `560b4bfcacff62f5`).
+Every model answer in its evidence is supplied; unit CI and the site build are
+green, and a merge rolls the container (predicted `560b4bfcacff62f5`).
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -10766,8 +10766,16 @@ The full plan, the expected bodies and the presses are the checklist's
     8178 / 0 / 2` locally, **+33 against 8,147**, exactly the new cases; unit
     CI run `36372529452` on `a9fc516a` at `8180 / 8176 / 0 / 4`, every new or
     changed case by name, 8,180 distinct results, none missing, no `not ok`.
-    The docs-only `fb875267` read `8147 / 8143 / 0 / 4` (run `36358413010`).
-    No sweep (the owner's instruction).
+    The docs-only `fb875267` read `8147 / 8143 / 0 / 4` (run `36358413010`),
+    and the two docs-only commits after `a9fc516a` read its four numbers again
+    (runs `36373121777`, `36373232717`). **`site build` run `36372529460` on
+    `a9fc516a`** (25m44s, all twenty steps) read all twelve counts green out
+    of its per-step files: TAP 397/397/0/0, kit-typecheck 4, site-build
+    **404**, contrast-cases 16, theme-seam 11, theme-render 29, site-routing
+    14, site-runtime 47, kit-render / kit-a11y / kit-effects / kit-paint `all
+    passed`; census 7 + 4 + 1 = **12**; only the two known `##[error]`
+    annotations; `site-build.mjs` 18m56s. **The stamp chain ends at
+    `a9fc516a`.** No sweep (the owner's instruction).
   - **The image**: predicted over `a9fc516a` **`560b4bfcacff62f5`** (188
     inputs, 158 distinct paths) against main's `9038e90ab1d5d7fe`; the
     range's image inputs are `worker.js`, `builder/site-lanes.mjs` and

@@ -230,8 +230,9 @@ model will answer):
   thing it checks), and without the menu fix 10 of them fail (the home page
   losing "Today's bake"). The others are the ones that must pass either way.
 - **All 8,180 tests pass** here, and GitHub's unit run on `a9fc516a` reads
-  8,180 with none failing. The container build check was still running when I
-  wrote this.
+  8,180 with none failing. GitHub's site-build check (which builds real sites
+  and opens them in a real browser) also passed on `a9fc516a`: all twelve
+  counts green.
 
 **Two things now behave differently, so you know before merging:**
 1. **A photo (or menu) removal that also asks for another change now makes
