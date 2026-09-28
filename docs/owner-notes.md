@@ -243,8 +243,10 @@ there, because that always worked on `main`. On the version you held, 15 fail,
 **Numbers**: the 42 test files that can see this pass (1,269 tests); all 8,187
 tests pass here; GitHub's unit runs read 8,188 on `50b97183` and 8,187 on
 `d9e3f0f1` (the tidy-up removed a test I had declared twice), none failing.
-GitHub's site-build check on `50b97183` was still running when this was
-written; its result is stamped below when it finishes.
+GitHub's site-build check (which builds real sites and opens them in a real
+browser) also passed on `50b97183`: all twelve counts green, in 22 minutes.
+The notes commit after it (`49b5921a`) read 8,187 again on GitHub, so
+writing these notes changed no test.
 
 **What it still can't tell, each tried through the editor:**
 1. If a two-part message ("take Gallery out of the menu and make the footer

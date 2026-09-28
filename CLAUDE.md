@@ -219,8 +219,9 @@ version is BUILT on the branch at `50b97183`, not merged** (*Test 5*, below):
   success, and passes the scenario on nine operation checks, never on two
   replies (run 47 printed "UI MODE PASSED").
 
-Every model answer in its evidence is supplied; unit CI is green on
-`50b97183`, and a merge rolls the container (predicted `776b004f79e11a6a`).
+Every model answer in its evidence is supplied; unit CI and the site build
+(twelve counts green, site-build 404) are green on `50b97183`, and a merge
+rolls the container (predicted `776b004f79e11a6a`).
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -10806,8 +10807,20 @@ The full plan, the expected bodies and the presses are the checklist's
     8,188 distinct results, no gap, no `not ok`; and **unit CI run
     `36376714716` on `d9e3f0f1` at `8187 / 8183 / 0 / 4`**, the total
     matching the local run, all 72 cases of the three changed test files
-    (27 + 35 + 10) by name, 8,187 distinct results, no gap, no `not ok`. No
-    sweep (the owner's instruction).
+    (27 + 35 + 10) by name, 8,187 distinct results, no gap, no `not ok`;
+    **`site build` run `36376499742` on `50b97183`** (04:09:27 →
+    04:32:00Z, **22m33s**, all twenty steps, the checkout at `50b97183`)
+    read all twelve counts green out of its per-step files: TAP
+    397/397/0/0, kit-typecheck 4, site-build **404**, contrast-cases 16,
+    theme-seam 11, theme-render 29, site-routing 14, site-runtime 47, and
+    kit-render / kit-a11y / kit-effects / kit-paint `all passed`; census 7
+    + 4 + 1 = **12**; the only `##[error]` lines the two known annotations
+    (the second followed by the two SSR-stream lines, then its own `ok`),
+    `tsc`-format lines 9 / 2 / 7, `site-build.mjs` **16m13s**. `d9e3f0f1`
+    (a test file off the workflow's paths) and the notes commit `49b5921a`
+    start no site build, and unit CI run `36377518611` on `49b5921a` reads
+    `8187 / 8183 / 0 / 4`, so the notes moved the suite by zero. **The stamp
+    chain ends at `d9e3f0f1`.** No sweep (the owner's instruction).
   - **The image**: predicted over `50b97183` **`776b004f79e11a6a`** (188
     inputs, 158 distinct paths) against main's `9038e90ab1d5d7fe`, which the
     predictor reproduces first; `worker.js`, `builder/site-lanes.mjs` and

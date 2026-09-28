@@ -659,7 +659,18 @@ refusal."*
   `d9e3f0f1`). **Unit CI run `36376714716` on `d9e3f0f1`: 8,187 / 8,183 / 0 /
   4**, the total matching the local run, all 72 cases of the three changed
   test files (27 + 35 + 10) passing by name, 8,187 distinct results with no
-  gap, none failing. No mutation sweep (the owner's instruction).
+  gap, none failing. **`site build` run `36376499742` on `50b97183`**
+  (04:09:27 → 04:32:00Z, 22m33s, all twenty steps, the checkout at
+  `50b97183`) read all twelve counts green out of its per-step files: TAP
+  397/397/0/0, kit-typecheck 4, site-build 404, contrast-cases 16,
+  theme-seam 11, theme-render 29, site-routing 14, site-runtime 47, and
+  kit-render / kit-a11y / kit-effects / kit-paint `all passed` (census 7 +
+  4 + 1 = 12). The only `##[error]` lines are the two known annotations,
+  `tsc`-format lines read 9 / 2 / 7, and `site-build.mjs` took 16m13s.
+  `d9e3f0f1` (a test file that is not on the build's paths) and the notes
+  commit `49b5921a` start no site build. **Unit CI run `36377518611` on
+  `49b5921a` reads 8,187 / 8,183 / 0 / 4**, so writing the notes moved the
+  suite by zero. No mutation sweep (the owner's instruction).
 - **The image**: `worker.js`, `builder/site-lanes.mjs` and
   `builder/site-nav.mjs` are container inputs, so a merge rebuilds and rolls
   it. Predicted over `50b97183`: `776b004f79e11a6a` (188 inputs, 158 distinct
