@@ -56,9 +56,15 @@ is the owner's press):
 2. **A protection refusing a real model's answer**: the photograph wall, the
    link and component judge, the text guard, reply validation and the failure
    classification. Live, each has only let a correct answer through.
-3. **Two changes in one message**, including a removal door given other work,
-   and a second message after a hop or a failure. Test 6 (prepared, below)
-   covers two changes through the look door.
+3. **Two changes in one message**, which is two separate items:
+   - **through the look door**: Test 6 (prepared, below) covers it;
+   - **through the removal door, with a real model**: a `nav` or `picture`
+     removal given other work, where the picker is told the routed change and
+     lists anything else separately. Only supplied answers have exercised it.
+     Run 49's real picker was given no other work, and Test 6 does not reach
+     this door, so it stays outstanding whatever Test 6 shows.
+
+   A second message after a hop or a failure is outstanding too.
 4. **A named page other than the home page** on a look edit. Test 6
    (prepared, below) covers it.
 5. **The data rung beyond one row**: adding, removing or reordering rows, and a
@@ -93,34 +99,50 @@ stylesheet scope and rule keys (deploy 2161).
   - the rules reply's literal asterisks;
   - a literal heading naming its whole section whether or not it renders;
   - a reply saying a second part was not done when it was (`alsoAsked`);
+  - a multi-step look reply naming the look change and not a page change made
+    beside it (review #9). Test 6's reply is expected to show it, and it is
+    judged separately from that test;
   - the build path's money sentences and the two refund policies.
 
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Test 6 — two changes in one message, one on a named page (prepared 2026-09-28; nothing paid)
+## Test 6 — two changes in one message, one on a named page (prepared 2026-09-28, request clarified the same evening; nothing paid)
 
 Owner, 2026-09-28: *"prepare one bounded test combining two requested changes
 in one message, ideally also covering a named non-home page. Use an existing
 fixture and workflow, establish exact before/after expectations and recovery,
-and include preservation of existing redirects in the checks. Return the
-proposed request and cost estimate before spending."*
+and include preservation of existing redirects in the checks."* Then, on the
+first draft: *"Clarify the request before freezing it: change the site's
+default search description while keeping existing page-specific descriptions
+unchanged, then move the named band on Visit only. Record that exact sentence
+in the evidence. … For acceptance, judge the actual stored and published
+changes, not only the chosen lane names. … Restore afterward and verify the
+original metadata as well as pages and navigation. Keep the known reply
+omission separate. This test covers mixed work through the look path; it does
+not establish real-model mixed work through the removal path."*
 
 **What it covers**, from the short checklist:
-- **item 3**: two changes in one message through the look door — one lane for
-  the whole site and one for a page — with one publish;
+- **item 3, through the look door only**: two requested changes in one
+  message, one for the whole site and one for a page, with one publish;
 - **item 4**: a named page other than the home page on a look edit. The router
   must name `/visit`, or the page change goes to the home page;
 - **item 1's first half**: the redirect fix's first live use. The publish must
   keep `/the-starter` → `/starter`.
 
-**What it does not cover**: a removal door given other work, a second message,
-a removed page's 301 home (nothing is removed), and a protection refusing a
-real answer (unless the page writer over-answers, below).
+**What it does not cover**:
+- **mixed work through the removal door with a real model**: a `nav` or
+  `picture` removal given other work, where the picker is told the routed
+  change and lists anything else separately. Run 49's real picker was given no
+  other work. That stays outstanding under item 3, whatever this test shows;
+- a second message, a removed page's 301 home (nothing is removed), and a
+  protection refusing a real answer (unless the page writer over-answers,
+  below).
 
 ### The fixture: fold-lane-bakery at `01790468089054-8btpep`
 
-Restored by run 50 and read again free on 2026-09-28 at 20:09 UTC.
+Restored by run 50. Read again free on 2026-09-28 at 19:57, 20:09 and 20:40
+UTC, with no difference between the readings.
 
 - **Stored pages** (run 50's before-read; sha256 in full):
 
@@ -133,123 +155,188 @@ Restored by run 50 and read again free on 2026-09-28 at 20:09 UTC.
   | `gallery.tsx` | 3,007 | `4e8b82aa901741e0f5dbf0511f6f2331b5354f50bd5ee7bc9438d7bccb11ba1c` |
 
   There are no components.
+- **The head of each page.** A page with no description of its own shows the
+  site's default; three pages set their own in their source:
+
+  | page | title | `description` and `og:description` | whose |
+  |---|---|---|---|
+  | `/` | Harbour Loaf | "Neighbourhood sourdough in Bristol. Browse today's bake and order a loaf for collection." | the site default |
+  | `/starter` | Harbour Loaf | the same | the site default |
+  | `/visit` | Visit — Harbour Loaf | "Opening hours and how to find the bakery in Bristol." | its own, in `visit.tsx` |
+  | `/gallery` | Our Gallery — Harbour Loaf | "See photographs of the bakery and its work." | its own |
+  | `/order` | Order a loaf — Harbour Loaf | "Choose a loaf from today's bake and a collection time at the counter." | its own |
+
+  Every page also carries `og:title`, `og:site_name`, `og:type`, `og:locale`,
+  `theme-color`, `site-slug`, `og:image` (the uploaded logo), `og:image:alt`,
+  `twitter:card`, `og:url`, and the canonical, icon and apple-touch-icon links.
+  Each page's full set of head tags is recorded, and it read identically at
+  19:57 and 20:40.
+- **The description stored in the site's settings**: not yet read. It is the
+  one measurement no existing reading had; the next canary press reads it
+  (*the one measurement added*, below).
+- **The menus** (header and footer links):
+  - `/` and `/gallery`: Today's bake, The starter, Visit, Gallery, and the
+    "Order a loaf" button;
+  - `/visit` and `/order`: the same without Gallery;
+  - `/starter` is a stub page with no menu.
 - **Routes and redirects** (read without following redirects):
   - all five routes answer 200 at `8btpep`, and the sitemap lists those five;
   - `/the-starter`, `/the-starter?x=1` and `/the-starter/` answer 301 to
     `/starter` (the query kept), with `cache-control: public, max-age=600`;
   - `/nonexistent-page` answers 404.
-- **The head**:
-  - the site description, *"Neighbourhood sourdough in Bristol. Browse today's
-    bake and order a loaf for collection."*, is the `description` and
-    `og:description` of `/` and `/starter`;
-  - `/visit`, `/gallery` and `/order` carry descriptions of their own;
-  - `og:image` on every page is the uploaded logo.
-- **The Visit page's two top-level sections, in order**:
-  - "Come to the bakery": the h1, the hours, the QR code and the counter
-    photograph;
-  - then the "Order a collection so we hold a loaf" band.
+- **The Visit page's sections, in order**: "Come to the bakery" (the h1, then
+  "The shutters and the street", the hours, the QR code and the counter
+  photograph), then the "Order a collection so we hold a loaf" band.
 - **Files**:
   - `qr-gallery.svg`: 4,079 bytes, sha256 `45f42f270f6cab21…`;
-  - `/assets/index-C3kRA7Jc.css`: 205,087 bytes, sha256 `544ff34e85eac5df…`.
-    It carries none of the guards a site stylesheet brings, so the site has no
-    stylesheet of its own.
+  - `/assets/index-C3kRA7Jc.css`: 205,087 bytes, sha256 `544ff34e85eac5df…`,
+    with no stylesheet of the site's own;
+  - `/card.png`, the share card: 31,778 bytes, sha256 `ce884f5b165def06…`. The
+    build draws it from the description, and it is served; this site's
+    `og:image` is the uploaded logo instead.
 - **A real Chromium over TLS-verified live bytes**: each page's headings,
-  buttons and colours are recorded (the kit's default palette), with 0 page
-  errors. The three console errors on each page are the reader blocking
-  Cloudflare's analytics beacon.
+  buttons and colours are recorded, with 0 page errors.
 
-### The request
+### The request, frozen
 
-Verbatim: 255 characters, all ASCII, sha256
-`f894d3e4dfc2fe7c8a39b04de579eaf18fe8c1d4d64b4935e5aeb23267f0224b`.
+Verbatim: 358 characters, all ASCII, sha256
+`484b3febf7e0fe13632585045e93d14e33020486eda4dbbd170b2d480a44f734`. The
+paid run's `request.json` must carry the same sha.
 
-> Change the description that shows in Google to "Overnight sourdough from a Bristol side street, baked every morning and ready to collect at the counter." and on the Visit page put the "Order a collection so we hold a loaf" band above "Come to the bakery".
+> Change the site's default search description, the one Google shows, to "Overnight sourdough from a Bristol side street, baked every morning and ready to collect at the counter." Where a page has its own description, leave that description as it is. Then, on the Visit page only, put the "Order a collection so we hold a loaf" band above "Come to the bakery".
 
-**Why these two:**
+**Why it was reworded.** The first draft (255 characters, sha256
+`f894d3e4…`) asked for "the description that shows in Google". The Visit
+page has a description of its own, so a page writer could fairly have read the
+first half as being about that page's description. The frozen sentence names
+the site's default, keeps every page's own description, and puts the move on
+the Visit page only.
+
+**Why these two changes:**
 - **The description** is a whole-site look field, the `description` lane. It
-  changes no page and is checkable exactly in the head.
+  changes no page. Its stored value and its published value are both checkable
+  exactly.
 - **The band move** is a pure block move on a named page: the `shape` lane,
   sent to the page rung on `/visit`. It is checkable exactly in the stored
-  source.
+  source and in the served page.
 - **Neither touches the stylesheet**, so the closed stylesheet work stays
   closed.
 - **The router's own description of `look` covers both**: *"its one-line
   description"*, and *"a section, a band"* when the page is named.
 
-### Rehearsed free through the real edit route
+### The one measurement added: the stored description
+
+- **No existing reading showed it.** The canary's `source.json` holds pages
+  and components, its saved HTML holds the served head, and the job's stored
+  reply names the field it changed (`moved: ["description"]`) but never the
+  value (rehearsed).
+- **Why it matters.** The served head says what the last publish shipped; the
+  settings are what the next publish will ship. An edit or a restore that left
+  the two apart would stay invisible until an unrelated edit republished.
+- **What was added** (on the branch, 2026-09-28):
+  - the canary's inventory also reads the app's own SEO & Social route
+    (`GET /api/site/<slug>/seo`, owner only, read-only);
+  - it records the answer in `inventory.json`, prints it with the
+    before-reading, and a paid run records both sides in `compare.json`;
+  - `readStoredHead` (`scripts/canary-watch.mjs`) answers the description, or
+    "cannot tell" for any other answer, never a made-up value. `""` is a real
+    answer (no description set), and only from a route that answered.
+- **Tests**:
+  - 2 cases in `test/canary-watch.test.mjs`: the reader over 15 answer shapes,
+    and the wiring, which fails on the canary without the read;
+  - the 156 cases of the five canary test files pass;
+  - the whole suite reads 8,207 / 8,205 / 0 / 2 locally.
+- **Where the presses run.** `scripts/**` and `test/**` deploy nothing, and
+  the change is not merged, so Test 6's presses are made from the branch. A
+  branch press runs the branch's script against main's Worker, which is what
+  the preflight checks (runs 36–47 were pressed that way).
+
+### Rehearsed free through the real edit route (re-run with the frozen sentence)
 
 Every model answer was supplied, on the bakery's own stored pages. These are
-scratch cases, not committed.
+scratch cases, not committed. The frozen sentence gave the same outcomes as
+the first draft.
 
-- **Router `look` + page `/visit`, picker `description` + `shape`**:
+- **Router `look` + page `/visit`, picker `description` + `shape`**, on both
+  money paths:
   - the calls are `pick_lanes`, the description lane, and the quick writer
     shown `visit.tsx`;
   - there is one compile, `visit.tsx` is exactly the swap, and the other four
     pages are byte-identical;
   - the description is stored exactly;
-  - there are two charges, one per step, on both money paths;
+  - two step charges;
   - the reply is "✅ Updated the look — the description."
 - **The same, with the quick writer declining and the full writer answering
   the swap**: the same result, with the page step dearer.
 - **Router `look` with no page**: the quick writer is shown `index.tsx`, so
   the page change goes to the home page.
-- **Router `page` on `/visit`**: only the move happens, and the reply is "✅
-  Updated /visit."
-- **The picker naming only one of the two lanes**: only that half happens, and
-  the reply does not say the other half was not made.
-- **The page writer also rewriting the Visit page's own head description**:
+- **Router `page` on `/visit`**: only the move, and the reply is "✅ Updated
+  /visit."
+- **The picker naming only one lane**: only that half happens. With
+  `description` alone the move is dropped, and the reply still reads "✅
+  Updated the look — the description."
+- **The page writer also rewriting the Visit page's own description**:
   - the quick writer's word check refuses it;
   - the full writer's same answer publishes, because the text guard covers
-    literal on-page wording only.
+    literal on-page wording only. The frozen sentence now says to leave it,
+    so a live rewrite would be the model not following the request.
 
-### The expected result — every item must hold
+### Acceptance — judged on the stored and published changes
 
-1. **Routing**: `intent=edit layer=look page=/visit`, with no `alsoAsked`.
-2. **The stored reply**:
-   - `ok`;
-   - `layers` is `["look","page"]`;
-   - `lanes` holds `description` and one page lane (`shape` or `components`);
-   - `pageOps` is `[{"page":"/visit"}]`;
-   - there is no `partial`.
-3. **One publish**: a version built from `8btpep`, and the canary's comparison
-   reads VERIFIED.
-4. **The stored source**:
-   - the four other pages are byte-identical to the table above;
-   - `visit.tsx` is the two sections swapped. The expected page is 4,045
-     characters, sha256
-     `35b008fdb4f1a49b948d2bb54ce9225af35b1504a71af54281c0283d1d455993`;
-   - each section is byte-identical: "Come to the bakery" 1,734 characters
-     (`84a1dd25…`), the band 344 (`22b3ffeb…`);
-   - everything outside the two sections is unchanged: `aa5eaaab…` above them
-     and `1d4fa674…` below;
-   - the whitespace between the two sections may differ, and is inspected.
-     Nothing else may differ.
-5. **The head**:
-   - `description` and `og:description` on `/` and `/starter` are exactly the
-     new sentence;
-   - `/visit`, `/gallery` and `/order` keep their own;
-   - titles, `og:image` and `twitter:card` are unchanged.
-6. **Redirects preserved**, read without following:
-   - `/the-starter`, `?x=1` and the trailing slash still answer 301 to
-     `/starter`, with `public, max-age=600`;
-   - read once when the version is live, and again ten minutes later (the
-     301's cache life);
+The route's own record (`lanes`, `layers`, `pageOps`, the routing answer) is
+kept as evidence of which path ran, and none of it decides the verdict. Every
+item below must hold.
+
+1. **The request**: `request.json` carries sha256 `484b3feb…`.
+2. **The description, stored and published**:
+   - stored: the settings read the original before the run and exactly the
+     new sentence after it;
+   - published: `description` and `og:description` on `/` and `/starter` are
+     exactly the new sentence;
+   - `/visit`, `/gallery` and `/order` keep their own descriptions exactly;
+   - every other head tag on all five pages is identical to the before
+     reading.
+3. **The band move, stored and published**:
+   - stored: `visit.tsx` is the two sections swapped. The expected page is
+     4,045 characters, sha256
+     `35b008fdb4f1a49b948d2bb54ce9225af35b1504a71af54281c0283d1d455993`.
+     Each section is byte-identical ("Come to the bakery" 1,734 characters,
+     `84a1dd25…`; the band 344, `22b3ffeb…`), and so is everything outside
+     them (`aa5eaaab…` above, which holds the page's own description, and
+     `1d4fa674…` below). The whitespace between the two sections is inspected.
+     Nothing else may differ;
+   - published: on `/visit` the headings read "Order a collection so we hold
+     a loaf", then "Come to the bakery", then "The shutters and the street",
+     in the served page and in a real browser.
+4. **Unrelated source and navigation preserved**:
+   - the four other stored pages are byte-identical, and no component
+     appears;
+   - every page's menu (header and footer links) and its other links are
+     identical to the before reading;
+   - every page renders as before in a real browser, the photographs load,
+     and there are no page errors.
+5. **Redirects preserved**, read without following, when the new version is
+   live and again ten minutes later (the 301's cache life):
+   - `/the-starter`, `?x=1` and the trailing slash answer 301 to `/starter`,
+     with `public, max-age=600`;
    - all five routes answer 200 at the new version, the sitemap lists the same
      five, and `/nonexistent-page` answers 404.
-7. **The QR code**: `/visit` still shows it, and `qr-gallery.svg` still
-   encodes `/gallery`.
-8. **A real browser**:
-   - `/visit` shows the band first, then "Come to the bakery";
-   - every other page renders as before, the photographs load, and there are
-     no page errors.
-9. **Money**:
-   - the balance moves by the routing call plus the job's reserves, closing
-     exactly against the ledger;
-   - the ledger has two reserves (`#1`, `#2`) and no refund;
-   - the job reads `done` and `finalized`.
-10. **The reply**, through the browser's own composer: "✅ Updated the look —
-    the description." It does not name the Visit page change (review #9,
-    known).
+6. **One publish**: a version built from `8btpep`, and the canary's comparison
+   reads VERIFIED.
+7. **Money**: the balance moves by the routing call plus the job's reserves,
+   closing exactly against the ledger; two reserves (`#1`, `#2`), no refund;
+   the job reads `done` and `finalized`.
+
+**Inspected, not pass conditions**: the QR file (expected byte-identical);
+`/card.png` (expected to change, since it is drawn from the description); the
+served stylesheet (expected unchanged, and any difference is explained).
+
+**The reply, kept separate.** It is read through the browser's own composer
+and checked for truth: "✅ Updated the look — the description." is true of
+what it says. It does not mention the Visit page change; that is the known
+reply omission (review #9: a multi-step look reply names no page edit beside
+the look change), recorded on its own. It is neither a pass condition nor a
+failure of this test.
 
 ### What each other outcome means, decided now
 
@@ -263,26 +350,37 @@ scratch cases, not committed.
   (the reply says one change was not made).
 - **The picker names one lane**: half the request is silently dropped. A
   failure.
-- **The Visit page's own head description is rewritten too**: wider than
-  asked. A failure, and a known gap of the text guard.
+- **The Visit page's own description is rewritten too**: wider than asked,
+  against the request's own words. A failure, and a known gap of the text
+  guard.
 - **`visit.tsx` changed beyond the swap, or any other page changed**: a
   failure.
 - **The description stored in words other than those quoted**: the lane did
   not follow a literal ask. A failure.
+- **The stored and published descriptions disagree after the run**: a finding
+  about the publish, whatever else passed.
 - **`/the-starter` answers 404**: the redirect fix failed live. This is the
   top finding.
 - **Intent `addon`**: the canary refuses to spend beyond the routing call.
 
-### Recovery, free
+### Recovery, free, and what it must show
 
 - The canary's restore mode, to `01790468089054-8btpep`. It will be the new
   version's parent, and pruning keeps a version's parent.
-- A restore reactivates `8btpep`'s own saved pages and its own redirect map;
-  run 50 showed both. It also puts back the whole saved look, the description
-  included; that is read in the restore code (`STATE_CONFIG_FIELDS`), since
-  run 50 had no changed description to put back.
-- Recommended right after the readings, so the fixture stays at its recorded
-  state.
+- **After the restore, every item must hold**:
+  - all five routes answer at `8btpep`;
+  - the stored pages are byte-identical to the table;
+  - every page's head is identical to the before reading, so `/` and
+    `/starter` show the original description again and the other three keep
+    their own;
+  - the stored description reads the original again. The restore code puts
+    back the whole saved look (`STATE_CONFIG_FIELDS`); this is the first time
+    that is observed rather than read in the code;
+  - every page's menu and links are identical to the before reading;
+  - the redirects, the sitemap and the QR file are as before, and `/card.png`
+    is `ce884f5b…` again.
+- Pressed right after the paid run's readings, so the fixture stays at its
+  recorded state.
 
 ### Cost
 
@@ -293,19 +391,27 @@ An estimate, not a cap. Each step rounds up to at least 1 credit.
   on a 4,389-character page), or about 6 if the full writer has to run
   (run 37).
 
-**About 5–6 credits, up to about 10.** The balance is 45.
+**About 5–6 credits, up to about 10.** The frozen sentence adds about 100
+characters to each prompt, which does not move the estimate. The balance is
+45.
 
 ### The presses
 
-All three are `edit-canary.yml` from `main`.
-1. **The free check for deploy 2165**: pending. It also re-confirms the
-   fixture.
-2. **The paid run, after approval**:
-   - "Run the ONE paid edit as well": `yes`;
-   - "What to change": the sentence above, pasted exactly;
-   - "The site to edit": `fold-lane-bakery`;
+All three are `edit-canary.yml` from the branch `claude/help-needed-ehlwlj`.
+1. **The free check for deploy 2165**, pending the owner's press (the
+   session's dispatch answers 403):
+   - "Run the ONE paid edit as well": `no`;
    - the two "Refuse to spend unless…" boxes:
      `f5e941f494fd96c039eeee4e6f1d44120b80e062` and `8a10715339cdc780`;
+   - everything else as it is.
+
+   From the branch it also takes the first reading of the stored description.
+   From `main` it confirms the deploy just the same, without that reading.
+2. **The paid run, after approval**:
+   - "Run the ONE paid edit as well": `yes`;
+   - "What to change": the frozen sentence above, pasted exactly;
+   - "The site to edit": `fold-lane-bakery`;
+   - the same two expectations;
    - everything else as it is.
 3. **The recovery, free**:
    - "Run the ONE paid edit as well": `no`;

@@ -270,17 +270,32 @@ stays lost, and the next real publish is the first live exercise of it. The lost
 redirects, the QR code that still points at a removed page, and the bare
 not-found text on Start sites are three separate Backlog items.
 **Test 6, two changes in one message on a named page, is PREPARED (2026-09-28;
-nothing paid)** on fold-lane-bakery, through the existing `edit canary` from
-`main`: *Change the description that shows in Google to "Overnight sourdough
-from a Bristol side street, baked every morning and ready to collect at the
-counter." and on the Visit page put the "Order a collection so we hold a loaf"
-band above "Come to the bakery".* (255 characters, sha256 `f894d3e4…`). It
-covers two lanes in one message (`description` and `shape`), `/visit` named on
-a look edit, and the redirect fix's first live use (`/the-starter` must still
-301 to `/starter`). Rehearsed free through the real route with supplied answers.
-If the router leaves the page out, the page change goes to the home page; a
-picker naming one lane drops the other half without saying so. About 5–6
-credits, up to about 10; the recovery is the free restore to `8btpep`. The plan,
+nothing paid)** on fold-lane-bakery, through the existing `edit canary`. **The
+request was clarified before freezing** (owner: *"change the site's default
+search description while keeping existing page-specific descriptions
+unchanged, then move the named band on Visit only. Record that exact
+sentence"*), because the Visit page has a description of its own:
+*Change the site's default search description, the one Google shows, to
+"Overnight sourdough from a Bristol side street, baked every morning and ready
+to collect at the counter." Where a page has its own description, leave that
+description as it is. Then, on the Visit page only, put the "Order a collection
+so we hold a loaf" band above "Come to the bakery".* (358 characters, ASCII,
+sha256 `484b3febf7e0fe13632585045e93d14e33020486eda4dbbd170b2d480a44f734`; the
+first draft, `f894d3e4…`, is superseded). **Acceptance is judged on the stored
+and published changes, not the lane names**: the description stored in the
+site's settings and served on `/` and `/starter`, the three pages' own
+descriptions unchanged, `visit.tsx` exactly the swap, the other four pages, all
+menus and every head tag unchanged, and `/the-starter` still 301 to `/starter`.
+The free restore to `8btpep` must then show the original head, pages, menus and
+stored description. **The reply's omission of the Visit move is the known item
+(review #9), judged separately.** It covers mixed work through the look door
+only; **real-model mixed work through the removal door stays outstanding**.
+**One measurement was missing and is added on the branch**: nothing the canary
+recorded showed the description stored in the site's settings (the stored
+reply names the field, `moved: ["description"]`, never the value), so its
+inventory now reads the app's own SEO route (`GET /api/site/<slug>/seo`, owner
+only, read-only) through `readStoredHead` (`scripts/canary-watch.mjs`), and
+the presses are from the branch. About 5–6 credits, up to about 10. The plan,
 the exact before and after, and the outcomes decided in advance are the
 checklist's *Test 6*.
 
