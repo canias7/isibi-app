@@ -9304,7 +9304,18 @@ async function composePublish(env, slug, dist, meta, pages, renamed = null, lang
         // also a better carrier than a `<meta>` pair — nothing to escape, and a
         // reader that cannot silently half-parse it.
         const po = await env.SITES_BUCKET.get(siteMetaKey(slug));
-        if (po) prev = JSON.parse(await po.text());
+        // THROUGH `manifestFromCsv`, THE ONE READER OF THIS SHAPE. The sidecar
+        // keeps the two lists as `routesCsv`/`redirectsCsv` strings, and
+        // `mergeRedirects` reads `prev.routes`/`prev.redirects` — so handing it
+        // the parsed sidecar handed it neither. Every publish since 2026-08-17
+        // then wrote a map holding only its own move pair: a removed page got
+        // no 301, and every redirect already stored was dropped by the next
+        // publish (run 49: `/gallery` and `/the-starter` both 404). The serve
+        // path has read the sidecar through this function since 2026-08-22.
+        if (po) {
+          const side = JSON.parse(await po.text());
+          prev = manifestFromCsv(side && side.routesCsv, side && side.redirectsCsv);
+        }
       } catch (e) {
         prevUnreadable = true;
         console.error("previous manifest unreadable:", slug, e && e.message);
