@@ -269,6 +269,20 @@ and reconstructs none**: a redirect dropped between 2026-08-17 and deploy 2165
 stays lost, and the next real publish is the first live exercise of it. The lost
 redirects, the QR code that still points at a removed page, and the bare
 not-found text on Start sites are three separate Backlog items.
+**Test 6, two changes in one message on a named page, is PREPARED (2026-09-28;
+nothing paid)** on fold-lane-bakery, through the existing `edit canary` from
+`main`: *Change the description that shows in Google to "Overnight sourdough
+from a Bristol side street, baked every morning and ready to collect at the
+counter." and on the Visit page put the "Order a collection so we hold a loaf"
+band above "Come to the bakery".* (255 characters, sha256 `f894d3e4…`). It
+covers two lanes in one message (`description` and `shape`), `/visit` named on
+a look edit, and the redirect fix's first live use (`/the-starter` must still
+301 to `/starter`). Rehearsed free through the real route with supplied answers.
+If the router leaves the page out, the page change goes to the home page; a
+picker naming one lane drops the other half without saying so. About 5–6
+credits, up to about 10; the recovery is the free restore to `8btpep`. The plan,
+the exact before and after, and the outcomes decided in advance are the
+checklist's *Test 6*.
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -14852,6 +14866,21 @@ does name one — moved up to the supported list on 2026-09-20.)*
 
 ## Backlog
 
+- **THE HEADER'S BUTTON HAS NO `data-slot="button"` (found 2026-09-28 preparing
+  Test 6; not changed).** `SiteHeader` renders its action as `<Button asChild>`
+  around `SiteLink`, and `SiteLink` passes on only `href`, `className` and
+  children, so the marker `Button` stamps is dropped. Read in the served HTML:
+  on every fold-lane-bakery page the header's "Order a loaf" is an `<a>` with
+  the button classes and no marker, while the CTA band's button carries it. So a
+  stylesheet rule written against the kit's documented button hook recolours
+  every button but the header's.
+- **THE RENDER CHECK JUDGES EACH SELECTOR OF A LIST ON ITS OWN (found
+  2026-09-28 preparing Test 6; read in the code, not driven; not changed).**
+  `changedSelectors` splits `h1, h2, h3, h4, h5, h6` into six selectors, and a
+  selector counts as dead when no rendered page has a match. The render check
+  answers the site's data with empty lists, so on a site with only `h1` and `h2`
+  (the bakery) a common heading rule would have four dead selectors and force a
+  correction round. It sits in the stylesheet work the owner closed.
 - **REDIRECTS DROPPED BETWEEN 2026-08-17 AND DEPLOY 2165 ARE NOT RECONSTRUCTED
   (recorded 2026-09-28, the owner: *"This patch preserves saved mappings; it
   does not reconstruct missing history."*).** From 53147339 until deploy 2165

@@ -51,13 +51,16 @@ is the owner's press):
 
 **Outstanding acceptance** (not yet shown live; each has controlled tests)
 1. **The redirect fix live**: the next publish of a site keeping its stored
-   redirects, and a removed page answering 301 home.
+   redirects, and a removed page answering 301 home. Test 6 (prepared, below)
+   covers the first half.
 2. **A protection refusing a real model's answer**: the photograph wall, the
    link and component judge, the text guard, reply validation and the failure
    classification. Live, each has only let a correct answer through.
 3. **Two changes in one message**, including a removal door given other work,
-   and a second message after a hop or a failure.
-4. **A named page other than the home page** on a look edit.
+   and a second message after a hop or a failure. Test 6 (prepared, below)
+   covers two changes through the look door.
+4. **A named page other than the home page** on a look edit. Test 6
+   (prepared, below) covers it.
 5. **The data rung beyond one row**: adding, removing or reordering rows, and a
    site whose database link is blank.
 6. **The rules rung beyond one closing**: reopening, closing by taking write
@@ -79,6 +82,11 @@ stylesheet scope and rule keys (deploy 2161).
 - **Redirects dropped between 2026-08-17 and deploy 2165**: not reconstructed.
 - **A QR code that points at a removed page**: the removal does not see it.
 - **The branded not-found page**: a Start site answers a bare "Not found".
+- **Found while preparing Test 6** (read in the code, not driven live):
+  - the header's button loses the kit's `data-slot="button"` marker on every
+    page, so a stylesheet rule written against that marker never reaches it;
+  - the render check judges each selector of a list on its own, so a rule
+    naming elements a site doesn't render forces a correction round.
 - Also recorded:
   - the closed-bookings UX gap;
   - the three Test 4a findings;
@@ -89,6 +97,240 @@ stylesheet scope and rule keys (deploy 2161).
 
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
+
+## Test 6 — two changes in one message, one on a named page (prepared 2026-09-28; nothing paid)
+
+Owner, 2026-09-28: *"prepare one bounded test combining two requested changes
+in one message, ideally also covering a named non-home page. Use an existing
+fixture and workflow, establish exact before/after expectations and recovery,
+and include preservation of existing redirects in the checks. Return the
+proposed request and cost estimate before spending."*
+
+**What it covers**, from the short checklist:
+- **item 3**: two changes in one message through the look door — one lane for
+  the whole site and one for a page — with one publish;
+- **item 4**: a named page other than the home page on a look edit. The router
+  must name `/visit`, or the page change goes to the home page;
+- **item 1's first half**: the redirect fix's first live use. The publish must
+  keep `/the-starter` → `/starter`.
+
+**What it does not cover**: a removal door given other work, a second message,
+a removed page's 301 home (nothing is removed), and a protection refusing a
+real answer (unless the page writer over-answers, below).
+
+### The fixture: fold-lane-bakery at `01790468089054-8btpep`
+
+Restored by run 50 and read again free on 2026-09-28 at 20:09 UTC.
+
+- **Stored pages** (run 50's before-read; sha256 in full):
+
+  | page | chars | sha256 |
+  |---|---|---|
+  | `index.tsx` | 2,439 | `51b5af6af6ee25ca286ede451c0c7a847c5b9b0e1cea282c4ac96497a6a03ef7` |
+  | `order.tsx` | 9,258 | `4ead778eea41faafea0e54936fbf0f45fe2914f008947f6128e8ee860a31c1ae` |
+  | `starter.tsx` | 951 | `37fb0e176f22a44be663a9df9f9851095f9e472b229b62e146390d5e3dc1cd44` |
+  | `visit.tsx` | 4,045 | `bdb02abecad96c5665618fa29d98deabea7f2020289e2f91d38f22d2d7843c0b` |
+  | `gallery.tsx` | 3,007 | `4e8b82aa901741e0f5dbf0511f6f2331b5354f50bd5ee7bc9438d7bccb11ba1c` |
+
+  There are no components.
+- **Routes and redirects** (read without following redirects):
+  - all five routes answer 200 at `8btpep`, and the sitemap lists those five;
+  - `/the-starter`, `/the-starter?x=1` and `/the-starter/` answer 301 to
+    `/starter` (the query kept), with `cache-control: public, max-age=600`;
+  - `/nonexistent-page` answers 404.
+- **The head**:
+  - the site description, *"Neighbourhood sourdough in Bristol. Browse today's
+    bake and order a loaf for collection."*, is the `description` and
+    `og:description` of `/` and `/starter`;
+  - `/visit`, `/gallery` and `/order` carry descriptions of their own;
+  - `og:image` on every page is the uploaded logo.
+- **The Visit page's two top-level sections, in order**:
+  - "Come to the bakery": the h1, the hours, the QR code and the counter
+    photograph;
+  - then the "Order a collection so we hold a loaf" band.
+- **Files**:
+  - `qr-gallery.svg`: 4,079 bytes, sha256 `45f42f270f6cab21…`;
+  - `/assets/index-C3kRA7Jc.css`: 205,087 bytes, sha256 `544ff34e85eac5df…`.
+    It carries none of the guards a site stylesheet brings, so the site has no
+    stylesheet of its own.
+- **A real Chromium over TLS-verified live bytes**: each page's headings,
+  buttons and colours are recorded (the kit's default palette), with 0 page
+  errors. The three console errors on each page are the reader blocking
+  Cloudflare's analytics beacon.
+
+### The request
+
+Verbatim: 255 characters, all ASCII, sha256
+`f894d3e4dfc2fe7c8a39b04de579eaf18fe8c1d4d64b4935e5aeb23267f0224b`.
+
+> Change the description that shows in Google to "Overnight sourdough from a Bristol side street, baked every morning and ready to collect at the counter." and on the Visit page put the "Order a collection so we hold a loaf" band above "Come to the bakery".
+
+**Why these two:**
+- **The description** is a whole-site look field, the `description` lane. It
+  changes no page and is checkable exactly in the head.
+- **The band move** is a pure block move on a named page: the `shape` lane,
+  sent to the page rung on `/visit`. It is checkable exactly in the stored
+  source.
+- **Neither touches the stylesheet**, so the closed stylesheet work stays
+  closed.
+- **The router's own description of `look` covers both**: *"its one-line
+  description"*, and *"a section, a band"* when the page is named.
+
+### Rehearsed free through the real edit route
+
+Every model answer was supplied, on the bakery's own stored pages. These are
+scratch cases, not committed.
+
+- **Router `look` + page `/visit`, picker `description` + `shape`**:
+  - the calls are `pick_lanes`, the description lane, and the quick writer
+    shown `visit.tsx`;
+  - there is one compile, `visit.tsx` is exactly the swap, and the other four
+    pages are byte-identical;
+  - the description is stored exactly;
+  - there are two charges, one per step, on both money paths;
+  - the reply is "✅ Updated the look — the description."
+- **The same, with the quick writer declining and the full writer answering
+  the swap**: the same result, with the page step dearer.
+- **Router `look` with no page**: the quick writer is shown `index.tsx`, so
+  the page change goes to the home page.
+- **Router `page` on `/visit`**: only the move happens, and the reply is "✅
+  Updated /visit."
+- **The picker naming only one of the two lanes**: only that half happens, and
+  the reply does not say the other half was not made.
+- **The page writer also rewriting the Visit page's own head description**:
+  - the quick writer's word check refuses it;
+  - the full writer's same answer publishes, because the text guard covers
+    literal on-page wording only.
+
+### The expected result — every item must hold
+
+1. **Routing**: `intent=edit layer=look page=/visit`, with no `alsoAsked`.
+2. **The stored reply**:
+   - `ok`;
+   - `layers` is `["look","page"]`;
+   - `lanes` holds `description` and one page lane (`shape` or `components`);
+   - `pageOps` is `[{"page":"/visit"}]`;
+   - there is no `partial`.
+3. **One publish**: a version built from `8btpep`, and the canary's comparison
+   reads VERIFIED.
+4. **The stored source**:
+   - the four other pages are byte-identical to the table above;
+   - `visit.tsx` is the two sections swapped. The expected page is 4,045
+     characters, sha256
+     `35b008fdb4f1a49b948d2bb54ce9225af35b1504a71af54281c0283d1d455993`;
+   - each section is byte-identical: "Come to the bakery" 1,734 characters
+     (`84a1dd25…`), the band 344 (`22b3ffeb…`);
+   - everything outside the two sections is unchanged: `aa5eaaab…` above them
+     and `1d4fa674…` below;
+   - the whitespace between the two sections may differ, and is inspected.
+     Nothing else may differ.
+5. **The head**:
+   - `description` and `og:description` on `/` and `/starter` are exactly the
+     new sentence;
+   - `/visit`, `/gallery` and `/order` keep their own;
+   - titles, `og:image` and `twitter:card` are unchanged.
+6. **Redirects preserved**, read without following:
+   - `/the-starter`, `?x=1` and the trailing slash still answer 301 to
+     `/starter`, with `public, max-age=600`;
+   - read once when the version is live, and again ten minutes later (the
+     301's cache life);
+   - all five routes answer 200 at the new version, the sitemap lists the same
+     five, and `/nonexistent-page` answers 404.
+7. **The QR code**: `/visit` still shows it, and `qr-gallery.svg` still
+   encodes `/gallery`.
+8. **A real browser**:
+   - `/visit` shows the band first, then "Come to the bakery";
+   - every other page renders as before, the photographs load, and there are
+     no page errors.
+9. **Money**:
+   - the balance moves by the routing call plus the job's reserves, closing
+     exactly against the ledger;
+   - the ledger has two reserves (`#1`, `#2`) and no refund;
+   - the job reads `done` and `finalized`.
+10. **The reply**, through the browser's own composer: "✅ Updated the look —
+    the description." It does not name the Visit page change (review #9,
+    known).
+
+### What each other outcome means, decided now
+
+- **The router leaves `page` out**: the move goes to the home page. That is a
+  named-page failure (item 4), caught by `index.tsx`'s hash. The home page's
+  "Order a loaf for collection" band is the likely wrong target.
+- **The router answers `page`, with the description in `alsoAsked`**: one
+  change per turn, which is by design. The reply's tail is then accurate, and
+  item 3 is not shown.
+- **`alsoAsked` set while both changes shipped**: the recorded contradiction
+  (the reply says one change was not made).
+- **The picker names one lane**: half the request is silently dropped. A
+  failure.
+- **The Visit page's own head description is rewritten too**: wider than
+  asked. A failure, and a known gap of the text guard.
+- **`visit.tsx` changed beyond the swap, or any other page changed**: a
+  failure.
+- **The description stored in words other than those quoted**: the lane did
+  not follow a literal ask. A failure.
+- **`/the-starter` answers 404**: the redirect fix failed live. This is the
+  top finding.
+- **Intent `addon`**: the canary refuses to spend beyond the routing call.
+
+### Recovery, free
+
+- The canary's restore mode, to `01790468089054-8btpep`. It will be the new
+  version's parent, and pruning keeps a version's parent.
+- A restore reactivates `8btpep`'s own saved pages, its whole look (the
+  description included) and its own redirect map; run 50 showed exactly that.
+- Recommended right after the readings, so the fixture stays at its recorded
+  state.
+
+### Cost
+
+An estimate, not a cap. Each step rounds up to at least 1 credit.
+- routing: 1–2;
+- the description step (the picker and the lane): about 2;
+- the page step: about 2 through the quick writer (run 9: 2,413 in / 1,230 out
+  on a 4,389-character page), or about 6 if the full writer has to run
+  (run 37).
+
+**About 5–6 credits, up to about 10.** The balance is 45.
+
+### The presses
+
+All three are `edit-canary.yml` from `main`.
+1. **The free check for deploy 2165**: pending. It also re-confirms the
+   fixture.
+2. **The paid run, after approval**:
+   - "Run the ONE paid edit as well": `yes`;
+   - "What to change": the sentence above, pasted exactly;
+   - "The site to edit": `fold-lane-bakery`;
+   - the two "Refuse to spend unless…" boxes:
+     `f5e941f494fd96c039eeee4e6f1d44120b80e062` and `8a10715339cdc780`;
+   - everything else as it is.
+3. **The recovery, free**:
+   - "Run the ONE paid edit as well": `no`;
+   - "PUT ONE SAVED VERSION BACK…": `01790468089054-8btpep`;
+   - "The site to edit": `fold-lane-bakery`;
+   - the same two expectations.
+
+### A visible alternative, not recommended
+
+"Make the main heading on every page dark green (#1f4d2b)", through the
+stylesheet lane. Each reason below was read in the code, not driven live:
+- it would be the first live stylesheet edit since the owner closed the
+  stylesheet work;
+- its reply would add "The stylesheet sets none of the kit's own colour
+  variables, so the site renders on the default palette.";
+- the render check judges each selector of a list on its own, over pages
+  rendered with empty data. So a rule naming heading levels the site doesn't
+  use (`h3`–`h6` here) is judged dead and forces a correction round.
+
+### Found while preparing, recorded separately
+
+Neither is part of this test.
+- **The header's button loses the kit's `data-slot="button"` marker on every
+  page**, because `SiteLink` passes on only `href`, `className` and children.
+  So a stylesheet rule written against the kit's own button hook never reaches
+  the header's button.
+- **The per-selector dead check**, above.
 
 ## The short checklist (2026-09-27, after D1 and the rules test)
 
