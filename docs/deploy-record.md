@@ -1,8 +1,9 @@
 # Deploy record: timings and image-id predictions
 
 > **Moved from `CLAUDE.md` on 2026-09-28, word for word**, in its sixth prune
-> (the file as it stood: `git show 86eb5703:CLAUDE.md`). CLAUDE.md's **Deploy**
-> section keeps the rules. This file keeps the measurements behind them: the
+> (the file as it stood: `git show 86eb5703:CLAUDE.md`). The rules are in
+> `docs/deploy.md`, where CLAUDE.md's **Deploy** section moved in the second
+> pass. This file keeps the measurements behind them: the
 > timing bands, every image-id prediction checked against a deploy's own log
 > (deploys 2137–2165), and the served-file check driven end to end on deploy
 > 2139.
@@ -13,7 +14,8 @@
 > number of `CACHED` lines, and the image step, Wrangler and job times.
 >
 > In the text below, "this file" means CLAUDE.md, and "above" or "below" point
-> at CLAUDE.md's other sections.
+> at CLAUDE.md's other sections as they stood then; most of them now live in the
+> docs listed in CLAUDE.md's map.
 
 ## Timing bands, and the image id predicted before each push
 
@@ -277,4 +279,3 @@ reads the sha and the cold-start image; `/api/site/runtime?slug=` asks
 missing site gets. The practical answer is unchanged — a session holding NO
 Supabase token reads neither — but *"owner-gated"* was wrong about the first
 and names the wrong person to go and ask.
-

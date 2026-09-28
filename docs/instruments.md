@@ -5,14 +5,75 @@
 > free instruments, the rules a paid harness follows before it spends, and the
 > edit canary's inputs and modes: reading a job, the harness corrections run 14
 > bought, the after-read wait for a job's own version, and the UI mode that
-> drives the real app in a real browser. CLAUDE.md keeps a short summary.
+> drives the real app in a real browser. The short summary CLAUDE.md
+> kept moved here in the second pass (`git show 28bdc97f:CLAUDE.md`) and is the
+> first section below.
 >
 > The rules-test and page-removal scenarios are recorded with their runs in
 > `docs/history/2026-09-26-28-tests-3-to-5.md`, and each test's acceptance is in
 > `docs/investigations/edit-path-checklist.md`.
 >
 > In the text below, "this file" means CLAUDE.md, and "above" or "below" point
-> at CLAUDE.md's other sections.
+> at CLAUDE.md's other sections as they stood then; most of them now live in the
+> docs listed in CLAUDE.md's map.
+
+## Instruments and the edit canary, in brief
+
+The free instruments, what a paid harness refuses, and the canary's modes are
+in `docs/instruments.md`; each test's plan and evidence is in the checklist.
+
+- **Free instruments**: the stored `design` and `bands` steps (`agentMs`,
+  `waveMs`, a time per agent or piece; `bands:<reason>` names the wall that
+  stopped a split); `genMs` on the collector's `resume:finish` step;
+  `GET /api/site/runtime?slug=` (the owner's site only: `async`, `runner`, the
+  switches, the deploy sha — booleans and the sha, never a value);
+  `GET /api/site/build-health` (any signed-in account: the Worker's `DEPLOY_ID`
+  and the image a cold start gets); `GET /api/fal-balance` (the owner: a
+  precondition, not a gate — an empty fal balance publishes placeholders and
+  still charges).
+- **A paid harness refuses to spend against the wrong build**, before the
+  browser, the balance or the first post: `expect_deploy` matches by prefix,
+  floored at 7 characters on both sides; `expect_image` matches whole;
+  cannot-tell is a refusal; the two readers must agree; queued work (`async`)
+  is required unconditionally.
+- **The edit canary** (`edit-canary.yml`, `scripts/edit-canary.mjs`) takes a
+  site, a control site, an instruction and the two expectations, and uploads
+  its evidence as an artifact: every page and component body, a per-route
+  inventory, the raw pages, the description stored in the site's settings,
+  then the request, the routing answer, the stored reply, the customer's
+  screen and the comparison. The free half runs on every press and reads the
+  balance. The paid half runs only with spend `yes` and an instruction — there
+  is no default ask (run 14 spent on a substituted one). It routes with the
+  site's real page list, watches the job with the browser's own poll reader (a
+  stored reply whatever its status; a timeout is "outcome unknown"), composes
+  the screen with the browser's own composer (`editBrowserReply`, `actions`
+  included), and compares only at the job's own published version
+  (`afterReadVerdict`: VERIFIED, or UNVERIFIED with a named reason — an
+  unverified comparison passes nothing).
+- **Its modes**, each a form box, and a named mode never spends: `read_job` (a
+  job's row, its ledger rows and trace candidates; exits above the preflight);
+  `restore_version` (lists the site's versions, refuses one not listed or not
+  restorable, posts the app's own restore, waits for `x-site-version`, then
+  reads — pointed at the live version it is a free, no-post reading of the
+  deploy, the restore target and the before-state); `ui_scenario` (the real app
+  in a real Chromium, signed in with the canary's own session, one tab, a
+  positive wall per scenario and per message, a budget checked before each Send
+  that caps no single request; scenarios `4a-part-b`, `4b-d1-price`,
+  `4b-d1-restore`, `4b-rules-close`, `5-page-remove`); `rules_allow` (the rules
+  test's approvals).
+- **Presses are the owner's.** A session's dispatch answers **403** (it lacks
+  `actions: write`) even for a free read, so do not retry it: hand over the
+  exact values and **name each box by its description**, because the form shows
+  descriptions, not input names (run 29's values landed in the wrong boxes). A
+  mode that exists only on the branch needs a branch dispatch, which runs the
+  branch's script against main's Worker — what the preflight checks.
+- **Money is read off the ledger and the job row** (`credit_events`, which
+  names each reserve `<job>#<n>` and each refund by the bare job id, and
+  `edit_jobs.billing`), never inferred from a net movement: run 14's 77 → 75
+  was a routing call of 2 beside an edit charged 2 and refunded 2, which
+  neither guess had named.
+
+---
 
 ## The instruments
 
@@ -600,4 +661,3 @@ addition."* `scripts/canary-ui.mjs`, the `ui_scenario` box on `edit-canary.yml`,
   the idle reading held across three messages, the in-page wall had nothing to
   block, the balance was read before each message, every filed job was
   followed, and the after-read waited for the last published version.
-

@@ -1,13 +1,135 @@
 # The build path: the design call, the published site, the code explorer and the two splits
 
 > **Moved from `CLAUDE.md` on 2026-09-28, word for word**, in its sixth prune
-> (the file as it stood: `git show 86eb5703:CLAUDE.md`). CLAUDE.md keeps
-> **How a site gets built** and a short summary of this file. Read this before
+> (the file as it stood: `git show 86eb5703:CLAUDE.md`). **How a site
+> gets built** and a short summary of this file, which CLAUDE.md kept, moved
+> here in the second pass (`git show 28bdc97f:CLAUDE.md`) and are the first
+> two sections below. Read this before
 > changing the design tool, the published site's head or serving, the Code tab,
 > or the design and page splits.
 >
 > In the text below, "this file" means CLAUDE.md, and "above" or "below" point
-> at CLAUDE.md's other sections.
+> at CLAUDE.md's other sections as they stood then; most of them now live in the
+> docs listed in CLAUDE.md's map.
+
+## How a site gets built
+
+`POST /api/site/react-build` (also `/api/site/build`, `/api/site/react-revise`) —
+auth-gated, idempotent, a slug claimed by whoever builds it first (409).
+
+1. **Route** (`/api/site/route`, **2 credits on run 9, 2026-09-21 — ONE
+   MEASUREMENT AND NOT A PRICE.** The long-standing *"Haiku, ~0.3"* is stale:
+   every small call follows the picker now and the picker is grok. But routing
+   is **metered on real tokens like everything else**, so 2 is what THAT message
+   cost, not what the next one will. **The honest statement is that the ladder's
+   per-rung prices do NOT include the route at all** — a message costs its rung
+   PLUS a routing call of unmeasured size — and anyone quoting a total owes a
+   range or a run. ⚠ This entry first read *"the real floor for any message is
+   the rung's price PLUS 2"*, which is a price generalised from n=1) — is this a build, a
+   question, a clarify round, or one of the cheap edit layers? **Every unclear
+   case resolves to work, never to prose**: a wrong "build" is visible and
+   undoable, a wrong "ask" is indistinguishable from the builder being broken.
+2. **Design** (`design_schema`, one tool call) — the model answers the whole plan.
+3. **Provision** — a Neon project + database, but **only if the spec declares
+   tables or the site already has one**. A first build is frontend-only by
+   default, so most sites never get a database.
+4. **Generate** (`write_pages`) — ONE model call, no repair pass.
+5. **Compile** — `tsc --noEmit` then `vite build` in the container. **The
+   typecheck REPORTS; only `vite build` refuses** (owner, 2026-08-30: *"I want
+   it to ship as it is, dont matter if its anything broken, even after is
+   reviewed by the compiler"*). `tsc` is a gate we impose — Vite strips types
+   with esbuild and never checks them — so a tree tsc refuses still bundles,
+   measured on the page that killed runs 84/85: **tsc exit 2, vite exit 0,
+   2,186 modules, 6.95s**. The errors ride out as `typeErrors` and reach the
+   customer as a `problems` line. A vite failure still refuses: there is
+   genuinely nothing to ship.
+6. **Render check** — a real Chromium opens every route at two widths.
+7. **Salvage** — a page that will not compile is replaced by a stub, never a live
+   page (`livePages`), and the build publishes.
+8. **Publish** — write-then-sweep into R2, then upload the site's own Worker
+   script.
+
+**The model's answer is kept whether or not it builds** — `deps.keep`, called once
+straight after generation, storing the raw tool payload at `source/<slug>/answer.json`
+(never `pages.json`, which is the revise anchor and success-only). Read back by
+`GET /api/site/answer?slug=` for the site's owner; printed into the owner-build
+log by step 5b when a build does not publish clean, and by `scripts/answer-read.mjs`
+(the `answer read` workflow) at any time, free. Run 90 is why. **PROVEN LIVE on
+run 91**: `coalhole-2`'s page read back whole out of R2 after the build.
+**Two readers, deliberately.** Step 5b sees only a build the runner watched to
+the end — and run 91 is the proof that is not enough: it stopped watching at
+10.1 minutes with the generation unfinished, so `haveAnswer` was false and both
+step 5 and step 5b were skipped on a build that had already published. A log is
+a snapshot; the store is the record.
+
+**The build fires and the Worker walks away.** A queue consumer runs it (15
+minutes guaranteed); the generation itself runs in the CONTAINER (no clock) and
+**streams**, because an idle wire is hung up at ~270s by the egress. The answer
+is POSTed to `/api/site/genresult` and stored in R2, so a recycled container
+cannot lose it. A later short invocation collects it. The whole-build budget is
+13 minutes with a 4-minute publish reserve; the early placeholder goes up the
+moment the design lands, so no failure can leave the customer with nothing.
+
+**Billing**: metered on real token usage, priced per model from ONE table, four
+token kinds priced apart (fresh / output / cache read 0.1× / cache write 1.25×),
+rounded ONCE across all calls in a build. `ourFault(stage)` exempts our own
+failures. A placeholder costs nothing. `buildFloor(model)` gates up front and
+refunds if it refuses.
+
+---
+
+## The build path, in brief
+
+The full law is `docs/build-path.md`; read it before changing the design tool,
+the published site's head or serving, the Code tab, or the splits.
+
+- **The design call** (`design_schema`, one tool) is **97,142 characters**: 23
+  properties in generation order, 15 required. A first build sends 22 of them
+  (14 required, **64,076 characters**; `components` alone is 32,603 of it) and
+  drops only `backend` (33,045), by `FRONTEND_SCHEMA_TOOL`; the system text is
+  1,962. **Re-measure with `readSchemaTool()`** (`test/integration/schema-tool.mjs`)
+  rather than trusting a number here; the totals have drifted and been stamped
+  wrong before. The order: `brand · slug · description · kind · purpose · pages
+  · components · tsx · theme · wordmark · favicon · shape · images · qr · css ·
+  backend · action · lang · langs · three · behavior · needsWeb · webQueries`.
+- **Plan limits**: `MAX_PAGES` is 1 in the plan (the page generator keeps its
+  own 6, so a revise never deletes pages), `MAX_COMPONENTS` 15 with no floor,
+  `MAX_QRS` 6, `MAX_BEHAVIOR` 12; a 100-name theme shortlist out of 500. Every
+  design decision is anchored on a revise (`EDIT_FIELDS` + `mergeLook`: absent
+  means unchanged). A favicon or wordmark stores `{form: text | initials | svg
+  | image}`, provenance is derived, and an uploaded SVG is refused. QR codes are
+  drawn by us, never stored as pictures. `behavior` decides and records and
+  generates nothing yet. `gif` is retired and stays on `EDIT_FIELDS`.
+- **The published site**: each site is its own Worker script in a dispatch
+  namespace. Every publish is staged whole under `builds/<slug>/<version>/` and
+  activated by one conditional write of `current/<slug>.json` (the version is
+  minted before the compile and baked as `SITE_VERSION`; one fallback hop to
+  `SITE_PARENT`; `MAX_VERSIONS` 10, never pruning the live version or its
+  parent). An activation that cannot serve undoes itself, and `restoreVersion`
+  is the one restore. The canonical and `og:url` are one normalised expression;
+  a route the site does not have is a 404 and a renamed or removed one
+  redirects, both read from the sidecar's manifest. A platform-wide republish
+  files 8 sites per two-minute tick as ordinary edit jobs.
+- **The finished answer wakes its own collector**: `/api/site/genresult`
+  enqueues the collector as soon as it stores a build's answer;
+  `RESUME_FIRST_SECONDS` (240) is only the belt for a container that dies
+  before posting.
+- **The code explorer** is one tree from the project root: a folder's key is
+  its path, ownership is drawn in ink (`own` fails closed), the root's twelve
+  files are always drawn, `null` is a third fold state, the shared set is
+  `builder/foundation-files.mjs` (25 files, 489,115 bytes, generated, compared
+  and asked of git), and a downloaded project carries the kit files its pages
+  import (9 to 53 files over 100 real sites, none unresolved).
+- **The two splits**: the design step runs as one call, 4 waves or a 16-agent
+  graph (`DESIGN_SPLIT_CANARY` is the building account, `DESIGN_GRAPH_CANARY`
+  nobody, both `*_EVERYONE` off); the page step as bands plus parts
+  (`BAND_SPLIT_CANARY` the building account). `MAX_MODEL_FANOUT` 8 in the air,
+  `MAX_FANOUT_REQS` 16 per job. Measured: the waves save `min(plan, look)` and
+  cannot go below ~183,852 ms; the graph's wall is `components → shape →
+  behavior`; a band split cut a page call to 93,375 ms against 180–407 s in one
+  call; a fan-out cannot beat its slowest piece.
+
+---
 
 ## What the design call decides
 
@@ -501,4 +623,3 @@ call several times longer, so the fixed per-call cost is a much smaller slice.
 three-link chain; `behavior ← shape` is both the most valuable edge to question
 and the least evidenced, being the one edge that is judgement rather than the
 tool's own words.
-

@@ -4,12 +4,144 @@
 > (the file as it stood: `git show 86eb5703:CLAUDE.md`). The add step's kinds,
 > the requirement report and what it refuses to claim, run 53, what the add-on
 > is told about the site, photographs, QR codes and scenes, and outside
-> connections a page can render. CLAUDE.md keeps a short summary and the
-> per-kind capability table. `docs/addon-capabilities.md` and
+> connections a page can render. The short summary
+> and the per-kind capability table, which CLAUDE.md kept, moved here in the
+> second pass (`git show 28bdc97f:CLAUDE.md`) and are the first two sections
+> below. `docs/addon-capabilities.md` and
 > `docs/addon-runbook.md` are older companion documents.
 >
 > In the text below, "this file" means CLAUDE.md, and "above" or "below" point
-> at CLAUDE.md's other sections.
+> at CLAUDE.md's other sections as they stood then; most of them now live in the
+> docs listed in CLAUDE.md's map.
+
+### The add-on path, in brief
+
+The full law is `docs/addon-path.md`. **"Add" always goes to the add-on step;
+an edit changes what already exists.** `builder/site-add.mjs` runs `pick_adds`,
+then one call per kind in run order — `table · function · api · job · page ·
+component · qr · three · photo` (`MAX_ADDS` 9) — then one publish; the first
+backend kind on a site with none makes its database (`ensureSiteBackend`). An
+addition is always a new thing: every page it changed must still say every word
+it said (`keptProse`, else 422 `rewrote` at no cost), and a second one copies
+the first's design. The designer's raw reply is kept at
+`source/<slug>/addon-answer.json`. A job or an internal function alone changes
+no page (`pageless`, 2 credits measured). Requirements ride beside the design
+(`builder/site-requirements.mjs`, seven states from `delivered` to `failed`);
+nothing exercises a behaviour, so `configured` is as far as a claim can get,
+and nothing is called missing unless every reader that could speak has spoken.
+The render check will not fake an outside dependency (`apiAnswer`: 424 `unmet`,
+not serious). A photograph placed in the same request is bought after the merge
+and billed on what was made (~18.75 credits each); a `src` the site does not
+own never ships; a QR code pointing at a page that did not survive is withheld
+together with everything that renders it. Outside connections carry `returns`,
+typed `params` and `credential` (`site-api-shape.mjs`), none of them in the
+cache key. Which kinds have been proven live is the table under *What is proven
+live*, below.
+
+## What is proven live, per addon kind
+
+**IMPLEMENTED-BUT-UNVERIFIED IS NOT UNSUPPORTED, and the two are kept apart
+because their next steps are different**: one is waiting on a press or a
+credential and its next step is a MEASUREMENT; the other has no code behind it
+and its next step is a CHANGE.
+
+| kind | live proof | not established |
+|---|---|---|
+| `table` | runs 30–34, 46, 47 | a table with no writer is REPORTED, not refused |
+| `function` | runs 30–34, 47, 49, 50, 52 (a stored internal one reused) | no live run has exercised a `plpgsql` body |
+| `api` | **RUN 53 — a published page READ THE REAL SERVICE AND RENDERED ITS DATA**: `/rates` on `repairbench-1` serves `1.1644 / 1.3344 / Rates from 2026-09-18`, which is the keyless rates service's own answer (`{"base":"GBP","date":"2026-09-18","rates":{"EUR":1.1644,"USD":1.3344}}`), read at two depths, zero console errors | a page reading a **keyed** connection, and whether a wrong key surfaces usefully |
+| `job` | 50 registered a recurring one and Run now answered `3`; 52 a one-time one | **automatic execution on a real tick**, and **any message actually delivered** |
+| `page` | 47 `/status`, 48 `/booking-check`, 49 `/workshop-load`, 51 `/gallery` | — |
+| `component` | runs 21–23, 35, 36, 37 | the ONE kind off `APPLIED_KINDS`, so absence is never reportable |
+| `qr` | 51 published `qr-gallery.svg` and **the served file re-encodes to `/gallery`** | nothing has ever scanned one |
+| `three` | **measured live today**: `fretwork-1` and `ashgrove-1` each serve a `@react-three/fiber` canvas | **which PATH made it** — `three` is a dispatched EDIT lane as well as an addon kind, so a probe of the document cannot say |
+| `photo` | **NONE.** Run 51 reached the provider and was **refused** | **the whole kind**, parked on fal funding |
+
+**Eight of nine have landed their own work on a real site. The ninth has not,
+and its blocker is a balance rather than code.**
+
+**AND THE BACKEND TIER HAS NO CORPUS, which bounds what can be claimed.** The
+100-site corpus is **324 `.tsx` files with ZERO `useRows`, ZERO `useCreateRow`,
+ZERO `useApi`, ZERO `useRpc` and ZERO `useUploadFile`** — it is a FRONTEND
+corpus, because a first build is frontend-only by default. So the false-alarm
+measurements this file leans on (the kit closure's 9–53 files, the 322-against-
+222 lint reading, the 320 picture frames) are all statements about the frontend.
+
+**WHAT ONLY WORKS IN COMBINATION**, each measured:
+
+- **A VISITOR MAY SEND A PICTURE AND NOTHING ELSE; AN OWNER MAY SEND A
+  DOCUMENT.** `handleVisitorUpload` takes PNG/JPEG/WebP/GIF by magic number,
+  2 MB, throttled, SVG refused as stored XSS — while an OWNER's upload also
+  takes **PDF and the zip family** (`sniffUpload`, `MAX_DOC_BYTES` 10 MB). So
+  *"put our menu PDF up"* works and *"let customers attach a receipt PDF"* does
+  not, and they are different questions about different routes.
+- **⚠ "`uploadFile` IS IN ZERO PROMPTS" IS FALSIFIED.** That grep used the
+  bare function name; **the kit exports TWO things and the prompts name the
+  other** — `useUploadFile` occurs **6 times in `builder/page-gen.mjs`**, and
+  the chain is whole at every hop: page rule 8 carries a worked example,
+  `schemaDigest` states `FILE UPLOAD: YES/NO` per table and NAMES the column,
+  the table tool tells the designer what to call it, and a lint refuses
+  `useUploadFile` on a table that takes none. *A grep for the wrong identifier
+  reads exactly like a missing wire* — and it was recorded as one for four days.
+- **WHAT IS REALLY LEFT THERE IS ONE LINE AND IT IS OWNER-GATED.**
+  `isImageColumn` answers NO to `attachment · file · upload · receipt ·
+  document · screenshot · artwork`, so a designer that ignores the naming
+  guidance produces a form with no attach control. **Widening the list widens an
+  endpoint that is UNAUTHENTICATED by design**, which is the owner's call.
+- **Video and audio EMBED; they do not HOST.** `video-embed`, `video-player`,
+  `video-hero`, `audio-player` and `audio-recorder` are all in `COMPONENT_MENU`
+  and all make **zero network calls**, so a `component` ask places one around a
+  URL the owner supplies. **Neither sniffer admits a video or audio container**,
+  so a media file has no home here — which also means a `/u/` media url can only
+  be one a model invented, and the stray wall empties it correctly. **The
+  reachable half of that wall is the PDF**, which really can be uploaded.
+- **`pageless` is job + INTERNAL function only** — driven.
+- **CREDENTIAL-SOURCE GUIDANCE EXISTS, CONDITIONAL ON THE METADATA BEING
+  SUPPLIED** (moved here 2026-09-20; it had been filed as *"names no sign-up
+  page"*). `cleanCredential` (`site-api-shape.mjs`) stores
+  **`{service, url|signup, note}`** — WHICH service, its SIGN-UP PAGE, and a
+  free-text note, which is where *"the free tier is enough"* belongs. The url
+  is **https-validated** and refused as `credential-url` otherwise
+  (*"The sign-up page for that service has to be an https address"*), and an
+  unreadable object is `credential-shape`, whose sentence asks the customer to
+  NAME THE SERVICE. `credentialNote` reads it **PER CONNECTION**, so a mixed
+  request cannot tell the owner to sign up for a key nothing will use.
+  **THE CONDITION IS THE WHOLE OF IT, AND IT IS A REAL LIMIT**: every part is
+  optional, `cleanCredential` answers `null` when all three are absent, and
+  **nothing compels the designer to fill them** — so the guidance is present
+  when the declaration carries it and silent when it does not. That is
+  different from *"no sign-up page exists"*, which is what the old entry said.
+  What stays true: **misleading metadata on a KEYLESS connection is ignored
+  rather than believed**, and the note never claims a service *"is answering
+  already"* — this platform has not called it and has no business saying so.
+- **A FUNCTION CHOOSES ITS OWN `language`, AND THIS SAT IN THE UNSUPPORTED LIST
+  FOR A DAY AFTER IT SHIPPED** (closed 2026-09-19, moved here 2026-09-20).
+  `FN_LANGUAGES` is `["sql", "plpgsql"]` beside the emitter, `fnLanguage` is the
+  ONE reader (`site-rls.mjs:932`, emitted at `site-schema.mjs:742`), the tool's
+  enum is DERIVED from it, `cleanAdd` refuses `bad-language`
+  (`site-add.mjs:2491`), and the **fold** — a third hop nothing had found,
+  because `foldAdds` REBUILDS the item too — is SUBTRACTIVE. Proven on a real
+  PostgreSQL 16: the same body declared `sql` is REFUSED, created as plpgsql it
+  ANSWERS, `pg_proc` agrees, and **SECURITY DEFINER and `search_path = public,
+  pg_temp` both survive**. **`job` is still additive and is NAMED in the code as
+  the remaining instance of that class.**
+  **THE SHAPE OF THE MISTAKE IS THE POINT**: the entry carried its own
+  `CLOSED 2026-09-19` in the body while its HEADING still read *"cannot choose
+  its language"*, and a heading is what anybody skimming a capability list
+  reads. **An entry that closes must MOVE, not gain a sentence** — a closed
+  limitation left in a limitations list is a false negative about our own
+  product, and it survived a session that quoted the list back out loud.
+
+**UNSUPPORTED, and the honest reason for each:**
+
+- **Nothing deletes a table, a saved function, a connection or a scheduled job**
+  — `NOT_REMOVABLE` is `backend · lang · slug · kind · purpose`. **SIXTEEN**
+  lanes ARE removable (`components` and `tsx` among them) and `PAGE_VERBS` is
+  `add · remove · move`, so "nothing deletes" is only true of the backend.
+*(The api tier's `credential` used to sit here as "names no sign-up page". It
+does name one — moved up to the supported list on 2026-09-20.)*
+
+---
 
 ### THE ADD STEP IS ITS OWN PATH TOO (2026-09-02)
 
@@ -942,4 +1074,3 @@ problem and never of blank rendering.
   where nobody checks a claim.
 - **KEPT RECORDED, NOT FIXED**: native one-time scheduling for a job, which
   shipped 2026-09-19.
-

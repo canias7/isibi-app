@@ -1,13 +1,147 @@
 # The edit path: what an edit may add, what the page rung preserves, the lanes, renaming
 
 > **Moved from `CLAUDE.md` on 2026-09-28, word for word**, in its sixth prune
-> (the file as it stood: `git show 86eb5703:CLAUDE.md`). CLAUDE.md keeps the
-> ladder table and a summary of what the edit path does now. The rounds that
+> (the file as it stood: `git show 86eb5703:CLAUDE.md`). The ladder table
+> and the summary of what the edit path does now, which CLAUDE.md kept, moved
+> here in the second pass (`git show 28bdc97f:CLAUDE.md`) and are the first
+> section below. The rounds that
 > built each mechanism after 2026-09-21 are in `docs/history/`; the short
 > edit-path checklist is the top of `docs/investigations/edit-path-checklist.md`.
 >
 > In the text below, "this file" means CLAUDE.md, and "above" or "below" point
-> at CLAUDE.md's other sections.
+> at CLAUDE.md's other sections as they stood then; most of them now live in the
+> docs listed in CLAUDE.md's map.
+
+## Editing a site — the ladder
+
+**Read `docs/architecture.md` first** — the owner's own drawing: one BUILD step
+makes the site, then EDIT / ADDON / DELETE act on it and each publishes back
+through the one spine. **The site is the centre, not the paths.**
+
+The router picks a layer; each falls through to the one above it when it cannot
+express the change — **but only where that climb is CLASSIFIED as one the rung
+above can do** (`builder/edit-failure.mjs`, 2026-09-23). Everything else — a
+thing that is not there, an ask nobody could place, a failure of ours — is
+said, at no cost for the edit. Cheapest first:
+
+| Layer | What it changes | Cost |
+|---|---|---|
+| `text` | words in the page source | 1 |
+| `data` | rows, and a list's ORDER | ~0.3 of model use; **charged 1** (run 42) |
+| `rules` | schema features enforced in Postgres or read from `_meta` | ~0.3 of model use; **charged 1** (run 44) |
+| `look` | the EDIT PATH — 21 lanes (see below) | 1 |
+| `picture` | swap or reframe a photograph (matched on its alt text) | ~0.3 |
+| `logo` | the header logo or tab icon — stored as that mark's `image` form | 0 |
+| `nav` | menu, header button, footer contact/social/legal, in-body links | ~0.3 |
+| `page` | one page's layout, via `tweak` (minimal patch) | ~1–3 **+ routing**; **20 measured once** when the tweak fell through to the rung's own full rewrite (run 11) |
+| `addon` | a real page rewrite | ~25 |
+
+**`sameProse` is the guarantee the page layer cannot make**: a tweak that moved
+the words is thrown away. Measured 0 false alarms over 1,640 real tweaks.
+
+**A publish that translates something new is charged for the translation on top
+of the rung's own price** — one call per extra language, on the picked model,
+reserved by the spine before its compile and floored at 1. A monolingual site
+and a cached bilingual one pay nothing more; the platform rebuild never pays.
+
+**The 21 lanes, what the page rung preserves, adding versus editing, and
+renaming are in `docs/edit-path.md`**; every round since 2026-09-21 is in
+`docs/history/`. Everything below was built and tested with supplied model
+answers unless a run is named.
+
+### What the edit path does now
+
+- **The router** (`builder/site-ask.mjs`) answers one layer, or `addon`,
+  `build`, `ask` or `clarify`. **Display against enforcement decides `page`
+  against `rules`**, never the words (`bookings`, `places` and `limit` occur on
+  both sides). A page it names is kept on `page` and on `look` (`readEdit`); a
+  named page the site does not have is refused on `look` before anything runs
+  (`page/no-page`); an unnamed `look` change on a multi-page site goes to the
+  home page. The browser routes with the site's real page list and waits for it
+  on an existing site (`siteRoutesRead`, `SITE_ROUTES_WAIT_MS` 15,000), so an
+  existing site never becomes a first build.
+- **Every way the edit route declines is classified**: `builder/edit-failure.mjs`
+  `EDIT_FAILURES`, **40 entries** keyed `<rung>/<name>`, in four classes that
+  are what the browser does — `up` **7** (the full rewrite), `addon` **5**,
+  `hop` **4** (one paid hop sideways), `explain` **24** (a sentence at no edit
+  cost, **11** of them ours). A census holds the route to the table both ways,
+  so a new `escalate(` with no entry fails by existing. **The browser starts the
+  rewrite only from an escalate** — never from a refusal, an unreadable body or
+  a dropped connection (`unreadEditMsg`: *"…Asking for it again could make the
+  change twice."*). An ownership-gate refusal is re-shaped into a sentence
+  (`editGateRefusal`).
+- **Replies are checked before they are trusted**:
+  `readRouteReply(httpOk, reply, hops)` answers `hop`, `climb`, `receipt`,
+  `success`, `refusal` or `unknown` from real booleans, a 2xx status and the
+  fields each action needs; `readAddonReply` and `readEditReply` are one line
+  over it, and only the edit's list may hop to `addon`. A 401 asks for sign-in.
+  A routing answer is checked the same way (`routeActionable`, `routeQuestion`);
+  an unusable one stops a live site with a sentence and holds the words and
+  files on their own site (`lost()` → `siteHoldUnsent`). An add-on that fails
+  never buys the rewrite (`addonOutcomeMsg`); only a well-formed escalate naming
+  no layer still climbs, and classifying those is the separate server-side step.
+- **One ask, one latch, one ending**: `editAsk`/`editAskDone` hold a site for
+  exactly one ask, queued jobs and hand-offs included, and an old completion
+  cannot release a newer ask; each POST ends once (`finishOnce`); a success
+  this page fails to show stays a success (`applyEditResult`, `editShownMsg`);
+  the one-hop bound rides on the job record (`handedOff`). Drafts (a site's
+  typed words and attached files) belong to that site's composer and survive
+  redraws and navigation within the session, **not a browser refresh**.
+- **Steps**: neighbouring page lanes on one page are one page operation
+  (`mergePageSteps`); across another rung, the later page step runs only if the
+  earlier did not succeed (`pageStepDone`, `samePageOperation`), and a refusal
+  that a later success supersedes is not reported. A remove or move verb rides
+  on its own step (`runLayer(…, eRemove, eRename)`), never message-wide.
+- **The removal door** (a `nav` or `picture` removal the router opened): the
+  picker is told the routed change in the router's own words (`layerLine`) and
+  answers two lists (`doorPickTool`) — `additional`, the only list that makes
+  steps, and `routed`, recorded and never run — and the router's own step runs
+  exactly once (`doorDispatch`). Nothing is read from how many lanes came back.
+  A home page's menu keeps a link to itself that it already had. A page another
+  page's source links to cannot be removed; a QR code pointing at it is not
+  seen by that rule (backlog).
+- **What an edit preserves**: the quick writer (`runTweak`) is thrown away if it
+  moves the words (`sameProse`) or, on a page rendering the site's own
+  components, changes what the page computes (`partEligible`, over a real
+  TypeScript syntax tree; cannot-tell refuses). Photographs are put back or the
+  rung is refused, on both writers (`keepPhotos`; 409 `withheld`,
+  `photosBlocked`). Links and the site's own components are checked by
+  `builder/page-keep.mjs`: links paired by identity and never counted; a judge
+  (`keep_check`) called only on a loss, whose quote must occur in the message
+  and name its item, or declare a group of a kind that can hold it — **neither
+  proves authorisation; that stays the model's judgement**. Parsed literal JSX
+  prose is checked on the full writer by `builder/page-prose.mjs` against a
+  supported grammar: an explicit operation on an exact unique heading or
+  section id, or quoted exact text; page qualifiers confirmed against the
+  edited page and the site's own page names (`sitePageNames`,
+  `pageQualifiers`); kit headings read from `builder/kit-headings.mjs` (20
+  components, `<h1>`/`<h2>` only, the heading must render). Plain-text and
+  kit-only loss outside that grammar stays open.
+- **The stylesheet check judges only the rules a request wrote**
+  (`changedSelectors` → `verifyCss` → `cssVerify` → `selectorsToJudge`), keyed
+  by a reader that keeps strings, escapes and meaningful whitespace
+  (`cssPieces`) and treats a comment as a token boundary (`spell`,
+  `keepsBoundary`, `judgedSelectors`).
+- **Money is stated from the ledger**: the edit's cost and the routing call's
+  are two amounts (`wholeRequestNote`); a finished job's cost is read off its
+  own row (`ledgerEditCost`, `servedEditReply`); a refused step's charge rides
+  on its `partial[]` entry; no failure sentence claims money. The routing call
+  is never refunded, and the two money paths still differ on a failed publish
+  (the synchronous path keeps its collects; the job refunds everything).
+- **What landed before a failed publish is named** (`landedNote`, only on a
+  strict `landed === true`); a stopped edit's unpublished design is put back
+  (`restoreEditConfig`), and a restore that fails is always said
+  (`KEPT_CHANGE_NOTE`). A full revise resolves an `incomplete` site's database
+  read-only for its writer (`revConn`, `withStoredSpec`) and never heals it.
+- **The reply names what shipped**: `pageOps` (`{page, removed, renamedTo}`,
+  from successful steps only) through `pageOpsSaid`; a look that changed nothing
+  beside an operation that shipped says *"The requested styling was already in
+  place."* A multi-step look reply still names only the look (review #9).
+- **A publish carries the site's stored redirects** (`composePublish` reads the
+  sidecar through `manifestFromCsv`, deploy 2165): a removed page 301s home and
+  a moved one to its new address.
+
+---
 
 ### ADD ALWAYS GOES TO THE ADDON STEP (owner, 2026-09-02)
 
@@ -514,4 +648,3 @@ the ONE reader of the public address — both publish sites had handed
 - **The code still degrades cleanly if the table goes away**: `aliasRowFor`
   answers null on any read failure and `resolveAlias` reads a null row as "no
   alias", so the platform falls back to its old behaviour rather than erroring.
-

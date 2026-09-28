@@ -4,10 +4,34 @@
 > (the file as it stood: `git show 86eb5703:CLAUDE.md`). How every rung runs in
 > the site's own container with no clock, the transport its model calls take,
 > how a job records where it ran, and the two free probes (a long hold, and a
-> wire with no model in it). CLAUDE.md keeps a short summary.
+> wire with no model in it). The short summary CLAUDE.md
+> kept moved here in the second pass (`git show 28bdc97f:CLAUDE.md`) and is the
+> first section below.
 >
 > In the text below, "this file" means CLAUDE.md, and "above" or "below" point
-> at CLAUDE.md's other sections.
+> at CLAUDE.md's other sections as they stood then; most of them now live in the
+> docs listed in CLAUDE.md's map.
+
+### Containers and jobs, in brief
+
+The full law is `docs/containers-and-jobs.md`. **Every rung runs in the site's
+own container, and the container has no clock**: `CONTAINER_*_BUDGET_MS` is
+`Infinity`; the lease (`LEASE_TTL_S` 90, `HEARTBEAT_S` 30) is a liveness check
+and never a cap. **One setting, `builder/job-duration.mjs`**: a job's deadline
+is **50 minutes** (`JOB_MAX_MS`), and the SIGTERM, the SIGKILL and the busy
+hold (**52.5 minutes**, `MAX_BUSY_HOLD_MS`) are derived from it under
+`edit_handoff`'s 3,600-second limit; `JOB_MAX_MINUTES` may only shorten it. The
+per-call ceilings stay: `STEP_TIMEOUT` 30 minutes, `CONTAINER_CALL_MS` and
+`BUILDER_CALL_MS` 600 s, `QUICK_STREAM_MS` 480 s, `QUICK_CALL_MS` 240 s. A
+job's model calls take the container's own `node:https` transport and stream
+(`builder/long-post.mjs`, never imported by `worker.js`), and `callFailure`
+names a failure (`headersMs`, `chars`). A fire answers `fired` (409 included),
+`inline`, `retry` (3 tries, 2 s apart) or `stop` (503 `no-container`, nothing
+spent). `JOB_RUNNER_EVERYONE` is on. The hold probe proved a 20-minute job
+child in the container (1,200,182 ms, 20 of 20 pulses); the transport probe's
+reading is still to take.
+
+---
 
 ### EVERY RUNG RUNS IN THE SITE'S CONTAINER, AND THE CONTAINER HAS NO CLOCK
 
@@ -200,4 +224,3 @@ instrument defects are why, and each is a rule:
    skips the fire and reuses the same polling and verdicts. **The fire is
    skipped rather than made idempotent**: a second launch of the same shape
    would take a second lane to answer a question already in flight.
-

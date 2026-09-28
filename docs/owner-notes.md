@@ -14,15 +14,18 @@ merged/deployed at a5741864 (deployment 2157 / run 36099179983). Served chat.js
 matched the reviewed bytes at 2026-09-25 05:36:30 UTC. Deployment log reports
 container reuse; no repeated runtime container check or canary. This contains
 an escaped display error; publication and cleanup already succeeded. Other
-checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; see the dated entries below). Your free check (run 33, 06:24 UTC) confirmed deployment 2161 from the live server, and with it 2160's code. Test 3 ran as your paid run 34: the full page writer removed "The first eight chords" and nothing else, for 18 credits (balance 73), and all seven checks hold (the dated entry below). The page-text check now recognises a section heading shown by a design component, and your review's gap (such a heading counted when the page might not show it) is closed too. You closed that correction, and it is merged and deployed at `ab74d0d9` (deployment 2162, 2026-09-26 20:31 UTC, image `369d7b1e5bae25b0`). Your free press (run 35, 21:08 UTC) confirmed it from the live server. Test 4 is two parts, each for your separate approval: 4a (pages, photos, an attached picture, second messages) and 4b (the database), which waits for its own approval. In 4a, Part A passed as your paid run 37, and Parts B and C passed as your paid run 39 through the canary's new browser mode, which drives the real app in a real browser. **You closed Test 4a on 2026-09-27** after your own review of run 39's workflow and evidence; three small findings are kept separately. Test 4b is now just the price test (D1): built, and its free rehearsal passed as your run 40 (03:34 UTC). You then found its put-back could overwrite a change made at the same moment. You closed that fix after review, and it's merged and deployed at `14df0225` (deployment 2163, 2026-09-27 05:15 UTC, image `9038e90ab1d5d7fe`). Your fresh free rehearsal on that deployment passed as run 41 (05:37 UTC), which also confirmed deployment 2163 from the live server, and your paid price test passed as run 42 (06:03–06:05 UTC, 3 credits). **You closed D1 on 2026-09-27** after your own review of run 42. Its free first step stays on record, and the permission step and the real order are parked. The short list of what's left is in the entry *"You closed the price test (D1)…"* below. The rules test I recommend next is built (the entry *"The rules test is built"*; your two corrections to its plan are the entry after it): it runs on `lido-axes-b`, a candidate site whose database you'd need to agree to repurpose, it submits one real booking that must be refused, and it's about 3 credits. Its booking is now checked before it leaves the browser, and you closed that correction after your review. Both free checks passed. The permissions read (09:32 UTC) showed exactly the starting permissions the test was written for. The free rehearsal (your run 43, 16:27 UTC) stopped exactly the test booking inside the browser and changed nothing. **Your paid rules test passed as run 44** (17:29–17:31 UTC, 3 credits): the message closed bookings on `lido-axes-b`, and one real test booking made afterwards through the site's own form was refused, with nothing added and nothing published (the newest entry). Its bookings stay closed, as you agreed by pressing it. Your free permissions check afterwards (18:13 UTC) agrees: visitors can no longer do anything with bookings, and the menu is unchanged. **You closed the rules test on 2026-09-27**, for exactly what it showed; no booking was measured going through before the change, so it proves this one closing, not every kind of rules change. Bookings stay closed. The pages still inviting bookings, and the plain "That isn't available." a visitor gets, are kept as a separate item for later. **The next test, taking a page off and putting it back (Test 5), is prepared, and both its free checks passed** (your runs 45 and 46). **Your paid run (run 47) stopped at its first message and changed nothing.** The menu request went to the wrong part of the editor, so the page removal was then correctly refused. You approved the fix and held its first two versions: the first also dropped other changes asked for in the same message, and the second guessed what was asked from how many parts the picker chose. The third version tells the picker which change is already being made and has it list anything else separately; it's built and tested on the branch, not merged, with the small menu fix and the stricter pass rule for the test kept. You approved it, and it's merged and deployed at `e4b15ef6` (deployment 2164, 2026-09-28 16:31 UTC, image `a217f74c81122512`); your free check (run 48, 16:57 UTC) confirmed it from the live server. **Your paid retry (run 49) removed the Gallery menu link and the gallery page exactly as asked**, for 5 credits, and you've closed that result. The one check it failed, `/gallery` answering "Not found" instead of sending visitors to the home page, turned out to be a publishing bug on every site since 2026-08-17. Your free restore (run 50, 18:41 UTC) put the gallery page back, and every check I ran on it passes. **You closed the removal and the restore.** The fix is merged and deployed at `f5e941f4` (deployment 2165, 19:07 UTC, image `8a10715339cdc780`), exactly as predicted; the free check that confirms it from the live server is yours to press (the entry *"The redirect fix is merged and deployed"*). It keeps saved redirects from now on and doesn't bring back the ones lost before. The balance is 45. **The next test, two changes in one message with one of them on the Visit page (Test 6), is prepared and waits for your approval**: its request is now worded the way you asked (the site's default description, each page keeping its own, the move on the Visit page only), it's judged on what was really saved and published, and it costs about 5–6 credits with a free restore afterwards (the entry *"Test 6, two changes in one message"*). **CLAUDE.md is cleaned up**: 15,182 lines down to 1,815, with everything that came out moved into docs rather than deleted (the newest entry).
+checklist items are now reviewed under the owner-authorized [edit-path milestone](investigations/edit-path-milestone.md). That milestone and the [literal-text guard](investigations/edit-text-preservation.md) are merged and deployed at `6ed355e4` (deployment 2158, 2026-09-25 14:40 UTC) and confirmed from the live server by your free canary run 30 at 15:37 UTC; see the dated entry below. No paid request. **You closed that milestone after run 30.** The next one is the two real-model edit tests, which stay undispatched until you approve the spending and the site to run them on (next entry). The credit-refusal wording fix is merged and deployed at `c2fa000c` (deployment 2159, 2026-09-25 17:50 UTC), and run 32's preflight confirmed it from the live server. The section-move test on fretwork-1 ran as canary run 32 with your spending approval. It published the move correctly for 10 credits, the browser check passed, and run 32 is closed for what it shows. The balance is 91. The canary now waits for its own edit's version before it reads the site back, and the text check accepts everyday wording like "…from the home page" and reads a quoted page. All of that, the edit-path milestone and the rollback round are merged and deployed at `7384ddba` (deployment 2160, 2026-09-26 01:05 UTC). The rollback round's two findings, and the two stylesheet-comparison defects your reviews found after them, are merged and deployed at `0de188ff` (deployment 2161, 2026-09-26 05:52 UTC, image `05750a5120d33570`; see the dated entries below). Your free check (run 33, 06:24 UTC) confirmed deployment 2161 from the live server, and with it 2160's code. Test 3 ran as your paid run 34: the full page writer removed "The first eight chords" and nothing else, for 18 credits (balance 73), and all seven checks hold (the dated entry below). The page-text check now recognises a section heading shown by a design component, and your review's gap (such a heading counted when the page might not show it) is closed too. You closed that correction, and it is merged and deployed at `ab74d0d9` (deployment 2162, 2026-09-26 20:31 UTC, image `369d7b1e5bae25b0`). Your free press (run 35, 21:08 UTC) confirmed it from the live server. Test 4 is two parts, each for your separate approval: 4a (pages, photos, an attached picture, second messages) and 4b (the database), which waits for its own approval. In 4a, Part A passed as your paid run 37, and Parts B and C passed as your paid run 39 through the canary's new browser mode, which drives the real app in a real browser. **You closed Test 4a on 2026-09-27** after your own review of run 39's workflow and evidence; three small findings are kept separately. Test 4b is now just the price test (D1): built, and its free rehearsal passed as your run 40 (03:34 UTC). You then found its put-back could overwrite a change made at the same moment. You closed that fix after review, and it's merged and deployed at `14df0225` (deployment 2163, 2026-09-27 05:15 UTC, image `9038e90ab1d5d7fe`). Your fresh free rehearsal on that deployment passed as run 41 (05:37 UTC), which also confirmed deployment 2163 from the live server, and your paid price test passed as run 42 (06:03–06:05 UTC, 3 credits). **You closed D1 on 2026-09-27** after your own review of run 42. Its free first step stays on record, and the permission step and the real order are parked. The short list of what's left is in the entry *"You closed the price test (D1)…"* below. The rules test I recommend next is built (the entry *"The rules test is built"*; your two corrections to its plan are the entry after it): it runs on `lido-axes-b`, a candidate site whose database you'd need to agree to repurpose, it submits one real booking that must be refused, and it's about 3 credits. Its booking is now checked before it leaves the browser, and you closed that correction after your review. Both free checks passed. The permissions read (09:32 UTC) showed exactly the starting permissions the test was written for. The free rehearsal (your run 43, 16:27 UTC) stopped exactly the test booking inside the browser and changed nothing. **Your paid rules test passed as run 44** (17:29–17:31 UTC, 3 credits): the message closed bookings on `lido-axes-b`, and one real test booking made afterwards through the site's own form was refused, with nothing added and nothing published (the newest entry). Its bookings stay closed, as you agreed by pressing it. Your free permissions check afterwards (18:13 UTC) agrees: visitors can no longer do anything with bookings, and the menu is unchanged. **You closed the rules test on 2026-09-27**, for exactly what it showed; no booking was measured going through before the change, so it proves this one closing, not every kind of rules change. Bookings stay closed. The pages still inviting bookings, and the plain "That isn't available." a visitor gets, are kept as a separate item for later. **The next test, taking a page off and putting it back (Test 5), is prepared, and both its free checks passed** (your runs 45 and 46). **Your paid run (run 47) stopped at its first message and changed nothing.** The menu request went to the wrong part of the editor, so the page removal was then correctly refused. You approved the fix and held its first two versions: the first also dropped other changes asked for in the same message, and the second guessed what was asked from how many parts the picker chose. The third version tells the picker which change is already being made and has it list anything else separately; it's built and tested on the branch, not merged, with the small menu fix and the stricter pass rule for the test kept. You approved it, and it's merged and deployed at `e4b15ef6` (deployment 2164, 2026-09-28 16:31 UTC, image `a217f74c81122512`); your free check (run 48, 16:57 UTC) confirmed it from the live server. **Your paid retry (run 49) removed the Gallery menu link and the gallery page exactly as asked**, for 5 credits, and you've closed that result. The one check it failed, `/gallery` answering "Not found" instead of sending visitors to the home page, turned out to be a publishing bug on every site since 2026-08-17. Your free restore (run 50, 18:41 UTC) put the gallery page back, and every check I ran on it passes. **You closed the removal and the restore.** The fix is merged and deployed at `f5e941f4` (deployment 2165, 19:07 UTC, image `8a10715339cdc780`), exactly as predicted; the free check that confirms it from the live server is yours to press (the entry *"The redirect fix is merged and deployed"*). It keeps saved redirects from now on and doesn't bring back the ones lost before. The balance is 45. **The next test, two changes in one message with one of them on the Visit page (Test 6), is prepared and waits for your approval**: its request is now worded the way you asked (the site's default description, each page keeping its own, the move on the Visit page only), it's judged on what was really saved and published, and it costs about 5–6 credits with a free restore afterwards (the entry *"Test 6, two changes in one message"*). **CLAUDE.md is cleaned up**: 15,182 lines down to 1,815, with everything that came out moved into docs rather than deleted, and then cut to a short entry point; your preferences now have their own short file, `docs/owner-preferences.md`, and these notes are read on demand (the newest entry).
 
-Kept for the owner. Two purposes:
-1. **How you like things done** — durable preferences, so a fresh session does not
-   have to relearn them.
-2. **What is open** — bugs, decisions waiting on you, and gaps worth knowing about.
+Kept for the owner: the running log of what was done and decided, newest entry
+first, with what is open further down and the "Names that must not be renamed"
+table (two tests read it, so keep its shape).
 
-**Read this at the start of every session.** Add a preference line whenever the
-owner signals one; move an item out of Open the moment it is resolved.
+**This log is read on demand, not at every session start.** A session starts
+with [`owner-preferences.md`](owner-preferences.md): how you like things done,
+and what needs your approval. Search this log when the history of a decision
+matters. Add a dated, plain-English entry here for each change; add a
+preference to `owner-preferences.md` whenever you state one; and move an item
+out of Open the moment it is resolved.
 
 > **PRUNED 2026-08-28, your call: "they are really big, delete whats old and we
 > dont need anymore."** This file had grown to 19,091 lines — a day-by-day diary
@@ -48,133 +51,47 @@ owner signals one; move an item out of Open the moment it is resolved.
 
 ## How you like things done
 
-**Communication**
-- **Plain English, not jargon.** Walk things layer by layer when touring the code.
-- **Show UI changes as screenshots** — you review visually. Render it and send it.
-- **Say plainly what is proven and what is not.** Every claim gets "proven live"
-  or "NOT proven live". Corrections get written down, not quietly fixed.
-- **One thing at a time.** You prefer reviewing and fixing bugs one by one over
-  big batches.
-
-**Changes**
-- **Small and surgical** — do not restyle or refactor beyond what was asked.
-- **"If we are not using it, I don't want it on the code."** Dead code goes.
-- When you narrow a job mid-change, the scope is exactly what you named.
-- **Desktop-first, no mobile** — *"I'm not preparing my app to be mobile friendly
-  honestly."* Do not build or pitch mobile layout work unless you re-open it.
-- Bulk or destructive operations **dry-run by default**.
-
-**Money**
-- **Never spend credits without asking.** Not on a test build, not on a retry.
-- **Never auto-retry a failed build** — *"we should not spend your credits for
-  you."* You can always ask again.
-- Paid builds are **opt-in by a commit-message marker**, so no push can buy one
-  by accident.
-- **Documentation-only changes must not deploy** and must not buy a test build.
-- **Do not raise the free-credit grant to paper over a shortfall** — *"Use my
-  account, don't raise the credit thing."*
-- Batch fixes into one live run. Six runs in a night drains the account faster
-  than a day of real customers.
-- Diagnose from the code before spending a run — *"you said to work it out
-  first."*
-- You delete leftover test sites yourself.
-
-**How the model should be instructed**
-- **"I just want the model to write its own css cmon, lets make it no name."**
-  No menus, no enums, no named options where the model can author instead.
-- **Delete worked examples; state only the purpose.** A worked example is the one
-  thing a model reliably copies — two features shipped verbatim copies of ours.
-- **"When in doubt, say less to the model."** Three drafts of the attachment note
-  each got shorter and each got better.
-- **"Don't invent something the customer hasn't asked for — invent something that
-  is related to what the customer wants."** An invented detail stays inside the
-  brief.
-- **A cap the model is only told about is not a cap.** Enforce it in code.
-- **An edit is measured against what was asked.** *"If the user wants one thing,
-  you change one thing. If the user wants three, you change three… do not change
-  something that the user hasn't told you to change."* And each change reaches
-  only as far as the ask did — restyling one button is a rule for that button,
-  not a new site-wide colour that happens to repaint it.
-- **Editing the look is FREE CSS, not a theme picker.** *"Instead of it being a
-  specific theme, it's free css — the model can edit anything on the page."*
-  Nothing on the page is out of reach of a rule. The freedom and the ceiling are
-  one instruction, never separated: anything may change, only what was asked
-  does.
-- **"They gotta be smart with the questions, not all the time."**
-- **"I just want it treated normal, like an attachment — the user will say what he
-  wants that for, it's part of the conversation."**
-
-**Product direction**
-- **"For edit it should be able to edit literally everything"** it can build — and
-  **an edit changes exactly what was asked for and nothing else.** Absent means
-  unchanged, never restated.
-- **Cost follows the change, not the pipeline.** When asked whether two things
-  should be one: do they differ in what somebody DECIDES, or only in how it is
-  carried out? Only the first justifies two paths.
-- **"The whole site can't not go live if one step breaks — if one step breaks it's
-  gotta ship like that, however it is."**
-- **"If I close the app the build is still running."**
-- **Frontend first**: a first build designs and writes a site; the backend comes
-  when editing or when an addon asks for it.
-- **"It's gotta be more universal stuff"** — prefer a universal law over a one-off
-  patch.
-- **Everything is chatbox-driven.** Studio and the video editor were dropped:
-  *"pure AI, drop it all."*
-- **Rejected a picker** in favour of just attaching the file and saying what it
-  is: *"Hey, this is my logo, put it there."*
-- **Existing published sites are left alone** — never sweep-rebuild them. A
-  rebuild costs credits and re-rolls the customer's page copy.
-- **No arbitrary HTML in the head.** Every website builder offers "paste anything
-  into your head" and every one of them is a way to get a site hacked.
-- **Customer replies should eventually be written by a model from what the edit
-  really did** (2026-09-24) — *"customer replies should eventually be
-  model-written from authoritative operation results. Do not implement that
-  redesign now."* Recorded, not started. Until then the replies are composed by
-  code from those same results, never from how the request was worded.
-
-**The media product (gofarther.dev)**
-- **Never name the provider to a user.** "fal" is an implementation detail; error
-  bodies and UI copy say what went wrong, never who we bought it from.
-- **The chatbox settings are authoritative** — *"the orchestrator has no power to
-  change anything that's set on the chatbox."* A generation runs with exactly what
-  the toggles show. The director's words never silently change a setting or a
-  price. Sound was the one exception and was removed on all three layers.
-- **"Make sure you show users the exact error."** The provider's own detail is
-  quoted verbatim — *(exact error: "duration: must be one of 4s, 6s, 8s")* — not
-  bucketed into a canned line. Quota and balance messages stay clean, because
-  there is no useful upstream detail there.
-- **A platform failure is never blamed on the user**, and a failed render always
-  refunds.
-- **Caps are not printed in the UI** — the app rejects loudly with the reason
-  instead. A number in a tooltip goes stale; a refusal cannot.
-- **Verify a model's limits against the provider's machine schema, never its docs
-  page.** The docs have been wrong; the schema is what the API enforces.
-- **Only chat-generated media belongs in the Gallery.**
-- **Users think in verbs** — "Edit image", not "Image to image".
-- **Grids scale by adding columns, never by growing cards.**
-- **Skip the Media Agent** in click-throughs and sweeps unless it is the subject.
-
-**Working discipline**
-- **Work on the designated branch**, not main directly. `git push origin
-  HEAD:<branch>` is the only form that cannot push the wrong commit, and `git log
-  --oneline -1 origin/<branch>` is the only proof — the push output is not.
-- **A green merge is not a green deploy.** Confirm the deploy run succeeded before
-  testing anything live.
-- **Never write GitHub's own skip-CI marker anywhere** — not in a commit message,
-  not in a PR body, not while explaining it. It silently suppresses every
-  workflow: main moves, nothing deploys, and there is no red run to notice. Done
-  twice, both times inside prose about the rule itself. Say "the skip-CI marker".
-- **Never commit while a mutation sweep is running** — an interrupted sweep leaves
-  a live mutant in the tree.
-- **Do NOT edit these notes with `perl -0pi` and a unicode `\x{…}` literal** — it
-  re-encodes the file as latin1 and mojibakes every dash and emoji. Use the Edit
-  tool for prose.
-- **Render and look before shipping** — *"keep me updated with render stuff."*
-  Several bugs were found only by opening a PNG, never by a passing test.
-- **Do not change the highest-leverage prompt in the middle of a run you are
-  trying to read.**
+Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
+word, together with the approval boundaries and the preferences you've stated
+since. Add new ones there.
 
 ---
+
+## 2026-09-28 — CLAUDE.md is now a short entry point, your preferences have their own file, and these notes are read on demand
+
+**What you asked:** make CLAUDE.md a short entry point, stop requiring all of
+these notes at every session start by moving your lasting preferences into a
+short file of their own, and fix six broken links.
+
+**CLAUDE.md** went from 1,815 lines to 336 (21 KB). It
+keeps the working rules, the approval boundaries, where things stand (Test 6
+marked prepared and not sent, and the list of closed tests so nobody repeats
+them), the essentials of deploying and testing, the ten traps met most often,
+and a map of the docs. Everything that came out moved word for word:
+- the full list of traps to `docs/traps.md`;
+- the deploy rules and how to roll a release back to `docs/deploy.md`;
+- the two halves of the product, where the code lives, data and payments, and
+  credits to `docs/platform.md`;
+- the table of what is proven live for each add-on kind, and each topic's
+  summary, to the top of that topic's own doc.
+
+**Your preferences** are now `docs/owner-preferences.md` (207
+lines). The "How you like things done" section moved there word for word,
+followed by the approval boundaries and what you've asked for since
+2026-09-21, each with your words and the date. A session reads that file at
+the start, and reads these notes only when it needs the history of a decision.
+The "Names that must not be renamed" table stays here, unchanged, because two
+tests read it.
+
+**The six broken links** were in two history files. They pointed at
+`docs/investigations/…` as if from the top of the repository, and now point at
+`../investigations/…`. Every link in CLAUDE.md and the docs now leads to a
+file that exists.
+
+**Checked:** every line of the 15,182-line file and of the 1,815-line one is
+still in exactly one place, and the tests that read these docs pass. Documents
+only: no code, no deployment and no paid run. Test 6 is next, when you approve
+it.
 
 ## 2026-09-28 — CLAUDE.md is cleaned up: 15,182 lines down to 1,815, and nothing was deleted — what came out now lives in docs
 

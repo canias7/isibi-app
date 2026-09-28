@@ -2,16 +2,70 @@
 
 > **Moved from `CLAUDE.md` on 2026-09-28, word for word**, in its sixth prune
 > (the file as it stood: `git show 86eb5703:CLAUDE.md`). These are the open
-> items as CLAUDE.md held them. CLAUDE.md now lists each by a one-line title and
-> points here.
+> items as CLAUDE.md held them. The one-line index
+> CLAUDE.md kept moved here in the second pass (`git show 28bdc97f:CLAUDE.md`)
+> and is the first section below.
 >
-> **Add a new open item here and a one-line title to CLAUDE.md's backlog list.
-> When an item closes, record the closure where the work is recorded and take
-> it out of both.** The older `docs/backlog-100-next.md`, `backlog-100-more.md`
+> **Add a new open item here, with a one-line title in the index below. When
+> an item closes, record the closure where the work is recorded and take it out
+> of both.** The older `docs/backlog-100-next.md`, `backlog-100-more.md`
 > and `backlog-1000.md` are the July–August lists and are not kept current.
 >
 > In the text below, "this file" means CLAUDE.md, and "above" or "below" point
-> at CLAUDE.md's other sections.
+> at CLAUDE.md's other sections as they stood then; most of them now live in the
+> docs listed in CLAUDE.md's map.
+
+## The one-line index (CLAUDE.md's backlog list, as it stood)
+
+The open items in full are `docs/backlog.md`. **Add a new one there and a line
+here; take a closed one out of both.**
+
+- The header's button carries no `data-slot="button"`, so a rule against the
+  kit's button hook misses it.
+- The render check judges each selector of a list on its own, so a common
+  heading rule can force a correction round.
+- Redirects dropped between 2026-08-17 and deploy 2165 are not rebuilt.
+- A page removal does not see a QR code that points at the page.
+- The branded not-found page is thrown away on every Start site.
+- The rules reply shows literal asterisks around the table name.
+- Closing a table leaves the site inviting it, and the refusal is generic
+  (`lido-axes-b`; a separate UX gap).
+- The logo reply says "on every page".
+- The thread's message bubble does not show an attached picture.
+- The canary's job reader says `exempt` means a founder account.
+- A literal heading names its section whether or not it renders, and names its
+  whole section wherever it stands.
+- `fretwork-1`'s stored language is Welsh over English copy (parked with
+  translation).
+- `updated_at` is never bumped; the `sync` flag has no reader.
+- Four sites are still `incomplete` (repair: `backend repair` with
+  `--apply-reference`, then `--verify`).
+- The translator can read page code as text and write its answer back into the
+  code (parked).
+- A job cannot heal a blank backend reference (its gateway admits no PATCH) —
+  read, not driven.
+- The band and component prompts choose their digest with `siteHasTables`
+  (latent).
+- An add-on can design a table nothing can ever fill (reported, not refused).
+- A working `video-embed` is invisible to the `data-slot` census.
+- Model-written functions on older sites are never re-pinned.
+- A refused photograph cannot name itself to anybody who can act on it.
+- Salvage cannot fire on a new build; the QR rule is stricter than the rest of
+  the design step (both the owner's call).
+- The availability calendar's legend (`fretwork-1`) and the price-unit mismatch
+  (`ashgrove-1`), both live.
+- Raw hex colours are reported on every build and never enforced; in-page links
+  that go nowhere.
+- Two client POSTs go to routes the Worker does not have (`/api/site/scan`,
+  `/api/site/preview`).
+- 3D scenes ignore the theme colours; strings outside the page source are never
+  translated.
+- `env.EMAIL`'s 200-a-day quota is shared by login codes and every site's
+  notifications.
+- Static voice previews; real background removal (blocked on a fal top-up); the
+  app's mobile layout (deliberately not being done).
+
+---
 
 ## Backlog
 
@@ -266,4 +320,3 @@ product.)*
   step; blocked on a fal top-up.
 - **Mobile layout for the app is deliberately NOT being done** (owner's call,
   desktop-first).
-

@@ -5,11 +5,40 @@
 > half that lives in this app, and the browser app's rules (the start box, the
 > preview panel, the SEO tab, model context and limits, the page list, Publish
 > and Refresh, the toolbar, the customer's screen as the browser composes it).
-> `agent-builder/CLAUDE.md` is the agent product's own record. CLAUDE.md keeps a
-> short summary.
+> `agent-builder/CLAUDE.md` is the agent product's own record. The short
+> summary CLAUDE.md kept moved here in the second pass (`git show
+> 28bdc97f:CLAUDE.md`) and is the first section below.
 >
 > In the text below, "this file" means CLAUDE.md, and "above" or "below" point
-> at CLAUDE.md's other sections.
+> at CLAUDE.md's other sections as they stood then; most of them now live in the
+> docs listed in CLAUDE.md's map.
+
+## The builder app and the agent builder, in brief
+
+The full rules are `docs/app-rules.md`, with the model table (each model's
+context window, output limit and price); `agent-builder/CLAUDE.md` is the agent
+product's own record.
+
+- **The agent builder is a third view (`agents`) in this app.** Its tenant is
+  `authUser(request).id` and nothing else; row-level security is the belt and
+  the URL's `tenant_id` filter is the wall (`service_role` bypasses RLS); a
+  forged agent reply is a row the database refuses (`role = 'user'`); the import
+  is one transaction keyed by the browser's own record id; old browser records
+  are claimed or sealed by one marker (`zephyr_owner_v1`), never shown to
+  another account.
+- **In the builder app**: typing in the start box is a fresh build, never a
+  revise; a failed build reverses its design charge (by ref, never an amount);
+  the preview panel runs the site's own JavaScript, sandboxed per URL
+  (`frameSandbox`); a project has an address (`/projects/<id>`); a published
+  site's runtime errors reach the panel over `isibi:runtime-error`, a wire
+  string on the do-not-rename table; the SEO tab shows and saves the real head
+  (the description is patched in the sidecar, which is the deployment; the
+  title is read-only); every small call follows the builder picker
+  (`BUILD_MODELS.quick`); the page list is read from the server
+  (`GET /api/site/routes`). Context is not a limit anywhere today (the biggest
+  call is ~20,000 tokens); the wall a build meets is the wire.
+
+---
 
 ## Rules from recent fixes
 
@@ -340,4 +369,3 @@ scheduler and the DST arithmetic is there. What belongs here is the site's half:
   skipped and `sitesSave` is unreachable.
 
 ---
-

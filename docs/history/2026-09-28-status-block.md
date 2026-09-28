@@ -12,12 +12,12 @@
 
 # Go Farther
 
-Add-on escalation correction: [bounded patch and verification](docs/investigations/addon-escalation-correction.md).
+Add-on escalation correction: [bounded patch and verification](../investigations/addon-escalation-correction.md).
 Only verified missing source/design may reconstruct; unreadable state and failed
 editable recovery stop. Closed: merged/deployed at `5cb8592`; non-spending canary
 36096052737 verified image `b83b0611aeecce8f` at 2026-09-25 04:50:36 UTC.
-Edit-path milestone and literal-text guard: [milestone](docs/investigations/edit-path-milestone.md),
-[text preservation](docs/investigations/edit-text-preservation.md). Merged/deployed at
+Edit-path milestone and literal-text guard: [milestone](../investigations/edit-path-milestone.md),
+[text preservation](../investigations/edit-text-preservation.md). Merged/deployed at
 `6ed355e4` (deploy 2158, image `f05cb5a5a0def44c`), runtime-confirmed by free canary
 run 36155364708 at 2026-09-25 15:37 UTC (all free checks passed, spending off, balance 3).
 The guard covers parsed literal JSX prose and its supported request grammar only;
@@ -94,7 +94,7 @@ closure request and not every rules operation; bookings stay closed, and the
 still-visible invitation and the generic rejection are a separate UX gap,
 not this milestone)**: the
 top section of the
-[edit-path checklist](docs/investigations/edit-path-checklist.md), summarised in
+[edit-path checklist](../investigations/edit-path-checklist.md), summarised in
 *remaining work after Test 3* below. Among the QUEUED jobs inspected, a page
 removal has never published; **run 44 was the rules rung's first queued
 success** (it changes the database and publishes nothing), and **run 42 was
@@ -160,7 +160,7 @@ credits. The reply's generic wording ("✅ Updated one entry in loaves." names
 the table, not the change) is kept for the later model-written-replies work and
 is not reopened. **The short edit-path checklist** — demonstrated live, tested
 only with supplied model output, still untested, material gaps first — is the
-top of the [edit-path checklist](docs/investigations/edit-path-checklist.md).
+top of the [edit-path checklist](../investigations/edit-path-checklist.md).
 **The rules test on `lido-axes-b`, a CANDIDATE site, revised 2026-09-27 on
 the owner's two corrections, has run** (*Test 4b*, below). One message was to
 close its `bookings` table, for about 3 credits, and then ONE real visitor
@@ -353,4 +353,3 @@ checklist's *Test 6*.
 > next decision is made from, and re-deriving one costs a paid build.
 
 ---
-

@@ -1,13 +1,51 @@
 # The site database: the four backend states, the search_path pin, column-scoped grants
 
 > **Moved from `CLAUDE.md` on 2026-09-28, word for word**, in its sixth prune
-> (the file as it stood: `git show 86eb5703:CLAUDE.md`). CLAUDE.md keeps
-> **Data, auth, payments, mail** and a short summary of this file. Read this
+> (the file as it stood: `git show 86eb5703:CLAUDE.md`). Its first
+> section below is the short summary CLAUDE.md kept, moved here in the second
+> pass (`git show 28bdc97f:CLAUDE.md`); **Data, auth, payments, mail** is in
+> `docs/platform.md`. Read this
 > before touching a site's backend lookup, its schema recovery, its function
 > definitions or its grants.
 >
 > In the text below, "this file" means CLAUDE.md, and "above" or "below" point
-> at CLAUDE.md's other sections.
+> at CLAUDE.md's other sections as they stood then; most of them now live in the
+> docs listed in CLAUDE.md's map.
+
+### The site database, in brief
+
+The full law is `docs/site-database.md`.
+
+- **"No database" is four states** (`site-backend-state.mjs`): `ready`, `none`
+  (the only state in which "no tables" is true), `incomplete` (the database is
+  real and `site_backends.neon_db` is blank) and `unreadable` (asked first).
+  `siteBackendDetail` resolves and proves; the container has no `SITE_ROUTES`
+  cache, which is why an `incomplete` site looked fine in the Worker and broke
+  in a job. **Four sites are still `incomplete`**: `ashgrove-1`, `fretwork-1`,
+  `northgroup-5`, `washhouse-1`.
+- **The catalog is asked first** (`readSchemaState`, `specForAddon`): a missing
+  `_meta` row is not an empty database; recovery (`site-schema-recover.mjs`) is
+  read-only, derives access from the live policies and grants, and refuses
+  rather than guesses.
+- **Every function the engine creates pins `search_path` to `public, pg_temp`**
+  (`FN_SEARCH_PATH`; naming `pg_temp` is the fix, because `TEMP` is granted to
+  PUBLIC by default). Model-written functions on sites built before the pin are
+  never re-pinned (backlog).
+- **Write grants are column-scoped** (`GRANT INSERT ("a", "b")`); a site keeps
+  its old table-wide grants until its next schema change. Applying grants
+  through `grants preview` is maintenance and never goes through the rules rung.
+- **The owner rows route takes a conditional write**: `{"$set": {…}, "$if":
+  {…}}` is one `UPDATE … WHERE` statement, 409 `conflict` when the row no
+  longer matches; no column can begin with `$`, so an older Worker refuses the
+  form rather than doing it unconditionally. **A data edit publishes no
+  version**, and the Data panel's Save is not an exact recovery (it sends every
+  field as text, so a NULL comes back as `''`).
+- **The rules rung closes a table by marking it `retired`**: no row policy,
+  every visitor privilege revoked, no public view. A closed table stays in the
+  owner's listing with its label unchanged, so the refusal a visitor meets is
+  the proof, not the listing.
+
+---
 
 ### THE FOUR STATES "NO DATABASE" MEANT (2026-09-15)
 
@@ -290,4 +328,3 @@ GRANT INSERT ("title"), UPDATE ("title") ON "requests" TO authenticated;
   deliberately kept.**
 
 ---
-
