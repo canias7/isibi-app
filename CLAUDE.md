@@ -250,15 +250,25 @@ PUBLISH defect on every site since 2026-08-17** (*run 49 and the redirects no
 publish carried*, in *Test 5*): `composePublish` handed `mergeRedirects` the
 parsed sidecar, whose lists are `routesCsv`/`redirectsCsv`, so no removed page
 got a redirect and the next publish dropped every stored one (`/the-starter`,
-301 since run 39, 404s too). **Fixed on the branch at `2cf8461c`, not merged**:
-the read goes through `manifestFromCsv`. Predicted image `8a10715339cdc780`.
+301 since run 39, 404s too). **The fix** (`2cf8461c`) reads the sidecar
+through `manifestFromCsv`.
 **The owner's free restore, run 50 (36466791459, 18:40–18:41 UTC), put `8btpep`
 back**: every route answers 200 at it, `/gallery` is a real page again, the menus
 and the five stored pages equal the before-read byte for byte, `/the-starter`
 301s to `/starter` again (the version's own staged map), and a real browser reads
-the five pages as run 39 did at the same version; balance 45. **Until the fix
-is merged, the next publish on any site drops its stored redirects again**,
-`/the-starter`'s included.
+the five pages as run 39 did at the same version; balance 45. **The owner closed
+the removal (run 49) and the restoration (run 50)** (2026-09-28).
+**THE FIX IS MERGED AND DEPLOYED at `f5e941f4`** (deploy 2165, 2026-09-28 19:07
+UTC, image `8a10715339cdc780`, predicted on both ends and built). **Deployed, not
+runtime-confirmed**: the session's one free dispatch at 19:24 UTC, after the
+hold, answered **403** and was not retried, so the runtime check is the owner's
+free press (from `main`, spend `no`, `expect_deploy`
+`f5e941f494fd96c039eeee4e6f1d44120b80e062`, `expect_image`
+`8a10715339cdc780`). **It carries the mappings a sidecar holds from now on
+and reconstructs none**: a redirect dropped between 2026-08-17 and deploy 2165
+stays lost, and the next real publish is the first live exercise of it. The lost
+redirects, the QR code that still points at a removed page, and the bare
+not-found text on Start sites are three separate Backlog items.
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -720,6 +730,16 @@ log answered `built …:a2***7f74c8***225***2 (registry answered 404; ***88
 inputs …)` and `…:9038e90ab***d5d7fe` → `…:a2***7f74c8***225***2` under
 `SUCCESS Modified application`; **0 `CACHED` lines**, image step 2m36s,
 Wrangler ~20s, job 3m29s; `No updated asset files to upload`.
+**Deploy 2165 (2026-09-28) was predicted on both ends and confirmed**:
+`origin/main` `e4b15ef6` answered `a217f74c81122512` — what run 48 read LIVE —
+and the tip `f5e941f4` answered `8a10715339cdc780` (the same id at `2cf8461c`,
+the three commits after it touching documents only), both from 188 inputs and
+158 distinct paths, `worker.js` the one of the push's five files among them.
+The log answered `built …:8a***07***5339cdc780 (registry answered 404; ***88
+inputs off ./Dockerfile)` and `…:a2***7f74c8***225***2` →
+`…:8a***07***5339cdc780` under `SUCCESS Modified application`; **0 `CACHED`
+lines**, image step 2m15s, Wrangler 20s (it reinstalled itself first), job
+3m09s; `No updated asset files to upload`.
 The twelfth
 added a SECOND CHANNEL — **deploy 2139 (2026-09-21) was predicted before the
 push over the local merge commit `28e46e91` as `82bccb3bee50e4fd`, against
@@ -10602,7 +10622,7 @@ after it hold the test and the proposal. What is law here:
   uploaded `if: always()`. So D2's artifact must equal step 0's, a free check
   that nothing moved the grants between the two presses.
 
-### TEST 5: A PAGE REMOVAL AND ITS RESTORATION, PREPARED, BOTH FREE CHECKS PASSED, THE PAID PRESS (RUN 47) STOPPED AT ITS FIRST MESSAGE, THE APPROVED CORRECTION (ITS THIRD VERSION) MERGED AND DEPLOYED IN 2164, AND RUN 49 REMOVED THE PAGE — ITS REDIRECT FAILED ON A PUBLISH DEFECT, FIXED ON THE BRANCH (2026-09-27 → 09-28)
+### TEST 5: A PAGE REMOVAL AND ITS RESTORATION, PREPARED, BOTH FREE CHECKS PASSED, THE PAID PRESS (RUN 47) STOPPED AT ITS FIRST MESSAGE, THE APPROVED CORRECTION (ITS THIRD VERSION) MERGED AND DEPLOYED IN 2164, AND RUN 49 REMOVED THE PAGE — ITS REDIRECT FAILED ON A PUBLISH DEFECT, FIXED, MERGED AND DEPLOYED IN 2165; RUN 50 RESTORED IT; THE REMOVAL AND THE RESTORATION CLOSED BY THE OWNER (2026-09-27 → 09-28)
 
 Owner: *"Prepare one bounded page-removal-and-restoration test using an
 existing suitable fixture and the existing workflow … First reconcile this
@@ -10946,7 +10966,7 @@ The full plan, the expected bodies and the presses are the checklist's
   `8btpep`, reading `/gallery` without following redirects. **Pressed since:
   merged and deployed in 2164, run 48 free, run 49 paid (next paragraph).**
 
-#### RUN 49 AND THE REDIRECTS NO PUBLISH CARRIED (2026-09-28; the fix on the branch at `2cf8461c`, not merged; run 50 restored `8btpep`)
+#### RUN 49 AND THE REDIRECTS NO PUBLISH CARRIED (2026-09-28; the fix merged and deployed at `f5e941f4`, deploy 2165; run 50 restored `8btpep`; the removal and the restoration closed by the owner)
 
 Owner: *"Run 49 proves the routing correction works with the real model: the
 menu link and page were removed, with the expected source preservation. Keep
@@ -11018,7 +11038,8 @@ the expected homepage redirect."*
   locally** (`8205 / 8203 / 0 / 2`), +4 against 8,201, exactly the new file.
 - **THE IMAGE MOVES ON A MERGE**: predicted over `2cf8461c`
   **`8a10715339cdc780`** (188 inputs, 158 distinct paths), against main's
-  `a217f74c81122512`.
+  `a217f74c81122512` — **and deploy 2165 built and rolled exactly that id**
+  (the deploy section).
 - **FOUND, NOT CHANGED.** (1) **The branded not-found page is thrown away on
   every Start site**: when the lookup finds nothing, the dispatcher falls
   through to the static path, which has no `index.html` on a Start site and
@@ -11066,8 +11087,12 @@ the expected homepage redirect."*
     computed from the clock; `visit.tsx` is byte-identical.
   - **The QR code on `/visit` leads to a real page again**, since `/gallery` is
     back. The finding stands for the next removal of a page a code points at.
-  - **Still live**: the publish defect. The next publish of any site, this one
-    included, writes a map with no carried redirects until `2cf8461c` merges.
+  - **Live until deploy 2165** (19:07 UTC): the publish defect. From that
+    deploy a publish carries what the sidecar holds. Between run 50 and the
+    deploy, the queue holds no edit job but run 50's two zero-cost
+    confirmations (`failed`, `none`, unpublished) and `site_builds` no build
+    (read-only, 19:11 UTC), so no queued publish met the old code after the
+    restore.
 
 ### A SECTION HEADED BY THE KIT (2026-09-26, `2f2fed58` + `5ec82214`, merged and deployed in deploy 2162)
 
@@ -14827,6 +14852,19 @@ does name one — moved up to the supported list on 2026-09-20.)*
 
 ## Backlog
 
+- **REDIRECTS DROPPED BETWEEN 2026-08-17 AND DEPLOY 2165 ARE NOT RECONSTRUCTED
+  (recorded 2026-09-28, the owner: *"This patch preserves saved mappings; it
+  does not reconstruct missing history."*).** From 53147339 until deploy 2165
+  (`f5e941f4`), every publish wrote a redirect map holding only its own move
+  pair, so a site that renamed or removed a page and then published again lost
+  that redirect, and no removed page got one. The fix carries what a sidecar
+  holds from now on; it rebuilds nothing. How many sites lost a redirect is
+  UNMEASURED. Part of the history is readable: each version kept under
+  `builds/<slug>/<version>/state/` carries the map it served, but a site keeps
+  ten versions (`MAX_VERSIONS`), and publishes before 2026-09-05 used the
+  legacy layout. Finding or restoring any of it is a separate decision.
+  fold-lane-bakery's `/the-starter` → `/starter` is back only because run 50
+  restored a version whose own map had it.
 - **A PAGE REMOVAL DOES NOT SEE A QR CODE POINTING AT THE PAGE (found
   2026-09-28, run 49; not changed).** fold-lane-bakery's `/visit` still shows
   `qr-gallery.svg`, which encodes its `/gallery` address, after `/gallery` was

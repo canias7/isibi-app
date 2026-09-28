@@ -1,5 +1,95 @@
 # Remaining edit-path checklist
 
+## The short checklist (2026-09-28, after Test 5 and the redirect fix)
+
+**Closed by the owner (2026-09-28): Test 5's removal (run 49) and its
+restoration (run 50).**
+- **Run 49**, from one browser tab:
+  - "Take Gallery out of the menu." reached the menu rung through the removal
+    door; the real picker, told the routed change, listed nothing else; exactly
+    the Gallery link came off four menus;
+  - "Remove the gallery page.", sent only after that stored success, removed
+    `gallery.tsx` alone, free;
+  - 5 credits.
+- **Run 50**, free: version `8btpep` is back; `/gallery` serves itself,
+  `/the-starter` redirects to `/starter`, and the stored pages equal the
+  before-read byte for byte.
+
+**The redirect carry-over fix is merged and deployed** (`f5e941f4`, deploy
+2165, 2026-09-28 19:07 UTC, image `8a10715339cdc780`; deployed, not yet
+runtime-confirmed: the session's free dispatch answered 403, so the free check
+is the owner's press):
+- a publish now carries the redirects the previous one stored, and a removed
+  page gets its own 301 home;
+- it is proven through the real edit route and dispatcher with supplied answers
+  (4 cases), and its first live exercise is the next publish;
+- it preserves saved mappings from now on and reconstructs none.
+
+**Proven live** (credited; not to be rerun)
+- **Page edits.**
+  - The quick writer: runs 9, 17 and 32.
+  - The full writer: runs 11, 21, 24, 26, 34 and 37.
+  - A component's wording and calculation: runs 21, 24 and 26.
+  - A correct section removal let through by the text guard and the judge:
+    run 34.
+  - A photographed page keeping its photographs, with the kit-heading fix:
+    run 37.
+- **A logo from an attachment, a picture reframe and a page move** (39); the
+  logo and the move were free.
+- **One database row changed and put back** (42).
+- **A rules closing enforced by the database** (44), for that closing only.
+- **A menu link removed through the removal door with a real picker, then the
+  page removed** (49).
+- **Restoring a saved version**, including over a removed page (20, 22, 50).
+- **Second messages from one tab** (39), and a second message sent only after
+  the first's stored success (49).
+- **The machinery around every edit** (runs 32–50): the queue and billing, the
+  reply on screen, the after-read at the job's own version, and the money
+  closing exactly.
+- **Older code, path coverage only**: the look lanes, the menu, the site
+  address and the text rung (2026-09-01 to 09-07).
+
+**Outstanding acceptance** (not yet shown live; each has controlled tests)
+1. **The redirect fix live**: the next publish of a site keeping its stored
+   redirects, and a removed page answering 301 home.
+2. **A protection refusing a real model's answer**: the photograph wall, the
+   link and component judge, the text guard, reply validation and the failure
+   classification. Live, each has only let a correct answer through.
+3. **Two changes in one message**, including a removal door given other work,
+   and a second message after a hop or a failure.
+4. **A named page other than the home page** on a look edit.
+5. **The data rung beyond one row**: adding, removing or reordering rows, and a
+   site whose database link is blank.
+6. **The rules rung beyond one closing**: reopening, closing by taking write
+   access away, limits, and any other wording or site.
+7. **The picture swap**: a new photograph into a slot.
+8. **An older site's first schema change through a real form**: the
+   column-scoped write grants (D2 and D3 are parked).
+9. **A correct component from the original request on the first attempt** (B).
+10. **What a real model decided where nothing records it**: why a quick attempt
+    did not publish, the writer's prompt, and the judge's and the text guard's
+    verdicts.
+11. **Outside the edit path, listed so they are not lost**: the add-on through
+    the browser since deploy 2154, and the photo add-on kind (fal funding).
+
+**Closed by the owner on controlled tests, with no live run proposed**: the
+stylesheet scope and rule keys (deploy 2161).
+
+**Recorded separately** (each its own item, none part of any acceptance)
+- **Redirects dropped between 2026-08-17 and deploy 2165**: not reconstructed.
+- **A QR code that points at a removed page**: the removal does not see it.
+- **The branded not-found page**: a Start site answers a bare "Not found".
+- Also recorded:
+  - the closed-bookings UX gap;
+  - the three Test 4a findings;
+  - the rules reply's literal asterisks;
+  - a literal heading naming its whole section whether or not it renders;
+  - a reply saying a second part was not done when it was (`alsoAsked`);
+  - the build path's money sentences and the two refund policies.
+
+Deferred by the owner: hydration (#418), translation, model-written replies,
+and drafts surviving a refresh.
+
 ## The short checklist (2026-09-27, after D1 and the rules test)
 
 **D1 is closed by the owner** after an independent review of run 42:
@@ -166,7 +256,7 @@ items are in *the rules rung — the recommended next test, revised*, after
 Test 4, and the built harness, its evidence and the exact presses are in *the
 rules test, built* at the end of that section.
 
-## Test 5 — a page removal and its restoration (prepared 2026-09-27; both free checks passed as runs 45 and 46; the paid press, run 47, stopped at its first message and changed nothing: a product finding, reproduced free; the owner approved a correction and held its first two versions — the first dropped work asked for beside a removal, the second read the request from how many lanes the picker named — and the third, which tells the picker what was routed and asks for other work by name, is merged and deployed in deploy 2164; the paid retry, run 49, removed the menu link and the page as asked (closed by the owner) and its redirect check failed on a publish defect, fixed on the branch at `2cf8461c`, 2026-09-28, not merged; the free restore, run 50, put `8btpep` back)
+## Test 5 — a page removal and its restoration (prepared 2026-09-27; both free checks passed as runs 45 and 46; the paid press, run 47, stopped at its first message and changed nothing: a product finding, reproduced free; the owner approved a correction and held its first two versions — the first dropped work asked for beside a removal, the second read the request from how many lanes the picker named — and the third, which tells the picker what was routed and asks for other work by name, is merged and deployed in deploy 2164; the paid retry, run 49, removed the menu link and the page as asked (closed by the owner) and its redirect check failed on a publish defect, fixed at `2cf8461c` and merged and deployed at `f5e941f4` in deploy 2165; the free restore, run 50, put `8btpep` back; the removal and the restoration closed by the owner, 2026-09-28)
 
 The owner: *"Prepare one bounded page-removal-and-restoration test using an
 existing suitable fixture and the existing workflow. Capture the saved version
@@ -787,7 +877,7 @@ re-run does that.
 - Components, which this site does not store.
 - Hydration (#418) and translation, both parked.
 
-### Run 49 — the removal passed; its redirect failed on a publish defect (2026-09-28; restored by run 50)
+### Run 49 — the removal passed; its redirect failed on a publish defect (2026-09-28; restored by run 50; the fix merged and deployed in deploy 2165; the removal and the restoration closed by the owner)
 
 Deploy 2164 (`e4b15ef6`, image `a217f74c81122512`) carried the correction, and
 the owner's free run 48 confirmed it live. **Run 49, the owner's paid retry
@@ -811,7 +901,8 @@ the owner's free run 48 confirmed it live. **Run 49, the owner's paid retry
   sidecar, whose lists are `routesCsv`/`redirectsCsv`, not the
   `{routes, redirects}` it reads. So a removed page never got a redirect, and
   the next publish dropped every stored one.
-- **Fix, on the branch at `2cf8461c`, not merged**: the read goes through
+- **Fix, at `2cf8461c`, merged and deployed at `f5e941f4`** (deploy 2165,
+  2026-09-28 19:07 UTC, image `8a10715339cdc780`): the read goes through
   `manifestFromCsv`, which the serving side has used since 2026-08-22.
 - **Evidence**: `test/publish-redirects.test.mjs` runs three publishes through
   the real edit route, serves the result through the real dispatcher, and
@@ -838,8 +929,10 @@ the owner's free run 48 confirmed it live. **Run 49, the owner's paid retry
     the sitemap lists the five pages;
   - a real browser reads the five routes as run 39 read the same version,
     except the kit's `OpenNow` line on `/visit`, which follows the clock.
-- **Until `2cf8461c` merges, the next publish of any site drops its stored
-  redirects again**, `/the-starter`'s included.
+- **Until deploy 2165, the next publish of any site dropped its stored
+  redirects.** No queued publish or build ran between run 50 and that deploy
+  (read-only). The fix preserves saved mappings from then on; it does not
+  reconstruct the ones dropped since 2026-08-17.
 
 ## Remaining work after Test 3 (2026-09-26), and Test 4 prepared for approval
 
