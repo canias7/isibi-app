@@ -465,7 +465,11 @@ test("the router's remove flag opens the picture door and deletes nothing a layo
   const r = await drive({
     body: { layer: "picture", page: "/prices", remove: true },
     ask: "Take the photo off the prices page and put the price list above the introduction.",
-    pick: { fields: ["images", "shape"], removes: ["images"] }, apply: pricesLayout,
+    // THE PICKER'S ANSWER IN THE DOOR'S OWN TOOL (2026-09-28): on the router's
+    // removal door it is told the photo removal is routed and names the work
+    // asked beside it under `additional`, the photo's own lane under `routed`.
+    // Only the answer's shape moved; every assertion below is what it was.
+    pick: { routed: ["images"], additional: ["shape"] }, apply: pricesLayout,
   });
   const label = "picture door + prices layout";
   assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));

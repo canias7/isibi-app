@@ -240,7 +240,7 @@ import { routeMessage, clarifiedBrief, siteDigest, DOOR_LAYERS } from "./builder
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
-import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage, themeNote, landmarkNote, verbLayer, REMOVABLE_LANES, mergePageSteps, pageStepDone, samePageOperation, doorAnswer, doorLane, doorDispatch } from "./builder/site-lanes.mjs";
+import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage, themeNote, landmarkNote, verbLayer, REMOVABLE_LANES, mergePageSteps, pageStepDone, samePageOperation, doorLane, doorDispatch } from "./builder/site-lanes.mjs";
 // EVERY WAY THE EDIT ROUTE DECLINES, CLASSIFIED (2026-09-23): rewrite, add-on,
 // hop or explain, one table, and `test/edit-failure.test.mjs` holds the route to it.
 import { editFailure, failureMsg, stepMsg } from "./builder/edit-failure.mjs";
@@ -21414,16 +21414,18 @@ async function handleRequest(request, env, ctx) {
             // — and run 47's real picker named `behavior` for a menu removal,
             // which ran a look step INSTEAD of the menu rung. Now the router's
             // own step runs whatever the picker says (`doorDispatch`, where the
-            // lanes become steps), and a lone lane the picker names elsewhere is
-            // set aside (`doorAnswer`, just below the picker call); two or more
-            // lanes are work asked for beside the removal, and run beside it.
+            // lanes become steps), and the picker on this door is told what was
+            // routed and answers the rest explicitly (`routed` in the call just
+            // below): only what it names as work asked BESIDE the routed change
+            // runs beside it. Nothing is read from how many lanes it names.
             const eLooking = eLayer === "look" || (eRemove && DOOR_LAYERS.includes(eLayer));
             // WHETHER THIS ROUTE OPENED THE DOOR RATHER THAN THE ROUTER.
-            // Read three times below: where the picker's answer is read against
-            // the router's (`doorAnswer`, run 47), where a picker with nothing to
-            // say would otherwise stop the message, and where the lanes become
+            // Read four times below: where the picker is told what the router
+            // already routed (`routed`, run 47 and the owner's two holds), where
+            // its two lists are recorded, where a picker with nothing to say
+            // would otherwise stop the message, and where the lanes become
             // steps — the router's own step is put among them there
-            // (`doorDispatch`), so it runs whatever the picker named.
+            // (`doorDispatch`), so it runs once, whatever the picker named.
             const eRemovalDoor = eLooking && eLayer !== "look";
             if (eLooking) {
               // ── A NAMED PAGE IS FOUND BEFORE ANYTHING RUNS (2026-09-23) ──
@@ -21450,6 +21452,13 @@ async function handleRequest(request, env, ctx) {
                   // needs would make it the expensive one twice over.
                   current: siteDigest({ pages: eSrc.map((p) => routeOf(p.path)) }),
                   model: eQuickModel,
+                  // ON THE ROUTER'S OWN REMOVAL DOOR, WHAT THE ROUTER ROUTED.
+                  // The picker is told it in the router's own words and asked
+                  // what ELSE the message wants, as a list of its own — so the
+                  // route never has to guess which lanes are the removal it
+                  // already has and which are work asked beside it. `null`
+                  // everywhere else: the look door asks what it always asked.
+                  routed: eRemovalDoor ? { layer: eLayer, remove: eRemove, page: ePage } : null,
                 },
               );
               editTrace.mark("pick_lanes", picked.failed ? "fail" : "ok",
@@ -21466,25 +21475,27 @@ async function handleRequest(request, env, ctx) {
               // door is here so a removal can reach the lane machinery; it was
               // never meant to let the picker overrule the router's layer.
               //
-              // ⚠ AND THE FIRST CORRECTION WAS TOO WIDE (owner, 2026-09-28): it
-              // kept only lanes leading back to the router's rung, so "take the
-              // photo off … and move the opening hours up" lost the layout. Now
-              // the router's step always runs (`doorDispatch`, where the lanes
-              // become steps below), and the picker's answer is read against the
-              // router's by its own contract: ONE lane is its reading of the one
-              // thing asked, which the router has already placed, so a single
-              // lane on another rung is SET ASIDE with everything it said about
-              // that lane; TWO OR MORE are separate things asked, and each runs
-              // as its own step with its own verb — never the router's. `look`
-              // never comes through this condition, so its lanes, its refusals
-              // and its walls are untouched. The picker call is still made and
-              // billed.
-              if (eRemovalDoor) {
-                const door = doorAnswer(picked, eLayer);
-                if (door.setAside.length) editTrace.mark("door:set-aside", "ok", { fields: door.setAside, layer: eLayer });
-                picked.fields = door.fields;
-                picked.removes = door.removes;
-              }
+              // ⚠ THE OWNER HELD THE TWO CORRECTIONS THAT GUESSED (2026-09-28).
+              // The first kept only lanes leading back to the router's rung, so
+              // "take the photo off … and move the opening hours up" lost the
+              // layout. The second read the answer by its COUNT — one lane was the
+              // removal, two or more were extra work — which loses the layout
+              // again when the picker names `shape` alone, and runs a misreading
+              // whenever it names two. Now the picker is told what was routed
+              // and answers what else was asked as a list of its own
+              // (`pickLanes`'s `routed`, `doorPicked` in site-lanes.mjs), so
+              // `picked.fields` here is ALREADY the work asked beside the
+              // removal and nothing else: never the removal's own lane, never a
+              // lane the picker tied to the removal. The router's step always
+              // runs, once (`doorDispatch`, where the lanes become steps below),
+              // and each lane of the work runs as its own step with its own verb
+              // — never the router's. `look` never comes through this
+              // condition, so its lanes, its refusals and its walls are
+              // untouched. The picker call is still made and billed.
+              //
+              // BOTH LISTS ARE RECORDED, so a trace says what the picker tied to
+              // the removal and what it asked beside it.
+              if (eRemovalDoor) editTrace.mark("door:answer", "ok", { layer: eLayer, routed: picked.routed || [], additional: picked.fields });
               // A DOOR THIS ROUTE OPENED ITSELF NEVER ESCALATES FOR BEING WRONG.
               //
               // `no-lane` used to climb to the ~25-credit revise, read as the
@@ -21656,21 +21667,27 @@ async function handleRequest(request, env, ctx) {
               //
               // ── AND ON THE ROUTER'S REMOVAL DOOR, ITS OWN STEP IS ONE OF THEM ──
               //
-              // The router's rung runs whatever the picker named: when the picker
-              // named its lane (`action`, `images`) that step is already here, and
-              // when it did not, the router's step goes where that lane would have
-              // run — the very step the router's layer always got, its verbs on
-              // it and no lanes. So "take the photo off and move the opening
-              // hours up" runs the layout step AND the picture step, and a
-              // message the picker placed entirely elsewhere still reaches the
-              // rung the router chose.
+              // The router's rung runs whatever the picker named, and runs ONCE:
+              // the picker's work never carries that rung's own lane (`action`,
+              // `images` — `doorPicked` takes it out, since its rung reads the
+              // whole sentence and a second step there would be one operation
+              // twice), so the router's step goes where that lane would have run
+              // — the very step the router's layer always got, with the ROUTER'S
+              // verbs on it and nobody else's. Each lane of the work asked beside
+              // it is its own step with no verb of the router's. So "take the
+              // photo off and move the opening hours up" runs the layout step AND
+              // the picture step whether the picker named one lane or two, and a
+              // message with nothing else in it reaches the rung the router chose
+              // and nothing more. The router's step names its lane only when the
+              // picker did (`picked.routed`), so the reply never names a lane the
+              // picker did not.
               const doorOwn = eRemovalDoor ? doorLane(eLayer) : null;
               const dispatched = [];
               for (const f of doorDispatch(pickedFields, doorOwn)) {
                 const to = laneLayer(f);
                 if (!to) continue;
-                if (f === doorOwn && !pickedFields.includes(f)) {
-                  dispatched.push({ layer: eLayer, page: ePage, fields: [], remove: eRemove, rename: eRename });
+                if (f === doorOwn) {
+                  dispatched.push({ layer: eLayer, page: ePage, fields: (picked.routed || []).includes(f) ? [f] : [], remove: eRemove, rename: eRename });
                   continue;
                 }
                 dispatched.push({ layer: to, page: to === "page" ? fallbackPage : ePage, fields: [f] });

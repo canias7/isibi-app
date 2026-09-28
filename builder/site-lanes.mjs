@@ -98,6 +98,11 @@ import { modelsFor } from "./build-models.mjs";
 // from the refusals rather than written down a second time beside them.
 import { MAX_WORDMARK, MAX_FAVICON } from "./site-favicon.mjs";
 import { MAX_CSS } from "./site-freecss.mjs";
+// THE ROUTER'S DOOR AND ITS OWN WORDS FOR A LAYER. On the router's removal door
+// the picker is told which change the router already routed, in the router's
+// own sentence for that layer (`pickRequest`). `site-ask.mjs` imports nothing
+// but the model table, so this adds no cycle.
+import { DOOR_LAYERS, layerLine } from "./site-ask.mjs";
 
 /** A small call: naming which part of a site a sentence is about is routing, not work. */
 /**
@@ -1023,13 +1028,16 @@ for (const k of LANE_FIELDS) {
  * hand — offering a model an enum value with nothing beside it is a lane that is
  * reachable and unexplained, which is worse than one that does not exist.
  */
-export function pickTool(fields = LANE_FIELDS) {
+export function pickTool(fields = LANE_FIELDS, { routed = false } = {}) {
   const list = (Array.isArray(fields) ? fields : []).filter((f) => typeof f === "string" && f);
   if (!list.length) throw new Error("pickTool: no fields");
   const lines = list.map((f) => {
     if (!Object.hasOwn(LANES, f)) throw new Error("pickTool: no lane for design field: " + f);
     return "\"" + f + "\" — " + LANES[f].hint;
   });
+  // ON THE ROUTER'S REMOVAL DOOR THE QUESTION IS DIFFERENT, and so is the tool
+  // (`doorPickTool`, below). Only a literal `true` asks for it.
+  if (routed === true) return doorPickTool(list, lines);
   return {
     name: "pick_lanes",
     description: "Name which parts of the site this message is asking to change.",
@@ -1051,74 +1059,168 @@ export function pickTool(fields = LANE_FIELDS) {
             "NEVER NAME EVERYTHING. If you cannot tell which part they mean, name the single closest one.\n\n" +
             "The parts:\n" + lines.join("\n"),
         },
-        // ── AND WHICH OF THOSE ARE BEING TAKEN OFF RATHER THAN CHANGED ────
-        //
-        // A SUBSET OF `fields`, and it can hold nothing else — the wall rather
-        // than the rule, the same argument that gives every lane's own tool one
-        // property. There is nowhere here to put "and restyle the header while
-        // you are there".
-        //
-        // NAMED IN BOTH PLACES, DELIBERATELY. A removal answers `fields` AND
-        // `removes`, rather than `removes` alone, so the lane that runs is
-        // always one the picker chose on the merits — and a model that fills in
-        // only one of the two has said something we can still act on.
-        removes: {
-          type: "array",
-          // THE ENUM IS EVERY LANE, NOT THE REMOVABLE ONES, AND THAT IS THE
-          // POINT. Narrowing it to `REMOVABLE_LANES` reads like tightening a
-          // wall and would quietly take the honest refusal away: a customer who
-          // says "delete the bookings table" could no longer be UNDERSTOOD, so
-          // the ask would come back as an ordinary change to `backend` and the
-          // reply would describe a removal that never happened. Wide here,
-          // refused by name in `readRemoves`, said in the reply.
-          items: { type: "string", enum: LANE_FIELDS },
-          description:
-            "The parts named in `fields` that they are asking to TAKE OFF the site rather than change. Leave it " +
-            "out entirely for an ordinary change, which is nearly every message.\n" +
-            "ONLY WHEN THEY REALLY MEAN GONE — \"take the QR code off\", \"delete the testimonials section\", " +
-            "\"we don't want the 3D thing any more\", \"drop the Spanish version\". A request to make something " +
-            "different, smaller, plainer or hidden is a CHANGE, not this: \"make the hero less busy\" edits it.\n" +
-            "IF YOU CANNOT TELL, LEAVE IT OUT. A change they meant as a removal is one more sentence from them; " +
-            "a removal they meant as a change has taken part of their site away.\n\n" +
-            "What taking each one off means:\n" +
-            REMOVABLE_LANES.map((f) => "  " + f + " — " + LANES[f].remove).join("\n"),
-        },
-        // ── AND, FOR `pages` ALONE, WHICH OF THE THREE ────────────────────
-        //
-        // "Which pages the site has" is one field and three capabilities, each
-        // on a different rung. A lane cannot pick between them from the field
-        // name, and guessing is the worst option available: `add` guessed as
-        // `remove` deletes a page somebody wanted.
-        //
-        // OPTIONAL, AND READ FOR ONE LANE. A lane with no verbs ignores it
-        // entirely — the same scoping `remove` and `tab` already have one
-        // router up, and for the same reason: a flag carried by a lane that
-        // cannot act on it is one nothing reads.
-        pageVerb: {
-          type: "string",
-          enum: PAGE_VERBS,
-          description:
-            "ONLY when `fields` includes \"pages\". Which of the three they are asking for.\n" +
-            "\"add\" — a page the site does NOT have yet. \"Can we have a gallery page\", \"add an about page\".\n" +
-            "\"remove\" — a page it has, taken off the site. \"Delete the gallery page\", \"we don't need /about any more\".\n" +
-            "\"move\" — the same page at a DIFFERENT ADDRESS. \"Move the gallery to /work\", \"/about-us should be /about\".\n" +
-            "AN ADDRESS IS NOT A HEADING. \"Call that page Services instead\" is about the WORDS on it and is not this " +
-            "field at all — leave `pages` out and let the wording lane have it.\n" +
-            "LEAVE THIS OUT IF YOU CANNOT TELL. It is better to be asked again than to delete a page they wanted kept.",
-        },
-        pageName: {
-          type: "string",
-          description:
-            "ONLY with `pageVerb`. Which page they mean, as its route path — \"/\" for the home page, \"/menu\", " +
-            "\"/gallery\". Copy it from the list of pages above when the site already has it. For \"move\", this is " +
-            "the page being moved and `pageTo` is where it goes.",
-        },
-        pageTo: {
-          type: "string",
-          description: "ONLY with `pageVerb: \"move\"`. The NEW address, starting with a slash — \"/work\".",
-        },
+        removes: removesProp("fields"),
+        ...pageProps("fields"),
       },
       required: ["fields"],
+    },
+  };
+}
+
+/**
+ * ── AND WHICH OF THOSE ARE BEING TAKEN OFF RATHER THAN CHANGED ─────────────
+ *
+ * `list` is the property that names the lanes: `fields` on the ordinary tool,
+ * `additional` on the router's removal door. ONE WRITER for both, because the
+ * two descriptions are one rule and a copy is the half that drifts.
+ *
+ * A SUBSET OF THAT LIST, and it can hold nothing else — the wall rather than
+ * the rule, the same argument that gives every lane's own tool one property.
+ * There is nowhere here to put "and restyle the header while you are there".
+ *
+ * NAMED IN BOTH PLACES, DELIBERATELY. A removal answers the list AND `removes`,
+ * rather than `removes` alone, so the lane that runs is always one the picker
+ * chose on the merits — and a model that fills in only one of the two has said
+ * something we can still act on.
+ *
+ * `extra` is a sentence for the door alone; the ordinary tool passes none, so
+ * its text is what it always was.
+ */
+function removesProp(list, extra = "") {
+  return {
+    type: "array",
+    // THE ENUM IS EVERY LANE, NOT THE REMOVABLE ONES, AND THAT IS THE POINT.
+    // Narrowing it to `REMOVABLE_LANES` reads like tightening a wall and would
+    // quietly take the honest refusal away: a customer who says "delete the
+    // bookings table" could no longer be UNDERSTOOD, so the ask would come back
+    // as an ordinary change to `backend` and the reply would describe a removal
+    // that never happened. Wide here, refused by name in `readRemoves`, said in
+    // the reply.
+    items: { type: "string", enum: LANE_FIELDS },
+    description:
+      "The parts named in `" + list + "` that they are asking to TAKE OFF the site rather than change. Leave it " +
+      "out entirely for an ordinary change, which is nearly every message.\n" + extra +
+      "ONLY WHEN THEY REALLY MEAN GONE — \"take the QR code off\", \"delete the testimonials section\", " +
+      "\"we don't want the 3D thing any more\", \"drop the Spanish version\". A request to make something " +
+      "different, smaller, plainer or hidden is a CHANGE, not this: \"make the hero less busy\" edits it.\n" +
+      "IF YOU CANNOT TELL, LEAVE IT OUT. A change they meant as a removal is one more sentence from them; " +
+      "a removal they meant as a change has taken part of their site away.\n\n" +
+      "What taking each one off means:\n" +
+      REMOVABLE_LANES.map((f) => "  " + f + " — " + LANES[f].remove).join("\n"),
+  };
+}
+
+/**
+ * ── AND, FOR `pages` ALONE, WHICH OF THE THREE ─────────────────────────────
+ *
+ * "Which pages the site has" is one field and three capabilities, each on a
+ * different rung. A lane cannot pick between them from the field name, and
+ * guessing is the worst option available: `add` guessed as `remove` deletes a
+ * page somebody wanted.
+ *
+ * OPTIONAL, AND READ FOR ONE LANE. A lane with no verbs ignores it entirely —
+ * the same scoping `remove` and `tab` already have one router up, and for the
+ * same reason: a flag carried by a lane that cannot act on it is one nothing
+ * reads. `list` is the property that names the lanes, as for `removesProp`.
+ */
+function pageProps(list) {
+  return {
+    pageVerb: {
+      type: "string",
+      enum: PAGE_VERBS,
+      description:
+        "ONLY when `" + list + "` includes \"pages\". Which of the three they are asking for.\n" +
+        "\"add\" — a page the site does NOT have yet. \"Can we have a gallery page\", \"add an about page\".\n" +
+        "\"remove\" — a page it has, taken off the site. \"Delete the gallery page\", \"we don't need /about any more\".\n" +
+        "\"move\" — the same page at a DIFFERENT ADDRESS. \"Move the gallery to /work\", \"/about-us should be /about\".\n" +
+        "AN ADDRESS IS NOT A HEADING. \"Call that page Services instead\" is about the WORDS on it and is not this " +
+        "field at all — leave `pages` out and let the wording lane have it.\n" +
+        "LEAVE THIS OUT IF YOU CANNOT TELL. It is better to be asked again than to delete a page they wanted kept.",
+    },
+    pageName: {
+      type: "string",
+      description:
+        "ONLY with `pageVerb`. Which page they mean, as its route path — \"/\" for the home page, \"/menu\", " +
+        "\"/gallery\". Copy it from the list of pages above when the site already has it. For \"move\", this is " +
+        "the page being moved and `pageTo` is where it goes.",
+    },
+    pageTo: {
+      type: "string",
+      description: "ONLY with `pageVerb: \"move\"`. The NEW address, starting with a slash — \"/work\".",
+    },
+  };
+}
+
+/**
+ * ── ON THE ROUTER'S REMOVAL DOOR THE PICKER IS TOLD WHAT WAS ROUTED, AND SAYS
+ *    WHAT ELSE WAS ASKED (2026-09-28) ──────────────────────────────────────────
+ *
+ * The edit route opens this picker for a `nav` or `picture` message the router
+ * marked `remove` (`DOOR_LAYERS`), so a removal can reach the lane machinery.
+ * The router has ALREADY chosen that operation, and its rung runs whatever the
+ * picker says. The picker's question there is the rest of the message.
+ *
+ * ⚠ THE LANE COUNT WAS STANDING IN FOR THAT QUESTION, AND THE OWNER HELD IT
+ * TWICE. The ordinary tool asks "which parts does this message change", so on
+ * the door its answer mixed two things: the picker's reading of the routed
+ * operation and any work asked beside it. Run 47's lone `behavior` was the
+ * first; the route then guessed from the count — one lane was the routed
+ * operation, two or more were extra work — and the owner reproduced the guess
+ * failing both ways: *"One additional selected lane can therefore represent a
+ * second requested change. Conversely, two selected lanes do not prove two
+ * independent requests. Replace the lane-count assumption with an explicit
+ * distinction between the already-routed operation and additional requested
+ * work."*
+ *
+ * SO THE DOOR ASKS FOR THE DISTINCTION BY NAME. The request names the routed
+ * change in the router's own words (`routedNote`), and the tool has two lists:
+ *   `additional` — work asked for BESIDE the routed change. The only list that
+ *                  makes work: each lane in it becomes its own step.
+ *   `routed`     — which part the routed change is about, if one fits. Recorded
+ *                  and never acted on; it is where the picker's reading of that
+ *                  change goes, so it is not mistaken for a second request.
+ * Nothing is inferred from how many lanes either list holds.
+ *
+ * `fields` IS NOT ON THIS TOOL, so an answer in the ordinary tool's shape names
+ * no additional work — run 47's recorded answer included.
+ */
+function doorPickTool(list, lines) {
+  return {
+    name: "pick_lanes",
+    description: "Say whether this message asks for anything besides the change it has already been routed to, and which part of the site each other thing is.",
+    input_schema: {
+      type: "object",
+      properties: {
+        routed: {
+          type: "array",
+          maxItems: MAX_LANES,
+          items: { type: "string", enum: list },
+          description:
+            "WHICH PART OF THE SITE THE ALREADY-ROUTED CHANGE IS ABOUT, if one of the parts listed under " +
+            "`additional` fits it — the name you would have given that change. This changes nothing: that change " +
+            "is made whatever you put here. It is here so that change is never mistaken for a second request. " +
+            "Leave it out if no part fits.",
+        },
+        additional: {
+          type: "array",
+          maxItems: MAX_LANES,
+          items: { type: "string", enum: list },
+          description:
+            "ANYTHING ELSE THIS MESSAGE ASKS TO CHANGE — a separate thing they asked for BESIDE the already-routed " +
+            "change named above their message. That change is being made whatever you answer, so it never goes " +
+            "here, and nor does any part of it.\n" +
+            "EMPTY IS THE ORDINARY ANSWER. Most messages ask for that one change and nothing more, and several " +
+            "things said about it are still that one change.\n" +
+            "NAME A PART HERE ONLY FOR A SECOND, SEPARATE THING THEY REALLY ASKED FOR, one entry for each such " +
+            "thing. Each name here is a separate change to a separate part of their site, so one added on a guess " +
+            "changes something nobody asked about. If you cannot tell which part a second thing is, name the " +
+            "single closest one.\n\n" +
+            "The parts:\n" + lines.join("\n"),
+        },
+        removes: removesProp("additional", "The already-routed change is taken off already; it never goes here.\n"),
+        ...pageProps("additional"),
+      },
+      required: ["additional"],
     },
   };
 }
@@ -1129,21 +1231,72 @@ const PICK_SYSTEM =
   "editor can be handed it. You are not making the change and you are not replying to them.\n\n" +
   "Name the fewest parts that cover what they asked for. One is nearly always right.";
 
-/** The routing request. Shaped like `askRequest` in site-ask.mjs, for the same reasons. */
-export function pickRequest({ message, fields = LANE_FIELDS, current = "", model = LANE_MODEL }) {
-  const tool = pickTool(fields);
+/** The door's system text: the routed change is decided, and the question is what else. */
+const PICK_DOOR_SYSTEM =
+  "You are routing one message inside a website builder. The person you are reading owns the site and has asked " +
+  "for a change to it. The message has ALREADY been routed to one change, named above it, and that change is being " +
+  "made. Your only job is to say whether they ALSO asked for anything else, and which part of the site each other " +
+  "thing is about, so the right editor can be handed it. You are not making any change and you are not replying " +
+  "to them.\n\n" +
+  "Nearly every message asks for that one change and nothing else. Say so by naming nothing in `additional`.";
+
+/**
+ * THE ROUTER'S REMOVAL DOOR, READ OFF WHAT THE CALLER SAYS WAS ROUTED — or
+ * `null`, which is the ordinary tool.
+ *
+ * Only a removal the router routed to one of `DOOR_LAYERS` counts, because that
+ * is the one condition the edit route opens this door on (`eRemovalDoor`); any
+ * other shape asks the ordinary question. `lane` is the one lane leading to
+ * that layer (`doorLane`), which is the routed operation's own lane.
+ */
+function routedDoor(routed) {
+  if (!routed || typeof routed !== "object" || routed.remove !== true) return null;
+  const layer = routed.layer;
+  if (typeof layer !== "string" || !DOOR_LAYERS.includes(layer)) return null;
+  const lane = doorLane(layer);
+  if (!lane) return null;
+  // `String(["/menu"])` IS `"/menu"` — refused rather than coerced.
+  const page = typeof routed.page === "string" ? routed.page.trim().slice(0, 120) : "";
+  return { layer, lane, page };
+}
+
+/**
+ * THE ROUTED CHANGE, SAID TO THE PICKER IN THE ROUTER'S OWN WORDS — the line
+ * the router's tool opens that layer with (`layerLine`), never a second
+ * description of it. A layer whose line cannot be found is named bare.
+ */
+function routedNote(door) {
+  const what = layerLine(door.layer);
+  return "THE CHANGE THIS MESSAGE HAS ALREADY BEEN ROUTED TO, which is made whatever you answer:\n" +
+    "taking something OFF the site, in its \"" + door.layer + "\" part" + (what ? " — " + what : ".") +
+    (door.page ? "\nOn the page " + door.page + "." : "");
+}
+
+/**
+ * The routing request. Shaped like `askRequest` in site-ask.mjs, for the same reasons.
+ *
+ * `routed` is what the edit route already routed, on its removal door only
+ * (`routedDoor`): the door's tool, the door's system text, and the routed
+ * change named above the message. Absent, the request is the ordinary one,
+ * byte for byte.
+ */
+export function pickRequest({ message, fields = LANE_FIELDS, current = "", model = LANE_MODEL, routed = null }) {
+  const door = routedDoor(routed);
+  const tool = pickTool(fields, { routed: !!door });
   return {
     model,
     max_tokens: LANE_PICK_MAX_TOKENS,
     // A REAL CACHED PREFIX: the tool and the system text are byte-identical on
     // every edit any customer makes, and the message is the only per-call byte.
+    // The door has its own pair, byte-identical on every door message; what
+    // was routed rides in the message, never in the prefix.
     tools: [{ ...tool, cache_control: { type: "ephemeral" } }],
     tool_choice: { type: "tool", name: "pick_lanes" },
-    system: [{ type: "text", cache_control: { type: "ephemeral" }, text: PICK_SYSTEM }],
+    system: [{ type: "text", cache_control: { type: "ephemeral" }, text: door ? PICK_DOOR_SYSTEM : PICK_SYSTEM }],
     // WHAT THE SITE IS, IN ONE LINE, AND ONLY WHEN THE CALLER HAS IT.
     // Deliberately thin — a name and the pages, never the stylesheet. The whole
     // point of this call is that it is small.
-    messages: [{ role: "user", content: (current ? current + "\n\n" : "") + "Their message:\n" + String(message || "").slice(0, MAX_MESSAGE) }],
+    messages: [{ role: "user", content: (current ? current + "\n\n" : "") + (door ? routedNote(door) + "\n\n" : "") + "Their message:\n" + String(message || "").slice(0, MAX_MESSAGE) }],
   };
 }
 
@@ -1159,10 +1312,20 @@ export function pickRequest({ message, fields = LANE_FIELDS, current = "", model
  * A non-string is REFUSED rather than coerced.
  */
 export function readLanes(reply, fields = LANE_FIELDS) {
+  return laneList(reply, "fields", fields);
+}
+
+/**
+ * ONE READER FOR EVERY LANE LIST THE PICKER ANSWERS — `fields` on the ordinary
+ * tool, `additional` and `routed` on the router's removal door — so all three
+ * refuse, de-duplicate, cap and order the same way. `key` is always one of our
+ * own three names, never anything a caller or a model supplied.
+ */
+function laneList(reply, key, fields) {
   const offered = (Array.isArray(fields) ? fields : []).filter((f) => typeof f === "string" && f);
   const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
   const use = blocks.find((b) => b && b.type === "tool_use");
-  const raw = use && use.input && Array.isArray(use.input.fields) ? use.input.fields : [];
+  const raw = use && use.input && Array.isArray(use.input[key]) ? use.input[key] : [];
   const seen = new Set();
   for (const f of raw) {
     if (typeof f !== "string" || !offered.includes(f)) continue;
@@ -1248,59 +1411,69 @@ export function doorLane(layer) {
 }
 
 /**
- * ON THE ROUTER'S OWN REMOVAL DOOR THE PICKER CAN ADD WORK, AND CANNOT REPLACE
- * THE ROUTER'S (2026-09-28, run 47; corrected the same day).
+ * WHAT THE PICKER ANSWERED ON THE ROUTER'S REMOVAL DOOR — the work asked for
+ * beside the routed change, and its reading of that change, as two lists it
+ * named itself (2026-09-28, run 47; the second correction the same day).
  *
- * The edit route opens the lane picker for a `nav` or `picture` message the
- * router marked `remove`, so a removal can reach the lane machinery. On run 47
- * the picker answered `behavior` alone for "Take Gallery out of the menu." — the
- * one lane whose hint mentions a menu, and not one that edits a menu's items —
- * and the route ran that lane INSTEAD of the menu rung the router chose.
+ * The router's rung runs on that door whatever the picker says. Run 47's
+ * picker answered `behavior` alone for "Take Gallery out of the menu." and a
+ * look step ran it INSTEAD of the menu rung; the first correction kept only
+ * lanes leading back to the router's rung and dropped work asked beside it;
+ * the second read the answer by its COUNT — one lane was the routed change,
+ * two or more were extra work — and the owner reproduced that failing both
+ * ways (a lone `shape` asked beside a photo removal was lost, and two lanes
+ * need not be two requests). So the picker is asked for the distinction
+ * itself (`doorPickTool`), and this reads it:
  *
- * The first correction kept only lanes leading back to the router's rung, which
- * also threw away work asked for beside the removal: "take the photo off and
- * move the opening hours up" lost the layout (owner, 2026-09-28: *"Correct the
- * mechanism so the original nav/picture operation cannot be displaced, while
- * independently requested work remains executable"*). So the rule is now the
- * picker's own contract, read against the router's:
+ *   `fields`  — the `additional` list, less the routed change's own lane. The
+ *               only lanes that become steps; each runs as its own step with
+ *               its own verb, never the router's.
+ *   `routed`  — the `routed` list, plus the routed change's own lane when the
+ *               picker put it under `additional`. Recorded, never run: that
+ *               change is the router's step, which runs once.
+ *   `removes` — `removes` read against `fields` alone, so a removal can name
+ *               only work asked for beside the routed change. The routed
+ *               change's own removal is the router's verb, on the router's step.
+ *   `page`    — the `pages` verb, read as it always is; the route reads it only
+ *               when `pages` is among `fields`.
  *
- *   * ONE LANE IS THE PICKER'S READING OF THE ONE THING ASKED — its tool says
- *     one is the ordinary answer and a second only for a second, separate
- *     thing. The router has already placed that one thing on its own rung. A
- *     single lane leading back there is the same operation and is kept; a
- *     single lane anywhere else is the picker disagreeing with the router about
- *     the one thing, and the router, which read the whole message to choose its
- *     layer, stands. That lane is SET ASIDE, with everything said about it — its
- *     removals, its refusals — so nothing below can act on or refuse for it.
- *   * TWO OR MORE LANES ARE SEPARATE THINGS ASKED, and they are kept exactly as
- *     picked. The route runs each as its own step, each with its own verb, and
- *     puts the router's step among them where its lane would run.
+ * THE ROUTED CHANGE'S OWN LANE UNDER `additional` IS THAT CHANGE, NOT A SECOND
+ * ONE. Its rung is the router's rung and reads the whole sentence, so a second
+ * step there would run one operation twice. That is structural — the one lane
+ * leading to the router's layer — and never a guess from how many lanes came
+ * back.
  *
- * WHAT THIS CANNOT TELL, SAID RATHER THAN HIDDEN: a two-part message the picker
- * answered with only the OTHER part ("…and make the footer navy" answered `css`
- * alone) looks exactly like run 47, so that part is set aside too; and a
- * two-lane answer in which one lane is the picker's misreading of the removal
- * runs that lane beside the router's step. Every model answer that proves this
- * rule is supplied; which of those a real picker gives is not measured.
+ * WHAT THIS CANNOT TELL, SAID RATHER THAN HIDDEN: a lane the picker lists
+ * under `additional` is taken as work asked for, so a misreading put there runs
+ * beside the routed change; and one it lists under `routed` is taken as that
+ * change, so a second request put there does not run. Every model answer that
+ * proves this is supplied; which lists a real picker fills is not measured.
  */
-export function doorAnswer(picked, layer) {
-  const fields = picked && Array.isArray(picked.fields) ? picked.fields : [];
-  const removes = (picked && picked.removes) || { remove: [], refused: [], pages: false };
-  if (fields.length === 1 && fields[0] !== doorLane(layer)) {
-    return { fields: [], removes: { remove: [], refused: [], pages: false }, setAside: fields.slice() };
-  }
-  return { fields, removes, setAside: [] };
+function doorPicked(reply, door, fields, model) {
+  const offered = (Array.isArray(fields) ? fields : []).filter((f) => typeof f === "string" && f);
+  const additional = laneList(reply, "additional", offered);
+  const named = laneList(reply, "routed", offered);
+  const work = additional.filter((f) => f !== door.lane);
+  return {
+    fields: work,
+    routed: offered.filter((f) => named.includes(f) || (f === door.lane && additional.includes(f))),
+    page: readPageVerb(reply),
+    removes: readRemoves(reply, work),
+    usage: laneUsage(reply, model),
+    failed: false,
+  };
 }
 
 /**
  * THE LANES TO DISPATCH, WITH THE ROUTER'S OWN LANE AMONG THEM.
  *
- * On the router's removal door its rung always runs. When the picker named its
- * lane, that step is already here; when it did not, the lane is put back in the
- * picker's own order (`LANE_FIELDS`), so the router's step runs exactly where it
- * would have run had the picker named it — before a later page lane, after an
- * earlier one — and no step moves. `own` is `doorLane`'s answer; without one
- * the list is the picker's, untouched.
+ * On the router's removal door its rung always runs, exactly once. The picker's
+ * work never carries that lane (`doorPicked` takes it out), so the lane is put
+ * back in the picker's own order (`LANE_FIELDS`) and the router's step runs
+ * exactly where that lane would have run — before a later page lane, after an
+ * earlier one — and no step moves. A list that already carries it is returned
+ * as it is, so the lane is never there twice. `own` is `doorLane`'s answer;
+ * without one the list is the picker's, untouched.
  */
 export function doorDispatch(fields, own) {
   const picked = Array.isArray(fields) ? fields : [];
@@ -1355,19 +1528,24 @@ export function laneUsage(reply, model) {
  * falling back to the whole list would answer "we could not tell" by buying
  * seventeen edits, which is the most expensive possible reading of it.
  */
-export async function pickLanes(deps, { message, fields = LANE_FIELDS, current = "", model = LANE_MODEL } = {}) {
+export async function pickLanes(deps, { message, fields = LANE_FIELDS, current = "", model = LANE_MODEL, routed = null } = {}) {
+  // THE ROUTER'S REMOVAL DOOR, when the caller says what was routed there.
+  // Everything else is the ordinary question, byte for byte.
+  const door = routedDoor(routed);
   const text = String(message || "").trim();
   // A PAID CALL BEHIND A PUBLIC ROUTE. The composer will not send an empty
   // message; "the client wouldn't do that" is not a gate.
-  if (!text) return { fields: [], usage: null, failed: false };
+  if (!text) return door ? { fields: [], routed: [], usage: null, failed: false } : { fields: [], usage: null, failed: false };
   let reply;
   try {
-    reply = await deps.send(pickRequest({ message: text, fields, current, model }));
+    reply = await deps.send(pickRequest({ message: text, fields, current, model, routed }));
   } catch (e) {
     // CARRIED, NOT SWALLOWED. The caller tells a billing outage from a busy
     // model by reading `e.status` and `e.detail`.
     return { fields: [], usage: null, failed: true, error: e };
   }
+  // ON THE DOOR THE ANSWER IS TWO LISTS, read by their names (`doorPicked`).
+  if (door) return doorPicked(reply, door, fields, model);
   // THE MODEL THAT WAS ACTUALLY SENT, not the module default. This stamped
   // `LANE_MODEL` while the request carried the caller's `model`, so a customer
   // on Sonnet had their routing call PRICED as the default picker's — the rate

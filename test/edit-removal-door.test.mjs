@@ -9,17 +9,25 @@
 // rehearsal had supplied `nav` WITHOUT the flag, so it took a path the live run
 // never used.
 //
-// THE RULE THESE CASES HOLD THE ROUTE TO (corrected 2026-09-28, owner: *"the
-// original nav/picture operation cannot be displaced, while independently
-// requested work remains executable"*):
-//   * the router's own step always runs on its removal door;
-//   * a SINGLE lane the picker names on another rung is its reading of the one
-//     thing asked, which the router already placed — set aside, and traced;
-//   * TWO OR MORE lanes are separate things asked, and each runs as its own
-//     step with its own verb, beside the router's.
-// The first correction kept only lanes leading back to the router's rung, and
-// the owner held it: "take the photo off … and move the opening hours up" lost
-// the layout. That case is here now the other way round — both ship.
+// THE RULE THESE CASES HOLD THE ROUTE TO (the owner's second hold, 2026-09-28:
+// *"Replace the lane-count assumption with an explicit distinction between the
+// already-routed operation and additional requested work. Give the selector
+// that context and preserve the association through planning."*):
+//   * the router's own step always runs on its removal door, exactly once, with
+//     the router's verbs and nobody else's;
+//   * the picker is TOLD what the router routed, in the router's own words, and
+//     answers two lists of its own: `routed` (which part that change is about —
+//     recorded, never run) and `additional` (work asked BESIDE it — each lane
+//     its own step, with its own verb);
+//   * nothing is read from how many lanes either list holds.
+// Two corrections guessed and the owner held both. The first kept only lanes
+// leading back to the router's rung, and "take the photo off … and move the
+// opening hours up" lost the layout. The second read one lane as the removal
+// and two as extra work, and lost it again when the picker named `shape` alone
+// (the owner's reproduction: sync and queued alike, and with the photo refused
+// the layout went too). Both of the owner's shapes are here — `["images",
+// "shape"]`, and an answer whose additional work is `shape` alone — and both
+// ship both changes.
 //
 // So every case posts THE ROUTER'S REAL SHAPE: `{layer: "nav", remove: true}`
 // for the menu message and `{layer: "page", page: "/gallery", remove: true}` for
@@ -29,7 +37,8 @@
 // EVERY MODEL ANSWER IS SUPPLIED — the picker's, the menu rung's, the picture
 // rung's, the page writer's. What this proves is what the route does with those
 // answers: which rung runs, what is published, what is charged and what the
-// customer reads. It never proves what a real picker or a real model answers.
+// customer reads — and, from the request the stub receives, exactly what the
+// picker was ASKED. It never proves which lists a real picker fills.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -38,8 +47,8 @@ import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { installCompiler, dispatchEnv, isDispatchUpload, dispatchOk } from "./fixtures/cf-containers.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
 import { packEditJob, EDIT_JOB_PREFIX, EDIT_JOB_KIND } from "../builder/edit-job.mjs";
-import { pickTool, doorLane, doorAnswer, doorDispatch, LANE_FIELDS, laneLayer } from "../builder/site-lanes.mjs";
-import { DOOR_LAYERS } from "../builder/site-ask.mjs";
+import { pickTool, pickRequest, pickLanes, doorLane, doorDispatch, LANE_FIELDS, laneLayer } from "../builder/site-lanes.mjs";
+import { DOOR_LAYERS, layerLine } from "../builder/site-ask.mjs";
 import { PICTURE_TOOL } from "../builder/site-picture.mjs";
 import { navSlots } from "../builder/site-nav.mjs";
 import { editBrowserReply } from "../scripts/addon-sweep.mjs";
@@ -112,7 +121,7 @@ async function drive({ routed, ask, answers = {}, site = null, mode = "sync" }) 
   const b = site ? site.b : bucket();
   const url = "https://gofarther.dev/api/site/" + SLUG + "/edit";
   const body = JSON.stringify({ layer: "look", page: "", remove: false, rename: "", tab: false, ...routed, instruction: ask, picker: "sonnet", idem: "idem" + hex32().slice(0, 20) });
-  const seen = { models: [], debits: [], rpc: [], traces: [] };
+  const seen = { models: [], sent: [], debits: [], rpc: [], traces: [] };
   const id = hex32(), secret = hex32();
   if (mode === "job") b.store.set(EDIT_JOB_PREFIX + id, JSON.stringify(packEditJob({ url, body, uid: USER.id, slug: SLUG, secret, at: Date.now() })));
   const row = { state: "routing", billing: "none", cost: 0, result: null };
@@ -152,6 +161,9 @@ async function drive({ routed, ask, answers = {}, site = null, mode = "sync" }) 
     if (u.includes("/v1/messages")) {
       const tool = (args.tool_choice && args.tool_choice.name) || "";
       seen.models.push(tool);
+      // WHAT EACH CALL WAS ASKED, so a case can read the picker's real input —
+      // its tool, its system text and its message — and not only its answer.
+      seen.sent.push({ tool, args });
       if (Object.hasOwn(answers, tool)) return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: answers[tool] }], usage: { input_tokens: 2000, output_tokens: 400 } });
       return new Response("no stub for tool " + tool, { status: 503 });
     }
@@ -177,7 +189,7 @@ async function drive({ routed, ask, answers = {}, site = null, mode = "sync" }) 
     const pages = JSON.parse(b.store.get("source/" + SLUG + "/pages.json") || "[]");
     return {
       site: { b }, status: res.status, reply, said: editBrowserReply(reply, res.ok, ROUTED), pages,
-      builds: c.calls.map((k) => k.body), models: seen.models, debits: seen.debits, rpc: seen.rpc,
+      builds: c.calls.map((k) => k.body), models: seen.models, sent: seen.sent, debits: seen.debits, rpc: seen.rpc,
       events: seen.traces.flatMap((t) => (Array.isArray(t.events) ? t.events : [])),
       row: { state: row.state, billing: row.billing, cost: row.cost },
     };
@@ -198,7 +210,35 @@ function outsideMenus(src) {
   for (const s of navSlots([{ path: "x.tsx", source: src }]).sort((a, b) => b.at - a.at)) out = out.slice(0, s.at) + "<menu>" + out.slice(s.to);
   return out;
 }
-const doorMarks = (r) => r.events.filter((e) => e && e.p === "door:set-aside");
+/** Both lists the picker answered on the door, as the route recorded them. */
+const doorMarks = (r) => r.events.filter((e) => e && e.p === "door:answer");
+/** The request the route sent the picker, as the model stub received it. */
+function pickSent(r) {
+  const calls = r.sent.filter((q) => q.tool === PICK);
+  assert.equal(calls.length, 1, "the picker was called " + calls.length + " times");
+  return calls[0].args;
+}
+/**
+ * THE DOOR'S CONTRACT, READ OFF THE REQUEST THE PICKER REALLY RECEIVED: the
+ * door's tool (two lists, `additional` required, no `fields`), the door's system
+ * text, and the routed change named above the message in the router's own words
+ * for that layer — and the customer's message after it, untouched.
+ */
+function assertDoorAsked(r, layer, ask, label) {
+  const q = pickSent(r);
+  const tool = q.tools.find((t) => t.name === PICK);
+  assert.ok(tool, label + ": the picker was not given its tool");
+  assert.deepEqual(Object.keys(tool.input_schema.properties), ["routed", "additional", "removes", "pageVerb", "pageName", "pageTo"], label + ": the door's tool");
+  assert.deepEqual(tool.input_schema.required, ["additional"], label + ": what the door's tool requires");
+  const text = q.system.map((b) => b.text).join("\n");
+  assert.match(text, /ALREADY been routed to one change/, label + ": the door's system text");
+  const said = q.messages[0].content;
+  const words = layerLine(layer);
+  assert.ok(words.length > 20, label + ": the router's own words for " + layer + " could not be read");
+  assert.ok(said.includes("THE CHANGE THIS MESSAGE HAS ALREADY BEEN ROUTED TO"), label + ": the routed change is not named");
+  assert.ok(said.includes("taking something OFF the site, in its \"" + layer + "\" part — " + words), label + ": not in the router's own words");
+  assert.ok(said.endsWith("Their message:\n" + ask), label + ": the customer's message is not what was sent");
+}
 const MENU_SAID = "✅ Updated the menu on 4 pages: Today's bake · The starter · Visit.";
 
 /**
@@ -285,7 +325,7 @@ test("the fixture is run 47's stored pages, and /gallery is named by the home pa
   assert.equal(ORIG["index.tsx"].split(BOULE_SRC).length, 2, "the boule's photograph is not on the home page exactly once");
 });
 
-test("the door's own lane, the picker's answer read against the router's, and where the router's step runs", () => {
+test("the door's own lane, and where the router's step runs — once", () => {
   // EVERY LAYER THE ROUTER CAN OPEN THE DOOR FROM HAS EXACTLY ONE LANE, so its
   // own step and "that lane, as if picked" are one step.
   assert.ok(DOOR_LAYERS.length >= 2, "the door layers could not be read");
@@ -300,43 +340,124 @@ test("the door's own lane, the picker's answer read against the router's, and wh
   // `null` for every lane that acts in the look step.
   for (const layer of ["page", "look", "", null, undefined, 7]) assert.equal(doorLane(layer), null, String(layer));
 
-  const EMPTY = { remove: [], refused: [], pages: false };
-  // ONE LANE ON ANOTHER RUNG IS SET ASIDE, and what the picker said about it
-  // goes with it: a refusal it would have answered, a page removal it would
-  // have folded into a verb.
-  assert.deepEqual(doorAnswer({ fields: ["behavior"], removes: EMPTY }, "nav"), { fields: [], removes: EMPTY, setAside: ["behavior"] });
-  assert.deepEqual(doorAnswer({ fields: ["backend"], removes: { remove: [], refused: [{ field: "backend", why: "x" }], pages: false } }, "nav"),
-    { fields: [], removes: EMPTY, setAside: ["backend"] });
-  assert.deepEqual(doorAnswer({ fields: ["pages"], removes: { remove: [], refused: [], pages: true } }, "nav"),
-    { fields: [], removes: EMPTY, setAside: ["pages"] });
-  assert.deepEqual(doorAnswer({ fields: ["shape"], removes: EMPTY }, "picture"), { fields: [], removes: EMPTY, setAside: ["shape"] });
-  // ONE LANE LEADING BACK IS THE SAME OPERATION, kept exactly as picked.
-  const own = { fields: ["images"], removes: { remove: ["images"], refused: [], pages: false } };
-  assert.deepEqual(doorAnswer(own, "picture"), { ...own, setAside: [] });
-  // TWO OR MORE ARE SEPARATE THINGS ASKED, kept exactly as picked — whether or
-  // not one of them is the router's lane, removals and refusals included.
-  const both = { fields: ["shape", "images"], removes: { remove: ["images"], refused: [], pages: false } };
-  assert.deepEqual(doorAnswer(both, "picture"), { ...both, setAside: [] });
-  const elsewhere = { fields: ["behavior", "shape"], removes: EMPTY };
-  assert.deepEqual(doorAnswer(elsewhere, "nav"), { ...elsewhere, setAside: [] });
-  // Nothing picked, or nothing readable: nothing to set aside.
-  assert.deepEqual(doorAnswer({ fields: [], removes: EMPTY }, "nav"), { fields: [], removes: EMPTY, setAside: [] });
-  assert.deepEqual(doorAnswer(null, "nav"), { fields: [], removes: EMPTY, setAside: [] });
-
-  // THE ROUTER'S LANE GOES WHERE IT WOULD HAVE RUN, in the picker's own order.
+  // THE ROUTER'S LANE GOES WHERE IT WOULD HAVE RUN, in the picker's own order,
+  // and it is never there twice.
   assert.deepEqual(doorDispatch([], "action"), ["action"]);
   assert.deepEqual(doorDispatch(["shape"], "images"), ["shape", "images"]);
   assert.deepEqual(doorDispatch(["behavior", "shape", "tsx"], "action"), ["behavior", "shape", "action", "tsx"]);
-  // Already picked: the picker's list, untouched. No lane of its own: the same.
   assert.deepEqual(doorDispatch(["shape", "images"], "images"), ["shape", "images"]);
+  // No lane of its own: the picker's list, untouched.
   assert.deepEqual(doorDispatch(["shape"], null), ["shape"]);
+});
+
+test("THE SELECTOR'S CONTRACT: on the door it is told what was routed and asked for the rest; everywhere else it is asked what it always was", () => {
+  const ask = "Take the photo of the cooling loaf off the home page and put the order band above the starter story.";
+  const current = "Its pages are: /, /order, /starter, /visit, /gallery.";
+  const look = pickRequest({ message: ask, current });
+  for (const layer of DOOR_LAYERS) {
+    const q = pickRequest({ message: ask, current, routed: { layer, remove: true, page: "/" } });
+    const tool = q.tools[0];
+    // THE DOOR'S TOOL: two lists, `additional` the only one required, and no
+    // `fields` at all — so an answer in the ordinary tool's shape names no work.
+    assert.equal(tool.name, PICK);
+    assert.deepEqual(Object.keys(tool.input_schema.properties), ["routed", "additional", "removes", "pageVerb", "pageName", "pageTo"], layer);
+    assert.deepEqual(tool.input_schema.required, ["additional"], layer);
+    for (const k of ["routed", "additional"]) {
+      const list = tool.input_schema.properties[k];
+      assert.equal(list.type, "array", k);
+      assert.equal(list.minItems, undefined, k + " must allow an empty answer");
+      assert.deepEqual(list.items.enum, LANE_FIELDS, k + " must offer every lane");
+    }
+    const additional = tool.input_schema.properties.additional.description;
+    assert.match(additional, /ANYTHING ELSE THIS MESSAGE ASKS TO CHANGE/);
+    assert.match(additional, /EMPTY IS THE ORDINARY ANSWER/);
+    for (const f of LANE_FIELDS) assert.ok(additional.includes("\"" + f + "\" — "), "the parts list lost " + f);
+    assert.match(tool.input_schema.properties.routed.description, /This changes nothing/);
+    // A REMOVAL AND A PAGE VERB NAME WORK FROM THE DOOR'S OWN LIST.
+    assert.ok(tool.input_schema.properties.removes.description.startsWith("The parts named in `additional`"));
+    assert.ok(tool.input_schema.properties.pageVerb.description.startsWith("ONLY when `additional` includes \"pages\"."));
+    // THE ROUTED CHANGE IS NAMED ABOVE THE MESSAGE, in the router's own words
+    // for that layer and never a second description of it, with the page.
+    const words = layerLine(layer);
+    assert.ok(words.length > 20, layer + ": the router's own words could not be read");
+    assert.equal(q.messages[0].content,
+      current + "\n\nTHE CHANGE THIS MESSAGE HAS ALREADY BEEN ROUTED TO, which is made whatever you answer:\n" +
+      "taking something OFF the site, in its \"" + layer + "\" part — " + words + "\nOn the page /.\n\nTheir message:\n" + ask);
+    assert.match(q.system[0].text, /ALREADY been routed to one change/);
+    assert.match(q.system[0].text, /Say so by naming nothing in `additional`\./);
+    // THE DOOR'S PREFIX IS ONE PREFIX: the tool and the system text do not
+    // move with the layer or the page, only the message does.
+    const other = pickRequest({ message: "x", routed: { layer: DOOR_LAYERS.find((l) => l !== layer), remove: true } });
+    assert.equal(JSON.stringify(other.tools), JSON.stringify(q.tools));
+    assert.equal(JSON.stringify(other.system), JSON.stringify(q.system));
+    // A page named nowhere is not said.
+    assert.ok(!pickRequest({ message: ask, routed: { layer, remove: true } }).messages[0].content.includes("On the page"));
+  }
+  // EVERYWHERE ELSE THE QUESTION IS THE ORDINARY ONE, BYTE FOR BYTE: the look
+  // door, a door layer the router did NOT mark as a removal, a layer that is
+  // not a door, and anything unreadable.
+  assert.deepEqual(Object.keys(look.tools[0].input_schema.properties), ["fields", "removes", "pageVerb", "pageName", "pageTo"]);
+  assert.deepEqual(look.tools[0].input_schema.required, ["fields"]);
+  assert.equal(look.tools[0].input_schema.properties.fields.minItems, 1);
+  assert.equal(look.messages[0].content, current + "\n\nTheir message:\n" + ask);
+  assert.doesNotMatch(look.system[0].text, /ALREADY been routed/);
+  for (const routed of [null, { layer: "nav" }, { layer: "nav", remove: "true" }, { layer: "look", remove: true }, { layer: "page", remove: true },
+    { layer: "logo", remove: true }, { layer: ["nav"], remove: true }, "nav"]) {
+    assert.equal(JSON.stringify(pickRequest({ message: ask, current, routed })), JSON.stringify(look), JSON.stringify(routed));
+  }
+});
+
+test("THE DOOR'S ANSWER, READ BY ITS NAMES: only `additional` makes work, the routed change's own lane is that change, and nothing is counted", async () => {
+  const sent = [];
+  const pick = async (layer, input) => {
+    const out = await pickLanes({
+      send: async (req) => { sent.push(req); return { content: [{ type: "tool_use", name: PICK, input }], usage: { input_tokens: 10, output_tokens: 5 } }; },
+    }, { message: "a message", routed: { layer, remove: true } });
+    return { fields: out.fields, routed: out.routed, removes: out.removes.remove, pages: out.removes.pages, refused: out.removes.refused.map((x) => x.field), verb: out.page ? out.page.verb : undefined };
+  };
+  const want = (fields, routed, removes = [], extra = {}) => ({ fields, routed, removes, pages: false, refused: [], verb: undefined, ...extra });
+  // THE OWNER'S TWO SHAPES FOR ONE REQUEST: the layout asked beside the photo,
+  // named with the photo's own lane or without it — the same work either way.
+  assert.deepEqual(await pick("picture", { additional: ["shape"] }), want(["shape"], []));
+  assert.deepEqual(await pick("picture", { routed: ["images"], additional: ["shape"] }), want(["shape"], ["images"]));
+  // THE ROUTED CHANGE'S OWN LANE UNDER `additional` IS THAT CHANGE, kept once —
+  // its removal too, which is the router's own verb.
+  assert.deepEqual(await pick("picture", { additional: ["images", "shape"], removes: ["images"] }), want(["shape"], ["images"]));
+  assert.deepEqual(await pick("picture", { additional: ["images"] }), want([], ["images"]));
+  // ONE LANE TIED TO THE ROUTED CHANGE IS NOT WORK (run 47's `behavior`), and
+  // TWO LANES ARE NOT TWO REQUESTS: the one tied to it stays out.
+  assert.deepEqual(await pick("nav", { routed: ["behavior"], additional: [] }), want([], ["behavior"]));
+  assert.deepEqual(await pick("nav", { routed: ["behavior"], additional: ["shape"] }), want(["shape"], ["behavior"]));
+  // RUN 47'S RECORDED ANSWER, in the ordinary tool's shape: no `additional`, so
+  // no work. So is anything that is not a list of lane names.
+  assert.deepEqual(await pick("nav", { fields: ["behavior"] }), want([], []));
+  for (const bad of [{ additional: "shape" }, { additional: [["shape"]] }, { additional: [7, null] }, { additional: ["nope"] }, {}]) {
+    assert.deepEqual(await pick("picture", bad), want([], []), JSON.stringify(bad));
+  }
+  // A REMOVAL OR A PAGE VERB CAN NAME ONLY WORK FROM `additional`: tied to the
+  // routed change they are nothing — no refusal, no page deleted.
+  assert.deepEqual(await pick("nav", { routed: ["backend"], removes: ["backend"] }), want([], ["backend"]));
+  assert.deepEqual(await pick("nav", { routed: ["pages"], removes: ["pages"], pageVerb: "remove", pageName: "/gallery" }),
+    want([], ["pages"], [], { verb: "remove" }));
+  assert.deepEqual(await pick("nav", { additional: ["three", "backend"], removes: ["three", "backend"] }),
+    want(["backend", "three"], [], ["three"], { refused: ["backend"] }));
+  assert.deepEqual(await pick("nav", { additional: ["pages"], removes: ["pages"] }), want(["pages"], [], [], { pages: true }));
+  // THE SAME CAP, DE-DUPLICATION AND ORDER AS EVERY LANE LIST.
+  // The first four distinct names in the model's order, then the caller's order.
+  assert.deepEqual((await pick("nav", { additional: ["tsx", "css", "css", "shape", "brand", "favicon", "lang"] })).fields, ["css", "brand", "shape", "tsx"]);
+  // And every one of those calls was the door's question.
+  assert.equal(sent.length, 17);
+  for (const req of sent) assert.deepEqual(req.tools[0].input_schema.required, ["additional"]);
+  // A message with nothing in it asks nothing and runs nothing.
+  const empty = await pickLanes({ send: async () => { throw new Error("called"); } }, { message: "  ", routed: { layer: "nav", remove: true } });
+  assert.deepEqual(empty, { fields: [], routed: [], usage: null, failed: false });
 });
 
 for (const mode of ["sync", "job"]) {
   // ── 1. RUN 47: GALLERY LEAVES THE MENU, AND ITS PAGE STAYS UNTIL ASKED ─────
-  test(`RUN 47 (${mode}): nav + remove with the picker naming behavior alone reaches the menu rung, and only Gallery leaves`, async () => {
+  test(`RUN 47 (${mode}): the picker, told the menu removal is routed, ties behavior to it — only the menu rung runs, and only Gallery leaves`, async () => {
     const r = await drive({ mode, routed: { layer: "nav", remove: true }, ask: ASK_MENU,
-      answers: { [PICK]: { fields: ["behavior"] }, edit_site: {}, write_nav: NAV_ANSWER } });
+      answers: { [PICK]: { routed: ["behavior"], additional: [] }, edit_site: {}, write_nav: NAV_ANSWER } });
     // THE LIVE FAILURE, NAMED: the look step's lane call (`edit_site`) never
     // runs, and the menu rung does.
     assert.deepEqual(r.models, [PICK, "write_nav"], "the rungs called");
@@ -344,18 +465,30 @@ for (const mode of ["sync", "job"]) {
     // The home page keeps its own "Today's bake" link — the menu rung's home
     // rule stops a home page GAINING a link to itself, never forces a loss.
     assert.deepEqual(menuOf(page(r, "index.tsx")), [NAV_ANSWER.links]);
-    // What the picker named is set aside and RECORDED, so a trace says why the
-    // lane it chose did not run.
-    assert.deepEqual(doorMarks(r).map((e) => e.d), [{ fields: ["behavior"], layer: "nav" }]);
+    // WHAT THE PICKER WAS ASKED, off the request it received, and both of its
+    // lists as the route recorded them.
+    assertDoorAsked(r, "nav", ASK_MENU, "run 47 " + mode);
+    assert.deepEqual(doorMarks(r).map((e) => e.d), [{ layer: "nav", routed: ["behavior"], additional: [] }]);
     assert.deepEqual(r.reply.lanes, [], "the reply names a lane that did not run");
     // Charged once, for the picker and the menu rung together.
     assertCharged(r, mode, [3], "run 47 " + mode);
     if (mode === "job") assert.equal(r.rpc.filter((f) => f === "edit_reserve").length, 1);
   });
 
+  test(`RUN 47'S RECORDED ANSWER (${mode}): behavior in the ordinary tool's shape names no work on the door, and the menu rung runs alone`, async () => {
+    // What the real picker answered on run 47, before it was asked the door's
+    // question. The door's tool has no `fields`, so this names no work at all.
+    const r = await drive({ mode, routed: { layer: "nav", remove: true }, ask: ASK_MENU,
+      answers: { [PICK]: { fields: ["behavior"] }, edit_site: {}, write_nav: NAV_ANSWER } });
+    assert.deepEqual(r.models, [PICK, "write_nav"], "the rungs called");
+    assertOnlyGalleryLeft(r, "run 47 recorded " + mode);
+    assert.deepEqual(doorMarks(r).map((e) => e.d), [{ layer: "nav", routed: [], additional: [] }]);
+    assertCharged(r, mode, [3], "run 47 recorded " + mode);
+  });
+
   test(`THEN (${mode}): with its only incoming link gone, "Remove the gallery page." removes that page and nothing else`, async () => {
     const r1 = await drive({ mode, routed: { layer: "nav", remove: true }, ask: ASK_MENU,
-      answers: { [PICK]: { fields: ["behavior"] }, edit_site: {}, write_nav: NAV_ANSWER } });
+      answers: { [PICK]: { routed: ["behavior"], additional: [] }, edit_site: {}, write_nav: NAV_ANSWER } });
     assertOnlyGalleryLeft(r1, "the menu first (" + mode + ")");
     const r2 = await drive({ mode, site: r1.site, routed: { layer: "page", page: "/gallery", remove: true }, ask: ASK_PAGE });
     assert.equal(r2.status, 200, JSON.stringify(r2.reply));
@@ -386,113 +519,133 @@ for (const mode of ["sync", "job"]) {
     if (mode === "job") assert.equal(r.row.billing, "none");
   });
 
-  // ── 2. A PHOTO REMOVAL AND A LAYOUT CHANGE: BOTH SHIP ─────────────────────
-  test(`BOTH (${mode}): the photo comes off and the layout changes, and the layout step deletes nothing`, async () => {
-    // The shape the first correction dropped (`shape` beside `images` on the
-    // router's picture door). The page writer runs first, in the picker's own
-    // order, and is shown the home page with both photographs; the picture rung
-    // then takes the one photograph off the page it left.
-    const r = await drive({ mode, routed: { layer: "picture", remove: true }, ask: PHOTO_BAND_ASK,
-      answers: { [PICK]: { fields: ["images", "shape"], removes: ["images"] }, write_tweak: { source: MOVED }, [PICTURE_TOOL.name]: CLEAR_BOULE } });
-    const label = "photo + layout " + mode;
-    assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
-    assert.equal(r.reply && r.reply.ok, true, label + ": " + JSON.stringify(r.reply));
-    assert.deepEqual(r.models, [PICK, "write_tweak", PICTURE_TOOL.name], label + ": the rungs called");
-    assert.deepEqual(r.reply.layers, ["page", "picture"], label + ": layers");
-    assert.deepEqual(r.reply.lanes, ["shape", "images"], label + ": lanes");
-    assert.equal(r.reply.partial, undefined, label + ": " + JSON.stringify(r.reply.partial));
-    assert.equal(r.builds.length, 1, label + ": one compile carries both");
-    // EXACTLY BOTH CHANGES: the moved layout, with that one photograph's `src`
-    // emptied and every other character where the layout put it.
-    assert.equal(page(r, "index.tsx"), MOVED.replace(BOULE_SRC, 'src=""'), label + ": the home page is not the layout plus the removal");
-    assert.ok(page(r, "index.tsx").includes('alt="' + FRONT + '"') && page(r, "index.tsx").includes("64eee06cebae214308ea0142e5163286.jpg"), label + ": the other photograph went too");
-    // A PHOTO'S REMOVAL NEVER MAKES THE LAYOUT STEP DELETE ITS PAGE: every page
-    // is still there, and every other page is byte for byte what it was.
-    assertOthersKept(r, label);
-    for (const p of PAGES) if (p.path !== "index.tsx") assert.equal(page(r, p.path), p.source, label + ": " + p.path + " changed");
-    assert.deepEqual(doorMarks(r), [], label + ": something was set aside");
-    assert.equal(r.said.text, "✅ Updated the look. One photograph is no longer on the site. If that was not what you wanted, say “put the photo back”. There is a space for a photo — upload yours in the Data panel and it’ll fill in.", label + ": the screen");
-    assert.deepEqual(r.said.actions, ["refresh the credit balance"], label + ": the browser started something paid");
-    assertCharged(r, mode, [3, 2], label);
-  });
+  // ── 2. A PHOTO REMOVAL AND A LAYOUT CHANGE: BOTH SHIP, WHICHEVER WAY THE ───
+  //       PICKER NAMES THE LAYOUT
+  //
+  // The owner's reproduction was the third of these: the layout named alone as
+  // the work asked beside the photo, which the count rule read as the photo
+  // itself and never ran. The page writer runs first, in the picker's own
+  // order, shown the home page with both photographs; the picture rung — the
+  // router's step, run exactly once — then takes the one photograph off the
+  // page it left.
+  for (const [shapeName, answer, lanes] of [
+    ['["images", "shape"], the photo tied to the routed change', { routed: ["images"], additional: ["shape"] }, ["shape", "images"]],
+    ['["images", "shape"], both named as work', { additional: ["images", "shape"], removes: ["images"] }, ["shape", "images"]],
+    ['the additional work alone: ["shape"]', { additional: ["shape"] }, ["shape"]],
+  ]) {
+    test(`BOTH (${mode}), ${shapeName}: the photo comes off and the layout changes, and the layout step deletes nothing`, async () => {
+      const r = await drive({ mode, routed: { layer: "picture", remove: true }, ask: PHOTO_BAND_ASK,
+        answers: { [PICK]: answer, write_tweak: { source: MOVED }, [PICTURE_TOOL.name]: CLEAR_BOULE } });
+      const label = "photo + layout " + mode + " " + JSON.stringify(answer);
+      assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
+      assert.equal(r.reply && r.reply.ok, true, label + ": " + JSON.stringify(r.reply));
+      // ONE PAGE WRITER, ONE PICTURE RUNG — the router's operation once.
+      assert.deepEqual(r.models, [PICK, "write_tweak", PICTURE_TOOL.name], label + ": the rungs called");
+      assert.deepEqual(r.reply.layers, ["page", "picture"], label + ": layers");
+      assert.deepEqual(r.reply.lanes, lanes, label + ": lanes");
+      assert.equal(r.reply.partial, undefined, label + ": " + JSON.stringify(r.reply.partial));
+      assert.equal(r.builds.length, 1, label + ": one compile carries both");
+      // EXACTLY BOTH CHANGES: the moved layout, with that one photograph's `src`
+      // emptied and every other character where the layout put it.
+      assert.equal(page(r, "index.tsx"), MOVED.replace(BOULE_SRC, 'src=""'), label + ": the home page is not the layout plus the removal");
+      assert.ok(page(r, "index.tsx").includes('alt="' + FRONT + '"') && page(r, "index.tsx").includes("64eee06cebae214308ea0142e5163286.jpg"), label + ": the other photograph went too");
+      // A PHOTO'S REMOVAL NEVER MAKES THE LAYOUT STEP DELETE ITS PAGE: every page
+      // is still there, and every other page is byte for byte what it was.
+      assertOthersKept(r, label);
+      for (const p of PAGES) if (p.path !== "index.tsx") assert.equal(page(r, p.path), p.source, label + ": " + p.path + " changed");
+      assertDoorAsked(r, "picture", PHOTO_BAND_ASK, label);
+      assert.deepEqual(doorMarks(r).map((e) => e.d), [{ layer: "picture", routed: lanes.includes("images") ? ["images"] : [], additional: ["shape"] }], label + ": the lists recorded");
+      assert.equal(r.said.text, "✅ Updated the look. One photograph is no longer on the site. If that was not what you wanted, say “put the photo back”. There is a space for a photo — upload yours in the Data panel and it’ll fill in.", label + ": the screen");
+      assert.deepEqual(r.said.actions, ["refresh the credit balance"], label + ": the browser started something paid");
+      assertCharged(r, mode, [3, 2], label);
+    });
+  }
 
   // ── 3. A PHOTO REFUSAL AND A VALID LAYOUT CHANGE: THE LAYOUT SHIPS ────────
-  test(`PARTIAL (${mode}): the picture rung finds no such photograph, the layout ships, and the reply says both`, async () => {
-    // The picture model answers nothing it can match — the site has no photo of
-    // croissants — so the picture step refuses in its own words. The layout is
-    // independent work and ships beside that refusal, with the refused step's
-    // own charge said. (`edit-page-verb.test.mjs` holds the same shape on a site
-    // with no photograph at all, where the picture step makes no model call.)
-    const r = await drive({ mode, routed: { layer: "picture", remove: true },
-      ask: "Take the photo of the croissants off the home page and put the order band above the starter story.",
-      answers: { [PICK]: { fields: ["images", "shape"], removes: ["images"] }, write_tweak: { source: MOVED }, [PICTURE_TOOL.name]: { pictures: [] } } });
-    const label = "photo refused + layout " + mode;
-    assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
-    assert.equal(r.reply && r.reply.ok, true, label + ": " + JSON.stringify(r.reply));
-    assert.deepEqual(r.models, [PICK, "write_tweak", PICTURE_TOOL.name], label + ": the rungs called");
-    assert.deepEqual(r.reply.layers, ["page"], label + ": layers");
-    assert.deepEqual((r.reply.partial || []).map((p) => [p.layer, p.error, p.cost]), [["picture", "no-match", 2]], label + ": partial");
-    assert.equal(r.builds.length, 1);
-    assert.equal(page(r, "index.tsx"), MOVED, label + ": the home page is not exactly the layout");
-    assertOthersKept(r, label);
-    for (const p of PAGES) if (p.path !== "index.tsx") assert.equal(page(r, p.path), p.source, label + ": " + p.path + " changed");
-    assert.equal(r.said.text, "✅ Updated /. ⚠️ I couldn't match that to any of the pictures on your site. That part still cost 2 credits.", label + ": the screen");
-    assert.deepEqual(r.said.actions, ["refresh the credit balance"], label + ": the browser started something paid");
-    assertCharged(r, mode, [3, 2], label);
-  });
+  for (const [shapeName, answer] of [
+    ['the additional work alone: ["shape"]', { additional: ["shape"] }],
+    ['["images", "shape"]', { routed: ["images"], additional: ["shape"] }],
+  ]) {
+    test(`PARTIAL (${mode}), ${shapeName}: the picture rung finds no such photograph, the layout ships, and the reply says both`, async () => {
+      // The picture model answers nothing it can match — the site has no photo
+      // of croissants — so the picture step refuses in its own words. The layout
+      // is independent work and ships beside that refusal, with the refused
+      // step's own charge said. (`edit-page-verb.test.mjs` holds the same shape
+      // on a site with no photograph at all, where the picture step makes no
+      // model call.)
+      const ask = "Take the photo of the croissants off the home page and put the order band above the starter story.";
+      const r = await drive({ mode, routed: { layer: "picture", remove: true }, ask,
+        answers: { [PICK]: answer, write_tweak: { source: MOVED }, [PICTURE_TOOL.name]: { pictures: [] } } });
+      const label = "photo refused + layout " + mode + " " + JSON.stringify(answer);
+      assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
+      assert.equal(r.reply && r.reply.ok, true, label + ": " + JSON.stringify(r.reply));
+      assert.deepEqual(r.models, [PICK, "write_tweak", PICTURE_TOOL.name], label + ": the rungs called");
+      assert.deepEqual(r.reply.layers, ["page"], label + ": layers");
+      assert.deepEqual((r.reply.partial || []).map((p) => [p.layer, p.error, p.cost]), [["picture", "no-match", 2]], label + ": partial");
+      assert.equal(r.builds.length, 1);
+      assert.equal(page(r, "index.tsx"), MOVED, label + ": the home page is not exactly the layout");
+      assertOthersKept(r, label);
+      for (const p of PAGES) if (p.path !== "index.tsx") assert.equal(page(r, p.path), p.source, label + ": " + p.path + " changed");
+      assertDoorAsked(r, "picture", ask, label);
+      assert.equal(r.said.text, "✅ Updated /. ⚠️ I couldn't match that to any of the pictures on your site. That part still cost 2 credits.", label + ": the screen");
+      assert.deepEqual(r.said.actions, ["refresh the credit balance"], label + ": the browser started something paid");
+      assertCharged(r, mode, [3, 2], label);
+    });
+  }
 
   // ── AND THE SAME ON THE MENU'S DOOR ────────────────────────────────────────
-  test(`MENU + LAYOUT (${mode}): with the router's lane picked, Gallery leaves the menu and the layout ships`, async () => {
-    const r = await drive({ mode, routed: { layer: "nav", remove: true }, ask: BAND_ASK,
-      answers: { [PICK]: { fields: ["action", "shape"] }, write_tweak: { source: MOVED }, write_nav: NAV_ANSWER } });
-    const label = "menu + layout " + mode;
-    assert.equal(r.reply && r.reply.ok, true, label + ": " + JSON.stringify(r.reply));
-    assert.deepEqual(r.models, [PICK, "write_tweak", "write_nav"], label + ": the rungs called");
-    assert.deepEqual(r.reply.layers, ["page", "nav"], label + ": layers");
-    assert.deepEqual(r.reply.lanes, ["shape", "action"], label + ": lanes");
-    assert.equal(r.reply.partial, undefined, label + ": " + JSON.stringify(r.reply.partial));
-    assert.equal(r.builds.length, 1);
-    assert.equal(outsideMenus(page(r, "index.tsx")), outsideMenus(MOVED), label + ": the home page is not the layout outside its menu");
-    for (const p of PAGES) {
-      const want = menuOf(p.source).map((items) => items.filter((it) => it.href !== GALLERY.href));
-      assert.deepEqual(menuOf(page(r, p.path)), want, label + ": " + p.path + "'s menu is not its old menu less Gallery");
-      if (p.path !== "index.tsx") assert.equal(outsideMenus(page(r, p.path)), outsideMenus(p.source), label + ": " + p.path + " changed outside its menu");
-    }
-    assertOthersKept(r, label);
-    assert.equal(r.said.text, "✅ Updated the look.", label + ": the screen");
-    assertCharged(r, mode, [3, 2], label);
-  });
+  for (const [shapeName, answer, lanes] of [
+    ["the menu's own lane tied to the routed change", { routed: ["action"], additional: ["shape"] }, ["shape", "action"]],
+    // TWO LANES, ONE REQUEST BESIDE THE ROUTED CHANGE: by run 47's own evidence
+    // the picker reads the menu part as `behavior`. Tied to the routed change,
+    // it does not run — the count rule ran it here and put a warning on the
+    // screen beside the two changes that shipped.
+    ["behavior tied to the routed change, the layout as work", { routed: ["behavior"], additional: ["shape"] }, ["shape"]],
+    ["the additional work alone", { additional: ["shape"] }, ["shape"]],
+  ]) {
+    test(`MENU + LAYOUT (${mode}), ${shapeName}: Gallery leaves the menu, the layout ships, and nothing else runs`, async () => {
+      const r = await drive({ mode, routed: { layer: "nav", remove: true }, ask: BAND_ASK,
+        answers: { [PICK]: answer, edit_site: {}, write_tweak: { source: MOVED }, write_nav: NAV_ANSWER } });
+      const label = "menu + layout " + mode + " " + JSON.stringify(answer);
+      assert.equal(r.reply && r.reply.ok, true, label + ": " + JSON.stringify(r.reply));
+      assert.deepEqual(r.models, [PICK, "write_tweak", "write_nav"], label + ": the rungs called");
+      assert.deepEqual(r.reply.layers, ["page", "nav"], label + ": layers");
+      assert.deepEqual(r.reply.lanes, lanes, label + ": lanes");
+      assert.equal(r.reply.partial, undefined, label + ": " + JSON.stringify(r.reply.partial));
+      assert.equal(r.builds.length, 1);
+      assert.equal(outsideMenus(page(r, "index.tsx")), outsideMenus(MOVED), label + ": the home page is not the layout outside its menu");
+      for (const p of PAGES) {
+        const want = menuOf(p.source).map((items) => items.filter((it) => it.href !== GALLERY.href));
+        assert.deepEqual(menuOf(page(r, p.path)), want, label + ": " + p.path + "'s menu is not its old menu less Gallery");
+        if (p.path !== "index.tsx") assert.equal(outsideMenus(page(r, p.path)), outsideMenus(p.source), label + ": " + p.path + " changed outside its menu");
+      }
+      assertOthersKept(r, label);
+      assertDoorAsked(r, "nav", BAND_ASK, label);
+      assert.equal(r.said.text, "✅ Updated the look.", label + ": the screen");
+      assertCharged(r, mode, [3, 2], label);
+    });
+  }
 
-  test(`MENU + LAYOUT, PLACED ELSEWHERE (${mode}): the router's menu step is put among the picker's, and both requested changes ship`, async () => {
-    // The likeliest real answer to this two-part message, by run 47's own
-    // evidence: the picker placed the menu part on `behavior` and the band on
-    // `shape`, and named no lane leading to the menu rung. Two lanes are two
-    // things asked, so both run — and the router's menu step runs too, where
-    // `action` would have. Without the correction the menu part is lost: the
-    // router's step came back only for an empty answer.
-    //
-    // ⚠ THE LIMIT, STATED AND NOT PAPERED OVER: the misplaced `behavior` lane
-    // RUNS here. Its supplied answer is nothing, so the look step says it
-    // could not make that change and the screen carries that sentence beside
-    // the two changes that shipped. Nothing in the answer tells this lane from
-    // one the customer asked for; a real behaviour lane that answered would
-    // change the site's stored behaviour list.
+  test(`THE LIMIT (${mode}): a lane the picker names as WORK runs beside the routed change — the route honours the list, and says what it could not do`, async () => {
+    // ⚠ STATED, NOT PAPERED OVER: `behavior` under `additional` is the picker
+    // saying the message ASKED for a behaviour change, and nothing here reads
+    // English to overrule it. So it runs; its supplied answer is nothing, and
+    // the look step says it could not make that change beside the two changes
+    // that shipped. A real behaviour lane that answered would change the site's
+    // stored behaviour list. Which list a real picker fills is not measured.
     const r = await drive({ mode, routed: { layer: "nav", remove: true }, ask: BAND_ASK,
-      answers: { [PICK]: { fields: ["behavior", "shape"] }, edit_site: {}, write_tweak: { source: MOVED }, write_nav: NAV_ANSWER } });
-    const label = "menu + layout elsewhere " + mode;
+      answers: { [PICK]: { additional: ["behavior", "shape"] }, edit_site: {}, write_tweak: { source: MOVED }, write_nav: NAV_ANSWER } });
+    const label = "work named " + mode;
     assert.equal(r.reply && r.reply.ok, true, label + ": " + JSON.stringify(r.reply));
     assert.deepEqual(r.models, [PICK, "edit_site", "write_tweak", "write_nav"], label + ": the rungs called");
     assert.deepEqual(r.reply.layers, ["page", "nav"], label + ": the menu rung did not run");
     assert.deepEqual((r.reply.partial || []).map((p) => [p.layer, p.error, p.lanes]), [["look", "no-change", ["behavior"]]], label + ": partial");
-    assert.equal(r.builds.length, 1);
-    assert.equal(outsideMenus(page(r, "index.tsx")), outsideMenus(MOVED), label + ": the home page is not the layout outside its menu");
     for (const p of PAGES) {
       const want = menuOf(p.source).map((items) => items.filter((it) => it.href !== GALLERY.href));
       assert.deepEqual(menuOf(page(r, p.path)), want, label + ": " + p.path + "'s menu is not its old menu less Gallery");
-      if (p.path !== "index.tsx") assert.equal(outsideMenus(page(r, p.path)), outsideMenus(p.source), label + ": " + p.path + " changed outside its menu");
     }
+    assert.equal(outsideMenus(page(r, "index.tsx")), outsideMenus(MOVED), label + ": the home page is not the layout outside its menu");
     assertOthersKept(r, label);
-    assert.deepEqual(doorMarks(r), [], label + ": two lanes are never set aside");
     assert.equal(r.said.text, "✅ Updated the look. ⚠️ I couldn't work out how to change the site's look that way. Say which part — a colour, the fonts, a section — and what it should look like.", label + ": the screen");
     assertCharged(r, mode, [3, 2], label);
   });
@@ -500,20 +653,22 @@ for (const mode of ["sync", "job"]) {
 
 // ── 4. ORDINARY MENU AND PHOTO REQUESTS TRIGGER NOTHING UNRELATED ────────────
 
-test("CONTROL: the picker naming nothing falls through to the router's own menu rung, as it always did", async () => {
-  const r = await drive({ routed: { layer: "nav", remove: true }, ask: ASK_MENU, answers: { [PICK]: { fields: [] }, write_nav: NAV_ANSWER } });
+test("CONTROL: nothing asked beside the menu removal — the router's own menu rung runs alone", async () => {
+  const r = await drive({ routed: { layer: "nav", remove: true }, ask: ASK_MENU, answers: { [PICK]: { additional: [] }, write_nav: NAV_ANSWER } });
   assert.deepEqual(r.models, [PICK, "write_nav"]);
-  assertOnlyGalleryLeft(r, "empty");
-  assert.deepEqual(doorMarks(r), [], "nothing was set aside");
+  assertOnlyGalleryLeft(r, "nothing else");
+  assertDoorAsked(r, "nav", ASK_MENU, "nothing else");
+  assert.deepEqual(doorMarks(r).map((e) => e.d), [{ layer: "nav", routed: [], additional: [] }]);
+  assert.deepEqual(r.reply.lanes, []);
   assert.deepEqual(r.debits, [3]);
 });
 
-test("CONTROL: the router's own lane alone (action on nav) is kept exactly as picked", async () => {
-  const r = await drive({ routed: { layer: "nav", remove: true }, ask: ASK_MENU, answers: { [PICK]: { fields: ["action"] }, write_nav: NAV_ANSWER } });
+test("CONTROL: the router's own lane tied to the routed change (action on nav) — that change once, and named on the reply", async () => {
+  const r = await drive({ routed: { layer: "nav", remove: true }, ask: ASK_MENU, answers: { [PICK]: { routed: ["action"], additional: [] }, write_nav: NAV_ANSWER } });
   assert.deepEqual(r.models, [PICK, "write_nav"]);
-  assert.deepEqual(r.reply.lanes, ["action"], "the compatible lane is not on the reply");
+  assert.deepEqual(r.reply.lanes, ["action"], "the lane the picker named for the routed change is not on the reply");
   assertOnlyGalleryLeft(r, "action");
-  assert.deepEqual(doorMarks(r), []);
+  assert.deepEqual(doorMarks(r).map((e) => e.d), [{ layer: "nav", routed: ["action"], additional: [] }]);
   assert.deepEqual(r.debits, [3]);
 });
 
@@ -524,35 +679,40 @@ test("CONTROL: `nav` with no removal never opens the door — straight to the me
   assert.deepEqual(r.debits, [2]);
 });
 
-test("a page removal the picker names alone on the menu's door is set aside: taking a link out never deletes the page", async () => {
-  // Folded into the `pages` verb before the fix, this sent "Take Gallery out
-  // of the menu." to the page rung's REMOVAL of /gallery.
+test("a page deletion the picker ties to the routed change is not work: taking a link out never deletes the page", async () => {
+  // Folded into the `pages` verb before the first fix, this sent "Take Gallery
+  // out of the menu." to the page rung's REMOVAL of /gallery. A page verb names
+  // only work asked beside the routed change.
   const r = await drive({ routed: { layer: "nav", remove: true }, ask: ASK_MENU,
-    answers: { [PICK]: { fields: ["pages"], removes: ["pages"], pageVerb: "remove", pageName: "/gallery" }, write_nav: NAV_ANSWER } });
+    answers: { [PICK]: { routed: ["pages"], additional: [], removes: ["pages"], pageVerb: "remove", pageName: "/gallery" }, write_nav: NAV_ANSWER } });
   assert.deepEqual(r.models, [PICK, "write_nav"]);
   assertOnlyGalleryLeft(r, "pages");
-  assert.deepEqual(doorMarks(r).map((e) => e.d), [{ fields: ["pages"], layer: "nav" }]);
+  assert.deepEqual(doorMarks(r).map((e) => e.d), [{ layer: "nav", routed: ["pages"], additional: [] }]);
 });
 
-test("a lane this route will not remove, named alone on the menu's door, is set aside — it cannot refuse the router's message", async () => {
-  // A single lane is the picker's reading of the one thing asked, which the
-  // router placed on the menu. The LOOK door's refusal is unchanged (below).
+test("a lane this route will not remove, tied to the routed change, cannot refuse the router's message", async () => {
+  // The LOOK door's refusal is unchanged (below); here the removal the picker
+  // named belongs to the router's own step, which has its own verb.
   const r = await drive({ routed: { layer: "nav", remove: true }, ask: ASK_MENU,
-    answers: { [PICK]: { fields: ["backend"], removes: ["backend"] }, write_nav: NAV_ANSWER } });
+    answers: { [PICK]: { routed: ["backend"], additional: [], removes: ["backend"] }, write_nav: NAV_ANSWER } });
   assert.deepEqual(r.models, [PICK, "write_nav"]);
   assertOnlyGalleryLeft(r, "backend");
-  assert.deepEqual(doorMarks(r).map((e) => e.d), [{ fields: ["backend"], layer: "nav" }]);
+  assert.deepEqual(doorMarks(r).map((e) => e.d), [{ layer: "nav", routed: ["backend"], additional: [] }]);
 });
 
 // ── THE LOOK DOOR IS UNTOUCHED ────────────────────────────────────────────────
 
-test("CONTROL: an ordinary look request still runs the lane the picker chose", async () => {
-  const r = await drive({ routed: { layer: "look" }, ask: "Make the menu open when you hover over it.",
-    answers: { [PICK]: { fields: ["behavior"] }, edit_site: {} } });
+test("CONTROL: an ordinary look request still runs the lane the picker chose, and is asked the ordinary question", async () => {
+  const ask = "Make the menu open when you hover over it.";
+  const r = await drive({ routed: { layer: "look" }, ask, answers: { [PICK]: { fields: ["behavior"] }, edit_site: {} } });
   assert.deepEqual(r.models, [PICK, "edit_site"], "the look door's pick was overruled");
   assert.equal(r.reply.error, "no-change");
   assert.equal(r.builds.length, 0);
   assert.deepEqual(doorMarks(r), []);
+  const q = pickSent(r);
+  assert.deepEqual(Object.keys(q.tools[0].input_schema.properties), ["fields", "removes", "pageVerb", "pageName", "pageTo"]);
+  assert.ok(!q.messages[0].content.includes("ALREADY BEEN ROUTED"), "the look door was told something was routed");
+  assert.ok(q.messages[0].content.endsWith("Their message:\n" + ask));
 });
 
 test("CONTROL: a genuine removal refusal on the look door is unchanged", async () => {
@@ -564,14 +724,20 @@ test("CONTROL: a genuine removal refusal on the look door is unchanged", async (
   assert.equal(r.builds.length, 0);
   assert.deepEqual(r.debits, []);
   for (const p of PAGES) assert.equal(page(r, p.path), p.source);
+  assert.deepEqual(doorMarks(r), []);
 });
 
 // ── THE PICTURE DOOR, THE OTHER HALF OF THE SAME CONDITION ───────────────────
 
-for (const [name, picker] of [["nothing", { fields: [] }], ["images", { fields: ["images"] }], ["behavior", { fields: ["behavior"] }], ["shape", { fields: ["shape"] }]]) {
-  test(`picture + remove with the picker naming ${name}: the picture rung takes that photograph off and nothing else`, async () => {
-    // `shape` alone is a layout the picker read into a photo removal. A lone
-    // lane is set aside, so the supplied layout never runs.
+for (const [name, picker] of [
+  ["nothing else", { additional: [] }],
+  ["images tied to the routed change", { routed: ["images"], additional: [] }],
+  ["behavior tied to the routed change", { routed: ["behavior"], additional: [] }],
+  ["shape tied to the routed change", { routed: ["shape"], additional: [] }],
+]) {
+  test(`picture + remove, ${name}: the picture rung takes that photograph off and nothing else`, async () => {
+    // `shape` tied to the routed change is the picker reading a layout into the
+    // photo removal — it says so itself, so the supplied layout never runs.
     const r = await drive({ routed: { layer: "picture", remove: true }, ask: PHOTO_ASK,
       answers: { [PICK]: picker, edit_site: {}, write_tweak: { source: MOVED }, [PICTURE_TOOL.name]: CLEAR_BOULE } });
     assert.deepEqual(r.models, [PICK, PICTURE_TOOL.name], "the rungs called");
@@ -584,7 +750,8 @@ for (const [name, picker] of [["nothing", { fields: [] }], ["images", { fields: 
     assert.equal(home.replace('src=""', BOULE_SRC), ORIG["index.tsx"], "more than the one photograph changed");
     for (const p of PAGES) if (p.path !== "index.tsx") assert.equal(page(r, p.path), p.source, p.path + " changed");
     assert.ok(r.said.text.startsWith("✅ Took the picture off “" + BOULE + "”."), r.said.text);
-    assert.deepEqual(doorMarks(r).map((e) => e.d), ["behavior", "shape"].includes(name) ? [{ fields: [name], layer: "picture" }] : []);
+    assertDoorAsked(r, "picture", PHOTO_ASK, name);
+    assert.deepEqual(doorMarks(r).map((e) => e.d), [{ layer: "picture", routed: picker.routed || [], additional: [] }]);
     assert.deepEqual(r.debits, [3]);
   });
 }

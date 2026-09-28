@@ -582,6 +582,29 @@ export const ASK_TOOL = {
 };
 
 /**
+ * THE ROUTER'S OWN WORDS FOR ONE LAYER — the line its tool opens that layer
+ * with, read out of `ASK_TOOL` rather than written a second time.
+ *
+ * Asked by the lane picker on the router's removal door (`site-lanes.mjs`,
+ * 2026-09-28): the picker is told which change the router already routed, and
+ * the sentence that says so is the one the router itself was given when it
+ * chose that layer. A second description would be a second copy of the same
+ * thing, and the copy that drifts is the one nobody reads again.
+ *
+ * `""` FOR ANYTHING IT CANNOT FIND EXACTLY ONCE — a layer the tool does not
+ * have, or a description reworded so its line no longer opens with the layer's
+ * quoted name. The caller then names the layer without a description, which is
+ * vaguer and never wrong.
+ */
+export function layerLine(layer) {
+  if (typeof layer !== "string" || !EDIT_LAYERS.includes(layer)) return "";
+  const desc = String(ASK_TOOL.input_schema.properties.layer.description || "");
+  const open = "\"" + layer + "\" — ";
+  const lines = desc.split("\n").filter((l) => l.startsWith(open));
+  return lines.length === 1 ? lines[0].slice(open.length).trim() : "";
+}
+
+/**
  * WHAT THE ANSWER IS ALLOWED TO KNOW.
  *
  * A question about the customer's own site ("what pages do I have?", "where do

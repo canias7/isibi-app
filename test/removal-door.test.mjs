@@ -175,35 +175,37 @@ test("a removal-opened door falls back to the router's own layer, never to the r
   // route opened it still falls through — the property this case is about.
   assert.match(block, /if \(!picked\.fields\.length && !eRemovalDoor\) return explain\("picker\/no-lane"\)/,
     "a picker with nothing to say still climbs on a door this route opened");
-  // RE-ANCHORED 2026-09-28 (run 47, and the owner's correction the same day):
+  // RE-ANCHORED 2026-09-28 (run 47, and the owner's two holds the same day):
   // the router's own step is no longer put back only when the step list comes
   // out EMPTY — that is what let a picker naming `behavior` displace the menu
   // rung. It is put among the dispatched steps whatever the picker named, where
-  // its own lane would run (`doorDispatch`), and it is still the router's own
-  // layer and page, with no lanes and the router's verbs on it (a verb rides on
-  // the step it was decided for; `test/edit-page-verb.test.mjs`).
+  // its own lane would run (`doorDispatch`), exactly ONCE — the picker's work
+  // never carries that lane — and it is still the router's own layer and page
+  // with the router's verbs on it (a verb rides on the step it was decided for;
+  // `test/edit-page-verb.test.mjs`), naming its lane only when the picker did.
   const loopAt = block.indexOf("const doorOwn = eRemovalDoor ? doorLane(eLayer) : null;");
   assert.ok(loopAt >= 0, "the door no longer asks which lane is the router's own");
   const loop = block.slice(loopAt, block.indexOf("steps.push(...mergePageSteps(dispatched));", loopAt));
   assert.ok(loop.length > 100 && loop.length < 1500, "the dispatch loop could not be windowed");
   assert.match(loop, /for \(const f of doorDispatch\(pickedFields, doorOwn\)\) \{/,
     "the lanes that become steps are not the picker's with the router's own among them");
-  assert.match(loop, /if \(f === doorOwn && !pickedFields\.includes\(f\)\) \{\s*dispatched\.push\(\{ layer: eLayer, page: ePage, fields: \[\], remove: eRemove, rename: eRename \}\);/,
-    "the router's own step is not the one put in where its lane was not picked");
+  assert.match(loop, /if \(f === doorOwn\) \{\s*dispatched\.push\(\{ layer: eLayer, page: ePage, fields: \(picked\.routed \|\| \[\]\)\.includes\(f\) \? \[f\] : \[\], remove: eRemove, rename: eRename \}\);/,
+    "the router's own step is not the one put in where its lane would run");
   // And the bottom of the block no longer has a door branch at all: a door the
   // router opened reaches it with its own step already in the plan, so an
   // empty list there is the look door's, and it is explained.
   const tail = block.slice(block.indexOf("if (!steps.length) {"));
   assert.ok(tail.length > 100, "the no-steps branch is gone");
   assert.doesNotMatch(tail.slice(0, 400), /eRemovalDoor/, "the empty-plan branch still special-cases the door");
-  // THE CENSUS IS BY LANDMARK: every read must be one of the four named here —
-  // the declaration, the picker's answer read against the router's, the
-  // empty-answer climb and the dispatch — and each must be there. A read nobody
-  // listed still fails. Comments are blanked above, or this counts the
-  // paragraphs that explain it.
+  // THE CENSUS IS BY LANDMARK: every read must be one of the five named here —
+  // the declaration, the routed change handed to the picker, the record of its
+  // two lists, the empty-answer climb and the dispatch — and each must be
+  // there. A read nobody listed still fails. Comments are blanked above, or
+  // this counts the paragraphs that explain it.
   const named = [
     "const eRemovalDoor = eLooking && eLayer !== \"look\";",
-    "if (eRemovalDoor) {\n",
+    "routed: eRemovalDoor ? { layer: eLayer, remove: eRemove, page: ePage } : null,",
+    "if (eRemovalDoor) editTrace.mark(\"door:answer\", \"ok\", { layer: eLayer, routed: picked.routed || [], additional: picked.fields });",
     "if (!picked.fields.length && !eRemovalDoor) return explain(\"picker/no-lane\")",
     "const doorOwn = eRemovalDoor ? doorLane(eLayer) : null;",
   ];
@@ -214,21 +216,21 @@ test("a removal-opened door falls back to the router's own layer, never to the r
     return [i, i + n.length];
   });
   const reads = [...block.matchAll(/eRemovalDoor/g)].map((m) => m.index);
-  assert.equal(reads.length, named.length, "`eRemovalDoor` is read somewhere other than the four places named here");
+  assert.equal(reads.length, named.length, "`eRemovalDoor` is read somewhere other than the five places named here");
   for (const at of reads) {
     assert.ok(spans.some(([a, b]) => at >= a && at < b),
-      "`eRemovalDoor` is read at offset " + at + ", which is none of the four named reads");
+      "`eRemovalDoor` is read at offset " + at + ", which is none of the five named reads");
   }
-  // THE PICKER'S ANSWER IS READ AGAINST THE ROUTER'S BY `doorAnswer`, with the
-  // router's layer, and both halves of what it answers are what runs below.
-  const read = block.slice(spans[1][0], block.indexOf("\n              }", spans[1][0]));
-  assert.match(read, /const door = doorAnswer\(picked, eLayer\);/, "the door no longer asks `doorAnswer` with the router's layer");
-  assert.match(read, /picked\.fields = door\.fields;/, "what the door keeps is not what runs");
-  assert.match(read, /picked\.removes = door\.removes;/, "a set-aside lane's removals are not set aside with it");
-  // AND IT SITS WHERE IT MUST: after the picker's own failure, before the
-  // empty-answer climb — so everything below reads the door's answer.
-  assert.ok(block.indexOf("if (picked.failed) return modelDown(") < spans[1][0] && spans[1][0] < spans[2][0],
-    "the door's reading is not between the picker's answer and the first thing that reads it");
+  // THE ROUTED CHANGE IS HANDED TO THE PICKER, inside its own call — so what it
+  // answers is the door's question — and its two lists are recorded after its
+  // failure is handled and before anything below reads them. No count of lanes
+  // is read anywhere in between: the rule is the picker's explicit answer.
+  const call = block.slice(block.indexOf("const picked = await pickLanes("), block.indexOf("editTrace.mark(\"pick_lanes\", picked.failed"));
+  assert.ok(call.includes(named[1]), "the routed change is not handed to the picker's own call");
+  assert.ok(block.indexOf("if (picked.failed) return modelDown(") < spans[2][0] && spans[2][0] < spans[3][0],
+    "the door's record is not between the picker's answer and the first thing that reads it");
+  assert.doesNotMatch(block.slice(spans[2][0], spans[3][0]), /\.length\s*(===|<|>|<=|>=)\s*\d/,
+    "the door's answer is read by a count again");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
