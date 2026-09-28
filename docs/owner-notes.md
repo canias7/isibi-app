@@ -57,6 +57,25 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-28 — Your free restore (run 53) put the bakery back exactly; Test 6 is ready for your review
+
+**The bakery is back at `8btpep`, exactly as it was before Test 6.** The five
+stored pages match their recorded fingerprints. The site's stored search
+description is the original sentence again, and the home and starter pages
+show it again. Every page's head, menus, links and headings match the reading
+taken before the test. The redirects, the sitemap, the QR code and the share
+image are the same too.
+
+**A first**: this is the first time a restore has been seen putting back a
+site's saved settings (here, the search description) as well as its pages.
+
+**It was free.** The balance is still 42.
+
+**Test 6, in short**: the new description worked exactly, and the redirect fix
+worked live for the first time. The Visit page change was put off by the
+builder to a later turn, so it wasn't made. The one thing found, a confusing
+line in the reply, is in the backlog. The next step is your review.
+
 ## 2026-09-28 — Test 6's paid run (run 52): the new search description is live; the Visit page change was put off to a later turn; the restore is yours to press
 
 **What you asked for, in one message**: a new default search description,

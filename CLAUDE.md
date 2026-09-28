@@ -56,14 +56,15 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   recovery write (2163); the scoped rules acceptance (run 44 — `lido-axes-b`'s
   bookings stay closed); Test 5's page removal (run 49) and restoration (run 50)
   with the removal-door correction (2164).
-- **Test 6: the paid run (run 52) shipped half; the restore is pending** —
+- **Test 6: the paid run (run 52) shipped half; the free restore (run 53) put
+  everything back; it waits for the owner's review** —
   one message asking for a new default search description and a band moved on
   the Visit page. The description was stored and published exactly,
   everything else was kept, and the publish kept the stored redirect. The live
   router put the Visit move off to a later turn (`alsoAsked`, no page named),
   so the move was not made: item 3 through the look door and item 4 stay
-  unshown, and the finding is in the backlog. 3 credits. Next is the free
-  restore to `01790468089054-8btpep`, then the owner's review; the plan and
+  unshown, and the finding is in the backlog. 3 credits. The restore also put
+  the stored description back, the first time that was seen. The plan and
   every reading are the checklist's *Test 6*. **Real-model mixed work through
   the removal door stays outstanding.**
 - **The short edit-path checklist** (demonstrated live · tested only with
@@ -250,8 +251,7 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
   `ben-crowe-guitar`, and the older `fold-lane-bakery`, `harbourside-roast`,
   `the-lido-cafe`, `oak-and-ash`, `forno-and-co`. **Reusing one of those slugs
   revises that site.** The test fixtures now: `fold-lane-bakery` live at
-  `01790637993219-u51eu0` (run 52's new description) until the free restore to
-  `01790468089054-8btpep`, `fretwork-1` at
+  `01790468089054-8btpep` (restored by run 53 after Test 6), `fretwork-1` at
   `01790404806543-kk6qsh` (Test 3's removal kept), and `lido-axes-b` with its
   bookings closed (run 44, kept).
 - **What things cost, measured** — routing 1–2 per message (it moves with the

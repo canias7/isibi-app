@@ -112,7 +112,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Test 6 — two changes in one message, one on a named page (prepared 2026-09-28, request clarified the same evening; the free check, run 51, passed; the paid run, run 52, shipped the description, and the router put the Visit move off to a later turn; the restore is pending)
+## Test 6 — two changes in one message, one on a named page (prepared 2026-09-28, request clarified the same evening; the free check, run 51, passed; the paid run, run 52, shipped the description, and the router put the Visit move off to a later turn; the free restore, run 53, put everything back; awaiting the owner's review)
 
 Owner, 2026-09-28: *"prepare one bounded test combining two requested changes
 in one message, ideally also covering a named non-home page. Use an existing
@@ -542,6 +542,31 @@ more, but the reply tells the customer both that the home page could not be
 changed and that the move comes next.
 
 **Next**: the free restore to `8btpep` (press 3), then the owner's review.
+
+### Run 53 — the free restore put everything back (2026-09-28)
+
+Pressed by the owner from the branch at `fc1f84c5` with the values in press 3
+([run 36499761486](https://github.com/canias7/isibi-app/actions/runs/36499761486),
+23:46–23:47 UTC). The preflight read `f5e941f494fd` and `8a10715339cdc780`
+again, and every free check passed.
+- **The restore**: the site listed 12 versions with run 52's
+  `01790637993219-u51eu0` live; the app's own restore of `8btpep` answered 200
+  (24 files, `worker: true`), and the site reported `8btpep` on the first read.
+- **Stored**: the five pages equal the table, sha256 for sha256, with no
+  components, and **the stored description reads the original again**. The
+  restore puts back the whole saved look (`STATE_CONFIG_FIELDS`); this is the
+  first time that was observed rather than read in the code.
+- **Published**, read at 23:47:31, as `8btpep` went live: every page's head
+  equals the before-reading (`/` and `/starter` show the original description
+  again), and so do the menus, the links in order, the headings and the build
+  files. The redirects, their cache life, the 404, the sitemap and the QR file
+  are as before, and `/card.png` is `ce884f5b…` again (31,778 bytes).
+- **Money**: nothing charged. The balance is 42, no ledger row after 334, and
+  no edit job is left open on the bakery.
+
+Test 6 is complete as run and waits for the owner's review: the description
+half and the redirect carry-over shown live, the named-page move not made, and
+the finding recorded separately.
 
 ### A visible alternative, not recommended
 
