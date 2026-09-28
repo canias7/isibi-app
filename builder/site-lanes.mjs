@@ -1229,39 +1229,83 @@ export function readRemoves(reply, picked = []) {
 }
 
 /**
- * ON A DOOR THE ROUTER OPENED FOR ITS OWN REMOVAL, ONLY THE ROUTER'S RUNG ACTS
- * (2026-09-28, run 47).
+ * THE ONE LANE THAT LEADS TO A LAYER — `action` for `nav`, `images` for
+ * `picture` — or `null` when no single lane does.
+ *
+ * Asked for the two layers the router can open the lane picker's door from
+ * (`DOOR_LAYERS` in `site-ask.mjs`), and pinned for both by a guard: each has
+ * exactly one lane, so "the router's own operation" and "that lane, as if the
+ * picker had named it" are the same step.
+ *
+ * `null` FOR ANYTHING UNREADABLE, NEVER A MATCH. `laneLayer` answers `null` for
+ * every lane with no rung of its own, so comparing a `null` layer against it
+ * would match all of those at once.
+ */
+export function doorLane(layer) {
+  if (typeof layer !== "string" || !layer) return null;
+  const lanes = LANE_FIELDS.filter((f) => laneLayer(f) === layer);
+  return lanes.length === 1 ? lanes[0] : null;
+}
+
+/**
+ * ON THE ROUTER'S OWN REMOVAL DOOR THE PICKER CAN ADD WORK, AND CANNOT REPLACE
+ * THE ROUTER'S (2026-09-28, run 47; corrected the same day).
  *
  * The edit route opens the lane picker for a `nav` or `picture` message the
- * router marked `remove`, so the removal can reach the lane machinery. The
- * picker then answers from the whole lane list, and on run 47 it named
- * `behavior` for "Take Gallery out of the menu." — the one lane whose hint
- * mentions a menu, and not one that edits a menu's items. A look step ran it,
- * it answered nothing, and the menu rung the router chose never ran.
+ * router marked `remove`, so a removal can reach the lane machinery. On run 47
+ * the picker answered `behavior` alone for "Take Gallery out of the menu." — the
+ * one lane whose hint mentions a menu, and not one that edits a menu's items —
+ * and the route ran that lane INSTEAD of the menu rung the router chose.
  *
- * So the answer is scoped to the router's layer: a lane stays only when it
- * dispatches to that same rung (`action` on `nav`, `images` on `picture`), and
- * it stays exactly as picked. Everything else is DROPPED and named, never run.
- * The removals are scoped with it, because `readRemoves` promises they are a
- * subset of what was picked, and every reader below leans on that promise.
+ * The first correction kept only lanes leading back to the router's rung, which
+ * also threw away work asked for beside the removal: "take the photo off and
+ * move the opening hours up" lost the layout (owner, 2026-09-28: *"Correct the
+ * mechanism so the original nav/picture operation cannot be displaced, while
+ * independently requested work remains executable"*). So the rule is now the
+ * picker's own contract, read against the router's:
  *
- * A layer this cannot read keeps NOTHING. `laneLayer` answers `null` for every
- * lane this module acts on itself, so comparing against a `null` layer would
- * keep all of them — the diversion this exists to stop.
+ *   * ONE LANE IS THE PICKER'S READING OF THE ONE THING ASKED — its tool says
+ *     one is the ordinary answer and a second only for a second, separate
+ *     thing. The router has already placed that one thing on its own rung. A
+ *     single lane leading back there is the same operation and is kept; a
+ *     single lane anywhere else is the picker disagreeing with the router about
+ *     the one thing, and the router, which read the whole message to choose its
+ *     layer, stands. That lane is SET ASIDE, with everything said about it — its
+ *     removals, its refusals — so nothing below can act on or refuse for it.
+ *   * TWO OR MORE LANES ARE SEPARATE THINGS ASKED, and they are kept exactly as
+ *     picked. The route runs each as its own step, each with its own verb, and
+ *     puts the router's step among them where its lane would run.
+ *
+ * WHAT THIS CANNOT TELL, SAID RATHER THAN HIDDEN: a two-part message the picker
+ * answered with only the OTHER part ("…and make the footer navy" answered `css`
+ * alone) looks exactly like run 47, so that part is set aside too; and a
+ * two-lane answer in which one lane is the picker's misreading of the removal
+ * runs that lane beside the router's step. Every model answer that proves this
+ * rule is supplied; which of those a real picker gives is not measured.
  */
-export function doorLanes(picked, layer) {
+export function doorAnswer(picked, layer) {
   const fields = picked && Array.isArray(picked.fields) ? picked.fields : [];
-  const keep = typeof layer === "string" && layer ? fields.filter((f) => laneLayer(f) === layer) : [];
-  const r = (picked && picked.removes) || {};
-  return {
-    fields: keep,
-    removes: {
-      remove: (Array.isArray(r.remove) ? r.remove : []).filter((f) => keep.includes(f)),
-      refused: (Array.isArray(r.refused) ? r.refused : []).filter((x) => x && keep.includes(x.field)),
-      pages: !!r.pages && keep.includes("pages"),
-    },
-    dropped: fields.filter((f) => !keep.includes(f)),
-  };
+  const removes = (picked && picked.removes) || { remove: [], refused: [], pages: false };
+  if (fields.length === 1 && fields[0] !== doorLane(layer)) {
+    return { fields: [], removes: { remove: [], refused: [], pages: false }, setAside: fields.slice() };
+  }
+  return { fields, removes, setAside: [] };
+}
+
+/**
+ * THE LANES TO DISPATCH, WITH THE ROUTER'S OWN LANE AMONG THEM.
+ *
+ * On the router's removal door its rung always runs. When the picker named its
+ * lane, that step is already here; when it did not, the lane is put back in the
+ * picker's own order (`LANE_FIELDS`), so the router's step runs exactly where it
+ * would have run had the picker named it — before a later page lane, after an
+ * earlier one — and no step moves. `own` is `doorLane`'s answer; without one
+ * the list is the picker's, untouched.
+ */
+export function doorDispatch(fields, own) {
+  const picked = Array.isArray(fields) ? fields : [];
+  if (!own || picked.includes(own)) return picked;
+  return LANE_FIELDS.filter((f) => f === own || picked.includes(f));
 }
 
 /**

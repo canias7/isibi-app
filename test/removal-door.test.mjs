@@ -175,29 +175,37 @@ test("a removal-opened door falls back to the router's own layer, never to the r
   // route opened it still falls through — the property this case is about.
   assert.match(block, /if \(!picked\.fields\.length && !eRemovalDoor\) return explain\("picker\/no-lane"\)/,
     "a picker with nothing to say still climbs on a door this route opened");
-  // And the bottom of the block, where an empty step list would otherwise climb.
+  // RE-ANCHORED 2026-09-28 (run 47, and the owner's correction the same day):
+  // the router's own step is no longer put back only when the step list comes
+  // out EMPTY — that is what let a picker naming `behavior` displace the menu
+  // rung. It is put among the dispatched steps whatever the picker named, where
+  // its own lane would run (`doorDispatch`), and it is still the router's own
+  // layer and page, with no lanes and the router's verbs on it (a verb rides on
+  // the step it was decided for; `test/edit-page-verb.test.mjs`).
+  const loopAt = block.indexOf("const doorOwn = eRemovalDoor ? doorLane(eLayer) : null;");
+  assert.ok(loopAt >= 0, "the door no longer asks which lane is the router's own");
+  const loop = block.slice(loopAt, block.indexOf("steps.push(...mergePageSteps(dispatched));", loopAt));
+  assert.ok(loop.length > 100 && loop.length < 1500, "the dispatch loop could not be windowed");
+  assert.match(loop, /for \(const f of doorDispatch\(pickedFields, doorOwn\)\) \{/,
+    "the lanes that become steps are not the picker's with the router's own among them");
+  assert.match(loop, /if \(f === doorOwn && !pickedFields\.includes\(f\)\) \{\s*dispatched\.push\(\{ layer: eLayer, page: ePage, fields: \[\], remove: eRemove, rename: eRename \}\);/,
+    "the router's own step is not the one put in where its lane was not picked");
+  // And the bottom of the block no longer has a door branch at all: a door the
+  // router opened reaches it with its own step already in the plan, so an
+  // empty list there is the look door's, and it is explained.
   const tail = block.slice(block.indexOf("if (!steps.length) {"));
   assert.ok(tail.length > 100, "the no-steps branch is gone");
-  // RE-ANCHORED 2026-09-23: the router's own step now carries the router's
-  // page verbs, because a verb rides on the step it was decided for and no
-  // other (`test/edit-page-verb.test.mjs`). Still the router's own layer and
-  // page, with no lanes — the property this case is about.
-  assert.match(tail, /if \(eRemovalDoor\) steps\.push\(\{ layer: eLayer, page: ePage, fields: \[\], remove: eRemove, rename: eRename \}\)/,
-    "an empty step list does not put the router's own step back");
-  // BOTH of them, or the fall-through is half wired — which is the shape this
-  // whole change exists because of.
-  // RE-ANCHORED 2026-09-28: the door also FILTERS the picker's answer now
-  // (`doorLanes`, run 47: the picker named `behavior` on the menu door and the
-  // menu rung never ran), a third read beside the two climbs. So the census is
-  // by LANDMARK rather than by count: every read must be one of the four named
-  // here — the declaration, the filter and the two climbs — and each must be
-  // there. A read nobody listed still fails. Comments are blanked above, or
-  // this counts the paragraphs that explain it.
+  assert.doesNotMatch(tail.slice(0, 400), /eRemovalDoor/, "the empty-plan branch still special-cases the door");
+  // THE CENSUS IS BY LANDMARK: every read must be one of the four named here —
+  // the declaration, the picker's answer read against the router's, the
+  // empty-answer climb and the dispatch — and each must be there. A read nobody
+  // listed still fails. Comments are blanked above, or this counts the
+  // paragraphs that explain it.
   const named = [
     "const eRemovalDoor = eLooking && eLayer !== \"look\";",
     "if (eRemovalDoor) {\n",
     "if (!picked.fields.length && !eRemovalDoor) return explain(\"picker/no-lane\")",
-    "if (eRemovalDoor) steps.push({ layer: eLayer, page: ePage, fields: [], remove: eRemove, rename: eRename })",
+    "const doorOwn = eRemovalDoor ? doorLane(eLayer) : null;",
   ];
   const spans = named.map((n) => {
     const i = block.indexOf(n);
@@ -211,16 +219,16 @@ test("a removal-opened door falls back to the router's own layer, never to the r
     assert.ok(spans.some(([a, b]) => at >= a && at < b),
       "`eRemovalDoor` is read at offset " + at + ", which is none of the four named reads");
   }
-  // THE FILTER IS THE DOOR'S AND NOTHING ELSE'S: its block hands the picker's
-  // answer to `doorLanes` with the router's layer and writes both halves back.
-  const filter = block.slice(spans[1][0], block.indexOf("\n              }", spans[1][0]));
-  assert.match(filter, /const door = doorLanes\(picked, eLayer\);/, "the door no longer asks `doorLanes` with the router's layer");
-  assert.match(filter, /picked\.fields = door\.fields;/, "the door's filtered lanes are not what runs");
-  assert.match(filter, /picked\.removes = door\.removes;/, "the door's removals are not narrowed with its lanes");
+  // THE PICKER'S ANSWER IS READ AGAINST THE ROUTER'S BY `doorAnswer`, with the
+  // router's layer, and both halves of what it answers are what runs below.
+  const read = block.slice(spans[1][0], block.indexOf("\n              }", spans[1][0]));
+  assert.match(read, /const door = doorAnswer\(picked, eLayer\);/, "the door no longer asks `doorAnswer` with the router's layer");
+  assert.match(read, /picked\.fields = door\.fields;/, "what the door keeps is not what runs");
+  assert.match(read, /picked\.removes = door\.removes;/, "a set-aside lane's removals are not set aside with it");
   // AND IT SITS WHERE IT MUST: after the picker's own failure, before the
-  // empty-answer climb — so everything below reads the filtered answer.
+  // empty-answer climb — so everything below reads the door's answer.
   assert.ok(block.indexOf("if (picked.failed) return modelDown(") < spans[1][0] && spans[1][0] < spans[2][0],
-    "the door's filter is not between the picker's answer and the first thing that reads it");
+    "the door's reading is not between the picker's answer and the first thing that reads it");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

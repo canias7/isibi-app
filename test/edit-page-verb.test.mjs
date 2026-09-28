@@ -468,35 +468,20 @@ test("the router's remove flag opens the picture door and deletes nothing a layo
     pick: { fields: ["images", "shape"], removes: ["images"] }, apply: pricesLayout,
   });
   const label = "picture door + prices layout";
-  // BEFORE THE PAGE-VERB FIX /prices WAS DELETED — the router's request-wide
-  // `remove` reached the layout step. That is the property this case is about,
-  // and it holds: nothing compiles, and the store is page for page what it was.
-  assert.equal(r.compiles, 0, label + ": compiles");
-  assert.deepEqual([...r.storedPaths].sort(), STORED.map((p) => p.path).sort(), label + ": the store holds a different set of pages");
-  for (const p of STORED) assert.equal(r.stored[p.path], p.source, label + ": the store holds the wrong " + p.path);
+  assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
+  assert.equal(r.reply.ok, true, label + ": " + JSON.stringify(r.reply));
+  assert.deepEqual(pageWriterCalls(r), [T.tweak], label + ": page-writer calls " + JSON.stringify(r.calls));
+  assert.deepEqual(r.shown.map((f) => f && f.path), ["prices.tsx"], label + ": the writer was shown the wrong file");
+  // BEFORE THE FIX /prices WAS DELETED — the router's request-wide `remove`
+  // reached the layout step. The site has no photograph, so the picture step
+  // says so, and the layout is the only change.
+  assertSite(r, { "index.tsx": HOME, "prices.tsx": pricesLayout(PRICES), "gallery.tsx": GALLERY, "visit.tsx": VISIT }, label);
+  assert.deepEqual(r.reply.layers, ["page"], label + ": layers");
+  assert.deepEqual((r.reply.partial || []).map((p) => [p.layer, p.error]), [["picture", "no-slots"]], label + ": partial");
   assert.equal(r.reply.removed, undefined, label + ": a page was reported removed");
-  assert.equal(r.reply.renamedTo, undefined, label + ": a page was reported moved");
-  // RE-ANCHORED 2026-09-28 (run 47, the owner's approved correction): on a
-  // door the ROUTER opened for its own removal, the picker may only choose
-  // lanes that lead back to the router's rung — `images` here — and anything
-  // else it names is dropped before anything acts on it. So the `shape` lane
-  // no longer runs the page writer beside the picture step: the message is
-  // handled the way a `picture` route without `remove` has always been, by
-  // the picture rung alone. Until this change the layout half ran and
-  // published beside the picture step's refusal ("✅ Updated /prices. ⚠️ I
-  // couldn't find a photograph…"). The site here has no photograph, so the
-  // picture rung finds nothing to change before its model is asked, and that
-  // refusal is the whole answer: nothing compiled, nothing charged.
-  assert.deepEqual(pageWriterCalls(r), [], label + ": the page writer ran on the router's removal door " + JSON.stringify(r.calls));
-  assert.deepEqual(r.calls, [T.pick], label + ": models " + JSON.stringify(r.calls));
-  assert.equal(r.status, 422, label + ": " + JSON.stringify(r.reply));
-  assert.equal(r.reply.ok, false, label + ": " + JSON.stringify(r.reply));
-  assert.equal(r.reply.error, "no-slots", label + ": the picture rung's own refusal");
-  assert.equal(r.reply.unchanged, true, label + ": the refusal wrote nothing");
-  assert.deepEqual(r.debits, [], label + ": debits");
-  assert.equal(r.reply.cost, 0, label + ": cost");
-  assert.equal(r.said.text, "⚠️ I couldn't find a photograph on your site that I can change. If you'd like one added, say which page it should go on and where. Nothing on your site changed, and this edit cost you nothing. Reading your message cost 2 credits.", label + ": the customer's sentence");
-  assert.deepEqual(r.said.actions, [], label + ": the browser started something paid");
+  assertOneCharge(r, "sync", label);
+  assert.equal(r.said.text, "✅ Updated /prices. ⚠️ I couldn't find a photograph on your site that I can change. If you'd like one added, say which page it should go on and where.", label + ": the customer's sentence");
+  assert.deepEqual(r.said.actions, ["refresh the credit balance"], label + ": the browser started something paid");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
