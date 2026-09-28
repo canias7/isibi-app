@@ -57,6 +57,36 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-28 — Your free check (run 51) confirms deployment 2165 on the live server; Test 6's paid run is ready for your approval
+
+**Deployment 2165 is confirmed.** Your free press (run 51, 22:57 UTC, from the
+branch, on the bakery) asked the live server which code it runs. Both readers
+answered `f5e941f494fd`, and a fresh container gets image `8a10715339cdc780`.
+Those are the commit and image the deploy predicted and built. Queued jobs and
+the job runner are on, and every free check passed.
+
+**Nothing was charged.** The balance is still 45, and the newest ledger row is
+still 333, from run 49. The run's two empty test jobs were refused at no cost.
+
+**The bakery is exactly as recorded for Test 6.** Its five stored pages match
+their recorded fingerprints, and all five pages are live at `8btpep`. Each
+page matches the earlier reading except for a timestamp the site writes into
+every response.
+
+**The one new measurement.** The site's stored search description reads
+"Neighbourhood sourdough in Bristol. Browse today's bake and order a loaf for
+collection." It is what the home page and the starter page publish now, so the
+settings and the live site agree before the test.
+
+**Before the press,** one line of Test 6's plan was corrected. "The site to
+edit" defaults to `fretwork-1`, so the free press names `fold-lane-bakery` to
+read the right site.
+
+**Your preference is recorded**: form values each in their own block, so you
+can copy them (`owner-preferences.md`).
+
+**Next**: Test 6's paid run, when you approve it. Nothing paid has been sent.
+
 ## 2026-09-28 — CLAUDE.md is now a short entry point, your preferences have their own file, and these notes are read on demand
 
 **What you asked:** make CLAUDE.md a short entry point, stop requiring all of

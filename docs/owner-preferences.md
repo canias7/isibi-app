@@ -205,3 +205,7 @@
 - **No campaign unless you ask.** On 2026-09-28: *"Keep the other outstanding
   cases and deferred issues listed separately; no new sweep campaign or
   architecture redesign."*
+- **Form values you can copy.** On 2026-09-28, asked for a workflow press's
+  values: *"Each separated so i can copy"*. Give each box's value in its own
+  code block, under the box's description, with the link and the branch in
+  blocks of their own.

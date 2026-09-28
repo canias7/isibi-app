@@ -35,31 +35,32 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 ## Where things stand (2026-09-28)
 
 - **`main` is `f5e941f4`, deploy 2165** (19:07 UTC, image `8a10715339cdc780`,
-  predicted on both ends and built) — **deployed, not runtime-confirmed.** The
-  session's dispatch answers 403, so the confirmation is the owner's free
-  canary press: `edit canary` from the branch, spend `no`, `expect_deploy`
-  `f5e941f494fd96c039eeee4e6f1d44120b80e062`, `expect_image`
-  `8a10715339cdc780`, site `fold-lane-bakery` (the press also takes Test 6's
-  reading of the stored description; from `main` it confirms the deploy
-  without that reading). It carries the redirect fix (a publish reads the stored
-  sidecar through `manifestFromCsv`); the next real publish is its first live
-  use, and redirects dropped between 2026-08-17 and this deploy are not rebuilt.
+  predicted on both ends and built) — **runtime-confirmed by the owner's free
+  press, run 51** (22:57 UTC, from the branch on `fold-lane-bakery`): both
+  readers answer `f5e941f494fd`, a cold container gets `8a10715339cdc780`, and
+  queued jobs and the runner are on. It carries the redirect fix (a publish
+  reads the stored sidecar through `manifestFromCsv`); the next real publish is
+  its first live use, and redirects dropped between 2026-08-17 and this deploy
+  are not rebuilt.
 - **The branch `claude/help-needed-ehlwlj`** is ahead of `main` by the canary's
   read of the description stored in a site's settings (`2a7767cc`:
   `readStoredHead`, the app's own SEO route read in every inventory) and by
   documents. None of it deploys; a press from the branch runs the branch's
   script against main's Worker.
-- **Balance 45** on the building account, read by run 50 (18:41 UTC); newest
-  ledger row 333, run 49's menu edit. The unit suite is **8,207** at `f08c3ba1`.
+- **Balance 45** on the building account, read by run 51 (22:57 UTC) and in
+  the ledger; the newest ledger row is still 333, run 49's menu edit. The unit
+  suite is **8,207** at `f08c3ba1`.
 - **Closed by the owner, not to be repeated**: live test 2 (run 32); Test 3
   (run 34) with the stylesheet corrections (deploy 2161); the kit-heading fix
   (2162); Test 4a (runs 37 and 39); Test 4b's D1 (run 42) and the conditional
   recovery write (2163); the scoped rules acceptance (run 44 — `lido-axes-b`'s
   bookings stay closed); Test 5's page removal (run 49) and restoration (run 50)
   with the removal-door correction (2164).
-- **Next: Test 6, PREPARED and not dispatched** — two changes in one message on
-  `fold-lane-bakery` through the existing canary: the site's default search
-  description, then a band moved on the Visit page only. The frozen sentence
+- **Next: Test 6, PREPARED and not dispatched; its free check passed (run
+  51)** — two changes in one message on `fold-lane-bakery` through the existing
+  canary: the site's default search description, then a band moved on the
+  Visit page only. Run 51 read the fixture unchanged and the stored description
+  equal to the published default. The frozen sentence
   (358 characters, sha256 `484b3feb…`), the acceptance judged on what was
   stored and published, the restore to `01790468089054-8btpep` and the paid
   inputs are the checklist's *Test 6*. About 5–6 credits, up to about 10, when
@@ -237,8 +238,9 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
 
 - **Balance 45** on the building account at run 50's end (2026-09-28 18:41
   UTC): run 49 took it 50 → 45 (routing 2 + 1 and the menu edit's reserve of 2,
-  ledger row 333; the page removal `exempt`). `GET /api/fal-balance` answers
-  fal's balance separately.
+  ledger row 333; the page removal `exempt`). Run 51 (22:57 UTC, free) read 45
+  again, with row 333 still the newest. `GET /api/fal-balance` answers fal's
+  balance separately.
 - **The building account is `aniascristian@gmail.com`**, not the session's own
   address. It owns every live site and holds that balance; look at the wrong
   row and the balance reads zero.

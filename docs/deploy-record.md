@@ -223,7 +223,11 @@ The log answered `built …:8a***07***5339cdc780 (registry answered 404; ***88
 inputs off ./Dockerfile)` and `…:a2***7f74c8***225***2` →
 `…:8a***07***5339cdc780` under `SUCCESS Modified application`; **0 `CACHED`
 lines**, image step 2m15s, Wrangler 20s (it reinstalled itself first), job
-3m09s; `No updated asset files to upload`.
+3m09s; `No updated asset files to upload`. **Runtime-confirmed by the owner's
+free press, edit canary run 51** (2026-09-28 22:57 UTC, from the branch at
+`37f90769` on `fold-lane-bakery`): `build-health 200 deploy=f5e941f494fd
+image=8a10715339cdc780` and `runtime 200 deploy=f5e941f494fd async=true
+runner=true`, the two readers agreeing and both expectations met.
 The twelfth
 added a SECOND CHANNEL — **deploy 2139 (2026-09-21) was predicted before the
 push over the local merge commit `28e46e91` as `82bccb3bee50e4fd`, against

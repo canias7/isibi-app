@@ -14,6 +14,7 @@ full records are `git show d304120e:CLAUDE.md` (2026-09-14 → 09-20),
 | [2026-09-26-28-tests-3-to-5.md](2026-09-26-28-tests-3-to-5.md) | Tests 3, 4a, 4b and 5 (runs 33–50), the kit headings, the conditional recovery write, the removal door and the redirect fix (deploys 2162–2165) |
 | [2026-09-28-status-block.md](2026-09-28-status-block.md) | the status paragraph that opened CLAUDE.md, and the fifth prune's note |
 | [2026-09-28-live-state.md](2026-09-28-live-state.md) | the balance readings since run 9, costs, and every suite and site-build stamp with how it was taken |
+| [2026-09-28-test-6.md](2026-09-28-test-6.md) | Test 6, two changes in one message: its free check (run 51), which also runtime-confirmed deploy 2165, and its later runs |
 
 The rules these rounds produced are in the topic docs listed in CLAUDE.md's
 map: `docs/deploy-record.md`, `docs/build-path.md`, `docs/instruments.md`,

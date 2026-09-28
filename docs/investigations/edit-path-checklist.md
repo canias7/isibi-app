@@ -16,9 +16,8 @@ restoration (run 50).**
   before-read byte for byte.
 
 **The redirect carry-over fix is merged and deployed** (`f5e941f4`, deploy
-2165, 2026-09-28 19:07 UTC, image `8a10715339cdc780`; deployed, not yet
-runtime-confirmed: the session's free dispatch answered 403, so the free check
-is the owner's press):
+2165, 2026-09-28 19:07 UTC, image `8a10715339cdc780`; runtime-confirmed by
+the owner's free press, run 51, at 22:57 UTC):
 - a publish now carries the redirects the previous one stored, and a removed
   page gets its own 301 home;
 - it is proven through the real edit route and dispatcher with supplied answers
@@ -107,7 +106,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Test 6 — two changes in one message, one on a named page (prepared 2026-09-28, request clarified the same evening; nothing paid)
+## Test 6 — two changes in one message, one on a named page (prepared 2026-09-28, request clarified the same evening; the free check, run 51, passed; nothing paid)
 
 Owner, 2026-09-28: *"prepare one bounded test combining two requested changes
 in one message, ideally also covering a named non-home page. Use an existing
@@ -142,7 +141,10 @@ not establish real-model mixed work through the removal path."*
 ### The fixture: fold-lane-bakery at `01790468089054-8btpep`
 
 Restored by run 50. Read again free on 2026-09-28 at 19:57, 20:09 and 20:40
-UTC, with no difference between the readings.
+UTC, with no difference between the readings, and by the free check, run 51,
+at 22:57 UTC (*Run 51*, below): the stored pages equal the table byte for
+byte, and each served page equals its 19:57 reading apart from the render
+time the site writes into every response.
 
 - **Stored pages** (run 50's before-read; sha256 in full):
 
@@ -171,9 +173,11 @@ UTC, with no difference between the readings.
   `twitter:card`, `og:url`, and the canonical, icon and apple-touch-icon links.
   Each page's full set of head tags is recorded, and it read identically at
   19:57 and 20:40.
-- **The description stored in the site's settings**: not yet read. It is the
-  one measurement no existing reading had; the next canary press reads it
-  (*the one measurement added*, below).
+- **The description stored in the site's settings**, first read by run 51:
+  "Neighbourhood sourdough in Bristol. Browse today's bake and order a loaf
+  for collection." It is the published default on `/` and `/starter`, so the
+  settings and the served head agree before the test (*the one measurement
+  added*, below).
 - **The menus** (header and footer links):
   - `/` and `/gallery`: Today's bake, The starter, Visit, Gallery, and the
     "Order a loaf" button;
@@ -402,8 +406,8 @@ characters to each prompt, which does not move the estimate. The balance is
 ### The presses
 
 All three are `edit-canary.yml` from the branch `claude/help-needed-ehlwlj`.
-1. **The free check for deploy 2165**, pending the owner's press (the
-   session's dispatch answers 403):
+1. **The free check for deploy 2165**: pressed by the owner as run 51, and
+   passed (*Run 51*, below):
    - "Run the ONE paid edit as well": `no`;
    - the two "Refuse to spend unless…" boxes:
      `f5e941f494fd96c039eeee4e6f1d44120b80e062` and `8a10715339cdc780`;
@@ -426,6 +430,38 @@ All three are `edit-canary.yml` from the branch `claude/help-needed-ehlwlj`.
    - "PUT ONE SAVED VERSION BACK…": `01790468089054-8btpep`;
    - "The site to edit": `fold-lane-bakery`;
    - the same two expectations.
+
+### Run 51 — the free check passed (2026-09-28)
+
+Pressed by the owner from the branch at `37f90769` with the values in press 1
+([run 36495325713](https://github.com/canias7/isibi-app/actions/runs/36495325713),
+22:57 UTC, 38 seconds; the evidence artifact `canary-evidence` is 21,619
+bytes, sha256 `3bb2190d…`).
+- **Deploy 2165 is runtime-confirmed**: `build-health 200 deploy=f5e941f494fd
+  image=8a10715339cdc780` and `runtime 200 deploy=f5e941f494fd async=true
+  runner=true`. The two readers agree, and both expectations are met.
+- **The free checks**: the bakery and the control (`washhouse-3`) each get
+  the queued shape; a forged replay marker and another account's job answer
+  404; the empty job settled in about 6 seconds with `reason: "empty"`,
+  `cost: 0`. Both empty jobs read `failed` with billing `none` in the queue.
+  `ALL FREE CHECKS PASSED`.
+- **The fixture is unchanged**:
+  - the five stored pages equal the table above, sha256 for sha256, and there
+    are no components;
+  - all five routes answer at `01790468089054-8btpep`, with the before-state's
+    headings and photographs (`/visit`: "Come to the bakery", "The shutters
+    and the street", "Order a collection so we hold a loaf");
+  - each served page equals its 19:57 reading once the render time the site
+    writes into every response (`u:` in the page's data, twice per page) is
+    set aside. The two 19:57 readings of `/` differ in the same place, so the
+    value changes on every request.
+- **The stored description, first read**: "Neighbourhood sourdough in Bristol.
+  Browse today's bake and order a loaf for collection." It equals the
+  published default on `/` and `/starter`, so it is the "before" value for
+  acceptance item 2.
+- **Money**: the run read a balance of 45, and so does the table; the newest
+  ledger row is still 333 (run 49's reserve). Nothing was charged.
+- No edit job is left in flight on the bakery.
 
 ### A visible alternative, not recommended
 
