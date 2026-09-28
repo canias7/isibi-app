@@ -243,6 +243,35 @@ export function readBalance(ok, rows) {
   return Number.isFinite(n) && n >= 0 ? n : -1;
 }
 
+// ── THE DESCRIPTION IN THE SITE'S SETTINGS, OR "CANNOT TELL" (Test 6) ───────
+//
+// The served head says what the LAST publish shipped. The description stored
+// in the site's settings is what the NEXT publish will ship, and nothing the
+// canary read could see it: `source.json` holds the pages and components, the
+// served HTML holds the head, and a stored edit reply names the field it
+// changed (`moved: ["description"]`) and never the value. So an edit, or a
+// restore, that left the settings and the head apart stayed invisible until an
+// unrelated edit republished. This reads the answer of the app's own SEO &
+// Social tab (`GET /api/site/<slug>/seo`, owner only, read-only).
+//
+// `""` IS A REAL ANSWER — the site has no description set — and it is only
+// ever returned for a route that answered. Anything else is cannot-tell and
+// never a value: a status, a body that is not ok, a description that is not a
+// string. Never coerced: `String(null)` is "null".
+
+/** The stored site description, from the SEO route's answer: `{ok, description}` or `{ok: false, why}`. */
+export function readStoredHead(status, body) {
+  if (status !== 200) return { ok: false, why: `status ${status}` };
+  if (!body || typeof body !== "object" || body.ok !== true) return { ok: false, why: "the answer is not ok" };
+  if (typeof body.description !== "string") return { ok: false, why: "no description in the answer" };
+  return { ok: true, description: body.description };
+}
+
+/** The words a run prints for one reading of it. */
+export function storedHeadSaid(s) {
+  return s && s.ok === true ? JSON.stringify(s.description) : `UNREADABLE (${(s && s.why) || "not read"})`;
+}
+
 // ── THE AFTER-READ WAITS FOR THIS JOB'S OWN VERSION (run 32, 2026-09-25) ────
 //
 // Run 32 published a section move, and its after-read was the PREVIOUS build:

@@ -20,7 +20,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { EditPoll, readInstruction, instructionRefusal, watchEdit, watchReport, readRoutes, routesRefusal, MAX_ROUTER_PAGES } from "../scripts/canary-watch.mjs";
 import { publishedVersion, afterReadTarget, sameVersion, awaitVersion, afterReadVerdict, verdictSentence } from "../scripts/canary-watch.mjs";
-import { readBalance } from "../scripts/canary-watch.mjs";
+import { readBalance, readStoredHead, storedHeadSaid } from "../scripts/canary-watch.mjs";
 import { readFileSync } from "node:fs";
 
 const CANARY_RAW = readFileSync(new URL("../scripts/edit-canary.mjs", import.meta.url), "utf8");
@@ -539,4 +539,67 @@ test("the balance is a number of credits or -1, never a 0 made from an answer th
   const body = src.slice(at, end);
   assert.match(body, /readBalance\(r\.ok,/, "the canary reads the balance without readBalance");
   assert.doesNotMatch(body, /\|\|\s*0\b/, "the reader still turns an unreadable answer into 0");
+});
+
+// ── THE DESCRIPTION IN THE SITE'S SETTINGS (Test 6, 2026-09-28) ─────────────
+//
+// The served head says what the last publish shipped; the stored description is
+// what the next one will. Nothing the canary read could see the second, so an
+// edit or a restore that left the two apart was invisible. The reader answers
+// the SEO route's description, or cannot-tell, and never makes a value out of
+// an answer it could not read.
+test("the stored description is the SEO route's own answer, or cannot-tell, never a made-up value", () => {
+  const NEW = "Overnight sourdough from a Bristol side street, baked every morning and ready to collect at the counter.";
+  assert.deepEqual(readStoredHead(200, { ok: true, title: "Harbour Loaf", description: NEW, image: "", share: "", uploads: [] }), { ok: true, description: NEW });
+  // A site with no description set: a REAL answer, and only from a route that answered.
+  assert.deepEqual(readStoredHead(200, { ok: true, description: "" }), { ok: true, description: "" });
+  for (const [status, body, why] of [
+    [503, { ok: true, description: NEW }, "a failing status carrying a description"],
+    [404, { error: "not found" }, "a site the caller does not own"],
+    [401, { error: "sign in required" }, "no session"],
+    [0, null, "a dropped connection"],
+    [200, null, "a body that would not parse"],
+    [200, { ok: false, error: "couldn't read this site's settings just now" }, "the route's own refusal"],
+    [200, { description: NEW }, "no ok field"],
+    [200, { ok: "true", description: NEW }, "an ok that is not the boolean"],
+    [200, { ok: true }, "no description field"],
+    [200, { ok: true, description: null }, "a null description"],
+    [200, { ok: true, description: 7 }, "a number"],
+    [200, { ok: true, description: [NEW] }, "a list, which String() would flatten"],
+    ["200", { ok: true, description: NEW }, "a status that is not the number"],
+  ]) {
+    const r = readStoredHead(status, body);
+    assert.equal(r.ok, false, `${why} read as a stored description`);
+    assert.equal("description" in r, false, `${why} carried a description beside a refusal`);
+    assert.ok(typeof r.why === "string" && r.why.length > 0, `${why} refused without saying why`);
+  }
+  // What a run prints: the value quoted, so "" cannot read as nothing, and a
+  // refusal named with its reason.
+  assert.equal(storedHeadSaid({ ok: true, description: NEW }), JSON.stringify(NEW));
+  assert.equal(storedHeadSaid({ ok: true, description: "" }), '""');
+  assert.equal(storedHeadSaid({ ok: false, why: "status 503" }), "UNREADABLE (status 503)");
+  assert.equal(storedHeadSaid(undefined), "UNREADABLE (not read)");
+});
+
+test("the canary reads the stored description on every inventory and compares it on a paid run", () => {
+  const blank = (src) => src.replace(/^\s*\/\/.*$/gm, (m) => " ".repeat(m.length));
+  const src = blank(CANARY_RAW);
+  // THE READ, inside the inventory every mode takes — the free checks, both
+  // halves of the paid run, and the reading after a restore.
+  const at = src.indexOf("async function inventory(");
+  const end = src.indexOf("\n}\n", at);
+  assert.ok(at > 0 && end > at, "the inventory function is gone — the observer is alive");
+  const body = src.slice(at, end);
+  assert.match(body, /call\("GET",\s*`\/api\/site\/\$\{encodeURIComponent\(CANARY\)\}\/seo`\)/, "the inventory no longer reads the SEO route");
+  assert.doesNotMatch(body, /call\("(POST|PUT|PATCH|DELETE)"/, "the inventory writes something");
+  assert.match(body, /readStoredHead\(seo\.status,\s*seo\.json\)/, "the answer is read without readStoredHead, or without its status");
+  const rec = body.indexOf("const inv = {");
+  assert.ok(rec > 0, "the inventory record is gone");
+  assert.match(body.slice(rec, body.indexOf("};", rec)), /\bstored,/, "the record does not carry the stored description");
+  // PRINTED WITH THE BEFORE-READING, and a paid run records both sides in compare.json.
+  assert.match(src, /storedHeadSaid\(BEFORE\.stored\)/, "the before-reading does not print the stored description");
+  const cmpAt = src.indexOf("cmp.stored = {");
+  const write = src.indexOf("writeFileSync(`${EVID}/compare.json`");
+  assert.ok(cmpAt > 0 && write > cmpAt, "compare.json no longer records the stored description, or records it after it is written");
+  assert.match(src.slice(cmpAt, src.indexOf("\n", cmpAt)), /before:\s*BEFORE\.stored,\s*after:\s*AFTER\.stored/, "the comparison does not record both sides");
 });

@@ -53,6 +53,8 @@ import { requestVerdict, storedReplyVerdict, moneyVerdict, unpublishedVerdict, r
 import { removalVerdict } from "./canary-remove.mjs";
 import { OWNER_ROWS_LIMIT } from "./canary-rows.mjs";
 import { publishedVersion } from "./canary-watch.mjs";
+// TEST 6: the description in the site's settings, beside the one the head serves.
+import { readStoredHead, storedHeadSaid } from "./canary-watch.mjs";
 // AND THE RULES TEST'S (lido-axes-b): its approvals, its readers' verdicts, and
 // what "nothing published" means on a site with no version header — each
 // decided in the module, where tests drive it.
@@ -476,6 +478,11 @@ async function inventory(label, expect = "") {
   mkdirSync(`${EVID}/${label}`, { recursive: true });
   const src = await call("GET", `/api/site/source?slug=${encodeURIComponent(CANARY)}`);
   const sb = src.json || {};
+  // THE DESCRIPTION IN THE SITE'S SETTINGS (Test 6): what the NEXT publish will
+  // ship, beside the served head, which is what the last one did. The app's own
+  // SEO & Social route, read and never written. See `readStoredHead`.
+  const seo = await call("GET", `/api/site/${encodeURIComponent(CANARY)}/seo`);
+  const stored = readStoredHead(seo.status, seo.json);
   // THE PUBLIC ORIGIN IS THE SITEMAP'S OWN, never assembled from the slug: a
   // renamed site serves at its ALIAS and `sitemap.xml` carries the address
   // the platform substitutes at serve time.
@@ -526,6 +533,7 @@ async function inventory(label, expect = "") {
     pages: (sb.pages || []).map((p) => ({ path: p.path, bytes: String(p.source || "").length })),
     parts: (sb.parts || []).map((p) => ({ path: p.path || p.name, bytes: String(p.source || "").length })),
     render,
+    stored,
   };
   // THE BODIES TOO, because "complete before-inventory" means the source a
   // comparison can be made against, not a table of sizes.
@@ -545,6 +553,7 @@ console.log(`  parts  ${BEFORE.parts.map((p) => `${p.path}(${p.bytes}b)`).join("
 for (const [r, v] of Object.entries(BEFORE.render)) {
   console.log(`  ${r.padEnd(14)} ${String(v.bytes).padStart(6)}b  version=${v.version || (v.build ? "(none; build " + v.build + ")" : "(unreadable)")}  photos=${v.photos.length}  headings: ${v.headings.join(" | ")}`);
 }
+console.log(`  stored     description ${storedHeadSaid(BEFORE.stored)}`);
 check("the source read is complete (reads all true)", BEFORE.readsComplete === true, JSON.stringify(BEFORE.reads));
 
 // ── THE BALANCE, READ ON EVERY RUN ─────────────────────────────────────────
@@ -1224,6 +1233,8 @@ const partsBefore = BEFORE.parts.map((p) => p.path).sort();
 const partsAfter = AFTER.parts.map((p) => p.path).sort();
 cmp.parts = { before: partsBefore, after: partsAfter, preserved: JSON.stringify(partsBefore) === JSON.stringify(partsAfter) };
 console.log(`  components  ${partsBefore.length} -> ${partsAfter.length}  ${cmp.parts.preserved ? "preserved" : "CHANGED"}`);
+cmp.stored = { before: BEFORE.stored, after: AFTER.stored };
+console.log(`  stored description  ${storedHeadSaid(BEFORE.stored)} -> ${storedHeadSaid(AFTER.stored)}`);
 writeFileSync(`${EVID}/compare.json`, JSON.stringify(cmp, null, 2));
 
 // THE PRESERVATION VERDICT, stated as its own line so a published edit that
