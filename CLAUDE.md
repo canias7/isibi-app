@@ -238,6 +238,21 @@ the two lists as asked is unmeasured. Unit CI (8,201, all 86 cases of the
 three changed files by name) and the site build (twelve counts green,
 site-build 404) are green on `d6f564a5`, and a merge rolls the container
 (predicted `a217f74c81122512`).
+**MERGED AND DEPLOYED at `e4b15ef6`** (deploy 2164, 2026-09-28 16:31 UTC, image
+`a217f74c81122512`, predicted on both ends and built), **runtime-confirmed by the
+owner's free run 48** (36454708479, 16:57 UTC). **Run 49, the owner's paid retry
+(36458780197, 17:32–17:39 UTC), passed 8 of its 9 checks, and the owner closed
+its removal**: the real picker answered `{routed: [], additional: []}`, the menu
+rung took exactly the Gallery link off four menus (the home page keeping its own
+"Today's bake"), and the removal took `gallery.tsx` alone, free; 50 → 45. **The
+ninth failed: `/gallery` answered a plain 404, not the 301 home, and it is a
+PUBLISH defect on every site since 2026-08-17** (*run 49 and the redirects no
+publish carried*, in *Test 5*): `composePublish` handed `mergeRedirects` the
+parsed sidecar, whose lists are `routesCsv`/`redirectsCsv`, so no removed page
+got a redirect and the next publish dropped every stored one (`/the-starter`,
+301 since run 39, 404s too). **Fixed on the branch at `2cf8461c`, not merged**:
+the read goes through `manifestFromCsv`. Predicted image `8a10715339cdc780`. The
+free restore to `8btpep` is the owner's press.
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -692,6 +707,13 @@ fast-forward's `origin/main`) answered the same id. The log answered `built
 …:9038e90ab***d5d7fe (registry answered 404; ***88 inputs …)` and
 `- …:369d7b***e5bae25b0` → `+ …:9038e90ab***d5d7fe` under `SUCCESS Modified
 application`; **0 `CACHED` lines**, image step 2m10s, Wrangler 17s, job 3m01s.
+**Deploy 2164 (2026-09-28) was predicted on both ends and confirmed**:
+`origin/main` `14df0225` answered `9038e90ab1d5d7fe` and the tip `e4b15ef6`
+answered `a217f74c81122512`, both from 188 inputs and 158 distinct paths. The
+log answered `built …:a2***7f74c8***225***2 (registry answered 404; ***88
+inputs …)` and `…:9038e90ab***d5d7fe` → `…:a2***7f74c8***225***2` under
+`SUCCESS Modified application`; **0 `CACHED` lines**, image step 2m36s,
+Wrangler ~20s, job 3m29s; `No updated asset files to upload`.
 The twelfth
 added a SECOND CHANNEL — **deploy 2139 (2026-09-21) was predicted before the
 push over the local merge commit `28e46e91` as `82bccb3bee50e4fd`, against
@@ -10574,7 +10596,7 @@ after it hold the test and the proposal. What is law here:
   uploaded `if: always()`. So D2's artifact must equal step 0's, a free check
   that nothing moved the grants between the two presses.
 
-### TEST 5: A PAGE REMOVAL AND ITS RESTORATION, PREPARED, BOTH FREE CHECKS PASSED, THE PAID PRESS (RUN 47) STOPPED AT ITS FIRST MESSAGE, AND THE APPROVED CORRECTION — ITS FIRST TWO VERSIONS HELD, ITS THIRD BUILT — IS ON THE BRANCH (2026-09-27 → 09-28, not merged)
+### TEST 5: A PAGE REMOVAL AND ITS RESTORATION, PREPARED, BOTH FREE CHECKS PASSED, THE PAID PRESS (RUN 47) STOPPED AT ITS FIRST MESSAGE, THE APPROVED CORRECTION (ITS THIRD VERSION) MERGED AND DEPLOYED IN 2164, AND RUN 49 REMOVED THE PAGE — ITS REDIRECT FAILED ON A PUBLISH DEFECT, FIXED ON THE BRANCH (2026-09-27 → 09-28)
 
 Owner: *"Prepare one bounded page-removal-and-restoration test using an
 existing suitable fixture and the existing workflow … First reconcile this
@@ -10915,7 +10937,96 @@ The full plan, the expected bodies and the presses are the checklist's
   sha and the deploy's image (predicted `a217f74c81122512`, re-predicted over
   the merge commit); the free rehearsal of `5-page-remove`; the paid run,
   about 4–6 credits (an estimate, not a cap; balance 50); the free restore to
-  `8btpep`, reading `/gallery` without following redirects.
+  `8btpep`, reading `/gallery` without following redirects. **Pressed since:
+  merged and deployed in 2164, run 48 free, run 49 paid (next paragraph).**
+
+#### RUN 49 AND THE REDIRECTS NO PUBLISH CARRIED (2026-09-28; the fix on the branch at `2cf8461c`, not merged)
+
+Owner: *"Run 49 proves the routing correction works with the real model: the
+menu link and page were removed, with the expected source preservation. Keep
+that result closed. The remaining failure is /gallery returning 404 instead of
+the expected homepage redirect."*
+
+- **THE REMOVAL, CLOSED BY THE OWNER.** Run 49 (36458780197, from `main` at
+  `e4b15ef6`): message 1 routed `nav` + `remove` (2 credits); the door's real
+  picker answered `door:answer {routed: [], additional: []}`; the menu rung
+  took the Gallery link off all four menus and the home page kept "Today's
+  bake"; 213 s. Message 2 went only after message 1's stored success, routed
+  `page` `/gallery` `remove` (1 credit), and removed `gallery.tsx` alone,
+  `exempt`, cost 0; 168 s. The chain `8btpep → tkmpgt → r5cbyv` VERIFIED, the
+  stored bodies equal the expected ones, and no page links to `/gallery`.
+  50 → 45 = routing 2 + 1 and the menu edit's one reserve of 2 (ledger row
+  333). **Eight of `removalVerdict`'s nine checks passed.**
+- **THE NINTH FAILED, AND THE FAILURE IS THE PUBLISH'S.** Read live at
+  17:53:09Z, before any restore: `/gallery`, `/gallery?x=1`, `/gallery/`,
+  `/the-starter` and `/nonexistent-page` each answer **404 `text/plain`, the
+  nine bytes `Not found`, with NO `x-site-*` stamp**, while
+  `/assets/definitely-missing-49.js` answers the same nine bytes **WITH** the
+  script's `x-site-build`/`x-site-version`. **The stamp is the discriminator**:
+  the script stamps every answer, so an unstamped 404 is not the script's. It
+  is the dispatcher's static fallback, reached after the script's HTML
+  not-found (`unknownAddress`) and a `siteRedirectFor` lookup that found
+  nothing. **So the plain text did not bypass a stored redirect: none was
+  stored.** The container harness had already proved the real script answers
+  an undeclared route with a whole HTML document (`site-build.mjs`, "an
+  undeclared route answers 404, and still serves a page").
+- **THE CAUSE IS ONE READ, IN `composePublish`, SINCE 2026-08-17
+  (`53147339`).** It reads the previous sidecar with `JSON.parse` and hands
+  that to `mergeRedirects`, which reads `prev.routes` and `prev.redirects`;
+  the sidecar stores `routesCsv` and `redirectsCsv`. So `prev` carried
+  neither: no gone route got a redirect, and the next publish dropped every
+  stored one. Only a publish's own `renamed` pair survived, until the publish
+  after it: run 39's `/the-starter=/starter` was dropped by run 49's menu
+  publish. **The serve side was fixed for exactly this shape on 2026-08-22
+  (`c5c6b91b`, `manifestFromCsv`) and the publish side was not.**
+- **THE FIX IS THAT READER, ON THE PUBLISH SIDE.** `prev =
+  manifestFromCsv(side.routesCsv, side.redirectsCsv)`. Nothing else moved: the
+  serve path, `mergeRedirects`, the sidecar's shape, a corrupt sidecar still
+  suppressing the manifest (`prevUnreadable`). **Redirects dropped since
+  2026-08-17 are not recoverable** — the fix carries only what a sidecar holds
+  now.
+- **WHY NO GUARD SAW IT — the wiring trap, at a storage boundary.**
+  `mergeRedirects` is unit-tested with the `{routes, redirects}` it wants;
+  `composePublish` is guarded by source reads that the sidecar IS read and IS
+  handed over, never what the handed value looks like; and every serve test
+  writes its sidecar by hand. **Nothing ever ran a publish and then served
+  what it wrote**, which is the whole of the new file.
+- **EVIDENCE.** `test/publish-redirects.test.mjs`, 4 cases, every sidecar
+  written by the real edit route on ONE store and every answer out of the real
+  dispatcher: the site's life (the starter move, a page edit keeping every
+  route, the gallery removal) on both money paths, checking each version's
+  staged sidecar; a visitor's answers (`/gallery` 301 home with `public,
+  max-age=600`, the query and a trailing slash, `/the-starter` → `/starter`,
+  real pages 200, `/nonexistent-page` 404, `/assets/…` and `/gallery.png` the
+  script's own stamped 404); and the free restore through the real route
+  (`/gallery` 200 again, the version's own map, and a publish after it keeping
+  both). The site's script is a stand-in whose routes are `siteRoutes` over
+  the stored pages and whose build stamp is the pointer's, so the publish's
+  own `confirmSiteWorker` answers at once. **Red 4 of 4 on `e4b15ef6`**, each
+  on the defect, and there the stand-in serves exactly the live answers
+  (9-byte `Not found`, unstamped; the missing file stamped). **Three targeted
+  probes, all killed** (routes dropped from the read: 3 of 4 fail; redirects
+  dropped: 4; the parsed sidecar handed over: 4), a comment-only control
+  surviving, `worker.js` byte-identical afterwards. The 71 files that read the
+  publish, the sidecar or the worker harness: 1,764 / 1,764. **Suite 8,205
+  locally** (`8205 / 8203 / 0 / 2`), +4 against 8,201, exactly the new file.
+- **THE IMAGE MOVES ON A MERGE**: predicted over `2cf8461c`
+  **`8a10715339cdc780`** (188 inputs, 158 distinct paths), against main's
+  `a217f74c81122512`.
+- **FOUND, NOT CHANGED.** (1) **The branded not-found page is thrown away on
+  every Start site**: when the lookup finds nothing, the dispatcher falls
+  through to the static path, which has no `index.html` on a Start site and
+  answers the bare nine bytes. The comment above that branch says the script's
+  own answer stands, and `site-worker-serve`'s *"…keeps the script's own
+  branded 404"* asserts only the status. (2) `composePublish` answers `routes:
+  routesCsv.split("\n")` over a comma-joined list, so every build manifest's
+  `routes` is one joined string; nothing reads that field.
+- **THE RESTORE**: the session's dispatch answered **403**; the press is the
+  owner's (`edit canary` from `main`, spend `no`, `restore_version`
+  `01790468089054-8btpep`, site `fold-lane-bakery`, `expect_deploy`
+  `e4b15ef6edc7b5ad8a493c886a83d6ac7ee56aa0`, `expect_image`
+  `a217f74c81122512`). A restore activates the version's OWN staged sidecar,
+  so `/the-starter` should 301 to `/starter` again without the fix.
 
 ### A SECTION HEADED BY THE KIT (2026-09-26, `2f2fed58` + `5ec82214`, merged and deployed in deploy 2162)
 
@@ -14670,6 +14781,16 @@ does name one — moved up to the supported list on 2026-09-20.)*
 ---
 
 ## Backlog
+
+- **THE BRANDED NOT-FOUND PAGE IS THROWN AWAY ON EVERY START SITE (found
+  2026-09-28 tracing run 49; not changed).** For an address a site does not
+  have, the script answers its branded not-found document with a 404; when
+  `siteRedirectFor` finds nothing, the dispatcher does not return it but falls
+  through to the static path, which on a Start site has no `index.html`, and
+  answers the bare nine bytes `Not found`. The comment above says the script's
+  answer stands; `site-worker-serve`'s test of it checks only the status. A
+  small serve-side change (return the script's absolutized 404 when no
+  redirect is found) is the owner's call.
 
 - **THE RULES REPLY SHOWS LITERAL ASTERISKS (run 44, recorded; not changed).**
   `rulesReply` (`builder/site-rules.mjs`) writes each table name as

@@ -166,7 +166,7 @@ items are in *the rules rung — the recommended next test, revised*, after
 Test 4, and the built harness, its evidence and the exact presses are in *the
 rules test, built* at the end of that section.
 
-## Test 5 — a page removal and its restoration (prepared 2026-09-27; both free checks passed as runs 45 and 46; the paid press, run 47, stopped at its first message and changed nothing: a product finding, reproduced free; the owner approved a correction and held its first two versions — the first dropped work asked for beside a removal, the second read the request from how many lanes the picker named — and the third, which tells the picker what was routed and asks for other work by name, is built on the branch with its tests, 2026-09-28, not merged)
+## Test 5 — a page removal and its restoration (prepared 2026-09-27; both free checks passed as runs 45 and 46; the paid press, run 47, stopped at its first message and changed nothing: a product finding, reproduced free; the owner approved a correction and held its first two versions — the first dropped work asked for beside a removal, the second read the request from how many lanes the picker named — and the third, which tells the picker what was routed and asks for other work by name, is merged and deployed in deploy 2164; the paid retry, run 49, removed the menu link and the page as asked (closed by the owner) and its redirect check failed on a publish defect, fixed on the branch at `2cf8461c`, 2026-09-28, not merged)
 
 The owner: *"Prepare one bounded page-removal-and-restoration test using an
 existing suitable fixture and the existing workflow. Capture the saved version
@@ -786,6 +786,43 @@ re-run does that.
   the re-run does not repeat it.
 - Components, which this site does not store.
 - Hydration (#418) and translation, both parked.
+
+### Run 49 — the removal passed; its redirect failed on a publish defect (2026-09-28)
+
+Deploy 2164 (`e4b15ef6`, image `a217f74c81122512`) carried the correction, and
+the owner's free run 48 confirmed it live. **Run 49, the owner's paid retry
+(36458780197), passed 8 of its 9 checks, and the owner closed the removal**:
+- **message 1**, "Take Gallery out of the menu.": routed `nav` + `remove`; the
+  real picker answered `{routed: [], additional: []}`; the Gallery link came off
+  all four menus, and the home page kept "Today's bake";
+- **message 2**, "Remove the gallery page.": sent only after message 1's stored
+  success; it removed `gallery.tsx` alone, free;
+- the stored bodies equal the expected ones, and no page links to `/gallery`;
+- **cost**: 50 → 45, routing 2 + 1 and the menu edit 2.
+
+**The ninth check failed: `/gallery` answered 404, not a 301 home.**
+- **Live, before the restore**: `/gallery` and `/the-starter` (301 since run 39)
+  answer the bare nine bytes `Not found` with no version stamp; a missing file
+  answers the same bytes with the script's stamp.
+- **So the plain text was not the script's answer.** It was the dispatcher's
+  last resort, reached after the script's HTML not-found and a redirect lookup
+  that found nothing. Nothing had been stored to find.
+- **Cause**: since 2026-08-17 the publish handed `mergeRedirects` the parsed
+  sidecar, whose lists are `routesCsv`/`redirectsCsv`, not the
+  `{routes, redirects}` it reads. So a removed page never got a redirect, and
+  the next publish dropped every stored one.
+- **Fix, on the branch at `2cf8461c`, not merged**: the read goes through
+  `manifestFromCsv`, which the serving side has used since 2026-08-22.
+- **Evidence**: `test/publish-redirects.test.mjs` runs three publishes through
+  the real edit route, serves the result through the real dispatcher, and
+  restores through the real route. It fails 4 of 4 on `e4b15ef6`, where it
+  serves exactly the live answers, and passes 4 of 4 with the fix. Kept by the
+  fix: a missing file, an unknown address, the query string, and a restored
+  page that serves itself, also after the next publish.
+- **Found, not changed**: the branded not-found page is replaced by the bare
+  text on every Start site.
+- **The restore to `8btpep` is the owner's free press.** It puts back that
+  version's own map, so `/the-starter` should 301 again without the fix.
 
 ## Remaining work after Test 3 (2026-09-26), and Test 4 prepared for approval
 
