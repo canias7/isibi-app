@@ -11020,7 +11020,17 @@ the expected homepage redirect."*
   own answer stands, and `site-worker-serve`'s *"…keeps the script's own
   branded 404"* asserts only the status. (2) `composePublish` answers `routes:
   routesCsv.split("\n")` over a comma-joined list, so every build manifest's
-  `routes` is one joined string; nothing reads that field.
+  `routes` is one joined string; nothing reads that field. (3) **A QR code
+  still points at the removed page, and the link rule cannot see it.**
+  `/visit` renders `SITE_QRS.gallery` ("See photographs of our work"), and
+  the live `qr-gallery.svg` encodes exactly
+  `https://fold-lane-bakery.gofarther.app/gallery` (`qrEncodes`: all 566 dark
+  modules match; `/`, `/visit` and `/gallery/` do not). `mergeAddonPages`
+  refuses a removal only while a page's SOURCE names the route, and a QR's
+  destination lives in the design config. So the removal went through, and the
+  code led to a 404; with the fix it leads home, under a label promising
+  photographs. Whether such a removal should refuse, like a linked page, is
+  the owner's call.
 - **THE RESTORE**: the session's dispatch answered **403**; the press is the
   owner's (`edit canary` from `main`, spend `no`, `restore_version`
   `01790468089054-8btpep`, site `fold-lane-bakery`, `expect_deploy`
@@ -14782,6 +14792,11 @@ does name one — moved up to the supported list on 2026-09-20.)*
 
 ## Backlog
 
+- **A PAGE REMOVAL DOES NOT SEE A QR CODE POINTING AT THE PAGE (found
+  2026-09-28, run 49; not changed).** fold-lane-bakery's `/visit` still shows
+  `qr-gallery.svg`, which encodes its `/gallery` address, after `/gallery` was
+  removed. The link rule reads page source only. The owner's call: refuse the
+  removal while a QR names the route, or re-point the code, or accept it.
 - **THE BRANDED NOT-FOUND PAGE IS THROWN AWAY ON EVERY START SITE (found
   2026-09-28 tracing run 49; not changed).** For an address a site does not
   have, the script answers its branded not-found document with a 404; when

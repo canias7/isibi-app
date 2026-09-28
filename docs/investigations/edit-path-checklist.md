@@ -819,8 +819,12 @@ the owner's free run 48 confirmed it live. **Run 49, the owner's paid retry
   serves exactly the live answers, and passes 4 of 4 with the fix. Kept by the
   fix: a missing file, an unknown address, the query string, and a restored
   page that serves itself, also after the next publish.
-- **Found, not changed**: the branded not-found page is replaced by the bare
-  text on every Start site.
+- **Found, not changed**:
+  - the branded not-found page is replaced by the bare text on every Start
+    site;
+  - a QR code on `/visit` still encodes the removed `/gallery` address,
+    checked with `qrEncodes` against the live file. The removal's link rule
+    reads page source, and a QR's destination lives in the design config.
 - **The restore to `8btpep` is the owner's free press.** It puts back that
   version's own map, so `/the-starter` should 301 again without the fix.
 

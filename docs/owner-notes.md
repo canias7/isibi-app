@@ -255,6 +255,16 @@ before, exactly these). CI is in the report.
    name says the branded page is kept, but the test only checks the 404.
 2. Each saved version's record lists its pages as one joined line instead of
    a list. Nothing reads that field today.
+3. **A QR code on your site still points at the removed page.** The /visit
+   page shows the QR code "See photographs of our work", and I checked the
+   live code: it encodes the /gallery address exactly. The removal checks
+   whether any page's text links to /gallery, but a QR code's address is kept
+   with the site's design settings, not in a page, so the check never saw it.
+   Right now that code leads to "Not found". With the fix merged it would lead
+   to the home page, still under a label promising photographs. Whether
+   removing a page a QR code points at should be refused, like a linked page,
+   is your call. The restore puts the page back, which settles it for this
+   site for now.
 
 **The restore: yours to press (free).** My one try was refused (403), as
 before. On **edit canary**, from `main`:
