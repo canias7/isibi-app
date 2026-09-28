@@ -234,9 +234,10 @@ it TWICE**:
   replies (run 47 printed "UI MODE PASSED").
 
 Every model answer in its evidence is supplied, and whether a real picker fills
-the two lists as asked is unmeasured. Unit CI is green on `d6f564a5` (8,201,
-all 86 cases of the three changed files by name), and a merge rolls the
-container (predicted `a217f74c81122512`).
+the two lists as asked is unmeasured. Unit CI (8,201, all 86 cases of the
+three changed files by name) and the site build (twelve counts green,
+site-build 404) are green on `d6f564a5`, and a merge rolls the container
+(predicted `a217f74c81122512`).
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -10854,8 +10855,19 @@ The full plan, the expected bodies and the presses are the checklist's
     against 8,187**, exactly the file's 27 → 41; **unit CI run `36444601748`
     on `d6f564a5` at `8201 / 8197 / 0 / 4`** (`duration_ms 127,430`), the
     checkout at `d6f564a5`, all 86 cases of the three changed files by name,
-    8,201 distinct results, no gap, no `not ok`. No sweep (the owner's
-    instruction).
+    8,201 distinct results, no gap, no `not ok`; **`site build` run
+    `36444602008` on `d6f564a5`** (15:34:28 → 15:55:53Z, **21m25s**, all
+    twenty steps, the checkout at `d6f564a5`) read all twelve counts green
+    out of its per-step files: TAP 397/397/0/0, kit-typecheck 4, site-build
+    **404**, contrast-cases 16, theme-seam 11, theme-render 29, site-routing
+    14, site-runtime 47, and kit-render / kit-a11y / kit-effects / kit-paint
+    `all passed`; census 7 + 4 + 1 = **12**; the only `##[error]` lines the
+    two known annotations, `tsc`-format lines 9 / 2 / 7, `site-build.mjs`
+    **15m29s**. The documents commit `a88e8567` starts no site build and
+    reads `8201 / 8197 / 0 / 4` on unit run `36446630623`, so the notes
+    moved the suite by zero; the local suite over the edited documents read
+    `8201 / 8199 / 0 / 2` too. **The stamp chain ends at `d6f564a5`.** No
+    sweep (the owner's instruction).
   - **The image**: predicted over `d6f564a5` **`a217f74c81122512`** (188
     inputs, 158 distinct paths) against main's `9038e90ab1d5d7fe` and
     `50b97183`'s `776b004f79e11a6a`, which the predictor reproduces first.

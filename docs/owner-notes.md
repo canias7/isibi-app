@@ -245,8 +245,9 @@ and the menu message with the layout as its only extra. `main` fails 22.
 8,201 tests pass here (14 new). GitHub's unit run on `d6f564a5` read 8,201,
 with all 86 tests of the three changed files passing by name and none failing.
 GitHub's site-build check (which builds real sites and opens them in a real
-browser) was still running on `d6f564a5` when these notes were written; its
-result goes in the next commit.
+browser) also passed on `d6f564a5`: all twelve counts green, in 21 minutes.
+The notes commit after it (`a88e8567`) read 8,201 again on GitHub, so writing
+these notes changed no test.
 
 **What it still can't tell:**
 1. Whether a real picker fills the two lists as asked. Every answer here is

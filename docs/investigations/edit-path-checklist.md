@@ -684,7 +684,18 @@ selector's actual input/tool contract as well as supplied answers."*
     exactly the file's 27 → 41;
   - **unit CI run `36444601748` on `d6f564a5`: 8,201 / 8,197 / 0 / 4**, the
     checkout at `d6f564a5`, all 86 cases of the three changed test files
-    passing by name, 8,201 distinct results with no gap, none failing.
+    passing by name, 8,201 distinct results with no gap, none failing;
+  - **`site build` run `36444602008` on `d6f564a5`** (15:34:28 → 15:55:53Z,
+    21m25s, all twenty steps, the checkout at `d6f564a5`) read all twelve
+    counts green out of its per-step files: TAP 397/397/0/0, kit-typecheck
+    4, site-build 404, contrast-cases 16, theme-seam 11, theme-render 29,
+    site-routing 14, site-runtime 47, and kit-render / kit-a11y /
+    kit-effects / kit-paint `all passed` (census 7 + 4 + 1 = 12). The only
+    `##[error]` lines are the two known annotations, `tsc`-format lines read
+    9 / 2 / 7, and `site-build.mjs` took 15m29s;
+  - the documents commit `a88e8567` starts no site build, and its unit run
+    `36446630623` reads 8,201 / 8,197 / 0 / 4, so writing the notes moved
+    the suite by zero.
 
   No mutation sweep (the owner's instruction).
 - **The image**: `worker.js`, `builder/site-lanes.mjs` and
