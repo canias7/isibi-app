@@ -166,7 +166,7 @@ items are in *the rules rung — the recommended next test, revised*, after
 Test 4, and the built harness, its evidence and the exact presses are in *the
 rules test, built* at the end of that section.
 
-## Test 5 — a page removal and its restoration (prepared 2026-09-27; both free checks passed as runs 45 and 46; the paid press, run 47, stopped at its first message and changed nothing: a product finding, reproduced free; the owner approved a correction and held its first two versions — the first dropped work asked for beside a removal, the second read the request from how many lanes the picker named — and the third, which tells the picker what was routed and asks for other work by name, is merged and deployed in deploy 2164; the paid retry, run 49, removed the menu link and the page as asked (closed by the owner) and its redirect check failed on a publish defect, fixed on the branch at `2cf8461c`, 2026-09-28, not merged)
+## Test 5 — a page removal and its restoration (prepared 2026-09-27; both free checks passed as runs 45 and 46; the paid press, run 47, stopped at its first message and changed nothing: a product finding, reproduced free; the owner approved a correction and held its first two versions — the first dropped work asked for beside a removal, the second read the request from how many lanes the picker named — and the third, which tells the picker what was routed and asks for other work by name, is merged and deployed in deploy 2164; the paid retry, run 49, removed the menu link and the page as asked (closed by the owner) and its redirect check failed on a publish defect, fixed on the branch at `2cf8461c`, 2026-09-28, not merged; the free restore, run 50, put `8btpep` back)
 
 The owner: *"Prepare one bounded page-removal-and-restoration test using an
 existing suitable fixture and the existing workflow. Capture the saved version
@@ -787,7 +787,7 @@ re-run does that.
 - Components, which this site does not store.
 - Hydration (#418) and translation, both parked.
 
-### Run 49 — the removal passed; its redirect failed on a publish defect (2026-09-28)
+### Run 49 — the removal passed; its redirect failed on a publish defect (2026-09-28; restored by run 50)
 
 Deploy 2164 (`e4b15ef6`, image `a217f74c81122512`) carried the correction, and
 the owner's free run 48 confirmed it live. **Run 49, the owner's paid retry
@@ -825,8 +825,21 @@ the owner's free run 48 confirmed it live. **Run 49, the owner's paid retry
   - a QR code on `/visit` still encodes the removed `/gallery` address,
     checked with `qrEncodes` against the live file. The removal's link rule
     reads page source, and a QR's destination lives in the design config.
-- **The restore to `8btpep` is the owner's free press.** It puts back that
-  version's own map, so `/the-starter` should 301 again without the fix.
+- **The restore to `8btpep` ran as the owner's free run 50** (36466791459,
+  18:40–18:41Z): preflight `e4b15ef6edc7` / `a217f74c81122512`, the site
+  reporting `8btpep` after 7 reads, nothing charged, balance 45. Checked
+  afterwards, read-only:
+  - the run's own source read is complete and its five pages are
+    byte-identical to run 49's before-read, `gallery.tsx` included;
+  - `/`, `/gallery`, `/order`, `/starter` and `/visit` answer 200 at
+    `8btpep`, read without following redirects, and each page's links equal
+    run 49's before copy;
+  - `/the-starter` 301s to `/starter` (the version's own staged map), and
+    the sitemap lists the five pages;
+  - a real browser reads the five routes as run 39 read the same version,
+    except the kit's `OpenNow` line on `/visit`, which follows the clock.
+- **Until `2cf8461c` merges, the next publish of any site drops its stored
+  redirects again**, `/the-starter`'s included.
 
 ## Remaining work after Test 3 (2026-09-26), and Test 4 prepared for approval
 

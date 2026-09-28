@@ -251,8 +251,14 @@ publish carried*, in *Test 5*): `composePublish` handed `mergeRedirects` the
 parsed sidecar, whose lists are `routesCsv`/`redirectsCsv`, so no removed page
 got a redirect and the next publish dropped every stored one (`/the-starter`,
 301 since run 39, 404s too). **Fixed on the branch at `2cf8461c`, not merged**:
-the read goes through `manifestFromCsv`. Predicted image `8a10715339cdc780`. The
-free restore to `8btpep` is the owner's press.
+the read goes through `manifestFromCsv`. Predicted image `8a10715339cdc780`.
+**The owner's free restore, run 50 (36466791459, 18:40–18:41 UTC), put `8btpep`
+back**: every route answers 200 at it, `/gallery` is a real page again, the menus
+and the five stored pages equal the before-read byte for byte, `/the-starter`
+301s to `/starter` again (the version's own staged map), and a real browser reads
+the five pages as run 39 did at the same version; balance 45. **Until the fix
+is merged, the next publish on any site drops its stored redirects again**,
+`/the-starter`'s included.
 
 > **Read `docs/owner-notes.md` at the start of every session** — the owner's
 > running log and how they like things done. Keep it updated.
@@ -10940,7 +10946,7 @@ The full plan, the expected bodies and the presses are the checklist's
   `8btpep`, reading `/gallery` without following redirects. **Pressed since:
   merged and deployed in 2164, run 48 free, run 49 paid (next paragraph).**
 
-#### RUN 49 AND THE REDIRECTS NO PUBLISH CARRIED (2026-09-28; the fix on the branch at `2cf8461c`, not merged)
+#### RUN 49 AND THE REDIRECTS NO PUBLISH CARRIED (2026-09-28; the fix on the branch at `2cf8461c`, not merged; run 50 restored `8btpep`)
 
 Owner: *"Run 49 proves the routing correction works with the real model: the
 menu link and page were removed, with the expected source preservation. Keep
@@ -11037,6 +11043,31 @@ the expected homepage redirect."*
   `e4b15ef6edc7b5ad8a493c886a83d6ac7ee56aa0`, `expect_image`
   `a217f74c81122512`). A restore activates the version's OWN staged sidecar,
   so `/the-starter` should 301 to `/starter` again without the fix.
+- **PRESSED AS RUN 50 (36466791459, the owner's, from `main` at `e4b15ef6`,
+  18:39:56–18:41:15Z), AND EVERY CHECK PASSES.**
+  - Preflight `e4b15ef6edc7` / `a217f74c81122512`, both readers agreeing, `ALL
+    FREE CHECKS PASSED`. 11 versions listed: row 1 `r5cbyv` (parent `tkmpgt`),
+    row 2 `tkmpgt` (parent `8btpep`), row 3 the target. POST 200 `{files: 24,
+    swept: 0, worker: true}`; the site reported `8btpep` after 7 reads. Balance
+    45, nothing charged.
+  - **The stored source**: the run's own read is complete (`reads` all true) and
+    its five pages are byte-identical to run 49's before-read, `gallery.tsx`
+    (3,007 chars, `4e8b82aa901741e0`) included; no components on either side.
+  - **The live site**, read by the session at 18:42:31Z with redirects NOT
+    followed: `/`, `/gallery`, `/order`, `/starter` and `/visit` each 200 at
+    `8btpep`, each page's links equal to run 49's before copy (the Gallery link
+    back in the four menus that had it); `/the-starter` 301 → `/starter` with
+    `public, max-age=600`; the sitemap lists the five pages.
+  - **A real browser over TLS-verified live bytes** (from 18:45:23Z) reads the five
+    routes exactly as run 39's reading of the same version on 2026-09-27 —
+    headings, pictures (loaded, same sizes), links, menus, 0 console errors,
+    page errors, failed or non-OK requests — except one line on `/visit`: the
+    kit's `OpenNow` read "opens 9 AM today" then and "opens 8 AM Wednesday" now,
+    computed from the clock; `visit.tsx` is byte-identical.
+  - **The QR code on `/visit` leads to a real page again**, since `/gallery` is
+    back. The finding stands for the next removal of a page a code points at.
+  - **Still live**: the publish defect. The next publish of any site, this one
+    included, writes a map with no carried redirects until `2cf8461c` merges.
 
 ### A SECTION HEADED BY THE KIT (2026-09-26, `2f2fed58` + `5ec82214`, merged and deployed in deploy 2162)
 
@@ -13731,6 +13762,10 @@ balance row at 17:52:51Z.
 moved 3**, the two routing calls 2 + 1; both edits `billing: none` and
 unpublished, so no ledger row; the newest is still run 44's reserve), read on
 the balance row at 23:15Z.
+**Balance 45** at run 49's end (2026-09-28, Test 5's paid retry: **50 → 45,
+moved 5**, routing 2 + 1 and the menu edit's one reserve of 2, ledger row 333;
+the page removal `exempt`, cost 0), and read 45 again by run 50's free restore
+(18:41Z).
 **Between run 31 and
 run 32 the balance rose from 1 to 101** (read on the ledger at 18:09Z and by the
 canary before its paid call). **Only the readings are recorded; how it rose is
