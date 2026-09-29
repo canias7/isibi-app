@@ -123,7 +123,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Test 6 — two changes in one message, one on a named page (prepared 2026-09-28, request clarified the same evening; the free check, run 51, passed; the paid run, run 52, shipped the description, and the router put the Visit move off to a later turn; the free restore, run 53, put everything back; the owner: run 52 does not close Test 6; the routing/execution mismatch it showed is fixed and deployed, 2026-09-29, deploy 2166, runtime-confirmed by the free check, run 54; the retry, run 57, stored and published both changes; Test 6 is pending the owner's review until the evidence and the free restore are complete)
+## Test 6 — two changes in one message, one on a named page (prepared 2026-09-28, request clarified the same evening; the free check, run 51, passed; the paid run, run 52, shipped the description, and the router put the Visit move off to a later turn; the free restore, run 53, put everything back; the owner: run 52 does not close Test 6; the routing/execution mismatch it showed is fixed and deployed, 2026-09-29, deploy 2166, runtime-confirmed by the free check, run 54; the retry, run 57, stored and published both changes; the free restore, run 58, put everything back; the evidence and the restoration are complete, and closing Test 6 is the owner's decision)
 
 Owner, 2026-09-28: *"prepare one bounded test combining two requested changes
 in one message, ideally also covering a named non-home page. Use an existing
@@ -815,8 +815,51 @@ reads PASSED, and its comparison is VERIFIED.
 - **Status**: both requested changes are shown in the stored and published
   site, with a real router and picker on deploy 2166. The owner, 2026-09-29:
   *"Keep Test 6 pending my review until the evidence and restoration are
-  complete."* The free restore to `8btpep` (press 3) is next, and its
-  readings complete the evidence.
+  complete."* The free restore to `8btpep` (press 3) is run 58, below.
+
+### Run 58 — the free restore put everything back (2026-09-29)
+
+Pressed by the owner from `main` at `a64729ad` with the values in press 3
+([run 36526545037](https://github.com/canias7/isibi-app/actions/runs/36526545037),
+05:31:08–05:31:54 UTC; the evidence artifact is 23,960 bytes, sha256
+`082313b9…`). The preflight read `a64729ad741a` and `6fbaccad82fe879d`, and
+every free check passed.
+- **The restore**: the site listed 13 versions with run 57's
+  `01790655564541-c4usi2` live; the app's own restore of `8btpep` (row 5)
+  answered 200 (24 files, `worker: true`), and the site reported `8btpep` on
+  the first read.
+- **Stored**: the five pages equal the table, sha256 for sha256, with no
+  component, and the stored description reads the original again (the second
+  time that is observed, after run 53).
+- **Published**, read live at 05:33:41 UTC (public GETs, redirects not
+  followed):
+  - all five routes answer 200 at `8btpep`;
+  - every page's head tags, script names included, and its page markup are
+    identical to run 57's `8btpep` before-read. So `/` and `/starter` show
+    the original description again, the other three keep their own, and the
+    menus and links are as before. Run 58's own saved pages equal the same
+    before-read;
+  - `/the-starter`, `?x=1` and the trailing slash answer 301 to `/starter`
+    with `public, max-age=600`; `/nonexistent-page` answers 404; the sitemap
+    lists the five;
+  - the QR file and the stylesheet carry their recorded sha256s, `/card.png`
+    is `ce884f5b…` again (31,778 bytes), and every photo's bytes match its
+    name.
+- **In a real Chromium**, the live pages drawn as run 57's were (GET only,
+  reduced motion): all five are identical to the pixel to the `8btpep`
+  before-read, every image loaded, and there are 0 page errors. Each page
+  logs three console errors: the three `POST /cdn-cgi/rum` requests of
+  Cloudflare's analytics beacon, which the browser wall refuses as it
+  refuses every non-GET. The pages the canary saves do not carry the beacon,
+  and every earlier live read (2026-09-28 20:00, after run 52, after run 57)
+  shows the same three.
+- **Money**: nothing charged. The balance is 37 (unchanged since 04:19:23),
+  the ledger's last row is still 336, and the only new jobs are the two
+  refused free checks (`f09044fb…`, `e6d2c784…`, cost 0, billing `none`); no
+  job is open.
+
+**Test 6's evidence and restoration are complete.** Closing it is the owner's
+decision.
 
 ### A visible alternative, not recommended
 

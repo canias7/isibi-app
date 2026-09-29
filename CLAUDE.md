@@ -70,7 +70,8 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   script against main's Worker.
 - **Balance 37** on the building account after run 57 (2026-09-29 04:19
   UTC): routing 2 and the job's reserves of 1 and 2, ledger rows 335 and 336;
-  read again at 05:04 UTC, with no row after 336 and no job open. The unit
+  read again at 05:35 UTC after the free restore (run 58), with no row after
+  336 and no job open. The unit
   suite is **8,241** at `9ed7da51`.
 - **Closed by the owner, not to be repeated**: live test 2 (run 32); Test 3
   (run 34) with the stylesheet corrections (deploy 2161); the kit-heading fix
@@ -89,8 +90,11 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   `visit.tsx` is exactly the swap and nothing else changed (68 checks over
   the run's evidence, each shown able to fail; four pages pixel-identical in
   a real Chromium). Run 52, before the fix, shipped only the description,
-  and run 53 put it back. **The bakery stays at run 57's version until the
-  owner's free restore to `8btpep`**, whose readings complete the evidence.
+  and run 53 put it back. **The free restore, run 58** (05:31 UTC), put
+  `8btpep` back exactly: the stored pages and description, every head tag,
+  the markup, menus, links and redirects as before, pixel-identical in a real
+  Chromium, nothing charged. **The evidence and the restoration are
+  complete; closing Test 6 is the owner's decision.**
   Not shown: the withholding paths (supplied answers only), component
   preservation (the fixture has none), and **real-model mixed work through
   the removal door, which stays outstanding**. The reply omission is kept
@@ -282,10 +286,9 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
   `ben-crowe-guitar`, and the older `fold-lane-bakery`, `harbourside-roast`,
   `the-lido-cafe`, `oak-and-ash`, `forno-and-co`. **Reusing one of those slugs
   revises that site.** The test fixtures now: `fold-lane-bakery` live at
-  `01790655564541-c4usi2` (run 57, Test 6's retry) until the owner's free
-  restore to `01790468089054-8btpep`, `fretwork-1` at
-  `01790404806543-kk6qsh` (Test 3's removal kept), and `lido-axes-b` with its
-  bookings closed (run 44, kept).
+  `01790468089054-8btpep` (restored by run 58 after Test 6's retry),
+  `fretwork-1` at `01790404806543-kk6qsh` (Test 3's removal kept), and
+  `lido-axes-b` with its bookings closed (run 44, kept).
 - **What things cost, measured** — routing 1–2 per message (it moves with the
   prompt cache); the page rung 6–22 (runs 21–37); a data or rules edit 1; a
   reframe 1; a site description 1 (runs 52 and 57); a quick-writer page step 2
