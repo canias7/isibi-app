@@ -23,7 +23,8 @@ here; take a closed one out of both.**
 - A half of a message the router puts off (`alsoAsked`) is still attempted,
   on the home page, and the reply contradicts itself (run 52). **Fixed and
   deployed 2026-09-29 (deploy 2166); run 57 made both changes live, with
-  nothing put off (pending the owner's review).**
+  nothing put off (Test 6, closed by the owner). The held-back path itself is
+  shown only with supplied answers.**
 - Five stylesheet rules match nothing the app serves, and the reachability
   guard counts them live only through a router sentence's line break.
 - The header's button carries no `data-slot="button"`, so a rule against the
@@ -90,8 +91,8 @@ here; take a closed one out of both.**
   on a named page off at all, when the look rung can do both in one turn.
   **Fixed 2026-09-29 (owner: "Fix the general routing/execution mismatch")
   and corrected after the owner's review; merged and deployed in deploy 2166,
-  and exercised live by run 57, which made both changes; Test 6 is pending
-  the owner's review.** The router puts
+  and exercised live by run 57, which made both changes; Test 6 is closed by
+  the owner for what runs 57 and 58 showed.** The router puts
   off only what its answer cannot do this turn; a part it puts off is posted
   back by the browser and taken out of the message before anything runs
   (`heldBack`), and the reply's tail is composed from what the route really

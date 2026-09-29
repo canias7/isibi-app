@@ -15,6 +15,17 @@ restoration (run 50).**
   `/the-starter` redirects to `/starter`, and the stored pages equal the
   before-read byte for byte.
 
+**Closed by the owner (2026-09-29): Test 6, for exactly what runs 57 and 58
+showed.**
+- **Run 57**, one message: the site's default description stored and
+  published on `/` and `/starter` (the three pages with their own kept them),
+  and the Visit band moved on `/visit` only; unrelated content preserved and
+  the stored redirect kept; 5 credits.
+- **Run 58**, free: version `8btpep` is back, stored and published, with
+  nothing charged.
+- Kept separate: the reply omission (review #9) and the withholding paths
+  (supplied answers only).
+
 **The redirect carry-over fix is merged and deployed** (`f5e941f4`, deploy
 2165, 2026-09-28 19:07 UTC, image `8a10715339cdc780`; runtime-confirmed by
 the owner's free press, run 51, at 22:57 UTC):
@@ -36,6 +47,10 @@ the owner's free press, run 51, at 22:57 UTC):
     run 37.
 - **A logo from an attachment, a picture reframe and a page move** (39); the
   logo and the move were free.
+- **Two changes in one message through the look door, one on a named page**
+  (57): a site-wide description and a Visit-only move, with a publish
+  keeping the stored redirects (52, 57) and a restore putting the saved
+  description back (53, 58).
 - **One database row changed and put back** (42).
 - **A rules closing enforced by the database** (44), for that closing only.
 - **A menu link removed through the removal door with a real picker, then the
@@ -51,31 +66,25 @@ the owner's free press, run 51, at 22:57 UTC):
 
 **Outstanding acceptance** (not yet shown live; each has controlled tests)
 1. **The redirect fix live**: the first half, a publish keeping a site's
-   stored redirects, was shown by Test 6's paid run (run 52, below) and again
-   by its retry (run 57), pending the owner's review. A removed page
-   answering 301 home is still outstanding.
+   stored redirects, is credited (runs 52 and 57, closed with Test 6). A
+   removed page answering 301 home is still outstanding.
 2. **A protection refusing a real model's answer**: the photograph wall, the
    link and component judge, the text guard, reply validation and the failure
    classification. Live, each has only let a correct answer through.
 3. **Two changes in one message**, which is two separate items:
-   - **through the look door: shown by Test 6's retry (run 57, below),
-     pending the owner's review.** The real router answered one `look` with
-     no page and put nothing off, the real picker scoped the band move to
-     `/visit`, and both the site description and the move are stored and
-     published exactly. Run 52, before the routing/execution fix (deploy
-     2166), had shipped only the description. The fix's withholding paths (a
-     part put off, a scope that fails its check) are still shown only with
-     supplied answers;
+   - **through the look door: closed with Test 6** (run 57; *Proven live*,
+     above). The fix's withholding paths (a part put off, a scope that fails
+     its check) are kept separate: shown only with supplied answers;
    - **through the removal door, with a real model**: a `nav` or `picture`
      removal given other work, where the picker is told the routed change and
      lists anything else separately. Only supplied answers have exercised it.
-     Run 49's real picker was given no other work, and Test 6 does not reach
-     this door, so it stays outstanding whatever Test 6 shows.
+     Run 49's real picker was given no other work, and Test 6 did not reach
+     this door, so it stays outstanding.
 
    A second message after a hop or a failure is outstanding too.
-4. **A named page other than the home page** on a look edit: **shown by run
-   57**, pending the owner's review. The picker scoped the move to `/visit`,
-   and only `visit.tsx` changed. Run 52 had not shown it.
+4. **A named page other than the home page** on a look edit: **closed with
+   Test 6** (run 57): the picker scoped the move to `/visit`, and only
+   `visit.tsx` changed.
 5. **The data rung beyond one row**: adding, removing or reordering rows, and a
    site whose database link is blank.
 6. **The rules rung beyond one closing**: reopening, closing by taking write
@@ -123,7 +132,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Test 6 — two changes in one message, one on a named page (prepared 2026-09-28, request clarified the same evening; the free check, run 51, passed; the paid run, run 52, shipped the description, and the router put the Visit move off to a later turn; the free restore, run 53, put everything back; the owner: run 52 does not close Test 6; the routing/execution mismatch it showed is fixed and deployed, 2026-09-29, deploy 2166, runtime-confirmed by the free check, run 54; the retry, run 57, stored and published both changes; the free restore, run 58, put everything back; the evidence and the restoration are complete, and closing Test 6 is the owner's decision)
+## Test 6 — two changes in one message, one on a named page (prepared 2026-09-28, request clarified the same evening; the free check, run 51, passed; the paid run, run 52, shipped the description, and the router put the Visit move off to a later turn; the free restore, run 53, put everything back; the owner: run 52 does not close Test 6; the routing/execution mismatch it showed is fixed and deployed, 2026-09-29, deploy 2166, runtime-confirmed by the free check, run 54; the retry, run 57, stored and published both changes; the free restore, run 58, put everything back; closed by the owner, 2026-09-29, for exactly what runs 57 and 58 showed)
 
 Owner, 2026-09-28: *"prepare one bounded test combining two requested changes
 in one message, ideally also covering a named non-home page. Use an existing
@@ -721,7 +730,7 @@ spend box is a text box with `no` already in it (`default: 'no'`), and
 neither the log nor GitHub's record of the run keeps what it held.
 Neither run was the retry; it ran as run 57, below.
 
-### Run 57 — the retry: both changes stored and published (2026-09-29; pending the owner's review until the free restore is read)
+### Run 57 — the retry: both changes stored and published (2026-09-29; closed with run 58 by the owner)
 
 Pressed by the owner from `main` at `a64729ad`
 ([run 36520994415](https://github.com/canias7/isibi-app/actions/runs/36520994415),
@@ -858,8 +867,17 @@ every free check passed.
   refused free checks (`f09044fb…`, `e6d2c784…`, cost 0, billing `none`); no
   job is open.
 
-**Test 6's evidence and restoration are complete.** Closing it is the owner's
-decision.
+**Test 6's evidence and restoration are complete.**
+
+**Closed by the owner (2026-09-29)**: *"Close Test 6 for exactly what runs 57
+and 58 demonstrated: the site-wide description and Visit-only move both stored
+and published, unrelated content preserved, existing redirects retained, and
+the original version restored without charge. Keep the reply omission and
+untested withholding paths separate. Do not repeat this acceptance."*
+What is closed is exactly that. The reply omission (review #9) and the fix's
+withholding paths (a part put off, a scope that fails its check), which are
+shown only with supplied answers, are kept separate, and component
+preservation is untested here (the fixture has none).
 
 ### A visible alternative, not recommended
 

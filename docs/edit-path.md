@@ -62,7 +62,7 @@ answers unless a run is named.
   existing site never becomes a first build.
 - **Several changes in one message** (2026-09-29, deploy 2166; shown live by
   run 57 for a site-wide description beside a band move on one named page,
-  pending the owner's review; the withholding paths are shown only with
+  closed by the owner as Test 6; the withholding paths are shown only with
   supplied answers):
   - **The router puts off only what its answer cannot do this turn**
     (`alsoAsked`: an addition beside a change, a change beside an addition, a

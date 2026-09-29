@@ -78,27 +78,19 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   (2162); Test 4a (runs 37 and 39); Test 4b's D1 (run 42) and the conditional
   recovery write (2163); the scoped rules acceptance (run 44 — `lido-axes-b`'s
   bookings stay closed); Test 5's page removal (run 49) and restoration (run 50)
-  with the removal-door correction (2164).
-- **Test 6 is pending the owner's review** (owner, 2026-09-29: *"Keep Test 6
-  pending my review until the evidence and restoration are complete"*) — one
-  message asking for a new default search description and the Visit band
-  moved above "Come to the bakery". **The retry, run 57** (04:18 UTC, deploy
-  2166, 5 credits), **stored and published both changes exactly**: the real
-  router answered one `look` with no page and put nothing off, and the real
-  picker scoped the move to `/visit`. The settings, `/` and `/starter` carry
-  the new description, and the three pages with their own kept them;
-  `visit.tsx` is exactly the swap and nothing else changed (68 checks over
-  the run's evidence, each shown able to fail; four pages pixel-identical in
-  a real Chromium). Run 52, before the fix, shipped only the description,
-  and run 53 put it back. **The free restore, run 58** (05:31 UTC), put
-  `8btpep` back exactly: the stored pages and description, every head tag,
-  the markup, menus, links and redirects as before, pixel-identical in a real
-  Chromium, nothing charged. **The evidence and the restoration are
-  complete; closing Test 6 is the owner's decision.**
-  Not shown: the withholding paths (supplied answers only), component
-  preservation (the fixture has none), and **real-model mixed work through
-  the removal door, which stays outstanding**. The reply omission is kept
-  separate. The plan and every reading are the checklist's *Test 6*.
+  with the removal-door correction (2164); Test 6 (runs 57 and 58: a
+  site-wide description and a Visit-only move stored and published from one
+  message, unrelated content preserved, the redirects kept, and `8btpep`
+  restored free).
+- **Test 6 is closed by the owner** (2026-09-29) for exactly what runs 57 and
+  58 showed: one message's site-wide description and Visit-only band move,
+  both stored and published; unrelated content preserved; the existing
+  redirects kept; and the original version restored without charge. **Kept
+  separate**: the reply omission (review #9) and the withholding paths (a
+  part put off, a scope that fails its check), shown only with supplied
+  answers. Component preservation is untested there (the fixture has none),
+  and **real-model mixed work through the removal door stays outstanding**.
+  The record is the checklist's *Test 6*.
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
   `docs/investigations/edit-path-checklist.md`, and every test's plan, readings
