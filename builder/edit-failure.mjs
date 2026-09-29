@@ -63,6 +63,8 @@ export const EDIT_FAILURES = Object.freeze([
   // ── THE LANE PICKER AND THE PAGE VERBS ──────────────────────────────────
   { key: "picker/no-lane", reason: "no-lane", cls: "explain",
     why: "The picker could not place the message on any part of the site. A rewrite of every page is not evidence of understanding it, and it risks every page nobody asked about." },
+  { key: "picker/scope-unread", reason: "scope-unread", cls: "explain", ours: true,
+    why: "The picker scoped a change and the scope does not check out: its page is not a path, its words are not in the message, or a scoped answer left the change with no scope at all (2026-09-29). Running it on the whole message would hand it every other change's words, and sending it to the home page would edit a page nobody named — so that one change is withheld at no cost, the rest of the message still runs, and the customer is told which kind of doubt it was. The picker's copy is ours." },
   { key: "picker/nothing-to-remove", reason: "nothing-to-remove", cls: "explain",
     why: "A removal of a 3D scene or QR code the site does not have. What was asked for is already true; nothing to do and nothing to buy." },
   { key: "picker/addon", reason: "addon", cls: "addon",
@@ -204,6 +206,13 @@ export function failureMsg(key, facts = {}) {
       return "I couldn't work out how to make that kind of change from here — this is on us. Try asking for it another way.";
     case "route/held-unread":
       return "I couldn't separate the part of your message I was leaving for later from the part to do now, so I haven't changed anything — this is on us. Send the changes one at a time and I'll make each.";
+    // ONE CHANGE WITHHELD, said so it reads true beside a change that shipped
+    // and on its own: it claims nothing about the rest of the message.
+    case "picker/scope-unread": {
+      if (f.why === "page") return "I couldn't tell which page one of your changes was for, so I didn't make that change — this is on us. Send it again on its own, with the page it's on.";
+      const where = page ? " on " + page : "";
+      return "I couldn't tell which part of your message one of your changes" + where + " was, so I didn't make that change — this is on us. Send it again on its own.";
+    }
     case "picker/no-lane":
       return "I couldn't tell which part of your site that's about. Say which page or section you mean and what should change, and I'll do it.";
     case "picker/nothing-to-remove":

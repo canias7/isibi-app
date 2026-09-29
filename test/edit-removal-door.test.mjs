@@ -458,7 +458,9 @@ test("THE DOOR'S ANSWER, READ BY ITS NAMES: only `additional` makes work, the ro
   for (const req of sent) assert.deepEqual(req.tools[0].input_schema.required, ["additional"]);
   // A message with nothing in it asks nothing and runs nothing.
   const empty = await pickLanes({ send: async () => { throw new Error("called"); } }, { message: "  ", routed: { layer: "nav", remove: true } });
-  assert.deepEqual(empty, { fields: [], routed: [], scopes: [], usage: null, failed: false });
+  // RE-ANCHORED 2026-09-29: an answer now says whether it carried scope
+  // metadata (`scoped`), and an empty message carries none.
+  assert.deepEqual(empty, { fields: [], routed: [], scopes: [], scoped: false, usage: null, failed: false });
 });
 
 for (const mode of ["sync", "job"]) {

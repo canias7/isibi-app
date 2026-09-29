@@ -57,6 +57,44 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-29 — The correction you asked for: a change whose scope doesn't check out is held back, never sent to the wrong page or given the whole message
+
+**What you found**: two ways the fix still went wrong. If the part of the
+builder that splits a message gave a change a malformed page, that change was
+sent to the home page. If it gave words that aren't actually in your message,
+the page's editor was handed your whole message, the description change
+included.
+
+**What changed** (on the branch only):
+- **A change whose details don't check out is held back, and you're told.**
+  That covers a page that isn't a page, words that aren't in your message, a
+  page your site doesn't have, and a change the split left out. It costs
+  nothing. Everything else you asked for in the same message still goes
+  ahead. The reply says, for example, "✅ Updated the look — the
+  description. ⚠️ I couldn't tell which page one of your changes was for, so
+  I didn't make that change — this is on us. Send it again on its own, with
+  the page it's on."
+- **The old behaviour stays only for an answer that doesn't split the message
+  at all**, which is how ordinary single changes work when the builder gives
+  no split.
+- **A page your site doesn't have no longer cancels the whole message**: just
+  that change is held back, with your real pages named.
+
+**How it was checked**: both of your reproductions are now tests, run
+straight through and through the job queue. The wrong page's editor is never
+called, no other change's words are passed on, the description is saved, and
+the reply says both things. The new tests fail on the previous code and pass
+now. Your earlier cases (two pages, run 52's sentence, a change put off,
+removals) still pass unchanged. As before, every model answer in these tests
+is supplied by the test, so they don't show what the real models do.
+
+**One thing to know**: if the real model rewords a single change instead of
+copying your words, that change is now held back (with a sentence, at no
+cost) instead of being made from your whole message. That's your rule applied
+to one-change messages too; how often it happens isn't measured.
+
+**Nothing was merged, deployed, spent or re-run**, and Test 6 stays open.
+
 ## 2026-09-29 — Two changes in one message now each run in their own place, and a change put off is never also made; on the branch, not deployed; Test 6 stays open
 
 **What you asked for**: after run 52, fix the mismatch it showed, in general.

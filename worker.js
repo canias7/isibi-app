@@ -21696,27 +21696,70 @@ async function handleRequest(request, env, ctx) {
               // change's part, page and words (`scopes`, read in site-lanes.mjs
               // against the message it was shown): a page lane runs on each page
               // it was scoped to, with only that change's words, and an own lane
-              // is handed only its own words. A lane with no scope, or words the
-              // message does not hold, runs exactly as before.
-              const eScopes = Array.isArray(picked.scopes) ? picked.scopes : [];
-              // A SCOPED PAGE THE SITE DOES NOT HAVE IS SAID BEFORE ANYTHING RUNS,
-              // the same check and sentence the router's own page gets above.
-              {
-                const known = eRoutes();
-                const stray = eScopes.find((sc) => sc.page && laneLayer(sc.part) === "page" && !known.includes(sc.page));
-                if (stray) return explain("page/no-page", { page: stray.page, verb: "", routes: known });
-              }
-              // A LANE'S OWN WORDS: every one of its scopes, joined — or `""`,
-              // the whole of `eRun`, when any of them could not be found.
-              const scopeWords = (f) => {
-                const w = eScopes.filter((sc) => sc.part === f).map((sc) => sc.words);
-                return w.length && w.every(Boolean) ? w.join("\n") : "";
+              // is handed only its own words. An answer with no scope metadata at
+              // all runs exactly as before; a scope that fails its check is
+              // withheld (below).
+              //
+              // ── ⚠ A SCOPE THAT FAILS ITS CHECK NEVER WIDENS (2026-09-29) ───
+              //
+              // Owner, after reproducing two ways round it: *"Distinguish absent
+              // legacy scope from explicitly invalid scope. Once an operation
+              // supplies scope metadata, failed validation must not widen its
+              // instruction to the whole request or redirect it to the
+              // homepage."* A malformed page (`["/visit"]`) read as "no page"
+              // sent the Visit move to the home page's writer, and words the
+              // message does not hold read as "no words" handed the Visit
+              // writer the whole request, description change and all.
+              //
+              // LEGACY IS AN ANSWER WITH NO SCOPE METADATA AT ALL (`scoped`
+              // false): every lane runs as it did before scopes existed. A
+              // SCOPED answer runs only what its scopes place: each valid op on
+              // its own page with its own words; an op that failed its check,
+              // an op aimed at a page the site does not have, and a picked lane
+              // the answer left without any scope are WITHHELD — no model call,
+              // no charge, and a sentence in `partial` beside whatever else
+              // ran (the existing partial-success contract). Withheld steps go
+              // last, so they sit between no two page steps `mergePageSteps`
+              // would join.
+              const eScoped = picked.scoped === true;
+              const eOps = eScoped && Array.isArray(picked.scopes) ? picked.scopes : [];
+              const eKnown = eRoutes();
+              // EACH WITHHELD STEP CARRIES ITS OWN ANSWER, built where its key
+              // is spelled, so the classification census reads every one. One
+              // per lane, doubt and page: a sentence said twice is noise.
+              const withheld = [];
+              const withhold = (f, why, page, answer) => {
+                if (withheld.some((w) => w.fields[0] === f && w.withheld.why === why && w.page === page)) return;
+                withheld.push({ layer: OWN_LANES.includes(f) ? "look" : (laneLayer(f) || "look"), page, fields: [f], withheld: { why, answer } });
               };
+              // A PAGE THE SITE DOES NOT HAVE is the router's own check and
+              // sentence, for that one change — the rest of the message runs.
+              const strayPage = (op) => !!op.page && laneLayer(op.part) === "page" && !eKnown.includes(op.page);
+              for (const op of eOps) {
+                if (op.invalid) withhold(op.part, op.invalid, op.page, () => explain("picker/scope-unread", { why: op.invalid, page: op.page }));
+                else if (strayPage(op)) withhold(op.part, "no-page", op.page, () => explain("page/no-page", { page: op.page, verb: "", routes: eKnown }));
+              }
+              // WHAT EACH LANE MAY RUN ON: its ops that passed every check.
+              const eRunnable = eOps.filter((op) => !op.invalid && !strayPage(op));
+              const opsOf = (f) => eRunnable.filter((op) => op.part === f);
+              // A PICKED LANE A SCOPED ANSWER NEVER MENTIONED is not legacy:
+              // the answer said where each change goes, and said nothing of
+              // this one. Withheld, never run on the whole message.
+              const unscoped = (f) => !eOps.some((op) => op.part === f);
               const acting = pickedFields.filter((f) => OWN_LANES.includes(f));
-              if (acting.length) {
+              // THE OWN LANES THAT REALLY RUN — the QR placement below follows
+              // its lane, never the pick.
+              let lookRuns = acting;
+              if (acting.length && !eScoped) steps.push({ layer: "look", page: ePage, fields: acting });
+              else if (acting.length) {
                 const asks = {};
-                for (const f of acting) { const w = scopeWords(f); if (w) asks[f] = w; }
-                steps.push({ layer: "look", page: ePage, fields: acting, ...(Object.keys(asks).length ? { asks } : {}) });
+                lookRuns = [];
+                for (const f of acting) {
+                  const mine = opsOf(f);
+                  if (mine.length) { asks[f] = mine.map((op) => op.words).join("\n"); lookRuns.push(f); }
+                  else if (unscoped(f)) withhold(f, "unscoped", "", () => explain("picker/scope-unread", { why: "unscoped" }));
+                }
+                if (lookRuns.length) steps.push({ layer: "look", page: ePage, fields: lookRuns, asks });
               }
               // ── ONE PAGE OPERATION PER PAGE, WHERE PAGE LANES SIT TOGETHER ──
               //
@@ -21758,19 +21801,27 @@ async function handleRequest(request, env, ctx) {
                   dispatched.push({ layer: eLayer, page: ePage, fields: (picked.routed || []).includes(f) ? [f] : [], remove: eRemove, rename: eRename });
                   continue;
                 }
-                // A PAGE LANE RUNS ON EACH PAGE IT WAS SCOPED TO, in the order
-                // the picker named them, with only the words for that page; a
-                // scope with no page goes where an unscoped lane would.
-                const own = eScopes.filter((sc) => sc.part === f);
-                if (to === "page" && own.length) {
-                  for (const pg of [...new Set(own.map((sc) => sc.page || fallbackPage))]) {
-                    const words = own.filter((sc) => (sc.page || fallbackPage) === pg).map((sc) => sc.words);
-                    dispatched.push({ layer: "page", page: pg, fields: [f], ...(words.every(Boolean) ? { ask: words.join("\n") } : {}) });
+                if (!eScoped) {
+                  dispatched.push({ layer: to, page: to === "page" ? fallbackPage : ePage, fields: [f] });
+                  continue;
+                }
+                // A SCOPED LANE RUNS ONLY ON ITS VALID OPS: a page lane once
+                // per page it was scoped to, in the order the picker named
+                // them, with only the words for that page (an op with no page
+                // goes where an unscoped lane would); any other lane once, with
+                // its ops' words. No valid op, no step.
+                const mine = opsOf(f);
+                if (!mine.length) {
+                  if (unscoped(f)) withhold(f, "unscoped", "", () => explain("picker/scope-unread", { why: "unscoped" }));
+                  continue;
+                }
+                if (to === "page") {
+                  for (const pg of [...new Set(mine.map((op) => op.page || fallbackPage))]) {
+                    dispatched.push({ layer: "page", page: pg, fields: [f], ask: mine.filter((op) => (op.page || fallbackPage) === pg).map((op) => op.words).join("\n") });
                   }
                   continue;
                 }
-                const w = scopeWords(f);
-                dispatched.push({ layer: to, page: to === "page" ? fallbackPage : ePage, fields: [f], ...(w ? { ask: w } : {}) });
+                dispatched.push({ layer: to, page: ePage, fields: [f], ask: mine.map((op) => op.words).join("\n") });
               }
               steps.push(...mergePageSteps(dispatched));
               // ── THE QR IS PLACED, NOT ONLY MADE ───────────────────────────
@@ -21795,7 +21846,7 @@ async function handleRequest(request, env, ctx) {
               // names come off the look read for the wall above; a read that
               // failed places nothing, because a step that cannot name the code
               // would have the rung guess one.
-              if (pickedFields.includes("qr") && fallbackPage) {
+              if (lookRuns.includes("qr") && fallbackPage) {
                 const unplaced = qrUnplaced(qrList(wallLook && wallLook.qr), eSrc);
                 if (unplaced.length) steps.push({ layer: "page", page: fallbackPage, fields: ["qr"], instruction: qrPlaceAsk(unplaced) });
               }
@@ -21872,10 +21923,18 @@ async function handleRequest(request, env, ctx) {
               // dropped-ask failure wearing the other face.
               // A door the router opened never reaches this empty: its own step
               // was put in where the lanes became steps (`doorDispatch`).
-              if (!steps.length) {
+              //
+              // A MESSAGE WHOSE EVERY SCOPED CHANGE WAS WITHHELD is not one
+              // nobody could place (2026-09-29): each withheld step says its
+              // own doubt, which "I couldn't tell which part of your site
+              // that's about" would contradict.
+              if (!steps.length && !withheld.length) {
                 if (notBuilt.length) return explain("picker/unbuilt", {}, { field: notBuilt[0][0], needs: notBuilt[0][1] });
                 return explain("picker/no-lane");
               }
+              // LAST, after every step that runs (see `withhold`, above).
+              for (const w of withheld) editTrace.mark("scope:withheld", "ok", { field: w.fields[0], why: w.withheld.why, page: w.page || undefined });
+              steps.push(...withheld);
             } else {
               // EVERY OTHER LAYER IS THE ROUTER'S OWN DECISION, made with the
               // whole message in front of it. One step, exactly as before — and
@@ -24737,7 +24796,12 @@ async function handleRequest(request, env, ctx) {
               // `eRun`. Restored below the loop.
               eInstruction = step.instruction || step.ask || eRun;
               eAsks = step.asks || null;
-              const res = await runLayer(step.layer, step.page, step.fields, step.remove === true, typeof step.rename === "string" ? step.rename : "");
+              // A WITHHELD STEP RUNS NOTHING (2026-09-29): its answer is its own
+              // sentence, at no cost, and it reaches the reply through `partial`
+              // exactly as a rung's refusal does.
+              const res = step.withheld
+                ? step.withheld.answer()
+                : await runLayer(step.layer, step.page, step.fields, step.remove === true, typeof step.rename === "string" ? step.rename : "");
               eInstruction = eRun;
               eAsks = null;
               const body = await res.clone().json().catch(() => null);

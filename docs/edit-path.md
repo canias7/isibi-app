@@ -78,16 +78,22 @@ answers unless a run is named.
     `scopes` (`part`, `words` copied from the message, `page` for a change on
     one page), read by `readScopes` against the picked lanes and the message
     (`wordsIn`). A page lane runs one step per scoped page with only that
-    change's words; an own lane is handed only its own words (`asks`). A scoped
-    page the site lacks is refused before anything runs (`page/no-page`). A
-    lane with no scope, or words not in the message, runs as before, on the
-    whole message.
+    change's words; an own lane is handed only its own words (`asks`).
+  - **A scope that fails its check never widens and never goes home**
+    (corrected the same day, after the owner's review). Only an answer with
+    no scope metadata at all (`scopes` absent, `null` or `[]`) runs the old
+    way, on the whole message. On a scoped answer, an op whose page is not a
+    path, whose words are not in the message, or whose page the site does not
+    have, and a picked lane the answer left without any scope, is WITHHELD: no
+    model call, no charge, its own sentence (`picker/scope-unread`; a missing
+    page keeps `page/no-page`), reported through `partial` beside whatever
+    else ran. Scoped and unscoped page steps never merge.
 - **Every way the edit route declines is classified**: `builder/edit-failure.mjs`
-  `EDIT_FAILURES`, **41 entries** keyed `<rung>/<name>`, in four classes that
+  `EDIT_FAILURES`, **42 entries** keyed `<rung>/<name>`, in four classes that
   are what the browser does — `up` **7** (the full rewrite), `addon` **5**,
-  `hop` **4** (one paid hop sideways), `explain` **25** (a sentence at no edit
-  cost, **12** of them ours; `route/held-unread` joined on 2026-09-29, on the
-  branch). A census holds the route to the table both ways,
+  `hop` **4** (one paid hop sideways), `explain` **26** (a sentence at no edit
+  cost, **13** of them ours; `route/held-unread` and `picker/scope-unread`
+  joined on 2026-09-29, on the branch). A census holds the route to the table both ways,
   so a new `escalate(` with no entry fails by existing. **The browser starts the
   rewrite only from an escalate** — never from a refusal, an unreadable body or
   a dropped connection (`unreadEditMsg`: *"…Asking for it again could make the

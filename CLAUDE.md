@@ -45,14 +45,20 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 - **The branch `claude/help-needed-ehlwlj`** is ahead of `main` by the canary's
   read of the description stored in a site's settings (`2a7767cc`:
   `readStoredHead`, the app's own SEO route read in every inventory), by
-  documents, and by **the per-operation scope fix (`9a79fc2d`, 2026-09-29, not
-  merged, not deployed; a merge would roll the image to `ea3f680b3b227bd9`)**: the router puts off only what its answer cannot do this turn; a
+  documents, and by **the per-operation scope fix (`9a79fc2d`, 2026-09-29) and
+  its correction after the owner's review (2026-09-29), neither merged nor
+  deployed**: the router puts off only what its answer cannot do this turn; a
   part it puts off is taken out of the message before anything runs
   (`heldBack`, echoed as `deferred`, refused at no cost when it cannot be
   found: `route/held-unread`); and the picker names each change's page and
-  words (`scopes`), so each runs on its own page with its own words.
-  Supplied-model proof only (`test/edit-op-scope.test.mjs`, and the scoped
-  door case in `test/edit-removal-door.test.mjs`);
+  words (`scopes`), so each runs on its own page with its own words. **An
+  answer with no scope metadata runs as before. On a scoped answer, a change
+  whose page is not a path or whose words are not in the message, a page the
+  site does not have, and a picked lane left unscoped are withheld at no cost
+  with their own sentence (`picker/scope-unread`, `page/no-page`) while the
+  rest runs: never widened to the whole message, never sent to the home
+  page.** Supplied-model proof only (`test/edit-op-scope.test.mjs`, and the
+  scoped door case in `test/edit-removal-door.test.mjs`);
   `docs/history/2026-09-29-op-scope.md`. A press from the branch runs the
   branch's script against main's Worker.
 - **Balance 42** on the building account after run 52 (23:25 UTC): routing 2
@@ -278,8 +284,8 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
 - **The unit suite is 8,232** (`9a79fc2d`): `8232 / 8230 / 0 / 2` locally,
   `8232 / 8228 / 0 / 4` on CI (run 36508164135) — **compare the totals, never
   `pass`**; CI skips four where a local run skips two. **`site build`** reads
-  twelve counts green (the last recorded reading; its run on `9a79fc2d`,
-  36508164132, is in progress): TAP 397, kit-typecheck 4, site-build **404**
+  twelve counts green (read on `9a79fc2d`, run 36508164132, from each step's
+  log): TAP 397, kit-typecheck 4, site-build **404**
   (382 plus the browser control's 22), contrast-cases 16, theme-seam 11,
   theme-render 29, site-routing 14, site-runtime 47, and kit-render, kit-a11y,
   kit-effects and kit-paint `all passed` (census 7 + 4 + 1 = 12). Its two

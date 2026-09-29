@@ -185,8 +185,16 @@ test("a removal-opened door falls back to the router's own layer, never to the r
   // `test/edit-page-verb.test.mjs`), naming its lane only when the picker did.
   const loopAt = block.indexOf("const doorOwn = eRemovalDoor ? doorLane(eLayer) : null;");
   assert.ok(loopAt >= 0, "the door no longer asks which lane is the router's own");
-  const loop = block.slice(loopAt, block.indexOf("steps.push(...mergePageSteps(dispatched));", loopAt));
-  assert.ok(loop.length > 100 && loop.length < 1500, "the dispatch loop could not be windowed");
+  // RE-ANCHORED 2026-09-29: the loop now runs each change on its own scope
+  // and withholds a scope that fails its check, so it grew — 611 characters
+  // before scopes, 1,436 with them, 1,793 with the withholding (comments
+  // blanked to spaces, length kept). The ceiling only has to catch a window
+  // whose end landmark is gone, which runs to the end of the block — 12,283
+  // measured — so 2,500 still catches it, and the landmark is asserted first.
+  const loopEnd = block.indexOf("steps.push(...mergePageSteps(dispatched));", loopAt);
+  assert.ok(loopEnd > loopAt, "the dispatch loop's end landmark is gone");
+  const loop = block.slice(loopAt, loopEnd);
+  assert.ok(loop.length > 100 && loop.length < 2500, "the dispatch loop could not be windowed");
   assert.match(loop, /for \(const f of doorDispatch\(pickedFields, doorOwn\)\) \{/,
     "the lanes that become steps are not the picker's with the router's own among them");
   assert.match(loop, /if \(f === doorOwn\) \{\s*dispatched\.push\(\{ layer: eLayer, page: ePage, fields: \(picked\.routed \|\| \[\]\)\.includes\(f\) \? \[f\] : \[\], remove: eRemove, rename: eRename \}\);/,
@@ -194,7 +202,11 @@ test("a removal-opened door falls back to the router's own layer, never to the r
   // And the bottom of the block no longer has a door branch at all: a door the
   // router opened reaches it with its own step already in the plan, so an
   // empty list there is the look door's, and it is explained.
-  const tail = block.slice(block.indexOf("if (!steps.length) {"));
+  // RE-ANCHORED 2026-09-29: a message whose every scoped change was withheld
+  // is not one nobody could place, so the branch reads `!withheld.length` too.
+  const tailAt = block.indexOf("if (!steps.length && !withheld.length) {");
+  assert.ok(tailAt >= 0, "the no-steps branch is gone");
+  const tail = block.slice(tailAt);
   assert.ok(tail.length > 100, "the no-steps branch is gone");
   assert.doesNotMatch(tail.slice(0, 400), /eRemovalDoor/, "the empty-plan branch still special-cases the door");
   // THE CENSUS IS BY LANDMARK: every read must be one of the five named here —

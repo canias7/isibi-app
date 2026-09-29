@@ -929,13 +929,16 @@ export function mergePageSteps(steps) {
   const out = [];
   for (const s of Array.isArray(steps) ? steps : []) {
     const prev = out[out.length - 1];
-    // SAME PAGE, SIDE BY SIDE: ONE PAGE OPERATION, whatever words each came
-    // with. Two changes the picker scoped to one page are made by one writer
-    // handed both sets of words (`joinAsks`), never by two writers each shown
-    // the other's half-finished page.
-    if (sentencePageStep(prev) && sentencePageStep(s) && prev.page === s.page) {
+    // SAME PAGE, SIDE BY SIDE: ONE PAGE OPERATION. Two changes the picker
+    // scoped to one page are made by one writer handed both sets of words
+    // (`joinAsks`), never by two writers each shown the other's half-finished
+    // page. A scoped step and an unscoped one are NOT joined (2026-09-29):
+    // joining them hands the scoped change the whole message, the widening a
+    // scope exists to prevent. A scoped answer never makes an unscoped step,
+    // so the two cannot meet in one message; this is the wall, not the rule.
+    if (sentencePageStep(prev) && sentencePageStep(s) && prev.page === s.page && !!prev.ask === !!s.ask) {
       const merged = { ...prev, fields: [...prev.fields, ...s.fields.filter((f) => !prev.fields.includes(f))] };
-      if (prev.ask || s.ask) merged.ask = joinAsks(prev.ask, s.ask);
+      if (prev.ask) merged.ask = joinAsks(prev.ask, s.ask);
       out[out.length - 1] = merged;
     } else {
       out.push(s);
@@ -944,13 +947,8 @@ export function mergePageSteps(steps) {
   return out;
 }
 
-/**
- * THE WORDS OF TWO OPERATIONS JOINED ON ONE PAGE — or `""`, which means the
- * customer's whole message, when either step had none of its own: that message
- * already holds every other step's words, so it is the honest union.
- */
+/** THE WORDS OF TWO SCOPED OPERATIONS JOINED ON ONE PAGE: both, once each. */
 function joinAsks(a, b) {
-  if (!a || !b) return "";
   return a === b ? a : a + "\n" + b;
 }
 
@@ -959,10 +957,12 @@ function joinAsks(a, b) {
  * of step two lanes can share as a single operation. The page rung, a page to
  * aim at, no ask of its own, and every field a lane that dispatches to the
  * page rung by its own name. ONE definition, asked through `samePageOperation`
- * by every reader of it, so "the same operation" cannot mean two things.
+ * by every reader of it, so "the same operation" cannot mean two things. A
+ * WITHHELD step (2026-09-29) runs nothing, so it is never one: nothing joins
+ * it, and no success elsewhere retires its sentence.
  */
 function sentencePageStep(s) {
-  return !!s && s.layer === "page" && typeof s.page === "string" && !s.instruction
+  return !!s && s.layer === "page" && typeof s.page === "string" && !s.instruction && !s.withheld
     && Array.isArray(s.fields) && s.fields.length > 0 && s.fields.every((f) => laneLayer(f) === "page");
 }
 
@@ -1151,8 +1151,9 @@ function removesProp(list, extra = "") {
  * SO THE PICKER SAYS, FOR EACH CHANGE, WHICH PART, WHICH PAGE AND WHICH WORDS.
  * The route makes each change on its own page with its own words: the editor for
  * that change is handed those words and nothing else of the message
- * (`readScopes` checks them against the message; words that are not in it are
- * dropped, and that change then runs on the whole message, as before). A change
+ * (`readScopes` checks them against the message). A change whose words are not
+ * in it, or whose page is not a path, is withheld with a sentence — never run
+ * on the whole message or sent to the home page (owner, 2026-09-29). A change
  * with no page stays site-wide, or goes where the router's page or the home page
  * sends it, exactly as before. `name` is the property that names the lanes, as
  * for `removesProp`; `extra` is a sentence for the door alone.
@@ -1471,38 +1472,61 @@ export function readRemoves(reply, picked = []) {
 
 /**
  * EACH CHANGE THE PICKER SCOPED, checked against what was picked and against
- * the message itself (2026-09-29) — `[{ part, page, words }]`.
+ * the message itself (2026-09-29) — `{ scoped, ops }`.
  *
- *   `part`  — one of `picked`, or the entry is dropped: a scope names a lane
- *             this message chose, never one it did not.
- *   `page`  — in the one spelling pages are compared in (`normalizePagePath`),
- *             or `""` for a site-wide change. Whether the SITE has that page is
- *             the route's question, asked before anything runs.
- *   `words` — the customer's own text for this change as it stands in
- *             `message` (`wordsIn`), or `""` when the copy is not in it. A
- *             change without words runs on the whole message, as every change
- *             did before this existed: cannot-tell degrades to the old path,
- *             never to words nobody said.
+ * `scoped` SAYS WHETHER THE ANSWER CARRIED SCOPE METADATA AT ALL. An answer
+ * with no `scopes` — absent, `null` or `[]` — is the legacy shape, and every
+ * lane runs exactly as it did before scopes existed. Anything else is scoped,
+ * including a `scopes` that is not a list: metadata was supplied and none of
+ * it can be read.
  *
- * `String(["/visit"])` IS `"/visit"` — a non-string is refused, not coerced.
+ * `ops` IS ONE ENTRY PER SCOPE NAMING A PICKED LANE, in the order given —
+ * `{ part, page, words }`, and `invalid` when a field fails its check:
+ *
+ *   `part`   — one of `picked`. An entry naming no picked lane places nothing
+ *              and is not returned; on a scoped answer the route withholds
+ *              every lane left without a valid entry, so a stray entry can
+ *              never widen another lane.
+ *   `page`   — `""` when absent (`undefined`, `null`, a blank string): a
+ *              site-wide change, or one with no page said. Otherwise in the
+ *              one spelling pages are compared in (`normalizePagePath`).
+ *              `invalid: "page"` when it is present and not a path: a
+ *              non-string (`String(["/visit"])` is "/visit", and this reader
+ *              does not coerce), or a string that names no path at all.
+ *              Whether the SITE has the page is the route's question.
+ *   `words`  — the customer's own text for this change as it stands in
+ *              `message` (`wordsIn`). `invalid: "words"` when the copy is not
+ *              a string or is not in the message; the op's `words` is then
+ *              `""`.
+ *
+ * ⚠ AN INVALID OP IS NEVER A LEGACY OP (owner, 2026-09-29): *"Once an
+ * operation supplies scope metadata, failed validation must not widen its
+ * instruction to the whole request or redirect it to the homepage."* This
+ * reader used to turn a failed page into `""` and failed words into `""`, and
+ * the route read both as "no scope": run 52's Visit move went to the home
+ * page's writer, and a paraphrased copy handed the Visit writer the whole
+ * request, the description change included. The route now withholds an
+ * invalid op and says so.
  */
 export function readScopes(reply, picked = [], message = "") {
   const chosen = (Array.isArray(picked) ? picked : []).filter((f) => typeof f === "string" && f);
   const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
   const use = blocks.find((b) => b && b.type === "tool_use");
-  const raw = use && use.input && Array.isArray(use.input.scopes) ? use.input.scopes : [];
-  const out = [];
+  const input = use && use.input && typeof use.input === "object" ? use.input : {};
+  const raw = Object.hasOwn(input, "scopes") ? input.scopes : undefined;
+  if (raw === undefined || raw === null || (Array.isArray(raw) && raw.length === 0)) return { scoped: false, ops: [] };
+  if (!Array.isArray(raw)) return { scoped: true, ops: [] };
+  const ops = [];
   for (const sc of raw) {
     if (!sc || typeof sc !== "object" || Array.isArray(sc)) continue;
     if (typeof sc.part !== "string" || !chosen.includes(sc.part)) continue;
-    out.push({
-      part: sc.part,
-      page: typeof sc.page === "string" ? normalizePagePath(sc.page) : "",
-      words: typeof sc.words === "string" ? wordsIn(message, sc.words) : "",
-    });
-    if (out.length >= MAX_LANES) break;
+    const pageGiven = sc.page !== undefined && sc.page !== null && !(typeof sc.page === "string" && !sc.page.trim());
+    const page = pageGiven && typeof sc.page === "string" ? normalizePagePath(sc.page) : "";
+    const words = typeof sc.words === "string" ? wordsIn(message, sc.words) : "";
+    const invalid = pageGiven && !page ? "page" : !words ? "words" : "";
+    ops.push({ part: sc.part, page, words: invalid ? "" : words, ...(invalid ? { invalid } : {}) });
   }
-  return out;
+  return { scoped: true, ops };
 }
 
 /**
@@ -1574,11 +1598,17 @@ function doorPicked(reply, door, fields, model, message) {
     page: readPageVerb(reply),
     removes: readRemoves(reply, work),
     // THE WORK'S OWN PAGES AND WORDS, read against the work alone: the routed
-    // change is the router's step and keeps the router's page.
-    scopes: readScopes(reply, work, message),
+    // change is the router's step and keeps the router's page. `scoped` says
+    // whether the answer carried scope metadata at all (`readScopes`).
+    ...scopesOf(readScopes(reply, work, message)),
     usage: laneUsage(reply, model),
     failed: false,
   };
+}
+
+/** `readScopes`'s answer as the two fields a pick carries: `scopes` (the ops) and `scoped`. */
+function scopesOf(read) {
+  return { scopes: read.ops, scoped: read.scoped };
 }
 
 /**
@@ -1652,14 +1682,14 @@ export async function pickLanes(deps, { message, fields = LANE_FIELDS, current =
   const text = String(message || "").trim();
   // A PAID CALL BEHIND A PUBLIC ROUTE. The composer will not send an empty
   // message; "the client wouldn't do that" is not a gate.
-  if (!text) return door ? { fields: [], routed: [], scopes: [], usage: null, failed: false } : { fields: [], scopes: [], usage: null, failed: false };
+  if (!text) return door ? { fields: [], routed: [], scopes: [], scoped: false, usage: null, failed: false } : { fields: [], scopes: [], scoped: false, usage: null, failed: false };
   let reply;
   try {
     reply = await deps.send(pickRequest({ message: text, fields, current, model, routed }));
   } catch (e) {
     // CARRIED, NOT SWALLOWED. The caller tells a billing outage from a busy
     // model by reading `e.status` and `e.detail`.
-    return { fields: [], scopes: [], usage: null, failed: true, error: e };
+    return { fields: [], scopes: [], scoped: false, usage: null, failed: true, error: e };
   }
   // ON THE DOOR THE ANSWER IS TWO LISTS, read by their names (`doorPicked`).
   if (door) return doorPicked(reply, door, fields, model, text);
@@ -1676,8 +1706,9 @@ export async function pickLanes(deps, { message, fields = LANE_FIELDS, current =
   return {
     fields: picked,
     // EACH CHANGE'S OWN PAGE AND WORDS, checked against the picked lanes and
-    // the message the picker was shown (`readScopes`).
-    scopes: readScopes(reply, picked, text),
+    // the message the picker was shown (`readScopes`), and whether the answer
+    // carried any scope metadata at all (`scoped`).
+    ...scopesOf(readScopes(reply, picked, text)),
     page: readPageVerb(reply),
     // THE REMOVAL RIDES THE SAME ANSWER AS THE LANES, rather than being read
     // again by the caller off a reply it would have to keep. One read, one

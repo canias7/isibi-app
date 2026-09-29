@@ -595,22 +595,160 @@ test("control: a single site-wide change reads the whole sentence and touches no
   assert.equal(r.said.text.startsWith("✅ Updated the look — the description."), true, why(r));
 });
 
-test("a scope naming a page the site does not have is said before anything runs, and buys nothing", async () => {
+test("a scope naming a page the site does not have withholds that change alone, names the site's pages, and the description beside it ships", async () => {
+  // CHANGED 2026-09-29 (owner: *"Reject or withhold the affected operation
+  // with an accurate outcome. Preserve independently valid work where the
+  // existing partial-success contract allows it."*). This refused the whole
+  // message before anything ran, taking the valid description change down
+  // with the one aimed at a page the site does not have.
   const r = await throughTheChain({
     message: RUN52,
     routed: { intent: "edit", layer: "look" },
     answers: { [T.pick]: { fields: ["description", "shape"], scopes: [
       { part: "description", words: DESC_WORDS },
       { part: "shape", page: "/menu", words: VISIT_WORDS },
+    ] }, "lane:description": NEW_DESC },
+  });
+  const said = failureMsg("page/no-page", { page: "/menu", verb: "", routes: ROUTES });
+  assert.deepEqual(r.seen.calls, [T.route, T.pick, T.lane], "a writer ran against a page the site does not have" + why(r));
+  assert.deepEqual(r.seen.writers, [], why(r));
+  assert.deepEqual(r.seen.lanes, [{ field: "description", asked: DESC_WORDS }], why(r));
+  assert.equal(r.body.ok, true, why(r));
+  assert.deepEqual(r.body.partial, [{ layer: "page", lanes: ["shape"], error: "no-page", msg: said, unchanged: true }], why(r));
+  assert.equal(storedLook(r.store, r.slug).description, NEW_DESC, why(r));
+  for (const [path, src] of [["index.tsx", HOME], ["visit.tsx", VISIT], ["gallery.tsx", GALLERY]]) assert.equal(storedPage(r.store, r.slug, path), src, why(r));
+  assert.equal(r.said.text, "✅ Updated the look — the description. ⚠️ " + said, why(r));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. A SCOPE THAT FAILS ITS CHECK NEVER WIDENS AND NEVER GOES HOME
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Owner, 2026-09-29, after reproducing both through the route: *"Distinguish
+// absent legacy scope from explicitly invalid scope. Once an operation supplies
+// scope metadata, failed validation must not widen its instruction to the
+// whole request or redirect it to the homepage. Reject or withhold the affected
+// operation with an accurate outcome. Preserve independently valid work where
+// the existing partial-success contract allows it."*
+//
+// Before the correction: a page of `["/visit"]` was read as "no page", and the
+// home page's writer was handed the Visit move; words the message does not
+// hold were read as "no words", and the Visit writer was handed the whole
+// request, the description change included.
+
+/**
+ * THE WITHHELD SHAPE CHANGE, beside the description that ships: no writer at
+ * all, the description lane handed only its own words, the description stored,
+ * every page byte for byte, one publish, and a screen that says both.
+ */
+function assertShapeWithheld(r, msg, label) {
+  assert.deepEqual(r.seen.calls, [T.route, T.pick, T.lane], label + ": the calls" + why(r));
+  assert.deepEqual(r.seen.writers, [], label + ": a page writer was called" + why(r));
+  assert.deepEqual(r.seen.lanes, [{ field: "description", asked: DESC_WORDS }], label + ": the description lane was handed more than its own words" + why(r));
+  assert.equal(r.status, 200, label + why(r));
+  assert.equal(r.body.ok, true, label + why(r));
+  assert.deepEqual(r.body.partial, [{ layer: "page", lanes: ["shape"], error: "scope-unread", msg, unchanged: true }], label + ": partial" + why(r));
+  assert.equal(storedLook(r.store, r.slug).description, NEW_DESC, label + ": the description was not stored" + why(r));
+  for (const [path, src] of [["index.tsx", HOME], ["visit.tsx", VISIT], ["gallery.tsx", GALLERY]]) {
+    assert.equal(storedPage(r.store, r.slug, path), src, label + ": " + path + " changed" + why(r));
+  }
+  assert.equal(r.compiles, 1, label + ": not exactly one publish" + why(r));
+  assert.equal(r.said.text, "✅ Updated the look — the description. ⚠️ " + msg, label + ": the screen" + why(r));
+}
+
+for (const mode of ["sync", "job"]) {
+  test("a shape scope whose page is not a path (`[\"/visit\"]`) is withheld: the home page's writer is never called, and the description still ships (" + mode + ")", async () => {
+    const r = await throughTheChain({
+      mode, message: RUN52,
+      routed: { intent: "edit", layer: "look" },
+      answers: { [T.pick]: { fields: ["description", "shape"], scopes: [
+        { part: "description", words: DESC_WORDS },
+        { part: "shape", page: ["/visit"], words: VISIT_WORDS },
+      ] }, "lane:description": NEW_DESC },
+    });
+    assertShapeWithheld(r, failureMsg("picker/scope-unread", { why: "page" }), "page [\"/visit\"] " + mode);
+  });
+
+  test("a shape scope on /visit whose words are not in the request is withheld: the Visit writer is never handed the request, and the description still ships (" + mode + ")", async () => {
+    const r = await throughTheChain({
+      mode, message: RUN52,
+      routed: { intent: "edit", layer: "look" },
+      answers: { [T.pick]: { fields: ["description", "shape"], scopes: [
+        { part: "description", words: DESC_WORDS },
+        { part: "shape", page: "/visit", words: "Move that section up" },
+      ] }, "lane:description": NEW_DESC },
+    });
+    assert.ok(!RUN52.toLowerCase().includes("move that section up"), "the fixture's words must not be in the request");
+    assertShapeWithheld(r, failureMsg("picker/scope-unread", { why: "words", page: "/visit" }), "words not in the request " + mode);
+  });
+}
+
+test("a scoped answer that leaves a picked lane without a scope withholds that lane rather than running it on the whole request", async () => {
+  const r = await throughTheChain({
+    message: RUN52,
+    routed: { intent: "edit", layer: "look" },
+    answers: { [T.pick]: { fields: ["description", "shape"], scopes: [{ part: "description", words: DESC_WORDS }] }, "lane:description": NEW_DESC },
+  });
+  assertShapeWithheld(r, failureMsg("picker/scope-unread", { why: "unscoped" }), "unscoped shape");
+});
+
+test("a description scope whose words are not in the request is withheld: its lane is never handed the whole request, and the Visit move still runs", async () => {
+  const r = await throughTheChain({
+    message: RUN52,
+    routed: { intent: "edit", layer: "look" },
+    answers: { [T.pick]: { fields: ["description", "shape"], scopes: [
+      { part: "description", words: "update the meta description" },
+      { part: "shape", page: "/visit", words: VISIT_WORDS },
     ] } },
   });
-  assert.deepEqual(r.seen.calls, [T.route, T.pick], "a lane or a writer ran against a page the site does not have" + why(r));
+  const msg = failureMsg("picker/scope-unread", { why: "words" });
+  assert.deepEqual(r.seen.calls, [T.route, T.pick, T.tweak], "the calls" + why(r));
+  assert.deepEqual(r.seen.lanes, [], "the description lane was called" + why(r));
+  assert.deepEqual(r.seen.writers.map((w) => [w.path, w.instruction]), [["visit.tsx", VISIT_WORDS]], "the Visit writer" + why(r));
+  assert.equal(r.body.ok, true, why(r));
+  assert.deepEqual(r.body.partial, [{ layer: "look", lanes: ["description"], error: "scope-unread", msg, unchanged: true }], why(r));
+  assert.equal(storedLook(r.store, r.slug).description, OLD_DESC, "the description changed" + why(r));
+  assert.equal(storedPage(r.store, r.slug, "visit.tsx"), bandsSwapped(VISIT), "the Visit move did not ship" + why(r));
+  assert.equal(storedPage(r.store, r.slug, "index.tsx"), HOME, why(r));
+  assert.equal(storedPage(r.store, r.slug, "gallery.tsx"), GALLERY, why(r));
+  assert.equal(r.said.text, "✅ Updated /visit. ⚠️ " + msg, "the screen" + why(r));
+});
+
+test("an own lane a scoped answer left without a scope is withheld too: the description lane is never handed the whole request", async () => {
+  const r = await throughTheChain({
+    message: RUN52,
+    routed: { intent: "edit", layer: "look" },
+    answers: { [T.pick]: { fields: ["description", "shape"], scopes: [{ part: "shape", page: "/visit", words: VISIT_WORDS }] } },
+  });
+  const msg = failureMsg("picker/scope-unread", { why: "unscoped" });
+  assert.deepEqual(r.seen.calls, [T.route, T.pick, T.tweak], "the calls" + why(r));
+  assert.deepEqual(r.seen.lanes, [], "the description lane was called" + why(r));
+  assert.deepEqual(r.seen.writers.map((w) => [w.path, w.instruction]), [["visit.tsx", VISIT_WORDS]], why(r));
+  assert.deepEqual(r.body.partial, [{ layer: "look", lanes: ["description"], error: "scope-unread", msg, unchanged: true }], why(r));
+  assert.equal(storedLook(r.store, r.slug).description, OLD_DESC, why(r));
+  assert.equal(storedPage(r.store, r.slug, "visit.tsx"), bandsSwapped(VISIT), why(r));
+  assert.equal(r.said.text, "✅ Updated /visit. ⚠️ " + msg, why(r));
+});
+
+test("a message whose only change is withheld changes nothing, costs nothing for the edit, and says why", async () => {
+  const r = await throughTheChain({
+    message: VISIT_WORDS + ".",
+    routed: { intent: "edit", layer: "look" },
+    answers: { [T.pick]: { fields: ["shape"], scopes: [{ part: "shape", page: ["/visit"], words: VISIT_WORDS }] } },
+  });
+  const msg = failureMsg("picker/scope-unread", { why: "page" });
+  assert.deepEqual(r.seen.calls, [T.route, T.pick], "something ran" + why(r));
   assert.equal(r.body.ok, false, why(r));
-  assert.equal(r.body.error, "no-page", why(r));
+  assert.equal(r.body.error, "scope-unread", why(r));
   assert.equal(r.body.cost, 0, why(r));
-  assert.equal(r.body.msg, failureMsg("page/no-page", { page: "/menu", verb: "", routes: ROUTES }), why(r));
+  assert.equal(r.body.msg, msg, why(r));
+  assert.equal(r.body.escalate, undefined, "it climbed, which the browser reads as a rewrite" + why(r));
+  for (const [path, src] of [["index.tsx", HOME], ["visit.tsx", VISIT], ["gallery.tsx", GALLERY]]) assert.equal(storedPage(r.store, r.slug, path), src, why(r));
   assert.equal(storedLook(r.store, r.slug).description, OLD_DESC, why(r));
   assert.equal(r.compiles, 0, why(r));
+  assert.ok(r.said.text.startsWith("⚠️ " + msg), "the screen" + why(r));
+  assert.match(r.said.text, /Nothing on your site changed/, why(r));
+  assert.deepEqual(r.said.actions, [], "the browser followed up on a refusal" + why(r));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -668,30 +806,45 @@ test("heldBack: the held part taken out wherever it stands, or refused — never
   assert.deepEqual(heldBack("Add a booking form.", "add a booking form"), { ok: false, run: "Add a booking form.", held: "" });
 });
 
-test("readScopes: a scope names a picked part, a page in one spelling, and words found in the message", () => {
-  const reply = (scopes) => ({ content: [{ type: "tool_use", name: T.pick, input: { fields: ["description", "shape"], scopes } }] });
+test("readScopes: a valid scope names a picked part, a page in one spelling and words in the message; an invalid one is marked, never blanked", () => {
+  const reply = (scopes) => ({ content: [{ type: "tool_use", name: T.pick, input: { fields: ["description", "shape"], ...(scopes === undefined ? {} : { scopes }) } }] });
   const got = readScopes(reply([
     { part: "description", words: DESC_WORDS.toUpperCase() },
     { part: "shape", page: "visit", words: VISIT_WORDS },
-    { part: "shape", page: "/gallery/", words: "words nobody said" },
-    { part: "colors", page: "/", words: DESC_WORDS },       // a part this answer did not pick
-    { part: ["shape"], words: VISIT_WORDS },                // a non-string part
-    { part: "shape", page: ["/visit"], words: VISIT_WORDS }, // a non-string page
-    { part: "shape", page: "/", words: 7 },                 // non-string words
+    { part: "shape", page: "/gallery/", words: "words nobody said" },   // words not in the message
+    { part: "colors", page: "/", words: DESC_WORDS },                   // a part this answer did not pick
+    { part: ["shape"], words: VISIT_WORDS },                            // a non-string part
+    { part: "shape", page: ["/visit"], words: VISIT_WORDS },             // a non-string page
+    { part: "shape", page: "#", words: VISIT_WORDS },                   // a string that names no path
+    { part: "shape", page: "/", words: 7 },                             // non-string words
+    { part: "shape", page: "   ", words: VISIT_WORDS },                 // a blank page is no page
     null, "shape", [],
   ]), ["description", "shape"], RUN52);
-  assert.deepEqual(got, [
+  // RE-ANCHORED 2026-09-29. This blessed the fallback the owner reproduced:
+  // `["/visit"]` came back as page "" (so the route sent it to the home page)
+  // and words nobody said came back as "" (so the route handed the writer the
+  // whole request). Now each is its own op, marked with what failed.
+  assert.equal(got.scoped, true);
+  assert.deepEqual(got.ops, [
     { part: "description", page: "", words: DESC_WORDS },
     { part: "shape", page: "/visit", words: VISIT_WORDS },
-    { part: "shape", page: "/gallery", words: "" },
+    { part: "shape", page: "/gallery", words: "", invalid: "words" },
+    { part: "shape", page: "", words: "", invalid: "page" },
+    { part: "shape", page: "", words: "", invalid: "page" },
+    { part: "shape", page: "/", words: "", invalid: "words" },
     { part: "shape", page: "", words: VISIT_WORDS },
-  ].slice(0, MAX_LANES));
-  // NO ANSWER, OR NOTHING PICKED: no scopes.
-  assert.deepEqual(readScopes(null, ["shape"], RUN52), []);
-  assert.deepEqual(readScopes(reply([{ part: "shape", words: VISIT_WORDS }]), [], RUN52), []);
-  // AT MOST ONE ENTRY PER LANE THE PICKER MAY NAME.
+  ]);
+  // LEGACY IS NO SCOPE METADATA AT ALL: absent, null or an empty list.
+  for (const legacy of [undefined, null, []]) assert.deepEqual(readScopes(reply(legacy), ["shape"], RUN52), { scoped: false, ops: [] }, JSON.stringify(legacy));
+  assert.deepEqual(readScopes(null, ["shape"], RUN52), { scoped: false, ops: [] });
+  // METADATA THAT CANNOT BE READ IS STILL METADATA: scoped, with nothing valid.
+  for (const bad of ["shape on /visit", { part: "shape" }, 7]) assert.deepEqual(readScopes(reply(bad), ["shape"], RUN52), { scoped: true, ops: [] }, JSON.stringify(bad));
+  // A SCOPED ANSWER NAMING NO PICKED LANE places nothing — the route then
+  // withholds every lane it left without a scope.
+  assert.deepEqual(readScopes(reply([{ part: "shape", words: VISIT_WORDS }]), [], RUN52), { scoped: true, ops: [] });
+  // NOTHING IS DROPPED IN SILENCE: every entry naming a picked lane is an op.
   const many = Array.from({ length: MAX_LANES + 3 }, () => ({ part: "shape", words: VISIT_WORDS }));
-  assert.equal(readScopes(reply(many), ["shape"], RUN52).length, MAX_LANES);
+  assert.equal(readScopes(reply(many), ["shape"], RUN52).ops.length, MAX_LANES + 3);
 });
 
 test("pickLanes reads the scopes off the answer it was given, against the message it sent", async () => {
@@ -706,10 +859,16 @@ test("pickLanes reads the scopes off the answer it was given, against the messag
     { part: "description", page: "", words: DESC_WORDS },
     { part: "shape", page: "/visit", words: VISIT_WORDS },
   ]);
+  assert.equal(r.scoped, true);
   assert.equal(sent.length, 1);
-  // A FAILED OR EMPTY CALL CARRIES NO SCOPES, never undefined.
-  assert.deepEqual((await pickLanes(deps, { message: "   " })).scopes, []);
-  assert.deepEqual((await pickLanes({ send: async () => { throw new Error("down"); } }, { message: RUN52 })).scopes, []);
+  // A FAILED OR EMPTY CALL CARRIES NO SCOPES, never undefined, and is not scoped.
+  const empty = await pickLanes(deps, { message: "   " });
+  assert.deepEqual([empty.scopes, empty.scoped], [[], false]);
+  const down = await pickLanes({ send: async () => { throw new Error("down"); } }, { message: RUN52 });
+  assert.deepEqual([down.scopes, down.scoped], [[], false]);
+  // AN ANSWER WITH NO SCOPES IS THE LEGACY SHAPE.
+  const legacy = await pickLanes({ send: async () => ({ content: [{ type: "tool_use", name: T.pick, input: { fields: ["shape"] } }], usage: { input_tokens: 1, output_tokens: 1 } }) }, { message: RUN52, fields: LANE_FIELDS });
+  assert.deepEqual([legacy.fields, legacy.scopes, legacy.scoped], [["shape"], [], false]);
 });
 
 test("the picker's tools ask for each change's scope — required on the ordinary tool, offered on the door", () => {
@@ -736,8 +895,15 @@ test("one page operation per page: scoped words on one page join, and different 
   assert.deepEqual(mergePageSteps([a, b]), [{ layer: "page", page: "/visit", fields: ["shape", "components"], ask: "move the band up\nswap the photo for a map" }]);
   // THE SAME WORDS TWICE are one set.
   assert.deepEqual(mergePageSteps([a, { ...a, fields: ["components"] }]), [{ ...a, fields: ["shape", "components"] }]);
-  // ONE WITHOUT WORDS OF ITS OWN: the whole message, which already holds both.
-  assert.deepEqual(mergePageSteps([a, { layer: "page", page: "/visit", fields: ["components"] }]), [{ layer: "page", page: "/visit", fields: ["shape", "components"], ask: "" }]);
+  // RE-ANCHORED 2026-09-29: ONE WITHOUT WORDS OF ITS OWN IS NOT JOINED. This
+  // joined them on the whole message, which handed the scoped change every
+  // other change's words — the widening a scope exists to prevent.
+  const u = { layer: "page", page: "/visit", fields: ["components"] };
+  assert.deepEqual(mergePageSteps([a, u]), [a, u]);
+  // A WITHHELD STEP RUNS NOTHING: never joined, never the same operation.
+  const w = { layer: "page", page: "/visit", fields: ["components"], ask: "move the band up", withheld: { why: "words" } };
+  assert.deepEqual(mergePageSteps([a, w]), [a, w]);
+  assert.equal(samePageOperation(a, w), false);
   // AND NEITHER: exactly as before this existed — no `ask` key at all.
   assert.deepEqual(mergePageSteps([{ layer: "page", page: "/", fields: ["shape"] }, { layer: "page", page: "/", fields: ["components"] }]),
     [{ layer: "page", page: "/", fields: ["shape", "components"] }]);
@@ -749,6 +915,20 @@ test("one page operation per page: scoped words on one page join, and different 
   assert.equal(samePageOperation(a, c), false);
   // NEITHER WITH WORDS OF ITS OWN: both run on the whole message, as always.
   assert.equal(samePageOperation({ layer: "page", page: "/", fields: ["components"] }, { layer: "page", page: "/", fields: ["shape"] }), true);
+});
+
+test("a withheld change is ours to explain, at no cost, and its sentence claims nothing about the rest of the message", () => {
+  const f = EDIT_FAILURES.find((x) => x.key === "picker/scope-unread");
+  assert.ok(f, "the failure is not in the table");
+  assert.deepEqual([f.cls, f.ours, f.reason], ["explain", true, "scope-unread"]);
+  assert.equal(failureMsg("picker/scope-unread", { why: "page" }),
+    "I couldn't tell which page one of your changes was for, so I didn't make that change — this is on us. Send it again on its own, with the page it's on.");
+  assert.equal(failureMsg("picker/scope-unread", { why: "words", page: "/visit" }),
+    "I couldn't tell which part of your message one of your changes on /visit was, so I didn't make that change — this is on us. Send it again on its own.");
+  assert.equal(failureMsg("picker/scope-unread", { why: "unscoped" }),
+    "I couldn't tell which part of your message one of your changes was, so I didn't make that change — this is on us. Send it again on its own.");
+  // READ BESIDE A CHANGE THAT SHIPPED, NONE OF THEM MAY SAY NOTHING CHANGED.
+  for (const why of ["page", "words", "unscoped"]) assert.doesNotMatch(failureMsg("picker/scope-unread", { why }), /nothing|haven't changed/i);
 });
 
 test("a held-back part that cannot be found is ours to explain, at no cost, on both routes", () => {

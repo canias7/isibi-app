@@ -253,8 +253,14 @@ test("the look branch adds a page step to place the QR codes no page shows, name
   const look = CODE.slice(at(CODE, "const acting = pickedFields.filter", "look dispatch"), at(CODE, 'if (pickedFields.includes("pages"))', "pages verb"));
   const step = look.indexOf('steps.push({ layer: "page", page: fallbackPage, fields: ["qr"], instruction: qrPlaceAsk(unplaced) })');
   assert.ok(step > 0, "no QR placement step, or it no longer asks for the unplaced codes by name");
-  const gate = look.slice(look.lastIndexOf('if (pickedFields.includes("qr")', step), step);
-  assert.ok(gate.length > 0 && gate.length < 600, "the step is not gated on the qr lane having been picked");
+  // RE-ANCHORED 2026-09-29 ON THE LANE THAT RUNS: the gate was the qr lane
+  // being PICKED; a scoped answer can pick it and withhold it (its scope failed
+  // its check), and a placement for a code nobody made would be work nobody
+  // asked for. `lookRuns` is the own lanes the look step really runs — the
+  // picked ones on a legacy answer, exactly as before.
+  const gate = look.slice(look.lastIndexOf('if (lookRuns.includes("qr")', step), step);
+  assert.ok(gate.length > 0 && gate.length < 600, "the step is not gated on the qr lane running");
+  assert.match(look, /let lookRuns = acting;/, "on a legacy answer the placement no longer follows the picked lanes");
   assert.match(gate, /const unplaced = qrUnplaced\(qrList\(wallLook && wallLook\.qr\), eSrc\)/,
     "the unplaced codes are not derived from the stored list against every page");
   assert.match(gate, /if \(unplaced\.length\)/, "the step must fire only when some code is on no page");

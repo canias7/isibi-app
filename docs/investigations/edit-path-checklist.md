@@ -609,6 +609,19 @@ leaves the Visit move in the turn, and whether a real picker scopes it to
 `/visit`, is what a live run would show.** None is proposed here; runs 52 and
 53 are not repeated.
 
+**Corrected after the owner's review (2026-09-29, on the branch, not
+deployed).** The owner reproduced two ways round the scope: a page of
+`["/visit"]` read as "no page" sent the Visit move to the home page's writer,
+and words the request does not hold handed the Visit writer the whole request.
+Now only an answer with no scope metadata at all runs the old way; on a scoped
+answer an op that fails its check (a page that is not a path, words not in the
+message, a page the site lacks) and a picked lane the answer left unscoped are
+withheld, at no cost and with their own sentence, and the valid work beside
+them still ships. Both reproductions are route cases, sync and queued: the
+wrong writer is never called, no other change's words are forwarded, the
+description is stored, and the reply says both. The story is the history
+file's *The correction after the owner's review*.
+
 ### A visible alternative, not recommended
 
 "Make the main heading on every page dark green (#1f4d2b)", through the
