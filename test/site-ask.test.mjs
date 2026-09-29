@@ -1999,6 +1999,57 @@ test("the tool tells the model to stay silent when unsure", () => {
   assert.ok(!(ASK_TOOL.input_schema.required || []).includes("alsoAsked"));
 });
 
+test("the answer is chosen over the whole message, and only what no one answer can make is held back", () => {
+  // Run 63 (Test 8, 2026-09-29): a menu item taken out and a band moved on
+  // another page came back `nav` + `remove` with the move in `alsoAsked`. The
+  // first change was answered by its own clause and the second held back as
+  // something THAT answer could not do, although `look` could make both. The
+  // owner: *"Resolve conflicting instructions so the router considers the
+  // whole request before choosing a path or deferring any operation."*
+  const l = ASK_TOOL.input_schema.properties.layer.description;
+  const d = ASK_TOOL.input_schema.properties.alsoAsked.description;
+  // THE RULE IS THE LAYER FIELD'S LAST PARAGRAPH — the position this file has
+  // measured as a field's strongest (see the `remove` field's closing line),
+  // so every per-layer clause above it is read as scoped by it.
+  const last = l.split("\n").pop();
+  assert.ok(last.length > 200, "the layer description has no closing rule to read: " + JSON.stringify(last.slice(0, 80)));
+  assert.match(last, /WHOLE MESSAGE/, "the closing rule is not about the whole message");
+  assert.match(last, /EVERY CHANGE THEY ASK FOR/, "the router is not told to read every change before choosing");
+  assert.match(last, /NEVER FROM THE FIRST ONE ALONE/, "a leading change can still decide the answer on its own");
+  // A SINGLE KIND KEEPS ITS OWN LAYER, however many changes there are — the
+  // cheap answers for one change stay where they were.
+  assert.match(last, /Each layer above is the answer when every change they ask for is its kind/,
+    "a message of one kind is no longer answered by its own layer");
+  // A MIX `look` CAN MAKE ENTIRELY IS `look`, AND NOTHING OF IT IS HELD BACK —
+  // and only such a mix: one it cannot make is not sent there.
+  assert.match(last, /changes of different kinds and "look" can make all of them/,
+    "the rule does not tie `look` to a mix it can make entirely");
+  assert.match(last, /answer "look" and hold nothing back/, "a mix `look` can make is still split across turns");
+  assert.match(last, /Hold a change back only when no one answer can make it with the rest/,
+    "the closing rule does not limit what is held back");
+  // A RULE, NOT A WORKED EXAMPLE (owner: "Delete worked examples; state only
+  // the purpose"): everything it quotes is a layer's own name, so no customer
+  // sentence, site or page can be copied out of it.
+  const quoted = [...last.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(quoted.length >= 2, "the closing rule names no layer at all");
+  for (const q of quoted) assert.ok(EDIT_LAYERS.includes(q), "the closing rule quotes something that is not a layer: " + q);
+  // THE HOLD-BACK FIELD SAYS THE SAME, WHATEVER WAS ANSWERED FIRST. It used to
+  // spare a part `look` could reach only "when you answered look".
+  assert.doesNotMatch(d, /when you answered "look"/, "the look exception still depends on the answer already chosen");
+  assert.match(d, /never for a part "look" can make along with everything else they asked/);
+  assert.match(d, /whatever the first change was/);
+  // AND THE LEGITIMATE HOLDS ARE KEPT: what the answer cannot do this turn —
+  // an addition beside a change, a change beside an addition, a list's rows or
+  // a page's exact words beside a change of another kind.
+  assert.match(d, /ONLY WHEN IT NEEDS SOMETHING YOUR ANSWER CANNOT DO THIS TURN/);
+  assert.match(d, /something to ADD/);
+  assert.match(d, /answered "addon"/);
+  assert.match(d, /\("data"\)/);
+  assert.match(d, /\("text"\)/);
+  // A menu change on its own still goes to its own cheap layer.
+  assert.match(l, /A MENU CHANGE IS "nav"/);
+});
+
 test("the wire is not cut, at either end", () => {
   // THE THIRTEENTH FIELD OF THIS SHAPE. Twelve have been decided correctly and
   // dropped between `readRouting` and the client, and from outside "the model

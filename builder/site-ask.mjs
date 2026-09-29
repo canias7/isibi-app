@@ -297,9 +297,13 @@ export const ASK_TOOL = {
           "is a \"look\" answer holding \"add a booking form\"), a change beside an addition when you answered " +
           "\"addon\", or a change to what the site's lists hold (\"data\") or to the exact words on a page " +
           "(\"text\") beside a change of another kind.\n" +
-          "NEVER for a detail, a reason or a restatement of the change you are doing, and never for a second part " +
-          "\"look\" can reach when you answered \"look\". Being wrong here holds back work they asked for. When in " +
-          "doubt, say nothing.",
+          // "WHEN YOU ANSWERED look" WAS THE GAP (run 63, 2026-09-29): a message
+          // answered by another layer first could still put off a part `look`
+          // would have made beside it. What decides is whether `look` can make
+          // the whole message, never which layer the first change suggested.
+          "NEVER for a detail, a reason or a restatement of the change you are doing, and never for a part \"look\" " +
+          "can make along with everything else they asked: then the answer is \"look\", whatever the first change " +
+          "was. Being wrong here holds back work they asked for. When in doubt, say nothing.",
       },
       layer: {
         type: "string",
@@ -469,7 +473,27 @@ export const ASK_TOOL = {
           "called \"Sunset Shoes\" and live at shoeroom-1, and plenty do. The old address keeps working and sends " +
           "people to the new one, so this is safe to pick when they plainly asked for it — and only then. ALSO " +
           "\"rename\" when they want an OLD address to stop working after a rename (\"forget the old address\", " +
-          "\"drop crookes-guitar\", \"stop the old name working\").",
+          "\"drop crookes-guitar\", \"stop the old name working\").\n" +
+          // ── ONE ANSWER FOR THE WHOLE MESSAGE, AND IT IS THE LAST WORD HERE (2026-09-29) ──
+          //
+          // Run 63 (Test 8): a menu item taken out and a band moved on another
+          // page, in one message, came back `nav` with `remove` and the move in
+          // `alsoAsked`. The first change was answered by its own clause ("A
+          // MENU CHANGE IS nav", `remove` for a menu item), and the second was
+          // then held back as something THAT answer could not do. `look` could
+          // make both, and its clause says several changes are one answer, but
+          // every clause above reads as the whole rule when a message leads
+          // with its kind. So the choice is stated once, last, over every
+          // change asked: a layer's own clause is its answer when every change
+          // is its kind (a single change stays as cheap as it was); a mix that
+          // `look` can make entirely is `look`; and only what no one answer can
+          // make with the rest is held back. A mix `look` cannot make keeps its
+          // answer and its hold, so not every mix goes to `look`.
+          "ONE ANSWER FOR THE WHOLE MESSAGE, CHOSEN AFTER READING EVERY CHANGE THEY ASK FOR — NEVER FROM THE FIRST " +
+          "ONE ALONE. Each layer above is the answer when every change they ask for is its kind. When they ask for " +
+          "changes of different kinds and \"look\" can make all of them (what it reaches is listed under `alsoAsked`), " +
+          "answer \"look\" and hold nothing back: it makes each change where it belongs. Hold a change back only when " +
+          "no one answer can make it with the rest.",
       },
       page: {
         type: "string",
