@@ -5,7 +5,7 @@
 > `docs/deploy.md`, where CLAUDE.md's **Deploy** section moved in the second
 > pass. This file keeps the measurements behind them: the
 > timing bands, every image-id prediction checked against a deploy's own log
-> (deploys 2137–2167), and the served-file check driven end to end on deploy
+> (deploys 2137–2168), and the served-file check driven end to end on deploy
 > 2139.
 >
 > **Add each new deploy here**, one paragraph per deploy, in the same shape:
@@ -290,6 +290,34 @@ deploy=cb981a4ad1d3 image=65ce683607928f0e` and `runtime 200
 deploy=cb981a4ad1d3 async=true runner=true`, the two readers agreeing and both
 expectations met; the free job was claimed by a container and finished at
 cost 0, and the balance read 37.
+**Deploy 2168 (2026-09-29), with a second run of the same push, 2169, was
+predicted on both ends and built as predicted**: `origin/main` `cb981a4a`
+answered `65ce683607928f0e`, deploy 2167's own image, runtime-confirmed by run
+59, and the tip `47dea9c0` answered `dd4f72842234135b`, both from 188 inputs
+and 158 distinct paths; `builder/site-lanes.mjs` is the push's one container
+input among its 12 files (the look door's menu-lane correction). **A
+fast-forward**, `cb981a4a` → `47dea9c0` at 16:35:44Z; nothing was in flight on
+GitHub (no run in progress or queued) or in `edit_jobs` (none open; the last,
+run 61's free probe, at 15:33), the candidate's CI was green (unit run
+36597948276 on `47dea9c0`, `8296 / 8292 / 0 / 4`; site build 36595193255 on
+`f2783aef`, the same code), and reverting `cb981a4a..47dea9c0` in a throwaway
+worktree gives main's own tree (`4c77ad83…`), so a rollback reuses
+`65ce683607928f0e`. **The one push started two deploy runs a second apart**,
+2168 (36598877765) and 2169 (36598878917), both `push` on `47dea9c0`; not seen
+on an earlier merge. Both ran the whole job and both are `completed` /
+`success`: 2169 set the gate first (took over from `cb981a4a…`) and 2168 then
+took over from it (`47dea9c0…`, "still live"); both drains found no live
+leases; both logs answered `built …:dd4f72842234135b (registry answered 404;
+***88 inputs off ./Dockerfile)` and `…:65ce683607928f0e` →
+`…:dd4f72842234135b` under `SUCCESS Modified application`, with **0 `CACHED`
+lines**; image step 131 s and 150 s, Wrangler 20 s and 17 s, job 180 s and
+194 s. `No updated asset files to upload` in both (nothing under `public/`
+changed, so no served-file comparison is owed); the last Wrangler deploy to
+finish was 2169's (16:39:05Z, `Current Version ID: 86535ed6-…`), and both
+deploy the same commit and image. Gates 401 / 401 / 401 / 404 at 16:40Z, and
+`fold-lane-bakery` still answers at `01790468089054-8btpep`, with
+`/the-starter` 301. **Deployed, not runtime-confirmed**: the owner's free
+press is the reading, from 16:55 UTC (the image rolled at 16:39).
 The twelfth
 added a SECOND CHANNEL — **deploy 2139 (2026-09-21) was predicted before the
 push over the local merge commit `28e46e91` as `82bccb3bee50e4fd`, against

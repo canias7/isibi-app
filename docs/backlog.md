@@ -32,9 +32,10 @@ here; take a closed one out of both.**
 - The render check judges each selector of a list on its own, so a common
   heading rule can force a correction round.
 - No look-door lane describes a menu item, so a menu link taken out beside
-  another change can be missed (Test 7's routing review). **Corrected on the
-  branch 2026-09-29 (the menu editor's lane now describes the menu's items);
-  not merged; shown only with supplied answers.**
+  another change can be missed (Test 7's routing review). **Corrected
+  2026-09-29 (the menu editor's lane now describes the menu's items), merged
+  and deployed in deploy 2168, not yet runtime-confirmed; shown only with
+  supplied answers; Test 8 (proposed) would show it with a real picker.**
 - A change a scoped picker answer leaves out is dropped without a word.
 - The menu editor's other parts (footer details, social icons, small print,
   links in the copy, how the header sits) are described by no look-door lane.
@@ -111,12 +112,14 @@ here; take a closed one out of both.**
   real picker does there. Whether and how the menu gets a lane is the
   owner's decision. **The owner, 2026-09-29: address it with the smallest
   general correction, reusing the menu editor and per-operation scoping.
-  Corrected on the branch the same day, not merged**: the one lane that runs
+  Corrected the same day, and merged and deployed in deploy 2168 (`47dea9c0`,
+  image `dd4f72842234135b`), not yet runtime-confirmed**: the one lane that runs
   the menu editor (`action`) now describes the menu's items as well as the
   button, and `behavior` names it as where they go; the route is unchanged,
   because a scoped answer already hands the menu editor only the menu's words.
   Reproduced first with run 47's reading (`behavior`: the menu editor never
-  ran). Shown only with supplied answers: `docs/history/2026-09-29-menu-lane.md`.
+  ran). Shown only with supplied answers; Test 8, proposed in the checklist,
+  would show it with a real picker: `docs/history/2026-09-29-menu-lane.md`.
 - **A CHANGE A SCOPED PICKER ANSWER LEAVES OUT IS DROPPED WITHOUT A WORD
   (found 2026-09-29 while reproducing the menu gap; not changed).** On a
   scoped answer each lane runs on its own words, and nothing checks that every

@@ -38,6 +38,17 @@ and 61 showed.**
 - Kept separate: the reply omission (review #9) and the remaining
   photo-removal limits.
 
+**The look door's menu lane is merged and deployed, not runtime-confirmed**
+(`47dea9c0`, deploy 2168 with a second run of the same push, 2169,
+2026-09-29 16:39 UTC, image `dd4f72842234135b` as predicted): the menu
+editor's lane now describes the menu's items, shown only with supplied
+answers. The owner's free press is the runtime reading.
+
+**Proposed, not run: Test 8** (below), a menu item taken out and the Visit
+band moved in one message, with real models; about 5–6 credits, up to about
+25; the free restore to `8btpep` after. It is what can show that the real
+picker places the menu change on the menu editor's lane.
+
 **The redirect carry-over fix is merged and deployed** (`f5e941f4`, deploy
 2165, 2026-09-28 19:07 UTC, image `8a10715339cdc780`; runtime-confirmed by
 the owner's free press, run 51, at 22:57 UTC):
@@ -134,10 +145,12 @@ stylesheet scope and rule keys (deploy 2161).
 - **Found by Test 7's routing review** (read in the code, not driven live):
   - no look-door lane describes a menu item, so a menu link taken out beside
     another change depends on the picker stretching `action` or `behavior`
-    (run 47's real picker named `behavior`, which did nothing). **Corrected on
-    the branch 2026-09-29, not merged**: the menu editor's lane now describes
-    the menu's items, and a scoped answer hands the menu editor only the menu's
-    words; shown only with supplied answers, sync and queued
+    (run 47's real picker named `behavior`, which did nothing). **Corrected
+    2026-09-29 and merged and deployed in deploy 2168 (`47dea9c0`, image
+    `dd4f72842234135b`), not yet runtime-confirmed**: the menu editor's lane now
+    describes the menu's items, and a scoped answer hands the menu editor only
+    the menu's words; shown only with supplied answers, sync and queued; *Test
+    8*, below, would show it with a real picker
     (`docs/history/2026-09-29-menu-lane.md`);
   - the photograph lane tells the picker a removal takes the slot away; the
     picture rung kept the slot, and the kit drew its placeholder there:
@@ -168,6 +181,223 @@ stylesheet scope and rule keys (deploy 2161).
 
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
+
+## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; not run; nothing spent)
+
+Owner, 2026-09-29: *"Also prepare one bounded real-model acceptance using
+the existing fixture and workflow: a menu-item removal combined with a layout
+change on another page. Verify both actual changes, preservation of the
+removed menu item's page, unrelated links and content, one publish, accurate
+billing, and free restoration afterward. Keep the evidence boundary explicit:
+supplied answers prove execution when the picker selects the correct lane;
+the live test must establish the real picker does so. Return the exact
+request, expected results, recovery version, and cost estimate before
+spending."*
+
+**The evidence boundary.** The committed route cases
+(`test/edit-removal-door.test.mjs`, section 5) prove the execution **when the
+picker places the menu change on the menu editor's lane with its own words**:
+each executor handed only its own words, both changes in one publish,
+unrelated content kept, either half's failure reported. They cannot show that
+a real picker places it there; that is what this test is for. The router, the
+picker, the menu editor and the page writer are all real models here, on the
+live fixture, and the verdict is what is stored and published.
+
+### The fixture: fold-lane-bakery at `01790468089054-8btpep`
+
+Restored by run 61 (15:33 UTC) and verified then: the five stored pages
+byte-identical to `test/fixtures/run47/*.before.tsx`, every route at `8btpep`.
+The free runtime check for deploy 2168 reads it again before anything is
+spent. What this test turns on:
+- **the menus** (header and footer): `/` and `/gallery` list Today's bake ·
+  The starter · Visit · Gallery; `/visit` and `/order` list Today's bake · The
+  starter · Visit; `/starter` has no menu. The "Order a loaf" button goes to
+  `/order` on every page but `/starter`;
+- **the Visit page**: "Come to the bakery" (with "The shutters and the
+  street", the hours, the QR code that points to `/gallery`, and the counter
+  photograph), then the "Order a collection so we hold a loaf" band;
+- **`/gallery`**: its own page, reached from two menus and the Visit page's QR
+  code.
+
+### The request, proposed (frozen when approved)
+
+Verbatim: 139 characters, all ASCII, sha256
+`65b63d1d09513135a101dd46c59b52f914c6c9a639d2c5e3d27ebc0ec8633afa`.
+
+> Take Gallery out of the menu. Then, on the Visit page only, put the "Order a collection so we hold a loaf" band above "Come to the bakery".
+
+- **Why Gallery**: its page is the one the test must keep, and it is the one
+  item whose removal leaves the same menu on every page. The menu editor
+  writes one list into every page's menu, so taking "The starter" out instead
+  would write the home page's list, Gallery included, into `/visit` and
+  `/order`: a change nobody asked for.
+- **Why the Visit move**: the Visit page's menu does not change, so each
+  executor's work lands in files the other does not touch, and the move is a
+  pure block swap, exact to the byte.
+- **Stated plainly: both halves repeat operations already shown live on their
+  own**: the Gallery link's removal through the router's own menu step (Test
+  5, run 49) and this Visit band move (Test 6, run 57). What is new is the path:
+  the look door, with the real picker placing the menu change on the menu
+  editor's lane beside other work. Known-good halves keep a failure
+  attributable to that path; a new layout operation can be chosen instead.
+
+### Rehearsed free through the real edit route (scratch, not committed)
+
+The exact sentence, routed `look`, with the picker's answer supplied as it is
+now told to give it (`action` with "Take Gallery out of the menu"; `shape` on
+`/visit` with the band's words), on the fixture's stored pages, sync and
+queued alike:
+- the calls are the picker, the page writer and the menu editor; the menu
+  editor is handed exactly "Take Gallery out of the menu", and the page writer
+  exactly the band's words, on `visit.tsx`;
+- `layers` `["page", "nav"]`, `lanes` `["shape", "action"]`, `pageOps`
+  `[{page: "/visit"}]`, no `partial`, one compile;
+- the stored files below; the screen "✅ Updated the look." (review #9, kept
+  separate).
+
+### Acceptance — judged on the stored and published changes
+
+The route's own record is evidence of the path and decides only item 8.
+1. **The request**: `request.json` carries sha256 `65b63d1d…`.
+2. **The menu item's removal**:
+   - stored: every page's menu becomes Today's bake · The starter · Visit, and
+     the files are exactly:
+     - `index.tsx` 2,378 characters,
+       `637b779375472391f93645d6b01c9dcd24038fbed3a947b9d976a47318b80891`;
+     - `gallery.tsx` 2,946,
+       `da53a37595977e4b4cb4ace4d31db2945fd1db1a9721c9cb5b3ee618d1ce907f`;
+     - `order.tsx` 9,241,
+       `0a0b5f41877a3b25f87329e2584d455ff1a56897d01b966dd04d6bc986c7b710`:
+       the same three items, the array re-written on one line;
+     - `starter.tsx` unchanged (951, `37fb0e17…`).
+
+     These are the bodies Test 5 expected for "Take Gallery out of the menu."
+     and run 49's real menu editor stored. Outside the menu arrays every one
+     is byte-identical to the fixture;
+   - published: the header and footer menus on `/` and `/gallery` no longer
+     show Gallery; on `/visit` and `/order` they show the same three items as
+     before.
+3. **The removed item's page is kept**: `gallery.tsx` is still stored, only its
+   menu changed; `/gallery` answers 200 at the new version with its own content
+   as before ("Our Gallery", "Photographs of the bakery's work", its gallery
+   and its empty picture slot); the sitemap still lists it; the Visit page's
+   QR code still points to it.
+4. **The layout change**:
+   - stored: `visit.tsx` 4,028 characters,
+     `c67011dbbf2a049012f793a59ec622f3e87e881b0998a374de7ed4b983b722f1`: outside
+     its menu exactly the band move (Test 6's expected swap, `35b008fd…`),
+     with its menu re-written with the same three items;
+   - published: `/visit` reads the band, "Come to the bakery", then "The
+     shutters and the street"; its markup is the two blocks swapped and
+     nothing else; its photographs and QR code still show.
+5. **Everything else preserved**:
+   - `/order` and `/starter`: markup byte-identical, and identical to the
+     pixel in a real browser;
+   - `/` and `/gallery`: identical apart from the Gallery item in the header
+     and the footer;
+   - every page's head tags identical apart from the script names; the "Order
+     a loaf" button and every in-body link unchanged;
+   - the redirects (`/the-starter`, `?x=1` and the trailing slash answer 301 to
+     `/starter` with `public, max-age=600`), the 404 and the sitemap as before,
+     at once and ten minutes later;
+   - the QR file, the stylesheet and the share card byte-identical; the stored
+     description unchanged; no component before or after.
+6. **One publish**, built from `8btpep`; the canary's comparison VERIFIED.
+7. **Money**: the routing call plus the job's reserves, closing exactly against
+   the ledger; the job `done` and `finalized`; nothing left open.
+8. **The path, which only a live run shows**: the router answers `look`, and
+   the job's stored reply names the lanes `shape` and `action` and the layers
+   `page` and `nav`, with no `partial` (a withheld change would be there).
+   That is the real picker placing the menu change on the menu editor's lane,
+   with scopes that pass their check.
+
+**Expected in the canary's own log**: `/visit` `order CHANGED`, the band's
+heading first; the other four routes `order same` (the menus are not
+headings); no photograph `LOST`; components `0 -> 0`, with its note that
+component preservation stays untested. No `FAIL` line is expected.
+
+### What each other outcome means, decided now
+
+- **`look`, the picker names `action` and `shape`, both scoped**: the path
+  intended. Items 1–8.
+- **`look`, the picker names `behavior` or another lane for the menu words**:
+  the menu editor does not run, the band ships, and `partial` names the other
+  step. Item 2 fails: the new description did not steer the real picker.
+- **`look`, the picker leaves the menu words out**: the band ships and the menu
+  change is dropped without a word (the separately recorded omitted-operation
+  gap). Item 2 fails.
+- **`look`, a scope fails its check**: that change is withheld with its own
+  sentence (`picker/scope-unread`) and the other ships. Item 2 or 4 fails; a
+  finding about the real picker.
+- **`nav` with `remove`, the removal door**: the router's own menu step runs,
+  reading the whole message, and the picker adds the layout as `additional`
+  work. Both changes may ship, but the look door's menu lane is not shown, so
+  item 8 fails. Recorded as what happened: the removal door given other work,
+  with real models, for the first time.
+- **`nav` without `remove`**: only the menu editor runs, on the whole message;
+  the band is not moved and nothing says so. A routing finding.
+- **The band put off (`alsoAsked`)**: only the menu ships, and the reply says
+  the band comes next. A finding about the router.
+- **The gallery page read as the thing to take off** (`pages` remove):
+  refused, because the home page's menu links to it; nothing is deleted. Item
+  3 holds and item 2 fails.
+- **The menu editor changes anything but the Gallery item** (a label, the
+  order, the button): item 2 or 5 fails.
+- **The quick writer declines and the full writer answers**: the same result,
+  dearer.
+- **A stored page that differs from its expected file only by its final
+  newline**: not exempt. Test 7's exception was for that acceptance only, so
+  the stored half of item 2 or 4 fails byte for byte; recorded against the
+  backlog item (the quick writer stores the model's whole file as written),
+  and the owner decides.
+- **Anything beyond the two changes**: a failure.
+
+### Recovery, free, and what it must show
+
+The canary's restore mode to `01790468089054-8btpep`, the new version's
+parent, which pruning keeps. Afterwards, run 61's checks: all five routes at
+`8btpep`; the stored pages equal to the fixture; Gallery back in the menus on
+`/` and `/gallery`; every head tag and the markup identical to the `8btpep`
+before-read; the redirects, the sitemap, the QR file and the card as before;
+the pages identical to the pixel in a real browser; no charge.
+
+### Cost
+
+An estimate, not a cap; each step rounds up to at least 1 credit. Routing
+1–2 (runs 57 and 60: 2); the page step through the quick writer with the
+picker's call, about 2 (run 57's Visit move: 2); the menu editor about 1–2
+(run 49's menu edit: 2). **About 5–6 credits, up to about 25** if the full page
+writer has to run (the page rung measured 6–22). The balance is 32.
+
+### The presses
+
+All from `main`.
+1. **The free runtime check for deploy 2168**, from 16:55 UTC (the image
+   rolled at 16:39): "Run the ONE paid edit as well" `no`; "The site to edit"
+   `fold-lane-bakery`, so its before-read re-reads the fixture; the two "Refuse
+   to spend unless…" boxes `47dea9c01fbf015c61a56db4281b3e3c5626a772` and
+   `dd4f72842234135b`.
+2. **The paid run, only after approval and after (1) passes**: "Run the ONE
+   paid edit as well" `yes`; "What to change" the sentence above, exactly;
+   "The site to edit" `fold-lane-bakery`; the same two expectations.
+3. **The free restore, after the readings**: "Run the ONE paid edit as well"
+   `no`; "PUT ONE SAVED VERSION BACK, THEN READ IT AND STOP"
+   `01790468089054-8btpep`; "The site to edit" `fold-lane-bakery`; the same two
+   expectations.
+
+### What it will not establish
+
+- The removal door given other work, unless the router answers `nav` with
+  `remove`.
+- A menu item added, renamed or reordered beside other work: only a removal
+  is tested.
+- The menu editor's other parts (the footer's details, social icons and small
+  print, links in the copy, how the header sits), which still have no
+  look-door lane (backlog).
+- A change the picker leaves out entirely, which is dropped without a word
+  (backlog); it would show here only as a failure.
+- A reply naming both changes (review #9, kept separate).
+- Component preservation (the fixture has none).
 
 ## Test 7 — a photograph removal and a layout change on another page, in one message (proposed 2026-09-29; its claimed coverage narrowed the same day by a routing review the owner asked for: the customer capability through the look door, not the removal door; held the same day on the photo-removal mismatch, reproduced and a correction proposed for review; the correction implemented on the branch the same day with the owner's safeguards, and Test 7 now expects the element removed; merged and deployed the same day in deploy 2167 and runtime-confirmed by the owner's free press, run 59; approved by the owner and pressed as run 60 the same day: both changes stored and published, each on its own page, with the home page stored without its final newline; the free restore, run 61, put everything back; closed by the owner, 2026-09-29, for the customer behavior runs 60 and 61 showed, with the missing final newline accepted as a specific nonfunctional exception)
 

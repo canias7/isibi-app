@@ -34,11 +34,18 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 
 ## Where things stand (2026-09-29)
 
-- **`main` is `cb981a4a`, deploy 2167** (2026-09-29 14:03 UTC, image
+- **`main` is `47dea9c0`, deploy 2168** (2026-09-29 16:35 UTC, a
+  fast-forward from `cb981a4a`; the one push started two deploy runs a second
+  apart, 2168 and 2169, both green on the same commit, and both built image
+  `dd4f72842234135b`, predicted on both ends) — **deployed, not
+  runtime-confirmed**: the owner's free press is the reading, from 16:55 UTC
+  (the image rolled at 16:39). Nothing under `public/` changed. It carries
+  **the look door's menu lane** (below). `docs/deploy-record.md`.
+- **Deploy 2167** (`cb981a4a`, 2026-09-29 14:03 UTC, image
   `65ce683607928f0e`, predicted on both ends and built; a fast-forward from
-  `a64729ad`) — **runtime-confirmed by the owner's free press, run 59**
-  (14:53 UTC, on `fold-lane-bakery`): both readers answer `cb981a4ad1d3`, a
-  cold container gets `65ce683607928f0e`, and queued jobs and the runner are
+  `a64729ad`) was **runtime-confirmed by the owner's free press, run 59**
+  (14:53 UTC, on `fold-lane-bakery`): both readers answered `cb981a4ad1d3`, a
+  cold container got `65ce683607928f0e`, and queued jobs and the runner were
   on. The served `chat.js` is
   byte-identical to the merged file (788,171 bytes, `82f36de3…`). It carries
   **the photo-removal correction**: "take the photo off" takes the
@@ -83,15 +90,15 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   run 52's publish kept the bakery's stored redirect, read at once and ten
   minutes later. Redirects dropped between 2026-08-17 and that deploy are not
   rebuilt.
-- **The branch `claude/help-needed-ehlwlj`** is `main` (`cb981a4a`) plus
-  documents and the look door's menu-lane correction (not merged). A press from the branch runs the branch's
-  script against main's Worker.
+- **The branch `claude/help-needed-ehlwlj`** is `main` (`47dea9c0`) plus
+  documents (deploy 2168's record and Test 8's proposal). A press from the
+  branch runs the branch's script against main's Worker.
 - **Balance 32** on the building account after run 60 (2026-09-29 15:07
   UTC): routing 2 and the job's reserves of 2 and 1, ledger rows 337 and 338;
   read again at 15:27 UTC and after the free restore (run 61) at 15:37, with
   no row after 338 and no job open. The unit
-  suite is **8,277** on `main` (`cb981a4a`) and **8,296** on the branch with
-  the menu-lane correction (local, `8296 / 8296 / 0 / 0`).
+  suite is **8,296** on `main` (`47dea9c0`): `8296 / 8296 / 0 / 0` locally
+  and `8296 / 8292 / 0 / 4` on CI (run 36597948276).
 - **Closed by the owner, not to be repeated**: live test 2 (run 32); Test 3
   (run 34) with the stylesheet corrections (deploy 2161); the kit-heading fix
   (2162); Test 4a (runs 37 and 39); Test 4b's D1 (run 42) and the conditional
@@ -127,8 +134,8 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   correction behind it is deployed in 2167 (`remove` takes the element off,
   `clear` keeps the space when asked). The record is the checklist's *Test 7*
   (*Run 60*, *Run 61*, *Closed*) and `docs/history/2026-09-29-photo-removal.md`.
-- **The look door's menu lane is corrected on the branch** (2026-09-29; not
-  merged, not deployed). A menu change beside other work is routed `look`,
+- **The look door's menu lane is corrected, merged and deployed in 2168**
+  (2026-09-29; not runtime-confirmed). A menu change beside other work is routed `look`,
   and no lane there described the menu's items: the one lane that runs the
   menu editor (`action`) said "only that button", and run 47's real picker
   read "Take Gallery out of the menu." as `behavior`, which changed nothing.
@@ -139,8 +146,21 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   executors with their own words, unrelated links kept, both partial
   outcomes, ordinary menu and button edits. Shown only with supplied answers.
   Required CI green on `f2783aef` (unit 36595193059: `8296 / 8292 / 0 / 4`;
-  site build 36595193255: the twelve counts); a merge would roll the image to
-  `dd4f72842234135b`. `docs/history/2026-09-29-menu-lane.md`.
+  site build 36595193255: the twelve counts) and on `47dea9c0` (unit
+  36597948276); the image rolled to `dd4f72842234135b`, as predicted. Test 8
+  would show it with a real picker. `docs/history/2026-09-29-menu-lane.md`.
+- **Test 8 is proposed, not run** (2026-09-29; nothing spent): one message,
+  *Take Gallery out of the menu. Then, on the Visit page only, put the "Order
+  a collection so we hold a loaf" band above "Come to the bakery".*, on
+  `fold-lane-bakery` at `8btpep`: Gallery out of every menu with its page
+  kept, and the Visit band moved, judged on the stored and published changes
+  against exact expected hashes, with one publish, the charge closing against
+  the ledger, and the free restore to `8btpep` after. About 5–6 credits, up
+  to about 25; the balance is 32. **The evidence boundary**: the route cases
+  prove the execution when the picker places the menu change on the menu
+  editor's lane; only this run can show the real picker does. Held for the
+  free runtime check of deploy 2168 and the owner's approval of the paid run.
+  The plan is the checklist's *Test 8*.
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
   `docs/investigations/edit-path-checklist.md`, and every test's plan, readings
@@ -347,15 +367,18 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
   bound. The default builder model is grok (`DEFAULT_PICKER`), and a cold new
   account is one credit short of building (`buildFloor` 20 against a grant of
   20, the routing call spending 1 first).
-- **The unit suite is 8,277** (`cb981a4a`, deploy 2167): `8277 / 8277 / 0 /
+- **The unit suite is 8,296** (`47dea9c0`, deploy 2168): `8296 / 8296 / 0 /
   0` locally, where the two `sheet-rtl` browser cases run because the
-  template's dependencies are installed, and `8277 / 8273 / 0 / 4` on CI (runs
-  36539848541 on `4ee123d2` and 36542727770 on `cb981a4a`) — **compare the
-  totals, never `pass`**; CI skips four. (Before the photo-removal correction:
-  8,241 at `9ed7da51`, `8241 / 8239 / 0 / 2` locally and `8241 / 8237 / 0 / 4`
-  on CI, run 36511517996.) **`site build`** reads the same twelve counts green
-  on `9ed7da51` (run 36511518084) and on `4ee123d2` (run 36539848416), each
-  read from each step's log: TAP 397, kit-typecheck 4, site-build **404** (382 plus the browser
+  template's dependencies are installed, and `8296 / 8292 / 0 / 4` on CI (runs
+  36595193059 on `f2783aef` and 36597948276 on `47dea9c0`) — **compare the
+  totals, never `pass`**; CI skips four. (Before the menu-lane correction:
+  8,277 at `cb981a4a`, `8277 / 8277 / 0 / 0` locally and `8277 / 8273 / 0 / 4`
+  on CI, runs 36539848541 and 36542727770. Before the photo-removal
+  correction: 8,241 at `9ed7da51`, `8241 / 8239 / 0 / 2` locally and `8241 /
+  8237 / 0 / 4` on CI, run 36511517996.) **`site build`** reads the same
+  twelve counts green on `9ed7da51` (run 36511518084), on `4ee123d2` (run
+  36539848416) and on `f2783aef` (run 36595193255), each read from each
+  step's log: TAP 397, kit-typecheck 4, site-build **404** (382 plus the browser
   control's 22), contrast-cases 16, theme-seam 11,
   theme-render 29, site-routing 14, site-runtime 47, and kit-render, kit-a11y,
   kit-effects and kit-paint `all passed` (census 7 + 4 + 1 = 12). Its two
@@ -422,7 +445,7 @@ guard, a sweep, a harness or a CI reader.** The ones met most often:
 | `docs/app-rules.md` | the builder app's rules, the model table, and the agent builder's half in this app |
 | `docs/platform.md` | the two halves, where the code lives, data, auth, payments and mail, credits |
 | `docs/deploy.md` | what a push starts, the paid workflows, the image predictor, runtime confirmation, the served-file check, secrets, rollback |
-| `docs/deploy-record.md` | every deploy's image prediction and timings, 2137 → 2167 (add new ones here) |
+| `docs/deploy-record.md` | every deploy's image prediction and timings, 2137 → 2168 (add new ones here) |
 | `docs/traps.md` | the full trap catalogue |
 | `docs/backlog.md` | the open items: a one-line index, then each in full |
 | `docs/history/` | dated records of every run and fix round, 2026-09-21 → 09-28, and the old status and live-state sections — indexed in `docs/history/README.md` |
