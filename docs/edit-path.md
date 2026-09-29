@@ -130,9 +130,9 @@ answers unless a run is named.
   answers two lists (`doorPickTool`) — `additional`, the only list that makes
   steps, and `routed`, recorded and never run — and the router's own step runs
   exactly once (`doorDispatch`). Nothing is read from how many lanes came back.
-  The work in `additional` is scoped the same way (`scopes`, 2026-09-29, on
-  the branch), so a layout change on another page runs there; the router's own
-  step still reads the message.
+  The work in `additional` is scoped the same way (`scopes`, 2026-09-29,
+  deploy 2166), so a layout change on another page runs there; the router's
+  own step still reads the message.
   A home page's menu keeps a link to itself that it already had. A page another
   page's source links to cannot be removed; a QR code pointing at it is not
   seen by that rule (backlog).

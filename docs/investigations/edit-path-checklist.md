@@ -79,7 +79,9 @@ the owner's free press, run 51, at 22:57 UTC):
      removal given other work, where the picker is told the routed change and
      lists anything else separately. Only supplied answers have exercised it.
      Run 49's real picker was given no other work, and Test 6 did not reach
-     this door, so it stays outstanding.
+     this door, so it stays outstanding. Test 7, proposed below, is for this
+     item; the router's instructions make the look door the likely route for
+     such a message.
 
    A second message after a hop or a failure is outstanding too.
 4. **A named page other than the home page** on a look edit: **closed with
@@ -131,6 +133,218 @@ stylesheet scope and rule keys (deploy 2161).
 
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
+
+## Test 7 — a photograph removal and a layout change on another page, in one message (proposed 2026-09-29, for the owner's review; not run)
+
+Owner, 2026-09-29: *"Prepare the next bounded acceptance: a removal combined
+with another change in one message, through the removal path with a real
+model. Use an existing suitable fixture and the existing workflow. Prefer a
+photograph removal on one page plus a layout change on another, if the current
+fixture supports clear before/after checks. … Verify actual stored and
+published outcomes, including that neither operation is dropped or sent to the
+wrong page. Give me the proposed test for review before spending."*
+
+**What it covers**: item 3's second half in the short checklist, a removal
+given other work, with real models, and neither operation dropped or sent to
+the wrong page.
+
+**Read first: which door the real router will open.** The removal door (the
+router answering `picture` or `nav` with `remove`) is what item 3 names. The
+router's instructions as deployed (deploy 2166, `builder/site-ask.mjs`) say
+*"TAKING SOMETHING OFF THE SITE IS THIS LAYER"* of `look` ("take the photo
+out" is one of its examples) and *"SEVERAL CHANGES IN ONE MESSAGE ARE STILL
+ONE "look" ANSWER"*; `picture` also lists "taking one off". So a photograph
+removal beside a layout change on another page will most likely be routed
+`look`: the look door, where the picker names `images` and `shape`, each
+scoped. It is less likely to be routed `picture` with `remove`: the removal
+door, where the picker is told the routed removal and lists the layout as
+`additional`. Nothing in the router's instructions steers a message with two
+changes to the removal door, so a real-model run of this sentence may well
+not reach it. Both doors are rehearsed below and give the same stored
+result; only the evidence of which door ran differs. How each routing is
+judged is decided below, before spending.
+
+### The fixture: fold-lane-bakery at `01790468089054-8btpep`
+
+Restored by run 58 and read at 05:33 UTC; Test 6's fixture table below is its
+record (stored pages, heads, menus, redirects, files). Its photograph slots,
+as the picture rung sees them (`imageSlots`):
+- `/`: "Harbour Loaf on a Bristol side street in the early morning"
+  (`64eee06c…jpg`) and "A sourdough boule cooling after the morning bake"
+  (`8e6bd481…jpg`);
+- `/visit`: "The counter and morning board at Harbour Loaf"
+  (`d5d59152…jpg`), its only slot;
+- `/gallery`: "Harbour Loaf interior in warm morning light, with flour-dusted
+  wooden counters and cooling racks of crusty loaves by the brick oven",
+  already empty (`src=""`).
+
+Each upload's name is the first 32 hex characters of its own sha256. The home
+page's sections, in order: the hero, the front photograph, "Fed every morning
+since we opened" with the boule, then the "Order a loaf for collection" band.
+There are no components.
+
+### The request, proposed (frozen when approved)
+
+Verbatim: 191 characters, all ASCII, sha256
+`9e4dcb228ce8c147d571598df88ce192f0af1a044eee25528ac50091ce5e595f`.
+
+> Take the photograph of the counter and the morning board off the Visit page. Then, on the home page only, put the "Order a loaf for collection" band above "Fed every morning since we opened".
+
+- **Why these two**: a photograph removal is the picture rung's `clear`: the
+  slot's `src` is emptied and the kit draws its placeholder in that place,
+  which is checkable exactly in the stored source and the served page. The
+  band move is a pure block swap on another page, checkable exactly too.
+  Neither touches the stylesheet or the description, and nothing closed is
+  repeated: Test 6 moved the Visit band, and this moves the home page's.
+- **Why "the counter and the morning board"**: the Gallery page's empty slot
+  also mentions counters. These words and the page name the Visit photograph
+  alone.
+
+### Rehearsed free through the real edit route (scratch, not committed)
+
+Every model answer was supplied, on the bakery's own stored pages
+(`test/fixtures/run47/`, byte-identical to `8btpep`), with the harness of
+`test/edit-removal-door.test.mjs`, sync and queued. All 9 cases pass:
+- **The removal door** (router `picture` with `remove`, with and without
+  `/visit` named; the picker's `additional: ["shape"]` scoped to `/` with the
+  home words):
+  - the calls are `pick_lanes`, `write_tweak` and `choose_pictures`;
+  - the writer is handed `index.tsx` and the home words only, and the
+    picture rung runs once, on the whole message;
+  - `visit.tsx` is exactly the cleared slot and `index.tsx` exactly the swap,
+    the other three pages are byte-identical, and there is one compile;
+  - no `partial`, `pageOps [{page: "/"}]`, `photosRemoved: 1`, and the door's
+    trace reads `{layer: "picture", routed: [], additional: ["shape"]}`.
+- **The look door** (router `look` with no page; the picker's `images` and
+  `shape`, each scoped): the same stored result, and the picture rung is
+  handed only the photograph's words.
+- **Caught if it happens**: a picture answer that clears the home boule
+  instead leaves `visit.tsx` untouched and `index.tsx` not the swap; a door
+  answer with no scopes, when the router named `/visit`, sends the layout
+  there with the whole message, and the home move is dropped.
+- **The screen, on both doors**: "✅ Updated the look. One photograph is no
+  longer on the site. If that was not what you wanted, say “put the photo
+  back”. There is a space for a photo — upload yours in the Data panel and
+  it’ll fill in." It names no page change (review #9, kept separate).
+
+### Acceptance — judged on the stored and published changes
+
+The route's own record (the router's answer, the door, the picker's lists,
+`layers`, `pageOps`) is kept as evidence of which path ran, and none of it
+decides the verdict. Every item below must hold.
+1. **The request**: `request.json` carries sha256 `9e4dcb22…`.
+2. **The removal, stored and published**:
+   - stored: `visit.tsx` is the fixture with exactly the counter slot's `src`
+     emptied: 3,989 characters, sha256
+     `46959b0d0ff57f169d9361692447cbee26aba26a127760f7f8770b45c629b4d0`.
+     Nothing else in it differs, and its band stays last;
+   - published: `/visit` no longer shows `d5d59152…jpg`, its slot draws the
+     placeholder, and the rest of its markup is unchanged. The upload itself
+     is still served: a clear takes the photograph off the page, not out of
+     the library.
+3. **The layout change, stored and published**:
+   - stored: `index.tsx` is exactly the swap: 2,439 characters, sha256
+     `0b64985c87e0ab1f402660fe830481b79ea5c976ac5a970130a5d41b3669e5ec`. The
+     band (291 characters, `765c4f5f…`) and the "Fed every morning since we
+     opened" section (628, `d5ccc270…`) are exchanged, and the part above
+     (`f2944466…`), the part below (`1d4fa674…`) and the blank line between
+     them are unchanged;
+   - published: `/` reads "Harbour Loaf", "Order a loaf for collection",
+     then "Fed every morning since we opened", in the served page and in a
+     real browser. Its markup is the same two blocks swapped and nothing
+     else, and both of its photographs still show.
+4. **Neither dropped nor sent to the wrong page**:
+   - `order.tsx`, `starter.tsx` and `gallery.tsx` are byte-identical to the
+     table, and no component appears;
+   - no photograph leaves `/` (the removal did not land on the home page),
+     the Gallery slot is untouched, and the Visit band has not moved (the
+     move did not land on `/visit`);
+   - on `/order`, `/starter` and `/gallery` the markup is byte-identical, and
+     the pixels are identical in a real browser.
+5. **Everything else preserved**: every page's head tags are identical apart
+   from the build's script names. The menus and links are identical (the
+   home page's the same, reordered with the band). The redirects
+   (`/the-starter`, `?x=1` and the trailing slash answer 301 to `/starter`,
+   with `public, max-age=600`), the 404 and the sitemap read as before, at
+   once and again ten minutes later. The QR file and the stylesheet are
+   byte-identical.
+6. **One publish**, built from `8btpep`, and the canary's comparison reads
+   VERIFIED.
+7. **Money**: the routing call plus the job's reserves, closing exactly
+   against the ledger; the job reads `done` and `finalized`, and nothing is
+   left open.
+
+**Expected in the canary's own log, and not a failure**: `/visit photos
+2->1 LOST 1` and `FAIL no route lost an on-page photograph -> /visit:1`. The
+loss it counts is the one asked for. The run's exit is decided by the publish
+alone (`process.exit(published ? 0 : 1)`), so a published run is green with
+that line in it; the verdict is items 1–7.
+
+### What each other outcome means, decided now
+
+- **The router answers `picture` with `remove`**: the removal door. Items 1–7
+  holding shows item 3's second half with real models.
+- **The router answers `look` with no page**: the look door. Items 1–7
+  holding shows a photograph removal beside a layout change on another page,
+  in one message, through the look door. **The removal door is not shown**,
+  and whether to spend on it again is the owner's decision (the finding at
+  the top of this section).
+- **Either half put off** (`alsoAsked`): that half is held back and never
+  runs, and only the other ships. Neither item is shown; a finding about the
+  router, since its answer can make both changes.
+- **The router answers `page` with `remove` on `/visit`** (the page read as
+  the thing to take off): refused before anything is written, because other
+  pages' menus link to `/visit`. Nothing changes; a routing finding.
+- **The picture rung clears a home photograph, or picks the Gallery slot**:
+  the removal went to the wrong page, or was dropped. A failure.
+- **The picker ties `shape` to the routed change, answers no scopes, or
+  scopes it to another page**: the move is dropped or runs on the wrong page.
+  A failure, caught by `index.tsx` and `visit.tsx`.
+- **A scope that fails its check**: withheld at no cost with its own
+  sentence, and only the other change ships. Not shown; a finding about the
+  real picker.
+- **The quick writer declines and the full writer answers**: the same result,
+  dearer (*Cost*, below).
+- **Anything beyond the two changes**: a failure.
+
+### Recovery, free, and what it must show
+
+The canary's restore mode, to `01790468089054-8btpep`: the new version's
+parent, which pruning keeps. Afterwards, run 58's checks: all five routes at
+`8btpep`; the stored pages equal to the table; every head tag and the markup
+identical to the `8btpep` before-read; the redirects, the sitemap, the QR file
+and the card as before; the pages pixel-identical in a real browser; no
+charge.
+
+### Cost
+
+An estimate, not a cap; each step rounds up to at least 1 credit. Routing
+1–2 (run 57: 2); the page step through the quick writer, with the picker's
+call, about 2 (run 57's move: 2); the picture step about 1 (a small choice
+over four slots; no image is bought). **About 5–6 credits, up to about 25**
+if the full page writer has to run (the page rung measured 6–22). The balance
+is 37.
+
+### The presses
+
+Both from `main` (the branch adds only documents).
+1. **The paid run, after approval**: "Run the ONE paid edit as well" `yes`
+   (the box already holds `no`: delete it and type `yes`); "What to change":
+   the sentence above, exactly; "The site to edit": `fold-lane-bakery`; the
+   two "Refuse to spend unless…" boxes
+   `a64729ad741ab160d93f7648007a9bacc8e7b427` and `6fbaccad82fe879d`;
+   everything else as it is.
+2. **The free restore, after the readings**: run 58's values.
+
+No separate free check is proposed: nothing has run on the bakery since run
+58's readings, and the paid run's own preflight and before-read come first.
+
+### What it will not establish
+
+The removal door itself, if the router answers `look`; a menu (`nav`)
+removal beside other work; component preservation (the fixture has none);
+the withholding paths, unless a scope fails; a bought photograph (none is
+bought); a reply naming both changes (review #9, kept separate).
 
 ## Test 6 — two changes in one message, one on a named page (prepared 2026-09-28, request clarified the same evening; the free check, run 51, passed; the paid run, run 52, shipped the description, and the router put the Visit move off to a later turn; the free restore, run 53, put everything back; the owner: run 52 does not close Test 6; the routing/execution mismatch it showed is fixed and deployed, 2026-09-29, deploy 2166, runtime-confirmed by the free check, run 54; the retry, run 57, stored and published both changes; the free restore, run 58, put everything back; closed by the owner, 2026-09-29, for exactly what runs 57 and 58 showed)
 

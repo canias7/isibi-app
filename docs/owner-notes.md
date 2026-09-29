@@ -57,6 +57,45 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-29 — The next test (Test 7) is ready for your review: a photo taken off one page and a band moved on another, in one message
+
+**What you asked for**: a removal and another change in one message, through
+the removal path with a real model, on an existing site with the existing
+workflow, preferably a photo removal on one page and a layout change on
+another, proposed for your review before anything is spent.
+
+**The proposed message** (for the bakery, `fold-lane-bakery`):
+
+> Take the photograph of the counter and the morning board off the Visit page. Then, on the home page only, put the "Order a loaf for collection" band above "Fed every morning since we opened".
+
+**What should happen**: the counter photo leaves the Visit page (its space
+shows the site's placeholder art, and the photo stays in your uploads); on the
+home page, the "Order a loaf for collection" band moves above the "Fed every
+morning" section. Nothing else changes on any page. I've worked out, to the
+byte, what both changed pages must look like when stored, so the check is
+exact: neither change may be dropped or land on the wrong page.
+
+**One thing to know before you decide**: the part of the editor that reads a
+message first (the router) is now told that several changes in one message
+are handled together by the general editing path, and that taking something
+off counts as that path too. So a message like this will most likely go
+through that general path, not the removal path you asked about. The same two
+changes still get made and checked either way; what the run can prove depends
+on which path the live router picks. If it picks the general path, the
+removal path stays untested, and whether it's worth another try is your call.
+
+**Checked free first**: I ran the message through the real editing code with
+made-up model answers, both ways it could be routed, fast and queued. Both
+produced exactly the expected pages. Cases where a model sends a change to the
+wrong page or drops one are caught by the checks.
+
+**Cost**: about 5–6 credits, up to about 25 if the expensive page writer is
+needed. The balance is 37. Afterwards, a free restore puts the bakery back,
+as with Test 6.
+
+**Nothing has been spent or pressed.** The full plan is the checklist's
+*Test 7*.
+
 ## 2026-09-29 — You closed Test 6 for exactly what runs 57 and 58 showed
 
 **Your words**: *"Close Test 6 for exactly what runs 57 and 58 demonstrated:
