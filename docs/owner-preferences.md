@@ -261,3 +261,13 @@
   controlled execution evidence from proof that a real model chooses the
   correct route."* Supplied answers prove what the code does with an answer;
   only a live run shows which answer a model gives.
+- **Acceptance in small batches that really overlap.** *"Prepare the next
+  bounded batch of up to three independent acceptance groups from the
+  remaining six. Use existing ready fixtures and workflows. Prioritize checks
+  that can genuinely overlap; do not force three if only two are ready."*
+  Dependent steps stay in order within a group. Before runs are recommended
+  side by side, check that targets and controls cannot interfere, that the
+  account and the queue allow it, and that each router request's and job's
+  charge can be told apart; an account-wide balance reading cannot.
+- **Closing keeps the failed runs.** Closing Test 8: *"Record it as closed and
+  retain earlier failed runs as history."*

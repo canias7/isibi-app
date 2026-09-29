@@ -57,6 +57,43 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-29 — The next batch: two groups that can run side by side (proposed, not run)
+
+You asked for up to three acceptance groups from the six items still open,
+using the sites and workflows we already have, and not forcing three. **Two
+are ready.** Nothing was spent or changed while I prepared them.
+
+**A: a removed page sends visitors home.** This is the half of the redirect
+fix never seen live. On the bakery, first a free restore of the version from
+run 63, where Gallery is already out of the menus. Then one message, "Remove
+the gallery page.", which is free apart from reading the message (about 1–2
+credits). I then check that `/gallery` sends visitors to the home page, with
+or without anything after the address, and that nothing else changed. A free
+restore then puts the bakery back.
+
+**B: a price change on a site whose database link is blank.** On fretwork-1,
+one message changes the Hour one-to-one lesson's price to £42, and a second
+puts it back to £40. It proves the builder finds that site's database on its
+own. About 4–6 credits. If the put-back fails, you'd set the price back in
+the app's Data panel.
+
+**About 5–8 credits for both, at most about 10**, against a balance of 22.
+Each run's charges can be told apart even while they overlap. Nothing in the
+code needs changing for that.
+
+**Not ready**, with the reasons in the checklist:
+- **Adding a row** needs your ruling on which part of the builder should do
+  it. Your rule sends additions to the add-on step, but the data step can add
+  a row too.
+- **Removing a row** has a problem I found today: the database step's
+  instructions tell the model both to delete a row and to give up when asked
+  to delete. It's in the backlog, not changed.
+- **The rules, picture-swap, protection and component items** each need a
+  fixture decision or product work first. For example, a new photo can't
+  reach a picture slot without the builder buying one.
+
+---
+
 ## 2026-09-29 — You closed Test 8
 
 **Closed**, as you said: for the exact combined message run 66 proved (the

@@ -43,6 +43,18 @@ here; take a closed one out of both.**
   only: run 66's `li1j0y` reads "Take Gallery out of the menu." (seen in run
   67's restore list; where the label comes from is not traced; kin to review
   #9). Found 2026-09-29, not changed.
+- The data picker is told both to delete a row and to return nothing when
+  asked to delete; a live row removal is likely refused. Found 2026-09-29
+  while preparing Batch 1, not changed.
+- An added row's reply reads "Updated one entry in added to <table>." Found
+  2026-09-29, not changed.
+- Which step adds a row to a list the site already has is undecided: the
+  router sends an addition to the add-on step, and the data picker can insert
+  (the owner's ruling). Found 2026-09-29.
+- The router says nothing about the order of a list, so "show the cheapest
+  first" may not reach the data picker's sort. Found 2026-09-29.
+- A natural message cannot hand the picture step a new photograph without
+  buying one from fal. Found 2026-09-29, not changed.
 - A menu removal beside a layout move on another page is answered `nav` with
   `remove` and the move held back, against the router's own `alsoAsked` rule
   (Test 8, run 63). **Corrected 2026-09-29 (the router chooses one answer
@@ -108,6 +120,57 @@ here; take a closed one out of both.**
 
 ## Backlog
 
+- **THE DATA PICKER IS TOLD BOTH TO DELETE A ROW AND TO REFUSE A DELETION
+  (found 2026-09-29 while preparing Batch 1; read in the code, not driven
+  live; not changed).** `DATA_TOOL` in `builder/site-apply.mjs`: the
+  `changes` list's own description still says *"IF THE INSTRUCTION CANNOT BE
+  DONE BY CHANGING OR ADDING ROWS — it asks to DELETE one, or it is about the
+  look of the page rather than what is stored — return an empty array"*,
+  written in `53b0b58c` before rows could be removed. `dcf269a4`
+  (2026-08-11, *"REMOVING A ROW WAS REFUSED OUTRIGHT"*) added the item's
+  `remove` field (*"True to DELETE the row with this id … ONLY when they
+  clearly asked for something to be taken off the site"*) and left the
+  list's sentence. The tool's own one-line description names changing and
+  adding only. A real model may follow either, and an empty answer reads as a
+  no-match. Removal is tested only with supplied answers (`readDataChanges`
+  with `remove: true`, `test/site-apply.test.mjs`). **It blocks a live "remove
+  a row" acceptance (item 5).** The correction would be that one sentence;
+  whether and when is the owner's decision.
+- **AN ADDED ROW'S REPLY READS "✅ Updated one entry in added to <table>."
+  (found 2026-09-29; read in the code; not changed).** The data reply in
+  `public/chat.js` prefixes `added to ` to the table's name when a row has no
+  id, inside "updated … in …". Kin to the data rung's kept wording (D1). The
+  stored `applied` also carries no id for an added row, since the insert
+  returns nothing.
+- **WHICH STEP ADDS A ROW TO A LIST THE SITE ALREADY HAS IS UNDECIDED (found
+  2026-09-29; the owner's ruling).** The router follows the owner's rule
+  (2026-09-02, *"Add will always go in addon"*: does the thing they name
+  exist on the site now?), so a new dish or lesson reads as an add-on, and its
+  `data` clause names changing a row, never adding one. The data picker's tool
+  can add a row (`values` with no `id`), and the data route inserts it.
+  Until the owner rules which one a live "add a row" should reach, an
+  acceptance for it has no expected route (item 5). The plain canary refuses
+  to post an `addon` answer, after routing is paid.
+- **THE ROUTER SAYS NOTHING ABOUT THE ORDER OF A LIST (found 2026-09-29; read
+  in the code).** The data picker's `order` sorts a list by a column and
+  publishes the page (the one data change that does), but the router's `data`
+  clause names rows only, and no clause mentions ordering. So "show the
+  cheapest first" may be answered `data`, `look` or `page`, which is
+  unmeasured; a page rewrite costs 6–22. It is item 5's reordering half.
+- **A NATURAL MESSAGE CANNOT HAND THE PICTURE STEP A NEW PHOTOGRAPH WITHOUT
+  BUYING ONE (found 2026-09-29 while preparing Batch 1; read in the code; not
+  changed).** It blocks item 7, the picture swap. Three things together:
+  - an attached picture is sent only on a logo edit (`images` in
+    `public/chat.js` for layer `logo` alone; *"General attached-image
+    replacement outside logo is unsupported on edit"*,
+    `docs/investigations/edit-path-milestone.md`);
+  - the picture picker is shown each slot's description and a bare list of
+    the library's file names, never which file fills which slot
+    (`pictureDigest`), so "use the boule photo from the home page" names
+    nothing it can match unless the message spells the stored file's name;
+  - its one other source, `describe`, buys a fal photograph (about 18.75
+    credits) whenever `imagesAffordable` passes, which it does at a balance
+    of 22, so a swap message can become a purchase.
 - **NO LOOK-DOOR LANE DESCRIBES A MENU ITEM (found 2026-09-29 by Test 7's
   routing review; read in the code, not driven live; not changed).** A
   message with a menu change beside another change is routed `look`: the

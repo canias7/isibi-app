@@ -232,6 +232,34 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   reading is Test 8's run 66: the real router answered `look` for that mix,
   with nothing held back** (one sample; how often, and for other messages,
   is not measured). The image rolled to `abf47dfeceba3c5c`, as predicted. `docs/history/2026-09-29-whole-message-routing.md`.
+- **Batch 1 is proposed, not run** (2026-09-29, after Test 8's closure; the
+  owner asked for up to three independent acceptance groups from the remaining
+  six, overlapping where they genuinely can). **Two are ready**, on different
+  sites, with different controls:
+  - **A**, item 1's open half, a removed page answering 301 home, on
+    `fold-lane-bakery`: the free restore to run 63's `01790701419976-t5obxx`
+    (Gallery already out of the menus, so nothing else names `/gallery`), then
+    "Remove the gallery page.", then the addresses read without following
+    redirects, at once and ten minutes later, then the free restore to
+    `8btpep`. About 1–2 credits.
+  - **B**, item 5's blank-link half, on `fretwork-1` (`incomplete`): a
+    `lessons` price changed and then put back by a second message, with the
+    owner's Data panel as the row-level fallback. About 4–6 credits.
+
+  About 5–8 for both, 10 at worst, against 22. **The other four are not
+  ready**:
+  - adding a row needs the owner's ruling on which step adds one;
+  - removing a row needs the data picker's contradictory delete instructions
+    corrected first;
+  - the rules, picture-swap, protection and component items need fixtures or
+    product work.
+
+  The findings are in the backlog. **The overlap needs no code change**:
+  locks are per site, and money closes from each run's own routing line and
+  its jobs' ledger rows (refs `<job>#n`), with the batch closing against 22
+  and ledger row 341. The account-wide balance lines the plain canary prints
+  are not read. The browser scenarios that judge the account's balance are
+  not used. The record is the checklist's *Batch 1*.
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
   `docs/investigations/edit-path-checklist.md`, and every test's plan, readings
