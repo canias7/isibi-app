@@ -23,8 +23,9 @@ here; take a closed one out of both.**
 - A half of a message the router puts off (`alsoAsked`) is still attempted,
   on the home page, and the reply contradicts itself (run 52). **Fixed and
   deployed 2026-09-29 (deploy 2166); run 57 made both changes live, with
-  nothing put off (Test 6, closed by the owner). The held-back path itself is
-  shown only with supplied answers.**
+  nothing put off (Test 6, closed by the owner). The held-back path ran live
+  in Test 8's run 63: the held-back words reached no executor, cost nothing,
+  and were named in the reply.**
 - Five stylesheet rules match nothing the app serves, and the reachability
   guard counts them live only through a router sentence's line break.
 - The header's button carries no `data-slot="button"`, so a rule against the
@@ -37,6 +38,9 @@ here; take a closed one out of both.**
   and deployed in deploy 2168 and runtime-confirmed by run 62; shown only with
   supplied answers; Test 8 (proposed) would show it with a real picker.**
 - A change a scoped picker answer leaves out is dropped without a word.
+- A menu removal beside a layout move on another page is answered `nav` with
+  `remove` and the move held back, against the router's own `alsoAsked` rule
+  (Test 8, run 63). **Found 2026-09-29; not changed.**
 - The menu editor's other parts (footer details, social icons, small print,
   links in the copy, how the header sits) are described by no look-door lane.
 - What the picture step cannot take off on its own is refused: a photograph
@@ -120,6 +124,27 @@ here; take a closed one out of both.**
   Reproduced first with run 47's reading (`behavior`: the menu editor never
   ran). Shown only with supplied answers; Test 8, proposed in the checklist,
   would show it with a real picker: `docs/history/2026-09-29-menu-lane.md`.
+- **THE ROUTER HOLDS BACK A LAYOUT MOVE BESIDE A MENU REMOVAL (found
+  2026-09-29 in Test 8's run 63; not changed).** Sent "Take Gallery out of
+  the menu. Then, on the Visit page only, put the "Order a collection so we
+  hold a loaf" band above "Come to the bakery".", the real router (grok-4.6,
+  39.1 s) answered `layer: "nav"`, `remove: true`, with the Visit move in
+  `alsoAsked`: the removal door, the move held back. Its own `alsoAsked`
+  description asks for `look` there: several changes are one turn when the
+  answer can make them all (`look` names the menu and the button and a band
+  on any page), and a second request is held back only when the answer
+  cannot do it this turn (something to add, or a `data` or `text` change
+  beside another kind). The `nav` description's "A MENU CHANGE IS "nav"" pulls
+  the other way for a mixed message. The route did what the answer said: the
+  held-back words were taken out before anything ran, the menu editor took
+  Gallery out of every menu, the band was neither moved nor charged, and the
+  reply asked the customer to send it next. **Consequences**: the customer
+  gets the menu change and is asked to send the other again; and the look
+  door's menu lane (deploy 2168) is not reached by such a message, so Test 8
+  did not show the real picker choosing it. One sample (Test 7's routing
+  review had expected `look`). Whether and how the router's instructions
+  change is the owner's decision: `docs/investigations/edit-path-checklist.md`,
+  *Test 8*, *Run 63*.
 - **A CHANGE A SCOPED PICKER ANSWER LEAVES OUT IS DROPPED WITHOUT A WORD
   (found 2026-09-29 while reproducing the menu gap; not changed).** On a
   scoped answer each lane runs on its own words, and nothing checks that every

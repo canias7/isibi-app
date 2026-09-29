@@ -44,10 +44,13 @@ and 61 showed.**
 press, run 62, read both at 16:57 UTC): the menu editor's lane now describes
 the menu's items, shown only with supplied answers.
 
-**Proposed, not run: Test 8** (below), a menu item taken out and the Visit
-band moved in one message, with real models; about 5–6 credits, up to about
-25; the free restore to `8btpep` after. It is what can show that the real
-picker places the menu change on the menu editor's lane.
+**Test 8 ran as run 63** (below), a menu item taken out and the Visit band
+moved in one message, with real models: the router answered `nav` with
+`remove` and held the band back (`alsoAsked`), so Gallery came out of every
+menu exactly and the band was not moved; 4 credits. The look door was not
+reached, so the real picker placing the menu change on the menu editor's lane
+is still shown only with supplied answers. The free restore to `8btpep` is
+next; the router's choice is in the backlog.
 
 **The redirect carry-over fix is merged and deployed** (`f5e941f4`, deploy
 2165, 2026-09-28 19:07 UTC, image `8a10715339cdc780`; runtime-confirmed by
@@ -182,7 +185,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; its free runtime check passed as run 62; not run; nothing spent)
+## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; its free runtime check passed as run 62; pressed as run 63 the same day: the router answered `nav` with `remove` and held the band back, so only the menu change was made and the look door was not reached; awaiting the free restore and the owner's review)
 
 Owner, 2026-09-29: *"Also prepare one bounded real-model acceptance using
 the existing fixture and workflow: a menu-item removal combined with a layout
@@ -404,6 +407,103 @@ All from `main`.
   (backlog); it would show here only as a failure.
 - A reply naming both changes (review #9, kept separate).
 - Component preservation (the fixture has none).
+
+### Run 63 — the paid run: the router answered `nav` with `remove` and held the band back; Gallery came out of every menu, and the band was not moved (2026-09-29)
+
+Pressed by the owner from `main` at `47dea9c0`
+([run 36602046251](https://github.com/canias7/isibi-app/actions/runs/36602046251),
+17:02:04–17:06:43 UTC; the evidence artifact `canary-evidence` is 46,005
+bytes, sha256 `76c97741…`) with the spend box `yes` (`CANARY_SPEND: 1`), the
+frozen request, `fold-lane-bakery` and the two expectations. The preflight
+read `47dea9c01fbf` and `dd4f72842234135b` from both readers and a cold
+container, every free check passed, the canary reads PASSED, and its
+comparison is VERIFIED.
+- **The path** (kept as evidence; it decides only item 8):
+  - the router (39.1 s, cost 2) answered `layer: "nav"`, `remove: true`, and
+    `alsoAsked`: *on the Visit page only, put the "Order a collection so we
+    hold a loaf" band above "Come to the bakery"*. **The removal door, with
+    the band held back**: the outcome decided in advance as *the band put
+    off*, on the removal door. Its own `alsoAsked` description asks for
+    `look` here: several changes are one turn when the answer can make them
+    all (`look` names the menu and a band on any page), and a second request
+    is held back only when the answer cannot do it this turn (backlog);
+  - the job (`e067d0c6…`, created 17:03:20): the removal door's picker ran
+    (`pick_lanes`, 5.9 s) and added nothing (the held-back words are taken
+    out of the message before any step runs); the router's own menu step
+    (`nav`, lane `action`) wrote the menu. Two model calls after routing (the
+    picker and the menu editor, both grok-4.6); one publish (`publish:1` on the
+    job row, 17:06:00–17:06:06, `8btpep` → `01790701419976-t5obxx`); `done`,
+    `finalized`, cost 2;
+  - the stored reply: `layers` `["nav"]`, `lanes` `["action"]`, `changed` the
+    four pages with a menu, `deferred` the band's words, no `partial`, `links`
+    Today's bake · The starter · Visit, `dropped` 0;
+  - the screen: "✅ Updated the menu on 4 pages: Today's bake · The starter ·
+    Visit." and then "I only did one thing this time. Say “on the Visit page
+    only, put the "Order a collection so we hold a loaf" band above "Come to
+    the bakery"” and I’ll do that next."
+- **Acceptance**, judged on the stored and published changes, read from the
+  run's evidence, the job row, the ledger and the live site. **Items 1–3 and
+  5–7 hold. Item 4 fails (the band was held back, not moved), and so does item
+  8 (the look door was not reached).**
+  1. `request.json` carries sha256 `65b63d1d…` (139 characters, ASCII), and
+     the router was sent the same sentence.
+  2. **The menu item's removal — holds.** Stored: `index.tsx` 2,378
+     characters `637b7793…`, `gallery.tsx` 2,946 `da53a375…` and `order.tsx`
+     9,241 `0a0b5f41…`, exactly as expected; `starter.tsx` unchanged; and
+     `visit.tsx` 4,028 `ddd1fe39…`, the menu-only body (run 49's, Test 5's
+     expected), where Test 8 expected `c67011db…` with the band moved as well.
+     Published: the header and footer menus on `/` and `/gallery` read
+     Today's bake · The starter · Visit; on `/visit` and `/order` they are the
+     same three items as before.
+  3. **The removed item's page is kept — holds.** `gallery.tsx` is still
+     stored, only its menu changed; `/gallery` answers 200 at `t5obxx` with
+     "Our Gallery", "Photographs of the bakery's work", its gallery and its
+     empty picture slot; the sitemap lists the five pages; the QR file the
+     Visit page shows (`qr-gallery.svg`, `45f42f27…`) is unchanged.
+  4. **The layout change — not made.** The router held it back: `visit.tsx`
+     outside its menu is byte-identical to the fixture, and `/visit` still
+     reads "Come to the bakery", "The shutters and the street", then "Order a
+     collection so we hold a loaf". **Fails.**
+  5. **Everything else preserved — holds.** `/visit`, `/order` and `/starter`:
+     the served markup is identical apart from the build's script names and
+     render values, and in a real Chromium 0 pixels differ. `/` and
+     `/gallery`: the markup differs only by the two Gallery links, and 6,591
+     pixels differ on each, all in the header menu and the footer, where the
+     footer's middle column (Bristol, the hours) moves right as the menu
+     narrows: the same text, re-laid out. Every page's head tags are identical
+     apart from the script names; the "Order a loaf" button and every in-body
+     link are unchanged. `/the-starter`, `?x=1` (the query kept) and the
+     trailing slash answer 301 to `/starter` with `public, max-age=600`;
+     `/nonexistent-page` answers 404; the sitemap lists the five; read at
+     17:08:43 UTC and again at 17:16:15, ten minutes after the publish. The QR file, `/card.png`
+     (`ce884f5b…`) and the stylesheet (`544ff34e…`) carry their recorded
+     sha256s; the stored description is unchanged; no component before or
+     after.
+  6. **One publish**, built from `8btpep`; the canary's comparison is
+     VERIFIED. Holds.
+  7. **Money — holds.** 32 → 28: routing 2 and the job's reserve of 2 (ledger
+     row 339, 17:03:39); the job `done`, `finalized`, cost 2; the two probe
+     jobs (`a49a3fe2…` on the bakery, `e07c573f…` on `washhouse-3`) `failed`
+     at cost 0 with billing `none`; no job open.
+  8. **The path — fails.** The router answered `nav` with `remove`, so the look
+     door was never reached, and the real picker placing the menu change on
+     the menu editor's lane is **still shown only with supplied answers**.
+- **What it does show, live, for the first time since deploy 2166: a part the
+  router holds back is taken out before anything runs.** The band's words
+  reached no executor and cost nothing, the rest ran, and the reply named them
+  for the customer to send next (the held-back path had been shown only with
+  supplied answers). The removal door's menu step also produced run 49's
+  bodies exactly, a second time.
+- **The finding, recorded separately (backlog), not changed**: for a menu
+  removal beside a layout move on another page, the real router answered the
+  removal door and held the move back, against its own `alsoAsked` rule;
+  Test 7's routing review had expected `look` for this kind of message. One
+  sample.
+- **The customer's view**: Gallery gone from the menu, the page kept, and one
+  sentence asking them to send the band move again. Nothing wrong was done;
+  the second change needs a second message.
+- **Next**: the free restore to `8btpep` (*Recovery*, above); whether Test 8
+  closes, and what to do about the router's choice, is the owner's decision.
 
 ## Test 7 — a photograph removal and a layout change on another page, in one message (proposed 2026-09-29; its claimed coverage narrowed the same day by a routing review the owner asked for: the customer capability through the look door, not the removal door; held the same day on the photo-removal mismatch, reproduced and a correction proposed for review; the correction implemented on the branch the same day with the owner's safeguards, and Test 7 now expects the element removed; merged and deployed the same day in deploy 2167 and runtime-confirmed by the owner's free press, run 59; approved by the owner and pressed as run 60 the same day: both changes stored and published, each on its own page, with the home page stored without its final newline; the free restore, run 61, put everything back; closed by the owner, 2026-09-29, for the customer behavior runs 60 and 61 showed, with the missing final newline accepted as a specific nonfunctional exception)
 

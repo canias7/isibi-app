@@ -94,10 +94,10 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 - **The branch `claude/help-needed-ehlwlj`** is `main` (`47dea9c0`) plus
   documents (deploy 2168's record and Test 8's proposal). A press from the
   branch runs the branch's script against main's Worker.
-- **Balance 32** on the building account after run 60 (2026-09-29 15:07
-  UTC): routing 2 and the job's reserves of 2 and 1, ledger rows 337 and 338;
-  read again at 15:27 UTC, after the free restore (run 61) at 15:37 and by
-  run 62 at 16:57, with no row after 338 and no job open. The unit
+- **Balance 28** on the building account after run 63 (Test 8's paid run,
+  2026-09-29 17:03 UTC): routing 2 and the job's reserve of 2, ledger row
+  339, with no job open. Before it, 32 after run 60, unchanged through runs
+  61 and 62. The unit
   suite is **8,296** on `main` (`47dea9c0`): `8296 / 8296 / 0 / 0` locally
   and `8296 / 8292 / 0 / 4` on CI (run 36597948276).
 - **Closed by the owner, not to be repeated**: live test 2 (run 32); Test 3
@@ -150,19 +150,20 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   site build 36595193255: the twelve counts) and on `47dea9c0` (unit
   36597948276); the image rolled to `dd4f72842234135b`, as predicted. Test 8
   would show it with a real picker. `docs/history/2026-09-29-menu-lane.md`.
-- **Test 8 is proposed, not run** (2026-09-29; nothing spent): one message,
-  *Take Gallery out of the menu. Then, on the Visit page only, put the "Order
-  a collection so we hold a loaf" band above "Come to the bakery".*, on
-  `fold-lane-bakery` at `8btpep`: Gallery out of every menu with its page
-  kept, and the Visit band moved, judged on the stored and published changes
-  against exact expected hashes, with one publish, the charge closing against
-  the ledger, and the free restore to `8btpep` after. About 5–6 credits, up
-  to about 25; the balance is 32. **The evidence boundary**: the route cases
-  prove the execution when the picker places the menu change on the menu
-  editor's lane; only this run can show the real picker does. The free
-  runtime check (run 62) passed and read the bakery's five stored pages
-  byte-identical to the fixture; **held only for the owner's approval of the
-  paid run**. The plan is the checklist's *Test 8*.
+- **Test 8 ran as run 63** (2026-09-29 17:02–17:06 UTC, 4 credits): one
+  message, *Take Gallery out of the menu. Then, on the Visit page only, put
+  the "Order a collection so we hold a loaf" band above "Come to the
+  bakery".*, on `fold-lane-bakery` at `8btpep`. **The router answered `nav`
+  with `remove` and held the band back (`alsoAsked`)**, against its own rule
+  that several changes `look` can make are one `look` answer (backlog). So the
+  removal door's menu step ran alone: Gallery out of every menu with the
+  expected bodies, the gallery page kept, everything else preserved, one
+  publish (`t5obxx`), the money exact; the band was not moved or charged, and
+  the reply asked for it next (the held-back path's first live run since
+  deploy 2166). **The look door was not reached**, so the real picker placing
+  the menu change on the menu editor's lane is still shown only with
+  supplied answers. Awaiting the free restore to `8btpep` and the owner's
+  review. The record is the checklist's *Test 8* (*Run 63*).
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
   `docs/investigations/edit-path-checklist.md`, and every test's plan, readings
@@ -333,7 +334,9 @@ The rules in full are `docs/deploy.md`; each deploy's readings go in
 Every earlier reading — the balance since run 9, the suite and site-build
 stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
 
-- **Balance 32** on the building account after run 60 (Test 7's paid run,
+- **Balance 28** on the building account after run 63 (Test 8's paid run,
+  2026-09-29 17:03 UTC): 32 → 28, routing 2 and the job's reserve of 2
+  (ledger row 339). Before it: 32 after run 60 (Test 7's paid run,
   2026-09-29 15:07 UTC): 37 → 32, routing 2 and reserves of 2 and 1 (ledger
   rows 337 and 338), read again at 15:27, at 15:37 after the free
   restore (run 61) and at 16:57 by run 62, with no row after 338. Before it:
@@ -354,14 +357,15 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
   `ben-crowe-guitar`, and the older `fold-lane-bakery`, `harbourside-roast`,
   `the-lido-cafe`, `oak-and-ash`, `forno-and-co`. **Reusing one of those slugs
   revises that site.** The test fixtures now: `fold-lane-bakery` live at
-  `01790468089054-8btpep` (restored by run 61 after Test 7's run 60),
+  `01790701419976-t5obxx` after Test 8's run 63, to be restored free to
+  `01790468089054-8btpep`,
   `fretwork-1` at `01790404806543-kk6qsh` (Test 3's removal kept), and
   `lido-axes-b` with its bookings closed (run 44, kept).
 - **What things cost, measured** — routing 1–2 per message (it moves with the
   prompt cache); the page rung 6–22 (runs 21–37); a data or rules edit 1; a
   reframe 1; a site description 1 (runs 52 and 57); a quick-writer page step 2
   (run 57); a quick-writer move with a photograph removal in one job 3 (run
-  60); the logo rung, a page move and a
+  60); a menu edit 2 (runs 49 and 63); the logo rung, a page move and a
   page removal 0 (`exempt`); a
   first build 11–45; a revise of the same site 17; an add-on 2–13 (runs
   47–52). **Quote a range or measure the run.** Nothing enforces a per-request
