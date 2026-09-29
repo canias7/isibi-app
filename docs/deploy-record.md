@@ -5,7 +5,7 @@
 > `docs/deploy.md`, where CLAUDE.md's **Deploy** section moved in the second
 > pass. This file keeps the measurements behind them: the
 > timing bands, every image-id prediction checked against a deploy's own log
-> (deploys 2137–2168), and the served-file check driven end to end on deploy
+> (deploys 2137–2170), and the served-file check driven end to end on deploy
 > 2139.
 >
 > **Add each new deploy here**, one paragraph per deploy, in the same shape:
@@ -353,6 +353,50 @@ is PREDICTABLE** (a revert restores a tree the registry already holds, so the
 step says `reused`), and **"is this commit an image input?" has an exact
 answer** — if the id does not move, nothing an image is built from moved, which
 is stronger than reading a `paths` list.
+
+**Deploy 2170 (2026-09-29) was predicted on both ends and built as
+predicted**: `origin/main` `47dea9c0` answered `dd4f72842234135b`, deploy
+2168's own image, runtime-confirmed by run 62, and the tip `907840c6`
+answered `abf47dfeceba3c5c`, both from 188 inputs and 158 distinct paths;
+`builder/site-ask.mjs` is the push's one container input among its 13 files
+(the router's whole-message rule, by targets). **A fast-forward**,
+`47dea9c0` → `907840c6` at 20:28:25Z, on the owner's word to merge the
+reviewed branch through `907840c6`. Checked first:
+- **nothing unreviewed**: the branch on GitHub was exactly `907840c6`, eight
+  commits past main (two code, `465efe11` and `2771ed3f`, and six records),
+  and the router module's only non-comment change is the three reviewed
+  strings;
+- **nothing in flight**: on GitHub, no run in progress, queued, waiting,
+  requested or pending; in `edit_jobs`, none open (the last, run 64's free
+  restore, at 17:29);
+- **CI green on the candidate**: unit run 36625806573 on `907840c6`,
+  `8297 / 8293 / 0 / 4`; unit 36622422731 and site build 36622422715 on
+  `2771ed3f`, the same code;
+- **no commit message** in the range carries the skip-CI marker;
+- **the rollback**: reverting `47dea9c0..907840c6` in a throwaway worktree
+  gives main's own tree (`4bc05306…`), so a rollback reuses
+  `dd4f72842234135b`.
+
+**One deploy run this time**, 2170 (36626580809, `push` on `907840c6`),
+`completed` / `success`:
+- **the gate** was set for `907840c6…`, taking over from `47dea9c0…`, and the
+  drain found no live leases after 3 s;
+- **the image**: the log answered `built
+  isibi-app-sitebuildcontainer:abf47dfeceba3c5c (registry answered 404;
+  ***88 inputs off ./Dockerfile)`, and `…:dd4f72842234***35b` →
+  `…:abf47dfeceba3c5c` under `SUCCESS Modified application`, then `Applied
+  changes`, with **0 `CACHED` lines**;
+- **timings**: image step 130 s (20:28:53–20:31:03), Wrangler 20 s, job 180 s
+  (20:28:30–20:31:30);
+- **Wrangler**: `DEPLOY_ID` `907840c67497b2624f***a2febfdb27b947ca5222a` (the
+  masked run is a `1`); `No updated asset files to upload`, because nothing
+  under `public/` changed, so no served-file comparison is owed; `Current
+  Version ID: e***33***b87-cf3a-484f-90fb-9cfe***ec***de09`, masked.
+
+**Read at 21:34Z**: the gates answered 401 / 401 / 401 / 404, and
+`fold-lane-bakery` still answers `x-site-version: 01790468089054-8btpep` on
+all five pages, with `/the-starter` 301 → `/starter`. **Deployed, not
+runtime-confirmed**: the owner's free press on `fold-lane-bakery` is next.
 
 ## The served-file check, driven end to end on deploy 2139
 

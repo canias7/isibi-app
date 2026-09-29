@@ -253,6 +253,10 @@
   changes on different pages. Defer only work that cannot run together."*
   Changes of one kind are not one route's work when that route cannot reach
   every page they are on.
+- **A merge takes only what was reviewed.** *"Merge the reviewed branch
+  through 907840c67497b2624f1a2febfdb27b947ca5222a into main and deploy,
+  after confirming no unreviewed changes have entered the branch."* A merge
+  names the reviewed commit, and nothing past it goes in.
 - **Controlled evidence is not a real model's choice.** *"Clearly distinguish
   controlled execution evidence from proof that a real model chooses the
   correct route."* Supplied answers prove what the code does with an answer;

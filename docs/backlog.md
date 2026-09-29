@@ -40,10 +40,10 @@ here; take a closed one out of both.**
 - A change a scoped picker answer leaves out is dropped without a word.
 - A menu removal beside a layout move on another page is answered `nav` with
   `remove` and the move held back, against the router's own `alsoAsked` rule
-  (Test 8, run 63). **Corrected on the branch 2026-09-29 (the router chooses
-  one answer over the whole message, by what a route can make on every page,
-  never by kind); not merged; shown only by the tool's text and supplied
-  answers.**
+  (Test 8, run 63). **Corrected 2026-09-29 (the router chooses one answer
+  over the whole message, by what a route can make on every page, never by
+  kind); merged and deployed in deploy 2170, not yet runtime-confirmed; shown
+  only by the tool's text and supplied answers.**
 - The menu editor's other parts (footer details, social icons, small print,
   links in the copy, how the header sits) are described by no look-door lane.
 - What the picture step cannot take off on its own is refused: a photograph
@@ -147,8 +147,8 @@ here; take a closed one out of both.**
   did not show the real picker choosing it. One sample (Test 7's routing
   review had expected `look`). **The owner, 2026-09-29: resolve the
   conflicting instructions so the router considers the whole request before
-  choosing a path or deferring any operation. Corrected on the branch the same
-  day, not merged**: the `layer` field now ends on one rule over the whole
+  choosing a path or deferring any operation. Corrected the same day, merged
+  and deployed in deploy 2170 (`907840c6`), not yet runtime-confirmed**: the `layer` field now ends on one rule over the whole
   message, which after the owner's review of its first wording chooses by
   targets, never by kind (a layer other than `look` when it can make every
   change on every page each one is on; otherwise `look` when it can make them

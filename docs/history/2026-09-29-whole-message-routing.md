@@ -1,4 +1,4 @@
-# The router chooses one answer over the whole message, by what a route can make on every page (2026-09-29; on the branch, not merged, not deployed)
+# The router chooses one answer over the whole message, by what a route can make on every page (2026-09-29; merged and deployed in deploy 2170, not yet runtime-confirmed)
 
 ## The owner's request
 
@@ -368,3 +368,32 @@ for Test 8's mix, is not measured.**
   held-back part is taken out before anything runs, and a scope that fails
   its check is withheld.
 - **Test 8's request, expected results, recovery and cost are unchanged.**
+
+## Merged and deployed (deploy 2170, the same day)
+
+The owner's word: *"Merge the reviewed branch through
+907840c67497b2624f1a2febfdb27b947ca5222a into main and deploy, after
+confirming no unreviewed changes have entered the branch."* `main` was
+fast-forwarded from `47dea9c0` to `907840c6` at 20:28:25 UTC. Checked first:
+- the branch on GitHub was exactly `907840c6`;
+- the router module's only non-comment change against `main` is the three
+  reviewed strings;
+- nothing was in flight;
+- CI was green on the candidate;
+- the rollback was verified in a throwaway worktree, giving main's own tree
+  (`4bc05306…`).
+
+Deploy run 2170 (36626580809) finished `success` at 20:31:31 UTC:
+- `DEPLOY_ID` `907840c6…`;
+- `abf47dfeceba3c5c` built from 188 inputs, as predicted;
+- the container moved `dd4f72842234135b` → `abf47dfeceba3c5c` under
+  `SUCCESS Modified application`.
+
+The readings are in `docs/deploy-record.md`.
+
+**Deployed, not runtime-confirmed.** The owner's free press on
+`fold-lane-bakery` is what reads the live Worker's sha and a cold
+container's image. **Even then, whether a real router answers `look` for a
+mix like Test 8's is not measured**: only Test 8's paid run, after the
+owner's approval, can show it. Test 8 stays open, with its request, expected
+results and recovery version (`01790468089054-8btpep`) unchanged.

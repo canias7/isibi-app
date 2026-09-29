@@ -34,14 +34,21 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 
 ## Where things stand (2026-09-29)
 
-- **`main` is `47dea9c0`, deploy 2168** (2026-09-29 16:35 UTC, a
-  fast-forward from `cb981a4a`; the one push started two deploy runs a second
-  apart, 2168 and 2169, both green on the same commit, and both built image
-  `dd4f72842234135b`, predicted on both ends) — **runtime-confirmed by the
+- **`main` is `907840c6`, deploy 2170** (2026-09-29 20:28 UTC, a
+  fast-forward from `47dea9c0`; one deploy run, green, on `907840c6`; it
+  built image `abf47dfeceba3c5c` from 188 inputs, predicted on both ends, and
+  the container moved `dd4f72842234135b` → `abf47dfeceba3c5c`) — **deployed,
+  not runtime-confirmed**: the owner's free press on `fold-lane-bakery` is
+  next. Nothing under `public/` changed. It carries **the router's
+  whole-message rule, by targets** (below). `docs/deploy-record.md`.
+- **Deploy 2168** (`47dea9c0`, 2026-09-29 16:35 UTC, a fast-forward from
+  `cb981a4a`; the one push started two deploy runs a second apart, 2168 and
+  2169, both green on the same commit, and both built image
+  `dd4f72842234135b`, predicted on both ends) was **runtime-confirmed by the
   owner's free press, run 62** (16:57 UTC, on `fold-lane-bakery`): both
-  readers answer `47dea9c01fbf`, a cold container gets `dd4f72842234135b`, and
-  queued jobs and the runner are on. Nothing under `public/` changed. It
-  carries **the look door's menu lane** (below). `docs/deploy-record.md`.
+  readers answered `47dea9c01fbf`, a cold container got `dd4f72842234135b`,
+  and queued jobs and the runner were on. Nothing under `public/` changed. It
+  carries **the look door's menu lane** (below).
 - **Deploy 2167** (`cb981a4a`, 2026-09-29 14:03 UTC, image
   `65ce683607928f0e`, predicted on both ends and built; a fast-forward from
   `a64729ad`) was **runtime-confirmed by the owner's free press, run 59**
@@ -91,19 +98,17 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   run 52's publish kept the bakery's stored redirect, read at once and ten
   minutes later. Redirects dropped between 2026-08-17 and that deploy are not
   rebuilt.
-- **The branch `claude/help-needed-ehlwlj`** is `main` (`47dea9c0`) plus
-  documents and the router's whole-message rule (`465efe11`, made to choose
-  by targets rather than kind in `2771ed3f`; not merged). A press from the
-  branch runs the branch's script against main's Worker.
+- **The branch `claude/help-needed-ehlwlj`** is `main` (`907840c6`) plus
+  documents. A press from the branch runs the branch's script against main's
+  Worker.
 - **Balance 28** on the building account after run 63 (Test 8's paid run,
   2026-09-29 17:03 UTC): routing 2 and the job's reserve of 2, ledger row
   339, read again after the free restore (run 64) at 17:30, with no row after
-  339 and no job open. Before it, 32 after run 60, unchanged through runs 61
-  and 62. The unit
-  suite is **8,296** on `main` (`47dea9c0`): `8296 / 8296 / 0 / 0` locally
-  and `8296 / 8292 / 0 / 4` on CI (run 36597948276); **8,297** on the
-  branch with the router's correction (`2771ed3f`: `8297 / 8297 / 0 / 0`
-  locally, `8297 / 8293 / 0 / 4` on CI, run 36622422731).
+  339 and no job open, and again at 21:35 after deploy 2170 (the same).
+  Before it, 32 after run 60, unchanged through runs 61 and 62. The unit
+  suite is **8,297** on `main` (`907840c6`): `8297 / 8297 / 0 / 0` locally
+  (on `2771ed3f`, the same code) and `8297 / 8293 / 0 / 4` on CI (runs
+  36622422731 on `2771ed3f` and 36625806573 on `907840c6`).
 - **Closed by the owner, not to be repeated**: live test 2 (run 32); Test 3
   (run 34) with the stylesheet corrections (deploy 2161); the kit-heading fix
   (2162); Test 4a (runs 37 and 39); Test 4b's D1 (run 42) and the conditional
@@ -174,9 +179,10 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   and every earlier closure stays credited. The record is the checklist's
   *Test 8* (*Run 63*, *Run 64*, *The owner's review*).
 - **The router chooses one answer over the whole message, by what a route
-  can make on every page** (2026-09-29, on the branch: `465efe11`, then
-  `2771ed3f` after the owner's review of its first wording; not merged, not
-  deployed). Run 63's `nav` + `remove` + `alsoAsked` came from instructions
+  can make on every page** (2026-09-29: `465efe11`, then `2771ed3f` after the
+  owner's review of its first wording; **merged and deployed in deploy 2170**
+  (`907840c6`, image `abf47dfeceba3c5c` as predicted), **not yet
+  runtime-confirmed**). Run 63's `nav` + `remove` + `alsoAsked` came from instructions
   that disagreed: each layer's clause named the answer for the change a
   message leads with ("A MENU CHANGE IS "nav"", `remove` for a menu item),
   the several-changes rule sat inside `look`'s own paragraph, and
@@ -200,8 +206,8 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   8297 / 0 / 0`; required CI green on `2771ed3f` (unit 36622422731: `8297 /
   8293 / 0 / 4`; site build 36622422715: the twelve counts). **Shown only by
   the tool's text and supplied answers: whether a real router now answers
-  this way is not measured.** A merge would roll the image to
-  `abf47dfeceba3c5c`. Test 8 is prepared again, unchanged, for the owner's
+  this way is not measured.** The image rolled to `abf47dfeceba3c5c`, as
+  predicted. Test 8 stays open and unchanged, prepared for the owner's
   review. `docs/history/2026-09-29-whole-message-routing.md`.
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
@@ -376,7 +382,7 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
 - **Balance 28** on the building account after run 63 (Test 8's paid run,
   2026-09-29 17:03 UTC): 32 → 28, routing 2 and the job's reserve of 2
   (ledger row 339), read again at 17:30 after the free restore (run 64), with
-  no row after 339. Before it: 32 after run 60 (Test 7's paid run,
+  no row after 339, and at 21:35 after deploy 2170 (the same). Before it: 32 after run 60 (Test 7's paid run,
   2026-09-29 15:07 UTC): 37 → 32, routing 2 and reserves of 2 and 1 (ledger
   rows 337 and 338), read again at 15:27, at 15:37 after the free
   restore (run 61) and at 16:57 by run 62, with no row after 338. Before it:
@@ -412,18 +418,21 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
   bound. The default builder model is grok (`DEFAULT_PICKER`), and a cold new
   account is one credit short of building (`buildFloor` 20 against a grant of
   20, the routing call spending 1 first).
-- **The unit suite is 8,296** (`47dea9c0`, deploy 2168): `8296 / 8296 / 0 /
-  0` locally, where the two `sheet-rtl` browser cases run because the
-  template's dependencies are installed, and `8296 / 8292 / 0 / 4` on CI (runs
-  36595193059 on `f2783aef` and 36597948276 on `47dea9c0`) — **compare the
-  totals, never `pass`**; CI skips four. (Before the menu-lane correction:
+- **The unit suite is 8,297** (`907840c6`, deploy 2170): `8297 / 8297 / 0 /
+  0` locally (on `2771ed3f`, the same code), where the two `sheet-rtl`
+  browser cases run because the template's dependencies are installed, and
+  `8297 / 8293 / 0 / 4` on CI (runs 36622422731 on `2771ed3f` and 36625806573
+  on `907840c6`) — **compare the totals, never `pass`**; CI skips four.
+  (Before the router's correction: 8,296 at `47dea9c0`, `8296 / 8296 / 0 / 0`
+  locally and `8296 / 8292 / 0 / 4` on CI, runs 36595193059 and
+  36597948276. Before the menu-lane correction:
   8,277 at `cb981a4a`, `8277 / 8277 / 0 / 0` locally and `8277 / 8273 / 0 / 4`
   on CI, runs 36539848541 and 36542727770. Before the photo-removal
   correction: 8,241 at `9ed7da51`, `8241 / 8239 / 0 / 2` locally and `8241 /
   8237 / 0 / 4` on CI, run 36511517996.) **`site build`** reads the same
   twelve counts green on `9ed7da51` (run 36511518084), on `4ee123d2` (run
-  36539848416) and on `f2783aef` (run 36595193255), each read from each
-  step's log: TAP 397, kit-typecheck 4, site-build **404** (382 plus the browser
+  36539848416), on `f2783aef` (run 36595193255) and on `2771ed3f` (run
+  36622422715), each read from each step's log: TAP 397, kit-typecheck 4, site-build **404** (382 plus the browser
   control's 22), contrast-cases 16, theme-seam 11,
   theme-render 29, site-routing 14, site-runtime 47, and kit-render, kit-a11y,
   kit-effects and kit-paint `all passed` (census 7 + 4 + 1 = 12). Its two
@@ -490,7 +499,7 @@ guard, a sweep, a harness or a CI reader.** The ones met most often:
 | `docs/app-rules.md` | the builder app's rules, the model table, and the agent builder's half in this app |
 | `docs/platform.md` | the two halves, where the code lives, data, auth, payments and mail, credits |
 | `docs/deploy.md` | what a push starts, the paid workflows, the image predictor, runtime confirmation, the served-file check, secrets, rollback |
-| `docs/deploy-record.md` | every deploy's image prediction and timings, 2137 → 2168 (add new ones here) |
+| `docs/deploy-record.md` | every deploy's image prediction and timings, 2137 → 2170 (add new ones here) |
 | `docs/traps.md` | the full trap catalogue |
 | `docs/backlog.md` | the open items: a one-line index, then each in full |
 | `docs/history/` | dated records of every run and fix round, 2026-09-21 → 09-28, and the old status and live-state sections — indexed in `docs/history/README.md` |

@@ -83,8 +83,8 @@ answers unless a run is named.
     make are one `look` answer, with no `page` when they are on more than one
     page, or on the whole site and a page.
   - **The answer is chosen over the whole message, by targets, never by
-    kind** (corrected on the branch 2026-09-29 after Test 8's run 63 and the
-    owner's review of the first wording, not merged). The `layer` field's
+    kind** (corrected 2026-09-29 after Test 8's run 63 and the owner's review
+    of the first wording; merged and deployed in deploy 2170). The `layer` field's
     last paragraph: a layer other than `look` is the answer when it can make
     every change on every page each one is on; when none can, `look`, if it
     can make them all, with nothing held back (changes of one kind on

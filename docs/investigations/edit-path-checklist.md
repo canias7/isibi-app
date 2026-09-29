@@ -54,9 +54,10 @@ is still shown only with supplied answers. The free restore (run 64) put
 (the menu removal succeeded, the Visit move was deferred) and accepted run
 64; the intended mixed-request acceptance remains open. **The router now
 chooses one answer over the whole message, by what a route can make on every
-page, never by kind** (on the branch, not merged; the owner's correction of
-the first wording the same day): the acceptance is prepared again, unchanged
-(*Test 8*, below).
+page, never by kind** (the owner's correction of the first wording the same
+day; merged and deployed in deploy 2170, `907840c6`, image
+`abf47dfeceba3c5c` as predicted, not yet runtime-confirmed): the acceptance
+is prepared again, unchanged (*Test 8*, below).
 
 **The redirect carry-over fix is merged and deployed** (`f5e941f4`, deploy
 2165, 2026-09-28 19:07 UTC, image `8a10715339cdc780`; runtime-confirmed by
@@ -191,7 +192,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; its free runtime check passed as run 62; pressed as run 63 the same day: the router answered `nav` with `remove` and held the band back, so only the menu change was made and the look door was not reached; the free restore, run 64, put everything back; the owner recorded run 63 as a partial outcome and accepted run 64, with the intended acceptance still open; the router's whole-message rule corrected on the branch the same day, made to choose by what a route can make on every page rather than by kind after the owner's review, and the acceptance prepared again, not run)
+## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; its free runtime check passed as run 62; pressed as run 63 the same day: the router answered `nav` with `remove` and held the band back, so only the menu change was made and the look door was not reached; the free restore, run 64, put everything back; the owner recorded run 63 as a partial outcome and accepted run 64, with the intended acceptance still open; the router's whole-message rule corrected on the branch the same day, made to choose by what a route can make on every page rather than by kind after the owner's review, and the acceptance prepared again, not run; the rule merged and deployed in deploy 2170 the same day, not yet runtime-confirmed)
 
 Owner, 2026-09-29: *"Also prepare one bounded real-model acceptance using
 the existing fixture and workflow: a menu-item removal combined with a layout
@@ -572,7 +573,7 @@ restoration and previously closed tests credited."*
 - **Next**: the routing defect, as one focused change (*After run 63: the
   router's whole-message rule*, below).
 
-### After run 63: the router's whole-message rule, and the acceptance prepared again (2026-09-29; on the branch, not merged; not run)
+### After run 63: the router's whole-message rule, and the acceptance prepared again (2026-09-29; merged and deployed in deploy 2170, not yet runtime-confirmed; not run)
 
 **The correction** (`builder/site-ask.mjs`; the full record is
 `docs/history/2026-09-29-whole-message-routing.md`). The router's tool
@@ -651,7 +652,22 @@ page writer has to run. The balance is 28.
 Worker's routing call, and the lanes module the container loads imports the
 same file, so the image rolls: `2771ed3f` predicts `abf47dfeceba3c5c`), then
 the owner's free runtime check, then the paid press and the free restore,
-each with the new deploy's identifiers.
+each with the new deploy's identifiers. **Merged and deployed** (deploy 2170,
+2026-09-29 20:28–20:31 UTC, `907840c6`, image `abf47dfeceba3c5c` built as
+predicted; not yet runtime-confirmed). The presses, all from `main`, every
+other box left as it is:
+1. **The free runtime check for deploy 2170**, now (the image rolled at
+   20:31): "Run the ONE paid edit as well" `no`; "The site to edit"
+   `fold-lane-bakery`; the two "Refuse to spend unless…" boxes
+   `907840c67497b2624f1a2febfdb27b947ca5222a` and `abf47dfeceba3c5c`.
+2. **The paid run, only after the owner's approval and after (1) passes**:
+   "Run the ONE paid edit as well" `yes`; "What to change" the request above,
+   exactly; "The site to edit" `fold-lane-bakery`; the same two
+   expectations.
+3. **The free restore, after the readings**: "Run the ONE paid edit as
+   well" `no`; "PUT ONE SAVED VERSION BACK, THEN READ IT AND STOP"
+   `01790468089054-8btpep`; "The site to edit" `fold-lane-bakery`; the same
+   two expectations.
 
 ## Test 7 — a photograph removal and a layout change on another page, in one message (proposed 2026-09-29; its claimed coverage narrowed the same day by a routing review the owner asked for: the customer capability through the look door, not the removal door; held the same day on the photo-removal mismatch, reproduced and a correction proposed for review; the correction implemented on the branch the same day with the owner's safeguards, and Test 7 now expects the element removed; merged and deployed the same day in deploy 2167 and runtime-confirmed by the owner's free press, run 59; approved by the owner and pressed as run 60 the same day: both changes stored and published, each on its own page, with the home page stored without its final newline; the free restore, run 61, put everything back; closed by the owner, 2026-09-29, for the customer behavior runs 60 and 61 showed, with the missing final newline accepted as a specific nonfunctional exception)
 
