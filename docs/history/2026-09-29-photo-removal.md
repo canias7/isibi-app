@@ -306,7 +306,7 @@ chat.js against the merged file. Keep "deployed" separate from
   `test/fixtures/run47/*.before.tsx`**, no components, every route at
   `8btpep`, so Test 7's expected hashes hold for the live site.
 
-## Shown live: Test 7's paid run, run 60 (2026-09-29; pending the owner's review)
+## Shown live: Test 7's paid run, run 60 (2026-09-29; closed with run 61 by the owner)
 
 Approved by the owner and pressed from `main` at `cb981a4a` (edit canary run
 36587530182, 15:05:38–15:10:07 UTC, on `fold-lane-bakery` at `8btpep`, with
@@ -329,11 +329,20 @@ and 338).
   as written: 2,438 characters, `820cf33c…`, against the expected 2,439,
   `0b64985c…`, and exactly that file with the newline put back. Recorded in
   the backlog, not changed.
-- The per-item readings are the checklist's *Test 7 → Run 60*. Closing Test
-  7, and this correction's backlog item, is the owner's decision.
+- The per-item readings are the checklist's *Test 7 → Run 60*.
 - **The free restore, run 61** (edit canary run 36591050919, 15:33 UTC), put
   `8btpep` back: the five stored pages byte-identical to the fixture (the
   home page with its final newline), the markup identical to the `8btpep`
   before-read, the pages identical to the pixel in a real Chromium, the
   redirects, sitemap, QR file and card as before, and nothing charged
   (checklist, *Test 7 → Run 61*).
+- **Closed by the owner (2026-09-29)** for the customer behavior runs 60 and
+  61 showed: the Visit photograph's element removed without a placeholder,
+  the home band moved, both published together, unrelated content preserved,
+  and `8btpep` restored free. The missing final newline is accepted as a
+  specific nonfunctional exception for this acceptance only: it stays
+  recorded, no byte-for-byte preservation is claimed for that file, and no
+  other whitespace change is exempt. The reply omission (review #9) and the
+  remaining photo-removal limits stay separate. With it, the photograph lane
+  and the picture rung agree about what a removal leaves, live; that backlog
+  item is closed here.

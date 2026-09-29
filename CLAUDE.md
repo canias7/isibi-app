@@ -49,7 +49,8 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   code is refused (20 of 210 on the stored test pages); an emptied wrapper
   with its own meaning is kept (21 of 190); two photos sharing a description
   are refused; a job run inline in the Worker, with no parser, refuses every
-  removal; and no real picture model has chosen between the two answers yet.
+  removal. A real picture model answered `remove` for a removal in Test 7's
+  run 60 (closed by the owner).
   `docs/history/2026-09-29-photo-removal.md`.
 - **Deploy 2166** (`a64729ad`, 2026-09-29 02:51 UTC, image
   `6fbaccad82fe879d`) was **runtime-confirmed by the owner's free press, run
@@ -98,7 +99,9 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   with the removal-door correction (2164); Test 6 (runs 57 and 58: a
   site-wide description and a Visit-only move stored and published from one
   message, unrelated content preserved, the redirects kept, and `8btpep`
-  restored free).
+  restored free); Test 7 (runs 60 and 61: a photograph's element taken off
+  `/visit` with no placeholder and the home band moved, published together,
+  unrelated content preserved, and `8btpep` restored free).
 - **Test 6 is closed by the owner** (2026-09-29) for exactly what runs 57 and
   58 showed: one message's site-wide description and Visit-only band move,
   both stored and published; unrelated content preserved; the existing
@@ -110,41 +113,19 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   natural message**: the router's instructions make several changes one
   `look` answer (Test 7's routing review).
   The record is the checklist's *Test 6*.
-- **Test 7 ran as run 60 and was restored by run 61, pending the owner's
-  review** (2026-09-29; its
-  claimed coverage narrowed after the owner's review): one message taking the counter photograph off the
-  Visit page and moving the home page's order band above "Fed every morning
-  since we opened", on `fold-lane-bakery` at `8btpep`, judged on the stored
-  and published changes against exact expected hashes, with the free restore
-  after. About 5–6 credits, up to about 25. **It tests the customer
-  capability** (both changes stored and published, each on its own page)
-  **through the look door**, where the router's instructions send two changes
-  it can make in one turn. The routing review found no better candidate: a
-  menu link removed beside a layout change is routed `look` too, and on that
-  door no lane describes a menu item (backlog). The removal door given other
-  work stays shown only with supplied answers. **Held** (2026-09-29): "take
-  the photo off" published a placeholder where the lane picker is promised
-  the slot goes; reproduced through the route, rendered with the real build,
-  and **corrected on the branch with the owner's safeguards**: `remove` takes
-  the photograph's element off, found in the page's syntax tree at its slot's
-  own offset, with a wrapper only when it is demonstrably just the photo's
-  container; `clear` keeps the space when that is asked; contradictions and
-  what cannot be taken off safely are refused by name while the rest proceeds;
-  the picture step's own `photosTakenOff` drives the undo hint. Test 7 now
-  expects the element removed (`visit.tsx` `263dd01e…`); its placeholder
-  expectations are superseded. Merged, deployed in deploy 2167 and
-  runtime-confirmed by run 59. **Run 60** (15:05–15:10 UTC, 5 credits, look
-  door): the counter photograph's element is off `/visit` (stored exactly
-  `263dd01e…`, no placeholder, 243 px shorter) and the band moved on `/`
-  only, both published in one publish (`mjg7hp`), with nothing else changed;
-  items 1, 2 and 4–7 hold. **Item 3's stored half does not hold byte for
-  byte**: `index.tsx` lost its final newline (2,438 characters, `820cf33c…`;
-  with it put back, exactly the expected `0b64985c…`), because the quick
-  writer stores the model's whole file as written (backlog). **The free
-  restore, run 61** (15:33 UTC), put `8btpep` back exactly: stored pages
-  equal to the fixture, markup and pixels identical, redirects kept, no
-  charge. The record is the checklist's *Test 7 → Run 60* and *Run 61*, and
-  `docs/history/2026-09-29-photo-removal.md`.
+- **Test 7 is closed by the owner** (2026-09-29) for the customer behavior
+  runs 60 and 61 showed: the Visit photograph's element removed without a
+  placeholder, the home band moved, both published together in one message
+  through the look door, unrelated site content preserved, and the original
+  version (`8btpep`) restored free. **The stored home page's missing final
+  newline is accepted as a specific nonfunctional exception for this
+  acceptance only**: it stays recorded (backlog), no byte-for-byte
+  preservation is claimed for that file, and no other whitespace change is
+  exempt. **Kept separate**: the reply omission (review #9) and the remaining
+  photo-removal limits (backlog). Not to be repeated. The photo-removal
+  correction behind it is deployed in 2167 (`remove` takes the element off,
+  `clear` keeps the space when asked). The record is the checklist's *Test 7*
+  (*Run 60*, *Run 61*, *Closed*) and `docs/history/2026-09-29-photo-removal.md`.
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
   `docs/investigations/edit-path-checklist.md`, and every test's plan, readings

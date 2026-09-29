@@ -230,3 +230,12 @@
 - **What cannot be done safely is refused accurately and recorded.** *"give
   an accurate refusal without silently clearing the image or removing a
   larger block. Record this as a remaining capability limit."*
+- **An exception accepted for one acceptance stays specific to it.** Closing
+  Test 7: *"Accept the missing final newline as a specific nonfunctional
+  exception for this acceptance. Keep it recorded; do not claim byte-for-byte
+  preservation or exempt other whitespace changes generally."*
+- **A mixed request is split by operation, never sent whole to one editor.**
+  On the menu gap: *"Do not hardcode wording, sites, or pages, and do not
+  route the entire mixed request into the menu editor."* Each operation
+  reaches its own executor, unrelated links and content are preserved, and
+  when one part cannot run the outcome says so accurately.

@@ -26,6 +26,18 @@ showed.**
 - Kept separate: the reply omission (review #9) and the withholding paths
   (supplied answers only).
 
+**Closed by the owner (2026-09-29): Test 7, for the customer behavior runs 60
+and 61 showed.**
+- **Run 60**, one message through the look door: the Visit photograph's
+  element taken off with no placeholder, and the home page's band moved;
+  both published together, the rest of the site preserved; 5 credits.
+- **Run 61**, free: version `8btpep` is back, stored and published.
+- The stored home page's missing final newline is accepted as a specific
+  nonfunctional exception for this acceptance only; it stays recorded, and
+  no other whitespace change is exempt.
+- Kept separate: the reply omission (review #9) and the remaining
+  photo-removal limits.
+
 **The redirect carry-over fix is merged and deployed** (`f5e941f4`, deploy
 2165, 2026-09-28 19:07 UTC, image `8a10715339cdc780`; runtime-confirmed by
 the owner's free press, run 51, at 22:57 UTC):
@@ -51,6 +63,8 @@ the owner's free press, run 51, at 22:57 UTC):
   (57): a site-wide description and a Visit-only move, with a publish
   keeping the stored redirects (52, 57) and a restore putting the saved
   description back (53, 58).
+- **A photograph's element taken off one page and a band moved on another,
+  in one message through the look door** (60), and restored free (61).
 - **One database row changed and put back** (42).
 - **A rules closing enforced by the database** (44), for that closing only.
 - **A menu link removed through the removal door with a real picker, then the
@@ -84,8 +98,8 @@ the owner's free press, run 51, at 22:57 UTC):
      answer, a menu link as much as a photograph (Test 7's *routing review*,
      below), so the door gets other work only if the router departs from
      them. Whether this needs a live test at all is the owner's call; none is
-     proposed. Test 7 tests the customer capability through the look door:
-     run 60 went through it, pending the owner's review (*Test 7 → Run 60*).
+     proposed. Test 7 showed the customer capability through the look door
+     (runs 60 and 61, closed by the owner).
 
    A second message after a hop or a failure is outstanding too.
 4. **A named page other than the home page** on a look edit: **closed with
@@ -125,9 +139,9 @@ stylesheet scope and rule keys (deploy 2161).
     picture rung kept the slot, and the kit drew its placeholder there:
     **reproduced and rendered; corrected 2026-09-29 (`remove` takes the
     element off, `clear` keeps the space when asked), deployed in deploy 2167
-    and runtime-confirmed by run 59; shown with real models by run 60 (Test
-    7), pending the owner's review** (*Test 7 → Implemented* and *Run 60*,
-    below). What
+    and runtime-confirmed by run 59; shown with real models by run 60 and
+    closed with Test 7 by the owner** (*Test 7 → Implemented*, *Run 60* and
+    *Closed*, below). What
     the targeted editor still cannot take off is refused and recorded as a
     capability limit (backlog).
 - Also recorded:
@@ -151,7 +165,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Test 7 — a photograph removal and a layout change on another page, in one message (proposed 2026-09-29; its claimed coverage narrowed the same day by a routing review the owner asked for: the customer capability through the look door, not the removal door; held the same day on the photo-removal mismatch, reproduced and a correction proposed for review; the correction implemented on the branch the same day with the owner's safeguards, and Test 7 now expects the element removed; merged and deployed the same day in deploy 2167 and runtime-confirmed by the owner's free press, run 59; approved by the owner and pressed as run 60 the same day: both changes stored and published, each on its own page, with the home page stored without its final newline; the free restore, run 61, put everything back; pending the owner's review)
+## Test 7 — a photograph removal and a layout change on another page, in one message (proposed 2026-09-29; its claimed coverage narrowed the same day by a routing review the owner asked for: the customer capability through the look door, not the removal door; held the same day on the photo-removal mismatch, reproduced and a correction proposed for review; the correction implemented on the branch the same day with the owner's safeguards, and Test 7 now expects the element removed; merged and deployed the same day in deploy 2167 and runtime-confirmed by the owner's free press, run 59; approved by the owner and pressed as run 60 the same day: both changes stored and published, each on its own page, with the home page stored without its final newline; the free restore, run 61, put everything back; closed by the owner, 2026-09-29, for the customer behavior runs 60 and 61 showed, with the missing final newline accepted as a specific nonfunctional exception)
 
 Owner, 2026-09-29: *"Prepare the next bounded acceptance: a removal combined
 with another change in one message, through the removal path with a real
@@ -348,7 +362,7 @@ The plan above is kept as the owner reviewed it. Where the implementation
 departs from it, by the owner's safeguards or by what building it found, is
 under *Implemented*, next.
 
-### Implemented (2026-09-29; merged and deployed the same day in deploy 2167, `cb981a4a`, image `65ce683607928f0e`; runtime-confirmed by the owner's free press, run 59; shown live with real models by run 60, pending the owner's review)
+### Implemented (2026-09-29; merged and deployed the same day in deploy 2167, `cb981a4a`, image `65ce683607928f0e`; runtime-confirmed by the owner's free press, run 59; shown live with real models by run 60; closed with Test 7 by the owner)
 
 Owner: *"Implement the remove-versus-clear correction on the working branch,
 with these safeguards: Use reliable TSX structure to identify the exact photo
@@ -641,7 +655,7 @@ door has no lane for (backlog); component preservation (the fixture has none);
 the withholding paths, unless a scope fails; a bought photograph (none is
 bought); a reply naming both changes (review #9, kept separate).
 
-### Run 60 — the paid run: both changes stored and published, each on its own page; the home page stored without its final newline (2026-09-29; pending the owner's review)
+### Run 60 — the paid run: both changes stored and published, each on its own page; the home page stored without its final newline (2026-09-29; closed with run 61 by the owner)
 
 Pressed by the owner from `main` at `cb981a4a`
 ([run 36587530182](https://github.com/canias7/isibi-app/actions/runs/36587530182),
@@ -755,7 +769,8 @@ comparison is VERIFIED.
     beside `pageOps: [{page: "/"}]`. Nothing the customer reads uses it on a
     look reply; a model-written reply would (review #9's family);
   - the bakery's home page shows `StoryLead`'s empty frame (above).
-- **What it shows**, pending the owner's review: the customer capability,
+- **What it shows** (closed by the owner for this, with the newline as a
+  specific exception: *Closed*, below): the customer capability,
   through the look door, with real models: one message taking a photograph's
   element off one page and moving a band on another, both stored and
   published, each on its own page, with nothing else changed on the site,
@@ -803,6 +818,32 @@ every free check passed.
     zero-cost probe jobs (`e896f679…` on the bakery, `2c5e4ec9…` on
     `washhouse-3`) ended `failed` at cost 0 with billing `none`, and no edit
     job is open.
+
+### Closed by the owner (2026-09-29)
+
+Owner, 2026-09-29: *"Close Test 7 for the customer behavior demonstrated by
+runs 60 and 61: the Visit photograph's element removed without a placeholder,
+the Home band moved, both published together, unrelated site content
+preserved, and the original version restored free. Accept the missing final
+newline as a specific nonfunctional exception for this acceptance. Keep it
+recorded; do not claim byte-for-byte preservation or exempt other whitespace
+changes generally. Keep the reply omission and remaining photo-removal
+limitations separate. Do not repeat Test 7."*
+- **Closed for**: one message, through the look door with real models, taking
+  the Visit photograph's element off with no placeholder and moving the home
+  page's band, both published together in one publish; the rest of the site
+  preserved; and `8btpep` restored free (run 61).
+- **The exception, for this acceptance only**: the stored `index.tsx` lost its
+  final newline (2,438 characters, `820cf33c…`, against the expected 2,439,
+  `0b64985c…`). It is accepted as nonfunctional here and stays recorded
+  (backlog: the quick writer stores the model's whole file as written). **No
+  byte-for-byte preservation is claimed for that file, and no other
+  whitespace change is exempt**: any other acceptance still judges its stored
+  files exactly.
+- **Kept separate**: the reply omission (review #9: the reply names the look
+  change and not the band move) and the remaining photo-removal limits
+  (backlog: what the picture step cannot take off on its own).
+- **Not to be repeated.**
 
 ## Test 6 — two changes in one message, one on a named page (prepared 2026-09-28, request clarified the same evening; the free check, run 51, passed; the paid run, run 52, shipped the description, and the router put the Visit move off to a later turn; the free restore, run 53, put everything back; the owner: run 52 does not close Test 6; the routing/execution mismatch it showed is fixed and deployed, 2026-09-29, deploy 2166, runtime-confirmed by the free check, run 54; the retry, run 57, stored and published both changes; the free restore, run 58, put everything back; closed by the owner, 2026-09-29, for exactly what runs 57 and 58 showed)
 

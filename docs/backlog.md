@@ -33,18 +33,13 @@ here; take a closed one out of both.**
   heading rule can force a correction round.
 - No look-door lane describes a menu item, so a menu link taken out beside
   another change can be missed (Test 7's routing review).
-- The photograph lane says a removal takes the slot away; the picture rung
-  leaves the slot, drawn as the kit's placeholder. **Reproduced and rendered;
-  corrected 2026-09-29 (`remove` takes the element off; `clear` keeps the
-  space when asked), deployed in deploy 2167 and runtime-confirmed by run
-  59; shown with real models by Test 7's run 60, pending the owner's
-  review.**
 - What the picture step cannot take off on its own is refused: a photograph
   held by a larger block, written inside code, or with children; an emptied
   wrapper with a meaning of its own is kept, and can leave empty space.
 - The quick writer stores the model's whole file as written, so whitespace
   outside the change can differ from the page it was given (run 60: the home
-  page lost its final newline).
+  page lost its final newline, accepted for Test 7 alone as a nonfunctional
+  exception).
 - A look reply's `changed` lists only the steps that name their files; the
   quick writer names none (run 60).
 - The kit's `StoryLead` always draws a picture, so a page that gives it none
@@ -110,34 +105,6 @@ here; take a closed one out of both.**
   footer colour) supplies `action` as the answer, so nothing shows what a
   real picker does there. Whether and how the menu gets a lane is the
   owner's decision.
-- **THE PHOTOGRAPH LANE AND THE PICTURE RUNG DISAGREE ABOUT WHAT A REMOVAL
-  LEAVES (found 2026-09-29 by Test 7's routing review; not changed).** The
-  picker is told that taking a photograph off means "the slot that held it
-  goes with it, rather than being left empty" (`images` in
-  `builder/site-lanes.mjs`). The rung it goes to, the picture rung's
-  `clear`, is "True to REMOVE the picture from this slot, leaving the space
-  empty" (`builder/site-picture.mjs`): the `src` is emptied, the kit's
-  `SafeImage` draws its placeholder in the same place, and the reply says
-  "There is a space for a photo". The code does what the rung says, and Test
-  7's expected Visit page was that. **The owner, 2026-09-29: it cannot be
-  parked while Test 7 assumes the current implementation; distinguish
-  removing a photo element from clearing it while keeping its space.
-  Reproduced through the real route and rendered with the real build (the
-  customer sees a grey placeholder captioned with the photo's description),
-  and a correction proposed for review, not implemented; Test 7 is held on
-  it.** The record and the plan are the checklist's *Test 7*. **Implemented
-  on the branch the same day with the owner's safeguards** (the page's syntax
-  tree at the slot's own offset; a wrapper only when demonstrably just the
-  photograph's container; one pass by offset; contradictions refused by name;
-  the explicit `photosTakenOff` behind the undo hint; accurate refusals):
-  `docs/history/2026-09-29-photo-removal.md`. **Merged and deployed in deploy
-  2167 (`cb981a4a`, image `65ce683607928f0e`) and runtime-confirmed by the
-  owner's free press, run 59. Shown with real models by Test 7's paid run,
-  run 60 (2026-09-29)**: the real picture model answered a removal, the
-  counter photograph's element came off `/visit` with no placeholder
-  (`visit.tsx` exactly `263dd01e…`), and the reply read the picture step's
-  own `photosTakenOff` (checklist, *Test 7 → Run 60*). Closing it is the
-  owner's call.
 - **WHAT THE PICTURE STEP CANNOT TAKE OFF ON ITS OWN (recorded 2026-09-29 as
   the correction's remaining capability limit; the owner: *"For structures the
   targeted editor cannot safely remove, give an accurate refusal without
@@ -172,9 +139,12 @@ here; take a closed one out of both.**
   answer kept its newline. It matters wherever a stored page is compared
   byte for byte (an acceptance's expected hash, a later diff), and it shows
   the quick writer can change more of a file than the customer asked for
-  without any guard noticing, when that change is only whitespace. Whether
-  to restore the untouched whitespace, or to accept it, is the owner's
-  decision.
+  without any guard noticing, when that change is only whitespace. **The
+  owner, closing Test 7 (2026-09-29), accepted run 60's missing newline as a
+  specific nonfunctional exception for that acceptance only**: *"Keep it
+  recorded; do not claim byte-for-byte preservation or exempt other
+  whitespace changes generally."* Whether to restore the untouched
+  whitespace in general is the owner's decision.
 - **A LOOK REPLY'S `changed` LISTS ONLY THE STEPS THAT NAME THEIR FILES (found
   2026-09-29 by Test 7's run 60; not changed).** The look merge's `changed`
   is `flat("changed")` over the steps that ran (`worker.js`); the quick
