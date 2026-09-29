@@ -138,7 +138,9 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   menu editor only the menu's words. 19 route cases, sync and queued: both
   executors with their own words, unrelated links kept, both partial
   outcomes, ordinary menu and button edits. Shown only with supplied answers.
-  `docs/history/2026-09-29-menu-lane.md`.
+  Required CI green on `f2783aef` (unit 36595193059: `8296 / 8292 / 0 / 4`;
+  site build 36595193255: the twelve counts); a merge would roll the image to
+  `dd4f72842234135b`. `docs/history/2026-09-29-menu-lane.md`.
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
   `docs/investigations/edit-path-checklist.md`, and every test's plan, readings
