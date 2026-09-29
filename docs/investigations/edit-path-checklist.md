@@ -84,7 +84,8 @@ the owner's free press, run 51, at 22:57 UTC):
      answer, a menu link as much as a photograph (Test 7's *routing review*,
      below), so the door gets other work only if the router departs from
      them. Whether this needs a live test at all is the owner's call; none is
-     proposed. Test 7 tests the customer capability through the look door.
+     proposed. Test 7 tests the customer capability through the look door:
+     run 60 went through it, pending the owner's review (*Test 7 → Run 60*).
 
    A second message after a hop or a failure is outstanding too.
 4. **A named page other than the home page** on a look edit: **closed with
@@ -124,8 +125,9 @@ stylesheet scope and rule keys (deploy 2161).
     picture rung kept the slot, and the kit drew its placeholder there:
     **reproduced and rendered; corrected 2026-09-29 (`remove` takes the
     element off, `clear` keeps the space when asked), deployed in deploy 2167
-    and runtime-confirmed by run 59; not yet shown with a real model (Test
-    7)** (*Test 7 → Implemented*, below). What
+    and runtime-confirmed by run 59; shown with real models by run 60 (Test
+    7), pending the owner's review** (*Test 7 → Implemented* and *Run 60*,
+    below). What
     the targeted editor still cannot take off is refused and recorded as a
     capability limit (backlog).
 - Also recorded:
@@ -149,7 +151,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Test 7 — a photograph removal and a layout change on another page, in one message (proposed 2026-09-29; its claimed coverage narrowed the same day by a routing review the owner asked for: the customer capability through the look door, not the removal door; held the same day on the photo-removal mismatch, reproduced and a correction proposed for review; the correction implemented on the branch the same day with the owner's safeguards, and Test 7 now expects the element removed; merged and deployed the same day in deploy 2167 and runtime-confirmed by the owner's free press, run 59; held only for the owner's approval of the paid run; not run)
+## Test 7 — a photograph removal and a layout change on another page, in one message (proposed 2026-09-29; its claimed coverage narrowed the same day by a routing review the owner asked for: the customer capability through the look door, not the removal door; held the same day on the photo-removal mismatch, reproduced and a correction proposed for review; the correction implemented on the branch the same day with the owner's safeguards, and Test 7 now expects the element removed; merged and deployed the same day in deploy 2167 and runtime-confirmed by the owner's free press, run 59; approved by the owner and pressed as run 60 the same day: both changes stored and published, each on its own page, with the home page stored without its final newline; pending the owner's review)
 
 Owner, 2026-09-29: *"Prepare the next bounded acceptance: a removal combined
 with another change in one message, through the removal path with a real
@@ -346,7 +348,7 @@ The plan above is kept as the owner reviewed it. Where the implementation
 departs from it, by the owner's safeguards or by what building it found, is
 under *Implemented*, next.
 
-### Implemented (2026-09-29; merged and deployed the same day in deploy 2167, `cb981a4a`, image `65ce683607928f0e`; runtime-confirmed by the owner's free press, run 59; not run live)
+### Implemented (2026-09-29; merged and deployed the same day in deploy 2167, `cb981a4a`, image `65ce683607928f0e`; runtime-confirmed by the owner's free press, run 59; shown live with real models by run 60, pending the owner's review)
 
 Owner: *"Implement the remove-versus-clear correction on the working branch,
 with these safeguards: Use reliable TSX structure to identify the exact photo
@@ -616,7 +618,7 @@ is 37.
 ### The presses
 
 Both from `main` (the branch adds only documents).
-1. **The paid run, after approval**: "Run the ONE paid edit as well" `yes`
+1. **The paid run, after approval** (approved and pressed as run 60): "Run the ONE paid edit as well" `yes`
    (the box already holds `no`: delete it and type `yes`); "What to change":
    the sentence above, exactly; "The site to edit": `fold-lane-bakery`; the
    two "Refuse to spend unless…" boxes
@@ -638,6 +640,130 @@ The removal door given other work, which a natural message does not reach
 door has no lane for (backlog); component preservation (the fixture has none);
 the withholding paths, unless a scope fails; a bought photograph (none is
 bought); a reply naming both changes (review #9, kept separate).
+
+### Run 60 — the paid run: both changes stored and published, each on its own page; the home page stored without its final newline (2026-09-29; pending the owner's review)
+
+Pressed by the owner from `main` at `cb981a4a`
+([run 36587530182](https://github.com/canias7/isibi-app/actions/runs/36587530182),
+15:05:38–15:10:07 UTC; the evidence artifact `canary-evidence` is 45,838
+bytes, sha256 `6dbad6c5…`) with the spend box `yes` (`CANARY_SPEND: 1`), the
+frozen request, `fold-lane-bakery` and the two expectations. The preflight
+read `cb981a4ad1d3` and `65ce683607928f0e` from both readers and a cold
+container, every free check passed, the canary reads PASSED, and its
+comparison is VERIFIED.
+- **The path** (kept as evidence; it decides nothing):
+  - the router: `look`, no page, nothing put off (17.7 s, cost 2): **the look
+    door**, the route its instructions give, so the removal door is not shown
+    (*What each other outcome means*);
+  - the job (`3aac6339…`, created 15:06:36): the picker named `shape` and
+    `images`; the move went through the page step's quick writer on `/`
+    (`tweak: true`, `pageOps: [{page: "/"}]`); the picture step took the
+    counter photograph off (`photosTakenOff: 1`, `photosRemoved: 1`); three
+    model calls after routing (the picker, the quick writer, the picture
+    choice); one publish (`publish:1` on the job row, 15:09:29–15:09:33,
+    `8btpep` → `01790694429399-mjg7hp`); `done`, `finalized`, cost 3;
+  - the job's stored reply carries no `partial` and nothing held back. Its
+    `changed` lists only `visit.tsx`: the quick writer names no files, and
+    its page is in `pageOps` (recorded separately, below).
+- **Acceptance**, judged on the stored and published changes, read from the
+  run's evidence, the job row, the ledger and the live site. **Items 1, 2 and
+  4–7 hold. Item 3's published half holds; its stored half does not hold
+  byte for byte**: the move is exact, and the file lost its final newline.
+  1. `request.json` carries sha256 `9e4dcb22…` (191 characters, ASCII), and
+     the router was sent the same sentence.
+  2. **The removal, stored and published — holds.** `visit.tsx` is exactly
+     the expected file: 3,801 characters, sha256 `263dd01e…`, with its final
+     newline. Served, `/visit` lost exactly three lines of markup, the
+     photograph's frame and its `<img>` (`d5d59152…jpg`), and nothing else:
+     no image, no placeholder, no empty frame. The location card now sits at
+     the top of its column. In a real Chromium the page is 243 px shorter
+     (1,431 → 1,188): its top 312 rows and bottom 566 rows (the band and the
+     footer) are identical to the pixel. The upload is still served (200,
+     1,517,100 bytes, its name the first 32 hex characters of its sha256).
+     The screen reads "✅ Updated the look. One photograph is no longer on the
+     site. If that was not what you wanted, roll back to the previous build in
+     Cloud → Versions.", the removal's sentence and hint, read off the picture
+     step's own `photosTakenOff`. No superseded outcome appeared: no emptied
+     `src`, no placeholder, no "There is a space for a photo".
+  3. **The layout change — published: holds; stored: the swap is exact, but
+     not byte for byte.** Stored, `index.tsx` is 2,438 characters, sha256
+     `820cf33c64955450…`, where 2,439 and `0b64985c…` were expected: **the
+     file lost its final newline, and that is the only difference**. With
+     the newline put back it is byte-identical to the expected swap, so the
+     band, the "Fed every morning since we opened" section, the part above
+     and the blank line between them are exactly as expected; only the part
+     below ends without its newline. Published, `/` reads "Harbour Loaf",
+     "Order a loaf for collection", then "Fed every morning since we opened",
+     in the served page and in a real Chromium; its markup is the band's nine
+     lines moved above that section and nothing else; its height is the
+     same (2,799), its top 1,021 rows and bottom 264 are identical to the
+     pixel, and both of its photographs still show. **Why**: the quick writer
+     answers with the whole file, and `readTweak` stores it as the model
+     wrote it; nothing checks or restores whitespace the customer never sees.
+     Run 57's quick-writer answer kept the newline; this one did not. The
+     build and the served page are unaffected. Recorded separately, below;
+     whether it affects the verdict is the owner's call.
+  4. **Neither dropped nor sent to the wrong page — holds.** `order.tsx`,
+     `starter.tsx` and `gallery.tsx` equal the table (`4ead778e…`,
+     `37fb0e17…`, `4e8b82aa…`), and there is no component before or after.
+     No photograph left `/` (the same three images, the logo and both
+     photographs, at the same addresses, their bytes matching their names),
+     the Gallery page is untouched, and the Visit band has not moved
+     ("Come to the bakery", "The shutters and the street", then the band). On
+     `/order`, `/starter` and `/gallery` the served markup is byte-identical,
+     and in a real Chromium 0 pixels differ.
+  5. **Everything else preserved — holds.** Every page's head tags are
+     identical apart from the build's script names (`/`, `/gallery`, `/order`
+     25 tags, `/visit` 28, `/starter` 21); the stylesheet link is unchanged.
+     The header and footer menus are identical; every link is identical in
+     order on the four other pages, and `/` has the same 15 links, the band's
+     link to `/order` moved with it. Read without following at 15:13:56,
+     15:20:42 and 15:24:06 UTC: `/the-starter`, `?x=1` and the trailing slash
+     answer 301 to `/starter` (the query kept) with `public, max-age=600`;
+     all five routes answer 200 at `mjg7hp`; the sitemap lists the five;
+     `/nonexistent-page` answers 404. `qr-gallery.svg` (4,079 bytes,
+     `45f42f27…`), the stylesheet (205,087, `544ff34e…`) and `/card.png`
+     (31,778, `ce884f5b…`) carry their recorded sha256s. The stored
+     description is unchanged.
+  6. **One publish — holds**: `01790694429399-mjg7hp`, built from `8btpep`,
+     VERIFIED, and seen on the first after-read. The parent `8btpep` is the
+     restore target, and pruning keeps the new version and its parent
+     (`pruneBuilds` with `keep: [version, parentVersion]`).
+  7. **Money — holds.** 5 credits, closing exactly: routing 2 (37 → 35),
+     then the reserves `#1` 2 (ledger row 337, 33) and `#2` 1 (row 338, 32),
+     with no refund. Read again at 15:27 UTC: the balance is 32 (updated
+     15:07:09), there is no ledger row after 338 and no edit job created
+     after the run, the job is `done` and `finalized` at cost 3, and no edit
+     job is open (the only rows not in a final state are two `lost` and
+     `refunded` jobs on `fretwork-1` from 2026-09-01 and 09-02). The two
+     zero-cost preflight jobs failed at cost 0, as they are built to. The
+     estimate was about 5–6.
+- **Expected in the canary's log, and not a failure**: `/visit photos 2->1
+  LOST 1` and `FAIL no route lost an on-page photograph -> /visit:1`; the loss
+  counted is the one asked for. Its components note: this fixture has none,
+  so component preservation stays untested.
+- **Seen in the pictures, and not this run's**: above "Fed every morning since
+  we opened" the home page draws an empty picture frame, before and after.
+  The kit's `StoryLead` always draws a picture, and the page gives it none
+  (recorded separately, below).
+- **Found, recorded separately** (backlog; none changed):
+  - the quick writer stores the model's whole file as written, so whitespace
+    outside the change can differ from the page it was given (this run:
+    `index.tsx`'s final newline);
+  - a look reply's `changed` lists only the steps that name their files; the
+    quick writer names none, so this reply reads `changed: ["visit.tsx"]`
+    beside `pageOps: [{page: "/"}]`. Nothing the customer reads uses it on a
+    look reply; a model-written reply would (review #9's family);
+  - the bakery's home page shows `StoryLead`'s empty frame (above).
+- **What it shows**, pending the owner's review: the customer capability,
+  through the look door, with real models: one message taking a photograph's
+  element off one page and moving a band on another, both stored and
+  published, each on its own page, with nothing else changed on the site,
+  apart from the home page's final newline in storage. **What it does not
+  show** is unchanged (*What it will not establish*, above).
+- **Recovery**: the free restore to `01790468089054-8btpep` (*The presses*,
+  item 2), handed over for the owner's press; not yet run. What it must show
+  is *Recovery, free, and what it must show*, above.
 
 ## Test 6 — two changes in one message, one on a named page (prepared 2026-09-28, request clarified the same evening; the free check, run 51, passed; the paid run, run 52, shipped the description, and the router put the Visit move off to a later turn; the free restore, run 53, put everything back; the owner: run 52 does not close Test 6; the routing/execution mismatch it showed is fixed and deployed, 2026-09-29, deploy 2166, runtime-confirmed by the free check, run 54; the retry, run 57, stored and published both changes; the free restore, run 58, put everything back; closed by the owner, 2026-09-29, for exactly what runs 57 and 58 showed)
 

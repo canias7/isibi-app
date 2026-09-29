@@ -305,3 +305,30 @@ chat.js against the merged file. Keep "deployed" separate from
   the bakery's five stored pages **byte-identical to
   `test/fixtures/run47/*.before.tsx`**, no components, every route at
   `8btpep`, so Test 7's expected hashes hold for the live site.
+
+## Shown live: Test 7's paid run, run 60 (2026-09-29; pending the owner's review)
+
+Approved by the owner and pressed from `main` at `cb981a4a` (edit canary run
+36587530182, 15:05:38–15:10:07 UTC, on `fold-lane-bakery` at `8btpep`, with
+the frozen sentence). The router answered `look` with no page and nothing put
+off, so the run went through the look door: the picker named `shape` and
+`images`, the quick writer moved the band on `/`, and the picture step took
+the counter photograph off `/visit`, with one publish (`mjg7hp`), `done`,
+`finalized`, cost 3, and 5 credits in all (balance 37 → 32, ledger rows 337
+and 338).
+- **The correction, with a real picture model**: the model answered a
+  removal, not `clear`. `visit.tsx` is exactly the expected file (3,801
+  characters, `263dd01e…`); the served page lost the photograph's frame and
+  `<img>` and nothing else, with no placeholder; the page is 243 px shorter,
+  the same as the render made from the route's own output before the merge;
+  the reply's `photosTakenOff` is 1, and the screen gives the removal's
+  sentence and the Cloud → Versions hint. The upload stays in the library.
+- **The other change**: `/` published exactly the swap, and the three other
+  pages are byte-identical and pixel-identical. The stored `index.tsx` lost
+  its final newline, which the quick writer took from the model's answer
+  as written: 2,438 characters, `820cf33c…`, against the expected 2,439,
+  `0b64985c…`, and exactly that file with the newline put back. Recorded in
+  the backlog, not changed.
+- The per-item readings are the checklist's *Test 7 → Run 60*. Closing Test
+  7, and this correction's backlog item, is the owner's decision. The free
+  restore to `8btpep` is handed over, not yet run.

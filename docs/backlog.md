@@ -37,10 +37,18 @@ here; take a closed one out of both.**
   leaves the slot, drawn as the kit's placeholder. **Reproduced and rendered;
   corrected 2026-09-29 (`remove` takes the element off; `clear` keeps the
   space when asked), deployed in deploy 2167 and runtime-confirmed by run
-  59; not yet shown with a real model (Test 7).**
+  59; shown with real models by Test 7's run 60, pending the owner's
+  review.**
 - What the picture step cannot take off on its own is refused: a photograph
   held by a larger block, written inside code, or with children; an emptied
   wrapper with a meaning of its own is kept, and can leave empty space.
+- The quick writer stores the model's whole file as written, so whitespace
+  outside the change can differ from the page it was given (run 60: the home
+  page lost its final newline).
+- A look reply's `changed` lists only the steps that name their files; the
+  quick writer names none (run 60).
+- The kit's `StoryLead` always draws a picture, so a page that gives it none
+  shows an empty frame (the bakery's home page, before and after run 60).
 - Redirects dropped between 2026-08-17 and deploy 2165 are not rebuilt.
 - A page removal does not see a QR code that points at the page.
 - The branded not-found page is thrown away on every Start site.
@@ -124,8 +132,12 @@ here; take a closed one out of both.**
   the explicit `photosTakenOff` behind the undo hint; accurate refusals):
   `docs/history/2026-09-29-photo-removal.md`. **Merged and deployed in deploy
   2167 (`cb981a4a`, image `65ce683607928f0e`) and runtime-confirmed by the
-  owner's free press, run 59; not yet run live.** Closing it is the owner's
-  call; Test 7 would show it with a real model.
+  owner's free press, run 59. Shown with real models by Test 7's paid run,
+  run 60 (2026-09-29)**: the real picture model answered a removal, the
+  counter photograph's element came off `/visit` with no placeholder
+  (`visit.tsx` exactly `263dd01e…`), and the reply read the picture step's
+  own `photosTakenOff` (checklist, *Test 7 → Run 60*). Closing it is the
+  owner's call.
 - **WHAT THE PICTURE STEP CANNOT TAKE OFF ON ITS OWN (recorded 2026-09-29 as
   the correction's remaining capability limit; the owner: *"For structures the
   targeted editor cannot safely remove, give an accurate refusal without
@@ -147,6 +159,44 @@ here; take a closed one out of both.**
   background or a size of its own can leave visible empty space where the
   photograph was. Whether any of these should become a capability is the
   owner's decision.
+- **THE QUICK WRITER STORES THE MODEL'S WHOLE FILE AS WRITTEN (found
+  2026-09-29 by Test 7's run 60; not changed).** The page step's quick writer
+  asks the model for the whole file back, and `readTweak`
+  (`builder/site-tweak.mjs`) stores the answer's `source` as written once its
+  guards pass: the prose, the route, the lint and the component checks. None
+  of them looks at whitespace the customer never sees, and nothing puts the
+  file's own formatting back. In run 60 the model's answer for the home page
+  moved the band exactly and dropped the file's final newline, so the stored
+  `index.tsx` is 2,438 characters (`820cf33c…`) where the exact swap is 2,439
+  (`0b64985c…`); the build and the served page are unaffected. Run 57's
+  answer kept its newline. It matters wherever a stored page is compared
+  byte for byte (an acceptance's expected hash, a later diff), and it shows
+  the quick writer can change more of a file than the customer asked for
+  without any guard noticing, when that change is only whitespace. Whether
+  to restore the untouched whitespace, or to accept it, is the owner's
+  decision.
+- **A LOOK REPLY'S `changed` LISTS ONLY THE STEPS THAT NAME THEIR FILES (found
+  2026-09-29 by Test 7's run 60; not changed).** The look merge's `changed`
+  is `flat("changed")` over the steps that ran (`worker.js`); the quick
+  writer's reply carries no `changed`, and its page is reported through
+  `pageOps` instead. Run 60's stored reply reads `changed: ["visit.tsx"]`
+  beside `pageOps: [{page: "/"}]`, though `index.tsx` changed too. Nothing
+  the customer reads uses `changed` on a look reply (the browser reads it on
+  the text and add-on replies), so today it is only an incomplete record.
+  It is the record a model-written reply would read (the owner's future
+  preference), in the same family as review #9, a multi-step look reply
+  naming only the look.
+- **THE KIT'S `StoryLead` ALWAYS DRAWS A PICTURE (seen 2026-09-29 in Test
+  7's run 60 pictures; there before the run; not changed).** `StoryLead`
+  (`builder/lovable/template/src/components/ui/story-lead.tsx`) renders
+  `<SafeImage src={image} …>` whether or not it is given an `image`, so a
+  page that gives it none shows the kit's empty frame, captioned with the
+  headline. The bakery's home page does ("Fed every morning since we
+  opened"), before and after run 60, and every `StoryLead` in the stored test
+  pages (3 of 3: the bakery's and two news pages) is written without one.
+  The picture step does not list it as a slot (the home page has two), so a
+  customer cannot fill it by asking for a photo there. Whether the component,
+  the page writer or the picture step should change is the owner's decision.
 - **A HALF OF A MESSAGE THE ROUTER PUTS OFF IS STILL ATTEMPTED (found
   2026-09-28 by Test 6's paid run, run 52; not changed).** The router answered
   `look` with the Visit page's band move in `alsoAsked` and named no page: one

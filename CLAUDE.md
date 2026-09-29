@@ -83,12 +83,11 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   minutes later. Redirects dropped between 2026-08-17 and that deploy are not
   rebuilt.
 - **The branch `claude/help-needed-ehlwlj`** is `main` (`cb981a4a`) plus
-  documents (deploy 2167's record). A press from the branch runs the branch's
+  documents (deploy 2167's record and run 60's). A press from the branch runs the branch's
   script against main's Worker.
-- **Balance 37** on the building account after run 57 (2026-09-29 04:19
-  UTC): routing 2 and the job's reserves of 1 and 2, ledger rows 335 and 336;
-  read again at 05:35 UTC after the free restore (run 58) and at 14:54 UTC
-  by run 59, with no row after 336 and no job open. The unit
+- **Balance 32** on the building account after run 60 (2026-09-29 15:07
+  UTC): routing 2 and the job's reserves of 2 and 1, ledger rows 337 and 338;
+  read again at 15:27 UTC with no row after 338 and no job open. The unit
   suite is **8,277** on `main` (`cb981a4a`).
 - **Closed by the owner, not to be repeated**: live test 2 (run 32); Test 3
   (run 34) with the stylesheet corrections (deploy 2161); the kit-heading fix
@@ -110,8 +109,8 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   natural message**: the router's instructions make several changes one
   `look` answer (Test 7's routing review).
   The record is the checklist's *Test 6*.
-- **Test 7 is proposed, not run** (2026-09-29; its claimed coverage narrowed
-  after the owner's review): one message taking the counter photograph off the
+- **Test 7 ran as run 60, pending the owner's review** (2026-09-29; its
+  claimed coverage narrowed after the owner's review): one message taking the counter photograph off the
   Visit page and moving the home page's order band above "Fed every morning
   since we opened", on `fold-lane-bakery` at `8btpep`, judged on the stored
   and published changes against exact expected hashes, with the free restore
@@ -131,11 +130,18 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   what cannot be taken off safely are refused by name while the rest proceeds;
   the picture step's own `photosTakenOff` drives the undo hint. Test 7 now
   expects the element removed (`visit.tsx` `263dd01e…`); its placeholder
-  expectations are superseded. **Merged, deployed in deploy 2167 and
-  runtime-confirmed by run 59, which also read the bakery's five stored pages
-  byte-identical to the fixture; Test 7 is held only for the owner's approval
-  of the paid run.** The plan is the checklist's *Test 7*; the
-  record is `docs/history/2026-09-29-photo-removal.md`.
+  expectations are superseded. Merged, deployed in deploy 2167 and
+  runtime-confirmed by run 59. **Run 60** (15:05–15:10 UTC, 5 credits, look
+  door): the counter photograph's element is off `/visit` (stored exactly
+  `263dd01e…`, no placeholder, 243 px shorter) and the band moved on `/`
+  only, both published in one publish (`mjg7hp`), with nothing else changed;
+  items 1, 2 and 4–7 hold. **Item 3's stored half does not hold byte for
+  byte**: `index.tsx` lost its final newline (2,438 characters, `820cf33c…`;
+  with it put back, exactly the expected `0b64985c…`), because the quick
+  writer stores the model's whole file as written (backlog). The free
+  restore to `8btpep` is handed over, not yet run. The record is the
+  checklist's *Test 7 → Run 60* and
+  `docs/history/2026-09-29-photo-removal.md`.
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
   `docs/investigations/edit-path-checklist.md`, and every test's plan, readings
@@ -306,8 +312,11 @@ The rules in full are `docs/deploy.md`; each deploy's readings go in
 Every earlier reading — the balance since run 9, the suite and site-build
 stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
 
-- **Balance 37** on the building account after run 57 (2026-09-29 04:19 UTC;
-  ledger rows 335 and 336, read again at 05:04). Before it: 45 at run 50's end
+- **Balance 32** on the building account after run 60 (Test 7's paid run,
+  2026-09-29 15:07 UTC): 37 → 32, routing 2 and reserves of 2 and 1 (ledger
+  rows 337 and 338), read again at 15:27 with no row after 338. Before it:
+  37 after run 57 (2026-09-29 04:19 UTC; ledger rows 335 and 336, read again
+  at 05:04, and unchanged through runs 58 and 59). Before that: 45 at run 50's end
   (2026-09-28 18:41 UTC): run 49 took it 50 → 45 (routing 2 + 1 and the menu
   edit's reserve of 2, ledger row 333; the page removal `exempt`). Run 51
   (22:57 UTC, free) read 45 again. Run 52 (Test 6's paid run) took it 45 → 42:
@@ -323,13 +332,15 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
   `ben-crowe-guitar`, and the older `fold-lane-bakery`, `harbourside-roast`,
   `the-lido-cafe`, `oak-and-ash`, `forno-and-co`. **Reusing one of those slugs
   revises that site.** The test fixtures now: `fold-lane-bakery` live at
-  `01790468089054-8btpep` (restored by run 58 after Test 6's retry),
+  `01790694429399-mjg7hp` (Test 7's result, run 60; the free restore to
+  `01790468089054-8btpep`, the fixture, is handed over, not yet run),
   `fretwork-1` at `01790404806543-kk6qsh` (Test 3's removal kept), and
   `lido-axes-b` with its bookings closed (run 44, kept).
 - **What things cost, measured** — routing 1–2 per message (it moves with the
   prompt cache); the page rung 6–22 (runs 21–37); a data or rules edit 1; a
   reframe 1; a site description 1 (runs 52 and 57); a quick-writer page step 2
-  (run 57); the logo rung, a page move and a
+  (run 57); a quick-writer move with a photograph removal in one job 3 (run
+  60); the logo rung, a page move and a
   page removal 0 (`exempt`); a
   first build 11–45; a revise of the same site 17; an add-on 2–13 (runs
   47–52). **Quote a range or measure the run.** Nothing enforces a per-request

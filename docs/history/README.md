@@ -16,7 +16,7 @@ full records are `git show d304120e:CLAUDE.md` (2026-09-14 → 09-20),
 | [2026-09-28-live-state.md](2026-09-28-live-state.md) | the balance readings since run 9, costs, and every suite and site-build stamp with how it was taken |
 | [2026-09-28-test-6.md](2026-09-28-test-6.md) | Test 6, two changes in one message: its free check (run 51), which also runtime-confirmed deploy 2165, and its later runs |
 | [2026-09-29-op-scope.md](2026-09-29-op-scope.md) | after run 52: each change in a message runs with its own page and words, and a part the router puts off is held back, never run (on the branch, not deployed) |
-| [2026-09-29-photo-removal.md](2026-09-29-photo-removal.md) | taking a photograph off takes its element off (found in the page's syntax tree); keeping its space is asked for by name; contradictions and unsafe structures refused by name; Test 7 now expects the element removed (on the branch, not deployed) |
+| [2026-09-29-photo-removal.md](2026-09-29-photo-removal.md) | taking a photograph off takes its element off (found in the page's syntax tree); keeping its space is asked for by name; contradictions and unsafe structures refused by name; Test 7 now expects the element removed; merged and deployed in deploy 2167, runtime-confirmed by run 59, and shown with real models by Test 7's run 60 (pending the owner's review) |
 
 The rules these rounds produced are in the topic docs listed in CLAUDE.md's
 map: `docs/deploy-record.md`, `docs/build-path.md`, `docs/instruments.md`,
