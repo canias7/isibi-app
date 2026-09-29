@@ -400,9 +400,12 @@ expectations as superseded."* The full request and the record are
 check on `17d1903c` (33 of 102 new and updated cases fail there, the
 keep-the-space controls pass); a mutation sweep of 44 mutants (41 killed, the
 3 survivors answered with tests and then killed; every comment-only control
-survived); and renders from the route's own output with the real build (sent
-to the owner): the counter's element gone and nothing drawn in its place, the
-page 243 px shorter; clear, the old placeholder in the kept frame.
+survived); the full suite, 8,277 locally; CI on `4ee123d2` green (`unit
+tests` 8277 / 8273 / 0 / 4, run 36539848541; `site build`, run 36539848416,
+all twelve counts as on main); and renders from the route's own output with
+the real build (sent to the owner): the counter's element gone and nothing
+drawn in its place, the page 243 px shorter; clear, the old placeholder in the
+kept frame. A merge would roll the container image to `65ce683607928f0e`.
 
 **What Test 7 expects now**: item 2 below, rewritten. The Visit page the
 route stores for Test 7's sentence, on both doors, sync and queued, with

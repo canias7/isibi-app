@@ -326,7 +326,11 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
   `pass`**; CI skips four where a local run skips two. **On the branch, 8,277**
   (the photo-removal correction, 2026-09-29): `8277 / 8277 / 0 / 0` locally,
   where the two `sheet-rtl` browser cases run because the template's
-  dependencies are installed. **`site build`** reads
+  dependencies are installed, and `8277 / 8273 / 0 / 4` on CI (run
+  36539848541, on `4ee123d2`); its `site build` (run 36539848416) reads all
+  twelve counts as above, with the same two annotations. A merge would roll
+  the image `6fbaccad82fe879d` → `65ce683607928f0e` (predicted over both
+  ends). **`site build`** reads
   twelve counts green (read on `9ed7da51`, run 36511518084, from each step's
   log): TAP 397, kit-typecheck 4, site-build **404** (382 plus the browser
   control's 22), contrast-cases 16, theme-seam 11,

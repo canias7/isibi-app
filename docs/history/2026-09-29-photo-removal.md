@@ -195,6 +195,20 @@ composer are real.
   its property (`keptProse` comes from the tweak rung's own module, the form
   its neighbouring line already uses), and shown to still fail when the import
   points anywhere else.
+- **CI on the pushed commit, `4ee123d2`**: `unit tests` (run 36539848541)
+  8277 / 8273 / 0 / 4, the same total as locally, with the four CI skips main
+  has; `site build` (run 36539848416) green in 25m49s, all twelve counts read
+  from each step's log and identical to main's (TAP 397, kit-typecheck 4,
+  site-build 404, contrast-cases 16, theme-seam 11, theme-render 29,
+  site-routing 14, site-runtime 47, and kit-render, kit-a11y, kit-effects and
+  kit-paint all passed), with only the two known `##[error]` annotations from
+  the case that compiles a broken page on purpose.
+- **The container image**, predicted over both ends with the deploy's own
+  functions: `main` `6fbaccad82fe879d` (deploy 2166's, reproduced) →
+  `65ce683607928f0e`, 188 inputs and 158 distinct paths on both; only
+  `builder/site-picture.mjs` and `worker.js` moved. `public/chat.js` is served
+  by the Worker and is not an input. A merge would build and roll the image,
+  and the served `chat.js` would owe its byte comparison.
 - **The stored test pages** (`test/fixtures`, 341 files), classified by the
   implemented code: 210 photographs the picture step can address; **190 come
   off**, none taking a wrapper; **20 refused `part`** (16 `Figure` props, 2

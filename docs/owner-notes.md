@@ -105,7 +105,8 @@ photo back" has no space to fill once the space is gone.
 **Checks, all passed:** the new tests fail on the old code (33 of 102) while
 the keep-the-space checks pass there; a mutation sweep of 44 deliberate
 breakages, all caught once three tests were added for the three gaps it found;
-the full unit suite on the branch; and the mixed two-page message, synchronous
+the full unit suite on the branch (8,277), and both CI checks on the pushed
+commit `4ee123d2` (unit tests and the site build); and the mixed two-page message, synchronous
 and queued, through both doors: the counter photo off the Visit page and the
 home band moved, each on its own page, one publish.
 
