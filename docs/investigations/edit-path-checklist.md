@@ -51,19 +51,21 @@ the owner's free press, run 51, at 22:57 UTC):
 
 **Outstanding acceptance** (not yet shown live; each has controlled tests)
 1. **The redirect fix live**: the first half, a publish keeping a site's
-   stored redirects, was shown by Test 6's paid run (run 52, below), pending
-   the owner's review. A removed page answering 301 home is still outstanding.
+   stored redirects, was shown by Test 6's paid run (run 52, below) and again
+   by its retry (run 57), pending the owner's review. A removed page
+   answering 301 home is still outstanding.
 2. **A protection refusing a real model's answer**: the photograph wall, the
    link and component judge, the text guard, reply validation and the failure
    classification. Live, each has only let a correct answer through.
 3. **Two changes in one message**, which is two separate items:
-   - **through the look door**: not shown by Test 6's paid run (run 52). The
-     live router put the second change off to a later turn (`alsoAsked`), so
-     only the site description shipped. **The routing/execution mismatch run
-     52 showed is fixed (2026-09-29) and deployed (deploy 2166)**: a part the
-     router puts off is never run, and each change runs with its own page and
-     words. Supplied-model proof only; showing it live still needs a run, so
-     this item and Test 6 stay open;
+   - **through the look door: shown by Test 6's retry (run 57, below),
+     pending the owner's review.** The real router answered one `look` with
+     no page and put nothing off, the real picker scoped the band move to
+     `/visit`, and both the site description and the move are stored and
+     published exactly. Run 52, before the routing/execution fix (deploy
+     2166), had shipped only the description. The fix's withholding paths (a
+     part put off, a scope that fails its check) are still shown only with
+     supplied answers;
    - **through the removal door, with a real model**: a `nav` or `picture`
      removal given other work, where the picker is told the routed change and
      lists anything else separately. Only supplied answers have exercised it.
@@ -71,8 +73,9 @@ the owner's free press, run 51, at 22:57 UTC):
      this door, so it stays outstanding whatever Test 6 shows.
 
    A second message after a hop or a failure is outstanding too.
-4. **A named page other than the home page** on a look edit. Not shown by
-   run 52: the router put the Visit half off and named no page.
+4. **A named page other than the home page** on a look edit: **shown by run
+   57**, pending the owner's review. The picker scoped the move to `/visit`,
+   and only `visit.tsx` changed. Run 52 had not shown it.
 5. **The data rung beyond one row**: adding, removing or reordering rows, and a
    site whose database link is blank.
 6. **The rules rung beyond one closing**: reopening, closing by taking write
@@ -113,14 +116,14 @@ stylesheet scope and rule keys (deploy 2161).
     the reachability guard counts them live only through a router sentence's
     line break;
   - a multi-step look reply naming the look change and not a page change made
-    beside it (review #9). Test 6's reply is expected to show it, and it is
-    judged separately from that test;
+    beside it (review #9). Run 57's reply shows it live ("✅ Updated the look
+    — the description."), judged separately from Test 6;
   - the build path's money sentences and the two refund policies.
 
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Test 6 — two changes in one message, one on a named page (prepared 2026-09-28, request clarified the same evening; the free check, run 51, passed; the paid run, run 52, shipped the description, and the router put the Visit move off to a later turn; the free restore, run 53, put everything back; the owner: run 52 does not close Test 6; the routing/execution mismatch it showed is fixed and deployed, 2026-09-29, deploy 2166, runtime-confirmed by the free check, run 54; a retry of the same sentence is proposed, not run; Test 6 stays open)
+## Test 6 — two changes in one message, one on a named page (prepared 2026-09-28, request clarified the same evening; the free check, run 51, passed; the paid run, run 52, shipped the description, and the router put the Visit move off to a later turn; the free restore, run 53, put everything back; the owner: run 52 does not close Test 6; the routing/execution mismatch it showed is fixed and deployed, 2026-09-29, deploy 2166, runtime-confirmed by the free check, run 54; the retry, run 57, stored and published both changes; Test 6 is pending the owner's review until the evidence and the free restore are complete)
 
 Owner, 2026-09-28: *"prepare one bounded test combining two requested changes
 in one message, ideally also covering a named non-home page. Use an existing
@@ -661,7 +664,7 @@ charged".
 **Deploy 2166 is runtime-confirmed.** The deploy's success was its own report
 (run 36514259994); this is the live Worker and a cold container answering.
 
-### The retry, for the owner's approval (2026-09-29; not run)
+### The retry, for the owner's approval (2026-09-29; approved, and pressed as run 57, below)
 
 The same frozen sentence, fixture, presses and recovery as run 52 and run 53,
 on deploy 2166. That deploy tells the router that a change to the whole site
@@ -716,7 +719,104 @@ expectations, `CANARY_SPEND: 0`, every free check passed, nothing charged
 (42, row 334), and two refused free jobs (`8f6bba24…`, `b83a0a09…`). The
 spend box is a text box with `no` already in it (`default: 'no'`), and
 neither the log nor GitHub's record of the run keeps what it held.
-**The retry has not run.**
+Neither run was the retry; it ran as run 57, below.
+
+### Run 57 — the retry: both changes stored and published (2026-09-29; pending the owner's review until the free restore is read)
+
+Pressed by the owner from `main` at `a64729ad`
+([run 36520994415](https://github.com/canias7/isibi-app/actions/runs/36520994415),
+04:17:48–04:21:55 UTC; the evidence artifact `canary-evidence` is 46,077
+bytes, sha256 `dcfffdb9…`) with the spend box `yes`, the frozen request,
+`fold-lane-bakery` and the two expectations. The preflight read
+`a64729ad741a` and `6fbaccad82fe879d`, every free check passed, the canary
+reads PASSED, and its comparison is VERIFIED.
+- **The path** (kept as evidence; it decides nothing):
+  - the router: `look`, no page, nothing put off (14.6 s, cost 2);
+  - the job (`1b7f6265…`): the picker named `description` and `shape`; the
+    description lane answered 104 characters; the move went through the page
+    step's quick writer on `/visit` (`tweak: true`); one publish (`publish:1`
+    in the trace, 04:21:31–04:21:37 on the job row, `8btpep` → `c4usi2`,
+    nothing pruned); `done`, `finalized`, cost 3;
+  - the reply carries no `partial` and no held-back part. The
+    `{ok: true, deferred: true}` in its `usage` is the page step handing its
+    pages to that one publish (`worker.js`'s deferred-publish return), not
+    held-back work.
+- **Acceptance**, judged on the stored and published changes, read from the
+  run's evidence against the table above. Every item holds:
+  1. `request.json` carries sha256 `484b3feb…` (358 characters), and the
+     router was sent the same sentence.
+  2. The settings read the original before and exactly the new sentence
+     after. `/` and `/starter` publish it as `description` and
+     `og:description`; `/visit`, `/gallery` and `/order` keep their own; the
+     titles are unchanged. Every other head tag is identical on all five
+     pages apart from the script file names (`modulepreload` and the module
+     script), which the build names by their content, and a page changed.
+     The stylesheet link is unchanged.
+  3. `visit.tsx` is byte for byte the expected swap (4,045 characters,
+     `35b008fd…`). Read by their own landmarks, "Come to the bakery" (1,734
+     characters, `84a1dd25…`), the band (344, `22b3ffeb…`), the part above
+     (`aa5eaaab…`, holding the page's own description) and the part below
+     (`1d4fa674…`) match the hashes recorded before the run, with the same
+     blank line between the two sections. Served, `/visit`'s markup is the
+     same two blocks swapped and nothing else, and its headings read the
+     band, "Come to the bakery", then "The shutters and the street".
+  4. The four other stored pages equal the table, and there is no component
+     before or after. Every page's header and footer menus are identical and
+     as recorded. Every link is identical in order on the four other pages,
+     and `/visit` has the same 11 links, reordered with the band. Every page
+     shows the same pictures at the same addresses, and each upload's name is
+     the first 32 hex characters of its own sha256, so the same address is
+     the same bytes. The page markup (scripts set aside) is byte-identical
+     on the four other pages.
+  5. Read without following at 04:24:00, 04:33:02 and 05:09:26 UTC:
+     `/the-starter`, `?x=1` and the trailing slash answer 301 to `/starter`
+     with `public, max-age=600`; all five routes answer 200 at `c4usi2`; the
+     sitemap lists the five; `/nonexistent-page` answers 404.
+  6. One publish: `01790655564541-c4usi2`, built from `8btpep`, VERIFIED, and
+     seen on the first after-read.
+  7. 5 credits, closing exactly: routing 2 (42 → 40), then the reserves `#1`
+     1 (ledger row 335, 39) and `#2` 2 (row 336, 37), with no refund. Read
+     again at 05:04 UTC: the balance is 37, there is no ledger row after 336,
+     and no edit job is open anywhere. The estimate was about 5–6.
+- **The review itself** (scratch, not committed): 68 checks over the
+  evidence. Two failed on the first pass because of the script, not the
+  site: a uniqueness test that found its own landmark, and section
+  boundaries one newline wider than the plan's. Both were corrected before
+  the verdict. Ten damaged copies of the evidence each fail at least one
+  check: a reworded description, a dropped link, one changed character in
+  `index.tsx`, a changed `og:title`, a dropped picture, a changed picture
+  description, a changed heading, a changed class, a changed word inside the
+  band, and a menu link dropped. The untouched copy passes all 68. The
+  changed picture description went unseen at first, which is why the
+  whole-markup check was added.
+- **In a real Chromium**: every page, before and after, drawn the same way
+  from the saved pages (GET only, reduced motion): 0 page errors, and every
+  image loaded. `/`, `/starter`, `/gallery` and `/order` are identical to the
+  pixel; on `/visit` only rows 56–1194, the two swapped sections, differ.
+  Reduced motion, because the site fades each section in as it scrolls into
+  view (`animation-timeline: view()`), which leaves a whole-page picture's
+  lower band blank.
+- **Inspected**: the QR file and the stylesheet are byte-identical;
+  `/card.png` changed as expected (33,358 bytes, `467d9cdb…`). **A correction
+  to what the session said in chat**: it called `/card.png` the picture a
+  link preview shows. The fixture table above had it right: `siteOgImage`
+  takes the owner's chosen share picture, then the owner's first own upload,
+  and the composed card only as the floor, and every page's `og:image` is
+  the logo upload (`2cc633d7…`), unchanged. What a preview takes from this
+  change is the `og:description` line on `/` and `/starter`.
+- **The reply, kept separate**: "✅ Updated the look — the description." It
+  is true of what it says and does not mention the Visit move: the known
+  omission (review #9), now seen live.
+- **What run 57 does not show**: mixed work through the removal door with a
+  real model (outstanding under item 3); component preservation (the fixture
+  has no component, `0 → 0`, and the canary says so); and the fix's
+  withholding paths (nothing was put off or withheld), which stay shown only
+  with supplied answers.
+- **Status**: both requested changes are shown in the stored and published
+  site, with a real router and picker on deploy 2166. The owner, 2026-09-29:
+  *"Keep Test 6 pending my review until the evidence and restoration are
+  complete."* The free restore to `8btpep` (press 3) is next, and its
+  readings complete the evidence.
 
 ### A visible alternative, not recommended
 

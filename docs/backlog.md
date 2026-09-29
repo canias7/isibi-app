@@ -22,8 +22,8 @@ here; take a closed one out of both.**
 
 - A half of a message the router puts off (`alsoAsked`) is still attempted,
   on the home page, and the reply contradicts itself (run 52). **Fixed and
-  deployed 2026-09-29 (deploy 2166); supplied-model proof only, no live run
-  yet.**
+  deployed 2026-09-29 (deploy 2166); run 57 made both changes live, with
+  nothing put off (pending the owner's review).**
 - Five stylesheet rules match nothing the app serves, and the reachability
   guard counts them live only through a router sentence's line break.
 - The header's button carries no `data-slot="button"`, so a rule against the
@@ -90,14 +90,16 @@ here; take a closed one out of both.**
   on a named page off at all, when the look rung can do both in one turn.
   **Fixed 2026-09-29 (owner: "Fix the general routing/execution mismatch")
   and corrected after the owner's review; merged and deployed in deploy 2166,
-  not yet exercised live; Test 6 stays open.** The router puts
+  and exercised live by run 57, which made both changes; Test 6 is pending
+  the owner's review.** The router puts
   off only what its answer cannot do this turn; a part it puts off is posted
   back by the browser and taken out of the message before anything runs
   (`heldBack`), and the reply's tail is composed from what the route really
   held back (`deferred`); the picker names each change's page and words
-  (`scopes`), so each runs on its own page with its own words. Proven with
-  supplied model answers only — no real router or picker has been measured
-  on it. The record is `docs/history/2026-09-29-op-scope.md`.
+  (`scopes`), so each runs on its own page with its own words. The
+  withholding is proven with supplied model answers only; run 57 measured a
+  real router and picker on the ordinary path (both changes in one turn, the
+  move scoped to `/visit`). The record is `docs/history/2026-09-29-op-scope.md`.
 - **FIVE STYLESHEET RULES MATCH NOTHING THE APP SERVES (found 2026-09-29; not
   changed).** `.model-menu.drop-up.dir-menu`, `.nav-dd-menu`,
   `.nav-dd-menu.open`, `.img-src-menu` and `.img-src-menu .check` in

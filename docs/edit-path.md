@@ -60,8 +60,10 @@ answers unless a run is named.
   home page. The browser routes with the site's real page list and waits for it
   on an existing site (`siteRoutesRead`, `SITE_ROUTES_WAIT_MS` 15,000), so an
   existing site never becomes a first build.
-- **Several changes in one message** (2026-09-29, deploy 2166;
-  supplied-model proof only, no live run yet):
+- **Several changes in one message** (2026-09-29, deploy 2166; shown live by
+  run 57 for a site-wide description beside a band move on one named page,
+  pending the owner's review; the withholding paths are shown only with
+  supplied answers):
   - **The router puts off only what its answer cannot do this turn**
     (`alsoAsked`: an addition beside a change, a change beside an addition, a
     `data` or `text` change beside another kind). Changes the look rung can

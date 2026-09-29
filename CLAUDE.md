@@ -53,9 +53,10 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   site does not have, and a picked lane left unscoped are withheld at no cost
   with their own sentence (`picker/scope-unread`, `page/no-page`) while the
   rest runs: never widened to the whole message, never sent to the home
-  page.** Supplied-model proof only (`test/edit-op-scope.test.mjs`, and the
-  scoped door case in `test/edit-removal-door.test.mjs`); no live run has
-  exercised it yet. `docs/history/2026-09-29-op-scope.md`.
+  page.** The withholding is proven with supplied answers
+  (`test/edit-op-scope.test.mjs`, and the scoped door case in
+  `test/edit-removal-door.test.mjs`); run 57 exercised the scoped path live,
+  where nothing needed withholding. `docs/history/2026-09-29-op-scope.md`.
 - **Deploy 2165** (`f5e941f4`, image `8a10715339cdc780`) was runtime-confirmed
   by the owner's free press, run 51 (2026-09-28 22:57 UTC, on
   `fold-lane-bakery`): both readers answered `f5e941f494fd`, a cold container
@@ -65,34 +66,35 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   minutes later. Redirects dropped between 2026-08-17 and that deploy are not
   rebuilt.
 - **The branch `claude/help-needed-ehlwlj`** is `main` plus documents (deploy
-  2166's record). A press from the branch runs the branch's script against
-  main's Worker.
-- **Balance 42** on the building account after run 52 (23:25 UTC): routing 2
-  and the job's reserve of 1, ledger row 334. Runs 54–56 (all free) read 42
-  again. The unit suite is **8,241** at `9ed7da51`.
+  2166's record and Test 6's runs). A press from the branch runs the branch's
+  script against main's Worker.
+- **Balance 37** on the building account after run 57 (2026-09-29 04:19
+  UTC): routing 2 and the job's reserves of 1 and 2, ledger rows 335 and 336;
+  read again at 05:04 UTC, with no row after 336 and no job open. The unit
+  suite is **8,241** at `9ed7da51`.
 - **Closed by the owner, not to be repeated**: live test 2 (run 32); Test 3
   (run 34) with the stylesheet corrections (deploy 2161); the kit-heading fix
   (2162); Test 4a (runs 37 and 39); Test 4b's D1 (run 42) and the conditional
   recovery write (2163); the scoped rules acceptance (run 44 — `lido-axes-b`'s
   bookings stay closed); Test 5's page removal (run 49) and restoration (run 50)
   with the removal-door correction (2164).
-- **Test 6 stays open (owner, 2026-09-29: "Run 52 does not close Test 6").
-  The paid run (run 52) shipped half; the free restore (run 53) put
-  everything back; neither is to be repeated yet, and the routing/execution
-  mismatch run 52 showed is fixed in deploy 2166, above, with no live run
-  yet** —
-  one message asking for a new default search description and a band moved on
-  the Visit page. The description was stored and published exactly,
-  everything else was kept, and the publish kept the stored redirect. The live
-  router put the Visit move off to a later turn (`alsoAsked`, no page named),
-  so the move was not made: item 3 through the look door and item 4 stay
-  unshown, and the finding (the put-off half still attempted, on the home
-  page) is fixed in deploy 2166; no live run has exercised it. 3 credits.
-  The restore also put the stored description back, the first time that was
-  seen. Run 54 (free) read the fixture exactly as recorded, and **a retry of
-  the same sentence is proposed in the checklist, not run**, for the owner's
-  approval. The plan and every reading are the checklist's *Test 6*.
-  **Real-model mixed work through the removal door stays outstanding.**
+- **Test 6 is pending the owner's review** (owner, 2026-09-29: *"Keep Test 6
+  pending my review until the evidence and restoration are complete"*) — one
+  message asking for a new default search description and the Visit band
+  moved above "Come to the bakery". **The retry, run 57** (04:18 UTC, deploy
+  2166, 5 credits), **stored and published both changes exactly**: the real
+  router answered one `look` with no page and put nothing off, and the real
+  picker scoped the move to `/visit`. The settings, `/` and `/starter` carry
+  the new description, and the three pages with their own kept them;
+  `visit.tsx` is exactly the swap and nothing else changed (68 checks over
+  the run's evidence, each shown able to fail; four pages pixel-identical in
+  a real Chromium). Run 52, before the fix, shipped only the description,
+  and run 53 put it back. **The bakery stays at run 57's version until the
+  owner's free restore to `8btpep`**, whose readings complete the evidence.
+  Not shown: the withholding paths (supplied answers only), component
+  preservation (the fixture has none), and **real-model mixed work through
+  the removal door, which stays outstanding**. The reply omission is kept
+  separate. The plan and every reading are the checklist's *Test 6*.
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
   `docs/investigations/edit-path-checklist.md`, and every test's plan, readings
@@ -263,13 +265,15 @@ The rules in full are `docs/deploy.md`; each deploy's readings go in
 Every earlier reading — the balance since run 9, the suite and site-build
 stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
 
-- **Balance 45** on the building account at run 50's end (2026-09-28 18:41
-  UTC): run 49 took it 50 → 45 (routing 2 + 1 and the menu edit's reserve of 2,
-  ledger row 333; the page removal `exempt`). Run 51 (22:57 UTC, free) read 45
-  again. Run 52 (Test 6's paid run) took it 45 → 42: routing 2 and the job's
-  reserve of 1 (ledger row 334). Run 54 (free, 2026-09-29 03:36 UTC) read 42
-  again, with no ledger row after 334. `GET /api/fal-balance` answers fal's balance
-  separately.
+- **Balance 37** on the building account after run 57 (2026-09-29 04:19 UTC;
+  ledger rows 335 and 336, read again at 05:04). Before it: 45 at run 50's end
+  (2026-09-28 18:41 UTC): run 49 took it 50 → 45 (routing 2 + 1 and the menu
+  edit's reserve of 2, ledger row 333; the page removal `exempt`). Run 51
+  (22:57 UTC, free) read 45 again. Run 52 (Test 6's paid run) took it 45 → 42:
+  routing 2 and the job's reserve of 1 (ledger row 334). Run 54 (free,
+  2026-09-29 03:36 UTC) read 42 again, with no ledger row after 334. Run 57
+  (the Test 6 retry, 04:18 UTC) took it 42 → 37: routing 2 and reserves of 1
+  and 2. `GET /api/fal-balance` answers fal's balance separately.
 - **The building account is `aniascristian@gmail.com`**, not the session's own
   address. It owns every live site and holds that balance; look at the wrong
   row and the balance reads zero.
@@ -278,12 +282,14 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
   `ben-crowe-guitar`, and the older `fold-lane-bakery`, `harbourside-roast`,
   `the-lido-cafe`, `oak-and-ash`, `forno-and-co`. **Reusing one of those slugs
   revises that site.** The test fixtures now: `fold-lane-bakery` live at
-  `01790468089054-8btpep` (restored by run 53 after Test 6), `fretwork-1` at
+  `01790655564541-c4usi2` (run 57, Test 6's retry) until the owner's free
+  restore to `01790468089054-8btpep`, `fretwork-1` at
   `01790404806543-kk6qsh` (Test 3's removal kept), and `lido-axes-b` with its
   bookings closed (run 44, kept).
 - **What things cost, measured** — routing 1–2 per message (it moves with the
   prompt cache); the page rung 6–22 (runs 21–37); a data or rules edit 1; a
-  reframe 1; a site description 1 (run 52); the logo rung, a page move and a
+  reframe 1; a site description 1 (runs 52 and 57); a quick-writer page step 2
+  (run 57); the logo rung, a page move and a
   page removal 0 (`exempt`); a
   first build 11–45; a revise of the same site 17; an add-on 2–13 (runs
   47–52). **Quote a range or measure the run.** Nothing enforces a per-request
