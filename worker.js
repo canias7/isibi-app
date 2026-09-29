@@ -194,7 +194,7 @@ import { extractText, applyEdits, staleContactLinks } from "./builder/site-text.
 import { runTextEdit, runDataEdit, renamePages, renameRoute, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
 import { runRulesEdit } from "./builder/site-rules.mjs";
 import { runPictureEdit, newEmptySlots, newListFrames } from "./builder/site-picture.mjs";
-import { runTweak, keptProse } from "./builder/site-tweak.mjs";
+import { runTweak, keptProse, tweakParser } from "./builder/site-tweak.mjs";
 import { keepCheck, keepWithheldMsg, KEEP_UNCHECKED_MSG, unsurePhrases } from "./builder/page-keep.mjs";
 import { preservePageProse, PROSE_WITHHELD } from "./builder/page-prose.mjs";
 // ONE EDITABLE VIEW of a site's source — its pages and its own components in a
@@ -22755,6 +22755,11 @@ async function handleRequest(request, env, ctx) {
                   if (made) balance -= SITE_PHOTO_USD / CREDIT_USD;
                   return made;
                 },
+                // THE PAGE READER A REMOVAL IS CHECKED WITH, injected and asked
+                // for only when an answer takes a photograph off. The container
+                // resolves it; a Worker bundle does not, and there a removal is
+                // refused as `unchecked` rather than cut on a guess.
+                parser: tweakParser,
               }, { instruction: eInstruction, pages: picFiles, model: eQuickModel });
 
               if (!pOut.ok) {
@@ -22821,6 +22826,10 @@ async function handleRequest(request, env, ctx) {
                 ok: true, layer: "picture", msg: pOut.msg,
                 changed: pOut.changed, files: pPub.files, render: pPub.render, renderNote: pPub.renderNote,
                 used: pOut.used.length, made: pOut.made.length, failed: pOut.failed,
+                // THE REMOVALS THIS STEP MADE, counted where they were made —
+                // photographs taken off WITH their space. The browser's undo
+                // hint reads this, never a guess from the publication's diff.
+                photosTakenOff: pOut.removed && pOut.removed.length ? pOut.removed.length : undefined,
                 cost: await eCharge(pOut.usage, pImages, pPub), usage: pOut.usage,
               });
             }
@@ -25178,8 +25187,13 @@ async function handleRequest(request, env, ctx) {
             // never read them at all leaves both sides empty, which says the
             // same thing. Reading the store here would be a THIRD read of it
             // in one message, against the rule the snapshot exists for.
-            let picsRemoved, picsFrames, picsKept;
+            let picsRemoved, picsFrames, picsKept, picsTakenOff;
             if (finalPub && finalPub.ok && pendingPublish) {
+              // WHAT THE PICTURE STEPS SAID THEY TOOK OFF, WITH THEIR SPACE —
+              // their own explicit count, summed over the steps that ran, and
+              // reported only when the publication carrying them went out.
+              picsTakenOff = ranOk.reduce((n, d) => n + (d.body && d.body.layer === "picture" &&
+                Number.isInteger(d.body.photosTakenOff) && d.body.photosTakenOff > 0 ? d.body.photosTakenOff : 0), 0) || undefined;
               const at0 = ePartsAt0 || [];
               const was = imageSources(eSrcAt0, at0);
               const now = imageSources(pendingPublish.pages, pendingPublish.parts || at0);
@@ -25329,6 +25343,7 @@ async function handleRequest(request, env, ctx) {
               // what "the message-wide reader says there was no loss" means.
               photosRemoved: picsRemoved,
               photos: picsFrames,
+              photosTakenOff: picsTakenOff,
             };
             // ── AND ANYTHING A RUNG REPORTS THAT THIS MERGE DOES NOT MODEL ──
             //

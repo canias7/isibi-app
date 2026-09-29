@@ -209,3 +209,24 @@
   values: *"Each separated so i can copy"*. Give each box's value in its own
   code block, under the box's description, with the link and the branch in
   blocks of their own.
+
+## What you've asked for since (2026-09-29)
+
+- **A change to code is found by its structure, never by the characters
+  around it.** *"Use reliable TSX structure to identify the exact photo
+  element. Do not infer safe deletion solely from neighboring characters."*
+- **Take only what is demonstrably part of the thing removed.** *"Do not
+  automatically delete every parent that becomes empty. Preserve wrappers with
+  layout, anchor, interaction, or other independent meaning."*
+- **Several changes keep their exact targets.** *"Preserve exact target
+  identity when applying several changes. Matching again by page and alt text
+  is insufficient when two photos share a description."*
+- **A contradictory model answer is invalid, not a choice to make.** *"report
+  that operation as invalid rather than silently choosing clear.
+  Independently valid operations should still proceed."*
+- **Say what happened from an explicit result, never an inference.** *"Carry
+  an explicit removal result into the reply and recovery hint; do not infer it
+  from photosRemoved > photos."*
+- **What cannot be done safely is refused accurately and recorded.** *"give
+  an accurate refusal without silently clearing the image or removing a
+  larger block. Record this as a remaining capability limit."*

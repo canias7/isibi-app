@@ -66,13 +66,16 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   minutes later. Redirects dropped between 2026-08-17 and that deploy are not
   rebuilt.
 - **The branch `claude/help-needed-ehlwlj`** is `main` plus documents (deploy
-  2166's record and Test 6's runs). A press from the branch runs the branch's
-  script against main's Worker.
+  2166's record and Test 6's runs) and, since 2026-09-29, **the photo-removal
+  correction for review** (`builder/site-picture.mjs`, `worker.js`,
+  `public/chat.js`): not merged, not deployed. A press from the branch runs
+  the branch's script against main's Worker.
 - **Balance 37** on the building account after run 57 (2026-09-29 04:19
   UTC): routing 2 and the job's reserves of 1 and 2, ledger rows 335 and 336;
   read again at 05:35 UTC after the free restore (run 58), with no row after
   336 and no job open. The unit
-  suite is **8,241** at `9ed7da51`.
+  suite is **8,241** on `main` (`9ed7da51`) and **8,277** on the branch (the
+  photo-removal correction).
 - **Closed by the owner, not to be repeated**: live test 2 (run 32); Test 3
   (run 34) with the stylesheet corrections (deploy 2161); the kit-heading fix
   (2162); Test 4a (runs 37 and 39); Test 4b's D1 (run 42) and the conditional
@@ -105,10 +108,18 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   menu link removed beside a layout change is routed `look` too, and on that
   door no lane describes a menu item (backlog). The removal door given other
   work stays shown only with supplied answers. **Held** (2026-09-29): "take
-  the photo off" publishes a placeholder where the lane picker is promised
+  the photo off" published a placeholder where the lane picker is promised
   the slot goes; reproduced through the route, rendered with the real build,
-  and a correction proposed for the owner's review. The plan is the
-  checklist's *Test 7*.
+  and **corrected on the branch with the owner's safeguards**: `remove` takes
+  the photograph's element off, found in the page's syntax tree at its slot's
+  own offset, with a wrapper only when it is demonstrably just the photo's
+  container; `clear` keeps the space when that is asked; contradictions and
+  what cannot be taken off safely are refused by name while the rest proceeds;
+  the picture step's own `photosTakenOff` drives the undo hint. Test 7 now
+  expects the element removed (`visit.tsx` `263dd01e…`); its placeholder
+  expectations are superseded. **Still held until the correction is merged,
+  deployed and runtime-confirmed.** The plan is the checklist's *Test 7*; the
+  record is `docs/history/2026-09-29-photo-removal.md`.
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
   `docs/investigations/edit-path-checklist.md`, and every test's plan, readings
@@ -312,7 +323,10 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
   20, the routing call spending 1 first).
 - **The unit suite is 8,241** (`9ed7da51`): `8241 / 8239 / 0 / 2` locally,
   `8241 / 8237 / 0 / 4` on CI (run 36511517996) — **compare the totals, never
-  `pass`**; CI skips four where a local run skips two. **`site build`** reads
+  `pass`**; CI skips four where a local run skips two. **On the branch, 8,277**
+  (the photo-removal correction, 2026-09-29): `8277 / 8277 / 0 / 0` locally,
+  where the two `sheet-rtl` browser cases run because the template's
+  dependencies are installed. **`site build`** reads
   twelve counts green (read on `9ed7da51`, run 36511518084, from each step's
   log): TAP 397, kit-typecheck 4, site-build **404** (382 plus the browser
   control's 22), contrast-cases 16, theme-seam 11,

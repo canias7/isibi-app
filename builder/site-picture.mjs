@@ -133,6 +133,11 @@ export function imageSlots(pages) {
         value: el.slice(s.from, s.to),
         expr: s.expr,
         at: open + s.from, to: open + s.to, quoted: !s.expr,
+        // THE ELEMENT ITSELF: where its `<` is and where its opening tag ends.
+        // A removal is found in the page's syntax tree BY THIS OFFSET, so the
+        // photograph taken off is exactly the one this slot was read from —
+        // never "the one with that description", which two pictures can share.
+        from: open, end,
       });
       if (out.length >= MAX_SLOTS) return out;
     }
@@ -172,6 +177,7 @@ export function imageSlots(pages) {
         value: el.slice(s.from, s.to),
         expr: s.expr,
         at: open + s.from, to: open + s.to, quoted: !s.expr,
+        from: open, end,
       });
       if (out.length >= MAX_SLOTS) return out;
     }
@@ -755,7 +761,33 @@ export const PICTURE_TOOL = {
                 "Say what is in it, plainly — \"a barber's chair by a window in the late afternoon\". This costs the " +
                 "owner real money for each one, so do not describe a picture nobody asked for.",
             },
-            clear: { type: "boolean", description: "True to REMOVE the picture from this slot, leaving the space empty." },
+            // ── TWO ANSWERS, BECAUSE THE CUSTOMER MEANS TWO THINGS (2026-09-29) ──
+            //
+            // `clear` was the only removal this tool had, and it EMPTIES the
+            // slot: the kit then draws its placeholder — grey bands and the
+            // photo's own description as a caption — in the same space. The
+            // lane picker had been promised the opposite ("the slot that held
+            // it goes with it"), and the customer who said "take the photo off"
+            // got a grey box where the photo was (reproduced through the real
+            // route and compiled with the real build, the Visit page of
+            // `fold-lane-bakery`). Owner: *"distinguishes removing a photo
+            // element from explicitly clearing a photo while keeping its
+            // space."* So taking a photo off is `remove`, and keeping the space
+            // is asked for by name.
+            remove: {
+              type: "boolean",
+              description:
+                "True to TAKE THE PHOTOGRAPH OFF THE PAGE: the picture and the space it sits in both go, and " +
+                "nothing is drawn where it was. This is what \"take the photo off\", \"remove the picture\" and " +
+                "\"we don't want a photo there\" mean. On its own — never with `clear`, `file`, `describe` or `focus`.",
+            },
+            clear: {
+              type: "boolean",
+              description:
+                "ONLY when they ask to KEEP THE SPACE — \"empty the frame\", \"leave a space for a new photo\", " +
+                "\"clear it until I send another\": the picture goes and the site's placeholder is drawn where it " +
+                "was. To take a photograph off, use `remove`.",
+            },
             focus: {
               type: "string",
               enum: ["centre", "top", "bottom", "left", "right"],
@@ -896,16 +928,77 @@ export function readPictures(reply, slots, library) {
   const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
   const use = blocks.find((b) => b && b.type === "tool_use");
   const raw = (use && use.input && use.input.pictures) || [];
-  const bySlot = new Map();
-  for (const s of Array.isArray(slots) ? slots : []) bySlot.set(s.page + "\u0000" + s.alt, s);
+  // ⚠ TWO PICTURES ON ONE PAGE WITH ONE DESCRIPTION ARE NOT ADDRESSABLE BY IT.
+  // The description is the only handle the model has, so a page+alt that two
+  // slots share names neither of them. It used to name the LAST one — a map
+  // overwritten in scan order — which is a guess about which photograph the
+  // customer meant, and a removal made on a guess takes the wrong one off.
+  // Such an entry is refused by name (`same`), and every other entry proceeds.
+  //
+  // ONE PHOTOGRAPH READ TWICE IS STILL ONE. `imageSlots` scans elements and
+  // then components' own props, and a picture written as a prop's value —
+  // `media={<SafeImage … />}` — is met by both, with the SAME `src` span. That
+  // is not two pictures, so the later reading stands, exactly as it always did.
+  const bySlot = new Map(), shared = new Set();
+  for (const s of Array.isArray(slots) ? slots : []) {
+    const k = s.page + "\u0000" + s.alt;
+    const was = bySlot.get(k);
+    if (was && was.at !== s.at) shared.add(k);
+    else bySlot.set(k, s);
+  }
   const files = new Set((Array.isArray(library) ? library : []).map((f) => f && f.name).filter(Boolean));
+
+  // ── CONTRADICTORY ACTIONS ARE AN INVALID ANSWER, NOT A CHOICE TO MAKE ──
+  //
+  // Taking a photograph off, keeping its space empty and putting another
+  // picture there exclude one another; so does framing a picture that is
+  // being taken off. An entry asking for more than one was answered by
+  // precedence — `clear` beat a new picture, silently — which is a decision
+  // about the customer's site made from a contradiction. It is refused by
+  // name (`conflict`) and nothing is written for it; the entries beside it
+  // are independent and still proceed. A new picture named both ways
+  // (`file` and `describe`) is not one of these: `describe` is the tool's own
+  // fallback for when no upload fits, read below as it always was.
+  //
+  // WHAT ONE PHOTOGRAPH IS ASKED FOR IS READ OVER EVERY ENTRY NAMING IT. The
+  // same contradiction split across two entries — `remove` in one, `clear` in
+  // the next — would otherwise be settled by `seen` below, which keeps the
+  // first entry and drops the rest: a silent choice by order.
+  const asksOf = (c) => ({
+    remove: c.remove === true,
+    clear: c.clear === true,
+    swap: (typeof c.file === "string" && c.file.trim() !== "") || (typeof c.describe === "string" && c.describe.trim() !== ""),
+    focus: c.focus !== undefined && c.focus !== null && c.focus !== "",
+  });
+  const keyOf = (c) => String(c.page || "") + "\u0000" + String(c.alt || "").trim();
+  const asked = new Map();
+  for (const c of Array.isArray(raw) ? raw : []) {
+    if (!c || typeof c !== "object") continue;
+    const a = asksOf(c), was = asked.get(keyOf(c));
+    asked.set(keyOf(c), was ? { remove: was.remove || a.remove, clear: was.clear || a.clear, swap: was.swap || a.swap, focus: was.focus || a.focus } : a);
+  }
 
   const out = [], seen = new Set();
   for (const c of Array.isArray(raw) ? raw : []) {
     if (!c || typeof c !== "object") continue;
-    const key = String(c.page || "") + "\u0000" + String(c.alt || "").trim();
+    const key = keyOf(c);
     const slot = bySlot.get(key);
     if (!slot || seen.has(key)) continue;
+    if (shared.has(key)) { out.push({ slot, refused: "same" }); seen.add(key); continue; }
+
+    const asks = asked.get(key);
+    if ((asks.remove && (asks.clear || asks.swap || asks.focus)) || (asks.clear && asks.swap)) {
+      out.push({ slot, refused: "conflict" });
+      seen.add(key);
+      if (out.length >= MAX_PICTURE_OPS) break;
+      continue;
+    }
+    if (asks.remove) {
+      out.push({ slot, remove: true });
+      seen.add(key);
+      if (out.length >= MAX_PICTURE_OPS) break;
+      continue;
+    }
 
     // THE ENUM IS ENFORCED HERE, IN CODE, and not merely declared in the schema
     // above — a value the component does not know falls back to the middle, so
@@ -957,6 +1050,97 @@ export function readPictures(reply, slots, library) {
 }
 
 /**
+ * THE WRAPPERS A PHOTOGRAPH MAY TAKE WITH IT: plain HTML containers that mean
+ * nothing of their own. A landmark (`section`, `header`…), a link, a control, a
+ * list item and every component (`Parallax`, `AspectRatio`, `Figure`…) are not
+ * here — each can carry layout, a target, behaviour or meaning the photograph
+ * does not own.
+ */
+export const BARE_CONTAINERS = ["div", "span", "figure", "picture"];
+
+/**
+ * WHERE A PHOTOGRAPH COMES OFF, read from the page's own syntax tree
+ * (2026-09-29, owner: *"Use reliable TSX structure to identify the exact photo
+ * element. Do not infer safe deletion solely from neighboring characters."*).
+ *
+ * `parse` is the injected TypeScript reader (`tweakParser()` in
+ * `site-tweak.mjs`): the container has it and a Worker bundle does not. With
+ * none — or a page it cannot read cleanly, or no element at the slot's own
+ * offset — the answer is `unchecked`: nothing is cut on a guess.
+ *
+ * WHAT COMES OFF, and nothing else:
+ *   * the photograph's own element — a self-closing `<SafeImage>` or `<img>`,
+ *     found at EXACTLY the offset its slot was read from, standing as a child
+ *     of an element or fragment. One written inside code — a condition, a map,
+ *     an attribute such as `media={<SafeImage …/>}` — or carried as a prop of a
+ *     larger block (`Figure`, `MediaObject`, a hero) is `part`: taking it off
+ *     means changing that code or that block, which this step does not do;
+ *   * then its wrapper, ONLY while that wrapper is demonstrably just the
+ *     photograph's container (owner: *"Remove a wrapper only when it is
+ *     demonstrably just the removed photo's container."*): one of
+ *     `BARE_CONTAINERS`, with NO attributes at all (a class, a style, an id, a
+ *     key, a handler, a role, a spread — any of them gives it a meaning of its
+ *     own), whose only content is what is being removed, and itself a child
+ *     of an element. Every other wrapper is kept, emptied.
+ *
+ * Its line goes with it when it has the line to itself, so the file reads as
+ * though it had never been written. The span is in the ORIGINAL source; the
+ * caller applies it with the page's other edits, back to front, in one pass.
+ */
+export function photoRemoval(source, slot, parse) {
+  if (!slot || (slot.tag !== "SafeImage" && slot.tag !== "img")) return { ok: false, reason: "part" };
+  if (typeof parse !== "function" || typeof source !== "string" || !Number.isInteger(slot.from)) return { ok: false, reason: "unchecked" };
+  let r;
+  try { r = parse(source); } catch { return { ok: false, reason: "unchecked" }; }
+  const file = r && r.file;
+  if (!file || (Array.isArray(file.parseDiagnostics) && file.parseDiagnostics.length)) return { ok: false, reason: "unchecked" };
+  let el = null;
+  (function find(n) {
+    if (el) return;
+    if (r.isJsx(n) && n.getStart(file) === slot.from) { el = n; return; }
+    n.forEachChild(find);
+  })(file);
+  if (!el || r.tagOf(el) !== slot.tag) return { ok: false, reason: "unchecked" };
+  if (r.k(el) !== "JsxSelfClosingElement" || !isElementChild(r, el)) return { ok: false, reason: "part" };
+  let target = el;
+  const wrappers = [];
+  for (;;) {
+    const w = target.parent;
+    if (!w || r.k(w) !== "JsxElement") break;
+    if (!BARE_CONTAINERS.includes(r.tagOf(w)) || r.attrsOf(r.openOf(w)).length) break;
+    const inside = contentOf(r, w);
+    if (inside.length !== 1 || inside[0] !== target || !isElementChild(r, w)) break;
+    wrappers.push(r.tagOf(w));
+    target = w;
+  }
+  const span = ownLines(source, target.getStart(file), target.end);
+  return { ok: true, from: span.from, to: span.to, wrappers };
+}
+
+/** A node written as a child of an element or fragment — not inside code, not an attribute value. */
+function isElementChild(r, n) {
+  const p = n && n.parent;
+  return !!p && (r.k(p) === "JsxElement" || r.k(p) === "JsxFragment");
+}
+
+/** What an element holds, less whitespace between tags and comment-only braces. */
+function contentOf(r, el) {
+  return r.childrenOf(el).filter((c) =>
+    !(r.k(c) === "JsxText" && c.containsOnlyTriviaWhiteSpaces) && !(r.k(c) === "JsxExpression" && !c.expression));
+}
+
+/** The span widened to whole lines when it stands alone on them. */
+function ownLines(src, from, to) {
+  const start = src.lastIndexOf("\n", from - 1) + 1;
+  const nl = src.indexOf("\n", to);
+  const stop = nl < 0 ? src.length : nl;
+  if (/^[ \t]*$/.test(src.slice(start, from)) && /^[ \t]*$/.test(src.slice(to, stop))) {
+    return { from: start, to: nl < 0 ? src.length : nl + 1 };
+  }
+  return { from, to };
+}
+
+/**
  * Put the chosen pictures into the stored source.
  *
  * BACK TO FRONT, and that is not a detail. Each replacement changes the length
@@ -981,12 +1165,13 @@ export function applyPictures(pages, choices) {
   for (const c of Array.isArray(choices) ? choices : []) {
     // A FOCUS-ONLY CHOICE CARRIES NO URL and is still work. Gated on the url
     // alone, "his head is cut off" would be read, priced, reported — and
-    // dropped here before anything was written.
-    if (!c || !c.slot || (c.url === undefined && !c.focus)) continue;
+    // dropped here before anything was written. So is a removal, which
+    // carries neither: its `cut` is the span `photoRemoval` found.
+    if (!c || !c.slot || (c.url === undefined && !c.focus && !c.cut)) continue;
     if (!perPage.has(c.slot.page)) perPage.set(c.slot.page, []);
     perPage.get(c.slot.page).push(c);
   }
-  const changed = [];
+  const changed = [], overlapped = [];
   for (const [path, list] of perPage) {
     const page = byPath.get(path);
     if (!page) continue;
@@ -997,6 +1182,10 @@ export function applyPictures(pages, choices) {
     const edits = [];
     for (const c of list) {
       const s = c.slot;
+      // A REMOVAL IS ONE MORE EDIT IN THE SAME PASS, at offsets read from the
+      // same source as every other one here — never a second pass that looks
+      // the rest up again by description, which two pictures can share.
+      if (c.cut) { edits.push({ at: c.cut.from, to: c.cut.to, text: "" }); continue; }
       if (c.url !== undefined && c.url !== null) {
         const value = JSON.stringify(String(c.url || ""));
         // The braces are part of what is replaced when the attribute was written
@@ -1022,12 +1211,20 @@ export function applyPictures(pages, choices) {
       }
     }
     if (!edits.length) continue;
+    // ⚠ TWO EDITS THAT OVERLAP CANNOT BOTH BE RIGHT, and applying them back to
+    // front would write one into the middle of the other. Nothing on this page
+    // is written and the caller is told which page it was. A BACKSTOP:
+    // `runPictureEdit` allows one choice per slot and refuses, before this
+    // runs, a removal whose span holds another chosen photograph — so it
+    // fails closed rather than trying to choose.
+    edits.sort((a, b) => b.at - a.at);
+    if (edits.some((e, i) => i > 0 && e.to > edits[i - 1].at)) { overlapped.push(path); continue; }
     let src = page.source;
-    for (const e of edits.sort((a, b) => b.at - a.at)) src = src.slice(0, e.at) + e.text + src.slice(e.to);
+    for (const e of edits) src = src.slice(0, e.at) + e.text + src.slice(e.to);
     byPath.set(path, { ...page, source: src });
     changed.push(path);
   }
-  return { pages: [...byPath.values()], changed };
+  return { pages: [...byPath.values()], changed, overlapped };
 }
 
 /** The four token kinds, in the shape `pageCredits` prices. One price table, everywhere. */
@@ -1043,12 +1240,15 @@ export function pictureUsage(reply, model = PICTURE_MODEL) {
 }
 
 /** What the customer is told. Names the picture, because they cannot see a src. */
-export function pictureReply({ used = [], made = [], cleared = [], framed = [], refused = [], failed = 0 } = {}) {
+export function pictureReply({ used = [], made = [], cleared = [], framed = [], removed = [], refused = [], failed = 0 } = {}) {
   const bits = [];
   const name = (c) => "“" + c.slot.alt + "”";
   if (used.length) bits.push("put your own photograph" + (used.length > 1 ? "s" : "") + " on " + used.map(name).join(", "));
   if (made.length) bits.push("made " + (made.length === 1 ? "a new picture" : made.length + " new pictures") + " for " + made.map(name).join(", "));
   if (cleared.length) bits.push("took the picture off " + cleared.map(name).join(", "));
+  // A PHOTOGRAPH TAKEN OFF WITH ITS SPACE, said as that — not as the clear
+  // above, whose space stays for another picture.
+  if (removed.length) bits.push("took " + removed.map(name).join(", ") + (removed.length === 1 ? " off the page" : " off"));
   // ITS OWN SENTENCE, AND IT SAYS WHICH WAY IT MOVED. "Adjusted the framing" is
   // not something the owner can check against the page; "shows the top" is.
   // NAMED SEPARATELY FROM A SWAP, or a framing change on a picture that was
@@ -1063,7 +1263,12 @@ export function pictureReply({ used = [], made = [], cleared = [], framed = [], 
   // not true — the model found it and copied its description back.
   const already = refused.filter((r) => r.refused === "already");
   const cannot = refused.filter((r) => r.refused === "cannot");
+  const same = refused.filter((r) => r.refused === "same");
+  const conflict = refused.filter((r) => r.refused === "conflict");
+  const part = refused.filter((r) => r.refused === "part");
+  const unchecked = refused.filter((r) => r.refused === "unchecked");
   const notes = [];
+  const them = (list) => (list.length === 1 ? "it as it was" : "them as they were");
   if (already.length) {
     // READ OFF THE SLOT, NOT THE CHOICE. A refused entry carries no focus of its
     // own — that is what refusing it means — so the choice's field is null and
@@ -1076,6 +1281,26 @@ export function pictureReply({ used = [], made = [], cleared = [], framed = [], 
   if (cannot.length) {
     notes.push("I couldn't change the framing of " + cannot.map(name).join(", ") +
       " — that one's decided by the page itself.");
+  }
+  // THE REFUSALS OF THIS ROUND, EACH SAYING WHAT WAS LEFT. None of them wrote
+  // anything, and none was turned into a different change.
+  if (same.length) {
+    notes.push("More than one photo on the page is described as " + same.map(name).join(", ") +
+      ", so I couldn't tell which you meant and left " + them(same) + ".");
+  }
+  if (conflict.length) {
+    notes.push("I got conflicting instructions for " + conflict.map(name).join(", ") +
+      " and left " + them(conflict) + " — say " + (conflict.length === 1 ? "whether" : "for each whether") +
+      " to take it off, keep its space empty, or put another photo there.");
+  }
+  if (part.length) {
+    notes.push("I couldn't take " + part.map(name).join(", ") + " off on " + (part.length === 1 ? "its" : "their") +
+      " own — it's part of a bigger block on the page — so I left " + them(part) +
+      ". Say “empty that photo” to keep its space, or ask for the block to be taken off.");
+  }
+  if (unchecked.length) {
+    notes.push("I couldn't check how " + unchecked.map(name).join(", ") + " sits on the page just now, so I left " +
+      them(unchecked) + ".");
   }
   if (!msg && notes.length) return notes.join(" ");
   if (!msg) msg = "I couldn't match that to any of the pictures on your site.";
@@ -1103,6 +1328,10 @@ export function pictureReply({ used = [], made = [], cleared = [], framed = [], 
  * — no image model configured, no balance, a refused prompt — leaves that slot
  * alone and the others still change. Refusing the whole batch would mean an
  * owner who asked for one uploaded photograph and one made one gets neither.
+ *
+ * `deps.parser()` → the page reader `photoRemoval` needs, or null. Asked for
+ * only when an answer takes a photograph off; with none, that removal is
+ * refused as `unchecked` and everything else still runs.
  */
 export async function runPictureEdit(deps, { instruction, pages, model = PICTURE_MODEL } = {}) {
   const slots = imageSlots(pages);
@@ -1117,10 +1346,45 @@ export async function runPictureEdit(deps, { instruction, pages, model = PICTURE
   const usage = pictureUsage(reply, model);
 
   const all = readPictures(reply, slots, library);
+  // ── A REMOVAL IS CHECKED AGAINST THE PAGE BEFORE ANYTHING IS WRITTEN ──────
+  //
+  // Each one is found in the page's own syntax tree at its slot's own offset
+  // (`photoRemoval`). One that cannot be taken off safely becomes a refusal
+  // naming the photograph — `part` or `unchecked` — and is NEVER turned into
+  // a clear or widened to the block around it. The others proceed.
+  if (all.some((c) => c.remove)) {
+    let parse = null;
+    try { parse = typeof deps.parser === "function" ? await deps.parser() : null; } catch { parse = null; }
+    const sources = new Map((Array.isArray(pages) ? pages : []).map((p) => [p && p.path, p && p.source]));
+    for (const c of all) {
+      if (!c.remove) continue;
+      const cut = photoRemoval(sources.get(c.slot.page), c.slot, parse);
+      if (cut.ok) c.cut = { from: cut.from, to: cut.to };
+      else { delete c.remove; c.refused = cut.reason; }
+    }
+    // A REMOVAL THAT WOULD TAKE ANOTHER CHOSEN PHOTOGRAPH WITH IT — one written
+    // inside its own attribute, `fallback={<SafeImage … />}` — cannot be done
+    // beside that photograph's own change: the one would be written into the
+    // span the other deletes. Both are refused as a conflict before anything
+    // is applied, and every other entry proceeds. (Found by probing the
+    // overlap guard in `applyPictures`, which this makes a backstop.)
+    const works = (c) => !!(c.cut || c.clear || c.file || c.describe || c.focus);
+    for (const c of all) {
+      if (!c.cut) continue;
+      const inside = all.filter((o) => o !== c && works(o) && o.slot.page === c.slot.page &&
+        Number.isInteger(o.slot.from) && o.slot.from >= c.cut.from && o.slot.from < c.cut.to);
+      if (!inside.length) continue;
+      for (const o of [c, ...inside]) {
+        for (const k of ["cut", "remove", "clear", "file", "describe"]) delete o[k];
+        o.focus = null;
+        o.refused = "conflict";
+      }
+    }
+  }
   const refused = all.filter((c) => c.refused);
   // WORK IS HAVING SOMETHING TO WRITE, not the absence of a refusal — an entry
   // can be both, and splitting on the note drops a real swap on the floor.
-  const picked = all.filter((c) => c.clear || c.file || c.describe || c.focus);
+  const picked = all.filter((c) => c.cut || c.clear || c.file || c.describe || c.focus);
   // EVERY ENTRY REFUSED IS AN ANSWER, NOT A MISS. Falling through to the
   // no-match branch below would report a picture the model found and named as
   // one it could not find — and would send an "already that way" to the
@@ -1153,9 +1417,10 @@ export async function runPictureEdit(deps, { instruction, pages, model = PICTURE
   }
 
   const byName = new Map((Array.isArray(library) ? library : []).map((f) => [f && f.name, f && f.url]).filter(([n]) => n));
-  const resolved = [], used = [], made = [], cleared = [], framed = [];
+  const resolved = [], used = [], made = [], cleared = [], framed = [], removed = [];
   let failed = 0;
   for (const c of picked) {
+    if (c.cut) { resolved.push(c); removed.push(c); continue; }
     if (c.focus) framed.push(c);
     // A FRAMING CHANGE WITH NO PICTURE IS THE COMMON CASE and costs nothing —
     // no image model, no money. It carries no url, so without this it falls
@@ -1173,9 +1438,12 @@ export async function runPictureEdit(deps, { instruction, pages, model = PICTURE
   }
   if (!resolved.length) return { ok: false, escalate: false, reason: "nothing-made", usage, failed, msg: pictureReply({ failed }) };
 
-  const { pages: next, changed } = applyPictures(pages, resolved);
+  const { pages: next, changed, overlapped } = applyPictures(pages, resolved);
+  if (overlapped.length) {
+    return { ok: false, escalate: false, reason: "overlap", usage, msg: "That picture change couldn't be applied safely, so I left your site as it was." };
+  }
   return {
-    ok: true, pages: next, changed, used, made, cleared, framed, refused, failed, usage,
-    msg: pictureReply({ used, made, cleared, framed, refused, failed }),
+    ok: true, pages: next, changed, used, made, cleared, framed, removed, refused, failed, usage,
+    msg: pictureReply({ used, made, cleared, framed, removed, refused, failed }),
   };
 }

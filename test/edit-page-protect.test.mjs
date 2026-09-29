@@ -376,7 +376,7 @@ test("the picture rung running FIRST is what the page rung protects against", as
   try {
     await withWire({
       pick_lanes: { fields: ["images", "tsx"] },
-      [PICTURE_TOOL.name]: { pictures: [{ page: "index.tsx", alt: "the window", clear: true }] },
+      [PICTURE_TOOL.name]: { pictures: [{ page: "index.tsx", alt: "the window", remove: true }] },
       [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
       [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: strippedBoth(slug) }], parts: [] },
     }, async (calls) => {
@@ -530,7 +530,7 @@ test("an authorised removal takes the one it names and keeps the one it does not
       // ⚠ `layer: "look"` IS WHAT OPENS THE LANE SYSTEM. `pick_lanes` runs
       // above the layer dispatch and is the front door for all of it.
       pick_lanes: { fields: ["images", "shape"] },
-      [PICTURE_TOOL.name]: { pictures: [{ page: "index.tsx", alt: "the window", clear: true }] },
+      [PICTURE_TOOL.name]: { pictures: [{ page: "index.tsx", alt: "the window", remove: true }] },
       [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
       [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: strippedBoth(slug) }], parts: [] },
     }, async () => {
@@ -587,7 +587,7 @@ test("a rung that WITHHELD beside a rung that shipped still reaches the screen",
   try {
     await withWire({
       pick_lanes: { fields: ["images", "tsx"] },
-      [PICTURE_TOOL.name]: { pictures: [{ page: "index.tsx", alt: "the window", clear: true }] },
+      [PICTURE_TOOL.name]: { pictures: [{ page: "index.tsx", alt: "the window", remove: true }] },
       [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
       // The bench element is DELETED, so the restoration cannot reach it and
       // the page rung withholds.
@@ -652,7 +652,7 @@ test("a rung that failed WITHOUT a sentence is counted rather than dropped", asy
   try {
     await withWire({
       pick_lanes: { fields: ["images", "tsx"] },
-      [PICTURE_TOOL.name]: { pictures: [{ page: "index.tsx", alt: "the window", clear: true }] },
+      [PICTURE_TOOL.name]: { pictures: [{ page: "index.tsx", alt: "the window", remove: true }] },
       [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
       // THE MODEL RETURNS NO PAGE, which is `escalate("no-page-back")` — a
       // refusal with a reason and no prose.
@@ -1394,7 +1394,7 @@ test("a refusal beside a change that SHIPPED does not claim the site is untouche
   try {
     await withWire({
       pick_lanes: { fields: ["images", "tsx"] },
-      [PICTURE_TOOL.name]: { pictures: [{ page: "index.tsx", alt: "the window", clear: true }] },
+      [PICTURE_TOOL.name]: { pictures: [{ page: "index.tsx", alt: "the window", remove: true }] },
       [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
       [SITE_PAGES_TOOL.name]: { pages: [{ path: "src/routes/index.tsx", source: benchDeleted(slug) }], parts: [] },
     }, async () => {
@@ -1416,17 +1416,18 @@ test("a refusal beside a change that SHIPPED does not claim the site is untouche
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
       // ⚠ THE WHOLE SENTENCE, MEASURED OFF THE REAL COMPOSER rather than
       // written from memory — my first draft of this expectation left out the
-      // two clauses the picture rung legitimately earns (a photograph really
-      // did come off, and the slot it left is really empty), and a narrower
-      // pin would have called those a defect. What this case is about is the
-      // LAST clause: the refusal's own words, ending at "I didn't make it".
+      // clauses the picture rung legitimately earns (a photograph really did
+      // come off), and a narrower pin would have called those a defect. What
+      // this case is about is the LAST clause: the refusal's own words,
+      // ending at "I didn't make it". SINCE 2026-09-29 "take … off" is the
+      // picture step's `remove`: the window goes WITH its space, so there is
+      // no empty slot to offer and the way back is the previous build.
       assert.equal(
         said.text,
-        "✅ Took the picture off “the window”. One photograph is no longer on the site. If that was not what "
-        + "you wanted, say “put the photo back”. ⚠️ I couldn't make that change without taking a photograph "
-        + "off your site, and I couldn't put it back safely — so I didn't make it. Say “take that photo off” "
-        + "if you did want it gone. There is a space for a photo — upload yours in the Data panel and it’ll "
-        + "fill in.",
+        "✅ Took “the window” off the page. One photograph is no longer on the site. If that was not what "
+        + "you wanted, roll back to the previous build in Cloud → Versions. ⚠️ I couldn't make that change "
+        + "without taking a photograph off your site, and I couldn't put it back safely — so I didn't make "
+        + "it. Say “take that photo off” if you did want it gone.",
         "the partial-success sentence is not what this case fixed: " + JSON.stringify(said.text),
       );
       assert.ok(!said.text.includes("left your site exactly as it was"),

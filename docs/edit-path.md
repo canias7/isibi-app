@@ -30,7 +30,7 @@ said, at no cost for the edit. Cheapest first:
 | `data` | rows, and a list's ORDER | ~0.3 of model use; **charged 1** (run 42) |
 | `rules` | schema features enforced in Postgres or read from `_meta` | ~0.3 of model use; **charged 1** (run 44) |
 | `look` | the EDIT PATH — 21 lanes (see below) | 1 |
-| `picture` | swap or reframe a photograph (matched on its alt text) | ~0.3 |
+| `picture` | swap, reframe, take off or empty a photograph (matched on its alt text) | ~0.3 |
 | `logo` | the header logo or tab icon — stored as that mark's `image` form | 0 |
 | `nav` | menu, header button, footer contact/social/legal, in-body links | ~0.3 |
 | `page` | one page's layout, via `tweak` (minimal patch) | ~1–3 **+ routing**; **20 measured once** when the tweak fell through to the rung's own full rewrite (run 11) |
@@ -51,6 +51,19 @@ answers unless a run is named.
 
 ### What the edit path does now
 
+- **Taking a photograph off versus keeping its space** (2026-09-29, on the
+  branch, not deployed; `docs/history/2026-09-29-photo-removal.md`). The
+  picture tool has two answers: `remove` takes the photograph's element off
+  the page, found in the page's syntax tree at its slot's own offset, with a
+  wrapper only when that wrapper is a plain container with no attributes that
+  holds nothing else; `clear` empties the frame and keeps the space, and is for
+  requests that ask for that. A removal is one edit in the same pass as the
+  page's other picture edits, never looked up again by description.
+  Contradictory answers (`conflict`), a description two photographs share
+  (`same`), a photograph held by a block or written inside code (`part`) and a
+  page the reader cannot check (`unchecked`) are refused by name, and the other
+  changes proceed. The picture step's own count, `photosTakenOff`, drives the
+  undo hint ("roll back to the previous build in Cloud → Versions").
 - **The router** (`builder/site-ask.mjs`) answers one layer, or `addon`,
   `build`, `ask` or `clarify`. **Display against enforcement decides `page`
   against `rules`**, never the words (`bookings`, `places` and `limit` occur on

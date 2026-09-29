@@ -10766,10 +10766,21 @@ function editOutcomes(e) {
   // clause would never fire — one name over two shapes, which is why they
   // are two names.
   const lostPix = Number(e.photosRemoved) || 0;
+  // ── AND HOW TO UNDO IT, FROM WHAT THE PICTURE STEP SAID IT DID ─────────
+  //
+  // `photosTakenOff` is the picture step's own count of photographs taken off
+  // WITH their space (2026-09-29). Once the space is gone, "put the photo
+  // back" has no slot to fill, so the way back is the previous build. Read
+  // from that explicit field — never inferred from `photosRemoved` against
+  // `photos`, which count different things.
+  const offPix = typeof e.photosTakenOff === 'number' && e.photosTakenOff > 0 ? e.photosTakenOff : 0;
   if (lostPix > 0) {
-    out += ' ' + (lostPix === 1 ? 'One photograph is' : lostPix + ' photographs are') +
-      ' no longer on the site. If that was not what you wanted, say “put the ' +
-      (lostPix === 1 ? 'photo' : 'photos') + ' back”.';
+    out += ' ' + (lostPix === 1 ? 'One photograph is' : lostPix + ' photographs are') + ' no longer on the site.';
+  }
+  if (offPix > 0) {
+    out += ' If that was not what you wanted, roll back to the previous build in Cloud → Versions.';
+  } else if (lostPix > 0) {
+    out += ' If that was not what you wanted, say “put the ' + (lostPix === 1 ? 'photo' : 'photos') + ' back”.';
   }
   // ── AND A RUNG THAT DID NOT LAND, IN ITS OWN WORDS ─────────────────────
   //

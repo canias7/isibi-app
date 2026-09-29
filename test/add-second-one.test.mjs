@@ -98,7 +98,10 @@ test("rewroteMsg names the page and the words it would have lost, and says nothi
 });
 
 test("THE WALL: the addon route refuses a changed page that lost words — after the merge, before the gate and the bill, for nothing", () => {
-  assert.match(worker, /import \{ runTweak, keptProse \} from "\.\/builder\/site-tweak\.mjs";/, "keptProse is not the tweak rung's own reading");
+  // RE-ANCHORED 2026-09-29: the same import gained `tweakParser`, the page
+  // reader the picture step takes a photograph off with. The claim is WHERE
+  // `keptProse` comes from, never how the import list is spelled.
+  assert.match(worker, /import \{[^}]*\bkeptProse\b[^}]*\} from "\.\/builder\/site-tweak\.mjs";/, "keptProse is not the tweak rung's own reading");
   assert.match(worker, /import \{[^}]*\brewroteMsg\b[^}]*\} from "\.\/builder\/site-add\.mjs"/, "the sentence is not the add step's own");
   // RE-ANCHORED 2026-09-17, TWICE. First `const` became `let` (a dead QR code
   // withholds a page and the route RE-MERGES what survives); then the merge

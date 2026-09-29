@@ -558,7 +558,7 @@ test("an explicitly requested removal takes the picture off and PUBLISHES", asyn
       // `layer: "look"` IS WHAT OPENS THE LANE SYSTEM — `pick_lanes` runs
       // above the layer dispatch and is the front door for all of it.
       pick_lanes: { fields: ["images"] },
-      [PICTURE_TOOL.name]: { pictures: [{ page: "index.tsx", alt: "the window", clear: true }] },
+      [PICTURE_TOOL.name]: { pictures: [{ page: "index.tsx", alt: "the window", remove: true }] },
       [TWEAK_TOOL.name]: { cannot: "that needs the page rewritten" },
     }, async () => {
       const { status, body } = await edit(slug, "take the window photo off the front page", { store, layer: "look" });

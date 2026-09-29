@@ -491,9 +491,15 @@ test("a GENUINE picture dependency still runs the later page step: withheld firs
   // there is no photograph left to protect, and publishes the swap.
   const ASK_OFF = "Swap the opening hours and the market times, and take the bench photograph off.";
   const apply = (src, slug) => swap(src).replace("src=\"" + BENCH(slug) + "\"", "src=\"" + OTHER(slug) + "\"");
-  const cleared = (home, slug) => home.replace("src=\"" + BENCH(slug) + "\"", "src=\"\"");
+  // "TAKE … OFF" IS `remove` NOW (2026-09-29): the picture step takes the
+  // bench's element out, where it used to empty its `src` and leave the frame.
+  const takenOff = (home, slug) => {
+    const el = "<SafeImage src=\"" + BENCH(slug) + "\" alt=\"the bench\" />";
+    assert.equal(home.split(el).length, 2, "the bench's element is not on the page exactly once");
+    return home.replace(el, "");
+  };
   for (const mode of ["sync", "job"]) {
-    const r = await drive({ mode, fields: THREE, home: withBench, ask: ASK_OFF, apply, picture: { pictures: [{ page: "index.tsx", alt: "the bench", clear: true }] } });
+    const r = await drive({ mode, fields: THREE, home: withBench, ask: ASK_OFF, apply, picture: { pictures: [{ page: "index.tsx", alt: "the bench", remove: true }] } });
     const label = mode + " dependency";
     // THE FIXTURE'S PREMISE: the first answer drops this site's photograph for another.
     assert.ok(apply(r.homeAt0, r.slug).includes(OTHER(r.slug)) && !apply(r.homeAt0, r.slug).includes(BENCH(r.slug)),
@@ -503,10 +509,10 @@ test("a GENUINE picture dependency still runs the later page step: withheld firs
     // THE WRITER CALLS: page, picture, page — the later page step RAN, in its
     // place, shown the state the picture step left rather than the stored page.
     assert.deepEqual(relevantCalls(r), [T.tweak, T.picture, T.tweak], label + ": the later page step did not run after the picture step: " + JSON.stringify(r.calls));
-    assert.deepEqual(r.shown, [r.homeAt0, cleared(r.homeAt0, r.slug)], label + ": the later page step was not shown the picture step's result");
+    assert.deepEqual(r.shown, [r.homeAt0, takenOff(r.homeAt0, r.slug)], label + ": the later page step was not shown the picture step's result");
     // THE FINAL LAYOUT: the swap exactly once, the bench off as asked, the
     // substituted picture nowhere, the gallery untouched.
-    const want = swap(cleared(r.homeAt0, r.slug));
+    const want = swap(takenOff(r.homeAt0, r.slug));
     assert.ok(swapped(want), label + ": the expected page is not swapped");
     assert.equal(r.compiles, 1, label + ": compiles");
     assert.equal(r.sentHome[0], want, label + ": the compiler was not handed the requested page");
@@ -528,7 +534,7 @@ test("a GENUINE picture dependency still runs the later page step: withheld firs
     assert.deepEqual(r.reply.layers, ["picture", "page"], label + ": layers");
     assert.equal(r.reply.partial, undefined, label + ": the superseded refusal was reported beside the change that shipped: " + JSON.stringify(r.reply.partial));
     assert.equal(r.reply.photosRemoved, 1, label + ": the removal the customer asked for is not reported");
-    assert.equal(r.said.text, "✅ Updated the look. One photograph is no longer on the site. If that was not what you wanted, say “put the photo back”. There is a space for a photo — upload yours in the Data panel and it’ll fill in.",
+    assert.equal(r.said.text, "✅ Updated the look. One photograph is no longer on the site. If that was not what you wanted, roll back to the previous build in Cloud → Versions.",
       label + ": the customer's sentence");
     assert.ok(!r.said.text.includes("didn't make it"), label + ": the screen says the change was not made");
     assert.deepEqual(r.said.actions, ["refresh the credit balance"], label + ": the browser started something paid");

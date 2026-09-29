@@ -289,7 +289,25 @@ const BOULE_SRC = 'src="/u/fold-lane-bakery/8e6bd4818b036cfcd639d1bb5ec6156c.jpg
 const BAND_ASK = "Take Gallery out of the menu and put the order band above the starter story.";
 const PHOTO_ASK = "Take the photo of the cooling loaf off the home page.";
 const PHOTO_BAND_ASK = "Take the photo of the cooling loaf off the home page and put the order band above the starter story.";
-const CLEAR_BOULE = { pictures: [{ page: "index.tsx", alt: BOULE, clear: true }] };
+// "TAKE THE PHOTO … OFF" IS `remove` (2026-09-29): the answer the picture tool
+// now tells its model to give for these sentences, so the supplied answer is
+// that one — a fixture from its real producer. `clear` keeps the space and is
+// asked for by name; the keep-the-space controls further down supply it.
+const REMOVE_BOULE = { pictures: [{ page: "index.tsx", alt: BOULE, remove: true }] };
+/**
+ * A PHOTOGRAPH'S OWN LINES, read landmark to landmark from the stored page:
+ * the line its element opens on, to the `/>` that closes it. Taking it off
+ * removes exactly these — worked out here from the fixture, never by asking
+ * the product's own reader for its answer.
+ */
+function ownLinesOf(src, open) {
+  const i = src.indexOf(open);
+  assert.ok(i >= 0 && src.indexOf(open, i + 1) < 0, "the photograph's opening landmark is not on the page exactly once: " + open);
+  const close = src.indexOf("/>\n", i);
+  assert.ok(close > i, "the photograph's closing landmark is missing: " + open);
+  return src.slice(src.lastIndexOf("\n", i) + 1, close + 3);
+}
+const BOULE_LINES = ownLinesOf(ORIG["index.tsx"], '<SafeImage focus="top"');
 
 /** The money, read the way each path keeps it, and always equal to the reply's own cost. */
 function assertCharged(r, mode, debits, label) {
@@ -545,7 +563,7 @@ for (const mode of ["sync", "job"]) {
   ]) {
     test(`BOTH (${mode}), ${shapeName}: the photo comes off and the layout changes, and the layout step deletes nothing`, async () => {
       const r = await drive({ mode, routed: { layer: "picture", remove: true }, ask: PHOTO_BAND_ASK,
-        answers: { [PICK]: answer, write_tweak: { source: MOVED }, [PICTURE_TOOL.name]: CLEAR_BOULE } });
+        answers: { [PICK]: answer, write_tweak: { source: MOVED }, [PICTURE_TOOL.name]: REMOVE_BOULE } });
       const label = "photo + layout " + mode + " " + JSON.stringify(answer);
       assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
       assert.equal(r.reply && r.reply.ok, true, label + ": " + JSON.stringify(r.reply));
@@ -555,9 +573,10 @@ for (const mode of ["sync", "job"]) {
       assert.deepEqual(r.reply.lanes, lanes, label + ": lanes");
       assert.equal(r.reply.partial, undefined, label + ": " + JSON.stringify(r.reply.partial));
       assert.equal(r.builds.length, 1, label + ": one compile carries both");
-      // EXACTLY BOTH CHANGES: the moved layout, with that one photograph's `src`
-      // emptied and every other character where the layout put it.
-      assert.equal(page(r, "index.tsx"), MOVED.replace(BOULE_SRC, 'src=""'), label + ": the home page is not the layout plus the removal");
+      // EXACTLY BOTH CHANGES: the moved layout, with that one photograph's own
+      // lines gone and every other character where the layout put it.
+      assert.equal(MOVED.split(BOULE_LINES).length, 2, label + ": the moved layout does not carry the photograph once");
+      assert.equal(page(r, "index.tsx"), MOVED.replace(BOULE_LINES, ""), label + ": the home page is not the layout plus the removal");
       assert.ok(page(r, "index.tsx").includes('alt="' + FRONT + '"') && page(r, "index.tsx").includes("64eee06cebae214308ea0142e5163286.jpg"), label + ": the other photograph went too");
       // A PHOTO'S REMOVAL NEVER MAKES THE LAYOUT STEP DELETE ITS PAGE: every page
       // is still there, and every other page is byte for byte what it was.
@@ -565,7 +584,7 @@ for (const mode of ["sync", "job"]) {
       for (const p of PAGES) if (p.path !== "index.tsx") assert.equal(page(r, p.path), p.source, label + ": " + p.path + " changed");
       assertDoorAsked(r, "picture", PHOTO_BAND_ASK, label);
       assert.deepEqual(doorMarks(r).map((e) => e.d), [{ layer: "picture", routed: lanes.includes("images") ? ["images"] : [], additional: ["shape"] }], label + ": the lists recorded");
-      assert.equal(r.said.text, "✅ Updated the look. One photograph is no longer on the site. If that was not what you wanted, say “put the photo back”. There is a space for a photo — upload yours in the Data panel and it’ll fill in.", label + ": the screen");
+      assert.equal(r.said.text, "✅ Updated the look. One photograph is no longer on the site. If that was not what you wanted, roll back to the previous build in Cloud → Versions.", label + ": the screen");
       assert.deepEqual(r.said.actions, ["refresh the credit balance"], label + ": the browser started something paid");
       assertCharged(r, mode, [3, 2], label);
     });
@@ -711,7 +730,7 @@ for (const mode of ["sync", "job"]) {
   test(`SCOPED (${mode}): the photo comes off the home page, the band moves on the Visit page, and each step was handed only its own page`, async () => {
     const answer = { additional: ["shape"], scopes: [{ part: "shape", page: "/visit", words: VISIT_BAND_WORDS }] };
     const r = await drive({ mode, routed: { layer: "picture", remove: true }, ask: PHOTO_VISIT_ASK,
-      answers: { [PICK]: answer, write_tweak: visitWriter, [PICTURE_TOOL.name]: CLEAR_BOULE } });
+      answers: { [PICK]: answer, write_tweak: visitWriter, [PICTURE_TOOL.name]: REMOVE_BOULE } });
     const label = "scoped photo + visit " + mode;
     assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
     assert.equal(r.reply && r.reply.ok, true, label + ": " + JSON.stringify(r.reply));
@@ -727,17 +746,17 @@ for (const mode of ["sync", "job"]) {
     assert.deepEqual(r.reply.pageOps, [{ page: "/visit" }], label + ": the page operation");
     assert.equal(r.reply.partial, undefined, label + ": " + JSON.stringify(r.reply.partial));
     assert.equal(r.builds.length, 1, label + ": one compile carries both");
-    // THE STORED CHANGES: the Visit band moved, the boule's `src` emptied on the
-    // home page and nothing else there, and every other page byte for byte.
+    // THE STORED CHANGES: the Visit band moved, the boule taken off the home
+    // page and nothing else there, and every other page byte for byte.
     assert.equal(page(r, "visit.tsx"), VISIT_MOVED, label + ": the Visit page is not exactly the move");
-    assert.equal(page(r, "index.tsx"), ORIG["index.tsx"].replace(BOULE_SRC, 'src=""'), label + ": the home page is not exactly the removal");
+    assert.equal(page(r, "index.tsx"), ORIG["index.tsx"].replace(BOULE_LINES, ""), label + ": the home page is not exactly the removal");
     for (const p of ["order.tsx", "starter.tsx", "gallery.tsx"]) assert.equal(page(r, p), ORIG[p], label + ": " + p + " changed");
     assertOthersKept(r, label);
     assertDoorAsked(r, "picture", PHOTO_VISIT_ASK, label);
     // THE SCREEN IS THE UNSCOPED CASE'S, word for word: two rungs read "the
     // look", which names neither page — the parked review #9 wording, kept
     // because no reply is redesigned here. Nothing in it is untrue.
-    assert.equal(r.said.text, "✅ Updated the look. One photograph is no longer on the site. If that was not what you wanted, say “put the photo back”. There is a space for a photo — upload yours in the Data panel and it’ll fill in.", label + ": the screen");
+    assert.equal(r.said.text, "✅ Updated the look. One photograph is no longer on the site. If that was not what you wanted, roll back to the previous build in Cloud → Versions.", label + ": the screen");
     assertCharged(r, mode, [3, 2], label);
   });
 }
@@ -747,7 +766,7 @@ test("CONTROL: the same door with no scope sends the layout where it always went
   // case honest: a lane with no scope runs where the router's page or the home
   // page sends it, on the whole message.
   const r = await drive({ routed: { layer: "picture", remove: true }, ask: PHOTO_VISIT_ASK,
-    answers: { [PICK]: { additional: ["shape"] }, write_tweak: visitWriter, [PICTURE_TOOL.name]: CLEAR_BOULE } });
+    answers: { [PICK]: { additional: ["shape"] }, write_tweak: visitWriter, [PICTURE_TOOL.name]: REMOVE_BOULE } });
   const writes = r.sent.filter((q) => q.tool === "write_tweak").map((q) => writerAsked(q.args));
   assert.deepEqual(writes, [{ path: "index.tsx", instruction: PHOTO_VISIT_ASK }], "unscoped: what the writer was handed");
   assert.equal(page(r, "visit.tsx"), VISIT_SRC, "unscoped: the Visit page moved");
@@ -841,19 +860,172 @@ for (const [name, picker] of [
     // `shape` tied to the routed change is the picker reading a layout into the
     // photo removal — it says so itself, so the supplied layout never runs.
     const r = await drive({ routed: { layer: "picture", remove: true }, ask: PHOTO_ASK,
-      answers: { [PICK]: picker, edit_site: {}, write_tweak: { source: MOVED }, [PICTURE_TOOL.name]: CLEAR_BOULE } });
+      answers: { [PICK]: picker, edit_site: {}, write_tweak: { source: MOVED }, [PICTURE_TOOL.name]: REMOVE_BOULE } });
     assert.deepEqual(r.models, [PICK, PICTURE_TOOL.name], "the rungs called");
     assert.equal(r.reply && r.reply.ok, true, JSON.stringify(r.reply));
     assert.equal(r.reply.layer, "picture");
     assert.equal(r.builds.length, 1);
     const home = page(r, "index.tsx");
-    assert.ok(home.includes('src=""\n          alt="' + BOULE + '"'), "the boule photograph is still on the page");
+    assert.ok(!home.includes(BOULE_SRC) && !home.includes('alt="' + BOULE + '"'), "the boule photograph is still on the page");
     assert.ok(home.includes('alt="' + FRONT + '"') && home.includes("64eee06cebae214308ea0142e5163286.jpg"), "the other photograph went too");
-    assert.equal(home.replace('src=""', BOULE_SRC), ORIG["index.tsx"], "more than the one photograph changed");
+    assert.equal(home, ORIG["index.tsx"].replace(BOULE_LINES, ""), "more than the one photograph changed");
     for (const p of PAGES) if (p.path !== "index.tsx") assert.equal(page(r, p.path), p.source, p.path + " changed");
-    assert.ok(r.said.text.startsWith("✅ Took the picture off “" + BOULE + "”."), r.said.text);
+    assert.ok(r.said.text.startsWith("✅ Took “" + BOULE + "” off the page."), r.said.text);
     assertDoorAsked(r, "picture", PHOTO_ASK, name);
     assert.deepEqual(doorMarks(r).map((e) => e.d), [{ layer: "picture", routed: picker.routed || [], additional: [] }]);
     assert.deepEqual(r.debits, [3]);
   });
+}
+
+// ── TAKING A PHOTOGRAPH OFF VERSUS KEEPING ITS SPACE, THROUGH THE ROUTE (2026-09-29) ─
+//
+// The picture tool's only removal used to EMPTY the photograph's `src`, so "take
+// the photo off" published the kit's grey placeholder, captioned with the
+// photo's description, in the photo's space — reproduced on this fixture and
+// compiled with the real build before the correction. Now `remove` takes the
+// photograph's element off (found in the page's syntax tree at its slot's own
+// offset), `clear` keeps the space and is asked for by name, a contradiction is
+// refused by name while the rest proceeds, and the reply's undo hint reads the
+// picture step's own count of photographs taken off. Every model answer below
+// is supplied; the route, the parser and the browser's composer are real.
+
+const COUNTER = "The counter and morning board at Harbour Loaf";
+const COUNTER_LINES = ownLinesOf(ORIG["visit.tsx"], "<SafeImage");
+const REMOVE_COUNTER = { pictures: [{ page: "visit.tsx", alt: COUNTER, remove: true }] };
+const COUNTER_ASK = "Take the photograph of the counter and the morning board off the Visit page.";
+const TAKEN_OFF = "If that was not what you wanted, roll back to the previous build in Cloud → Versions.";
+// TEST 7'S SENTENCE, word for word, and the two pages it must leave.
+const T7_PHOTO_WORDS = "Take the photograph of the counter and the morning board off the Visit page";
+const T7_HOME_WORDS = 'on the home page only, put the "Order a loaf for collection" band above "Fed every morning since we opened"';
+const T7_ASK = T7_PHOTO_WORDS + ". Then, " + T7_HOME_WORDS + ".";
+const T7_VISIT = ORIG["visit.tsx"].replace(COUNTER_LINES, "");
+/** A writer that moves the home band only when shown the home page and told to. */
+const homeWriter = (args) => {
+  const { instruction, path } = writerAsked(args);
+  return { source: path === "index.tsx" && instruction.includes("Fed every morning since we opened") ? MOVED : ORIG[path] };
+};
+
+test("THE UNDO HINT READS THE PICTURE STEP'S OWN COUNT — never `photosRemoved` against `photos`, in either direction", () => {
+  // Found by the mutation sweep: every case above has the two counts agree
+  // with the explicit one, so inferring it from them went unseen.
+  const said = (counts) => editBrowserReply({ ok: true, layer: "look", msg: "✅ Updated the look.", cost: 1, ...counts }, true, ROUTED).text;
+  const LOST = "✅ Updated the look. One photograph is no longer on the site. ";
+  // A PHOTOGRAPH GONE WITHOUT THE PICTURE STEP TAKING IT OFF (a rewrite dropped
+  // it, no frame left): the counts say "more gone than framed", and the hint is
+  // still the one that fits a photograph the picture step did not remove.
+  assert.equal(said({ photosRemoved: 1, photos: 0 }), LOST + "If that was not what you wanted, say “put the photo back”.");
+  // TAKEN OFF, WITH AN EMPTY FRAME ADDED ELSEWHERE IN THE SAME MESSAGE: the
+  // counts are equal, and the removal is still the picture step's.
+  assert.equal(said({ photosRemoved: 1, photos: 1, photosTakenOff: 1 }),
+    LOST + TAKEN_OFF + " There is a space for a photo — upload yours in the Data panel and it’ll fill in.");
+  // CANNOT-TELL IS NOT A COUNT.
+  assert.equal(said({ photosRemoved: 1, photos: 0, photosTakenOff: "1" }), said({ photosRemoved: 1, photos: 0 }));
+});
+
+test("the fixture: the counter is the Visit page's one photograph, on lines of its own, and Test 7's two pages are the recorded ones", () => {
+  assert.ok(COUNTER_LINES.includes('alt="' + COUNTER + '"') && COUNTER_LINES.includes("d5d591527a2bed3836f73b5e74e75565.jpg"));
+  assert.ok(!T7_VISIT.includes("d5d591527a2bed3836f73b5e74e75565.jpg") && T7_VISIT.includes("<LocationCard"));
+  assert.equal(T7_ASK.length, 191);
+  assert.equal(sha(T7_ASK), "9e4dcb228ce8c147d571598df88ce192f0af1a044eee25528ac50091ce5e595f", "Test 7's sentence changed");
+  // THE PAGES TEST 7 NOW EXPECTS: the counter's element gone, the home band moved.
+  assert.deepEqual([T7_VISIT.length, sha(T7_VISIT)], [3801, "263dd01eaaa4345c543038d8df75ab065d612a5ecd965cb1c8d1c8672958f5c6"]);
+  assert.deepEqual([MOVED.length, sha(MOVED)], [2439, "0b64985c87e0ab1f402660fe830481b79ea5c976ac5a970130a5d41b3669e5ec"]);
+});
+
+for (const mode of ["sync", "job"]) {
+  test(`TAKE IT OFF (${mode}): the counter's element comes off the Visit page, nothing else moves, and the reply carries the removal`, async () => {
+    const r = await drive({ mode, routed: { layer: "picture", remove: true, page: "/visit" }, ask: COUNTER_ASK,
+      answers: { [PICK]: { routed: ["images"], additional: [] }, [PICTURE_TOOL.name]: REMOVE_COUNTER } });
+    const label = "take it off " + mode;
+    assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
+    assert.equal(page(r, "visit.tsx"), T7_VISIT, label + ": the Visit page is not the fixture less the counter's element");
+    for (const p of ["index.tsx", "order.tsx", "starter.tsx", "gallery.tsx"]) assert.equal(page(r, p), ORIG[p], label + ": " + p + " changed");
+    assert.equal(r.builds.length, 1, label + ": one compile");
+    // THE EXPLICIT RESULT, and the two comparisons beside it: the photograph is
+    // no longer shown, and it left no empty frame behind.
+    assert.equal(r.reply.photosTakenOff, 1, label + ": the removal is not carried on the reply");
+    assert.equal(r.reply.photosRemoved, 1, label);
+    assert.equal(r.reply.photos, 0, label + ": an empty frame was reported");
+    assert.equal(r.said.text, "✅ Took “" + COUNTER + "” off the page. One photograph is no longer on the site. " + TAKEN_OFF, label + ": the screen");
+    assert.deepEqual(r.said.actions, ["refresh the credit balance"], label);
+  });
+
+  test(`TAKE IT OFF, ROUTED WITHOUT THE ROUTER'S \`remove\` (${mode}): the picture rung called directly carries the same removal and the same result`, async () => {
+    // No door, no picker: the router answered `picture` alone and the picture
+    // model answered `remove`. The explicit count must not depend on which way in.
+    const r = await drive({ mode, routed: { layer: "picture", page: "/visit" }, ask: COUNTER_ASK,
+      answers: { [PICTURE_TOOL.name]: REMOVE_COUNTER } });
+    const label = "direct " + mode;
+    assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
+    assert.deepEqual(r.models, [PICTURE_TOOL.name], label + ": the rungs called");
+    assert.equal(page(r, "visit.tsx"), T7_VISIT, label + ": the Visit page is not the fixture less the counter's element");
+    for (const p of ["index.tsx", "order.tsx", "starter.tsx", "gallery.tsx"]) assert.equal(page(r, p), ORIG[p], label + ": " + p + " changed");
+    assert.equal(r.reply.photosTakenOff, 1, label + ": the removal is not carried on the reply");
+    assert.equal(r.said.text, "✅ Took “" + COUNTER + "” off the page. One photograph is no longer on the site. " + TAKEN_OFF, label + ": the screen");
+  });
+
+  test(`KEEP THE SPACE (${mode}): asked for by name, the photograph goes and its frame stays — exactly as before`, async () => {
+    const ask = "Empty the frame of the photo of the counter and the morning board on the Visit page, and keep the space for a new photo.";
+    const r = await drive({ mode, routed: { layer: "picture", page: "/visit" }, ask,
+      answers: { [PICTURE_TOOL.name]: { pictures: [{ page: "visit.tsx", alt: COUNTER, clear: true }] } } });
+    const label = "keep the space " + mode;
+    assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
+    assert.equal(page(r, "visit.tsx"), ORIG["visit.tsx"].replace('src="/u/fold-lane-bakery/d5d591527a2bed3836f73b5e74e75565.jpg"', 'src=""'), label + ": not exactly the emptied frame");
+    for (const p of ["index.tsx", "order.tsx", "starter.tsx", "gallery.tsx"]) assert.equal(page(r, p), ORIG[p], label + ": " + p + " changed");
+    assert.equal(r.reply.photosTakenOff, undefined, label + ": a kept space was reported as taken off");
+    assert.equal(r.reply.photos, 1, label + ": the frame it left is not reported");
+    assert.equal(r.said.text, "✅ Took the picture off “" + COUNTER + "”. One photograph is no longer on the site. If that was not what you wanted, say “put the photo back”. There is a space for a photo — upload yours in the Data panel and it’ll fill in.", label + ": the screen");
+  });
+
+  test(`A CONTRADICTION IS REFUSED BY NAME (${mode}), and the valid change beside it still ships`, async () => {
+    const r = await drive({ mode, routed: { layer: "picture" }, ask: "Take the boule photo off and keep its space, and show the bottom of the front photo.",
+      answers: { [PICTURE_TOOL.name]: { pictures: [{ page: "index.tsx", alt: BOULE, remove: true, clear: true }, { page: "index.tsx", alt: FRONT, focus: "bottom" }] } } });
+    const label = "conflict " + mode;
+    assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
+    // THE BOULE UNTOUCHED, THE FRONT REFRAMED — and nothing else.
+    assert.equal(page(r, "index.tsx"), ORIG["index.tsx"].replace('<SafeImage\n          src="/u/fold-lane-bakery/64eee06cebae214308ea0142e5163286.jpg"', '<SafeImage focus="bottom"\n          src="/u/fold-lane-bakery/64eee06cebae214308ea0142e5163286.jpg"'), label + ": the home page");
+    assert.equal(r.reply.photosTakenOff, undefined, label);
+    assert.equal(r.said.text, "✅ Moved “" + FRONT + "” to show the bottom. I got conflicting instructions for “" + BOULE + "” and left it as it was — say whether to take it off, keep its space empty, or put another photo there.", label + ": the screen");
+  });
+
+  test(`A PHOTOGRAPH WRITTEN INSIDE CODE IS REFUSED (${mode}): nothing is cut, cleared or widened, and nothing is published`, async () => {
+    // A HAND-MADE VARIANT OF THE STORED VISIT PAGE for this boundary alone: the
+    // counter rendered under a condition. Taking it off would mean rewriting
+    // that code, which the picture step does not do.
+    const inCode = ORIG["visit.tsx"].replace(COUNTER_LINES, "            {true && (\n" + COUNTER_LINES + "            )}\n");
+    const b = bucket();
+    b.store.set("source/" + SLUG + "/pages.json", JSON.stringify(PAGES.map((p) => (p.path === "visit.tsx" ? { ...p, source: inCode } : p))));
+    const r = await drive({ mode, site: { b }, routed: { layer: "picture", remove: true, page: "/visit" }, ask: COUNTER_ASK,
+      answers: { [PICK]: { routed: ["images"], additional: [] }, [PICTURE_TOOL.name]: REMOVE_COUNTER } });
+    const label = "in code " + mode;
+    assert.equal(r.status, 422, label + ": " + JSON.stringify(r.reply));
+    assert.equal(r.builds.length, 0, label + ": something was compiled");
+    assert.equal(page(r, "visit.tsx"), inCode, label + ": the Visit page changed");
+    assert.ok(r.said.text.startsWith("⚠️ I couldn't take “" + COUNTER + "” off on its own — it's part of a bigger block on the page — so I left it as it was. Say “empty that photo” to keep its space, or ask for the block to be taken off."), label + ": " + r.said.text);
+  });
+
+  // ── TEST 7'S MIXED TWO-PAGE MESSAGE: the photograph off one page, the band moved on another ──
+  for (const [door, routed, pick] of [
+    ["look door", { layer: "look", page: "" }, { fields: ["images", "shape"], removes: ["images"], scopes: [{ part: "images", words: T7_PHOTO_WORDS, page: "/visit" }, { part: "shape", page: "/", words: T7_HOME_WORDS }] }],
+    ["removal door", { layer: "picture", remove: true, page: "/visit" }, { additional: ["shape"], scopes: [{ part: "shape", page: "/", words: T7_HOME_WORDS }] }],
+  ]) {
+    test(`MIXED (${mode}, ${door}): the counter comes off the Visit page and the band moves on the home page, each on its own page, in one publish`, async () => {
+      const r = await drive({ mode, routed, ask: T7_ASK, answers: { [PICK]: pick, write_tweak: homeWriter, [PICTURE_TOOL.name]: REMOVE_COUNTER } });
+      const label = "mixed " + mode + " " + door;
+      assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
+      assert.equal(r.reply.ok, true, label);
+      // THE WRITER WAS HANDED THE HOME PAGE AND THE HOME WORDS; THE PICTURE STEP RAN ONCE.
+      const writes = r.sent.filter((q) => q.tool === "write_tweak").map((q) => writerAsked(q.args));
+      assert.deepEqual(writes, [{ path: "index.tsx", instruction: T7_HOME_WORDS }], label + ": what the writer was handed");
+      assert.equal(r.sent.filter((q) => q.tool === PICTURE_TOOL.name).length, 1, label + ": the picture step ran more than once");
+      // THE STORED RESULT, EXACTLY: Test 7's two pages, the other three byte for byte.
+      assert.equal(page(r, "visit.tsx"), T7_VISIT, label + ": the Visit page is not the counter's removal");
+      assert.equal(page(r, "index.tsx"), MOVED, label + ": the home page is not the move");
+      for (const p of ["order.tsx", "starter.tsx", "gallery.tsx"]) assert.equal(page(r, p), ORIG[p], label + ": " + p + " changed");
+      assert.equal(r.builds.length, 1, label + ": one compile carries both");
+      assert.equal(r.reply.partial, undefined, label + ": " + JSON.stringify(r.reply.partial));
+      assert.equal(r.reply.photosTakenOff, 1, label + ": the removal is not carried on the reply");
+      assert.equal(r.said.text, "✅ Updated the look. One photograph is no longer on the site. " + TAKEN_OFF, label + ": the screen");
+    });
+  }
 }

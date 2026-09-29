@@ -35,7 +35,12 @@ here; take a closed one out of both.**
   another change can be missed (Test 7's routing review).
 - The photograph lane says a removal takes the slot away; the picture rung
   leaves the slot, drawn as the kit's placeholder. **Reproduced and rendered;
-  a correction proposed for review; Test 7 held on it.**
+  corrected on the branch 2026-09-29 (`remove` takes the element off; `clear`
+  keeps the space when asked), not merged or deployed; Test 7 held until it
+  is.**
+- What the picture step cannot take off on its own is refused: a photograph
+  held by a larger block, written inside code, or with children; an emptied
+  wrapper with a meaning of its own is kept, and can leave empty space.
 - Redirects dropped between 2026-08-17 and deploy 2165 are not rebuilt.
 - A page removal does not see a QR code that points at the page.
 - The branded not-found page is thrown away on every Start site.
@@ -112,7 +117,34 @@ here; take a closed one out of both.**
   Reproduced through the real route and rendered with the real build (the
   customer sees a grey placeholder captioned with the photo's description),
   and a correction proposed for review, not implemented; Test 7 is held on
-  it.** The record and the plan are the checklist's *Test 7*.
+  it.** The record and the plan are the checklist's *Test 7*. **Implemented
+  on the branch the same day with the owner's safeguards** (the page's syntax
+  tree at the slot's own offset; a wrapper only when demonstrably just the
+  photograph's container; one pass by offset; contradictions refused by name;
+  the explicit `photosTakenOff` behind the undo hint; accurate refusals):
+  `docs/history/2026-09-29-photo-removal.md`. **Not merged, not deployed, not
+  run live.** Close this item when it is deployed and runtime-confirmed.
+- **WHAT THE PICTURE STEP CANNOT TAKE OFF ON ITS OWN (recorded 2026-09-29 as
+  the correction's remaining capability limit; the owner: *"For structures the
+  targeted editor cannot safely remove, give an accurate refusal without
+  silently clearing the image or removing a larger block. Record this as a
+  remaining capability limit."*).** Measured on the stored test pages
+  (`test/fixtures`, 341 files) with the implemented code: of 210 photographs
+  the picture step can address, 190 come off and 20 are refused `part`: 16
+  held as `Figure` props, 2 as `MediaObject` props and 2 written as
+  `media={<SafeImage …/>}` values. The reply names the photograph and offers
+  what would work ("Say “empty that photo” to keep its space, or ask for the
+  block to be taken off."); nothing takes the block off for the customer in one
+  step. Also refused, each with its own sentence: a photograph inside a
+  condition, a map or an attribute, or with children (`part`); two
+  photographs on one page with one description (`same`); and every removal in
+  a job run inline in the Worker, which has no TypeScript reader (`unchecked`;
+  every edit is queued and runs in the container today). **Kept, by the
+  owner's rule on wrappers**: 21 of the 190 leave their wrapper empty (9
+  `<section>`, 7 `<div>` with a class, 5 `<Parallax>`), and one with padding, a
+  background or a size of its own can leave visible empty space where the
+  photograph was. Whether any of these should become a capability is the
+  owner's decision.
 - **A HALF OF A MESSAGE THE ROUTER PUTS OFF IS STILL ATTEMPTED (found
   2026-09-28 by Test 6's paid run, run 52; not changed).** The router answered
   `look` with the Visit page's band move in `alsoAsked` and named no page: one

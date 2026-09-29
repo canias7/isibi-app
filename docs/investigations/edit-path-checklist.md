@@ -121,9 +121,12 @@ stylesheet scope and rule keys (deploy 2161).
     another change depends on the picker stretching `action` or `behavior`
     (run 47's real picker named `behavior`, which did nothing);
   - the photograph lane tells the picker a removal takes the slot away; the
-    picture rung keeps the slot, and the kit draws its placeholder there:
-    **reproduced and rendered, a correction proposed for review, and Test 7
-    held on it** (*Test 7*, below).
+    picture rung kept the slot, and the kit drew its placeholder there:
+    **reproduced and rendered; corrected on the branch 2026-09-29 (`remove`
+    takes the element off, `clear` keeps the space when asked), not merged or
+    deployed; Test 7 held until it is** (*Test 7 → Implemented*, below). What
+    the targeted editor still cannot take off is refused and recorded as a
+    capability limit (backlog).
 - Also recorded:
   - the closed-bookings UX gap;
   - the three Test 4a findings;
@@ -145,7 +148,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Test 7 — a photograph removal and a layout change on another page, in one message (proposed 2026-09-29; its claimed coverage narrowed the same day by a routing review the owner asked for: the customer capability through the look door, not the removal door; held the same day on the photo-removal mismatch, reproduced and a correction proposed for review; not run)
+## Test 7 — a photograph removal and a layout change on another page, in one message (proposed 2026-09-29; its claimed coverage narrowed the same day by a routing review the owner asked for: the customer capability through the look door, not the removal door; held the same day on the photo-removal mismatch, reproduced and a correction proposed for review; the correction implemented on the branch the same day with the owner's safeguards, and Test 7 now expects the element removed; still held until it is merged, deployed and runtime-confirmed; not run)
 
 Owner, 2026-09-29: *"Prepare the next bounded acceptance: a removal combined
 with another change in one message, through the removal path with a real
@@ -219,19 +222,22 @@ deployed (deploy 2166), against runs 47, 49 and 57. Nothing was changed.
 - **The photograph has its own lane on the look door** (`images`, "taking
   one off"), which goes to the picture rung's `clear`: the step the exact
   expected Visit page assumes. No live run has taken a photograph off (none
-  is in *Proven live*, above).
+  is in *Proven live*, above). **Superseded 2026-09-29**: the picture rung
+  now answers a removal with `remove`, and the expected Visit page is the
+  element taken off (*Implemented*, below).
 - **Found, recorded separately (backlog), not changed**: the missing menu
   lane above; and the photograph lane tells the picker that a removal takes
   the slot away ("the slot that held it goes with it, rather than being left
   empty"), while the picture rung's `clear` keeps it, "leaving the space
   empty", and the kit draws its placeholder there. Test 7's item 2 expects
-  the placeholder, which is what the code does.
+  the placeholder, which is what the code does. (**Superseded 2026-09-29**:
+  item 2 now expects the element removed; *Implemented*, below.)
 
 **The outcome**: no suitable menu-link candidate. Test 7's request, checks,
 recovery and cost stand, and what it claims is narrowed to the customer
 capability.
 
-### Held: taking a photo off leaves its space (reproduced 2026-09-29; a correction proposed for review, not implemented)
+### Held: taking a photo off leaves its space (reproduced 2026-09-29; a correction proposed for review, then implemented on the branch the same day with the owner's safeguards: *Implemented*, below)
 
 Owner: *"However, the photo-removal contradiction directly affects Test 7, so
 it cannot simply be parked while the test assumes the current implementation
@@ -335,6 +341,76 @@ location card sits at the top of the right column. Its request, the other
 checks, the recovery and the cost stand. The missing menu lane stays a
 separate backlog item.
 
+The plan above is kept as the owner reviewed it. Where the implementation
+departs from it, by the owner's safeguards or by what building it found, is
+under *Implemented*, next.
+
+### Implemented (2026-09-29, on the branch for review; not merged, not deployed, not run live)
+
+Owner: *"Implement the remove-versus-clear correction on the working branch,
+with these safeguards: Use reliable TSX structure to identify the exact photo
+element. … Do not automatically delete every parent that becomes empty. …
+Remove a wrapper only when it is demonstrably just the removed photo's
+container. Preserve exact target identity when applying several changes. …
+If the model supplies contradictory actions such as remove and clear
+together, report that operation as invalid rather than silently choosing
+clear. Independently valid operations should still proceed. Carry an explicit
+removal result into the reply and recovery hint; do not infer it from
+photosRemoved > photos. For structures the targeted editor cannot safely
+remove, give an accurate refusal without silently clearing the image or
+removing a larger block. Record this as a remaining capability limit. … Update
+Test 7 to expect actual element removal, and mark its old placeholder
+expectations as superseded."* The full request and the record are
+`docs/history/2026-09-29-photo-removal.md`.
+
+**What was built**, each against a safeguard:
+- **Structure, not neighbouring characters**: `photoRemoval` finds the
+  photograph in the page's own syntax tree (the TypeScript reader the tweak
+  rung uses, injected as the picture step's `parser`), at exactly the offset
+  its slot was read from, and requires the node there to carry the slot's own
+  tag. No reader, a page that does not parse cleanly, or no such node:
+  `unchecked`, and nothing is cut.
+- **Wrappers**: only a plain `div`, `span`, `figure` or `picture` with no
+  attributes at all, whose only content is what is being removed and which
+  itself stands as a child of an element, goes with the photograph. Any class,
+  style, id, key, role, handler, spread, link, control, landmark or component
+  keeps its wrapper, emptied.
+- **Exact identity**: a removal is one more edit in the same pass as the
+  page's other picture edits, at offsets from the same source; nothing is
+  found again by page and description. Two photographs on one page with one
+  description are refused by name (`same`).
+- **Contradictions**: `remove` beside `clear`, a new picture or a framing,
+  and `clear` beside a new picture, are refused by name (`conflict`), also when
+  split over two entries; the other entries proceed. A removal that would take
+  another chosen photograph with it (one inside its own attribute) is a
+  conflict for both.
+- **The explicit result**: the picture step's own count (`photosTakenOff`)
+  reaches the reply, and the browser's undo hint reads it alone: "roll back to
+  the previous build in Cloud → Versions". A photograph gone any other way keeps
+  "say “put the photo back”".
+- **Accurate refusals**: a photograph held as a prop of a larger block,
+  written inside code, or with children is `part`: "I couldn't take “…” off on
+  its own — it's part of a bigger block on the page — so I left it as it was.
+  Say “empty that photo” to keep its space, or ask for the block to be taken
+  off." Nothing is cleared or widened. The capability limit is in the backlog.
+- **Kept working**: swaps, made pictures, reframes and keep-the-space (`clear`,
+  now asked for by name, with exactly its old output and screen).
+
+**Verification** (measured; the numbers are in the history file): a red
+check on `17d1903c` (33 of 102 new and updated cases fail there, the
+keep-the-space controls pass); a mutation sweep of 44 mutants (41 killed, the
+3 survivors answered with tests and then killed; every comment-only control
+survived); and renders from the route's own output with the real build (sent
+to the owner): the counter's element gone and nothing drawn in its place, the
+page 243 px shorter; clear, the old placeholder in the kept frame.
+
+**What Test 7 expects now**: item 2 below, rewritten. The Visit page the
+route stores for Test 7's sentence, on both doors, sync and queued, with
+supplied answers, is exactly the fixture less the counter's element (3,801
+characters, sha256 `263dd01e…`), and the home page is exactly the move
+(`0b64985c…`). **Test 7 stays held** until the correction is merged, deployed
+and runtime-confirmed; its request, recovery and cost stand.
+
 ### The fixture: fold-lane-bakery at `01790468089054-8btpep`
 
 Restored by run 58 and read at 05:33 UTC; Test 6's fixture table below is its
@@ -361,9 +437,11 @@ Verbatim: 191 characters, all ASCII, sha256
 
 > Take the photograph of the counter and the morning board off the Visit page. Then, on the home page only, put the "Order a loaf for collection" band above "Fed every morning since we opened".
 
-- **Why these two**: a photograph removal is the picture rung's `clear`: the
-  slot's `src` is emptied and the kit draws its placeholder in that place,
-  which is checkable exactly in the stored source and the served page. The
+- **Why these two**: a photograph removal is the picture rung's `remove`
+  (since 2026-09-29): the photograph's element comes off and nothing is drawn
+  in its place, which is checkable exactly in the stored source and the served
+  page. (*Superseded*: it was the picture rung's `clear`, the `src` emptied and
+  the kit's placeholder drawn in its place.) The
   band move is a pure block swap on another page, checkable exactly too.
   Neither touches the stylesheet or the description, and nothing closed is
   repeated: Test 6 moved the Visit band, and this moves the home page's.
@@ -371,7 +449,16 @@ Verbatim: 191 characters, all ASCII, sha256
   also mentions counters. These words and the page name the Visit photograph
   alone.
 
-### Rehearsed free through the real edit route (scratch, not committed)
+### Rehearsed free through the real edit route (scratch, not committed; superseded 2026-09-29)
+
+**Superseded by the implemented correction**: the committed route cases in
+`test/edit-removal-door.test.mjs` (*MIXED*, both doors, sync and queued) now
+rehearse the same sentence and expect the counter's element removed, the
+Visit page exactly `263dd01e…`, and the screen "✅ Updated the look. One
+photograph is no longer on the site. If that was not what you wanted, roll
+back to the previous build in Cloud → Versions." The rehearsal below ran on the
+old code and is kept as it was.
+
 
 Every model answer was supplied, on the bakery's own stored pages
 (`test/fixtures/run47/`, byte-identical to `8btpep`), with the harness of
@@ -404,15 +491,24 @@ The route's own record (the router's answer, the door, the picker's lists,
 `layers`, `pageOps`) is kept as evidence of which path ran, and none of it
 decides the verdict. Every item below must hold.
 1. **The request**: `request.json` carries sha256 `9e4dcb22…`.
-2. **The removal, stored and published**:
-   - stored: `visit.tsx` is the fixture with exactly the counter slot's `src`
-     emptied: 3,989 characters, sha256
-     `46959b0d0ff57f169d9361692447cbee26aba26a127760f7f8770b45c629b4d0`.
+2. **The removal, stored and published** (rewritten 2026-09-29 for the
+   implemented correction):
+   - stored: `visit.tsx` is the fixture with exactly the counter's
+     `<SafeImage>` element and its six lines taken out: 3,801 characters,
+     sha256
+     `263dd01eaaa4345c543038d8df75ab065d612a5ecd965cb1c8d1c8672958f5c6`.
      Nothing else in it differs, and its band stays last;
-   - published: `/visit` no longer shows `d5d59152…jpg`, its slot draws the
-     placeholder, and the rest of its markup is unchanged. The upload itself
-     is still served: a clear takes the photograph off the page, not out of
-     the library.
+   - published: `/visit` no longer shows `d5d59152…jpg`, and **nothing is
+     drawn where it was**: no image, no placeholder, no empty frame. The
+     location card sits at the top of its column and the rest of the markup
+     is unchanged. The upload itself is still served: a removal takes the
+     photograph off the page, not out of the library;
+   - **superseded** (the old code's result, not to be accepted): `visit.tsx`
+     with only the `src` emptied (3,989 characters, sha256
+     `46959b0d0ff57f169d9361692447cbee26aba26a127760f7f8770b45c629b4d0`), the
+     slot drawing the placeholder, and a reply offering "There is a space for
+     a photo". Any of these now means the picture model answered `clear` for a
+     removal: a failure of item 2.
 3. **The layout change, stored and published**:
    - stored: `index.tsx` is exactly the swap: 2,439 characters, sha256
      `0b64985c87e0ab1f402660fe830481b79ea5c976ac5a970130a5d41b3669e5ec`. The
@@ -468,8 +564,15 @@ that line in it; the verdict is items 1–7.
 - **The router answers `page` with `remove` on `/visit`** (the page read as
   the thing to take off): refused before anything is written, because other
   pages' menus link to `/visit`. Nothing changes; a routing finding.
-- **The picture rung clears a home photograph, or picks the Gallery slot**:
-  the removal went to the wrong page, or was dropped. A failure.
+- **The picture rung takes a home photograph off, or picks the Gallery
+  slot**: the removal went to the wrong page, or was dropped. A failure.
+- **The picture model answers `clear` for the removal** (keeping the space):
+  the placeholder is drawn where the photograph was; item 2 fails, and it is a
+  finding about the real model's reading of the tool.
+- **The picture step refuses the removal** (`conflict`, `same`, `part` or
+  `unchecked`): nothing is written for the photograph and the reply says why;
+  item 2 fails. On this fixture only a contradictory model answer or a job
+  run without the parser could cause one.
 - **The picker ties `shape` to the routed change, answers no scopes, or
   scopes it to another page**: the move is dropped or runs on the wrong page.
   A failure, caught by `index.tsx` and `visit.tsx`.

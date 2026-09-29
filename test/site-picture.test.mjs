@@ -11,8 +11,9 @@ import {
   PICTURE_MODEL, PICTURE_TOOL, MAX_SLOTS, MAX_PICTURE_OPS, MAX_DESCRIBE,
   imageSlots, isEmptySlot, pictureDigest, pictureRequest, readPictures,
   applyPictures, pictureReply, pictureUsage, runPictureEdit, readNeedsPlace, newEmptySlots,
-  listFrames, newListFrames, MAX_LIST_FRAMES, codeOnly,
+  listFrames, newListFrames, MAX_LIST_FRAMES, codeOnly, photoRemoval, BARE_CONTAINERS,
 } from "../builder/site-picture.mjs";
+import { tweakParser } from "../builder/site-tweak.mjs";
 
 const HOME = {
   path: "index.tsx",
@@ -141,10 +142,20 @@ test("a description is clipped rather than sent whole", () => {
   assert.equal(got[0].describe.length, MAX_DESCRIBE);
 });
 
-test("clearing a picture is expressible and beats a description", () => {
-  const got = readPictures(said([{ page: "index.tsx", alt: "The team", clear: true, describe: "something" }]), imageSlots(PAGES), LIB);
-  assert.equal(got[0].clear, true);
-  assert.equal(got[0].describe, undefined);
+test("CLEARING BESIDE A NEW PICTURE IS A CONTRADICTION, refused by name — never answered by precedence", () => {
+  // It used to be answered: `clear` won and the description was dropped,
+  // silently. Owner, 2026-09-29: *"If the model supplies contradictory actions
+  // such as remove and clear together, report that operation as invalid rather
+  // than silently choosing clear. Independently valid operations should still
+  // proceed."* So the swap beside it goes ahead.
+  const got = readPictures(said([
+    { page: "index.tsx", alt: "The team", clear: true, describe: "something" },
+    { page: "index.tsx", alt: "Shopfront at dusk", file: "shop-front.jpg" },
+  ]), imageSlots(PAGES), LIB);
+  assert.deepEqual(got.map((c) => [c.slot.alt, c.refused || null, c.clear === true, c.describe || null, c.file || null]), [
+    ["The team", "conflict", false, null, null],
+    ["Shopfront at dusk", null, false, null, "shop-front.jpg"],
+  ]);
 });
 
 test("the same slot twice is one change", () => {
@@ -1082,4 +1093,309 @@ test("the whole corpus reads clean: every list frame empty, and the counted spli
   assert.deepEqual(Object.keys(made[0]), ["page", "alt", "value", "empty", "counted"],
     "a frame's fields moved — every assertion in this file reads them BY NAME, so re-anchor them all: " +
     JSON.stringify(Object.keys(made[0])));
+});
+
+// ── TAKING A PHOTOGRAPH OFF VERSUS KEEPING ITS SPACE (2026-09-29) ────────────
+//
+// Reproduced through the real edit route and compiled with the real build: the
+// lane picker was promised "the slot that held it goes with it", the picture
+// tool's only removal emptied the `src`, and the customer who asked for the
+// photo to come off got a grey placeholder captioned with its description.
+// Owner: *"distinguishes removing a photo element from explicitly clearing a
+// photo while keeping its space"*, with *"reliable TSX structure"*, wrappers
+// kept unless *"demonstrably just the removed photo's container"*, exact target
+// identity, contradictions reported, and accurate refusals.
+
+const PARSE = await tweakParser();
+/** The slot with that description on a one-page site, read the way the route reads it. */
+const slotIn = (source, alt) => imageSlots([{ path: "p.tsx", source }]).find((s) => s.alt === alt);
+/** Take it off, and hand back the result beside the source it came from. */
+function takeOff(source, alt, parse = PARSE) {
+  const cut = photoRemoval(source, slotIn(source, alt), parse);
+  return cut.ok ? { ...cut, out: source.slice(0, cut.from) + source.slice(cut.to) } : cut;
+}
+const PHOTO = '<SafeImage src="/u/s/counter.jpg" alt="The counter" />';
+const page = (body) => "export function P() {\n  return (\n    <main>\n" + body + "    </main>\n  );\n}\n";
+
+test("the parser the removal reads with is really here — every case below would otherwise be `unchecked`", () => {
+  assert.equal(typeof PARSE, "function", "no TypeScript reader in this runtime, so nothing below tests the structure");
+  assert.equal(takeOff(page("      " + PHOTO + "\n"), "The counter").ok, true);
+});
+
+test("THE TOOL HAS TWO ANSWERS: `remove` takes the photograph and its space, `clear` keeps the space and is asked for by name", () => {
+  const items = PICTURE_TOOL.input_schema.properties.pictures.items.properties;
+  assert.equal(items.remove.type, "boolean");
+  assert.match(items.remove.description, /the space it sits in both go/);
+  assert.match(items.remove.description, /"take the photo off"/);
+  assert.match(items.remove.description, /never with `clear`, `file`, `describe` or `focus`/);
+  assert.match(items.clear.description, /ONLY when they ask to KEEP THE SPACE/);
+  assert.match(items.clear.description, /To take a photograph off, use `remove`/);
+});
+
+test("`remove` on its own is a removal; beside any other action it is a conflict, and the rest of the answer is read as before", () => {
+  const one = (entry) => {
+    const got = readPictures(said([{ page: "index.tsx", ...entry }]), imageSlots(PAGES), LIB);
+    return got.length ? { remove: got[0].remove === true, clear: got[0].clear === true, file: got[0].file || null, describe: got[0].describe || null, focus: got[0].focus || null, refused: got[0].refused || null } : null;
+  };
+  const NONE = { remove: false, clear: false, file: null, describe: null, focus: null, refused: null };
+  assert.deepEqual(one({ alt: "Shopfront at dusk", remove: true }), { ...NONE, remove: true });
+  for (const [name, extra] of [
+    ["clear", { clear: true }], ["an upload", { file: "shop-front.jpg" }], ["a description", { describe: "a new shop" }], ["a framing", { focus: "top" }],
+  ]) assert.deepEqual(one({ alt: "Shopfront at dusk", remove: true, ...extra }), { ...NONE, refused: "conflict" }, "remove beside " + name);
+  assert.deepEqual(one({ alt: "Shopfront at dusk", clear: true, file: "shop-front.jpg" }), { ...NONE, refused: "conflict" }, "clear beside an upload");
+  // NOT CONFLICTS, and unchanged: a clear with a framing, and an upload with its fallback description.
+  assert.deepEqual(one({ alt: "Shopfront at dusk", clear: true, focus: "top" }), { ...NONE, clear: true, focus: "top" });
+  assert.deepEqual(one({ alt: "Shopfront at dusk", file: "shop-front.jpg", describe: "a shop" }), { ...NONE, file: "shop-front.jpg" });
+  // CANNOT-TELL IS NOT A REMOVAL: only the boolean `true` is.
+  assert.equal(one({ alt: "Shopfront at dusk", remove: "yes" }), null);
+});
+
+test("THE SAME CONTRADICTION SPLIT OVER TWO ENTRIES IS STILL A CONFLICT — never settled by which entry came first", () => {
+  // `seen` keeps a photograph's first entry and drops the rest, so a `remove`
+  // in one entry and a `clear` in the next was a choice made by order.
+  const read = (entries) => readPictures(said(entries.map((e) => ({ page: "index.tsx", ...e }))), imageSlots(PAGES), LIB)
+    .map((c) => [c.slot.alt, c.refused || (c.remove ? "remove" : c.clear ? "clear" : c.file || c.describe || c.focus)]);
+  for (const [a, b] of [
+    [{ remove: true }, { clear: true }], [{ clear: true }, { remove: true }],
+    [{ remove: true }, { file: "shop-front.jpg" }], [{ focus: "top" }, { remove: true }],
+    [{ clear: true }, { describe: "a new shop" }],
+  ]) {
+    assert.deepEqual(read([{ alt: "The team", file: "shop-front.jpg" }, { alt: "Shopfront at dusk", ...a }, { alt: "Shopfront at dusk", ...b }]),
+      [["The team", "shop-front.jpg"], ["Shopfront at dusk", "conflict"]], JSON.stringify([a, b]));
+  }
+  // ONE REQUEST SAID TWICE IS ONE CHANGE, as before.
+  assert.deepEqual(read([{ alt: "Shopfront at dusk", remove: true }, { alt: "Shopfront at dusk", remove: true }]), [["Shopfront at dusk", "remove"]]);
+  assert.deepEqual(read([{ alt: "Shopfront at dusk", clear: true }, { alt: "Shopfront at dusk", focus: "top" }]), [["Shopfront at dusk", "clear"]]);
+});
+
+test("TWO PHOTOGRAPHS ON ONE PAGE WITH ONE DESCRIPTION ARE REFUSED BY NAME — neither is guessed; the same words on two pages are two photographs", () => {
+  const DUP = { path: "dup.tsx", source: page('      <SafeImage src="/u/s/a.jpg" alt="The oven" />\n      <SafeImage src="/u/s/b.jpg" alt="The oven" />\n') };
+  for (const action of [{ remove: true }, { clear: true }, { file: "shop-front.jpg" }]) {
+    const got = readPictures(said([{ page: "dup.tsx", alt: "The oven", ...action }]), imageSlots([DUP]), LIB);
+    assert.deepEqual(got.map((c) => c.refused), ["same"], JSON.stringify(action));
+  }
+  // PAGE AND DESCRIPTION TOGETHER STILL NAME ONE — the case `PAGES` has.
+  const got = readPictures(said([{ page: "work.tsx", alt: "Shopfront at dusk", remove: true }]), imageSlots(PAGES), LIB);
+  assert.deepEqual(got.map((c) => [c.slot.page, c.remove === true, c.refused || null]), [["work.tsx", true, null]]);
+});
+
+test("A PHOTOGRAPH THAT HAS ITS LINES TO ITSELF GOES WITH THEM, and nothing else on the page moves", () => {
+  const lines = '      <SafeImage\n        src="/u/s/counter.jpg"\n        alt="The counter"\n        ratio="4/3"\n      />\n';
+  const src = page("      <h2>Visit</h2>\n" + lines + "      <p>Hours</p>\n");
+  const got = takeOff(src, "The counter");
+  assert.equal(got.ok, true, JSON.stringify(got));
+  assert.equal(got.out, src.replace(lines, ""));
+  assert.deepEqual(got.wrappers, []);
+});
+
+test("an inline photograph between tags takes exactly its own element, and an `<img>` is a photograph too", () => {
+  const inline = page("      <div><p>Hi</p>" + PHOTO + "<p>Bye</p></div>\n");
+  assert.equal(takeOff(inline, "The counter").out, inline.replace(PHOTO, ""));
+  const img = '<img src="/u/s/counter.jpg" alt="The counter" />';
+  const withImg = page("      <div>\n        <h2>Visit</h2>\n        " + img + "\n      </div>\n");
+  assert.equal(takeOff(withImg, "The counter").out, withImg.replace("        " + img + "\n", ""));
+});
+
+test("A BARE CONTAINER GOES WITH THE PHOTOGRAPH: a plain element with no attributes whose only content it is, up the tree", () => {
+  assert.deepEqual(BARE_CONTAINERS, ["div", "span", "figure", "picture"]);
+  const nest = "      <div>\n        <div>\n          " + PHOTO + "\n        </div>\n      </div>\n";
+  const src = page("      <h2>Visit</h2>\n" + nest + "      <p>Hours</p>\n");
+  const got = takeOff(src, "The counter");
+  assert.deepEqual(got.wrappers, ["div", "div"]);
+  assert.equal(got.out, src.replace(nest, ""));
+  // IT STOPS AT THE FIRST ONE THAT HOLDS ANYTHING ELSE.
+  const shared = "      <div>\n        <div>\n          " + PHOTO + "\n        </div>\n        <p>Caption</p>\n      </div>\n";
+  const src2 = page(shared);
+  const got2 = takeOff(src2, "The counter");
+  assert.deepEqual(got2.wrappers, ["div"]);
+  assert.equal(got2.out, src2.replace("        <div>\n          " + PHOTO + "\n        </div>\n", ""));
+});
+
+test("EVERY WRAPPER WITH A MEANING OF ITS OWN IS KEPT, emptied — a class, a style, an id, a handler, a spread, a link, a control, a landmark, a component", () => {
+  for (const [open, close] of [
+    ['<div className="mt-10">', "</div>"], ["<div style={{ padding: 4 }}>", "</div>"], ['<div id="visit">', "</div>"],
+    ['<div data-x="1">', "</div>"], ['<div role="img">', "</div>"], ["<div onClick={go}>", "</div>"], ["<div {...rest}>", "</div>"],
+    ["<div key=\"k\">", "</div>"], ['<a href="/visit">', "</a>"], ['<button type="button">', "</button>"], ["<section>", "</section>"],
+    ["<li>", "</li>"], ["<p>", "</p>"], ["<AspectRatio ratio={4 / 3}>", "</AspectRatio>"], ["<Parallax speed={0.15}>", "</Parallax>"],
+    ['<figure className="x">', "</figure>"],
+  ]) {
+    const src = page("      " + open + "\n        " + PHOTO + "\n      " + close + "\n");
+    const got = takeOff(src, "The counter");
+    assert.equal(got.ok, true, open + ": " + JSON.stringify(got));
+    assert.deepEqual(got.wrappers, [], open + " was taken with the photograph");
+    assert.equal(got.out, src.replace("        " + PHOTO + "\n", ""), open + ": more than the photograph changed");
+  }
+});
+
+test("a bare container that is the whole of what a component returns is not a child of an element, so it stays", () => {
+  const src = "export function P() {\n  return (\n    <div>\n      " + PHOTO + "\n    </div>\n  );\n}\n";
+  const got = takeOff(src, "The counter");
+  assert.deepEqual(got.wrappers, []);
+  assert.equal(got.out, src.replace("      " + PHOTO + "\n", ""));
+});
+
+test("A PHOTOGRAPH WRITTEN INSIDE CODE OR HELD BY A BLOCK IS `part` — refused, never cut, cleared or widened", () => {
+  for (const [name, body, alt] of [
+    ["a condition", "      <div>\n        {open && " + PHOTO + "}\n      </div>\n", "The counter"],
+    ["a ternary", "      <div>\n        {open ? " + PHOTO + " : null}\n      </div>\n", "The counter"],
+    ["an attribute value", "      <MediaObject media={" + PHOTO + "} />\n", "The counter"],
+    ["a component's own props", '      <Figure src="/u/s/counter.jpg" alt="The counter" caption="Our counter" />\n', "The counter"],
+    ["an element with children", '      <SafeImage src="/u/s/counter.jpg" alt="The counter">x</SafeImage>\n', "The counter"],
+  ]) {
+    const src = page(body);
+    assert.ok(slotIn(src, alt), name + ": the slot was not found, so this case asserts nothing");
+    assert.deepEqual(takeOff(src, alt), { ok: false, reason: "part" }, name);
+  }
+});
+
+test("WITHOUT A RELIABLE READING OF THE PAGE NOTHING IS CUT — no parser, a page it cannot parse, or no element at the slot's offset", () => {
+  const src = page("      " + PHOTO + "\n");
+  assert.deepEqual(takeOff(src, "The counter", null), { ok: false, reason: "unchecked" }, "no parser");
+  assert.deepEqual(takeOff(src, "The counter", () => { throw new Error("boom"); }), { ok: false, reason: "unchecked" }, "a parser that throws");
+  const broken = "export function P() {\n  return (\n    <main>\n      <div>\n      " + PHOTO + "\n    </main>\n  );\n}\n";
+  assert.deepEqual(takeOff(broken, "The counter"), { ok: false, reason: "unchecked" }, "an unclosed element");
+  const inString = "const note = '" + PHOTO + "';\nexport function P() { return <main />; }\n";
+  assert.ok(slotIn(inString, "The counter"), "the scan no longer sees the text in the string, so this case asserts nothing");
+  assert.deepEqual(takeOff(inString, "The counter"), { ok: false, reason: "unchecked" }, "text in a string is not an element");
+});
+
+test("A SLOT READ FROM ANOTHER VERSION OF THE PAGE cuts nothing — what stands at its offset must be the photograph it was read as", () => {
+  // Found by the mutation sweep: nothing asked this. The offset alone is not
+  // an identity once the source under it has moved.
+  const src = page("      " + PHOTO + "\n");
+  const slot = slotIn(src, "The counter");
+  const moved = src.slice(0, slot.from) + '<div className="note" />' + src.slice(slot.from + PHOTO.length);
+  assert.equal(moved.slice(slot.from, slot.from + 4), "<div", "the stale offset does not land on another element, so this case asserts nothing");
+  assert.deepEqual(photoRemoval(moved, slot, PARSE), { ok: false, reason: "unchecked" });
+});
+
+test("A COMMENT IS NOT CONTENT: a bare container holding only a note and the photograph goes with it; a real expression keeps it", () => {
+  // Found by the mutation sweep: whether `{/* … */}` counts was never asked.
+  const noted = page("      <div>\n        {/* the counter */}\n        " + PHOTO + "\n      </div>\n");
+  const gone = takeOff(noted, "The counter");
+  assert.equal(gone.ok, true, JSON.stringify(gone));
+  assert.deepEqual(gone.wrappers, ["div"]);
+  assert.equal(gone.out, page(""));
+  // `{note}` renders something, so the wrapper holds more than the photograph.
+  const shown = page("      <div>\n        {note}\n        " + PHOTO + "\n      </div>\n");
+  const kept = takeOff(shown, "The counter");
+  assert.deepEqual(kept.wrappers, []);
+  assert.equal(kept.out, shown.replace("        " + PHOTO + "\n", ""));
+});
+
+test("EXACT IDENTITY: a removal and a swap on one page land on the photographs chosen, by offset — not by description or address", async () => {
+  // Two of these share an address, and two descriptions begin alike: nothing
+  // here is found again by either. One parse, one pass, back to front.
+  const src = page(
+    '      <SafeImage src="/u/s/a.jpg" alt="The oven" />\n' +
+    '      <SafeImage src="/u/s/a.jpg" alt="The oven door" />\n' +
+    '      <SafeImage src="/u/s/b.jpg" alt="The bench" />\n');
+  const r = await runPictureEdit({
+    send: async () => said([{ page: "p.tsx", alt: "The oven door", remove: true }, { page: "p.tsx", alt: "The bench", file: "shop-front.jpg" }]),
+    library: async () => LIB,
+    parser: async () => PARSE,
+  }, { instruction: "take the oven door photo off and use my shop photo for the bench", pages: [{ path: "p.tsx", source: src }] });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.pages[0].source, src
+    .replace('      <SafeImage src="/u/s/a.jpg" alt="The oven door" />\n', "")
+    .replace('src="/u/s/b.jpg" alt="The bench"', 'src="https://gofarther.dev/u/s/shop-front.jpg" alt="The bench"'));
+  assert.deepEqual([r.removed.length, r.used.length], [1, 1]);
+  assert.equal(r.msg, "✅ Put your own photograph on “The bench”, took “The oven door” off the page.");
+});
+
+test("TWO EDITS THAT OVERLAP LEAVE THE PAGE AS IT WAS, and say which page — the guard is alive", () => {
+  const src = page("      " + PHOTO + "\n");
+  const slot = slotIn(src, "The counter");
+  const got = applyPictures([{ path: "p.tsx", source: src }], [
+    { slot, cut: { from: slot.from, to: slot.end } },
+    { slot: { ...slot }, cut: { from: slot.from + 2, to: slot.end - 2 } },
+  ]);
+  assert.deepEqual(got.overlapped, ["p.tsx"]);
+  assert.deepEqual(got.changed, []);
+  assert.equal(got.pages[0].source, src);
+});
+
+test("the removal is reported as a removal; a refusal says what was left and nothing is written for it", async () => {
+  const src = page(
+    "      " + PHOTO + "\n" +
+    '      <MediaObject media={<SafeImage src="/u/s/m.jpg" alt="The mill" />} />\n' +
+    '      <SafeImage src="/u/s/q.jpg" alt="The quay" />\n');
+  const run = (pictures, parser = async () => PARSE) => runPictureEdit({ send: async () => said(pictures), library: async () => LIB, parser },
+    { instruction: "x", pages: [{ path: "p.tsx", source: src }] });
+  const off = await run([{ page: "p.tsx", alt: "The counter", remove: true }]);
+  assert.equal(off.ok, true);
+  assert.equal(off.msg, "✅ Took “The counter” off the page.");
+  assert.equal(off.pages[0].source, src.replace("      " + PHOTO + "\n", ""));
+  // A BLOCK'S PICTURE REFUSED, AND THE INDEPENDENT CLEAR BESIDE IT STILL RUNS.
+  const mixed = await run([{ page: "p.tsx", alt: "The mill", remove: true }, { page: "p.tsx", alt: "The quay", clear: true }]);
+  assert.equal(mixed.ok, true);
+  assert.deepEqual(mixed.refused.map((c) => [c.slot.alt, c.refused]), [["The mill", "part"]]);
+  assert.equal(mixed.pages[0].source, src.replace('src="/u/s/q.jpg" alt="The quay"', 'src="" alt="The quay"'), "the block's photograph was touched");
+  assert.equal(mixed.msg, "✅ Took the picture off “The quay”. I couldn't take “The mill” off on its own — it's part of a bigger block on the page — so I left it as it was. Say “empty that photo” to keep its space, or ask for the block to be taken off.");
+  // A CONTRADICTION BESIDE A VALID REMOVAL: the removal runs.
+  const conflict = await run([{ page: "p.tsx", alt: "The quay", remove: true, clear: true }, { page: "p.tsx", alt: "The counter", remove: true }]);
+  assert.equal(conflict.ok, true);
+  assert.equal(conflict.pages[0].source, src.replace("      " + PHOTO + "\n", ""));
+  assert.equal(conflict.msg, "✅ Took “The counter” off the page. I got conflicting instructions for “The quay” and left it as it was — say whether to take it off, keep its space empty, or put another photo there.");
+  // NO READER: the removal is refused, not cut on a guess and not cleared.
+  const blind = await run([{ page: "p.tsx", alt: "The counter", remove: true }], async () => null);
+  assert.equal(blind.ok, false);
+  assert.equal(blind.reason, "no-change");
+  assert.equal(blind.msg, "I couldn't check how “The counter” sits on the page just now, so I left it as it was.");
+  // A READER THAT CANNOT BE LOADED is the same absence.
+  const thrown = await run([{ page: "p.tsx", alt: "The counter", remove: true }], async () => { throw new Error("no typescript"); });
+  assert.equal(thrown.msg, blind.msg);
+});
+
+test("TWO PHOTOGRAPHS WITH ONE DESCRIPTION: the reply says why neither was touched, and the change beside them still runs", async () => {
+  const src = page('      <SafeImage src="/u/s/a.jpg" alt="The oven" />\n      <SafeImage src="/u/s/b.jpg" alt="The oven" />\n      <SafeImage src="/u/s/q.jpg" alt="The quay" />\n');
+  const r = await runPictureEdit({
+    send: async () => said([{ page: "p.tsx", alt: "The oven", remove: true }, { page: "p.tsx", alt: "The quay", focus: "top" }]),
+    library: async () => LIB,
+    parser: async () => PARSE,
+  }, { instruction: "take the oven photo off and show the top of the quay", pages: [{ path: "p.tsx", source: src }] });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(r.pages[0].source, src.replace('<SafeImage src="/u/s/q.jpg"', '<SafeImage focus="top" src="/u/s/q.jpg"'));
+  assert.equal(r.msg, "✅ Moved “The quay” to show the top. More than one photo on the page is described as “The oven”, so I couldn't tell which you meant and left it as it was.");
+});
+
+test("A REMOVAL THAT WOULD TAKE ANOTHER CHOSEN PHOTOGRAPH WITH IT is a conflict for both — and the independent changes beside them still run", async () => {
+  // A photograph written inside another's attribute goes when the outer one
+  // does, so changing it in the same answer is a contradiction. It used to
+  // reach `applyPictures`' overlap guard, which left the WHOLE step unwritten —
+  // the independent change on the other page included.
+  const P = page(
+    '      <SafeImage src="/u/s/a.jpg" alt="Outer" fallback={<SafeImage src="/u/s/b.jpg" alt="Inner" />} />\n' +
+    '      <SafeImage src="/u/s/t.jpg" alt="Third" />\n');
+  const Q = page('      <SafeImage src="/u/s/q.jpg" alt="The quay" />\n');
+  const pages = [{ path: "p.tsx", source: P }, { path: "q.tsx", source: Q }];
+  const run = (pictures) => runPictureEdit({ send: async () => said(pictures), library: async () => LIB, parser: async () => PARSE }, { instruction: "x", pages });
+  for (const inner of [{ file: "shop-front.jpg" }, { clear: true }, { focus: "top" }]) {
+    const r = await run([
+      { page: "p.tsx", alt: "Outer", remove: true }, { page: "p.tsx", alt: "Inner", ...inner },
+      { page: "p.tsx", alt: "Third", file: "shop-front.jpg" }, { page: "q.tsx", alt: "The quay", focus: "bottom" },
+    ]);
+    assert.equal(r.ok, true, JSON.stringify(inner) + " " + JSON.stringify(r));
+    assert.deepEqual(r.refused.map((c) => [c.slot.alt, c.refused]), [["Outer", "conflict"], ["Inner", "conflict"]], JSON.stringify(inner));
+    assert.equal(r.pages[0].source, P.replace('src="/u/s/t.jpg"', 'src="https://gofarther.dev/u/s/shop-front.jpg"'), "Outer or Inner was written: " + JSON.stringify(inner));
+    assert.equal(r.pages[1].source, Q.replace('<SafeImage src="/u/s/q.jpg"', '<SafeImage focus="bottom" src="/u/s/q.jpg"'));
+    assert.equal(r.msg, "✅ Put your own photograph on “Third”, moved “The quay” to show the bottom. I got conflicting instructions for “Outer”, “Inner” and left them as they were — say for each whether to take it off, keep its space empty, or put another photo there.");
+  }
+  // ON ITS OWN THE OUTER ONE COMES OFF, with what it holds.
+  const alone = await run([{ page: "p.tsx", alt: "Outer", remove: true }]);
+  assert.equal(alone.pages[0].source, P.replace(/ {6}<SafeImage src="\/u\/s\/a\.jpg"[^\n]*\n/, ""));
+  assert.equal(alone.msg, "✅ Took “Outer” off the page.");
+});
+
+test("A PAGE WITH NO REMOVAL NEVER ASKS FOR THE READER — swaps, reframes and keep-the-space run exactly as before", async () => {
+  let asked = 0;
+  const src = page('      <SafeImage src="/u/s/q.jpg" alt="The quay" />\n      <SafeImage src="/u/s/c.jpg" alt="The counter" />\n');
+  const r = await runPictureEdit({
+    send: async () => said([{ page: "p.tsx", alt: "The quay", clear: true }, { page: "p.tsx", alt: "The counter", focus: "top" }]),
+    library: async () => LIB,
+    parser: async () => { asked++; return PARSE; },
+  }, { instruction: "empty the quay frame and show the top of the counter", pages: [{ path: "p.tsx", source: src }] });
+  assert.equal(asked, 0, "a message with no removal loaded the reader");
+  assert.equal(r.pages[0].source, src.replace('src="/u/s/q.jpg"', 'src=""').replace('<SafeImage src="/u/s/c.jpg"', '<SafeImage focus="top" src="/u/s/c.jpg"'));
+  assert.equal(r.msg, "✅ Took the picture off “The quay”, moved “The counter” to show the top.");
 });
