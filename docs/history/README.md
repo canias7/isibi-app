@@ -15,6 +15,7 @@ full records are `git show d304120e:CLAUDE.md` (2026-09-14 → 09-20),
 | [2026-09-28-status-block.md](2026-09-28-status-block.md) | the status paragraph that opened CLAUDE.md, and the fifth prune's note |
 | [2026-09-28-live-state.md](2026-09-28-live-state.md) | the balance readings since run 9, costs, and every suite and site-build stamp with how it was taken |
 | [2026-09-28-test-6.md](2026-09-28-test-6.md) | Test 6, two changes in one message: its free check (run 51), which also runtime-confirmed deploy 2165, and its later runs |
+| [2026-09-29-op-scope.md](2026-09-29-op-scope.md) | after run 52: each change in a message runs with its own page and words, and a part the router puts off is held back, never run (on the branch, not deployed) |
 
 The rules these rounds produced are in the topic docs listed in CLAUDE.md's
 map: `docs/deploy-record.md`, `docs/build-path.md`, `docs/instruments.md`,

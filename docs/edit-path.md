@@ -60,11 +60,34 @@ answers unless a run is named.
   home page. The browser routes with the site's real page list and waits for it
   on an existing site (`siteRoutesRead`, `SITE_ROUTES_WAIT_MS` 15,000), so an
   existing site never becomes a first build.
+- **Several changes in one message** (2026-09-29, on the branch, not
+  deployed; supplied-model proof only):
+  - **The router puts off only what its answer cannot do this turn**
+    (`alsoAsked`: an addition beside a change, a change beside an addition, a
+    `data` or `text` change beside another kind). Changes the look rung can
+    make are one `look` answer, with no `page` when they are on more than one
+    page, or on the whole site and a page.
+  - **A part put off is held back, never run.** The browser posts it
+    (`siteEdit`, `siteAddon`, the resume record's `also`; the canary does the
+    same), and the edit and add-on routes take it out of the message before
+    anything runs (`heldBack`). The reply's tail is composed from the route's
+    `deferred`. Words the route cannot find are refused at no cost
+    (`route/held-unread`; the add-on's `held-unread`). The copy is never cut
+    (`readAlso`).
+  - **Each change runs with its own page and words.** The picker answers
+    `scopes` (`part`, `words` copied from the message, `page` for a change on
+    one page), read by `readScopes` against the picked lanes and the message
+    (`wordsIn`). A page lane runs one step per scoped page with only that
+    change's words; an own lane is handed only its own words (`asks`). A scoped
+    page the site lacks is refused before anything runs (`page/no-page`). A
+    lane with no scope, or words not in the message, runs as before, on the
+    whole message.
 - **Every way the edit route declines is classified**: `builder/edit-failure.mjs`
-  `EDIT_FAILURES`, **40 entries** keyed `<rung>/<name>`, in four classes that
+  `EDIT_FAILURES`, **41 entries** keyed `<rung>/<name>`, in four classes that
   are what the browser does — `up` **7** (the full rewrite), `addon` **5**,
-  `hop` **4** (one paid hop sideways), `explain` **24** (a sentence at no edit
-  cost, **11** of them ours). A census holds the route to the table both ways,
+  `hop` **4** (one paid hop sideways), `explain` **25** (a sentence at no edit
+  cost, **12** of them ours; `route/held-unread` joined on 2026-09-29, on the
+  branch). A census holds the route to the table both ways,
   so a new `escalate(` with no entry fails by existing. **The browser starts the
   rewrite only from an escalate** — never from a refusal, an unreadable body or
   a dropped connection (`unreadEditMsg`: *"…Asking for it again could make the
@@ -88,15 +111,20 @@ answers unless a run is named.
   typed words and attached files) belong to that site's composer and survive
   redraws and navigation within the session, **not a browser refresh**.
 - **Steps**: neighbouring page lanes on one page are one page operation
-  (`mergePageSteps`); across another rung, the later page step runs only if the
-  earlier did not succeed (`pageStepDone`, `samePageOperation`), and a refusal
-  that a later success supersedes is not reported. A remove or move verb rides
-  on its own step (`runLayer(…, eRemove, eRename)`), never message-wide.
+  (`mergePageSteps`, which joins their scoped words); across another rung, the
+  later page step runs only if the earlier did not succeed (`pageStepDone`,
+  `samePageOperation`, which since 2026-09-29 also asks for the same words),
+  and a refusal that a later success supersedes is not reported. A remove or
+  move verb rides on its own step (`runLayer(…, eRemove, eRename)`), never
+  message-wide.
 - **The removal door** (a `nav` or `picture` removal the router opened): the
   picker is told the routed change in the router's own words (`layerLine`) and
   answers two lists (`doorPickTool`) — `additional`, the only list that makes
   steps, and `routed`, recorded and never run — and the router's own step runs
   exactly once (`doorDispatch`). Nothing is read from how many lanes came back.
+  The work in `additional` is scoped the same way (`scopes`, 2026-09-29, on
+  the branch), so a layout change on another page runs there; the router's own
+  step still reads the message.
   A home page's menu keeps a link to itself that it already had. A page another
   page's source links to cannot be removed; a QR code pointing at it is not
   seen by that rule (backlog).

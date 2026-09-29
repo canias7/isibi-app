@@ -319,7 +319,7 @@
   }
 
   /**
-   * `extra` is `{ ask, op, layer, page }`, every field optional and kept only
+   * `extra` is `{ ask, op, layer, page, handedOff, also }`, every field optional and kept only
    * as a bounded STRING — `String(["look"])` is "look", and this repo has
    * shipped that coercion as a bug four times, so a non-string is dropped
    * rather than read. A remember with no extra stores the id and the time
@@ -337,6 +337,11 @@
       if (x && typeof x.layer === "string" && x.layer) rec.layer = x.layer.slice(0, 64);
       if (x && typeof x.page === "string" && x.page) rec.page = x.page.slice(0, 200);
       if (x && x.handedOff === true) rec.handedOff = true;
+      // WHAT THE ROUTER HELD BACK FOR A LATER TURN (2026-09-29), so a hop from
+      // a resumed watch holds back the same words the live one would. NEVER
+      // CUT: a cut copy is still found in the message and would hold back only
+      // its start — so a copy longer than any ask is not stored at all.
+      if (x && typeof x.also === "string" && x.also.trim() && x.also.length <= ASK_MAX) rec.also = x.also;
       all[String(slug)] = rec;
       (store || localStorage).setItem(STORE_KEY, JSON.stringify(all));
     } catch (e) { /* a private window is not a reason to fail an edit */ }
@@ -374,6 +379,7 @@
     if (age > 3600000 || age < 0) return null;
     return {
       ...(v.handedOff === true ? { handedOff: true } : {}),
+      ...(typeof v.also === "string" && v.also.trim() && v.also.length <= ASK_MAX ? { also: v.also } : {}),
       job: v.job,
       ask: typeof v.ask === "string" && v.ask.trim() ? v.ask.slice(0, ASK_MAX) : "",
       op: typeof v.op === "string" && RESUME_OPS.indexOf(v.op) >= 0 ? v.op : "edit",

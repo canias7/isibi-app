@@ -634,11 +634,12 @@ export function photoLines(reply) {
  * harness's own posts can never produce — which is a fixture LESS capable than
  * reality in the one field the selection turns on.
  *
- * `alsoTail(d)` IS NOW EXECUTED, with `d` UNDEFINED, and that is honest rather
- * than a hole: `d` is the ROUTING decision (`/api/site/route`'s answer) and
- * carries `alsoAsked` alone, the harness posts straight to the addon route and
- * has no routing call, so there is no `d` — and `alsoTail(undefined)` is `''`.
- * The real call site is executed rather than two-thirds of it.
+ * `alsoTail` IS EXECUTED ON THE REPLY ITSELF (2026-09-29). It read the
+ * routing decision `d`, which this harness never has; it now reads the route's
+ * own `deferred` — what the route really held back — so the screen composed
+ * here carries that sentence exactly when the reply does. `d` stays undefined:
+ * the harness posts straight to the addon route and has no routing call. The
+ * real call site is executed rather than two-thirds of it.
  *
  * IT CANNOT THROW OUT. A reader that killed a paid run because a cut moved
  * would be an instrument more fragile than the thing it measures, so a failure

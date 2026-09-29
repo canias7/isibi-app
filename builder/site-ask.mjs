@@ -266,20 +266,40 @@ export const ASK_TOOL = {
           "spends a full page-generation call and changes nothing at all. If they are asking for something to GO, it is " +
           "an \"edit\", every time, even when you are unsure of anything else about it.",
       },
+      // ── WORK THIS TURN CANNOT DO, NEVER "ONE CHANGE PER TURN" (2026-09-29) ──
+      //
+      // This said "One change happens per turn", and the edit route has run
+      // several steps from one message since 2026-08-29. Run 52 (Test 6) was
+      // the cost: "change the default description … then, on the Visit page
+      // only, put the band above …" came back `look` with the Visit move in
+      // here, and the reply both did the description and asked for the move
+      // to be sent again. The rule is now what the route can really do, and
+      // a part named here is HELD BACK: the browser posts it and the edit and
+      // add-on routes take it out of the message before anything runs
+      // (`heldBack`, below), so it is never also run this turn.
       alsoAsked: {
         type: "string",
         description:
-          "THE SECOND, SEPARATE THING THEY ASKED FOR AND THIS TURN IS NOT DOING — in their own words, copied from " +
-          "their message so they can send it straight back. One change happens per turn, so \"make the background " +
-          "yellow and add a booking form\" does the colour and this field holds \"add a booking form\". Without it " +
-          "the second half is dropped in silence and they are told the first one worked.\n" +
+          "A SECOND REQUEST THIS TURN CANNOT CARRY OUT — in their own words, copied EXACTLY from their message so " +
+          "they can send it straight back. Whatever you put here is held back: it is taken out of what is done this " +
+          "turn, and they are asked to send it next.\n" +
           "ALMOST ALWAYS LEAVE THIS OUT. Two things said about ONE change is still one change: \"make the background " +
           "yellow and the corners rounder\" is a single look edit, \"put Book first and drop Prices\" is a single " +
-          "menu edit, and \"change the phone number in the header and the footer\" is one wording edit in two places. " +
-          "It belongs here ONLY when the leftover would go to a DIFFERENT part of the site than the one you just " +
-          "named in `layer` — and never for a detail, a reason or a restatement of the change you are doing.\n" +
-          "Being wrong here costs them a sentence about something they did not ask for, which is worse than useless: " +
-          "it reads as the builder misunderstanding them. When in doubt, say nothing.",
+          "menu edit, and \"change the phone number in the header and the footer\" is one wording edit in two places.\n" +
+          "SEVERAL CHANGES ARE ONE TURN WHEN YOUR ANSWER CAN MAKE THEM ALL. \"look\" is worked out part by part and " +
+          "each change is made where it belongs — the site's colours, fonts, name and description, a section or a " +
+          "band on any page, a photograph, the menu and the button, what the site enforces, its web address, " +
+          "taking something off. So \"change our description, and on the visit page move the order band up\" is " +
+          "ONE \"look\" answer with nothing here, and so is \"make the headings green and swap the two sections on " +
+          "the gallery page\".\n" +
+          "PUT A SECOND REQUEST HERE ONLY WHEN IT NEEDS SOMETHING YOUR ANSWER CANNOT DO THIS TURN: something to ADD " +
+          "that the site does not have yet beside a change (\"make the background yellow and add a booking form\" " +
+          "is a \"look\" answer holding \"add a booking form\"), a change beside an addition when you answered " +
+          "\"addon\", or a change to what the site's lists hold (\"data\") or to the exact words on a page " +
+          "(\"text\") beside a change of another kind.\n" +
+          "NEVER for a detail, a reason or a restatement of the change you are doing, and never for a second part " +
+          "\"look\" can reach when you answered \"look\". Being wrong here holds back work they asked for. When in " +
+          "doubt, say nothing.",
       },
       layer: {
         type: "string",
@@ -333,6 +353,9 @@ export const ASK_TOOL = {
           "band or anything else OFF a page that stays is this layer.\n" +
           "WHEN THEY SAY WHICH PAGE IT IS ON, NAME IT IN `page` — for a colour, a section, a band or a scene alike. " +
           "Without it, a change to a section is made on the home page.\n" +
+          "SEVERAL CHANGES IN ONE MESSAGE ARE STILL ONE \"look\" ANSWER — the site's description and a band on the " +
+          "visit page, a section on one page and a section on another — and each is made where it belongs. When " +
+          "they are not all on ONE page, leave `page` out: each change is placed on its own page.\n" +
           "\"rules\" — WHAT THE SITE DOES WITH WHAT PEOPLE SUBMIT, rather than anything on a page. Who may see an " +
           "entry and who may add one (\"let people browse the listings without signing in\", \"close the booking " +
           "form\"), whether the customer gets an email or a text when they submit, and what the site refuses (\"don't " +
@@ -466,8 +489,9 @@ export const ASK_TOOL = {
           "site does not have it yet and the intent is \"addon\", not \"edit\".\n" +
           "When layer is \"look\": the page they SAID the change is on, copied the same way — \"move the market times up " +
           "on the gallery page\" and \"take the 3D thing off the gallery page\" are both \"/gallery\". Leave it out when " +
-          "they named no page, and for a change to the whole site. Never guess one: the page named here is the page " +
-          "that gets changed.\n" +
+          "they named no page, for a change to the whole site, and when the message asks for changes on MORE THAN ONE " +
+          "page or for the whole site AND a page — each change is then placed on its own page. Never guess one: the " +
+          "page named here is the page that gets changed.\n" +
           "For every other layer, leave it out.",
       },
       remove: {
@@ -878,12 +902,15 @@ export function normalizePagePath(raw) {
 /**
  * The second thing they asked for, which this turn is not doing.
  *
- * A NOTE AND NEVER AN ACTION. Nothing downstream branches on it — it is one
- * sentence appended to the reply — so a model that over-reports costs the
- * customer a line about something they did not ask for, and one that
- * under-reports leaves today's behaviour exactly as it is. That asymmetry is why
- * the schema description tells it to stay silent when unsure, and why this
- * reader is strict rather than generous.
+ * HELD BACK, NOT ONLY SAID (2026-09-29). It was a note nothing branched on, and
+ * run 52 showed what that costs: the edit route ran the whole message anyway,
+ * so the part named here was both attempted (on the wrong page) and promised
+ * for next time. The browser now posts it with the message and the edit and
+ * add-on routes take it out before anything runs (`heldBack`), and the reply's
+ * last sentence is composed from what the route really held back. A model
+ * that over-reports holds back work they asked for; one that under-reports
+ * leaves the work in the turn. The schema description tells it to stay silent
+ * when unsure, and this reader stays strict rather than generous.
  *
  * A NON-STRING IS REFUSED RATHER THAN COERCED: `String(["a","b"])` is "a,b",
  * which would be shown to the customer as their own words. The same coercion bug
@@ -895,13 +922,133 @@ export function normalizePagePath(raw) {
 export function readAlso(input) {
   const raw = input && typeof input.alsoAsked === "string" ? input.alsoAsked.trim() : "";
   if (!raw) return {};
-  // Long enough for a real second ask and short enough that it cannot become a
-  // paragraph glued onto every reply.
-  return { alsoAsked: raw.slice(0, MAX_ALSO_CHARS) };
+  // ⚠ NEVER CUT (2026-09-29). This was `raw.slice(0, MAX_ALSO_CHARS)`, harmless
+  // while the field was only a sentence on the reply. It is now also WHAT THE
+  // ROUTES HOLD BACK, and a copy cut between two words is still found in the
+  // message — so only its first 200 characters would be held back, and the rest
+  // of the part promised for later would run this turn. The router is shown at
+  // most `MAX_MESSAGE` characters, so a longer copy is not a copy of anything
+  // they said: it is dropped, not cut, and nothing is held back.
+  if (raw.length > MAX_MESSAGE) return {};
+  return { alsoAsked: raw };
 }
 
-/** One more sentence, not a second brief. */
+/**
+ * One more sentence, not a second brief: the most of the held-back words the
+ * reply's last sentence shows (`alsoTail` in public/chat.js). A display bound
+ * only — what is held back is never cut.
+ */
 export const MAX_ALSO_CHARS = 200;
+
+// ── THE CUSTOMER'S OWN WORDS, FOUND IN THEIR OWN MESSAGE (2026-09-29) ───────
+//
+// Two readers need to know WHERE in a message a stretch of the customer's
+// words sits: the edit and add-on routes, to take out a part the router held
+// back (`heldBack`), and the lane picker, to hand each operation the words
+// that ask for it and no others (`readScopes` in site-lanes.mjs). A model
+// copies those words out of the message; this checks the copy.
+//
+// FOUND, NEVER GUESSED. The comparison forgives only what copying changes
+// without changing the words: letter case, runs of spaces and line breaks,
+// curly against straight quotes, and a full stop or comma at the very end of
+// the copy. Anything else is not found, and each caller says what that means
+// for it — no piece of text is ever attributed to an operation on a likeness.
+//
+// ON WORD BOUNDARIES, so "menu" is never found inside "menus", and a short
+// copy cannot cut the middle out of an unrelated word.
+const FOLD_QUOTES = Object.freeze({
+  "\u2018": "'", "\u2019": "'", "\u201A": "'", "\u201B": "'", "\u2032": "'",
+  "\u201C": '"', "\u201D": '"', "\u201E": '"', "\u201F": '"', "\u2033": '"',
+});
+const WORD_CHAR = /[\p{L}\p{N}]/u;
+
+/** The text folded for comparison, and where each folded character came from. */
+function foldForFind(raw) {
+  const text = String(raw == null ? "" : raw);
+  let norm = "";
+  const at = [];
+  let gap = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (/\s/.test(c)) { gap = norm.length > 0; continue; }
+    if (gap) { norm += " "; at.push(i); gap = false; }
+    const f = Object.hasOwn(FOLD_QUOTES, c) ? FOLD_QUOTES[c] : c.toLowerCase();
+    for (const ch of f) { norm += ch; at.push(i); }
+  }
+  return { norm, at };
+}
+
+/**
+ * Every place `words` occurs in `message`, as `[start, end)` offsets into the
+ * message. A full stop or comma the copy ended with is not needed to find it,
+ * and is kept when the message has the same one right there — so the text
+ * handed on is the customer's own, to the last character.
+ */
+function wordSpans(message, words) {
+  // A NON-STRING IS NOTHING, NEVER COERCED: `String(["a"])` is "a".
+  if (typeof message !== "string" || typeof words !== "string") return [];
+  const text = message;
+  const copy = words.trim();
+  const trail = (/[.,;:!?]+$/u.exec(copy) || [""])[0];
+  const want = foldForFind(copy.replace(/[\s.,;:!?]+$/u, "")).norm;
+  if (!want) return [];
+  // A BOUNDARY IS ASKED FOR ONLY WHERE THE COPY'S OWN EDGE IS A LETTER OR A
+  // DIGIT: a copy that starts with a quote may sit right against a word.
+  const openEdge = WORD_CHAR.test(want[0]);
+  const shutEdge = WORD_CHAR.test(want[want.length - 1]);
+  const hay = foldForFind(text);
+  const spans = [];
+  let from = 0;
+  for (;;) {
+    const k = hay.norm.indexOf(want, from);
+    if (k < 0) break;
+    const before = k > 0 ? hay.norm[k - 1] : "";
+    const after = hay.norm[k + want.length] || "";
+    if ((openEdge && WORD_CHAR.test(before)) || (shutEdge && WORD_CHAR.test(after))) { from = k + 1; continue; }
+    const end = hay.at[k + want.length - 1] + 1;
+    spans.push([hay.at[k], trail && text.startsWith(trail, end) ? end + trail.length : end]);
+    from = k + want.length;
+  }
+  return spans;
+}
+
+/**
+ * THE CUSTOMER'S OWN TEXT FOR `words`, exactly as it stands in `message`, or
+ * `""` when those words are not in it. The first place they occur: the same
+ * words twice are the same text.
+ */
+export function wordsIn(message, words) {
+  const spans = wordSpans(message, words);
+  return spans.length ? message.slice(spans[0][0], spans[0][1]) : "";
+}
+
+/**
+ * A MESSAGE WITH THE PART THE ROUTER HELD BACK TAKEN OUT (2026-09-29).
+ *
+ *   { ok: true,  run, held }  — `run` is what this turn does; `held` is the part
+ *                               taken out, in the customer's own spelling, or
+ *                               `""` when nothing was held back.
+ *   { ok: false, run, held: "" } — the part could not be found in the message,
+ *                               or it was the whole message. The caller must not
+ *                               guess: running the message whole would also run
+ *                               the part that was promised for later.
+ *
+ * EVERY OCCURRENCE GOES, so a clause said twice cannot survive once and run.
+ * `later` that is not a non-empty string means nothing was held back — the
+ * ordinary case, and `run` is then the message itself, untouched.
+ */
+export function heldBack(message, later) {
+  const text = typeof message === "string" ? message : "";
+  if (typeof later !== "string" || !later.trim()) return { ok: true, run: text, held: "" };
+  const spans = wordSpans(text, later);
+  if (!spans.length) return { ok: false, run: text, held: "" };
+  let run = "";
+  let at = 0;
+  for (const [s, e] of spans) { run += text.slice(at, s); at = e; }
+  run = (run + text.slice(at)).replace(/[ \t]{2,}/g, " ").trim();
+  if (!WORD_CHAR.test(run)) return { ok: false, run: text, held: "" };
+  return { ok: true, run, held: text.slice(spans[0][0], spans[0][1]) };
+}
 
 export function readEdit(input, pages) {
   const layer = EDIT_LAYERS.includes(input && input.layer) ? input.layer : null;

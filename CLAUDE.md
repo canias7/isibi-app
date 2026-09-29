@@ -44,9 +44,17 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   dropped between 2026-08-17 and this deploy are not rebuilt.
 - **The branch `claude/help-needed-ehlwlj`** is ahead of `main` by the canary's
   read of the description stored in a site's settings (`2a7767cc`:
-  `readStoredHead`, the app's own SEO route read in every inventory) and by
-  documents. None of it deploys; a press from the branch runs the branch's
-  script against main's Worker.
+  `readStoredHead`, the app's own SEO route read in every inventory), by
+  documents, and by **the per-operation scope fix (2026-09-29, not merged, not
+  deployed)**: the router puts off only what its answer cannot do this turn; a
+  part it puts off is taken out of the message before anything runs
+  (`heldBack`, echoed as `deferred`, refused at no cost when it cannot be
+  found: `route/held-unread`); and the picker names each change's page and
+  words (`scopes`), so each runs on its own page with its own words.
+  Supplied-model proof only (`test/edit-op-scope.test.mjs`, and the scoped
+  door case in `test/edit-removal-door.test.mjs`);
+  `docs/history/2026-09-29-op-scope.md`. A press from the branch runs the
+  branch's script against main's Worker.
 - **Balance 42** on the building account after run 52 (23:25 UTC): routing 2
   and the job's reserve of 1, ledger row 334. The unit suite is **8,207** at
   `f08c3ba1`.
@@ -56,14 +64,17 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   recovery write (2163); the scoped rules acceptance (run 44 — `lido-axes-b`'s
   bookings stay closed); Test 5's page removal (run 49) and restoration (run 50)
   with the removal-door correction (2164).
-- **Test 6: the paid run (run 52) shipped half; the free restore (run 53) put
-  everything back; it waits for the owner's review** —
+- **Test 6 stays open (owner, 2026-09-29: "Run 52 does not close Test 6").
+  The paid run (run 52) shipped half; the free restore (run 53) put
+  everything back; neither is to be repeated yet, and the routing/execution
+  mismatch run 52 showed is fixed on the branch, above** —
   one message asking for a new default search description and a band moved on
   the Visit page. The description was stored and published exactly,
   everything else was kept, and the publish kept the stored redirect. The live
   router put the Visit move off to a later turn (`alsoAsked`, no page named),
   so the move was not made: item 3 through the look door and item 4 stay
-  unshown, and the finding is in the backlog. 3 credits. The restore also put
+  unshown, and the finding (the put-off half still attempted, on the home
+  page) is fixed on the branch, not live. 3 credits. The restore also put
   the stored description back, the first time that was seen. The plan and
   every reading are the checklist's *Test 6*. **Real-model mixed work through
   the removal door stays outstanding.**

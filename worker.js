@@ -236,7 +236,7 @@ import { sweepAfterPublish, P_ORPHANS } from "./site-sweep.mjs";
 import { loadConfig, saveConfig, withConfig, LEGACY_KEYS, CONFIG_KEY } from "./site-config.mjs";
 import { takeOffline, putBackOnline } from "./site-live.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
-import { routeMessage, clarifiedBrief, siteDigest, DOOR_LAYERS } from "./builder/site-ask.mjs";
+import { routeMessage, clarifiedBrief, siteDigest, DOOR_LAYERS, heldBack } from "./builder/site-ask.mjs";
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
@@ -19881,8 +19881,12 @@ async function handleRequest(request, env, ctx) {
         // the sentence itself — so there is exactly one hop rather than a second
         // one through the edit route.
         //
-        // It is a NOTE and never an action: nothing branches on it, so the worst
-        // a wrong one costs is a sentence about something they did not ask for.
+        // ⚠ IT WAS A NOTE NOTHING BRANCHED ON, and run 52 (2026-09-28) showed
+        // the cost: the edit route ran the whole message, so the part named
+        // here was attempted on the home page AND promised for next time. The
+        // browser now posts it back with the message, and the edit and add-on
+        // routes take it out before anything runs (`heldBack`); the reply's
+        // last sentence is composed from what the route really held back.
         alsoAsked: typeof routed.alsoAsked === "string" && routed.alsoAsked ? routed.alsoAsked : undefined,
         // The question to put in front of the build, already cleaned into
         // something renderable — two to four options, deduped, capped. The
@@ -20750,6 +20754,24 @@ async function handleRequest(request, env, ctx) {
             // still carry what they actually typed.
             let eInstruction = String((eb && eb.instruction) || "").trim().slice(0, 2000);
             const eMessage = eInstruction;
+            // ── A PART THE ROUTER HELD BACK NEVER RUNS HERE (2026-09-29) ────
+            //
+            // Run 52: the router put the Visit move in `alsoAsked`, the browser
+            // posted the whole message, and this route picked lanes for all of
+            // it — the move ran on the home page while the reply promised it
+            // for next time. The browser now posts what was held back, and it
+            // is taken out HERE, before the picker, any lane or any writer can
+            // see it (`heldBack`). `eRun` is what this turn does: every step
+            // runs on it, or on its own words within it, and the version label
+            // records it. A held-back part that cannot be found in the message
+            // is refused below rather than guessed at — running the whole
+            // message would also run the part promised for later.
+            const eHeld = heldBack(eMessage, eb && eb.alsoAsked);
+            const eRun = eHeld.ok ? eHeld.run : eMessage;
+            eInstruction = eRun;
+            // EACH OWN LANE'S WORDS, for the one look step that runs them all —
+            // set by the step loop from the step, like `eInstruction`.
+            let eAsks = null;
             const eAuth = request.headers.get("Authorization") || "";
             // ONE shape for every "I cannot do this, try the rung above".
             const escalate = (reason, extra) =>
@@ -20814,6 +20836,9 @@ async function handleRequest(request, env, ctx) {
             // nothing, and cannot-tell must never read as nothing-happened.
             const stepWroteNothing = (bd) => !!bd && (bd.unchanged === true || bd.error === "withheld" || bd.escalate === true);
             if (!eInstruction) return escalate("empty");
+            // NOTHING RUNS ON A MESSAGE THIS ROUTE COULD NOT SPLIT. At no cost
+            // for the edit, before the source is read or any model is asked.
+            if (!eHeld.ok) return explain("route/held-unread");
             // THE PICKED MODEL'S KEY, not Anthropic's — see `modelKeyMissing`.
             // EXPLAINED, NOT ESCALATED (2026-09-23): the rewrite runs on the same
             // picker and would meet the same missing key.
@@ -21659,8 +21684,40 @@ async function handleRequest(request, env, ctx) {
               const routes = eSrc.map((p) => routeOf(p.path)).filter(Boolean);
               const fallbackPage = ePage || (routes.length === 1 ? routes[0] : (routes.includes("/") ? "/" : routes[0] || ""));
 
+              // ── EACH CHANGE'S OWN PAGE AND WORDS (2026-09-29) ──────────────
+              //
+              // Owner, after run 52: *"Make supported multi-change edits execute
+              // each requested operation with its own scope. A site-wide
+              // description and a change to one named page must retain their
+              // separate scopes."* Every page lane went to `fallbackPage` — the
+              // router's one page, or `/` — and every step read the whole
+              // message, so run 52's Visit move was handed to the home page's
+              // writer beside the description's words. The picker now names each
+              // change's part, page and words (`scopes`, read in site-lanes.mjs
+              // against the message it was shown): a page lane runs on each page
+              // it was scoped to, with only that change's words, and an own lane
+              // is handed only its own words. A lane with no scope, or words the
+              // message does not hold, runs exactly as before.
+              const eScopes = Array.isArray(picked.scopes) ? picked.scopes : [];
+              // A SCOPED PAGE THE SITE DOES NOT HAVE IS SAID BEFORE ANYTHING RUNS,
+              // the same check and sentence the router's own page gets above.
+              {
+                const known = eRoutes();
+                const stray = eScopes.find((sc) => sc.page && laneLayer(sc.part) === "page" && !known.includes(sc.page));
+                if (stray) return explain("page/no-page", { page: stray.page, verb: "", routes: known });
+              }
+              // A LANE'S OWN WORDS: every one of its scopes, joined — or `""`,
+              // the whole of `eRun`, when any of them could not be found.
+              const scopeWords = (f) => {
+                const w = eScopes.filter((sc) => sc.part === f).map((sc) => sc.words);
+                return w.length && w.every(Boolean) ? w.join("\n") : "";
+              };
               const acting = pickedFields.filter((f) => OWN_LANES.includes(f));
-              if (acting.length) steps.push({ layer: "look", page: ePage, fields: acting });
+              if (acting.length) {
+                const asks = {};
+                for (const f of acting) { const w = scopeWords(f); if (w) asks[f] = w; }
+                steps.push({ layer: "look", page: ePage, fields: acting, ...(Object.keys(asks).length ? { asks } : {}) });
+              }
               // ── ONE PAGE OPERATION PER PAGE, WHERE PAGE LANES SIT TOGETHER ──
               //
               // ⚠ ONE STEP PER LANE RAN THE PAGE RUNG TWICE (2026-09-23).
@@ -21701,7 +21758,19 @@ async function handleRequest(request, env, ctx) {
                   dispatched.push({ layer: eLayer, page: ePage, fields: (picked.routed || []).includes(f) ? [f] : [], remove: eRemove, rename: eRename });
                   continue;
                 }
-                dispatched.push({ layer: to, page: to === "page" ? fallbackPage : ePage, fields: [f] });
+                // A PAGE LANE RUNS ON EACH PAGE IT WAS SCOPED TO, in the order
+                // the picker named them, with only the words for that page; a
+                // scope with no page goes where an unscoped lane would.
+                const own = eScopes.filter((sc) => sc.part === f);
+                if (to === "page" && own.length) {
+                  for (const pg of [...new Set(own.map((sc) => sc.page || fallbackPage))]) {
+                    const words = own.filter((sc) => (sc.page || fallbackPage) === pg).map((sc) => sc.words);
+                    dispatched.push({ layer: "page", page: pg, fields: [f], ...(words.every(Boolean) ? { ask: words.join("\n") } : {}) });
+                  }
+                  continue;
+                }
+                const w = scopeWords(f);
+                dispatched.push({ layer: to, page: to === "page" ? fallbackPage : ePage, fields: [f], ...(w ? { ask: w } : {}) });
               }
               steps.push(...mergePageSteps(dispatched));
               // ── THE QR IS PLACED, NOT ONLY MADE ───────────────────────────
@@ -22032,7 +22101,7 @@ async function handleRequest(request, env, ctx) {
               if (dOut.sortPages) {
                 dPub = await publishStep(env, {
                   slug: ownerSlug, pages: dOut.sortPages,
-                  label: versionLabel({ revise: true, changeNote: eInstruction }),
+                  label: versionLabel({ revise: true, changeNote: eRun }),
                 });
                 if (!dPub.ok) {
                   // THE ROWS ARE ALREADY SAVED AND THE OWNER IS TOLD SO. They
@@ -22515,7 +22584,7 @@ async function handleRequest(request, env, ctx) {
               }
               const nPub = await publishStep(env, {
                 slug: ownerSlug, pages: nOut.pages,
-                label: versionLabel({ revise: true, changeNote: eInstruction }),
+                label: versionLabel({ revise: true, changeNote: eRun }),
               });
               if (!nPub.ok) {
                 return Response.json({
@@ -22665,7 +22734,7 @@ async function handleRequest(request, env, ctx) {
               const pPub = await publishStep(env, {
                 slug: ownerSlug, pages: picSplit.pages,
                 ...(picParts.ok ? { parts: picSplit.parts } : {}),
-                label: versionLabel({ revise: true, changeNote: eInstruction }),
+                label: versionLabel({ revise: true, changeNote: eRun }),
               });
               if (!pPub.ok) {
                 return Response.json({
@@ -22787,7 +22856,7 @@ async function handleRequest(request, env, ctx) {
                 },
                 publish: () => publishStep(env, {
                   slug: ownerSlug, pages: eSrc,
-                  label: versionLabel({ revise: true, changeNote: eInstruction }),
+                  label: versionLabel({ revise: true, changeNote: eRun }),
                 }),
               // `eRemove`, THE STEP'S — not the body's. The logo rung is only ever
               // the router's own step (no lane dispatches here), so the two are
@@ -22908,7 +22977,7 @@ async function handleRequest(request, env, ctx) {
               const eSplit = splitEditable(out.pages);
               const pub = await publishStep(env, {
                 slug: ownerSlug, pages: eSplit.pages, parts: eSplit.parts,
-                label: versionLabel({ revise: true, changeNote: eInstruction }),
+                label: versionLabel({ revise: true, changeNote: eRun }),
               });
               // A FAILED COMPILE LEAVES THE LIVE SITE ALONE, and is not
               // escalated: the rung above would rewrite pages the owner never
@@ -23168,7 +23237,10 @@ async function handleRequest(request, env, ctx) {
                     { send: eQuick("lane") },
                     {
                       field,
-                      message: eInstruction,
+                      // ITS OWN WORDS WHEN THE PICKER SCOPED THEM, never another
+                      // change's: run 52's description lane was handed the Visit
+                      // move beside its own sentence.
+                      message: (eAsks && typeof eAsks[field] === "string" && eAsks[field]) || eInstruction,
                       // WHERE THE FIELD LIVES, IN ONE EXPRESSION. `css` is the
                       // stylesheet in R2; every other acting lane is a key on
                       // the stored look — and every one of those is on
@@ -23444,7 +23516,7 @@ async function handleRequest(request, env, ctx) {
               // build.
               const pub = await publishStep(env, {
                 slug: ownerSlug, pages: eSrcOut,
-                label: versionLabel({ revise: true, changeNote: eInstruction }),
+                label: versionLabel({ revise: true, changeNote: eRun }),
               });
               if (!pub.ok) {
                 // "YOUR SITE IS UNTOUCHED" WAS TRUE OF THE PUBLISHED SITE AND
@@ -23603,7 +23675,7 @@ async function handleRequest(request, env, ctx) {
                 }
                 const cutPub = await publishStep(env, {
                   slug: ownerSlug, pages: cut.pages,
-                  label: versionLabel({ revise: true, changeNote: eInstruction }),
+                  label: versionLabel({ revise: true, changeNote: eRun }),
                 });
                 if (!cutPub.ok) {
                   return Response.json({
@@ -23652,7 +23724,7 @@ async function handleRequest(request, env, ctx) {
                 // every share lands on the wrong page rather than the moved one.
                 const mvPub = await publishStep(env, {
                   slug: ownerSlug, pages: rn.pages, renamed: rn.redirect,
-                  label: versionLabel({ revise: true, changeNote: eInstruction }),
+                  label: versionLabel({ revise: true, changeNote: eRun }),
                 });
                 if (!mvPub.ok) {
                   return Response.json({
@@ -23819,7 +23891,7 @@ async function handleRequest(request, env, ctx) {
                   for (const u of twGuard.restored) ePhotosHeld.add(u);
                   const twPub = await publishStep(env, {
                     slug: ownerSlug, pages: twPages,
-                    label: versionLabel({ revise: true, changeNote: eInstruction }),
+                    label: versionLabel({ revise: true, changeNote: eRun }),
                   });
                   // A FAILED COMPILE FALLS THROUGH rather than answering, and
                   // that is the one place this rung differs from every other
@@ -24541,7 +24613,7 @@ async function handleRequest(request, env, ctx) {
               const pPub = await publishStep(env, {
                 slug: ownerSlug, pages: pPages,
                 parts: pParts || undefined,
-                label: versionLabel({ revise: true, changeNote: eInstruction }),
+                label: versionLabel({ revise: true, changeNote: eRun }),
               });
               if (!pPub.ok) {
                 return Response.json({
@@ -24659,11 +24731,15 @@ async function handleRequest(request, env, ctx) {
                 did.step = { ...did.step, fields: [...did.step.fields, ...step.fields.filter((f) => !did.step.fields.includes(f))] };
                 continue;
               }
-              // A STEP THE BRANCH ADDED CARRIES ITS OWN ASK; every other step
-              // runs on the customer's sentence. Restored below the loop.
-              eInstruction = step.instruction || eMessage;
+              // A STEP THE BRANCH ADDED CARRIES ITS OWN ASK; a step the picker
+              // scoped runs on that change's own words (`ask`, and `asks` for the
+              // look step's lanes); every other step runs on what this turn does,
+              // `eRun`. Restored below the loop.
+              eInstruction = step.instruction || step.ask || eRun;
+              eAsks = step.asks || null;
               const res = await runLayer(step.layer, step.page, step.fields, step.remove === true, typeof step.rename === "string" ? step.rename : "");
-              eInstruction = eMessage;
+              eInstruction = eRun;
+              eAsks = null;
               const body = await res.clone().json().catch(() => null);
               const failed = !body || body.ok !== true;
               // AND WHEN THAT LATER STEP DID IT, THE EARLIER REFUSAL IS OVER.
@@ -25075,6 +25151,10 @@ async function handleRequest(request, env, ctx) {
               moved: flat("moved"),
               changed: flat("changed"),
               pageOps: pageOps.length ? pageOps : undefined,
+              // WHAT THIS TURN HELD BACK, in the customer's own words, so the
+              // reply's last sentence says what really happened rather than
+              // what the routing answer proposed (2026-09-29).
+              deferred: eHeld.held || undefined,
               css: ranOk.some((d) => d.body.css) || undefined,
               renamed: ranOk.reduce((n, d) => n + (Number(d.body.renamed) || 0), 0) || undefined,
               // THE LAST PUBLISH'S FILES AND RENDER, because each step publishes
@@ -25296,7 +25376,12 @@ async function handleRequest(request, env, ctx) {
             try { editTrace.mark("run", "ok", jobRunDetail(env)); } catch { /* the record never costs the job */ }
             cidForReply = editTrace.cid;
             const aMark = (phase, status, detail) => { try { if (editTrace) editTrace.mark(phase, status, detail); } catch { /* never */ } };
-            const aInstruction = String((ab && ab.instruction) || "").trim().slice(0, 2000);
+            // WHAT THE ROUTER HELD BACK IS TAKEN OUT BEFORE ANYTHING RUNS
+            // (2026-09-29) — the edit route's rule, for the same reason: a look
+            // change put off beside an addition must not be designed into it.
+            const aAsked = String((ab && ab.instruction) || "").trim().slice(0, 2000);
+            const aLater = heldBack(aAsked, ab && ab.alsoAsked);
+            const aInstruction = aLater.ok ? aLater.run : aAsked;
             // THE OWNER'S ZONE, for a job's clock time (2026-09-03): asked of
             // Intl, so an unknown name is nothing rather than a throw at the
             // cron; nothing means UTC, which the runner reads absent as.
@@ -25320,6 +25405,7 @@ async function handleRequest(request, env, ctx) {
             const aAuth = request.headers.get("Authorization") || "";
             const aFailure = (reason, extra) => Response.json(addonFailure(reason, extra));
             if (!aInstruction) return aFailure("empty");
+            if (!aLater.ok) return aFailure("held-unread");
             // The add step designs on `.quick` — the picker's own model, the
             // rule every small call follows — and asking about the one this
             // rung sends is what keeps that a fact rather than a coincidence.
@@ -26918,6 +27004,7 @@ async function handleRequest(request, env, ctx) {
               const aCostNow = aFirstPlaced ? aFirst : await aCharge(pageCredits(...aDesignUsage, aSeedUsage));
               return Response.json({
                 ok: true,
+                deferred: aLater.held || undefined,
                 kinds: aAnswers.map((a) => a.kind), skipped: aSkipped,
                 notAdded: aNotAdded.length ? aNotAdded.slice(0, 6) : undefined,
                 // AN `ok: true` THAT STILL OWES SOMETHING SAYS SO. A job or an
@@ -28634,6 +28721,8 @@ async function handleRequest(request, env, ctx) {
             else aCost += (Number(aRepairRound && aRepairRound.charged) || 0) + aLangCharged + aPhotoCharged;
             return Response.json({
               ok: true,
+              // WHAT THIS TURN HELD BACK, for the reply's last sentence.
+              deferred: aLater.held || undefined,
               // What was added, by kind, and what was set aside for another
               // rung — so the reply can say "the photograph needs its own ask".
               kinds: aAnswers.map((a) => a.kind), skipped: aSkipped,

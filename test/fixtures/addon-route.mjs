@@ -667,7 +667,9 @@ export async function addon(slug, instruction, opts) {
       // date the one-time job's past-date refusal stands down. A fixture less
       // capable than the real request hides a defect exactly as well as one
       // that is more.
-      body: JSON.stringify({ instruction, ...(opts && opts.tz ? { tz: opts.tz } : {}) }),
+      // …AND WHAT THE ROUTER HELD BACK, when a case says so (2026-09-29): the
+      // browser posts the routing reply's `alsoAsked` beside the message.
+      body: JSON.stringify({ instruction, ...(opts && opts.tz ? { tz: opts.tz } : {}), ...(opts && Object.hasOwn(opts, "alsoAsked") ? { alsoAsked: opts.alsoAsked } : {}) }),
     });
     // THE SERVICE KEY IS PART OF THE ENVIRONMENT UNDER TEST: `persistSiteJobs`
     // returns at its first line without one, so a fixture that leaves it out

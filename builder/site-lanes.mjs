@@ -102,7 +102,7 @@ import { MAX_CSS } from "./site-freecss.mjs";
 // the picker is told which change the router already routed, in the router's
 // own sentence for that layer (`pickRequest`). `site-ask.mjs` imports nothing
 // but the model table, so this adds no cycle.
-import { DOOR_LAYERS, layerLine } from "./site-ask.mjs";
+import { DOOR_LAYERS, layerLine, wordsIn, normalizePagePath } from "./site-ask.mjs";
 
 /** A small call: naming which part of a site a sentence is about is routing, not work. */
 /**
@@ -122,8 +122,13 @@ import { DOOR_LAYERS, layerLine } from "./site-ask.mjs";
  */
 export const LANE_MODEL = modelsFor().quick;
 
-/** Enough for a short list of names. There is no prose in this output at all. */
-export const LANE_PICK_MAX_TOKENS = 200;
+/**
+ * Enough for the names AND each change's own words (2026-09-29). It was 200
+ * while the answer was a short list of names; `scopes` copies the customer's
+ * words for each change out of a message of up to `MAX_MESSAGE` characters
+ * (about 500 tokens at three characters a token), plus the list and the pages.
+ */
+export const LANE_PICK_MAX_TOKENS = 800;
 
 /**
  * Enough for one edited value.
@@ -924,13 +929,29 @@ export function mergePageSteps(steps) {
   const out = [];
   for (const s of Array.isArray(steps) ? steps : []) {
     const prev = out[out.length - 1];
-    if (samePageOperation(prev, s)) {
-      out[out.length - 1] = { ...prev, fields: [...prev.fields, ...s.fields.filter((f) => !prev.fields.includes(f))] };
+    // SAME PAGE, SIDE BY SIDE: ONE PAGE OPERATION, whatever words each came
+    // with. Two changes the picker scoped to one page are made by one writer
+    // handed both sets of words (`joinAsks`), never by two writers each shown
+    // the other's half-finished page.
+    if (sentencePageStep(prev) && sentencePageStep(s) && prev.page === s.page) {
+      const merged = { ...prev, fields: [...prev.fields, ...s.fields.filter((f) => !prev.fields.includes(f))] };
+      if (prev.ask || s.ask) merged.ask = joinAsks(prev.ask, s.ask);
+      out[out.length - 1] = merged;
     } else {
       out.push(s);
     }
   }
   return out;
+}
+
+/**
+ * THE WORDS OF TWO OPERATIONS JOINED ON ONE PAGE — or `""`, which means the
+ * customer's whole message, when either step had none of its own: that message
+ * already holds every other step's words, so it is the honest union.
+ */
+function joinAsks(a, b) {
+  if (!a || !b) return "";
+  return a === b ? a : a + "\n" + b;
 }
 
 /**
@@ -947,12 +968,15 @@ function sentencePageStep(s) {
 
 /**
  * TWO STEPS THAT ARE ONE PAGE OPERATION: both run the page rung on the
- * customer's sentence, on the same page. What the three readers of "the same
- * operation" — joining neighbours, skipping a repeat, retiring a refused
- * attempt a later one completed — all ask, so they cannot disagree.
+ * customer's words, on the same page, with the SAME words (2026-09-29). What
+ * skipping a repeat and retiring a refused attempt a later one completed both
+ * ask, so they cannot disagree. Two page steps with different words of their
+ * own are two operations — the picker scoped them apart — so a success of one
+ * never absorbs the other. Steps with no words of their own compare equal, as
+ * they always did: both run on the whole message.
  */
 export function samePageOperation(a, b) {
-  return sentencePageStep(a) && sentencePageStep(b) && a.page === b.page;
+  return sentencePageStep(a) && sentencePageStep(b) && a.page === b.page && (a.ask || "") === (b.ask || "");
 }
 
 /**
@@ -1060,9 +1084,10 @@ export function pickTool(fields = LANE_FIELDS, { routed = false } = {}) {
             "The parts:\n" + lines.join("\n"),
         },
         removes: removesProp("fields"),
+        scopes: scopesProp("fields"),
         ...pageProps("fields"),
       },
-      required: ["fields"],
+      required: ["fields", "scopes"],
     },
   };
 }
@@ -1107,6 +1132,58 @@ function removesProp(list, extra = "") {
       "a removal they meant as a change has taken part of their site away.\n\n" +
       "What taking each one off means:\n" +
       REMOVABLE_LANES.map((f) => "  " + f + " — " + LANES[f].remove).join("\n"),
+  };
+}
+
+/**
+ * ── AND EACH CHANGE'S OWN WORDS AND PAGE (2026-09-29) ───────────────────────
+ *
+ * Owner, after run 52: *"Make supported multi-change edits execute each
+ * requested operation with its own scope. A site-wide description and a change
+ * to one named page must retain their separate scopes."*
+ *
+ * The lanes were a list of names, so every page lane went to ONE page — the
+ * router's, or the home page — and every rung was handed the WHOLE message. Run
+ * 52's `shape` step was sent to `/` with the description's words and the Visit
+ * move's together. Two changes on two pages could not be said at all: a lane is
+ * named once.
+ *
+ * SO THE PICKER SAYS, FOR EACH CHANGE, WHICH PART, WHICH PAGE AND WHICH WORDS.
+ * The route makes each change on its own page with its own words: the editor for
+ * that change is handed those words and nothing else of the message
+ * (`readScopes` checks them against the message; words that are not in it are
+ * dropped, and that change then runs on the whole message, as before). A change
+ * with no page stays site-wide, or goes where the router's page or the home page
+ * sends it, exactly as before. `name` is the property that names the lanes, as
+ * for `removesProp`; `extra` is a sentence for the door alone.
+ */
+function scopesProp(name, extra = "") {
+  // `part` CARRIES NO ENUM: `readScopes` keeps only an entry naming a lane
+  // this answer picked, which is the stricter wall, and a second copy of the
+  // lane list would cost the two calls a customer pays for on every edit
+  // (`test/edit-lanes.test.mjs` holds them under a tenth of the build tool).
+  return {
+    type: "array",
+    maxItems: MAX_LANES,
+    items: {
+      type: "object",
+      properties: {
+        part: { type: "string", description: "A part named in `" + name + "`." },
+        words: {
+          type: "string",
+          description: "Their words for this change and no other, copied EXACTLY from the message — its editor sees only these.",
+        },
+        page: {
+          type: "string",
+          description: "Only for a change on ONE page: its path from the list of pages (\"/\" is home). Leave it out for a " +
+            "change to the whole site, or when no page was said.",
+        },
+      },
+      required: ["part", "words"],
+    },
+    description:
+      "ONE ENTRY PER SEPARATE CHANGE in `" + name + "`, so each is made in its own place with its own words. " + extra +
+      "The same part on two pages is two entries; several things said about one change are one.",
   };
 }
 
@@ -1218,6 +1295,7 @@ function doorPickTool(list, lines) {
             "The parts:\n" + lines.join("\n"),
         },
         removes: removesProp("additional", "The already-routed change is taken off already; it never goes here.\n"),
+        scopes: scopesProp("additional", "The already-routed change is being made already; it never goes here. "),
         ...pageProps("additional"),
       },
       required: ["additional"],
@@ -1392,6 +1470,42 @@ export function readRemoves(reply, picked = []) {
 }
 
 /**
+ * EACH CHANGE THE PICKER SCOPED, checked against what was picked and against
+ * the message itself (2026-09-29) — `[{ part, page, words }]`.
+ *
+ *   `part`  — one of `picked`, or the entry is dropped: a scope names a lane
+ *             this message chose, never one it did not.
+ *   `page`  — in the one spelling pages are compared in (`normalizePagePath`),
+ *             or `""` for a site-wide change. Whether the SITE has that page is
+ *             the route's question, asked before anything runs.
+ *   `words` — the customer's own text for this change as it stands in
+ *             `message` (`wordsIn`), or `""` when the copy is not in it. A
+ *             change without words runs on the whole message, as every change
+ *             did before this existed: cannot-tell degrades to the old path,
+ *             never to words nobody said.
+ *
+ * `String(["/visit"])` IS `"/visit"` — a non-string is refused, not coerced.
+ */
+export function readScopes(reply, picked = [], message = "") {
+  const chosen = (Array.isArray(picked) ? picked : []).filter((f) => typeof f === "string" && f);
+  const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
+  const use = blocks.find((b) => b && b.type === "tool_use");
+  const raw = use && use.input && Array.isArray(use.input.scopes) ? use.input.scopes : [];
+  const out = [];
+  for (const sc of raw) {
+    if (!sc || typeof sc !== "object" || Array.isArray(sc)) continue;
+    if (typeof sc.part !== "string" || !chosen.includes(sc.part)) continue;
+    out.push({
+      part: sc.part,
+      page: typeof sc.page === "string" ? normalizePagePath(sc.page) : "",
+      words: typeof sc.words === "string" ? wordsIn(message, sc.words) : "",
+    });
+    if (out.length >= MAX_LANES) break;
+  }
+  return out;
+}
+
+/**
  * THE ONE LANE THAT LEADS TO A LAYER — `action` for `nav`, `images` for
  * `picture` — or `null` when no single lane does.
  *
@@ -1449,7 +1563,7 @@ export function doorLane(layer) {
  * change, so a second request put there does not run. Every model answer that
  * proves this is supplied; which lists a real picker fills is not measured.
  */
-function doorPicked(reply, door, fields, model) {
+function doorPicked(reply, door, fields, model, message) {
   const offered = (Array.isArray(fields) ? fields : []).filter((f) => typeof f === "string" && f);
   const additional = laneList(reply, "additional", offered);
   const named = laneList(reply, "routed", offered);
@@ -1459,6 +1573,9 @@ function doorPicked(reply, door, fields, model) {
     routed: offered.filter((f) => named.includes(f) || (f === door.lane && additional.includes(f))),
     page: readPageVerb(reply),
     removes: readRemoves(reply, work),
+    // THE WORK'S OWN PAGES AND WORDS, read against the work alone: the routed
+    // change is the router's step and keeps the router's page.
+    scopes: readScopes(reply, work, message),
     usage: laneUsage(reply, model),
     failed: false,
   };
@@ -1535,17 +1652,17 @@ export async function pickLanes(deps, { message, fields = LANE_FIELDS, current =
   const text = String(message || "").trim();
   // A PAID CALL BEHIND A PUBLIC ROUTE. The composer will not send an empty
   // message; "the client wouldn't do that" is not a gate.
-  if (!text) return door ? { fields: [], routed: [], usage: null, failed: false } : { fields: [], usage: null, failed: false };
+  if (!text) return door ? { fields: [], routed: [], scopes: [], usage: null, failed: false } : { fields: [], scopes: [], usage: null, failed: false };
   let reply;
   try {
     reply = await deps.send(pickRequest({ message: text, fields, current, model, routed }));
   } catch (e) {
     // CARRIED, NOT SWALLOWED. The caller tells a billing outage from a busy
     // model by reading `e.status` and `e.detail`.
-    return { fields: [], usage: null, failed: true, error: e };
+    return { fields: [], scopes: [], usage: null, failed: true, error: e };
   }
   // ON THE DOOR THE ANSWER IS TWO LISTS, read by their names (`doorPicked`).
-  if (door) return doorPicked(reply, door, fields, model);
+  if (door) return doorPicked(reply, door, fields, model, text);
   // THE MODEL THAT WAS ACTUALLY SENT, not the module default. This stamped
   // `LANE_MODEL` while the request carried the caller's `model`, so a customer
   // on Sonnet had their routing call PRICED as the default picker's — the rate
@@ -1558,6 +1675,9 @@ export async function pickLanes(deps, { message, fields = LANE_FIELDS, current =
   const removes = readRemoves(reply, picked);
   return {
     fields: picked,
+    // EACH CHANGE'S OWN PAGE AND WORDS, checked against the picked lanes and
+    // the message the picker was shown (`readScopes`).
+    scopes: readScopes(reply, picked, text),
     page: readPageVerb(reply),
     // THE REMOVAL RIDES THE SAME ANSWER AS THE LANES, rather than being read
     // again by the caller off a reply it would have to keep. One read, one

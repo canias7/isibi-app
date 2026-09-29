@@ -45,6 +45,9 @@ export function addonFailure(reason, { reconstruct = false, layer, kind, problem
     "nothing-returned": "The builder didn't return usable page changes for this addition. I've stopped instead of starting a full-site rewrite.",
     "no-change": "The builder produced no page changes for this addition. I've stopped instead of starting a full-site rewrite.",
     "too-many": "The builder returned more pages than this addition can accept. I've stopped instead of starting a full-site rewrite.",
+    // THE ROUTER HELD PART OF THE MESSAGE BACK AND IT IS NOT IN THE MESSAGE
+    // (2026-09-29): the edit route's `route/held-unread`, in this route's shape.
+    "held-unread": "I couldn't separate the part of your message I was leaving for later from the part to do now, so I haven't added anything — this is on us. Send the changes one at a time and I'll make each.",
   };
   const msg = Object.hasOwn(messages, reason) ? messages[reason]
     : "I couldn't complete this addition, so I've stopped instead of starting another operation.";

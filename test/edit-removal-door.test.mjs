@@ -164,7 +164,12 @@ async function drive({ routed, ask, answers = {}, site = null, mode = "sync" }) 
       // WHAT EACH CALL WAS ASKED, so a case can read the picker's real input —
       // its tool, its system text and its message — and not only its answer.
       seen.sent.push({ tool, args });
-      if (Object.hasOwn(answers, tool)) return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: answers[tool] }], usage: { input_tokens: 2000, output_tokens: 400 } });
+      // AN ANSWER MAY BE A FUNCTION OF THE REQUEST, for a writer that must act
+      // only on the file and the words it was really handed.
+      if (Object.hasOwn(answers, tool)) {
+        const input = typeof answers[tool] === "function" ? answers[tool](args) : answers[tool];
+        return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input }], usage: { input_tokens: 2000, output_tokens: 400 } });
+      }
       return new Response("no stub for tool " + tool, { status: 503 });
     }
     if (isDispatchUpload(u)) return dispatchOk();
@@ -228,7 +233,7 @@ function assertDoorAsked(r, layer, ask, label) {
   const q = pickSent(r);
   const tool = q.tools.find((t) => t.name === PICK);
   assert.ok(tool, label + ": the picker was not given its tool");
-  assert.deepEqual(Object.keys(tool.input_schema.properties), ["routed", "additional", "removes", "pageVerb", "pageName", "pageTo"], label + ": the door's tool");
+  assert.deepEqual(Object.keys(tool.input_schema.properties), ["routed", "additional", "removes", "scopes", "pageVerb", "pageName", "pageTo"], label + ": the door's tool");
   assert.deepEqual(tool.input_schema.required, ["additional"], label + ": what the door's tool requires");
   const text = q.system.map((b) => b.text).join("\n");
   assert.match(text, /ALREADY been routed to one change/, label + ": the door's system text");
@@ -360,7 +365,7 @@ test("THE SELECTOR'S CONTRACT: on the door it is told what was routed and asked 
     // THE DOOR'S TOOL: two lists, `additional` the only one required, and no
     // `fields` at all — so an answer in the ordinary tool's shape names no work.
     assert.equal(tool.name, PICK);
-    assert.deepEqual(Object.keys(tool.input_schema.properties), ["routed", "additional", "removes", "pageVerb", "pageName", "pageTo"], layer);
+    assert.deepEqual(Object.keys(tool.input_schema.properties), ["routed", "additional", "removes", "scopes", "pageVerb", "pageName", "pageTo"], layer);
     assert.deepEqual(tool.input_schema.required, ["additional"], layer);
     for (const k of ["routed", "additional"]) {
       const list = tool.input_schema.properties[k];
@@ -396,8 +401,11 @@ test("THE SELECTOR'S CONTRACT: on the door it is told what was routed and asked 
   // EVERYWHERE ELSE THE QUESTION IS THE ORDINARY ONE, BYTE FOR BYTE: the look
   // door, a door layer the router did NOT mark as a removal, a layer that is
   // not a door, and anything unreadable.
-  assert.deepEqual(Object.keys(look.tools[0].input_schema.properties), ["fields", "removes", "pageVerb", "pageName", "pageTo"]);
-  assert.deepEqual(look.tools[0].input_schema.required, ["fields"]);
+  assert.deepEqual(Object.keys(look.tools[0].input_schema.properties), ["fields", "removes", "scopes", "pageVerb", "pageName", "pageTo"]);
+  // `scopes` IS REQUIRED SINCE 2026-09-29: each change's own page and words
+  // (run 52). The door's `required` above is unchanged — its scopes cover only
+  // the work asked beside the routed change, and that list is usually empty.
+  assert.deepEqual(look.tools[0].input_schema.required, ["fields", "scopes"]);
   assert.equal(look.tools[0].input_schema.properties.fields.minItems, 1);
   assert.equal(look.messages[0].content, current + "\n\nTheir message:\n" + ask);
   assert.doesNotMatch(look.system[0].text, /ALREADY been routed/);
@@ -450,7 +458,7 @@ test("THE DOOR'S ANSWER, READ BY ITS NAMES: only `additional` makes work, the ro
   for (const req of sent) assert.deepEqual(req.tools[0].input_schema.required, ["additional"]);
   // A message with nothing in it asks nothing and runs nothing.
   const empty = await pickLanes({ send: async () => { throw new Error("called"); } }, { message: "  ", routed: { layer: "nav", remove: true } });
-  assert.deepEqual(empty, { fields: [], routed: [], usage: null, failed: false });
+  assert.deepEqual(empty, { fields: [], routed: [], scopes: [], usage: null, failed: false });
 });
 
 for (const mode of ["sync", "job"]) {
@@ -651,6 +659,98 @@ for (const mode of ["sync", "job"]) {
   });
 }
 
+// ── 3b. A REMOVAL BESIDE A CHANGE ON ANOTHER PAGE: EACH IN ITS OWN SCOPE ─────
+//
+// Run 52's shape on this door (2026-09-29). The router's `picture` answer
+// carries no page, so an unscoped layout lane went to the home page — the page
+// the photo is on — and its writer was handed the whole message. The picker now
+// scopes the work beside the routed change: the layout step runs on the Visit
+// page with only the Visit words, and the picture rung — the router's step, run
+// once, on the router's verbs — takes the one photograph off the home page.
+// Supplied model answers throughout: this proves what the route does with a
+// scoped answer, not that a real picker gives one.
+const VISIT_SRC = ORIG["visit.tsx"];
+/** The Visit page with its order band moved above "Come to the bakery" — a pure move. */
+function visitBandFirst(src) {
+  const a = src.indexOf('      <section className="mx-auto max-w-5xl px-6 py-14">');
+  const b = src.indexOf('      <section className="mx-auto max-w-5xl px-6 pb-20 motion-reveal">');
+  const end = "      </section>\n";
+  const c = src.indexOf(end, b) + end.length;
+  assert.ok(a > 0 && b > a && c > b, "the two Visit sections were not found");
+  return src.slice(0, a) + src.slice(b, c) + "\n" + src.slice(a, b - 1) + src.slice(c);
+}
+const VISIT_MOVED = visitBandFirst(VISIT_SRC);
+const VISIT_BAND_WORDS = 'on the Visit page only, put the "Order a collection so we hold a loaf" band above "Come to the bakery"';
+const PHOTO_VISIT_ASK = PHOTO_ASK + " Then, " + VISIT_BAND_WORDS + ".";
+/** What the page writer was handed: the file's name and the words, read off its real request. */
+function writerAsked(args) {
+  const content = String((args && args.messages && args.messages[0] && args.messages[0].content) || "");
+  const i = content.indexOf("THE CHANGE THEY ASKED FOR\n");
+  const f = content.indexOf("\n\nTHE FILE (", i);
+  const close = content.indexOf(")\n", f);
+  assert.ok(i >= 0 && f > i && close > f, "the page writer's request lost its landmarks");
+  return { instruction: content.slice(i + "THE CHANGE THEY ASKED FOR\n".length, f), path: content.slice(f + "\n\nTHE FILE (".length, close) };
+}
+/** A writer that moves the Visit band only when it is shown the Visit page and told to. */
+const visitWriter = (args) => {
+  const { instruction, path } = writerAsked(args);
+  return { source: path === "visit.tsx" && instruction.includes("Come to the bakery") ? VISIT_MOVED : ORIG[path] };
+};
+
+test("the scoped door's fixture: a pure move of the Visit page's two sections, and the words are in the message once", () => {
+  assert.notEqual(VISIT_MOVED, VISIT_SRC);
+  assert.equal([...VISIT_MOVED].sort().join(""), [...VISIT_SRC].sort().join(""), "the move added or lost a character");
+  assert.ok(VISIT_MOVED.indexOf("Order a collection so we hold a loaf") < VISIT_MOVED.indexOf("Come to the bakery"));
+  assert.equal(PHOTO_VISIT_ASK.split(VISIT_BAND_WORDS).length, 2);
+  assert.ok(ORIG["index.tsx"].includes(BOULE_SRC) && !VISIT_SRC.includes(BOULE_SRC), "the boule is not on the home page alone");
+});
+
+for (const mode of ["sync", "job"]) {
+  test(`SCOPED (${mode}): the photo comes off the home page, the band moves on the Visit page, and each step was handed only its own page`, async () => {
+    const answer = { additional: ["shape"], scopes: [{ part: "shape", page: "/visit", words: VISIT_BAND_WORDS }] };
+    const r = await drive({ mode, routed: { layer: "picture", remove: true }, ask: PHOTO_VISIT_ASK,
+      answers: { [PICK]: answer, write_tweak: visitWriter, [PICTURE_TOOL.name]: CLEAR_BOULE } });
+    const label = "scoped photo + visit " + mode;
+    assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
+    assert.equal(r.reply && r.reply.ok, true, label + ": " + JSON.stringify(r.reply));
+    assert.deepEqual(r.models, [PICK, "write_tweak", PICTURE_TOOL.name], label + ": the rungs called");
+    // THE WRITER'S REAL INPUT: the Visit page, and the Visit words alone — not
+    // the photo's sentence, and not the home page.
+    const writes = r.sent.filter((q) => q.tool === "write_tweak").map((q) => writerAsked(q.args));
+    assert.deepEqual(writes, [{ path: "visit.tsx", instruction: VISIT_BAND_WORDS }], label + ": what the writer was handed");
+    // THE ROUTER'S STEP READS THE ROUTER'S MESSAGE, as it always has: once.
+    const pics = r.sent.filter((q) => q.tool === PICTURE_TOOL.name);
+    assert.equal(pics.length, 1, label + ": the picture rung ran " + pics.length + " times");
+    assert.deepEqual(r.reply.layers, ["page", "picture"], label + ": layers");
+    assert.deepEqual(r.reply.pageOps, [{ page: "/visit" }], label + ": the page operation");
+    assert.equal(r.reply.partial, undefined, label + ": " + JSON.stringify(r.reply.partial));
+    assert.equal(r.builds.length, 1, label + ": one compile carries both");
+    // THE STORED CHANGES: the Visit band moved, the boule's `src` emptied on the
+    // home page and nothing else there, and every other page byte for byte.
+    assert.equal(page(r, "visit.tsx"), VISIT_MOVED, label + ": the Visit page is not exactly the move");
+    assert.equal(page(r, "index.tsx"), ORIG["index.tsx"].replace(BOULE_SRC, 'src=""'), label + ": the home page is not exactly the removal");
+    for (const p of ["order.tsx", "starter.tsx", "gallery.tsx"]) assert.equal(page(r, p), ORIG[p], label + ": " + p + " changed");
+    assertOthersKept(r, label);
+    assertDoorAsked(r, "picture", PHOTO_VISIT_ASK, label);
+    // THE SCREEN IS THE UNSCOPED CASE'S, word for word: two rungs read "the
+    // look", which names neither page — the parked review #9 wording, kept
+    // because no reply is redesigned here. Nothing in it is untrue.
+    assert.equal(r.said.text, "✅ Updated the look. One photograph is no longer on the site. If that was not what you wanted, say “put the photo back”. There is a space for a photo — upload yours in the Data panel and it’ll fill in.", label + ": the screen");
+    assertCharged(r, mode, [3, 2], label);
+  });
+}
+
+test("CONTROL: the same door with no scope sends the layout where it always went — the home page, handed the whole message", async () => {
+  // THE UNSCOPED ANSWER IS UNCHANGED, which is what keeps every earlier door
+  // case honest: a lane with no scope runs where the router's page or the home
+  // page sends it, on the whole message.
+  const r = await drive({ routed: { layer: "picture", remove: true }, ask: PHOTO_VISIT_ASK,
+    answers: { [PICK]: { additional: ["shape"] }, write_tweak: visitWriter, [PICTURE_TOOL.name]: CLEAR_BOULE } });
+  const writes = r.sent.filter((q) => q.tool === "write_tweak").map((q) => writerAsked(q.args));
+  assert.deepEqual(writes, [{ path: "index.tsx", instruction: PHOTO_VISIT_ASK }], "unscoped: what the writer was handed");
+  assert.equal(page(r, "visit.tsx"), VISIT_SRC, "unscoped: the Visit page moved");
+});
+
 // ── 4. ORDINARY MENU AND PHOTO REQUESTS TRIGGER NOTHING UNRELATED ────────────
 
 test("CONTROL: nothing asked beside the menu removal — the router's own menu rung runs alone", async () => {
@@ -710,7 +810,7 @@ test("CONTROL: an ordinary look request still runs the lane the picker chose, an
   assert.equal(r.builds.length, 0);
   assert.deepEqual(doorMarks(r), []);
   const q = pickSent(r);
-  assert.deepEqual(Object.keys(q.tools[0].input_schema.properties), ["fields", "removes", "pageVerb", "pageName", "pageTo"]);
+  assert.deepEqual(Object.keys(q.tools[0].input_schema.properties), ["fields", "removes", "scopes", "pageVerb", "pageName", "pageTo"]);
   assert.ok(!q.messages[0].content.includes("ALREADY BEEN ROUTED"), "the look door was told something was routed");
   assert.ok(q.messages[0].content.endsWith("Their message:\n" + ask));
 });

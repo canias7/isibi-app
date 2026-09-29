@@ -57,6 +57,8 @@ export const EDIT_FAILURES = Object.freeze([
     why: "The store answered and holds no pages: a site built before its source was kept. No edit rung can act without source; the rewrite, which regenerates pages, is the only rung that can." },
   { key: "route/layer", reason: "layer", cls: "explain", ours: true,
     why: "Every router layer is implemented, so reaching the fall-through is a mismatch of ours between the router and this route — a defect to fix, not a reason to buy a rewrite." },
+  { key: "route/held-unread", reason: "held-unread", cls: "explain", ours: true,
+    why: "The router held part of the message back for a later turn (`alsoAsked`) and those words are not in the message the browser sent (2026-09-29). Running the message whole would also run the part promised for later, and choosing which words it meant would be a guess — so nothing runs, nothing is charged for the edit, and the customer is asked to send the changes one at a time. The router copying badly is ours." },
 
   // ── THE LANE PICKER AND THE PAGE VERBS ──────────────────────────────────
   { key: "picker/no-lane", reason: "no-lane", cls: "explain",
@@ -200,6 +202,8 @@ export function failureMsg(key, facts = {}) {
       return "I couldn't read your site's pages just now, so I stopped before changing anything — this is on us. Try again in a moment.";
     case "route/layer":
       return "I couldn't work out how to make that kind of change from here — this is on us. Try asking for it another way.";
+    case "route/held-unread":
+      return "I couldn't separate the part of your message I was leaving for later from the part to do now, so I haven't changed anything — this is on us. Send the changes one at a time and I'll make each.";
     case "picker/no-lane":
       return "I couldn't tell which part of your site that's about. Say which page or section you mean and what should change, and I'll do it.";
     case "picker/nothing-to-remove":

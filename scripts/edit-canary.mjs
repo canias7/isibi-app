@@ -1047,6 +1047,9 @@ const p = await call("POST", `/api/site/${encodeURIComponent(CANARY)}/edit`,
       remove: rd.remove === true,
       rename: typeof rd.rename === "string" ? rd.rename : "",
       tab: rd.tab === true,
+      // AND WHAT THE ROUTER HELD BACK (2026-09-29), which the route takes out
+      // of the instruction before anything runs — run 52 is why.
+      alsoAsked: typeof rd.alsoAsked === "string" && rd.alsoAsked ? rd.alsoAsked : undefined,
     } });
 console.log(`  POST returned ${p.status} in ${(p.ms / 1000).toFixed(1)}s: ${p.text.slice(0, 200)}`);
 if (p.status !== 202 || !p.json || !p.json.job) { console.error("  the POST did not queue a job"); process.exit(1); }

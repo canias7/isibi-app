@@ -934,7 +934,10 @@ test("the owner's panel shows the clock time and has a Run now button wired to t
     "row markup is back inside the panel's closure, where nothing can drive it");
   assert.match(panel, /body: JSON\.stringify\(\{ name: b\.dataset\.run, run: true \}\)/, "Run now does not post run:true");
   assert.match(panel, /sbToast\(d\.result \|\| 'Ran\.'\)/, "the sentence that comes back is not shown");
-  assert.match(chat, /body: JSON\.stringify\(\{ instruction: instruction, picker: buildPicker, idem: idem, tz: browserTimeZone\(\) \}\)/, "the addon post does not carry the owner's zone");
+  // RE-ANCHORED 2026-09-29: the body gained the router's held-back words
+  // (`alsoAsked`) after the zone, so the zone is read as a field of the body
+  // rather than as its last one.
+  assert.match(chat, /body: JSON\.stringify\(\{ instruction: instruction, picker: buildPicker, idem: idem, tz: browserTimeZone\(\),/, "the addon post does not carry the owner's zone");
   assert.match(chat, /function browserTimeZone\(\) \{\s*try \{ return String\(Intl\.DateTimeFormat\(\)\.resolvedOptions\(\)\.timeZone \|\| ''\); \} catch \(e\) \{ return ''; \}/, "browserTimeZone does not read Intl safely");
   const css = fs.readFileSync(path.join(import.meta.dirname, "..", "public", "styles.css"), "utf8");
   assert.match(css, /\.fn-tgl\.fn-run \{ margin-left: \.4rem;/, "the Run now button has no style beside the switch");

@@ -16,7 +16,7 @@ import {
   EDIT_LAYERS, REMOVABLE_LAYERS, FALLBACK_WITH_SITE, FALLBACK_NO_SITE,
   askRequest, readRouting, readEdit, readQuestion, clipOption, clarifiedBrief, askUsage, routeMessage,
   siteDigest, normalizePagePath,
-  readAlso, MAX_ALSO_CHARS,
+  readAlso, MAX_ALSO_CHARS, heldBack,
 } from "../builder/site-ask.mjs";
 // ⚠ `editBrowserReply`, the browser's own edit composer executed — the add
 // composer answers a plausible "✅ Done." for an edit body.
@@ -1897,9 +1897,29 @@ test("a non-string is refused rather than coerced", () => {
   assert.deepEqual(readAlso({ alsoAsked: true }), {});
 });
 
-test("it is bounded — one more sentence, not a second brief", () => {
-  const long = "x".repeat(MAX_ALSO_CHARS + 200);
-  assert.equal(readAlso({ alsoAsked: long }).alsoAsked.length, MAX_ALSO_CHARS);
+test("it is bounded ON THE SCREEN — one more sentence, not a second brief — and never cut where it is held back", () => {
+  // RE-ANCHORED 2026-09-29. This asserted that the copy was CUT to
+  // `MAX_ALSO_CHARS`. The copy is now also what the edit and add-on routes hold
+  // back (`heldBack`), and a copy cut between two words is still found in the
+  // message: only its first 200 characters would be held back and the rest of
+  // the part promised for later would run this turn. So the copy is kept whole,
+  // and the bound moved to where it always protected the customer — the
+  // reply's last sentence, which shows at most `MAX_ALSO_CHARS` of it.
+  const clause = ("on the Visit page only, put the order band above the opening hours and the map, " +
+    "and keep the counter photograph where it is ").repeat(3).trim();
+  assert.ok(clause.length > MAX_ALSO_CHARS, "the clause must be longer than the screen shows");
+  assert.equal(readAlso({ alsoAsked: clause }).alsoAsked, clause, "a long copy was cut");
+  const message = "Make the headings dark green. " + clause + ".";
+  assert.equal(heldBack(message, readAlso({ alsoAsked: clause }).alsoAsked).run, "Make the headings dark green. .", "a long held-back part left words in the turn");
+  // A COPY NO MESSAGE COULD HOLD IS NOT ONE: dropped, never cut.
+  assert.deepEqual(readAlso({ alsoAsked: "x".repeat(MAX_MESSAGE + 1) }), {});
+  assert.equal(readAlso({ alsoAsked: "x".repeat(MAX_MESSAGE) }).alsoAsked.length, MAX_MESSAGE);
+  // THE SCREEN'S BOUND is this constant, read off the browser's own composer.
+  const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
+  const open = chat.indexOf("\nfunction alsoTail(");
+  const shut = chat.indexOf("\n}\n", open);
+  assert.ok(open > 0 && shut > open, "alsoTail's landmarks are gone from chat.js");
+  assert.ok(chat.slice(open, shut).includes(".slice(0, " + MAX_ALSO_CHARS + ")"), "the reply does not bound what it shows");
 });
 
 test("it rides on BOTH work rungs, because either can drop half a message", () => {
@@ -1952,15 +1972,27 @@ test("A LEFTOVER NEVER CHANGES WHAT GETS DONE", () => {
 });
 
 test("the tool tells the model to stay silent when unsure", () => {
-  // The whole design constraint: nothing branches on this, so over-reporting
-  // costs the customer a sentence about something they did not ask for — which
-  // reads as the builder misunderstanding them, and is worse than the miss.
+  // The whole design constraint: what goes here is HELD BACK since 2026-09-29
+  // (run 52), so over-reporting takes work they asked for out of the turn —
+  // worse than the miss, which leaves the work in.
   const d = ASK_TOOL.input_schema.properties.alsoAsked.description;
   assert.match(d, /ALMOST ALWAYS LEAVE THIS OUT/);
   assert.match(d, /When in doubt, say nothing/);
   // AND IT NAMES THE DISTINCTION THAT DECIDES IT: two things said about one
-  // change is still one change.
-  assert.match(d, /DIFFERENT part of the site/);
+  // change is still one change, and several changes one answer can make are
+  // one turn.
+  //
+  // ⚠ RE-ANCHORED 2026-09-29, AND THE EXPECTATION CHANGED ON PURPOSE. This
+  // asserted "a DIFFERENT part of the site" — the rule that put run 52's Visit
+  // move off to a later turn although the look door could make it. The owner:
+  // *"The router's alsoAsked instructions impose 'one change per turn,' but the
+  // edit executor supports multiple steps."* The customer now gets MORE done in
+  // a turn, never less; the deciding rule is what the chosen answer cannot do.
+  assert.match(d, /still one change/);
+  assert.match(d, /SEVERAL CHANGES ARE ONE TURN WHEN YOUR ANSWER CAN MAKE THEM ALL/);
+  assert.match(d, /ONLY WHEN IT NEEDS SOMETHING YOUR ANSWER CANNOT DO THIS TURN/);
+  assert.match(d, /held back/);
+  assert.doesNotMatch(d, /One change happens per turn/, "the router is told one change per turn again");
   assert.match(d, /in their own words/);
   assert.equal(ASK_TOOL.input_schema.properties.alsoAsked.type, "string");
   // Never required — a leftover is the exception, not the shape of every turn.
@@ -1985,7 +2017,7 @@ test("the wire is not cut, at either end", () => {
   // perfectly against one that returns "" — the works-but-cannot-say-so disease
   // one layer further out, and a mutant proved it. The sentence must carry the
   // customer's own words and tell them what to do with them.
-  const tailAt = c.indexOf("function alsoTail(d)");
+  const tailAt = c.indexOf("function alsoTail(");
   assert.ok(tailAt > 0, "alsoTail is gone");
   const tail = c.slice(tailAt, c.indexOf("\n}", tailAt));
   assert.match(tail, /return[^;]*\balso\b/, "alsoTail never returns the leftover itself");
@@ -2000,8 +2032,22 @@ test("the wire is not cut, at either end", () => {
   // the queued one having had its own copy that carried this correctly and got
   // the escalate and the undo wrong. Matched on the shape rather than the
   // receiver's name, so it reads the same either side of that move.
-  assert.match(c, /finish\(editReply\(e\)[^;]*alsoTail\(o?\.?d\)/, "the edit reply drops the leftover");
-  assert.match(c, /finish\(addonReplyText\(a\)[^;]*alsoTail\(d\)/, "the addon reply drops the leftover");
+  //
+  // ⚠ FROM THE ROUTE'S OWN ANSWER SINCE 2026-09-29 (run 52): each reply's tail
+  // reads what that route HELD BACK (`e` / `a`, their `deferred`), never the
+  // routing decision — which was said whatever the route then did.
+  assert.match(c, /finish\(editReply\(e\)[^;]*alsoTail\(e\)/, "the edit reply drops the leftover, or reads it off the routing decision");
+  assert.match(c, /finish\(addonReplyText\(a\)[^;]*alsoTail\(a\)/, "the addon reply drops the leftover, or reads it off the routing decision");
+  assert.match(tail, /\.deferred\b/, "alsoTail no longer reads what the route held back");
+  // AND THE TWO NEW HOPS: the browser posts what was held back on BOTH routes,
+  // and BOTH routes take it out of the message before anything runs.
+  const editBody = c.slice(c.indexOf("\nfunction siteEdit("), c.indexOf("\n}\n", c.indexOf("\nfunction siteEdit(")));
+  const addBody = c.slice(c.indexOf("\nfunction siteAddon("), c.indexOf("\n}\n", c.indexOf("\nfunction siteAddon(")));
+  assert.ok(editBody.length > 100 && addBody.length > 100, "siteEdit's or siteAddon's landmarks are gone");
+  assert.match(editBody, /alsoAsked: typeof d\.alsoAsked === 'string'/, "the edit POST does not carry what was held back");
+  assert.match(addBody, /alsoAsked: d && typeof d\.alsoAsked === 'string'/, "the add-on POST does not carry what was held back");
+  assert.match(w, /const eHeld = heldBack\(eMessage, eb && eb\.alsoAsked\)/, "the edit route does not take out what was held back");
+  assert.match(w, /const aLater = heldBack\(aAsked, ab && ab\.alsoAsked\)/, "the add-on route does not take out what was held back");
   // The addon lane had no routing decision in scope at all until this landed.
   assert.match(c, /function siteAddon\(site, instruction, origin, finish, fallback, d\)/);
   assert.match(c, /siteAddon\(site, t, origin, finish, go, d\)/);

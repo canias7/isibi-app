@@ -9320,6 +9320,10 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
       // can send a wide wordmark to a 16-pixel tab and leave the header bare.
       tab: d.tab === true,
       instruction: instruction,
+      // WHAT THE ROUTER HELD BACK FOR A LATER TURN (2026-09-29). The route takes
+      // it out of `instruction` before anything runs, so it is never both done
+      // now and promised for later — run 52 did both. Absent when nothing was.
+      alsoAsked: typeof d.alsoAsked === 'string' && d.alsoAsked ? d.alsoAsked : undefined,
       picker: buildPicker,
       // THE UNDO. A deleted row is gone from the table, so the server cannot
       // show the model what "put it back" refers to — the client is the only
@@ -9370,7 +9374,7 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
       // a watch resumed after a refresh hops or falls to the revise exactly as
       // this one would, instead of answering that the message was lost. The
       // attachments are not kept: the logo lane's job is already filed.
-      EditPoll.rememberJob(slug, said.job, undefined, { ask: instruction, op: 'edit', layer: String(d.layer || ''), page: d.page ? String(d.page) : '', handedOff: !!handedOff });
+      EditPoll.rememberJob(slug, said.job, undefined, { ask: instruction, op: 'edit', layer: String(d.layer || ''), page: d.page ? String(d.page) : '', handedOff: !!handedOff, also: typeof d.alsoAsked === 'string' ? d.alsoAsked : '' });
       watchEditJob(site, d, said.job, origin, finish, fallback, instruction, imgs, undefined, handedOff);
       return;
     }
@@ -9609,7 +9613,7 @@ function applyEditResult(e, o) {
       sitesSave();
     }
     scheduleCreditRefresh();
-    finish(editReply(e) + renderTail(e) + alsoTail(o.d));
+    finish(editReply(e) + renderTail(e) + alsoTail(e));
   } catch (err) {
     if (told) return;
     // NOTHING ESCAPES FROM THE FINISH. A throw out of this sentence's own
@@ -9891,7 +9895,9 @@ function resumeEditJob(site, origin, finish, fallback) {
   const rec = EditPoll.resumableRecord(slug);
   if (!rec) return false;
   if (editWatched.has(rec.job)) return false;
-  const d = { layer: rec.layer, page: rec.page };
+  // WHAT THE ROUTER HELD BACK RIDES THE RECORD (2026-09-29): a hop from this
+  // watch re-posts it, so the part promised for later is not run by the hop.
+  const d = { layer: rec.layer, page: rec.page, ...(rec.also ? { alsoAsked: rec.also } : {}) };
   // THE READER THE ROUTE THAT FILED IT USES: an addon's stored reply is a
   // different object — kinds, added pages, tables — read by a different tail.
   const reader = rec.op === 'addon' ? addonAnswer : editAnswer;
@@ -9954,9 +9960,10 @@ function resumeOpenSite(site) {
 // layer: the server's explicit climb, never something this page failed to read
 // — and only a well-formed one, at a successful status with real booleans
 // (`readAddonReply`, below the reader).
-// `d` IS THE ROUTING DECISION, carried only for `alsoAsked` — the second thing
-// they asked for, which this turn is not doing. It is optional so nothing that
-// calls this without one changes shape.
+// `d` IS THE ROUTING DECISION, carried only for `alsoAsked` — the part of the
+// message the router held back for a later turn, posted with it so the route
+// takes it out before anything runs. It is optional so nothing that calls this
+// without one changes shape.
 function siteAddon(site, instruction, origin, finish, fallback, d) {
   const slug = String(site.slug || '');
   if (!slug) return fallback();
@@ -9975,7 +9982,10 @@ function siteAddon(site, instruction, origin, finish, fallback, d) {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     // `tz` IS THE OWNER'S ZONE (2026-09-03): a scheduled job's clock time
     // ("every day at 09:00") is read in it, and only the browser knows it.
-    body: JSON.stringify({ instruction: instruction, picker: buildPicker, idem: idem, tz: browserTimeZone() }),
+    // WHAT THE ROUTER HELD BACK rides with the message, as on the edit route
+    // (2026-09-29): the add-on route takes it out before anything runs.
+    body: JSON.stringify({ instruction: instruction, picker: buildPicker, idem: idem, tz: browserTimeZone(),
+      alsoAsked: d && typeof d.alsoAsked === 'string' && d.alsoAsked ? d.alsoAsked : undefined }),
   }).then(async (r) => {
     const a = await r.json().catch(() => null);
     // SIGNED OUT DECIDES ALONE, and before the body: the route answers 401 above
@@ -9999,7 +10009,7 @@ function siteAddon(site, instruction, origin, finish, fallback, d) {
       // THE ASK RIDES THE RECORD with the route that filed it (stage 2b), so a
       // watch resumed after a refresh reads the reply with THIS route's reader
       // and can re-post the ask on a hop — `siteEdit`'s rule, one rung up.
-      EditPoll.rememberJob(slug, said.job, undefined, { ask: instruction, op: 'addon', layer: d && typeof d.layer === 'string' ? d.layer : '', page: d && d.page ? String(d.page) : '' });
+      EditPoll.rememberJob(slug, said.job, undefined, { ask: instruction, op: 'addon', layer: d && typeof d.layer === 'string' ? d.layer : '', page: d && d.page ? String(d.page) : '', also: d && typeof d.alsoAsked === 'string' ? d.alsoAsked : '' });
       watchEditJob(site, d, said.job, origin, tell, fallback, instruction, undefined, addonAnswer);
       return;
     }
@@ -10194,7 +10204,7 @@ function applyAddonResult(a, o) {
       sitesSave();
     }
     scheduleCreditRefresh();
-    finish(addonReplyText(a) + renderTail(a) + alsoTail(d));
+    finish(addonReplyText(a) + renderTail(a) + alsoTail(a));
   } catch (err) {
     if (told) return;
     const shown = addonOutcomeMsg('shown');
@@ -10628,10 +10638,10 @@ function renderTail(d) {
 }
 // THE SECOND THING THEY ASKED FOR, WHICH THIS TURN DID NOT DO.
 //
-// `layer` is one value, so a message naming two different parts of the site has
-// half of it silently dropped — and the reply then reports the half that ran as
-// a plain success, which reads as the builder ignoring them rather than as one
-// change per turn.
+// A request this turn cannot carry out — an addition beside a change, say — is
+// held back rather than dropped, and without this sentence the reply would
+// report the half that ran as a plain success, which reads as the builder
+// ignoring them.
 //
 // THEIR OWN WORDS, so the follow-up is a paste rather than a re-explanation. The
 // router copies them out of the message; nothing here rewrites them, because a
@@ -10639,8 +10649,15 @@ function renderTail(d) {
 //
 // Absent by default — the router is told to stay silent when unsure, since a
 // wrong one costs a sentence about something nobody asked for.
-function alsoTail(d) {
-  const also = d && typeof d.alsoAsked === 'string' ? d.alsoAsked.trim() : '';
+//
+// ⚠ FROM WHAT THE ROUTE HELD BACK, NOT FROM WHAT THE ROUTER PROPOSED
+// (2026-09-29). This read the routing answer, so it was said whatever the route
+// then did — and run 52's route ran the very part this sentence promised for
+// later. The routes take that part out of the message before anything runs and
+// answer it back as `deferred`; this sentence is composed from that answer, so
+// it can only describe work that really was not done.
+function alsoTail(r) {
+  const also = r && typeof r.deferred === 'string' ? r.deferred.trim() : '';
   if (!also) return '';
   return '\nI only did one thing this time. Say “' + also.slice(0, 200) + '” and I\u2019ll do that next.';
 }

@@ -165,7 +165,12 @@ test("the addon body is read as text before the fork, stored verbatim, and parse
   assert.match(b, /body: abRaw,/, "the stored request is not the raw body the consumer must replay");
   // `request.json()` consumes the stream; a second read answers nothing.
   assert.doesNotMatch(b, /request\.json\(\)/, "the addon block reads the body twice");
-  assert.match(b, /const aInstruction = String\(\(ab && ab\.instruction\) \|\| ""\)/, "the instruction is not read off the one parsed object");
+  // RE-ANCHORED 2026-09-29: the sentence is read off the one parsed object as
+  // `aAsked`, and what this turn runs is that sentence less the part the router
+  // held back — read off the same object (`heldBack`).
+  assert.match(b, /const aAsked = String\(\(ab && ab\.instruction\) \|\| ""\)/, "the instruction is not read off the one parsed object");
+  assert.match(b, /const aLater = heldBack\(aAsked, ab && ab\.alsoAsked\);/, "what was held back is not read off the one parsed object");
+  assert.match(b, /const aInstruction = aLater\.ok \? aLater\.run : aAsked;/, "the add-on does not run the sentence less what was held back");
 });
 
 // ── THE CLOCK ─────────────────────────────────────────────────────────────

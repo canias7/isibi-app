@@ -89,6 +89,11 @@ test("the paid edit carries every field the router decided", () => {
     assert.ok(new RegExp("\\b" + f + ":").test(body), `the edit POST drops \`${f}\``);
   }
   assert.match(body, /rd\.layer/, "the layer is not taken from the router's answer");
+  // AND WHAT THE ROUTER HELD BACK (2026-09-29), exactly as `siteEdit` posts it:
+  // the route takes it out of the instruction before anything runs, so a canary
+  // that dropped it would run the part the browser holds back — run 52's shape.
+  assert.match(body, /alsoAsked: typeof rd\.alsoAsked === "string" && rd\.alsoAsked \? rd\.alsoAsked : undefined,/,
+    "the edit POST drops what the router held back");
   // AND NOT HARDCODED. A canary that names its own layer stops testing the
   // routing hop that failed, which is the one thing it now exists to cover.
   assert.doesNotMatch(body, /layer:\s*["'](look|page|data|text|nav)["']/,

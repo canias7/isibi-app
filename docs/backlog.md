@@ -21,7 +21,10 @@ The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
 - A half of a message the router puts off (`alsoAsked`) is still attempted,
-  on the home page, and the reply contradicts itself (run 52).
+  on the home page, and the reply contradicts itself (run 52). **Fixed on the
+  branch 2026-09-29, not deployed; supplied-model proof only.**
+- Five stylesheet rules match nothing the app serves, and the reachability
+  guard counts them live only through a router sentence's line break.
 - The header's button carries no `data-slot="button"`, so a rule against the
   kit's button hook misses it.
 - The render check judges each selector of a list on its own, so a common
@@ -84,6 +87,27 @@ here; take a closed one out of both.**
   questions meet here, and both are the owner's: whether the job should do
   only what the routing decided, and whether the router should put a band move
   on a named page off at all, when the look rung can do both in one turn.
+  **Fixed on the branch 2026-09-29 (owner: "Fix the general routing/execution
+  mismatch"), not merged, not deployed; Test 6 stays open.** The router puts
+  off only what its answer cannot do this turn; a part it puts off is posted
+  back by the browser and taken out of the message before anything runs
+  (`heldBack`), and the reply's tail is composed from what the route really
+  held back (`deferred`); the picker names each change's page and words
+  (`scopes`), so each runs on its own page with its own words. Proven with
+  supplied model answers only — no real router or picker has been measured
+  on it. The record is `docs/history/2026-09-29-op-scope.md`.
+- **FIVE STYLESHEET RULES MATCH NOTHING THE APP SERVES (found 2026-09-29; not
+  changed).** `.model-menu.drop-up.dir-menu`, `.nav-dd-menu`,
+  `.nav-dd-menu.open`, `.img-src-menu` and `.img-src-menu .check` in
+  `public/styles.css`: no served file names `dir-menu`, `nav-dd-menu` or
+  `img-src-menu`, and none builds them. `test/css-reachable.test.mjs` counts
+  them live only because a router sentence in `builder/site-ask.mjs` has a
+  string starting "menu edit" right after a `+`, which its reader takes for a
+  class suffix. Re-wrapping that unchanged sentence made the guard report all
+  five, and its planted case, which assumes a stylesheet with no dead rule,
+  failed with them. The original line break was put back rather than the rules
+  deleted, because the served stylesheet is outside that fix. Whether they go
+  is the owner's; so is whether the guard should read router prose as code.
 - **THE HEADER'S BUTTON HAS NO `data-slot="button"` (found 2026-09-28 preparing
   Test 6; not changed).** `SiteHeader` renders its action as `<Button asChild>`
   around `SiteLink`, and `SiteLink` passes on only `href`, `className` and

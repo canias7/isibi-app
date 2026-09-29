@@ -59,7 +59,11 @@ the owner's free press, run 51, at 22:57 UTC):
 3. **Two changes in one message**, which is two separate items:
    - **through the look door**: not shown by Test 6's paid run (run 52). The
      live router put the second change off to a later turn (`alsoAsked`), so
-     only the site description shipped;
+     only the site description shipped. **The routing/execution mismatch run
+     52 showed is fixed on the branch (2026-09-29, not deployed)**: a part the
+     router puts off is never run, and each change runs with its own page and
+     words. Supplied-model proof only; showing it live still needs a run, so
+     this item and Test 6 stay open;
    - **through the removal door, with a real model**: a `nav` or `picture`
      removal given other work, where the picker is told the routed change and
      lists anything else separately. Only supplied answers have exercised it.
@@ -103,7 +107,11 @@ stylesheet scope and rule keys (deploy 2161).
   - a reply saying a second part was not done when it was (`alsoAsked`);
   - its mirror, found by run 52: a half the router put off (`alsoAsked`) is
     still attempted, on the home page, and the reply says both that the home
-    page could not be changed and that the put-off change comes next;
+    page could not be changed and that the put-off change comes next (fixed on
+    the branch 2026-09-29, not deployed);
+  - found by that fix: five stylesheet rules match nothing the app serves, and
+    the reachability guard counts them live only through a router sentence's
+    line break;
   - a multi-step look reply naming the look change and not a page change made
     beside it (review #9). Test 6's reply is expected to show it, and it is
     judged separately from that test;
@@ -112,7 +120,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Test 6 — two changes in one message, one on a named page (prepared 2026-09-28, request clarified the same evening; the free check, run 51, passed; the paid run, run 52, shipped the description, and the router put the Visit move off to a later turn; the free restore, run 53, put everything back; awaiting the owner's review)
+## Test 6 — two changes in one message, one on a named page (prepared 2026-09-28, request clarified the same evening; the free check, run 51, passed; the paid run, run 52, shipped the description, and the router put the Visit move off to a later turn; the free restore, run 53, put everything back; the owner: run 52 does not close Test 6; the routing/execution mismatch it showed is fixed on the branch, 2026-09-29, not deployed; Test 6 stays open)
 
 Owner, 2026-09-28: *"prepare one bounded test combining two requested changes
 in one message, ideally also covering a named non-home page. Use an existing
@@ -567,6 +575,36 @@ again, and every free check passed.
 Test 6 is complete as run and waits for the owner's review: the description
 half and the redirect carry-over shown live, the named-page move not made, and
 the finding recorded separately.
+
+### The owner's review, and the fix on the branch (2026-09-29)
+
+Owner: *"Run 52 does not close Test 6. The description worked; the Visit move
+did not. Run 53 restored the fixture successfully. Keep those results recorded
+and do not repeat either run yet. Fix the general routing/execution mismatch
+demonstrated here … Test 6 stays open."*
+
+**The fix, on `claude/help-needed-ehlwlj`, not merged and not deployed**
+(the story is `docs/history/2026-09-29-op-scope.md`):
+- **the router puts off only what its answer cannot do this turn**. Run 52's
+  message is one `look` answer with no page, since its changes are on the
+  whole site and a page;
+- **a part put off is held back, never run**. The browser posts it and the
+  edit and add-on routes take it out before anything runs (`heldBack`); the
+  reply's tail comes from what the route really held back (`deferred`); words
+  it cannot find are refused at no cost (`route/held-unread`);
+- **each change runs with its own page and words**. The picker names them
+  (`scopes`); the description lane is handed the description's words, and the
+  Visit move is made on `/visit` with the Visit words alone.
+
+**Proof: supplied model answers only.** Run 52's frozen sentence through the
+real route and browser code (sync and queued), two pages in one message, the
+put-off cases on both routes, a scoped removal beside a layout change on run
+47's pages, the controls, and units. Nine of the eleven route cases and the
+scoped door case are red on `37574455`; the two controls are green there. No
+real router or picker has been measured on this: **whether a real router now
+leaves the Visit move in the turn, and whether a real picker scopes it to
+`/visit`, is what a live run would show.** None is proposed here; runs 52 and
+53 are not repeated.
 
 ### A visible alternative, not recommended
 

@@ -869,6 +869,20 @@ test("the record carries the ask, the route and the hop's coordinates, bounded",
   assert.deepEqual(P.resumableRecord("s5", Date.now(), store), { job: "j5", ask: "", op: "edit", layer: "", page: "" });
   // AND NEVER A BODY OR A MARKER, ask or no ask.
   assert.ok(!/secret|marker|authorization|bearer|"body"/i.test(store.getItem(P.STORE_KEY)), "the resume store carries more than the ask");
+  // WHAT THE ROUTER HELD BACK (2026-09-29): kept whole, or not at all — a cut
+  // copy would hold back only its start — and a non-string is refused, never
+  // coerced. A record with none reads back exactly as it always did.
+  const held = 'on the Visit page only, put the "Order a collection so we hold a loaf" band above "Come to the bakery"';
+  P.rememberJob("a1", "ja1", store, { ask: "Change the description. Then, " + held + ".", op: "edit", layer: "look", also: held });
+  assert.equal(P.resumableRecord("a1", Date.now(), store).also, held);
+  P.rememberJob("a2", "ja2", store, { ask: "x", op: "edit", also: "y".repeat(P.ASK_MAX + 1) });
+  assert.equal(Object.hasOwn(JSON.parse(store.getItem(P.STORE_KEY)).a2, "also"), false, "an over-long copy was stored");
+  assert.equal(Object.hasOwn(P.resumableRecord("a2", Date.now(), store), "also"), false, "an over-long copy was read back");
+  P.rememberJob("a3", "ja3", store, { ask: "x", op: "edit", also: ["y"] });
+  assert.deepEqual(P.resumableRecord("a3", Date.now(), store), { job: "ja3", ask: "x", op: "edit", layer: "", page: "" });
+  store.setItem(P.STORE_KEY, JSON.stringify({ h2: { job: "jh2", at: Date.now(), ask: "x", also: ["y"] }, h3: { job: "jh3", at: Date.now(), ask: "x", also: "z".repeat(P.ASK_MAX + 1) } }));
+  assert.equal(Object.hasOwn(P.resumableRecord("h2", Date.now(), store), "also"), false, "a typed-in non-string was read as held-back words");
+  assert.equal(Object.hasOwn(P.resumableRecord("h3", Date.now(), store), "also"), false, "a typed-in over-long copy was read back cut or whole");
   // A hostile store still cannot fail an edit.
   const hostile = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } };
   assert.equal(P.resumableRecord("s1", Date.now(), hostile), null);
@@ -922,8 +936,15 @@ test("the resume is wired: on site selection, once per job, with the ask and the
   // BOTH ENQUEUE SITES WRITE THE ASK, each with its route.
   // RE-ANCHORED 2026-09-24: the edit's receipt is read by `readEditReply` too,
   // and its job rides the reader's answer.
-  assert.match(CHAT, /EditPoll\.rememberJob\(slug, \w+\.job, undefined, \{ ask: instruction, op: 'edit', layer: String\(d\.layer \|\| ''\), page: d\.page \? String\(d\.page\) : '', handedOff: !!handedOff \}\)/,
+  //
+  // RE-ANCHORED 2026-09-29: the record also carries what the router held back
+  // (`also`), so a hop from a resumed watch holds back what the live one would.
+  assert.match(CHAT, /EditPoll\.rememberJob\(slug, \w+\.job, undefined, \{ ask: instruction, op: 'edit', layer: String\(d\.layer \|\| ''\), page: d\.page \? String\(d\.page\) : '', handedOff: !!handedOff, also: typeof d\.alsoAsked === 'string' \? d\.alsoAsked : '' \}\)/,
     "the edit route no longer stores the ask");
+  assert.match(CHAT, /EditPoll\.rememberJob\(slug, \w+\.job, undefined, \{ ask: instruction, op: 'addon'[^\n]*, also: d && typeof d\.alsoAsked === 'string' \? d\.alsoAsked : '' \}\)/,
+    "the addon route does not store what was held back");
+  assert.match(re, /const d = \{ layer: rec\.layer, page: rec\.page, \.\.\.\(rec\.also \? \{ alsoAsked: rec\.also \} : \{\}\) \};/,
+    "a resumed watch does not hand its hop what was held back");
   // RE-ANCHORED 2026-09-24: the add-on's receipt is read by `readAddonReply`
   // now, and its job rides the reader's answer. The property is the ask and the
   // route stored for the job, whichever name holds it.
