@@ -34,7 +34,7 @@ here; take a closed one out of both.**
 - No look-door lane describes a menu item, so a menu link taken out beside
   another change can be missed (Test 7's routing review). **Corrected
   2026-09-29 (the menu editor's lane now describes the menu's items), merged
-  and deployed in deploy 2168, not yet runtime-confirmed; shown only with
+  and deployed in deploy 2168 and runtime-confirmed by run 62; shown only with
   supplied answers; Test 8 (proposed) would show it with a real picker.**
 - A change a scoped picker answer leaves out is dropped without a word.
 - The menu editor's other parts (footer details, social icons, small print,
@@ -112,8 +112,8 @@ here; take a closed one out of both.**
   real picker does there. Whether and how the menu gets a lane is the
   owner's decision. **The owner, 2026-09-29: address it with the smallest
   general correction, reusing the menu editor and per-operation scoping.
-  Corrected the same day, and merged and deployed in deploy 2168 (`47dea9c0`,
-  image `dd4f72842234135b`), not yet runtime-confirmed**: the one lane that runs
+  Corrected the same day, merged and deployed in deploy 2168 (`47dea9c0`,
+  image `dd4f72842234135b`) and runtime-confirmed by run 62**: the one lane that runs
   the menu editor (`action`) now describes the menu's items as well as the
   button, and `behavior` names it as where they go; the route is unchanged,
   because a scoped answer already hands the menu editor only the menu's words.

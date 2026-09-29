@@ -38,11 +38,11 @@ and 61 showed.**
 - Kept separate: the reply omission (review #9) and the remaining
   photo-removal limits.
 
-**The look door's menu lane is merged and deployed, not runtime-confirmed**
+**The look door's menu lane is merged, deployed and runtime-confirmed**
 (`47dea9c0`, deploy 2168 with a second run of the same push, 2169,
-2026-09-29 16:39 UTC, image `dd4f72842234135b` as predicted): the menu
-editor's lane now describes the menu's items, shown only with supplied
-answers. The owner's free press is the runtime reading.
+2026-09-29 16:39 UTC, image `dd4f72842234135b` as predicted; the owner's free
+press, run 62, read both at 16:57 UTC): the menu editor's lane now describes
+the menu's items, shown only with supplied answers.
 
 **Proposed, not run: Test 8** (below), a menu item taken out and the Visit
 band moved in one message, with real models; about 5–6 credits, up to about
@@ -146,8 +146,8 @@ stylesheet scope and rule keys (deploy 2161).
   - no look-door lane describes a menu item, so a menu link taken out beside
     another change depends on the picker stretching `action` or `behavior`
     (run 47's real picker named `behavior`, which did nothing). **Corrected
-    2026-09-29 and merged and deployed in deploy 2168 (`47dea9c0`, image
-    `dd4f72842234135b`), not yet runtime-confirmed**: the menu editor's lane now
+    2026-09-29, merged and deployed in deploy 2168 (`47dea9c0`, image
+    `dd4f72842234135b`) and runtime-confirmed by run 62**: the menu editor's lane now
     describes the menu's items, and a scoped answer hands the menu editor only
     the menu's words; shown only with supplied answers, sync and queued; *Test
     8*, below, would show it with a real picker
@@ -182,7 +182,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; not run; nothing spent)
+## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; its free runtime check passed as run 62; not run; nothing spent)
 
 Owner, 2026-09-29: *"Also prepare one bounded real-model acceptance using
 the existing fixture and workflow: a menu-item removal combined with a layout
@@ -207,8 +207,13 @@ live fixture, and the verdict is what is stored and published.
 
 Restored by run 61 (15:33 UTC) and verified then: the five stored pages
 byte-identical to `test/fixtures/run47/*.before.tsx`, every route at `8btpep`.
-The free runtime check for deploy 2168 reads it again before anything is
-spent. What this test turns on:
+**Read again by run 62** (16:57 UTC, free, the runtime check for deploy 2168):
+the five stored pages byte-identical to the fixture (`index.tsx` 2,439
+`51b5af6a…`, `order.tsx` 9,258 `4ead778e…`, `starter.tsx` 951 `37fb0e17…`,
+`visit.tsx` 4,045 `bdb02abe…`, `gallery.tsx` 3,007 `4e8b82aa…`), no
+components, the stored description as before, every route at `8btpep`, and
+`/visit`'s headings "Come to the bakery | The shutters and the street | Order
+a collection so we hold a loaf"; the balance 32. What this test turns on:
 - **the menus** (header and footer): `/` and `/gallery` list Today's bake ·
   The starter · Visit · Gallery; `/visit` and `/order` list Today's bake · The
   starter · Visit; `/starter` has no menu. The "Order a loaf" button goes to
@@ -376,7 +381,8 @@ All from `main`.
    rolled at 16:39): "Run the ONE paid edit as well" `no`; "The site to edit"
    `fold-lane-bakery`, so its before-read re-reads the fixture; the two "Refuse
    to spend unless…" boxes `47dea9c01fbf015c61a56db4281b3e3c5626a772` and
-   `dd4f72842234135b`.
+   `dd4f72842234135b`. **Pressed as run 62 (16:57 UTC): every check passed**
+   (*The fixture*, above).
 2. **The paid run, only after approval and after (1) passes**: "Run the ONE
    paid edit as well" `yes`; "What to change" the sentence above, exactly;
    "The site to edit" `fold-lane-bakery`; the same two expectations.

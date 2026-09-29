@@ -316,8 +316,13 @@ changed, so no served-file comparison is owed); the last Wrangler deploy to
 finish was 2169's (16:39:05Z, `Current Version ID: 86535ed6-…`), and both
 deploy the same commit and image. Gates 401 / 401 / 401 / 404 at 16:40Z, and
 `fold-lane-bakery` still answers at `01790468089054-8btpep`, with
-`/the-starter` 301. **Deployed, not runtime-confirmed**: the owner's free
-press is the reading, from 16:55 UTC (the image rolled at 16:39).
+`/the-starter` 301. **Runtime-confirmed by the owner's free press, edit
+canary run 62** (2026-09-29 16:57 UTC, 18 minutes after the roll, from `main`
+at `47dea9c0` on `fold-lane-bakery`): `build-health 200 deploy=47dea9c01fbf
+image=dd4f72842234135b` and `runtime 200 deploy=47dea9c01fbf async=true
+runner=true`, the two readers agreeing and both expectations met; the free
+job was claimed by a container and finished at cost 0, and the balance read
+32.
 The twelfth
 added a SECOND CHANNEL — **deploy 2139 (2026-09-21) was predicted before the
 push over the local merge commit `28e46e91` as `82bccb3bee50e4fd`, against

@@ -37,10 +37,11 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 - **`main` is `47dea9c0`, deploy 2168** (2026-09-29 16:35 UTC, a
   fast-forward from `cb981a4a`; the one push started two deploy runs a second
   apart, 2168 and 2169, both green on the same commit, and both built image
-  `dd4f72842234135b`, predicted on both ends) — **deployed, not
-  runtime-confirmed**: the owner's free press is the reading, from 16:55 UTC
-  (the image rolled at 16:39). Nothing under `public/` changed. It carries
-  **the look door's menu lane** (below). `docs/deploy-record.md`.
+  `dd4f72842234135b`, predicted on both ends) — **runtime-confirmed by the
+  owner's free press, run 62** (16:57 UTC, on `fold-lane-bakery`): both
+  readers answer `47dea9c01fbf`, a cold container gets `dd4f72842234135b`, and
+  queued jobs and the runner are on. Nothing under `public/` changed. It
+  carries **the look door's menu lane** (below). `docs/deploy-record.md`.
 - **Deploy 2167** (`cb981a4a`, 2026-09-29 14:03 UTC, image
   `65ce683607928f0e`, predicted on both ends and built; a fast-forward from
   `a64729ad`) was **runtime-confirmed by the owner's free press, run 59**
@@ -95,8 +96,8 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   branch runs the branch's script against main's Worker.
 - **Balance 32** on the building account after run 60 (2026-09-29 15:07
   UTC): routing 2 and the job's reserves of 2 and 1, ledger rows 337 and 338;
-  read again at 15:27 UTC and after the free restore (run 61) at 15:37, with
-  no row after 338 and no job open. The unit
+  read again at 15:27 UTC, after the free restore (run 61) at 15:37 and by
+  run 62 at 16:57, with no row after 338 and no job open. The unit
   suite is **8,296** on `main` (`47dea9c0`): `8296 / 8296 / 0 / 0` locally
   and `8296 / 8292 / 0 / 4` on CI (run 36597948276).
 - **Closed by the owner, not to be repeated**: live test 2 (run 32); Test 3
@@ -135,7 +136,7 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   `clear` keeps the space when asked). The record is the checklist's *Test 7*
   (*Run 60*, *Run 61*, *Closed*) and `docs/history/2026-09-29-photo-removal.md`.
 - **The look door's menu lane is corrected, merged and deployed in 2168**
-  (2026-09-29; not runtime-confirmed). A menu change beside other work is routed `look`,
+  (2026-09-29; runtime-confirmed by run 62). A menu change beside other work is routed `look`,
   and no lane there described the menu's items: the one lane that runs the
   menu editor (`action`) said "only that button", and run 47's real picker
   read "Take Gallery out of the menu." as `behavior`, which changed nothing.
@@ -158,9 +159,10 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   the ledger, and the free restore to `8btpep` after. About 5–6 credits, up
   to about 25; the balance is 32. **The evidence boundary**: the route cases
   prove the execution when the picker places the menu change on the menu
-  editor's lane; only this run can show the real picker does. Held for the
-  free runtime check of deploy 2168 and the owner's approval of the paid run.
-  The plan is the checklist's *Test 8*.
+  editor's lane; only this run can show the real picker does. The free
+  runtime check (run 62) passed and read the bakery's five stored pages
+  byte-identical to the fixture; **held only for the owner's approval of the
+  paid run**. The plan is the checklist's *Test 8*.
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
   `docs/investigations/edit-path-checklist.md`, and every test's plan, readings
@@ -333,8 +335,8 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
 
 - **Balance 32** on the building account after run 60 (Test 7's paid run,
   2026-09-29 15:07 UTC): 37 → 32, routing 2 and reserves of 2 and 1 (ledger
-  rows 337 and 338), read again at 15:27 and at 15:37 after the free
-  restore (run 61), with no row after 338. Before it:
+  rows 337 and 338), read again at 15:27, at 15:37 after the free
+  restore (run 61) and at 16:57 by run 62, with no row after 338. Before it:
   37 after run 57 (2026-09-29 04:19 UTC; ledger rows 335 and 336, read again
   at 05:04, and unchanged through runs 58 and 59). Before that: 45 at run 50's end
   (2026-09-28 18:41 UTC): run 49 took it 50 → 45 (routing 2 + 1 and the menu
