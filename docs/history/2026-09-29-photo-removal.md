@@ -1,8 +1,10 @@
 # 2026-09-29 — taking a photograph off takes its element off; keeping its space is asked for by name
 
-On the branch `claude/help-needed-ehlwlj`; **not merged, not deployed, and not
-run live**. Every model answer below is supplied. Test 7 stays held until the
-correction is reviewed, merged, deployed and runtime-confirmed.
+Built on the branch `claude/help-needed-ehlwlj`, then **merged and deployed
+the same day (deploy 2167, `cb981a4a`, below) on the owner's word; deployed,
+not runtime-confirmed until the owner's free press; not run live**. Every
+model answer below is supplied. Test 7 stays held until the runtime
+confirmation and the owner's approval of the paid run.
 
 ## The owner's request
 
@@ -251,3 +253,43 @@ placeholder expectations (3,989 characters, sha256 `46959b0d…`, the slot
 drawing the placeholder, the "There is a space for a photo" sentence) are
 marked superseded in the checklist. Test 7 stays held until the correction is
 merged, deployed and runtime-confirmed; it is not run.
+
+## Merged and deployed: deploy 2167 (2026-09-29)
+
+Owner: *"Proceed with merging cb981a4ad to main and deploying the
+photo-removal correction, subject to the existing pre-merge checks. Verify
+nothing is in flight, confirm the candidate's CI, recheck the image prediction
+against current main, and verify rollback in a throwaway worktree. The
+recorded expected image is 65ce683607928f0e; investigate any difference before
+merging. After deployment, verify the actual image built and compare served
+chat.js against the merged file. Keep "deployed" separate from
+"runtime-confirmed.""*
+
+- **Pre-merge**: `main` still `a64729ad`, the candidate `cb981a4a` 12 commits
+  ahead and none behind (a fast-forward); nothing in flight (no GitHub run in
+  progress, queued or waiting; `edit_jobs` 173 `done`, 154 `failed`, 2 `lost`,
+  none queued or running, the ten `failed` since deploy 2166 being the
+  canary's own free probe pairs at cost 0); CI green on the candidate (`unit
+  tests` 36542727770 on `cb981a4a`, 8277 / 8273 / 0 / 4; `site build`
+  36539848416 on `4ee123d2`, whose product tree `cb981a4a` shares, the next
+  commit only documenting); the image predicted again against current `main`:
+  `6fbaccad82fe879d` → `65ce683607928f0e`, **exactly the recorded
+  expectation**; and the rollback verified in a throwaway worktree: reverting
+  `a64729ad..cb981a4a` gives `main`'s own tree, `c5862644…`. The served
+  `chat.js` read before the merge (13:59:09Z) was `a64729ad`'s own, 787,454
+  bytes, `50909c0b…`, with no `photosTakenOff`.
+- **The merge**: `a64729ad` → `cb981a4a` at 13:59:46Z.
+- **The deploy** (run 36579291309, deploy 2167): `built
+  isibi-app-sitebuildcontainer:65ce683607928f0e (registry answered 404; 188
+  inputs)`, `6fbaccad82fe879d` → `65ce683607928f0e` under `SUCCESS Modified
+  application`, 0 `CACHED` lines, image step 2m21s, Wrangler 23s, job 3m18s;
+  `+ /chat.js`, one file uploaded (85 already there). The gate took over from
+  `a64729ad` and the drain found no live leases.
+- **Served**: `/chat.js` at 14:05:21Z is byte-identical to
+  `cb981a4a:public/chat.js` (788,171 bytes, `82f36de3…`; `photosTakenOff` 0 →
+  4), and `/edit-poll.js` is unchanged. Gates 401 / 401 / 401 / 404. The
+  bakery still answers at `8btpep` on all five pages, with its redirect.
+- **Deployed, not runtime-confirmed.** The owner's free press (the edit
+  canary with `no`, the deploy sha and the image id) is the reading that asks
+  the live Worker and a cold container, after the image's roll settles (from
+  14:25 UTC).

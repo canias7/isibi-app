@@ -34,9 +34,24 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 
 ## Where things stand (2026-09-29)
 
-- **`main` is `a64729ad`, deploy 2166** (2026-09-29 02:51 UTC, image
-  `6fbaccad82fe879d`, predicted on both ends and built) — **runtime-confirmed
-  by the owner's free press, run 54** (03:36 UTC, on `fold-lane-bakery`): both
+- **`main` is `cb981a4a`, deploy 2167** (2026-09-29 14:03 UTC, image
+  `65ce683607928f0e`, predicted on both ends and built; a fast-forward from
+  `a64729ad`) — **deployed, not runtime-confirmed**: the owner's free press is
+  next, from 14:25 UTC (the image rolled at 14:03). The served `chat.js` is
+  byte-identical to the merged file (788,171 bytes, `82f36de3…`). It carries
+  **the photo-removal correction**: "take the photo off" takes the
+  photograph's element off (`remove`, found in the page's syntax tree), "keep
+  the space" empties the frame (`clear`), contradictions and what cannot be
+  taken off safely are refused by name, and `photosTakenOff` drives the undo
+  hint. **Its limits stand**: a photo held by a larger block or written inside
+  code is refused (20 of 210 on the stored test pages); an emptied wrapper
+  with its own meaning is kept (21 of 190); two photos sharing a description
+  are refused; a job run inline in the Worker, with no parser, refuses every
+  removal; and no real picture model has chosen between the two answers yet.
+  `docs/history/2026-09-29-photo-removal.md`.
+- **Deploy 2166** (`a64729ad`, 2026-09-29 02:51 UTC, image
+  `6fbaccad82fe879d`) was **runtime-confirmed by the owner's free press, run
+  54** (03:36 UTC, on `fold-lane-bakery`): both
   readers answer `a64729ad741a`, a cold container gets `6fbaccad82fe879d`, and
   queued jobs and the runner are on. The served `chat.js` and `edit-poll.js`
   are byte-identical to the merged files. On top of deploy 2165 it carries the
@@ -65,17 +80,14 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   run 52's publish kept the bakery's stored redirect, read at once and ten
   minutes later. Redirects dropped between 2026-08-17 and that deploy are not
   rebuilt.
-- **The branch `claude/help-needed-ehlwlj`** is `main` plus documents (deploy
-  2166's record and Test 6's runs) and, since 2026-09-29, **the photo-removal
-  correction for review** (`builder/site-picture.mjs`, `worker.js`,
-  `public/chat.js`): not merged, not deployed. A press from the branch runs
-  the branch's script against main's Worker.
+- **The branch `claude/help-needed-ehlwlj`** is `main` (`cb981a4a`) plus
+  documents (deploy 2167's record). A press from the branch runs the branch's
+  script against main's Worker.
 - **Balance 37** on the building account after run 57 (2026-09-29 04:19
   UTC): routing 2 and the job's reserves of 1 and 2, ledger rows 335 and 336;
   read again at 05:35 UTC after the free restore (run 58), with no row after
   336 and no job open. The unit
-  suite is **8,241** on `main` (`9ed7da51`) and **8,277** on the branch (the
-  photo-removal correction).
+  suite is **8,277** on `main` (`cb981a4a`).
 - **Closed by the owner, not to be repeated**: live test 2 (run 32); Test 3
   (run 34) with the stylesheet corrections (deploy 2161); the kit-heading fix
   (2162); Test 4a (runs 37 and 39); Test 4b's D1 (run 42) and the conditional
@@ -117,8 +129,9 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   what cannot be taken off safely are refused by name while the rest proceeds;
   the picture step's own `photosTakenOff` drives the undo hint. Test 7 now
   expects the element removed (`visit.tsx` `263dd01e…`); its placeholder
-  expectations are superseded. **Still held until the correction is merged,
-  deployed and runtime-confirmed.** The plan is the checklist's *Test 7*; the
+  expectations are superseded. **Merged and deployed in deploy 2167; still
+  held until the owner's free press confirms it, and then for the owner's
+  approval of the paid run.** The plan is the checklist's *Test 7*; the
   record is `docs/history/2026-09-29-photo-removal.md`.
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
@@ -321,18 +334,15 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
   bound. The default builder model is grok (`DEFAULT_PICKER`), and a cold new
   account is one credit short of building (`buildFloor` 20 against a grant of
   20, the routing call spending 1 first).
-- **The unit suite is 8,241** (`9ed7da51`): `8241 / 8239 / 0 / 2` locally,
-  `8241 / 8237 / 0 / 4` on CI (run 36511517996) — **compare the totals, never
-  `pass`**; CI skips four where a local run skips two. **On the branch, 8,277**
-  (the photo-removal correction, 2026-09-29): `8277 / 8277 / 0 / 0` locally,
-  where the two `sheet-rtl` browser cases run because the template's
-  dependencies are installed, and `8277 / 8273 / 0 / 4` on CI (run
-  36539848541, on `4ee123d2`); its `site build` (run 36539848416) reads all
-  twelve counts as above, with the same two annotations. A merge would roll
-  the image `6fbaccad82fe879d` → `65ce683607928f0e` (predicted over both
-  ends). **`site build`** reads
-  twelve counts green (read on `9ed7da51`, run 36511518084, from each step's
-  log): TAP 397, kit-typecheck 4, site-build **404** (382 plus the browser
+- **The unit suite is 8,277** (`cb981a4a`, deploy 2167): `8277 / 8277 / 0 /
+  0` locally, where the two `sheet-rtl` browser cases run because the
+  template's dependencies are installed, and `8277 / 8273 / 0 / 4` on CI (runs
+  36539848541 on `4ee123d2` and 36542727770 on `cb981a4a`) — **compare the
+  totals, never `pass`**; CI skips four. (Before the photo-removal correction:
+  8,241 at `9ed7da51`, `8241 / 8239 / 0 / 2` locally and `8241 / 8237 / 0 / 4`
+  on CI, run 36511517996.) **`site build`** reads the same twelve counts green
+  on `9ed7da51` (run 36511518084) and on `4ee123d2` (run 36539848416), each
+  read from each step's log: TAP 397, kit-typecheck 4, site-build **404** (382 plus the browser
   control's 22), contrast-cases 16, theme-seam 11,
   theme-render 29, site-routing 14, site-runtime 47, and kit-render, kit-a11y,
   kit-effects and kit-paint `all passed` (census 7 + 4 + 1 = 12). Its two
@@ -399,7 +409,7 @@ guard, a sweep, a harness or a CI reader.** The ones met most often:
 | `docs/app-rules.md` | the builder app's rules, the model table, and the agent builder's half in this app |
 | `docs/platform.md` | the two halves, where the code lives, data, auth, payments and mail, credits |
 | `docs/deploy.md` | what a push starts, the paid workflows, the image predictor, runtime confirmation, the served-file check, secrets, rollback |
-| `docs/deploy-record.md` | every deploy's image prediction and timings, 2137 → 2166 (add new ones here) |
+| `docs/deploy-record.md` | every deploy's image prediction and timings, 2137 → 2167 (add new ones here) |
 | `docs/traps.md` | the full trap catalogue |
 | `docs/backlog.md` | the open items: a one-line index, then each in full |
 | `docs/history/` | dated records of every run and fix round, 2026-09-21 → 09-28, and the old status and live-state sections — indexed in `docs/history/README.md` |

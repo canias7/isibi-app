@@ -5,7 +5,7 @@
 > `docs/deploy.md`, where CLAUDE.md's **Deploy** section moved in the second
 > pass. This file keeps the measurements behind them: the
 > timing bands, every image-id prediction checked against a deploy's own log
-> (deploys 2137–2166), and the served-file check driven end to end on deploy
+> (deploys 2137–2167), and the served-file check driven end to end on deploy
 > 2139.
 >
 > **Add each new deploy here**, one paragraph per deploy, in the same shape:
@@ -258,6 +258,34 @@ deploy=a64729ad741a image=6fbaccad82fe879d` and `runtime 200
 deploy=a64729ad741a async=true runner=true`, the two readers agreeing and both
 expectations met; the free job was claimed by a container and finished at
 cost 0.
+**Deploy 2167 (2026-09-29) was predicted on both ends and confirmed**:
+`origin/main` `a64729ad` answered `6fbaccad82fe879d` — deploy 2166's own
+image, runtime-confirmed by run 54 — and the tip `cb981a4a` answered
+`65ce683607928f0e` (the same id at `4ee123d2`, the commit before it, which
+the one after only documents), both from 188 inputs and 158 distinct paths;
+`builder/site-picture.mjs` and `worker.js` are the push's inputs among its
+20 files (the photo-removal correction). **A fast-forward**, `a64729ad` →
+`cb981a4a` at 13:59:46Z, 12 commits; nothing was in flight on GitHub (no run
+in progress, queued or waiting) or in `edit_jobs` (173 `done`, 154 `failed`, 2
+`lost`, none queued or running; the ten `failed` since 2166 are the canary's
+own free probe pairs, cost 0), and reverting `a64729ad..cb981a4a` gives
+main's own tree (`c5862644…`), so a rollback reuses `6fbaccad82fe879d`. Run
+36579291309: the gate took over from `a64729ad…` and the drain found no live
+leases; the log answered `built …:65ce683607928f0e (registry answered 404;
+***88 inputs off ./Dockerfile)` and `…:6fbaccad82fe879d` →
+`…:65ce683607928f0e` under `SUCCESS Modified application`; **0 `CACHED`
+lines**, image step 2m21s, Wrangler 23s, job 3m18s, all inside the band.
+`+ /chat.js`, `Uploaded 1 file (85 already uploaded)`, `DEPLOY_ID`
+`cb98***a4ad***d37***8da7df…`, `Current Version ID: 96e025a…`. **The served
+`/chat.js` is byte-identical to the merged tree**, read at 14:05:21Z: 788,171
+bytes, sha256 `82f36de3b5535656…` (the before reading at 13:59:09Z was
+`a64729ad`'s own 787,454 bytes, `50909c0b57f3a929…`); `photosTakenOff` 0 → 4.
+`/edit-poll.js` did not change and still equals the merged file (30,203
+bytes). Gates 401 / 401 / 401 / 404 at 14:05Z, and `fold-lane-bakery` still
+answers at `01790468089054-8btpep` on all five pages, with `/the-starter`
+301 to `/starter` (`public, max-age=600`), at 14:06Z. **Deployed, not
+runtime-confirmed**: the owner's free press is the reading that asks the live
+Worker and a cold container.
 The twelfth
 added a SECOND CHANNEL — **deploy 2139 (2026-09-21) was predicted before the
 push over the local merge commit `28e46e91` as `82bccb3bee50e4fd`, against

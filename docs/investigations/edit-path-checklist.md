@@ -122,9 +122,10 @@ stylesheet scope and rule keys (deploy 2161).
     (run 47's real picker named `behavior`, which did nothing);
   - the photograph lane tells the picker a removal takes the slot away; the
     picture rung kept the slot, and the kit drew its placeholder there:
-    **reproduced and rendered; corrected on the branch 2026-09-29 (`remove`
-    takes the element off, `clear` keeps the space when asked), not merged or
-    deployed; Test 7 held until it is** (*Test 7 → Implemented*, below). What
+    **reproduced and rendered; corrected 2026-09-29 (`remove` takes the
+    element off, `clear` keeps the space when asked) and deployed in deploy
+    2167, not yet runtime-confirmed; Test 7 held until it is** (*Test 7 →
+    Implemented*, below). What
     the targeted editor still cannot take off is refused and recorded as a
     capability limit (backlog).
 - Also recorded:
@@ -148,7 +149,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Test 7 — a photograph removal and a layout change on another page, in one message (proposed 2026-09-29; its claimed coverage narrowed the same day by a routing review the owner asked for: the customer capability through the look door, not the removal door; held the same day on the photo-removal mismatch, reproduced and a correction proposed for review; the correction implemented on the branch the same day with the owner's safeguards, and Test 7 now expects the element removed; still held until it is merged, deployed and runtime-confirmed; not run)
+## Test 7 — a photograph removal and a layout change on another page, in one message (proposed 2026-09-29; its claimed coverage narrowed the same day by a routing review the owner asked for: the customer capability through the look door, not the removal door; held the same day on the photo-removal mismatch, reproduced and a correction proposed for review; the correction implemented on the branch the same day with the owner's safeguards, and Test 7 now expects the element removed; merged and deployed the same day in deploy 2167, not yet runtime-confirmed; still held until it is, and for the owner's approval; not run)
 
 Owner, 2026-09-29: *"Prepare the next bounded acceptance: a removal combined
 with another change in one message, through the removal path with a real
@@ -345,7 +346,7 @@ The plan above is kept as the owner reviewed it. Where the implementation
 departs from it, by the owner's safeguards or by what building it found, is
 under *Implemented*, next.
 
-### Implemented (2026-09-29, on the branch for review; not merged, not deployed, not run live)
+### Implemented (2026-09-29; merged and deployed the same day in deploy 2167, `cb981a4a`, image `65ce683607928f0e`; not yet runtime-confirmed; not run live)
 
 Owner: *"Implement the remove-versus-clear correction on the working branch,
 with these safeguards: Use reliable TSX structure to identify the exact photo
@@ -411,8 +412,9 @@ kept frame. A merge would roll the container image to `65ce683607928f0e`.
 route stores for Test 7's sentence, on both doors, sync and queued, with
 supplied answers, is exactly the fixture less the counter's element (3,801
 characters, sha256 `263dd01e…`), and the home page is exactly the move
-(`0b64985c…`). **Test 7 stays held** until the correction is merged, deployed
-and runtime-confirmed; its request, recovery and cost stand.
+(`0b64985c…`). **Test 7 stays held** until the owner's free press confirms
+deploy 2167 at runtime, and then for the owner's approval of the paid run;
+its request, recovery and cost stand.
 
 ### The fixture: fold-lane-bakery at `01790468089054-8btpep`
 
