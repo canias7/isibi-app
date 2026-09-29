@@ -62,8 +62,9 @@ is prepared again, unchanged (*Test 8*, below). **Pressed again as run 66**
 door's picker placed the band on `shape` and the menu change on the menu
 editor's lane (`action`); both changes were stored and published exactly as
 expected, in one publish (`li1j0y`), for 6 credits. Every acceptance item is
-met. The free restore to `8btpep` is next, and closing is the owner's
-decision.
+met. The free restore (run 67, 22:23 UTC) put `8btpep` back, checked
+(stored pages byte-identical to the fixture, markup and pixels identical to
+the pre-test reading, no charge). Closing is the owner's decision.
 
 **The redirect carry-over fix is merged and deployed** (`f5e941f4`, deploy
 2165, 2026-09-28 19:07 UTC, image `8a10715339cdc780`; runtime-confirmed by
@@ -198,7 +199,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; its free runtime check passed as run 62; pressed as run 63 the same day: the router answered `nav` with `remove` and held the band back, so only the menu change was made and the look door was not reached; the free restore, run 64, put everything back; the owner recorded run 63 as a partial outcome and accepted run 64, with the intended acceptance still open; the router's whole-message rule corrected on the branch the same day, made to choose by what a route can make on every page rather than by kind after the owner's review, and the acceptance prepared again, not run; the rule merged and deployed in deploy 2170 the same day and runtime-confirmed by run 65; pressed again as run 66 the same day: the router answered `look` with nothing held back, and both changes were stored and published exactly as expected, for 6 credits; every acceptance item met; the free restore is next)
+## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; its free runtime check passed as run 62; pressed as run 63 the same day: the router answered `nav` with `remove` and held the band back, so only the menu change was made and the look door was not reached; the free restore, run 64, put everything back; the owner recorded run 63 as a partial outcome and accepted run 64, with the intended acceptance still open; the router's whole-message rule corrected on the branch the same day, made to choose by what a route can make on every page rather than by kind after the owner's review, and the acceptance prepared again, not run; the rule merged and deployed in deploy 2170 the same day and runtime-confirmed by run 65; pressed again as run 66 the same day: the router answered `look` with nothing held back, and both changes were stored and published exactly as expected, for 6 credits; every acceptance item met; the free restore, run 67, put everything back, checked; closing is the owner's decision)
 
 Owner, 2026-09-29: *"Also prepare one bounded real-model acceptance using
 the existing fixture and workflow: a menu-item removal combined with a layout
@@ -682,7 +683,8 @@ other box left as it is:
 3. **The free restore, after the readings**: "Run the ONE paid edit as
    well" `no`; "PUT ONE SAVED VERSION BACK, THEN READ IT AND STOP"
    `01790468089054-8btpep`; "The site to edit" `fold-lane-bakery`; the same
-   two expectations.
+   two expectations. **Pressed as run 67 (22:23 UTC): everything put back,
+   no charge** (*Run 67*, below).
 
 ### Run 66 — the paid run: the router answered `look`, and both changes were made from one message (2026-09-29)
 
@@ -773,8 +775,43 @@ messages.
 
 **Cost**: 6 credits, against the estimate of about 5–6. The balance is 22.
 
-**Next**: the free restore to `01790468089054-8btpep` (press 3, above), then
-the owner's review. Closing Test 8 is the owner's decision.
+**Next**: the free restore (run 67, below), then the owner's review.
+Closing Test 8 is the owner's decision.
+
+### Run 67 — the free restore put everything back (2026-09-29)
+
+Pressed by the owner at 22:23 UTC, from `main` at `907840c6`, with the
+restore inputs exactly as handed over: paid edit `0`, "PUT ONE SAVED VERSION
+BACK" `01790468089054-8btpep`, `fold-lane-bakery`, and the two expectations.
+The preflight matched both. The restore listed 13 versions, with run 66's
+`li1j0y` live. It put back row 8, `8btpep` (the POST answered 200, 24 files),
+and the site then reported `8btpep` itself on the first read.
+
+**Checked afterwards**:
+- **Stored pages**: the five stored pages are byte-identical to the fixture
+  (`51b5af6a…`, `4ead778e…`, `37fb0e17…`, `bdb02abe…`, `4e8b82aa…`), and there
+  is no component.
+- **Served markup**: every page's markup is identical to the pre-test
+  reading (run 66's before-read) apart from render timestamps, including the
+  original build's script names.
+- **Pixels**: all five pages match the pre-test renders exactly (0 pixels
+  differ), with 0 page errors and every image loaded.
+- **Live**: every route is at `8btpep`. Gallery is back in the header and
+  footer menus on `/` and `/gallery`, and `/visit` reads "Come to the
+  bakery", "The shutters and the street", then the band.
+- **Unchanged**: the redirects (301 to `/starter`, `public, max-age=600`),
+  the 404, the sitemap (all five), the QR file (`45f42f27…`), the stylesheet
+  (`544ff34e…`) and the share card (`ce884f5b…`); the stored description is
+  unchanged.
+- **Money**: nothing was charged. The balance is 22, no ledger row after 341,
+  and no job is open (only the run's free probe jobs, at cost 0).
+
+**Seen in the restore's version list, kept separate** (backlog): run 66's
+version is labelled "Take Gallery out of the menu.", which names only the
+first of its two changes. Where the label comes from is not traced.
+
+**Next**: the owner's review of runs 66 and 67. Closing Test 8 is the
+owner's decision.
 
 ## Test 7 — a photograph removal and a layout change on another page, in one message (proposed 2026-09-29; its claimed coverage narrowed the same day by a routing review the owner asked for: the customer capability through the look door, not the removal door; held the same day on the photo-removal mismatch, reproduced and a correction proposed for review; the correction implemented on the branch the same day with the owner's safeguards, and Test 7 now expects the element removed; merged and deployed the same day in deploy 2167 and runtime-confirmed by the owner's free press, run 59; approved by the owner and pressed as run 60 the same day: both changes stored and published, each on its own page, with the home page stored without its final newline; the free restore, run 61, put everything back; closed by the owner, 2026-09-29, for the customer behavior runs 60 and 61 showed, with the missing final newline accepted as a specific nonfunctional exception)
 

@@ -105,7 +105,8 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   Worker.
 - **Balance 22** on the building account after run 66 (Test 8's second paid
   run, 2026-09-29 21:57–22:00 UTC): 28 → 22, routing 2 and the job's
-  reserves of 3 and 1 (ledger rows 340 and 341), with no job open. Before it,
+  reserves of 3 and 1 (ledger rows 340 and 341), with no job open; read
+  again by the free restore (run 67) at 22:24, with no row after 341. Before it,
   28 after run 63 (Test 8's first paid run, 2026-09-29 17:03 UTC): routing 2
   and the job's reserve of 2, ledger row 339, read again after the free restore (run 64) at 17:30, with no row after
   339 and no job open, and again at 21:35 after deploy 2170 and by run 65 at
@@ -191,8 +192,11 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   publish, `li1j0y`, built from `8btpep`; everything else preserved, read at
   once and ten minutes later; `/order` and `/starter` identical to the
   pixel). Every acceptance item is met; the reply still names only the look
-  (review #9, kept separate). The free restore is next; closing is the
-  owner's decision. The record is the checklist's *Test 8* (*Run 66*).
+  (review #9, kept separate). **The free restore (run 67, 22:23 UTC) put
+  `8btpep` back**, checked (stored pages byte-identical to the fixture,
+  markup and pixels identical to the pre-test reading, no charge). Closing
+  Test 8 is the owner's decision. The record is the checklist's *Test 8*
+  (*Run 66*, *Run 67*).
 - **The router chooses one answer over the whole message, by what a route
   can make on every page** (2026-09-29: `465efe11`, then `2771ed3f` after the
   owner's review of its first wording; **merged and deployed in deploy 2170**
@@ -420,8 +424,7 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
   `ben-crowe-guitar`, and the older `fold-lane-bakery`, `harbourside-roast`,
   `the-lido-cafe`, `oak-and-ash`, `forno-and-co`. **Reusing one of those slugs
   revises that site.** The test fixtures now: `fold-lane-bakery` live at
-  `01790719081409-li1j0y` (Test 8's run 66; the free restore to
-  `01790468089054-8btpep` is next),
+  `01790468089054-8btpep` (restored by run 67 after Test 8's run 66),
   `fretwork-1` at `01790404806543-kk6qsh` (Test 3's removal kept), and
   `lido-axes-b` with its bookings closed (run 44, kept).
 - **What things cost, measured** — routing 1–2 per message (it moves with the

@@ -39,6 +39,10 @@ here; take a closed one out of both.**
   Test 8's run 66, where the real picker placed the menu change on that
   lane.**
 - A change a scoped picker answer leaves out is dropped without a word.
+- The saved-version list labels a two-change publish with its first change
+  only: run 66's `li1j0y` reads "Take Gallery out of the menu." (seen in run
+  67's restore list; where the label comes from is not traced; kin to review
+  #9). Found 2026-09-29, not changed.
 - A menu removal beside a layout move on another page is answered `nav` with
   `remove` and the move held back, against the router's own `alsoAsked` rule
   (Test 8, run 63). **Corrected 2026-09-29 (the router chooses one answer
