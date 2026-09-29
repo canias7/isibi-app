@@ -49,7 +49,7 @@ here; take a closed one out of both.**
   over the whole message, by what a route can make on every page, never by
   kind); merged and deployed in deploy 2170 and runtime-confirmed by run 65;
   run 66's real router answered `look` for the same message, with nothing
-  held back (one sample).**
+  held back (one sample); Test 8 closed by the owner 2026-09-29.**
 - The menu editor's other parts (footer details, social icons, small print,
   links in the copy, how the header sits) are described by no look-door lane.
 - What the picture step cannot take off on its own is refused: a photograph

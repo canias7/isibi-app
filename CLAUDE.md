@@ -125,7 +125,10 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   message, unrelated content preserved, the redirects kept, and `8btpep`
   restored free); Test 7 (runs 60 and 61: a photograph's element taken off
   `/visit` with no placeholder and the home band moved, published together,
-  unrelated content preserved, and `8btpep` restored free).
+  unrelated content preserved, and `8btpep` restored free); Test 8 (runs 66
+  and 67: a menu item taken out and the Visit band moved from one message,
+  routed `look` by the real router, both published exactly as expected, and
+  `8btpep` restored free; runs 63 and 64 kept as history).
 - **Test 6 is closed by the owner** (2026-09-29) for exactly what runs 57 and
   58 showed: one message's site-wide description and Visit-only band move,
   both stored and published; unrelated content preserved; the existing
@@ -194,9 +197,11 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   pixel). Every acceptance item is met; the reply still names only the look
   (review #9, kept separate). **The free restore (run 67, 22:23 UTC) put
   `8btpep` back**, checked (stored pages byte-identical to the fixture,
-  markup and pixels identical to the pre-test reading, no charge). Closing
-  Test 8 is the owner's decision. The record is the checklist's *Test 8*
-  (*Run 66*, *Run 67*).
+  markup and pixels identical to the pre-test reading, no charge). **Closed
+  by the owner** (2026-09-29) for the exact combined request run 66 proved,
+  with recovery verified by run 67; runs 63 and 64 stay as history, and there
+  are no further reruns. The record is the checklist's *Test 8* (*Run 66*,
+  *Run 67*, *Closed*).
 - **The router chooses one answer over the whole message, by what a route
   can make on every page** (2026-09-29: `465efe11`, then `2771ed3f` after the
   owner's review of its first wording; **merged and deployed in deploy 2170**
@@ -235,8 +240,9 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   translator reading page code as text; D2 and D3 (grants apply and a real
   order on `fold-lane-bakery`); model-written replies; `lido-axes-b`'s
   still-visible booking invitation; the lost redirects; the QR code pointing at
-  a removed page; the bare not-found text on Start sites; and a multi-step look
-  reply naming only the look (review #9).
+  a removed page; the bare not-found text on Start sites; a multi-step look
+  reply naming only the look (review #9); and the saved-version list naming
+  only a publish's first change.
 - **Codex's investigations** — the add-on escalation correction, the edit-path
   milestone and the literal-text guard — are in `docs/investigations/`.
 

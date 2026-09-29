@@ -38,6 +38,20 @@ and 61 showed.**
 - Kept separate: the reply omission (review #9) and the remaining
   photo-removal limits.
 
+**Closed by the owner (2026-09-29): Test 8, for the exact combined request
+run 66 proved, with recovery verified by run 67.**
+- **Run 66**, one message (*Take Gallery out of the menu. Then, on the Visit
+  page only, put the "Order a collection so we hold a loaf" band above "Come
+  to the bakery".*): the real router answered `look` with nothing held back;
+  the look door's picker placed the band on `shape` and the menu change on
+  the menu editor's lane (`action`); both stored and published exactly as
+  expected, in one publish, the rest preserved; 6 credits.
+- **Run 67**, free: version `8btpep` is back, stored and published.
+- Kept as history: run 63 (a partial outcome: the router held the band back)
+  and its restore, run 64. No further Test 8 reruns.
+- Kept separate: the reply omission (review #9) and the saved-version list's
+  label naming only the first change (backlog).
+
 **The look door's menu lane is merged, deployed and runtime-confirmed**
 (`47dea9c0`, deploy 2168 with a second run of the same push, 2169,
 2026-09-29 16:39 UTC, image `dd4f72842234135b` as predicted; the owner's free
@@ -64,7 +78,8 @@ editor's lane (`action`); both changes were stored and published exactly as
 expected, in one publish (`li1j0y`), for 6 credits. Every acceptance item is
 met. The free restore (run 67, 22:23 UTC) put `8btpep` back, checked
 (stored pages byte-identical to the fixture, markup and pixels identical to
-the pre-test reading, no charge). Closing is the owner's decision.
+the pre-test reading, no charge). **Closed by the owner** the same day, for
+the exact combined request run 66 proved, with recovery verified by run 67.
 
 **The redirect carry-over fix is merged and deployed** (`f5e941f4`, deploy
 2165, 2026-09-28 19:07 UTC, image `8a10715339cdc780`; runtime-confirmed by
@@ -93,6 +108,8 @@ the owner's free press, run 51, at 22:57 UTC):
   description back (53, 58).
 - **A photograph's element taken off one page and a band moved on another,
   in one message through the look door** (60), and restored free (61).
+- **A menu item taken out and a band moved on another page, in one message,
+  routed `look` by the real router** (66), and restored free (67).
 - **One database row changed and put back** (42).
 - **A rules closing enforced by the database** (44), for that closing only.
 - **A menu link removed through the removal door with a real picker, then the
@@ -199,7 +216,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; its free runtime check passed as run 62; pressed as run 63 the same day: the router answered `nav` with `remove` and held the band back, so only the menu change was made and the look door was not reached; the free restore, run 64, put everything back; the owner recorded run 63 as a partial outcome and accepted run 64, with the intended acceptance still open; the router's whole-message rule corrected on the branch the same day, made to choose by what a route can make on every page rather than by kind after the owner's review, and the acceptance prepared again, not run; the rule merged and deployed in deploy 2170 the same day and runtime-confirmed by run 65; pressed again as run 66 the same day: the router answered `look` with nothing held back, and both changes were stored and published exactly as expected, for 6 credits; every acceptance item met; the free restore, run 67, put everything back, checked; closing is the owner's decision)
+## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; its free runtime check passed as run 62; pressed as run 63 the same day: the router answered `nav` with `remove` and held the band back, so only the menu change was made and the look door was not reached; the free restore, run 64, put everything back; the owner recorded run 63 as a partial outcome and accepted run 64, with the intended acceptance still open; the router's whole-message rule corrected on the branch the same day, made to choose by what a route can make on every page rather than by kind after the owner's review, and the acceptance prepared again, not run; the rule merged and deployed in deploy 2170 the same day and runtime-confirmed by run 65; pressed again as run 66 the same day: the router answered `look` with nothing held back, and both changes were stored and published exactly as expected, for 6 credits; every acceptance item met; the free restore, run 67, put everything back, checked; closed by the owner the same day for the exact combined request run 66 proved, with recovery verified by run 67, runs 63 and 64 kept as history, no further reruns)
 
 Owner, 2026-09-29: *"Also prepare one bounded real-model acceptance using
 the existing fixture and workflow: a menu-item removal combined with a layout
@@ -776,7 +793,6 @@ messages.
 **Cost**: 6 credits, against the estimate of about 5–6. The balance is 22.
 
 **Next**: the free restore (run 67, below), then the owner's review.
-Closing Test 8 is the owner's decision.
 
 ### Run 67 — the free restore put everything back (2026-09-29)
 
@@ -810,8 +826,21 @@ and the site then reported `8btpep` itself on the first read.
 version is labelled "Take Gallery out of the menu.", which names only the
 first of its two changes. Where the label comes from is not traced.
 
-**Next**: the owner's review of runs 66 and 67. Closing Test 8 is the
-owner's decision.
+### Closed (2026-09-29)
+
+Owner, 2026-09-29: *"Accept Test 8 for the exact combined request proven by
+run 66, with recovery verified by run 67. Record it as closed and retain
+earlier failed runs as history. No further Test 8 reruns. Keep the
+reply-summary and saved-version-label issues in the separate backlog."*
+- **Closed** for exactly what runs 66 and 67 showed: the combined request
+  above, routed `look` by the real router with nothing held back, both
+  changes stored and published exactly as expected in one publish, the
+  rest preserved, the money exact (6 credits), and `8btpep` restored free.
+- **Kept as history**: run 63 (the router answered `nav` + `remove` and held
+  the band back, a partial outcome) and its restore, run 64.
+- **Not to be repeated**: no further Test 8 reruns.
+- **Kept separate** (backlog): the reply names only the look (review #9), and
+  the saved-version list labels run 66's publish with its first change only.
 
 ## Test 7 — a photograph removal and a layout change on another page, in one message (proposed 2026-09-29; its claimed coverage narrowed the same day by a routing review the owner asked for: the customer capability through the look door, not the removal door; held the same day on the photo-removal mismatch, reproduced and a correction proposed for review; the correction implemented on the branch the same day with the owner's safeguards, and Test 7 now expects the element removed; merged and deployed the same day in deploy 2167 and runtime-confirmed by the owner's free press, run 59; approved by the owner and pressed as run 60 the same day: both changes stored and published, each on its own page, with the home page stored without its final newline; the free restore, run 61, put everything back; closed by the owner, 2026-09-29, for the customer behavior runs 60 and 61 showed, with the missing final newline accepted as a specific nonfunctional exception)
 
