@@ -583,8 +583,11 @@ did not. Run 53 restored the fixture successfully. Keep those results recorded
 and do not repeat either run yet. Fix the general routing/execution mismatch
 demonstrated here … Test 6 stays open."*
 
-**The fix, on `claude/help-needed-ehlwlj`, not merged and not deployed**
-(the story is `docs/history/2026-09-29-op-scope.md`):
+**The fix, at `9a79fc2d` on `claude/help-needed-ehlwlj`, not merged and not
+deployed** (the story is `docs/history/2026-09-29-op-scope.md`; the suite
+`8232 / 8230 / 0 / 2` locally and `8232 / 8228 / 0 / 4` on unit CI, run
+36508164135; the mutation sweep 46 of 46 killed, both controls surviving; a
+merge would roll the image to `ea3f680b3b227bd9`):
 - **the router puts off only what its answer cannot do this turn**. Run 52's
   message is one `look` answer with no page, since its changes are on the
   whole site and a page;

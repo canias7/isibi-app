@@ -92,6 +92,10 @@ yesterday's code and pass on the new code.
 (the known reply item); five unused stylesheet rules turned up along the way
 and are in the backlog for you to decide on.
 
+**The checks**: all 8,232 automatic tests pass here and on GitHub (commit
+`9a79fc2d`). I also deliberately broke the new code 46 different ways, and
+each break was caught by a test.
+
 **Nothing was merged, deployed, spent or re-run.** Runs 52 and 53 stand as
 recorded, and Test 6 stays open.
 
