@@ -34,7 +34,8 @@ here; take a closed one out of both.**
 - No look-door lane describes a menu item, so a menu link taken out beside
   another change can be missed (Test 7's routing review).
 - The photograph lane says a removal takes the slot away; the picture rung
-  leaves the slot, drawn as the kit's placeholder.
+  leaves the slot, drawn as the kit's placeholder. **Reproduced and rendered;
+  a correction proposed for review; Test 7 held on it.**
 - Redirects dropped between 2026-08-17 and deploy 2165 are not rebuilt.
 - A page removal does not see a QR code that points at the page.
 - The branded not-found page is thrown away on every Start site.
@@ -105,8 +106,13 @@ here; take a closed one out of both.**
   empty" (`builder/site-picture.mjs`): the `src` is emptied, the kit's
   `SafeImage` draws its placeholder in the same place, and the reply says
   "There is a space for a photo". The code does what the rung says, and Test
-  7's expected Visit page is that. Which one a customer's "take the photo
-  off" should mean is the owner's decision.
+  7's expected Visit page was that. **The owner, 2026-09-29: it cannot be
+  parked while Test 7 assumes the current implementation; distinguish
+  removing a photo element from clearing it while keeping its space.
+  Reproduced through the real route and rendered with the real build (the
+  customer sees a grey placeholder captioned with the photo's description),
+  and a correction proposed for review, not implemented; Test 7 is held on
+  it.** The record and the plan are the checklist's *Test 7*.
 - **A HALF OF A MESSAGE THE ROUTER PUTS OFF IS STILL ATTEMPTED (found
   2026-09-28 by Test 6's paid run, run 52; not changed).** The router answered
   `look` with the Visit page's band move in `alsoAsked` and named no page: one

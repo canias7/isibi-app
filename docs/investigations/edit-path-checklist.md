@@ -121,7 +121,9 @@ stylesheet scope and rule keys (deploy 2161).
     another change depends on the picker stretching `action` or `behavior`
     (run 47's real picker named `behavior`, which did nothing);
   - the photograph lane tells the picker a removal takes the slot away; the
-    picture rung keeps the slot, and the kit draws its placeholder there.
+    picture rung keeps the slot, and the kit draws its placeholder there:
+    **reproduced and rendered, a correction proposed for review, and Test 7
+    held on it** (*Test 7*, below).
 - Also recorded:
   - the closed-bookings UX gap;
   - the three Test 4a findings;
@@ -143,7 +145,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Test 7 — a photograph removal and a layout change on another page, in one message (proposed 2026-09-29; its claimed coverage narrowed the same day by a routing review the owner asked for: the customer capability through the look door, not the removal door; not run)
+## Test 7 — a photograph removal and a layout change on another page, in one message (proposed 2026-09-29; its claimed coverage narrowed the same day by a routing review the owner asked for: the customer capability through the look door, not the removal door; held the same day on the photo-removal mismatch, reproduced and a correction proposed for review; not run)
 
 Owner, 2026-09-29: *"Prepare the next bounded acceptance: a removal combined
 with another change in one message, through the removal path with a real
@@ -228,6 +230,110 @@ deployed (deploy 2166), against runs 47, 49 and 57. Nothing was changed.
 **The outcome**: no suitable menu-link candidate. Test 7's request, checks,
 recovery and cost stand, and what it claims is narrowed to the customer
 capability.
+
+### Held: taking a photo off leaves its space (reproduced 2026-09-29; a correction proposed for review, not implemented)
+
+Owner: *"However, the photo-removal contradiction directly affects Test 7, so
+it cannot simply be parked while the test assumes the current implementation
+is correct. The image lane promises the slot goes away; the picture executor
+clears src and leaves a placeholder. Before spending, reproduce that mismatch
+through the existing route and render the result using supplied model answers.
+Show what the customer would see. Propose the smallest general correction that
+distinguishes removing a photo element from explicitly clearing a photo while
+keeping its space. Preserve unrelated content and existing swap/reframe
+behavior. Do not hardcode the fixture, photo wording, or page. Return the
+reproduction and concrete correction plan for review before implementation."*
+
+**Reproduced through the real edit route** (scratch, not committed: the
+harness of `test/edit-removal-door.test.mjs` on the bakery's stored pages,
+every model answer supplied), sync and queued, on both doors:
+- The message "Take the photograph of the counter and the morning board off
+  the Visit page.", routed `picture` with `remove` (the removal door) and
+  routed `look` (the look door), the picker naming `images` as the removal.
+- What each model is told: the picker, "images — take a photograph off the
+  page — the slot that held it goes with it, rather than being left empty";
+  the picture model, whose only removal answer is `clear`, "True to REMOVE the
+  picture from this slot, leaving the space empty."
+- With that answer (`clear: true`) all four runs store the same Visit page:
+  one line changes, `src="/u/…/d5d59152…jpg"` becomes `src=""`, and the
+  `<SafeImage>` element stays. The other four pages are byte-identical; one
+  compile; `photosRemoved: 1`, `photos: 1`.
+- The screen: "✅ Took the picture off “The counter and morning board at
+  Harbour Loaf”. One photograph is no longer on the site. If that was not what
+  you wanted, say “put the photo back”. There is a space for a photo — upload
+  yours in the Data panel and it’ll fill in."
+
+**Rendered with the real build service** (`builder/build-server.mjs` in a
+sandbox of the template, set up as `test/integration/site-runtime.mjs` does,
+served by `test/integration/lib/serve-site.mjs`, drawn in Chromium): the
+route's own compile request, with the live site's logo address, QR file and
+default look added to it (the harness's stored config carries none of them),
+identically before and after.
+- **Before** (the saved pages): identical to the live `/visit`, 0 of 1280×1431
+  pixels different.
+- **After**: the photograph is gone, and the kit's placeholder (grey diagonal
+  bands, an image icon, the photo's description as a caption) fills the same
+  468×351 box. The location card and everything below stay where they were.
+
+**The proposed correction, for review (not implemented)**: two answers where
+there is one, and the removal made in code rather than by a model.
+1. The picture tool (`PICTURE_TOOL`, `builder/site-picture.mjs`) gains
+   `remove`: take the photograph off the page, the picture and the space it
+   sits in both gone; the meaning of "take the photo off", "remove the
+   picture", "we don't want a photo there". `clear` is narrowed to requests
+   that ask to keep the space ("empty the frame", "leave a space for a new
+   one") and keeps today's result exactly. An answer with both is read as
+   `clear`, the one that keeps more.
+2. `imageSlots` records each photo element's own span, and `applyPictures`
+   takes a `remove` off the source by structure alone, with no model call:
+   only a `<SafeImage>` or `<img>` that closes itself and stands as a child of
+   an element (after a tag or a `}` that is not an arrow, before a `<` or a
+   `{`), with its line when it has the line to itself; then any parent it
+   leaves with nothing in it, while that parent is itself such a child,
+   upwards. Everything else on the page is byte-identical. Removals run first,
+   from the end of the file backwards; the page's other choices are then found
+   again by page and alt and applied as today.
+3. A picture it cannot take off on its own (a prop of a larger block such as
+   `Figure` or `MediaObject`, or one written inside an expression such as
+   `media={<SafeImage …/>}`) is refused by name, nothing changes, and the
+   sentence offers to empty it and keep its space or to take the block off.
+4. The reply names it: "✅ Took “…” off the page." In the browser, when a
+   removed photograph left no space (`photosRemoved` above `photos`), the undo
+   hint says to roll back to the previous build in Cloud → Versions instead of
+   "say “put the photo back”", which the picture step cannot do once the slot
+   is gone. The clear sentence, swaps, made pictures and reframes are
+   unchanged.
+5. Unchanged: the router, the lane picker and its lane texts (the `images`
+   promise becomes true), the photo guard (a removal the picture step made is
+   already in the pages the next step starts from), the accounting
+   (`photosRemoved` counts it; `photos` stays 0, so no "There is a space"
+   sentence) and the cost (the same one picture-model call).
+
+**The rule on the stored test pages** (a scratch classifier over
+`test/fixtures`): of 210 pictures the picture step can address, 190 are
+elements it would take off, 21 of them with the one wrapper each leaves empty
+(a `<section>` or a spacing `<div>`), none needing more; 18 are props of
+`Figure` (16) or `MediaObject` (2) and 2 are `media={<SafeImage …/>}` values,
+all 20 refused.
+
+**What changes in the tests**: new unit cases for the span, the emptied
+parent, the refusals, a removal beside a swap on one page, and both answers at
+once; route cases, sync and queued, on both doors, with the keep-the-space
+control reproducing today's output exactly; and the nine existing supplied
+`clear` answers (`edit-page-protect` 5, `edit-page-photos`, `edit-page-once`,
+`edit-removal-door`, `site-picture`) reviewed one by one against what the tool
+will tell the model to answer. Then the mutation sweep with a comment-only
+control, the full suite, unit CI and `site build`, screenshots of the reply,
+and the image prediction.
+
+**Test 7 is held** until the correction is reviewed, built, merged and
+deployed. Its expected Visit page would become the fixture with the element's
+six lines removed (by hand now: 3,801 characters, sha256 `263dd01e…`, to be
+re-derived from the implemented code), and item 2 would read: `/visit` no
+longer shows the counter photograph, nothing is drawn in its place, and the
+location card sits at the top of the right column. Its request, the other
+checks, the recovery and the cost stand. The missing menu lane stays a
+separate backlog item.
 
 ### The fixture: fold-lane-bakery at `01790468089054-8btpep`
 

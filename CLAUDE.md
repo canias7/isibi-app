@@ -104,8 +104,11 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   it can make in one turn. The routing review found no better candidate: a
   menu link removed beside a layout change is routed `look` too, and on that
   door no lane describes a menu item (backlog). The removal door given other
-  work stays shown only with supplied answers. The plan is the checklist's
-  *Test 7*.
+  work stays shown only with supplied answers. **Held** (2026-09-29): "take
+  the photo off" publishes a placeholder where the lane picker is promised
+  the slot goes; reproduced through the route, rendered with the real build,
+  and a correction proposed for the owner's review. The plan is the
+  checklist's *Test 7*.
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
   `docs/investigations/edit-path-checklist.md`, and every test's plan, readings
