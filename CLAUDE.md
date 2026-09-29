@@ -92,15 +92,17 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   minutes later. Redirects dropped between 2026-08-17 and that deploy are not
   rebuilt.
 - **The branch `claude/help-needed-ehlwlj`** is `main` (`47dea9c0`) plus
-  documents (deploy 2168's record and Test 8's proposal). A press from the
-  branch runs the branch's script against main's Worker.
+  documents and the router's whole-message rule (`465efe11`, not merged). A
+  press from the branch runs the branch's script against main's Worker.
 - **Balance 28** on the building account after run 63 (Test 8's paid run,
   2026-09-29 17:03 UTC): routing 2 and the job's reserve of 2, ledger row
   339, read again after the free restore (run 64) at 17:30, with no row after
   339 and no job open. Before it, 32 after run 60, unchanged through runs 61
   and 62. The unit
   suite is **8,296** on `main` (`47dea9c0`): `8296 / 8296 / 0 / 0` locally
-  and `8296 / 8292 / 0 / 4` on CI (run 36597948276).
+  and `8296 / 8292 / 0 / 4` on CI (run 36597948276); **8,297** on the
+  branch with the router's correction (`8297 / 8297 / 0 / 0` locally, `8297 / 8293 / 0 /
+  4` on CI, run 36608607282).
 - **Closed by the owner, not to be repeated**: live test 2 (run 32); Test 3
   (run 34) with the stylesheet corrections (deploy 2161); the kit-heading fix
   (2162); Test 4a (runs 37 and 39); Test 4b's D1 (run 42) and the conditional
@@ -165,8 +167,31 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   the menu change on the menu editor's lane is still shown only with
   supplied answers. **The free restore (run 64, 17:29 UTC) put `8btpep`
   back**, checked (stored pages equal to the fixture, markup and pixels
-  identical to the before-read, no charge). Awaiting the owner's review. The
-  record is the checklist's *Test 8* (*Run 63*, *Run 64*).
+  identical to the before-read, no charge). **The owner recorded run 63 as a
+  partial outcome** (the menu removal succeeded, the Visit move was deferred)
+  **and accepted run 64**; the intended mixed-request acceptance remains open,
+  and every earlier closure stays credited. The record is the checklist's
+  *Test 8* (*Run 63*, *Run 64*, *The owner's review*).
+- **The router chooses one answer over the whole message** (2026-09-29, on
+  the branch, `465efe11`; not merged, not deployed). Run 63's `nav` + `remove`
+  + `alsoAsked` came from instructions that disagreed: each layer's clause
+  named the answer for the change a message leads with ("A MENU CHANGE IS
+  "nav"", `remove` for a menu item), the several-changes rule sat inside
+  `look`'s own paragraph, and `alsoAsked` judged a hold against the answer
+  already chosen. **The fix is two strings in `builder/site-ask.mjs`**: the
+  `layer` field now ends on one rule over the whole message (a layer's own
+  clause is its answer when every change is its kind; a mix `look` can make
+  entirely is `look`, nothing held back; a change is held back only when no
+  one answer can make it with the rest), and `alsoAsked` spares a part `look`
+  can make with the rest whatever the first change was. The route is
+  unchanged. Guard, red check (1 of 110), sweep (12 of 12, 2 controls
+  survived), Test 8's request replayed with both answers supplied, full suite
+  `8297 / 8297 / 0 / 0`, required CI green (unit 36608607282: `8297 / 8293 / 0 / 4`; site
+  build 36608607274: the twelve counts). **Shown only by the tool's text and
+  supplied answers: whether a
+  real router now answers `look` is not measured.** A merge would roll the
+  image to `ce8f51050098d883`. Test 8 is prepared again, unchanged, for the owner's
+  review. `docs/history/2026-09-29-whole-message-routing.md`.
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
   `docs/investigations/edit-path-checklist.md`, and every test's plan, readings

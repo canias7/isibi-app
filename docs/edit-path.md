@@ -82,6 +82,13 @@ answers unless a run is named.
     `data` or `text` change beside another kind). Changes the look rung can
     make are one `look` answer, with no `page` when they are on more than one
     page, or on the whole site and a page.
+  - **The answer is chosen over the whole message** (corrected on the branch
+    2026-09-29 after Test 8's run 63, not merged). The `layer` field's last
+    paragraph: a layer's own clause is its answer when every change is its
+    kind; a mix `look` can make entirely is `look`, with nothing held back;
+    a change is held back only when no one answer can make it with the rest.
+    `alsoAsked` spares a part `look` can make with the rest whatever the
+    first change was. Shown only by the tool's text and supplied answers.
   - **A part put off is held back, never run.** The browser posts it
     (`siteEdit`, `siteAddon`, the resume record's `also`; the canary does the
     same), and the edit and add-on routes take it out of the message before

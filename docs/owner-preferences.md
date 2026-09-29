@@ -239,3 +239,13 @@
   route the entire mixed request into the menu editor."* Each operation
   reaches its own executor, unrelated links and content are preserved, and
   when one part cannot run the outcome says so accurately.
+- **A route is chosen for the whole request.** After Test 8's run 63:
+  *"Resolve conflicting instructions so the router considers the whole
+  request before choosing a path or deferring any operation."* Single changes
+  keep their efficient route, only work that cannot run together is deferred,
+  deferred words never run, and no rule forces every mixed request into one
+  path.
+- **Controlled evidence is not a real model's choice.** *"Clearly distinguish
+  controlled execution evidence from proof that a real model chooses the
+  correct route."* Supplied answers prove what the code does with an answer;
+  only a live run shows which answer a model gives.

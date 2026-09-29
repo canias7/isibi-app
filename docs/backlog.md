@@ -40,7 +40,9 @@ here; take a closed one out of both.**
 - A change a scoped picker answer leaves out is dropped without a word.
 - A menu removal beside a layout move on another page is answered `nav` with
   `remove` and the move held back, against the router's own `alsoAsked` rule
-  (Test 8, run 63). **Found 2026-09-29; not changed.**
+  (Test 8, run 63). **Corrected on the branch 2026-09-29 (the router chooses
+  one answer over the whole message); not merged; shown only by the tool's
+  text and supplied answers.**
 - The menu editor's other parts (footer details, social icons, small print,
   links in the copy, how the header sits) are described by no look-door lane.
 - What the picture step cannot take off on its own is refused: a photograph
@@ -142,9 +144,14 @@ here; take a closed one out of both.**
   gets the menu change and is asked to send the other again; and the look
   door's menu lane (deploy 2168) is not reached by such a message, so Test 8
   did not show the real picker choosing it. One sample (Test 7's routing
-  review had expected `look`). Whether and how the router's instructions
-  change is the owner's decision: `docs/investigations/edit-path-checklist.md`,
-  *Test 8*, *Run 63*.
+  review had expected `look`). **The owner, 2026-09-29: resolve the
+  conflicting instructions so the router considers the whole request before
+  choosing a path or deferring any operation. Corrected on the branch the same
+  day, not merged**: the `layer` field now ends on one rule over the whole
+  message, and `alsoAsked` spares a part `look` can make with the rest
+  whatever the first change was. The route is unchanged. Whether a real
+  router now answers `look` is not measured:
+  `docs/history/2026-09-29-whole-message-routing.md`.
 - **A CHANGE A SCOPED PICKER ANSWER LEAVES OUT IS DROPPED WITHOUT A WORD
   (found 2026-09-29 while reproducing the menu gap; not changed).** On a
   scoped answer each lane runs on its own words, and nothing checks that every

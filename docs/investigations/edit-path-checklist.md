@@ -50,7 +50,11 @@ moved in one message, with real models: the router answered `nav` with
 menu exactly and the band was not moved; 4 credits. The look door was not
 reached, so the real picker placing the menu change on the menu editor's lane
 is still shown only with supplied answers. The free restore (run 64) put
-`8btpep` back, checked; the router's choice is in the backlog.
+`8btpep` back, checked. **The owner recorded run 63 as a partial outcome**
+(the menu removal succeeded, the Visit move was deferred) and accepted run
+64; the intended mixed-request acceptance remains open. **The router now
+chooses one answer over the whole message** (on the branch, not merged): the
+acceptance is prepared again, unchanged (*Test 8*, below).
 
 **The redirect carry-over fix is merged and deployed** (`f5e941f4`, deploy
 2165, 2026-09-28 19:07 UTC, image `8a10715339cdc780`; runtime-confirmed by
@@ -185,7 +189,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; its free runtime check passed as run 62; pressed as run 63 the same day: the router answered `nav` with `remove` and held the band back, so only the menu change was made and the look door was not reached; the free restore, run 64, put everything back; awaiting the owner's review)
+## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; its free runtime check passed as run 62; pressed as run 63 the same day: the router answered `nav` with `remove` and held the band back, so only the menu change was made and the look door was not reached; the free restore, run 64, put everything back; the owner recorded run 63 as a partial outcome and accepted run 64, with the intended acceptance still open; the router's whole-message rule corrected on the branch the same day, and the acceptance prepared again, not run)
 
 Owner, 2026-09-29: *"Also prepare one bounded real-model acceptance using
 the existing fixture and workflow: a menu-item removal combined with a layout
@@ -546,6 +550,88 @@ passed.
     reserve), no ledger row came after 339, the two zero-cost probe jobs
     (`f4bd53a0…` on the bakery, `9a014a2e…` on `washhouse-3`) ended `failed`
     at cost 0 with billing `none`, and no edit job is open.
+
+### The owner's review of runs 63 and 64 (2026-09-29)
+
+Owner, 2026-09-29: *"Accept run 64's restoration. Record run 63 as a partial
+outcome: the menu removal succeeded, the Visit move was deferred, and the
+intended mixed-request acceptance remains open. Keep the successful
+restoration and previously closed tests credited."*
+- **Run 63 is a partial outcome**: the menu removal succeeded (Gallery out of
+  every menu with the expected bodies, its page kept, everything else
+  preserved, one publish, the money exact), and the Visit move was deferred
+  (held back by the router, neither made nor charged, and named in the reply).
+- **The intended mixed-request acceptance remains open**: both changes from
+  one message, with the real picker placing the menu change on the menu
+  editor's lane, has not been shown live.
+- **Run 64's restoration is accepted**: `8btpep` back, stored and published,
+  with nothing charged.
+- Every test closed before stays credited, and nothing here reopens one.
+- **Next**: the routing defect, as one focused change (*After run 63: the
+  router's whole-message rule*, below).
+
+### After run 63: the router's whole-message rule, and the acceptance prepared again (2026-09-29; on the branch, not merged; not run)
+
+**The correction** (`builder/site-ask.mjs`; the full record is
+`docs/history/2026-09-29-whole-message-routing.md`). The router's tool
+disagreed with itself about a message of more than one kind: each layer's
+clause ("A MENU CHANGE IS "nav"", `remove` for a menu item) named the answer
+for the change a message leads with; the several-changes rule sat inside
+`look`'s own paragraph with only `look`'s own kinds; and `alsoAsked` judged a
+hold against the answer already chosen, sparing a `look`-reachable part only
+"when you answered "look"". Now the `layer` field ends on one rule over the
+whole message (a layer's own clause is its answer when every change is its
+kind; a mix `look` can make entirely is `look`, with nothing held back; a
+change is held back only when no one answer can make it with the rest), and
+`alsoAsked`'s exception holds "whatever the first change was". The route is
+unchanged.
+
+**The evidence boundary, stated plainly**: the tests prove what the router is
+TOLD (its tool's text) and what the route DOES with each answer (supplied
+answers). Whether a real router now answers `look` for this message is not
+measured; only a live run after a merge and a deploy can show it.
+
+**The request, unchanged** (139 characters, sha256 `65b63d1d…`):
+
+> Take Gallery out of the menu. Then, on the Visit page only, put the "Order a collection so we hold a loaf" band above "Come to the bakery".
+
+**Expected results, unchanged**: items 1–8 of *Acceptance* above, with the
+same stored files (`index.tsx` 2,378 `637b7793…`, `gallery.tsx` 2,946
+`da53a375…`, `order.tsx` 9,241 `0a0b5f41…`, `visit.tsx` 4,028 `c67011db…`,
+`starter.tsx` unchanged) and item 8 read as: the router answers `look` with
+nothing held back (no `alsoAsked`, no `deferred`), and the job's stored reply
+names the lanes `shape` and `action` and the layers `page` and `nav`, with no
+`partial`. **Replayed free after the correction** through the real edit
+route with supplied answers, sync and queued (scratch, not committed): with
+the answer the corrected rule asks for (`look`, nothing held back), the
+menu editor is handed exactly "Take Gallery out of the menu", the page writer
+exactly the band's words on `visit.tsx`, and all five stored files equal the
+expected ones above; with run 63's own answer, the route does exactly what
+run 63 did (menu only, the held-back words in no model call, `visit.tsx` the
+menu-only `ddd1fe39…`).
+
+**What each other outcome would mean now**:
+- **`nav` with `remove` and the band held back again** (run 63's answer): the
+  correction did not steer the real router; items 4 and 8 fail, and run 63's
+  partial outcome repeats (menu only, band named for next time).
+- **`nav` with `remove` and nothing held back**: the removal door carries the
+  band as the picker's additional work, so both changes may ship; the menu
+  editor then reads the whole message (the door's known limit), and item 8
+  fails (the look door is not reached).
+- The rest of *What each other outcome means*, above, stands.
+
+**Recovery**: the free restore to `01790468089054-8btpep`, the version live
+now (restored by run 64), which a new version would have as its parent.
+
+**Cost**: an estimate, not a cap. Routing 1–2 (runs 57, 60 and 63: 2); the
+Visit move through the quick writer about 2 (run 57); the menu editor about
+1–2 (runs 49 and 63: 2). **About 5–6 credits, up to about 25** if the full
+page writer has to run. The balance is 28.
+
+**Before it can run**: the correction merged and deployed (it lives in the
+Worker's routing call, and the lanes module the container loads imports the
+same file, so the image rolls), then the owner's free runtime check, then the
+paid press and the free restore, each with the new deploy's identifiers.
 
 ## Test 7 — a photograph removal and a layout change on another page, in one message (proposed 2026-09-29; its claimed coverage narrowed the same day by a routing review the owner asked for: the customer capability through the look door, not the removal door; held the same day on the photo-removal mismatch, reproduced and a correction proposed for review; the correction implemented on the branch the same day with the owner's safeguards, and Test 7 now expects the element removed; merged and deployed the same day in deploy 2167 and runtime-confirmed by the owner's free press, run 59; approved by the owner and pressed as run 60 the same day: both changes stored and published, each on its own page, with the home page stored without its final newline; the free restore, run 61, put everything back; closed by the owner, 2026-09-29, for the customer behavior runs 60 and 61 showed, with the missing final newline accepted as a specific nonfunctional exception)
 
