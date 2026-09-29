@@ -1284,7 +1284,14 @@ test("the rules say a multi-page change is NOT a page edit", () => {
   const d = ASK_TOOL.input_schema.properties.layer.description;
   assert.match(d, /ONE PAGE, AND ONLY ONE/);
   assert.match(d, /every page/i, "the description must name the case it gets wrong");
-  assert.match(d, /Answer "addon" for those/, "it must say where the change belongs instead");
+  // WHERE IT BELONGS INSTEAD — reconciled 2026-09-29 with the rule that closes
+  // the field: not "addon" by default (written before the frame's details were
+  // `nav`'s and before `look` placed each change on its own page), but the
+  // answer that can make it on every page it lands on.
+  assert.match(d, /The answer for those is whichever can make the change on every page it lands on/,
+    "it must say where the change belongs instead");
+  assert.match(d.split("\n").pop(), /ONE ANSWER FOR THE WHOLE MESSAGE/, "the rule it points at is not the field's last paragraph");
+  assert.doesNotMatch(d, /Answer "addon" for those/, "a change on several pages is still sent to the add-on step by default");
 });
 
 // ── taking a row away ────────────────────────────────────────────────────────

@@ -2014,17 +2014,26 @@ test("the answer is chosen over the whole message, and only what no one answer c
   const last = l.split("\n").pop();
   assert.ok(last.length > 200, "the layer description has no closing rule to read: " + JSON.stringify(last.slice(0, 80)));
   assert.match(last, /WHOLE MESSAGE/, "the closing rule is not about the whole message");
-  assert.match(last, /EVERY CHANGE THEY ASK FOR/, "the router is not told to read every change before choosing");
-  assert.match(last, /NEVER FROM THE FIRST ONE ALONE/, "a leading change can still decide the answer on its own");
-  // A SINGLE KIND KEEPS ITS OWN LAYER, however many changes there are — the
-  // cheap answers for one change stay where they were.
-  assert.match(last, /Each layer above is the answer when every change they ask for is its kind/,
-    "a message of one kind is no longer answered by its own layer");
-  // A MIX `look` CAN MAKE ENTIRELY IS `look`, AND NOTHING OF IT IS HELD BACK —
-  // and only such a mix: one it cannot make is not sent there.
-  assert.match(last, /changes of different kinds and "look" can make all of them/,
-    "the rule does not tie `look` to a mix it can make entirely");
-  assert.match(last, /answer "look" and hold nothing back/, "a mix `look` can make is still split across turns");
+  assert.match(last, /EVERY CHANGE THEY ASK FOR AND WHERE EACH ONE IS/,
+    "the router is not told to read every change, and where each one is, before choosing");
+  assert.match(last, /NEVER FROM THE FIRST CHANGE ALONE/, "a leading change can still decide the answer on its own");
+  // ⚠ BY TARGETS, NEVER BY KIND (the owner's review of the first wording, the
+  // same day): two layout changes on two pages are one kind, and `page` edits
+  // one page. A route is chosen by whether it can make every change on every
+  // page it is on, so "one kind" alone must never be enough.
+  assert.doesNotMatch(last, /is its kind/, "one kind of change is still enough to choose a layer");
+  // A SPECIALIZED ROUTE IS KEPT WHEN IT CAN DO EVERYTHING — the cheap answers
+  // for a single change stay where they were.
+  assert.match(last, /A layer other than "look" is the answer when it can make all of them, on every page each one is on/,
+    "a layer that can make the whole message, on all its pages, is no longer its answer");
+  // OTHERWISE `look`, WHEN ITS SCOPED STEPS CAN — changes on different pages
+  // included, even of one kind — AND NOTHING OF IT IS HELD BACK. Only then: a
+  // message `look` cannot make is not sent there.
+  assert.match(last, /When none can, answer "look" if it can make them all/,
+    "`look` is not the answer only when no other layer can make the whole message");
+  assert.match(last, /changes on different pages are one "look" answer even when they are all of one kind/,
+    "same-kind changes on different pages are not sent to the answer that places each on its own page");
+  assert.match(last, /hold nothing back/, "a message `look` can make is still split across turns");
   assert.match(last, /Hold a change back only when no one answer can make it with the rest/,
     "the closing rule does not limit what is held back");
   // A RULE, NOT A WORKED EXAMPLE (owner: "Delete worked examples; state only
@@ -2034,9 +2043,12 @@ test("the answer is chosen over the whole message, and only what no one answer c
   assert.ok(quoted.length >= 2, "the closing rule names no layer at all");
   for (const q of quoted) assert.ok(EDIT_LAYERS.includes(q), "the closing rule quotes something that is not a layer: " + q);
   // THE HOLD-BACK FIELD SAYS THE SAME, WHATEVER WAS ANSWERED FIRST. It used to
-  // spare a part `look` could reach only "when you answered look".
+  // spare a part `look` could reach only "when you answered look", and must not
+  // name `look` as the answer by default either: a layer that can make it all
+  // comes first.
   assert.doesNotMatch(d, /when you answered "look"/, "the look exception still depends on the answer already chosen");
-  assert.match(d, /never for a part "look" can make along with everything else they asked/);
+  assert.match(d, /never for a part one answer can make along with everything else they asked: give that answer/);
+  assert.doesNotMatch(d, /then the answer is "look"/, "the hold-back field sends a part to `look` ahead of a layer that can make it all");
   assert.match(d, /whatever the first change was/);
   // AND THE LEGITIMATE HOLDS ARE KEPT: what the answer cannot do this turn —
   // an addition beside a change, a change beside an addition, a list's rows or

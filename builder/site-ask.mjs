@@ -299,11 +299,13 @@ export const ASK_TOOL = {
           "(\"text\") beside a change of another kind.\n" +
           // "WHEN YOU ANSWERED look" WAS THE GAP (run 63, 2026-09-29): a message
           // answered by another layer first could still put off a part `look`
-          // would have made beside it. What decides is whether `look` can make
-          // the whole message, never which layer the first change suggested.
-          "NEVER for a detail, a reason or a restatement of the change you are doing, and never for a part \"look\" " +
-          "can make along with everything else they asked: then the answer is \"look\", whatever the first change " +
-          "was. Being wrong here holds back work they asked for. When in doubt, say nothing.",
+          // would have made beside it. What decides is whether one answer can
+          // make the whole message, on every page it is on (the rule closing
+          // `layer`), never which layer the first change suggested.
+          "NEVER for a detail, a reason or a restatement of the change you are doing, and never for a part one answer " +
+          "can make along with everything else they asked: give that answer, whatever the first change was (the last " +
+          "paragraph of `layer` says which). Being wrong here holds back work they asked for. When in doubt, say " +
+          "nothing.",
       },
       layer: {
         type: "string",
@@ -454,10 +456,17 @@ export const ASK_TOOL = {
           "THIS IS ALSO WHERE A PAGE IS DELETED. \"Remove the gallery page\" is this layer, that page in `page`, and " +
           "`remove` true — not a rewrite of the site and not a question back. Deleting costs almost nothing precisely " +
           "because it comes here.\n" +
+          // ── WHERE A CHANGE ON SEVERAL PAGES GOES (reconciled 2026-09-29) ─────
+          //
+          // This sent it to "addon", written before the frame's details were
+          // `nav`'s and before `look` placed each change on its own page (its
+          // scoped page steps, deploy 2166). It now points at the rule that
+          // closes this field, which asks which answer can make the change on
+          // every page it lands on.
           "ONE PAGE, AND ONLY ONE. If the change is meant to land on several — \"put the phone number in the footer " +
           "of every page\" — this is NOT the layer for it: it edits the single page you name and leaves the rest " +
-          "exactly as they are, so the site would end up disagreeing with itself. Answer \"addon\" for those; it can " +
-          "touch the pages a visitor would look on.\n" +
+          "exactly as they are, so the site would end up disagreeing with itself. The answer for those is whichever " +
+          "can make the change on every page it lands on, as the last paragraph of this field says.\n" +
           // THIS CLAUSE USED TO SEND EVERY MENU CHANGE TO THE ADDON LANE, by
           // name: "add the gallery to the menu everywhere" was its own worked
           // example of something to answer "addon" for. That was correct while
@@ -484,15 +493,23 @@ export const ASK_TOOL = {
           // make both, and its clause says several changes are one answer, but
           // every clause above reads as the whole rule when a message leads
           // with its kind. So the choice is stated once, last, over every
-          // change asked: a layer's own clause is its answer when every change
-          // is its kind (a single change stays as cheap as it was); a mix that
-          // `look` can make entirely is `look`; and only what no one answer can
-          // make with the rest is held back. A mix `look` cannot make keeps its
-          // answer and its hold, so not every mix goes to `look`.
-          "ONE ANSWER FOR THE WHOLE MESSAGE, CHOSEN AFTER READING EVERY CHANGE THEY ASK FOR — NEVER FROM THE FIRST " +
-          "ONE ALONE. Each layer above is the answer when every change they ask for is its kind. When they ask for " +
-          "changes of different kinds and \"look\" can make all of them (what it reaches is listed under `alsoAsked`), " +
-          "answer \"look\" and hold nothing back: it makes each change where it belongs. Hold a change back only when " +
+          // change asked and every page it is on: a layer other than `look` is
+          // the answer when it can make all of it (a single change stays as
+          // cheap as it was); otherwise `look`, when its scoped steps can; and
+          // only what no one answer can make with the rest is held back.
+          //
+          // ⚠ BY TARGETS, NEVER BY KIND (the owner's review, the same day). The
+          // first wording made a layer the answer "when every change they ask
+          // for is its kind", but two layout changes on two pages are one kind
+          // and `page` edits one page. What decides is whether a route can make
+          // every change on every page it is on. `look` places each change on
+          // its own page, so that pair is `look`. A mix no one route can make
+          // keeps its answer and its hold, so not every mix goes to `look`.
+          "ONE ANSWER FOR THE WHOLE MESSAGE, CHOSEN AFTER READING EVERY CHANGE THEY ASK FOR AND WHERE EACH ONE IS — " +
+          "NEVER FROM THE FIRST CHANGE ALONE. A layer other than \"look\" is the answer when it can make all of them, " +
+          "on every page each one is on. When none can, answer \"look\" if it can make them all (what it reaches is " +
+          "listed under `alsoAsked`), and hold nothing back: it makes each change on its own page, so changes on " +
+          "different pages are one \"look\" answer even when they are all of one kind. Hold a change back only when " +
           "no one answer can make it with the rest.",
       },
       page: {
