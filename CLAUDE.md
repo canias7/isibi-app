@@ -84,13 +84,14 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   minutes later. Redirects dropped between 2026-08-17 and that deploy are not
   rebuilt.
 - **The branch `claude/help-needed-ehlwlj`** is `main` (`cb981a4a`) plus
-  documents (deploy 2167's record and run 60's). A press from the branch runs the branch's
+  documents and the look door's menu-lane correction (not merged). A press from the branch runs the branch's
   script against main's Worker.
 - **Balance 32** on the building account after run 60 (2026-09-29 15:07
   UTC): routing 2 and the job's reserves of 2 and 1, ledger rows 337 and 338;
   read again at 15:27 UTC and after the free restore (run 61) at 15:37, with
   no row after 338 and no job open. The unit
-  suite is **8,277** on `main` (`cb981a4a`).
+  suite is **8,277** on `main` (`cb981a4a`) and **8,296** on the branch with
+  the menu-lane correction (local, `8296 / 8296 / 0 / 0`).
 - **Closed by the owner, not to be repeated**: live test 2 (run 32); Test 3
   (run 34) with the stylesheet corrections (deploy 2161); the kit-heading fix
   (2162); Test 4a (runs 37 and 39); Test 4b's D1 (run 42) and the conditional
@@ -126,6 +127,18 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   correction behind it is deployed in 2167 (`remove` takes the element off,
   `clear` keeps the space when asked). The record is the checklist's *Test 7*
   (*Run 60*, *Run 61*, *Closed*) and `docs/history/2026-09-29-photo-removal.md`.
+- **The look door's menu lane is corrected on the branch** (2026-09-29; not
+  merged, not deployed). A menu change beside other work is routed `look`,
+  and no lane there described the menu's items: the one lane that runs the
+  menu editor (`action`) said "only that button", and run 47's real picker
+  read "Take Gallery out of the menu." as `behavior`, which changed nothing.
+  Reproduced through the route with supplied answers; **the fix is that lane's
+  description** (the menu's items and the button), with `behavior` pointing
+  there; the route is unchanged, because a scoped answer already hands the
+  menu editor only the menu's words. 19 route cases, sync and queued: both
+  executors with their own words, unrelated links kept, both partial
+  outcomes, ordinary menu and button edits. Shown only with supplied answers.
+  `docs/history/2026-09-29-menu-lane.md`.
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
   `docs/investigations/edit-path-checklist.md`, and every test's plan, readings

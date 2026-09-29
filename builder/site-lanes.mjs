@@ -256,7 +256,7 @@ export const MAX_LANES = 4;
  * seventeen; where it points is an implementation detail of the door.
  *
  *   images      → `picture`  swap, replace or re-crop a photograph   (~0.3, free to reframe)
- *   action      → `nav`      the primary button: its words and where it goes  (~0.3)
+ *   action      → `nav`      the menu's items and the primary button          (~0.3)
  *   backend     → `rules`    what the site stores and what it enforces        (~0.3)
  *   shape       → `page`     where the sections sit, via a minimal patch      (~1–3)
  *   components  → `page`     which blocks the page is built from             (~1–3)
@@ -655,7 +655,7 @@ const LANES = {
   // to reach the `page` rung as well. Named in CLAUDE.md's backlog.
   behavior: {
     remove: "stop a control on the page doing what it does, leaving the control itself where it is",
-    hint: "What something on the page DOES when someone uses it — a button, a link, a form, a tab, a filter, a menu, a carousel. What it opens, what it changes, what you see happen. This is the lane for any 'when someone presses / clicks / submits X, then Y' — even about the header button; only that button's WORDS and LINK are `action`.",
+    hint: "What something on the page DOES when someone uses it — a button, a link, a form, a tab, a filter, a menu, a carousel. What it opens, what it changes, what you see happen. This is the lane for any 'when someone presses / clicks / submits X, then Y' — even about the header button or the menu; their WORDS, LINKS and items are `action`.",
     shape: { type: "array", items: BEHAVIOR_ITEM },
     edit: {
       is: "Everything on this page that DOES something, as it should be after their change.",
@@ -753,16 +753,25 @@ const LANES = {
     elsewhere: "images",
     remove: "take a photograph off the page — the slot that held it goes with it, rather than being left empty",
   },
-  // THE WORDS ON THE BUTTON AND ITS TARGET, AND NOTHING ELSE. The lane sweep
-  // (2026-09-01) sent "when someone presses the button, open the phone
+  // THE WORDS ON THE BUTTON AND ITS TARGET — AND THE MENU'S ITEMS. The lane
+  // sweep (2026-09-01) sent "when someone presses the button, open the phone
   // dialler" here — the picker read "open the dialler" as where the button
   // points — and the nav rung, which changes a label and an href, answered
-  // no-menu. What a control DOES when used is `behavior`; this lane is the
-  // header button's label and destination as a link.
+  // no-menu. What a control DOES when used is `behavior`; this lane is labels
+  // and destinations as links.
+  //
+  // ⚠ THE MENU'S ITEMS ARE THIS LANE'S TOO (2026-09-29). Its rung is the menu
+  // editor, which writes the menu on every page as well as the button, and no
+  // other lane can reach that rung — the removal door needs exactly one
+  // (`doorLane`), and every lane is a field of the design tool. It said "only
+  // that button", so on the look door a menu change beside other work had
+  // nowhere to go: run 47's real picker read "Take Gallery out of the menu." as
+  // `behavior`, whose look step answered nothing. Scoped, the menu editor is
+  // handed only the menu's words (`ask`), never the rest of the message.
   action: {
-    hint: "The site's primary button in the header — the words on it, and the page, number or address it links to. Only that button, and only its label and link; what any control DOES when used is `behavior`.",
+    hint: "The site's MENU and its header button, the same on every page: which pages the menu lists, in what order, under what names — adding, taking out or reordering an item — and the button's words and the page, number or address it links to. What any control DOES when used is `behavior`.",
     elsewhere: "action",
-    remove: "take the header's button off altogether, leaving the header without one",
+    remove: "take an item out of the menu (its page stays on the site), or the header's button off altogether",
   },
   backend: { hint: "What the site STORES — its tables, the rows in them, who may read or add one, and what it refuses.", elsewhere: "backend" },
 

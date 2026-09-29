@@ -134,7 +134,11 @@ stylesheet scope and rule keys (deploy 2161).
 - **Found by Test 7's routing review** (read in the code, not driven live):
   - no look-door lane describes a menu item, so a menu link taken out beside
     another change depends on the picker stretching `action` or `behavior`
-    (run 47's real picker named `behavior`, which did nothing);
+    (run 47's real picker named `behavior`, which did nothing). **Corrected on
+    the branch 2026-09-29, not merged**: the menu editor's lane now describes
+    the menu's items, and a scoped answer hands the menu editor only the menu's
+    words; shown only with supplied answers, sync and queued
+    (`docs/history/2026-09-29-menu-lane.md`);
   - the photograph lane tells the picker a removal takes the slot away; the
     picture rung kept the slot, and the kit drew its placeholder there:
     **reproduced and rendered; corrected 2026-09-29 (`remove` takes the

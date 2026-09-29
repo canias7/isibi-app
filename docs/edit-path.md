@@ -557,7 +557,8 @@ TRUST IT** — it has gone stale twice: `node -e` over `site-lanes.mjs` and prin
   behavior`. **Every one but `css` must be on `EDIT_FIELDS`** — the lane reads
   `priorLook[field]` and writes through `mergeLook`, so a lane missing from that
   list bills and changes nothing, silently, at both ends.
-- **9 dispatch** — `images`→`picture`, `action`→`nav`, `backend`→`rules`,
+- **9 dispatch** — `images`→`picture`, `action`→`nav` (the menu's items and
+  the header's button; the button alone until 2026-09-29), `backend`→`rules`,
   `slug`→`rename`, `shape`/`components`/`purpose`/`three`/`tsx`→`page`.
   **Neighbouring page lanes on one page are ONE page step** (`mergePageSteps`,
   2026-09-23): the page rung reads the sentence, not the lane names, so two of

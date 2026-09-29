@@ -32,7 +32,12 @@ here; take a closed one out of both.**
 - The render check judges each selector of a list on its own, so a common
   heading rule can force a correction round.
 - No look-door lane describes a menu item, so a menu link taken out beside
-  another change can be missed (Test 7's routing review).
+  another change can be missed (Test 7's routing review). **Corrected on the
+  branch 2026-09-29 (the menu editor's lane now describes the menu's items);
+  not merged; shown only with supplied answers.**
+- A change a scoped picker answer leaves out is dropped without a word.
+- The menu editor's other parts (footer details, social icons, small print,
+  links in the copy, how the header sits) are described by no look-door lane.
 - What the picture step cannot take off on its own is refused: a photograph
   held by a larger block, written inside code, or with children; an emptied
   wrapper with a meaning of its own is kept, and can leave empty space.
@@ -104,7 +109,31 @@ here; take a closed one out of both.**
   with a menu item (`test/edit-failure-paths.test.mjs`, a rename beside a
   footer colour) supplies `action` as the answer, so nothing shows what a
   real picker does there. Whether and how the menu gets a lane is the
-  owner's decision.
+  owner's decision. **The owner, 2026-09-29: address it with the smallest
+  general correction, reusing the menu editor and per-operation scoping.
+  Corrected on the branch the same day, not merged**: the one lane that runs
+  the menu editor (`action`) now describes the menu's items as well as the
+  button, and `behavior` names it as where they go; the route is unchanged,
+  because a scoped answer already hands the menu editor only the menu's words.
+  Reproduced first with run 47's reading (`behavior`: the menu editor never
+  ran). Shown only with supplied answers: `docs/history/2026-09-29-menu-lane.md`.
+- **A CHANGE A SCOPED PICKER ANSWER LEAVES OUT IS DROPPED WITHOUT A WORD
+  (found 2026-09-29 while reproducing the menu gap; not changed).** On a
+  scoped answer each lane runs on its own words, and nothing checks that every
+  change the message asked for was placed on some lane. With "Take Gallery out
+  of the menu and put the order band above the starter story." and an answer
+  scoping only the layout, the route ran the layout alone and the screen read
+  "✅ Updated /.", the menu change not mentioned (supplied answers, sync and
+  queued, scratch). It holds for any lane. What should happen to words no
+  scope places is the owner's decision.
+- **THE MENU EDITOR'S OTHER PARTS HAVE NO LOOK-DOOR LANE (found 2026-09-29
+  while correcting the menu lane; not changed).** The menu editor (`nav`)
+  also writes the footer's contact details, its social icons and small print,
+  links written into the pages, and how the header and footer sit. The menu
+  lane's description now covers the menu's items and the button only, so a
+  message asking for one of those beside other work has no lane that
+  describes it on the look door. The router's own `nav` answer reaches all of
+  them as before.
 - **WHAT THE PICTURE STEP CANNOT TAKE OFF ON ITS OWN (recorded 2026-09-29 as
   the correction's remaining capability limit; the owner: *"For structures the
   targeted editor cannot safely remove, give an accurate refusal without

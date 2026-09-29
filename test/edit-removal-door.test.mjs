@@ -1029,3 +1029,244 @@ for (const mode of ["sync", "job"]) {
     });
   }
 }
+
+// ── 5. A MENU CHANGE BESIDE OTHER WORK, ON THE LOOK DOOR (2026-09-29) ─────────
+//
+// Owner, 2026-09-29: *"Next, address the known gap where a menu change combined
+// with other work routes to look, but its picker has no menu capability. First
+// reproduce the gap with supplied model answers through the existing route.
+// Then make the smallest general correction, reusing the existing menu editor
+// and per-operation scoping where appropriate. Do not hardcode wording, sites,
+// or pages, and do not route the entire mixed request into the menu editor."*
+//
+// THE GAP (Test 7's routing review). The router's instructions make several
+// changes in one message one `look` answer, and name "the menu and the button"
+// among what `look` works out. On the look door the picker chooses lanes by
+// their descriptions, and none described the menu's items: the one lane whose
+// rung is the menu editor (`doorLane("nav")`) said it was the header's button
+// and "only that button", and `behavior` names a menu only as a control that
+// DOES something. By run 47's evidence a real picker reads "Take Gallery out of
+// the menu." as `behavior`, whose look step answers nothing, so the menu editor
+// never runs (the LIMIT case below reproduces exactly that).
+//
+// THE CORRECTION IS WHAT THE PICKER IS TOLD, and nothing in the route moved.
+// That lane already dispatches to the menu editor, and a scoped answer already
+// hands each change's rung only that change's words (`ask`). So the lane that
+// runs the menu editor now describes the menu's items as well as the button,
+// `behavior` says where a menu's items go, and a message with both changes
+// reaches both executors, each with its own words. NO NEW LANE: every lane is
+// a field of the design tool (`edit-lanes.test.mjs`), and the removal door needs
+// exactly one lane per rung (`doorLane`, pinned above).
+//
+// SUPPLIED ANSWERS THROUGHOUT. The executors below act only on the words they
+// are really handed, so a step given another change's words shows up as a page
+// or a menu left as it was. What this proves is what the route does with the
+// answer the picker is now told to give — not that a real picker gives it.
+const MENU_LANE = doorLane("nav");
+const MENU_WORDS = "Take Gallery out of the menu";
+const BAND_WORDS = "put the order band above the starter story";
+const NAV_ASKED = "\n\nWHAT THEY ASKED FOR:\n";
+/** What the menu editor was handed: the words under its own heading, read off its real request. */
+function navAsked(args) {
+  const content = String((args && args.messages && args.messages[0] && args.messages[0].content) || "");
+  const i = content.indexOf(NAV_ASKED);
+  assert.ok(i >= 0 && content.indexOf(NAV_ASKED, i + 1) < 0, "the menu editor's request lost its landmark");
+  return content.slice(i + NAV_ASKED.length);
+}
+/** A menu editor that takes Gallery out only when it is handed the menu words and nothing of the layout. */
+const menuEditor = (args) => {
+  const said = navAsked(args);
+  return said.includes("Gallery") && !said.includes("band") ? NAV_ANSWER : {};
+};
+/** A page writer that moves the band only when shown the home page and handed the layout words and nothing of the menu. */
+const bandWriter = (args) => {
+  const { instruction, path } = writerAsked(args);
+  return { source: path === "index.tsx" && instruction.includes("order band") && !instruction.includes("Gallery") ? MOVED : ORIG[path] };
+};
+const MENU_AND_BAND = {
+  fields: ["shape", MENU_LANE],
+  scopes: [{ part: MENU_LANE, words: MENU_WORDS }, { part: "shape", page: "/", words: BAND_WORDS }],
+};
+/** Every page's menu is its old menu less Gallery, and nothing outside a menu moved but what `outside` names. */
+function assertMenuLessGallery(r, outside, label) {
+  for (const p of PAGES) {
+    const want = menuOf(p.source).map((items) => items.filter((it) => it.href !== GALLERY.href));
+    assert.deepEqual(menuOf(page(r, p.path)), want, label + ": " + p.path + "'s menu is not its old menu less Gallery");
+    assert.equal(outsideMenus(page(r, p.path)), outsideMenus(outside[p.path] || p.source), label + ": " + p.path + " changed outside its menu");
+  }
+}
+/** Every page's menu is exactly what it was. */
+function assertMenusKept(r, label) {
+  for (const p of PAGES) assert.deepEqual(menuOf(page(r, p.path)), menuOf(p.source), label + ": " + p.path + "'s menu changed");
+}
+
+test("THE PICKER IS TOLD WHERE A MENU'S ITEMS GO: the one lane that runs the menu editor claims them, on the look door and on the removal door", () => {
+  assert.ok(MENU_LANE, "no single lane runs the menu editor");
+  assert.equal(laneLayer(MENU_LANE), "nav");
+  const lineOf = (text, f) => text.split("\n").find((l) => l.startsWith('"' + f + '" — ')) || "";
+  for (const routed of [null, { layer: "picture", remove: true }]) {
+    const q = pickRequest({ message: BAND_ASK, current: "", routed });
+    const props = q.tools[0].input_schema.properties;
+    const list = (props.fields || props.additional).description;
+    const label = routed ? "the removal door" : "the look door";
+    const menuLine = lineOf(list, MENU_LANE);
+    assert.ok(menuLine.length > 20, label + ": the picker is not shown the menu editor's lane");
+    // THE MENU'S ITEMS ARE CLAIMED, and the header's button is still the same lane's.
+    assert.match(menuLine, /\bmenu\b/i, label + ": the lane that runs the menu editor does not describe the menu");
+    assert.match(menuLine, /\bbutton\b/i, label + ": the lane no longer describes the header's button");
+    // AND TAKING ONE OFF MEANS AN ITEM LEAVES THE MENU, with its page left on the site.
+    const off = props.removes.description.split("\n").find((l) => l.startsWith("  " + MENU_LANE + " — ")) || "";
+    assert.match(off, /\bmenu\b/i, label + ": taking this lane's part off does not say what happens to a menu item");
+    // THE NEIGHBOUR STILL SAYS WHERE ITS BORDER IS.
+    assert.ok(lineOf(list, "behavior").includes("`" + MENU_LANE + "`"), label + ": `behavior` does not name the lane a menu's items go to");
+  }
+});
+
+for (const mode of ["sync", "job"]) {
+  for (const [name, extra] of [["", {}], [", marked as a removal", { removes: [MENU_LANE] }]]) {
+    test(`LOOK DOOR, MENU + LAYOUT (${mode}${name}): the menu editor is handed the menu words and the page writer the layout words; both ship in one publish and nothing else moves`, async () => {
+      const r = await drive({ mode, routed: { layer: "look" }, ask: BAND_ASK,
+        answers: { [PICK]: { ...MENU_AND_BAND, ...extra }, write_tweak: bandWriter, write_nav: menuEditor } });
+      const label = "look menu + layout " + mode + name;
+      assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
+      assert.equal(r.reply.ok, true, label + ": " + JSON.stringify(r.reply));
+      assert.deepEqual(r.models, [PICK, "write_tweak", "write_nav"], label + ": the executors called");
+      // EACH EXECUTOR WAS HANDED ITS OWN WORDS AND NOTHING ELSE OF THE MESSAGE.
+      assert.deepEqual(r.sent.filter((q) => q.tool === "write_nav").map((q) => navAsked(q.args)), [MENU_WORDS], label + ": what the menu editor was handed");
+      assert.deepEqual(r.sent.filter((q) => q.tool === "write_tweak").map((q) => writerAsked(q.args)), [{ instruction: BAND_WORDS, path: "index.tsx" }], label + ": what the page writer was handed");
+      assert.deepEqual(r.reply.layers, ["page", "nav"], label + ": layers");
+      assert.deepEqual(r.reply.lanes, ["shape", MENU_LANE], label + ": lanes");
+      assert.equal(r.reply.partial, undefined, label + ": " + JSON.stringify(r.reply.partial));
+      assert.equal(r.builds.length, 1, label + ": one compile carries both");
+      // GALLERY LEAVES EVERY COPY OF THE MENU; OUTSIDE THE MENUS ONLY THE HOME PAGE'S LAYOUT MOVED.
+      assertMenuLessGallery(r, { "index.tsx": MOVED }, label);
+      assertOthersKept(r, label);
+      // THE SCREEN NAMES NEITHER CHANGE: review #9, a multi-step look reply
+      // naming only the look, kept separate by the owner.
+      assert.equal(r.said.text, "✅ Updated the look.", label + ": the screen");
+      assertCharged(r, mode, [3, 2], label);
+    });
+  }
+}
+
+for (const mode of ["sync", "job"]) {
+  test(`THE GAP, REPRODUCED, AND THE LIMIT (${mode}): a picker that reads the menu change as \`behavior\` — run 47's reading — sends it to the look step, and the menu editor never runs`, async () => {
+    // ⚠ STATED, NOT PAPERED OVER, as on the removal door above: the route
+    // honours the lanes the picker names and reads no English to overrule
+    // them. Before the correction this was what the picker was left to answer
+    // (no lane described a menu's items); after it, the picker is told the
+    // menu's items belong to the lane that runs the menu editor. Whether a real
+    // picker now names that lane is not measured here.
+    const r = await drive({ mode, routed: { layer: "look" }, ask: BAND_ASK,
+      answers: { [PICK]: { fields: ["behavior", "shape"], scopes: [{ part: "behavior", words: MENU_WORDS }, { part: "shape", page: "/", words: BAND_WORDS }] },
+        edit_site: {}, write_tweak: bandWriter, write_nav: menuEditor } });
+    const label = "behavior reading " + mode;
+    assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
+    assert.deepEqual(r.models, [PICK, "edit_site", "write_tweak"], label + ": the menu editor ran, or the look step did not");
+    assertMenusKept(r, label);
+    assert.equal(page(r, "index.tsx"), MOVED, label + ": the layout did not ship on its own");
+    for (const p of PAGES) if (p.path !== "index.tsx") assert.equal(page(r, p.path), p.source, label + ": " + p.path + " changed");
+    assert.deepEqual((r.reply.partial || []).map((p) => [p.layer, p.error, p.lanes]), [["look", "no-change", ["behavior"]]], label + ": partial");
+    assert.equal(r.said.text, "✅ Updated /. ⚠️ I couldn't work out how to change the site's look that way. Say which part — a colour, the fonts, a section — and what it should look like.", label + ": the screen");
+  });
+}
+
+// ── EITHER HALF CAN FAIL, AND THE OTHER STILL SHIPS AND THE REPLY SAYS WHICH ──
+//
+// The existing partial-success contract, on this pair: a step that cannot run
+// is reported in its own words on `partial` beside the step that shipped, and
+// the screen names the one that shipped (one step left, so its own sentence).
+// Every executor below acts only on the words it is handed.
+for (const mode of ["sync", "job"]) {
+  for (const [name, navAnswer, partial, cost, charged, said] of [
+    ["the menu editor answers nothing it can apply", {},
+      [["nav", "no-menu", [MENU_LANE], 2]], 5, [3, 2],
+      "✅ Updated /. ⚠️ I couldn't work out what the menu should be. Tell me what to add, take out or move. That part still cost 2 credits."],
+    ["the menu editor cannot be reached", undefined,
+      [["nav", "send", [MENU_LANE], undefined]], 3, [3],
+      "✅ Updated /. ⚠️ I couldn't reach the model that sets the menu — try again in a moment."],
+  ]) {
+    test(`LOOK DOOR, THE MENU HALF FAILS (${mode}): ${name} — the layout ships alone, every menu is as it was, and the reply says the menu was not changed`, async () => {
+      const answers = { [PICK]: MENU_AND_BAND, write_tweak: bandWriter };
+      if (navAnswer !== undefined) answers.write_nav = navAnswer;
+      const r = await drive({ mode, routed: { layer: "look" }, ask: BAND_ASK, answers });
+      const label = "menu half fails " + mode + ": " + name;
+      assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
+      assert.equal(r.reply.ok, true, label);
+      assert.deepEqual(r.models, [PICK, "write_tweak", "write_nav"], label + ": the executors called");
+      assert.deepEqual(r.reply.layers, ["page"], label + ": what shipped");
+      assert.deepEqual(r.reply.partial.map((p) => [p.layer, p.error, p.lanes, p.cost]), partial, label + ": partial");
+      assert.equal(r.builds.length, 1, label);
+      assertMenusKept(r, label);
+      assert.equal(page(r, "index.tsx"), MOVED, label + ": the home page is not exactly the layout");
+      for (const p of PAGES) if (p.path !== "index.tsx") assert.equal(page(r, p.path), p.source, label + ": " + p.path + " changed");
+      assertOthersKept(r, label);
+      assert.equal(r.reply.cost, cost, label + ": cost");
+      assertCharged(r, mode, charged, label);
+      assert.equal(r.said.text, said, label + ": the screen");
+    });
+  }
+
+  const NO_PAGE = "Your site doesn't have a /menu page. Its pages are /, /order, /starter, /visit and /gallery. Say which one you meant, or ask me to add a /menu page.";
+  const NO_CHANGE = "I read the / page and couldn't find a change to make for that. Say what should look different, or which section you mean.";
+  for (const [name, pick, writers, calls, partial, said] of [
+    ["the layout names a page the site does not have",
+      { fields: ["shape", MENU_LANE], scopes: [{ part: MENU_LANE, words: MENU_WORDS }, { part: "shape", page: "/menu", words: BAND_WORDS }] },
+      { write_tweak: bandWriter }, [PICK, "write_nav"], [["page", "no-page", ["shape"]]], NO_PAGE],
+    ["the page's writers find nothing to change",
+      MENU_AND_BAND,
+      { write_tweak: { cannot: "That needs the page rewritten." }, write_pages: { pages: [{ path: "index.tsx", source: ORIG["index.tsx"] }] } },
+      [PICK, "write_tweak", "write_pages", "write_nav"], [["page", "no-change", ["shape"]]], NO_CHANGE],
+  ]) {
+    test(`LOOK DOOR, THE LAYOUT HALF FAILS (${mode}): ${name} — Gallery still leaves every menu, nothing else moves, and the reply says the layout was not changed`, async () => {
+      const r = await drive({ mode, routed: { layer: "look" }, ask: BAND_ASK, answers: { [PICK]: pick, ...writers, write_nav: menuEditor } });
+      const label = "layout half fails " + mode + ": " + name;
+      assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
+      assert.equal(r.reply.ok, true, label);
+      assert.deepEqual(r.models, calls, label + ": the executors called");
+      assert.deepEqual(r.sent.filter((q) => q.tool === "write_nav").map((q) => navAsked(q.args)), [MENU_WORDS], label + ": what the menu editor was handed");
+      assert.equal(r.reply.layer, "nav", label + ": what shipped");
+      assert.deepEqual(r.reply.partial.map((p) => [p.layer, p.error, p.lanes]), partial, label + ": partial");
+      assert.equal(r.reply.partial[0].unchanged, true, label + ": the failed layout step claims to have written something");
+      assert.equal(r.builds.length, 1, label);
+      assertMenuLessGallery(r, {}, label);
+      assertOthersKept(r, label);
+      assertCharged(r, mode, [3], label);
+      assert.equal(r.said.text, MENU_SAID + " ⚠️ " + said, label + ": the screen");
+    });
+  }
+
+  // ── ORDINARY MENU AND BUTTON EDITS ON THE LOOK DOOR STILL WORK ────────────
+  test(`LOOK DOOR, THE MENU CHANGE ALONE (${mode}): the menu editor is handed the message's menu words and exactly Gallery leaves every menu`, async () => {
+    const r = await drive({ mode, routed: { layer: "look" }, ask: ASK_MENU,
+      answers: { [PICK]: { fields: [MENU_LANE], scopes: [{ part: MENU_LANE, words: ASK_MENU }] }, write_nav: menuEditor } });
+    const label = "menu alone " + mode;
+    assert.deepEqual(r.models, [PICK, "write_nav"], label + ": the executors called");
+    assertOnlyGalleryLeft(r, label);
+    assertCharged(r, mode, [3], label);
+  });
+
+  test(`LOOK DOOR, THE BUTTON CHANGE ALONE (${mode}): the same lane still reaches the button, and every menu and every other link stays`, async () => {
+    const ask = "Change the Order a loaf button at the top to say Book a loaf.";
+    const BOOK = { label: "Book a loaf", href: "/order" };
+    const r = await drive({ mode, routed: { layer: "look" }, ask,
+      answers: { [PICK]: { fields: [MENU_LANE], scopes: [{ part: MENU_LANE, words: ask }] },
+        write_nav: (args) => (navAsked(args) === ask ? { action: BOOK } : {}) } });
+    const label = "button alone " + mode;
+    assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
+    assert.deepEqual(r.models, [PICK, "write_nav"], label + ": the executors called");
+    assert.equal(r.reply.layer, "nav", label);
+    assert.deepEqual(r.reply.action, BOOK, label + ": the button");
+    assertMenusKept(r, label);
+    for (const p of PAGES) {
+      const before = p.source;
+      const after = page(r, p.path);
+      // ONLY THE HEADER'S BUTTON MOVED: the chrome's one `action` entry, on every page that has one.
+      assert.equal(after, before.split('action: { label: "Order a loaf", href: "/order" }').join('action: { label: "Book a loaf", href: "/order" }'), label + ": " + p.path + " changed beyond its header button");
+    }
+    // The band's own "Order a loaf" button is not the header's, and stays.
+    assert.ok(page(r, "index.tsx").includes('action={{ label: "Order a loaf", href: "/order" }}'), label + ": the band's button was changed");
+    assertOthersKept(r, label);
+    assertCharged(r, mode, [3], label);
+  });
+}
