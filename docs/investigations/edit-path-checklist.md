@@ -609,9 +609,10 @@ leaves the Visit move in the turn, and whether a real picker scopes it to
 `/visit`, is what a live run would show.** None is proposed here; runs 52 and
 53 are not repeated.
 
-**Corrected after the owner's review (2026-09-29, on the branch, not
-deployed).** The owner reproduced two ways round the scope: a page of
-`["/visit"]` read as "no page" sent the Visit move to the home page's writer,
+**Corrected after the owner's review (2026-09-29, `9ed7da51`, on the
+branch, not deployed; unit CI `8241 / 8237 / 0 / 4`, `site build` green).**
+The owner reproduced two ways round the scope: a page of `["/visit"]` read as
+"no page" sent the Visit move to the home page's writer,
 and words the request does not hold handed the Visit writer the whole request.
 Now only an answer with no scope metadata at all runs the old way; on a scoped
 answer an op that fails its check (a page that is not a path, words not in the

@@ -46,8 +46,9 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   read of the description stored in a site's settings (`2a7767cc`:
   `readStoredHead`, the app's own SEO route read in every inventory), by
   documents, and by **the per-operation scope fix (`9a79fc2d`, 2026-09-29) and
-  its correction after the owner's review (2026-09-29), neither merged nor
-  deployed**: the router puts off only what its answer cannot do this turn; a
+  its correction after the owner's review (`9ed7da51`, 2026-09-29), neither
+  merged nor deployed; a merge would roll the image to `6fbaccad82fe879d`**:
+  the router puts off only what its answer cannot do this turn; a
   part it puts off is taken out of the message before anything runs
   (`heldBack`, echoed as `deferred`, refused at no cost when it cannot be
   found: `route/held-unread`); and the picker names each change's page and
@@ -62,8 +63,8 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   `docs/history/2026-09-29-op-scope.md`. A press from the branch runs the
   branch's script against main's Worker.
 - **Balance 42** on the building account after run 52 (23:25 UTC): routing 2
-  and the job's reserve of 1, ledger row 334. The unit suite is **8,232** at
-  `9a79fc2d`.
+  and the job's reserve of 1, ledger row 334. The unit suite is **8,241** at
+  `9ed7da51`.
 - **Closed by the owner, not to be repeated**: live test 2 (run 32); Test 3
   (run 34) with the stylesheet corrections (deploy 2161); the kit-heading fix
   (2162); Test 4a (runs 37 and 39); Test 4b's D1 (run 42) and the conditional
@@ -281,12 +282,12 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
   bound. The default builder model is grok (`DEFAULT_PICKER`), and a cold new
   account is one credit short of building (`buildFloor` 20 against a grant of
   20, the routing call spending 1 first).
-- **The unit suite is 8,232** (`9a79fc2d`): `8232 / 8230 / 0 / 2` locally,
-  `8232 / 8228 / 0 / 4` on CI (run 36508164135) — **compare the totals, never
+- **The unit suite is 8,241** (`9ed7da51`): `8241 / 8239 / 0 / 2` locally,
+  `8241 / 8237 / 0 / 4` on CI (run 36511517996) — **compare the totals, never
   `pass`**; CI skips four where a local run skips two. **`site build`** reads
-  twelve counts green (read on `9a79fc2d`, run 36508164132, from each step's
-  log): TAP 397, kit-typecheck 4, site-build **404**
-  (382 plus the browser control's 22), contrast-cases 16, theme-seam 11,
+  twelve counts green (read on `9ed7da51`, run 36511518084, from each step's
+  log): TAP 397, kit-typecheck 4, site-build **404** (382 plus the browser
+  control's 22), contrast-cases 16, theme-seam 11,
   theme-render 29, site-routing 14, site-runtime 47, and kit-render, kit-a11y,
   kit-effects and kit-paint `all passed` (census 7 + 4 + 1 = 12). Its two
   `##[error]` annotations (`index.tsx(50,13) TS2322`, `menu.tsx(27,17)

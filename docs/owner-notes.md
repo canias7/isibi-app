@@ -93,6 +93,11 @@ copying your words, that change is now held back (with a sentence, at no
 cost) instead of being made from your whole message. That's your rule applied
 to one-change messages too; how often it happens isn't measured.
 
+**Numbers**: commit `9ed7da51`. All 8,241 unit tests pass here and on GitHub,
+and all twelve site-build checks pass as well (run 36511518084). If this were
+merged, the build container would be rebuilt (image `6fbaccad82fe879d`);
+nothing has been merged.
+
 **Nothing was merged, deployed, spent or re-run**, and Test 6 stays open.
 
 ## 2026-09-29 — Two changes in one message now each run in their own place, and a change put off is never also made; on the branch, not deployed; Test 6 stays open
