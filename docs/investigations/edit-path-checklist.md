@@ -695,6 +695,21 @@ picker name each change's page and words (`scopes`).
 - **Kept separate**: the reply omission (review #9), and real-model mixed
   work through the removal door.
 
+### Run 55 — pressed with the request, but the spend box did not read `yes` (2026-09-29)
+
+Pressed by the owner from `main` at `a64729ad`
+([run 36519278886](https://github.com/canias7/isibi-app/actions/runs/36519278886),
+03:55:17–03:55:52 UTC). "What to change" held the frozen sentence byte for
+byte (358 bytes, sha256 `484b3feb…`), and the two expectations were set, but
+the workflow computed `CANARY_SPEND: 0`: it is 1 only when the spend box reads
+`yes` and the job and version boxes are empty, and those two were empty. The
+box's own value is not in the log. So the run was run 54 again: every free
+check passed at `a64729ad741a` and `6fbaccad82fe879d`, the bakery read as
+recorded (all five routes at `8btpep`, the original stored description), and
+it stopped before routing with "Nothing was charged". The balance is 42, the
+ledger's last row is 334, and the only new jobs are the two refused free
+checks (`cba4ba13…`, `1fb663b9…`, cost 0). **The retry has not run.**
+
 ### A visible alternative, not recommended
 
 "Make the main heading on every page dark green (#1f4d2b)", through the
