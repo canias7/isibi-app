@@ -53,8 +53,10 @@ is still shown only with supplied answers. The free restore (run 64) put
 `8btpep` back, checked. **The owner recorded run 63 as a partial outcome**
 (the menu removal succeeded, the Visit move was deferred) and accepted run
 64; the intended mixed-request acceptance remains open. **The router now
-chooses one answer over the whole message** (on the branch, not merged): the
-acceptance is prepared again, unchanged (*Test 8*, below).
+chooses one answer over the whole message, by what a route can make on every
+page, never by kind** (on the branch, not merged; the owner's correction of
+the first wording the same day): the acceptance is prepared again, unchanged
+(*Test 8*, below).
 
 **The redirect carry-over fix is merged and deployed** (`f5e941f4`, deploy
 2165, 2026-09-28 19:07 UTC, image `8a10715339cdc780`; runtime-confirmed by
@@ -189,7 +191,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; its free runtime check passed as run 62; pressed as run 63 the same day: the router answered `nav` with `remove` and held the band back, so only the menu change was made and the look door was not reached; the free restore, run 64, put everything back; the owner recorded run 63 as a partial outcome and accepted run 64, with the intended acceptance still open; the router's whole-message rule corrected on the branch the same day, and the acceptance prepared again, not run)
+## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; its free runtime check passed as run 62; pressed as run 63 the same day: the router answered `nav` with `remove` and held the band back, so only the menu change was made and the look door was not reached; the free restore, run 64, put everything back; the owner recorded run 63 as a partial outcome and accepted run 64, with the intended acceptance still open; the router's whole-message rule corrected on the branch the same day, made to choose by what a route can make on every page rather than by kind after the owner's review, and the acceptance prepared again, not run)
 
 Owner, 2026-09-29: *"Also prepare one bounded real-model acceptance using
 the existing fixture and workflow: a menu-item removal combined with a layout
@@ -580,11 +582,27 @@ for the change a message leads with; the several-changes rule sat inside
 `look`'s own paragraph with only `look`'s own kinds; and `alsoAsked` judged a
 hold against the answer already chosen, sparing a `look`-reachable part only
 "when you answered "look"". Now the `layer` field ends on one rule over the
-whole message (a layer's own clause is its answer when every change is its
-kind; a mix `look` can make entirely is `look`, with nothing held back; a
-change is held back only when no one answer can make it with the rest), and
-`alsoAsked`'s exception holds "whatever the first change was". The route is
-unchanged.
+whole message, **by targets, never by kind** (the owner's review of the first
+wording, the same day, below): a layer other than `look` is the answer when
+it can make every change on every page each one is on; when none can,
+`look`, if it can make them all, with nothing held back, so changes of one
+kind on different pages are one `look` answer; a change is held back only
+when no one answer can make it with the rest. The `page` clause's older
+multi-page line, which sent a change on several pages to `addon`, points at
+that rule, and `alsoAsked`'s exception holds "whatever the first change was"
+and names no answer of its own. The route is unchanged.
+
+**The owner's review of the first wording** (2026-09-29, before any merge):
+*"the new whole-message rule still chooses by operation kind without fully
+accounting for target scope. … Two layout changes on different pages are the
+same kind, but that route cannot execute both. … Make the universal rule
+depend on whether a route can execute the entire request across all its
+targets. Preserve a specialized route when it can do everything requested.
+Otherwise, use look when its existing scoped execution can complete
+everything, including same-kind changes on different pages. Defer only work
+that cannot run together. … Keep Test 8's request and acceptance
+unchanged."* Done in `2771ed3f`; its wording and validation are the history
+file's *The owner's correction: by targets, never by kind*.
 
 **The evidence boundary, stated plainly**: the tests prove what the router is
 TOLD (its tool's text) and what the route DOES with each answer (supplied
@@ -608,7 +626,8 @@ menu editor is handed exactly "Take Gallery out of the menu", the page writer
 exactly the band's words on `visit.tsx`, and all five stored files equal the
 expected ones above; with run 63's own answer, the route does exactly what
 run 63 did (menu only, the held-back words in no model call, `visit.tsx` the
-menu-only `ddd1fe39…`).
+menu-only `ddd1fe39…`). Replayed again on `2771ed3f`, after the owner's
+correction: 2 of 2, the same results.
 
 **What each other outcome would mean now**:
 - **`nav` with `remove` and the band held back again** (run 63's answer): the
@@ -630,8 +649,9 @@ page writer has to run. The balance is 28.
 
 **Before it can run**: the correction merged and deployed (it lives in the
 Worker's routing call, and the lanes module the container loads imports the
-same file, so the image rolls), then the owner's free runtime check, then the
-paid press and the free restore, each with the new deploy's identifiers.
+same file, so the image rolls: `2771ed3f` predicts `abf47dfeceba3c5c`), then
+the owner's free runtime check, then the paid press and the free restore,
+each with the new deploy's identifiers.
 
 ## Test 7 — a photograph removal and a layout change on another page, in one message (proposed 2026-09-29; its claimed coverage narrowed the same day by a routing review the owner asked for: the customer capability through the look door, not the removal door; held the same day on the photo-removal mismatch, reproduced and a correction proposed for review; the correction implemented on the branch the same day with the owner's safeguards, and Test 7 now expects the element removed; merged and deployed the same day in deploy 2167 and runtime-confirmed by the owner's free press, run 59; approved by the owner and pressed as run 60 the same day: both changes stored and published, each on its own page, with the home page stored without its final newline; the free restore, run 61, put everything back; closed by the owner, 2026-09-29, for the customer behavior runs 60 and 61 showed, with the missing final newline accepted as a specific nonfunctional exception)
 

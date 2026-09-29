@@ -1,4 +1,4 @@
-# The router chooses one answer over the whole message (2026-09-29; on the branch, not merged, not deployed)
+# The router chooses one answer over the whole message, by what a route can make on every page (2026-09-29; on the branch, not merged, not deployed)
 
 ## The owner's request
 
@@ -51,6 +51,11 @@ whose changes are of different kinds:
   does not add it (below).
 
 ## What changed (`builder/site-ask.mjs`, two strings and their comments)
+
+> **This is the first wording (`465efe11`), superseded the same day.** The
+> owner's review found it chose by the changes' kind; it now chooses by what
+> a route can make on every page (*The owner's correction: by targets, never
+> by kind*, below).
 
 - **A closing paragraph for the `layer` field**, its last words, the position
   this file has measured as a field's strongest (the `remove` field's closing
@@ -165,3 +170,201 @@ can show it.
   without a word; the menu editor's other parts have no look-door lane; the
   reply names only the look (review #9).
 
+## The owner's correction: by targets, never by kind (the same day; `2771ed3f`)
+
+Owner, 2026-09-29, before any merge: *"One correction before merging: the
+new whole-message rule still chooses by operation kind without fully
+accounting for target scope. "Each layer above is the answer when every
+change they ask for is its kind" conflicts with the page route's one-page
+limit. Two layout changes on different pages are the same kind, but that
+route cannot execute both. The following clause sends only changes of
+different kinds to look. Make the universal rule depend on whether a route
+can execute the entire request across all its targets. Preserve a
+specialized route when it can do everything requested. Otherwise, use look
+when its existing scoped execution can complete everything, including
+same-kind changes on different pages. Defer only work that cannot run
+together. Reconcile the older multi-page routing instructions with that
+rule. Keep the correction small; do not hardcode examples, force all mixed
+requests into look, or redesign execution. Update the new guard so it no
+longer enshrines "same kind" as sufficient. … Keep supplied-answer evidence
+separate from real-model routing proof. Report the revised wording and
+focused validation. Keep Test 8's request and acceptance unchanged. No paid
+calls, retries, merge, or deployment yet."*
+
+### What the first wording got wrong
+
+For two layout changes on two different pages, the tool said different
+things in different places:
+- **the first wording's closing rule**: both changes are `page`'s kind, so
+  the answer is `page`, which "edits the single page you name and leaves the
+  rest exactly as they are";
+- **its next sentence** sent only changes *of different kinds* to `look`, so
+  that pair was never sent there;
+- **the `page` clause's older multi-page line** sent a change meant to land
+  on several pages to `addon`, the add-on step: "Answer "addon" for those; it
+  can touch the pages a visitor would look on". It was written before the
+  frame's details were `nav`'s and before `look` placed each change on its own
+  page;
+- while **`look`'s own paragraph** says "a section on one page and a section
+  on another" is one `look` answer, each placed where it belongs (its scoped
+  page steps, deploy 2166), and **the `page` field** says to leave the page
+  out when the changes are on more than one page.
+
+The first wording's `alsoAsked` exception also named `look` as the answer
+("then the answer is "look""). That would have taken a mix away from a
+specialized layer that can make all of it: a menu change and the header's
+button are both `nav`'s, and `look` reaches both through the menu editor's
+lane.
+
+### What changed (three strings in `builder/site-ask.mjs`, with their comments; the route is unchanged)
+
+1. **The `layer` field's closing paragraph now chooses by what a route can
+   make on every page.** It is still the field's last words:
+   *"ONE ANSWER FOR THE WHOLE MESSAGE, CHOSEN AFTER READING EVERY CHANGE THEY
+   ASK FOR AND WHERE EACH ONE IS — NEVER FROM THE FIRST CHANGE ALONE. A layer
+   other than "look" is the answer when it can make all of them, on every
+   page each one is on. When none can, answer "look" if it can make them all
+   (what it reaches is listed under `alsoAsked`), and hold nothing back: it
+   makes each change on its own page, so changes on different pages are one
+   "look" answer even when they are all of one kind. Hold a change back only
+   when no one answer can make it with the rest."*
+2. **The `page` clause's multi-page line is reconciled with it.** "Answer
+   "addon" for those; it can touch the pages a visitor would look on." became
+   *"The answer for those is whichever can make the change on every page it
+   lands on, as the last paragraph of this field says."*
+3. **`alsoAsked`'s exception names no answer of its own.** "never for a part
+   "look" can make along with everything else they asked: then the answer is
+   "look", whatever the first change was." became *"never for a part one
+   answer can make along with everything else they asked: give that answer,
+   whatever the first change was (the last paragraph of `layer` says
+   which)."*
+
+**How the tool now reads each case.** This is its text; no model was called:
+- **one change, or several that one specialized layer can make on every page
+  they are on** (a menu change alone, a menu change and the button, a page
+  deletion, one page's layout): that layer, as before;
+- **changes of one kind on different pages** (two layout changes on two
+  pages): `page` cannot make both, so the answer is `look`, which runs one
+  page step per page, each with only its own words;
+- **a mix `look` can make** (Test 8's menu item and band): `look`, with
+  nothing held back;
+- **a mix no one answer can make**: its answer, with the rest held back, as
+  before (*What it keeps*, above).
+
+The other multi-page instructions already agreed and are unchanged:
+- `look`'s own paragraph ("a section on one page and a section on another"
+  is one `look` answer, with `page` left out);
+- the `page` field (left out when the changes are on more than one page);
+- `alsoAsked`'s head ("SEVERAL CHANGES ARE ONE TURN WHEN YOUR ANSWER CAN
+  MAKE THEM ALL").
+
+**Size.** The tool grew by 182 characters over the first wording and by 710
+over `main`, measured as JSON:
+
+| | `main` | first wording | now |
+|---|---|---|---|
+| the whole tool | 24,117 | 24,645 | 24,827 |
+| the `layer` description | 10,520 | 10,980 | 11,128 |
+| `alsoAsked` | 1,741 | 1,804 | 1,842 |
+
+### Validation of the correction (measured)
+
+**The evidence boundary is unchanged.** These checks prove what the router is
+TOLD and what the route DOES with each answer (supplied answers). **Whether a
+real router answers `look` for changes of one kind on different pages, or
+for Test 8's mix, is not measured.**
+
+- **The guard, revised.** It is the same case in `test/site-ask.test.mjs`;
+  no case was added. The closing rule:
+  - must not say "is its kind";
+  - must read every change "AND WHERE EACH ONE IS";
+  - must make a layer other than `look` the answer "when it can make all of
+    them, on every page each one is on";
+  - must answer `look` only "When none can", and say "changes on different
+    pages are one "look" answer even when they are all of one kind".
+
+  `alsoAsked` must not say "then the answer is "look"". The rest is as
+  before: nothing held back from a `look` answer, the limit on holding back,
+  layer names only, the legitimate holds, and "A MENU CHANGE IS "nav"".
+- **The older multi-page case, revised.** In `test/site-apply.test.mjs`, "the
+  rules say a multi-page change is NOT a page edit" now:
+  - requires the reconciled line;
+  - requires the rule that line points at to be the field's last paragraph;
+  - refuses "Answer "addon" for those".
+- **Red check.** On the first wording's module (`465efe11`) and on `main`'s
+  (`47dea9c0`), 195 of `site-ask` and `site-apply`'s 197 cases pass, and
+  exactly the two revised cases fail. All 197 pass on the correction.
+- **Mutation sweep.** The baseline was green (924 across the 26
+  router-related files). All 16 mutants were killed:
+  - the closing rule removed, or moved to the field's head;
+  - "where each one is" dropped;
+  - one kind made enough again;
+  - "on every page each one is on" dropped;
+  - `look` only for different kinds;
+  - changes of one kind on different pages no longer `look`;
+  - every mix sent to `look`;
+  - a `look` answer split across turns;
+  - no limit on holding back;
+  - a worked example added;
+  - `alsoAsked` naming `look` as the answer again;
+  - `alsoAsked`'s exception reverted to "when you answered look";
+  - several pages sent to `addon` again;
+  - a legitimate hold dropped;
+  - a menu change alone no longer `nav`.
+
+  The three comment-only controls survived. The module and both test files
+  were restored byte for byte.
+- **The routing contract and the execution boundaries, existing tests**: 924
+  of 924 across the 26 files. By name, with supplied answers:
+  - **`edit-op-scope.test.mjs`, 20 of 20.** Among them:
+    - **the existing two-page case**, "changes to two different pages: each
+      page's writer is shown its own page and handed its own words" (a
+      `look` answer with no page: one page step per page, each with only its
+      own words);
+    - run 52 as the router really answered, sync and job;
+    - the legitimate holds (an addition beside a look change and a look
+      change beside an addition, neither run; held-back words that cannot be
+      found, refused at no cost);
+    - the single-change controls (a named page; the whole site);
+    - the look door's menu-plus-layout, menu-alone and button-alone cases,
+      sync and queued.
+  - **`edit-removal-door.test.mjs`, 18 of 18**: run 47, THEN, menu plus
+    layout on the removal door and its two controls, picture plus remove,
+    and take it off.
+- **Test 8's unchanged request, replayed on `2771ed3f`** (scratch, not
+  committed), 2 of 2, sync and queued alike:
+  - **run 63's answer** does exactly what run 63 did (the picker and the menu
+    editor; the band deferred; `visit.tsx` the menu-only `ddd1fe39…`);
+  - **the `look` answer** calls the picker, the page writer and the menu
+    editor. The menu editor is handed exactly "Take Gallery out of the
+    menu", and the page writer exactly the band's words on `visit.tsx`, which
+    comes out as Test 8's expected `c67011db…`.
+- **Full unit suite**: `8297 / 8297 / 0 / 0` locally, the same 8,297 (two
+  cases revised, none added).
+- **Required CI on `2771ed3f`**:
+  - `unit tests`: run 36622422731 (job 109590890729), `completed` /
+    `success`, `8297 / 8293 / 0 / 4` read from the job's log;
+  - `site build`: run 36622422715 (job 109590890424), `completed` /
+    `success`. Every count, read from its own step's log, matches the
+    recorded twelve (TAP 397, kit-typecheck 4, site-build 404,
+    contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
+    site-runtime 47, and kit-render, kit-a11y, kit-effects and kit-paint
+    `all passed`). Only the two expected `##[error]`
+    annotations appear (`index.tsx(50,13) TS2322`, `menu.tsx(27,17) TS2339`,
+    inside the case that compiles a broken page on purpose), and CI skips
+    the same four unit cases as before.
+- **The image.** This is informational: nothing is merged or deployed.
+  `2771ed3f` predicts `abf47dfeceba3c5c` (188 inputs, 158 paths). `main`
+  (`47dea9c0`) predicts `dd4f72842234135b`, and the first wording
+  `ce8f51050098d883`. A merge would roll the image.
+
+### Limits, stated
+
+- **No model was called.** The router's answer for any message is a
+  prediction from its text.
+- **"Can make" is the router's own judgment**, drawn from the tool's
+  descriptions of each layer and of what `look` reaches. Nothing checks that
+  judgment before the route runs. A wrong answer is handled as before: a
+  held-back part is taken out before anything runs, and a scope that fails
+  its check is withheld.
+- **Test 8's request, expected results, recovery and cost are unchanged.**

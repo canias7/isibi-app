@@ -245,6 +245,14 @@
   keep their efficient route, only work that cannot run together is deferred,
   deferred words never run, and no rule forces every mixed request into one
   path.
+- **A route is chosen by its targets, never by kind.** Reviewing the first
+  whole-message rule: *"Make the universal rule depend on whether a route can
+  execute the entire request across all its targets. Preserve a specialized
+  route when it can do everything requested. Otherwise, use look when its
+  existing scoped execution can complete everything, including same-kind
+  changes on different pages. Defer only work that cannot run together."*
+  Changes of one kind are not one route's work when that route cannot reach
+  every page they are on.
 - **Controlled evidence is not a real model's choice.** *"Clearly distinguish
   controlled execution evidence from proof that a real model chooses the
   correct route."* Supplied answers prove what the code does with an answer;

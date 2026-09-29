@@ -92,8 +92,9 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   minutes later. Redirects dropped between 2026-08-17 and that deploy are not
   rebuilt.
 - **The branch `claude/help-needed-ehlwlj`** is `main` (`47dea9c0`) plus
-  documents and the router's whole-message rule (`465efe11`, not merged). A
-  press from the branch runs the branch's script against main's Worker.
+  documents and the router's whole-message rule (`465efe11`, made to choose
+  by targets rather than kind in `2771ed3f`; not merged). A press from the
+  branch runs the branch's script against main's Worker.
 - **Balance 28** on the building account after run 63 (Test 8's paid run,
   2026-09-29 17:03 UTC): routing 2 and the job's reserve of 2, ledger row
   339, read again after the free restore (run 64) at 17:30, with no row after
@@ -101,8 +102,8 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   and 62. The unit
   suite is **8,296** on `main` (`47dea9c0`): `8296 / 8296 / 0 / 0` locally
   and `8296 / 8292 / 0 / 4` on CI (run 36597948276); **8,297** on the
-  branch with the router's correction (`8297 / 8297 / 0 / 0` locally, `8297 / 8293 / 0 /
-  4` on CI, run 36608607282).
+  branch with the router's correction (`2771ed3f`: `8297 / 8297 / 0 / 0`
+  locally, `8297 / 8293 / 0 / 4` on CI, run 36622422731).
 - **Closed by the owner, not to be repeated**: live test 2 (run 32); Test 3
   (run 34) with the stylesheet corrections (deploy 2161); the kit-heading fix
   (2162); Test 4a (runs 37 and 39); Test 4b's D1 (run 42) and the conditional
@@ -172,25 +173,35 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   **and accepted run 64**; the intended mixed-request acceptance remains open,
   and every earlier closure stays credited. The record is the checklist's
   *Test 8* (*Run 63*, *Run 64*, *The owner's review*).
-- **The router chooses one answer over the whole message** (2026-09-29, on
-  the branch, `465efe11`; not merged, not deployed). Run 63's `nav` + `remove`
-  + `alsoAsked` came from instructions that disagreed: each layer's clause
-  named the answer for the change a message leads with ("A MENU CHANGE IS
-  "nav"", `remove` for a menu item), the several-changes rule sat inside
-  `look`'s own paragraph, and `alsoAsked` judged a hold against the answer
-  already chosen. **The fix is two strings in `builder/site-ask.mjs`**: the
-  `layer` field now ends on one rule over the whole message (a layer's own
-  clause is its answer when every change is its kind; a mix `look` can make
-  entirely is `look`, nothing held back; a change is held back only when no
-  one answer can make it with the rest), and `alsoAsked` spares a part `look`
-  can make with the rest whatever the first change was. The route is
-  unchanged. Guard, red check (1 of 110), sweep (12 of 12, 2 controls
-  survived), Test 8's request replayed with both answers supplied, full suite
-  `8297 / 8297 / 0 / 0`, required CI green (unit 36608607282: `8297 / 8293 / 0 / 4`; site
-  build 36608607274: the twelve counts). **Shown only by the tool's text and
-  supplied answers: whether a
-  real router now answers `look` is not measured.** A merge would roll the
-  image to `ce8f51050098d883`. Test 8 is prepared again, unchanged, for the owner's
+- **The router chooses one answer over the whole message, by what a route
+  can make on every page** (2026-09-29, on the branch: `465efe11`, then
+  `2771ed3f` after the owner's review of its first wording; not merged, not
+  deployed). Run 63's `nav` + `remove` + `alsoAsked` came from instructions
+  that disagreed: each layer's clause named the answer for the change a
+  message leads with ("A MENU CHANGE IS "nav"", `remove` for a menu item),
+  the several-changes rule sat inside `look`'s own paragraph, and
+  `alsoAsked` judged a hold against the answer already chosen. The first
+  wording chose by kind, which the owner corrected: two layout changes on two
+  pages are one kind, and `page` edits one page. **The fix is three strings
+  in `builder/site-ask.mjs`**: the `layer` field ends on one rule over the
+  whole message, **by targets, never by kind** (a layer other than `look` is
+  the answer when it can make every change on every page each one is on;
+  when none can, `look`, if it can make them all, with nothing held back, so
+  changes of one kind on different pages are `look`; a change is held back
+  only when no one answer can make it with the rest); the `page` clause's
+  older multi-page line (it said `addon`) points at that rule; and
+  `alsoAsked` spares a part one answer can make with the rest, whatever the
+  first change was, naming no answer of its own. The route is unchanged.
+  Guard revised (one kind is no longer enough); red check (exactly the 2
+  revised cases of 197 fail on the first wording and on `main`); sweep (16
+  of 16, 3 controls survived); the existing two-page, single-change,
+  menu-plus-layout and hold cases (20 of 20 and 18 of 18, supplied answers);
+  Test 8's request replayed with both answers (2 of 2); full suite `8297 /
+  8297 / 0 / 0`; required CI green on `2771ed3f` (unit 36622422731: `8297 /
+  8293 / 0 / 4`; site build 36622422715: the twelve counts). **Shown only by
+  the tool's text and supplied answers: whether a real router now answers
+  this way is not measured.** A merge would roll the image to
+  `abf47dfeceba3c5c`. Test 8 is prepared again, unchanged, for the owner's
   review. `docs/history/2026-09-29-whole-message-routing.md`.
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
