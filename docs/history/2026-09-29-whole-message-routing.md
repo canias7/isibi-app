@@ -1,4 +1,4 @@
-# The router chooses one answer over the whole message, by what a route can make on every page (2026-09-29; merged and deployed in deploy 2170, not yet runtime-confirmed)
+# The router chooses one answer over the whole message, by what a route can make on every page (2026-09-29; merged and deployed in deploy 2170, runtime-confirmed by run 65)
 
 ## The owner's request
 
@@ -391,9 +391,10 @@ Deploy run 2170 (36626580809) finished `success` at 20:31:31 UTC:
 
 The readings are in `docs/deploy-record.md`.
 
-**Deployed, not runtime-confirmed.** The owner's free press on
-`fold-lane-bakery` is what reads the live Worker's sha and a cold
-container's image. **Even then, whether a real router answers `look` for a
+**Runtime-confirmed by the owner's free press, run 65** (21:51 UTC, on
+`fold-lane-bakery`): both readers answer `907840c67497`, a cold container
+gets `abf47dfeceba3c5c`, the free job finished at cost 0, and the balance
+read 28. **Even so, whether a real router answers `look` for a
 mix like Test 8's is not measured**: only Test 8's paid run, after the
 owner's approval, can show it. Test 8 stays open, with its request, expected
 results and recovery version (`01790468089054-8btpep`) unchanged.

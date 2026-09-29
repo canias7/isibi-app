@@ -56,7 +56,7 @@ is still shown only with supplied answers. The free restore (run 64) put
 chooses one answer over the whole message, by what a route can make on every
 page, never by kind** (the owner's correction of the first wording the same
 day; merged and deployed in deploy 2170, `907840c6`, image
-`abf47dfeceba3c5c` as predicted, not yet runtime-confirmed): the acceptance
+`abf47dfeceba3c5c` as predicted, runtime-confirmed by run 65): the acceptance
 is prepared again, unchanged (*Test 8*, below).
 
 **The redirect carry-over fix is merged and deployed** (`f5e941f4`, deploy
@@ -192,7 +192,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; its free runtime check passed as run 62; pressed as run 63 the same day: the router answered `nav` with `remove` and held the band back, so only the menu change was made and the look door was not reached; the free restore, run 64, put everything back; the owner recorded run 63 as a partial outcome and accepted run 64, with the intended acceptance still open; the router's whole-message rule corrected on the branch the same day, made to choose by what a route can make on every page rather than by kind after the owner's review, and the acceptance prepared again, not run; the rule merged and deployed in deploy 2170 the same day, not yet runtime-confirmed)
+## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; its free runtime check passed as run 62; pressed as run 63 the same day: the router answered `nav` with `remove` and held the band back, so only the menu change was made and the look door was not reached; the free restore, run 64, put everything back; the owner recorded run 63 as a partial outcome and accepted run 64, with the intended acceptance still open; the router's whole-message rule corrected on the branch the same day, made to choose by what a route can make on every page rather than by kind after the owner's review, and the acceptance prepared again, not run; the rule merged and deployed in deploy 2170 the same day and runtime-confirmed by run 65)
 
 Owner, 2026-09-29: *"Also prepare one bounded real-model acceptance using
 the existing fixture and workflow: a menu-item removal combined with a layout
@@ -573,7 +573,7 @@ restoration and previously closed tests credited."*
 - **Next**: the routing defect, as one focused change (*After run 63: the
   router's whole-message rule*, below).
 
-### After run 63: the router's whole-message rule, and the acceptance prepared again (2026-09-29; merged and deployed in deploy 2170, not yet runtime-confirmed; not run)
+### After run 63: the router's whole-message rule, and the acceptance prepared again (2026-09-29; merged and deployed in deploy 2170, runtime-confirmed by run 65; not run)
 
 **The correction** (`builder/site-ask.mjs`; the full record is
 `docs/history/2026-09-29-whole-message-routing.md`). The router's tool
@@ -654,12 +654,20 @@ same file, so the image rolls: `2771ed3f` predicts `abf47dfeceba3c5c`), then
 the owner's free runtime check, then the paid press and the free restore,
 each with the new deploy's identifiers. **Merged and deployed** (deploy 2170,
 2026-09-29 20:28–20:31 UTC, `907840c6`, image `abf47dfeceba3c5c` built as
-predicted; not yet runtime-confirmed). The presses, all from `main`, every
+predicted; runtime-confirmed by run 65). The presses, all from `main`, every
 other box left as it is:
 1. **The free runtime check for deploy 2170**, now (the image rolled at
    20:31): "Run the ONE paid edit as well" `no`; "The site to edit"
    `fold-lane-bakery`; the two "Refuse to spend unless…" boxes
    `907840c67497b2624f1a2febfdb27b947ca5222a` and `abf47dfeceba3c5c`.
+   **Pressed as run 65 (21:51 UTC): every check passed.** Both readers
+   answered `907840c67497`, a cold container `abf47dfeceba3c5c`, and the
+   free job was claimed and finished at cost 0. The before-read: the five
+   stored pages byte-identical to the fixture (`51b5af6a…`, `4ead778e…`,
+   `37fb0e17…`, `bdb02abe…`, `4e8b82aa…`), no components, the stored
+   description as before, and every route at `8btpep`. The served markup
+   of all five routes is identical to run 62's apart from each page's two
+   render timestamps. The balance was 28.
 2. **The paid run, only after the owner's approval and after (1) passes**:
    "Run the ONE paid edit as well" `yes`; "What to change" the request above,
    exactly; "The site to edit" `fold-lane-bakery`; the same two

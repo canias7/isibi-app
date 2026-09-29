@@ -37,9 +37,11 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 - **`main` is `907840c6`, deploy 2170** (2026-09-29 20:28 UTC, a
   fast-forward from `47dea9c0`; one deploy run, green, on `907840c6`; it
   built image `abf47dfeceba3c5c` from 188 inputs, predicted on both ends, and
-  the container moved `dd4f72842234135b` → `abf47dfeceba3c5c`) — **deployed,
-  not runtime-confirmed**: the owner's free press on `fold-lane-bakery` is
-  next. Nothing under `public/` changed. It carries **the router's
+  the container moved `dd4f72842234135b` → `abf47dfeceba3c5c`) —
+  **runtime-confirmed by the owner's free press, run 65** (21:51 UTC, on
+  `fold-lane-bakery`): both readers answer `907840c67497`, a cold container
+  gets `abf47dfeceba3c5c`, and queued jobs and the runner are on. Nothing
+  under `public/` changed. It carries **the router's
   whole-message rule, by targets** (below). `docs/deploy-record.md`.
 - **Deploy 2168** (`47dea9c0`, 2026-09-29 16:35 UTC, a fast-forward from
   `cb981a4a`; the one push started two deploy runs a second apart, 2168 and
@@ -104,7 +106,8 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 - **Balance 28** on the building account after run 63 (Test 8's paid run,
   2026-09-29 17:03 UTC): routing 2 and the job's reserve of 2, ledger row
   339, read again after the free restore (run 64) at 17:30, with no row after
-  339 and no job open, and again at 21:35 after deploy 2170 (the same).
+  339 and no job open, and again at 21:35 after deploy 2170 and by run 65 at
+  21:51 (the same).
   Before it, 32 after run 60, unchanged through runs 61 and 62. The unit
   suite is **8,297** on `main` (`907840c6`): `8297 / 8297 / 0 / 0` locally
   (on `2771ed3f`, the same code) and `8297 / 8293 / 0 / 4` on CI (runs
@@ -181,8 +184,8 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 - **The router chooses one answer over the whole message, by what a route
   can make on every page** (2026-09-29: `465efe11`, then `2771ed3f` after the
   owner's review of its first wording; **merged and deployed in deploy 2170**
-  (`907840c6`, image `abf47dfeceba3c5c` as predicted), **not yet
-  runtime-confirmed**). Run 63's `nav` + `remove` + `alsoAsked` came from instructions
+  (`907840c6`, image `abf47dfeceba3c5c` as predicted) and
+  **runtime-confirmed by run 65**). Run 63's `nav` + `remove` + `alsoAsked` came from instructions
   that disagreed: each layer's clause named the answer for the change a
   message leads with ("A MENU CHANGE IS "nav"", `remove` for a menu item),
   the several-changes rule sat inside `look`'s own paragraph, and
@@ -382,7 +385,8 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
 - **Balance 28** on the building account after run 63 (Test 8's paid run,
   2026-09-29 17:03 UTC): 32 → 28, routing 2 and the job's reserve of 2
   (ledger row 339), read again at 17:30 after the free restore (run 64), with
-  no row after 339, and at 21:35 after deploy 2170 (the same). Before it: 32 after run 60 (Test 7's paid run,
+  no row after 339, and at 21:35 after deploy 2170 and by run 65 at 21:51 (the
+  same). Before it: 32 after run 60 (Test 7's paid run,
   2026-09-29 15:07 UTC): 37 → 32, routing 2 and reserves of 2 and 1 (ledger
   rows 337 and 338), read again at 15:27, at 15:37 after the free
   restore (run 61) and at 16:57 by run 62, with no row after 338. Before it:
@@ -403,7 +407,8 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
   `ben-crowe-guitar`, and the older `fold-lane-bakery`, `harbourside-roast`,
   `the-lido-cafe`, `oak-and-ash`, `forno-and-co`. **Reusing one of those slugs
   revises that site.** The test fixtures now: `fold-lane-bakery` live at
-  `01790468089054-8btpep` (restored by run 64 after Test 8's run 63),
+  `01790468089054-8btpep` (restored by run 64 after Test 8's run 63, and read
+  again by run 65),
   `fretwork-1` at `01790404806543-kk6qsh` (Test 3's removal kept), and
   `lido-axes-b` with its bookings closed (run 44, kept).
 - **What things cost, measured** — routing 1–2 per message (it moves with the

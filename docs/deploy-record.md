@@ -395,8 +395,13 @@ reviewed branch through `907840c6`. Checked first:
 
 **Read at 21:34Z**: the gates answered 401 / 401 / 401 / 404, and
 `fold-lane-bakery` still answers `x-site-version: 01790468089054-8btpep` on
-all five pages, with `/the-starter` 301 → `/starter`. **Deployed, not
-runtime-confirmed**: the owner's free press on `fold-lane-bakery` is next.
+all five pages, with `/the-starter` 301 → `/starter`. **Runtime-confirmed by
+the owner's free press, edit canary run 65** (2026-09-29 21:51 UTC, 80
+minutes after the roll, from `main` at `907840c6` on `fold-lane-bakery`):
+`build-health 200 deploy=907840c67497 image=abf47dfeceba3c5c` and `runtime
+200 deploy=907840c67497 async=true runner=true`, the two readers agreeing and
+both expectations met; the free job was claimed by a container at 2 s and
+finished at cost 0, and the balance read 28.
 
 ## The served-file check, driven end to end on deploy 2139
 
