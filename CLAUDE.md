@@ -96,8 +96,9 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   branch runs the branch's script against main's Worker.
 - **Balance 28** on the building account after run 63 (Test 8's paid run,
   2026-09-29 17:03 UTC): routing 2 and the job's reserve of 2, ledger row
-  339, with no job open. Before it, 32 after run 60, unchanged through runs
-  61 and 62. The unit
+  339, read again after the free restore (run 64) at 17:30, with no row after
+  339 and no job open. Before it, 32 after run 60, unchanged through runs 61
+  and 62. The unit
   suite is **8,296** on `main` (`47dea9c0`): `8296 / 8296 / 0 / 0` locally
   and `8296 / 8292 / 0 / 4` on CI (run 36597948276).
 - **Closed by the owner, not to be repeated**: live test 2 (run 32); Test 3
@@ -162,8 +163,10 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   the reply asked for it next (the held-back path's first live run since
   deploy 2166). **The look door was not reached**, so the real picker placing
   the menu change on the menu editor's lane is still shown only with
-  supplied answers. Awaiting the free restore to `8btpep` and the owner's
-  review. The record is the checklist's *Test 8* (*Run 63*).
+  supplied answers. **The free restore (run 64, 17:29 UTC) put `8btpep`
+  back**, checked (stored pages equal to the fixture, markup and pixels
+  identical to the before-read, no charge). Awaiting the owner's review. The
+  record is the checklist's *Test 8* (*Run 63*, *Run 64*).
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
   `docs/investigations/edit-path-checklist.md`, and every test's plan, readings
@@ -336,7 +339,8 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
 
 - **Balance 28** on the building account after run 63 (Test 8's paid run,
   2026-09-29 17:03 UTC): 32 → 28, routing 2 and the job's reserve of 2
-  (ledger row 339). Before it: 32 after run 60 (Test 7's paid run,
+  (ledger row 339), read again at 17:30 after the free restore (run 64), with
+  no row after 339. Before it: 32 after run 60 (Test 7's paid run,
   2026-09-29 15:07 UTC): 37 → 32, routing 2 and reserves of 2 and 1 (ledger
   rows 337 and 338), read again at 15:27, at 15:37 after the free
   restore (run 61) and at 16:57 by run 62, with no row after 338. Before it:
@@ -357,8 +361,7 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
   `ben-crowe-guitar`, and the older `fold-lane-bakery`, `harbourside-roast`,
   `the-lido-cafe`, `oak-and-ash`, `forno-and-co`. **Reusing one of those slugs
   revises that site.** The test fixtures now: `fold-lane-bakery` live at
-  `01790701419976-t5obxx` after Test 8's run 63, to be restored free to
-  `01790468089054-8btpep`,
+  `01790468089054-8btpep` (restored by run 64 after Test 8's run 63),
   `fretwork-1` at `01790404806543-kk6qsh` (Test 3's removal kept), and
   `lido-axes-b` with its bookings closed (run 44, kept).
 - **What things cost, measured** — routing 1–2 per message (it moves with the

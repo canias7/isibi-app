@@ -49,8 +49,8 @@ moved in one message, with real models: the router answered `nav` with
 `remove` and held the band back (`alsoAsked`), so Gallery came out of every
 menu exactly and the band was not moved; 4 credits. The look door was not
 reached, so the real picker placing the menu change on the menu editor's lane
-is still shown only with supplied answers. The free restore to `8btpep` is
-next; the router's choice is in the backlog.
+is still shown only with supplied answers. The free restore (run 64) put
+`8btpep` back, checked; the router's choice is in the backlog.
 
 **The redirect carry-over fix is merged and deployed** (`f5e941f4`, deploy
 2165, 2026-09-28 19:07 UTC, image `8a10715339cdc780`; runtime-confirmed by
@@ -185,7 +185,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; its free runtime check passed as run 62; pressed as run 63 the same day: the router answered `nav` with `remove` and held the band back, so only the menu change was made and the look door was not reached; awaiting the free restore and the owner's review)
+## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; its free runtime check passed as run 62; pressed as run 63 the same day: the router answered `nav` with `remove` and held the band back, so only the menu change was made and the look door was not reached; the free restore, run 64, put everything back; awaiting the owner's review)
 
 Owner, 2026-09-29: *"Also prepare one bounded real-model acceptance using
 the existing fixture and workflow: a menu-item removal combined with a layout
@@ -502,8 +502,50 @@ comparison is VERIFIED.
 - **The customer's view**: Gallery gone from the menu, the page kept, and one
   sentence asking them to send the band move again. Nothing wrong was done;
   the second change needs a second message.
-- **Next**: the free restore to `8btpep` (*Recovery*, above); whether Test 8
-  closes, and what to do about the router's choice, is the owner's decision.
+- **Next**: the free restore to `8btpep` (*Recovery*, above: done as run 64,
+  below); whether Test 8 closes, and what to do about the router's choice,
+  is the owner's decision.
+
+### Run 64 — the free restore put everything back (2026-09-29)
+
+Pressed by the owner from `main` at `47dea9c0`
+([run 36605227896](https://github.com/canias7/isibi-app/actions/runs/36605227896),
+17:28:55–17:29:59 UTC; the evidence artifact `canary-evidence` is 23,904
+bytes, sha256 `774cd99f…`) with the spend box `no`, the restore box
+`01790468089054-8btpep`, `fold-lane-bakery` and the two expectations. The
+preflight read `47dea9c01fbf` and `dd4f72842234135b`, and every free check
+passed.
+- **The restore**: the version list held 13 versions, `t5obxx` live with
+  `8btpep` as its parent; the restore answered 200 (`files: 24`, `swept: 0`),
+  and the site reported `8btpep` itself on the first read after it.
+- **What it must show** (*Recovery, free, and what it must show*), every item
+  holding:
+  - all five routes answer 200 at `8btpep` (read again live at 17:30:44 UTC);
+  - the stored pages are byte-identical to `test/fixtures/run47/*.before.tsx`
+    (`index.tsx` 2,439 `51b5af6a…`, `order.tsx` 9,258 `4ead778e…`,
+    `starter.tsx` 951 `37fb0e17…`, `visit.tsx` 4,045 `bdb02abe…`,
+    `gallery.tsx` 3,007 `4e8b82aa…`); no components; the stored description
+    as before;
+  - Gallery is back in the header and footer menus on `/` and `/gallery`,
+    and `/visit` and `/order` keep their three items;
+  - every page's served markup, head tags included, is identical to run 63's
+    `8btpep` before-read apart from one line, the render script's
+    timestamps;
+  - `/the-starter`, `?x=1` (the query kept) and the trailing slash answer
+    301 to `/starter` with `public, max-age=600`; `/nonexistent-page`
+    answers 404; the sitemap lists the five; `qr-gallery.svg` (`45f42f27…`),
+    `/card.png` (`ce884f5b…`) and the stylesheet (`544ff34e…`) carry their
+    recorded sha256s;
+  - in a real Chromium, the live pages drawn as run 63's were (GET only,
+    reduced motion): all five are identical to the pixel to run 63's
+    `8btpep` before-read, every image loaded, and there are 0 page errors.
+    The three console errors on each page are the three `POST /cdn-cgi/rum`
+    requests of Cloudflare's analytics beacon, which the browser wall
+    refuses, as in runs 58 and 61;
+  - **no charge**: the balance is 28 (last changed at 17:03:39 by run 63's
+    reserve), no ledger row came after 339, the two zero-cost probe jobs
+    (`f4bd53a0…` on the bakery, `9a014a2e…` on `washhouse-3`) ended `failed`
+    at cost 0 with billing `none`, and no edit job is open.
 
 ## Test 7 — a photograph removal and a layout change on another page, in one message (proposed 2026-09-29; its claimed coverage narrowed the same day by a routing review the owner asked for: the customer capability through the look door, not the removal door; held the same day on the photo-removal mismatch, reproduced and a correction proposed for review; the correction implemented on the branch the same day with the owner's safeguards, and Test 7 now expects the element removed; merged and deployed the same day in deploy 2167 and runtime-confirmed by the owner's free press, run 59; approved by the owner and pressed as run 60 the same day: both changes stored and published, each on its own page, with the home page stored without its final newline; the free restore, run 61, put everything back; closed by the owner, 2026-09-29, for the customer behavior runs 60 and 61 showed, with the missing final newline accepted as a specific nonfunctional exception)
 
