@@ -120,7 +120,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Test 6 — two changes in one message, one on a named page (prepared 2026-09-28, request clarified the same evening; the free check, run 51, passed; the paid run, run 52, shipped the description, and the router put the Visit move off to a later turn; the free restore, run 53, put everything back; the owner: run 52 does not close Test 6; the routing/execution mismatch it showed is fixed and deployed, 2026-09-29, deploy 2166; Test 6 stays open)
+## Test 6 — two changes in one message, one on a named page (prepared 2026-09-28, request clarified the same evening; the free check, run 51, passed; the paid run, run 52, shipped the description, and the router put the Visit move off to a later turn; the free restore, run 53, put everything back; the owner: run 52 does not close Test 6; the routing/execution mismatch it showed is fixed and deployed, 2026-09-29, deploy 2166, runtime-confirmed by the free check, run 54; a retry of the same sentence is proposed, not run; Test 6 stays open)
 
 Owner, 2026-09-28: *"prepare one bounded test combining two requested changes
 in one message, ideally also covering a named non-home page. Use an existing
@@ -623,6 +623,77 @@ them still ships. Both reproductions are route cases, sync and queued: the
 wrong writer is never called, no other change's words are forwarded, the
 description is stored, and the reply says both. The story is the history
 file's *The correction after the owner's review*.
+
+### Run 54 — deploy 2166's free check (2026-09-29)
+
+Pressed by the owner from `main` at `a64729ad`
+([run 36517850642](https://github.com/canias7/isibi-app/actions/runs/36517850642),
+03:35:58–03:36:40 UTC): "Run the ONE paid edit as well" `no`, "The site to
+edit" `fold-lane-bakery`, and the two expectations `a64729ad…` and
+`6fbaccad82fe879d`. All 14 checks passed, and the run stopped at "Nothing was
+charged".
+- **The preflight**: `build-health 200 deploy=a64729ad741a
+  image=6fbaccad82fe879d` and `runtime 200 deploy=a64729ad741a async=true
+  runner=true`; the two readers agree, and both expectations are met.
+  `washhouse-3` reads `async=true`.
+- **The queue and the runner**: the bakery's empty edit queued (`202`, job
+  `15bc37e5…`), was claimed by a container (`c_qkne0ui2`) within 2 s, was
+  refused `empty` at cost 0 and finalized after about 4 s. `washhouse-3`'s
+  (`ac3fb591…`, container `c_8r80nnnn`) did the same. Both rows read
+  `failed`, `billing none`, `cost 0`, and no job is queued or running. A job's
+  row does not record which image its container ran; the cold-start image is
+  `build-health`'s reading.
+- **The fixture**, as recorded:
+  - the five stored pages equal the table sha256 for sha256, with no
+    components, and the stored description is the original;
+  - all five routes answer at `8btpep`, and the Visit headings read "Come to
+    the bakery", "The shutters and the street", then the band;
+  - each page's title, `description` and `og:description`, and the header and
+    footer menus, equal the table;
+  - read publicly at 03:39 UTC: `/the-starter`, `?x=1` and the trailing slash
+    answer 301 to `/starter` (the query kept) with `public, max-age=600`,
+    `/nonexistent-page` answers 404, the sitemap lists the five routes, and
+    `qr-gallery.svg` (4,079 bytes), the stylesheet (205,087) and `/card.png`
+    (31,778) carry the recorded sha256s.
+- **Money**: nothing charged. The balance is 42, and the ledger's last row is
+  still 334.
+
+**Deploy 2166 is runtime-confirmed.** The deploy's success was its own report
+(run 36514259994); this is the live Worker and a cold container answering.
+
+### The retry, for the owner's approval (2026-09-29; not run)
+
+The same frozen sentence, fixture, presses and recovery as run 52 and run 53,
+on deploy 2166. That deploy tells the router that a change to the whole site
+and a change to one page are one `look` answer with no page, and it has the
+picker name each change's page and words (`scopes`).
+- **The path expected** (kept as evidence; it decides nothing): the router
+  answers `look` with no page and nothing put off; the picker names
+  `description` and `shape`, with the shape scoped to `/visit` and the Visit
+  words; the description lane is handed the description's words; the page
+  step runs on `/visit` with the Visit words; one publish.
+- **Acceptance**: items 1–7 of *Acceptance* above, unchanged, judged on the
+  stored and published changes.
+- **What each other outcome now means.** These rows replace the router rows of
+  the table above for this deploy; the other rows stand:
+  - the router puts the Visit move off (`alsoAsked`): the move is held back
+    and never run, the reply says it comes next, and only the description
+    ships. Item 3 is not shown;
+  - the router answers `page` on `/visit` and puts the description off: the
+    move ships and the description is held back. Item 3 is not shown;
+  - the picker's Visit scope fails its check (a page that is not a path, or
+    words not copied from the message): the move is withheld at no cost with
+    its own sentence, and the description ships. Item 3 is not shown, and it
+    is a finding about the real picker (the stated trade);
+  - the picker answers with no scopes at all: the old path sends the move to
+    the home page, since the router named none. A named-page failure, caught
+    by `index.tsx`'s hash.
+- **Recovery**: the free restore to `01790468089054-8btpep` (*Recovery*,
+  above), then the same comparison as run 54.
+- **Cost**: the estimate under *Cost* stands: about 5–6 credits, up to about
+  10, against a balance of 42.
+- **Kept separate**: the reply omission (review #9), and real-model mixed
+  work through the removal door.
 
 ### A visible alternative, not recommended
 

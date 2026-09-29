@@ -35,26 +35,27 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 ## Where things stand (2026-09-29)
 
 - **`main` is `a64729ad`, deploy 2166** (2026-09-29 02:51 UTC, image
-  `6fbaccad82fe879d`, predicted on both ends and built) — **deployed, not
-  runtime-confirmed**: the owner's free press is the runtime check. The served
-  `chat.js` and `edit-poll.js` are byte-identical to the merged files. On top
-  of deploy 2165 it carries the canary's read of the description stored in a
-  site's settings (`2a7767cc`: `readStoredHead`, the app's own SEO route read
-  in every inventory) and **the per-operation scope fix (`9a79fc2d`) with its
-  correction after the owner's review (`9ed7da51`)**: the router puts off only
-  what its answer cannot do this turn; a part it puts off is taken out of the
-  message before anything runs (`heldBack`, echoed as `deferred`, refused at
-  no cost when it cannot be found: `route/held-unread`); and the picker names
-  each change's page and words (`scopes`), so each runs on its own page with
-  its own words. **An answer with no scope metadata runs as before. On a
-  scoped answer, a change whose page is not a path or whose words are not in
-  the message, a page the site does not have, and a picked lane left unscoped
-  are withheld at no cost with their own sentence (`picker/scope-unread`,
-  `page/no-page`) while the rest runs: never widened to the whole message,
-  never sent to the home page.** Supplied-model proof only
-  (`test/edit-op-scope.test.mjs`, and the scoped door case in
-  `test/edit-removal-door.test.mjs`); no live run has exercised it yet.
-  `docs/history/2026-09-29-op-scope.md`.
+  `6fbaccad82fe879d`, predicted on both ends and built) — **runtime-confirmed
+  by the owner's free press, run 54** (03:36 UTC, on `fold-lane-bakery`): both
+  readers answer `a64729ad741a`, a cold container gets `6fbaccad82fe879d`, and
+  queued jobs and the runner are on. The served `chat.js` and `edit-poll.js`
+  are byte-identical to the merged files. On top of deploy 2165 it carries the
+  canary's read of the description stored in a site's settings (`2a7767cc`:
+  `readStoredHead`, the app's own SEO route read in every inventory) and **the
+  per-operation scope fix (`9a79fc2d`) with its correction after the owner's
+  review (`9ed7da51`)**: the router puts off only what its answer cannot do
+  this turn; a part it puts off is taken out of the message before anything
+  runs (`heldBack`, echoed as `deferred`, refused at no cost when it cannot be
+  found: `route/held-unread`); and the picker names each change's page and
+  words (`scopes`), so each runs on its own page with its own words. **An
+  answer with no scope metadata runs as before. On a scoped answer, a change
+  whose page is not a path or whose words are not in the message, a page the
+  site does not have, and a picked lane left unscoped are withheld at no cost
+  with their own sentence (`picker/scope-unread`, `page/no-page`) while the
+  rest runs: never widened to the whole message, never sent to the home
+  page.** Supplied-model proof only (`test/edit-op-scope.test.mjs`, and the
+  scoped door case in `test/edit-removal-door.test.mjs`); no live run has
+  exercised it yet. `docs/history/2026-09-29-op-scope.md`.
 - **Deploy 2165** (`f5e941f4`, image `8a10715339cdc780`) was runtime-confirmed
   by the owner's free press, run 51 (2026-09-28 22:57 UTC, on
   `fold-lane-bakery`): both readers answered `f5e941f494fd`, a cold container
@@ -67,8 +68,8 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   2166's record). A press from the branch runs the branch's script against
   main's Worker.
 - **Balance 42** on the building account after run 52 (23:25 UTC): routing 2
-  and the job's reserve of 1, ledger row 334. The unit suite is **8,241** at
-  `9ed7da51`.
+  and the job's reserve of 1, ledger row 334. Run 54 (free) read 42 again. The
+  unit suite is **8,241** at `9ed7da51`.
 - **Closed by the owner, not to be repeated**: live test 2 (run 32); Test 3
   (run 34) with the stylesheet corrections (deploy 2161); the kit-heading fix
   (2162); Test 4a (runs 37 and 39); Test 4b's D1 (run 42) and the conditional
@@ -88,7 +89,9 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   unshown, and the finding (the put-off half still attempted, on the home
   page) is fixed in deploy 2166; no live run has exercised it. 3 credits.
   The restore also put the stored description back, the first time that was
-  seen. The plan and every reading are the checklist's *Test 6*.
+  seen. Run 54 (free) read the fixture exactly as recorded, and **a retry of
+  the same sentence is proposed in the checklist, not run**, for the owner's
+  approval. The plan and every reading are the checklist's *Test 6*.
   **Real-model mixed work through the removal door stays outstanding.**
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
@@ -264,7 +267,8 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
   UTC): run 49 took it 50 → 45 (routing 2 + 1 and the menu edit's reserve of 2,
   ledger row 333; the page removal `exempt`). Run 51 (22:57 UTC, free) read 45
   again. Run 52 (Test 6's paid run) took it 45 → 42: routing 2 and the job's
-  reserve of 1 (ledger row 334). `GET /api/fal-balance` answers fal's balance
+  reserve of 1 (ledger row 334). Run 54 (free, 2026-09-29 03:36 UTC) read 42
+  again, with no ledger row after 334. `GET /api/fal-balance` answers fal's balance
   separately.
 - **The building account is `aniascristian@gmail.com`**, not the session's own
   address. It owns every live site and holds that balance; look at the wrong

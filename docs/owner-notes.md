@@ -57,6 +57,34 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-29 — Your free check confirmed deploy 2166 is live (run 54); the bakery is exactly as recorded; the Test 6 retry waits for your approval
+
+**What you asked for**: the free runtime check for deploy 2166, then, if it
+passed, the Test 6 retry prepared for your approval and not run.
+
+**What run 54 showed** (free, 03:36 UTC, from `main`):
+- The live Worker answers with the merged commit (`a64729ad…`), a freshly
+  started build container reports the new image (`6fbaccad82fe879d`), and
+  queued edits and the runner are switched on.
+- A free test job went through the queue, was picked up by a container within
+  2 seconds and finished, costing nothing. That run also left one refused
+  test job each on the bakery and `washhouse-3`, as every free check does;
+  neither site was changed.
+- The bakery is exactly as recorded after the last restore: the same five
+  pages byte for byte, the original search description, the same headings,
+  menus, redirects, sitemap and files.
+- Nothing was charged: the balance is still 42.
+
+So the deploy's own report (green) and the live system (answering with the
+new code) now agree. That is the deploy confirmed; the new multi-change
+behaviour itself has still only been shown with test answers.
+
+**The retry, not run**: the same sentence as run 52, on the same bakery,
+judged the same way on what is stored and published, put back afterwards
+with the free restore. About 5–6 credits, up to about 10. It is in the
+checklist and waits for your approval. Test 6 stays open until both changes
+show up in the stored and published site.
+
 ## 2026-09-29 — Merged and deployed: the multi-change fix and its correction are live (deploy 2166); waiting for your free check
 
 **What you asked for**: "Merge a64729ad to main and deploy".

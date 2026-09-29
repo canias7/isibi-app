@@ -251,8 +251,13 @@ Wrangler 20s, job 3m53s (10 s above the band's recorded top of 3m43s).
 reading at 02:47:02Z was `f5e941f4`'s own 786,047 bytes, `e56f1c9f4ffca3da…`)
 and `/edit-poll.js` 30,203 bytes (`930e7daa1ec68419…`; before, 29,659 bytes,
 `ebc0e7094320a447…`); `alsoAsked` 3 → 14 in `chat.js` and `rec.also` 0 → 1 in
-`edit-poll.js`. Gates 401 / 401 / 401 / 404 at 02:54:13Z. **Deployed, not
-runtime-confirmed**: the owner's free press is the runtime check.
+`edit-poll.js`. Gates 401 / 401 / 401 / 404 at 02:54:13Z. **Runtime-confirmed
+by the owner's free press, edit canary run 54** (2026-09-29 03:36 UTC, from
+`main` at `a64729ad` on `fold-lane-bakery`): `build-health 200
+deploy=a64729ad741a image=6fbaccad82fe879d` and `runtime 200
+deploy=a64729ad741a async=true runner=true`, the two readers agreeing and both
+expectations met; the free job was claimed by a container and finished at
+cost 0.
 The twelfth
 added a SECOND CHANNEL — **deploy 2139 (2026-09-21) was predicted before the
 push over the local merge commit `28e46e91` as `82bccb3bee50e4fd`, against
