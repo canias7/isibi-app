@@ -57,6 +57,34 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-29 — Merged and deployed: the multi-change fix and its correction are live (deploy 2166); waiting for your free check
+
+**What you asked for**: "Merge a64729ad to main and deploy".
+
+**What happened**:
+- Before merging: nothing was running on GitHub or in the edit queue, the
+  tests had passed on that exact commit, the new build-container id was
+  worked out in advance, and undoing the merge was checked to give back
+  exactly what `main` had.
+- `main` moved from `f5e941f4` to `a64729ad` (no merge commit; 16 commits).
+  The deploy (run 36514259994, deploy 2166) finished green in 3m53s.
+- The build container was rebuilt as predicted (`6fbaccad82fe879d`, from
+  `8a10715339cdc780`).
+- The two chat files that changed (`chat.js` and `edit-poll.js`) are now
+  served exactly as merged: checked byte for byte, before and after.
+
+**What that puts live**: the router puts off only what it truly can't do in
+the same turn; anything put off is taken out of the message before the edit
+runs; each change in a message runs on its own page with only its own words;
+and a change whose page or words don't check out is held back with a
+sentence, at no cost, while the rest still goes ahead.
+
+**What isn't known yet**: that the live Worker is running this code. The
+deploy says it is; your free check is what confirms it. Nothing has exercised
+the new behaviour with the real models yet, and Test 6 stays open.
+
+**Nothing was spent**, and no test was re-run.
+
 ## 2026-09-29 — The correction you asked for: a change whose scope doesn't check out is held back, never sent to the wrong page or given the whole message
 
 **What you found**: two ways the fix still went wrong. If the part of the

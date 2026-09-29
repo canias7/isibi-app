@@ -60,8 +60,8 @@ answers unless a run is named.
   home page. The browser routes with the site's real page list and waits for it
   on an existing site (`siteRoutesRead`, `SITE_ROUTES_WAIT_MS` 15,000), so an
   existing site never becomes a first build.
-- **Several changes in one message** (2026-09-29, on the branch, not
-  deployed; supplied-model proof only):
+- **Several changes in one message** (2026-09-29, deploy 2166;
+  supplied-model proof only, no live run yet):
   - **The router puts off only what its answer cannot do this turn**
     (`alsoAsked`: an addition beside a change, a change beside an addition, a
     `data` or `text` change beside another kind). Changes the look rung can
@@ -93,8 +93,8 @@ answers unless a run is named.
   are what the browser does — `up` **7** (the full rewrite), `addon` **5**,
   `hop` **4** (one paid hop sideways), `explain` **26** (a sentence at no edit
   cost, **13** of them ours; `route/held-unread` and `picker/scope-unread`
-  joined on 2026-09-29, on the branch). A census holds the route to the table both ways,
-  so a new `escalate(` with no entry fails by existing. **The browser starts the
+  joined on 2026-09-29, deploy 2166). A census holds the route to the table
+  both ways, so a new `escalate(` with no entry fails by existing. **The browser starts the
   rewrite only from an escalate** — never from a refusal, an unreadable body or
   a dropped connection (`unreadEditMsg`: *"…Asking for it again could make the
   change twice."*). An ownership-gate refusal is re-shaped into a sentence
@@ -566,7 +566,7 @@ TRUST IT** — it has gone stale twice: `node -e` over `site-lanes.mjs` and prin
   **`page` is NOT widened and must never be** — `remove` there deletes the page.
   `NOT_REMOVABLE` is `backend · lang · slug · kind · purpose`.
   **On a door the router opened for its OWN `nav` or `picture` removal, the
-  picker is asked a different question** (on the branch, not merged, 2026-09-28;
+  picker is asked a different question** (deploy 2164, 2026-09-28;
   *Test 5*): it is told the routed change in the router's own words and answers
   `additional` (other work, the only list that makes steps) and `routed`
   (recorded, never run), and the router's step runs exactly once. The look

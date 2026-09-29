@@ -21,8 +21,9 @@ The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
 - A half of a message the router puts off (`alsoAsked`) is still attempted,
-  on the home page, and the reply contradicts itself (run 52). **Fixed on the
-  branch 2026-09-29, not deployed; supplied-model proof only.**
+  on the home page, and the reply contradicts itself (run 52). **Fixed and
+  deployed 2026-09-29 (deploy 2166); supplied-model proof only, no live run
+  yet.**
 - Five stylesheet rules match nothing the app serves, and the reachability
   guard counts them live only through a router sentence's line break.
 - The header's button carries no `data-slot="button"`, so a rule against the
@@ -87,8 +88,9 @@ here; take a closed one out of both.**
   questions meet here, and both are the owner's: whether the job should do
   only what the routing decided, and whether the router should put a band move
   on a named page off at all, when the look rung can do both in one turn.
-  **Fixed on the branch 2026-09-29 (owner: "Fix the general routing/execution
-  mismatch"), not merged, not deployed; Test 6 stays open.** The router puts
+  **Fixed 2026-09-29 (owner: "Fix the general routing/execution mismatch")
+  and corrected after the owner's review; merged and deployed in deploy 2166,
+  not yet exercised live; Test 6 stays open.** The router puts
   off only what its answer cannot do this turn; a part it puts off is posted
   back by the browser and taken out of the message before anything runs
   (`heldBack`), and the reply's tail is composed from what the route really

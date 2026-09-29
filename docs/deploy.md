@@ -108,14 +108,14 @@ validator parses a non-file image with `new URL("https://" + image)` and a bare
   served-file check were the whole verification.
 
 **THE TIMING BAND AND THE IMAGE-ID PREDICTOR, IN BRIEF.** The deploy-by-deploy
-record — every prediction, log line and timing from deploy 2137 to 2165 — is
+record — every prediction, log line and timing from deploy 2137 to 2166 — is
 `docs/deploy-record.md`; add each new deploy there.
 
 - **A push that rolls nothing is a one-minute deploy**: 47 s on 2019 and 46 s
   on 2140 (image step ~1 s, Wrangler ~16 s); 42–57 s on 2152–2155, each
   uploading `chat.js`. **A push that moves an image input** takes an image step
-  of ~2m00s–2m56s and a job of ~2m48s–3m43s (2138–2165). The runner is cold
-  whatever the diff — **0 `CACHED` layers on every rebuild from 2144 to 2165** —
+  of ~2m00s–2m56s and a job of ~2m48s–3m53s (2138–2166). The runner is cold
+  whatever the diff — **0 `CACHED` layers on every rebuild from 2144 to 2166** —
   so a step's duration says nothing about how much changed. Whether to import a
   registry cache is open and unmeasured.
 - **THE IMAGE ID IS COMPUTED BEFORE THE PUSH.** `containerInputs`/`imageId` are

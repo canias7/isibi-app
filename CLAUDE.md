@@ -32,36 +32,40 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 > `docs/components.md` (compared byte for byte by
 > `test/components-doc.test.mjs`). Keep both as they are.
 
-## Where things stand (2026-09-28)
+## Where things stand (2026-09-29)
 
-- **`main` is `f5e941f4`, deploy 2165** (19:07 UTC, image `8a10715339cdc780`,
-  predicted on both ends and built) — **runtime-confirmed by the owner's free
-  press, run 51** (22:57 UTC, from the branch on `fold-lane-bakery`): both
-  readers answer `f5e941f494fd`, a cold container gets `8a10715339cdc780`, and
-  queued jobs and the runner are on. It carries the redirect fix (a publish
-  reads the stored sidecar through `manifestFromCsv`): run 52's publish kept
-  the bakery's stored redirect, read at once and ten minutes later. Redirects
-  dropped between 2026-08-17 and this deploy are not rebuilt.
-- **The branch `claude/help-needed-ehlwlj`** is ahead of `main` by the canary's
-  read of the description stored in a site's settings (`2a7767cc`:
-  `readStoredHead`, the app's own SEO route read in every inventory), by
-  documents, and by **the per-operation scope fix (`9a79fc2d`, 2026-09-29) and
-  its correction after the owner's review (`9ed7da51`, 2026-09-29), neither
-  merged nor deployed; a merge would roll the image to `6fbaccad82fe879d`**:
-  the router puts off only what its answer cannot do this turn; a
-  part it puts off is taken out of the message before anything runs
-  (`heldBack`, echoed as `deferred`, refused at no cost when it cannot be
-  found: `route/held-unread`); and the picker names each change's page and
-  words (`scopes`), so each runs on its own page with its own words. **An
-  answer with no scope metadata runs as before. On a scoped answer, a change
-  whose page is not a path or whose words are not in the message, a page the
-  site does not have, and a picked lane left unscoped are withheld at no cost
-  with their own sentence (`picker/scope-unread`, `page/no-page`) while the
-  rest runs: never widened to the whole message, never sent to the home
-  page.** Supplied-model proof only (`test/edit-op-scope.test.mjs`, and the
-  scoped door case in `test/edit-removal-door.test.mjs`);
-  `docs/history/2026-09-29-op-scope.md`. A press from the branch runs the
-  branch's script against main's Worker.
+- **`main` is `a64729ad`, deploy 2166** (2026-09-29 02:51 UTC, image
+  `6fbaccad82fe879d`, predicted on both ends and built) — **deployed, not
+  runtime-confirmed**: the owner's free press is the runtime check. The served
+  `chat.js` and `edit-poll.js` are byte-identical to the merged files. On top
+  of deploy 2165 it carries the canary's read of the description stored in a
+  site's settings (`2a7767cc`: `readStoredHead`, the app's own SEO route read
+  in every inventory) and **the per-operation scope fix (`9a79fc2d`) with its
+  correction after the owner's review (`9ed7da51`)**: the router puts off only
+  what its answer cannot do this turn; a part it puts off is taken out of the
+  message before anything runs (`heldBack`, echoed as `deferred`, refused at
+  no cost when it cannot be found: `route/held-unread`); and the picker names
+  each change's page and words (`scopes`), so each runs on its own page with
+  its own words. **An answer with no scope metadata runs as before. On a
+  scoped answer, a change whose page is not a path or whose words are not in
+  the message, a page the site does not have, and a picked lane left unscoped
+  are withheld at no cost with their own sentence (`picker/scope-unread`,
+  `page/no-page`) while the rest runs: never widened to the whole message,
+  never sent to the home page.** Supplied-model proof only
+  (`test/edit-op-scope.test.mjs`, and the scoped door case in
+  `test/edit-removal-door.test.mjs`); no live run has exercised it yet.
+  `docs/history/2026-09-29-op-scope.md`.
+- **Deploy 2165** (`f5e941f4`, image `8a10715339cdc780`) was runtime-confirmed
+  by the owner's free press, run 51 (2026-09-28 22:57 UTC, on
+  `fold-lane-bakery`): both readers answered `f5e941f494fd`, a cold container
+  `8a10715339cdc780`, with queued jobs and the runner on. It carries the
+  redirect fix (a publish reads the stored sidecar through `manifestFromCsv`):
+  run 52's publish kept the bakery's stored redirect, read at once and ten
+  minutes later. Redirects dropped between 2026-08-17 and that deploy are not
+  rebuilt.
+- **The branch `claude/help-needed-ehlwlj`** is `main` plus documents (deploy
+  2166's record). A press from the branch runs the branch's script against
+  main's Worker.
 - **Balance 42** on the building account after run 52 (23:25 UTC): routing 2
   and the job's reserve of 1, ledger row 334. The unit suite is **8,241** at
   `9ed7da51`.
@@ -74,17 +78,18 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 - **Test 6 stays open (owner, 2026-09-29: "Run 52 does not close Test 6").
   The paid run (run 52) shipped half; the free restore (run 53) put
   everything back; neither is to be repeated yet, and the routing/execution
-  mismatch run 52 showed is fixed on the branch, above** —
+  mismatch run 52 showed is fixed in deploy 2166, above, with no live run
+  yet** —
   one message asking for a new default search description and a band moved on
   the Visit page. The description was stored and published exactly,
   everything else was kept, and the publish kept the stored redirect. The live
   router put the Visit move off to a later turn (`alsoAsked`, no page named),
   so the move was not made: item 3 through the look door and item 4 stay
   unshown, and the finding (the put-off half still attempted, on the home
-  page) is fixed on the branch, not live. 3 credits. The restore also put
-  the stored description back, the first time that was seen. The plan and
-  every reading are the checklist's *Test 6*. **Real-model mixed work through
-  the removal door stays outstanding.**
+  page) is fixed in deploy 2166; no live run has exercised it. 3 credits.
+  The restore also put the stored description back, the first time that was
+  seen. The plan and every reading are the checklist's *Test 6*.
+  **Real-model mixed work through the removal door stays outstanding.**
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
   `docs/investigations/edit-path-checklist.md`, and every test's plan, readings
@@ -353,7 +358,7 @@ guard, a sweep, a harness or a CI reader.** The ones met most often:
 | `docs/app-rules.md` | the builder app's rules, the model table, and the agent builder's half in this app |
 | `docs/platform.md` | the two halves, where the code lives, data, auth, payments and mail, credits |
 | `docs/deploy.md` | what a push starts, the paid workflows, the image predictor, runtime confirmation, the served-file check, secrets, rollback |
-| `docs/deploy-record.md` | every deploy's image prediction and timings, 2137 → 2165 (add new ones here) |
+| `docs/deploy-record.md` | every deploy's image prediction and timings, 2137 → 2166 (add new ones here) |
 | `docs/traps.md` | the full trap catalogue |
 | `docs/backlog.md` | the open items: a one-line index, then each in full |
 | `docs/history/` | dated records of every run and fix round, 2026-09-21 → 09-28, and the old status and live-state sections — indexed in `docs/history/README.md` |

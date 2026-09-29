@@ -60,7 +60,7 @@ the owner's free press, run 51, at 22:57 UTC):
    - **through the look door**: not shown by Test 6's paid run (run 52). The
      live router put the second change off to a later turn (`alsoAsked`), so
      only the site description shipped. **The routing/execution mismatch run
-     52 showed is fixed on the branch (2026-09-29, not deployed)**: a part the
+     52 showed is fixed (2026-09-29) and deployed (deploy 2166)**: a part the
      router puts off is never run, and each change runs with its own page and
      words. Supplied-model proof only; showing it live still needs a run, so
      this item and Test 6 stay open;
@@ -107,8 +107,8 @@ stylesheet scope and rule keys (deploy 2161).
   - a reply saying a second part was not done when it was (`alsoAsked`);
   - its mirror, found by run 52: a half the router put off (`alsoAsked`) is
     still attempted, on the home page, and the reply says both that the home
-    page could not be changed and that the put-off change comes next (fixed on
-    the branch 2026-09-29, not deployed);
+    page could not be changed and that the put-off change comes next (fixed
+    2026-09-29 and deployed in 2166);
   - found by that fix: five stylesheet rules match nothing the app serves, and
     the reachability guard counts them live only through a router sentence's
     line break;
@@ -120,7 +120,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Test 6 — two changes in one message, one on a named page (prepared 2026-09-28, request clarified the same evening; the free check, run 51, passed; the paid run, run 52, shipped the description, and the router put the Visit move off to a later turn; the free restore, run 53, put everything back; the owner: run 52 does not close Test 6; the routing/execution mismatch it showed is fixed on the branch, 2026-09-29, not deployed; Test 6 stays open)
+## Test 6 — two changes in one message, one on a named page (prepared 2026-09-28, request clarified the same evening; the free check, run 51, passed; the paid run, run 52, shipped the description, and the router put the Visit move off to a later turn; the free restore, run 53, put everything back; the owner: run 52 does not close Test 6; the routing/execution mismatch it showed is fixed and deployed, 2026-09-29, deploy 2166; Test 6 stays open)
 
 Owner, 2026-09-28: *"prepare one bounded test combining two requested changes
 in one message, ideally also covering a named non-home page. Use an existing
@@ -609,8 +609,9 @@ leaves the Visit move in the turn, and whether a real picker scopes it to
 `/visit`, is what a live run would show.** None is proposed here; runs 52 and
 53 are not repeated.
 
-**Corrected after the owner's review (2026-09-29, `9ed7da51`, on the
-branch, not deployed; unit CI `8241 / 8237 / 0 / 4`, `site build` green).**
+**Corrected after the owner's review (2026-09-29, `9ed7da51`; unit CI
+`8241 / 8237 / 0 / 4`, `site build` green; merged and deployed as deploy
+2166).**
 The owner reproduced two ways round the scope: a page of `["/visit"]` read as
 "no page" sent the Visit move to the home page's writer,
 and words the request does not hold handed the Visit writer the whole request.
