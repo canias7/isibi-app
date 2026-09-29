@@ -132,7 +132,11 @@ answers unless a run is named.
   exactly once (`doorDispatch`). Nothing is read from how many lanes came back.
   The work in `additional` is scoped the same way (`scopes`, 2026-09-29,
   deploy 2166), so a layout change on another page runs there; the router's
-  own step still reads the message.
+  own step still reads the message. The router's instructions make several
+  changes in one message one `look` answer, so this door gets other work
+  only when the router answers a removal alone for a message with more in it
+  (Test 7's routing review, 2026-09-29); only supplied answers have
+  exercised that.
   A home page's menu keeps a link to itself that it already had. A page another
   page's source links to cannot be removed; a QR code pointing at it is not
   seen by that rule (backlog).

@@ -89,17 +89,23 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   separate**: the reply omission (review #9) and the withholding paths (a
   part put off, a scope that fails its check), shown only with supplied
   answers. Component preservation is untested there (the fixture has none),
-  and **real-model mixed work through the removal door stays outstanding**.
+  and **real-model mixed work through the removal door is not reached by a
+  natural message**: the router's instructions make several changes one
+  `look` answer (Test 7's routing review).
   The record is the checklist's *Test 6*.
-- **Test 7 is proposed, not run** (2026-09-29, for the owner's review): one
-  message taking the counter photograph off the Visit page and moving the
-  home page's order band above "Fed every morning since we opened", on
-  `fold-lane-bakery` at `8btpep`, judged on the stored and published changes
-  against exact expected hashes, with the free restore after. About 5–6
-  credits, up to about 25. **The router's instructions steer a message with
-  two changes to `look`, so a live run may show the look door rather than the
-  removal door**; both are rehearsed with supplied answers. The plan is the
-  checklist's *Test 7*.
+- **Test 7 is proposed, not run** (2026-09-29; its claimed coverage narrowed
+  after the owner's review): one message taking the counter photograph off the
+  Visit page and moving the home page's order band above "Fed every morning
+  since we opened", on `fold-lane-bakery` at `8btpep`, judged on the stored
+  and published changes against exact expected hashes, with the free restore
+  after. About 5–6 credits, up to about 25. **It tests the customer
+  capability** (both changes stored and published, each on its own page)
+  **through the look door**, where the router's instructions send two changes
+  it can make in one turn. The routing review found no better candidate: a
+  menu link removed beside a layout change is routed `look` too, and on that
+  door no lane describes a menu item (backlog). The removal door given other
+  work stays shown only with supplied answers. The plan is the checklist's
+  *Test 7*.
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
   `docs/investigations/edit-path-checklist.md`, and every test's plan, readings

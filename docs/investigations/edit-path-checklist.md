@@ -79,9 +79,12 @@ the owner's free press, run 51, at 22:57 UTC):
      removal given other work, where the picker is told the routed change and
      lists anything else separately. Only supplied answers have exercised it.
      Run 49's real picker was given no other work, and Test 6 did not reach
-     this door, so it stays outstanding. Test 7, proposed below, is for this
-     item; the router's instructions make the look door the likely route for
-     such a message.
+     this door. **No natural message reaches it with other work**: the
+     router's instructions make several changes in one message one `look`
+     answer, a menu link as much as a photograph (Test 7's *routing review*,
+     below), so the door gets other work only if the router departs from
+     them. Whether this needs a live test at all is the owner's call; none is
+     proposed. Test 7 tests the customer capability through the look door.
 
    A second message after a hop or a failure is outstanding too.
 4. **A named page other than the home page** on a look edit: **closed with
@@ -113,6 +116,12 @@ stylesheet scope and rule keys (deploy 2161).
     page, so a stylesheet rule written against that marker never reaches it;
   - the render check judges each selector of a list on its own, so a rule
     naming elements a site doesn't render forces a correction round.
+- **Found by Test 7's routing review** (read in the code, not driven live):
+  - no look-door lane describes a menu item, so a menu link taken out beside
+    another change depends on the picker stretching `action` or `behavior`
+    (run 47's real picker named `behavior`, which did nothing);
+  - the photograph lane tells the picker a removal takes the slot away; the
+    picture rung keeps the slot, and the kit draws its placeholder there.
 - Also recorded:
   - the closed-bookings UX gap;
   - the three Test 4a findings;
@@ -134,7 +143,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Test 7 — a photograph removal and a layout change on another page, in one message (proposed 2026-09-29, for the owner's review; not run)
+## Test 7 — a photograph removal and a layout change on another page, in one message (proposed 2026-09-29; its claimed coverage narrowed the same day by a routing review the owner asked for: the customer capability through the look door, not the removal door; not run)
 
 Owner, 2026-09-29: *"Prepare the next bounded acceptance: a removal combined
 with another change in one message, through the removal path with a real
@@ -144,25 +153,81 @@ fixture supports clear before/after checks. … Verify actual stored and
 published outcomes, including that neither operation is dropped or sent to the
 wrong page. Give me the proposed test for review before spending."*
 
-**What it covers**: item 3's second half in the short checklist, a removal
-given other work, with real models, and neither operation dropped or sent to
-the wrong page.
+**What it covers** (narrowed by the routing review, below): **the customer
+capability**. One message asks for a photograph removal on one page and a
+layout change on another; both must happen, each on its own page, with
+nothing else changed, judged on the stored and published site, with real
+models, through whichever door the router opens. Under the router's current
+instructions that is the look door. **It does not cover item 3's second
+half**, the removal door given other work: no natural message reaches that
+door with other work.
 
-**Read first: which door the real router will open.** The removal door (the
-router answering `picture` or `nav` with `remove`) is what item 3 names. The
-router's instructions as deployed (deploy 2166, `builder/site-ask.mjs`) say
-*"TAKING SOMETHING OFF THE SITE IS THIS LAYER"* of `look` ("take the photo
-out" is one of its examples) and *"SEVERAL CHANGES IN ONE MESSAGE ARE STILL
-ONE "look" ANSWER"*; `picture` also lists "taking one off". So a photograph
-removal beside a layout change on another page will most likely be routed
-`look`: the look door, where the picker names `images` and `shape`, each
-scoped. It is less likely to be routed `picture` with `remove`: the removal
-door, where the picker is told the routed removal and lists the layout as
-`additional`. Nothing in the router's instructions steers a message with two
-changes to the removal door, so a real-model run of this sentence may well
-not reach it. Both doors are rehearsed below and give the same stored
-result; only the evidence of which door ran differs. How each routing is
-judged is decided below, before spending.
+### The routing review (2026-09-29, asked for by the owner before spending)
+
+Owner: *"Test 7's preservation and recovery plan looks sound, but its claimed
+coverage needs resolving before spending. The proposal says it covers mixed
+work through the removal path while acknowledging the router will probably
+choose look. Do one focused code review of the existing routing rules: would
+a menu-link removal combined with a separate page-layout change naturally
+exercise the removal path more reliably? … Do not change routing prompts,
+force a router answer, or tune wording to game the test. … Separate the
+customer capability—both requested changes happening correctly—from
+coverage of the alternate internal path."*
+
+Read in `builder/site-ask.mjs`, `builder/site-lanes.mjs` and `worker.js` as
+deployed (deploy 2166), against runs 47, 49 and 57. Nothing was changed.
+- **A removal on its own goes to the removal door.** The router's `remove`
+  field says, for `picture`, "true when a photograph should GO" and, for
+  `nav`, "true when a menu item, a footer link or the header's button should
+  GO — … "take Pricing out of the menu"". Runs 47 and 49 sent "Take Gallery
+  out of the menu." on its own, and the router answered `nav` with `remove`
+  both times.
+- **Several changes in one message go to `look` when it can make them all,
+  removals included.** `alsoAsked` says *"SEVERAL CHANGES ARE ONE TURN WHEN
+  YOUR ANSWER CAN MAKE THEM ALL. "look" is worked out part by part"*, and
+  lists "a photograph, the menu and the button" and "taking something off"
+  among what it works out; `look` says *"SEVERAL CHANGES IN ONE MESSAGE ARE
+  STILL ONE "look" ANSWER"* and that taking something off is `look` "whatever
+  the something is". A layout change is not something `alsoAsked` may hold
+  back (only an addition, a data change or a wording change). Neither clause
+  treats the menu differently from the photograph, so **a menu link removed
+  beside a layout change is routed `look` just as the photograph is**: neither
+  reaches the removal door more reliably.
+- **So the removal door gets other work only if the router departs from
+  those instructions**, answering the removal alone for a message with more
+  in it. Its handling of that work (the picker told the routed change,
+  anything else listed as `additional`, each scoped) is shown only with
+  supplied answers: `test/edit-removal-door.test.mjs`, the menu-and-band
+  message with `nav`, the photo-and-band message with `picture`, and the
+  scoped case. No natural message can be planned to reach it without forcing
+  the router or rewording to steer it, which the owner has ruled out.
+- **On the look door, a menu link is the weaker test of the customer
+  capability.** None of the picker's lanes describes a menu item: `action`
+  is "The site's primary button in the header … Only that button", and the
+  only lane that mentions a menu is `behavior`, what a control does when
+  used. Run 47's real picker, placing "Take Gallery out of the menu." among
+  the lanes (before deploy 2164's correction), named `behavior`, whose step
+  answered nothing (422, `look/no-change`). The removal door has run the
+  router's own menu step since that correction, which is why run 49 worked;
+  the look door has no such step. The one look-door test with a menu item
+  (`test/edit-failure-paths.test.mjs`, a rename beside a footer colour)
+  supplies `action` as the picker's answer. So a live run would most likely
+  move the band and miss the menu link: a known gap (backlog), not the
+  removal behaviour.
+- **The photograph has its own lane on the look door** (`images`, "taking
+  one off"), which goes to the picture rung's `clear`: the step the exact
+  expected Visit page assumes. No live run has taken a photograph off (none
+  is in *Proven live*, above).
+- **Found, recorded separately (backlog), not changed**: the missing menu
+  lane above; and the photograph lane tells the picker that a removal takes
+  the slot away ("the slot that held it goes with it, rather than being left
+  empty"), while the picture rung's `clear` keeps it, "leaving the space
+  empty", and the kit draws its placeholder there. Test 7's item 2 expects
+  the placeholder, which is what the code does.
+
+**The outcome**: no suitable menu-link candidate. Test 7's request, checks,
+recovery and cost stand, and what it claims is narrowed to the customer
+capability.
 
 ### The fixture: fold-lane-bakery at `01790468089054-8btpep`
 
@@ -282,13 +347,15 @@ that line in it; the verdict is items 1–7.
 
 ### What each other outcome means, decided now
 
-- **The router answers `picture` with `remove`**: the removal door. Items 1–7
-  holding shows item 3's second half with real models.
-- **The router answers `look` with no page**: the look door. Items 1–7
-  holding shows a photograph removal beside a layout change on another page,
-  in one message, through the look door. **The removal door is not shown**,
-  and whether to spend on it again is the owner's decision (the finding at
-  the top of this section).
+- **The router answers `look` with no page**: the look door, the route its
+  instructions give. Items 1–7 holding shows the customer capability: a
+  photograph removal beside a layout change on another page, in one message,
+  both stored and published, each on its own page. **The removal door is not
+  shown**, and no rewording is proposed to reach it (*The routing review*).
+- **The router answers `picture` with `remove`**: the removal door, reached
+  only because the router departed from its instructions for several
+  changes. Items 1–7 holding would also show that door's handling of other
+  work with real models: recorded as what happened, never planned for.
 - **Either half put off** (`alsoAsked`): that half is held back and never
   runs, and only the other ships. Neither item is shown; a finding about the
   router, since its answer can make both changes.
@@ -341,8 +408,9 @@ No separate free check is proposed: nothing has run on the bakery since run
 
 ### What it will not establish
 
-The removal door itself, if the router answers `look`; a menu (`nav`)
-removal beside other work; component preservation (the fixture has none);
+The removal door given other work, which a natural message does not reach
+(*The routing review*); a menu link removed beside other work, which the look
+door has no lane for (backlog); component preservation (the fixture has none);
 the withholding paths, unless a scope fails; a bought photograph (none is
 bought); a reply naming both changes (review #9, kept separate).
 

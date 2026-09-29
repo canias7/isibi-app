@@ -31,6 +31,10 @@ here; take a closed one out of both.**
   kit's button hook misses it.
 - The render check judges each selector of a list on its own, so a common
   heading rule can force a correction round.
+- No look-door lane describes a menu item, so a menu link taken out beside
+  another change can be missed (Test 7's routing review).
+- The photograph lane says a removal takes the slot away; the picture rung
+  leaves the slot, drawn as the kit's placeholder.
 - Redirects dropped between 2026-08-17 and deploy 2165 are not rebuilt.
 - A page removal does not see a QR code that points at the page.
 - The branded not-found page is thrown away on every Start site.
@@ -76,6 +80,33 @@ here; take a closed one out of both.**
 
 ## Backlog
 
+- **NO LOOK-DOOR LANE DESCRIBES A MENU ITEM (found 2026-09-29 by Test 7's
+  routing review; read in the code, not driven live; not changed).** A
+  message with a menu change beside another change is routed `look`: the
+  router's instructions make several changes one `look` answer and name "the
+  menu and the button" among what it works out. On the look door the picker
+  chooses among the lanes, and none describes the items in the menu:
+  `action` is "The site's primary button in the header … Only that button",
+  and `behavior`, what a control does when used, is the only lane that
+  mentions a menu. Run 47's real picker, placing "Take Gallery out of the
+  menu." among the lanes, named `behavior`, whose step answered nothing (422,
+  `look/no-change`). The removal door has run the router's own menu step
+  since deploy 2164; the look door has no such step. The one look-door test
+  with a menu item (`test/edit-failure-paths.test.mjs`, a rename beside a
+  footer colour) supplies `action` as the answer, so nothing shows what a
+  real picker does there. Whether and how the menu gets a lane is the
+  owner's decision.
+- **THE PHOTOGRAPH LANE AND THE PICTURE RUNG DISAGREE ABOUT WHAT A REMOVAL
+  LEAVES (found 2026-09-29 by Test 7's routing review; not changed).** The
+  picker is told that taking a photograph off means "the slot that held it
+  goes with it, rather than being left empty" (`images` in
+  `builder/site-lanes.mjs`). The rung it goes to, the picture rung's
+  `clear`, is "True to REMOVE the picture from this slot, leaving the space
+  empty" (`builder/site-picture.mjs`): the `src` is emptied, the kit's
+  `SafeImage` draws its placeholder in the same place, and the reply says
+  "There is a space for a photo". The code does what the rung says, and Test
+  7's expected Visit page is that. Which one a customer's "take the photo
+  off" should mean is the owner's decision.
 - **A HALF OF A MESSAGE THE ROUTER PUTS OFF IS STILL ATTEMPTED (found
   2026-09-28 by Test 6's paid run, run 52; not changed).** The router answered
   `look` with the Visit page's band move in `alsoAsked` and named no page: one
