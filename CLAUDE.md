@@ -87,7 +87,8 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   script against main's Worker.
 - **Balance 32** on the building account after run 60 (2026-09-29 15:07
   UTC): routing 2 and the job's reserves of 2 and 1, ledger rows 337 and 338;
-  read again at 15:27 UTC with no row after 338 and no job open. The unit
+  read again at 15:27 UTC and after the free restore (run 61) at 15:37, with
+  no row after 338 and no job open. The unit
   suite is **8,277** on `main` (`cb981a4a`).
 - **Closed by the owner, not to be repeated**: live test 2 (run 32); Test 3
   (run 34) with the stylesheet corrections (deploy 2161); the kit-heading fix
@@ -109,7 +110,8 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   natural message**: the router's instructions make several changes one
   `look` answer (Test 7's routing review).
   The record is the checklist's *Test 6*.
-- **Test 7 ran as run 60, pending the owner's review** (2026-09-29; its
+- **Test 7 ran as run 60 and was restored by run 61, pending the owner's
+  review** (2026-09-29; its
   claimed coverage narrowed after the owner's review): one message taking the counter photograph off the
   Visit page and moving the home page's order band above "Fed every morning
   since we opened", on `fold-lane-bakery` at `8btpep`, judged on the stored
@@ -138,9 +140,10 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   items 1, 2 and 4–7 hold. **Item 3's stored half does not hold byte for
   byte**: `index.tsx` lost its final newline (2,438 characters, `820cf33c…`;
   with it put back, exactly the expected `0b64985c…`), because the quick
-  writer stores the model's whole file as written (backlog). The free
-  restore to `8btpep` is handed over, not yet run. The record is the
-  checklist's *Test 7 → Run 60* and
+  writer stores the model's whole file as written (backlog). **The free
+  restore, run 61** (15:33 UTC), put `8btpep` back exactly: stored pages
+  equal to the fixture, markup and pixels identical, redirects kept, no
+  charge. The record is the checklist's *Test 7 → Run 60* and *Run 61*, and
   `docs/history/2026-09-29-photo-removal.md`.
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
@@ -314,7 +317,8 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
 
 - **Balance 32** on the building account after run 60 (Test 7's paid run,
   2026-09-29 15:07 UTC): 37 → 32, routing 2 and reserves of 2 and 1 (ledger
-  rows 337 and 338), read again at 15:27 with no row after 338. Before it:
+  rows 337 and 338), read again at 15:27 and at 15:37 after the free
+  restore (run 61), with no row after 338. Before it:
   37 after run 57 (2026-09-29 04:19 UTC; ledger rows 335 and 336, read again
   at 05:04, and unchanged through runs 58 and 59). Before that: 45 at run 50's end
   (2026-09-28 18:41 UTC): run 49 took it 50 → 45 (routing 2 + 1 and the menu
@@ -332,8 +336,7 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
   `ben-crowe-guitar`, and the older `fold-lane-bakery`, `harbourside-roast`,
   `the-lido-cafe`, `oak-and-ash`, `forno-and-co`. **Reusing one of those slugs
   revises that site.** The test fixtures now: `fold-lane-bakery` live at
-  `01790694429399-mjg7hp` (Test 7's result, run 60; the free restore to
-  `01790468089054-8btpep`, the fixture, is handed over, not yet run),
+  `01790468089054-8btpep` (restored by run 61 after Test 7's run 60),
   `fretwork-1` at `01790404806543-kk6qsh` (Test 3's removal kept), and
   `lido-axes-b` with its bookings closed (run 44, kept).
 - **What things cost, measured** — routing 1–2 per message (it moves with the

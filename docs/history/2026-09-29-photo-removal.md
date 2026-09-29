@@ -330,5 +330,10 @@ and 338).
   `0b64985c…`, and exactly that file with the newline put back. Recorded in
   the backlog, not changed.
 - The per-item readings are the checklist's *Test 7 → Run 60*. Closing Test
-  7, and this correction's backlog item, is the owner's decision. The free
-  restore to `8btpep` is handed over, not yet run.
+  7, and this correction's backlog item, is the owner's decision.
+- **The free restore, run 61** (edit canary run 36591050919, 15:33 UTC), put
+  `8btpep` back: the five stored pages byte-identical to the fixture (the
+  home page with its final newline), the markup identical to the `8btpep`
+  before-read, the pages identical to the pixel in a real Chromium, the
+  redirects, sitemap, QR file and card as before, and nothing charged
+  (checklist, *Test 7 → Run 61*).

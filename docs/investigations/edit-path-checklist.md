@@ -151,7 +151,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Test 7 — a photograph removal and a layout change on another page, in one message (proposed 2026-09-29; its claimed coverage narrowed the same day by a routing review the owner asked for: the customer capability through the look door, not the removal door; held the same day on the photo-removal mismatch, reproduced and a correction proposed for review; the correction implemented on the branch the same day with the owner's safeguards, and Test 7 now expects the element removed; merged and deployed the same day in deploy 2167 and runtime-confirmed by the owner's free press, run 59; approved by the owner and pressed as run 60 the same day: both changes stored and published, each on its own page, with the home page stored without its final newline; pending the owner's review)
+## Test 7 — a photograph removal and a layout change on another page, in one message (proposed 2026-09-29; its claimed coverage narrowed the same day by a routing review the owner asked for: the customer capability through the look door, not the removal door; held the same day on the photo-removal mismatch, reproduced and a correction proposed for review; the correction implemented on the branch the same day with the owner's safeguards, and Test 7 now expects the element removed; merged and deployed the same day in deploy 2167 and runtime-confirmed by the owner's free press, run 59; approved by the owner and pressed as run 60 the same day: both changes stored and published, each on its own page, with the home page stored without its final newline; the free restore, run 61, put everything back; pending the owner's review)
 
 Owner, 2026-09-29: *"Prepare the next bounded acceptance: a removal combined
 with another change in one message, through the removal path with a real
@@ -625,7 +625,7 @@ Both from `main` (the branch adds only documents).
    `cb981a4ad1d3718da7df9d9da1efbb70c1cf3fa8` and `65ce683607928f0e` (deploy
    2167, runtime-confirmed by run 59; were `a64729ad…` and
    `6fbaccad82fe879d` before it); everything else as it is.
-2. **The free restore, after the readings**: "Run the ONE paid edit as well"
+2. **The free restore, after the readings** (pressed as run 61): "Run the ONE paid edit as well"
    `no`; "PUT ONE SAVED VERSION BACK, THEN READ IT AND STOP"
    `01790468089054-8btpep`; "The site to edit" `fold-lane-bakery`; the same
    two "Refuse to spend unless…" values.
@@ -762,8 +762,47 @@ comparison is VERIFIED.
   apart from the home page's final newline in storage. **What it does not
   show** is unchanged (*What it will not establish*, above).
 - **Recovery**: the free restore to `01790468089054-8btpep` (*The presses*,
-  item 2), handed over for the owner's press; not yet run. What it must show
-  is *Recovery, free, and what it must show*, above.
+  item 2), pressed by the owner as run 61, below: everything is back.
+
+### Run 61 — the free restore put everything back (2026-09-29)
+
+Pressed by the owner from `main` at `cb981a4a`
+([run 36591050919](https://github.com/canias7/isibi-app/actions/runs/36591050919),
+15:33:03–15:34:34 UTC; the evidence artifact `canary-evidence` is 23,983
+bytes, sha256 `1b08aaeb…`) with the spend box `no` (`CANARY_SPEND: 0`), the
+restore box `01790468089054-8btpep`, `fold-lane-bakery` and the two
+expectations. The preflight read `cb981a4ad1d3` and `65ce683607928f0e`, and
+every free check passed.
+- **The restore**: the version list held 13 versions, `mjg7hp` live with
+  `8btpep` as its parent; the restore answered 200 (`files: 24`, `swept: 0`),
+  and the site reported `8btpep` itself on three reads after it.
+- **What it must show** (*Recovery, free, and what it must show*), every item
+  holding:
+  - all five routes answer 200 at `8btpep` (read again live at 15:35:16 UTC);
+  - the stored pages equal the table and are byte-identical to
+    `test/fixtures/run47/*.before.tsx`: `index.tsx` 2,439 characters
+    (`51b5af6a…`, its final newline back), `visit.tsx` 4,045 (`bdb02abe…`),
+    `order.tsx`, `starter.tsx` and `gallery.tsx` as before; no components; the
+    stored description as before;
+  - every page's served markup, head tags included, is identical to run 60's
+    `8btpep` before-read apart from the render timestamps;
+  - `/the-starter`, `?x=1` and the trailing slash answer 301 to `/starter`
+    with `public, max-age=600`; `/nonexistent-page` answers 404; the sitemap
+    lists the five; `qr-gallery.svg` (`45f42f27…`), the stylesheet
+    (`544ff34e…`) and `/card.png` (`ce884f5b…`) carry their recorded
+    sha256s, and every photograph's bytes match its name, the counter
+    photograph's included;
+  - in a real Chromium, the live pages drawn as run 60's were (GET only,
+    reduced motion): all five are identical to the pixel to the `8btpep`
+    before-read, every image loaded, and there are 0 page errors. The three
+    console errors on each page are the three `POST /cdn-cgi/rum` requests of
+    Cloudflare's analytics beacon, which the browser wall refuses, as in run
+    58;
+  - **no charge**: read at 15:37 UTC, the balance is 32 (last changed at
+    15:07:09 by run 60's reserve), no ledger row came after 338, the two
+    zero-cost probe jobs (`e896f679…` on the bakery, `2c5e4ec9…` on
+    `washhouse-3`) ended `failed` at cost 0 with billing `none`, and no edit
+    job is open.
 
 ## Test 6 — two changes in one message, one on a named page (prepared 2026-09-28, request clarified the same evening; the free check, run 51, passed; the paid run, run 52, shipped the description, and the router put the Visit move off to a later turn; the free restore, run 53, put everything back; the owner: run 52 does not close Test 6; the routing/execution mismatch it showed is fixed and deployed, 2026-09-29, deploy 2166, runtime-confirmed by the free check, run 54; the retry, run 57, stored and published both changes; the free restore, run 58, put everything back; closed by the owner, 2026-09-29, for exactly what runs 57 and 58 showed)
 
