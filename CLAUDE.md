@@ -68,8 +68,8 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   2166's record). A press from the branch runs the branch's script against
   main's Worker.
 - **Balance 42** on the building account after run 52 (23:25 UTC): routing 2
-  and the job's reserve of 1, ledger row 334. Runs 54 and 55 (both free) read
-  42 again. The unit suite is **8,241** at `9ed7da51`.
+  and the job's reserve of 1, ledger row 334. Runs 54–56 (all free) read 42
+  again. The unit suite is **8,241** at `9ed7da51`.
 - **Closed by the owner, not to be repeated**: live test 2 (run 32); Test 3
   (run 34) with the stylesheet corrections (deploy 2161); the kit-heading fix
   (2162); Test 4a (runs 37 and 39); Test 4b's D1 (run 42) and the conditional

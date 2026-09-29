@@ -695,7 +695,7 @@ picker name each change's page and words (`scopes`).
 - **Kept separate**: the reply omission (review #9), and real-model mixed
   work through the removal door.
 
-### Run 55 — pressed with the request, but the spend box did not read `yes` (2026-09-29)
+### Runs 55 and 56 — pressed with the request, but the spend box did not read `yes` (2026-09-29)
 
 Pressed by the owner from `main` at `a64729ad`
 ([run 36519278886](https://github.com/canias7/isibi-app/actions/runs/36519278886),
@@ -708,7 +708,15 @@ check passed at `a64729ad741a` and `6fbaccad82fe879d`, the bakery read as
 recorded (all five routes at `8btpep`, the original stored description), and
 it stopped before routing with "Nothing was charged". The balance is 42, the
 ledger's last row is 334, and the only new jobs are the two refused free
-checks (`cba4ba13…`, `1fb663b9…`, cost 0). **The retry has not run.**
+checks (`cba4ba13…`, `1fb663b9…`, cost 0).
+
+Run 56 ([36520163649](https://github.com/canias7/isibi-app/actions/runs/36520163649),
+04:07:03–04:07:42 UTC) was the same: the request byte for byte, both
+expectations, `CANARY_SPEND: 0`, every free check passed, nothing charged
+(42, row 334), and two refused free jobs (`8f6bba24…`, `b83a0a09…`). The
+spend box is a text box with `no` already in it (`default: 'no'`), and
+neither the log nor GitHub's record of the run keeps what it held.
+**The retry has not run.**
 
 ### A visible alternative, not recommended
 

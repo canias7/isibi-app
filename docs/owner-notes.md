@@ -57,12 +57,13 @@ since. Add new ones there.
 
 ---
 
-## 2026-09-29 — Run 55 did not run the paid retry: the spend box did not read "yes"
+## 2026-09-29 — Runs 55 and 56 did not run the paid retry: the spend box did not read "yes"
 
-Run 55 had the Test 6 sentence in its request box, exactly as frozen, but the
-workflow saw the spend box as not `yes`, so it did only the free checks: all
-passed, the bakery is unchanged, and nothing was charged (still 42). The
-retry has not happened; to run it, press again with that box set to `yes`.
+Runs 55 and 56 both had the Test 6 sentence in the request box, exactly as
+frozen, but each time the workflow saw the spend box as not `yes`, so it did
+only the free checks: all passed, the bakery is unchanged, and nothing was
+charged (still 42). The box is a text box that already holds `no`; it has to
+read exactly `yes`. The retry has not happened.
 
 ## 2026-09-29 — Your free check confirmed deploy 2166 is live (run 54); the bakery is exactly as recorded; the Test 6 retry waits for your approval
 
