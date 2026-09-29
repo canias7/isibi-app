@@ -35,16 +35,17 @@ here; take a closed one out of both.**
 - No look-door lane describes a menu item, so a menu link taken out beside
   another change can be missed (Test 7's routing review). **Corrected
   2026-09-29 (the menu editor's lane now describes the menu's items), merged
-  and deployed in deploy 2168 and runtime-confirmed by run 62; shown only with
-  supplied answers; Test 8 (proposed) would show it with a real picker.**
+  and deployed in deploy 2168 and runtime-confirmed by run 62; shown live by
+  Test 8's run 66, where the real picker placed the menu change on that
+  lane.**
 - A change a scoped picker answer leaves out is dropped without a word.
 - A menu removal beside a layout move on another page is answered `nav` with
   `remove` and the move held back, against the router's own `alsoAsked` rule
   (Test 8, run 63). **Corrected 2026-09-29 (the router chooses one answer
   over the whole message, by what a route can make on every page, never by
   kind); merged and deployed in deploy 2170 and runtime-confirmed by run 65;
-  shown
-  only by the tool's text and supplied answers.**
+  run 66's real router answered `look` for the same message, with nothing
+  held back (one sample).**
 - The menu editor's other parts (footer details, social icons, small print,
   links in the copy, how the header sits) are described by no look-door lane.
 - What the picture step cannot take off on its own is refused: a photograph
@@ -157,9 +158,9 @@ here; take a closed one out of both.**
   no one answer can make with the rest); the `page` clause's multi-page line
   points at that rule instead of `addon`; and `alsoAsked` spares a part one
   answer can make with the rest, whatever the first change was. The route is
-  unchanged. Whether a real
-  router now answers `look` is not measured:
-  `docs/history/2026-09-29-whole-message-routing.md`.
+  unchanged. Run 66's real router answered `look` for the same message, with
+  nothing held back, and both changes shipped (one sample; how often is not
+  measured): `docs/history/2026-09-29-whole-message-routing.md`.
 - **A CHANGE A SCOPED PICKER ANSWER LEAVES OUT IS DROPPED WITHOUT A WORD
   (found 2026-09-29 while reproducing the menu gap; not changed).** On a
   scoped answer each lane runs on its own words, and nothing checks that every

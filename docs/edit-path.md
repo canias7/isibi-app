@@ -92,8 +92,9 @@ answers unless a run is named.
     step per page); a change is held back only when no one answer can make
     it with the rest. The `page` clause's multi-page line points at that
     rule (it said `addon`). `alsoAsked` spares a part one answer can make
-    with the rest, whatever the first change was. Shown only by the tool's
-    text and supplied answers.
+    with the rest, whatever the first change was. Shown by the tool's text
+    and supplied answers, and live once: Test 8's run 66, where the real
+    router answered `look` for a menu change beside a move on another page.
   - **A part put off is held back, never run.** The browser posts it
     (`siteEdit`, `siteAddon`, the resume record's `also`; the canary does the
     same), and the edit and add-on routes take it out of the message before

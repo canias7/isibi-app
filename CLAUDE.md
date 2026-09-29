@@ -103,9 +103,11 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 - **The branch `claude/help-needed-ehlwlj`** is `main` (`907840c6`) plus
   documents. A press from the branch runs the branch's script against main's
   Worker.
-- **Balance 28** on the building account after run 63 (Test 8's paid run,
-  2026-09-29 17:03 UTC): routing 2 and the job's reserve of 2, ledger row
-  339, read again after the free restore (run 64) at 17:30, with no row after
+- **Balance 22** on the building account after run 66 (Test 8's second paid
+  run, 2026-09-29 21:57–22:00 UTC): 28 → 22, routing 2 and the job's
+  reserves of 3 and 1 (ledger rows 340 and 341), with no job open. Before it,
+  28 after run 63 (Test 8's first paid run, 2026-09-29 17:03 UTC): routing 2
+  and the job's reserve of 2, ledger row 339, read again after the free restore (run 64) at 17:30, with no row after
   339 and no job open, and again at 21:35 after deploy 2170 and by run 65 at
   21:51 (the same).
   Before it, 32 after run 60, unchanged through runs 61 and 62. The unit
@@ -157,11 +159,12 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   there; the route is unchanged, because a scoped answer already hands the
   menu editor only the menu's words. 19 route cases, sync and queued: both
   executors with their own words, unrelated links kept, both partial
-  outcomes, ordinary menu and button edits. Shown only with supplied answers.
+  outcomes, ordinary menu and button edits. Shown with supplied answers, and
+  live by Test 8's run 66 (the real picker placed the menu change there).
   Required CI green on `f2783aef` (unit 36595193059: `8296 / 8292 / 0 / 4`;
   site build 36595193255: the twelve counts) and on `47dea9c0` (unit
-  36597948276); the image rolled to `dd4f72842234135b`, as predicted. Test 8
-  would show it with a real picker. `docs/history/2026-09-29-menu-lane.md`.
+  36597948276); the image rolled to `dd4f72842234135b`, as predicted.
+  `docs/history/2026-09-29-menu-lane.md`.
 - **Test 8 ran as run 63** (2026-09-29 17:02–17:06 UTC, 4 credits): one
   message, *Take Gallery out of the menu. Then, on the Visit page only, put
   the "Order a collection so we hold a loaf" band above "Come to the
@@ -180,7 +183,16 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   partial outcome** (the menu removal succeeded, the Visit move was deferred)
   **and accepted run 64**; the intended mixed-request acceptance remains open,
   and every earlier closure stays credited. The record is the checklist's
-  *Test 8* (*Run 63*, *Run 64*, *The owner's review*).
+  *Test 8* (*Run 63*, *Run 64*, *The owner's review*). **Pressed again as run
+  66** (21:56–22:00 UTC, 6 credits) after deploy 2170: the real router
+  answered `look` with nothing held back, the look door's picker placed the
+  band on `shape` and the menu change on the menu editor's lane (`action`),
+  and both changes were stored and published exactly as expected (one
+  publish, `li1j0y`, built from `8btpep`; everything else preserved, read at
+  once and ten minutes later; `/order` and `/starter` identical to the
+  pixel). Every acceptance item is met; the reply still names only the look
+  (review #9, kept separate). The free restore is next; closing is the
+  owner's decision. The record is the checklist's *Test 8* (*Run 66*).
 - **The router chooses one answer over the whole message, by what a route
   can make on every page** (2026-09-29: `465efe11`, then `2771ed3f` after the
   owner's review of its first wording; **merged and deployed in deploy 2170**
@@ -207,11 +219,10 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   menu-plus-layout and hold cases (20 of 20 and 18 of 18, supplied answers);
   Test 8's request replayed with both answers (2 of 2); full suite `8297 /
   8297 / 0 / 0`; required CI green on `2771ed3f` (unit 36622422731: `8297 /
-  8293 / 0 / 4`; site build 36622422715: the twelve counts). **Shown only by
-  the tool's text and supplied answers: whether a real router now answers
-  this way is not measured.** The image rolled to `abf47dfeceba3c5c`, as
-  predicted. Test 8 stays open and unchanged, prepared for the owner's
-  review. `docs/history/2026-09-29-whole-message-routing.md`.
+  8293 / 0 / 4`; site build 36622422715: the twelve counts). **Its first live
+  reading is Test 8's run 66: the real router answered `look` for that mix,
+  with nothing held back** (one sample; how often, and for other messages,
+  is not measured). The image rolled to `abf47dfeceba3c5c`, as predicted. `docs/history/2026-09-29-whole-message-routing.md`.
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
   `docs/investigations/edit-path-checklist.md`, and every test's plan, readings
@@ -382,8 +393,10 @@ The rules in full are `docs/deploy.md`; each deploy's readings go in
 Every earlier reading — the balance since run 9, the suite and site-build
 stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
 
-- **Balance 28** on the building account after run 63 (Test 8's paid run,
-  2026-09-29 17:03 UTC): 32 → 28, routing 2 and the job's reserve of 2
+- **Balance 22** on the building account after run 66 (Test 8's second paid
+  run, 2026-09-29 22:00 UTC): 28 → 22, routing 2 and the job's reserves of 3
+  and 1 (ledger rows 340 and 341). Before it: 28 after run 63 (Test 8's paid
+  run, 2026-09-29 17:03 UTC): 32 → 28, routing 2 and the job's reserve of 2
   (ledger row 339), read again at 17:30 after the free restore (run 64), with
   no row after 339, and at 21:35 after deploy 2170 and by run 65 at 21:51 (the
   same). Before it: 32 after run 60 (Test 7's paid run,
@@ -407,15 +420,16 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
   `ben-crowe-guitar`, and the older `fold-lane-bakery`, `harbourside-roast`,
   `the-lido-cafe`, `oak-and-ash`, `forno-and-co`. **Reusing one of those slugs
   revises that site.** The test fixtures now: `fold-lane-bakery` live at
-  `01790468089054-8btpep` (restored by run 64 after Test 8's run 63, and read
-  again by run 65),
+  `01790719081409-li1j0y` (Test 8's run 66; the free restore to
+  `01790468089054-8btpep` is next),
   `fretwork-1` at `01790404806543-kk6qsh` (Test 3's removal kept), and
   `lido-axes-b` with its bookings closed (run 44, kept).
 - **What things cost, measured** — routing 1–2 per message (it moves with the
   prompt cache); the page rung 6–22 (runs 21–37); a data or rules edit 1; a
   reframe 1; a site description 1 (runs 52 and 57); a quick-writer page step 2
   (run 57); a quick-writer move with a photograph removal in one job 3 (run
-  60); a menu edit 2 (runs 49 and 63); the logo rung, a page move and a
+  60); a menu edit 2 (runs 49 and 63); a menu edit and a page move through the
+  look door in one job 4 (run 66); the logo rung, a page move and a
   page removal 0 (`exempt`); a
   first build 11–45; a revise of the same site 17; an add-on 2–13 (runs
   47–52). **Quote a range or measure the run.** Nothing enforces a per-request

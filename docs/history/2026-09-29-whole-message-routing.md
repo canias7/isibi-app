@@ -398,3 +398,31 @@ read 28. **Even so, whether a real router answers `look` for a
 mix like Test 8's is not measured**: only Test 8's paid run, after the
 owner's approval, can show it. Test 8 stays open, with its request, expected
 results and recovery version (`01790468089054-8btpep`) unchanged.
+
+## The first live reading (run 66, the same day)
+
+After deploy 2170 was runtime-confirmed (run 65), the owner approved Test 8's
+unchanged request again and pressed it as run 66 (21:56 UTC, from `main` at
+`907840c6`). **The real router (grok-4.6) answered `intent: edit`, `layer:
+look`, with no `page` and no `alsoAsked`: nothing held back.** Run 63's
+answer for the same message had been `nav` + `remove` with the band held
+back.
+
+The look door then did what the supplied-answer cases had shown:
+- the real picker placed the band on the page lane (`shape`, `/visit`) and
+  the menu change on the menu editor's lane (`action`);
+- the stored reply names the layers `page` and `nav`, with no `partial` and
+  no `deferred`;
+- the stored pages are exactly Test 8's expected files;
+- it was one publish (`li1j0y`, built from `8btpep`), with everything else
+  preserved;
+- it cost 6 credits (routing 2 plus reserves of 3 and 1).
+
+Every acceptance item is met; the readings are the checklist's *Test 8, Run
+66*.
+
+**What this does and does not show.** It is one sample: the rule steered a
+real router to `look` for this mix once. How often it does, and what it
+answers for other messages (same-kind changes on two pages included), is
+not measured. The customer reply still names only the look (review #9, kept
+separate).

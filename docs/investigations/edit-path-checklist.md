@@ -57,7 +57,13 @@ chooses one answer over the whole message, by what a route can make on every
 page, never by kind** (the owner's correction of the first wording the same
 day; merged and deployed in deploy 2170, `907840c6`, image
 `abf47dfeceba3c5c` as predicted, runtime-confirmed by run 65): the acceptance
-is prepared again, unchanged (*Test 8*, below).
+is prepared again, unchanged (*Test 8*, below). **Pressed again as run 66**
+(21:56 UTC): the real router answered `look` with nothing held back; the look
+door's picker placed the band on `shape` and the menu change on the menu
+editor's lane (`action`); both changes were stored and published exactly as
+expected, in one publish (`li1j0y`), for 6 credits. Every acceptance item is
+met. The free restore to `8btpep` is next, and closing is the owner's
+decision.
 
 **The redirect carry-over fix is merged and deployed** (`f5e941f4`, deploy
 2165, 2026-09-28 19:07 UTC, image `8a10715339cdc780`; runtime-confirmed by
@@ -159,9 +165,9 @@ stylesheet scope and rule keys (deploy 2161).
     2026-09-29, merged and deployed in deploy 2168 (`47dea9c0`, image
     `dd4f72842234135b`) and runtime-confirmed by run 62**: the menu editor's lane now
     describes the menu's items, and a scoped answer hands the menu editor only
-    the menu's words; shown only with supplied answers, sync and queued; *Test
-    8*, below, would show it with a real picker
-    (`docs/history/2026-09-29-menu-lane.md`);
+    the menu's words; shown with supplied answers, sync and queued, and **live
+    by Test 8's run 66**, where the real picker placed the menu change on
+    that lane (`docs/history/2026-09-29-menu-lane.md`);
   - the photograph lane tells the picker a removal takes the slot away; the
     picture rung kept the slot, and the kit drew its placeholder there:
     **reproduced and rendered; corrected 2026-09-29 (`remove` takes the
@@ -192,7 +198,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; its free runtime check passed as run 62; pressed as run 63 the same day: the router answered `nav` with `remove` and held the band back, so only the menu change was made and the look door was not reached; the free restore, run 64, put everything back; the owner recorded run 63 as a partial outcome and accepted run 64, with the intended acceptance still open; the router's whole-message rule corrected on the branch the same day, made to choose by what a route can make on every page rather than by kind after the owner's review, and the acceptance prepared again, not run; the rule merged and deployed in deploy 2170 the same day and runtime-confirmed by run 65)
+## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; its free runtime check passed as run 62; pressed as run 63 the same day: the router answered `nav` with `remove` and held the band back, so only the menu change was made and the look door was not reached; the free restore, run 64, put everything back; the owner recorded run 63 as a partial outcome and accepted run 64, with the intended acceptance still open; the router's whole-message rule corrected on the branch the same day, made to choose by what a route can make on every page rather than by kind after the owner's review, and the acceptance prepared again, not run; the rule merged and deployed in deploy 2170 the same day and runtime-confirmed by run 65; pressed again as run 66 the same day: the router answered `look` with nothing held back, and both changes were stored and published exactly as expected, for 6 credits; every acceptance item met; the free restore is next)
 
 Owner, 2026-09-29: *"Also prepare one bounded real-model acceptance using
 the existing fixture and workflow: a menu-item removal combined with a layout
@@ -671,11 +677,104 @@ other box left as it is:
 2. **The paid run, only after the owner's approval and after (1) passes**:
    "Run the ONE paid edit as well" `yes`; "What to change" the request above,
    exactly; "The site to edit" `fold-lane-bakery`; the same two
-   expectations.
+   expectations. **Pressed as run 66 (21:56 UTC), with exactly these
+   inputs: every acceptance item met** (*Run 66*, below).
 3. **The free restore, after the readings**: "Run the ONE paid edit as
    well" `no`; "PUT ONE SAVED VERSION BACK, THEN READ IT AND STOP"
    `01790468089054-8btpep`; "The site to edit" `fold-lane-bakery`; the same
    two expectations.
+
+### Run 66 — the paid run: the router answered `look`, and both changes were made from one message (2026-09-29)
+
+Pressed by the owner at 21:56 UTC, from `main` at `907840c6` (deploy 2170,
+runtime-confirmed by run 65). **The inputs, as the run recorded them**: the
+paid edit `1`; "The site to edit" `fold-lane-bakery`; the request word for
+word (139 characters, sha256 `65b63d1d…`); the two expectations
+`907840c67497b2624f1a2febfdb27b947ca5222a` and `abf47dfeceba3c5c`; every
+other box blank. The preflight matched both expectations, and the
+before-read is the fixture exactly (the five stored pages byte-identical,
+every route at `8btpep`, the balance 28).
+
+**What the real models did**:
+- **The router** (grok-4.6, 15.8 s, 2 credits) answered `intent: edit`,
+  `layer: look`, with no `page` and no `alsoAsked`: **nothing was held
+  back**. This is the first live reading of the whole-message rule; run 63's
+  answer for the same message was `nav` + `remove` with the band held back.
+- **The job** (`dfac763e…`, 178 s) ran through the look door. The picker
+  placed the band on the page lane (`shape`, layer `page`, `/visit`) and the
+  menu change on the menu editor's lane (`action`, layer `nav`): `layers`
+  `["page","nav"]`, `lanes` `["shape","action"]`, `pageOps`
+  `[{"page":"/visit"}]`, `changed` `index.tsx`, `order.tsx`, `visit.tsx`,
+  `gallery.tsx`. The stored reply carries **no `partial` and no
+  `deferred`**. It published once, `01790719081409-li1j0y`, built from
+  `8btpep`, and the canary's comparison is VERIFIED.
+
+**Judged against *Acceptance*, item by item**:
+1. **The request**: sha256 `65b63d1d…`, as frozen.
+2. **The menu item's removal**:
+   - stored: `index.tsx` (2,378, `637b7793…`), `gallery.tsx` (2,946,
+     `da53a375…`) and `order.tsx` (9,241, `0a0b5f41…`) are exactly the
+     expected files, and `starter.tsx` is unchanged (`37fb0e17…`);
+   - published: on `/` and `/gallery` the served markup is exactly the
+     before-read minus the header's and the footer's Gallery links (build
+     values masked); on `/visit` and `/order` the menus read the same three
+     items as before.
+3. **The gallery page is kept**: `gallery.tsx` is stored and `/gallery`
+   answers 200 at `li1j0y` with its own headings and content; the sitemap
+   still lists it; the Visit page's QR code still points to it (the QR file
+   is unchanged, `45f42f27…`).
+4. **The layout change**:
+   - stored: `visit.tsx` (4,028, `c67011db…`) is exactly the expected file;
+   - published: `/visit` reads "Order a collection so we hold a loaf",
+     "Come to the bakery", "The shutters and the street". Its served markup
+     equals the before-read with those two sections swapped and nothing
+     else changed, and its photographs and QR code still show.
+5. **Everything else is preserved**:
+   - `/order` and `/starter`: markup identical apart from build values
+     (script names and render timestamps), and identical to the pixel in a
+     real browser (0 pixels differ);
+   - `/` and `/gallery`: 6,591 pixels differ on each, all in the header menu
+     and the footer menu;
+   - every head tag is identical apart from the script names;
+   - the redirects (`/the-starter`, `?x=1` and the trailing slash: 301 to
+     `/starter`, `public, max-age=600`), the 404 and the sitemap are as
+     before, read at once (22:02) and ten minutes later (22:12);
+   - the QR file, the stylesheet (`544ff34e…`) and the share card
+     (`ce884f5b…`) are byte-identical;
+   - the stored description is unchanged, and there is no component before
+     or after.
+6. **One publish**, `li1j0y`, built from `8btpep`, VERIFIED.
+7. **Money**: 28 → 22. Routing 2, then the job's reserves of 3 and 1
+   (ledger rows 340 and 341), closing exactly against the job's cost of 4.
+   The job is `done` and `finalized`, and nothing is left open (the run's
+   free probe jobs ended at cost 0).
+8. **The path**: the router answered `look`, and the stored reply names the
+   lanes `shape` and `action` and the layers `page` and `nav`, with no
+   `partial`. That is the real picker placing the menu change on the menu
+   editor's lane, with scopes that passed their check.
+
+**In the canary's own log**: `/visit` `order CHANGED` with the band's
+heading first; the other four routes `order same`; no photograph `LOST`;
+components `0 -> 0`, with its note that component preservation stays
+untested. No `FAIL` line.
+
+**In a real browser** (every page before and after, drawn the same way): 0
+page errors and every image loaded, before and after.
+
+**Kept separate, as before**: the customer reply reads "✅ Updated the
+look." and names neither change, which is review #9 (a multi-step look reply
+naming only the look), kept separate by the owner. Component preservation
+is untested because the fixture has none.
+
+**The evidence boundary**: this is one sample of the real router's choice
+for this message. It shows that the rule can steer a real router to `look`
+for this mix; it does not measure how often it does, or its choice for other
+messages.
+
+**Cost**: 6 credits, against the estimate of about 5–6. The balance is 22.
+
+**Next**: the free restore to `01790468089054-8btpep` (press 3, above), then
+the owner's review. Closing Test 8 is the owner's decision.
 
 ## Test 7 — a photograph removal and a layout change on another page, in one message (proposed 2026-09-29; its claimed coverage narrowed the same day by a routing review the owner asked for: the customer capability through the look door, not the removal door; held the same day on the photo-removal mismatch, reproduced and a correction proposed for review; the correction implemented on the branch the same day with the owner's safeguards, and Test 7 now expects the element removed; merged and deployed the same day in deploy 2167 and runtime-confirmed by the owner's free press, run 59; approved by the owner and pressed as run 60 the same day: both changes stored and published, each on its own page, with the home page stored without its final newline; the free restore, run 61, put everything back; closed by the owner, 2026-09-29, for the customer behavior runs 60 and 61 showed, with the missing final newline accepted as a specific nonfunctional exception)
 
