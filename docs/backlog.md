@@ -36,8 +36,8 @@ here; take a closed one out of both.**
 - The photograph lane says a removal takes the slot away; the picture rung
   leaves the slot, drawn as the kit's placeholder. **Reproduced and rendered;
   corrected 2026-09-29 (`remove` takes the element off; `clear` keeps the
-  space when asked) and deployed in deploy 2167, not yet runtime-confirmed;
-  Test 7 held until it is.**
+  space when asked), deployed in deploy 2167 and runtime-confirmed by run
+  59; not yet shown with a real model (Test 7).**
 - What the picture step cannot take off on its own is refused: a photograph
   held by a larger block, written inside code, or with children; an emptied
   wrapper with a meaning of its own is kept, and can leave empty space.
@@ -123,8 +123,9 @@ here; take a closed one out of both.**
   photograph's container; one pass by offset; contradictions refused by name;
   the explicit `photosTakenOff` behind the undo hint; accurate refusals):
   `docs/history/2026-09-29-photo-removal.md`. **Merged and deployed in deploy
-  2167 (`cb981a4a`, image `65ce683607928f0e`); not yet runtime-confirmed and
-  not run live.** Close this item when the runtime check passes.
+  2167 (`cb981a4a`, image `65ce683607928f0e`) and runtime-confirmed by the
+  owner's free press, run 59; not yet run live.** Closing it is the owner's
+  call; Test 7 would show it with a real model.
 - **WHAT THE PICTURE STEP CANNOT TAKE OFF ON ITS OWN (recorded 2026-09-29 as
   the correction's remaining capability limit; the owner: *"For structures the
   targeted editor cannot safely remove, give an accurate refusal without

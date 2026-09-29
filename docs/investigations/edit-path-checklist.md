@@ -123,9 +123,9 @@ stylesheet scope and rule keys (deploy 2161).
   - the photograph lane tells the picker a removal takes the slot away; the
     picture rung kept the slot, and the kit drew its placeholder there:
     **reproduced and rendered; corrected 2026-09-29 (`remove` takes the
-    element off, `clear` keeps the space when asked) and deployed in deploy
-    2167, not yet runtime-confirmed; Test 7 held until it is** (*Test 7 →
-    Implemented*, below). What
+    element off, `clear` keeps the space when asked), deployed in deploy 2167
+    and runtime-confirmed by run 59; not yet shown with a real model (Test
+    7)** (*Test 7 → Implemented*, below). What
     the targeted editor still cannot take off is refused and recorded as a
     capability limit (backlog).
 - Also recorded:
@@ -149,7 +149,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Test 7 — a photograph removal and a layout change on another page, in one message (proposed 2026-09-29; its claimed coverage narrowed the same day by a routing review the owner asked for: the customer capability through the look door, not the removal door; held the same day on the photo-removal mismatch, reproduced and a correction proposed for review; the correction implemented on the branch the same day with the owner's safeguards, and Test 7 now expects the element removed; merged and deployed the same day in deploy 2167, not yet runtime-confirmed; still held until it is, and for the owner's approval; not run)
+## Test 7 — a photograph removal and a layout change on another page, in one message (proposed 2026-09-29; its claimed coverage narrowed the same day by a routing review the owner asked for: the customer capability through the look door, not the removal door; held the same day on the photo-removal mismatch, reproduced and a correction proposed for review; the correction implemented on the branch the same day with the owner's safeguards, and Test 7 now expects the element removed; merged and deployed the same day in deploy 2167 and runtime-confirmed by the owner's free press, run 59; held only for the owner's approval of the paid run; not run)
 
 Owner, 2026-09-29: *"Prepare the next bounded acceptance: a removal combined
 with another change in one message, through the removal path with a real
@@ -346,7 +346,7 @@ The plan above is kept as the owner reviewed it. Where the implementation
 departs from it, by the owner's safeguards or by what building it found, is
 under *Implemented*, next.
 
-### Implemented (2026-09-29; merged and deployed the same day in deploy 2167, `cb981a4a`, image `65ce683607928f0e`; not yet runtime-confirmed; not run live)
+### Implemented (2026-09-29; merged and deployed the same day in deploy 2167, `cb981a4a`, image `65ce683607928f0e`; runtime-confirmed by the owner's free press, run 59; not run live)
 
 Owner: *"Implement the remove-versus-clear correction on the working branch,
 with these safeguards: Use reliable TSX structure to identify the exact photo
@@ -412,13 +412,20 @@ kept frame. A merge would roll the container image to `65ce683607928f0e`.
 route stores for Test 7's sentence, on both doors, sync and queued, with
 supplied answers, is exactly the fixture less the counter's element (3,801
 characters, sha256 `263dd01e…`), and the home page is exactly the move
-(`0b64985c…`). **Test 7 stays held** until the owner's free press confirms
-deploy 2167 at runtime, and then for the owner's approval of the paid run;
-its request, recovery and cost stand.
+(`0b64985c…`). **Runtime-confirmed by run 59** (2026-09-29 14:53 UTC, from
+`main` on `fold-lane-bakery`): `build-health 200 deploy=cb981a4ad1d3
+image=65ce683607928f0e` and `runtime 200 deploy=cb981a4ad1d3 async=true
+runner=true`, every free check passed at no cost, and the balance read 37.
+**Test 7 is held only for the owner's approval of the paid run**; its
+request, recovery and cost stand.
 
 ### The fixture: fold-lane-bakery at `01790468089054-8btpep`
 
-Restored by run 58 and read at 05:33 UTC; Test 6's fixture table below is its
+Restored by run 58 and read at 05:33 UTC; **read again by run 59 at 14:54
+UTC, after deploy 2167: all five stored pages byte-identical to
+`test/fixtures/run47/*.before.tsx`, the source read complete, no components,
+every route at `8btpep`, and the stored description as before**, so the
+expected hashes below hold for the live site. Test 6's fixture table below is its
 record (stored pages, heads, menus, redirects, files). Its photograph slots,
 as the picture rung sees them (`imageSlots`):
 - `/`: "Harbour Loaf on a Bristol side street in the early morning"
@@ -613,12 +620,16 @@ Both from `main` (the branch adds only documents).
    (the box already holds `no`: delete it and type `yes`); "What to change":
    the sentence above, exactly; "The site to edit": `fold-lane-bakery`; the
    two "Refuse to spend unless…" boxes
-   `a64729ad741ab160d93f7648007a9bacc8e7b427` and `6fbaccad82fe879d`;
-   everything else as it is.
-2. **The free restore, after the readings**: run 58's values.
+   `cb981a4ad1d3718da7df9d9da1efbb70c1cf3fa8` and `65ce683607928f0e` (deploy
+   2167, runtime-confirmed by run 59; were `a64729ad…` and
+   `6fbaccad82fe879d` before it); everything else as it is.
+2. **The free restore, after the readings**: "Run the ONE paid edit as well"
+   `no`; "PUT ONE SAVED VERSION BACK, THEN READ IT AND STOP"
+   `01790468089054-8btpep`; "The site to edit" `fold-lane-bakery`; the same
+   two "Refuse to spend unless…" values.
 
-No separate free check is proposed: nothing has run on the bakery since run
-58's readings, and the paid run's own preflight and before-read come first.
+No separate free check is proposed: run 59 read the bakery at 14:54 UTC after
+deploy 2167, and the paid run's own preflight and before-read come first.
 
 ### What it will not establish
 

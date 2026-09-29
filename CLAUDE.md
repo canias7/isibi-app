@@ -36,8 +36,10 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 
 - **`main` is `cb981a4a`, deploy 2167** (2026-09-29 14:03 UTC, image
   `65ce683607928f0e`, predicted on both ends and built; a fast-forward from
-  `a64729ad`) — **deployed, not runtime-confirmed**: the owner's free press is
-  next, from 14:25 UTC (the image rolled at 14:03). The served `chat.js` is
+  `a64729ad`) — **runtime-confirmed by the owner's free press, run 59**
+  (14:53 UTC, on `fold-lane-bakery`): both readers answer `cb981a4ad1d3`, a
+  cold container gets `65ce683607928f0e`, and queued jobs and the runner are
+  on. The served `chat.js` is
   byte-identical to the merged file (788,171 bytes, `82f36de3…`). It carries
   **the photo-removal correction**: "take the photo off" takes the
   photograph's element off (`remove`, found in the page's syntax tree), "keep
@@ -85,8 +87,8 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   script against main's Worker.
 - **Balance 37** on the building account after run 57 (2026-09-29 04:19
   UTC): routing 2 and the job's reserves of 1 and 2, ledger rows 335 and 336;
-  read again at 05:35 UTC after the free restore (run 58), with no row after
-  336 and no job open. The unit
+  read again at 05:35 UTC after the free restore (run 58) and at 14:54 UTC
+  by run 59, with no row after 336 and no job open. The unit
   suite is **8,277** on `main` (`cb981a4a`).
 - **Closed by the owner, not to be repeated**: live test 2 (run 32); Test 3
   (run 34) with the stylesheet corrections (deploy 2161); the kit-heading fix
@@ -129,9 +131,10 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   what cannot be taken off safely are refused by name while the rest proceeds;
   the picture step's own `photosTakenOff` drives the undo hint. Test 7 now
   expects the element removed (`visit.tsx` `263dd01e…`); its placeholder
-  expectations are superseded. **Merged and deployed in deploy 2167; still
-  held until the owner's free press confirms it, and then for the owner's
-  approval of the paid run.** The plan is the checklist's *Test 7*; the
+  expectations are superseded. **Merged, deployed in deploy 2167 and
+  runtime-confirmed by run 59, which also read the bakery's five stored pages
+  byte-identical to the fixture; Test 7 is held only for the owner's approval
+  of the paid run.** The plan is the checklist's *Test 7*; the
   record is `docs/history/2026-09-29-photo-removal.md`.
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of

@@ -283,9 +283,13 @@ bytes, sha256 `82f36de3b5535656…` (the before reading at 13:59:09Z was
 `/edit-poll.js` did not change and still equals the merged file (30,203
 bytes). Gates 401 / 401 / 401 / 404 at 14:05Z, and `fold-lane-bakery` still
 answers at `01790468089054-8btpep` on all five pages, with `/the-starter`
-301 to `/starter` (`public, max-age=600`), at 14:06Z. **Deployed, not
-runtime-confirmed**: the owner's free press is the reading that asks the live
-Worker and a cold container.
+301 to `/starter` (`public, max-age=600`), at 14:06Z. **Runtime-confirmed
+by the owner's free press, edit canary run 59** (2026-09-29 14:53 UTC, from
+`main` at `cb981a4a` on `fold-lane-bakery`): `build-health 200
+deploy=cb981a4ad1d3 image=65ce683607928f0e` and `runtime 200
+deploy=cb981a4ad1d3 async=true runner=true`, the two readers agreeing and both
+expectations met; the free job was claimed by a container and finished at
+cost 0, and the balance read 37.
 The twelfth
 added a SECOND CHANNEL — **deploy 2139 (2026-09-21) was predicted before the
 push over the local merge commit `28e46e91` as `82bccb3bee50e4fd`, against

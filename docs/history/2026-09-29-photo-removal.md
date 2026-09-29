@@ -1,10 +1,10 @@
 # 2026-09-29 — taking a photograph off takes its element off; keeping its space is asked for by name
 
 Built on the branch `claude/help-needed-ehlwlj`, then **merged and deployed
-the same day (deploy 2167, `cb981a4a`, below) on the owner's word; deployed,
-not runtime-confirmed until the owner's free press; not run live**. Every
-model answer below is supplied. Test 7 stays held until the runtime
-confirmation and the owner's approval of the paid run.
+the same day (deploy 2167, `cb981a4a`, below) on the owner's word, and
+runtime-confirmed by the owner's free press, run 59; not run live**. Every
+model answer below is supplied. Test 7 is held only for the owner's
+approval of the paid run.
 
 ## The owner's request
 
@@ -293,3 +293,15 @@ chat.js against the merged file. Keep "deployed" separate from
   canary with `no`, the deploy sha and the image id) is the reading that asks
   the live Worker and a cold container, after the image's roll settles (from
   14:25 UTC).
+- **Runtime-confirmed by the owner's free press, edit canary run 59** (id
+  36586008086, 14:53 UTC, from `main` at `cb981a4a` on `fold-lane-bakery`):
+  `build-health 200 deploy=cb981a4ad1d3 image=65ce683607928f0e` and `runtime
+  200 deploy=cb981a4ad1d3 async=true runner=true`; the two readers agree, the
+  Worker is the expected build and a cold container got the expected image;
+  every zero-cost check passed (the async shape on the bakery and on
+  `washhouse-3`, a forged replay and a stranger's poll both 404, the free job
+  claimed by a container and settled at cost 0); the balance read 37 and no
+  ledger row came after 336. Its before-inventory (artifact 11041816769) holds
+  the bakery's five stored pages **byte-identical to
+  `test/fixtures/run47/*.before.tsx`**, no components, every route at
+  `8btpep`, so Test 7's expected hashes hold for the live site.
