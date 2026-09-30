@@ -1,0 +1,116 @@
+[
+  {
+    "label": "CONTROL: the table-name helper's comment changes nothing",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": " * THE SITE'S OWN TABLE NAMES, FOR THE ROUTER, WHEN THE BROWSER SENT NONE",
+    "to": " * THE SITE'S OWN TABLE NAMES, FOR THE ROUTER, WHEN THE BROWSER SENT NONE (control)"
+  },
+  {
+    "label": "CONTROL: the route's fill comment changes nothing",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "      // THE SITE'S OWN TABLE NAMES when the browser sent none (Lane 1d) —",
+    "to": "      // THE SITE'S OWN TABLE NAMES when the browser sent none (Lane 1d, control) —"
+  },
+  {
+    "label": "D-1: ownership is not verified",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (!uid || (await siteOwnerBySlug(slug, env)) !== uid) return [];",
+    "to": "  if (!uid) return [];"
+  },
+  {
+    "label": "D-2: the browser's own names are replaced",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (sent.length) return { site, filled: null };\n",
+    "to": ""
+  },
+  {
+    "label": "D-3: the slug is not checked",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (!/^[a-z0-9][a-z0-9-]{0,80}$/.test(slug)) return { site, filled: null };\n",
+    "to": ""
+  },
+  {
+    "label": "D-4: a message with no site is looked up",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (!site || rb.hasSite !== true) return { site: rb && rb.site, filled: null };",
+    "to": "  if (!site) return { site: rb && rb.site, filled: null };"
+  },
+  {
+    "label": "D-5: the lookup is not bounded in time",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    new Promise((resolve) => { timer = setTimeout(() => resolve(null), ROUTE_TABLES_MS); }),\n",
+    "to": ""
+  },
+  {
+    "label": "D-6: a lookup that throws is not caught",
+    "files": [
+      "worker.js"
+    ],
+    "from": "    routeTableNames(env, user && user.id, slug).catch((e) => { console.error(\"route tables:\", slug, (e && e.name) || \"Error\"); return []; }),",
+    "to": "    routeTableNames(env, user && user.id, slug),"
+  },
+  {
+    "label": "D-7: any table name reaches the router",
+    "files": [
+      "worker.js"
+    ],
+    "from": ".filter((n) => typeof n === \"string\" && ROUTE_TABLE_NAME.test(n)).slice(0, 24);",
+    "to": ".filter((n) => typeof n === \"string\").slice(0, 24);"
+  },
+  {
+    "label": "D-8: the route does not say what it filled",
+    "files": [
+      "worker.js"
+    ],
+    "from": "        tablesFilled: rDigest.filled || undefined,",
+    "to": "        tablesFilled: undefined,"
+  },
+  {
+    "label": "D-9: the filled digest never reaches the router (the wire cut)",
+    "files": [
+      "worker.js"
+    ],
+    "from": "          site: rDigest.site,",
+    "to": "          site: rb.site,"
+  },
+  {
+    "label": "D-10: an unknown schema still names tables",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (!st || !st.ok) return [];",
+    "to": "  if (!st) return [];"
+  },
+  {
+    "label": "D-11: an incomplete link is not resolved",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  const conn = await ownerSiteConn(env, slug);\n  if (!conn) return [];",
+    "to": "  const conn = await siteBackendBySlug(env, slug);\n  if (!conn) return [];"
+  },
+  {
+    "label": "D-12: ownership read off the connection (the recorded `.uid` trap)",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (!uid || (await siteOwnerBySlug(slug, env)) !== uid) return [];",
+    "to": "  if (!uid || ((await siteBackendBySlug(env, slug)) || {}).uid !== uid) return [];"
+  }
+]

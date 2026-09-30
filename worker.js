@@ -5934,6 +5934,67 @@ async function ownerSiteConn(env, slug) {
 }
 
 /**
+ * THE SITE'S OWN TABLE NAMES, FOR THE ROUTER, WHEN THE BROWSER SENT NONE
+ * (Lane 1d, 2026-09-30).
+ *
+ * The router's `data` clause says "The tables it has are named above", and the
+ * names came only from the browser's digest — which carries them only when that
+ * browser built or revised the site. A fresh browser and the canary send none,
+ * and Batch 1's run 74 routed a price put-back to `text` with none named (one
+ * sample, so a confirmed gap in what the router is told, not a proven cause).
+ *
+ * `/api/site/route` TAKES `hasSite` ON TRUST, deliberately, because a routing
+ * answer is not a permission. Reading the database is, so OWNERSHIP IS VERIFIED
+ * FIRST, by `siteOwnerBySlug` (a uid string — never `.uid` off
+ * `siteBackendBySlug`, which answers a connection), and nothing else is read
+ * for a slug that is not the caller's. Then every step is a read: the
+ * connection through `ownerSiteConn` (an incomplete link resolved and proved,
+ * never healed), and the table names through the catalog-first reader. NAMES
+ * ONLY leave here — no column, no row — shape-checked and capped as the digest
+ * caps them.
+ *
+ * ANY FAILURE IS NO NAMES, and the caller bounds the whole lookup in time: this
+ * sits in front of the routing call, and a lookup that cannot answer must
+ * leave routing exactly as it was before this existed.
+ */
+const ROUTE_TABLES_MS = 3000;
+const ROUTE_TABLE_NAME = /^[a-z_][a-z0-9_]{0,62}$/i;
+async function routeTableNames(env, uid, slug) {
+  if (!uid || (await siteOwnerBySlug(slug, env)) !== uid) return [];
+  const conn = await ownerSiteConn(env, slug);
+  if (!conn) return [];
+  const st = await readStoredSpec(conn);
+  if (!st || !st.ok) return [];
+  // IDENTIFIER-SHAPED NAMES ONLY: a quoted table name can say anything, and it
+  // would land in the router's instructions. The 24 is the digest's own cap
+  // (`siteDigest`), kept here as a belt: removing it changes nothing a test can
+  // see while that cap stands.
+  return (Array.isArray(st.tables) ? st.tables : []).filter((n) => typeof n === "string" && ROUTE_TABLE_NAME.test(n)).slice(0, 24);
+}
+
+/**
+ * The digest the router is sent: the browser's, with the site's own table names
+ * filled in when it named none — for a site the caller says exists, under a
+ * well-formed slug, within `ROUTE_TABLES_MS`. Otherwise exactly what arrived.
+ */
+async function routeDigest(env, user, rb) {
+  const site = rb && rb.site && typeof rb.site === "object" && !Array.isArray(rb.site) ? rb.site : null;
+  if (!site || rb.hasSite !== true) return { site: rb && rb.site, filled: null };
+  const sent = Array.isArray(site.tables) ? site.tables.filter((t) => typeof t === "string" && t.trim()) : [];
+  if (sent.length) return { site, filled: null };
+  const slug = typeof rb.slug === "string" ? rb.slug : "";
+  if (!/^[a-z0-9][a-z0-9-]{0,80}$/.test(slug)) return { site, filled: null };
+  let timer = null;
+  const names = await Promise.race([
+    routeTableNames(env, user && user.id, slug).catch((e) => { console.error("route tables:", slug, (e && e.name) || "Error"); return []; }),
+    new Promise((resolve) => { timer = setTimeout(() => resolve(null), ROUTE_TABLES_MS); }),
+  ]);
+  if (timer) clearTimeout(timer);
+  if (!Array.isArray(names) || !names.length) return { site, filled: null };
+  return { site: { ...site, tables: names }, filled: names };
+}
+
+/**
  * THE STORED SCHEMA — AND "THE DATABASE IS EMPTY" AS A MEASUREMENT.
  *
  * `SELECT v FROM _meta WHERE k='schema'` used to sit inline behind an
@@ -19823,6 +19884,10 @@ async function handleRequest(request, env, ctx) {
         // "you're out of credits" instead of two that can disagree.
         return Response.json({ ok: true, intent: "build", cost: 0 });
       }
+      // THE SITE'S OWN TABLE NAMES when the browser sent none (Lane 1d) —
+      // ownership verified first, names only, bounded in time, and any
+      // failure routes exactly as before (`routeDigest`).
+      const rDigest = await routeDigest(env, ru, rb);
       const routed = await routeMessage(
         // `classify` IS THE BUILD PATH'S OWN READER of a provider's error body
         // (`upstreamKind`), so a failed route names the provider's token and
@@ -19831,7 +19896,7 @@ async function handleRequest(request, env, ctx) {
         { send: quickSend(env), classify: (e) => upstreamKind(e && e.detail, e && e.status) },
         {
           message: rb.message,
-          site: rb.site,
+          site: rDigest.site,
           // THE PICKED MODEL. This call was the reason the whole cheap ladder
           // sat behind one provider: it runs before anything else on an edit, so
           // when Anthropic refused on billing (run 93) nothing downstream got a
@@ -19983,6 +20048,10 @@ async function handleRequest(request, env, ctx) {
         // provider message, request text or credential can ride on it. Absent
         // on success, like `failed`.
         failure: routed.failed === true && routed.failure ? routed.failure : undefined,
+        // AND WHICH TABLE NAMES THE ROUTE FILLED IN (Lane 1d), so a run's
+        // evidence shows what the router was told. The caller's own site's
+        // names, and only when the route filled them: absent otherwise.
+        tablesFilled: rDigest.filled || undefined,
       });
     }
 
