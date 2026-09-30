@@ -40,8 +40,11 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   `e71f7bae88b9ecf1` **reused**, as predicted on both ends, 188 inputs and
   none of them changed). Nothing under `public/` or `worker.js` changed. It
   carries **the canary's opt-in fixture check with its whole-table read**
-  (below) and records. **Deployed, not runtime-confirmed**: the
-  confirmation is the owner's free press. `docs/deploy-record.md`.
+  (below) and records. **Runtime-confirmed by the owner's free press, run
+  78** (19:58 UTC, from `main` on `fold-lane-bakery`): both readers answered
+  `8908b59d2069`, a cold container got `e71f7bae88b9ecf1`, and queued jobs
+  and the runner were on; nothing was charged (balance 13, last ledger row
+  344, no job open). `docs/deploy-record.md`.
 - **Deploy 2172** (`80ece106`, 2026-09-30 06:57 UTC, a
   fast-forward of 5 commits from `29111010`, on the owner's word to merge the
   reviewed branch through `80ece106`; one deploy run, green, on `80ece106`;
@@ -128,7 +131,7 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 - **The canary's opt-in fixture check** (2026-09-30, after run 77, on the
   owner's word; `3229272e`, and `fc06edde` after the owner's review of it;
   the owner passed the whole-table guard's review (2026-09-30); **merged and
-  deployed in deploy 2173, not yet runtime-confirmed**). The `expect_rows` box takes one JSON object: `table`,
+  deployed in deploy 2173, runtime-confirmed by run 78**). The `expect_rows` box takes one JSON object: `table`,
   `baseline` (16–64 hex, the start of the canonical sha256 of the rows
   other than the target) and `target` (the one row's fields).
   - The box is read before the sign-in: malformed, or beside another mode,

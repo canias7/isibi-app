@@ -1459,7 +1459,8 @@ acceptance. The canary has no fixture check before a paid data press
     `completeness-unknown`), shown through the real script with no routing
     call, no paid edit and nothing after the read. **Passed the owner's
     review** (2026-09-30), and **merged and deployed in deploy 2173**
-    (`8908b59d`, image reused), not yet runtime-confirmed.
+    (`8908b59d`, image reused), runtime-confirmed by the owner's free
+    press, run 78.
 - **A new deletion press is prepared only after the price recovery and the
   temporary row have both been read back and verified** (the owner). It is
   not prepared here.

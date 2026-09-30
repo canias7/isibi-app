@@ -57,6 +57,23 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-30 — Your free check passed: deploy 2173 is running (run 78)
+
+**Confirmed.** Your free canary press (run 78, 19:58 UTC, from `main`) found
+the new version answering on both readers (`8908b59d`), and a fresh site
+container on the expected image (`e71f7bae88b9ecf1`). Queued edits and the
+runner are on, and every free check passed.
+
+**Nothing was charged**: the balance is still 13, no new ledger row since
+344, both free jobs ended at cost 0, and no job is open. The bakery's five
+pages are unchanged.
+
+**Still open**: the £40 (what Save displayed, and the price after you
+reopened the panel), then the temporary row and the free rehearsal, then the
+paid delete test only if you approve it.
+
+---
+
 ## 2026-09-30 — Merged and deployed (deploy 2173): the row check is on main
 
 **Merged, as you asked.** Main is now `8908b59d`, moved at 19:48 UTC. Nothing

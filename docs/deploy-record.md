@@ -567,10 +567,22 @@ the owner's word ("commit and merge"). Checked first:
   b7feba95-c202-4602-a236-…` (masked).
 
 **Read at 19:52Z**: the gates answered 401 / 401 / 401 / 404; `fretwork-1`
-answers `kk6qsh` and `fold-lane-bakery` `8btpep`. **Deployed, not
-runtime-confirmed**: the image did not roll, so no container wait is owed,
-and the confirmation is the owner's free press (`build-health` with
-`8908b59d` and `e71f7bae88b9ecf1`).
+answers `kk6qsh` and `fold-lane-bakery` `8btpep`. The image did not roll, so
+no container wait was owed.
+
+**Runtime-confirmed by the owner's free press, edit canary run 78**
+(36769355267, 2026-09-30 19:58:41–19:59:00 UTC, 10 minutes after the deploy,
+from `main` at `8908b59d` on `fold-lane-bakery`, spend `no`): `build-health
+200 deploy=8908b59d2069 image=e71f7bae88b9ecf1` and `runtime 200
+deploy=8908b59d2069 async=true runner=true`, the two readers agreeing and
+both expectations met. The free job (`38d8c243…`) was claimed at 2 s and
+settled after about 4 s at cost 0; the control site's job (`3e72065f…` on
+`washhouse-3`) took the same queued shape; a forged replay marker and a
+foreign job's poll answered 404; `ALL FREE CHECKS PASSED`. The bakery's five
+stored pages read complete at `8btpep`, and the balance read 13. Read
+independently afterwards: the balance 13, the building account's last ledger
+row still 344, both free jobs `failed` with billing `none` and cost 0, and no
+job open.
 
 ## The served-file check, driven end to end on deploy 2139
 
