@@ -110,7 +110,17 @@ prepared:
   967 of 967, before the new files were added.
 - **Full suite**: `8420 / 8420 / 0 / 0` locally (8,403 before, plus the 17
   new cases), run from the working tree after the sweep had finished.
-- **Unit CI**: read after the push (the handoff in `docs/owner-notes.md`).
+- **Unit CI**: `8420 / 8416 / 0 / 4` on `429aa75a` (run 36790235168; the
+  total matches, and CI skips its four), read from the job's own fields and
+  its `npm test` step's log.
+- **Site build** (it ran because the router's file is an image path): green
+  on `429aa75a` (run 36790235176), the twelve counts read from each step's
+  log as before: TAP 397, kit-typecheck 4, site-build 404, contrast-cases
+  16, theme-seam 11, theme-render 29, site-routing 14, site-runtime 47, and
+  kit-render, kit-a11y, kit-effects and kit-paint `all passed`. Its two
+  `##[error]` annotations (`index.tsx(50,13) TS2322`, `menu.tsx(27,17)
+  TS2339`) are the known ones, inside the case that compiles a broken page
+  on purpose.
 
 ## 3. Test 10, revised
 

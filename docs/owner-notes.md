@@ -1,98 +1,100 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-09-30, 22:55 UTC)
+## Current handoff — read this first (2026-09-30, 23:50 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- `main` is `8908b59d` (deploy 2173), unchanged. The branch
-  `claude/help-needed-ehlwlj` is `main` plus Test 9's canary scenario
-  (scripts, tests, and the scenario box's text in the canary workflow) and
-  documents. No product code changed; nothing needs deploying.
-- **Test 9 is closed by you** (runs 81 and 82), with the checks I filled in
-  accepted. The demo data stays: `fretwork-1`'s Hour one-to-one is £45.
-- **Test 10, re-sorting a stored list, is prepared and waits on your
-  decision 2b.** Nothing was spent; nothing was pressed.
-- Balance 6 (read at 22:27 UTC), and no job open.
+- `main` is `8908b59d` (deploy 2173), unchanged: nothing merged, nothing
+  deployed, nothing spent.
+- The branch `claude/help-needed-ehlwlj` is `main` plus Test 9's canary
+  scenario, documents, and now **decision 2b's router rule with its tests**
+  (for your review).
+- Test 9 is closed by you (runs 81 and 82); the demo data stays
+  (`fretwork-1`'s Hour one-to-one at £45).
+- Balance 6, read again at 23:41 UTC (last ledger row 348), and no job
+  open.
 
 **Completed**
-- Test 9's closure recorded in the checklist, the history and your
-  preferences.
-- **The trace** you asked for: on all three demo sites, a list's order is
-  set in the page's code, by the `{ order, dir }` of its `useRows` call,
-  which the database then sorts by. No table has an ordering field.
-  - On `lido-axes-b` the page code also groups the menu by category, in an
-    order written on each page, so there "the order" is partly page code
-    proper.
-  - A hand-picked sequence ("put the Walnut Levain first") cannot be kept
-    anywhere.
-- **The paths**: the data step's sort lane was built for exactly this. It
-  rewrites that one setting on every page that shows the list, then
-  republishes. The page step can change one page only. The router has no
-  rule for a list's order, so a real request could go either way.
-- **Rehearsed free with supplied answers**, through the real lane and the
-  real edit route, on the bakery's stored pages and live rows. One line of
-  the order page changes, it publishes once for 1 credit, and the reply is
-  *"✅ loaves now comes out in order of price, lowest first — on 1 page."*
-- **A preview**, read-only, of the bakery's order page with the loaves by
-  price: five of the six cards move, and nothing else on the page changes.
+- **The router rule, as you corrected it** (`builder/site-ask.mjs`, two
+  sentences):
+  - a sort by something every entry has, **not limited to one page**, goes
+    to the data step's sorter, which re-sorts the list on every page that
+    shows it;
+  - a sort **limited to one page they name** goes to the page editor, and
+    only that page changes, because different pages may use different
+    orders;
+  - no "whatever page they saw it" rule anywhere;
+  - a hand-placed entry ("put that one first") is no sort, and the rule
+    sends it nowhere;
+  - the whole-message rule and every other route are unchanged.
+- **Coverage for a list on two pages**, through the whole chain (the
+  routing step, the browser's own request, the edit step, the reply):
+  - a site-wide request re-sorts both pages and leaves the third alone;
+  - a request limited to /menu re-sorts only /menu, through the quick
+    writer (direct and queued) and through the full writer, which names
+    the other page without touching it.
+- **The scratch rehearsal, committed**: the bakery's real pages with Test
+  10's request, direct and queued. Exactly one line of the order page
+  changes. It publishes once, writes no row, and charges once (1 credit for
+  the data step's call; the publication is free).
+- **Test 10 revised**: *"Across the site, list the loaves from cheapest to
+  most expensive."* The bakery fixture and every preservation check are
+  unchanged. About **2–3 credits** (routing 1–2, the data step 1).
 
 **Test results**
-- Unit tests unchanged (no code changed): `8403 / 8403 / 0 / 0` locally;
-  unit CI `8403 / 8399 / 0 / 4` on `04331c8c` and on `e6b659a1`.
-- The tests that read these documents pass after the edits.
-- Scratch rehearsals (not committed): the lane on its own, and the real edit
-  route end to end, both as expected.
+- 17 new tests: 10 on the router's wording and request, 7 through the
+  whole chain.
+- Red check: on the old wording exactly the 7 wording tests fail; the other
+  10 pass, because they cover behaviour that already existed.
+- Sweep: 22 of 22 mutants killed, 3 comment-only controls survived.
+- The 29 existing test files that read the router's wording: 967 of 967.
+- Full suite: `8420 / 8420 / 0 / 0` locally.
+- Unit CI: `8420 / 8416 / 0 / 4` on `429aa75a` (run 36790235168; CI
+  skips four).
+- Site build: green on the same commit (run 36790235176), its twelve counts
+  as before. It ran because the router's file is part of the container
+  image.
 
 **Links**
-- The plan, the decision and the acceptance: the checklist's *Test 10*.
-  The readings: `docs/history/2026-09-30-reorder-prep.md`.
+- The rule and its tests: `docs/history/2026-09-30-sort-routing.md`.
+- Test 10's plan: the checklist's *Test 10*.
 - Branch commits: https://github.com/canias7/isibi-app/commits/claude/help-needed-ehlwlj
 
 **From our chat**
-- Your rule for this test, recorded in `owner-preferences.md`: trace what
-  controls the order first; don't assume every reordering belongs to the
-  data step; don't change routing policy just to make the test pass.
-- CLAUDE.md is left alone.
+- Your correction, recorded in `owner-preferences.md`: site-wide sorting is
+  the data sorter; a request limited to one page is the page editor; no
+  "whatever page they saw it" rule; different pages may use different
+  orders; Test 10's request states its scope.
+- No spending, merge or deployment yet. CLAUDE.md is left alone. Accepted
+  tests stay closed.
 
 **Blockers**
-- Nothing technical. The acceptance needs your decision 2b, because today's
-  router has no rule for it and the expected route is part of the test.
+- None. The rule needs your review.
 
-**Decision needed (2b)**: when someone asks to re-sort a stored list by
-something its entries have (cheapest first, A to Z, newest first), which
-step answers it?
-- **My recommendation: the data step, for a sort only.** It is the step
-  built for it: it changes the list on every page that shows it, it is exact
-  and guarded, it costs about 1 credit, and it says what it did.
-- It needs one sentence added to the router's rules (and one exception in
-  the page step's), tested the way the last two router changes were, then
-  your merge and a free check.
-- A hand-picked order, the page code's own grouping, the menu's order and a
-  page's sections all stay where they are.
-
-**Findings, kept separate**
-- New: a hand-picked order ("put the Walnut Levain at the top") is told
-  "I couldn't match that to anything the site stores", which is false
-  (backlog).
-- New: no committed test drives a successful sort through the edit route to
-  its publish (backlog).
-- Unchanged: the welcome pop-up; the deleted row's reply cutting fields at
-  40 characters.
+**Findings, kept separate** (backlog)
+- New: a sort limited to one page that reaches the data step anyway would
+  re-sort every page (the sorter has no page scope); its reply says how many
+  pages changed.
+- New: the quick writer declines "a change to what the page lists", so a
+  one-page re-sort may cost the full writer (6–22 credits). Read, not
+  measured.
+- New: a one-page re-sort through the quick writer does not mention the
+  other pages showing the list; the full writer's reply does.
+- Unchanged: a hand-placed order is told "I couldn't match that"; the
+  welcome pop-up; the deleted row's reply cut at 40 characters.
 
 **Exact next action**
-- **Your decision on 2b**, one of:
-  - **yes**: I write the router sentence with its guards, red check, sweep,
-    full suite and CI, and bring it for your review. After your merge and
-    free runtime check come Test 10's free rehearsal and its paid press,
-    about 2–3 credits;
-  - **measure first**: Test 10's press on today's deploy, with the route
-    enforced as the data step. It costs 2–3 credits if the router picks the
-    data step, and the test is judged in full; any other answer is refused
-    before the edit, for 1–2 credits, and recorded;
-  - **no**: reordering stays open.
+- **Your review of the router rule** (the two sentences and the 17 tests).
+- Then, only on your word:
+  1. merge and deploy. The router's file is part of the container image,
+     so the image rolls and container work waits 15–20 minutes;
+  2. your free runtime check;
+  3. Test 10's free rehearsal;
+  4. its paid press, about 2–3 credits, with the route box
+     `layer=data alsoAsked=none`.
 
 ---
 
@@ -152,6 +154,41 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-09-30 — Your decision on sorting (2b) is built, for your review
+
+**What you decided**: a sort that isn't limited to one page uses the data
+step's sorter, which changes the list on every page that shows it. A sort
+limited to one page goes to the page editor, and only that page changes. No
+"whatever page they saw it" rule, because different pages may use different
+orders on purpose.
+
+**What I built**: two sentences in the router's rules, one under the data
+step and one under the page step. Nothing else in the router changed, and
+the whole-message rule is untouched.
+
+**How it's tested** (17 new tests, all free, with supplied answers):
+- A list on two pages: "across the site" re-sorts both pages and leaves the
+  third alone. "On the menu page" re-sorts only that page, through either
+  page writer.
+- The bakery's real pages with Test 10's request, direct and queued: one
+  line of the order page changes, it publishes once, no row is written, and
+  it is charged once.
+- The old wording fails exactly the 7 wording tests; 22 of 22 deliberate
+  breakages were caught.
+- Full suite `8420 / 8420 / 0 / 0` locally; CI green on the pushed commit
+  (unit `8420 / 8416 / 0 / 4`, and the site build).
+
+**Test 10's request is now** *"Across the site, list the loaves from
+cheapest to most expensive."*, about 2–3 credits, once the rule is merged
+and deployed.
+
+**Found along the way** (backlog): a one-page sort that the router sends to
+the data step anyway would re-sort every page; the quick writer may hand a
+one-page re-sort to the more expensive writer; and the quick writer's reply
+doesn't mention the list's other pages.
+
+**Next**: your review. Nothing is merged, deployed or spent.
 
 ## 2026-09-30 — Test 10 prepared: re-sorting a list, waiting on your decision (2b)
 

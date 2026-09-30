@@ -1510,7 +1510,10 @@ they saw it" rule exists anywhere the router reads.
 - red check: exactly the 7 wording cases fail on the old wording, and the
   other 10 pass (they cover behaviour that already existed);
 - sweep: 22 of 22 mutants killed, 3 comment-only controls survived;
-- full suite `8420 / 8420 / 0 / 0` locally (8,403 plus the 17 new cases).
+- full suite `8420 / 8420 / 0 / 0` locally (8,403 plus the 17 new cases);
+- unit CI `8420 / 8416 / 0 / 4` on `429aa75a` (run 36790235168), and site
+  build green on the same commit (run 36790235176, the twelve counts as
+  before).
 
 ### The acceptance (once the rule is merged and deployed; revised 2026-09-30)
 
