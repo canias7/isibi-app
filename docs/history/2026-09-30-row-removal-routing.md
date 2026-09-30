@@ -1,4 +1,4 @@
-# A stored row taken off its list is routed to `data` (2026-09-30; on the branch, not merged)
+# A stored row taken off its list is routed to `data` (2026-09-30; on the branch, required CI green, not merged)
 
 ## The owner's request
 
@@ -119,6 +119,16 @@ press after a merge and a deploy can show it.
   (`test/data-remove-wording.test.mjs`).
 - **Full unit suite on `4e3ef512`**: `8360 / 8360 / 0 / 0` locally (8,351
   plus the 9 new cases).
+- **Required CI on `4e3ef512`**: `unit tests` run 36677496812 (job
+  109765534992) `completed` / `success`, `8360 / 8356 / 0 / 4` read from the
+  job's log (CI skips the same four); `site build` run 36677496840 (job
+  109765534709) `completed` / `success`, every count read from its own
+  step's log matching the recorded twelve (TAP 397, kit-typecheck 4,
+  site-build 404, contrast-cases 16, theme-seam 11, theme-render 29,
+  site-routing 14, site-runtime 47, and kit-render, kit-a11y, kit-effects
+  and kit-paint `all passed`), with only the two expected `##[error]`
+  annotations. The records commit `c5088b0c` (documents only) ran `unit
+  tests` 36677675342, `completed` / `success`.
 - **The image** (informational; nothing is merged): `builder/site-ask.mjs` is
   a container input, so a merge would roll `cdb624837e099719` →
   `e71f7bae88b9ecf1` (188 inputs, 158 distinct paths).

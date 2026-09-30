@@ -129,7 +129,9 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   controls; red check (exactly the 6 wording and request cases fail on the
   old wording); sweep 16 of 16, 2 controls survived; the 62 router-related
   files and 1a's `data-remove-wording` 2,351 of 2,351; full suite `8360 /
-  8360 / 0 / 0` locally. **Instruction and supplied-answer evidence only**:
+  8360 / 0 / 0` locally; required CI green on `4e3ef512` (unit 36677496812:
+  `8360 / 8356 / 0 / 4`; site build 36677496840: the twelve counts).
+  **Instruction and supplied-answer evidence only**:
   how a real router answers is not measured. A merge would roll the image
   `cdb624837e099719` → `e71f7bae88b9ecf1`.
   `docs/history/2026-09-30-row-removal-routing.md`.

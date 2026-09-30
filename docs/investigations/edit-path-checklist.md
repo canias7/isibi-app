@@ -76,8 +76,10 @@ prepared below and not run.
 instructions gave a stored row taken off its list two answers, `look` and
 `data`; now it is `data`, said in the `data` clause, at `look`'s exceptions
 after the whole page, and in `look`'s reach. The whole-page exception, the
-whole-message rule and the open decisions are unchanged. Instruction and
-supplied-answer evidence only; no model was called.
+whole-message rule and the open decisions are unchanged. Required CI is
+green on `4e3ef512` (unit 36677496812, `8360 / 8356 / 0 / 4`; site build
+36677496840, the twelve counts). Instruction and supplied-answer evidence
+only; no model was called.
 
 **Batch 1 (2026-09-30): group A accepted by the owner, B1 credited, and
 B's row 4 waits for the owner's free write** (*The owner's review of
