@@ -1,0 +1,148 @@
+[
+  {
+    "label": "CONTROL: the browser reader's comment changes nothing",
+    "control": true,
+    "files": [
+      "public/site-list.js"
+    ],
+    "from": "   * THE WIRE'S THREE ANSWERS ABOUT A DATABASE (Lane 1c, 2026-09-30).",
+    "to": "   * THE WIRE'S THREE ANSWERS ABOUT A DATABASE (Lane 1c, control)."
+  },
+  {
+    "label": "CONTROL: the list route's comment changes nothing",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "      // ── A BLANK `neon_db` IS NOT \"NO DATABASE\" (Lane 1c, 2026-09-30) ──────",
+    "to": "      // ── A BLANK `neon_db` IS NOT \"NO DATABASE\" (Lane 1c, control) ──────"
+  },
+  {
+    "label": "C-1: the list reads the reference again (db: !!r.neon_db)",
+    "files": [
+      "worker.js"
+    ],
+    "from": "          db: dbOf(r),",
+    "to": "          db: !!r.neon_db,"
+  },
+  {
+    "label": "C-2: a lookup that could not tell is sent as a no",
+    "files": [
+      "worker.js"
+    ],
+    "from": "return st.state === \"ready\" || st.state === \"incomplete\" ? true : st.state === \"none\" ? false : null;",
+    "to": "return st.state === \"ready\" || st.state === \"incomplete\" ? true : false;"
+  },
+  {
+    "label": "C-3: a failed project read is not noticed",
+    "files": [
+      "worker.js"
+    ],
+    "from": "          else projectFailed = new Error(\"site project read\");\n",
+    "to": "\n"
+  },
+  {
+    "label": "C-4: the project read is not scoped to the caller",
+    "files": [
+      "worker.js"
+    ],
+    "from": "lq(`site_project?uid=eq.${luid}&slug=in.(",
+    "to": "lq(`site_project?slug=in.("
+  },
+  {
+    "label": "C-5: the project read selects the credential",
+    "files": [
+      "worker.js"
+    ],
+    "from": ".join(\",\")})&select=slug`);",
+    "to": ".join(\",\")})&select=slug,neon_conn`);"
+  },
+  {
+    "label": "C-6: the project rows are read with no blank row",
+    "files": [
+      "worker.js"
+    ],
+    "from": "      if (blankSlugs.length) {\n        try {\n          const lp",
+    "to": "      if (true) {\n        try {\n          const lp"
+  },
+  {
+    "label": "C-7: the browser reads could-not-tell as a no",
+    "files": [
+      "public/site-list.js"
+    ],
+    "from": "    return v === true ? true : (v === false ? false : null);",
+    "to": "    return v === true ? true : false;"
+  },
+  {
+    "label": "C-8: the merge turns could-not-tell into a no",
+    "files": [
+      "public/site-list.js"
+    ],
+    "from": "backend: (made.backend === true || have.backend === true) ? true : made.backend,",
+    "to": "backend: (made.backend === true || have.backend === true) ? true : false,"
+  },
+  {
+    "label": "C-9: the card says 'no database yet' on a failed lookup",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  const unknown = !!s.react && s.backend === null;",
+    "to": "  const unknown = false;"
+  },
+  {
+    "label": "C-10: an adopted record drops the server's yes",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    ...(entry.backend === true ? { backend: true } : {}),\n",
+    "to": ""
+  },
+  {
+    "label": "C-11: a record already held does not learn the server's yes",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    if (entry.backend === true && have.backend !== true) { have.backend = true; sitesSave(); }\n",
+    "to": ""
+  },
+  {
+    "label": "C-12: the owner routes ask only the fast reader",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (fast) return fast;\n  const back = await siteBackendDetail(env, slug);",
+    "to": "  if (fast || !fast) return fast;\n  const back = await siteBackendDetail(env, slug);"
+  },
+  {
+    "label": "C-13: an unreadable reference reads as no database",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  if (back.state === \"unreadable\") throw Object.assign(new Error(\"site database unreadable: \" + back.why), { name: \"BackendUnreadable\" });\n",
+    "to": ""
+  },
+  {
+    "label": "C-14: the panel says 'no data tables yet' on a failed read",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (!tabs.length) main = tablesRead ? '<div class=\"st-empty\">No data tables yet.</div>'",
+    "to": "  if (!tabs.length) main = true ? '<div class=\"st-empty\">No data tables yet.</div>'"
+  },
+  {
+    "label": "C-15: the owner block opens the database the old way",
+    "files": [
+      "worker.js"
+    ],
+    "from": "          dbFor: (s2) => ownerSiteConn(env, s2),",
+    "to": "          dbFor: (s2) => siteBackendBySlug(env, s2),"
+  },
+  {
+    "label": "C-16: a server that could not tell is written onto a new record",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    ...(entry.backend === true ? { backend: true } : {}),",
+    "to": "    backend: entry.backend,"
+  }
+]

@@ -60,6 +60,20 @@
   }
 
   /**
+   * THE WIRE'S THREE ANSWERS ABOUT A DATABASE (Lane 1c, 2026-09-30).
+   *
+   * `true` there is one, `false` there is none, and `null` the server could
+   * not tell — which it says when the lookup behind the answer failed. A
+   * lookup that failed must never read as "no database": the card would tell
+   * the owner their site has none, which is the claim the server just refused
+   * to make. Anything else is a shape we did not send and is believed as
+   * neither.
+   */
+  function readDb(v) {
+    return v === true ? true : (v === false ? false : null);
+  }
+
+  /**
    * ONE SERVER ROW → the shape the grid already reads.
    *
    * `name` is the site's CURRENT public address, which is not always its
@@ -78,10 +92,10 @@
       name: name,
       url: "https://" + name + SITE_HOST + "/",
       brief: str(row.brief).slice(0, 300),
-      // Does this site have its own database. Read STRICTLY — the wire says
-      // `db: !!r.neon_db`, a real boolean, so anything else is a shape we did
-      // not send and must not be believed as a yes.
-      backend: row.db === true,
+      // Does this site have its own database. Read STRICTLY, and in THREE:
+      // `true`, `false`, or `null` for "the server could not tell" (`readDb`).
+      // Nothing but a real true is a yes, and nothing but a real false is a no.
+      backend: readDb(row.db),
       // WHICH CHAT BUILT IT (2026-09-08). Carried so `merge` can put a site
       // back into the workspace that asked for it; `""` for every site built
       // before the binding existed, and for any built without one.
@@ -170,7 +184,11 @@
         // disagreement is the local record being AHEAD, never the server
         // correcting it. Wrong toward "no" dims a button that works; wrong
         // toward "yes" opens a Data view with nothing in it.
-        backend: made.backend || have.backend === true,
+        //
+        // AND A SERVER THAT COULD NOT TELL STAYS "COULD NOT TELL" (Lane 1c):
+        // with neither side saying yes, the server's own answer stands, `null`
+        // included, so a failed lookup never becomes a no here either.
+        backend: (made.backend === true || have.backend === true) ? true : made.backend,
         // AND THIS ONE IS THE OPPOSITE RULE, for a reason worth stating rather
         // than pattern-matching off the line above. Offline moves in BOTH
         // directions — a site goes off the web and comes back — so "either
@@ -288,7 +306,7 @@
   }
 
   var api = {
-    merge: merge, fromRow: fromRow, cleanSlug: cleanSlug, SITE_HOST: SITE_HOST,
+    merge: merge, fromRow: fromRow, cleanSlug: cleanSlug, SITE_HOST: SITE_HOST, readDb: readDb,
     offlineNow: offlineNow, offlineFor: offlineFor, markOffline: markOffline,
   };
 

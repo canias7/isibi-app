@@ -5907,6 +5907,33 @@ async function siteBackendDetail(env, slug) {
 }
 
 /**
+ * THE OWNER'S OWN SITE DATABASE, READ-ONLY, WHATEVER STATE ITS REFERENCE IS IN
+ * (Lane 1c, 2026-09-30).
+ *
+ * The fast reader first, exactly as the data rung asks it, so every site it
+ * answers is handled as before. When it answers nothing, the four-state reader
+ * decides: `ready`/`incomplete` hand back the connection it proved with one
+ * trivial query, `none` is null (a site with no database — the caller's own
+ * 404), and `unreadable` THROWS, because a lookup that could not tell is not a
+ * site without a database, and the owner routes answer a throw as "something
+ * went wrong reaching your site's data", never as "no such site".
+ *
+ * NOTHING IS WRITTEN. An incomplete reference is the backend repair's to heal,
+ * not a read path's (the page rung's rule, 2026-09-22), so this never calls
+ * `healSiteBackendDb` and never provisions.
+ *
+ * Callers check ownership first: `openSite` runs `assertOwner` before `dbFor`,
+ * and the router's table names (`routeTableNames`) check the owner themselves.
+ */
+async function ownerSiteConn(env, slug) {
+  const fast = await siteBackendBySlug(env, slug);
+  if (fast) return fast;
+  const back = await siteBackendDetail(env, slug);
+  if (back.state === "unreadable") throw Object.assign(new Error("site database unreadable: " + back.why), { name: "BackendUnreadable" });
+  return back.conn || null;
+}
+
+/**
  * THE STORED SCHEMA — AND "THE DATABASE IS EMPTY" AS A MEASUREMENT.
  *
  * `SELECT v FROM _meta WHERE k='schema'` used to sit inline behind an
@@ -19106,6 +19133,43 @@ async function handleRequest(request, env, ctx) {
       // this route existed; answering `{sites: []}` here would blank it.
       if (!backends) return Response.json({ ok: false, error: "read" }, { status: 503 });
 
+      // ── A BLANK `neon_db` IS NOT "NO DATABASE" (Lane 1c, 2026-09-30) ──────
+      //
+      // `db: !!r.neon_db` read every site whose reference was never written as
+      // having none, and four live sites are in that state (`incomplete`:
+      // ashgrove-1, fretwork-1, northgroup-5, washhouse-1). Their database is
+      // real, and the owner's Data button stayed dark on every browser that had
+      // not built them. The answer is `backendState`'s, the one the addon, the
+      // rules rung and the repair script already decide with: ready and
+      // incomplete have a database, none does not, and UNREADABLE IS NEITHER —
+      // it goes out as `db: null`, never as a no.
+      //
+      // ONE MORE READ, ONLY WHEN A ROW IS BLANK, SCOPED LIKE EVERY READ HERE:
+      // the caller's own uid AND the caller's own blank slugs, and the one
+      // column that answers "does a project row exist" — `slug`. The project
+      // row's credential is never selected. A failure here is enrichment
+      // failing: the list stands, and those rows say they could not be read.
+      const blankSlugs = backends
+        .filter((r) => r && typeof r.slug === "string" && /^[a-z0-9][a-z0-9-]{0,80}$/.test(r.slug) && !String(r.neon_db || "").trim())
+        .map((r) => r.slug);
+      let projectSlugs = null;       // null: not asked, or asked and unreadable
+      let projectFailed = null;
+      if (blankSlugs.length) {
+        try {
+          const lp = await lq(`site_project?uid=eq.${luid}&slug=in.(${blankSlugs.map(encodeURIComponent).join(",")})&select=slug`);
+          const prow = await lrows(lp);
+          if (prow) projectSlugs = new Set(prow.filter((x) => x && typeof x.slug === "string").map((x) => x.slug));
+          else projectFailed = new Error("site project read");
+        } catch (e) { projectFailed = e; }
+      }
+      const dbOf = (r) => {
+        const blank = !String((r && r.neon_db) || "").trim();
+        const st = blank && projectFailed
+          ? backendState({ failed: projectFailed })
+          : backendState({ site: r, project: blank && projectSlugs && projectSlugs.has(r.slug) ? { slug: r.slug } : null });
+        return st.state === "ready" || st.state === "incomplete" ? true : st.state === "none" ? false : null;
+      };
+
       const aliasBy = Object.create(null);
       for (const a of (await lrows(la)) || []) {
         if (a && typeof a.slug === "string" && typeof a.alias === "string") aliasBy[a.slug] = a.alias;
@@ -19137,8 +19201,9 @@ async function handleRequest(request, env, ctx) {
           // Whether the site has its own database, and NOT the connection to
           // it: the card's data button is live for a site that has one and
           // says so for a site that does not, which is the only thing a
-          // start screen may know about a credential.
-          db: !!r.neon_db,
+          // start screen may know about a credential. THREE ANSWERS (Lane 1c):
+          // `true`, `false`, and `null` for a lookup that could not tell.
+          db: dbOf(r),
           // WHICH CHAT BUILT IT, so the start screen can put a site back into
           // its own workspace rather than beside it. Absent on every site built
           // before 2026-09-08 and on any built without one — the merge falls
@@ -20524,7 +20589,13 @@ async function handleRequest(request, env, ctx) {
             const rows = await g.json();
             return (Array.isArray(rows) && rows[0] && rows[0].uid) || null;
           },
-          dbFor: (s2) => siteBackendBySlug(env, s2),
+          // THE FOUR-STATE READER BEHIND THE FAST ONE (Lane 1c). The Data
+          // panel, the CSV import and the export all open the database here,
+          // and `siteBackendBySlug` answers null for a blank `neon_db` unless
+          // some earlier build left the connection in KV — so the owner's own
+          // panel said "no such site" on a site whose database is real. READ
+          // ONLY: nothing is written back (`ownerSiteConn`).
+          dbFor: (s2) => ownerSiteConn(env, s2),
           loadSchema: (conn) => loadSiteSchema(conn),
           query: (conn, sql, args) => sqlQuery(conn, sql, args),
           exec: (conn, sql, args) => sqlExec(conn, sql, args),

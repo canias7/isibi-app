@@ -5222,11 +5222,16 @@ function siteDbIcon(s) {
   // first time either moved, and the disagreement is drawn: a dark glyph with
   // a green wire under it, or the reverse.
   const hasDb = !!(s.react && s.backend);
+  // COULD NOT TELL IS NOT "NO DATABASE" (Lane 1c, 2026-09-30). The server list
+  // answers `null` when the lookup behind it failed, and saying "No database
+  // yet" there would claim what nobody knows. Dark either way — there is
+  // nothing to open until it can tell — but it says which dark it is.
+  const unknown = !!s.react && s.backend === null;
   return '<div class="st-dbwrap">' +
     '<button type="button" class="st-db" data-act="data" data-sid="' + esc(s.id) + '"' +
     (hasDb ? '' : ' disabled') +
-    ' title="' + (hasDb ? 'Data' : 'No database yet — ask for one in the chat') + '"' +
-    ' aria-label="' + (hasDb ? 'Open this site’s data' : 'This site has no database yet') + '">' +
+    ' title="' + (hasDb ? 'Data' : unknown ? 'Couldn’t check for a database just now — try again in a moment' : 'No database yet — ask for one in the chat') + '"' +
+    ' aria-label="' + (hasDb ? 'Open this site’s data' : unknown ? 'Couldn’t check whether this site has a database' : 'This site has no database yet') + '">' +
     ic('database', 17) + '</button>' + siteWires(wireLive(hasDb)) + '</div>';
 }
 function cardActs(s) {
@@ -5618,13 +5623,23 @@ function siteAdopt(entry) {
   if (!entry || !entry.slug) return entry && entry.id ? siteById(entry.id) : null;
   const all = sitesLoad();
   const have = all.find((s) => s.slug === entry.slug);
-  if (have) return have;
+  // THE SERVER'S YES REACHES THE RECORD THE WORKSPACE READS (Lane 1c,
+  // 2026-09-30). The card is drawn from the merged list but the workspace
+  // reads this record, and it was written without `backend` — so on a browser
+  // that had not built the site the Data button opened a workspace with no
+  // Data view: a value forwarded to one of its two readers. Only a yes is
+  // carried, because a database is never taken away and only a yes opens it.
+  if (have) {
+    if (entry.backend === true && have.backend !== true) { have.backend = true; sitesSave(); }
+    return have;
+  }
   const rec = {
     id: 'site_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
     name: entry.name || entry.slug,
     slug: entry.slug,
     url: entry.url || '',
     react: true,
+    ...(entry.backend === true ? { backend: true } : {}),
     createdAt: entry.createdAt || Date.now(),
     updatedAt: entry.updatedAt || entry.createdAt || Date.now(),
     html: '',
@@ -6854,10 +6869,14 @@ async function loadSiteData(site) {
   // public API refuses by design) and correct `display` content.
   const base = '/api/site/' + encodeURIComponent(site.slug || '');
   let tables = [];
+  // WHETHER THE LIST WAS READ AT ALL (Lane 1c, 2026-09-30). A failed read left
+  // `tables` empty and the panel said "No data tables yet." — a claim about the
+  // site made by a request that never answered.
+  let tablesRead = false;
   try {
     const r = await apiFetch(base + '/rows');
     const d = await r.json().catch(() => ({}));
-    if (r.ok && Array.isArray(d.tables)) tables = d.tables;
+    if (r.ok && Array.isArray(d.tables)) { tables = d.tables; tablesRead = true; }
   } catch (e) {}
   // No synthetic "Users" tab HERE — member accounts get their own panel
   // (`siteMembers`, Cloud → Members), because managing one is a different job
@@ -6915,7 +6934,7 @@ async function loadSiteData(site) {
       '<div class="st-data-form-actions"><button type="button" class="st-data-save" id="stDataSave">' + (siteDataForm.editId ? 'Save changes' : 'Add row') + '</button><button type="button" class="st-data-cancel" id="stDataCancel">Cancel</button></div></div>';
   }
   let main;
-  if (!tabs.length) main = '<div class="st-empty">No data tables yet.</div>';
+  if (!tabs.length) main = tablesRead ? '<div class="st-empty">No data tables yet.</div>' : '<div class="st-empty">Couldn’t load this site’s tables just now.</div>';
   else if (err) main = '<div class="st-empty">Couldn’t load this table just now.</div>';
   else if (!rows.length && !formHtml) main = '<div class="st-empty">Nothing here yet.' + (canAdd ? ' Use “+ Add” to put in your first row.' : ' When visitors submit, it shows up here.') + '</div>';
   else {

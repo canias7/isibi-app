@@ -111,7 +111,7 @@ test("a hostile slug cannot escape its own host", () => {
 // asserted at the layer below the break — this repo's own recorded trap, and
 // the reason the rename's canonical hop shipped dead for a day.
 const USER = { id: "11111111-1111-1111-1111-111111111111", email: "o@example.com" };
-async function callList({ user = USER, backends, aliases = [], builds = [], fail = null } = {}) {
+async function callList({ user = USER, backends, aliases = [], builds = [], projects = [], fail = null } = {}) {
   const worker = await loadWorker();
   const asked = [];
   const real = globalThis.fetch;
@@ -122,6 +122,9 @@ async function callList({ user = USER, backends, aliases = [], builds = [], fail
     if (u.includes("/rest/v1/site_backends")) { asked.push(u); return fail === "backends" ? new Response("x", { status: 500 }) : json(backends); }
     if (u.includes("/rest/v1/site_aliases")) { asked.push(u); return fail === "aliases" ? new Response("x", { status: 500 }) : json(aliases); }
     if (u.includes("/rest/v1/site_builds")) { asked.push(u); return fail === "builds" ? new Response("x", { status: 500 }) : json(builds); }
+    // THE PROJECT ROWS, asked only for a site whose `neon_db` is blank (Lane 1c):
+    // whether one exists is what tells a blank-link database from none at all.
+    if (u.includes("/rest/v1/site_project")) { asked.push(u); return fail === "projects" ? new Response("x", { status: 500 }) : json(projects); }
     return new Response("unavailable", { status: 503 });
   };
   try {
@@ -142,7 +145,9 @@ test("DRIVEN: signed out is 401, and nothing is read", async () => {
 test("DRIVEN: every read is filtered on the caller's OWN uid", async () => {
   const r = await callList({ backends: [{ slug: "one", created_at: "2026-09-01T00:00:00Z", brief: "b" }] });
   assert.equal(r.status, 200);
-  assert.equal(r.asked.length, 3, "backends, aliases, builds");
+  // FOUR SINCE 2026-09-30 (Lane 1c): this row's `neon_db` is blank, so its
+  // project row is asked for — and that read is uid-scoped like the rest.
+  assert.equal(r.asked.length, 4, "backends, aliases, builds, projects");
   for (const u of r.asked) {
     assert.ok(u.includes("uid=eq." + USER.id),
       "a read that is not uid-scoped could return another account's sites: " + u);
@@ -358,13 +363,17 @@ test("DRIVEN: the column is asked for, or the answer would always be false", asy
     + "unselected one is false for every site on the platform: " + backendsRead);
 });
 
-test("a row's `db` is read strictly — nothing but a real true is a yes", () => {
+test("a row's `db` is read strictly — nothing but a real true is a yes, nothing but a real false a no", () => {
   assert.equal(SiteList.fromRow({ slug: "a", db: true }).backend, true);
-  for (const bad of ["true", "yes", 1, [true], {}, "postgres://x"]) {
-    assert.equal(SiteList.fromRow({ slug: "a", db: bad }).backend, false,
-      "a `db` of " + JSON.stringify(bad) + " read as a database");
+  assert.equal(SiteList.fromRow({ slug: "a", db: false }).backend, false);
+  // ⚠ "ABSENT IS NO" UNTIL 2026-09-30 (Lane 1c). The server now answers `null`
+  // for a lookup that could not tell, and a shape it did not send is read the
+  // same way: as neither answer. Cannot-tell must never read as a value.
+  for (const bad of ["true", "yes", 1, [true], {}, "postgres://x", null, undefined, "false", 0]) {
+    assert.equal(SiteList.fromRow({ slug: "a", db: bad }).backend, null,
+      "a `db` of " + JSON.stringify(bad) + " read as an answer");
   }
-  assert.equal(SiteList.fromRow({ slug: "a" }).backend, false, "absent is no");
+  assert.equal(SiteList.fromRow({ slug: "a" }).backend, null, "absent is not a no");
 });
 
 test("either side saying there is a database is a yes", () => {
