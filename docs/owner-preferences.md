@@ -369,4 +369,11 @@
   data layer or change routing policy merely to make the test pass."* And:
   *"If a product decision is genuinely required, explain that specific
   decision with your recommendation."*
+- **Sorting a list: site-wide is the data sorter, one page is the page
+  editor.** Deciding 2b: *"Use the existing data-sort lane for site-wide
+  sorting by an existing column. Requests limited to one page should use the
+  existing page editor while the data sorter remains site-wide. Do not add
+  the proposed 'whatever page they saw it' rule. Different pages may
+  intentionally use different orders."* And for the test: *"make the intended
+  scope explicit"* in the request itself.
 

@@ -54,15 +54,21 @@ here; take a closed one out of both.**
 - Which step adds a row to a list the site already has is undecided: the
   router sends an addition to the add-on step, and the data picker can insert
   (the owner's ruling). Found 2026-09-29.
-- The router says nothing about the order of a list, so "show the cheapest
-  first" may not reach the data picker's sort. Found 2026-09-29; traced on
-  the three demo sites and prepared as Test 10 on 2026-09-30 (decision 2b).
+- ~~The router says nothing about the order of a list~~: decided (2b,
+  2026-09-30) and its rule built on the branch, not merged: a sort not
+  limited to one page is `data`, one limited to a named page is `page`.
+- A page-limited sort that reaches `data` anyway is applied on every page
+  (the sort lane has no page scope). Found 2026-09-30, not changed.
+- The quick writer sends "a change to what the page LISTS" to `cannot`, so a
+  one-page re-sort may cost the full writer. Found 2026-09-30, read, not
+  measured.
+- A one-page re-sort through the quick writer does not say the list is shown
+  on other pages; the full writer's reply does. Found 2026-09-30.
 - A hand-picked order ("put the Walnut Levain at the top") is told "I
   couldn't match that to anything the site stores". Found 2026-09-30, not
   changed.
-- No route test drives a successful sort through the edit route to its
-  publish; the one route case is a sort whose publish fails. Found
-  2026-09-30, rehearsed in scratch only.
+- ~~No route test drives a successful sort to its publish~~: covered
+  (`test/edit-list-sort.test.mjs`, both paths, 2026-09-30).
 - A natural message cannot hand the picture step a new photograph without
   buying one from fal. Found 2026-09-29, not changed.
 - A routing call that fails records no reason: Batch 1's run 70 got `addon`
@@ -431,7 +437,31 @@ here; take a closed one out of both.**
   the `page` rung can change one page's call and only reports the others
   (`orderingMoved`); the look door has no lane for it. Waiting on the
   owner's decision 2b; recommended `data` for a sort by something the
-  entries have, with one router clause.
+  entries have, with one router clause. **Decided by the owner the same
+  day, with a scope correction**, and built on the branch (not merged): a
+  sort not limited to one page is `data`; a sort limited to one named page
+  is `page`, and only that page changes; no "whatever page they saw it"
+  rule (`docs/history/2026-09-30-sort-routing.md`).
+- **A PAGE-LIMITED SORT THAT REACHES `data` ANYWAY IS APPLIED ON EVERY PAGE
+  (found 2026-09-30; read; not changed).** The sort lane (`applySort`) has no
+  page scope by design: it rewrites every `useRows` call for the table. The
+  router now sends a sort limited to one named page to `page`; if it
+  answers `data` for one anyway, every page showing the list is re-sorted.
+  The reply names how many pages changed (*"… — on 2 pages."*), so it is
+  visible, not silent.
+- **THE QUICK WRITER DECLINES A LIST CHANGE, SO A ONE-PAGE RE-SORT MAY COST
+  THE FULL WRITER (found 2026-09-30; read, not measured).** `TWEAK_RULES`
+  (`builder/site-tweak.mjs`) tells the quick writer to answer `cannot` for
+  *"a change to what the page LISTS"*. A one-page re-sort is a one-line
+  change to the list's read, but a writer that reads it as a list change
+  hands it to the full writer (6–22 credits). Both paths are covered with
+  supplied answers (`test/edit-list-sort.test.mjs`).
+- **A ONE-PAGE RE-SORT THROUGH THE QUICK WRITER DOES NOT SAY THE LIST IS
+  SHOWN ELSEWHERE (found 2026-09-30; read; not changed).** Only the full
+  writer's path computes `orderingMoved` and answers `reordered`, which the
+  browser turns into *"Heads up: loaves is listed on other pages too, and I
+  only changed this one …"*. The quick writer's success reply carries no
+  such field.
 - **A HAND-PICKED ORDER IS TOLD "I COULDN'T MATCH THAT" (found 2026-09-30
   preparing Test 10; rehearsed with supplied answers; not changed).** The
   data picker is told that a sequence someone chose ("put the Fade above the
@@ -442,14 +472,16 @@ here; take a closed one out of both.**
   list lacks and for an order already in place, but none for a sequence it
   cannot keep. Keeping one needs a stored position per row (a schema change,
   a backfill and a page rewrite), which is product work of its own.
-- **NO ROUTE TEST DRIVES A SUCCESSFUL SORT TO ITS PUBLISH (found 2026-09-30
-  preparing Test 10).** `test/site-order.test.mjs` drives `runDataEdit` and
+- **~~NO ROUTE TEST DRIVES A SUCCESSFUL SORT TO ITS PUBLISH~~ (found
+  2026-09-30 preparing Test 10; covered the same day by
+  `test/edit-list-sort.test.mjs`, synchronous and queued, with the
+  publication, the rows and the billing).** `test/site-order.test.mjs` drives `runDataEdit` and
   `applySort` at the module level; the one route case
   (`test/edit-failure.test.mjs`) is a sort whose publish fails. A sort-only
   `data` answer through the real edit route (status 200, one compile, one
   publish, the page's one line, the reply) was rehearsed in scratch for Test
-  10, synchronous path only. It belongs with lane 3's round if 2b is
-  decided.
+  10, synchronous path only, and committed with 2b's round, the queued path
+  added.
 - **A NATURAL MESSAGE CANNOT HAND THE PICTURE STEP A NEW PHOTOGRAPH WITHOUT
   BUYING ONE (found 2026-09-29 while preparing Batch 1; read in the code; not
   changed).** It blocks item 7, the picture swap. Three things together:

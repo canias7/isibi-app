@@ -336,6 +336,26 @@ export const ASK_TOOL = {
           "TAKING AN EXISTING ROW OFF ONE OF THOSE LISTS IS THIS LAYER TOO: when an entry the site stores should no " +
           "longer be there, its row is deleted from the table that holds it, and every page showing that list stops " +
           "showing it.\n" +
+          // ── A LIST SORTED SITE-WIDE IS THIS LAYER; ONE NAMED PAGE IS `page` (2026-09-30, decision 2b) ──
+          //
+          // A list's order is written in PAGE CODE — the `{ order, dir }` of the
+          // page's `useRows` call — and the data step's sort lane (`DATA_TOOL`'s
+          // `order`, `applySort`) rewrites that call on EVERY page reading the
+          // table. Nothing here pointed at it: this clause named rows, `page`
+          // named "lay a list out differently", and the same sentence could land
+          // on either. The owner decided it, with a scope correction: *"Use the
+          // existing data-sort lane for site-wide sorting by an existing column.
+          // Requests limited to one page should use the existing page editor
+          // while the data sorter remains site-wide. Do not add the proposed
+          // 'whatever page they saw it' rule. Different pages may intentionally
+          // use different orders."* So a sort NOT limited to one page is here,
+          // and a sort limited to one named page is `page` (said there too). A
+          // hand-placed entry is no sort, and nothing here says where it goes.
+          "SORTING ONE OF THOSE LISTS ACROSS THE SITE IS THIS LAYER TOO: when they want a list in order of something " +
+          "every entry already has — cheapest first, A to Z, newest at the top — and do not limit it to one page, it " +
+          "is re-sorted on every page that shows it. When they limit it to ONE page they name, it is \"page\" " +
+          "instead, and only that page changes: different pages may show the same list in different orders. Placing " +
+          "one entry by hand (\"put that one first\") is not a sort.\n" +
           "\"text\" — ONLY the words change and nothing else: a heading, a sentence, a button label, a phone number, an " +
           "address, a price written on the page. Nothing moves and nothing changes colour. This is the cheapest thing the " +
           "builder can do, so prefer it whenever it is honestly true.\n" +
@@ -465,6 +485,17 @@ export const ASK_TOOL = {
           "above.\n" +
           "\"page\" — the arrangement of ONE existing page: move a section, take one out, lay a list out differently, " +
           "add a block built from parts the page already has. Name it in `page`.\n" +
+          // ── A LIST'S ORDER ON ONE NAMED PAGE IS THIS LAYER (2026-09-30, decision 2b) ──
+          //
+          // The other half of the sort sentence under `data`, said here too for
+          // the reason every paired clause in this field is: a model reading
+          // downwards meets whichever clause its candidate answer is. This layer
+          // edits the one file named and leaves the others as they are, which is
+          // the point when the owner limits a sort to one page (*"Different
+          // pages may intentionally use different orders"*).
+          "THE ORDER OF A LIST ON ONE PAGE THEY NAME IS THIS LAYER TOO — \"on the services page, show the cheapest " +
+          "first\": only that page's list is re-sorted, and every other page that shows the same list keeps its own " +
+          "order. Not limited to one page, the same sort is \"data\".\n" +
           // ── A SECTION'S OWN ARITHMETIC IS THIS LAYER ────────────────────────
           //
           // The other half of the enforcement/display line stated under

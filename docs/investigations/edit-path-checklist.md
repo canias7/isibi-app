@@ -90,17 +90,19 @@ is not to be repeated.
     (ledger rows 346 and 347), message 2's edit 1 (row 348); no job open.
 - The demo data stays as it stands: the Hour one-to-one is £45.
 
-**Test 10, a stored list re-sorted, is prepared and waits on the owner's
-decision 2b** (*Test 10*, below; free preparation only, not run). On all
-three demo sites a list's order is written in page code (the `{ order, dir
-}` of the page's `useRows` call); no table has an ordering field. The lane
-built to change it is the data rung's sort lane, which rewrites that call on
-every page reading the list, but the router has no clause for a list's
-order, so the same request could land on `data` or `page`. Recommended:
-`data`, for a sort by something the entries have, with one router clause.
-The acceptance: *"On the order page, list the loaves from cheapest to most
+**Test 10, a stored list re-sorted: decision 2b taken by the owner, the rule
+built on the branch, not merged** (*Test 10*, below; nothing spent, not run).
+On all three demo sites a list's order is written in page code (the `{
+order, dir }` of the page's `useRows` call); no table has an ordering field.
+The owner's rule: a sort not limited to one page goes to the data step's
+site-wide sort lane; a sort limited to one named page goes to the page
+editor, and only that page changes; no "whatever page they saw it" rule,
+because different pages may intentionally use different orders. Implemented
+as two router sentences, with 17 new tests (10 on the router, 7 through the
+whole chain on both paths), red-checked and swept. The acceptance, revised to
+state its scope: *"Across the site, list the loaves from cheapest to most
 expensive."* on `fold-lane-bakery`, one stored line changed, about 2–3
-credits.
+credits, after the owner's review, a merge and a deploy.
 
 **Lane 1 (2026-09-30): four corrections, merged and deployed in deploy 2171
 (`29111010`, image `cdb624837e099719`; the deployment credited by the owner),
@@ -1222,8 +1224,8 @@ approves it.
   its timing limit), and the data rung's blank link (B1).
 - **Still open**:
   - the data rung's adding and reordering rows (deleting is closed by
-    the owner: run 80, 2026-09-30; reordering traced and prepared as Test
-    10, waiting on 2b);
+    the owner: run 80, 2026-09-30; reordering decided (2b) and its rule
+    built on the branch, Test 10 prepared, not run);
   - broader rules;
   - the picture swap;
   - a correct component on the first attempt;
@@ -1297,7 +1299,7 @@ digest), so they are built one after the other in the same file.
 | # | Decision | Why it blocks | What each answer leads to |
 |---|---|---|---|
 | 2a | Which step adds a row to a list the site already has: the add-on step (your 2026-09-02 rule, *"Add will always go in addon"*) or the data picker, which can already insert | an "add a row" acceptance has no expected route until this is decided | **add-on**: no product change, but the canary refuses to post an `addon` answer, so the acceptance needs the UI mode or a canary change. **data**: one router clause (lane 3). |
-| 2b | Whether reordering a list ("show the cheapest first") is `data` | the router says nothing about order, and a misroute to the page writer costs 6–22. **Traced 2026-09-30** (*Test 10*): a list's order is page code on every demo site, the site-wide sort lane is in the data rung, and the router reaches it by no rule; recommended **yes, for a sort by something the entries have** (not a hand-picked sequence, not a page-code arrangement) | **yes**: one router clause (lane 3), then Test 10. **no**: the reordering half stays open, or Test 10 is pressed as a measurement. |
+| 2b | Whether reordering a list ("show the cheapest first") is `data` | the router says nothing about order, and a misroute to the page writer costs 6–22. **Traced 2026-09-30** (*Test 10*): a list's order is page code on every demo site, the site-wide sort lane is in the data rung, and the router reaches it by no rule. **Decided by the owner, 2026-09-30**: a sort not limited to one page is `data` (the site-wide sorter); a sort limited to one named page is `page`; no "whatever page they saw it" rule | Built on the branch (lane 3's sort half; not merged), then Test 10. |
 | 2c | The broader-rules fixture: reopening `lido-axes-b`'s bookings, which you asked to keep closed, or a new disposable site (a first build, 11–45) | its only fixture is closed by your instruction | either way, one bounded rules acceptance afterwards |
 | 2d | Whether to take on the picture swap's product work: attachments reaching the picture step, the picker told which file fills which slot, and no fal purchase when a file is given | no natural message can reach it today without buying a photograph | yes: a product round of its own, later. No: it stays open. |
 | 2e | What "a correct component on the first attempt" must show, and on which site | no fixture has one, and the outcome cannot be fixed in advance | a definition first; no work until then |
@@ -1305,6 +1307,9 @@ digest), so they are built one after the other in the same file.
 | 2g | Whether to heal the four blank links with the existing repair (maintenance on live rows) | 1c covers the button without it. Healing also ends the blank-link fixtures | yes: a free maintenance press. No: nothing |
 
 ### Lane 3: the router round, after 2a and 2b
+
+**2b's half is built on the branch (2026-09-30, not merged)**: the sort
+rule, *Test 10*'s decision. 2a (which step adds a row) stays open.
 
 Only if 2a answers `data` or 2b answers yes. It is a wording change to
 `builder/site-ask.mjs`, the same kind as the whole-message rule round: a
@@ -1320,7 +1325,8 @@ accepted test.
   path. **Closed by the owner** (run 80, after run 79's free rehearsal,
   2026-09-30; *Lane 4's delete*, below).
 - **Add** (after 2a, and lane 3 if `data`).
-- **Reorder** (after 2b and lane 3): prepared as Test 10 (2026-09-30).
+- **Reorder** (after 2b and lane 3): 2b decided and its rule built on the
+  branch; Test 10 prepared (2026-09-30), after a merge and a deploy.
 - **Rules, picture swap and component**: after 2c–2e.
 - **Follow-up after a failure**: closed by the owner (Test 9, run 82,
   2026-09-30).
@@ -1336,7 +1342,7 @@ in the next data press.
 - **Then**: one merge, one free runtime check, and the lane 4 presses. Those
   on different sites can overlap a minute apart, as Batch 1's did.
 
-## Test 10 — a stored list re-sorted, with real models (prepared 2026-09-30 on the owner's word, after Test 9 was closed; free preparation only; the order traced on all three demo sites; rehearsed with supplied answers through the real lane and the real edit route; waits on the owner's decision 2b; not run)
+## Test 10 — a stored list re-sorted, with real models (prepared 2026-09-30 on the owner's word, after Test 9 was closed; free preparation only; the order traced on all three demo sites; rehearsed with supplied answers through the real lane and the real edit route; decision 2b taken by the owner the same day with a scope correction: a sort not limited to one page goes to the data sorter, a sort limited to one named page to the page editor, and no "whatever page they saw it" rule; the rule implemented on the branch with committed route coverage, not merged and not deployed; the request revised to state its scope; not run)
 
 **The owner**: *"Next, prepare one list-reordering acceptance on an existing
 demo site. First trace what controls its order: a stored ordering field, a
@@ -1454,68 +1460,68 @@ separate again, already routed and shown live.
 - **Not shown**: what a real router or picker answers; the queued path's
   publish of a sort (read, not driven); anything live.
 
-### The decision this needs (2b), and my recommendation
+### The decision (2b), as the owner took it (2026-09-30)
 
-**The decision**: when someone asks to re-sort a stored list by something
-its entries have (cheapest first, A to Z, newest first), which layer
-answers it?
+**Prepared**: the expected route is part of the acceptance, and the router
+had no rule for a list's order, so the same sentence could land on `data` or
+`page`. I recommended `data` for a sort, with a clause sending a sort there
+"on whatever page they saw it".
 
-**Why it is genuinely needed**: the expected route is part of the
-acceptance, and today's router has no rule for it. The same sentence can
-land on two paths with different costs and different results. Choosing one
-by wording the request to suit, or by adding a clause only for this test,
-is what the owner ruled out.
+**Decided, with a scope correction**: *"Use the existing data-sort lane for
+site-wide sorting by an existing column. Requests limited to one page should
+use the existing page editor while the data sorter remains site-wide. Do not
+add the proposed 'whatever page they saw it' rule. Different pages may
+intentionally use different orders."*
 
-**Recommended: `data`, for a sort only.** It is the lane the product built
-for this:
-- site-wide: on `fretwork-1` and `lido-axes-b` the list is on two pages,
-  and the `page` rung would leave them disagreeing;
-- deterministic: two values in one call;
-- guarded: a column the list lacks, or a computed read, is refused rather
-  than emptying the list;
-- cheap: one small model call, about 1 credit;
-- it says what it did.
+**The rule, as implemented** (`builder/site-ask.mjs`, two sentences; on the
+branch, not merged):
+- in the `data` clause, after the row-removal sentence: a sort by something
+  every entry already has, **not limited to one page**, is `data`, and the
+  list is re-sorted on every page that shows it; **limited to one page they
+  name**, it is `page` instead, and only that page changes, because
+  different pages may show the same list in different orders; a hand-placed
+  entry is no sort;
+- in the `page` clause, before "ONE PAGE, AND ONLY ONE": the order of a list
+  on one page they name is this layer, only that page's list is re-sorted,
+  and every other page keeps its own order; not limited to one page, the
+  same sort is `data`.
 
-**What it would not cover**, left where it is:
-- a hand-picked sequence (unsupported; its misleading reply is in the
-  backlog);
-- a list's arrangement in page code (`lido-axes-b`'s grouping and
-  `SECTION_ORDER`): `page`;
-- the menu's order: `nav`;
-- a page's sections: `look`, `page`.
+**Left as it was**: the whole-message rule, `alsoAsked`, every other clause,
+the data picker and the page writers. A hand-placed sequence, a list's
+arrangement in page code (`lido-axes-b`'s grouping), the menu's order (`nav`)
+and a page's sections (`look`, `page`) keep their routes. No "whatever page
+they saw it" rule exists anywhere the router reads.
 
-**The change it needs** (lane 3):
-- one clause in the router's `data` description: the order one of those
-  lists comes out in is this layer when it is a sort by something its
-  entries have, on whatever page they saw it;
-- a matching exception in `page`'s *"lay a list out differently"* (the
-  list's layout, not its sort);
-- tested as the last two router rounds were: a wording guard, a red check,
-  a sweep, the existing router cases, and a committed route case for a
-  successful sort (the scratch rehearsal above), on both paths;
-- `builder/site-ask.mjs` is a container input, so the deploy rolls the
-  image (15–20 minutes before container work), and a free runtime check
-  follows.
+**Tests** (`docs/history/2026-09-30-sort-routing.md`):
+- `test/router-list-sort.test.mjs`, 10 cases: the two sentences, their
+  places, the correction both ways round, no seen-on-this-page rule,
+  universality, the whole-message rule unchanged, and the real routing route
+  with supplied answers (Test 10's press posts a `data` answer and refuses a
+  `page` one);
+- `test/edit-list-sort.test.mjs`, 7 cases through the whole chain (routing
+  route, the browser's own POST, the edit route, the browser's composer):
+  - the bakery at `8btpep` with Test 10's request, synchronous and queued:
+    one line of `order.tsx`, one publication, no row written, one charge
+    (the scratch rehearsal, now committed with the queued path);
+  - a list on two pages: a site-wide request re-sorts both; a request
+    limited to `/menu` re-sorts only `/menu`, through the quick writer
+    (both paths) and through the full writer, whose reply names the other
+    page without rewriting it;
+- red check: exactly the 7 wording cases fail on the old wording, and the
+  other 10 pass (they cover behaviour that already existed);
+- sweep: 22 of 22 mutants killed, 3 comment-only controls survived;
+- full suite `8420 / 8420 / 0 / 0` locally (8,403 plus the 17 new cases).
 
-**If the owner decides otherwise**:
-- **leave the router as it is**: the acceptance has no single expected
-  route. It could go through `page` instead (expected route `layer=page
-  page=/order`, 2 to 22 credits for the writer, against a balance of 6), or
-  be pressed as a measurement;
-- **measure first**: the press below on today's deploy, with the route
-  enforced as `layer=data`. If the router answers `data`, the lane runs and
-  the acceptance is judged exactly as below (2–3 credits). Any other answer
-  is refused before the edit, at routing cost (1–2), and recorded.
-
-### The acceptance (as it would run once 2b is decided and deployed)
+### The acceptance (once the rule is merged and deployed; revised 2026-09-30)
 
 - **Site**: `fold-lane-bakery` at `8btpep`, as it stands (the demo-site
   rule). Only `/order` reads `loaves`, there are no language pages and no
   translator, and the six distinct prices fix the new order completely.
-- **The request** (67 characters, 67 bytes, sha256 `93c4cace0190d65e…`):
-  *"On the order page, list the loaves from cheapest to most expensive."* It
-  names the page where the list is seen, as an owner would, and the
-  recommended clause must still answer `data` for it.
+- **The request** (65 characters, 65 bytes, sha256 `22c96bd9338a8a31…`):
+  *"Across the site, list the loaves from cheapest to most expensive."* Its
+  scope is stated, as the owner asked (it replaces the first draft, *"On the
+  order page, …"*, which under the decided rule is a one-page request for the
+  page editor).
 - **Expected route**: `layer=data`, nothing held back (the route box:
   `layer=data alsoAsked=none`).
 - **Expected changes, and nothing else**:
@@ -1544,10 +1550,13 @@ for this:
     `/starter`;
   - one job for the message, and none left open.
 - **Money**: about **2–3 credits**, an estimate and not a cap: routing 1–2
-  and the picker 1. The publish is not charged. The balance is 6 (read at
-  22:27 UTC). If the route check refuses, 1–2.
-- **The presses** (the owner's, after the decision, its merge and its free
-  runtime check):
+  and the data step's picker 1. The publication is not charged (the
+  committed coverage shows one charge of 1 on both paths). The balance is 6
+  (read at 22:27 UTC). If the route check refuses, 1–2.
+- **The presses** (the owner's, after the owner's review, the merge and
+  deploy of the rule, and a free runtime check; the router's file is a
+  container input, so the image rolls and container work waits 15–20
+  minutes):
   1. **the free rehearsal**: Edit canary; "Run the ONE paid edit as well
      (yes/no)" `no`; "The site to edit" `fold-lane-bakery`; the deploy and
      image boxes; every other box blank;
@@ -1557,8 +1566,9 @@ for this:
      answers this: …" `layer=data alsoAsked=none`; the deploy and image
      boxes; every other box blank.
 - **What it will not show**: the site-wide rewrite on a list read on two
-  pages (the bakery has one; unit tests only); a page-code arrangement; a
-  hand-picked sequence; other sites; how often.
+  pages (the bakery has one; shown with supplied answers only, in the
+  committed two-page cases); a one-page sort through the page editor; a
+  page-code arrangement; a hand-picked sequence; other sites; how often.
 
 ## Test 9 — a follow-up after a failure, in the same chat tab (prepared 2026-09-30 on the owner's word, after runs 79 and 80 were closed; built on the branch as the canary's UI scenario `9-follow-up`, red-checked, swept, tested through the stand-in, and proven locally against the real app's code with supplied answers, which found and fixed a first-run modal that would have blocked the card at the current balance; the free rehearsal passed as run 81 the same evening; the owner pressed the paid run as run 82 the same evening, and every pass item was met, for 4 credits; closed by the owner the same day for the demonstrated no-match failure followed by a successful edit in the same tab, the filled-in checks accepted, the demo data kept, not to be repeated)
 
