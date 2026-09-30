@@ -180,11 +180,35 @@ here; take a closed one out of both.**
   app's mobile layout (deliberately not being done).
 - A deleted row's reply cuts each field at 40 characters, mid-word (run 80,
   "…with two other , price 18"). Cosmetic; kept for model-written replies.
+- The first-run welcome modal greets a returning owner on any new browser
+  whenever an unpaid balance is 1 to 20, covers the page, and still speaks of
+  the deleted media side (found 2026-09-30 by Test 9's local proof; the
+  canary now marks it seen; the product is not changed).
 
 ---
 
 ## Backlog
 
+- **THE FIRST-RUN WELCOME MODAL GREETS A RETURNING OWNER ON A NEW BROWSER
+  (found 2026-09-30 by Test 9's local proof; not changed).**
+  - **What happens**: `maybeShowWelcome` (`public/chat.js`) covers the page
+    with *"Welcome to Go Farther — N free credits, on us"* whenever the
+    browser holds no `zephyr_welcome_v1`, the account is not paid, the
+    balance is 1 to 20, and **this browser** stores no site. The last test
+    reads localStorage, not the server's site list, so an owner with sites,
+    on a new browser or after clearing storage, is greeted as new, and the
+    modal takes the first click.
+  - **Its words are the media side's**: *"Enough for a few images or a voice
+    line — every model, one balance. Ready for video? Plans start at
+    $24.99/mo."* The media side was deleted on 2026-09-12.
+  - **How it was found**: the canary's UI mode opens a fresh browser. Every
+    UI run before had a balance above 20; at 10, the modal took the site
+    card's click in the local proof. The canary now marks the greeting seen
+    in its own plant (`WELCOME_SEEN_KEY`, the app's origin only), as a
+    returning owner's browser holds it. No edit passes through the modal.
+  - **Not decided**: whether the greeting should ask the server's list, and
+    what it should say now. That is the owner's call; nothing is proposed in
+    this round.
 - **A DELETED ROW'S REPLY CUTS EACH FIELD AT 40 CHARACTERS, MID-WORD (found
   2026-09-30 in run 80; cosmetic; not changed).**
   - **What the customer read**: "✅ Removed one entry. Gone from lessons: name

@@ -1295,7 +1295,7 @@ in the next data press.
 - **Then**: one merge, one free runtime check, and the lane 4 presses. Those
   on different sites can overlap a minute apart, as Batch 1's did.
 
-## Test 9 — a follow-up after a failure, in the same chat tab (prepared 2026-09-30 on the owner's word, after runs 79 and 80 were closed; built on the branch as the canary's UI scenario `9-follow-up`, red-checked, swept and tested through the stand-in; not run)
+## Test 9 — a follow-up after a failure, in the same chat tab (prepared 2026-09-30 on the owner's word, after runs 79 and 80 were closed; built on the branch as the canary's UI scenario `9-follow-up`, red-checked, swept, tested through the stand-in, and proven locally against the real app's code with supplied answers, which found and fixed a first-run modal that would have blocked the card at the current balance; not run)
 
 **The owner** (the message arrived cut off after the third item): *"Next,
 prepare one bounded test of a follow-up after failure in the same chat tab:
@@ -1382,6 +1382,39 @@ twice.
   spent.
 - **After its reply**: the table on both readers, `/prices` and `/` again.
   Nothing is put back.
+
+### Proven locally against the real app's code (free; supplied answers)
+
+The UI mode's own kind of proof, as before its first press: the live
+gofarther.dev files and the live `fretwork-1` site's files, fetched over
+TLS-verified Node fetch and served into a real Chromium. Every call to the
+app's API, to Supabase's auth and to the site's data is answered from a local
+copy of the table. No live write, no model call, and a fake session, never an
+owner credential. **It proves the driver and the app's own page code on this
+flow, not the live platform's answers.**
+- **It found a blocker first.** The first-run welcome modal
+  (`maybeShowWelcome`) covers the page on a fresh browser whenever an unpaid
+  balance is 1 to 20 and the browser stores no site. The canary's context is
+  always fresh, and every earlier UI run had more than 20; at today's 10 the
+  modal took the site card's click, so the rehearsal would have failed there.
+  **The canary's plant now marks the greeting seen** (`WELCOME_SEEN_KEY`,
+  `zephyr_welcome_v1`, the app's origin only, never over a held value), as a
+  returning owner's browser holds it. The modal itself is a backlog item.
+- **Then all four paths ran through the real page code**:
+  - the rehearsal: signed in, card open, both pages and the table read,
+    message 1 typed, nothing sent;
+  - the flow as designed: the app drew *"⚠️ I couldn't match that to
+    anything the site stores — say which list it's in and I'll have another
+    go. This edit cost you nothing. Reading your message cost 2 credits."*,
+    the composer came back usable, the table was the baseline, message 2
+    went from the same tab, and the app composed exactly *"✅ Updated one
+    entry in lessons."*; both pages then showed £45 with every other line as
+    before, and the money closed (a reserve and its refund, then one
+    reserve);
+  - message 1 succeeding after all (a row taken off): message 2 was never
+    typed, and the change was reported, not put back;
+  - the page reloading itself after message 1's reply: the reply was flagged
+    as read in another document, and message 2 was not sent.
 
 ### Pass (the canary's checks, paid)
 

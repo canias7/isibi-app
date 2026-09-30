@@ -70,6 +70,10 @@ in `docs/instruments.md`; each test's plan and evidence is in the checklist.
     row scenario may keep what it changed (`restore: false`): it then asks no
     conditional write, plans no recovery, and its PATCH refuses before it
     leaves. A refunded job is part of the money (its ledger nets to nothing).
+    The plant also marks the app's first-run greeting as seen
+    (`zephyr_welcome_v1`, the app's origin only): on a fresh browser its
+    modal covers the page whenever an unpaid balance is 1 to 20, and at a
+    balance of 10 it took the site card's click in Test 9's local proof.
 - **The route a paid press expects** (`expect_route`, 2026-09-30,
   `scripts/canary-route.mjs`): space-separated `key=value` over the router's
   own fields (`intent`, `layer`, `page`, `rename`, `remove`, `tab`,

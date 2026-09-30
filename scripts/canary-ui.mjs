@@ -40,6 +40,8 @@ import {
 } from "./canary-rules.mjs";
 
 export const SESSION_KEY = "zephyr_session_v1";
+// THE APP'S FIRST-RUN GREETING, KEPT AS SEEN (`WELCOME_KEY` in public/chat.js).
+export const WELCOME_SEEN_KEY = "zephyr_welcome_v1";
 
 // ── TEST 4b's D1: ONE ROW OF A LIVE SITE'S DATABASE ─────────────────────────
 //
@@ -1098,10 +1100,23 @@ export async function runUi(opts) {
     // script runs in the workspace's preview frame, which is the customer
     // site's origin — and a session written there would hand the owner's token
     // to that site's scripts. Written once: the app refreshes and rotates it.
-    await context.addInitScript(({ o, key, value }) => {
-      try { if (location.origin === o && !localStorage.getItem(key)) localStorage.setItem(key, value); } catch (e) { /* a frame with no storage */ }
+    //
+    // AND THE FIRST-RUN GREETING, MARKED AS SEEN, as a returning owner's browser
+    // holds it. On a fresh browser, `maybeShowWelcome` covers the page with a
+    // modal whenever an unpaid account's balance is 1 to 20 and no site is
+    // stored locally. This context is always fresh, so from a balance of 20
+    // down the modal took the site card's click: Test 9's local proof, at a
+    // balance of 10, stopped there, and every earlier UI run had more than 20.
+    // It greets; no edit passes through it. Only for the app's origin, and
+    // never over a value the page already holds.
+    await context.addInitScript(({ o, key, value, seen }) => {
+      try {
+        if (location.origin !== o) return;
+        if (!localStorage.getItem(key)) localStorage.setItem(key, value);
+        if (!localStorage.getItem(seen)) localStorage.setItem(seen, "1");
+      } catch (e) { /* a frame with no storage */ }
     }, {
-      o: origin, key: SESSION_KEY, value: JSON.stringify({
+      o: origin, key: SESSION_KEY, seen: WELCOME_SEEN_KEY, value: JSON.stringify({
         access_token: session.access_token,
         refresh_token: session.refresh_token,
         expires_at: session.expires_at ? session.expires_at * 1000 : Date.now() + (session.expires_in || 3600) * 1000,

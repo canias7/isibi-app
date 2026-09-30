@@ -167,9 +167,22 @@ message 1's refund, and message 2's edit.
 
 **Built and tested.** The canary's browser mode has the new scenario
 (`9-follow-up`). There are 15 new tests, and each one fails on the old code.
-A mutation sweep killed 45 of 45 mutants, and its comment-only controls
-survived. The full suite is `8403 / 8403`. No product code changed, so
-nothing needs deploying. The press runs from the branch.
+A mutation sweep killed all its mutants, and its comment-only controls
+survived. The full suite is `8403 / 8403`, and CI agrees. No product code
+changed, so nothing needs deploying. The press runs from the branch.
+
+**Tried locally against the real app first, free.** I served the live app's
+own files into a real browser and answered every server call myself: no
+live change, no AI call. **That found a blocker.** On a fresh browser the
+app's "Welcome to Go Farther — free credits" pop-up covers the page when
+the balance is 20 or less. Your balance is 10, and every earlier browser
+test ran above 20, so your rehearsal would have stopped at the site's card.
+The canary now marks that welcome as already seen, the way your own browser
+has it. After that, the whole flow ran through the real app's code: the
+warning, the follow-up from the same tab, *"✅ Updated one entry in
+lessons."*, and £45 on both pages. The pop-up itself (it greets returning
+owners on a new browser, and still talks about images, voice and video) is
+logged in the backlog, not changed.
 
 **Cost**: the rehearsal is free. The paid run is about 5 credits (3–5), and
 only after you approve. Nothing is put back afterwards: the price stays at

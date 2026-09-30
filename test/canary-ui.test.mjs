@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import crypto from "node:crypto";
 import {
-  UI_SCENARIOS, SESSION_KEY, readUiScenario, composerReady, newReplies, budgetRefusal,
+  UI_SCENARIOS, SESSION_KEY, WELCOME_SEEN_KEY, readUiScenario, composerReady, newReplies, budgetRefusal,
   imageFacts, recordableRequest, recordsBody, blocksPost, chainVerdict, runUi, describeUi,
   wallRefusal, requestVerdict, storedReplyVerdict, moneyVerdict, unpublishedVerdict, routeCostsOf,
   conditionProbe, dependencyVerdict, finalReplyOf, failureVerdict, refundedVerdict, sameTab,
@@ -408,8 +408,8 @@ test("the owner's session is planted for the app's own origin and no other", asy
   assert.deepEqual(Object.keys(planted).sort(), ["access_token", "expires_at", "refresh_token", "user"]);
   assert.equal(planted.expires_at, SESSION.expires_at * 1000, "auth.js keeps milliseconds");
   // Run the init script itself in both origins: the site's own frame must get nothing.
-  const run = (origin, have = null) => {
-    const store = new Map(have ? [[SESSION_KEY, have]] : []);
+  const run = (origin, have = null, seen = null) => {
+    const store = new Map([...(have ? [[SESSION_KEY, have]] : []), ...(seen ? [[WELCOME_SEEN_KEY, seen]] : [])]);
     const saved = ["location", "localStorage"].map((k) => [k, Object.getOwnPropertyDescriptor(globalThis, k)]);
     const put = (k, value) => Object.defineProperty(globalThis, k, { value, configurable: true, writable: true });
     put("location", { origin });
@@ -417,11 +417,22 @@ test("the owner's session is planted for the app's own origin and no other", asy
     try { fn(arg); } finally {
       for (const [k, d] of saved) { if (d) Object.defineProperty(globalThis, k, d); else delete globalThis[k]; }
     }
-    return store.get(SESSION_KEY) ?? null;
+    return { session: store.get(SESSION_KEY) ?? null, seen: store.get(WELCOME_SEEN_KEY) ?? null, keys: [...store.keys()].sort() };
   };
-  assert.equal(run(ORIGIN), arg.value);
-  assert.equal(run("https://fold-lane-bakery.gofarther.app"), null, "the session was written into the customer site's origin");
-  assert.equal(run(ORIGIN, "rotated"), "rotated", "a session the app already rotated was overwritten");
+  assert.equal(run(ORIGIN).session, arg.value);
+  assert.deepEqual(run("https://fold-lane-bakery.gofarther.app").keys, [], "the customer site's origin was written to");
+  assert.equal(run(ORIGIN, "rotated").session, "rotated", "a session the app already rotated was overwritten");
+  // THE FIRST-RUN GREETING IS MARKED AS SEEN, in the app's origin only, and a
+  // value the page already holds is kept. The key is the app's own.
+  assert.equal(arg.seen, WELCOME_SEEN_KEY);
+  assert.equal(run(ORIGIN).seen, "1");
+  assert.equal(run(ORIGIN, null, "kept").seen, "kept");
+  assert.deepEqual(run(ORIGIN).keys, [SESSION_KEY, WELCOME_SEEN_KEY].sort(), "the plant wrote something else too");
+  const chat = fs.readFileSync(ROOT + "public/chat.js", "utf8");
+  const key = (chat.match(/const WELCOME_KEY = '([^']+)';/) || [])[1];
+  assert.equal(key, WELCOME_SEEN_KEY, "the app's welcome key is not the one the canary marks");
+  // And the greeting is still what it was: the modal that covers the page, shown only without that key.
+  assert.match(chat, /function maybeShowWelcome\(balance\) \{\n\s+try \{\n\s+if \(localStorage\.getItem\(WELCOME_KEY\)\) return;/);
 });
 
 test("the wall aborts the work a scenario never asks for, and passes everything else on", async () => {

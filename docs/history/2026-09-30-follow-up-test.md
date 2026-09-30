@@ -71,7 +71,9 @@ Checked in the code before building:
   - `runUi`: a row the run keeps is never written (its PATCH is swapped for
     a counted refusal, and no probe or recovery is asked); every page in
     `shown.also` is read before and after; after a failing message the table
-    is read on both readers.
+    is read on both readers;
+  - the session plant also marks the app's first-run greeting as seen
+    (`WELCOME_SEEN_KEY`; found by the local proof, section 5).
 - **`scripts/canary-rows.mjs`**: `shownLead` (a line found by its whole
   start), used by `shownVerdict`; `untouchedVerdict` (field for field, no row
   added or gone, a visitor's read byte for byte, cannot-tell never
@@ -106,9 +108,58 @@ Checked in the code before building:
   assert both, and the full sweep was run again on the final code.
 - **Full suite**: `8403 / 8403 / 0 / 0` locally (8,388 before, plus the 15
   new cases), run from the working tree after the sweep had finished.
-- **Unit CI**: CI_PENDING.
+- **Unit CI** on `04331c8c`: run 36782393786, `8403 / 8399 / 0 / 4` (CI
+  skips four), the same total.
 
-## 5. What it will not show
+## 5. The local proof against the real app's code, and what it found
+
+The UI mode's own kind of proof, as before its first press (2026-09-26):
+the live gofarther.dev files and the live `fretwork-1` site's files,
+fetched over TLS-verified Node fetch and served into a real Chromium, with
+every call to the app's API, to Supabase's auth and to the site's data
+answered from a local copy of the table. No live write, no model call, a
+fake session and never an owner credential (scratch, not committed). It
+proves the driver and the app's own page code on this flow, not the live
+platform's answers.
+
+**It found a blocker before any press.** The first-run welcome modal
+(`maybeShowWelcome`, `public/chat.js`) covers the page on a fresh browser
+whenever an unpaid balance is 1 to 20 and the browser stores no site. The
+canary's context is always fresh; every UI run before had more than 20. At
+today's 10 the modal intercepted the site card's click, so the free
+rehearsal would have failed at opening the card.
+- **The fix** (`scripts/canary-ui.mjs`): the init script that plants the
+  session also marks the greeting seen (`WELCOME_SEEN_KEY`,
+  `zephyr_welcome_v1`), for the app's origin only and never over a value the
+  page holds, as a returning owner's browser holds it. No edit passes
+  through the modal.
+- **Its guard** runs the init script in both origins: the site's origin gets
+  nothing, the key is the app's own `WELCOME_KEY` (read from `chat.js`), a
+  held value is kept, and the app still gates the modal on that key.
+- **Swept again**, with four new mutants (the mark dropped, the mark
+  overwriting, the plant in every origin, another key): 49 of 49 killed on
+  the final code, the 3 comment-only controls surviving.
+- **The modal itself** (it greets a returning owner on a new browser, and
+  still speaks of the deleted media side) is a backlog item, not changed.
+
+**Then all four paths ran through the real page code:**
+- **the rehearsal**: signed in, the card opened, both pages and the table
+  read, message 1 typed, nothing sent;
+- **the flow as designed**: the app drew *"⚠️ I couldn't match that to
+  anything the site stores — say which list it's in and I'll have another go.
+  This edit cost you nothing. Reading your message cost 2 credits."*; the
+  composer came back usable; the table was the baseline; message 2 went from
+  the same tab; the app composed exactly *"✅ Updated one entry in
+  lessons."*; both pages showed £45 with every other line as before; and the
+  money closed (a reserve and its refund, then one reserve);
+- **message 1 succeeding after all** (a row taken off): message 2 was never
+  typed, and the change was reported, not put back;
+- **the page reloading itself** right after message 1's reply: that reply
+  was flagged as read in another document, and message 2 was not sent.
+- **Full suite, after the fix**: `8403 / 8403 / 0 / 0` locally (the guard
+  grew inside an existing case, so the count is unchanged).
+
+## 6. What it will not show
 
 A follow-up after other failures (a hop, an escalation, a failure with no
 job); one that leans on the conversation (message 2 names its own row);
