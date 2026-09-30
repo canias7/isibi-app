@@ -57,6 +57,24 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-30 — The bakery is back to its original version (run 75); only the £40 put-back is left
+
+**The restore worked, exactly, and it was free.** The bakery is back on its
+original version, and all five pages match it byte for byte. The gallery
+page opens again, with the Gallery menu links where they were, and the old
+starter address still sends people on. Nothing was charged; your balance is
+15.
+
+**So the gallery test is complete**: the removed page's address sent
+visitors home (checked twice), and the site is back as it was.
+
+**One thing left, yours**: the Hour one-to-one lesson is still £42. The free,
+exact way to put it back is in the app's Data panel (lessons, Hour
+one-to-one, Edit, price 40, Save changes). Tell me when it's done and I'll
+check that all four lessons match their original values exactly.
+
+---
+
 ## 2026-09-30 — The restore didn't start, and the price change back was stopped by the route check (runs 73 and 74)
 
 **Neither press changed anything.**

@@ -238,7 +238,7 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   reading is Test 8's run 66: the real router answered `look` for that mix,
   with nothing held back** (one sample; how often, and for other messages,
   is not measured). The image rolled to `abf47dfeceba3c5c`, as predicted. `docs/history/2026-09-29-whole-message-routing.md`.
-- **Batch 1 is approved; A1, B1 and A2 are done; A3 and B's put-back are not** (2026-09-29,
+- **Batch 1 is approved; group A is complete; B's put-back of row 4 is left** (2026-09-29,
   after Test 8's closure; corrected 2026-09-30 after the owner's review, and
   approved the same day at an estimated 5–8 credits, not a cap). **Two groups are ready**, on
   different sites with different controls, each paid press with its route
@@ -296,10 +296,13 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
     `text` (cost 2), so the edit was never posted, and row 4's price is
     still 42. It is the check's first live refusal, and the `text` answer
     is a backlog finding.
-  - **Next, the owner's**: A3 pressed again with the route box blank, and
-    row 4 put back to 40, either in the app's Data panel (free, exact, the
-    plan's recovery) or by pressing B2 again (another routing call). Spent
-    so far: 7 (22 → 15).
+  - **A3 ran as run 75** (02:20–02:22 UTC, free): RESTORED `8btpep`, the
+    five stored pages byte-identical to the fixture, `/gallery` 200 again,
+    `/the-starter` still 301, the sitemap five pages, nothing charged. Group
+    A is complete.
+  - **Next, the owner's**: row 4 put back to 40, either in the app's Data
+    panel (free, exact, the plan's recovery) or by pressing B2 again
+    (another routing call). Spent so far: 7 (22 → 15).
 
   **Estimates, not limits**: A about 1–2 credits, B about 4–6, about 5–8
   together. Nothing caps a request or the batch; the only hard bound is the
@@ -520,8 +523,8 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
   `ben-crowe-guitar`, and the older `fold-lane-bakery`, `harbourside-roast`,
   `the-lido-cafe`, `oak-and-ash`, `forno-and-co`. **Reusing one of those slugs
   revises that site.** The test fixtures now: `fold-lane-bakery` live at
-  `01790731167044-yuy16h` (Batch 1's A2, run 72: the gallery page removed;
-  its original `8btpep` is put back by A3, not yet pressed correctly),
+  `01790468089054-8btpep` (put back by Batch 1's A3, run 75, byte-identical
+  to the fixture),
   `fretwork-1` at `01790404806543-kk6qsh` (Test 3's removal kept; `lessons`
   row 4's price is 42 after B1; B2 was refused by the route check, so it
   waits for the owner's put-back), and

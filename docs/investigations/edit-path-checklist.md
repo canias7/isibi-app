@@ -52,8 +52,9 @@ run 66 proved, with recovery verified by run 67.**
 - Kept separate: the reply omission (review #9) and the saved-version list's
   label naming only the first change (backlog).
 
-**Batch 1 is approved (2026-09-30); A1, B1 and A2 are done; A3 and B's
-put-back are not**: run 73 (A3) never started (the image id was in the
+**Batch 1 is approved (2026-09-30); group A is complete, and B's put-back
+is the one step left**: A3 (run 75) restored `8btpep` exactly, free (*A3 as
+run 75*, below). Before it, run 73 (A3) never started (the image id was in the
 route box), and run 74 (B2) was refused by the route check (the router
 answered `text`), for 2 credits and no change (*Runs 73 and 74*, below).
 Before that: A2 (run 72) removed `/gallery`, which answers 301 home,
@@ -249,7 +250,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Batch 1 — a removed page's 301 home, and a row changed on a site whose database link is blank, run side by side (proposed 2026-09-29 after Test 8's closure; corrected after the owner's review: the canary now enforces each press's expected route, the costs keep estimates apart from enforced limits, group B's recovery covers every row and field, and the remaining six are the owner's list; approved 2026-09-30; Round 1 done: A1's free restore (run 68) checked, and B1 (run 71, after runs 69 and 70 went nowhere) changed exactly row 4's price for 3 credits; A2 (run 72) removed `/gallery`, which answers 301 home, read twice, for 2 credits; run 73 (A3) never started, and run 74 (B2) was refused by the route check when the router answered `text`, for 2 credits and no change)
+## Batch 1 — a removed page's 301 home, and a row changed on a site whose database link is blank, run side by side (proposed 2026-09-29 after Test 8's closure; corrected after the owner's review: the canary now enforces each press's expected route, the costs keep estimates apart from enforced limits, group B's recovery covers every row and field, and the remaining six are the owner's list; approved 2026-09-30; Round 1 done: A1's free restore (run 68) checked, and B1 (run 71, after runs 69 and 70 went nowhere) changed exactly row 4's price for 3 credits; A2 (run 72) removed `/gallery`, which answers 301 home, read twice, for 2 credits; run 73 (A3) never started, and run 74 (B2) was refused by the route check when the router answered `text`, for 2 credits and no change; A3 (run 75) restored `8btpep` exactly, free; B's put-back of row 4 is left)
 
 The owner asked for the next bounded batch: up to three independent
 acceptance groups from the remaining six, on existing ready fixtures and
@@ -954,6 +955,42 @@ A3, a minute apart.
   - Money so far: 22 → 15, 7 credits. That is routing 2 + 2 + 2 (runs 71,
     72 and 74) and ledger row 342 (1). The estimate was 5–8, and it is not
     a cap.
+
+### A3 as run 75 (2026-09-30 02:20–02:22 UTC, free): the bakery is back on `8btpep`
+
+Pressed from the branch at `502d971a` with only the four restore boxes
+filled. The deploy, image and route boxes were blank, as handed over: a free
+restore needs neither expectation. The preflight printed deploy
+`907840c67497` and image `abf47dfeceba3c5c`, the confirmed deployment.
+**Every pass item of step 3 is met.**
+- **RESTORED**: live before `yuy16h`; the POST answered 200 (24 files, 0
+  swept); the site reported `01790468089054-8btpep` itself on the first
+  read.
+- **The stored pages are byte-identical to the fixture**,
+  `test/fixtures/run47/*.before.tsx`:
+  - `index.tsx` 2,445 bytes, `51b5af6a`;
+  - `order.tsx` 9,277 bytes, `4ead778e`;
+  - `starter.tsx` 951 bytes, `37fb0e17`;
+  - `visit.tsx` 4,055 bytes, `bdb02abe`;
+  - `gallery.tsx` 3,017 bytes, `4e8b82aa`;
+  - no stored components.
+- **The addresses**, read at 02:22:49 UTC without following redirects:
+  - every page answers 200 at `8btpep`;
+  - `/gallery` answers 200 again, with the query and the trailing slash;
+  - `/the-starter` answers 301 → `/starter` (and its query and slash);
+  - `/nonexistent-page` answers 404;
+  - the sitemap lists five pages.
+  - The Gallery links are back where `8btpep` has them: 2 on `/` and 2 on
+    `/gallery`. `/order` and `/visit` have none, as before: their sizes,
+    15,412 and 12,782 bytes, are the same at `t5obxx` and `8btpep`.
+- **Nothing charged**: balance 15, no ledger row after 342. The free check's
+  two jobs (`b5916eaa…` on the bakery, `5b5352d1…` on `washhouse-3`) ended
+  `billing none`, cost 0, and no job is open.
+
+**Group A is complete**: from `t5obxx`, the removal (A2) answered 301 home,
+read twice, and the fixture is back to `8btpep`, exactly. Group B's put-back
+of row 4 (still 42, `2ec299b8…` at 02:22:49) is the one step left, and it
+is the owner's.
 
 ### What it will not establish
 
