@@ -57,6 +57,44 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-30 — Taking a row off a list now points at the data step (on the branch, not merged)
+
+**What you asked**: fix the router instruction conflict before the paid
+row-deletion test, without touching how rows are added, how lists are
+ordered, whole-page deletion, or the rule that picks one answer for a whole
+message.
+
+**The conflict**: the router's instructions said every removal goes to the
+look step, and also that one row of a list goes to the data step. The look
+step can't delete a row; the data step can.
+
+**The fix**: three sentences in the router's instructions:
+- the data step's description now says taking an existing row off one of
+  the site's lists is its job too;
+- the look step's removal rule now has two exceptions, a whole page (as
+  before) and a row the site stores (the data step);
+- the list of what the look step can do no longer claims a stored row.
+
+Nothing else changed. It names no site, table or customer sentence.
+
+**Checked (no model was called)**:
+- the router is now sent these sentences, and the site's table names they
+  point at;
+- the new checks fail on the old wording;
+- the checks caught all 16 deliberately broken versions;
+- all 8,360 tests pass;
+- a data answer goes through as a data edit, and a look answer is still
+  stopped by the canary before anything changes.
+
+**Not checked**: whether a real router now picks the data step. Only the
+paid delete test can show that, after this is merged and deployed.
+
+**Still yours**: the free runtime check for deploy 2171, the Data panel look
+in a private window, the £40 put-back (then I check every row and field),
+and the merge of this fix when you're happy with it.
+
+---
+
 ## 2026-09-30 — The four fixes are live on the site (deployed; waiting for your free check)
 
 **Merged and deployed, as you asked.** Main is now exactly the candidate you

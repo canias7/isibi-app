@@ -461,7 +461,9 @@ waits until about 05:53, and the confirmation is the owner's free press
 dispatch of that free press, at 05:53 after the wait, answered 403 (no
 `actions: write`), as before, and was not retried. The Data panel's
 fresh-browser read needs the building account's session, so it is the
-owner's own check.
+owner's own check. **The deployment is credited by the owner** (2026-09-30:
+*"Deployment 2171 is credited. Keep runtime confirmation and B2 recovery open
+until their evidence exists."*); its runtime confirmation stays open.
 
 ## The served-file check, driven end to end on deploy 2139
 

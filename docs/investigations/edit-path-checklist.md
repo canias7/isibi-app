@@ -53,7 +53,8 @@ run 66 proved, with recovery verified by run 67.**
   label naming only the first change (backlog).
 
 **Lane 1 (2026-09-30): four corrections, merged and deployed in deploy 2171
-(`29111010`, image `cdb624837e099719`), not yet runtime-confirmed**
+(`29111010`, image `cdb624837e099719`; the deployment credited by the owner),
+not yet runtime-confirmed**
 (*Next independent work*, below; `docs/history/2026-09-30-lane1.md`):
 - the data picker is sent to `remove` for a deletion;
 - a failed routing call names why, from allow-lists only;
@@ -69,6 +70,14 @@ build 36671505766, the twelve counts), and the served `chat.js` and
 `site-list.js` are the merged bytes. B2 stays failed and its price
 recovery open. The next unaccepted live test, the delete (*Lane 4*), is
 prepared below and not run.
+
+**The row-removal routing (2026-09-30): corrected on the branch, not merged**
+(`4e3ef512`; `docs/history/2026-09-30-row-removal-routing.md`). The router's
+instructions gave a stored row taken off its list two answers, `look` and
+`data`; now it is `data`, said in the `data` clause, at `look`'s exceptions
+after the whole page, and in `look`'s reach. The whole-page exception, the
+whole-message rule and the open decisions are unchanged. Instruction and
+supplied-answer evidence only; no model was called.
 
 **Batch 1 (2026-09-30): group A accepted by the owner, B1 credited, and
 B's row 4 waits for the owner's free write** (*The owner's review of
@@ -1187,7 +1196,7 @@ in the next data press.
 - **Then**: one merge, one free runtime check, and the lane 4 presses. Those
   on different sites can overlap a minute apart, as Batch 1's did.
 
-## Lane 4's delete — one row taken off `fretwork-1`'s price list, with real models (prepared 2026-09-30 after deploy 2171; not run, not approved)
+## Lane 4's delete — one row taken off `fretwork-1`'s price list, with real models (prepared 2026-09-30 after deploy 2171; its routing conflict corrected on the branch the same day on the owner's word, not merged; not run, not approved)
 
 The next unaccepted live test. It is the only Lane 4 item whose blocker is
 gone (1a, deployed in 2171). Add, reorder, rules, the picture swap, the
@@ -1205,18 +1214,29 @@ protections, and the reply. This press is for the real models:
 - whether the job deletes exactly that row in the site's container, through
   the blank link.
 
-**The routing risk, read in the code (not measured).** The router's `look`
-clause claims every removal: *"TAKING SOMETHING OFF THE SITE IS THIS LAYER,
-whatever the something is"*, with a whole page as its one exception. The
-`data` clause says *"prefer it whenever the thing being changed is one row of
-something the site lists"*. Neither names a row taken off a list. So the real
-router may answer `look`. The canary's route check refuses any answer other
-than `data` before the edit is posted, so a misroute costs the routing call
-alone and changes nothing. It is then a finding for Lane 3's router round,
-not a retry (backlog).
+**The routing conflict, found in the code and corrected on the branch
+(`4e3ef512`, not merged).** The router's `look` clause claimed every removal:
+*"TAKING SOMETHING OFF THE SITE IS THIS LAYER, whatever the something is"*,
+with a whole page as its one exception, and `look`'s reach under `alsoAsked`
+said *"taking something off"*. The `data` clause said *"prefer it whenever
+the thing being changed is one row of something the site lists"*. Neither
+named a row taken off a list. The owner: *"Before the paid row-deletion test,
+fix the specific router instruction conflict you found."* Now the `data`
+clause claims an existing row taken off, `look`'s removal clause excepts a
+stored row for `data` (after the whole page, still `page` with `remove`), and
+`look`'s reach names no stored row
+(`docs/history/2026-09-30-row-removal-routing.md`). **That is instruction
+evidence only**: how a real router answers is what this press measures. The
+canary's route check still refuses any answer other than `data` before the
+edit is posted, so a misroute costs the routing call alone and changes
+nothing.
 
 **Preconditions, all free and in this order:**
-1. **Deploy 2171 runtime-confirmed** by the owner's free press.
+0. **The routing correction merged and deployed**, on the owner's word, and
+   runtime-confirmed by the owner's free press with its own sha and image
+   (predicted `e71f7bae88b9ecf1`). The press below names them.
+1. **Deploy 2171 runtime-confirmed** by the owner's free press (credited by
+   the owner as deployed; its runtime confirmation is still open).
 2. **B2's recovery closed.** The owner puts row 4's price back to 40 in the
    Data panel. My checks against the baseline: the served body byte-identical
    (736 bytes, `a4f1dc30…`), `/prices` £40, every page at `kk6qsh`, the
@@ -1242,9 +1262,10 @@ boxes by description:
 - "Run the ONE paid edit as well": `yes`;
 - "What to change. REQUIRED when spend=1": the request above, exactly;
 - "The site to edit": `fretwork-1`;
-- "Refuse to spend unless the Worker reports this deploy sha": `29111010`;
-- "Refuse to spend unless a cold container reports this image id":
-  `cdb624837e099719`;
+- "Refuse to spend unless the Worker reports this deploy sha": the merged
+  sha of the routing correction, stated after that merge;
+- "Refuse to spend unless a cold container reports this image id": that
+  deploy's image, read from its log (predicted `e71f7bae88b9ecf1`);
 - "Refuse to post the paid edit unless the router answers this":
   `intent=edit layer=data alsoAsked=none`;
 - everything else blank.

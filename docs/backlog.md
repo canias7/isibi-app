@@ -93,7 +93,10 @@ here; take a closed one out of both.**
   `look`'s removal clause ("TAKING SOMETHING OFF THE SITE IS THIS LAYER,
   whatever the something is", a whole page its one exception) and `data`'s
   one-row clause. Neither names a row. Found 2026-09-30 while preparing Lane
-  4's delete; read in the code, not measured, not changed.
+  4's delete; read in the code, not measured. **Corrected on the branch
+  2026-09-30 on the owner's word (`4e3ef512`), not merged: a stored row taken
+  off is `data` in both clauses and in `look`'s reach; shown with supplied
+  answers only.**
 - A menu removal beside a layout move on another page is answered `nav` with
   `remove` and the move held back, against the router's own `alsoAsked` rule
   (Test 8, run 63). **Corrected 2026-09-29 (the router chooses one answer
@@ -319,9 +322,17 @@ here; take a closed one out of both.**
   rung, which changes who may read or add, and the page lanes would change
   the page's code rather than the stored row. So a customer's row removal may
   fail or change the wrong thing. The canary's route check makes the delete
-  press safe (a misroute is refused for the routing call alone). A wording
-  change would belong to Lane 3's router round, with 2a and 2b; whether and
-  when is the owner's decision.
+  press safe (a misroute is refused for the routing call alone). **Corrected
+  on the branch 2026-09-30 (`4e3ef512`), not merged**, on the owner's word
+  (*"Before the paid row-deletion test, fix the specific router instruction
+  conflict you found"*): the `data` clause claims an existing row taken off,
+  `look`'s removal clause excepts a stored row for `data` after the whole
+  page, and `look`'s reach under `alsoAsked` names no stored row. The
+  whole-message rule, the whole-page exception and the open decisions (2a,
+  2b) are unchanged. Red-checked, swept (16 of 16) and shown with supplied
+  answers through the real routing route
+  (`docs/history/2026-09-30-row-removal-routing.md`); how a real router
+  answers is not measured.
 - **AN ADDED ROW'S REPLY READS "✅ Updated one entry in added to <table>."
   (found 2026-09-29; read in the code; not changed).** The data reply in
   `public/chat.js` prefixes `added to ` to the table's name when a row has no

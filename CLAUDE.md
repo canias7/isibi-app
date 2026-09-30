@@ -41,10 +41,11 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   the container moved `abf47dfeceba3c5c` → `cdb624837e099719` at 05:33:17).
   The served `chat.js` (789,646 bytes, `efcae48d…`) and `site-list.js`
   (15,846 bytes, `56ab5196…`) are byte-identical to the merged files.
-  **Deployed, not runtime-confirmed**: the confirmation is the owner's free
-  press after 05:53 UTC (`build-health` answering `29111010` and
-  `cdb624837e099719`). It carries **Lane 1's four corrections and the review
-  round** (below). `docs/deploy-record.md`.
+  **Deployed, and the deployment credited by the owner; runtime
+  confirmation still open**: it is the owner's free press
+  (`build-health` answering `29111010` and `cdb624837e099719`), and the
+  session's dispatch answers 403. It carries **Lane 1's four corrections and
+  the review round** (below). `docs/deploy-record.md`.
 - **Deploy 2170** (`907840c6`, 2026-09-29 20:28 UTC, image
   `abf47dfeceba3c5c`, predicted on both ends) was **runtime-confirmed by the
   owner's free press, run 65** (21:51 UTC, on `fold-lane-bakery`). It
@@ -107,8 +108,31 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   minutes later. Redirects dropped between 2026-08-17 and that deploy are not
   rebuilt.
 - **The branch `claude/help-needed-ehlwlj`** is `main` (`29111010`) plus
-  documents. The canary's expected-route check is merged with it, so a press
-  from either runs the same script against main's Worker.
+  **the row-removal routing correction** (`4e3ef512`, below; not merged) and
+  documents. The canary's expected-route check is merged, so a press from
+  either runs the same script against main's Worker.
+- **A stored row taken off its list is routed to `data`** (2026-09-30, on
+  the owner's word before the paid row-deletion test; `4e3ef512` on the
+  branch, **not merged or deployed**). The router's tool gave such a removal
+  two answers: `look`'s removal clause claimed every removal ("whatever the
+  something is", a whole page its one exception), `data`'s clause one row of
+  a list, and `look`'s reach under `alsoAsked`, which the whole-message rule
+  reads, said "taking something off". On the look door no lane deletes a
+  row. **The fix is three strings in `builder/site-ask.mjs`**: the `data`
+  clause claims an existing row taken off; `look`'s removal clause has two
+  exceptions, a whole page (still `page` with `remove`) and a stored row
+  (`data`), both before "anything else"; `look`'s reach excepts a stored row.
+  The whole-message rule, the `intent`, `page`, `remove` and `rename` fields,
+  and add-row and ordering (2a, 2b) are unchanged. Tests
+  (`test/router-row-removal.test.mjs`, 9 cases): the wording, the request the
+  real routing route sends, supplied answers through that route, and
+  controls; red check (exactly the 6 wording and request cases fail on the
+  old wording); sweep 16 of 16, 2 controls survived; the 62 router-related
+  files and 1a's `data-remove-wording` 2,351 of 2,351; full suite `8360 /
+  8360 / 0 / 0` locally. **Instruction and supplied-answer evidence only**:
+  how a real router answers is not measured. A merge would roll the image
+  `cdb624837e099719` → `e71f7bae88b9ecf1`.
+  `docs/history/2026-09-30-row-removal-routing.md`.
 - **Balance 15** on the building account after run 74 (Batch 1's refused
   B2, 2026-09-30 02:11 UTC): 17 → 15, routing 2, and no edit. Before it,
   **17** after run 72 (Batch 1's A2, 01:19 UTC): 19 → 17, routing 2, and no
@@ -386,9 +410,10 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
     accepted is repeated. The merge is deploy 2171. **The delete is the next
     unaccepted live test**, prepared and not run: the checklist's *Lane 4's
     delete* (a throwaway row the owner adds on `fretwork-1`, taken off by one
-    message, expected route `data`, about 3 credits). The router's
-    instructions give a row removal two claims, `look` and `data` (backlog);
-    the route check refuses a misroute before anything is posted.
+    message, expected route `data`, about 3 credits). It waits for the
+    row-removal routing correction's merge, deploy and free runtime check,
+    and for B2's recovery; the route check refuses a misroute before
+    anything is posted.
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
   `docs/investigations/edit-path-checklist.md`, and every test's plan, readings
