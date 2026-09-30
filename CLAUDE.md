@@ -103,8 +103,10 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 - **The branch `claude/help-needed-ehlwlj`** is `main` (`907840c6`) plus
   documents. A press from the branch runs the branch's script against main's
   Worker.
-- **Balance 22** on the building account after run 66 (Test 8's second paid
-  run, 2026-09-29 21:57–22:00 UTC): 28 → 22, routing 2 and the job's
+- **Balance 19** on the building account after run 71 (Batch 1's B1,
+  2026-09-30 01:06 UTC): 22 → 19, routing 2 and the job's reserve of 1
+  (ledger row 342), with no job open. Before it, **22** after run 66 (Test
+  8's second paid run, 2026-09-29 21:57–22:00 UTC): 28 → 22, routing 2 and the job's
   reserves of 3 and 1 (ledger rows 340 and 341), with no job open; read
   again by the free restore (run 67) at 22:24, with no row after 341, and
   on 2026-09-30 at 00:41 after Batch 1's runs 68–70, which charged nothing. Before it,
@@ -233,7 +235,7 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   reading is Test 8's run 66: the real router answered `look` for that mix,
   with nothing held back** (one sample; how often, and for other messages,
   is not measured). The image rolled to `abf47dfeceba3c5c`, as predicted. `docs/history/2026-09-29-whole-message-routing.md`.
-- **Batch 1 is approved; Round 1 is half done** (2026-09-29,
+- **Batch 1 is approved; Round 1 is done and Round 2 is handed over** (2026-09-29,
   after Test 8's closure; corrected 2026-09-30 after the owner's review, and
   approved the same day at an estimated 5–8 credits, not a cap). **Two groups are ready**, on
   different sites with different controls, each paid press with its route
@@ -256,18 +258,26 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   - **A1 is done** (run 68, free). The bakery is live at `t5obxx`: the five
     stored pages hash as recorded, `/gallery` answers 200 and no page links
     to it, and `/the-starter` still answers 301.
-  - **B1 has not run.** Run 69 had the route box blank and was cancelled
-    before routing. Run 70 was pressed from `main`, which has no route box.
-    Its router answered `addon` with `failed` in 0.4 s at cost 0, and the
-    canary refused before posting.
-  - **Nothing was charged**: the balance is 22 with no row after 341, and
-    `lessons` is byte-identical to the baseline.
+  - **B1 at first did not run.** Run 69 had the route box blank and was
+    cancelled before routing. Run 70 was pressed from `main`, which has no
+    route box. Its router answered `addon` with `failed` in 0.4 s at cost 0,
+    and the canary refused before posting. Runs 68–70 charged nothing.
+  - **B1 then ran as run 71** (01:05–01:07 UTC, from the branch, route box
+    filled), and every pass item is met:
+    - the route matched (`data`, nothing held back, cost 2);
+    - job `12fde9b8…` ran in the container, found the database through the
+      blank link, and `applied` exactly `lessons` row 4's `price` (`failed`
+      0);
+    - rows 1–3 are identical and row 4 differs only in price, 40 → 42;
+    - `/prices` shows £42 (the only pixels changed are the digit), nothing
+      was published, and `neon_db` is still blank;
+    - it cost 3: routing 2 and ledger row 342 (`12fde9b8…#1`), 22 → 19.
   - **Why the routing call failed**: the xAI account's balance was empty
     (the owner's finding; they added credits at about 01:00 UTC). The route
     keeps no reason (backlog). The request builds normally for those inputs
     (measured free), so the throw came from the model call (grok-4.6).
-  - **B1 is to be pressed again only on the owner's word**, from the branch
-    with the route box filled.
+  - **Round 2 was handed over at 01:12 UTC**: A2 ("Remove the gallery
+    page.") and B2 (the price back to £40), a minute apart.
 
   **Estimates, not limits**: A about 1–2 credits, B about 4–6, about 5–8
   together. Nothing caps a request or the batch; the only hard bound is the
@@ -457,8 +467,10 @@ The rules in full are `docs/deploy.md`; each deploy's readings go in
 Every earlier reading — the balance since run 9, the suite and site-build
 stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
 
-- **Balance 22** on the building account after run 66 (Test 8's second paid
-  run, 2026-09-29 22:00 UTC): 28 → 22, routing 2 and the job's reserves of 3
+- **Balance 19** on the building account after run 71 (Batch 1's B1,
+  2026-09-30 01:06 UTC): 22 → 19, routing 2 and the job's reserve of 1
+  (ledger row 342). Before it: 22 after run 66 (Test 8's second paid run,
+  2026-09-29 22:00 UTC): 28 → 22, routing 2 and the job's reserves of 3
   and 1 (ledger rows 340 and 341). Before it: 28 after run 63 (Test 8's paid
   run, 2026-09-29 17:03 UTC): 32 → 28, routing 2 and the job's reserve of 2
   (ledger row 339), read again at 17:30 after the free restore (run 64), with

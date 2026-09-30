@@ -57,6 +57,30 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-30 — The price change worked (run 71); Round 2 is handed over
+
+**Exactly the one change, and nothing else.**
+- The router answered as expected ("data", nothing held back), so the canary
+  sent the edit.
+- The Hour one-to-one lesson went from £40 to £42. The other three lessons,
+  and every other field of that one, are exactly as recorded.
+- The prices page shows £42 in the same order. Compared with the picture
+  from before, the only pixels that changed are that one digit.
+- No page was republished, and the site's database link is still blank, as
+  it was before. That's the point of this group: the edit found the
+  database even without the link.
+- The reply said "✅ Updated one entry in lessons."
+
+**Cost: 3 credits** (2 for routing, 1 for the edit). Your balance is 19. The
+batch has spent 3 so far.
+
+**Round 2 is handed over**: removing the gallery page on the bakery, and
+putting the price back to £40, pressed a minute apart. After the removal I
+read the gallery's addresses at once and again ten minutes later, then hand
+you the free restore.
+
+---
+
 ## 2026-09-30 — Round 1: the bakery restore worked; the price change hasn't run yet
 
 **The restore worked (run 68, free).** The bakery is back on the saved

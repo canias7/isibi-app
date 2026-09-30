@@ -52,11 +52,12 @@ run 66 proved, with recovery verified by run 67.**
 - Kept separate: the reply omission (review #9) and the saved-version list's
   label naming only the first change (backlog).
 
-**Batch 1 is approved (2026-09-30); Round 1 is half done**: A1, the free
-restore to `t5obxx` (run 68), is done and checked. B1 has not run. Run 69 had
-the route box blank and was cancelled before routing. Run 70 was pressed from
-`main`, whose form has no route box, and stopped at no cost when its routing
-call failed. Nothing has been charged (*Round 1 as pressed*, below). The batch:
+**Batch 1 is approved (2026-09-30); Round 1 is done, and Round 2 is handed
+over**: A1, the free restore to `t5obxx` (run 68), is done and checked. B1
+ran as run 71 after runs 69 and 70 went nowhere (a blank route box; a press
+from `main` whose routing call failed on an empty xAI balance). It changed
+exactly row 4's price, 40 → 42, through the blank-link path in the site's
+container, for 3 credits (*B1, pressed again as run 71*, below). The batch:
 two acceptance groups that can run side by side on different sites,
 each paid press with its route enforced by the canary's new expected-route
 box (on the branch). **A** (item 1's open half): from saved version
@@ -243,7 +244,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Batch 1 — a removed page's 301 home, and a row changed on a site whose database link is blank, run side by side (proposed 2026-09-29 after Test 8's closure; corrected after the owner's review: the canary now enforces each press's expected route, the costs keep estimates apart from enforced limits, group B's recovery covers every row and field, and the remaining six are the owner's list; approved 2026-09-30; Round 1 pressed as runs 68–70: A1's free restore done and checked, B1 not yet run, nothing charged)
+## Batch 1 — a removed page's 301 home, and a row changed on a site whose database link is blank, run side by side (proposed 2026-09-29 after Test 8's closure; corrected after the owner's review: the canary now enforces each press's expected route, the costs keep estimates apart from enforced limits, group B's recovery covers every row and field, and the remaining six are the owner's list; approved 2026-09-30; Round 1 done: A1's free restore (run 68) checked, and B1 (run 71, after runs 69 and 70 went nowhere) changed exactly row 4's price for 3 credits; Round 2 handed over)
 
 The owner asked for the next bounded batch: up to three independent
 acceptance groups from the remaining six, on existing ready fixtures and
@@ -756,10 +757,80 @@ bytes, `a4f1dc30…`, read at 00:40:56 UTC; its fifth identical read).
   Nothing on our side could have shown it: the preflight and the ledger read
   only our own credits.
 
-**Where the batch stands.** A1 is done, and A2 waits for Round 2. B1 is
-approved and has not run. It needs a press from the branch with the route box
+**Where the batch stood after run 70.** A1 was done, and A2 waited for Round 2. B1 was
+approved and had not run. It needs a press from the branch with the route box
 filled. Pressing again is the owner's decision (no automatic retries). If the
 router fails again, the press costs nothing and stops before the edit.
+
+### B1, pressed again as run 71 (2026-09-30 01:05–01:07 UTC, 3 credits)
+
+Pressed by the owner after topping up xAI, from the branch at `19c33650`,
+with all seven boxes as handed over, the route box included. **Every pass
+item of step 1 is met.**
+- **The route.** The log printed `EXPECTED ROUTE intent=edit layer=data
+  alsoAsked=none` before the sign-in. The router answered `edit`, `data` and
+  nothing held back, in 8.2 s at cost 2. `routing.json` carries the answer,
+  the expectation and the verdict `{"ok":true,"diffs":[]}`, and the answer
+  was posted as it came.
+- **The job** is `12fde9b8de72d587d50e6968ec960434`: posted 202 at 01:06:24,
+  claimed, and settled at 01:06:38 with a stored final reply.
+  - It ran in the site's container: trace `e_munen0kg7qqev69c` has one mark,
+    `run ok`, `where: "container"`, 6,433 ms, `ok` and no failed phase.
+  - The stored result is `ok: true`, layer `data`, `applied` exactly
+    `[{table: "lessons", id: 4, columns: ["price"]}]`, and `failed: 0`. No
+    `data/backend-unreadable`, `no-backend` or `no-meta`: the blank-link path
+    found the database live. That is the missing-reference half this group
+    exists to show.
+  - The job row reads `done`, billing `finalized`, cost 1, nothing
+    published.
+- **The rows**, read at 01:09:08 UTC and compared field by field with the
+  baseline: ids 1–3 identical in all six fields; id 4 identical apart from
+  `price` 40 → 42; no row added or missing. The body is 736 bytes, sha256
+  `2ec299b8…`, unchanged when read again at 01:11:52.
+- **The page.** `/prices`, drawn in Chromium at `kk6qsh`, shows "Hour
+  one-to-one … £42" last, in the same order (£0, £18, £30, £42), read from
+  `lessons?order=price.asc`. Compared with the before picture (2026-09-29
+  23:12), 103 pixels differ, all inside one 10 × 12 box at the price's last
+  digit; the same comparison of a picture with itself finds 0. The three
+  `gbp_eur` 502s were there before (Test 3).
+- **Nothing published.** `/`, `/prices`, `/gear` and `/fr/prices` are still
+  at `kk6qsh`. The served markup of `/`, `/gear` and `/prices` differs from
+  the before-read only in the 12 bytes of two render timestamps per page
+  (`u:17907303…`). The stored source is byte-identical, and the stored
+  description is unchanged.
+- **The reference.** `neon_db` is still blank, and the project row is
+  present.
+- **Money, per job**:
+  - routing 2 (the log's `cost=2`; routing leaves no ledger row);
+  - the job's one reserve, ledger row 342 (`12fde9b8…#1`, −1, balance after
+    19);
+  - 22 − 19 = 3 = 2 + 1, exactly;
+  - the free check's two jobs (`a403bffb…` on `fretwork-1`, `7ae967b5…` on
+    `washhouse-2`) ended `billing none`, cost 0, and no job is open.
+- **Expected, not judged**: the reply "✅ Updated one entry in lessons."
+  (the data rung's kept wording), and the canary's "CANARY PASSED … published"
+  with the comparison UNVERIFIED, because a row edit names no version.
+
+**So B2 may go**: B1 changed exactly row 4's price.
+
+### Round 2 handed over (2026-09-30 01:12 UTC)
+
+Read just before: the bakery at `t5obxx` (`/gallery` 200 on every page;
+`/the-starter` 301), `fretwork-1` at `kk6qsh` with `lessons` at `2ec299b8…`,
+the balance 19, and no job open. The two presses go a minute apart:
+- **A2**, paid: `Remove the gallery page.` on `fold-lane-bakery` (control
+  `washhouse-3`), route `intent=edit layer=page page=/gallery remove=true
+  alsoAsked=none`. After it: the addresses read without following
+  redirects, at once and ten minutes later.
+- **B2**, paid: `Change the price of the Hour one-to-one lesson back to
+  £40.` on `fretwork-1` (control `washhouse-2`), route `intent=edit
+  layer=data alsoAsked=none`. Pass: the rows read back byte-identical to the
+  baseline (736 bytes, `a4f1dc30…`), and `/prices` matches the before
+  picture.
+
+The estimates, not caps, are A2 1–2 (routing; a page removal is `exempt`)
+and B2 2–3, against the balance of 19. The batch has spent 3 so far. Round 3
+is A3, the free restore to `8btpep`, handed over after A2's second reading.
 
 ### What it will not establish
 
