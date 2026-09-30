@@ -289,8 +289,11 @@ export const ASK_TOOL = {
           "menu edit, and \"change the phone number in the header and the footer\" is one wording edit in two places.\n" +
           "SEVERAL CHANGES ARE ONE TURN WHEN YOUR ANSWER CAN MAKE THEM ALL. \"look\" is worked out part by part and " +
           "each change is made where it belongs — the site's colours, fonts, name and description, a section or a " +
+          // LOOK'S REACH IS WHAT THE CLOSING RULE OF `layer` READS, so it names
+          // no row: the look door has no lane that deletes one (2026-09-30).
           "band on any page, a photograph, the menu and the button, what the site enforces, its web address, " +
-          "taking something off. So \"change our description, and on the visit page move the order band up\" is " +
+          "taking something off (but not a row the site stores: that is \"data\"). So \"change our description, and " +
+          "on the visit page move the order band up\" is " +
           "ONE \"look\" answer with nothing here, and so is \"make the headings green and swap the two sections on " +
           "the gallery page\".\n" +
           "PUT A SECOND REQUEST HERE ONLY WHEN IT NEEDS SOMETHING YOUR ANSWER CANNOT DO THIS TURN: something to ADD " +
@@ -318,6 +321,21 @@ export const ASK_TOOL = {
           "a menu, and those live in the site's database rather than being written into the page. This is the " +
           "cheapest and fastest thing the builder can do, so prefer it whenever the thing being changed is one row " +
           "of something the site lists. The tables it has are named above.\n" +
+          // ── A ROW TAKEN OFF IS THIS LAYER TOO (2026-09-30) ───────────────────
+          //
+          // `look`'s removal clause claimed EVERY removal ("whatever the
+          // something is"), a whole page its one exception, while this clause
+          // claimed one row of a list — so "take that entry off the list" had
+          // two answers, and on the look door no lane deletes a row (`backend`
+          // is the rules rung). The data step deletes one itself (the row's
+          // `remove`, `DATA_TOOL`). Said here AND at `look`'s exceptions,
+          // because a model reading downwards meets whichever clause its
+          // candidate answer is. DELETION ONLY: whether an added row is this
+          // layer or the add-on step is the owner's open decision, and nothing
+          // here says.
+          "TAKING AN EXISTING ROW OFF ONE OF THOSE LISTS IS THIS LAYER TOO: when an entry the site stores should no " +
+          "longer be there, its row is deleted from the table that holds it, and every page showing that list stops " +
+          "showing it.\n" +
           "\"text\" — ONLY the words change and nothing else: a heading, a sentence, a button label, a phone number, an " +
           "address, a price written on the page. Nothing moves and nothing changes colour. This is the cheapest thing the " +
           "builder can do, so prefer it whenever it is honestly true.\n" +
@@ -355,9 +373,14 @@ export const ASK_TOOL = {
           "photo out\", \"the accordion shouldn't open on click any more\", \"stop offering it in French\". This is " +
           "where a removal is worked out and sent to whatever part of the site holds the thing, so answer \"look\" " +
           "and say what should go; you do not have to know which part that is.\n" +
-          "THE ONE EXCEPTION IS A WHOLE PAGE. \"Remove the gallery page\", \"we don't need the about page any more\" " +
-          "is layer \"page\" with `remove` — a page is deleted there and nowhere else. Taking a SECTION, a picture, a " +
-          "band or anything else OFF a page that stays is this layer.\n" +
+          // THE SECOND EXCEPTION (2026-09-30): a stored row. Both exceptions come
+          // before the sentence that gives this layer everything else, so
+          // "anything else" is read with both of them already said.
+          "THE FIRST EXCEPTION IS A WHOLE PAGE. \"Remove the gallery page\", \"we don't need the about page any more\" " +
+          "is layer \"page\" with `remove` — a page is deleted there and nowhere else.\n" +
+          "THE SECOND IS A ROW THE SITE STORES. An existing entry taken off one of the lists kept in the tables named " +
+          "above is layer \"data\" — its row is deleted there and nowhere else.\n" +
+          "Taking a SECTION, a picture, a band or anything else OFF a page that stays is this layer.\n" +
           "WHEN THEY SAY WHICH PAGE IT IS ON, NAME IT IN `page` — for a colour, a section, a band or a scene alike. " +
           "Without it, a change to a section is made on the home page.\n" +
           "SEVERAL CHANGES IN ONE MESSAGE ARE STILL ONE \"look\" ANSWER — the site's description and a band on the " +

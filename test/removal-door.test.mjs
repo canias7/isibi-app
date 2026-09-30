@@ -256,9 +256,14 @@ test("the layer description sends a removal to look, and excepts a whole page", 
   // The four that can arrive no other way must be recognisable in it.
   assert.match(look, /3D/i, "the removal clause names no 3D scene, which reaches `look` no other way");
   assert.match(look, /QR/i, "the removal clause names no QR code");
-  // And the exception, which is what stops it deleting pages.
-  assert.match(look, /THE ONE EXCEPTION IS A WHOLE PAGE/,
+  // And the exception, which is what stops it deleting pages. Since 2026-09-30
+  // it is the first of two (a stored row is the second, `data`), so the
+  // property is read rather than the count: a whole page is excepted, and it
+  // goes to `page` with `remove` and nowhere else.
+  assert.match(look, /EXCEPTION IS A WHOLE PAGE/,
     "the removal clause does not except a whole page, so a page deletion lands in the lane system");
+  assert.match(look, /is layer "page" with `remove` — a page is deleted there and nowhere else\./,
+    "the whole-page exception no longer sends a page deletion to `page` with `remove`");
 });
 
 test("a whole page is still deleted by the flag, and that paragraph is untouched", () => {

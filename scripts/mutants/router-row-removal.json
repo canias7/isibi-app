@@ -1,0 +1,148 @@
+[
+  {
+    "label": "CONTROL: the data clause's new comment changes nothing",
+    "control": true,
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "// ── A ROW TAKEN OFF IS THIS LAYER TOO (2026-09-30) ───",
+    "to": "// ── A ROW TAKEN OFF IS THIS LAYER TOO (2026-09-30, control) ───"
+  },
+  {
+    "label": "CONTROL: look's exception comment changes nothing",
+    "control": true,
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "// THE SECOND EXCEPTION (2026-09-30): a stored row. Both exceptions come",
+    "to": "// THE SECOND EXCEPTION (2026-09-30): a stored row (control). Both exceptions come"
+  },
+  {
+    "label": "R-1: the data clause no longer claims a row taken off",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "          \"TAKING AN EXISTING ROW OFF ONE OF THOSE LISTS IS THIS LAYER TOO: when an entry the site stores should no \" +\n          \"longer be there, its row is deleted from the table that holds it, and every page showing that list stops \" +\n          \"showing it.\\n\" +\n",
+    "to": ""
+  },
+  {
+    "label": "R-2: the data sentence is no longer limited to an existing row",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "\"TAKING AN EXISTING ROW OFF ONE OF THOSE LISTS",
+    "to": "\"TAKING A ROW OFF ONE OF THOSE LISTS"
+  },
+  {
+    "label": "R-3: the data sentence decides add-row routing",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "IS THIS LAYER TOO: when an entry the site stores should no",
+    "to": "IS THIS LAYER TOO, AND SO IS ADDING ONE: when an entry the site stores should no"
+  },
+  {
+    "label": "R-4: look's stored-row exception is gone",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "          \"THE SECOND IS A ROW THE SITE STORES. An existing entry taken off one of the lists kept in the tables named \" +\n          \"above is layer \\\"data\\\" — its row is deleted there and nowhere else.\\n\" +\n",
+    "to": ""
+  },
+  {
+    "label": "R-5: the stored-row exception sends the row to look",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "above is layer \\\"data\\\" — its row is deleted",
+    "to": "above is layer \\\"look\\\" — its row is deleted"
+  },
+  {
+    "label": "R-6: the stored-row exception sends the row to page",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "above is layer \\\"data\\\" — its row is deleted",
+    "to": "above is layer \\\"page\\\" — its row is deleted"
+  },
+  {
+    "label": "R-7: 'anything else' is said before the stored-row exception",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "          \"THE SECOND IS A ROW THE SITE STORES. An existing entry taken off one of the lists kept in the tables named \" +\n          \"above is layer \\\"data\\\" — its row is deleted there and nowhere else.\\n\" +\n          \"Taking a SECTION, a picture, a band or anything else OFF a page that stays is this layer.\\n\" +\n",
+    "to": "          \"Taking a SECTION, a picture, a band or anything else OFF a page that stays is this layer.\\n\" +\n          \"THE SECOND IS A ROW THE SITE STORES. An existing entry taken off one of the lists kept in the tables named \" +\n          \"above is layer \\\"data\\\" — its row is deleted there and nowhere else.\\n\" +\n"
+  },
+  {
+    "label": "R-8: the whole page is 'the one exception' again beside a second",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "\"THE FIRST EXCEPTION IS A WHOLE PAGE.",
+    "to": "\"THE ONE EXCEPTION IS A WHOLE PAGE."
+  },
+  {
+    "label": "R-9: the whole-page exception loses its remove flag",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "is layer \\\"page\\\" with `remove` — a page is deleted there and nowhere else.",
+    "to": "is layer \\\"page\\\" — a page is deleted there and nowhere else."
+  },
+  {
+    "label": "R-10: look's reach claims every removal again",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "\"taking something off (but not a row the site stores: that is \\\"data\\\"). So",
+    "to": "\"taking something off. So"
+  },
+  {
+    "label": "R-11: look's reach sends a stored row to page",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "but not a row the site stores: that is \\\"data\\\")",
+    "to": "but not a row the site stores: that is \\\"page\\\")"
+  },
+  {
+    "label": "R-12: the stored-row exception names a fixture's table",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "An existing entry taken off one of the lists kept in the tables named",
+    "to": "An existing entry taken off one of the lessons kept in the tables named"
+  },
+  {
+    "label": "R-13: the stored-row exception quotes a customer sentence",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "THE SECOND IS A ROW THE SITE STORES. An existing entry",
+    "to": "THE SECOND IS A ROW THE SITE STORES (\\\"take the evening workshop off\\\"). An existing entry"
+  },
+  {
+    "label": "R-14: the data sentence speaks about order",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "and every page showing that list stops ",
+    "to": "and every page showing that list, in its order, stops "
+  },
+  {
+    "label": "R-15: the whole-message rule itself is reworded about rows",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "\"no one answer can make it with the rest.\",",
+    "to": "\"no one answer can make it with the rest, and a row is always held back.\","
+  },
+  {
+    "label": "R-16: the remove flag is asked of data answers",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "\"header's button should GO — \\\"drop the button\\\", \\\"take Pricing out of the menu\\\".\",",
+    "to": "\"header's button should GO — \\\"drop the button\\\", \\\"take Pricing out of the menu\\\". For layer \\\"data\\\": true when a row should go.\","
+  }
+]
