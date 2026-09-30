@@ -305,3 +305,35 @@
   free analysis only. Keep parallel execution in the plan wherever
   dependencies allow. Do not repeat accepted tests or expand into another
   testing campaign."*
+
+## What you've asked for since (2026-09-30)
+
+- **The handoff lives in owner-notes, and is pushed before review.** *"Use
+  docs/owner-notes.md for the current handoff: completed work, test results,
+  commit/run links, observations from our chat, blockers, and the exact next
+  action. Record the standing handoff process in docs/owner-preferences.md:
+  update, commit, and push the handoff before saying the work is ready for
+  ChatGPT to review. Include any recent results currently missing from the
+  docs. Do not edit CLAUDE.md."* So before any "ready for review", the
+  *Current handoff* at the top of `docs/owner-notes.md` is rewritten with
+  those six parts and any result the docs are missing, then committed and
+  pushed. CLAUDE.md is not edited for it.
+- **A run is credited only for what it exercised.** *"Clarify the records:
+  run 78 confirmed the runtime, but did not exercise the fixture guard
+  because expect_rows was blank."*
+- **One path's result does not stand for another's.** *"Record exactly what
+  you exercised—an API save succeeding does not establish what happened
+  during my earlier browser attempt."*
+- **Read before writing, and never write what is already right.** *"Read
+  first. If it is already 40, verify it without writing again. Change only
+  the price; preserve every other field and row."*
+- **A blocker is reported exactly, not handed back.** *"If access genuinely
+  blocks you, report the exact blocker instead of automatically handing the
+  task back to me."*
+- **No cause is inferred from missing evidence.** *"missing Supabase activity
+  does not conclusively prove no request reached the Worker"*, and *"Don't
+  infer user error or an application defect."*
+- **A guard proves its read is whole.** *"Prove the table read is complete
+  using the existing API's supported count/pagination contract. An
+  incomplete or unverifiable read must stop before paid routing."*
+

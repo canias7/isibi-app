@@ -1,5 +1,105 @@
 # Owner Notes
 
+## Current handoff — read this first (2026-09-30, 20:31 UTC)
+
+*Rewritten at every handoff, and committed and pushed before any "ready for
+review" (your standing process, in `owner-preferences.md`). The previous one
+is in git; the dated entries further down are the full story.*
+
+**State now**
+- `main` is `8908b59d` (deploy 2173). You accepted deploy 2173 and run 78.
+  The branch `claude/help-needed-ehlwlj` is `main` plus documents only: no
+  code or workflow has changed since `8908b59d`.
+- `fretwork-1` → `lessons` → id 4, "Hour one-to-one", is **still £42** (read
+  whole at 20:26 UTC, and again at 20:31 UTC just before this commit). Rows 1–3 match the saved four-row baseline in every
+  field, and there is no other row.
+- Balance 13 (read by run 78 at 19:59 UTC; last ledger row 344; no job
+  open). Nothing has been charged since.
+
+**Completed**
+- The whole-table row check (`fc06edde`) passed your review and is merged
+  and deployed (deploy 2173, image `e71f7bae88b9ecf1` reused, as predicted).
+- Run 78 confirmed deploy 2173 at runtime. It did **not** exercise the row
+  check: its `expect_rows` box was blank. The check has only run in the
+  tests so far.
+- The £40 correction you authorized: read first (still 42), then **blocked
+  at sign-in, and nothing was written** (Blockers below).
+
+**Test results**
+- Unit suite `8388 / 8388 / 0 / 0` locally (on `fc06edde` with its records,
+  the same code) and `8388 / 8384 / 0 / 4` on CI on `8908b59d` (CI skips
+  four).
+- The row check's own tests: 25 cases. The red check failed 8 of 48 on the
+  old script (the partial reads it had let through). The mutation sweep
+  killed 30 of 30, and both controls survived.
+- Run 78: every free check passed, and nothing was charged.
+
+**Links**
+- Branch commits: https://github.com/canias7/isibi-app/commits/claude/help-needed-ehlwlj
+  (the head carries this handoff; `37eef095`, `83ef7352` and `de9d5d1e`
+  before it are records only)
+- Deploy 2173: https://github.com/canias7/isibi-app/actions/runs/36768265523
+- Unit CI on `8908b59d`: https://github.com/canias7/isibi-app/actions/runs/36767386339
+- Run 78, the free runtime check: https://github.com/canias7/isibi-app/actions/runs/36769355267
+  (evidence artifact 11121884148)
+- Run 77, the delete pressed before its row existed (recorded as a failed
+  deletion acceptance): https://github.com/canias7/isibi-app/actions/runs/36689829998
+- The £40 story: `docs/history/2026-09-30-fixture-check.md`, §4 to §7
+
+**From our chat**
+- You accepted deploy 2173 and run 78, and asked that the records say run 78
+  didn't exercise the row check. Done.
+- You asked for one observed Save in the Data panel (42 → 40), capturing
+  what Save displays and the price after reopening. The steps are in the
+  history's §6. You haven't reported it yet, and the two questions about
+  your earlier browser attempt (what Save displayed, and the price after
+  reopening) are still open.
+- You then authorized me to make the correction myself through the Data
+  panel's owner save path: read first, change only the price, no paid model
+  call, and if blocked, report the exact blocker. You also noted that an API
+  save succeeding would not show what happened in your earlier browser
+  attempt.
+- You asked for this handoff here, the handoff process in
+  `owner-preferences.md`, and no edits to CLAUDE.md. CLAUDE.md was not
+  edited this round, so its £40 lines stop at the 20:13 read.
+
+**Blockers**
+- **The £40 through the owner save path.** The save (`PATCH
+  /api/site/fretwork-1/rows/lessons/4`) accepts only a signed-in session for
+  the account that owns the site: the Worker's `authUser` asks Supabase who
+  the bearer token belongs to. This session has no such token. Getting one
+  means minting it or reading an existing one, and your standing rule is
+  that a session never mints or reads an owner credential. Your
+  authorization covers the correction, not that rule.
+  - Live probe at 20:27:19 UTC, with no token and an empty body: `401
+    {"error":"sign in required"}`. Nothing could be written, and nothing was.
+  - The environment also refused my listing of credential-like environment
+    names. I did not retry it another way.
+  - No existing canary mode fits: its recover-only mode is hard-wired to
+    D1's row on `fold-lane-bakery`.
+- **Your earlier browser attempt is still unexplained.** Nothing has been
+  observed yet. Supabase's request logs (the 24 hours to 17:25 UTC) held no
+  owner lookup for `fretwork-1` outside canary runs. That fits no Save
+  reaching the save route, but it doesn't prove it.
+- **Waiting on the £40**: the temporary row, the free rehearsal (from
+  `main`), and the paid delete test, which also waits for your spending
+  approval.
+
+**Exact next action: yours to choose, to get the £40 written**
+1. **Recommended:** your own Data panel Save, following the history's §6.
+   Then send me what Save displayed, the price after reopening, and the
+   time. It needs no code, and it also answers the open questions.
+2. Or approve a small code change: a recover-only canary scenario for this
+   row. It sets 40 only where the price is still 42, through the canary's
+   own owner session, and you press it for free.
+3. Or the conditional `UPDATE` in the Neon console.
+
+After any of these, I read the whole table and check every field of every
+row against the baseline. Then come the temporary row, its check, and the
+free rehearsal. The paid delete waits for those and for your approval.
+
+---
+
 2026-09-25: **Escalation correction CLOSED.** Independently reviewed (437 focused
 tests and both required CI checks), merged/deployed at `5cb8592`. Non-spending
 canary [36096052737](https://github.com/canias7/isibi-app/actions/runs/36096052737)
@@ -54,6 +154,24 @@ out of Open the moment it is resolved.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-09-30 — The £40 through the owner save path: blocked at sign-in, nothing written
+
+**What I did, as you authorized.** I read the table first (20:26 UTC, the
+whole table): "Hour one-to-one" is still £42, and everything else is as
+saved. Then the save itself couldn't be made. The Data panel's save route
+accepts only your own signed-in session, and your rule is that a session
+never mints or reads one. A probe at 20:27 UTC, with no token and an empty
+body, got `401 sign in required`. Nothing was written, no model was called,
+and nothing was charged.
+
+**What that shows**: only that the save route turns away a caller who isn't
+signed in as you. It doesn't exercise a real save, and it says nothing about
+your earlier attempt in the browser.
+
+**Next**: your choice of how the £40 gets written (the handoff at the top).
 
 ---
 

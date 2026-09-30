@@ -1122,6 +1122,12 @@ is the owner's.
     displays and the price after reopening; the steps were handed over
     after this read (`docs/history/2026-09-30-fixture-check.md` §6), and the
     result is awaited.
+  - **The owner then authorized the correction through the owner save
+    path** (2026-09-30, this correction only, no model call). Read first at
+    20:26 UTC: still 42 (whole, `0-3/4`). **Blocked at sign-in**: the save
+    route takes only the owner's own session, which a session may not mint
+    or read; the live probe answered `401` and nothing was written. The way
+    forward is the owner's choice (§7 of that history).
 
 ### What it will not establish
 

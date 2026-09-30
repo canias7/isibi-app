@@ -462,3 +462,59 @@ row.
 
 **The owner's report**: awaited.
 
+## 7. The £40 through the owner save path: authorized, blocked at sign-in (20:26–20:27 UTC)
+
+**The owner's authorization** (2026-09-30): "You are authorized to make this
+correction yourself. On fretwork-1 → lessons → id 4, "Hour one-to-one",
+restore price 42 → 40 using the existing authenticated owner save path used by
+the Data panel. Read first. If it is already 40, verify it without writing
+again. Change only the price; preserve every other field and row. … This
+authorizes this correction only, with no paid model call. If access genuinely
+blocks you, report the exact blocker instead of automatically handing the task
+back to me."
+
+**Read first, free, at 20:26:19 UTC**: 200, `0-3/4`, whole, 736 bytes, sha256
+`2ec299b8…`. Rows 1–3 hold every field of the baseline; row 4 differs only in
+`price` (42); no other row (digest `2fb9f28608ca8b27…`). So a write was needed.
+
+**Blocked at sign-in, and nothing was written.**
+- The save path is `PATCH /api/site/fretwork-1/rows/lessons/4`. The Worker
+  takes its caller from `authUser` (`worker.js`): the request's
+  `Authorization: Bearer` token, which Supabase's `/auth/v1/user` must answer
+  with the owner's user. The one other identity, a queued job's replay marker
+  (`editReplayUser`), is offered to the edit, add-on and rebuild routes only,
+  never to the rows route.
+- This session holds no session for the building account. Getting one means
+  minting it (the canary does that inside GitHub Actions) or reading an
+  existing one, and the owner's standing rule is that a session never mints
+  or reads an owner credential. The authorization covers the correction, not
+  that rule, so nothing was minted or read. The environment's permission
+  check also refused a listing of credential-like environment variable
+  names, and it was not retried another way.
+- **Probe, 20:27:19 UTC**: `PATCH /api/site/fretwork-1/rows/lessons/4` with
+  no token and an empty JSON body answered `401 {"error":"sign in
+  required"}`. The empty body could have written nothing even past the gate
+  (the route answers "nothing to update").
+- **No existing mode fits.** The canary's recover-only mode writes through
+  the owner route with the canary's own session, but its one row scenario is
+  D1's (`loaves` id 6 on `fold-lane-bakery`, `scripts/canary-ui.mjs`).
+  Pointing it at this row is a new scenario: a code change for the owner's
+  approval.
+- No model call, no charge, no write.
+
+**Read again at 20:31:16 UTC**, before the handoff's commit: the same (whole,
+`0-3/4`, row 4 still 42, digest `2fb9f28608ca8b27…`).
+
+**What this exercised**: whole reads of the table, and one request refused
+at the save route's sign-in check. It did not exercise the save itself, and it
+says nothing about the owner's earlier browser attempt.
+
+**Ways forward, the owner's choice**:
+- the owner's own Data panel Save, with §6's observation steps (it also
+  answers what Save displays);
+- a recover-only canary scenario for this row, approved as a small code
+  change with tests and review, then a free press: price 40 only where it
+  is still 42 (the conditional write);
+- the owner's conditional `UPDATE` in the Neon console (the recorded
+  fallback).
+
