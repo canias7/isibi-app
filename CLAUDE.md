@@ -143,7 +143,8 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
     never read), and 3 placement guards in `test/edit-canary.test.mjs`.
   - Red check: exactly the 8 cases that need it fail on the old script.
     Sweep: 18 of 18 killed, 2 controls survived. Full suite on the branch:
-    `8383 / 8383 / 0 / 0` locally.
+    `8383 / 8383 / 0 / 0` locally, and `8383 / 8379 / 0 / 4` on unit CI
+    (run 36758456675 on `11bb6a14`, the records on top of `3229272e`).
   - `docs/history/2026-09-30-fixture-check.md`.
 - **A stored row taken off its list is routed to `data`** (2026-09-30, on
   the owner's word before the paid row-deletion test; `4e3ef512`; the owner

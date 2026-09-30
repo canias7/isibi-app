@@ -262,7 +262,10 @@ to be wrong, and the owner route was taken out of the check:**
   - in the workflow (1): the box not reaching the script.
 - **Full suite**, from the main working tree at `3229272e` with these
   records: **`8383 / 8383 / 0 / 0`** locally, which is `main`'s 8,360 plus
-  the 20 cases and the 3 guards. The document-reading tests
+  the 20 cases and the 3 guards. **Unit CI** on the pushed head `11bb6a14`
+  (these records on top of `3229272e`): run 36758456675, job 110034590530,
+  `8383 / 8379 / 0 / 4`, read from the job's own log. The totals match, and
+  CI skips the same four it always does. The document-reading tests
   (`brand-rename`, `media-deleted`, `components-doc`) read 32 of 32 on the
   final records.
   - An earlier run of the first version, from a scratch worktree, failed one

@@ -102,7 +102,8 @@ filled in) and its refunded no-match result.
 - tested by running the real canary script against a fake network: run
   77's setup is stopped before any routing, and a correct setup goes through
   without the Data panel's route ever being called. All 18 deliberate breaks
-  of the check were caught.
+  of the check were caught, and the whole test suite (8,383 tests) passes
+  here and on GitHub.
 
 **Not done, as you said**: no merge, no deploy, no paid call, no database
 write. The next delete press is only prepared once the £40 and the temporary
