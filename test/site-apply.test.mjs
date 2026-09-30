@@ -1168,7 +1168,12 @@ test("the number of changes one instruction may make is bounded", () => {
 test("the tool tells the model to return nothing rather than guess", () => {
   const d = DATA_TOOL.input_schema.properties.changes.description;
   assert.match(d, /empty array/i);
-  assert.match(d, /DELETE/i, "the one thing this layer cannot do must be named");
+  // ⚠ THIS PINNED THE CONTRADICTION until 2026-09-30 (Lane 1a): it required
+  // the list to name DELETE as "the one thing this layer cannot do", which
+  // stopped being true when `remove` arrived, and kept the sentence that told
+  // the picker to answer nothing for a deletion. A deletion is sent to
+  // `remove` now; `test/data-remove-wording.test.mjs` drives the request.
+  assert.match(d, /`remove`/, "the list does not send a deletion to its `remove` field");
   assert.match(d, /Guessing at the nearest row is worse/i);
 });
 

@@ -432,25 +432,35 @@ export const MAX_DATA_ROWS = 60;
 /** How many changes one instruction may make. "Put the prices up by 10%" is a real ask. */
 export const MAX_DATA_OPS = 20;
 
+// ── ONE ANSWER TO "TAKE THIS OFF THE LIST" (Lane 1a, 2026-09-30) ───────────
+//
+// The list's own description said a DELETE was a reason to return an empty
+// array, written before rows could be removed. `dcf269a4` gave each item the
+// `remove` field below and left that sentence, so one request told the picker
+// both to delete the row and to answer nothing for a deletion, and an empty
+// answer reaches the owner as "I couldn't match that". The sentence now sends a
+// deletion to `remove`; the empty array is kept for what really cannot be done
+// with rows. Adding a row is described exactly as before.
 export const DATA_TOOL = {
   name: "write_row_changes",
-  description: "Change the content this site stores — a price, a menu item, an opening time — or add a new one.",
+  description: "Change the content this site stores — a price, a menu item, an opening time — add a new one, or take one off.",
   input_schema: {
     type: "object",
     properties: {
       changes: {
         type: "array",
         description:
-          "One entry per row that this instruction actually changes, and nothing else. A row you do not mention is " +
-          "left exactly as it is.\n" +
-          "IF THE INSTRUCTION CANNOT BE DONE BY CHANGING OR ADDING ROWS — it asks to DELETE one, or it is about the " +
-          "look of the page rather than what is stored — return an empty array. Guessing at the nearest row is worse " +
-          "than saying you could not do it.",
+          "One entry per row that this instruction actually changes, adds or removes, and nothing else. A row you do " +
+          "not mention is left exactly as it is.\n" +
+          "TO TAKE A ROW OFF, give its `table` and `id` with `remove` set to true — the field below says when.\n" +
+          "IF THE INSTRUCTION CANNOT BE DONE BY CHANGING, ADDING OR REMOVING ROWS — it is about the look of the page " +
+          "rather than what is stored — return an empty array. Guessing at the nearest row is worse than saying you " +
+          "could not do it.",
         items: {
           type: "object",
           properties: {
             table: { type: "string", description: "The table name, exactly as listed below." },
-            id: { type: "integer", description: "The id of the row to change. LEAVE THIS OUT to add a new row." },
+            id: { type: "integer", description: "The id of the row to change or remove. LEAVE THIS OUT to add a new row." },
             values: {
               type: "object",
               description:

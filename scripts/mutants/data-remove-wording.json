@@ -1,0 +1,84 @@
+[
+  {
+    "label": "CONTROL: the header comment above DATA_TOOL changes nothing",
+    "control": true,
+    "files": [
+      "builder/site-apply.mjs"
+    ],
+    "from": "// ── ONE ANSWER TO \"TAKE THIS OFF THE LIST\" (Lane 1a, 2026-09-30) ───────────",
+    "to": "// ── ONE ANSWER TO \"TAKE THIS OFF THE LIST\" (Lane 1a, control) ───────────"
+  },
+  {
+    "label": "CONTROL: the pinned test's comment changes nothing",
+    "control": true,
+    "files": [
+      "test/site-apply.test.mjs"
+    ],
+    "from": "// ⚠ THIS PINNED THE CONTRADICTION until 2026-09-30 (Lane 1a): it required",
+    "to": "// ⚠ THIS PINNED THE CONTRADICTION until 2026-09-30 (Lane 1a, control): it required"
+  },
+  {
+    "label": "W-1: the list tells the picker to answer nothing for a deletion again",
+    "files": [
+      "builder/site-apply.mjs"
+    ],
+    "from": "\"IF THE INSTRUCTION CANNOT BE DONE BY CHANGING, ADDING OR REMOVING ROWS — it is about the look of the page \" +",
+    "to": "\"IF THE INSTRUCTION CANNOT BE DONE BY CHANGING OR ADDING ROWS — it asks to DELETE one, or it is about the look of the page \" +"
+  },
+  {
+    "label": "W-2: the list no longer sends a deletion to `remove`",
+    "files": [
+      "builder/site-apply.mjs"
+    ],
+    "from": "          \"TO TAKE A ROW OFF, give its `table` and `id` with `remove` set to true — the field below says when.\\n\" +\n",
+    "to": ""
+  },
+  {
+    "label": "W-3: the tool's one line names changing and adding only",
+    "files": [
+      "builder/site-apply.mjs"
+    ],
+    "from": "a price, a menu item, an opening time — add a new one, or take one off.\",",
+    "to": "a price, a menu item, an opening time — or add a new one.\","
+  },
+  {
+    "label": "W-4: the empty-array rule stops covering a request about the look",
+    "files": [
+      "builder/site-apply.mjs"
+    ],
+    "from": "ADDING OR REMOVING ROWS — it is about the look of the page \" +\n          \"rather than what is stored — return an empty array.",
+    "to": "ADDING OR REMOVING ROWS — \" +\n          \"return an empty array."
+  },
+  {
+    "label": "W-5: adding a row is no longer described on the id",
+    "files": [
+      "builder/site-apply.mjs"
+    ],
+    "from": "\"The id of the row to change or remove. LEAVE THIS OUT to add a new row.\"",
+    "to": "\"The id of the row to change or remove.\""
+  },
+  {
+    "label": "W-6: a removal of an id the picker was not shown is accepted",
+    "files": [
+      "builder/site-apply.mjs"
+    ],
+    "from": "if (!Number.isFinite(rid) || !t.ids.has(rid)) continue;",
+    "to": "if (!Number.isFinite(rid)) continue;"
+  },
+  {
+    "label": "W-7: a truthy flag deletes",
+    "files": [
+      "builder/site-apply.mjs"
+    ],
+    "from": "    if (c.remove === true) {\n      const rid",
+    "to": "    if (c.remove) {\n      const rid"
+  },
+  {
+    "label": "W-8: the removed row's contents come from the picker's echo, not the list",
+    "files": [
+      "builder/site-apply.mjs"
+    ],
+    "from": "const was = t.rows.find((r) => Number(r.id) === rid) || null;",
+    "to": "const was = c.was || null;"
+  }
+]
