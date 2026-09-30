@@ -16,7 +16,7 @@
 //
 // A MALFORMED EXPECTATION REFUSES BEFORE ANYTHING IS SPENT, so a typo such as
 // `layer=dta` costs nothing, not a routing call that could never match.
-import { ASK_TOOL, EDIT_LAYERS } from "../builder/site-ask.mjs";
+import { ASK_TOOL, EDIT_LAYERS, ROUTE_FAILURE_KINDS, ROUTE_ERROR_CLASSES, PROVIDER_TOKEN } from "../builder/site-ask.mjs";
 
 /** The router's intents, read from its own tool so the two cannot drift. */
 const INTENTS = ASK_TOOL.input_schema.properties.intent.enum;
@@ -115,4 +115,23 @@ export function mismatchSaid(verdict) {
   return (verdict && verdict.diffs ? verdict.diffs : []).map((d) => d.readable
     ? `${d.key}: expected ${said(d.want)}, the router answered ${said(d.got)}`
     : `${d.key}: expected ${said(d.want)}, the router answered ${JSON.stringify(d.got)}, which cannot be read as one`).join("; ");
+}
+
+/**
+ * WHY THE ROUTING CALL FAILED, in one line for the log (Lane 1b, 2026-09-30).
+ *
+ * The route's `failure` is already built from allow-lists; this reads it again
+ * the same way rather than trusting it, so a field of the wrong shape is left
+ * out and never coerced, and an answer with no readable reason says so instead
+ * of printing a guess. `routing.json` keeps the object itself.
+ */
+export function failureSaid(f) {
+  if (!f || typeof f !== "object" || Array.isArray(f) || !ROUTE_FAILURE_KINDS.includes(f.kind)) return "no reason given";
+  const bits = [f.kind];
+  if (f.provider === "xai" || f.provider === "anthropic") bits.push(f.provider);
+  if (Number.isInteger(f.status) && f.status >= 100 && f.status <= 599) bits.push(String(f.status));
+  if (typeof f.type === "string" && PROVIDER_TOKEN.test(f.type)) bits.push(f.type);
+  // The plain `Error` says nothing a reader can use; a named class does.
+  if (typeof f.error === "string" && f.error !== "Error" && ROUTE_ERROR_CLASSES.includes(f.error)) bits.push(f.error);
+  return bits.join(" ") + (f.billing === true ? " — refused on our account (billing or key)" : "");
 }

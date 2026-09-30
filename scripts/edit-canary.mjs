@@ -54,7 +54,7 @@ import { removalVerdict } from "./canary-remove.mjs";
 import { OWNER_ROWS_LIMIT } from "./canary-rows.mjs";
 // BATCH 1: the route a paid press expects, read from its own box and compared
 // with the router's answer before the edit is posted.
-import { readExpectRoute, routeVerdict, expectSaid, mismatchSaid } from "./canary-route.mjs";
+import { readExpectRoute, routeVerdict, expectSaid, mismatchSaid, failureSaid } from "./canary-route.mjs";
 import { publishedVersion } from "./canary-watch.mjs";
 // TEST 6: the description in the site's settings, beside the one the head serves.
 import { readStoredHead, storedHeadSaid } from "./canary-watch.mjs";
@@ -1041,7 +1041,10 @@ const rt = await call("POST", "/api/site/route", {
           qa: [], answering: false, attached: false, slug: CANARY, hasSite: true },
 });
 const rd = (rt.json || {});
-console.log(`  routed in ${(rt.ms / 1000).toFixed(1)}s: intent=${rd.intent || "?"} layer=${rd.layer || "-"} page=${rd.page || "-"} cost=${rd.cost ?? "?"}${rd.failed ? " FAILED" : ""}`);
+// A FAILED ROUTE SAYS WHY (Lane 1b): run 70's line read "FAILED" and nothing
+// else, and its empty xAI balance was found by hand. `routing.json` below keeps
+// the route's whole answer, `failure` included.
+console.log(`  routed in ${(rt.ms / 1000).toFixed(1)}s: intent=${rd.intent || "?"} layer=${rd.layer || "-"} page=${rd.page || "-"} cost=${rd.cost ?? "?"}${rd.failed ? " FAILED (" + failureSaid(rd.failure) + ")" : ""}`);
 
 // THE ANSWER IS WRITTEN DOWN BEFORE ANYTHING IS DECIDED ON IT. `routing.json`
 // was written after the watch, so a refusal below left no record of the answer

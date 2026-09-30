@@ -19759,7 +19759,11 @@ async function handleRequest(request, env, ctx) {
         return Response.json({ ok: true, intent: "build", cost: 0 });
       }
       const routed = await routeMessage(
-        { send: quickSend(env) },
+        // `classify` IS THE BUILD PATH'S OWN READER of a provider's error body
+        // (`upstreamKind`), so a failed route names the provider's token and
+        // whether our account was refused the same way a failed build does —
+        // one reader of provider errors, not two (Lane 1b).
+        { send: quickSend(env), classify: (e) => upstreamKind(e && e.detail, e && e.status) },
         {
           message: rb.message,
           site: rb.site,
@@ -19811,6 +19815,9 @@ async function handleRequest(request, env, ctx) {
           hasSite: rb.hasSite === true,
         },
       );
+      // THE REASON IS LOGGED AS WELL AS ANSWERED, and it is the same allow-listed
+      // object: our log is where an outage is diagnosed after the fact.
+      if (routed.failed === true) console.error("route failed:", JSON.stringify(routed.failure || null));
       let rCost = 0;
       // Billed only when the model actually answered. `routeMessage` returns a
       // null usage on the failure path precisely so this reads the same way the
@@ -19904,6 +19911,13 @@ async function handleRequest(request, env, ctx) {
         // field the ONLY possible signal. Absent on success, so a working
         // route's response is byte-identical to before (2026-08-13 audit).
         failed: routed.failed === true || undefined,
+        // AND WHY (Lane 1b, 2026-09-30). Run 70 answered `failed` and nothing
+        // could say the xAI balance was empty. `routeMessage` builds this from
+        // allow-lists only — the step that threw, the provider, its status and
+        // token, whether our account was refused, the error's class — so no
+        // provider message, request text or credential can ride on it. Absent
+        // on success, like `failed`.
+        failure: routed.failed === true && routed.failure ? routed.failure : undefined,
       });
     }
 

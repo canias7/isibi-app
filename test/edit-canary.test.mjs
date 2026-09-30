@@ -526,3 +526,19 @@ test("the workflow carries the expected route to the script as its own box, and 
   const spend = FLOW.match(/CANARY_SPEND:.*/)[0];
   assert.doesNotMatch(spend, /expect_route/, "the expected-route box arms the spend switch");
 });
+
+test("a failed routing call's line names its reason, read through the canary's own reader (Lane 1b)", () => {
+  const paid = paidHalf();
+  const routed = paid.indexOf('"/api/site/route"');
+  assert.ok(routed > 0, "the routing call is gone");
+  // THE LINE AFTER THE ROUTING CALL: the one that prints what the router said.
+  const line = paid.indexOf("routed in ", routed);
+  assert.ok(line > routed, "the routing line's landmark moved; this case would read nothing");
+  const text = paid.slice(paid.lastIndexOf("\n", line), paid.indexOf("\n", line));
+  assert.match(text, /rd\.failed \? " FAILED \(" \+ failureSaid\(rd\.failure\) \+ "\)" : ""/,
+    "a failed route prints FAILED without its reason, or not through failureSaid");
+  assert.match(SRC, /import \{[^}]*\bfailureSaid\b[^}]*\} from "\.\/canary-route\.mjs"/, "failureSaid is not the canary-route module's");
+  // AND THE RECORD STILL CARRIES THE WHOLE ANSWER, `failure` with it.
+  const record = paid.indexOf("routing.json`", routed);
+  assert.match(paid.slice(record, paid.indexOf(";\n", record)), /body:\s*rd\b/, "routing.json no longer keeps the route's answer");
+});

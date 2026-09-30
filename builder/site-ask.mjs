@@ -1,5 +1,6 @@
 
-import { modelsFor } from "./build-models.mjs";// Telling a question from an instruction — and answering the question.
+import { modelsFor } from "./build-models.mjs";
+import { isXaiModel } from "./model-xai.mjs";// Telling a question from an instruction — and answering the question.
 //
 // THE BUILDER COULD NOT BE ASKED ANYTHING. `siteSend` had exactly one decision
 // in it — `isBuild = !sitePages(site).length` — so the FIRST message on a project
@@ -1333,16 +1334,67 @@ export function askUsage(reply, model = ASK_MODEL) {
   };
 }
 
+// ── WHY A ROUTING CALL FAILED, IN WORDS THAT CANNOT CARRY A SECRET ─────────
+//
+// (Lane 1b, 2026-09-30.) One bare `catch` covered building the request and
+// sending it, and the answer kept only `failed: true`. Run 70 (Batch 1) answered
+// `addon` + `failed` in 0.4 s and nothing could say why — the xAI account's
+// balance was empty, which the owner found by looking. So the failure is named
+// now: WHICH STEP threw, and what the evidence allows about why.
+//
+//   request    — the request could not be built. Nothing was sent.
+//   config     — a provider key is not set. Nothing was sent.
+//   provider   — the provider answered with an error status.
+//   timeout    — our own clock ran out before an answer arrived.
+//   transport  — the send threw with no status: the connection failed, or an
+//                answer came back that could not be read. `error` says which
+//                class, where it can.
+//
+// EVERY FIELD IS AN ALLOW-LIST, NEVER TEXT. A provider's message can quote the
+// request, which holds the customer's words, and an error can carry a header or
+// a connection string; none of that is ever read into this object. The status
+// is an HTTP status or nothing, the provider's token passes the same shape check
+// `upstreamKind` applies on the build path, and the error is named by a class
+// from a fixed list. The Worker hands in its own `upstreamKind` as `classify`,
+// so provider errors have one reader, not two.
+export const ROUTE_FAILURE_KINDS = ["request", "config", "provider", "timeout", "transport"];
+export const ROUTE_ERROR_CLASSES = ["Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "TimeoutError", "AbortError"];
+export const PROVIDER_TOKEN = /^[a-z_]{1,40}$/;
+
+export function routeFailure(stage, e, { model, classify } = {}) {
+  const name = e && typeof e.name === "string" && ROUTE_ERROR_CLASSES.includes(e.name) ? e.name : "Error";
+  const out = { kind: "transport", provider: isXaiModel(model) ? "xai" : "anthropic", status: null, type: null, billing: false, error: name };
+  if (stage === "request") return { ...out, kind: "request" };
+  const status = e && Number.isInteger(e.status) && e.status >= 100 && e.status <= 599 ? e.status : null;
+  if (status !== null) {
+    let k = null;
+    // THE READER MAY FAIL, AND MAY ANSWER JUNK; neither widens what is said.
+    try { k = typeof classify === "function" ? classify(e) : null; } catch { k = null; }
+    const type = k && typeof k.type === "string" && PROVIDER_TOKEN.test(k.type) ? k.type : null;
+    // 401, 402 AND 403 ARE OUR KEY OR OUR ACCOUNT whatever the body says —
+    // `upstreamKind`'s own rule, kept when no reader is handed in.
+    const billing = (k && k.billing === true) || status === 401 || status === 402 || status === 403;
+    return { ...out, kind: "provider", status, type, billing };
+  }
+  if (name === "TimeoutError" || name === "AbortError") return { ...out, kind: "timeout" };
+  // OUR OWN SENTENCE, thrown by `callBuilderModel` before anything is sent, so
+  // matching it reads nothing a provider or a customer wrote.
+  if (e && typeof e.message === "string" && /^(?:XAI|ANTHROPIC)_API_KEY is not set$/.test(e.message)) return { ...out, kind: "config" };
+  return out;
+}
+
 /**
  * Route one message.
  *
  * `deps.send(request)` → the raw Messages API response. Injected so the whole
- * decision runs in tests with no network.
+ * decision runs in tests with no network. `deps.classify(error)`, optional, is
+ * the caller's reader of a provider's error body (`upstreamKind` in the Worker).
  *
  * A THROW IS A BUILD, not an error the caller has to handle. See `readRouting`:
  * this sits in front of a path that works, and the worst thing it can do is stop
  * that path running. `usage` comes back null on that route, so nothing is billed
- * for a call that failed — the same our-fault rule the build path follows.
+ * for a call that failed — the same our-fault rule the build path follows. And
+ * it says why, as `failure` (`routeFailure` above).
  */
 export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, attached = false, hasSite = false, model = ASK_MODEL } = {}) {
   const text = String(message || "").trim();
@@ -1365,15 +1417,29 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
   // defaulting to false so any caller that has not been taught about it behaves
   // exactly as it did before these two rungs existed.
   const pages = (site && Array.isArray(site.pages)) ? site.pages : [];
+  // A THROW IS THE BOTTOM OF THE LADDER FOR THIS STATE, not unconditionally a
+  // build. On an existing site an unreachable router used to mean the customer
+  // paid ~25 credits and had every page rewritten because a Haiku call timed
+  // out. `addon` is recoverable in a way that is not.
+  //
+  // TWO STEPS, TWO CATCHES, ONE FALLBACK: building the request and sending it
+  // fail for different reasons, and only telling them apart lets the answer say
+  // which (`failure`). What the customer's message leads to is unchanged.
+  const fail = (stage, e) => ({
+    intent: !!hasSite ? FALLBACK_WITH_SITE : FALLBACK_NO_SITE, answer: "", usage: null, failed: true,
+    failure: routeFailure(stage, e, { model, classify: deps && deps.classify }),
+  });
+  let request;
+  try {
+    request = askRequest({ message: text, site, canClarify, brief, qa: asked, hasSite: !!hasSite, model });
+  } catch (e) {
+    return fail("request", e);
+  }
   let reply;
   try {
-    reply = await deps.send(askRequest({ message: text, site, canClarify, brief, qa: asked, hasSite: !!hasSite, model }));
-  } catch {
-    // A THROW IS THE BOTTOM OF THE LADDER FOR THIS STATE, not unconditionally a
-    // build. On an existing site an unreachable router used to mean the customer
-    // paid ~25 credits and had every page rewritten because a Haiku call timed
-    // out. `addon` is recoverable in a way that is not.
-    return { intent: !!hasSite ? FALLBACK_WITH_SITE : FALLBACK_NO_SITE, answer: "", usage: null, failed: true };
+    reply = await deps.send(request);
+  } catch (e) {
+    return fail("send", e);
   }
   const routed = readRouting(reply, {
     canClarify, answering: !!answering, attached: !!attached, hasSite: !!hasSite, pages,

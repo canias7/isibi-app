@@ -240,6 +240,10 @@ const STOPS = [
   ["a 200 edit answer with no ok at all", ok200({ intent: "edit", layer: "look", cost: 2 })],
   ["the router's fallback add-on (failed: true)", ok200({ ok: true, intent: "addon", cost: 0, failed: true })],
   ["the router's fallback build (failed: true)", ok200({ ok: true, intent: "build", cost: 0, failed: true })],
+  // AND WITH ITS REASON ON IT (Lane 1b, 2026-09-30): the route names why the
+  // call failed, and the browser stops exactly as it did without one.
+  ["the router's fallback add-on carrying its reason", ok200({ ok: true, intent: "addon", cost: 0, failed: true,
+    failure: { kind: "provider", provider: "xai", status: 403, type: "insufficient_quota", billing: true, error: "Error" } })],
   // An action whose payload cannot be acted on as it stands.
   ["an intent nobody knows", ok200({ ok: true, intent: "banana", cost: 2 })],
   ["an edit with no layer", ok200({ ok: true, intent: "edit", cost: 2 })],

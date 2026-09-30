@@ -1,0 +1,148 @@
+[
+  {
+    "label": "CONTROL: the router's failure header comment changes nothing",
+    "control": true,
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "// ── WHY A ROUTING CALL FAILED, IN WORDS THAT CANNOT CARRY A SECRET ─────────",
+    "to": "// ── WHY A ROUTING CALL FAILED, IN WORDS THAT CANNOT CARRY A SECRET (control) ─"
+  },
+  {
+    "label": "CONTROL: the route's failure comment changes nothing",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "        // AND WHY (Lane 1b, 2026-09-30). Run 70 answered `failed` and nothing",
+    "to": "        // AND WHY (Lane 1b, 2026-09-30, control). Run 70 answered `failed` and nothing"
+  },
+  {
+    "label": "R-1: a provider's status is never read",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "  if (status !== null) {\n    let k = null;",
+    "to": "  if (false) {\n    let k = null;"
+  },
+  {
+    "label": "R-2: 401/402/403 no longer mean our account without a reader",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "const billing = (k && k.billing === true) || status === 401 || status === 402 || status === 403;",
+    "to": "const billing = (k && k.billing === true);"
+  },
+  {
+    "label": "R-3: the provider's token is passed through unchecked",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "const type = k && typeof k.type === \"string\" && PROVIDER_TOKEN.test(k.type) ? k.type : null;",
+    "to": "const type = k && typeof k.type === \"string\" ? k.type : null;"
+  },
+  {
+    "label": "R-4: the error's own name is passed through",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "const name = e && typeof e.name === \"string\" && ROUTE_ERROR_CLASSES.includes(e.name) ? e.name : \"Error\";",
+    "to": "const name = e && typeof e.name === \"string\" ? e.name : \"Error\";"
+  },
+  {
+    "label": "R-5: a timeout reads as transport",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "  if (name === \"TimeoutError\" || name === \"AbortError\") return { ...out, kind: \"timeout\" };\n",
+    "to": ""
+  },
+  {
+    "label": "R-6: a missing key reads as transport",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "/^(?:XAI|ANTHROPIC)_API_KEY is not set$/.test(e.message)) return { ...out, kind: \"config\" };",
+    "to": "/^(?:XAI|ANTHROPIC)_API_KEY is not set$/.test(e.message)) return { ...out, kind: \"transport\" };"
+  },
+  {
+    "label": "R-7: a request that could not be built reads as a send failure",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "    return fail(\"request\", e);",
+    "to": "    return fail(\"send\", e);"
+  },
+  {
+    "label": "R-8: the route drops the reason",
+    "files": [
+      "worker.js"
+    ],
+    "from": "        failure: routed.failed === true && routed.failure ? routed.failure : undefined,",
+    "to": "        failure: undefined,"
+  },
+  {
+    "label": "R-9: the route does not hand in its provider reader",
+    "files": [
+      "worker.js"
+    ],
+    "from": "{ send: quickSend(env), classify: (e) => upstreamKind(e && e.detail, e && e.status) },",
+    "to": "{ send: quickSend(env) },"
+  },
+  {
+    "label": "R-10: a reader that throws is not caught",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "    try { k = typeof classify === \"function\" ? classify(e) : null; } catch { k = null; }",
+    "to": "    k = typeof classify === \"function\" ? classify(e) : null;"
+  },
+  {
+    "label": "R-11: the canary's line drops the reason",
+    "files": [
+      "scripts/edit-canary.mjs"
+    ],
+    "from": "${rd.failed ? \" FAILED (\" + failureSaid(rd.failure) + \")\" : \"\"}",
+    "to": "${rd.failed ? \" FAILED\" : \"\"}"
+  },
+  {
+    "label": "R-12: the canary believes a billing flag that is not true",
+    "files": [
+      "scripts/canary-route.mjs"
+    ],
+    "from": "(f.billing === true ? \" — refused on our account (billing or key)\" : \"\")",
+    "to": "(f.billing ? \" — refused on our account (billing or key)\" : \"\")"
+  },
+  {
+    "label": "R-13: the canary coerces a status",
+    "files": [
+      "scripts/canary-route.mjs"
+    ],
+    "from": "  if (Number.isInteger(f.status) && f.status >= 100 && f.status <= 599) bits.push(String(f.status));",
+    "to": "  if (f.status) bits.push(String(f.status));"
+  },
+  {
+    "label": "R-14: a failed call carries usage, so it is billed",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "    intent: !!hasSite ? FALLBACK_WITH_SITE : FALLBACK_NO_SITE, answer: \"\", usage: null, failed: true,\n    failure:",
+    "to": "    intent: !!hasSite ? FALLBACK_WITH_SITE : FALLBACK_NO_SITE, answer: \"\", usage: { in: 10, out: 5, cacheRead: 0, cacheWrite: 0, model }, failed: true,\n    failure:"
+  },
+  {
+    "label": "R-15: a status that is not an integer is read as one",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "const status = e && Number.isInteger(e.status) && e.status >= 100 && e.status <= 599 ? e.status : null;",
+    "to": "const status = e && e.status >= 100 && e.status <= 599 ? e.status : null;"
+  },
+  {
+    "label": "R-16: the fallback moves on a failure",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "    intent: !!hasSite ? FALLBACK_WITH_SITE : FALLBACK_NO_SITE, answer: \"\", usage: null, failed: true,\n    failure:",
+    "to": "    intent: FALLBACK_NO_SITE, answer: \"\", usage: null, failed: true,\n    failure:"
+  }
+]
