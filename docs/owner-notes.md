@@ -57,6 +57,24 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-30 — You approved Batch 1; Round 1 is handed over
+
+**Approved**, as you said: both groups' requests and fixture changes, an
+estimated 5–8 credits that is not a cap, run from the branch with the route
+check, against the deployment that is live now. B's second message goes only
+if the first changed exactly that one price, and anything unexpected comes to
+you for review rather than being swept back with a database restore.
+
+**Checked just before the hand-over** (00:14 UTC): the branch's form has the
+route box; the four lesson rows are byte for byte what I recorded; both sites
+are on the versions the plan starts from; the balance is 22, with nothing
+new in the ledger and no job or workflow running.
+
+**Round 1** is the free restore on the bakery and the £42 price change on
+fretwork-1, pressed a minute apart. I'll read both before giving you Round 2.
+
+---
+
 ## 2026-09-30 — Your review of Batch 1: the canary now enforces each press's route, and the plan is corrected (not run)
 
 **The route is now enforced.** You were right: the canary checked only that

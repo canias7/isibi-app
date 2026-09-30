@@ -232,8 +232,9 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   reading is Test 8's run 66: the real router answered `look` for that mix,
   with nothing held back** (one sample; how often, and for other messages,
   is not measured). The image rolled to `abf47dfeceba3c5c`, as predicted. `docs/history/2026-09-29-whole-message-routing.md`.
-- **Batch 1 is proposed, not run** (2026-09-29, after Test 8's closure;
-  corrected 2026-09-30 after the owner's review). **Two groups are ready**, on
+- **Batch 1 is approved; Round 1 is handed over, not yet pressed** (2026-09-29,
+  after Test 8's closure; corrected 2026-09-30 after the owner's review, and
+  approved the same day at an estimated 5–8 credits, not a cap). **Two groups are ready**, on
   different sites with different controls, each paid press with its route
   enforced:
   - **A**, item 1's open half (a removed page answering 301 home), on

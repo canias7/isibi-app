@@ -288,3 +288,7 @@
 - **The agreed list stays as agreed.** *"Preserve the agreed remaining
   acceptance list… Keep live guard-rejection evidence separate rather than
   silently substituting it for the follow-up case."*
+- **An unexpected change is reviewed, never swept back.** Approving Batch 1:
+  *"Unexpected changes require review; do not perform a broad database
+  restore."* A difference a test did not intend is reported for your review;
+  it is not undone with a restore that also takes back everything else.

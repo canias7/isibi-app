@@ -651,6 +651,32 @@ one:
      `01790468089054-8btpep`; `fold-lane-bakery`; `washhouse-3`; the same two
      expectations.
 
+### Approved; Round 1 handed over (2026-09-30)
+
+**The owner accepted the expected-route correction and approved the batch**:
+the requests and the intended fixture changes, an estimated 5–8 credits
+understood as no cap, from `claude/help-needed-ehlwlj` with the route guard,
+against the confirmed deployment (2170). No merge, deployment, further test
+campaign or product fix. B2 goes only if B1 changed exactly row 4's price;
+an unexpected change is reviewed, never swept back by a broad database
+restore. Per-job accounting, no automatic retries, closed tests stay closed.
+This batch can close only the redirect gap and the missing-reference part of
+the data item.
+
+**Read just before hand-over** (2026-09-30 00:13–00:14 UTC, free, read-only):
+- the branch's form carries all 11 boxes, the expected-route box among them,
+  wired to `CANARY_EXPECT_ROUTE`; `main` is `907840c6`;
+- `lessons` on `fretwork-1`: 736 bytes, sha256 `a4f1dc30…`, byte-identical to
+  the baseline above (its fourth identical read);
+- `fretwork-1` live at `kk6qsh`, its `neon_db` still blank and its project row
+  present; `fold-lane-bakery` live at `8btpep`;
+- the balance 22, the last ledger row 341 (run 66's), no job open anywhere,
+  and no Actions run in flight.
+
+**Round 1** is A1 (the free restore to `t5obxx`) and B1 (the £42 data edit,
+with its expected route), pressed a minute apart; Round 2 is handed over only
+after Round 1's results are read.
+
 ### What it will not establish
 
 - **Group A**:
