@@ -349,4 +349,15 @@
   row deleted, unrelated rows unchanged, website reflecting the deletion, and
   billing correct."* And: *"Keep the next paid run subject to my approval and
   a credit estimate. Don't repeat accepted tests."*
+- **Closed tests keep their data.** Closing runs 79 and 80: *"Keep the demo
+  data as it stands."*
+- **The follow-up acceptance, in your words, as it arrived.** *"prepare one
+  bounded test of a follow-up after failure in the same chat tab: 1. A
+  request produces a genuine, visible edit failure. 2. Without reloading, a
+  normal second request succeeds. 3. Verify the second message submits
+  correctly, its intended change happens,"* The message stopped there. The
+  checks after it are mine, from your deletion and D1 lists, until you
+  confirm or correct them: the failure changed nothing and its edit charge
+  came back; unrelated rows unchanged; the website reflects the change;
+  billing correct; no reload.
 

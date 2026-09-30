@@ -31,7 +31,7 @@ import fs from "node:fs";
 import crypto from "node:crypto";
 import {
   readBoth, baselineVerdict, changeVerdict, restorePlan, restoreRow, recoverRow, rowDiff, shownVerdict, lineIsFor,
-  describeRows, describeRecovery, probeBody, probeVerdict,
+  describeRows, describeRecovery, probeBody, probeVerdict, shownLead, untouchedVerdict,
 } from "./canary-rows.mjs";
 import {
   markerBooking, readRulesState, rulesStartVerdict, closingVerdict, classifyBooking, insertionVerdict,
@@ -70,6 +70,45 @@ const D1_ROW = Object.freeze({
   to: "4.6",
   shown: Object.freeze({ path: "/order", sel: 'input[type="radio"]', before: "£4.50", after: "£4.60" }),
   record: LOAVES_RECORD,
+});
+
+// ── TEST 9: A FOLLOW-UP AFTER A FAILURE, IN THE SAME TAB ────────────────────
+//
+// fretwork-1's `lessons` as a visitor's read answered it at 2026-09-30
+// 21:06:19Z, once run 80 had taken "Group of three" off (541 bytes, `0-2/3`),
+// and again at 21:31:30Z, unchanged. The owner's demo-site rule (2026-09-30)
+// makes the table as it stands the baseline: nothing is put back, before or
+// after.
+const LESSONS_RECORD = Object.freeze([
+  Object.freeze({ id: 1, name: "First lesson", description: "A free 45-minute taster in Crookes. Bring a guitar if you have one; there is a spare if not.", price: 0, duration: "45 minutes", created_at: "2026-09-02 16:57:02" }),
+  Object.freeze({ id: 3, name: "One-to-one", description: "A private 45-minute lesson. Beginners welcome.", price: 30, duration: "45 minutes", created_at: "2026-09-02 16:57:02" }),
+  Object.freeze({ id: 4, name: "Hour one-to-one", description: "A full hour when 45 minutes is not enough.", price: 42, duration: "60 minutes", created_at: "2026-09-02 16:57:02" }),
+]);
+
+// THE SECOND MESSAGE'S ONE CHANGE: lessons id 4 (it must still be the Hour
+// one-to-one), price 42 -> 45, and KEPT. `restore: false` is the owner's
+// demo-site rule, so this run makes no write of its own at all: no put-back,
+// and no conditional-write probe either. `shown` is where a visitor sees it:
+// the price list, and the home page, which reads the same table. A line there
+// reads "Hour one-to-one 60 minutes A full hour when 45 minutes is not enough.
+// £42", so it is found by its whole start (`lead`), not by the name alone.
+const FOLLOW_ROW = Object.freeze({
+  table: "lessons",
+  id: 4,
+  match: Object.freeze({ name: "Hour one-to-one" }),
+  field: "price",
+  from: "42",
+  to: "45",
+  restore: false,
+  shown: Object.freeze({
+    path: "/prices",
+    also: Object.freeze(["/"]),
+    sel: "li > span",
+    lead: "Hour one-to-one 60 minutes A full hour when 45 minutes is not enough.",
+    before: "£42",
+    after: "£45",
+  }),
+  record: LESSONS_RECORD,
 });
 
 // ── THE RULES TEST ON lido-axes-b ───────────────────────────────────────────
@@ -204,6 +243,36 @@ export const UI_SCENARIOS = Object.freeze({
       Object.freeze({
         say: "Remove the gallery page.", layers: Object.freeze(["page"]),
         needs: Object.freeze({ step: 1, layer: "nav" }),
+      }),
+    ]),
+  }),
+  // TEST 9 — A FOLLOW-UP AFTER A FAILURE, IN THE SAME TAB (the owner,
+  // 2026-09-30). The first message asks to take off a lesson the site does not
+  // have, so the data step matches nothing: a real failure, shown on screen,
+  // with the edit's own charge refunded (`fails`) — run 77's path. The second
+  // is an ordinary change, sent from the same tab with no reload, and only once
+  // the first has failed exactly that way and the table still reads as it did
+  // before it (`needs.failed`). Both are walled to the data layer, so a
+  // misrouted message costs its routing call and changes nothing. Nothing is
+  // put back.
+  "9-follow-up": Object.freeze({
+    site: "fretwork-1",
+    // Routing 1-2 for each message, the failed edit 0 once its reserve is
+    // refunded, and the data edit about 1: about 5.
+    budget: 8,
+    layers: Object.freeze(["data"]),
+    publishes: 0,
+    reply: "✅ Updated one entry in lessons.",
+    applied: Object.freeze([Object.freeze({ table: "lessons", id: 4, columns: Object.freeze(["price"]) })]),
+    row: FOLLOW_ROW,
+    steps: Object.freeze([
+      Object.freeze({
+        say: "We've stopped running the Weekend workshop, please take it off the price list.",
+        fails: Object.freeze({ error: "no-match" }),
+      }),
+      Object.freeze({
+        say: "Please change the Hour one-to-one's price to £45.",
+        needs: Object.freeze({ step: 1, failed: "no-match" }),
       }),
     ]),
   }),
@@ -405,7 +474,9 @@ export function routeCostsOf(steps) {
  * balance at the end must be exactly the routing calls' own costs plus each
  * job's charge — and each job's charge must be what its own row says AND what
  * the ledger took under it, with nothing refunded. An exempt job takes no
- * ledger row. Anything that cannot be read is a refusal, never a zero.
+ * ledger row. A refunded job charged nothing: whatever its reserve took, the
+ * ledger gave back, so its rows net to nothing. Anything that cannot be read
+ * is a refusal, never a zero.
  */
 export function moneyVerdict({ start, end, routeCosts, jobs } = {}) {
   const bad = (why, extra = {}) => ({ ok: false, why, ...extra });
@@ -430,6 +501,8 @@ export function moneyVerdict({ start, end, routeCosts, jobs } = {}) {
       edits += j.row.cost;
     } else if (j.row.billing === "exempt") {
       if (j.ledger.length) return bad(`job ${id} is exempt and the ledger names it`);
+    } else if (j.row.billing === "refunded") {
+      if (debits !== refunds) return bad(`job ${id} is refunded; the ledger took ${debits} and returned ${refunds}`);
     } else {
       return bad(`job ${id} is ${j.row.billing}, not settled`);
     }
@@ -455,6 +528,38 @@ export function unpublishedVerdict({ published, jobs, chain } = {}) {
   }
   if (!chain || chain.verified !== true || chain.links !== 0) return { ok: false, why: `the after-read is ${chain ? chain.why : "not taken"}` };
   return { ok: true, why: "" };
+}
+
+/**
+ * A FAILED MESSAGE'S EDIT CHARGE CAME BACK: its job's own row says the
+ * reserve was refunded, the ledger was read, something was reserved, and the
+ * rows under the job net to nothing. The routing call is billed on its own
+ * and is not this job's.
+ */
+export function refundedVerdict(jr) {
+  const id = (jr && jr.job) || "?";
+  if (!jr || !jr.row) return { ok: false, why: `job ${id} has no readable row` };
+  if (jr.row.billing !== "refunded") return { ok: false, why: `job ${id} is ${jr.row.billing || "unsettled"}, not refunded` };
+  if (!jr.ledgerRead || jr.ledgerRead.ok !== true || !Array.isArray(jr.ledger)) return { ok: false, why: `job ${id}'s ledger could not be read` };
+  let debits = 0, refunds = 0;
+  for (const e of jr.ledger) {
+    const d = Number(e && e.delta);
+    if (!Number.isFinite(d)) return { ok: false, why: `job ${id} has a ledger row with no amount` };
+    if (d < 0) debits -= d; else refunds += d;
+  }
+  if (!debits) return { ok: false, why: `job ${id} reserved nothing, so there was no charge to refund` };
+  return debits === refunds ? { ok: true, why: "", reserved: debits, refunded: refunds }
+    : { ok: false, why: `job ${id} reserved ${debits} and got ${refunds} back`, reserved: debits, refunded: refunds };
+}
+
+/**
+ * THE SAME TAB: the document the run marked once the workspace opened, never
+ * reloaded or replaced since. A reload or a move to another document starts a
+ * new window, without the mark and with another `performance.timeOrigin`.
+ */
+export function sameTab(opened, now) {
+  return !!(opened && now && typeof opened.mark === "string" && opened.mark.length >= 16 && now.mark === opened.mark &&
+    Number.isFinite(opened.origin) && now.origin === opened.origin);
 }
 
 /** The API calls whose bodies are the evidence; everything else is recorded by status alone. */
@@ -570,6 +675,17 @@ function cardIdInPage(slug) {
     if (s && document.querySelector('.st-card[data-open="' + CSS.escape(s.id) + '"]')) return s.id;
   } catch (e) { /* fall through to the list's own id for a site this browser never built */ }
   return document.querySelector('.st-card[data-open="srv_' + slug + '"]') ? "srv_" + slug : "";
+}
+
+/** Marks the workspace's own document once it is open; see `sameTab`. */
+function markTabInPage(token) {
+  window.__canaryTab = token;
+  return { mark: window.__canaryTab, origin: performance.timeOrigin, path: location.pathname };
+}
+
+/** The mark the page carries now, if any, and when its document started. */
+function tabMarkInPage() {
+  return { mark: typeof window.__canaryTab === "string" ? window.__canaryTab : "", origin: performance.timeOrigin, path: location.pathname };
 }
 
 // ── THE DRIVER ──────────────────────────────────────────────────────────────
@@ -744,11 +860,45 @@ export function finalReplyOf(step) {
 }
 
 /**
+ * A MESSAGE THAT MUST FAIL, AND BE SEEN TO: its job's own stored reply is a
+ * failure of the named kind that names no row and cost nothing for the edit
+ * (the poll route takes that cost from the job's row: 0 once the reserve came
+ * back), and the reply on screen is the app's warning carrying that reply's
+ * own sentence. A success, another failure, no stored reply, or a failure the
+ * page did not show is a reason, never a pass.
+ */
+export function failureVerdict(step, fails) {
+  const fin = finalReplyOf(step);
+  if (!fin) return { ok: false, why: "no stored reply was read" };
+  const out = { ok: false, error: fin.error, cost: fin.cost, refunded: fin.refunded };
+  if (fin.ok === true) return { ...out, why: "the message succeeded" };
+  if (fin.ok !== false) return { ...out, why: "the stored reply says neither success nor failure" };
+  const want = fails && typeof fails.error === "string" ? fails.error : "";
+  if (!want || fin.error !== want) return { ...out, why: `it failed as ${fin.error || "nothing named"}, not as ${want || "(no failure named)"}` };
+  if (Array.isArray(fin.applied) && fin.applied.length) return { ...out, why: "the failure names rows it changed" };
+  if (fin.cost !== 0) return { ...out, why: `the failed edit's own cost reads ${JSON.stringify(fin.cost === undefined ? null : fin.cost)}, not 0` };
+  if (typeof fin.msg !== "string" || !fin.msg.trim()) return { ...out, why: "the failure carries no sentence to show" };
+  // ONE OF THE REPLIES THE MESSAGE GOT ON SCREEN is that warning: a note the
+  // app draws beside it does not hide it, and a sentence drawn as anything but
+  // a warning is not it.
+  const screen = Array.isArray(step && step.replies) && step.replies.length ? step.replies : [step && typeof step.reply === "string" ? step.reply : ""];
+  if (!screen.some((t) => typeof t === "string" && t.startsWith("⚠️") && t.includes(fin.msg))) {
+    return { ...out, why: "the page did not show the failure's own sentence as a warning" };
+  }
+  return { ...out, ok: true, why: "" };
+}
+
+/**
  * WHETHER A MESSAGE THAT DEPENDS ON AN EARLIER ONE MAY BE SENT: only once that
  * one's job stored a success at the layer it was sent to do. Everything short
  * of that — not sent, no reply, no stored reply read, a refusal, a success at
  * another layer — is a reason, and the dependent message is not sent: its
  * routing call is billed, and on Test 5 its removal would only be refused.
+ *
+ * A FOLLOW-UP AFTER A FAILURE (`needs.failed`, Test 9) asks the opposite of
+ * that message: it failed exactly as named and was shown failing
+ * (`failureVerdict`), and the table read after it is the baseline — so the
+ * second message follows a failure that changed nothing, or it is not sent.
  */
 export function dependencyVerdict(steps, needs) {
   if (!needs) return { ok: true, why: "" };
@@ -757,6 +907,14 @@ export function dependencyVerdict(steps, needs) {
   if (!dep.completed) return { ok: false, why: `message ${needs.step}'s reply never came, so whether it did its work is not known` };
   const fin = finalReplyOf(dep);
   if (!fin) return { ok: false, why: `no stored reply to message ${needs.step} was read, so whether it did its work is not known` };
+  if (needs.failed) {
+    const f = failureVerdict(dep, { error: needs.failed });
+    if (!f.ok) return { ok: false, why: `message ${needs.step} is not the failure this message follows up (${f.why})` };
+    if (!dep.untouched || dep.untouched.ok !== true) {
+      return { ok: false, why: `the table after message ${needs.step} is not known to be as it was (${dep.untouched ? dep.untouched.why : "not read"})` };
+    }
+    return { ok: true, why: "" };
+  }
   if (fin.ok !== true) return { ok: false, why: `message ${needs.step} did not do its work (${fin.error || "no error named"})` };
   if (fin.layer !== needs.layer) return { ok: false, why: `message ${needs.step} succeeded at ${fin.layer || "no layer"}, not at ${needs.layer}` };
   return { ok: true, why: "" };
@@ -842,6 +1000,13 @@ export async function runUi(opts) {
       return rec;
     }
   }
+  // A ROW THIS RUN KEEPS (`restore: false`, the owner's demo-site rule) IS
+  // NEVER WRITTEN BY IT. Its PATCH is swapped here for a refusal that sends
+  // nothing and is counted, so no path below — the probe, the recovery, or
+  // anything added later — can reach the owner route's write.
+  const rowIo = spec && spec.restore === false
+    ? { ...rows, patch: async () => { rec.row.writes = (rec.row.writes || 0) + 1; throw new Error("this run keeps the row and makes no write"); } }
+    : rows;
   const rspec = scenario && scenario.rules ? scenario.rules : null;
   if (rspec) {
     rec.rules = {
@@ -881,8 +1046,11 @@ export async function runUi(opts) {
   const browser = await launch();
   // The visitor's page, read in a context of its own. The verdict against the
   // first reading is the caller's: what it must show changes from step to step.
-  const shown = () => readShownSite(browser, {
-    url: siteOrigin + spec.shown.path, sel: spec.shown.sel, name: String(spec.match.name || ""),
+  // A LINE IS FOUND BY ITS WHOLE START where the page draws more than the name
+  // before the price (`shownLead`), and any page that shows the row (the spec's
+  // `also`) is read the same way as its own.
+  const shown = (path = spec.shown.path) => readShownSite(browser, {
+    url: siteOrigin + path, sel: spec.shown.sel, name: shownLead(spec),
     ms: shownMs, pollMs: Math.max(pollMs, 250), route,
   });
   try {
@@ -895,8 +1063,8 @@ export async function runUi(opts) {
       const before = rec.row.shown.before = await shown();
       // Whether the write would be conditional is asked first, with a write no
       // row can meet; a Worker that cannot enforce it is never sent the real one.
-      rec.row.capability = await conditionProbe(rows, spec);
-      rec.row.recovery = await recoverRow({ spec, record: spec.record, readers: rows, patch: rows.patch, write: spend === true && rec.row.capability.ok });
+      rec.row.capability = await conditionProbe(rowIo, spec);
+      rec.row.recovery = await recoverRow({ spec, record: spec.record, readers: rowIo, patch: rowIo.patch, write: spend === true && rec.row.capability.ok });
       if (rec.row.recovery.sent) {
         const now = rec.row.shown.afterRestore = await shown();
         now.verdict = before.ok && now.ok ? shownVerdict(before.lines, now.lines, spec, spec.shown.before) : { ok: false, why: now.ok ? "no-before" : now.why };
@@ -985,6 +1153,9 @@ export async function runUi(opts) {
     if (!ws.ok) { stop("open", "the site's workspace never opened — nothing was sent"); await shot(page, "ui-open"); return rec; }
     const idle = await until(page, composerReady, openMs);
     if (!idle.ok) { stop("open", "the workspace opened busy and never became idle — nothing was sent"); await shot(page, "ui-open"); return rec; }
+    // THE TAB, MARKED ONCE IT IS OPEN: every message goes from this document,
+    // and each reply is read in it (`sameTab`).
+    rec.tab = await page.evaluate(markTabInPage, crypto.randomBytes(12).toString("hex")).catch(() => null);
     rec.balance.start = await balanceNow();
     await shot(page, "ui-open");
 
@@ -1025,11 +1196,21 @@ export async function runUi(opts) {
         // FIRST, WHETHER THE RECOVERY CAN BE CONDITIONAL AT ALL — asked with a
         // write no row can meet, so it changes nothing. A Worker that cannot
         // enforce a write's condition could not put the value back safely, so
-        // a paid run is never sent on one; a rehearsal reports it.
-        rec.row.capability = await conditionProbe(rows, spec);
+        // a paid run is never sent on one; a rehearsal reports it. A run that
+        // keeps the row writes nothing, so it asks nothing.
+        if (spec.restore !== false) rec.row.capability = await conditionProbe(rowIo, spec);
         const before = rec.row.shown.before = await shown();
         before.verdict = before.ok && before.target.includes(spec.shown.before) ? { ok: true } : { ok: false, why: before.ok ? "wrong-price" : before.why };
-        rec.row.baseline = await readBoth(rows);
+        // EVERY OTHER PAGE THAT SHOWS THE ROW, read the same way, and before the
+        // database readers, so those stay the last thing before the Send.
+        const alsoPaths = Array.isArray(spec.shown.also) ? spec.shown.also : [];
+        if (alsoPaths.length) rec.row.also = [];
+        for (const path of alsoPaths) {
+          const b = await shown(path);
+          b.verdict = b.ok && b.target.includes(spec.shown.before) ? { ok: true } : { ok: false, why: b.ok ? "wrong-price" : b.why };
+          rec.row.also.push({ path, before: b });
+        }
+        rec.row.baseline = await readBoth(rowIo);
         rec.row.baselineVerdict = baselineVerdict(rec.row.baseline, spec);
         if (rec.row.baseline.pub.ok) {
           const d = rowDiff(spec.record, rec.row.baseline.pub.rows);
@@ -1040,12 +1221,16 @@ export async function runUi(opts) {
           break;
         }
         if (!before.verdict.ok) { stop("baseline", `the ${spec.shown.path} page does not show ${spec.match.name} at ${spec.shown.before} (${before.verdict.why}) — nothing was sent`); break; }
-        // What the recovery would write against this baseline, decided now:
-        // with nothing sent it must be nothing at all.
-        rec.row.planAtBaseline = restorePlan(rec.row.baseline.owner.rows, spec, rec.row.baselineVerdict.raw);
-        if (spend && !rec.row.capability.ok) {
-          stop("condition", `${rec.row.capability.detail || rec.row.capability.why} — nothing was sent`);
-          break;
+        const off = (rec.row.also || []).find((v) => !v.before.verdict.ok);
+        if (off) { stop("baseline", `the ${off.path} page does not show ${spec.match.name} at ${spec.shown.before} (${off.before.verdict.why}) — nothing was sent`); break; }
+        if (spec.restore !== false) {
+          // What the recovery would write against this baseline, decided now:
+          // with nothing sent it must be nothing at all.
+          rec.row.planAtBaseline = restorePlan(rec.row.baseline.owner.rows, spec, rec.row.baselineVerdict.raw);
+          if (spend && !rec.row.capability.ok) {
+            stop("condition", `${rec.row.capability.detail || rec.row.capability.why} — nothing was sent`);
+            break;
+          }
         }
       }
       // ── THE RULES TEST'S STARTING POINT, IMMEDIATELY BEFORE THE MESSAGE ────
@@ -1079,6 +1264,16 @@ export async function runUi(opts) {
       r.balanceBefore = bal;
       const over = budgetRefusal({ start: rec.balance.start, now: bal, budget: scenario.budget });
       if (over) { stop(`step ${n}`, `${over} — nothing more is sent`); break; }
+      // A LATER MESSAGE GOES FROM THE TAB THE RUN OPENED, or not at all: a page
+      // that reloaded or left since would make it a first message somewhere
+      // else, whatever it says.
+      if (n > 1) {
+        r.tabAtSend = await page.evaluate(tabMarkInPage).catch(() => null);
+        if (!sameTab(rec.tab, r.tabAtSend)) {
+          stop(`step ${n}`, `the page is no longer the tab the run opened (it reloaded or left), so message ${n} is NOT sent`);
+          break;
+        }
+      }
 
       const before = typed.messages.length;
       const netFrom = rec.network.length;
@@ -1117,6 +1312,16 @@ export async function runUi(opts) {
       r.usable = probe.value === "x" && composerReady(probe);
       await page.fill("#stRevise", "");
       r.balanceAfter = await balanceNow();
+      r.tab = await page.evaluate(tabMarkInPage).catch(() => null);
+      r.sameTab = sameTab(rec.tab, r.tab);
+      // A MESSAGE THAT MUST FAIL is judged at once, and the table is read
+      // against the baseline before anything else is sent: a failure that
+      // changed something is not the one a follow-up is sent after.
+      if (step.fails) r.failure = failureVerdict(r, step.fails);
+      if (spec && step.fails && rec.row.baseline) {
+        r.rowsAfter = await readBoth(rowIo);
+        r.untouched = untouchedVerdict(rec.row.baseline, r.rowsAfter);
+      }
       await shot(page, `ui-step-${n}`);
       log(`  step ${n} (${Math.round(r.ms / 1000)} s): ${r.reply.split("\n")[0].slice(0, 160)}  | composer ${r.usable ? "usable again" : "NOT usable"}${r.job ? `  | job ${r.job}` : ""}`);
     }
@@ -1130,21 +1335,32 @@ export async function runUi(opts) {
       if (!sentSteps.length) {
         rec.row.restore = { skipped: "nothing was sent, so there is nothing to put back" };
       } else if (!sentSteps.every((s) => s.completed)) {
-        rec.row.restore = { skipped: `a reply never came, so whether the edit wrote the row is not known yet — once its job has finished, run the recovery scenario, which writes ${spec.field} back only if it reads ${spec.to}` };
+        rec.row.restore = { skipped: spec.restore === false
+          ? "a reply never came, so what the edit did is not known yet — and nothing is written either way: this run keeps the row"
+          : `a reply never came, so whether the edit wrote the row is not known yet — once its job has finished, run the recovery scenario, which writes ${spec.field} back only if it reads ${spec.to}` };
       } else {
         const base = rec.row.baseline;
-        const after = rec.row.after = await readBoth(rows);
+        const after = rec.row.after = await readBoth(rowIo);
         rec.row.change = after.owner.ok ? changeVerdict(base.owner.rows, after.owner.rows, spec) : null;
         rec.row.visitorChange = after.pub.ok ? changeVerdict(base.pub.rows, after.pub.rows, spec) : null;
         const edited = rec.row.shown.afterEdit = await shown();
         edited.verdict = rec.row.shown.before.ok && edited.ok
           ? shownVerdict(rec.row.shown.before.lines, edited.lines, spec, spec.shown.after)
           : { ok: false, why: edited.ok ? "no-before" : edited.why };
-        rec.row.restore = await restoreRow({ spec, base, after, readers: rows, patch: rows.patch });
-        const back = rec.row.shown.afterRestore = await shown();
-        const same = JSON.stringify(back.lines) === JSON.stringify(rec.row.shown.before.lines);
-        back.verdict = back.ok && same ? { ok: true, exact: true } : { ok: false, why: back.ok ? "differs-from-before" : back.why };
-        log(`  row: ${rec.row.change ? (rec.row.change.exact ? "the one expected change" : "NOT exactly the expected change") : "UNREADABLE after the edit"}; recovery ${rec.row.restore.plan ? rec.row.restore.plan.act : "-"}${rec.row.restore.verdict ? (rec.row.restore.verdict.restored ? ", restored" : ", NOT restored") : ""}`);
+        for (const v of rec.row.also || []) {
+          const e = v.afterEdit = await shown(v.path);
+          e.verdict = v.before.ok && e.ok ? shownVerdict(v.before.lines, e.lines, spec, spec.shown.after) : { ok: false, why: e.ok ? "no-before" : e.why };
+        }
+        if (spec.restore === false) {
+          rec.row.restore = { skipped: "no recovery: this run keeps what the message changed (the owner's demo-site rule, 2026-09-30)" };
+          log(`  row: ${rec.row.change ? (rec.row.change.exact ? "the one expected change" : "NOT exactly the expected change") : "UNREADABLE after the edit"}; kept, no recovery`);
+        } else {
+          rec.row.restore = await restoreRow({ spec, base, after, readers: rowIo, patch: rowIo.patch });
+          const back = rec.row.shown.afterRestore = await shown();
+          const same = JSON.stringify(back.lines) === JSON.stringify(rec.row.shown.before.lines);
+          back.verdict = back.ok && same ? { ok: true, exact: true } : { ok: false, why: back.ok ? "differs-from-before" : back.why };
+          log(`  row: ${rec.row.change ? (rec.row.change.exact ? "the one expected change" : "NOT exactly the expected change") : "UNREADABLE after the edit"}; recovery ${rec.row.restore.plan ? rec.row.restore.plan.act : "-"}${rec.row.restore.verdict ? (rec.row.restore.verdict.restored ? ", restored" : ", NOT restored") : ""}`);
+        }
       }
     }
     // ── THE RULES TEST: WAS IT CLOSED, AND DOES A REAL BOOKING GET REFUSED ──
@@ -1213,6 +1429,9 @@ export function describeUi(rec) {
     }
     const fin = (s.network || []).filter((e) => e.final);
     if (fin.length) out.push(`     final reply: ${fin[fin.length - 1].status} ${JSON.stringify(fin[fin.length - 1].res).slice(0, 400)}`);
+    if (s.failure) out.push(`     failure: ${s.failure.ok ? `${s.failure.error}, shown as a warning, the edit's own cost ${s.failure.cost}` : "NOT the failure this message must be — " + s.failure.why}`);
+    if (s.untouched) out.push(`     the table after it: ${s.untouched.ok ? "the baseline, on both readers, byte for byte" : "NOT the baseline — " + s.untouched.why + (s.untouched.detail ? ": " + s.untouched.detail : "")}`);
+    if (s.tabAtSend || s.tab) out.push(`     tab: ${s.tabAtSend ? (sameTab(rec.tab, s.tabAtSend) ? "sent from the tab the run opened" : "NOT the tab the run opened at the send") + "; " : ""}${s.sameTab ? "the reply read in that same tab, never reloaded" : "the reply NOT read in the tab the run opened"}`);
     if (Number.isFinite(s.balanceBefore) && Number.isFinite(s.balanceAfter)) out.push(`     balance ${s.balanceBefore} -> ${s.balanceAfter}`);
   }
   for (const b of rec.blocked || []) out.push(`  BLOCKED ${b.method} ${b.path}: ${b.why || "the page tried to start work this scenario never asks for"}`);

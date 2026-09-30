@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import {
   OWNER_ROWS_LIMIT, decimalOf, readRowList, rowDiff, findTarget, baselineVerdict, changeVerdict,
   restorePlan, patchVerdict, restoreVerdict, restoreRow, recoverRow, readBoth, shownVerdict,
-  describeRows, describeRecovery, lineIsFor, probeBody, probeVerdict,
+  describeRows, describeRecovery, lineIsFor, probeBody, probeVerdict, shownLead, untouchedVerdict,
 } from "../scripts/canary-rows.mjs";
 import { handleOwnerData, handleOwnerWrite } from "../site-owner.mjs";
 import { ownerTable } from "./fixtures/owner-table.mjs";
@@ -525,4 +525,61 @@ test("the page's line for the target must show the price, and every other line m
   assert.equal(shownVerdict(before, ["Country White £4.90 · Our everyday loaf.", after[1]], SPEC, "£4.60").why, "other-lines-changed");
   // A name that merely starts the same is not the target's line.
   assert.equal(shownVerdict(before, ["Sea Salt Focaccia Deluxe £4.60 · x"], SPEC, "£4.60").why, "target-not-shown");
+});
+
+// ── TEST 9: A LINE WITH MORE THAN THE NAME BEFORE ITS PRICE, AND A TABLE THAT MUST NOT MOVE ──
+
+// fretwork-1's price list, as a visitor's page drew it on 2026-09-30.
+const LESSON_LINES = [
+  "First lesson 45 minutes A free 45-minute taster in Crookes. Bring a guitar if you have one; there is a spare if not. £0",
+  "One-to-one 45 minutes A private 45-minute lesson. Beginners welcome. £30",
+  "Hour one-to-one 60 minutes A full hour when 45 minutes is not enough. £42",
+];
+const LESSON = Object.freeze({
+  table: "lessons", id: 4, match: Object.freeze({ name: "Hour one-to-one" }), field: "price", from: "42", to: "45",
+  shown: Object.freeze({ path: "/prices", sel: "li > span", lead: "Hour one-to-one 60 minutes A full hour when 45 minutes is not enough.", before: "£42", after: "£45" }),
+});
+
+test("a line with a duration after the name is found by its whole start, and only a start that begins with the name counts", () => {
+  // THE NAME ALONE FINDS NOTHING on this page: a digit follows it.
+  assert.equal(LESSON_LINES.filter((l) => lineIsFor(l, "Hour one-to-one")).length, 0);
+  assert.equal(shownLead(LESSON), LESSON.shown.lead);
+  assert.deepEqual(LESSON_LINES.filter((l) => lineIsFor(l, shownLead(LESSON))), [LESSON_LINES[2]]);
+  const after = LESSON_LINES.map((l, i) => (i === 2 ? l.replace("£42", "£45") : l));
+  assert.deepEqual(shownVerdict(LESSON_LINES, after, LESSON, "£45"), { ok: true, line: after[2] });
+  // The description's own "45 minutes" is not the price.
+  assert.equal(shownVerdict(LESSON_LINES, LESSON_LINES, LESSON, "£45").why, "wrong-price");
+  assert.equal(shownVerdict(LESSON_LINES, after.map((l, i) => (i === 1 ? l.replace("£30", "£31") : l)), LESSON, "£45").why, "other-lines-changed");
+  // The home page draws the same line with its button after the price.
+  const home = LESSON_LINES.map((l) => l + " Select");
+  assert.deepEqual(shownVerdict(home, home.map((l, i) => (i === 2 ? l.replace("£42", "£45") : l)), LESSON, "£45").ok, true);
+  // A lead that does not begin with the name is not trusted: the name stands.
+  const odd = { ...LESSON, shown: { ...LESSON.shown, lead: "One-to-one 45 minutes" } };
+  assert.equal(shownLead(odd), "Hour one-to-one");
+  assert.equal(shownLead(SPEC), "Sea Salt Focaccia", "a spec with no lead is read by its name, as before");
+  assert.equal(shownLead({ ...LESSON, shown: { ...LESSON.shown, lead: 7 } }), "Hour one-to-one");
+});
+
+test("a table that must not move is the baseline on both readers, field for field and byte for byte, or it is not known", () => {
+  const rows = [{ id: 1, name: "First lesson", price: 0 }, { id: 4, name: "Hour one-to-one", price: 42 }];
+  const base = both(rows);
+  assert.deepEqual(untouchedVerdict(base, both(rows)), { ok: true, why: "unchanged" });
+  const moved = untouchedVerdict(base, both([rows[0], { ...rows[1], price: 45 }]));
+  assert.deepEqual({ ok: moved.ok, why: moved.why }, { ok: false, why: "moved" });
+  assert.match(moved.detail, /id 4 price "42" -> "45"/);
+  assert.equal(untouchedVerdict(base, both([rows[1]])).why, "moved", "a row gone is a move");
+  assert.equal(untouchedVerdict(base, both([...rows, { id: 5, name: "Weekend workshop", price: 25 }])).why, "moved", "a row added is a move");
+  // THE SAME ROWS SERVED DIFFERENTLY ARE NOT THE SAME TO A VISITOR.
+  const spaced = both(rows);
+  spaced.pub.text = JSON.stringify(rows, null, 1);
+  assert.equal(untouchedVerdict(base, spaced).why, "visitor-bytes");
+  // CANNOT-TELL IS NEVER "UNCHANGED": each is a refusal, and says which.
+  const judged = (b, n) => { const v = untouchedVerdict(b, n); return { ok: v.ok, why: v.why }; };
+  assert.deepEqual(judged(base, { owner: { ok: false, why: "status 500" }, pub: base.pub }), { ok: false, why: "unreadable" });
+  assert.deepEqual(judged(base, { owner: base.owner, pub: { ok: false, why: "status 0" } }), { ok: false, why: "unreadable" });
+  assert.deepEqual(judged(base, null), { ok: false, why: "unreadable" });
+  assert.deepEqual(judged(null, both(rows)), { ok: false, why: "no-baseline" });
+  assert.deepEqual(judged(base, { owner: base.owner, pub: { ok: true, rows: clone(rows) } }), { ok: false, why: "no-visitor-text" });
+  assert.equal(untouchedVerdict(base, spaced).ok, false);
+  assert.equal(untouchedVerdict(base, both([rows[1]])).ok, false);
 });

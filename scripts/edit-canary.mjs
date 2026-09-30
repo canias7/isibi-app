@@ -48,6 +48,9 @@ import { readUiScenario, runUi, describeUi, chainVerdict, finalReplyOf } from ".
 // the page, what the job stored, the money and the publish that must not have
 // happened — each decided in the module, where tests drive it.
 import { requestVerdict, storedReplyVerdict, moneyVerdict, unpublishedVerdict, routeCostsOf } from "./canary-ui.mjs";
+// AND TEST 9's: a follow-up after a failure — the failure itself, its refund,
+// and the tab every message went from.
+import { failureVerdict, refundedVerdict, sameTab } from "./canary-ui.mjs";
 // TEST 5: a page removal is judged by what its operations did, never by how
 // many replies came back.
 import { removalVerdict } from "./canary-remove.mjs";
@@ -753,6 +756,7 @@ if (UI_ASK) {
     for (const s of ui.steps.filter((x) => x.sent)) {
       check(`message ${s.n} got a reply on screen`, !!s.reply, s.reply ? s.reply.slice(0, 80) : "(none)");
       check(`the composer was usable again after message ${s.n}`, s.usable === true, JSON.stringify(s.composer));
+      check(`message ${s.n}'s reply was read in the tab the run opened, never reloaded`, s.sameTab === true, JSON.stringify({ opened: ui.tab, now: s.tab }));
       if (s.file) {
         const post = (s.network || []).find((e) => e.method === "POST" && /\/edit$/.test(e.path));
         const got = post && post.req && Array.isArray(post.req.images) && post.req.images[0] ? post.req.images[0].sha256 : "";
@@ -770,9 +774,15 @@ if (UI_ASK) {
     const shownOk = (k) => !!(r.shown && r.shown[k] && r.shown[k].verdict && r.shown[k].verdict.ok);
     const shownSays = (k) => (r.shown && r.shown[k] ? (r.shown[k].target || r.shown[k].why || "") + (r.shown[k].verdict && !r.shown[k].verdict.ok ? ` [${r.shown[k].verdict.why}]` : "") : "not read");
     // THE RECOVERY'S WRITE IS CONDITIONAL, OR IT IS NOT MADE: asked with a
-    // write no row can meet, before anything else is written.
-    check("the Worker writes a row only while it still matches: a conditional write no row can meet changed nothing",
-      !!(r.capability && r.capability.ok), r.capability ? `${r.capability.why} (${r.capability.status})${r.capability.detail ? " — " + r.capability.detail : ""}` : "not asked");
+    // write no row can meet, before anything else is written. A run that keeps
+    // the row (the owner's demo-site rule) writes nothing and asks nothing.
+    if (ROW.restore === false) {
+      check("this run made no write of its own: it keeps the row, so it asked no conditional write and planned no recovery",
+        !r.writes && !r.capability && !r.planAtBaseline && !(r.restore && r.restore.plan), JSON.stringify({ writes: r.writes || 0, probe: !!r.capability, plan: !!r.planAtBaseline }));
+    } else {
+      check("the Worker writes a row only while it still matches: a conditional write no row can meet changed nothing",
+        !!(r.capability && r.capability.ok), r.capability ? `${r.capability.why} (${r.capability.status})${r.capability.detail ? " — " + r.capability.detail : ""}` : "not asked");
+    }
     if (recoverOnly) {
       const x = r.recovery || null;
       check("the recovery read the row on both readers", !!(x && x.pre && x.pre.owner.ok && x.pre.pub.ok),
@@ -790,9 +800,48 @@ if (UI_ASK) {
       check(`the fresh baseline, immediately before the message: ${ROW.table} id ${ROW.id} is ${ROW.match.name} and reads ${ROW.from} on both readers`,
         !!(r.baselineVerdict && r.baselineVerdict.ok), r.baselineVerdict ? `${r.baselineVerdict.why}${r.baselineVerdict.detail ? " — " + r.baselineVerdict.detail : ""}` : "not read");
       check(`the ${ROW.shown.path} page showed ${ROW.match.name} at ${ROW.shown.before} before anything was sent`, shownOk("before"), shownSays("before"));
+      const alsoOk = (v, k) => !!(v && v[k] && v[k].verdict && v[k].verdict.ok);
+      const alsoSays = (v, k) => (v && v[k] ? (v[k].target || v[k].why || "") + (v[k].verdict && !v[k].verdict.ok ? ` [${v[k].verdict.why}]` : "") : "not read");
+      for (const path of Array.isArray(ROW.shown.also) ? ROW.shown.also : []) {
+        const v = (r.also || []).find((x) => x.path === path);
+        check(`the ${path} page showed ${ROW.match.name} at ${ROW.shown.before} before anything was sent`, alsoOk(v, "before"), alsoSays(v, "before"));
+      }
+      // TEST 9: A FOLLOW-UP AFTER A FAILURE, IN THE SAME TAB. The first message
+      // must fail as named, be shown failing, change nothing and charge nothing
+      // for its edit; the second, sent from the same tab with no reload, must
+      // make exactly its one change, on every page that shows the row. Its
+      // refund is read with the money, below. Nothing is put back.
+      const FOLLOW = UI_ASK.scenario.steps.some((x) => x.fails);
       // ONE BRANCH EACH WAY, spelled like the one above it and never like the
       // spend gate below: that line is the landmark every guard finds it by.
-      if (SPEND) {
+      if (SPEND && FOLLOW) {
+        const at = UI_ASK.scenario.steps.findIndex((x) => x.fails);
+        const f = ui.steps[at] || {}, g = ui.steps[at + 1] || {};
+        const fails = UI_ASK.scenario.steps[at].fails;
+        const rf = requestVerdict(f, UI_ASK.scenario);
+        check(`message ${at + 1} left word for word, was routed to the ${UI_ASK.scenario.layers.join("/")} layer, and went out as one edit there`, rf.ok, JSON.stringify(rf));
+        const fv = failureVerdict(f, fails);
+        check(`message ${at + 1} failed as ${fails.error}: its stored reply names no row, its edit cost 0, and the page showed that failure as a warning`,
+          fv.ok, fv.why || JSON.stringify({ error: fv.error, cost: fv.cost, refunded: fv.refunded }));
+        check(`the table after message ${at + 1} is the baseline on both readers, byte for byte: the failure changed nothing`,
+          !!(f.untouched && f.untouched.ok), f.untouched ? `${f.untouched.why}${f.untouched.detail ? " — " + f.untouched.detail : ""}` : "not read");
+        check(`message ${at + 2} was sent after that failure, from the tab the run opened, with no reload`,
+          !!(g.sent && sameTab(ui.tab, g.tabAtSend)), g.sent ? JSON.stringify({ opened: ui.tab, atSend: g.tabAtSend }) : (g.dependency ? g.dependency.why : (ui.stopped ? ui.stopped.msg : "not sent")));
+        const rg = requestVerdict(g, UI_ASK.scenario);
+        check(`message ${at + 2} left word for word, was routed to the ${UI_ASK.scenario.layers.join("/")} layer, and went out as one edit there`, rg.ok, JSON.stringify(rg));
+        check(`the reply on screen to message ${at + 2} is the one the scenario expects`, g.reply === UI_ASK.scenario.reply, JSON.stringify(g.reply || ""));
+        const sg = storedReplyVerdict(g, UI_ASK.scenario);
+        check(`message ${at + 2}'s stored reply names exactly ${ROW.table} id ${ROW.id}, ${ROW.field}`, sg.ok, sg.why || JSON.stringify(sg.applied));
+        check(`the database change is exactly ${ROW.table} id ${ROW.id} ${ROW.field} ${ROW.from} -> ${ROW.to}, and nothing else`,
+          !!(r.change && r.change.exact), r.change ? JSON.stringify({ target: r.change.target, others: r.change.others.length, added: r.change.added, gone: r.change.gone }) : "not read");
+        check("a visitor's read shows that one change and nothing else", !!(r.visitorChange && r.visitorChange.exact),
+          r.visitorChange ? JSON.stringify({ target: r.visitorChange.target, others: r.visitorChange.others.length }) : "not read");
+        check(`the ${ROW.shown.path} page shows ${ROW.shown.after} for ${ROW.match.name} and every other line unchanged`, shownOk("afterEdit"), shownSays("afterEdit"));
+        for (const path of Array.isArray(ROW.shown.also) ? ROW.shown.also : []) {
+          const v = (r.also || []).find((x) => x.path === path);
+          check(`the ${path} page shows ${ROW.shown.after} for ${ROW.match.name} and every other line unchanged`, alsoOk(v, "afterEdit"), alsoSays(v, "afterEdit"));
+        }
+      } else if (SPEND) {
         const s = ui.steps[0] || {};
         const rq = requestVerdict(s, UI_ASK.scenario);
         check(`the message left word for word, was routed to the ${UI_ASK.scenario.layers.join("/")} layer, and went out as one edit there`, rq.ok, JSON.stringify(rq));
@@ -812,7 +861,7 @@ if (UI_ASK) {
         check("the row is its baseline again, field for field, on both readers", !!(x.verdict && x.verdict.restored), x.verdict ? x.verdict.why : (x.skipped || "not read"));
         check("a visitor's read is byte-identical to the baseline", !!(x.verdict && x.verdict.bytes === true), x.verdict ? String(x.verdict.bytes) : "not read");
         check(`the ${ROW.shown.path} page is exactly as it was before`, shownOk("afterRestore"), shownSays("afterRestore"));
-      } else {
+      } else if (ROW.restore !== false) {
         check("against this baseline the recovery would write nothing", !!(r.planAtBaseline && r.planAtBaseline.act === "none"),
           r.planAtBaseline ? `${r.planAtBaseline.act} (${r.planAtBaseline.why})` : "not decided");
       }
@@ -980,7 +1029,9 @@ if (UI_ASK) {
       for (const c of removal.checks) check(c.name, c.ok, c.why);
     }
     if (UI_ASK.scenario.publishes === 0) {
-      check("the message filed exactly one job", jobs.length === 1, jobs.join(", ") || "none");
+      const each = ui.steps.filter((s) => s.sent);
+      check(each.length > 1 ? "each message filed exactly one job" : "the message filed exactly one job",
+        each.length > 0 && each.every((s) => Array.isArray(s.jobs) && s.jobs.length === 1) && jobs.length === each.length, jobs.join(", ") || "none");
       if (legacy) {
         // THE READERS, EACH ITS OWN: the version list, the job's row, every
         // page on the same build and the same once render times are masked,
@@ -997,6 +1048,15 @@ if (UI_ASK) {
       }
       const money = moneyVerdict({ start: ui.balance.start, end: ui.balance.end, routeCosts: routeCostsOf(ui.steps), jobs: jobRecords });
       check(`the money closes: routing ${money.routing ?? "?"} + edit ${money.edits ?? "?"} = the balance's move of ${money.spent ?? "?"}`, money.ok, money.why || `${ui.balance.start} -> ${ui.balance.end}`);
+      // A MESSAGE THAT MUST FAIL GIVES ITS EDIT'S CHARGE BACK: its one job's
+      // row says refunded, and the ledger under it nets to nothing.
+      for (const [i, st] of UI_ASK.scenario.steps.entries()) {
+        if (!st.fails) continue;
+        const s = ui.steps[i];
+        const mine = jobRecords.filter((jr) => !!(s && Array.isArray(s.jobs) && s.jobs.includes(jr.job)));
+        const rv = mine.length === 1 ? refundedVerdict(mine[0]) : { ok: false, why: `${mine.length} job(s) read for message ${i + 1}` };
+        check(`message ${i + 1}'s edit charge was refunded: its job's row says refunded, and its ledger rows net to nothing`, rv.ok, rv.why || `reserved ${rv.reserved}, refunded ${rv.refunded}`);
+      }
     }
   }
   mkdirSync(EVID, { recursive: true });

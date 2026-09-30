@@ -14,7 +14,7 @@ import {
   UI_SCENARIOS, SESSION_KEY, readUiScenario, composerReady, newReplies, budgetRefusal,
   imageFacts, recordableRequest, recordsBody, blocksPost, chainVerdict, runUi, describeUi,
   wallRefusal, requestVerdict, storedReplyVerdict, moneyVerdict, unpublishedVerdict, routeCostsOf,
-  conditionProbe, dependencyVerdict, finalReplyOf,
+  conditionProbe, dependencyVerdict, finalReplyOf, failureVerdict, refundedVerdict, sameTab,
 } from "../scripts/canary-ui.mjs";
 import { probeBody } from "../scripts/canary-rows.mjs";
 import { readAllow, bookingBodyVerdict, EVIDENCE_BOUNDARY } from "../scripts/canary-rules.mjs";
@@ -168,9 +168,12 @@ test("the chain of publishes is checked link by link, and the after-read must be
 
 function standIn(opt = {}) {
   const calls = [];
+  const slug = opt.slug || "fold-lane-bakery";
   const st = {
     signedIn: opt.signedIn !== false, uid: opt.uid || UID, gate: !!opt.gate, card: opt.card !== false,
     workspace: false, busy: false, messages: [], attached: 0, strip: 0, value: "", pending: null, step: 0, typed: 0,
+    // THE DOCUMENT: a reload starts a new one, without the run's mark.
+    mark: "", origin: 1_000_000.5,
   };
   const listeners = {};
   const state = () => ({
@@ -189,11 +192,14 @@ function standIn(opt = {}) {
   };
   const page = {
     on: (ev, h) => { (listeners[ev] = listeners[ev] || []).push(h); },
-    goto: async (url) => { calls.push(`goto ${url}`); return { headers: () => ({ "x-site-version": "01790468089054-8btpep" }) }; },
+    goto: async (url) => { calls.push(`goto ${url}`); st.url = url; return { headers: () => ({ "x-site-version": "01790468089054-8btpep" }) }; },
     evaluate: async (fn, arg) => {
-      if (fn.name === "cardIdInPage") return st.card ? "srv_fold-lane-bakery" : "";
+      if (fn.name === "cardIdInPage") return st.card ? `srv_${slug}` : "";
+      // THE TAB'S MARK, kept on the page's own window until a reload.
+      if (fn.name === "markTabInPage") { st.mark = arg; return { mark: st.mark, origin: st.origin, path: "/projects" }; }
+      if (fn.name === "tabMarkInPage") return { mark: st.mark, origin: st.origin, path: "/projects" };
       // THE SITE'S OWN PAGE (a row scenario reads what a visitor sees there).
-      if (fn.name === "shownListInPage") { calls.push(`shown ${arg}`); return opt.shown ? opt.shown() : []; }
+      if (fn.name === "shownListInPage") { calls.push(`shown ${arg}`); return opt.shown ? opt.shown(st.url) : []; }
       if (fn.name !== "readComposerInPage") throw new Error("unexpected page function " + fn.name);
       if (st.pending && --st.pending.polls <= 0) {
         const p = st.pending; st.pending = null;
@@ -203,16 +209,22 @@ function standIn(opt = {}) {
             // stored reply escalates, and the page files a second edit, as
             // `escalatedEdit` does, whose own job then answers.
             await respond("GET", `/api/site/edit/${p.job}`, 200, null, { ok: false, escalate: true, layer: "page", cost: 0 }, { "x-gf-edit": "final" });
-            await respond("POST", "/api/site/fold-lane-bakery/edit", 202, { layer: "page" }, { ok: true, job: p.hop, status: "queued" });
+            await respond("POST", `/api/site/${slug}/edit`, 202, { layer: "page" }, { ok: true, job: p.hop, status: "queued" });
             await respond("GET", `/api/site/edit/${p.hop}`, 200, null, p.reply, { "x-gf-edit": "final" });
           } else {
-            await respond("GET", `/api/site/edit/${p.job}`, 200, null, p.reply, { "x-gf-edit": "final" });
+            // A FAILED JOB'S STORED REPLY comes back under its own status (the
+            // data step's no-match is a 422), still marked final.
+            await respond("GET", `/api/site/edit/${p.job}`, opt.finalStatus ? opt.finalStatus(p.n) : 200, null, p.reply, { "x-gf-edit": "final" });
           }
           // THE JOB'S OWN WRITE lands before its reply is on screen, as it does
           // live: the handler writes, then the stored reply is read.
           if (opt.onDone) opt.onDone(p.n);
-          st.messages.push({ who: "a", busy: false, text: p.reply.msg || "✅ Done." });
+          // WHAT THE APP DRAWS for that reply: a warning with the stored
+          // sentence and the money for a refusal, the sentence for a success.
+          st.messages.push({ who: "a", busy: false, text: opt.screen ? opt.screen(p.n, p.reply) : (p.reply.msg || "✅ Done.") });
           st.busy = false;
+          // A PAGE THAT RELOADS ITSELF once a reply is out: a new document.
+          if (opt.reloadAfter === p.n) { st.mark = ""; st.origin += 1; }
         } else st.pending = p;
       }
       return state();
@@ -229,7 +241,7 @@ function standIn(opt = {}) {
         const job = String(n + 1).padStart(32, "0");
         await respond("POST", "/api/site/route", 200, { message: said, attached: !!images },
           opt.routed ? opt.routed(n) : { ok: true, intent: "edit", layer: ["logo", "picture", "page"][n], cost: 2 });
-        await respond("POST", "/api/site/fold-lane-bakery/edit", 202, opt.editBody ? opt.editBody(n, said) : { layer: "x", images }, { ok: true, job, status: "queued" });
+        await respond("POST", `/api/site/${slug}/edit`, 202, opt.editBody ? opt.editBody(n, said) : { layer: "x", images }, { ok: true, job, status: "queued" });
         opt.onSend && opt.onSend(n);
         st.pending = { n, job, polls: 2, hang: opt.hangAt === n, hop: opt.hopAt === n ? "9".repeat(32) : "", reply: opt.reply ? opt.reply(n) : { ok: true, msg: `reply ${n + 1}` } };
       }
@@ -544,7 +556,9 @@ test("the money closes only when the balance's move is the routing costs plus wh
     [{ start: 59, end: 56, routeCosts: [2], jobs: [job({ ledger: [] })] }, /took 0/],
     [{ start: 59, end: 56, routeCosts: [2], jobs: [{ ...job(), ledgerRead: { ok: false } }] }, /could not be read/],
     [{ start: 59, end: 56, routeCosts: [2], jobs: [job({ row: { billing: "reserved" } })] }, /not settled/],
-    [{ start: 59, end: 56, routeCosts: [2], jobs: [job({ row: { billing: "refunded" } })] }, /not settled/],
+    // A REFUNDED JOB whose reserve never came back is refused as exactly that.
+    [{ start: 59, end: 56, routeCosts: [2], jobs: [job({ row: { billing: "refunded" } })] }, /refunded; the ledger took 1 and returned 0/],
+    [{ start: 59, end: 56, routeCosts: [2], jobs: [job({ row: { billing: "none" } })] }, /not settled/],
     [{ start: 59, end: 56, routeCosts: [2], jobs: [job({ row: { cost: "1" } })] }, /whole number/],
     [{ start: 59, end: 56, routeCosts: [undefined], jobs: [job()] }, /not a number/],
     [{ start: -1, end: 56, routeCosts: [2], jobs: [job()] }, /could not be read/],
@@ -559,6 +573,11 @@ test("the money closes only when the balance's move is the routing costs plus wh
   }
   // An exempt job takes no ledger row, and one that does is a finding.
   assert.equal(moneyVerdict({ start: 59, end: 57, routeCosts: [2], jobs: [{ job: "e", row: { billing: "exempt", cost: 0 }, ledgerRead: { ok: true }, ledger: [] }] }).ok, true);
+  // A REFUNDED JOB (a failed edit, Test 9) charged nothing: its reserve and
+  // its refund net to nothing, and the edit adds nothing to the spend.
+  const back = job({ row: { billing: "refunded", cost: 1 }, ledger: [{ delta: -1 }, { delta: 1 }] });
+  assert.deepEqual(moneyVerdict({ start: 59, end: 54, routeCosts: [2, 2], jobs: [back, job()] }), { ok: true, why: "", spent: 5, routing: 4, edits: 1 });
+  assert.match(moneyVerdict({ start: 59, end: 53, routeCosts: [2, 2], jobs: [back, job()] }).why, /moved 6; routing 4 \+ edits 1 is 5/);
   assert.match(moneyVerdict({ start: 59, end: 57, routeCosts: [2], jobs: [{ job: "e", row: { billing: "exempt", cost: 0 }, ledgerRead: { ok: true }, ledger: [{ delta: -1 }] }] }).why, /exempt/);
 });
 
@@ -1789,4 +1808,340 @@ test("a rehearsal of Test 5 types the menu message and sends nothing, behind the
     abort: async () => done("abort"), fallback: async () => done("fallback"),
   }));
   assert.deepEqual([await act("nav"), await act("page"), await act("look")], ["fallback", "fallback", "abort"]);
+});
+
+// ── TEST 9: A FOLLOW-UP AFTER A FAILURE, IN THE SAME TAB ────────────────────
+//
+// fretwork-1's lessons, as the stand-in's database; the first message's job
+// answers the data step's own no-match (a 422, refunded), and the second's
+// changes one price. The run keeps what the second message changed, so its
+// PATCH must never be called at all.
+
+const T9 = UI_SCENARIOS["9-follow-up"];
+const T9_FAIL = "We've stopped running the Weekend workshop, please take it off the price list.";
+const T9_SAY = "Please change the Hour one-to-one's price to £45.";
+const T9_SITE = "https://fretwork-1.gofarther.app";
+const NO_MATCH_MSG = "I couldn't match that to anything the site stores — say which list it's in and I'll have another go.";
+// THE POLL ROUTE'S ANSWER for a refunded job: the handler's stored reply, its
+// cost taken from the job's row (0 once refunded) and the refund named.
+const T9_NO_MATCH = { ok: false, error: "no-match", cost: 0, refunded: 1, usage: { in: 900, out: 13 }, msg: NO_MATCH_MSG };
+const T9_DONE = { ok: true, layer: "data", applied: [{ table: "lessons", id: 4, columns: ["price"] }], failed: 0, cost: 1, msg: "✅ Updated one entry in lessons." };
+// What the app draws for each: `editAnswer`'s warning and money, or the success sentence.
+const t9Screen = (n, reply) => (reply.ok === false ? "⚠️ " + reply.msg + " This edit cost you nothing. Reading your message cost 2 credits." : reply.msg);
+
+function lessons(calls, rows = T9.row.record) {
+  const db = { rows: JSON.parse(JSON.stringify(rows)), patches: [] };
+  // The owner route answers a NUMERIC price as text; the visitor route as the Data API serves it.
+  db.owner = async () => { calls.push("owner read"); return { status: 200, json: { rows: db.rows.map((r) => ({ ...r, price: String(r.price) })) } }; };
+  db.pub = async () => { calls.push("visitor read"); return { status: 200, text: JSON.stringify(db.rows) }; };
+  db.patch = async (id, body) => { calls.push(`patch ${id}`); db.patches.push({ id, body }); return { status: 409, json: { code: "conflict" } }; };
+  // Each page draws one line per lesson; the home page's carries its button.
+  db.lines = (url) => db.rows.map((r) => `${r.name} ${r.duration} ${r.description} £${r.price}${String(url || "").endsWith("/prices") ? "" : " Select"}`);
+  db.hour = () => db.rows.find((r) => r.id === 4);
+  return db;
+}
+
+function t9Harness(opt = {}) {
+  let db = null;
+  const h = standIn({
+    slug: "fretwork-1",
+    routed: () => ({ ok: true, intent: "edit", layer: "data", cost: 2 }),
+    editBody: (n, said) => ({ layer: "data", instruction: said, idem: "k" + n }),
+    reply: (n) => (opt.reply ? opt.reply(n) : n === 0 ? T9_NO_MATCH : T9_DONE),
+    finalStatus: (n) => ((opt.reply ? opt.reply(n) : n === 0 ? T9_NO_MATCH : T9_DONE).ok === false ? 422 : 200),
+    screen: opt.screen || t9Screen,
+    onDone: (n) => (opt.onDone ? opt.onDone(n, db) : n === 1 && (db.hour().price = 45)),
+    shown: (url) => (opt.shown ? opt.shown(url, db) : db.lines(url)),
+    hangAt: opt.hangAt,
+    reloadAfter: opt.reloadAfter,
+  });
+  db = lessons(h.calls, opt.rows);
+  return { h, db };
+}
+const driveT9 = (h, db, over = {}) => runUi({
+  base: ORIGIN, session: SESSION, slug: "fretwork-1", scenario: T9, spend: true, balanceNow: async () => 10,
+  evid: "", launch: h.launch, log: () => {}, openMs: 50, attachMs: 50, startMs: 50, stepMs: 60, pollMs: 1, settleMs: 0, shownMs: 50,
+  rows: { owner: db.owner, pub: db.pub, patch: db.patch }, siteOrigin: T9_SITE, ...over,
+});
+
+test("Test 9 is a failing message and then a follow-up that needs that failure, on fretwork-1, walled to data, with nothing put back", () => {
+  assert.equal(readUiScenario("9-follow-up", "fretwork-1").ok, true);
+  assert.match(readUiScenario("9-follow-up", "fold-lane-bakery").msg, /fretwork-1/);
+  assert.equal(T9.site, "fretwork-1");
+  assert.deepEqual(T9.steps.map((s) => s.say), [T9_FAIL, T9_SAY]);
+  assert.deepEqual(T9.steps[0].fails, { error: "no-match" });
+  assert.equal(T9.steps[0].needs, undefined, "the failing message depends on nothing");
+  assert.deepEqual(T9.steps[1].needs, { step: 1, failed: "no-match" });
+  assert.equal(T9.steps[1].fails, undefined);
+  assert.deepEqual(T9.layers, ["data"]);
+  assert.equal(T9.publishes, 0);
+  assert.equal(T9.reply, "✅ Updated one entry in lessons.");
+  assert.deepEqual(T9.applied, [{ table: "lessons", id: 4, columns: ["price"] }]);
+  assert.ok(Number.isFinite(T9.budget) && T9.budget > 0 && T9.budget <= 10, `budget ${T9.budget}`);
+  const row = T9.row;
+  assert.deepEqual({ table: row.table, id: row.id, name: row.match.name, field: row.field, from: row.from, to: row.to, restore: row.restore },
+    { table: "lessons", id: 4, name: "Hour one-to-one", field: "price", from: "42", to: "45", restore: false });
+  assert.deepEqual({ path: row.shown.path, also: row.shown.also, sel: row.shown.sel, before: row.shown.before, after: row.shown.after },
+    { path: "/prices", also: ["/"], sel: "li > span", before: "£42", after: "£45" });
+  assert.ok(row.shown.lead.startsWith(row.match.name + " "), "the lead does not begin with the name");
+  // THE RECORD: the three rows run 80 left, and the target is the one named at `from`.
+  assert.deepEqual(row.record.map((r) => [r.id, r.name, r.price]), [[1, "First lesson", 0], [3, "One-to-one", 30], [4, "Hour one-to-one", 42]]);
+  assert.ok(Object.isFrozen(T9) && Object.isFrozen(T9.steps) && T9.steps.every(Object.isFrozen) && Object.isFrozen(row) && Object.isFrozen(row.shown) && row.record.every(Object.isFrozen));
+});
+
+test("a failure is the named one, naming no row, costing the edit nothing, and shown as a warning with its own sentence", () => {
+  const step = (reply, screen = t9Screen(0, reply), status = 422) => ({ reply: screen, network: [{ method: "GET", path: "/api/site/edit/j", status, final: true, res: reply }] });
+  assert.deepEqual(failureVerdict(step(T9_NO_MATCH), { error: "no-match" }), { ok: true, why: "", error: "no-match", cost: 0, refunded: 1 });
+  const bad = [
+    [step(T9_DONE, T9_DONE.msg, 200), /succeeded/],
+    [step({ ...T9_NO_MATCH, ok: "false" }), /neither success nor failure/],
+    [step({ ...T9_NO_MATCH, error: "no-change" }), /failed as no-change, not as no-match/],
+    [step({ ...T9_NO_MATCH, applied: [{ table: "lessons", id: 2, removed: true }] }), /names rows it changed/],
+    [step({ ...T9_NO_MATCH, cost: 1 }), /cost reads 1, not 0/],
+    [step((({ cost, ...r }) => r)(T9_NO_MATCH)), /cost reads null, not 0/],
+    [step({ ...T9_NO_MATCH, msg: " " }), /no sentence/],
+    // SHOWN, AND AS A WARNING: a page that drew a success, or another sentence, did not show it.
+    [step(T9_NO_MATCH, "✅ Done."), /did not show/],
+    [step(T9_NO_MATCH, NO_MATCH_MSG), /did not show/],
+    [step(T9_NO_MATCH, "⚠️ Something went wrong."), /did not show/],
+    [{ reply: "⚠️ " + NO_MATCH_MSG, network: [] }, /no stored reply/],
+  ];
+  for (const [s, why] of bad) {
+    const got = failureVerdict(s, { error: "no-match" });
+    assert.equal(got.ok, false, JSON.stringify(s));
+    assert.match(got.why, why);
+  }
+  assert.match(failureVerdict(step(T9_NO_MATCH), {}).why, /no failure named/, "a step with no failure named passes as one");
+  // THE REPLIES AS THE PAGE DREW THEM: the warning among them is enough, and
+  // a warning that is not this failure's sentence, or the sentence drawn
+  // without the warning, is not.
+  const warned = "⚠️ " + NO_MATCH_MSG + " This edit cost you nothing.";
+  assert.equal(failureVerdict({ ...step(T9_NO_MATCH), replies: ["Checking your lessons…", warned] }, { error: "no-match" }).ok, true);
+  assert.match(failureVerdict({ ...step(T9_NO_MATCH), replies: ["Checking your lessons…", NO_MATCH_MSG] }, { error: "no-match" }).why, /did not show/);
+  assert.match(failureVerdict({ ...step(T9_NO_MATCH), replies: ["⚠️ Something else went wrong.", NO_MATCH_MSG] }, { error: "no-match" }).why, /did not show/);
+});
+
+test("the follow-up goes only after the failure it follows, and only once the table read after it is the baseline", () => {
+  const failed = { n: 1, sent: true, completed: true, reply: t9Screen(0, T9_NO_MATCH), untouched: { ok: true, why: "unchanged" },
+    network: [{ method: "GET", path: "/api/site/edit/j", status: 422, final: true, res: T9_NO_MATCH }] };
+  const needs = { step: 1, failed: "no-match" };
+  assert.deepEqual(dependencyVerdict([failed], needs), { ok: true, why: "" });
+  const cases = [
+    [{ ...failed, sent: false }, /was not sent/],
+    [{ ...failed, completed: false }, /never came/],
+    [{ ...failed, network: [] }, /no stored reply/],
+    [{ ...failed, network: [{ ...failed.network[0], status: 200, res: T9_DONE }] }, /not the failure this message follows up \(the message succeeded\)/],
+    [{ ...failed, network: [{ ...failed.network[0], res: { ...T9_NO_MATCH, error: "no-change" } }] }, /failed as no-change/],
+    [{ ...failed, reply: "✅ Done." }, /did not show/],
+    [{ ...failed, untouched: { ok: false, why: "moved" } }, /not known to be as it was \(moved\)/],
+    [{ ...failed, untouched: undefined }, /not known to be as it was \(not read\)/],
+  ];
+  for (const [dep, why] of cases) {
+    const got = dependencyVerdict([dep], needs);
+    assert.equal(got.ok, false, JSON.stringify(dep));
+    assert.match(got.why, why);
+  }
+  // A dependency on a success is judged as it always was.
+  assert.match(dependencyVerdict([failed], { step: 1, layer: "data" }).why, /did not do its work \(no-match\)/);
+});
+
+test("a failed message's charge came back only when its job says refunded and its ledger nets to nothing", () => {
+  const jr = (over = {}) => ({ job: "j", row: { billing: "refunded", cost: 1, ...over.row }, ledgerRead: { ok: true }, ledger: over.ledger || [{ delta: -1 }, { delta: 1 }] });
+  assert.deepEqual(refundedVerdict(jr()), { ok: true, why: "", reserved: 1, refunded: 1 });
+  for (const [x, why] of [
+    [jr({ ledger: [{ delta: -1 }] }), /reserved 1 and got 0 back/],
+    [jr({ ledger: [] }), /reserved nothing/],
+    [jr({ row: { billing: "finalized" } }), /finalized, not refunded/],
+    [jr({ row: { billing: "none" } }), /none, not refunded/],
+    [{ ...jr(), ledgerRead: { ok: false } }, /could not be read/],
+    [jr({ ledger: [{ delta: "x" }] }), /no amount/],
+    [{ job: "j" }, /no readable row/],
+    [null, /no readable row/],
+  ]) {
+    const got = refundedVerdict(x);
+    assert.equal(got.ok, false, JSON.stringify(x));
+    assert.match(got.why, why);
+  }
+});
+
+test("the same tab is the marked document: a lost mark or a new document start is another tab", () => {
+  const opened = { mark: "a".repeat(24), origin: 1234.5, path: "/projects" };
+  assert.equal(sameTab(opened, { ...opened }), true);
+  assert.equal(sameTab(opened, { ...opened, path: "/projects/srv_fretwork-1" }), true, "a move inside the app is the same document");
+  assert.equal(sameTab(opened, { ...opened, mark: "" }), false);
+  assert.equal(sameTab(opened, { ...opened, origin: 1235.5 }), false);
+  assert.equal(sameTab({ ...opened, mark: "short" }, { ...opened, mark: "short" }), false, "a mark too short to be the run's own");
+  assert.equal(sameTab({ ...opened, origin: NaN }, { ...opened, origin: NaN }), false);
+  assert.equal(sameTab(null, opened), false);
+  assert.equal(sameTab(opened, null), false);
+});
+
+test("TEST 9 END TO END: the failure is shown and changes nothing, the follow-up goes from the same tab and makes its one change, and nothing is written back", async () => {
+  const { h, db } = t9Harness();
+  const rec = await driveT9(h, db);
+  assert.equal(rec.stopped, null, JSON.stringify(rec.stopped));
+  assert.equal(rec.sent, 2);
+  const [one, two] = rec.steps;
+  // MESSAGE 1: the failure, shown, and the table read against the baseline before message 2.
+  assert.equal(one.reply, "⚠️ " + NO_MATCH_MSG + " This edit cost you nothing. Reading your message cost 2 credits.");
+  assert.deepEqual(one.failure, { ok: true, why: "", error: "no-match", cost: 0, refunded: 1 });
+  assert.deepEqual(one.untouched, { ok: true, why: "unchanged" });
+  assert.equal(requestVerdict(one, T9).ok, true, JSON.stringify(requestVerdict(one, T9)));
+  // MESSAGE 2: sent only after that, from the tab the run opened.
+  assert.deepEqual(two.dependency, { ok: true, why: "" });
+  assert.equal(sameTab(rec.tab, two.tabAtSend), true);
+  assert.deepEqual([one.sameTab, two.sameTab], [true, true]);
+  assert.equal(rec.tab.mark.length, 24);
+  const sends = h.calls.map((c, i) => [c, i]).filter(([c]) => c === "click #stSend").map(([, i]) => i);
+  assert.equal(sends.length, 2);
+  const between = h.calls.slice(sends[0], sends[1]);
+  assert.ok(between.includes("owner read") && between.includes("visitor read"), "the table was not read between the failure and the follow-up");
+  assert.equal(requestVerdict(two, T9).ok, true);
+  assert.equal(storedReplyVerdict(two, T9).ok, true);
+  assert.equal(two.reply, T9.reply);
+  // ITS ONE CHANGE, on both readers and on both pages that show the row.
+  const r = rec.row;
+  assert.deepEqual({ exact: r.change.exact, before: r.change.target.before, after: r.change.target.after }, { exact: true, before: "42", after: "45" });
+  assert.equal(r.visitorChange.exact, true);
+  assert.deepEqual({ ok: r.shown.afterEdit.verdict.ok, url: r.shown.afterEdit.url }, { ok: true, url: T9_SITE + "/prices" });
+  assert.match(r.shown.afterEdit.target, /not enough\. £45$/);
+  assert.equal(r.also.length, 1);
+  assert.deepEqual({ path: r.also[0].path, before: r.also[0].before.verdict.ok, after: r.also[0].afterEdit.verdict.ok, url: r.also[0].afterEdit.url },
+    { path: "/", before: true, after: true, url: T9_SITE + "/" });
+  assert.match(r.also[0].afterEdit.target, /£45 Select$/);
+  // NOTHING WRITTEN BACK, AND NO WRITE ASKED: no probe, no plan, no PATCH at all.
+  assert.deepEqual(db.patches, []);
+  assert.ok(!h.calls.some((c) => c.startsWith("patch ")));
+  assert.equal(r.capability, undefined);
+  assert.equal(r.planAtBaseline, undefined);
+  assert.equal(r.writes, undefined);
+  assert.match(r.restore.skipped, /no recovery/);
+  assert.equal(r.shown.afterRestore, undefined);
+  assert.equal(db.hour().price, 45, "the change was put back");
+  const told = describeUi(rec);
+  assert.match(told, /failure: no-match, shown as a warning, the edit's own cost 0/);
+  assert.match(told, /the table after it: the baseline, on both readers, byte for byte/);
+  assert.match(told, /sent from the tab the run opened; the reply read in that same tab, never reloaded/);
+  assert.match(told, /price 42 -> 45, and kept: no recovery/);
+  assert.match(told, /EXACT: the one expected change and nothing else/);
+});
+
+test("a first message that succeeds, fails another way, is not shown, or moves the table: the follow-up is never typed or sent", async () => {
+  const hourGone = (n, db) => { if (n === 0) db.rows = db.rows.filter((r) => r.id !== 4); };
+  for (const [opt, why] of [
+    // THE PICKER TOOK A ROW OFF after all: a success, so there is no failure to follow up.
+    [{ reply: (n) => (n === 0 ? { ok: true, layer: "data", applied: [{ table: "lessons", id: 4, removed: true }], failed: 0, cost: 1, msg: "✅ Removed one entry from lessons." } : T9_DONE), onDone: hourGone }, /the message succeeded/],
+    [{ reply: (n) => (n === 0 ? { ...T9_NO_MATCH, error: "send", msg: "I couldn't reach the model that makes that change — try again in a moment." } : T9_DONE) }, /failed as send, not as no-match/],
+    [{ screen: (n, reply) => (reply.ok === false ? "✅ Done." : reply.msg) }, /did not show/],
+    // A FAILURE THAT STILL MOVED A ROW is not the failure a follow-up is sent after.
+    [{ onDone: (n, db) => { if (n === 0) db.rows[0].price = 5; } }, /not known to be as it was \(moved\)/],
+  ]) {
+    const { h, db } = t9Harness(opt);
+    const rec = await driveT9(h, db);
+    assert.equal(rec.sent, 1, JSON.stringify(rec.stopped));
+    assert.equal(rec.stopped.at, "step 2");
+    assert.match(rec.stopped.msg, why);
+    assert.match(rec.stopped.msg, /message 2 depends on it and is NOT sent/);
+    assert.ok(!h.calls.includes("fill " + T9_SAY), "the follow-up was typed");
+    assert.equal(h.calls.filter((c) => c === "click #stSend").length, 1);
+    // What the first message did is read and reported, and nothing is written back.
+    assert.equal(rec.row.change.exact, false);
+    assert.deepEqual(db.patches, []);
+    assert.match(rec.row.restore.skipped, /no recovery/);
+  }
+});
+
+test("a page that reloads after the failure gets no follow-up: message 2 would not be from the same tab", async () => {
+  const { h, db } = t9Harness({ reloadAfter: 0 });
+  const rec = await driveT9(h, db);
+  assert.equal(rec.sent, 1);
+  assert.equal(rec.steps[0].sameTab, false, "the reload was not seen after the reply");
+  assert.equal(rec.stopped.at, "step 2");
+  assert.match(rec.stopped.msg, /no longer the tab the run opened \(it reloaded or left\), so message 2 is NOT sent/);
+  assert.equal(h.calls.filter((c) => c === "click #stSend").length, 1);
+  assert.match(describeUi(rec), /the reply NOT read in the tab the run opened/);
+  assert.deepEqual(db.patches, []);
+});
+
+test("a reply that never comes to the follow-up writes nothing, and says what is not known", async () => {
+  const { h, db } = t9Harness({ hangAt: 1 });
+  const rec = await driveT9(h, db);
+  assert.equal(rec.sent, 2);
+  assert.equal(rec.steps[1].completed, false);
+  assert.match(rec.stopped.msg, /outcome is unknown/);
+  assert.match(rec.row.restore.skipped, /not known yet — and nothing is written either way/);
+  assert.equal(rec.row.after, undefined, "the table was read while the job could still be writing");
+  assert.deepEqual(db.patches, []);
+});
+
+test("the rehearsal reads the table and both pages, asks no conditional write, and types the failing message without sending it", async () => {
+  const { h, db } = t9Harness();
+  const rec = await driveT9(h, db, { spend: false });
+  assert.equal(rec.stopped.at, "rehearsal");
+  assert.equal(rec.sent, 0);
+  assert.ok(h.calls.includes("fill " + T9_FAIL));
+  assert.ok(!h.calls.includes("click #stSend"));
+  assert.deepEqual(db.patches, [], "the rehearsal asked a write");
+  assert.equal(rec.row.baselineVerdict.ok, true);
+  assert.equal(rec.row.record.same, true, "the baseline is not the recorded table");
+  assert.equal(rec.row.shown.before.verdict.ok, true);
+  assert.deepEqual(rec.row.also.map((v) => [v.path, v.before.verdict.ok]), [["/", true]]);
+  assert.equal(rec.row.capability, undefined);
+  assert.equal(rec.row.planAtBaseline, undefined);
+  // The pages first, then both readers last, then nothing before the stop.
+  const pages = h.calls.filter((c) => c.startsWith("goto " + T9_SITE));
+  assert.deepEqual(pages, ["goto " + T9_SITE + "/prices", "goto " + T9_SITE + "/"]);
+  assert.ok(h.calls.lastIndexOf("goto " + T9_SITE + "/") < h.calls.indexOf("owner read"), "a page was read after the baseline");
+});
+
+test("a start the test was not written for sends nothing: the price, the row, or either page", async () => {
+  const at = (p) => T9.row.record.map((r) => (r.id === 4 ? { ...r, price: p } : r));
+  for (const [opt, why] of [
+    [{ rows: at(40) }, /unexpected-value/],
+    [{ rows: T9.row.record.filter((r) => r.id !== 4) }, /row-missing/],
+    [{ shown: (url, db) => (url.endsWith("/prices") ? db.lines(url).map((l) => l.replace("£42", "£40")) : db.lines(url)) }, /the \/prices page does not show Hour one-to-one at £42/],
+    [{ shown: (url, db) => (url.endsWith("/prices") ? db.lines(url) : []) }, /the \/ page does not show Hour one-to-one at £42 \(the page never drew a card/],
+  ]) {
+    const { h, db } = t9Harness(opt);
+    const rec = await driveT9(h, db);
+    assert.equal(rec.sent, 0, JSON.stringify(opt));
+    assert.equal(rec.stopped.at, "baseline");
+    assert.match(rec.stopped.msg, why);
+    assert.deepEqual(db.patches, []);
+  }
+});
+
+test("a row this run keeps is never written: a PATCH that some path asked for is refused before it leaves, and counted", async () => {
+  // The driver's own guard, reached on purpose: a spec that keeps its row but
+  // is handed to the standalone recovery (no messages) would PATCH there.
+  const { h, db } = t9Harness();
+  const keepNoSteps = { ...T9, steps: [] };
+  const rec = await driveT9(h, db, { scenario: keepNoSteps });
+  assert.deepEqual(db.patches, [], "a PATCH reached the owner route");
+  assert.ok(rec.row.writes >= 1, "the refused write was not counted");
+  assert.equal(rec.row.capability.ok, false, "a refused probe read as a Worker that enforces its condition");
+});
+
+test("the canary judges Test 9 by the failure, the table after it, the tab, the one change on both pages, and the refund", () => {
+  const branch = CANARY.indexOf("if (UI_ASK) {");
+  const gate = CANARY.indexOf("if (!SPEND)");
+  const win = CANARY.slice(branch, gate);
+  const at = win.indexOf("if (SPEND && FOLLOW) {");
+  assert.ok(at > 0, "the follow-up has no checks of its own");
+  const follow = win.slice(at, win.indexOf("} else if (SPEND) {", at));
+  for (const needle of ["failureVerdict(f, fails)", "f.untouched && f.untouched.ok", "sameTab(ui.tab, g.tabAtSend)", "requestVerdict(f, UI_ASK.scenario)",
+    "requestVerdict(g, UI_ASK.scenario)", "g.reply === UI_ASK.scenario.reply", "storedReplyVerdict(g, UI_ASK.scenario)", "r.change && r.change.exact",
+    "r.visitorChange && r.visitorChange.exact", 'shownOk("afterEdit")', 'alsoOk(v, "afterEdit")']) {
+    assert.ok(follow.includes(needle), `the follow-up's check on ${needle} is gone`);
+  }
+  // Its refund is read with the money, from each failing message's own job.
+  const pub0 = win.indexOf("UI_ASK.scenario.publishes === 0");
+  const money = win.slice(pub0);
+  assert.ok(money.indexOf("refundedVerdict(mine[0])") > money.indexOf("moneyVerdict("), "the refund is not read with the money");
+  assert.match(money, /each\.every\(\(s\) => Array\.isArray\(s\.jobs\) && s\.jobs\.length === 1\) && jobs\.length === each\.length/, "a message may file other than one job");
+  // Every message's reply is read in the tab the run opened, and a run that
+  // keeps its row asks no conditional write and plans no recovery.
+  assert.match(win, /check\(`message \$\{s\.n\}'s reply was read in the tab the run opened, never reloaded`, s\.sameTab === true/);
+  assert.match(win, /if \(ROW\.restore === false\) \{\s*check\("this run made no write of its own/);
+  assert.match(CANARY, /import \{ failureVerdict, refundedVerdict, sameTab \} from "\.\/canary-ui\.mjs"/);
 });

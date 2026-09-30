@@ -236,8 +236,10 @@ the owner's free press, run 51, at 22:57 UTC):
      (runs 60 and 61, closed by the owner).
 
    A second message after a hop or a failure is outstanding too: one of the
-   owner's remaining six (2026-09-29), not ready, since only the UI mode sends a
-   second message from one tab and no scenario for it exists.
+   owner's remaining six (2026-09-29). **The failure half is prepared as Test
+   9** (2026-09-30, the owner's word; the UI scenario `9-follow-up`, below):
+   a request that fails visibly, then a normal one from the same tab. Not
+   run. A follow-up after a hop stays unprepared.
 4. **A named page other than the home page** on a look edit: **closed with
    Test 6** (run 57): the picker scoped the move to `/visit`, and only
    `visit.tsx` changed.
@@ -1186,7 +1188,8 @@ approves it.
   - broader rules;
   - the picture swap;
   - a correct component on the first attempt;
-  - a follow-up message after a failure or an escalation.
+  - a follow-up message after a failure or an escalation (the failure half
+    prepared as Test 9, 2026-09-30, not run).
 - **Kept separate**: a protection refusing a real model's answer. Run 74's
   refusal was the canary's own route check, not a product protection, and is
   not counted for it.
@@ -1258,7 +1261,7 @@ digest), so they are built one after the other in the same file.
 | 2c | The broader-rules fixture: reopening `lido-axes-b`'s bookings, which you asked to keep closed, or a new disposable site (a first build, 11–45) | its only fixture is closed by your instruction | either way, one bounded rules acceptance afterwards |
 | 2d | Whether to take on the picture swap's product work: attachments reaching the picture step, the picker told which file fills which slot, and no fal purchase when a file is given | no natural message can reach it today without buying a photograph | yes: a product round of its own, later. No: it stays open. |
 | 2e | What "a correct component on the first attempt" must show, and on which site | no fixture has one, and the outcome cannot be fixed in advance | a definition first; no work until then |
-| 2f | Whether to add a UI-mode scenario for a follow-up after a failure: a free, deliberately failing first message, then a second one from the same tab | it needs a harness change, which is yours to ask for | yes: one scenario and one press later |
+| 2f | Whether to add a UI-mode scenario for a follow-up after a failure: a free, deliberately failing first message, then a second one from the same tab | it needs a harness change, which is yours to ask for | yes: one scenario and one press later. **Asked for by the owner (2026-09-30)** and built as Test 9 (`9-follow-up`); its first message costs its routing call, and only its edit is refunded |
 | 2g | Whether to heal the four blank links with the existing repair (maintenance on live rows) | 1c covers the button without it. Healing also ends the blank-link fixtures | yes: a free maintenance press. No: nothing |
 
 ### Lane 3: the router round, after 2a and 2b
@@ -1278,7 +1281,8 @@ accepted test.
   2026-09-30; *Lane 4's delete*, below).
 - **Add** (after 2a, and lane 3 if `data`).
 - **Reorder** (after 2b and lane 3).
-- **Rules, picture swap, component and follow-up**: after 2c–2f.
+- **Rules, picture swap and component**: after 2c–2e.
+- **Follow-up after a failure**: prepared as Test 9 (2026-09-30), not run.
 
 The put-back routing (1d) needs no live test of its own. It would show up
 in the next data press.
@@ -1290,6 +1294,165 @@ in the next data press.
 - **Then**: lane 3 once 2a and 2b are decided.
 - **Then**: one merge, one free runtime check, and the lane 4 presses. Those
   on different sites can overlap a minute apart, as Batch 1's did.
+
+## Test 9 — a follow-up after a failure, in the same chat tab (prepared 2026-09-30 on the owner's word, after runs 79 and 80 were closed; built on the branch as the canary's UI scenario `9-follow-up`, red-checked, swept and tested through the stand-in; not run)
+
+**The owner** (the message arrived cut off after the third item): *"Next,
+prepare one bounded test of a follow-up after failure in the same chat tab:
+1. A request produces a genuine, visible edit failure. 2. Without reloading,
+a normal second request succeeds. 3. Verify the second message submits
+correctly, its intended change happens,"*
+
+**The checks after "its intended change happens" are mine**, taken from the
+pass lists the owner set for the deletion (runs 79 and 80) and for D1. They
+are flagged for the owner to confirm or correct:
+- the first failure changed nothing, and its edit charge was refunded;
+- unrelated rows are unchanged;
+- the website reflects the change;
+- billing is correct;
+- no reload happened.
+
+**Why the UI mode.** Only the canary's UI mode sends a second message from
+the same tab: the real app in a real Chromium, signed in as the owner, one
+tab, each message sent once the last reply is on screen and the composer is
+idle. The API mode posts one edit (Lane 2's 2f).
+
+### The fixture: `fretwork-1`'s `lessons`, as it stands
+
+The owner's demo-site rule makes the table as it stands the baseline. Read
+whole at 21:31:30 UTC (`0-2/3`, 541 bytes, sha256 `f2396dcb…`, the same
+bytes run 80 left):
+
+| id | name | price | shown on |
+|---|---|---|---|
+| 1 | First lesson | £0 | `/prices`, `/` |
+| 3 | One-to-one | £30 | `/prices`, `/` |
+| 4 | Hour one-to-one | £42 | `/prices`, `/` |
+
+Every page is at `kk6qsh`. Both pages read the table live, and draw each
+lesson as one line, `li > span` for its price: *"Hour one-to-one 60 minutes
+A full hour when 45 minutes is not enough. £42"* (the home page adds
+" Select"). A digit follows the name there, so the line is found by its
+whole start (`shown.lead`), not by the name alone.
+
+### The two messages (frozen in the scenario)
+
+1. *"We've stopped running the Weekend workshop, please take it off the
+   price list."* The site has no Weekend workshop, so the data step matches
+   nothing: `no-match`, drawn as the app's warning (*"⚠️ I couldn't match
+   that to anything the site stores — say which list it's in and I'll have
+   another go. This edit cost you nothing. …"*), with the job's reserve
+   refunded.
+2. *"Please change the Hour one-to-one's price to £45."* An ordinary data
+   edit: `lessons` id 4, price 42 → 45.
+
+**Why this failure.** It is genuine: the real router and the real data
+picker refuse an entry the site does not have, through the real edit route.
+It is visible: the app draws it as a warning. Its edit charge comes back.
+And it is bounded: taking off a row that does not exist cannot add or change
+one, and the table is read straight after it anyway. It is run 77's path,
+which the real models took once (`data`, then `no-match`, refunded); this
+test uses it as the failure a follow-up comes after and credits nothing
+twice.
+
+### What the harness does (`scripts/canary-ui.mjs`, `9-follow-up`)
+
+- **Before message 1**: reads `/prices`, then `/`, as a visitor (the Hour
+  one-to-one line must show £42 on both), then the table on both readers
+  (the owner route and the visitor route): id 4 must be the Hour one-to-one
+  at 42. Otherwise nothing is sent.
+- **No write of its own**: `restore: false` (the demo-site rule). The run
+  asks no conditional write and plans no recovery, and its PATCH is swapped
+  for a refusal that sends nothing and is counted, so no path can write.
+- **The tab**: marked once the workspace opens (a token on the page's own
+  window, and `performance.timeOrigin`). A reload or a move to another
+  document loses both.
+- **Message 1**, walled to `data`: any other kind of edit is aborted in the
+  browser, so a misrouted message costs its routing call and changes
+  nothing. After its reply:
+  - `failureVerdict`: the job's stored reply is `ok: false`, `no-match`,
+    names no row, the edit's cost 0; and a reply on screen is the warning
+    carrying that reply's own sentence;
+  - the table on both readers against the baseline (`untouchedVerdict`):
+    field for field, no row added or gone, and a visitor's read byte for
+    byte.
+- **Message 2** is typed and sent only if both hold (`needs.failed`), and
+  only if the page is still the marked document, checked right before its
+  Send. Otherwise the run stops, and message 2's routing call is never
+  spent.
+- **After its reply**: the table on both readers, `/prices` and `/` again.
+  Nothing is put back.
+
+### Pass (the canary's checks, paid)
+
+1. **Message 1 failed as designed**: it left word for word, was routed to
+   `data` and went out as one edit there; its stored reply is `no-match`,
+   naming no row, its edit cost 0; the page showed that failure as a
+   warning.
+2. **The failure changed nothing**: the table after message 1 is the
+   baseline on both readers, byte for byte.
+3. **Message 2 was sent after that failure, from the tab the run opened,
+   with no reload**, and each reply was read in that same tab.
+4. **Message 2 submitted correctly**: word for word, routed to `data`, one
+   edit there, the composer usable again after each reply.
+5. **Its intended change happened**: its stored reply names exactly
+   `lessons` id 4, `price`; the reply on screen is *"✅ Updated one entry in
+   lessons."*; the database change is exactly id 4 price 42 → 45 and nothing
+   else, on both readers.
+6. **Unrelated rows unchanged**: ids 1 and 3, every field (the same check).
+7. **The website reflects it**: `/prices` and `/` show £45 on the Hour
+   one-to-one line and every other line as before; nothing published (the
+   version list names neither job, neither job's row began a publish, every
+   page still `kk6qsh`).
+8. **Billing correct**: each message filed exactly one job; message 1's job
+   is `refunded`, its reserve and refund netting to nothing; the balance
+   moved by exactly both routing calls plus message 2's job's cost, which its
+   row and the ledger both state.
+
+### Cost, and what it will not show
+
+**About 5 credits**, an estimate and not a cap: routing 1–2 per message,
+message 1's edit 0 once refunded, message 2's data edit about 1 (so 3–5).
+The scenario sends nothing more once 8 is spent (its budget), which bounds
+the scenario, not a single request. The balance was 10 at its last reading
+(run 80). If message 1 is misrouted or does not fail as designed, the run
+stops after it, at about 2 to 3.
+
+**It will not show**: a follow-up after other failures (a hop, an
+escalation, a failure with no job); a follow-up that leans on the
+conversation (message 2 names its own row); other sites; or how often any of
+it happens.
+
+### The presses (the owner's; the scenario is on the branch only)
+
+**1. The free rehearsal.** Edit canary, "Use workflow from"
+`claude/help-needed-ehlwlj`. Boxes, by description:
+- "Run the ONE paid edit as well (yes/no)": `no`;
+- "RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: …":
+  `9-follow-up`;
+- "The site to edit": `fretwork-1`;
+- every other box blank ("Refuse to post the paid edit unless the router
+  answers this" and "Refuse to route or spend unless one table … is as
+  named" must be blank: either beside a scenario refuses the run).
+
+It should pass every free check, open the app signed in, read both pages and
+the table, type message 1 and stop before Send. Nothing is sent, written or
+charged.
+
+**2. The paid run**, only after the rehearsal passes and the owner approves
+the estimate. The same form, the same branch:
+- "Run the ONE paid edit as well (yes/no)": `yes`;
+- "RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: …":
+  `9-follow-up`;
+- "The site to edit": `fretwork-1`;
+- "Refuse to spend unless the Worker reports this deploy sha":
+  `8908b59d2069dfb5f11fa679a8b33b649194fe77`;
+- "Refuse to spend unless a cold container reports this image id":
+  `e71f7bae88b9ecf1`;
+- every other box blank.
+
+**No recovery is owed** (the demo-site rule): the price stays at £45. Anything
+unintended is reported and left for the owner.
 
 ## Lane 4's delete — one row taken off `fretwork-1`'s price list, with real models (prepared 2026-09-30 after deploy 2171; its routing conflict corrected the same day on the owner's word, merged and deployed in deploy 2172, runtime-confirmed by run 76; pressed by the owner as run 77 the same day before its temporary row was added and with B2's recovery still open: the real router answered `data`, the picker found no such row, nothing changed, 2 credits; recorded by the owner as a failed deletion acceptance, its live routing and refunded no-match credited separately; the canary's fixture check added on the branch the same day; a new press prepared only after the price recovery and the temporary row are read back and verified; those two preconditions replaced the same day by the owner's demo-site rule, and the deletion re-prepared on the current table; the free rehearsal passed as run 79, the row check's first live run, and the paid deletion met every condition as run 80, for 3 credits; both closed by the owner the same day, the demo data kept as it stands)
 

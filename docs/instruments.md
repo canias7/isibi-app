@@ -59,8 +59,17 @@ in `docs/instruments.md`; each test's plan and evidence is in the checklist.
   in a real Chromium, signed in with the canary's own session, one tab, a
   positive wall per scenario and per message, a budget checked before each Send
   that caps no single request; scenarios `4a-part-b`, `4b-d1-price`,
-  `4b-d1-restore`, `4b-rules-close`, `5-page-remove`); `rules_allow` (the rules
-  test's approvals).
+  `4b-d1-restore`, `4b-rules-close`, `5-page-remove`, `9-follow-up`);
+  `rules_allow` (the rules test's approvals).
+  - **Since 2026-09-30 (Test 9)**: every message's reply is read in the tab
+    the run opened (a token on the page's window and its
+    `performance.timeOrigin`), and a later message is sent only from that
+    document. A step can be a failure the run needs (`fails`: `failureVerdict`
+    on its stored reply and the screen), and a message can follow one
+    (`needs.failed`, with the table read against the baseline after it). A
+    row scenario may keep what it changed (`restore: false`): it then asks no
+    conditional write, plans no recovery, and its PATCH refuses before it
+    leaves. A refunded job is part of the money (its ledger nets to nothing).
 - **The route a paid press expects** (`expect_route`, 2026-09-30,
   `scripts/canary-route.mjs`): space-separated `key=value` over the router's
   own fields (`intent`, `layer`, `page`, `rename`, `remove`, `tab`,
@@ -73,8 +82,9 @@ in `docs/instruments.md`; each test's plan and evidence is in the checklist.
   - A matching answer is posted exactly as it came.
   - Blank means no check.
 - **The rows a data press is written for** (`expect_rows`, 2026-09-30, after
-  run 77; `scripts/canary-fixture.mjs`; merged and deployed in deploy 2173, and
-  not yet run live: run 78 confirmed that deploy with the box blank): one JSON
+  run 77; `scripts/canary-fixture.mjs`; merged and deployed in deploy 2173;
+  run 78 confirmed that deploy with the box blank, and run 79 was its first
+  live run, as named and free; closed by the owner with run 80): one JSON
   object, `{"table":…, "baseline":…, "target":{…}}`.
   - `baseline` is 16 to 64 hex characters, the start of the sha256 of the
     table's rows other than the target, in canonical form: keys sorted, rows

@@ -354,6 +354,25 @@ export function probeVerdict(res) {
   return { ok: false, why: "cannot-tell", status, detail: `a conditional write that cannot match answered ${status}${j.error ? " " + JSON.stringify(j.error) : ""}` };
 }
 
+/**
+ * NOTHING MOVED: a read taken after a message that must change nothing (a
+ * failure) against the baseline taken before it. Both readers must answer;
+ * the owner route's rows must be the baseline's field for field, with no row
+ * added or gone; and a visitor's read must be the baseline's byte for byte.
+ * A reader that cannot be read is not "unchanged": it is not known.
+ */
+export function untouchedVerdict(base, now) {
+  if (!base || !base.owner || !base.owner.ok || !base.pub || !base.pub.ok) return { ok: false, why: "no-baseline" };
+  if (!now || !now.owner || !now.owner.ok || !now.pub || !now.pub.ok) {
+    return { ok: false, why: "unreadable", detail: `owner ${now && now.owner ? (now.owner.ok ? "ok" : now.owner.why) : "not read"}, visitor ${now && now.pub ? (now.pub.ok ? "ok" : now.pub.why) : "not read"}` };
+  }
+  const d = rowDiff(base.owner.rows, now.owner.rows);
+  if (d.changed.length || d.added.length || d.gone.length) return { ok: false, why: "moved", detail: describeDiff(d), diff: d };
+  if (typeof base.pub.text !== "string" || typeof now.pub.text !== "string") return { ok: false, why: "no-visitor-text" };
+  if (base.pub.text !== now.pub.text) return { ok: false, why: "visitor-bytes", detail: "a visitor's read is not the baseline's, byte for byte" };
+  return { ok: true, why: "unchanged" };
+}
+
 /** Both readers, each answer checked. */
 export async function readBoth(readers) {
   const [o, p] = await Promise.all([
@@ -361,6 +380,19 @@ export async function readBoth(readers) {
     Promise.resolve().then(() => readers.pub()).catch((e) => ({ status: 0, why: String(e && e.message || e) })),
   ]);
   return { at: new Date().toISOString(), owner: readRowList(o, { owner: true }), pub: readRowList(p) };
+}
+
+/**
+ * WHAT A LINE MUST START WITH TO BE THE TARGET'S OWN. The name, unless the
+ * page draws more between the name and the price: fretwork-1's price list
+ * reads "Hour one-to-one 60 minutes A full hour … £42", where a digit follows
+ * the name and `lineIsFor` rightly refuses it. Such a spec says the line's
+ * whole start (`shown.lead`), which must itself begin with the name.
+ */
+export function shownLead(spec) {
+  const name = String((spec && spec.match && spec.match.name) || "");
+  const lead = spec && spec.shown && typeof spec.shown.lead === "string" ? spec.shown.lead : "";
+  return lead && name && lead.startsWith(name) ? lead : name;
 }
 
 /**
@@ -382,7 +414,7 @@ export function lineIsFor(line, name) {
  * after the recovery every line must be what it was.
  */
 export function shownVerdict(beforeLines, nowLines, spec, want) {
-  const name = String((spec.match && spec.match.name) || "");
+  const name = shownLead(spec);
   const pick = (lines) => (Array.isArray(lines) ? lines : []).filter((l) => lineIsFor(l, name));
   const rest = (lines) => (Array.isArray(lines) ? lines : []).filter((l) => !lineIsFor(l, name));
   const t = pick(nowLines);
@@ -397,7 +429,7 @@ export function shownVerdict(beforeLines, nowLines, spec, want) {
 export function describeRows(r, spec) {
   const L = [];
   const val = (v) => JSON.stringify(v === undefined ? null : v);
-  L.push(`ROW CHECK — ${spec.table} id ${spec.id} (${Object.values(spec.match || {}).join(", ")}), ${spec.field} ${spec.from} -> ${spec.to}, and back`);
+  L.push(`ROW CHECK — ${spec.table} id ${spec.id} (${Object.values(spec.match || {}).join(", ")}), ${spec.field} ${spec.from} -> ${spec.to}${spec.restore === false ? ", and kept: no recovery" : ", and back"}`);
   if (!r) { L.push("  not run"); return L.join("\n"); }
   const b = r.baseline;
   if (b) {
@@ -411,6 +443,13 @@ export function describeRows(r, spec) {
     if (s) L.push(`  shown      ${label}  ${s.ok ? s.url + " (" + (s.version || "?") + "): " + (s.target || "(no line)") : "UNREADABLE (" + s.why + ")"}${s.verdict ? (s.verdict.ok ? "  ok" : "  FAIL " + s.verdict.why) : ""}`);
   };
   shownLine("before", "before  ");
+  const alsoLine = (k, label) => {
+    for (const v of Array.isArray(r.also) ? r.also : []) {
+      const s = v[k];
+      if (s) L.push(`  shown      ${label}  ${s.ok ? s.url + " (" + (s.version || "?") + "): " + (s.target || "(no line)") : "UNREADABLE (" + s.why + ")"}${s.verdict ? (s.verdict.ok ? "  ok" : "  FAIL " + s.verdict.why) : ""}`);
+    }
+  };
+  alsoLine("before", "before  ");
   if (r.change) {
     const c = r.change;
     L.push(`  after      ${spec.field} ${val(c.target.before)} -> ${val(c.target.after)}  ${c.exact ? "EXACT: the one expected change and nothing else" : c.expected ? "expected change, WITH other changes" : "NOT the expected change"}`);
@@ -419,6 +458,7 @@ export function describeRows(r, spec) {
     if (c.gone.length) L.push(`             rows gone: ${c.gone.join(", ")}  (reported, not put back)`);
   }
   shownLine("afterEdit", "edited  ");
+  alsoLine("afterEdit", "edited  ");
   if (r.restore) {
     const x = r.restore;
     if (x.skipped) L.push(`  restore    SKIPPED: ${x.skipped}`);

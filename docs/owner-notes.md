@@ -136,6 +136,47 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-30 — The follow-up test (Test 9) is built; your free rehearsal is next
+
+**What you asked**: *"prepare one bounded test of a follow-up after failure
+in the same chat tab: 1. A request produces a genuine, visible edit failure.
+2. Without reloading, a normal second request succeeds. 3. Verify the second
+message submits correctly, its intended change happens,"* Your message
+stopped there. I filled in the rest from your deletion and D1 lists, and
+**they are yours to confirm or correct**:
+- the first failure changed nothing, and its edit charge was refunded;
+- unrelated rows are unchanged;
+- the website reflects the change;
+- billing is correct;
+- no reload happened.
+
+**What it is.** Two messages from one browser tab on `fretwork-1`, through
+the real app, signed in as you:
+1. *"We've stopped running the Weekend workshop, please take it off the price
+   list."* There is no such lesson, so the AI should say it couldn't match it
+   (a warning on screen), and the edit's charge should come back.
+2. Only if exactly that happened and nothing changed, and only from the same
+   tab: *"Please change the Hour one-to-one's price to £45."*
+
+**What it checks.** The failure, what the screen said, and the table right
+after it (nothing moved). Then that message 2 went from the same tab with no
+reload, reached the data step, and changed exactly that price. The price list
+and the home page must show £45 with every other line as it was, nothing may
+be published, and the money must close to the credit: both routing calls,
+message 1's refund, and message 2's edit.
+
+**Built and tested.** The canary's browser mode has the new scenario
+(`9-follow-up`). There are 15 new tests, and each one fails on the old code.
+A mutation sweep killed 45 of 45 mutants, and its comment-only controls
+survived. The full suite is `8403 / 8403`. No product code changed, so
+nothing needs deploying. The press runs from the branch.
+
+**Cost**: the rehearsal is free. The paid run is about 5 credits (3–5), and
+only after you approve. Nothing is put back afterwards: the price stays at
+£45, by your demo-site rule. The plan, the pass list and the form boxes are
+in the checklist's *Test 9*, and the story is
+`docs/history/2026-09-30-follow-up-test.md`.
+
 ## 2026-09-30 — You closed run 79 and run 80; the demo data stays
 
 **What you said**: "Run 79's live fixture check and run 80's AI row deletion
