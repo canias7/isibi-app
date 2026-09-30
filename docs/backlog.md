@@ -142,6 +142,9 @@ here; take a closed one out of both.**
   - **The history.** The flag itself was added for the same diagnosis cost:
     a billing refusal read as a router bug (2026-08-12), recorded in the
     route's own comment. The reason is the other half of that fix.
+  - **The cause, this time**: the owner found the xAI account's balance
+    empty and added credits (2026-09-30, about 01:00 UTC). Nothing we
+    record could have said so.
   - **What would close it**: carrying the error's provider, status and
     message on the answer, or into a trace row. Not started; it is outside
     the batch.

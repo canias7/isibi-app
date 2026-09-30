@@ -76,11 +76,12 @@ starter address still sends people on. It cost nothing.
 - Your balance is still 22, the four lesson rows are exactly as recorded, and
   fretwork-1's pages haven't changed.
 
-**Why the router failed, I can't tell.** It keeps no record of the reason.
-I rebuilt its request for that exact message on my side, without calling any
-model, and it came out normal. So the failure was in the call to the model
-(Grok), not in what we sent. The same code worked at 21:56 last night. I've
-added "a failed routing call records no reason" to the backlog and haven't
+**Why the router failed: your xAI balance was empty.** You found that and
+added credits at about 01:00. The router keeps no record of the reason, so
+I couldn't see it from our side. I had rebuilt its request for that exact
+message, without calling any model, and it came out normal, so the failure
+had to be in the call to the model (Grok), not in what we sent. I've added
+"a failed routing call records no reason" to the backlog and haven't
 changed anything.
 
 **Next is your call**: press the price change again, from the branch, with

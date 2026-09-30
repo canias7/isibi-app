@@ -262,9 +262,10 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
     canary refused before posting.
   - **Nothing was charged**: the balance is 22 with no row after 341, and
     `lessons` is byte-identical to the baseline.
-  - **Why the routing call failed is unknown.** The route keeps no reason
-    (backlog). The request builds normally for those inputs (measured free),
-    so the throw came from the model call (grok-4.6).
+  - **Why the routing call failed**: the xAI account's balance was empty
+    (the owner's finding; they added credits at about 01:00 UTC). The route
+    keeps no reason (backlog). The request builds normally for those inputs
+    (measured free), so the throw came from the model call (grok-4.6).
   - **B1 is to be pressed again only on the owner's word**, from the branch
     with the route box filled.
 

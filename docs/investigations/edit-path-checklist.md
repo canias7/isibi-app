@@ -733,7 +733,7 @@ free).**
 `/gear` and `/fr/prices`. `lessons` is byte-identical to the baseline (736
 bytes, `a4f1dc30…`, read at 00:40:56 UTC; its fifth identical read).
 
-**Why the router failed is not known.**
+**Why the router failed: the provider refused; our records could not say so.**
 - `routeMessage` wraps the request build and the model call in a bare
   `catch`, and the route forwards only the flag. Nothing logs, stores or
   returns the error, so the evidence cannot say whether the provider refused
@@ -750,6 +750,11 @@ bytes, `a4f1dc30…`, read at 00:40:56 UTC; its fifth identical read).
 - The xAI status page refused a plain read (403).
 - The gap is recorded in the backlog (*a failed routing call records no
   reason*), not changed.
+- **The cause, found by the owner** (2026-09-30, reported about 01:03 UTC):
+  the xAI account's balance was empty, and they have added credits. That
+  is a provider refusal, the same class as the 2026-08-12 billing outage.
+  Nothing on our side could have shown it: the preflight and the ledger read
+  only our own credits.
 
 **Where the batch stands.** A1 is done, and A2 waits for Round 2. B1 is
 approved and has not run. It needs a press from the branch with the route box
