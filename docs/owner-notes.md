@@ -57,6 +57,36 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-30 — Merged and deployed (deploy 2173): the row check is on main
+
+**Merged, as you asked.** Main is now `8908b59d`, moved at 19:48 UTC. Nothing
+was spent and no live data changed. There was nothing uncommitted to add.
+
+**What it carries**: the canary's row check (the `expect_rows` box, with the
+whole-table read you reviewed), its tests, and the records. No change to the
+product itself: no server code, no browser files, no site image.
+
+**Before merging, I checked**:
+- the tests passed on this exact version (8,388; four skipped on GitHub as
+  always), and nothing the site build tests was touched;
+- nothing else was running: no workflow and no edit job;
+- the site image was worked out in advance and would not change
+  (`e71f7bae88b9ecf1`);
+- undoing the merge gives back the old main exactly.
+
+**The deploy went as predicted**: one green run in 45 seconds, and the site
+image was reused, so no wait is needed before container work. The site
+addresses answer as before, and both test sites are on their usual versions.
+
+**Not yet confirmed at runtime**: your free canary press confirms it (the
+inputs are in my reply).
+
+**Still open**: the £40 (what Save displayed, and the price after you
+reopened the panel), then the temporary row and the free rehearsal, then the
+paid delete test only if you approve it.
+
+---
+
 ## 2026-09-30 — The row check passed your review; the £40 is still not there (19:40)
 
 **Your review**: the whole-table check passed. It stays on the branch until

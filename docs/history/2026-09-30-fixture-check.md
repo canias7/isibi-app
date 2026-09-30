@@ -399,3 +399,14 @@ count contract as the Data API does; five rows served, as named):
   answers. The temporary row's steps and the free rehearsal wait for the
   £40 to read back.
 
+## 5. Merged and deployed (deploy 2173)
+
+On the owner's word ("commit and merge"), `main` was fast-forwarded
+`80ece106` → `8908b59d` at 19:48:47 UTC, after the pre-merge checks (nothing
+in flight, unit CI `8388 / 8384 / 0 / 4` on the candidate, no site-build path
+touched, no skip-CI marker, the rollback giving main's tree, the image
+predicted on both ends). Deploy 2173 was green in 45 s and reused
+`e71f7bae88b9ecf1`. **Deployed, not runtime-confirmed**: that is the owner's
+free press. The `expect_rows` box is now on `main` as well as the branch.
+The £40 and the paid deletion acceptance stay open.
+

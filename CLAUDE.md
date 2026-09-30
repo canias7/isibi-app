@@ -34,7 +34,15 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 
 ## Where things stand (2026-09-30)
 
-- **`main` is `80ece106`, deploy 2172** (2026-09-30 06:57 UTC, a
+- **`main` is `8908b59d`, deploy 2173** (2026-09-30 19:48 UTC, a
+  fast-forward of 11 commits from `80ece106`, on the owner's word "commit
+  and merge"; one deploy run, green, on `8908b59d`; the image
+  `e71f7bae88b9ecf1` **reused**, as predicted on both ends, 188 inputs and
+  none of them changed). Nothing under `public/` or `worker.js` changed. It
+  carries **the canary's opt-in fixture check with its whole-table read**
+  (below) and records. **Deployed, not runtime-confirmed**: the
+  confirmation is the owner's free press. `docs/deploy-record.md`.
+- **Deploy 2172** (`80ece106`, 2026-09-30 06:57 UTC, a
   fast-forward of 5 commits from `29111010`, on the owner's word to merge the
   reviewed branch through `80ece106`; one deploy run, green, on `80ece106`;
   it built image `e71f7bae88b9ecf1` from 188 inputs, as predicted on both
@@ -114,16 +122,13 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   run 52's publish kept the bakery's stored redirect, read at once and ten
   minutes later. Redirects dropped between 2026-08-17 and that deploy are not
   rebuilt.
-- **The branch `claude/help-needed-ehlwlj`** is `main` (`80ece106`) plus
-  the canary's fixture check (`3229272e`, made to prove its read whole in
-  `fc06edde`: `scripts/`, `test/` and the
-  canary's workflow, none of them a Worker file or a container input) and
-  documents. A press from the branch runs the branch's canary script against
-  main's Worker. The `expect_rows` box exists only there.
+- **The branch `claude/help-needed-ehlwlj`** is `main` (`8908b59d`) plus
+  documents. A press from either runs the same canary script, the
+  `expect_rows` box included.
 - **The canary's opt-in fixture check** (2026-09-30, after run 77, on the
   owner's word; `3229272e`, and `fc06edde` after the owner's review of it;
-  **the owner passed the whole-table guard's review (2026-09-30); on the
-  branch, not merged**). The `expect_rows` box takes one JSON object: `table`,
+  the owner passed the whole-table guard's review (2026-09-30); **merged and
+  deployed in deploy 2173, not yet runtime-confirmed**). The `expect_rows` box takes one JSON object: `table`,
   `baseline` (16–64 hex, the start of the canonical sha256 of the rows
   other than the target) and `target` (the one row's fields).
   - The box is read before the sign-in: malformed, or beside another mode,
@@ -727,12 +732,14 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
   bound. The default builder model is grok (`DEFAULT_PICKER`), and a cold new
   account is one credit short of building (`buildFloor` 20 against a grant of
   20, the routing call spending 1 first).
-- **The unit suite is 8,360** (`80ece106`, deploy 2172): `8360 / 8360 / 0 /
-  0` locally (on `4e3ef512`, the same code), where the two `sheet-rtl`
-  browser cases run because the template's dependencies are installed, and
-  `8360 / 8356 / 0 / 4` on CI (runs 36677496812 on `4e3ef512` and
-  36679661698 on `80ece106`) — **compare the totals, never `pass`**; CI
-  skips four. (Before the row-removal routing correction: 8,351 at
+- **The unit suite is 8,388** (`8908b59d`, deploy 2173): `8388 / 8388 / 0 /
+  0` locally (on `fc06edde` with its records, the same code), where the two
+  `sheet-rtl` browser cases run because the template's dependencies are
+  installed, and `8388 / 8384 / 0 / 4` on CI (runs 36765527935 on
+  `08da9b48` and 36767386339 on `8908b59d`) — **compare the totals, never
+  `pass`**; CI skips four. (Before the fixture check: 8,360 at `80ece106`,
+  `8360 / 8360 / 0 / 0` locally and `8360 / 8356 / 0 / 4` on CI, runs
+  36677496812 and 36679661698. Before the row-removal routing correction: 8,351 at
   `29111010`, `8351 / 8351 / 0 / 0` locally and `8351 / 8347 / 0 / 4` on CI,
   run 36671505759. Before Lane 1: 8,297 at
   `907840c6`, `8297 / 8297 / 0 / 0` locally and `8297 / 8293 / 0 / 4` on CI,
@@ -816,7 +823,7 @@ guard, a sweep, a harness or a CI reader.** The ones met most often:
 | `docs/app-rules.md` | the builder app's rules, the model table, and the agent builder's half in this app |
 | `docs/platform.md` | the two halves, where the code lives, data, auth, payments and mail, credits |
 | `docs/deploy.md` | what a push starts, the paid workflows, the image predictor, runtime confirmation, the served-file check, secrets, rollback |
-| `docs/deploy-record.md` | every deploy's image prediction and timings, 2137 → 2172 (add new ones here) |
+| `docs/deploy-record.md` | every deploy's image prediction and timings, 2137 → 2173 (add new ones here) |
 | `docs/traps.md` | the full trap catalogue |
 | `docs/backlog.md` | the open items: a one-line index, then each in full |
 | `docs/history/` | dated records of every run and fix round, 2026-09-21 → 09-28, and the old status and live-state sections — indexed in `docs/history/README.md` |
