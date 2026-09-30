@@ -1,81 +1,99 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-09-30, 21:23 UTC)
+## Current handoff — read this first (2026-09-30, 22:10 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- `main` is `8908b59d` (deploy 2173). The branch `claude/help-needed-ehlwlj`
-  is `main` plus documents only: no code or workflow has changed since
-  `8908b59d`.
-- **You closed run 79 (the row check's first live run) and run 80 (the AI
-  deletion)** after your review. The checklist marks both closed; neither is
-  repeated, and the demo data stays as it stands.
-- `fretwork-1`'s `lessons` now has three rows: First lesson £0, One-to-one
-  £30 and Hour one-to-one £42. "Group of three" is gone.
-- Balance 10 (13 − 2 routing − 1 edit). No job is open.
+- `main` is `8908b59d` (deploy 2173), unchanged. The branch
+  `claude/help-needed-ehlwlj` is `main` plus the canary's Test 9 scenario
+  (scripts, tests, and the scenario box's text in the canary workflow) and
+  documents. **No product code changed, so nothing needs deploying.**
+- You closed run 79 (the row check's first live run) and run 80 (the AI
+  deletion). The checklist marks both closed, and the demo data stays as it
+  stands: `fretwork-1`'s lessons are First lesson £0, One-to-one £30, Hour
+  one-to-one £42.
+- Balance 10 at its last reading (run 80). No job was open then.
+- **Test 9, a follow-up after a failure in the same chat tab, is built and
+  ready for your free rehearsal.** It has not been run.
 
 **Completed**
-- **Run 79, the free rehearsal**: the row check's first live run, as named,
-  nothing charged.
-- **Run 80, the paid deletion, a normal AI request through the real edit
-  route** ("We don't do the Group of three any more, please take it off the price list."):
-  1. **The correct row deleted.** The real router answered `data` (cost 2),
-     and the route check matched. The job removed exactly `lessons` id 2,
-     "Group of three" (cost 1).
-  2. **Unrelated rows unchanged.** The other three rows still digest to the
-     row check's baseline, `47c5b2217d6d6453`, and the table is the old one
-     minus that row, byte for byte.
-  3. **The website reflects it.** The home page and `/prices` no longer show
-     it; the other three lessons are unchanged; nothing was published. I
-     compared before/after pictures of both pages.
-  4. **Billing correct.** The balance went 13 → 10. The job is `done` and
-     `finalized` at 1, with exactly one ledger row (345, `d03daa50…#1`,
-     −1). Routing's 2 show in the balance only, as on every run. No job is
-     open.
+- **Runs 79 and 80 recorded as closed by you**: the checklist's short list,
+  *Proven live*, item 5 (removing rows closed), the deletion's own section,
+  and the story's §11.
+- **Test 9 built** (the canary's UI scenario `9-follow-up`, on `fretwork-1`,
+  two messages from one browser tab):
+  1. *"We've stopped running the Weekend workshop, please take it off the
+     price list."* There is no such lesson, so this must fail as the data
+     step's "couldn't match", be shown as a warning, refund its edit and
+     change nothing.
+  2. Only then, and only from the same tab with no reload: *"Please change
+     the Hour one-to-one's price to £45."*, kept afterwards (your demo-site
+     rule).
+- **The local proof against the real app's code** (free: the live app's own
+  files in a real browser, every server call answered by me, no live change,
+  no AI call). It found a blocker: the app's "Welcome to Go Farther — free
+  credits" pop-up covers the page on a fresh browser when an unpaid balance
+  is 20 or less. At 10 it would have stopped your rehearsal at the site's
+  card. The canary now marks it as already seen, as your own browser has it.
+  Then the whole flow ran through the real page code. Two pictures of it are
+  in the chat.
 
 **Test results**
-- No code has changed since `8908b59d`: unit suite `8388 / 8388 / 0 / 0`
-  locally (on `fc06edde` with its records, the same code) and `8388 / 8384 /
-  0 / 4` on CI on `8908b59d` (CI skips four).
-- Live: run 79 (free, as named) and run 80 (every condition met).
+- 15 new tests and one changed. The red check: those 16 fail on the old
+  scripts, and the 90 others pass.
+- Mutation sweep: 49 of 49 mutants killed, and the 3 comment-only controls
+  survived.
+- Full suite `8403 / 8403 / 0 / 0` locally. Unit CI on `04331c8c`: `8403 /
+  8399 / 0 / 4` (CI skips four); on `e6b659a1` (the greeting fix): `8403 /
+  8399 / 0 / 4`, the same total.
 
 **Links**
 - Branch commits: https://github.com/canias7/isibi-app/commits/claude/help-needed-ehlwlj
-- Run 80, the paid deletion (evidence artifact 11126021994):
-  https://github.com/canias7/isibi-app/actions/runs/36777080750
-- Run 79, the free rehearsal (evidence artifact 11125023825):
-  https://github.com/canias7/isibi-app/actions/runs/36776533709
-- Run 77, the first deletion press (a failed acceptance):
-  https://github.com/canias7/isibi-app/actions/runs/36689829998
-- The story: `docs/history/2026-09-30-fixture-check.md`, §8 to §10; the plan
-  and the pass list: the checklist's *Lane 4's delete*, "Re-prepared on the
-  current table"
+- Unit CI on `04331c8c`: https://github.com/canias7/isibi-app/actions/runs/36782393786
+- Unit CI on `e6b659a1`: https://github.com/canias7/isibi-app/actions/runs/36783584417
+- The plan, the pass list and the form boxes: the checklist's *Test 9*
+  (`docs/investigations/edit-path-checklist.md`). The story:
+  `docs/history/2026-09-30-follow-up-test.md`.
 
 **From our chat**
-- Your demo-site rule: no restoration between tests; the current state is
-  the baseline; the £40 is dropped.
-- The acceptance you set: a normal AI request through the real edit route,
-  with the correct row deleted, unrelated rows unchanged, the website
-  reflecting it, and billing correct. The paid run was subject to your
-  approval and an estimate (about 3; it cost 3).
-- CLAUDE.md is left alone, as you asked. Its £40 and B2 lines are out of
-  date.
+- Your Test 9 message arrived cut off after *"its intended change
+  happens,"*. **The checks after it are mine, for you to confirm or
+  correct**: the failure changed nothing and its edit charge came back;
+  unrelated rows unchanged; the website reflects the change; billing
+  correct; no reload.
+- "Keep the demo data as it stands": nothing is put back, before or after
+  Test 9.
+- CLAUDE.md is left alone, as you asked. Its "where things stand" does not
+  mention runs 79 and 80 or Test 9.
 
 **Blockers**
-- None.
+- None for the rehearsal. The paid run needs your approval.
 
 **Findings, kept separate**
-- The customer reply cuts each field of the deleted row at 40 characters
-  ("…with two other , price 18"). Cosmetic, logged in the backlog, and kept
-  for model-written replies.
+- The welcome pop-up greets a returning owner on any new browser when an
+  unpaid balance is 1 to 20, covers the page, and still speaks of images,
+  voice and video (the media side deleted on 2026-09-12). It is in the
+  backlog, not changed.
+- The deleted row's reply cuts each field at 40 characters (from run 80),
+  still in the backlog.
 
 **Exact next action**
-- I am preparing your next item: one bounded test of a follow-up after a
-  failure, in the same chat tab (Test 9). Nothing will be pressed or spent
-  without your approval.
+- **Your free rehearsal.** Edit canary, "Use workflow from"
+  `claude/help-needed-ehlwlj`. Boxes, by description:
+  - "Run the ONE paid edit as well (yes/no)": `no`
+  - "RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: …":
+    `9-follow-up`
+  - "The site to edit": `fretwork-1`
+  - every other box blank.
+- It should pass the free checks, open the app signed in, read both pages
+  and the table, type message 1 and stop before Send, at no cost. I read it
+  and tell you.
+- **Then the paid run, only with your approval**: about 5 credits (3 to 5)
+  from a balance of 10. Its boxes are in the checklist's *Test 9 → The
+  presses*.
 
 ---
 

@@ -157,7 +157,8 @@ rehearsal would have failed at opening the card.
 - **the page reloading itself** right after message 1's reply: that reply
   was flagged as read in another document, and message 2 was not sent.
 - **Full suite, after the fix**: `8403 / 8403 / 0 / 0` locally (the guard
-  grew inside an existing case, so the count is unchanged).
+  grew inside an existing case, so the count is unchanged). Unit CI on
+  `e6b659a1`: run 36783584417, `8403 / 8399 / 0 / 4`, the same total.
 
 ## 6. What it will not show
 
