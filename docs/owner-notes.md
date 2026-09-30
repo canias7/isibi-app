@@ -57,13 +57,54 @@ since. Add new ones there.
 
 ---
 
-## 2026-09-30 — Why the £40 didn't land, and a canary check that reads the rows first (on the branch, not merged)
+## 2026-09-30 — The row check now proves it read the whole table (on the branch, not merged)
+
+**What you found**: the canary's row check believed any list the site sent
+back. If the answer left a row out, the rows it did send still matched the
+fingerprint, so the check passed. You showed it with an answer that said
+"rows 0–1 of 3" and held two.
+
+**What changed** (only the canary's check; nothing in the product):
+- The check now asks the site's data service how many rows the table has,
+  which the service already supports and our server already passes on. It
+  checks the answer says "all of them". I measured the service first: for
+  the lessons table it answers "rows 0–3 of 4" when everything is there,
+  and "rows 0–1 of 4", with a "partial" status, when it isn't.
+- If the answer holds only part of the table, or doesn't say how many rows
+  there are, the check stops before anything is paid for, the same as for
+  a wrong setup.
+- The log line and the form's notes said the table is read two ways. It's
+  read once, and they now say so.
+
+**Tested through the real canary script against a fake network**: your
+case (part of the table in a normal answer) and the service's own "partial"
+answer both stop, as do an answer that gives no count and one with no
+range header at all. None of them makes a routing call or a paid edit, and
+the read is the last thing each run does. A whole, correct table still goes
+through. On the previous version, the partial and uncounted answers went on
+to routing and the paid edit, which is your false pass, reproduced. All 30
+deliberate breaks of the check were caught.
+
+**Also corrected, as you said**: my note on the £40 was too strong. The
+logs show no Save from the Data panel, and that fits no Save reaching our
+server, but it doesn't prove it: a request that stopped early, or one the
+logs didn't keep, would leave no trace.
+
+**Still needed from you**: what the panel displayed when you pressed Save,
+and what price row 4 showed after you closed and reopened the panel.
+
+**Not done**: no merge, no deploy, no paid run, no database write, no
+accepted test repeated.
+
+---
+
+## 2026-09-30 — The £40 put-back traced (not settled), and a canary check that reads the rows first (on the branch, not merged)
 
 **Run 77, as you ruled**: recorded as a failed deletion acceptance. Credited
 separately: its correct live routing (the data step, with the table names
 filled in) and its refunded no-match result.
 
-**Why the £40 didn't land (free; nothing written)**:
+**The £40 put-back, traced (free; nothing written; not settled)**:
 - **What the Save does**: the Data panel's Save sends one request to our
   server. If it fails, you get a message and the form stays open. If it
   works, the panel reloads the rows from the database, so what you see after
@@ -74,14 +115,13 @@ filled in) and its refunded no-match result.
   things (your session, and who owns the site), and Supabase keeps a log of
   both. In the 24 hours I could read, the only such requests for your account
   were the canary's own, one set per run. There was no other sign-in, and the
-  app's site list was never opened. **So no Save from the Data panel reached
-  our server.** That's not me saying you did something wrong, and it's not a
-  bug I can show either.
+  app's site list was never opened. That fits no Save reaching our server,
+  **but it doesn't prove it** (your correction): a request that stopped
+  before those two calls, or one the logs didn't keep, would leave no trace
+  there. It shows neither a mistake on your side nor a bug in the app.
 - **I need your observation**: what the panel showed when you pressed Save
-  (a message, an error, or nothing), and what row 4's price said after you
-  closed and reopened the panel. If you used the Neon console instead: how
-  many rows the statement said it changed, and which branch and database it
-  ran on.
+  (a message, an error, or nothing), and what price row 4 showed after you
+  closed and reopened the panel.
 
 **The canary check** (your point 2), on the branch for your review:
 - a new box, `expect_rows`, where the press names the table, a fingerprint

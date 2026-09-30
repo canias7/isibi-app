@@ -259,6 +259,15 @@ rule and the measurement.
 
   **Hold a reader to digests taken from that same reader, and give each
   reader in a stub the shape its real producer gives.**
+- **A 200 LIST IS NOT THE WHOLE TABLE (2026-09-30, the owner's review of the
+  same check).** The first version believed any 200 row list, and kept no
+  response headers. An answer that left a row out still digested to a
+  baseline of the rows it did serve, so the check passed (the owner
+  reproduced it with `Content-Range: 0-1/3`). **Ask the source for its count
+  and hold the rows to it**: the Data API's `Prefer: count=exact` answers
+  `Content-Range: 0-(n-1)/n` for the whole table, 206 for part of it, and
+  `*` when the count was not asked for. A read that cannot show it is whole
+  stops.
 - **A FIXTURE THAT NAMES A THING THE PRODUCT DOES NOT HAVE PASSES UNTIL THE
   PRODUCT STARTS CHECKING.** Two guards used the kit component `form-shell`,
   which sounds exactly like one of the 2,112 and is not one; both went red the

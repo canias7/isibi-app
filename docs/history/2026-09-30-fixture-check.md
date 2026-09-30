@@ -1,4 +1,4 @@
-# Run 77's review, why the £40 did not land, and the canary's fixture check (2026-09-30; the check on the branch, not merged)
+# Run 77's review, the £40 put-back's trace, and the canary's fixture check (2026-09-30; the check on the branch, not merged)
 
 ## The owner's request
 
@@ -37,7 +37,7 @@ row, and the job deleting it through the blank link.
   reserve (−1), and row 344 the refund (+1). The edit cost 0, and routing
   cost 2 (15 → 13).
 
-## 1. Why the £40 restoration did not land (free; no live write)
+## 1. The £40 restoration that did not land: the save path and the logs (free; no live write; not settled)
 
 ### The save path, traced in the code
 
@@ -97,14 +97,20 @@ In the 24 hours to 17:25 UTC, 2026-09-30:
 The canary runs are the positive control: the same queries appear, with
 their times, exactly when a run made them.
 
-**So no Data panel request reached the Worker in that window, a Save
-included.** That neither blames the owner nor finds a defect in the app. The
-reported restoration went somewhere this path does not lead: a Neon console
-statement leaves no trace in these logs, and its target and result are not
-readable here. **What would settle it is the owner's observation**: the
-Save result (a message, an error or nothing) and the value row 4 showed
-after the panel was closed and opened again; or, if the console was used,
-the statement's row count and the branch and database it ran on.
+**What the logs can and cannot say** (corrected after the owner's review,
+2026-09-30; the first wording said no Data panel request reached the Worker,
+which these logs cannot prove):
+- no session check and no owner lookup from the Data panel appears in them
+  for that window, and the canary runs show that such calls are kept;
+- that fits no Save reaching the Worker, but it does not prove it. A request
+  that stopped before those two calls would leave nothing there: one that
+  never left the browser, one the network or the Worker failed early, or one
+  the logs did not keep;
+- so neither a user error nor an app defect is shown.
+
+**What would settle it is the owner's observation**: what Save displayed (a
+message, an error or nothing), and the price row 4 showed after the panel was
+closed and opened again.
 
 ## 2. The canary's fixture check (`3229272e`, on the branch, not merged)
 
@@ -146,9 +152,10 @@ or a sentence.
 - **Its limits.**
   - A table the site does not serve (one only its owner can read) is
     `unreadable` here, so the check cannot be used for it.
-  - The read is taken as one answer. A table longer than the Data API serves
-    in one answer would be judged on the part it serves (not measured; the
-    fixture tables here have five rows or fewer).
+  - The read was taken as one answer, and any 200 list was believed. **The
+    owner's review found the false pass this left** (an answer leaving a row
+    out passed), and section 3 closes it: the read must now prove it is the
+    whole table.
 
 ### One reader, and the first version that read two
 
@@ -274,3 +281,103 @@ to be wrong, and the owner route was taken out of the check:**
     server's own file could not be reached (MODULE_NOT_FOUND). The same file
     passes 20 of 20 from the main working tree. The failure came from where
     the worktree was, not from the code.
+
+## 3. The read proven whole (`fc06edde`, after the owner's review of the check)
+
+**The owner's finding.** The check's transport kept no response headers, and
+`readRowList` took any 200 list. The owner reproduced a false pass with the
+actual transport and verdict: the named baseline and target served, a third
+row left out, `Content-Range: 0-1/3`, and the check passed. Served all three
+rows, it failed `baseline-mismatch`, as it should. The owner's words: *"Prove
+the table read is complete using the existing API's supported
+count/pagination contract. An incomplete or unverifiable read must stop
+before paid routing. Keep this read-only and scoped to the guard."*
+
+**The contract, measured** (free and read-only, through the Worker, on
+fretwork-1's `lessons`, 19:11 UTC):
+
+| asked | status | `Content-Range` | rows |
+|---|---|---|---|
+| no `Prefer` | 200 | `0-3/*` | 4 |
+| `Prefer: count=exact` | 200 | `0-3/4` | 4 |
+| `count=exact`, `limit=2` | 206 | `0-1/4` | 2 |
+| `count=exact`, a filter matching nothing | 200 | `*/0` | 0 |
+
+The Worker forwards `prefer` and returns the upstream status and
+`content-range` (`proxySiteService`), so the guard needed no product change.
+
+**The change.**
+- `readWhole` (`scripts/canary-fixture.mjs`) takes the rows only when the
+  answer's count is the number of rows it served, with a range from the
+  first row to the last: `0-(n-1)/n`, or `*/0` with none. Otherwise it
+  stops, before any routing call:
+  - `incomplete`: a 206, or a count above the rows served;
+  - `completeness-unknown`: no header, a `*` count, a header it does not
+    read, or one that does not describe the rows beside it;
+  - `unreadable`: not a whole row list, as before.
+- The script's read asks `Prefer: count=exact`, keeps the `Content-Range`,
+  and is judged by `readWhole`. The verdict carries the read's own reason,
+  and `fixture.json` keeps the range.
+- **The stale text, corrected**: the box's log line said the rows are "read
+  on both readers", and the workflow's comment said the table is read on
+  the owner route and the site's read and that "the two must agree". Both
+  now describe the one read, whole. The form's description reads *"Refuse
+  to route or spend unless one table, read whole as the site serves it, is
+  as named: …"*.
+
+**Reproduced, then closed, through the real script** (the stub answers the
+count contract as the Data API does; five rows served, as named):
+
+| the site's answer | the previous script (`3229272e`) | now (`fc06edde`) |
+|---|---|---|
+| part of the table, 200, the count above the rows | never asked for the count; as named; routed, and the paid edit posted | asked; `incomplete`; no routing |
+| part of the table, 206 | stopped as `unreadable`, by its status alone | `incomplete` |
+| the count not given (`0-4/*`) | as named; routed, and the paid edit posted | `completeness-unknown` |
+| no `Content-Range` | as named; routed, and the paid edit posted | `completeness-unknown` |
+| the whole table as named (`0-4/5`) | routed | routed (the control) |
+
+### Validation
+
+- **`test/canary-fixture.test.mjs`, 25 cases** (was 20):
+  - `readWhole` on 18 answer shapes (3 whole, 15 not): whole, empty, the
+    header's spaces, a 206, a count above the
+    rows, a `*` count, no header, an empty header, a header it does not
+    read (a unit, a decimal, 16 digits), a range not from the first row or
+    not to the last, a count below the rows, `0-0/0` with no rows, and
+    bodies that are not row lists. Nothing that is not whole hands its rows
+    on;
+  - the owner's reproduction as a unit case: the named rows served with one
+    left out stop as `incomplete` (200 and 206), the whole table with the
+    extra row fails `baseline-mismatch`, and the whole five pass;
+  - the evidence keeps the range, and no rows from a read that is not
+    whole;
+  - **through the real script under the stub**: the owner's 200 and the
+    API's own 206 stop as `incomplete`; a `*` count and no header stop as
+    `completeness-unknown`; the whole table with a row more fails
+    `baseline-mismatch`. **Each refusal asserts** exit 1, *"Nothing was
+    routed or charged."*, no routing call, no paid edit, a read that asked
+    `count=exact`, and that read being the run's last call, so nothing that
+    could charge came after it. The whole table as named routes once (the
+    control), and a blank box reads nothing.
+- **The placement guards** also hold `prefer: "count=exact"`, the kept
+  `Content-Range` and `readWhole(served)`, and the log line's own words.
+- **Red check** (these tests, module and stub over `3229272e`'s script and
+  workflow, in a throwaway worktree): 8 fail and 40 pass. The failures are
+  the six end-to-end cases that need the read to ask for the count, and the
+  two placement guards; the table above is what that script did.
+- **Mutation sweep** (its own worktree at `fc06edde`, over the same three
+  test files, a green baseline): **30 of 30 killed**, both comment-only
+  controls survived, none failed to apply, and the worktree was left with no
+  change of its own. The 12 new mutants: a 206 not a stop; no header taken
+  as whole; a `*` count taken as whole; a count above the rows not called
+  incomplete; a count below the rows let through; a range not from the
+  first row, or not to the last, let through; no rows with a counted range
+  let through; the verdict dropping the read's own reason; the evidence
+  dropping the range; the read not asking for the count; the answer's
+  `Content-Range` not kept. Two earlier ones were re-anchored to the changed
+  lines (the owner route read in place of the site's, a refused read taken
+  as rows).
+- **Full suite**, from the main working tree at `fc06edde` with these
+  records: **`8388 / 8388 / 0 / 0`** locally, the 8,383 before plus the 5
+  new cases.
+

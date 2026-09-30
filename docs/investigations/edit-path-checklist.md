@@ -1081,9 +1081,9 @@ is the owner's.
   So no write reached the database the site reads. How the attempt went is
   the owner's to say: the panel's message, or the console's row count. Not
   closed, and B2's model run stays failed.
-- **Why the £40 did not land: the diagnosis (2026-09-30, free, no live
-  write; `docs/history/2026-09-30-fixture-check.md`).** The owner asked for
-  the save path traced, with neither user error assumed nor an app bug
+- **Why the £40 did not land: traced, not settled (2026-09-30, free, no
+  live write; `docs/history/2026-09-30-fixture-check.md`).** The owner asked
+  for the save path traced, with neither user error assumed nor an app bug
   declared without evidence.
   - **The path**: the panel's Save sends `PATCH
     /api/site/<slug>/rows/<table>/<id>`. A failure is a toast, and the form
@@ -1094,14 +1094,17 @@ is the owner's.
   - **The target** resolves through the same `siteBackendBySlug` as the
     site's own read.
   - **Supabase's own request logs** (non-secret fields; the canary runs as
-    the positive control) show no Data panel request reaching the Worker in
-    the 24 hours to 17:25 UTC:
+    the positive control) hold no session check or owner lookup from the
+    Data panel in the 24 hours to 17:25 UTC:
     - every session check for the building account is inside a canary run;
     - there is no owner lookup for fretwork-1 between 07:00 and 08:19;
     - there is no sign-in but the canary's, and no site-list read.
-  - **Not decided without the owner's observation**: the Save result, and
-    the value after reopening the panel (or, for the console, its row count,
-    branch and database).
+  - **That fits no Save reaching the Worker, but does not prove it** (the
+    owner's correction): a request that stopped before those calls, or one
+    the logs did not keep, would leave no trace there. Neither a user error
+    nor an app defect is shown.
+  - **Not decided without the owner's observation**: what Save displayed,
+    and the price after reopening the panel.
   - **Not measured for fretwork-1**: whether the owner route and the
     site's read agree. The fixture check reads only the site's own read, so
     it does not measure this; the owner's observation settles it.
@@ -1438,11 +1441,19 @@ acceptance. The canary has no fixture check before a paid data press
     (ledger rows 343 and 344).
 - **Before another paid run**, two pieces of free work, done the same day
   (`docs/history/2026-09-30-fixture-check.md`):
-  - why the £40 did not land (*Batch 1*, the owner's review, below the
-    put-back reading);
+  - the £40 put-back's trace (*Batch 1*, the owner's review, below the
+    put-back reading), not settled;
   - the canary's opt-in fixture check (`expect_rows`, `3229272e`, on the
     branch). It reads the table as the site's own read serves it and judges
     the baseline and the target row before any routing call.
+  - **The owner's review of the check (2026-09-30)**: its existing coverage
+    credited; a gap to close before a paid run. The read kept no headers and
+    took any 200 list, so an answer leaving a row out passed (the owner's
+    reproduction: `Content-Range: 0-1/3`). **Closed on the branch in
+    `fc06edde`**: the read asks the Data API for its count and stops at no
+    cost unless the answer is the whole table (`incomplete`,
+    `completeness-unknown`), shown through the real script with no routing
+    call, no paid edit and nothing after the read.
 - **A new deletion press is prepared only after the price recovery and the
   temporary row have both been read back and verified** (the owner). It is
   not prepared here.

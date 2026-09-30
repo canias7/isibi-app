@@ -115,21 +115,30 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   minutes later. Redirects dropped between 2026-08-17 and that deploy are not
   rebuilt.
 - **The branch `claude/help-needed-ehlwlj`** is `main` (`80ece106`) plus
-  the canary's fixture check (`3229272e`: `scripts/`, `test/` and the
+  the canary's fixture check (`3229272e`, made to prove its read whole in
+  `fc06edde`: `scripts/`, `test/` and the
   canary's workflow, none of them a Worker file or a container input) and
   documents. A press from the branch runs the branch's canary script against
   main's Worker. The `expect_rows` box exists only there.
 - **The canary's opt-in fixture check** (2026-09-30, after run 77, on the
-  owner's word; `3229272e`; **on the branch, pushed for review, not
-  merged**). The `expect_rows` box takes one JSON object: `table`,
+  owner's word; `3229272e`, and `fc06edde` after the owner's review of it;
+  **on the branch, pushed for review, not merged**). The `expect_rows` box takes one JSON object: `table`,
   `baseline` (16–64 hex, the start of the canonical sha256 of the rows
   other than the target) and `target` (the one row's fields).
   - The box is read before the sign-in: malformed, or beside another mode,
     it exits 2 with no network call.
   - Above the modes and the spend switch, the table is read as the site's
-    own read serves it. The target must match exactly one row, and the
-    other rows must digest to the baseline. A setup that is not as named
-    exits 1 before any routing call, at no cost, with the reading in
+    own read serves it, **and the read must prove it is the whole table**
+    (`fc06edde`, the owner's review: any 200 list used to pass, so an answer
+    leaving a row out matched a baseline of the rows it held). It asks the
+    Data API for its count (`Prefer: count=exact`) and keeps the
+    `Content-Range`, which the Worker passes through (measured: 200 `0-3/4`
+    whole, 206 `0-1/4` partial, `*/0` empty, `0-3/*` without the count).
+    Whole is `0-(n-1)/n` or `*/0`; a 206 or a count above the rows served
+    is `incomplete`; no header, a `*` count or a header that does not
+    describe the rows is `completeness-unknown`. Then the target must match
+    exactly one row, and the other rows must digest to the baseline. Any
+    stop exits 1 before any routing call, at no cost, with the reading in
     `fixture.json`. With spend `no` it is a free rehearsal.
   - **One reader on purpose.** The owner route's driver hands NUMERIC and
     BIGINT back as text and dates as Date objects, so it cannot be held to
@@ -137,14 +146,20 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
     two readers to agree was dropped before the push: it would have stopped
     correct setups on such tables, and its stub had given both readers the
     same rows. A table only the owner can read cannot be checked this way.
-  - Tests: 20 cases in `test/canary-fixture.test.mjs`, including the real
-    script end to end under an in-process network stub
-    (`test/fixtures/canary-stub.mjs`, which also shows the owner route is
-    never read), and 3 placement guards in `test/edit-canary.test.mjs`.
-  - Red check: exactly the 8 cases that need it fail on the old script.
-    Sweep: 18 of 18 killed, 2 controls survived. Full suite on the branch:
-    `8383 / 8383 / 0 / 0` locally, and `8383 / 8379 / 0 / 4` on unit CI
-    (run 36758456675 on `11bb6a14`, the records on top of `3229272e`).
+  - Tests: 25 cases in `test/canary-fixture.test.mjs`, including the real
+    script end to end under an in-process network stub that answers the
+    count contract as the Data API does (`test/fixtures/canary-stub.mjs`):
+    a partial 200 and the API's 206 stop as `incomplete`, a `*` count and
+    no header as `completeness-unknown`, each with no routing call, no paid
+    edit and nothing after the read; the whole table as named routes once;
+    the owner route is never read. 3 placement guards in
+    `test/edit-canary.test.mjs`.
+  - Red check on `fc06edde`'s tests over `3229272e`'s script: the partial
+    and unverifiable answers were routed and edited there (the owner's
+    false pass, reproduced); 8 fail, 40 pass. Sweep: 30 of 30 killed, 2
+    controls survived. Full suite `8388 / 8388 / 0 / 0` locally. (At `3229272e`: 18 of 18; full suite `8383 / 8383 /
+    0 / 0` locally and `8383 / 8379 / 0 / 4` on unit CI, run 36758456675
+    on `11bb6a14`.)
   - `docs/history/2026-09-30-fixture-check.md`.
 - **A stored row taken off its list is routed to `data`** (2026-09-30, on
   the owner's word before the paid row-deletion test; `4e3ef512`; the owner
@@ -398,13 +413,17 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
       row 4 is still 42 in the database and £42 on `/prices`, and nothing
       else changed (rows 1–3, versions, money, queue). The recovery stays
       open.
-    - **Diagnosed, free** (`docs/history/2026-09-30-fixture-check.md`).
-      Supabase's own request logs show no Data panel request reaching the
-      Worker in the 24 hours to 17:25 UTC: every session check for the
-      building account is a canary run's, and there is no owner lookup for
-      fretwork-1 outside the runs. The owner's observation is asked for:
-      the Save result, and the value after reopening the panel. Row 4
-      still reads 42 at 18:22 UTC (the site's own read, free).
+    - **Traced, free, not settled** (`docs/history/2026-09-30-fixture-check.md`).
+      Supabase's own request logs hold no session check or owner lookup
+      from the Data panel in the 24 hours to 17:25 UTC: every session check
+      for the building account is a canary run's, and there is no owner
+      lookup for fretwork-1 outside the runs. That fits no Save reaching
+      the Worker but does not prove it: a request that stopped before those
+      calls, or one the logs did not keep, would leave no trace there.
+      Neither a user error nor an app defect is shown. The owner's
+      observation is asked for: what Save displayed, and the price after
+      reopening the panel. Row 4 still reads 42 at 18:22 UTC (the site's
+      own read, free).
     - Spent: 7 (22 → 15).
 
   **Estimates, not limits**: A about 1–2 credits, B about 4–6, about 5–8

@@ -111,7 +111,10 @@ here; take a closed one out of both.**
   2026-09-30. **Corrected on the branch the same day, on the owner's word
   (`3229272e`, pushed for review, not merged)**: the opt-in `expect_rows`
   box reads the table as the site's own read serves it and judges the
-  baseline and the target row before any routing call. A setup that is not as named stops at no
+  baseline and the target row before any routing call. **The owner's review
+  found it believed any 200 list** (a read leaving a row out passed);
+  `fc06edde` makes the read prove it is the whole table by the Data API's
+  count contract, and stop at no cost when it cannot. A setup that is not as named stops at no
   cost. `docs/history/2026-09-30-fixture-check.md`.
 - A menu removal beside a layout move on another page is answered `nav` with
   `remove` and the move held back, against the router's own `alsoAsked` rule

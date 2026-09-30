@@ -85,7 +85,12 @@ in `docs/instruments.md`; each test's plan and evidence is in the checklist.
     mode, refuses with no network call.
   - The table is read as the site's own read serves it
     (`/api/db/<slug>/data/<table>`), the read the digests are computed from
-    and the one the job's writes show in. The owner route is not read: its
+    and the one the job's writes show in, **and only as the whole table**
+    (`readWhole`, after the owner's review): it asks `Prefer: count=exact`
+    and keeps the `Content-Range`. Whole is `0-(n-1)/n`, or `*/0` with no
+    rows. A 206 or a count above the rows served is `incomplete`; no header,
+    a `*` count, or a header that does not describe the rows is
+    `completeness-unknown`. Either stops before any routing call. The owner route is not read: its
     driver hands NUMERIC and BIGINT back as text and dates as Date objects,
     so it cannot be held to those digests. A table the site does not serve
     is `unreadable` and stops. The reading goes to `fixture.json`, with the
