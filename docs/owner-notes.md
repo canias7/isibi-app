@@ -90,9 +90,16 @@ model was called and nothing live was changed.
 
 **Checked**:
 - each problem was reproduced before it was fixed;
-- the tests caught every deliberately broken version (53 of 53), and every
+- the tests caught every deliberately broken version (57 of 57), and every
   harmless change left them passing;
-- the whole test suite passes (8,342 tests).
+- the whole test suite passes (8,343 tests).
+
+**One more fix, found while checking my own work.** One of the new log
+lines could have written a password into our logs, if an error ever
+carried one in its name. It now writes only the kind of error, and the
+tests read the logs as well as the replies. An older log line elsewhere can
+do the same with a storage error's message. I recorded it and left it
+alone.
 
 **Not checked**: how a real model behaves with any of it.
 

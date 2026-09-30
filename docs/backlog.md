@@ -75,6 +75,9 @@ here; take a closed one out of both.**
   browser's own record that never learned `backend` still says "No database
   yet" (the local record's missing flag is read as a no). Pre-existing,
   found 2026-09-30 during Lane 1c, not changed.
+- The backend lookup's KV log line prints a KV error's message, and the
+  routing call now reaches it through Lane 1d. Pre-existing (`bd63040c`),
+  found 2026-09-30 in Lane 1's log review, not changed.
 - A menu removal beside a layout move on another page is answered `nav` with
   `remove` and the move held back, against the router's own `alsoAsked` rule
   (Test 8, run 63). **Corrected 2026-09-29 (the router chooses one answer
@@ -171,6 +174,23 @@ here; take a closed one out of both.**
       panel said "No data tables yet." on a failed read.
     - The "What still works" above held only while KV held the connection.
     - `docs/history/2026-09-30-lane1.md`.
+- **WHEN THE SITE LIST ITSELF CANNOT BE READ, A LOCAL CARD CAN STILL SAY "NO
+  DATABASE YET" (found 2026-09-30 during Lane 1c; pre-existing; not
+  changed).** When `/api/site/list` answers, a lookup that could not tell
+  is kept apart from a no. When the list itself fails, the cards come from
+  this browser's own records. A record that never learned `backend` has no
+  flag, and the card reads a missing flag as a no. The fix, if wanted: read
+  a missing flag as could-not-tell, as the list's `null` is now read.
+- **THE BACKEND LOOKUP'S KV LOG LINE PRINTS A KV ERROR'S MESSAGE (found
+  2026-09-30 in Lane 1's log review; pre-existing; not changed).**
+  `routeDeps`' `onBackfillError` logs `site route KV:` and the message
+  (`worker.js`, since `bd63040c`, 2026-07-28). Every caller of
+  `siteBackendBySlug` shares it, and Lane 1d makes the routing call one of
+  them. A probe planted a password in a thrown KV error's message, and the
+  log carried it. A real KV error is not expected to carry the stored
+  connection, so this breaks the log rule (allow-listed words only); it is
+  not a known leak. The fix, if wanted: log the error's class, as the
+  routing lines now do.
 - **A PRICE PUT BACK WAS ROUTED `text`, NOT `data`, WITH NO TABLE NAMES SENT
   (found 2026-09-30 in Batch 1's run 74; one sample each way; not changed).**
   - **What happened.** On `fretwork-1`, whose prices come from the
@@ -227,6 +247,8 @@ here; take a closed one out of both.**
     provider's words can quote the request. It is logged and returned; the
     canary prints it and `routing.json` keeps it. Run 70's shape would have
     read `provider xai 403 insufficient_quota — refused on our account`.
+    Since `d19652c4` the tests read the Worker's log too, and the table
+    lookup's log line names only a known error class.
 - **THE DATA PICKER IS TOLD BOTH TO DELETE A ROW AND TO REFUSE A DELETION
   (found 2026-09-29 while preparing Batch 1; read in the code, not driven
   live; not changed).** `DATA_TOOL` in `builder/site-apply.mjs`: the
