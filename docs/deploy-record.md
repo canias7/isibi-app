@@ -457,7 +457,11 @@ The gates answered 401 / 401 / 401 / 404; `fretwork-1` answers
 `kk6qsh` and `fold-lane-bakery` `8btpep`, as before. **Deployed, not
 runtime-confirmed**: the container image rolled at 05:33:17, so container work
 waits until about 05:53, and the confirmation is the owner's free press
-(`build-health` with `29111010` and `cdb624837e099719`).
+(`build-health` with `29111010` and `cdb624837e099719`). The session's one
+dispatch of that free press, at 05:53 after the wait, answered 403 (no
+`actions: write`), as before, and was not retried. The Data panel's
+fresh-browser read needs the building account's session, so it is the
+owner's own check.
 
 ## The served-file check, driven end to end on deploy 2139
 
