@@ -71,7 +71,9 @@ the watch, so a refusal kept no record of the answer it refused.
     was refused only by the later path check.
   - After the test was tightened, the second pass killed 29 of 29, and both
     controls survived.
-- **Full suite**: `8306 / 8306 / 0 / 0` locally (8,297 plus the 9 new cases).
+- **Full suite**: `8306 / 8306 / 0 / 0` locally (8,297 plus the 9 new cases),
+  and `8306 / 8302 / 0 / 4` on CI (unit tests run 36648622383 on `b87430c7`;
+  CI skips the usual four).
 
 ## What it does not do
 

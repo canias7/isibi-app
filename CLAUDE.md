@@ -259,7 +259,8 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   is refused above the edit POST; a match is posted unchanged. Verified with
   9 new cases, a red check on `da24ce1b`, the real script under an in-process
   network stub (11 scenarios), a sweep of 29 mutants all killed with 2
-  controls surviving, and the full suite `8306 / 8306 / 0 / 0` locally.
+  controls surviving, and the full suite `8306 / 8306 / 0 / 0` locally and
+  `8306 / 8302 / 0 / 4` on CI (run 36648622383 on `b87430c7`).
   **The remaining six are the owner's list**: redirect home; data add,
   delete and reorder plus the missing reference; broader rules; picture
   replacement; a first-attempt component; a follow-up after a failure or

@@ -341,7 +341,9 @@ Adding, deleting and reordering rows stay open.
     path or `none` would pass, because the test's `colour=red` was refused
     only by the later path check. The test now requires that refusal for such
     values, and the second pass killed 29 of 29; both controls survived.
-  - **Full suite**: `8306 / 8306 / 0 / 0` locally (8,297 before, plus the 9 new cases).
+  - **Full suite**: `8306 / 8306 / 0 / 0` locally (8,297 before, plus the 9 new
+    cases), and `8306 / 8302 / 0 / 4` on CI (unit tests run 36648622383 on
+    `b87430c7`; CI skips the usual four).
 
 ### Group A — a removed page answers 301 home (item 1's open half)
 
