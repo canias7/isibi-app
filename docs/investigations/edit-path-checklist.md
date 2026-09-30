@@ -52,8 +52,12 @@ run 66 proved, with recovery verified by run 67.**
 - Kept separate: the reply omission (review #9) and the saved-version list's
   label naming only the first change (backlog).
 
-**Batch 1 is proposed (2026-09-29; corrected after the owner's review), not
-run**: two acceptance groups that can run side by side on different sites,
+**Batch 1 is approved (2026-09-30); Round 1 is half done**: A1, the free
+restore to `t5obxx` (run 68), is done and checked. B1 has not run. Run 69 had
+the route box blank and was cancelled before routing. Run 70 was pressed from
+`main`, whose form has no route box, and stopped at no cost when its routing
+call failed. Nothing has been charged (*Round 1 as pressed*, below). The batch:
+two acceptance groups that can run side by side on different sites,
 each paid press with its route enforced by the canary's new expected-route
 box (on the branch). **A** (item 1's open half): from saved version
 `t5obxx`, "Remove the gallery page." on `fold-lane-bakery`, the removed
@@ -239,7 +243,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Batch 1 — a removed page's 301 home, and a row changed on a site whose database link is blank, run side by side (proposed 2026-09-29 after Test 8's closure; corrected after the owner's review: the canary now enforces each press's expected route, the costs keep estimates apart from enforced limits, group B's recovery covers every row and field, and the remaining six are the owner's list; free preparation only; not run)
+## Batch 1 — a removed page's 301 home, and a row changed on a site whose database link is blank, run side by side (proposed 2026-09-29 after Test 8's closure; corrected after the owner's review: the canary now enforces each press's expected route, the costs keep estimates apart from enforced limits, group B's recovery covers every row and field, and the remaining six are the owner's list; approved 2026-09-30; Round 1 pressed as runs 68–70: A1's free restore done and checked, B1 not yet run, nothing charged)
 
 The owner asked for the next bounded batch: up to three independent
 acceptance groups from the remaining six, on existing ready fixtures and
@@ -676,6 +680,81 @@ the data item.
 **Round 1** is A1 (the free restore to `t5obxx`) and B1 (the £42 data edit,
 with its expected route), pressed a minute apart; Round 2 is handed over only
 after Round 1's results are read.
+
+### Round 1 as pressed (runs 68–70, 2026-09-30)
+
+**A1 is done and checked (run 68, 00:27:09–00:28:02 UTC, from the branch,
+free).**
+- The canary printed RESTORED. The POST answered 200 (24 files, 0 swept),
+  and the site itself reported `01790701419976-t5obxx` on the first read.
+- The five stored pages hash exactly as `t5obxx` was recorded: index
+  `637b7793`, order `0a0b5f41`, starter `37fb0e17`, visit `ddd1fe39`,
+  gallery `da53a375`.
+- Read at 00:40:56 UTC without following redirects:
+  - every page answers 200 on `t5obxx`;
+  - `/gallery` answers 200, with a query and with a trailing slash too;
+  - `/the-starter` answers 301 to `/starter`, keeping a query;
+  - an unknown page answers 404;
+  - the sitemap still lists `/gallery`, because the page exists until A2.
+- No served page links to `/gallery`: the count is 0 on all five. The same
+  count finds the other menu links (the home page has 3 each for `/order`,
+  `/visit` and `/starter`; `/order`, `/visit` and `/gallery` have 1–2 each),
+  and `/starter` has no links at all, as before. A first count, which read
+  the pages as binary, found nothing at all and was discarded.
+- Nothing was charged. The free check's two jobs (`6df758af…` on the bakery,
+  `6066dd73…` on `washhouse-3`) ended `billing none`, cost 0.
+
+**B1 has not run.**
+- **Run 69** (00:32:46–00:33:25 UTC, from the branch) had spend `yes`, the
+  £42 request, `fretwork-1`, `washhouse-2` and both expectations, **but the
+  expected-route box was blank** (`CANARY_EXPECT_ROUTE` empty). It was
+  cancelled during the before-read. Its last line is the complete source read
+  at 00:33:21.7, and the cancel came at 00:33:22.3, before the balance read
+  and before the routing call. Nothing was routed, posted or charged. Its
+  free jobs (`8b1addc7…` on `fretwork-1`, `9e5d760e…` on `washhouse-2`) ended
+  `billing none`, cost 0.
+- **Run 70** (00:36:55–00:37:33 UTC, **from `main`**, whose form has no
+  expected-route box, so it ran without the check) had the same inputs.
+  - The preflight and free checks passed: deploy `907840c67497`, image
+    `abf47dfeceba3c5c`, and free jobs `555cc3f9…` and `d13e7dba…`, both
+    `billing none`, cost 0. The balance read 22.
+  - **The router answered `{"ok":true,"intent":"addon","cost":0,"failed":true}`
+    in 0.4 s.** That is the Worker's fallback when the routing model call
+    throws.
+  - The canary refused to spend because no edit layer was named (exit 1).
+    Nothing was posted or charged.
+  - Had the router answered normally, this press would have posted the edit
+    with no route check.
+
+**Money.** The balance is 22.000000 and the last ledger row is still 341
+(run 66's), read at 00:41 UTC, so runs 68–70 charged nothing. No job is open.
+
+**`fretwork-1` is untouched.** It is live at `kk6qsh` on `/`, `/prices`,
+`/gear` and `/fr/prices`. `lessons` is byte-identical to the baseline (736
+bytes, `a4f1dc30…`, read at 00:40:56 UTC; its fifth identical read).
+
+**Why the router failed is not known.**
+- `routeMessage` wraps the request build and the model call in a bare
+  `catch`, and the route forwards only the flag. Nothing logs, stores or
+  returns the error, so the evidence cannot say whether the provider refused
+  (an outage, a rate limit, billing or a key) or the call died on the way.
+- Measured free, with a stub sender that never touches a network: the
+  router's request for run 70's exact inputs builds normally. The sender is
+  reached, and the request is 29,947 bytes with the same keys as the one
+  built for run 66's inputs (30,067 bytes). A throwing sender reproduces run
+  70's answer exactly. So the throw came from the model call, not from the
+  request. The model was grok-4.6 on xAI, because the canary names no picker
+  and the default picker is grok.
+- The same code routed run 66 at 21:56 UTC, and nothing has been deployed
+  since.
+- The xAI status page refused a plain read (403).
+- The gap is recorded in the backlog (*a failed routing call records no
+  reason*), not changed.
+
+**Where the batch stands.** A1 is done, and A2 waits for Round 2. B1 is
+approved and has not run. It needs a press from the branch with the route box
+filled. Pressing again is the owner's decision (no automatic retries). If the
+router fails again, the press costs nothing and stops before the edit.
 
 ### What it will not establish
 

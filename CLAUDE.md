@@ -32,7 +32,7 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 > `docs/components.md` (compared byte for byte by
 > `test/components-doc.test.mjs`). Keep both as they are.
 
-## Where things stand (2026-09-29)
+## Where things stand (2026-09-30)
 
 - **`main` is `907840c6`, deploy 2170** (2026-09-29 20:28 UTC, a
   fast-forward from `47dea9c0`; one deploy run, green, on `907840c6`; it
@@ -106,7 +106,8 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 - **Balance 22** on the building account after run 66 (Test 8's second paid
   run, 2026-09-29 21:57–22:00 UTC): 28 → 22, routing 2 and the job's
   reserves of 3 and 1 (ledger rows 340 and 341), with no job open; read
-  again by the free restore (run 67) at 22:24, with no row after 341. Before it,
+  again by the free restore (run 67) at 22:24, with no row after 341, and
+  on 2026-09-30 at 00:41 after Batch 1's runs 68–70, which charged nothing. Before it,
   28 after run 63 (Test 8's first paid run, 2026-09-29 17:03 UTC): routing 2
   and the job's reserve of 2, ledger row 339, read again after the free restore (run 64) at 17:30, with no row after
   339 and no job open, and again at 21:35 after deploy 2170 and by run 65 at
@@ -232,7 +233,7 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   reading is Test 8's run 66: the real router answered `look` for that mix,
   with nothing held back** (one sample; how often, and for other messages,
   is not measured). The image rolled to `abf47dfeceba3c5c`, as predicted. `docs/history/2026-09-29-whole-message-routing.md`.
-- **Batch 1 is approved; Round 1 is handed over, not yet pressed** (2026-09-29,
+- **Batch 1 is approved; Round 1 is half done** (2026-09-29,
   after Test 8's closure; corrected 2026-09-30 after the owner's review, and
   approved the same day at an estimated 5–8 credits, not a cap). **Two groups are ready**, on
   different sites with different controls, each paid press with its route
@@ -250,6 +251,22 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
     four-row baseline (736 bytes, `a4f1dc30…`), with a recovery for every
     kind of unintended difference. A saved page version restores no row, and
     no recovery write is made during preparation.
+
+  **Round 1, as pressed (2026-09-30).**
+  - **A1 is done** (run 68, free). The bakery is live at `t5obxx`: the five
+    stored pages hash as recorded, `/gallery` answers 200 and no page links
+    to it, and `/the-starter` still answers 301.
+  - **B1 has not run.** Run 69 had the route box blank and was cancelled
+    before routing. Run 70 was pressed from `main`, which has no route box.
+    Its router answered `addon` with `failed` in 0.4 s at cost 0, and the
+    canary refused before posting.
+  - **Nothing was charged**: the balance is 22 with no row after 341, and
+    `lessons` is byte-identical to the baseline.
+  - **Why the routing call failed is unknown.** The route keeps no reason
+    (backlog). The request builds normally for those inputs (measured free),
+    so the throw came from the model call (grok-4.6).
+  - **B1 is to be pressed again only on the owner's word**, from the branch
+    with the route box filled.
 
   **Estimates, not limits**: A about 1–2 credits, B about 4–6, about 5–8
   together. Nothing caps a request or the batch; the only hard bound is the
@@ -466,7 +483,8 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
   `ben-crowe-guitar`, and the older `fold-lane-bakery`, `harbourside-roast`,
   `the-lido-cafe`, `oak-and-ash`, `forno-and-co`. **Reusing one of those slugs
   revises that site.** The test fixtures now: `fold-lane-bakery` live at
-  `01790468089054-8btpep` (restored by run 67 after Test 8's run 66),
+  `01790701419976-t5obxx` (Batch 1's A1, run 68; its original `8btpep` is
+  put back by A3),
   `fretwork-1` at `01790404806543-kk6qsh` (Test 3's removal kept), and
   `lido-axes-b` with its bookings closed (run 44, kept).
 - **What things cost, measured** — routing 1–2 per message (it moves with the

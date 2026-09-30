@@ -57,6 +57,38 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-30 — Round 1: the bakery restore worked; the price change hasn't run yet
+
+**The restore worked (run 68, free).** The bakery is back on the saved
+version with Gallery out of the menus. All five pages match that version
+exactly, the gallery page still opens, no page links to it, and the old
+starter address still sends people on. It cost nothing.
+
+**The price change didn't happen, and nothing was charged.**
+- The first press (run 69) was made from the right branch, but the
+  "Refuse to post the paid edit unless the router answers this…" box was
+  empty. It was cancelled while it was still reading the site, before
+  anything was asked or spent.
+- The second press (run 70) came from `main`, whose form doesn't have that
+  box. It never got as far as the edit: the router's call to the model
+  failed in under half a second. A failed routing call costs nothing, and the
+  canary stopped because no edit was named.
+- Your balance is still 22, the four lesson rows are exactly as recorded, and
+  fretwork-1's pages haven't changed.
+
+**Why the router failed, I can't tell.** It keeps no record of the reason.
+I rebuilt its request for that exact message on my side, without calling any
+model, and it came out normal. So the failure was in the call to the model
+(Grok), not in what we sent. The same code worked at 21:56 last night. I've
+added "a failed routing call records no reason" to the backlog and haven't
+changed anything.
+
+**Next is your call**: press the price change again, from the branch, with
+the route box filled. If the router fails again, it costs nothing and stops
+before any edit.
+
+---
+
 ## 2026-09-30 — You approved Batch 1; Round 1 is handed over
 
 **Approved**, as you said: both groups' requests and fixture changes, an

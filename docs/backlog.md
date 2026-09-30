@@ -55,6 +55,9 @@ here; take a closed one out of both.**
   first" may not reach the data picker's sort. Found 2026-09-29.
 - A natural message cannot hand the picture step a new photograph without
   buying one from fal. Found 2026-09-29, not changed.
+- A routing call that fails records no reason: Batch 1's run 70 got `addon`
+  with `failed` at cost 0, and nothing says why. Found 2026-09-30, not
+  changed.
 - A menu removal beside a layout move on another page is answered `nav` with
   `remove` and the move held back, against the router's own `alsoAsked` rule
   (Test 8, run 63). **Corrected 2026-09-29 (the router chooses one answer
@@ -120,6 +123,28 @@ here; take a closed one out of both.**
 
 ## Backlog
 
+- **A FAILED ROUTING CALL RECORDS NO REASON (found 2026-09-30 in Batch 1's
+  run 70; read in the code and measured free; not changed).**
+  - **The gap.** `routeMessage` in `builder/site-ask.mjs` wraps the request
+    build and the model call in a bare `catch`. It returns the fallback
+    (`addon` on a site that has one) with `failed: true`, and
+    `/api/site/route` forwards only the flag. Nothing logs, stores or
+    returns the error, so a failed route cannot say whether the provider
+    refused (an outage, a rate limit, billing or a key) or the call died on
+    the way.
+  - **Run 70** (2026-09-30 00:37 UTC, `fretwork-1`, grok-4.6 because the
+    canary names no picker) answered
+    `{"ok":true,"intent":"addon","cost":0,"failed":true}` in 0.4 s.
+  - **Measured free with a stub sender**: the request for its exact inputs
+    builds normally (29,947 bytes, the same keys as the one built for run
+    66's inputs). So the throw came from the model call, and its reason is
+    gone. The same code had routed run 66 at 21:56 UTC.
+  - **The history.** The flag itself was added for the same diagnosis cost:
+    a billing refusal read as a router bug (2026-08-12), recorded in the
+    route's own comment. The reason is the other half of that fix.
+  - **What would close it**: carrying the error's provider, status and
+    message on the answer, or into a trace row. Not started; it is outside
+    the batch.
 - **THE DATA PICKER IS TOLD BOTH TO DELETE A ROW AND TO REFUSE A DELETION
   (found 2026-09-29 while preparing Batch 1; read in the code, not driven
   live; not changed).** `DATA_TOOL` in `builder/site-apply.mjs`: the
