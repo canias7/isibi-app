@@ -26,7 +26,11 @@ export const routeKey = (slug) => "route:" + String(slug || "").toLowerCase();
  * deps:
  *   kv                        → the KV namespace binding, or null/undefined
  *   fromSource(slug)          → conn | null      the Supabase lookup (2 round trips)
- *   onBackfillError?(err)     → void             observability only; never throws
+ *   onBackfillError?(err, op) → void             observability only; never throws.
+ *                                                `op` is which KV call failed, one of
+ *                                                "read", "write" or "delete", so the
+ *                                                caller can say so without the error's
+ *                                                own text, which is not ours to log.
  */
 export async function lookupRoute(deps, slug) {
   const key = routeKey(slug);
@@ -37,7 +41,7 @@ export async function lookupRoute(deps, slug) {
       if (hit) return hit;
     } catch (e) {
       // KV being unavailable must degrade to the old path, not fail the request.
-      if (deps.onBackfillError) deps.onBackfillError(e);
+      if (deps.onBackfillError) deps.onBackfillError(e, "read");
     }
   }
 
@@ -48,7 +52,7 @@ export async function lookupRoute(deps, slug) {
   // write costs latency, never correctness.
   if (deps.kv) {
     try { await deps.kv.put(key, conn); }
-    catch (e) { if (deps.onBackfillError) deps.onBackfillError(e); }
+    catch (e) { if (deps.onBackfillError) deps.onBackfillError(e, "write"); }
   }
   return conn;
 }
@@ -57,7 +61,7 @@ export async function lookupRoute(deps, slug) {
 export async function saveRoute(deps, slug, conn) {
   if (!deps.kv || !conn) return false;
   try { await deps.kv.put(routeKey(slug), conn); return true; }
-  catch (e) { if (deps.onBackfillError) deps.onBackfillError(e); return false; }
+  catch (e) { if (deps.onBackfillError) deps.onBackfillError(e, "write"); return false; }
 }
 
 /**
@@ -69,5 +73,5 @@ export async function saveRoute(deps, slug, conn) {
 export async function dropRoute(deps, slug) {
   if (!deps.kv) return false;
   try { await deps.kv.delete(routeKey(slug)); return true; }
-  catch (e) { if (deps.onBackfillError) deps.onBackfillError(e); return false; }
+  catch (e) { if (deps.onBackfillError) deps.onBackfillError(e, "delete"); return false; }
 }

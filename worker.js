@@ -1027,7 +1027,9 @@ function upstreamKind(detail, status) {
   const msg = String((err && err.message) || "");
   // Shape-checked, not trusted: an unrecognised token is dropped rather than
   // echoed, so this can never become a channel for arbitrary upstream text.
-  const type = /^[a-z_]{1,40}$/.test(String(t)) ? String(t) : null;
+  // AND NEVER COERCED: `String(["x"])` is "x", so an array once passed for a
+  // token (the owner's review of Lane 1b, 2026-09-30). Not a string, no type.
+  const type = typeof t === "string" && /^[a-z_]{1,40}$/.test(t) ? t : null;
   return {
     type,
     refused,
@@ -5782,16 +5784,33 @@ const SITE_CONN_TTL_MS = 300_000;
 const MAX_SITE_LIST = 200;
 const _connCache = makeCache({ ttlMs: SITE_CONN_TTL_MS, max: 500 });
 
+// A THROWN ERROR'S NAME IS TEXT ANYONE CAN SET, so a log line that names an
+// error names a known class or says "Error": `routeFailure`'s list, plus this
+// file's own `BackendUnreadable` (Lane 1, 2026-09-30). Used by the route
+// cache's KV line and the router's table lookup, the two lines on the routing
+// path that report an error they caught.
+const LOGGED_ERROR_CLASSES = [...ROUTE_ERROR_CLASSES, "BackendUnreadable"];
+const errorClassForLog = (e) => (e && typeof e.name === "string" && LOGGED_ERROR_CLASSES.includes(e.name) ? e.name : "Error");
+
 // KV first, then the two Supabase calls. Supabase stays the source of truth —
 // a KV miss falls back and backfills, so an unbound or empty namespace is slow,
 // never wrong. Only the connection string is stored: it is fixed at build time,
 // so KV's eventual consistency cannot make it stale. (The schema is NOT stored
 // there — a revise changes it, and a minute of staleness would 404 the site's
 // own new tables.)
+//
+// A KV ERROR'S TEXT IS NOT OURS TO LOG (the owner's review of Lane 1,
+// 2026-09-30). This callback printed the error's message, and a KV error can
+// carry anything, the value it was writing among it: here a connection string
+// with its password. Lane 1d made the routing call one of its callers. So it
+// says which KV call failed (`lookupRoute` hands in "read", "write" or
+// "delete") and the error's class from a fixed list, and nothing the error
+// carries. The lookup itself is unchanged: a failed read falls back, a failed
+// write is only latency.
 const routeDeps = (env) => ({
   kv: env.SITE_ROUTES || null,
   fromSource: (slug) => siteBackendBySlugFresh(env, slug),
-  onBackfillError: (e) => console.error("site route KV:", (e && e.message) || e),
+  onBackfillError: (e, op) => console.error("site route KV:", op, errorClassForLog(e)),
 });
 
 const _resolveBackend = memoize(_connCache, async (slug, env) => lookupRoute(routeDeps(env), slug));
@@ -5959,11 +5978,6 @@ async function ownerSiteConn(env, slug) {
  */
 const ROUTE_TABLES_MS = 3000;
 const ROUTE_TABLE_NAME = /^[a-z_][a-z0-9_]{0,62}$/i;
-// A THROWN ERROR'S NAME IS TEXT ANYONE CAN SET, so the lookup's log line names
-// a known class or says "Error" — the rule `routeFailure` keeps for the routing
-// reason, plus this file's own `BackendUnreadable`.
-const ROUTE_TABLES_ERRORS = [...ROUTE_ERROR_CLASSES, "BackendUnreadable"];
-const routeTablesError = (e) => (e && typeof e.name === "string" && ROUTE_TABLES_ERRORS.includes(e.name) ? e.name : "Error");
 async function routeTableNames(env, uid, slug) {
   if (!uid || (await siteOwnerBySlug(slug, env)) !== uid) return [];
   const conn = await ownerSiteConn(env, slug);
@@ -5991,7 +6005,7 @@ async function routeDigest(env, user, rb) {
   if (!/^[a-z0-9][a-z0-9-]{0,80}$/.test(slug)) return { site, filled: null };
   let timer = null;
   const names = await Promise.race([
-    routeTableNames(env, user && user.id, slug).catch((e) => { console.error("route tables:", slug, routeTablesError(e)); return []; }),
+    routeTableNames(env, user && user.id, slug).catch((e) => { console.error("route tables:", slug, errorClassForLog(e)); return []; }),
     new Promise((resolve) => { timer = setTimeout(() => resolve(null), ROUTE_TABLES_MS); }),
   ]);
   if (timer) clearTimeout(timer);

@@ -1,0 +1,92 @@
+[
+  {
+    "label": "CONTROL: the KV callback's comment changes nothing",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "// A KV ERROR'S TEXT IS NOT OURS TO LOG (the owner's review of Lane 1,",
+    "to": "// A KV ERROR'S TEXT IS NOT OURS TO LOG (the owner's review of Lane 1, control"
+  },
+  {
+    "label": "CONTROL: lookupRoute's callback note changes nothing",
+    "control": true,
+    "files": [
+      "site-routing.mjs"
+    ],
+    "from": " *                                                `op` is which KV call failed, one of",
+    "to": " *                                                `op` is which KV call failed (control), one of"
+  },
+  {
+    "label": "K-1: the KV line prints the error's message again (the original callback)",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  onBackfillError: (e, op) => console.error(\"site route KV:\", op, errorClassForLog(e)),",
+    "to": "  onBackfillError: (e) => console.error(\"site route KV:\", (e && e.message) || e),"
+  },
+  {
+    "label": "K-2: the KV line prints the whole error",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  onBackfillError: (e, op) => console.error(\"site route KV:\", op, errorClassForLog(e)),",
+    "to": "  onBackfillError: (e, op) => console.error(\"site route KV:\", op, errorClassForLog(e), e),"
+  },
+  {
+    "label": "K-3: the KV line names whatever the error calls itself",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  onBackfillError: (e, op) => console.error(\"site route KV:\", op, errorClassForLog(e)),",
+    "to": "  onBackfillError: (e, op) => console.error(\"site route KV:\", op, (e && e.name) || \"Error\"),"
+  },
+  {
+    "label": "K-4: the log-class helper names any class",
+    "files": [
+      "worker.js"
+    ],
+    "from": "const errorClassForLog = (e) => (e && typeof e.name === \"string\" && LOGGED_ERROR_CLASSES.includes(e.name) ? e.name : \"Error\");",
+    "to": "const errorClassForLog = (e) => (e && typeof e.name === \"string\" ? e.name : \"Error\");"
+  },
+  {
+    "label": "K-5: a failed read is not said to be a read",
+    "files": [
+      "site-routing.mjs"
+    ],
+    "from": "      if (deps.onBackfillError) deps.onBackfillError(e, \"read\");",
+    "to": "      if (deps.onBackfillError) deps.onBackfillError(e);"
+  },
+  {
+    "label": "K-6: a failed backfill is called a read",
+    "files": [
+      "site-routing.mjs"
+    ],
+    "from": "    catch (e) { if (deps.onBackfillError) deps.onBackfillError(e, \"write\"); }\n  }\n  return conn;",
+    "to": "    catch (e) { if (deps.onBackfillError) deps.onBackfillError(e, \"read\"); }\n  }\n  return conn;"
+  },
+  {
+    "label": "K-7: a KV read that throws fails the lookup (no fallback)",
+    "files": [
+      "site-routing.mjs"
+    ],
+    "from": "      if (deps.onBackfillError) deps.onBackfillError(e, \"read\");",
+    "to": "      throw e;"
+  },
+  {
+    "label": "K-8: a KV backfill that throws fails the lookup",
+    "files": [
+      "site-routing.mjs"
+    ],
+    "from": "    catch (e) { if (deps.onBackfillError) deps.onBackfillError(e, \"write\"); }\n  }\n  return conn;",
+    "to": "    catch (e) { throw e; }\n  }\n  return conn;"
+  },
+  {
+    "label": "K-9: a KV hit is ignored and Supabase is always asked",
+    "files": [
+      "site-routing.mjs"
+    ],
+    "from": "      if (hit) return hit;",
+    "to": "      if (hit && false) return hit;"
+  }
+]

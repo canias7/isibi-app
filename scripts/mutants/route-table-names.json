@@ -18,13 +18,13 @@
     "to": "      // THE SITE'S OWN TABLE NAMES when the browser sent none (Lane 1d, control) —"
   },
   {
-    "label": "CONTROL: the lookup log's comment changes nothing",
+    "label": "CONTROL: the log-class helper's comment changes nothing",
     "control": true,
     "files": [
       "worker.js"
     ],
-    "from": "// A THROWN ERROR'S NAME IS TEXT ANYONE CAN SET, so the lookup's log line names",
-    "to": "// A THROWN ERROR'S NAME IS TEXT ANYONE CAN SET, so the lookup's log line names (control)"
+    "from": "// A THROWN ERROR'S NAME IS TEXT ANYONE CAN SET, so a log line that names an",
+    "to": "// A THROWN ERROR'S NAME IS TEXT ANYONE CAN SET, so a log line that names an (control)"
   },
   {
     "label": "D-1: ownership is not verified",
@@ -71,7 +71,7 @@
     "files": [
       "worker.js"
     ],
-    "from": "    routeTableNames(env, user && user.id, slug).catch((e) => { console.error(\"route tables:\", slug, routeTablesError(e)); return []; }),",
+    "from": "    routeTableNames(env, user && user.id, slug).catch((e) => { console.error(\"route tables:\", slug, errorClassForLog(e)); return []; }),",
     "to": "    routeTableNames(env, user && user.id, slug),"
   },
   {
@@ -127,7 +127,7 @@
     "files": [
       "worker.js"
     ],
-    "from": "console.error(\"route tables:\", slug, routeTablesError(e));",
+    "from": "console.error(\"route tables:\", slug, errorClassForLog(e));",
     "to": "console.error(\"route tables:\", slug, (e && e.name) || \"Error\");"
   },
   {
@@ -135,15 +135,15 @@
     "files": [
       "worker.js"
     ],
-    "from": "console.error(\"route tables:\", slug, routeTablesError(e));",
-    "to": "console.error(\"route tables:\", slug, routeTablesError(e), e);"
+    "from": "console.error(\"route tables:\", slug, errorClassForLog(e));",
+    "to": "console.error(\"route tables:\", slug, errorClassForLog(e), e);"
   },
   {
     "label": "D-15: the lookup's log forgets the Worker's own class",
     "files": [
       "worker.js"
     ],
-    "from": "const ROUTE_TABLES_ERRORS = [...ROUTE_ERROR_CLASSES, \"BackendUnreadable\"];",
-    "to": "const ROUTE_TABLES_ERRORS = [...ROUTE_ERROR_CLASSES];"
+    "from": "const LOGGED_ERROR_CLASSES = [...ROUTE_ERROR_CLASSES, \"BackendUnreadable\"];",
+    "to": "const LOGGED_ERROR_CLASSES = [...ROUTE_ERROR_CLASSES];"
   }
 ]

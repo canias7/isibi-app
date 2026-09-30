@@ -29,6 +29,7 @@ import assert from "node:assert/strict";
 import { inspect } from "node:util";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { ASK_TOOL } from "../builder/site-ask.mjs";
+import { canaryRoutingLine } from "./fixtures/canary-line.mjs";
 
 const OWNER = { id: "33333333-3333-3333-3333-333333333333", email: "owner@example.com" };
 const STRANGER = "44444444-4444-4444-4444-444444444444";
@@ -44,8 +45,9 @@ const SPEC = { tables: [{ name: "lessons", access: "display", columns: [{ name: 
  * One routing call through the real Worker. The site answers as `wire` says:
  * `owner` (whose uid owns the slug; `hang`/`fail` for the ownership read),
  * `neonDb` (the reference: "" for a blank one), `project` (rows, or `fail`),
- * `catalog`/`spec` (the database), `sqlFail`, and `throws` ({at, error}: a
- * Supabase read that throws, as a dropped connection does). The Worker's log
+ * `catalog`/`spec` (the database), `sqlFail`, `throws` ({at, error}: a
+ * Supabase read that throws, as a dropped connection does), and `kv` (the
+ * route cache's binding, `SITE_ROUTES`; none by default). The Worker's log
  * lines come back as `logs`.
  */
 async function route({ slug, site = { name: slug, url: "https://" + slug + ".gofarther.app", pages: PAGES, tables: [] }, hasSite = true, wire = {} } = {}) {
@@ -107,7 +109,7 @@ async function route({ slug, site = { name: slug, url: "https://" + slug + ".gof
       method: "POST",
       headers: { "content-type": "application/json", Authorization: "Bearer t" },
       body: JSON.stringify({ message: MESSAGE, site, picker: "sonnet", firstBuild: false, brief: MESSAGE, qa: [], answering: false, attached: false, slug, hasSite }),
-    }), { ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key", SUPABASE_SERVICE_KEY: "svc" }, makeCtx());
+    }), { ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key", SUPABASE_SERVICE_KEY: "svc", ...(wire.kv ? { SITE_ROUTES: wire.kv } : {}) }, makeCtx());
     const text = await res.text();
     return { status: res.status, body: JSON.parse(text), text, seen, logs, ms: Date.now() - t0 };
   } finally {
@@ -242,6 +244,91 @@ test("a lookup that throws is logged by its class, never by what the error carri
   const known = await route({ slug: "tables-unreadable", wire: { neonDb: "", project: "fail" } });
   assert.deepEqual(known.logs.filter((l) => l.startsWith("route tables:")), ["route tables: tables-unreadable BackendUnreadable"]);
   assert.deepEqual(tablesTold(known), []);
+});
+
+// ── THE ROUTE CACHE: A KV ERROR IS NOT OURS TO LOG ─────────────────────────
+//
+// The owner's lookup reaches the shared route cache (`lookupRoute`), whose
+// error callback used to log a KV error's own message. A KV error can carry
+// anything: here it carries the connection string with its password, which is
+// the very value being written, and a marker. Every line the Worker logs, the
+// route's whole reply and the canary's own routing line are read for them, and
+// the lookup must still fall back and name the tables.
+const KV_MARK = "KVSECRET_marker_91f3";
+const LEAKS = [PROJECT_CONN, "npg_TablesSecret", KV_MARK];
+function kvFake({ get, put } = {}) {
+  const calls = { get: [], put: [] };
+  return {
+    calls,
+    kv: {
+      get: async (k) => { calls.get.push(k); return get ? get(k) : null; },
+      put: async (k, v) => { calls.put.push(k); if (put) await put(k, v); },
+      delete: async () => {},
+    },
+  };
+}
+function assertNothingLeaked(r, what) {
+  const outputs = [["the reply", r.text], ["the log", r.logs.join("\n")], ["the canary's line", canaryRoutingLine({ ms: r.ms }, r.body)]];
+  for (const [where, text] of outputs) {
+    for (const s of LEAKS) assert.ok(!text.includes(s), `${what}: "${s.slice(0, 20)}…" escaped into ${where}: ${text.slice(0, 240)}`);
+  }
+}
+const kvLines = (r) => r.logs.filter((l) => l.startsWith("site route KV:"));
+
+test("a KV read that throws is logged by its operation and class only, and the lookup falls back", async () => {
+  const { kv, calls } = kvFake({
+    get: () => { throw Object.assign(new TypeError("KV GET failed near " + PROJECT_CONN + " " + KV_MARK), { cause: new Error(KV_MARK), value: PROJECT_CONN }); },
+  });
+  const r = await route({ slug: "tables-kv-read", wire: { kv } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.layer, "data");
+  // THE FALLBACK STILL WORKS: Supabase answered, the names reached the router,
+  // and the cache was backfilled as it always is.
+  assert.deepEqual(tablesTold(r), ["bookings", "lessons"]);
+  assert.deepEqual(r.body.tablesFilled, ["bookings", "lessons"]);
+  assert.equal(calls.put.length, 1, "the backfill after the fallback was not attempted");
+  // The line is there (the observer is alive), and says what failed and nothing it carried.
+  assert.deepEqual(kvLines(r), ["site route KV: read TypeError"]);
+  assertNothingLeaked(r, "read");
+  assertReadOnly(r, "kv read");
+});
+
+test("a KV backfill that throws is logged the same way, and the names still arrive", async () => {
+  // The write carries the connection string itself; its error quotes it back.
+  const { kv, calls } = kvFake({
+    put: (k, v) => { throw Object.assign(new Error("KV PUT " + k + " = " + v + " " + KV_MARK), { name: "KV_" + KV_MARK }); },
+  });
+  const r = await route({ slug: "tables-kv-write", wire: { kv } });
+  assert.equal(r.status, 200);
+  assert.deepEqual(tablesTold(r), ["bookings", "lessons"]);
+  assert.deepEqual(r.body.tablesFilled, ["bookings", "lessons"]);
+  assert.equal(calls.get.length, 1);
+  assert.equal(calls.put.length, 1);
+  assert.deepEqual(kvLines(r), ["site route KV: write Error"]);
+  assertNothingLeaked(r, "write");
+  assertReadOnly(r, "kv write");
+});
+
+test("a KV read that never answers is cut off by the lookup's bound, and the router is asked anyway", { timeout: 20000 }, async () => {
+  const { kv } = kvFake({ get: () => new Promise(() => {}) });
+  const r = await route({ slug: "tables-kv-hang", wire: { kv } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.intent, "edit");
+  assert.deepEqual(tablesTold(r), []);
+  assert.equal(r.body.tablesFilled, undefined);
+  assert.ok(r.ms < 8000, "the route waited on a KV read that never answered: " + r.ms + "ms");
+  assert.deepEqual(kvLines(r), [], "a read that never failed was logged as one");
+  assertNothingLeaked(r, "hang");
+});
+
+test("CONTROL: a KV hit is used as it always was, and logs nothing", async () => {
+  const { kv, calls } = kvFake({ get: () => PROJECT_CONN });
+  const r = await route({ slug: "tables-kv-hit", wire: { kv } });
+  assert.deepEqual(tablesTold(r), ["bookings", "lessons"]);
+  assert.equal(calls.put.length, 0, "a hit was written back");
+  assert.equal(r.seen.rest.filter((u) => u.includes("site_project")).length, 0, "a hit still read the project row");
+  assert.deepEqual(kvLines(r), []);
+  assertNothingLeaked(r, "hit");
 });
 
 test("a table name that is not a name never reaches the router", async () => {

@@ -38,8 +38,8 @@
     "files": [
       "builder/site-ask.mjs"
     ],
-    "from": "const type = k && typeof k.type === \"string\" && PROVIDER_TOKEN.test(k.type) ? k.type : null;",
-    "to": "const type = k && typeof k.type === \"string\" ? k.type : null;"
+    "from": "    const type = k ? providerCode(out.provider, k.type) : null;",
+    "to": "    const type = k && typeof k.type === \"string\" ? k.type : null;"
   },
   {
     "label": "R-4: the error's own name is passed through",
@@ -152,5 +152,69 @@
     ],
     "from": "  const fail = (stage, e) => ({\n",
     "to": "  const fail = (stage, e) => (console.error(\"route:\", e), {\n"
+  },
+  {
+    "label": "R-18: the route names any well-formed code again (the pattern, not the table)",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "    const type = k ? providerCode(out.provider, k.type) : null;",
+    "to": "    const type = k && typeof k.type === \"string\" && /^[a-z_]{1,40}$/.test(k.type) ? k.type : null;"
+  },
+  {
+    "label": "R-19: the table ignores which provider answered",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "  return PROVIDER_CODES[provider].includes(code) ? code : null;",
+    "to": "  return Object.values(PROVIDER_CODES).flat().includes(code) ? code : null;"
+  },
+  {
+    "label": "R-20: the table forgets a documented code",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "\"not_found_error\", \"request_too_large\", \"rate_limit_error\", \"api_error\", \"overloaded_error\"]),",
+    "to": "\"not_found_error\", \"request_too_large\", \"rate_limit_error\", \"api_error\"]),"
+  },
+  {
+    "label": "R-21: the table coerces a code that is not a string",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "  if (typeof provider !== \"string\" || typeof code !== \"string\" || !Object.hasOwn(PROVIDER_CODES, provider)) return null;\n  return PROVIDER_CODES[provider].includes(code) ? code : null;",
+    "to": "  if (typeof provider !== \"string\" || !Object.hasOwn(PROVIDER_CODES, provider)) return null;\n  return PROVIDER_CODES[provider].includes(String(code)) ? String(code) : null;"
+  },
+  {
+    "label": "R-22: upstreamKind coerces the provider's type again",
+    "files": [
+      "worker.js"
+    ],
+    "from": "  const type = typeof t === \"string\" && /^[a-z_]{1,40}$/.test(t) ? t : null;",
+    "to": "  const type = /^[a-z_]{1,40}$/.test(String(t)) ? String(t) : null;"
+  },
+  {
+    "label": "R-23: xaiErrorDetail coerces the provider's code again",
+    "files": [
+      "builder/model-xai.mjs"
+    ],
+    "from": "  const candidate = objErr.code || body.code || objErr.type || \"\";\n  const type = typeof candidate === \"string\" && /^[a-z_]{1,40}$/.test(candidate) ? candidate : null;",
+    "to": "  const candidate = String(objErr.code || body.code || objErr.type || \"\");\n  const type = /^[a-z_]{1,40}$/.test(candidate) ? candidate : null;"
+  },
+  {
+    "label": "R-24: the canary prints any well-formed code again",
+    "files": [
+      "scripts/canary-route.mjs"
+    ],
+    "from": "  const code = providerCode(f.provider, f.type);",
+    "to": "  const code = typeof f.type === \"string\" && /^[a-z_]{1,40}$/.test(f.type) ? f.type : null;"
+  },
+  {
+    "label": "R-25: the canary prints another provider's code",
+    "files": [
+      "scripts/canary-route.mjs"
+    ],
+    "from": "  const code = providerCode(f.provider, f.type);",
+    "to": "  const code = providerCode(\"anthropic\", f.type) || providerCode(\"xai\", f.type);"
   }
 ]

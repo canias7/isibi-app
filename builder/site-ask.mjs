@@ -1353,13 +1353,35 @@ export function askUsage(reply, model = ASK_MODEL) {
 // EVERY FIELD IS AN ALLOW-LIST, NEVER TEXT. A provider's message can quote the
 // request, which holds the customer's words, and an error can carry a header or
 // a connection string; none of that is ever read into this object. The status
-// is an HTTP status or nothing, the provider's token passes the same shape check
-// `upstreamKind` applies on the build path, and the error is named by a class
+// is an HTTP status or nothing, the provider's code is one from its own finite
+// table (`PROVIDER_CODES`, below) or nothing, and the error is named by a class
 // from a fixed list. The Worker hands in its own `upstreamKind` as `classify`,
 // so provider errors have one reader, not two.
 export const ROUTE_FAILURE_KINDS = ["request", "config", "provider", "timeout", "transport"];
 export const ROUTE_ERROR_CLASSES = ["Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "TimeoutError", "AbortError"];
-export const PROVIDER_TOKEN = /^[a-z_]{1,40}$/;
+
+// THE PROVIDER CODES A FAILURE MAY NAME: a finite table, by provider (the
+// owner's review of Lane 1b, 2026-09-30). A shape check proved nothing:
+// `private_token_probe` is as well formed as `overloaded_error`, so any
+// snake_case word a provider's body carried was echoed into the reply, the log
+// and the canary's line. Now a code is named only when the provider that
+// answered documents it; anything else, unknown or not a string at all, is
+// dropped, never echoed and never coerced. The provider, the status, the
+// billing classification and the error's class still say who answered and how.
+//   anthropic — its documented `error.type` values, 400 to 529.
+//   xai       — xAI documents no codes in its error bodies. `insufficient_quota`
+//               is the one the Worker itself classifies (an exhausted account).
+export const PROVIDER_CODES = Object.freeze({
+  anthropic: Object.freeze(["invalid_request_error", "authentication_error", "billing_error", "permission_error",
+    "not_found_error", "request_too_large", "rate_limit_error", "api_error", "overloaded_error"]),
+  xai: Object.freeze(["insufficient_quota"]),
+});
+
+/** `code` when `provider` documents it, else null. Nothing is coerced. */
+export function providerCode(provider, code) {
+  if (typeof provider !== "string" || typeof code !== "string" || !Object.hasOwn(PROVIDER_CODES, provider)) return null;
+  return PROVIDER_CODES[provider].includes(code) ? code : null;
+}
 
 export function routeFailure(stage, e, { model, classify } = {}) {
   const name = e && typeof e.name === "string" && ROUTE_ERROR_CLASSES.includes(e.name) ? e.name : "Error";
@@ -1370,7 +1392,7 @@ export function routeFailure(stage, e, { model, classify } = {}) {
     let k = null;
     // THE READER MAY FAIL, AND MAY ANSWER JUNK; neither widens what is said.
     try { k = typeof classify === "function" ? classify(e) : null; } catch { k = null; }
-    const type = k && typeof k.type === "string" && PROVIDER_TOKEN.test(k.type) ? k.type : null;
+    const type = k ? providerCode(out.provider, k.type) : null;
     // 401, 402 AND 403 ARE OUR KEY OR OUR ACCOUNT whatever the body says —
     // `upstreamKind`'s own rule, kept when no reader is handed in.
     const billing = (k && k.billing === true) || status === 401 || status === 402 || status === 403;

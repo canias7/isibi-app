@@ -28,6 +28,7 @@ import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { ASK_TOOL, FALLBACK_WITH_SITE, FALLBACK_NO_SITE, routeMessage, ROUTE_FAILURE_KINDS } from "../builder/site-ask.mjs";
 import { XAI_ENDPOINT } from "../builder/model-xai.mjs";
 import { failureSaid } from "../scripts/canary-route.mjs";
+import { canaryRoutingLine } from "./fixtures/canary-line.mjs";
 
 const USER = { id: "u-route-failure-1", email: "owner@example.com" };
 // THE SECRETS, shaped like the real ones: the two provider keys the Worker is
@@ -116,6 +117,8 @@ function assertFallback(r, intent = FALLBACK_WITH_SITE) {
   assert.equal(said.length, 1, "the failure was not logged exactly once: " + JSON.stringify(r.logs).slice(0, 300));
   assert.equal(said[0], "route failed: " + JSON.stringify(r.body.failure), "the log and the reply disagree");
   assertNoSecrets("the Worker's log", r.logs.join("\n"));
+  // AND THE CANARY'S OWN LINE, evaluated from its source on this very answer.
+  assertNoSecrets("the canary's routing line", canaryRoutingLine({ ms: 400 }, r.body));
 }
 
 // ── THE PROVIDER ANSWERED, WITH AN ERROR ───────────────────────────────────
@@ -189,6 +192,77 @@ test("an error whose class name carries text is reported as a plain Error", asyn
   assert.ok(!r.text.includes(e.name), "the error's own name escaped");
 });
 
+// ── ONLY A CODE THE PROVIDER DOCUMENTS IS NAMED ────────────────────────────
+//
+// A code's characters prove nothing: `private_token_probe` is as well formed as
+// `overloaded_error`. So the route names a provider's code only from a finite
+// table, by provider, and drops anything else — an unknown code, or a code that
+// is not a string at all — without echoing or coercing it. The table below is
+// this test's own: Anthropic's documented `error.type` values with their
+// statuses, and the one xAI code the Worker itself classifies (xAI documents
+// no body codes).
+const ANTHROPIC_DOCUMENTED = [
+  ["invalid_request_error", 400], ["authentication_error", 401], ["billing_error", 402], ["permission_error", 403],
+  ["not_found_error", 404], ["request_too_large", 413], ["rate_limit_error", 429], ["api_error", 500], ["overloaded_error", 529],
+];
+const PROBE = "private_token_probe";
+const anthropicBody = (type, message = "no") => json({ type: "error", error: { type, message } }, 400);
+
+test("an unknown code is dropped, never echoed, whichever provider sends it", async () => {
+  for (const [picker, provider, reply] of [
+    ["sonnet", "anthropic", () => anthropicBody(PROBE)],
+    ["grok", "xai", () => json({ code: PROBE, error: "no" }, 400)],
+    ["grok", "xai", () => json({ error: { type: PROBE, message: "no" } }, 400)],
+  ]) {
+    const r = await route({ picker, provider: reply });
+    assertFallback(r);
+    assert.deepEqual(r.body.failure, { kind: "provider", provider, status: 400, type: null, billing: false, error: "Error" }, provider);
+    for (const t of [r.text, r.logs.join("\n"), canaryRoutingLine({ ms: 400 }, r.body)]) {
+      assert.ok(!t.includes(PROBE), `${provider}: the unknown code escaped into ${t.slice(0, 200)}`);
+    }
+  }
+});
+
+test("a code that is not a string is dropped, never coerced — even into a documented one", async () => {
+  // `String(["overloaded_error"])` is "overloaded_error": coercion would name a
+  // documented code the provider never sent as one.
+  for (const type of [[PROBE], ["overloaded_error"], ["overloaded_error", "api_error"], { type: "api_error" }, 529, true]) {
+    const r = await route({ picker: "sonnet", provider: () => json({ type: "error", error: { type, message: "no" } }, 529) });
+    assertFallback(r);
+    assert.deepEqual(r.body.failure, { kind: "provider", provider: "anthropic", status: 529, type: null, billing: false, error: "Error" }, JSON.stringify(type));
+    for (const t of [r.text, r.logs.join("\n"), canaryRoutingLine({ ms: 400 }, r.body)]) {
+      assert.ok(!t.includes(PROBE) && !t.includes("overloaded_error"), `${JSON.stringify(type)}: a coerced code escaped into ${t.slice(0, 200)}`);
+    }
+  }
+  // xAI's code as an array: dropped, and the account refusal still read from
+  // the status — the classification is kept, the code is not invented.
+  const x = await route({ picker: "grok", provider: () => json({ code: ["insufficient_quota"], error: "no" }, 403) });
+  assertFallback(x);
+  assert.deepEqual(x.body.failure, { kind: "provider", provider: "xai", status: 403, type: null, billing: true, error: "Error" });
+  assert.equal(canaryRoutingLine({ ms: 400 }, x.body), "  routed in 0.4s: intent=addon layer=- page=- cost=0 FAILED (provider xai 403 — refused on our account (billing or key))");
+});
+
+test("CONTROLS: every documented code is named, with its status and its classification", async () => {
+  for (const [type, status] of ANTHROPIC_DOCUMENTED) {
+    const r = await route({ picker: "sonnet", provider: () => json({ type: "error", error: { type, message: "no" } }, status) });
+    assertFallback(r);
+    assert.equal(r.body.failure.type, type, type);
+    assert.equal(r.body.failure.status, status, type);
+    assert.equal(r.body.failure.billing, status === 401 || status === 402 || status === 403, type);
+    assert.ok(canaryRoutingLine({ ms: 400 }, r.body).includes(`FAILED (provider anthropic ${status} ${type}`), type);
+  }
+  const x = await route({ picker: "grok", provider: () => json({ code: "insufficient_quota", error: "no" }, 429) });
+  assertFallback(x);
+  assert.deepEqual(x.body.failure, { kind: "provider", provider: "xai", status: 429, type: "insufficient_quota", billing: true, error: "Error" });
+});
+
+test("a code is named only under the provider that documents it", async () => {
+  const a = await route({ picker: "sonnet", provider: () => anthropicBody("insufficient_quota") });
+  assert.equal(a.body.failure.type, null, "Anthropic was named by xAI's code");
+  const g = await route({ picker: "grok", provider: () => json({ code: "overloaded_error", error: "no" }, 400) });
+  assert.equal(g.body.failure.type, null, "xAI was named by Anthropic's code");
+});
+
 // ── THE REQUEST COULD NOT BE BUILT ─────────────────────────────────────────
 
 test("a request that cannot be built is named as ours, and no model is asked", async () => {
@@ -205,9 +279,11 @@ test("a request that cannot be built is named as ours, and no model is asked", a
 // ── THE FALLBACK AND THE BILLING DID NOT MOVE ──────────────────────────────
 
 test("with no site the fallback is still a build, and it carries its reason too", async () => {
+  // xAI documents no body codes, so an OpenAI-style token it might send is not
+  // one this route names: the 429 already says what happened.
   const r = await route({ picker: "grok", provider: () => json({ code: "rate_limit_exceeded", error: "slow down" }, 429), body: { hasSite: false } });
   assertFallback(r, FALLBACK_NO_SITE);
-  assert.deepEqual(r.body.failure, { kind: "provider", provider: "xai", status: 429, type: "rate_limit_exceeded", billing: false, error: "Error" });
+  assert.deepEqual(r.body.failure, { kind: "provider", provider: "xai", status: 429, type: null, billing: false, error: "Error" });
 });
 
 test("CONTROL: an answer that routed is billed as before and carries no failure", async () => {
@@ -239,6 +315,12 @@ test("routeMessage reads a failure without the Worker's reader, and a bad reader
   const junk = await routeMessage({ send: async () => { throw Object.assign(new Error("x"), { status: 500 }); }, classify: () => ({ type: "has space", billing: "yes" }) },
     { message: MESSAGE, site: SITE, hasSite: true, model: "claude-sonnet-5" });
   assert.deepEqual(junk.failure, { kind: "provider", provider: "anthropic", status: 500, type: null, billing: false, error: "Error" });
+  for (const type of ["private_token_probe", ["overloaded_error"], ["private_token_probe"], { type: "api_error" }, 529]) {
+    const odd2 = await routeMessage({ send: async () => { throw Object.assign(new Error("x"), { status: 529 }); }, classify: () => ({ type, billing: false }) },
+      { message: MESSAGE, site: SITE, hasSite: true, model: "claude-sonnet-5" });
+    assert.equal(odd2.failure.type, null, "a reader's code was named although it is not a documented one: " + JSON.stringify(type));
+    assert.equal(odd2.failure.status, 529);
+  }
   // A status that is not an HTTP status is not one.
   const odd = await routeMessage({ send: async () => { throw Object.assign(new Error("x"), { status: "403" }); } }, { message: MESSAGE, site: SITE, hasSite: true, model: "grok-4.6" });
   assert.equal(odd.failure.kind, "transport");
@@ -255,4 +337,15 @@ test("the canary's line says only what it can read", () => {
   }
   // A field of the wrong shape is left out, not coerced.
   assert.equal(failureSaid({ kind: "provider", provider: "xai", status: "403", type: "has space", billing: "true", error: "sk-ant" }), "provider xai");
+  // A code is printed only when its own provider documents it: a well-formed
+  // unknown one, a known one in an array, and another provider's are not.
+  assert.equal(failureSaid({ kind: "provider", provider: "anthropic", status: 400, type: "private_token_probe" }), "provider anthropic 400");
+  assert.equal(failureSaid({ kind: "provider", provider: "anthropic", status: 529, type: ["overloaded_error"] }), "provider anthropic 529");
+  assert.equal(failureSaid({ kind: "provider", provider: "xai", status: 529, type: "overloaded_error" }), "provider xai 529");
+  assert.equal(failureSaid({ kind: "provider", provider: "anthropic", status: 403, type: "insufficient_quota", billing: true }),
+    "provider anthropic 403 — refused on our account (billing or key)");
+  // CONTROLS: a documented code under its own provider is printed.
+  assert.equal(failureSaid({ kind: "provider", provider: "anthropic", status: 529, type: "overloaded_error" }), "provider anthropic 529 overloaded_error");
+  assert.equal(failureSaid({ kind: "provider", provider: "xai", status: 403, type: "insufficient_quota", billing: true }),
+    "provider xai 403 insufficient_quota — refused on our account (billing or key)");
 });

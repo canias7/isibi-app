@@ -290,8 +290,10 @@ export function xaiErrorDetail(text) {
   const objErr = err && typeof err === "object" ? err : {};
   const message = String(objErr.message || strErr || body.message || "").slice(0, 300);
   // The code first — `insufficient_quota` and friends are tokens rather than
-  // sentences — then the type, then nothing.
-  const candidate = String(objErr.code || body.code || objErr.type || "");
-  const type = /^[a-z_]{1,40}$/.test(candidate) ? candidate : null;
+  // sentences — then the type, then nothing. NEVER COERCED: a code that is not
+  // a string (`["insufficient_quota"]`) is no code, where `String()` would have
+  // read it as one (the owner's review of Lane 1b, 2026-09-30).
+  const candidate = objErr.code || body.code || objErr.type || "";
+  const type = typeof candidate === "string" && /^[a-z_]{1,40}$/.test(candidate) ? candidate : null;
   return JSON.stringify({ error: { type, message } });
 }
