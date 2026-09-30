@@ -1557,6 +1557,26 @@ rehearsal prints it again.
 **No recovery is owed** (the owner's rule). A wrong row deleted, or anything
 else unintended, is reported as a finding and left for the owner.
 
+**Pressed as run 80** (36777080750, 21:05:21–21:06:20 UTC, from `main`, 3
+credits). **Every condition was met**, pending the owner's review:
+1. **The correct row deleted.** The real router answered `intent=edit
+   layer=data` (cost 2), and the route check matched. Job `d03daa50…`
+   applied exactly `lessons` id 2 `removed`, its `was` the row as it stood,
+   at cost 1. The whole read after has ids 1, 3 and 4 only.
+2. **Unrelated rows unchanged.** The three remaining rows digest to
+   `47c5b2217d6d6453`, and the served body is the baseline minus row 2, byte
+   for byte.
+3. **The website reflects it.** `/` and `/prices` no longer show "Group of
+   three", the other three lines are unchanged, and nothing was published
+   (`kk6qsh`).
+4. **Billing correct.** 13 → 10: routing 2 (in the balance only, as always)
+   and the job's 1 (ledger row 345, `d03daa50…#1`, finalized). No job is
+   open.
+
+A separate cosmetic finding: the reply cuts each field at 40 characters
+("…with two other , price 18"). It is in the backlog.
+`docs/history/2026-09-30-fixture-check.md` §10.
+
 ## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; its free runtime check passed as run 62; pressed as run 63 the same day: the router answered `nav` with `remove` and held the band back, so only the menu change was made and the look door was not reached; the free restore, run 64, put everything back; the owner recorded run 63 as a partial outcome and accepted run 64, with the intended acceptance still open; the router's whole-message rule corrected on the branch the same day, made to choose by what a route can make on every page rather than by kind after the owner's review, and the acceptance prepared again, not run; the rule merged and deployed in deploy 2170 the same day and runtime-confirmed by run 65; pressed again as run 66 the same day: the router answered `look` with nothing held back, and both changes were stored and published exactly as expected, for 6 credits; every acceptance item met; the free restore, run 67, put everything back, checked; closed by the owner the same day for the exact combined request run 66 proved, with recovery verified by run 67, runs 63 and 64 kept as history, no further reruns)
 
 Owner, 2026-09-29: *"Also prepare one bounded real-model acceptance using

@@ -178,10 +178,27 @@ here; take a closed one out of both.**
   notifications.
 - Static voice previews; real background removal (blocked on a fal top-up); the
   app's mobile layout (deliberately not being done).
+- A deleted row's reply cuts each field at 40 characters, mid-word (run 80,
+  "…with two other , price 18"). Cosmetic; kept for model-written replies.
 
 ---
 
 ## Backlog
+
+- **A DELETED ROW'S REPLY CUTS EACH FIELD AT 40 CHARACTERS, MID-WORD (found
+  2026-09-30 in run 80; cosmetic; not changed).**
+  - **What the customer read**: "✅ Removed one entry. Gone from lessons: name
+    Group of three, description Share a 45-minute lesson with two other ,
+    price 18. Say “put Group of three back” and I’ll restore it."
+  - **Why**: the reply composer (`public/chat.js`, the data branch) takes
+    the first three filled fields of the removed row and cuts each with
+    `String(w[k]).slice(0, 40)`, with no word boundary and no ellipsis. So a
+    long description ends mid-phrase before the comma.
+  - **Not a data problem**: the row went exactly as asked, and the full row
+    is in the job's `applied[].was`.
+  - **Kept for** the model-written replies the owner has deferred (a reply
+    says what the operations did, in words). No fix is proposed in this
+    milestone.
 
 - **THE OWNER'S DATA BUTTON CAN BE DARK FOR A SITE WHOSE DATABASE LINK IS
   BLANK (found 2026-09-30 while giving Batch 1's row-4 recovery; read in the

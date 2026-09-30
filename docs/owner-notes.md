@@ -1,99 +1,82 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-09-30, 21:03 UTC)
+## Current handoff — read this first (2026-09-30, 21:12 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- `main` is `8908b59d` (deploy 2173; you accepted it and run 78). The branch
-  `claude/help-needed-ehlwlj` is `main` plus documents only: no code or
-  workflow has changed since `8908b59d`.
-- **Your new rule: these are demo sites.** No restoration before the next
-  test, and the current state is the baseline. So the £40 is dropped, and
-  "Hour one-to-one" stays at £42.
-- `fretwork-1`'s `lessons`, read whole at 20:53 UTC (`0-3/4`, 736 bytes,
-  sha256 `2ec299b8…`): First lesson £0, Group of three £18, One-to-one £30,
-  Hour one-to-one £42. The lessons show on `/` and `/prices`, both reading
-  the table live. Every page is at `kk6qsh`.
-- Balance 13, read by your free rehearsal, run 79, at 21:01 UTC.
+- `main` is `8908b59d` (deploy 2173). The branch `claude/help-needed-ehlwlj`
+  is `main` plus documents only: no code or workflow has changed since
+  `8908b59d`.
+- **The AI deletion ran and met every condition you set** (run 80, 21:05–21:06
+  UTC). It is for your review; closing it is yours.
+- `fretwork-1`'s `lessons` now has three rows: First lesson £0, One-to-one
+  £30 and Hour one-to-one £42. "Group of three" is gone.
+- Balance 10 (13 − 2 routing − 1 edit). No job is open.
 
 **Completed**
-- **Your free rehearsal passed: run 79** (21:00–21:01 UTC, from `main`).
-  - The row check's first live run: `as named: 4 rows; the target is id 2,
-    and the other 3 digest to 47c5b2217d6d6453`.
-  - Every free check passed, and it stopped before any routing call:
-    nothing charged.
-  - The table was byte-identical before and after (21:00:47 and 21:01:50
-    UTC).
-- **The deletion test, re-prepared on the current table** (the checklist's
-  *Lane 4's delete*, "Re-prepared on the current table"):
-  - **The disposable row is an existing one: id 2, "Group of three".** I
-    can't create one: the Data panel's save needs your signed-in session,
-    and a visitor can't write to `lessons`. Your rule makes an existing demo
-    row fair game, and its name is the only one no other name contains
-    ("Hour one-to-one" contains "One-to-one").
-  - **The row check's box**, checked with the canary's own functions on the
-    live read: it parses, and the verdict is `as-named` (4 rows; the target
-    is id 2; the other 3 digest to `47c5b2217d6d6453`).
-  - The free rehearsal press and the paid press (for your approval), with
-    the pass criteria you set and the estimate.
-- **The £40 canary put-back**, built after "use the canary thing": its sweep
-  killed 15 of 15 and the full suite read `8393 / 8393 / 0 / 0`. It was then
-  **discarded unpushed** on your new rule.
+- **Run 79, the free rehearsal**: the row check's first live run, as named,
+  nothing charged.
+- **Run 80, the paid deletion, a normal AI request through the real edit
+  route** ("We don't do the Group of three any more, please take it off the price list."):
+  1. **The correct row deleted.** The real router answered `data` (cost 2),
+     and the route check matched. The job removed exactly `lessons` id 2,
+     "Group of three" (cost 1).
+  2. **Unrelated rows unchanged.** The other three rows still digest to the
+     row check's baseline, `47c5b2217d6d6453`, and the table is the old one
+     minus that row, byte for byte.
+  3. **The website reflects it.** The home page and `/prices` no longer show
+     it; the other three lessons are unchanged; nothing was published. I
+     compared before/after pictures of both pages.
+  4. **Billing correct.** The balance went 13 → 10. The job is `done` and
+     `finalized` at 1, with exactly one ledger row (345, `d03daa50…#1`,
+     −1). Routing's 2 show in the balance only, as on every run. No job is
+     open.
 
 **Test results**
 - No code has changed since `8908b59d`: unit suite `8388 / 8388 / 0 / 0`
   locally (on `fc06edde` with its records, the same code) and `8388 / 8384 /
   0 / 4` on CI on `8908b59d` (CI skips four).
-- The row check's first live run: run 79, as named, free.
+- Live: run 79 (free, as named) and run 80 (every condition met).
 
 **Links**
 - Branch commits: https://github.com/canias7/isibi-app/commits/claude/help-needed-ehlwlj
-- The edit canary: https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml
-- Deploy 2173: https://github.com/canias7/isibi-app/actions/runs/36768265523
-- Run 78: https://github.com/canias7/isibi-app/actions/runs/36769355267
+- Run 80, the paid deletion (evidence artifact 11126021994):
+  https://github.com/canias7/isibi-app/actions/runs/36777080750
 - Run 79, the free rehearsal (evidence artifact 11125023825):
   https://github.com/canias7/isibi-app/actions/runs/36776533709
 - Run 77, the first deletion press (a failed acceptance):
   https://github.com/canias7/isibi-app/actions/runs/36689829998
-- The story: `docs/history/2026-09-30-fixture-check.md`, §4 to §9
+- The story: `docs/history/2026-09-30-fixture-check.md`, §8 to §10; the plan
+  and the pass list: the checklist's *Lane 4's delete*, "Re-prepared on the
+  current table"
 
 **From our chat**
-- You asked me to make the £40 correction myself. The save route needs your
-  signed-in session, which I can't create: blocked, a 401 probe, nothing
-  written.
-- You said "use my account", then "use the canary thing". I built the canary
-  put-back; a first attempt was refused by the environment's permission
-  check.
-- Then you stopped the restoration: demo sites, no restoration, the current
-  state as the baseline, don't force £40. The goal is a normal AI deletion
-  through the real edit route: the correct row deleted, unrelated rows
-  unchanged, the website reflecting it, and billing correct. The next paid
-  run waits for your approval and an estimate, and no accepted test is
-  repeated.
-- You declined one Supabase read (the balance); I haven't read Supabase
-  since.
-- CLAUDE.md is left alone, as you asked. Its lines about B2's recovery and
-  the £40 are out of date.
+- Your demo-site rule: no restoration between tests; the current state is
+  the baseline; the £40 is dropped.
+- The acceptance you set: a normal AI request through the real edit route,
+  with the correct row deleted, unrelated rows unchanged, the website
+  reflecting it, and billing correct. The paid run was subject to your
+  approval and an estimate (about 3; it cost 3).
+- CLAUDE.md is left alone, as you asked. Its £40 and B2 lines are out of
+  date.
 
 **Blockers**
-- The paid deletion waits only for your approval of the estimate. It's
-  yours to press, because a session's dispatch answers 403.
+- None.
+
+**Findings, kept separate**
+- The customer reply cuts each field of the deleted row at 40 characters
+  ("…with two other , price 18"). Cosmetic, logged in the backlog, and kept
+  for model-written replies.
 
 **Exact next action**
-1. **Your approval of the paid deletion**, about 3 credits: the routing call
-   1–2 and the data edit about 1. About 2 if the route check refuses;
-   nothing if the row check stops it. The balance is 13.
-2. **You press it**: edit canary, "Use workflow from" `main`, spend `yes`,
-   "What to change" `We don't do the Group of three any more, please take it off the price list.`, site `fretwork-1`, deploy
-   `8908b59d2069dfb5f11fa679a8b33b649194fe77`, image `e71f7bae88b9ecf1`,
-   route `intent=edit layer=data alsoAsked=none`, and the same row check:
-   `{"table":"lessons","baseline":"47c5b2217d6d6453","target":{"id":2,"name":"Group of three","description":"Share a 45-minute lesson with two other beginners. Eighteen pounds each.","price":18,"duration":"45 minutes","created_at":"2026-09-02 16:57:02"}}`
-3. **I check it against your four conditions**: the correct row deleted,
-   unrelated rows unchanged, the home page and `/prices` without it, and the
-   ledger matching the charges.
+- **Your review of run 80** against your four conditions; closing it is
+  yours. Nothing is being repeated or restored.
+- After that, the next item on your list: data add, reorder, broader rules,
+  the picture swap, a first-attempt component, or a follow-up. Most wait on
+  your Lane 2 decisions (the checklist's *Next independent work*).
 
 ---
 
@@ -151,6 +134,31 @@ out of Open the moment it is resolved.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-09-30 — The AI deletion worked (run 80): every condition you set is met
+
+**What happened.** Your paid press sent "We don't do the Group of three any
+more, please take it off the price list." through the real edit route. The AI
+routed it to the data step, and the job removed exactly the "Group of three"
+lesson.
+
+**Your four conditions:**
+- **The right row**: only "Group of three" went.
+- **The others untouched**: the three other lessons are exactly as they were,
+  every field.
+- **The website**: the home page and the prices page no longer show it; the
+  rest looks the same, and nothing was republished.
+- **Billing**: 3 credits in all (2 for the AI routing, 1 for the edit),
+  balance 13 → 10. One ledger entry for the edit, settled, and nothing left
+  open.
+
+**One small thing, kept separate**: the chat reply cut the lesson's
+description short ("…with two other , price 18"), because it trims every
+field at 40 characters. It's cosmetic and logged for later.
+
+**Next**: your review. Closing it is yours.
 
 ---
 

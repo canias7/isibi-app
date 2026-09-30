@@ -615,3 +615,72 @@ byte-identical to the 20:57 read (736 bytes, `2ec299b8…`).
 **So the row check has now run live and passed on the real table.** The paid
 deletion is prepared, and it waits for the owner's approval of the estimate.
 
+## 10. Run 80: the AI deletion through the real edit route (paid, 3 credits)
+
+The owner pressed the paid deletion as prepared: edit canary run 80
+([36777080750](https://github.com/canias7/isibi-app/actions/runs/36777080750),
+2026-09-30 21:05:21–21:06:20 UTC, from `main` at `8908b59d`, evidence
+artifact 11126021994).
+
+**The inputs, from the log**:
+- the instruction "We don't do the Group of three any more, please take it off the price list.";
+- `EXPECT_DEPLOY 8908b59d…` and `EXPECT_IMAGE e71f7bae88b9ecf1`;
+- `CANARY_EXPECT_ROUTE intent=edit layer=data alsoAsked=none`;
+- `CANARY_EXPECT_ROWS` the box of §8.
+
+**What it did:**
+- The preflight passed, including the Worker being the expected build and a
+  cold container getting the expected image. The free checks passed, and the
+  before-inventory had every page at `kk6qsh` and the balance 13.
+- The row check was `as named` (4 rows, target id 2, the other 3
+  `47c5b2217d6d6453`).
+- The router was sent the pages `/, /prices, /gear` and answered in 20.8 s:
+  `intent=edit layer=data page=- cost=2`. **The route check matched**, and the
+  edit was posted as the answer came.
+- The edit was queued as job `d03daa5093bdbd1070615a08bbaed409` and settled in
+  16.9 s with a stored reply (`x-gf-edit: final`):
+  - `ok: true`, `layer: data`, `cost: 1` (grok-4.6: 1,367 in, 30 out, 512
+    cached);
+  - `applied` exactly one entry: `{table: "lessons", id: 2, removed: true,
+    was: {id 2, "Group of three", …, price 18, …}}`.
+- The canary read the balance moving 13 → 10.
+- The customer reads: "✅ Removed one entry. Gone from lessons: name Group of
+  three, description Share a 45-minute lesson with two other , price 18. Say
+  “put Group of three back” and I’ll restore it."
+- The after-inventory had every page's photographs and order the same, the
+  components 3 → 3 and the stored description unchanged. The comparison is
+  `UNVERIFIED` because a row edit names no version, as expected. It ended
+  `CANARY PASSED`; its wording "layer=data published" is the canary's
+  generic line, and nothing was published.
+
+**Checked independently, against the owner's four conditions:**
+1. **The correct row deleted.** The whole read at 21:06:19 UTC had `0-2/3`,
+   541 bytes, sha256 `f2396dcb…`, ids 1, 3 and 4, and no id 2. The job's
+   `applied` names exactly id 2, and its `was` is the row as it stood.
+2. **Unrelated rows unchanged.** The three remaining rows digest to
+   `47c5b2217d6d6453`, the row check's own baseline, with every field as
+   before. The served body is the baseline body with row 2 taken out, byte
+   for byte.
+3. **The website reflects it.** Read as a visitor at 21:06 UTC:
+   - `/` and `/prices` show First lesson, One-to-one and Hour one-to-one, and
+     no "Group of three";
+   - the three remaining lines read exactly as before;
+   - every page is still at `kk6qsh` (nothing published), and `/gear` never
+     showed lessons;
+   - before/after pictures of both pages were compared. The home page's
+     "Open now" → "Closed" badge is the clock (opening hours end at 21:00;
+     the pictures are from 20:54 and 21:06).
+4. **Billing correct** (read in Supabase, non-secret columns only):
+   - the job is `done`, billing `finalized`, cost 1;
+   - exactly one new ledger row, 345: `edit`, ref `d03daa50…#1`, −1;
+   - the routing call's 2 show in the balance only, with no ledger row, as on
+     every earlier run;
+   - the balance is 10 (13 − 2 − 1);
+   - no job is open. The two rows outside done, failed and cancelled are
+     2026-09-01 and 09-02 jobs in `lost`, `refunded`: finished, not open.
+
+**One separate finding, cosmetic**: the reply cuts each field of the deleted
+row at 40 characters (`String(w[k]).slice(0, 40)`, `public/chat.js`),
+leaving "…with two other , price 18". It is logged in the backlog, and kept for
+the model-written replies the owner has deferred.
+
