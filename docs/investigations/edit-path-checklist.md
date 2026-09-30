@@ -1061,6 +1061,26 @@ is the owner's.
   `site_fretwork_1`, with `UPDATE lessons SET price = 40 WHERE id = 4 AND
   price = 42 RETURNING id, name, price;`, which must return exactly one
   row.
+- **Row 4's put-back, read after the owner's report (2026-09-30 08:15–08:19
+  UTC): not landed, so the recovery stays open.** The owner wrote *"Verify
+  my price restoration"*. What the reads found:
+  - the public read of `lessons` answered 736 bytes, `2ec299b8…`, which is
+    B1's state: rows 1–3 identical to the baseline, row 4 different only in
+    price (42, where the baseline has 40), and no fifth row. The answer
+    carries no cache headers. The owner's Data panel opens the same
+    database, since `ownerSiteConn` asks `siteBackendBySlug` first, as the
+    public read does;
+  - `/prices`, drawn in Chromium, shows "Hour one-to-one … £42";
+  - every page is at `kk6qsh`;
+  - the balance is 15 (unchanged since 02:11:48), with no ledger row after
+    342, no job since run 76's two free ones, and none open;
+  - `neon_db` is still blank;
+  - the fallback's coordinates match `site_project`: project
+    `super-hat-47366810`, branch `br-long-bird-aukew6zm`.
+
+  So no write reached the database the site reads. How the attempt went is
+  the owner's to say: the panel's message, or the console's row count. Not
+  closed, and B2's model run stays failed.
 
 ### What it will not establish
 
@@ -1254,6 +1274,9 @@ nothing.
    recovery closes the batch's recovery only: B2's model run stays failed**
    (the owner: *"Recovery does not turn B2's failed model run into a
    pass."*).
+   **Not met at 08:19 UTC**: after the owner's report of the put-back, row 4
+   still read 42 and `/prices` still showed £42 (*Batch 1*, the owner's
+   review).
 3. **The throwaway row**, the owner's own write in the Data panel (`lessons`,
    "+ Add", then "Add row"), shortly before the press, since it shows on the
    public `/prices` while it exists:

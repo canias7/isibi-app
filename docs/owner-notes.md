@@ -57,6 +57,33 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-30 — The £40 put-back didn't reach the database (still £42 at 08:19)
+
+**You asked me to verify your price restoration. It isn't there yet**, so
+B2's recovery stays open and nothing is closed. B2's model run stays
+recorded as failed either way.
+
+**What I read, 08:15–08:19 UTC**:
+- **The rows**: "Hour one-to-one" (row 4) still has price 42; the original
+  is 40. The other three rows match the original in every field, and there
+  is no extra row. The site's own data read answers live, not from a cache,
+  and your Data panel opens the same database, so a successful Save would
+  show here.
+- **The page**: `/prices`, drawn in a real browser, shows "Hour one-to-one
+  … £42".
+- **Nothing else moved**: every page is still on the same version
+  (`kk6qsh`); the balance is 15 with no new ledger row; no edit job since
+  your free check, and none open.
+- **The Neon console fallback I gave you** names the right project and
+  branch (checked against the site's own record).
+
+**What I need from you**: how the attempt went. In the Data panel: did Save
+show an error, and does row 4 say 40 or 42 after a reload? In the Neon
+console: did the `UPDATE` return one row, and on which branch and database?
+Then put it back once more, and I'll read again.
+
+---
+
 ## 2026-09-30 — Your free check passed: the new version is running (run 76)
 
 **Confirmed.** Your free canary press (run 76, 07:49 UTC, from `main`) found

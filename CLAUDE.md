@@ -361,6 +361,10 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
     - After the owner confirms: all four rows and every field against the
       baseline, the displayed price, the version, no charge and no open job.
       Then the batch's recovery closes, with the routing finding kept.
+    - **Read after the owner's report of the put-back (08:15–08:19 UTC)**:
+      row 4 is still 42 in the database and £42 on `/prices`, and nothing
+      else changed (rows 1–3, versions, money, queue). The recovery stays
+      open.
     - Spent: 7 (22 → 15).
 
   **Estimates, not limits**: A about 1–2 credits, B about 4–6, about 5–8
