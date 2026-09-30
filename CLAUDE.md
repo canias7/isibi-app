@@ -358,7 +358,9 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 
   Every correction was red-checked and swept (8/8, 17/17, 17/17 and 15/15
   killed, every control survived). The full suite on `d19652c4` is `8343 /
-  8343 / 0 / 0` locally. The image is predicted to roll `abf47dfeceba3c5c`
+  8343 / 0 / 0` locally and `8343 / 8339 / 0 / 4` on CI (unit run
+  36667339503 on `dfaf8f7c`, the same code), and `site build` reads the
+  twelve counts green there (run 36667339564). The image is predicted to roll `abf47dfeceba3c5c`
   → `93d11b4a20be6c59`, and `public/chat.js` and `public/site-list.js`
   change. **Real-model evidence: none**: shown with supplied answers
   only. B2 stays failed and its recovery open.
