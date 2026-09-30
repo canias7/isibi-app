@@ -25,10 +25,18 @@
 //     comparison would stop a setup that is exactly as named.
 // A table the site does not serve is unreadable here, and stops.
 //
+// AND THE READ MUST BE THE WHOLE TABLE (the owner's review, 2026-09-30). A
+// 200 list is not that: an answer that leaves a row out still digests to the
+// named baseline when the rows it does serve are the named ones (the owner
+// reproduced it with the baseline and the target served, a third row left
+// out, and `Content-Range: 0-1/3`). So the read asks for the table's count and
+// is judged only when the answer holds every row (`readWhole`).
+//
 // NOTHING HERE WRITES, AND A SETUP THAT IS NOT AS NAMED STOPS AT NO COST. The
 // check runs before the routing call, and on a press that does not spend it is
 // the whole run: a free way to see the setup before paying for it.
 import { createHash } from "node:crypto";
+import { readRowList } from "./canary-rows.mjs";
 
 const KEYS = ["table", "baseline", "target"];
 /** A table's name as the generated schemas spell one, and a column's likewise. */
@@ -94,16 +102,65 @@ function isTarget(row, target) {
 
 const stop = (why, detail) => ({ ok: false, why, detail });
 
+// `first-last/total`, and `*/total` for an answer with no rows. Fifteen digits
+// keep a count exact.
+const COUNTED = /^(\d{1,15})-(\d{1,15})\/(\d{1,15}|\*)$/;
+const NO_ROWS = /^\*\/(\d{1,15}|\*)$/;
+
+// THE SITE'S OWN READ, TAKEN ONLY WHEN IT IS THE WHOLE TABLE. The Data API's
+// count contract, which the Worker passes through both ways
+// (`proxySiteService`): asked with `Prefer: count=exact`, it says in
+// `Content-Range` which rows it served and how many the table holds. Measured
+// through the Worker on fretwork-1, 2026-09-30:
+//   the whole table          200, `0-3/4`
+//   part of it (a limit)     206, `0-1/4`
+//   no row                   200, `*/0`
+//   the count not asked for  200, `0-3/*`
+//
+// WHOLE is an answer whose count is the number of rows it served, with a range
+// from the first to the last: `0-(n-1)/n`, or `*/0` with no rows. Anything else
+// stops, before any routing call:
+//   incomplete            the table holds rows the answer did not serve (a 206,
+//                         or a count above the rows served);
+//   completeness-unknown  nothing to hold the rows to: no header, a `*` count,
+//                         a header this does not read, or one that does not
+//                         describe the rows beside it;
+//   unreadable            not a whole row list at all (`readRowList`).
+//
+// `served` is `{status, text, range}`, `range` the header as it came (null when
+// absent). The answer is `{ok: true, rows, count, range}` or
+// `{ok: false, stop, why, range}`, `stop` being one of the three above.
+export function readWhole(served) {
+  const range = served && typeof served.range === "string" && served.range.trim() ? served.range.trim() : null;
+  const said = range === null ? "no Content-Range" : `Content-Range ${JSON.stringify(range)}`;
+  const no = (why, text) => ({ ok: false, stop: why, why: text, range });
+  if (served && served.status === 206) return no("incomplete", `206 Partial Content, ${said}: the answer holds part of the table`);
+  const list = readRowList(served);
+  if (!list.ok) return no("unreadable", list.why);
+  const n = list.rows.length;
+  if (!range) return no("completeness-unknown", `${n} rows and ${said}: the answer does not say how many rows the table holds`);
+  const m = COUNTED.exec(range);
+  const none = m ? null : NO_ROWS.exec(range);
+  if (!m && !none) return no("completeness-unknown", `${n} rows and ${said}, which this does not read`);
+  const total = m ? m[3] : none[1];
+  if (total === "*") return no("completeness-unknown", `${n} rows and ${said}: the table's count was not given`);
+  if (Number(total) > n) return no("incomplete", `${n} rows served and ${said}: the table holds ${Number(total)}`);
+  const described = n === 0 ? !!none : !!m && Number(m[1]) === 0 && Number(m[2]) === n - 1;
+  if (Number(total) !== n || !described) return no("completeness-unknown", `${n} rows served and ${said}, which does not describe them`);
+  return { ok: true, rows: list.rows, count: n, range };
+}
+
 /**
  * IS THE SETUP THE ONE THIS PRESS NAMES? Asked of the site's own read, as
- * `readRowList` in canary-rows.mjs returns it, and the first failure decides:
- *   unreadable        the site's read did not answer with a whole row list;
+ * `readWhole` returns it, and the first failure decides:
+ *   unreadable, incomplete, completeness-unknown
+ *                     the read is not the whole table (`readWhole` says why);
  *   target-missing    no row has every field the target names;
  *   target-ambiguous  more than one does;
  *   baseline-mismatch the other rows do not digest to the named baseline.
  */
 export function fixtureVerdict(expect, site) {
-  if (!site || !site.ok) return stop("unreadable", `the site's own read: ${(site && site.why) || "not read"}`);
+  if (!site || !site.ok) return stop((site && site.stop) || "unreadable", `the site's own read: ${(site && site.why) || "not read"}`);
   const rows = site.rows;
   const named = Object.entries(expect.target).map(([k, v]) => `${k} ${JSON.stringify(v)}`).join(", ");
   const hits = rows.filter((r) => isTarget(r, expect.target));
@@ -128,11 +185,13 @@ export function fixtureSaid(v) {
 }
 
 /**
- * What goes into the evidence: the reading, and the rows the site's own read
- * served, which its pages serve to anyone. A table the site does not serve is
- * unreadable here, so nothing only the owner can read is copied out.
+ * What goes into the evidence: the reading, its `Content-Range`, and the rows
+ * of a whole read, which the site's pages serve to anyone. A table the site
+ * does not serve is unreadable here, so nothing only the owner can read is
+ * copied out.
  */
 export function fixtureRecord(expect, site, verdict) {
   const ok = !!(site && site.ok);
-  return { expect, site: site ? { ok, why: ok ? null : site.why || null, count: ok ? site.rows.length : null } : null, rows: ok ? site.rows : null, verdict };
+  const read = site ? { ok, stop: ok ? null : site.stop || "unreadable", why: ok ? null : site.why || null, count: ok ? site.count : null, range: site.range === undefined ? null : site.range } : null;
+  return { expect, site: read, rows: ok ? site.rows : null, verdict };
 }

@@ -106,6 +106,86 @@
     "to": "rows: null,"
   },
   {
+    "label": "R-1: a 206 is not a stop",
+    "files": [
+      "scripts/canary-fixture.mjs"
+    ],
+    "from": "  if (served && served.status === 206) return no(",
+    "to": "  if (false) return no("
+  },
+  {
+    "label": "R-2: an answer with no Content-Range is taken as whole",
+    "files": [
+      "scripts/canary-fixture.mjs"
+    ],
+    "from": "  if (!range) return no(\"completeness-unknown\",",
+    "to": "  if (!range) return { ok: true, rows: list.rows, count: n, range }; if (false) return no(\"completeness-unknown\","
+  },
+  {
+    "label": "R-3: a count of * is taken as whole",
+    "files": [
+      "scripts/canary-fixture.mjs"
+    ],
+    "from": "  if (total === \"*\") return no(",
+    "to": "  if (total === \"*\") return { ok: true, rows: list.rows, count: n, range }; if (false) return no("
+  },
+  {
+    "label": "R-4: a count above the rows served is not called incomplete",
+    "files": [
+      "scripts/canary-fixture.mjs"
+    ],
+    "from": "  if (Number(total) > n) return no(",
+    "to": "  if (false) return no("
+  },
+  {
+    "label": "R-5: a count below the rows served is let through",
+    "files": [
+      "scripts/canary-fixture.mjs"
+    ],
+    "from": "  if (Number(total) !== n || !described) return no(",
+    "to": "  if (!described) return no("
+  },
+  {
+    "label": "R-6: a range that does not start at the first row is let through",
+    "files": [
+      "scripts/canary-fixture.mjs"
+    ],
+    "from": "!!m && Number(m[1]) === 0 && Number(m[2]) === n - 1",
+    "to": "!!m && Number(m[2]) === n - 1"
+  },
+  {
+    "label": "R-7: a range that does not end at the last row is let through",
+    "files": [
+      "scripts/canary-fixture.mjs"
+    ],
+    "from": "!!m && Number(m[1]) === 0 && Number(m[2]) === n - 1",
+    "to": "!!m && Number(m[1]) === 0"
+  },
+  {
+    "label": "R-8: no rows with a counted range is let through",
+    "files": [
+      "scripts/canary-fixture.mjs"
+    ],
+    "from": "const described = n === 0 ? !!none :",
+    "to": "const described = n === 0 ? true :"
+  },
+  {
+    "label": "R-9: the verdict drops the read's own reason",
+    "files": [
+      "scripts/canary-fixture.mjs"
+    ],
+    "from": "stop((site && site.stop) || \"unreadable\",",
+    "to": "stop(\"unreadable\","
+  },
+  {
+    "label": "R-10: the evidence drops the range",
+    "files": [
+      "scripts/canary-fixture.mjs"
+    ],
+    "from": "range: site.range === undefined ? null : site.range",
+    "to": "range: null"
+  },
+  {
     "label": "W-1: a malformed box does not stop the run",
     "files": [
       "scripts/edit-canary.mjs"
@@ -142,16 +222,32 @@
     "files": [
       "scripts/edit-canary.mjs"
     ],
-    "from": "  const FIX_READ = readRowList(served);",
-    "to": "  const FIX_READ = readRowList(await call(\"GET\", `/api/site/${encodeURIComponent(CANARY)}/rows/${encodeURIComponent(T)}?order=id&dir=asc&limit=${OWNER_ROWS_LIMIT}`), { owner: true });"
+    "from": "const r = await fetch(`${BEFORE.origin}/api/db/${encodeURIComponent(CANARY)}/data/${encodeURIComponent(T)}?select=*&order=id.asc`",
+    "to": "const r = await fetch(`${BASE}/api/site/${encodeURIComponent(CANARY)}/rows/${encodeURIComponent(T)}?order=id&dir=asc&limit=200`"
   },
   {
     "label": "W-6: the site read's refusal is read as rows",
     "files": [
       "scripts/edit-canary.mjs"
     ],
-    "from": "    served = { status: r.status, text: Buffer.from(await r.arrayBuffer()).toString(\"utf8\") };",
-    "to": "    served = { status: 200, text: r.status === 200 ? Buffer.from(await r.arrayBuffer()).toString(\"utf8\") : \"[]\" };"
+    "from": "    served = { status: r.status, range: r.headers.get(\"content-range\"), text: Buffer.from(await r.arrayBuffer()).toString(\"utf8\") };",
+    "to": "    served = { status: 200, range: r.headers.get(\"content-range\"), text: r.status === 200 ? Buffer.from(await r.arrayBuffer()).toString(\"utf8\") : \"[]\" };"
+  },
+  {
+    "label": "W-7: the read does not ask for the count",
+    "files": [
+      "scripts/edit-canary.mjs"
+    ],
+    "from": "{ headers: { \"cache-control\": \"no-cache\", prefer: \"count=exact\" } }",
+    "to": "{ headers: { \"cache-control\": \"no-cache\" } }"
+  },
+  {
+    "label": "W-8: the answer's Content-Range is not kept",
+    "files": [
+      "scripts/edit-canary.mjs"
+    ],
+    "from": "range: r.headers.get(\"content-range\"),",
+    "to": "range: null,"
   },
   {
     "label": "WF-1: the box does not reach the script",

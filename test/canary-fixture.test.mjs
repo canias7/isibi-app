@@ -8,7 +8,10 @@
 // THREE LAYERS, each on what really produces it:
 //   - THE PARSER, driven directly: a malformed box refuses before anything is
 //     signed in or read;
-//   - THE VERDICT, on reads shaped by the canary's own reader (`readRowList`)
+//   - THE READ, which must be the whole table: `readWhole` over the Data API's
+//     count contract (`Content-Range`, as measured through the Worker), so an
+//     answer that leaves a row out stops (the owner's review, 2026-09-30);
+//   - THE VERDICT, on reads taken by the canary's own reader (`readWhole`)
 //     over bodies laid out as the site's own read serves them, and on its REAL
 //     served body (the recorded four-row baseline, 736 bytes, a4f1dc30…);
 //   - THE SCRIPT ITSELF, run end to end under a stub that answers every
@@ -23,8 +26,7 @@ import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { readExpectRows, rowsDigest, canonical, fixtureVerdict, fixtureSaid, fixtureRecord } from "../scripts/canary-fixture.mjs";
-import { readRowList } from "../scripts/canary-rows.mjs";
+import { readExpectRows, readWhole, rowsDigest, canonical, fixtureVerdict, fixtureSaid, fixtureRecord } from "../scripts/canary-fixture.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -53,8 +55,15 @@ const PUTBACK_BASELINE = "9abd34f2b2c362eb";
 const DELETE_BOX = JSON.stringify({ table: "lessons", baseline: DELETE_BASELINE, target: TUNE_UP });
 const PUTBACK_BOX = JSON.stringify({ table: "lessons", baseline: PUTBACK_BASELINE, target: { id: 4, name: "Hour one-to-one", price: 40 } });
 
-/** The site's own read as the canary reads it: the served text, through `readRowList`. */
-const read = (rows, { status = 200, text } = {}) => readRowList({ status, text: text !== undefined ? text : served(rows) });
+// The range a whole answer carries when the count was asked for: `0-3/4`, or
+// `*/0` for no rows.
+const wholeRange = (rows) => (rows.length ? `0-${rows.length - 1}/${rows.length}` : "*/0");
+/**
+ * The site's own read as the canary takes it: the served text and its
+ * `Content-Range`, through `readWhole`. Whole by default, as the Data API
+ * answers a read that asked for its count; `range: null` is no header.
+ */
+const read = (rows, { status = 200, text, range } = {}) => readWhole({ status, text: text !== undefined ? text : served(rows), range: range !== undefined ? range : wholeRange(rows) });
 const expectOf = (box) => {
   const r = readExpectRows(box);
   assert.ok(r.ok, "the box did not parse: " + r.msg);
@@ -126,6 +135,67 @@ test("the digests the prepared press names come from the site's real recorded bo
   assert.ok(rowsDigest(rows.filter((r) => r.id !== 4)).startsWith(PUTBACK_BASELINE), "rows 1–3 no longer digest to the put-back check's baseline");
 });
 
+// ── THE READ: THE WHOLE TABLE, OR NOTHING ───────────────────────────────────
+//
+// The owner's review (2026-09-30): a 200 list is not the whole table. Served
+// the named rows and not a third, with `Content-Range: 0-1/3`, the check
+// passed. The Data API's count contract, measured through the Worker on
+// fretwork-1: 200 `0-3/4` whole, 206 `0-1/4` part of it, 200 `*/0` no row,
+// 200 `0-3/*` when the count was not asked for.
+
+test("a read is whole only when its count says every row was served", () => {
+  const five = [...BASELINE, tuneUpRow()];
+  const whole = read(five);
+  assert.equal(whole.ok, true, whole.why);
+  assert.equal(whole.count, 5);
+  assert.equal(whole.range, "0-4/5");
+  assert.equal(read([]).ok, true, "an empty table answered */0 is not whole");
+  assert.equal(read(five, { range: " 0-4/5 " }).ok, true, "the header's surrounding spaces refused");
+  const cases = [
+    // INCOMPLETE: the table holds rows the answer did not serve.
+    [{ status: 206, range: "0-4/6" }, "incomplete", /206 Partial Content/],
+    [{ range: "0-4/6" }, "incomplete", /5 rows served and Content-Range "0-4\/6": the table holds 6/],
+    [{ rows: [], range: "*/3" }, "incomplete", /the table holds 3/],
+    // UNKNOWN: nothing to hold the rows to.
+    [{ range: "0-4/*" }, "completeness-unknown", /count was not given/],
+    [{ range: null }, "completeness-unknown", /no Content-Range/],
+    [{ range: "" }, "completeness-unknown", /no Content-Range/],
+    [{ range: "items 0-4/5" }, "completeness-unknown", /does not read/],
+    [{ range: "0-4/5.0" }, "completeness-unknown", /does not read/],
+    [{ range: "0-4/1234567890123456" }, "completeness-unknown", /does not read/],
+    [{ range: "1-4/5" }, "completeness-unknown", /does not describe them/],
+    [{ range: "0-5/5" }, "completeness-unknown", /does not describe them/],
+    [{ range: "0-4/4" }, "completeness-unknown", /does not describe them/],
+    [{ rows: [], range: "0-0/0" }, "completeness-unknown", /does not describe them/],
+    // UNREADABLE: not a whole row list, whatever the header says.
+    [{ text: "<html>", range: "0-4/5" }, "unreadable", /not JSON/],
+    [{ status: 404, range: null }, "unreadable", /status 404/],
+  ];
+  for (const [shape, stop, why] of cases) {
+    const got = read(shape.rows || five, shape);
+    assert.equal(got.ok, false, `taken as whole: ${JSON.stringify(shape)}`);
+    assert.equal(got.stop, stop, `${JSON.stringify(shape)}: ${got.why}`);
+    assert.match(got.why, why, `${JSON.stringify(shape)}: ${got.why}`);
+    assert.equal(got.rows, undefined, "rows handed on from a read that is not whole");
+  }
+});
+
+test("the owner's reproduction: the named rows served and one left out stop, and the whole table fails its digest", () => {
+  // The table holds the four rows, the temporary row, and one row more. Served
+  // the first five, every name in the box matches.
+  const extra = { id: 6, name: "Hidden row", description: "Left out of the answer.", price: 1, duration: "1 minute", created_at: "2026-09-30 18:00:00" };
+  const e = expectOf(DELETE_BOX);
+  const partial = fixtureVerdict(e, read([...BASELINE, tuneUpRow()], { range: "0-4/6" }));
+  assert.equal(partial.ok, false, "a read that left a row out passed");
+  assert.equal(partial.why, "incomplete");
+  assert.match(partial.detail, /the table holds 6/);
+  assert.equal(fixtureVerdict(e, read([...BASELINE, tuneUpRow()], { status: 206, range: "0-4/6" })).why, "incomplete");
+  // Served whole, the extra row is among the others, and the digest says so.
+  assert.equal(fixtureVerdict(e, read([...BASELINE, tuneUpRow(), extra])).why, "baseline-mismatch");
+  // AND THE CONTROL: the same five rows, whole, pass.
+  assert.equal(fixtureVerdict(e, read([...BASELINE, tuneUpRow()])).ok, true);
+});
+
 // ── THE VERDICT: REJECTIONS ─────────────────────────────────────────────────
 
 test("run 77's own setup stops: the temporary row is missing", () => {
@@ -194,38 +264,49 @@ test("a served key order does not matter; the values do", () => {
   assert.equal(fixtureVerdict(expectOf(DELETE_BOX), read(reordered)).ok, true);
 });
 
-test("the evidence keeps the rows the site served, and none from a read that failed", () => {
+test("the evidence keeps the rows of a whole read, its range, and none from a read that failed", () => {
   const e = expectOf(DELETE_BOX);
   const ok = read([...BASELINE, tuneUpRow()]);
   const rec = fixtureRecord(e, ok, fixtureVerdict(e, ok));
   assert.equal(rec.rows.length, 5);
-  assert.deepEqual(rec.site, { ok: true, why: null, count: 5 });
-  const refused = read([...BASELINE, tuneUpRow()], { status: 404 });
+  assert.deepEqual(rec.site, { ok: true, stop: null, why: null, count: 5, range: "0-4/5" });
+  const refused = read([...BASELINE, tuneUpRow()], { status: 404, range: null });
   const rec2 = fixtureRecord(e, refused, fixtureVerdict(e, refused));
   assert.equal(rec2.rows, null);
-  assert.deepEqual(rec2.site, { ok: false, why: "status 404", count: null });
+  assert.deepEqual(rec2.site, { ok: false, stop: "unreadable", why: "status 404", count: null, range: null });
+  const partial = read([...BASELINE, tuneUpRow()], { range: "0-4/6" });
+  const rec3 = fixtureRecord(e, partial, fixtureVerdict(e, partial));
+  assert.equal(rec3.rows, null, "rows kept from a read that was not the whole table");
+  assert.equal(rec3.site.stop, "incomplete");
+  assert.equal(rec3.site.range, "0-4/6");
 });
 
 // ── THE SCRIPT ITSELF, END TO END, UNDER THE STUB ───────────────────────────
 //
 // Every network call is answered in-process and logged; the Supabase and
 // Worker addresses are `.test` names that could not resolve if anything leaked.
+// The site's read answers the count contract as the Data API does through the
+// Worker (`fixtures/canary-stub.mjs`), so what the script asks for decides
+// what it is told.
 const RUN77_ROWS = [ROW[1], ROW[2], ROW[3], at42];
 const READY_ROWS = [...BASELINE, tuneUpRow()];
+const EXTRA_ROW = { id: 6, name: "Hidden row", description: "Left out of a partial answer.", price: 1, duration: "1 minute", created_at: "2026-09-30 18:00:00" };
 const DATA_ROUTE = { ok: true, intent: "edit", layer: "data", cost: 2 };
 
-function runCanary(name, { box = "", spend = "1", site = READY_ROWS, siteStatus = 200, siteText, restore = "" } = {}) {
+function runCanary(name, { box = "", spend = "1", site = READY_ROWS, siteStatus = 200, siteText, total, range, restore = "" } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), "canary-fixture-" + name + "-"));
   const logFile = path.join(dir, "wire.jsonl");
   writeFileSync(logFile, "");
+  const siteAnswer = { status: siteStatus, text: siteText !== undefined ? siteText : served(site) };
+  if (total !== undefined) siteAnswer.total = total;
+  if (range !== undefined) siteAnswer.range = range;
   const env = {
     PATH: process.env.PATH, HOME: process.env.HOME,
     OWNER_EMAIL: "owner@example.com", SUPABASE_SERVICE_KEY: "stub-key", SUPABASE_URL: "https://stub.supabase.test",
     OWNER_BASE_URL: "https://stub.worker.test", CANARY_SLUG: "stub-site", CONTROL_SLUG: "",
     CANARY_SPEND: spend, CANARY_INSTRUCTION: "We don't do the Ten-minute tune-up any more, please take it off the price list.",
     CANARY_EVIDENCE_DIR: path.join(dir, "evidence"), CANARY_EXPECT_ROWS: box, CANARY_RESTORE: restore,
-    STUB_LOG: logFile, STUB_ROUTE: JSON.stringify(DATA_ROUTE),
-    STUB_SITE: JSON.stringify({ status: siteStatus, text: siteText !== undefined ? siteText : served(site) }),
+    STUB_LOG: logFile, STUB_ROUTE: JSON.stringify(DATA_ROUTE), STUB_SITE: JSON.stringify(siteAnswer),
   };
   return new Promise((resolve) => {
     const p = spawn(process.execPath, ["--import", path.join(REPO, "test/fixtures/canary-stub.mjs"), "scripts/edit-canary.mjs"], { cwd: REPO, env });
@@ -237,24 +318,52 @@ function runCanary(name, { box = "", spend = "1", site = READY_ROWS, siteStatus 
       clearTimeout(kill);
       const wire = readFileSync(logFile, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
       const fx = path.join(dir, "evidence", "fixture.json");
+      const isSiteRead = (w) => !!(w.url && w.url.includes("/api/db/stub-site/data/lessons"));
       resolve({
         code, out, err, wire,
         unknown: wire.filter((w) => w.status === 599),
         routing: wire.filter((w) => w.path === "/api/site/route").length,
-        siteReads: wire.filter((w) => w.url && w.url.includes("/api/db/stub-site/data/lessons")).length,
+        siteReads: wire.filter(isSiteRead),
         ownerReads: wire.filter((w) => w.path && w.path.includes("/rows/")).length,
         paidPosts: wire.filter((w) => w.path === "/api/site/stub-site/edit" && w.body && JSON.parse(w.body).instruction).length,
+        lastIsSiteRead: wire.length > 0 && isSiteRead(wire[wire.length - 1]),
         fixture: existsSync(fx) ? JSON.parse(readFileSync(fx, "utf8")) : null,
       });
     });
   });
 }
 
+/**
+ * STOPPED AT THE READ, AT NO COST: the refusal said so, no routing call and no
+ * paid edit were made, and the table's read, asked for its count, was the last
+ * call of the run — so nothing that could charge came after it.
+ */
+function stoppedAtTheRead(r, why) {
+  assert.equal(r.unknown.length, 0, "the stub was asked something it has no answer for: " + JSON.stringify(r.unknown));
+  assert.equal(r.code, 1, r.out + r.err);
+  assert.match(r.err, new RegExp(`REFUSING TO SPEND: the rows are not the ones this press names \\(${why}\\)\\. Nothing was routed or charged\\.`));
+  assert.equal(r.fixture.verdict.why, why);
+  assert.equal(r.routing, 0, "a routing call was made");
+  assert.equal(r.paidPosts, 0, "a paid edit was posted");
+  assert.equal(r.siteReads.length, 1, "the site's own read was not made, once");
+  assert.equal(r.siteReads[0].prefer, "count=exact", "the read did not ask for the table's count");
+  assert.equal(r.lastIsSiteRead, true, "a call was made after the read: " + JSON.stringify(r.wire[r.wire.length - 1]));
+  assert.equal(r.ownerReads, 0, "the owner route was read");
+}
+
 const RUNS = {};
 before(async () => {
   const plan = {
     run77: { box: DELETE_BOX, site: RUN77_ROWS },
-    siteRefused: { box: DELETE_BOX, siteStatus: 404, siteText: '{"message":"not found"}' },
+    siteRefused: { box: DELETE_BOX, siteStatus: 404, siteText: '{"message":"not found"}', range: null },
+    // THE OWNER'S REPRODUCTION: every named row served, one more left out, a
+    // 200 whose range says the table holds more. And the Data API's own answer
+    // to a partial read, a 206.
+    partial200: { box: DELETE_BOX, total: 6 },
+    partial206: { box: DELETE_BOX, siteStatus: 206, total: 6 },
+    countNotGiven: { box: DELETE_BOX, range: "0-4/*" },
+    noRange: { box: DELETE_BOX, range: null },
+    wholeWithExtra: { box: DELETE_BOX, site: [...READY_ROWS, EXTRA_ROW] },
     malformed: { box: '{"table":"lessons"}' },
     besideRestore: { box: DELETE_BOX, restore: "01790404806543-kk6qsh" },
     ready: { box: DELETE_BOX },
@@ -265,27 +374,36 @@ before(async () => {
   for (const [k, r] of done) RUNS[k] = r;
 });
 
-test("end to end: run 77's setup is refused before the routing call, at no cost", () => {
-  const r = RUNS.run77;
-  assert.equal(r.unknown.length, 0, "the stub was asked something it has no answer for: " + JSON.stringify(r.unknown));
-  assert.equal(r.code, 1, r.out + r.err);
-  assert.match(r.err, /REFUSING TO SPEND: the rows are not the ones this press names \(target-missing\)/);
-  assert.equal(r.routing, 0, "a routing call was made for a setup that was not there");
-  assert.equal(r.paidPosts, 0);
-  assert.equal(r.fixture.verdict.why, "target-missing");
-  assert.equal(r.siteReads, 1, "the site's own read was not made, once");
-  assert.equal(r.ownerReads, 0, "the owner route was read");
+test("end to end: run 77's setup is refused at the read, at no cost", () => {
+  stoppedAtTheRead(RUNS.run77, "target-missing");
 });
 
-test("end to end: a site read that refuses is refused before the routing call", () => {
-  const r = RUNS.siteRefused;
-  assert.equal(r.unknown.length, 0, JSON.stringify(r.unknown));
-  assert.equal(r.code, 1, r.out + r.err);
-  assert.match(r.err, /REFUSING TO SPEND: the rows are not the ones this press names \(unreadable\)/);
-  assert.equal(r.routing, 0);
-  assert.equal(r.paidPosts, 0);
-  assert.equal(r.fixture.verdict.why, "unreadable");
-  assert.equal(r.fixture.rows, null);
+test("end to end: a site read that refuses is refused at the read, at no cost", () => {
+  stoppedAtTheRead(RUNS.siteRefused, "unreadable");
+  assert.equal(RUNS.siteRefused.fixture.rows, null);
+});
+
+test("end to end: an answer that leaves a row out is refused at the read — the owner's 200, and the API's own 206", () => {
+  for (const k of ["partial200", "partial206"]) {
+    const r = RUNS[k];
+    stoppedAtTheRead(r, "incomplete");
+    assert.equal(r.siteReads[0].range, "0-4/6", k + ": the stub did not answer as the case says");
+    assert.equal(r.fixture.site.range, "0-4/6", k + ": the evidence lost the range");
+    assert.equal(r.fixture.rows, null, k + ": rows kept from a read that was not the whole table");
+  }
+  assert.equal(RUNS.partial206.siteReads[0].status, 206);
+});
+
+test("end to end: an answer that cannot show it is whole is refused at the read — no count, no header", () => {
+  stoppedAtTheRead(RUNS.countNotGiven, "completeness-unknown");
+  assert.equal(RUNS.countNotGiven.siteReads[0].range, "0-4/*");
+  stoppedAtTheRead(RUNS.noRange, "completeness-unknown");
+  assert.equal(RUNS.noRange.siteReads[0].range, null);
+});
+
+test("end to end: the whole table with a row more fails its digest at the read", () => {
+  stoppedAtTheRead(RUNS.wholeWithExtra, "baseline-mismatch");
+  assert.equal(RUNS.wholeWithExtra.siteReads[0].range, "0-5/6");
 });
 
 test("end to end: a malformed or misplaced box refuses before anything is signed in or read", () => {
@@ -298,12 +416,15 @@ test("end to end: a malformed or misplaced box refuses before anything is signed
   assert.match(RUNS.besideRestore.err, /the fixture box is for the one paid edit/);
 });
 
-test("end to end, control: the setup as named lets the paid press route, once", () => {
+test("end to end, control: the whole table as named lets the paid press route, once", () => {
   const r = RUNS.ready;
   assert.equal(r.unknown.length, 0, JSON.stringify(r.unknown));
+  assert.equal(r.siteReads.length, 1);
+  assert.equal(r.siteReads[0].prefer, "count=exact", "the read did not ask for the table's count");
+  assert.equal(r.siteReads[0].range, "0-4/5");
   assert.equal(r.fixture.verdict.ok, true, JSON.stringify(r.fixture.verdict));
+  assert.equal(r.fixture.site.range, "0-4/5");
   assert.match(r.out, /as named: 5 rows; the target is id 5/);
-  assert.equal(r.siteReads, 1);
   assert.equal(r.ownerReads, 0, "the owner route was read");
   assert.equal(r.routing, 1, "the routing call was not made for a setup that was as named");
   // The stub records the paid POST and refuses it, so the run ends there.
@@ -321,6 +442,7 @@ test("end to end, control: with spend=no the check is the whole run, and it rout
 test("end to end, control: a blank box changes nothing — the press routes as before", () => {
   const r = RUNS.noBox;
   assert.equal(r.fixture, null, "a check ran that nobody asked for");
+  assert.equal(r.siteReads.length, 0, "the table was read with no box filled");
   assert.equal(r.routing, 1);
   assert.doesNotMatch(r.out + r.err, /FIXTURE/);
 });

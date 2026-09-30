@@ -56,9 +56,8 @@ import { OWNER_ROWS_LIMIT } from "./canary-rows.mjs";
 // with the router's answer before the edit is posted.
 import { readExpectRoute, routeVerdict, expectSaid, mismatchSaid, failureSaid } from "./canary-route.mjs";
 // AFTER RUN 77: the rows a paid data press is written for, read from their own
-// box and checked on the site's own read before the first paid call.
-import { readExpectRows, fixtureVerdict, fixtureSaid, expectRowsSaid, fixtureRecord } from "./canary-fixture.mjs";
-import { readRowList } from "./canary-rows.mjs";
+// box and checked on the site's own read, whole, before the first paid call.
+import { readExpectRows, readWhole, fixtureVerdict, fixtureSaid, expectRowsSaid, fixtureRecord } from "./canary-fixture.mjs";
 import { publishedVersion } from "./canary-watch.mjs";
 // TEST 6: the description in the site's settings, beside the one the head serves.
 import { readStoredHead, storedHeadSaid } from "./canary-watch.mjs";
@@ -175,7 +174,7 @@ if (EXPECT_ROWS.expect && (READ_JOB || RESTORE || UI)) {
   process.exit(2);
 }
 if (EXPECT_ROWS.expect) {
-  console.log(`EXPECTED ROWS  ${expectRowsSaid(EXPECT_ROWS.expect)}  (read on both readers before any routing call)\n`);
+  console.log(`EXPECTED ROWS  ${expectRowsSaid(EXPECT_ROWS.expect)}  (read on the site's own read, whole, before any routing call)\n`);
 }
 // THIS RUN'S OWN ID, which goes into the rules test's marker booking's name.
 const RUN_ID = runIdOf(process.env);
@@ -632,16 +631,20 @@ console.log("");
 // call unless the setup is exactly as named. A read, a restore or a scenario
 // never gets here with a box filled: that is refused before the sign-in.
 // ONE READER, THE SITE'S OWN (`canary-fixture.mjs` says why): the read the
-// named digests are computed from, and the one the job's writes show in.
+// named digests are computed from, and the one the job's writes show in. IT
+// ASKS FOR THE TABLE'S COUNT and keeps the answer's `Content-Range`, because a
+// 200 list that leaves a row out still matches a baseline of the rows it does
+// hold: `readWhole` takes the rows only when the count says they are all of
+// them.
 if (EXPECT_ROWS.expect) {
   const T = EXPECT_ROWS.expect.table;
-  console.log(`FIXTURE — ${T} on ${CANARY}, as the site's own read serves it, before any routing call (written to ${EVID}/fixture.json)\n`);
+  console.log(`FIXTURE — ${T} on ${CANARY}, as the site's own read serves it, whole, before any routing call (written to ${EVID}/fixture.json)\n`);
   let served;
   try {
-    const r = await fetch(`${BEFORE.origin}/api/db/${encodeURIComponent(CANARY)}/data/${encodeURIComponent(T)}?select=*&order=id.asc`, { headers: { "cache-control": "no-cache" } });
-    served = { status: r.status, text: Buffer.from(await r.arrayBuffer()).toString("utf8") };
+    const r = await fetch(`${BEFORE.origin}/api/db/${encodeURIComponent(CANARY)}/data/${encodeURIComponent(T)}?select=*&order=id.asc`, { headers: { "cache-control": "no-cache", prefer: "count=exact" } });
+    served = { status: r.status, range: r.headers.get("content-range"), text: Buffer.from(await r.arrayBuffer()).toString("utf8") };
   } catch { served = { status: 0 }; }
-  const FIX_READ = readRowList(served);
+  const FIX_READ = readWhole(served);
   const FIX = fixtureVerdict(EXPECT_ROWS.expect, FIX_READ);
   mkdirSync(EVID, { recursive: true });
   writeFileSync(`${EVID}/fixture.json`, JSON.stringify(fixtureRecord(EXPECT_ROWS.expect, FIX_READ, FIX), null, 2));

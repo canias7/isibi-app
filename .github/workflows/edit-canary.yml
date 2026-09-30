@@ -141,12 +141,13 @@ on:
       # THE ROWS A DATA PRESS IS WRITTEN FOR (after run 77, 2026-09-30). Read
       # whole by the script before it signs in (`scripts/canary-fixture.mjs`);
       # a malformed box refuses at no cost, and so does a filled box beside a
-      # read, a restore or a scenario. The table is read on the owner route and
-      # on the site's own read before any routing call, the two must agree, and
-      # a setup that is not as named stops there, at no cost. With spend=no the
-      # check is the whole run: a free rehearsal of the paid press.
+      # read, a restore or a scenario. Before any routing call the table is read
+      # once, on the site's own read, with its count: an answer that is not the
+      # whole table, or a setup that is not as named, stops there, at no cost.
+      # With spend=no the check is the whole run: a free rehearsal of the paid
+      # press.
       expect_rows:
-        description: 'Refuse to route or spend unless one table, read as the site serves it, is as named: JSON {"table":…,"baseline":<16+ hex: digest of the rows other than the target>,"target":{<fields of the one target row>}}. Blank = no check.'
+        description: 'Refuse to route or spend unless one table, read whole as the site serves it, is as named: JSON {"table":…,"baseline":<16+ hex: digest of the rows other than the target>,"target":{<fields of the one target row>}}. Blank = no check.'
         required: false
         default: ''
 

@@ -8,7 +8,14 @@
 // What the harness supplies, by environment:
 //   STUB_LOG    the file each call is appended to
 //   STUB_ROUTE  the routing answer `/api/site/route` gives (JSON)
-//   STUB_SITE   the site's own data read: {"status":…, "text":"…"} (JSON)
+//   STUB_SITE   the site's own data read: {"status":…, "text":"…"} (JSON), and
+//               how it counts. By default it answers as the Data API does
+//               through the Worker (measured on fretwork-1, 2026-09-30): the
+//               rows served as `first-last/total` in `Content-Range`, the
+//               total only when the request asked `Prefer: count=exact` and
+//               `*` otherwise, `*/total` for no rows. `total` names a table
+//               longer than the rows served; `range` (a string, or null for no
+//               header at all) replaces the header outright.
 // The paid edit POST is recorded and answered 500: a harness proves which calls
 // were made, and nothing here runs an edit.
 import https from "node:https";
@@ -18,6 +25,15 @@ import { appendFileSync } from "node:fs";
 const LOG = process.env.STUB_LOG;
 const ROUTE = JSON.parse(process.env.STUB_ROUTE || "{}");
 const SITE = JSON.parse(process.env.STUB_SITE || '{"status":404,"text":"{}"}');
+
+/** The site read's `Content-Range`, as the Data API would give it (see above). */
+function siteRange(prefer) {
+  if (Object.hasOwn(SITE, "range")) return SITE.range;
+  let n = 0;
+  try { const rows = JSON.parse(SITE.text); if (Array.isArray(rows)) n = rows.length; } catch { /* not a list */ }
+  const total = /\bcount=exact\b/.test(prefer || "") ? (SITE.total ?? n) : "*";
+  return n ? `0-${n - 1}/${total}` : `*/${total}`;
+}
 const SLUG = "stub-site";
 const JOB = "a".repeat(32);
 const log = (e) => { if (LOG) appendFileSync(LOG, JSON.stringify(e) + "\n"); };
@@ -66,7 +82,13 @@ globalThis.fetch = async (input, init = {}) => {
   else if (url.endsWith("/auth/v1/verify")) r = reply({ access_token: "t", user: { id: "u-stub", email: "owner@example.com" } });
   else if (url.includes("/rest/v1/credits")) r = reply([{ balance: 13 }]);
   else if (url.startsWith(`https://${SLUG}.gofarther.app/sitemap.xml`)) r = reply(`<urlset><url><loc>https://${SLUG}.gofarther.app/</loc></url></urlset>`);
-  else if (url.startsWith(`https://${SLUG}.gofarther.app/api/db/${SLUG}/data/`)) r = new Response(SITE.text, { status: SITE.status, headers: { "content-type": "application/json" } });
+  else if (url.startsWith(`https://${SLUG}.gofarther.app/api/db/${SLUG}/data/`)) {
+    const prefer = new Headers(init.headers || {}).get("prefer");
+    const range = siteRange(prefer);
+    r = new Response(SITE.text, { status: SITE.status, headers: { "content-type": "application/json", ...(range === null ? {} : { "content-range": range }) } });
+    log({ via: "fetch", method, url, status: r.status, prefer, range });
+    return r;
+  }
   else if (url.startsWith(`https://${SLUG}.gofarther.app/`)) r = reply("<html><body><h1>Home</h1></body></html>", 200, { "x-site-version": "01790404806543-kk6qsh" });
   else r = reply({ error: "stub has no answer" }, 599);
   log({ via: "fetch", method, url, status: r.status });

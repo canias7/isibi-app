@@ -564,6 +564,13 @@ test("the fixture box is read before the sign-in, and a bad or misplaced one ref
   const cond = win.slice(win.lastIndexOf("if (", other), other);
   for (const mode of ["READ_JOB", "RESTORE", "UI"]) assert.match(cond, new RegExp("\\b" + mode + "\\b"), `a fixture box beside ${mode} is not refused`);
   assert.match(win.slice(other, other + 200), /process\.exit\(2\)/, "a misplaced box does not stop the run");
+  // THE LINE THAT ANNOUNCES THE CHECK SAYS WHAT IT READS. It once named two
+  // readers after the check had one (the owner's review, 2026-09-30). The
+  // matches above prove this window is the box's own stretch.
+  const said = win.indexOf("EXPECTED ROWS");
+  assert.ok(said > 0, "the box's own log line is gone");
+  assert.match(win.slice(said, win.indexOf("\n", said)), /the site's own read, whole/, "the log line no longer says the read is the site's own, and whole");
+  assert.doesNotMatch(win, /both readers/, "the log line names two readers, and the check reads one");
 });
 
 test("the rows are read on the site's own read and judged above the modes, the spend switch and every paid call, and a setup not as named exits there", () => {
@@ -588,7 +595,11 @@ test("the rows are read on the site's own read and judged above the modes, the s
   const block = SRC.slice(start, end);
   assert.match(block, /\/api\/db\/\$\{encodeURIComponent\(CANARY\)\}\/data\//, "the site's own read is no longer what is read");
   assert.match(block, /fixtureVerdict\(EXPECT_ROWS\.expect, FIX_READ\)/, "the verdict is no longer asked of the reading");
-  assert.match(block, /const FIX_READ = readRowList\(served\);/, "the reading is no longer the site's served list");
+  assert.match(block, /const FIX_READ = readWhole\(served\);/, "the reading is no longer judged whole");
+  // THE COUNT IS ASKED FOR AND ITS ANSWER KEPT (the owner's review,
+  // 2026-09-30): without both, a 200 that leaves a row out reads as the table.
+  assert.match(block, /prefer:\s*"count=exact"/, "the read no longer asks for the table's count");
+  assert.match(block, /range:\s*r\.headers\.get\("content-range"\)/, "the answer's Content-Range is no longer kept");
   // THE OWNER ROUTE IS NOT A READER HERE: its driver hands NUMERIC columns back
   // as text, so it cannot be held to digests taken from the site's read. The
   // matches above prove this slice is the check's own block.
