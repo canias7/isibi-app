@@ -246,6 +246,19 @@ rule and the measurement.
 
   **Read the router tool's description for the exact wording before supplying
   its answer.** A rehearsal is only as good as its least-examined fixture.
+- **TWO READERS OF ONE DATABASE DO NOT PRESENT A VALUE ALIKE (2026-09-30, the
+  canary's fixture check, caught before the push).**
+  - The owner route reads through the Neon driver's default parsers
+    (`sqlQuery`, `site-db.mjs`): a NUMERIC or BIGINT column comes back as
+    text, and a DATE or TIMESTAMPTZ as a Date object.
+  - The site's own read is the Data API, which serves numbers as numbers and
+    dates as its own text.
+  - A check that required the two to agree value for value would have stopped
+    every correct setup on such a table. Its stub gave both readers the same
+    rows, so its tests could not show it.
+
+  **Hold a reader to digests taken from that same reader, and give each
+  reader in a stub the shape its real producer gives.**
 - **A FIXTURE THAT NAMES A THING THE PRODUCT DOES NOT HAVE PASSES UNTIL THE
   PRODUCT STARTS CHECKING.** Two guards used the kit component `form-shell`,
   which sounds exactly like one of the 2,112 and is not one; both went red the

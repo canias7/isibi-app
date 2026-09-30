@@ -1081,6 +1081,33 @@ is the owner's.
   So no write reached the database the site reads. How the attempt went is
   the owner's to say: the panel's message, or the console's row count. Not
   closed, and B2's model run stays failed.
+- **Why the £40 did not land: the diagnosis (2026-09-30, free, no live
+  write; `docs/history/2026-09-30-fixture-check.md`).** The owner asked for
+  the save path traced, with neither user error assumed nor an app bug
+  declared without evidence.
+  - **The path**: the panel's Save sends `PATCH
+    /api/site/<slug>/rows/<table>/<id>`. A failure is a toast, and the form
+    stays open. A success reloads the rows from the server. In the Worker the
+    request goes session check (`/auth/v1/user`) → owner lookup
+    (`site_backends?slug=eq.…&select=uid`) → `ownerSiteConn` →
+    `UPDATE … WHERE id=?`, and no row changed answers 404.
+  - **The target** resolves through the same `siteBackendBySlug` as the
+    site's own read.
+  - **Supabase's own request logs** (non-secret fields; the canary runs as
+    the positive control) show no Data panel request reaching the Worker in
+    the 24 hours to 17:25 UTC:
+    - every session check for the building account is inside a canary run;
+    - there is no owner lookup for fretwork-1 between 07:00 and 08:19;
+    - there is no sign-in but the canary's, and no site-list read.
+  - **Not decided without the owner's observation**: the Save result, and
+    the value after reopening the panel (or, for the console, its row count,
+    branch and database).
+  - **Not measured for fretwork-1**: whether the owner route and the
+    site's read agree. The fixture check reads only the site's own read, so
+    it does not measure this; the owner's observation settles it.
+  - **Read again at 18:22 UTC** (the site's own read, free): four rows, row
+    4 still 42, rows 1–3 unchanged. Both prepared fixture boxes answer
+    `target-missing` on that body.
 
 ### What it will not establish
 
@@ -1220,7 +1247,7 @@ in the next data press.
 - **Then**: one merge, one free runtime check, and the lane 4 presses. Those
   on different sites can overlap a minute apart, as Batch 1's did.
 
-## Lane 4's delete — one row taken off `fretwork-1`'s price list, with real models (prepared 2026-09-30 after deploy 2171; its routing conflict corrected the same day on the owner's word, merged and deployed in deploy 2172, runtime-confirmed by run 76; pressed by the owner as run 77 the same day before its temporary row was added and with B2's recovery still open: the real router answered `data`, the picker found no such row, nothing changed, 2 credits; the deletion itself not yet shown)
+## Lane 4's delete — one row taken off `fretwork-1`'s price list, with real models (prepared 2026-09-30 after deploy 2171; its routing conflict corrected the same day on the owner's word, merged and deployed in deploy 2172, runtime-confirmed by run 76; pressed by the owner as run 77 the same day before its temporary row was added and with B2's recovery still open: the real router answered `data`, the picker found no such row, nothing changed, 2 credits; recorded by the owner as a failed deletion acceptance, its live routing and refunded no-match credited separately; the canary's fixture check added on the branch the same day; a new press prepared only after the price recovery and the temporary row are read back and verified)
 
 The next unaccepted live test. It is the only Lane 4 item whose blocker is
 gone (1a, deployed in 2171). Add, reorder, rules, the picture swap, the
@@ -1399,6 +1426,26 @@ the prepared order: B2's recovery closed first, then the temporary row and
 my read of it, then the press, for about 3 credits from a balance of 13. A press repeats nothing accepted, since this test has no
 acceptance. The canary has no fixture check before a paid data press
 (backlog).
+
+### The owner's review of run 77 (2026-09-30)
+
+- **Run 77 is a failed deletion acceptance.** No row was deleted, so the
+  deletion is still unshown.
+- **Credited separately**:
+  - its correct live routing: `data`, nothing held back, with the table
+    names the route filled in;
+  - its refunded no-match result: `no-match`, with the reserve refunded
+    (ledger rows 343 and 344).
+- **Before another paid run**, two pieces of free work, done the same day
+  (`docs/history/2026-09-30-fixture-check.md`):
+  - why the £40 did not land (*Batch 1*, the owner's review, below the
+    put-back reading);
+  - the canary's opt-in fixture check (`expect_rows`, `3229272e`, on the
+    branch). It reads the table as the site's own read serves it and judges
+    the baseline and the target row before any routing call.
+- **A new deletion press is prepared only after the price recovery and the
+  temporary row have both been read back and verified** (the owner). It is
+  not prepared here.
 
 ## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; its free runtime check passed as run 62; pressed as run 63 the same day: the router answered `nav` with `remove` and held the band back, so only the menu change was made and the look door was not reached; the free restore, run 64, put everything back; the owner recorded run 63 as a partial outcome and accepted run 64, with the intended acceptance still open; the router's whole-message rule corrected on the branch the same day, made to choose by what a route can make on every page rather than by kind after the owner's review, and the acceptance prepared again, not run; the rule merged and deployed in deploy 2170 the same day and runtime-confirmed by run 65; pressed again as run 66 the same day: the router answered `look` with nothing held back, and both changes were stored and published exactly as expected, for 6 credits; every acceptance item met; the free restore, run 67, put everything back, checked; closed by the owner the same day for the exact combined request run 66 proved, with recovery verified by run 67, runs 63 and 64 kept as history, no further reruns)
 

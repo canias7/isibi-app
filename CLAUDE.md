@@ -115,8 +115,36 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   minutes later. Redirects dropped between 2026-08-17 and that deploy are not
   rebuilt.
 - **The branch `claude/help-needed-ehlwlj`** is `main` (`80ece106`) plus
-  documents. A press from either runs the same script against main's
-  Worker.
+  the canary's fixture check (`3229272e`: `scripts/`, `test/` and the
+  canary's workflow, none of them a Worker file or a container input) and
+  documents. A press from the branch runs the branch's canary script against
+  main's Worker. The `expect_rows` box exists only there.
+- **The canary's opt-in fixture check** (2026-09-30, after run 77, on the
+  owner's word; `3229272e`; **on the branch, pushed for review, not
+  merged**). The `expect_rows` box takes one JSON object: `table`,
+  `baseline` (16–64 hex, the start of the canonical sha256 of the rows
+  other than the target) and `target` (the one row's fields).
+  - The box is read before the sign-in: malformed, or beside another mode,
+    it exits 2 with no network call.
+  - Above the modes and the spend switch, the table is read as the site's
+    own read serves it. The target must match exactly one row, and the
+    other rows must digest to the baseline. A setup that is not as named
+    exits 1 before any routing call, at no cost, with the reading in
+    `fixture.json`. With spend `no` it is a free rehearsal.
+  - **One reader on purpose.** The owner route's driver hands NUMERIC and
+    BIGINT back as text and dates as Date objects, so it cannot be held to
+    digests taken from the site's read. A first version that required the
+    two readers to agree was dropped before the push: it would have stopped
+    correct setups on such tables, and its stub had given both readers the
+    same rows. A table only the owner can read cannot be checked this way.
+  - Tests: 20 cases in `test/canary-fixture.test.mjs`, including the real
+    script end to end under an in-process network stub
+    (`test/fixtures/canary-stub.mjs`, which also shows the owner route is
+    never read), and 3 placement guards in `test/edit-canary.test.mjs`.
+  - Red check: exactly the 8 cases that need it fail on the old script.
+    Sweep: 18 of 18 killed, 2 controls survived. Full suite on the branch:
+    `8383 / 8383 / 0 / 0` locally.
+  - `docs/history/2026-09-30-fixture-check.md`.
 - **A stored row taken off its list is routed to `data`** (2026-09-30, on
   the owner's word before the paid row-deletion test; `4e3ef512`; the owner
   passed its review, and it is **merged and deployed in deploy 2172,
@@ -369,6 +397,13 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
       row 4 is still 42 in the database and £42 on `/prices`, and nothing
       else changed (rows 1–3, versions, money, queue). The recovery stays
       open.
+    - **Diagnosed, free** (`docs/history/2026-09-30-fixture-check.md`).
+      Supabase's own request logs show no Data panel request reaching the
+      Worker in the 24 hours to 17:25 UTC: every session check for the
+      building account is a canary run's, and there is no owner lookup for
+      fretwork-1 outside the runs. The owner's observation is asked for:
+      the Save result, and the value after reopening the panel. Row 4
+      still reads 42 at 18:22 UTC (the site's own read, free).
     - Spent: 7 (22 → 15).
 
   **Estimates, not limits**: A about 1–2 credits, B about 4–6, about 5–8
@@ -436,9 +471,11 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
     route `data`, about 3 credits). **Pressed as run 77 (08:28 UTC) before
     its temporary row was added and with B2's recovery open**: the real
     router answered `data` (matched), the picker found no such row
-    (`no-match`, refunded), nothing changed, 2 credits. Not a pass; the
-    deletion is still unshown. A new press waits for B2's recovery, the
-    temporary row and the owner's decision.
+    (`no-match`, refunded), nothing changed, 2 credits. **The owner recorded
+    run 77 as a failed deletion acceptance** and credited separately its
+    correct live routing and its refunded no-match result. The deletion is
+    still unshown. **A new press is prepared only after the price recovery
+    and the temporary row have both been read back and verified.**
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
   `docs/investigations/edit-path-checklist.md`, and every test's plan, readings
@@ -694,7 +731,10 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
   quoted; `playwright-core` at the root (`npm i --no-save`, the template's
   version); a worktree needs `node_modules` linked in; nothing of ours already
   running (`pgrep -af build-server.mjs`, then kill by PID); a shallow clone can
-  fail `site-searchpath`'s ancestry case, so unshallow it. **Measure a baseline
+  fail `site-searchpath`'s ancestry case, so unshallow it; a worktree in a
+  directory `nobody` cannot enter (the scratchpad is one) fails
+  `render-sandbox`'s privilege-drop case, so run the full suite from a
+  world-readable path. **Measure a baseline
   in a worktree; never subtract from a paragraph.** The stamp chain ends at the
   last commit that moved a test or product file.
 - **Reading CI**: read a job's own top-level fields (`status`, `conclusion`),

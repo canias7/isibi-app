@@ -72,15 +72,38 @@ in `docs/instruments.md`; each test's plan and evidence is in the checklist.
     spent and nothing else is.
   - A matching answer is posted exactly as it came.
   - Blank means no check.
-- **What the routing call said, and why it failed** (Lane 1, 2026-09-30, on
-  the branch, not merged):
+- **The rows a data press is written for** (`expect_rows`, 2026-09-30, after
+  run 77; `scripts/canary-fixture.mjs`; on the branch, not merged): one JSON
+  object, `{"table":…, "baseline":…, "target":{…}}`.
+  - `baseline` is 16 to 64 hex characters, the start of the sha256 of the
+    table's rows other than the target, in canonical form: keys sorted, rows
+    by id, types kept (`rowsDigest`).
+  - `target` holds the fields of the one row the message is about. Exactly
+    one row must have every one of them, with the same type. A column the row
+    lacks never meets a `null`.
+  - It is read whole before the sign-in. A malformed box, or one beside a
+    mode, refuses with no network call.
+  - The table is read as the site's own read serves it
+    (`/api/db/<slug>/data/<table>`), the read the digests are computed from
+    and the one the job's writes show in. The owner route is not read: its
+    driver hands NUMERIC and BIGINT back as text and dates as Date objects,
+    so it cannot be held to those digests. A table the site does not serve
+    is `unreadable` and stops. The reading goes to `fixture.json`, with the
+    rows the site served.
+  - The check sits above the spend switch. With spend `no` it is the whole
+    run, a free rehearsal. With spend `yes`, a setup that is not as named
+    stops before the routing call, at no cost.
+  - Blank means no check.
+- **What the routing call said, and why it failed** (Lane 1, 2026-09-30,
+  deployed in 2171):
   - a failed call's line reads `FAILED (<reason>)`, read by `failureSaid`
     over the router's own lists, e.g. `FAILED (provider xai 403
     insufficient_quota — refused on our account (billing or key))`;
   - `routing.json`'s `body` carries the route's `failure`, and `tablesFilled`
     when the route filled in the site's table names. The canary sends
-    `tables: []`, and signs in as the fixtures' owner, so once deployed its
-    router is told those names. Batch 1's presses ran without them.
+    `tables: []`, and signs in as the fixtures' owner, so its router is told
+    those names: run 77's `routing.json` carries four. Batch 1's presses ran
+    without them.
 - **Presses are the owner's.** A session's dispatch answers **403** (it lacks
   `actions: write`) even for a free read, so do not retry it: hand over the
   exact values and **name each box by its description**, because the form shows

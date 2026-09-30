@@ -57,6 +57,59 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-30 — Why the £40 didn't land, and a canary check that reads the rows first (on the branch, not merged)
+
+**Run 77, as you ruled**: recorded as a failed deletion acceptance. Credited
+separately: its correct live routing (the data step, with the table names
+filled in) and its refunded no-match result.
+
+**Why the £40 didn't land (free; nothing written)**:
+- **What the Save does**: the Data panel's Save sends one request to our
+  server. If it fails, you get a message and the form stays open. If it
+  works, the panel reloads the rows from the database, so what you see after
+  a Save is what the database holds. The server checks who you are, checks
+  you own the site, opens the site's database, and changes the row. If no row
+  changed, it answers "no such row".
+- **What the logs say**: every one of those requests first asks Supabase two
+  things (your session, and who owns the site), and Supabase keeps a log of
+  both. In the 24 hours I could read, the only such requests for your account
+  were the canary's own, one set per run. There was no other sign-in, and the
+  app's site list was never opened. **So no Save from the Data panel reached
+  our server.** That's not me saying you did something wrong, and it's not a
+  bug I can show either.
+- **I need your observation**: what the panel showed when you pressed Save
+  (a message, an error, or nothing), and what row 4's price said after you
+  closed and reopened the panel. If you used the Neon console instead: how
+  many rows the statement said it changed, and which branch and database it
+  ran on.
+
+**The canary check** (your point 2), on the branch for your review:
+- a new box, `expect_rows`, where the press names the table, a fingerprint
+  of the rows that should be there, and the one row the message is about;
+- before anything is paid for, the canary reads the table the way the site
+  shows it, which is the same reading my fingerprints come from. The row
+  must be there exactly once, and the other rows must match the
+  fingerprint. If anything is off, or can't be read, it stops at no cost;
+- with spend `no` the check is the whole run, a free way to see the setup
+  before paying for it;
+- **one change before pushing**: my first version also read the table the
+  way your Data panel sees it and required the two to match. I caught that
+  the two present some values differently (the panel's reader gives some
+  kinds of number back as text, and dates in another form), so it would have
+  stopped correct setups on some sites. It now reads the site's view only.
+  That is also the view the edit job's changes show up in. A table only you
+  can see (not shown on the site) can't be checked this way;
+- tested by running the real canary script against a fake network: run
+  77's setup is stopped before any routing, and a correct setup goes through
+  without the Data panel's route ever being called. All 18 deliberate breaks
+  of the check were caught.
+
+**Not done, as you said**: no merge, no deploy, no paid call, no database
+write. The next delete press is only prepared once the £40 and the temporary
+row have both been read back and verified.
+
+---
+
 ## 2026-09-30 — The delete test ran before its temporary row existed (run 77): nothing deleted, 2 credits
 
 **What you pressed**: the prepared delete test (run 77, 08:28 UTC), with

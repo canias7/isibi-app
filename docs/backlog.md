@@ -108,7 +108,11 @@ here; take a closed one out of both.**
   the canary reads the fixture before it spends. Run 77, the delete test,
   was pressed before its temporary row was added: routing cost 2, and the
   job found no such row (`no-match`, its reserve refunded). Found
-  2026-09-30, not changed.
+  2026-09-30. **Corrected on the branch the same day, on the owner's word
+  (`3229272e`, pushed for review, not merged)**: the opt-in `expect_rows`
+  box reads the table as the site's own read serves it and judges the
+  baseline and the target row before any routing call. A setup that is not as named stops at no
+  cost. `docs/history/2026-09-30-fixture-check.md`.
 - A menu removal beside a layout move on another page is answered `nav` with
   `remove` and the move held back, against the router's own `alsoAsked` rule
   (Test 8, run 63). **Corrected 2026-09-29 (the router chooses one answer
