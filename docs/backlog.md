@@ -61,6 +61,9 @@ here; take a closed one out of both.**
 - A price put back to its old value was routed `text`, not `data`, with no
   table names sent (Batch 1's run 74); the same change forward was `data`
   (run 71). One sample each. Found 2026-09-30, not changed.
+- The owner's Data button can be dark for a site whose database link is
+  blank: the site list reads `db` from `neon_db` alone. Found 2026-09-30,
+  not changed.
 - A menu removal beside a layout move on another page is answered `nav` with
   `remove` and the move held back, against the router's own `alsoAsked` rule
   (Test 8, run 63). **Corrected 2026-09-29 (the router chooses one answer
@@ -126,6 +129,27 @@ here; take a closed one out of both.**
 
 ## Backlog
 
+- **THE OWNER'S DATA BUTTON CAN BE DARK FOR A SITE WHOSE DATABASE LINK IS
+  BLANK (found 2026-09-30 while giving Batch 1's row-4 recovery; read in the
+  code, not driven live; not changed).**
+  - **Why.** The site list answers `db: !!r.neon_db` (`worker.js`, the
+    list route), and `public/site-list.js` reads it as `backend`. The card's
+    Data button (`siteDbIcon`) and the Data view (`stStageView`,
+    `loadSiteData`) open only when `backend` is true.
+  - **Who it hits.** An `incomplete` site (the database is real, the link
+    is blank: `ashgrove-1`, `fretwork-1`, `northgroup-5`, `washhouse-1`)
+    therefore shows the button dark on any browser that did not build it.
+    The local record wins only when it says yes.
+  - **What still works.** The Worker's owner-rows route resolves through
+    `siteBackendBySlug`, which reads the route cache first, so in the
+    Worker an `incomplete` site can still be read and saved once the panel
+    is open. The same state, the other way up, is why the edit path uses
+    `siteBackendDetail`.
+  - **What would close it**: the list counting `incomplete` as having a
+    database, through the one state function (`site-backend-state.mjs`).
+    Healing the four links with the existing repair would also close it,
+    but it is maintenance on live rows, is the owner's call, and ends the
+    blank-link fixtures.
 - **A PRICE PUT BACK WAS ROUTED `text`, NOT `data`, WITH NO TABLE NAMES SENT
   (found 2026-09-30 in Batch 1's run 74; one sample each way; not changed).**
   - **What happened.** On `fretwork-1`, whose prices come from the

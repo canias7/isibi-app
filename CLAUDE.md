@@ -134,7 +134,11 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   unrelated content preserved, and `8btpep` restored free); Test 8 (runs 66
   and 67: a menu item taken out and the Visit band moved from one message,
   routed `look` by the real router, both published exactly as expected, and
-  `8btpep` restored free; runs 63 and 64 kept as history).
+  `8btpep` restored free; runs 63 and 64 kept as history); Batch 1's group A
+  (runs 72 and 75: a removed page answering 301 home, read 14 and 25 minutes
+  after publication, not immediately, and `8btpep` restored exactly and free;
+  no rerun for an immediate reading); Batch 1's B1, credited (run 71: one
+  field changed through a blank database link).
 - **Test 6 is closed by the owner** (2026-09-29) for exactly what runs 57 and
   58 showed: one message's site-wide description and Visit-only band move,
   both stored and published; unrelated content preserved; the existing
@@ -238,7 +242,7 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   reading is Test 8's run 66: the real router answered `look` for that mix,
   with nothing held back** (one sample; how often, and for other messages,
   is not measured). The image rolled to `abf47dfeceba3c5c`, as predicted. `docs/history/2026-09-29-whole-message-routing.md`.
-- **Batch 1 is approved; group A is complete; B's put-back of row 4 is left** (2026-09-29,
+- **Batch 1: group A accepted, B1 credited, row 4 waits for the owner's free write** (2026-09-29,
   after Test 8's closure; corrected 2026-09-30 after the owner's review, and
   approved the same day at an estimated 5–8 credits, not a cap). **Two groups are ready**, on
   different sites with different controls, each paid press with its route
@@ -300,9 +304,21 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
     five stored pages byte-identical to the fixture, `/gallery` 200 again,
     `/the-starter` still 301, the sitemap five pages, nothing charged. Group
     A is complete.
-  - **Next, the owner's**: row 4 put back to 40, either in the app's Data
-    panel (free, exact, the plan's recovery) or by pressing B2 again
-    (another routing call). Spent so far: 7 (22 → 15).
+  - **The owner's review (2026-09-30).**
+    - **Group A is accepted** for the 301 home and the exact free
+      restoration. The timing limit stays explicit: the redirects were read
+      14 and 25 minutes after publication, not immediately. There is no
+      rerun for an immediate reading.
+    - **B1 is credited** (the missing-reference data edit).
+    - **B2's `text` misroute is a separate finding**. It is not counted as
+      passed and not retried with a model.
+    - **Row 4's recovery is the owner's own free write**: the Data panel, or,
+      where its button is dark on a blank-link site (a backlog finding), the
+      conditional `UPDATE` in the Neon console.
+    - After the owner confirms: all four rows and every field against the
+      baseline, the displayed price, the version, no charge and no open job.
+      Then the batch's recovery closes, with the routing finding kept.
+    - Spent: 7 (22 → 15).
 
   **Estimates, not limits**: A about 1–2 credits, B about 4–6, about 5–8
   together. Nothing caps a request or the batch; the only hard bound is the

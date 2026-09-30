@@ -292,3 +292,16 @@
   *"Unexpected changes require review; do not perform a broad database
   restore."* A difference a test did not intend is reported for your review;
   it is not undone with a restore that also takes back everything else.
+- **An acceptance keeps its limits in view, and a missing reading is no reason
+  to rerun.** Accepting Batch 1's group A: *"Keep the timing limitation
+  explicit: redirects were read 14 and 25 minutes after publication, not
+  immediately. No rerun solely for that missing immediate reading."*
+- **A misroute is a finding, never a pass, and is not retried with a
+  model.** *"Keep B2's text misroute as a separate finding; do not count the
+  reversal as passed or retry it with a model."* The row it left behind is
+  put back by your own free write.
+- **The next work comes from free analysis, in parallel where it can.**
+  *"Prepare the next independent work from the remaining checklist using
+  free analysis only. Keep parallel execution in the plan wherever
+  dependencies allow. Do not repeat accepted tests or expand into another
+  testing campaign."*

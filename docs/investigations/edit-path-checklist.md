@@ -52,9 +52,14 @@ run 66 proved, with recovery verified by run 67.**
 - Kept separate: the reply omission (review #9) and the saved-version list's
   label naming only the first change (backlog).
 
-**Batch 1 is approved (2026-09-30); group A is complete, and B's put-back
-is the one step left**: A3 (run 75) restored `8btpep` exactly, free (*A3 as
-run 75*, below). Before it, run 73 (A3) never started (the image id was in the
+**Batch 1 (2026-09-30): group A accepted by the owner, B1 credited, and
+B's row 4 waits for the owner's free write** (*The owner's review of
+Batch 1*, below). Group A is accepted for the 301 home and the exact free
+restoration, with its timing limit explicit: the redirects were read 14
+and 25 minutes after publication, not immediately. B1's missing-reference
+data edit is credited. B2's `text` misroute is a separate finding, not
+counted as passed and not retried with a model. A3 (run 75) restored
+`8btpep` exactly, free. Before it, run 73 (A3) never started (the image id was in the
 route box), and run 74 (B2) was refused by the route check (the router
 answered `text`), for 2 credits and no change (*Runs 73 and 74*, below).
 Before that: A2 (run 72) removed `/gallery`, which answers 301 home,
@@ -134,6 +139,11 @@ the owner's free press, run 51, at 22:57 UTC):
 - **A menu item taken out and a band moved on another page, in one message,
   routed `look` by the real router** (66), and restored free (67).
 - **One database row changed and put back** (42).
+- **One database row changed on a site whose database link is blank**
+  (71, Batch 1's B1; the put-back is the owner's own write).
+- **A removed page answering 301 home** (72, Batch 1's A2), read 14 and
+  25 minutes after publication, not immediately, and the site restored
+  exactly and free (75). Accepted by the owner with that limit.
 - **A rules closing enforced by the database** (44), for that closing only.
 - **A menu link removed through the removal door with a real picker, then the
   page removed** (49).
@@ -149,8 +159,9 @@ the owner's free press, run 51, at 22:57 UTC):
 **Outstanding acceptance** (not yet shown live; each has controlled tests)
 1. **The redirect fix live**: the first half, a publish keeping a site's
    stored redirects, is credited (runs 52 and 57, closed with Test 6). A
-   removed page answering 301 home is still outstanding. Batch 1's group A
-   proposes it (not run).
+   removed page answering 301 home is **accepted by the owner with Batch
+   1's group A** (runs 72 and 75; read 14 and 25 minutes after
+   publication, not immediately; no rerun for an immediate reading).
 2. **A protection refusing a real model's answer**: the photograph wall, the
    link and component judge, the text guard, reply validation and the failure
    classification. Live, each has only let a correct answer through. Kept
@@ -180,8 +191,9 @@ the owner's free press, run 51, at 22:57 UTC):
    Test 6** (run 57): the picker scoped the move to `/visit`, and only
    `visit.tsx` changed.
 5. **The data rung beyond one row**: adding, removing or reordering rows, and a
-   site whose database link is blank. Batch 1's group B proposes the blank
-   link (not run); adding needs the owner's ruling on which step adds a row,
+   site whose database link is blank. **The blank link is credited** (Batch
+   1's B1, run 71); B2's put-back was misrouted `text` and is a finding, not
+   a pass. Adding needs the owner's ruling on which step adds a row,
    and removing needs the data picker's delete instructions corrected first
    (backlog).
 6. **The rules rung beyond one closing**: reopening, closing by taking write
@@ -250,7 +262,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Batch 1 — a removed page's 301 home, and a row changed on a site whose database link is blank, run side by side (proposed 2026-09-29 after Test 8's closure; corrected after the owner's review: the canary now enforces each press's expected route, the costs keep estimates apart from enforced limits, group B's recovery covers every row and field, and the remaining six are the owner's list; approved 2026-09-30; Round 1 done: A1's free restore (run 68) checked, and B1 (run 71, after runs 69 and 70 went nowhere) changed exactly row 4's price for 3 credits; A2 (run 72) removed `/gallery`, which answers 301 home, read twice, for 2 credits; run 73 (A3) never started, and run 74 (B2) was refused by the route check when the router answered `text`, for 2 credits and no change; A3 (run 75) restored `8btpep` exactly, free; B's put-back of row 4 is left)
+## Batch 1 — a removed page's 301 home, and a row changed on a site whose database link is blank, run side by side (proposed 2026-09-29 after Test 8's closure; corrected after the owner's review: the canary now enforces each press's expected route, the costs keep estimates apart from enforced limits, group B's recovery covers every row and field, and the remaining six are the owner's list; approved 2026-09-30; Round 1 done: A1's free restore (run 68) checked, and B1 (run 71, after runs 69 and 70 went nowhere) changed exactly row 4's price for 3 credits; A2 (run 72) removed `/gallery`, which answers 301 home, read twice, for 2 credits; run 73 (A3) never started, and run 74 (B2) was refused by the route check when the router answered `text`, for 2 credits and no change; A3 (run 75) restored `8btpep` exactly, free; the owner accepted group A (the redirects read 14 and 25 minutes after publication, not immediately) and credited B1; B2's misroute kept as a separate finding, not counted as passed nor retried with a model; row 4 left for the owner's free write)
 
 The owner asked for the next bounded batch: up to three independent
 acceptance groups from the remaining six, on existing ready fixtures and
@@ -991,6 +1003,34 @@ restore needs neither expectation. The preflight printed deploy
 read twice, and the fixture is back to `8btpep`, exactly. Group B's put-back
 of row 4 (still 42, `2ec299b8…` at 02:22:49) is the one step left, and it
 is the owner's.
+
+### The owner's review of Batch 1 (2026-09-30)
+
+- **Group A is accepted** for the demonstrated behavior: a removed page's
+  address answers 301 to the home page (run 72), and the site was restored
+  exactly and free (run 75). **The timing limit stays explicit**: the
+  redirects were read 14 and 25 minutes after publication, not immediately.
+  **There is no rerun solely for that missing immediate reading.**
+- **B1 is credited**: the missing-reference data edit (run 71) changed
+  exactly the one field through the blank link.
+- **B2's `text` misroute (run 74) is a separate finding** (backlog). The
+  reversal is **not counted as passed** and **not retried with a model**.
+- **Row 4's recovery is the owner's own free write**: the Data panel, or,
+  if its Data button is dark for this site, the one conditional `UPDATE` in
+  the Neon console (below). After the owner confirms, all four rows and
+  every field are compared with the baseline, the displayed price is
+  checked, and so are the unchanged page version, no charge and no open job.
+  Then the batch's recovery closes, with the routing finding kept.
+- **Found while giving the steps** (read in the code; backlog): on a browser
+  that did not build `fretwork-1`, the app may show its Data button dark.
+  The site list says whether a site has a database from `site_backends.neon_db`
+  alone (`db: !!r.neon_db`), and that link is blank here. The Worker's
+  owner-rows route itself resolves through the route cache first, so a Save
+  can still land once the panel is open. The fallback needs no model: Neon
+  project `super-hat-47366810`, branch `br-long-bird-aukew6zm`, database
+  `site_fretwork_1`, with `UPDATE lessons SET price = 40 WHERE id = 4 AND
+  price = 42 RETURNING id, name, price;`, which must return exactly one
+  row.
 
 ### What it will not establish
 

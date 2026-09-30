@@ -57,6 +57,28 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-30 — You accepted the gallery group and credited the first price change
+
+**Recorded as you said.**
+- **The gallery group is accepted**: the removed page's address sends people
+  home, and the bakery was put back exactly, for free. The timing limit is
+  written down beside it: I read the redirects 14 and 25 minutes after the
+  publish, not straight away. There is no rerun just for that.
+- **The first price change (£40 → £42) is credited**: it found the database
+  even though the site's database link is blank.
+- **Putting the price back didn't pass**: the router called it a wording
+  change. That stays a separate finding, and nothing is retried with a model.
+
+**The £40 is yours to put back, for free.** I gave you the Data panel steps.
+While checking them I found that your Data button can be greyed out on this
+site in a browser that didn't build it, because the app reads "has a
+database" from the same blank link. So I also gave you a one-line Neon
+console fallback that changes only that price. That's in the backlog, not
+changed. Tell me when it's saved and I'll check all four lessons, every field,
+the prices page, the version, the money and that no job is open.
+
+---
+
 ## 2026-09-30 — The bakery is back to its original version (run 75); only the £40 put-back is left
 
 **The restore worked, exactly, and it was free.** The bakery is back on its
