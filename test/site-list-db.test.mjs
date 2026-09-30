@@ -101,6 +101,17 @@ test("a project read that fails is 'could not tell' for the blank rows only — 
   }
 });
 
+test("a blank row that was never asked about is 'could not tell', not a no", async () => {
+  // A slug the route will not put in a filter is left out of the project read,
+  // so nothing was learned about it — the same cannot-tell as a failed read.
+  const ODD = { slug: "Odd_Slug", created_at: T, brief: "", neon_db: "" };
+  const r = await list({ backends: [INCOMPLETE, ODD], projects: [{ slug: "fretwork-1" }] });
+  assert.equal(r.status, 200);
+  assert.deepEqual(dbBySlug(r), { "fretwork-1": true, "Odd_Slug": null });
+  const pr = r.asked.filter((u) => u.includes("/rest/v1/site_project"));
+  assert.equal(new URL(pr[0]).searchParams.get("slug"), "in.(fretwork-1)", "a slug the filter may not carry was put in it");
+});
+
 test("no blank row, no extra read", async () => {
   const r = await list({ backends: [READY], projects: () => { throw new Error("the project rows were read for a ready site"); } });
   assert.deepEqual(dbBySlug(r), { "ready-site": true });

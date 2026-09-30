@@ -19214,20 +19214,22 @@ async function handleRequest(request, env, ctx) {
         .filter((r) => r && typeof r.slug === "string" && /^[a-z0-9][a-z0-9-]{0,80}$/.test(r.slug) && !String(r.neon_db || "").trim())
         .map((r) => r.slug);
       let projectSlugs = null;       // null: not asked, or asked and unreadable
-      let projectFailed = null;
       if (blankSlugs.length) {
         try {
           const lp = await lq(`site_project?uid=eq.${luid}&slug=in.(${blankSlugs.map(encodeURIComponent).join(",")})&select=slug`);
           const prow = await lrows(lp);
           if (prow) projectSlugs = new Set(prow.filter((x) => x && typeof x.slug === "string").map((x) => x.slug));
-          else projectFailed = new Error("site project read");
-        } catch (e) { projectFailed = e; }
+        } catch { projectSlugs = null; }
       }
       const dbOf = (r) => {
         const blank = !String((r && r.neon_db) || "").trim();
-        const st = blank && projectFailed
-          ? backendState({ failed: projectFailed })
-          : backendState({ site: r, project: blank && projectSlugs && projectSlugs.has(r.slug) ? { slug: r.slug } : null });
+        // A BLANK ROW WHOSE PROJECT ROW WAS NOT READ IS NOT "NONE": the read
+        // failed, or its slug is not one a filter may carry and it was never
+        // asked about. Either way nothing was learned, so it cannot say no.
+        const unread = blank && !(projectSlugs && blankSlugs.includes(r.slug));
+        const st = unread
+          ? backendState({ failed: new Error("site project not read") })
+          : backendState({ site: r, project: blank && projectSlugs.has(r.slug) ? { slug: r.slug } : null });
         return st.state === "ready" || st.state === "incomplete" ? true : st.state === "none" ? false : null;
       };
 
