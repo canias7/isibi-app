@@ -45,7 +45,8 @@ here; take a closed one out of both.**
   #9). Found 2026-09-29, not changed.
 - The data picker is told both to delete a row and to return nothing when
   asked to delete; a live row removal is likely refused. Found 2026-09-29
-  while preparing Batch 1, not changed.
+  while preparing Batch 1. **Corrected on the branch 2026-09-30 (Lane 1a,
+  `19f6e480`), not merged; shown with supplied picker answers only.**
 - An added row's reply reads "Updated one entry in added to <table>." Found
   2026-09-29, not changed.
 - Which step adds a row to a list the site already has is undecided: the
@@ -56,14 +57,24 @@ here; take a closed one out of both.**
 - A natural message cannot hand the picture step a new photograph without
   buying one from fal. Found 2026-09-29, not changed.
 - A routing call that fails records no reason: Batch 1's run 70 got `addon`
-  with `failed` at cost 0, and nothing says why. Found 2026-09-30, not
-  changed.
+  with `failed` at cost 0, and nothing says why. Found 2026-09-30.
+  **Corrected on the branch 2026-09-30 (Lane 1b, `fe20e6cd`), not merged:
+  the answer carries `failure`, from allow-lists only, and the canary prints
+  it.**
 - A price put back to its old value was routed `text`, not `data`, with no
   table names sent (Batch 1's run 74); the same change forward was `data`
-  (run 71). One sample each. Found 2026-09-30, not changed.
+  (run 71). One sample each. Found 2026-09-30. **The missing names are
+  filled in on the branch (Lane 1d, `a02c2003`, not merged); whether a real
+  router then answers `data` is not measured.**
 - The owner's Data button can be dark for a site whose database link is
-  blank: the site list reads `db` from `neon_db` alone. Found 2026-09-30,
-  not changed.
+  blank: the site list reads `db` from `neon_db` alone. Found 2026-09-30.
+  **Corrected on the branch 2026-09-30 (Lane 1c, `b12dd43b`), not merged,
+  with the three hops behind it: adoption, the owner routes and the panel's
+  text.**
+- When the site list itself cannot be read, a card drawn from this
+  browser's own record that never learned `backend` still says "No database
+  yet" (the local record's missing flag is read as a no). Pre-existing,
+  found 2026-09-30 during Lane 1c, not changed.
 - A menu removal beside a layout move on another page is answered `nav` with
   `remove` and the move held back, against the router's own `alsoAsked` rule
   (Test 8, run 63). **Corrected 2026-09-29 (the router chooses one answer
@@ -150,6 +161,16 @@ here; take a closed one out of both.**
     Healing the four links with the existing repair would also close it,
     but it is maintenance on live rows, is the owner's call, and ends the
     blank-link fixtures.
+  - **Corrected on the branch 2026-09-30 (Lane 1c, `b12dd43b`; not merged).**
+    - The list decides through `backendState`: `null` for a failed project
+      read, never a no.
+    - Three more hops were found behind it and corrected: the card's click
+      adopted a record without `backend`, so even a lit button opened no
+      Data view; the owner data routes relied on the KV cache for a blank
+      link, and now fall back to `siteBackendDetail`, read-only; and the
+      panel said "No data tables yet." on a failed read.
+    - The "What still works" above held only while KV held the connection.
+    - `docs/history/2026-09-30-lane1.md`.
 - **A PRICE PUT BACK WAS ROUTED `text`, NOT `data`, WITH NO TABLE NAMES SENT
   (found 2026-09-30 in Batch 1's run 74; one sample each way; not changed).**
   - **What happened.** On `fretwork-1`, whose prices come from the
@@ -167,6 +188,13 @@ here; take a closed one out of both.**
     browser sends none, like the canary and run 42's UI run.
   - **Not measured**: how often, for other wordings, or with table names
     sent.
+  - **The names are filled in on the branch 2026-09-30 (Lane 1d, `a02c2003`;
+    not merged).** When the digest names no tables, `/api/site/route`
+    verifies the caller owns the slug, reads the site's table names (names
+    only, read-only, bounded at 3 s) and hands them to the router, with
+    `tablesFilled` on the answer. **This fills a confirmed gap in the
+    router's context; it is not a proven cause of run 74's `text`**, since
+    B1 was routed `data` with no names at all.
 - **A FAILED ROUTING CALL RECORDS NO REASON (found 2026-09-30 in Batch 1's
   run 70; read in the code and measured free; not changed).**
   - **The gap.** `routeMessage` in `builder/site-ask.mjs` wraps the request
@@ -192,6 +220,13 @@ here; take a closed one out of both.**
   - **What would close it**: carrying the error's provider, status and
     message on the answer, or into a trace row. Not started; it is outside
     the batch.
+  - **Corrected on the branch 2026-09-30 (Lane 1b, `fe20e6cd`; not merged).**
+    The answer carries `failure`: the step, the provider, the status, the
+    provider's token, whether our account was refused, and the error's
+    class. It is built from allow-lists, and **never the message**: a
+    provider's words can quote the request. It is logged and returned; the
+    canary prints it and `routing.json` keeps it. Run 70's shape would have
+    read `provider xai 403 insufficient_quota — refused on our account`.
 - **THE DATA PICKER IS TOLD BOTH TO DELETE A ROW AND TO REFUSE A DELETION
   (found 2026-09-29 while preparing Batch 1; read in the code, not driven
   live; not changed).** `DATA_TOOL` in `builder/site-apply.mjs`: the
@@ -207,7 +242,12 @@ here; take a closed one out of both.**
   no-match. Removal is tested only with supplied answers (`readDataChanges`
   with `remove: true`, `test/site-apply.test.mjs`). **It blocks a live "remove
   a row" acceptance (item 5).** The correction would be that one sentence;
-  whether and when is the owner's decision.
+  whether and when is the owner's decision. **Corrected on the branch 2026-09-30 (Lane 1a,
+  `19f6e480`; not merged)** on the owner's word: the list sends a deletion to
+  `remove`, the empty array is kept for a request about the look, and adding
+  is described as before. Driven through the real edit route with supplied
+  answers (`test/data-remove-wording.test.mjs`). How a real picker answers a
+  deletion is still unmeasured.
 - **AN ADDED ROW'S REPLY READS "✅ Updated one entry in added to <table>."
   (found 2026-09-29; read in the code; not changed).** The data reply in
   `public/chat.js` prefixes `added to ` to the table's name when a row has no

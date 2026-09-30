@@ -23,6 +23,21 @@ The full law is `docs/site-database.md`.
   cache, which is why an `incomplete` site looked fine in the Worker and broke
   in a job. **Four sites are still `incomplete`**: `ashgrove-1`, `fretwork-1`,
   `northgroup-5`, `washhouse-1`.
+- **The site list and the owner data routes read the four states too**
+  (Lane 1c, 2026-09-30, on the branch, not merged):
+  - `/api/site/list` answers `db: true` for `ready` and `incomplete`, `false`
+    for `none`, and `null` for `unreadable`: a failed project read, never a
+    no. Its one extra read runs only for blank rows, is scoped to the
+    caller's uid and blank slugs, and selects `slug` only;
+  - the browser keeps the three answers, carries a yes onto the record it
+    adopts, and says "Couldn't check…" for `null`;
+  - the owner data routes (the Data panel's reads and saves, the CSV import,
+    the export) open the database through `ownerSiteConn`: the fast reader,
+    then `siteBackendDetail`, read-only. An incomplete link is proved and
+    never healed, and an unreadable one is the block's 500, never "no such
+    site";
+  - the router's table-name lookup (Lane 1d) uses the same reader, after
+    verifying ownership.
 - **The catalog is asked first** (`readSchemaState`, `specForAddon`): a missing
   `_meta` row is not an empty database; recovery (`site-schema-recover.mjs`) is
   read-only, derives access from the live policies and grants, and refuses

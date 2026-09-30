@@ -73,6 +73,21 @@ answers unless a run is named.
   home page. The browser routes with the site's real page list and waits for it
   on an existing site (`siteRoutesRead`, `SITE_ROUTES_WAIT_MS` 15,000), so an
   existing site never becomes a first build.
+- **Lane 1** (2026-09-30, on the branch, not merged;
+  `docs/history/2026-09-30-lane1.md`):
+  - **the router is told the owner's own table names** when the browser sent
+    none. Ownership is verified first (`siteOwnerBySlug`), the lookup is
+    read-only and names only, it is bounded at 3 s, and any failure routes
+    blind as before. The answer carries `tablesFilled` when the route filled
+    them;
+  - **a failed routing call names why** (`failure`: request, config,
+    provider, timeout or transport, from allow-lists only), with the same
+    fallback and no charge;
+  - **the data picker is sent to `remove` for a deletion**: the list no
+    longer tells it to answer nothing, and adding is described as before.
+
+  All of it is shown with supplied answers only; no real model has been
+  measured on any of it.
 - **Several changes in one message** (2026-09-29, deploy 2166; shown live by
   run 57 for a site-wide description beside a band move on one named page,
   closed by the owner as Test 6; the withholding paths are shown only with

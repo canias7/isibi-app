@@ -72,6 +72,15 @@ in `docs/instruments.md`; each test's plan and evidence is in the checklist.
     spent and nothing else is.
   - A matching answer is posted exactly as it came.
   - Blank means no check.
+- **What the routing call said, and why it failed** (Lane 1, 2026-09-30, on
+  the branch, not merged):
+  - a failed call's line reads `FAILED (<reason>)`, read by `failureSaid`
+    over the router's own lists, e.g. `FAILED (provider xai 403
+    insufficient_quota — refused on our account (billing or key))`;
+  - `routing.json`'s `body` carries the route's `failure`, and `tablesFilled`
+    when the route filled in the site's table names. The canary sends
+    `tables: []`, and signs in as the fixtures' owner, so once deployed its
+    router is told those names. Batch 1's presses ran without them.
 - **Presses are the owner's.** A session's dispatch answers **403** (it lacks
   `actions: write`) even for a free read, so do not retry it: hand over the
   exact values and **name each box by its description**, because the form shows

@@ -57,6 +57,54 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-30 — The four small fixes are built on the branch, for your review (not merged)
+
+**All four are built, each in its own commit, and nothing was spent.** No
+model was called and nothing live was changed.
+- **Removing a row.** The data step was told both "delete it" and "answer
+  nothing if you're asked to delete". A deletion now goes to its delete
+  field. Adding a row is described as before, and the router's rule for
+  additions is unchanged.
+- **A failed routing call now says why.** Last night's empty Grok balance
+  would have read "provider xai 403 insufficient_quota — refused on our
+  account". It carries only fixed words: the provider, the status, the
+  provider's own error code, whether our account was refused, and the kind of
+  error. It never carries a message, so no key, password or customer text
+  can leak. I tested that by planting them everywhere a failure can carry
+  text. What the customer sees and what it costs are unchanged.
+- **Your Data button on the four blank-link sites.** The site list now says
+  they have a database. Behind it I found three more things keeping a fresh
+  browser out:
+  - opening the site from its card forgot it had a database;
+  - the Data panel could open that database only if a cache happened to hold
+    it;
+  - a failed read said "No data tables yet."
+
+  All three are fixed, and none of it writes anything. When the check can't
+  be made, the button says "Couldn't check…" instead of "No database yet".
+- **The router gets the site's table names** when a browser doesn't send
+  them. That happens only after checking the site is yours, it sends names
+  only, and it gives up after 3 seconds and routes as before. This fills a
+  gap we know about. It doesn't prove the £40 put-back would now be read as
+  a data change: the £42 change worked without names.
+
+**Checked**:
+- each problem was reproduced before it was fixed;
+- the tests caught every deliberately broken version (52 of 52), and every
+  harmless change left them passing;
+- the whole test suite passes (8,341 tests).
+
+**Not checked**: how a real model behaves with any of it.
+
+**Still yours**:
+- the £40 put-back (B2 stays failed until your free write is confirmed and
+  checked);
+- the seven decisions;
+- the merge and the deploy. When merged, the site image is predicted to
+  change, and two browser files change.
+
+---
+
 ## 2026-09-30 — The next work, prepared from free analysis (nothing started)
 
 **Three small fixes can be built side by side right away, with a fourth

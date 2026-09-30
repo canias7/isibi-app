@@ -100,9 +100,10 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   run 52's publish kept the bakery's stored redirect, read at once and ten
   minutes later. Redirects dropped between 2026-08-17 and that deploy are not
   rebuilt.
-- **The branch `claude/help-needed-ehlwlj`** is `main` (`907840c6`) plus
-  documents. A press from the branch runs the branch's script against main's
-  Worker.
+- **The branch `claude/help-needed-ehlwlj`** is `main` (`907840c6`) plus the
+  canary's expected-route check, **Lane 1's four corrections** (below; not
+  merged) and documents. A press from the branch runs the branch's script
+  against main's Worker.
 - **Balance 15** on the building account after run 74 (Batch 1's refused
   B2, 2026-09-30 02:11 UTC): 17 → 15, routing 2, and no edit. Before it,
   **17** after run 72 (Batch 1's A2, 01:19 UTC): 19 → 17, routing 2, and no
@@ -337,14 +338,29 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   escalation. A protection refusing a real model's answer is kept separate.
   The four not in the batch are not ready. The record is the checklist's
   *Batch 1* and `docs/history/2026-09-30-expected-route.md`.
-- **The next independent work is prepared, not started** (2026-09-30, free
-  analysis only; the checklist's *Next independent work*).
-  - **Lane 1**, four small corrections, three of them buildable in
-    parallel now:
-    - the data picker's delete sentence;
-    - a failed route carrying its reason;
-    - the Data button for blank-link sites;
-    - then the route filling in table names when none are sent.
+- **Lane 1's four corrections are built on the branch, not merged**
+  (2026-09-30, on the owner's word; `docs/history/2026-09-30-lane1.md`):
+  - **1a** (`19f6e480`): the data picker is sent to `remove` for a
+    deletion, with add-row wording and routing unchanged;
+  - **1b** (`fe20e6cd`): a failed routing call carries `failure`, from
+    allow-lists only (the step, provider, status, token, billing, error
+    class), with the same fallback and no charge; the canary prints it;
+  - **1c** (`b12dd43b`): the site list's `db` comes from `backendState`
+    (`null` when a lookup fails, never a no); adoption keeps the server's
+    yes; the owner data routes open a blank-link database read-only; the
+    Data panel no longer calls a failed read "no tables";
+  - **1d** (`a02c2003`): when the browser sent no table names, the route
+    tells the router the verified owner's own, by name only, in at most
+    3 s, failing open.
+
+  Every correction was red-checked and swept (8/8, 16/16, 16/16 and 12/12
+  killed, every control survived). The full suite on `a02c2003` is `8341 /
+  8341 / 0 / 0` locally. The image is predicted to roll `abf47dfeceba3c5c`
+  → `d72310b1abe69e13`, and `public/chat.js` and `public/site-list.js`
+  change. **Real-model evidence: none**: shown with supplied answers
+  only. B2 stays failed and its recovery open.
+- **The rest of the next independent work** (2026-09-30, free analysis only;
+  the checklist's *Next independent work*).
   - **Lane 2**, seven decisions that are the owner's, in parallel: which
     step adds a row, whether ordering is `data`, the rules fixture, the
     picture swap's scope, the component definition, the follow-up

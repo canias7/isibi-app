@@ -52,6 +52,19 @@ run 66 proved, with recovery verified by run 67.**
 - Kept separate: the reply omission (review #9) and the saved-version list's
   label naming only the first change (backlog).
 
+**Lane 1 (2026-09-30): four corrections built on the branch, not merged**
+(*Next independent work*, below; `docs/history/2026-09-30-lane1.md`):
+- the data picker is sent to `remove` for a deletion;
+- a failed routing call names why, from allow-lists only;
+- a blank database link counts as a database, from the site list to the
+  Data panel;
+- the router is told the verified owner's table names when the browser sent
+  none.
+
+Each was red-checked, swept, and shown through the real routes with
+supplied answers only. No real model was called. B2 stays failed and its
+price recovery open.
+
 **Batch 1 (2026-09-30): group A accepted by the owner, B1 credited, and
 B's row 4 waits for the owner's free write** (*The owner's review of
 Batch 1*, below). Group A is accepted for the 301 home and the exact free
@@ -193,9 +206,9 @@ the owner's free press, run 51, at 22:57 UTC):
 5. **The data rung beyond one row**: adding, removing or reordering rows, and a
    site whose database link is blank. **The blank link is credited** (Batch
    1's B1, run 71); B2's put-back was misrouted `text` and is a finding, not
-   a pass. Adding needs the owner's ruling on which step adds a row,
-   and removing needs the data picker's delete instructions corrected first
-   (backlog).
+   a pass. Adding needs the owner's ruling on which step adds a row.
+   Removing needed the data picker's delete instructions corrected first:
+   **done on the branch (Lane 1a), not merged**, so it waits for the merge.
 6. **The rules rung beyond one closing**: reopening, closing by taking write
    access away, limits, and any other wording or site.
 7. **The picture swap**: a new photograph into a slot. Not ready: no natural
@@ -1075,6 +1088,22 @@ approves it.
   - the Data button is dark on a blank-link site.
 
 ### Lane 1: four small corrections, each unblocking something, buildable in parallel now
+
+**Built on the branch 2026-09-30, not merged** (the owner: *"Proceed with
+Lane 1's four corrections on the designated branch"*). Each correction was:
+- reproduced through the real route first (a red check);
+- fixed in its own commit: 1a `19f6e480`, 1b `fe20e6cd`, 1c `b12dd43b`, 1d
+  `a02c2003`;
+- swept in its own worktree. Every mutant was killed and every comment-only
+  control survived: 8 of 8, 16 of 16, 16 of 16 and 12 of 12.
+
+The full suite on `a02c2003` is `8341 / 8341 / 0 / 0`. What changed, what the
+tests drive and what they cannot establish are in
+`docs/history/2026-09-30-lane1.md`. Found along the way and corrected with
+1c: the card's click dropped the server's yes, so even a lit Data button
+opened no Data view on a fresh browser. The owner routes also needed the KV
+cache to open a blank-link database, and the panel said "No data tables yet."
+on a failed read. **Real-model evidence: none.**
 
 Each has its own file or hunk, its own guard cases through the real route
 with supplied answers, a red check, a sweep with a comment-only control, and
