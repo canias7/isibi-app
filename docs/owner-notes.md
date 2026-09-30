@@ -57,6 +57,30 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-30 — Your free check passed: the new version is running (run 76)
+
+**Confirmed.** Your free canary press (run 76, 07:49 UTC, from `main`) found
+the live site running the new version (`80ece106`) on the new image
+(`e71f7bae88b9ecf1`), with the job queue and the runner on. Every free
+check passed. It spent nothing: the balance is still 15, with no new ledger
+row and no edit job left open (I read those separately afterwards).
+
+**It also covers the earlier deploy (2171)**, whose own check was never
+pressed: 2172 runs the same code plus the row-removal fix.
+
+**What it does not show**: whether the real router now sends "take this row
+off the list" to the data step. Only the paid delete test can show that.
+
+**Still yours**:
+- the Data panel look in a private window, and the £40 put-back there. It is
+  still £42: I read `lessons` at 07:52, and row 4's price is 42 with rows
+  1–3 unchanged. Once it's back I check every row and field, the price on
+  the page, the site's version, the credits and the queue. Putting it back
+  does not turn B2's failed run into a pass;
+- after that, the paid delete test, only if you approve it.
+
+---
+
 ## 2026-09-30 — The row-removal fix is live (deployed; waiting for your free check)
 
 **Merged and deployed, as you asked.** Main is now `80ece106`, moved at

@@ -46,8 +46,8 @@ here; take a closed one out of both.**
 - The data picker is told both to delete a row and to return nothing when
   asked to delete; a live row removal is likely refused. Found 2026-09-29
   while preparing Batch 1. **Corrected 2026-09-30 (Lane 1a, `19f6e480`),
-  merged and deployed in deploy 2171 (not yet runtime-confirmed); shown with
-  supplied picker answers only. The live delete is prepared (the checklist's
+  merged and deployed in deploy 2171 (its code runtime-confirmed under
+  deploy 2172 by run 76); shown with supplied picker answers only. The live delete is prepared (the checklist's
   *Lane 4's delete*), not run.**
 - An added row's reply reads "Updated one entry in added to <table>." Found
   2026-09-29, not changed.
@@ -74,8 +74,9 @@ here; take a closed one out of both.**
   blank: the site list reads `db` from `neon_db` alone. Found 2026-09-30.
   **Corrected 2026-09-30 (Lane 1c, `b12dd43b`, `bd81a60e`), with the three
   hops behind it (adoption, the owner routes and the panel's text); merged
-  and deployed in deploy 2171 (not yet runtime-confirmed). The owner's
-  fresh-browser read of the Data panel is the live check.**
+  and deployed in deploy 2171 (its code runtime-confirmed under deploy 2172
+  by run 76). The owner's fresh-browser read of the Data panel is the live
+  check.**
 - When the site list itself cannot be read, a card drawn from this
   browser's own record that never learned `backend` still says "No database
   yet" (the local record's missing flag is read as a no). Pre-existing,
@@ -94,8 +95,8 @@ here; take a closed one out of both.**
   whatever the something is", a whole page its one exception) and `data`'s
   one-row clause. Neither names a row. Found 2026-09-30 while preparing Lane
   4's delete; read in the code, not measured. **Corrected 2026-09-30 on the
-  owner's word (`4e3ef512`), merged and deployed in deploy 2172 (not yet
-  runtime-confirmed): a stored row taken off is `data` in both clauses and in
+  owner's word (`4e3ef512`), merged and deployed in deploy 2172
+  (runtime-confirmed by run 76): a stored row taken off is `data` in both clauses and in
   `look`'s reach; shown with supplied answers only.**
 - A menu removal beside a layout move on another page is answered `nav` with
   `remove` and the move held back, against the router's own `alsoAsked` rule
@@ -303,7 +304,7 @@ here; take a closed one out of both.**
   a row" acceptance (item 5).** The correction would be that one sentence;
   whether and when is the owner's decision. **Corrected 2026-09-30 (Lane 1a,
   `19f6e480`)** on the owner's word, and **merged and deployed in deploy 2171**
-  (not yet runtime-confirmed): the list sends a deletion to `remove`, the
+  (its code runtime-confirmed under deploy 2172 by run 76): the list sends a deletion to `remove`, the
   empty array is kept for a request about the look, and adding is described
   as before. Driven through the real edit route with supplied answers
   (`test/data-remove-wording.test.mjs`). How a real picker answers a
@@ -323,7 +324,8 @@ here; take a closed one out of both.**
   the page's code rather than the stored row. So a customer's row removal may
   fail or change the wrong thing. The canary's route check makes the delete
   press safe (a misroute is refused for the routing call alone). **Corrected
-  2026-09-30 (`4e3ef512`), merged and deployed in deploy 2172**, on the owner's word
+  2026-09-30 (`4e3ef512`), merged and deployed in deploy 2172, runtime-confirmed
+  by run 76**, on the owner's word
   (*"Before the paid row-deletion test, fix the specific router instruction
   conflict you found"*): the `data` clause claims an existing row taken off,
   `look`'s removal clause excepts a stored row for `data` after the whole

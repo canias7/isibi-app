@@ -512,6 +512,22 @@ work waits until about 07:21, and the confirmation is the owner's free press
 (`build-health` with `80ece106` and `e71f7bae88b9ecf1`). The session does not
 dispatch it again: its dispatch answers 403.
 
+**Runtime-confirmed by the owner's free press, edit canary run 76**
+(36685956087, 2026-09-30 07:49:37–07:50:11 UTC, 49 minutes after the roll,
+from `main` at `80ece106` on `fold-lane-bakery`, spend `no`):
+`build-health 200 deploy=80ece10644a9 image=e71f7bae88b9ecf1` and `runtime
+200 deploy=80ece10644a9 async=true runner=true`, the two readers agreeing and
+both expectations met. The free job (`53838d8f…`) was claimed at 2 s and
+settled after about 6 s at cost 0; the control site's job (`cab66735…` on
+`washhouse-3`) took the same queued shape; a forged replay marker and a
+foreign job's poll answered 404; `ALL FREE CHECKS PASSED`. The bakery's five
+stored pages read complete at `8btpep`, and the balance read 15. Read
+independently afterwards: the balance 15, no ledger row after 342, both free
+jobs `failed` with billing `none` and cost 0, and no job open. **Deploy 2172
+runs deploy 2171's code plus one changed container input, so this press is
+also the runtime check of 2171's code** (2171's own image,
+`cdb624837e099719`, was never read by a press and is no longer served).
+
 ## The served-file check, driven end to end on deploy 2139
 
 **DRIVEN END TO END ON DEPLOY 2139 (2026-09-21), and it is stronger than the

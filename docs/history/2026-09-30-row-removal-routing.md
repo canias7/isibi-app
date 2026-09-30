@@ -1,4 +1,4 @@
-# A stored row taken off its list is routed to `data` (2026-09-30; merged and deployed in deploy 2172, not yet runtime-confirmed)
+# A stored row taken off its list is routed to `data` (2026-09-30; merged and deployed in deploy 2172, runtime-confirmed by run 76)
 
 ## The owner's request
 
@@ -178,3 +178,15 @@ after the normal pre-merge checks."*
 router answers a row taken off a list is still not measured: that is Lane
 4's delete, prepared and not run. The readings are in
 `docs/deploy-record.md`.
+
+## Runtime-confirmed: run 76 (the same day)
+
+The owner's free press, edit canary run 76 (36685956087, 07:49:37–07:50:11
+UTC, from `main` at `80ece106` on `fold-lane-bakery`, spend `no`), 49
+minutes after the roll: `build-health 200 deploy=80ece10644a9
+image=e71f7bae88b9ecf1`, `runtime 200 deploy=80ece10644a9 async=true
+runner=true`, the two readers agreeing, both expectations met, and `ALL FREE
+CHECKS PASSED`. Nothing was charged: the balance is 15, with no ledger row
+after 342 and no job open. This confirms which code runs. It says nothing
+about how a real router answers a row taken off a list; that is still Lane
+4's delete, prepared and not run.

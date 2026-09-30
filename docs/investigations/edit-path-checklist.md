@@ -54,7 +54,7 @@ run 66 proved, with recovery verified by run 67.**
 
 **Lane 1 (2026-09-30): four corrections, merged and deployed in deploy 2171
 (`29111010`, image `cdb624837e099719`; the deployment credited by the owner),
-not yet runtime-confirmed**
+the code runtime-confirmed under deploy 2172 by run 76**
 (*Next independent work*, below; `docs/history/2026-09-30-lane1.md`):
 - the data picker is sent to `remove` for a deletion;
 - a failed routing call names why, from allow-lists only;
@@ -72,8 +72,8 @@ recovery open. The next unaccepted live test, the delete (*Lane 4*), is
 prepared below and not run.
 
 **The row-removal routing (2026-09-30): corrected, merged and deployed in
-deploy 2172 (`80ece106`, image `e71f7bae88b9ecf1`), not yet
-runtime-confirmed** (`4e3ef512`; `docs/history/2026-09-30-row-removal-routing.md`). The router's
+deploy 2172 (`80ece106`, image `e71f7bae88b9ecf1`), runtime-confirmed by
+run 76** (`4e3ef512`; `docs/history/2026-09-30-row-removal-routing.md`). The router's
 instructions gave a stored row taken off its list two answers, `look` and
 `data`; now it is `data`, said in the `data` clause, at `look`'s exceptions
 after the whole page, and in `look`'s reach. The whole-page exception, the
@@ -1112,7 +1112,8 @@ day in deploy 2171** (the owner: *"The two diagnostic fixes passed review.
 Continue from candidate 291110103024a68da9d0bca525a9d2302d5bd1f2."*):
 `907840c6` → `29111010` at 05:30:28 UTC, the image `abf47dfeceba3c5c` →
 `cdb624837e099719` as predicted, deployed and not yet runtime-confirmed
-(`docs/deploy-record.md`). Each correction was:
+(`docs/deploy-record.md`); its code was runtime-confirmed later that day
+under deploy 2172, by run 76. Each correction was:
 - reproduced through the real route first (a red check);
 - fixed in its own commit: 1a `19f6e480`, 1b `fe20e6cd`, 1c `b12dd43b` with
   a follow-up `bd81a60e`, 1d `a02c2003`, and `d19652c4` for 1b's and 1d's log
@@ -1199,7 +1200,7 @@ in the next data press.
 - **Then**: one merge, one free runtime check, and the lane 4 presses. Those
   on different sites can overlap a minute apart, as Batch 1's did.
 
-## Lane 4's delete — one row taken off `fretwork-1`'s price list, with real models (prepared 2026-09-30 after deploy 2171; its routing conflict corrected the same day on the owner's word, merged and deployed in deploy 2172, not yet runtime-confirmed; not run, not approved)
+## Lane 4's delete — one row taken off `fretwork-1`'s price list, with real models (prepared 2026-09-30 after deploy 2171; its routing conflict corrected the same day on the owner's word, merged and deployed in deploy 2172, runtime-confirmed by run 76; not run, not approved)
 
 The next unaccepted live test. It is the only Lane 4 item whose blocker is
 gone (1a, deployed in 2171). Add, reorder, rules, the picture swap, the
@@ -1239,6 +1240,11 @@ nothing.
    readers answering `80ece106` and a cold container `e71f7bae88b9ecf1`.
    Deploy 2172 runs deploy 2171's code plus the routing correction, so this
    one press is the runtime check for both (2171's own was never pressed).
+   **Met: run 76** (2026-09-30 07:49–07:50 UTC, from `main`, spend `no`):
+   `build-health 200 deploy=80ece10644a9 image=e71f7bae88b9ecf1`, `runtime
+   200 deploy=80ece10644a9 async=true runner=true`, `ALL FREE CHECKS
+   PASSED`; nothing charged (balance 15, no ledger row after 342, no job
+   open, read independently).
 2. **B2's recovery closed.** The owner puts row 4's price back to 40 in the
    Data panel, after checking in a private window that the panel opens on
    `fretwork-1`. My checks against the baseline: every row and every field

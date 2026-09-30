@@ -39,18 +39,20 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   reviewed branch through `80ece106`; one deploy run, green, on `80ece106`;
   it built image `e71f7bae88b9ecf1` from 188 inputs, as predicted on both
   ends, and the container moved `cdb624837e099719` → `e71f7bae88b9ecf1` at
-  07:00:33). Nothing under `public/` changed. **Deployed, not
-  runtime-confirmed**: the confirmation is the owner's free press after
-  07:21 UTC (`build-health` answering `80ece106` and `e71f7bae88b9ecf1`); the
-  session's dispatch answers 403. It carries **the row-removal routing
-  correction** (below). `docs/deploy-record.md`.
+  07:00:33). Nothing under `public/` changed. **Runtime-confirmed by the
+  owner's free press, run 76** (07:49 UTC, from `main` on
+  `fold-lane-bakery`): both readers answered `80ece10644a9`, a cold
+  container got `e71f7bae88b9ecf1`, and queued jobs and the runner were on;
+  nothing was charged. It carries **the row-removal routing correction**
+  (below). `docs/deploy-record.md`.
 - **Deploy 2171** (`29111010`, 2026-09-30 05:30 UTC, image
   `cdb624837e099719`, predicted on both ends; the served `chat.js` and
   `site-list.js` byte-identical to the merged files) is **credited by the
   owner as deployed; its own runtime check was never pressed**. Deploy 2172
-  runs its code plus the routing correction, so 2172's free press is the
-  runtime check for both. It carries **Lane 1's four corrections and the
-  review round** (below).
+  runs its code plus the routing correction, so run 76, which confirmed
+  2172, is the runtime check of this code too (2171's own image was never
+  read by a press). It carries **Lane 1's four corrections and the review
+  round** (below).
 - **Deploy 2170** (`907840c6`, 2026-09-29 20:28 UTC, image
   `abf47dfeceba3c5c`, predicted on both ends) was **runtime-confirmed by the
   owner's free press, run 65** (21:51 UTC, on `fold-lane-bakery`). It
@@ -117,8 +119,8 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   Worker.
 - **A stored row taken off its list is routed to `data`** (2026-09-30, on
   the owner's word before the paid row-deletion test; `4e3ef512`; the owner
-  passed its review, and it is **merged and deployed in deploy 2172, not
-  runtime-confirmed**). The router's tool gave such a removal
+  passed its review, and it is **merged and deployed in deploy 2172,
+  runtime-confirmed by run 76**). The router's tool gave such a removal
   two answers: `look`'s removal clause claimed every removal ("whatever the
   something is", a whole page its one exception), `data`'s clause one row of
   a list, and `look`'s reach under `alsoAsked`, which the whole-message rule
@@ -143,7 +145,9 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   `cdb624837e099719` → `e71f7bae88b9ecf1`, as predicted.
   `docs/history/2026-09-30-row-removal-routing.md`.
 - **Balance 15** on the building account after run 74 (Batch 1's refused
-  B2, 2026-09-30 02:11 UTC): 17 → 15, routing 2, and no edit. Before it,
+  B2, 2026-09-30 02:11 UTC): 17 → 15, routing 2, and no edit; read again by
+  run 76 (07:50 UTC, free), with no ledger row after 342 and no job open.
+  Before it,
   **17** after run 72 (Batch 1's A2, 01:19 UTC): 19 → 17, routing 2, and no
   ledger row for the removal (`exempt`), with no job open. Before it, **19** after run 71
   (Batch 1's B1, 01:06 UTC): 22 → 19, routing 2 and the job's reserve of 1
@@ -378,7 +382,7 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   *Batch 1* and `docs/history/2026-09-30-expected-route.md`.
 - **Lane 1's four corrections are merged and deployed in deploy 2171**
   (built 2026-09-30 on the owner's word; `docs/history/2026-09-30-lane1.md`;
-  deployed, not runtime-confirmed). **The owner credited the implementation
+  its code runtime-confirmed under deploy 2172 by run 76). **The owner credited the implementation
   and its CI**, and the two diagnostic fixes from their review (`ce992066`,
   below) passed review; required CI is green on the merged candidate
   `29111010` (unit 36671505759, `8351 / 8347 / 0 / 4`; site build
@@ -419,9 +423,10 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
     accepted is repeated. The merge is deploy 2171. **The delete is the next
     unaccepted live test**, prepared and not run: the checklist's *Lane 4's
     delete* (a throwaway row the owner adds on `fretwork-1`, taken off by one
-    message, expected route `data`, about 3 credits). It waits for deploy
-    2172's free runtime check and for B2's recovery; the route check
-    refuses a misroute before anything is posted.
+    message, expected route `data`, about 3 credits). Deploy 2172 is
+    runtime-confirmed (run 76); it waits for B2's recovery and the owner's
+    approval; the route check refuses a misroute before anything is
+    posted.
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
   `docs/investigations/edit-path-checklist.md`, and every test's plan, readings
@@ -595,7 +600,8 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
 
 - **Balance 15** on the building account after run 74 (Batch 1's B2,
   refused by the route check, 2026-09-30 02:11 UTC): 17 → 15, routing 2
-  only. Before it: 17 after run 72 (Batch 1's A2, 01:19 UTC): 19 → 17,
+  only; read again by run 76 (the free runtime check, 07:50 UTC), with no
+  ledger row after 342 and no job open. Before it: 17 after run 72 (Batch 1's A2, 01:19 UTC): 19 → 17,
   routing 2 and no ledger row (the removal is `exempt`). Before it: 19 after run 71 (Batch 1's B1, 01:06 UTC): 22 →
   19, routing 2 and the job's reserve of 1 (ledger row 342). Before it: 22 after run 66 (Test 8's second paid run,
   2026-09-29 22:00 UTC): 28 → 22, routing 2 and the job's reserves of 3
