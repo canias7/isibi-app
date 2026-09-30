@@ -61,15 +61,18 @@ here; take a closed one out of both.**
 - A routing call that fails records no reason: Batch 1's run 70 got `addon`
   with `failed` at cost 0, and nothing says why. Found 2026-09-30.
   **Corrected 2026-09-30 (Lane 1b, `fe20e6cd`, with `d19652c4` and
-  `ce992066`), merged and deployed in deploy 2171 (not yet
-  runtime-confirmed): the answer carries `failure`, from allow-lists only,
+  `ce992066`), merged and deployed in deploy 2171 (its code
+  runtime-confirmed under deploy 2172 by run 76): the answer carries
+  `failure`, from allow-lists only,
   and the canary prints it.**
 - A price put back to its old value was routed `text`, not `data`, with no
   table names sent (Batch 1's run 74); the same change forward was `data`
   (run 71). One sample each. Found 2026-09-30. **The missing names are
-  filled in (Lane 1d, `a02c2003`), merged and deployed in deploy 2171 (not
-  yet runtime-confirmed); whether a real router then answers `data` is not
-  measured.**
+  filled in (Lane 1d, `a02c2003`), merged and deployed in deploy 2171 (its
+  code runtime-confirmed under deploy 2172 by run 76). First live reading,
+  run 77: the route told the real router four table names (`tablesFilled`),
+  and it answered `data` for a row taken off the list. That is one sample of
+  a different request; the put-back itself has not been sent again.**
 - The owner's Data button can be dark for a site whose database link is
   blank: the site list reads `db` from `neon_db` alone. Found 2026-09-30.
   **Corrected 2026-09-30 (Lane 1c, `b12dd43b`, `bd81a60e`), with the three
@@ -84,8 +87,9 @@ here; take a closed one out of both.**
 - The backend lookup's KV log line prints a KV error's message, and the
   routing call now reaches it through Lane 1d. Pre-existing (`bd63040c`),
   found 2026-09-30 in Lane 1's log review. **Corrected 2026-09-30 on the
-  owner's review (`ce992066`), merged and deployed in deploy 2171 (not yet
-  runtime-confirmed): the line names the operation and a known error class
+  owner's review (`ce992066`), merged and deployed in deploy 2171 (its code
+  runtime-confirmed under deploy 2172 by run 76): the line names the
+  operation and a known error class
   only.**
 - The build, edit and add-on error replies carry the provider's type as
   `upstreamType`, shape-checked but not from a list of known codes. Found
@@ -97,7 +101,14 @@ here; take a closed one out of both.**
   4's delete; read in the code, not measured. **Corrected 2026-09-30 on the
   owner's word (`4e3ef512`), merged and deployed in deploy 2172
   (runtime-confirmed by run 76): a stored row taken off is `data` in both clauses and in
-  `look`'s reach; shown with supplied answers only.**
+  `look`'s reach; shown with supplied answers, and once live: run 77's real
+  router answered `data` for "We don't do the Ten-minute tune-up any more,
+  please take it off the price list." (one sample).**
+- A paid data press runs whether or not the row it names exists: nothing in
+  the canary reads the fixture before it spends. Run 77, the delete test,
+  was pressed before its temporary row was added: routing cost 2, and the
+  job found no such row (`no-match`, its reserve refunded). Found
+  2026-09-30, not changed.
 - A menu removal beside a layout move on another page is answered `nav` with
   `remove` and the move held back, against the router's own `alsoAsked` rule
   (Test 8, run 63). **Corrected 2026-09-29 (the router chooses one answer

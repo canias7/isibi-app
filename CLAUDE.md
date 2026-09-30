@@ -140,11 +140,15 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   `8360 / 8356 / 0 / 4`; site build 36677496840: the twelve counts) and on
   `80ece106` (unit 36679661698: `8360 / 8356 / 0 / 4`; documents only
   since `4e3ef512`).
-  **Instruction and supplied-answer evidence only**:
-  how a real router answers is not measured. The image rolled
+  **One live sample since**: run 77's real router, told the table names by
+  the route, answered `data` for a row taken off the list (the row was
+  absent, so nothing was deleted: the delete test is not yet shown). The image rolled
   `cdb624837e099719` → `e71f7bae88b9ecf1`, as predicted.
   `docs/history/2026-09-30-row-removal-routing.md`.
-- **Balance 15** on the building account after run 74 (Batch 1's refused
+- **Balance 13** on the building account after run 77 (Lane 4's delete,
+  pressed before its temporary row existed, 2026-09-30 08:29 UTC): 15 → 13,
+  routing 2; the job's reserve of 1 refunded (ledger rows 343 and 344), no
+  job open, and nothing since (read at 17:12). Before it, **15** after run 74 (Batch 1's refused
   B2, 2026-09-30 02:11 UTC): 17 → 15, routing 2, and no edit; read again by
   run 76 (07:50 UTC, free), with no ledger row after 342 and no job open.
   Before it,
@@ -414,8 +418,10 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   `ce992066` is `8351 / 8351 / 0 / 0` locally. The image rolled
   `abf47dfeceba3c5c` → `cdb624837e099719`, as predicted, and the served
   `public/chat.js` and `public/site-list.js` are the merged bytes.
-  **Real-model evidence: none**: shown with supplied answers only. B2 stays
-  failed and its recovery open until the owner's free write and my checks.
+  **Real-model evidence**: 1d only, in run 77 (the route told the real
+  router four table names, and it answered `data`); the rest is shown with
+  supplied answers only. B2 stays failed and its recovery open until the
+  owner's free write and my checks.
 - **The rest of the next independent work** (2026-09-30, free analysis only;
   the checklist's *Next independent work*).
   - **Lane 2**, seven decisions that are the owner's, in parallel: which
@@ -425,12 +431,14 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   - **Lane 3**, the router wording, after the decisions in lane 2.
   - **Lane 4**, one bounded press per open item after one merge. Nothing
     accepted is repeated. The merge is deploy 2171. **The delete is the next
-    unaccepted live test**, prepared and not run: the checklist's *Lane 4's
-    delete* (a throwaway row the owner adds on `fretwork-1`, taken off by one
-    message, expected route `data`, about 3 credits). Deploy 2172 is
-    runtime-confirmed (run 76); it waits for B2's recovery and the owner's
-    approval; the route check refuses a misroute before anything is
-    posted.
+    unaccepted live test**: the checklist's *Lane 4's delete* (a throwaway
+    row the owner adds on `fretwork-1`, taken off by one message, expected
+    route `data`, about 3 credits). **Pressed as run 77 (08:28 UTC) before
+    its temporary row was added and with B2's recovery open**: the real
+    router answered `data` (matched), the picker found no such row
+    (`no-match`, refunded), nothing changed, 2 credits. Not a pass; the
+    deletion is still unshown. A new press waits for B2's recovery, the
+    temporary row and the owner's decision.
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
   `docs/investigations/edit-path-checklist.md`, and every test's plan, readings
@@ -602,7 +610,10 @@ The rules in full are `docs/deploy.md`; each deploy's readings go in
 Every earlier reading — the balance since run 9, the suite and site-build
 stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
 
-- **Balance 15** on the building account after run 74 (Batch 1's B2,
+- **Balance 13** after run 77 (Lane 4's delete pressed before its
+  temporary row existed, 2026-09-30 08:29 UTC): 15 → 13, routing 2; the
+  job's reserve of 1 refunded (ledger rows 343 and 344); nothing since, read
+  at 17:12. Before it: 15 after run 74 (Batch 1's B2,
   refused by the route check, 2026-09-30 02:11 UTC): 17 → 15, routing 2
   only; read again by run 76 (the free runtime check, 07:50 UTC), with no
   ledger row after 342 and no job open. Before it: 17 after run 72 (Batch 1's A2, 01:19 UTC): 19 → 17,
@@ -641,7 +652,8 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
   waits for the owner's put-back), and
   `lido-axes-b` with its bookings closed (run 44, kept).
 - **What things cost, measured** — routing 1–2 per message (it moves with the
-  prompt cache); the page rung 6–22 (runs 21–37); a data or rules edit 1; a
+  prompt cache); the page rung 6–22 (runs 21–37); a data or rules edit 1 (a
+  data edit that matches no row 0, its reserve refunded: run 77); a
   reframe 1; a site description 1 (runs 52 and 57); a quick-writer page step 2
   (run 57); a quick-writer move with a photograph removal in one job 3 (run
   60); a menu edit 2 (runs 49 and 63); a menu edit and a page move through the

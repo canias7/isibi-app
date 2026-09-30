@@ -1220,7 +1220,7 @@ in the next data press.
 - **Then**: one merge, one free runtime check, and the lane 4 presses. Those
   on different sites can overlap a minute apart, as Batch 1's did.
 
-## Lane 4's delete — one row taken off `fretwork-1`'s price list, with real models (prepared 2026-09-30 after deploy 2171; its routing conflict corrected the same day on the owner's word, merged and deployed in deploy 2172, runtime-confirmed by run 76; not run, not approved)
+## Lane 4's delete — one row taken off `fretwork-1`'s price list, with real models (prepared 2026-09-30 after deploy 2171; its routing conflict corrected the same day on the owner's word, merged and deployed in deploy 2172, runtime-confirmed by run 76; pressed by the owner as run 77 the same day before its temporary row was added and with B2's recovery still open: the real router answered `data`, the picker found no such row, nothing changed, 2 credits; the deletion itself not yet shown)
 
 The next unaccepted live test. It is the only Lane 4 item whose blocker is
 gone (1a, deployed in 2171). Add, reorder, rules, the picture swap, the
@@ -1344,6 +1344,61 @@ boxes by description:
 rung's one call, about 1. About 2 if the route check refuses. An estimate,
 not a cap: nothing enforces a per-request limit, and the balance (15) is the
 only bound.
+
+### Run 77 (2026-09-30 08:27–08:29 UTC, 2 credits): pressed before its temporary row existed
+
+The owner pressed the prepared press (36689829998, from `main` at
+`80ece106`). All six boxes were as prepared: spend `yes`, the request
+exactly (79 characters), `fretwork-1`, the sha, the image and the route.
+**Two preconditions were not met at the press**:
+- B2's recovery was still open: row 4 read 42 at 08:15–08:27;
+- the temporary row was absent: `lessons` held four rows at 08:27:51, a
+  minute before the press, and no "Ten-minute tune-up".
+
+**What it showed:**
+- **Preflight**: both readers answered `80ece10644a9`, a cold container
+  `e71f7bae88b9ecf1`, and the free checks passed.
+- **The route, live**: the canary sent `tables: []`, and the route told the
+  real router four names (`tablesFilled`: `bookings`, `gear`, `lessons`,
+  `waiting_list`). This is 1d's first live reading. The router (grok-4.6,
+  37.8 s) answered `intent=edit layer=data`, with nothing held back and
+  cost 2. The route check matched and posted the answer unchanged.
+  - **This is the first real-router reading of the row-removal routing
+    correction (deploy 2172)**. It is one sample, and the router is told
+    table names, not rows, so the missing row did not bear on this answer.
+- **The job**: job `67c6092f…` was claimed at 4 s and settled at 14.7 s
+  with a stored 422, `no-match`. The data picker (grok-4.6, 13 tokens out)
+  matched nothing, which is correct: no such row existed. Its message was
+  *"I couldn't match that to anything the site stores — say which list it's
+  in and I'll have another go."*
+  - The edit cost 0. The job's reserve of 1 is ledger row 343
+    (`67c6092f…#1`, −1), and the refund is ledger row 344 (+1).
+  - The customer read: *"⚠️ I couldn't match that to anything the site
+    stores — say which list it's in and I'll have another go. This edit
+    cost you nothing. Reading your message cost 2 credits."*
+- **Nothing changed**:
+  - the stored source is byte-identical before and after (`9d74d9ca…`);
+  - the three pages differ only in their render timestamps, and every page
+    is at `kk6qsh`, so nothing was published;
+  - components 3 → 3, and the stored description is unchanged;
+  - `lessons` still answers 736 bytes, `2ec299b8…` (B1's state), read
+    again at 17:12;
+  - `neon_db` is still blank.
+- **Money**: 15 → 13, all of it routing. No job is open, and there has
+  been no activity since 08:30 (read at 17:12).
+
+**What it does not show.** The core of this test is still unshown:
+- the real picker answering `remove` for exactly the named row;
+- the job deleting that row through the blank link;
+- the list coming back to the baseline.
+
+What run 77 adds is one live routing sample and the no-match path for a row
+that does not exist, refunded. **Not a pass**, and not counted as the
+delete test. Whether and when to press again is the owner's decision, in
+the prepared order: B2's recovery closed first, then the temporary row and
+my read of it, then the press, for about 3 credits from a balance of 13. A press repeats nothing accepted, since this test has no
+acceptance. The canary has no fixture check before a paid data press
+(backlog).
 
 ## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; its free runtime check passed as run 62; pressed as run 63 the same day: the router answered `nav` with `remove` and held the band back, so only the menu change was made and the look door was not reached; the free restore, run 64, put everything back; the owner recorded run 63 as a partial outcome and accepted run 64, with the intended acceptance still open; the router's whole-message rule corrected on the branch the same day, made to choose by what a route can make on every page rather than by kind after the owner's review, and the acceptance prepared again, not run; the rule merged and deployed in deploy 2170 the same day and runtime-confirmed by run 65; pressed again as run 66 the same day: the router answered `look` with nothing held back, and both changes were stored and published exactly as expected, for 6 credits; every acceptance item met; the free restore, run 67, put everything back, checked; closed by the owner the same day for the exact combined request run 66 proved, with recovery verified by run 67, runs 63 and 64 kept as history, no further reruns)
 

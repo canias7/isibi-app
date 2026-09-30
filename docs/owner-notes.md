@@ -57,6 +57,39 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-30 — The delete test ran before its temporary row existed (run 77): nothing deleted, 2 credits
+
+**What you pressed**: the prepared delete test (run 77, 08:28 UTC), with
+every box right. But the "Ten-minute tune-up" row hadn't been added, and
+the £40 put-back still hadn't landed (row 4 was 42).
+
+**What happened**:
+- **The router sent it to the data step.** It was given the site's table
+  names (the fix from this morning's Lane 1) and answered `data`, as
+  expected, so the route check let it through. That's the first real reading
+  of this morning's row-removal fix: one sample.
+- **The data step found no such row** and said so to the customer: "I
+  couldn't match that to anything the site stores — say which list it's in
+  and I'll have another go. This edit cost you nothing. Reading your message
+  cost 2 credits." That's the right answer when the row isn't there.
+- **Nothing changed**: the four lessons are exactly as before (row 4 still
+  42), nothing was published, and every page is on the same version.
+- **Money**: 15 → 13, all for reading the message. The data step's 1-credit
+  hold was given back (ledger rows 343 and 344). Nothing has run since
+  (checked at 17:12).
+
+**So the delete test hasn't really been done.** The part it exists for,
+the data step deleting exactly the named row, never got a row to delete.
+I've recorded run 77 as not a pass. The canary doesn't check that the row
+exists before spending; that gap is in the backlog.
+
+**To do it properly, in order** (only if you want to):
+1. the £40 put-back, which I verify;
+2. add the tune-up row, which I read back;
+3. press the same inputs again, for about 3 credits from 13.
+
+---
+
 ## 2026-09-30 — The £40 put-back didn't reach the database (still £42 at 08:19)
 
 **You asked me to verify your price restoration. It isn't there yet**, so

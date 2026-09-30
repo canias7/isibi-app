@@ -190,3 +190,20 @@ CHECKS PASSED`. Nothing was charged: the balance is 15, with no ledger row
 after 342 and no job open. This confirms which code runs. It says nothing
 about how a real router answers a row taken off a list; that is still Lane
 4's delete, prepared and not run.
+
+## First live reading: run 77 (the same day)
+
+The owner pressed Lane 4's delete as prepared (run 77, 36689829998, 08:28–08:29
+UTC), before its temporary row was added. The real router (grok-4.6) was told
+the site's four table names by the route (`tablesFilled`, Lane 1d's first live
+reading) and answered `intent=edit layer=data` for *"We don't do the Ten-minute
+tune-up any more, please take it off the price list."*, with nothing held back,
+at cost 2. The route check matched, and the answer was posted as it came.
+
+**One sample.** The router is told table names, not rows, so the missing row
+did not bear on its answer. The data picker then found no such row
+(`no-match`, its reserve refunded: ledger rows 343 and 344), and nothing
+changed. The deletion half is not shown: the picker answering `remove` for
+exactly the named row, and the job deleting it through the blank link. The
+record is the checklist's *Lane 4's delete*, *Run 77*.
+
