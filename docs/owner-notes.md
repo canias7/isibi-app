@@ -62,6 +62,14 @@ is in git; the dated entries further down are the full story.*
 - You asked for this handoff here, the handoff process in
   `owner-preferences.md`, and no edits to CLAUDE.md. CLAUDE.md was not
   edited this round, so its £40 lines stop at the 20:13 read.
+- Then: "cant you just do it, use y account". I can't sign in as you from
+  this session (no password, no login link, and minting a session is what
+  your rule forbids). I started the one route that does use your account,
+  the canary, which signs in as you inside GitHub Actions: a free put-back
+  scenario for this row. **The environment's permission check refused it**
+  ("Modify Shared Resources") when its tests were being added. I discarded
+  the uncommitted edits (tree clean at `ceb6ed07`), nothing was pushed, and
+  I haven't tried it another way.
 
 **Blockers**
 - **The £40 through the owner save path.** The save (`PATCH
@@ -76,7 +84,10 @@ is in git; the dated entries further down are the full story.*
   - The environment also refused my listing of credential-like environment
     names. I did not retry it another way.
   - No existing canary mode fits: its recover-only mode is hard-wired to
-    D1's row on `fold-lane-bakery`.
+    D1's row on `fold-lane-bakery`. Building one for this row was refused
+    by the environment's permission check (above), so option 2 below needs
+    you to allow that kind of action first (a permission rule in your Claude
+    Code settings).
 - **Your earlier browser attempt is still unexplained.** Nothing has been
   observed yet. Supabase's request logs (the 24 hours to 17:25 UTC) held no
   owner lookup for `fretwork-1` outside canary runs. That fits no Save
