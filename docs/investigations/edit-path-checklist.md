@@ -70,6 +70,24 @@ and the AI row deletion (run 80)** (*Lane 4's delete*, below).
 - Kept separate: the reply cutting each deleted field at 40 characters
   (backlog).
 
+**Test 9 ran as run 82 (2026-09-30): every pass item met, for the owner's
+review** (*Test 9*, below). Not closed: closing is the owner's, and the
+checks after the owner's third item are mine until the owner confirms them.
+- **Run 81**, free: the rehearsal opened the app, read the table and both
+  pages at £42, typed message 1 and sent nothing.
+- **Run 82**, from one browser tab, never reloaded:
+  - *"We've stopped running the Weekend workshop, please take it off the
+    price list."*: routed `data`; the data step matched nothing
+    (`no-match`); the app drew the warning; the job's reserve of 1 was
+    refunded; the table was the baseline on both readers, byte for byte;
+  - *"Please change the Hour one-to-one's price to £45."*, sent from that
+    same tab: routed `data`; exactly `lessons` id 4's price, 42 → 45;
+    *"✅ Updated one entry in lessons."*; ids 1 and 3 unchanged; `/prices`
+    and `/` show £45, with nothing published;
+  - 4 credits (10 → 6): routing 2 and 1, message 1's edit 0 once refunded
+    (ledger rows 346 and 347), message 2's edit 1 (row 348); no job open.
+- The demo data stays as it stands: the Hour one-to-one is £45.
+
 **Lane 1 (2026-09-30): four corrections, merged and deployed in deploy 2171
 (`29111010`, image `cdb624837e099719`; the deployment credited by the owner),
 the code runtime-confirmed under deploy 2172 by run 76**
@@ -238,8 +256,9 @@ the owner's free press, run 51, at 22:57 UTC):
    A second message after a hop or a failure is outstanding too: one of the
    owner's remaining six (2026-09-29). **The failure half is prepared as Test
    9** (2026-09-30, the owner's word; the UI scenario `9-follow-up`, below):
-   a request that fails visibly, then a normal one from the same tab. Not
-   run. A follow-up after a hop stays unprepared.
+   a request that fails visibly, then a normal one from the same tab. Run
+   as run 82 (2026-09-30): every pass item met, for the owner's review. A
+   follow-up after a hop stays unprepared.
 4. **A named page other than the home page** on a look edit: **closed with
    Test 6** (run 57): the picker scoped the move to `/visit`, and only
    `visit.tsx` changed.
@@ -1189,7 +1208,8 @@ approves it.
   - the picture swap;
   - a correct component on the first attempt;
   - a follow-up message after a failure or an escalation (the failure half
-    prepared as Test 9, 2026-09-30, not run).
+    run as Test 9, run 82, 2026-09-30: every pass item met, for the owner's
+    review; the escalation half unprepared).
 - **Kept separate**: a protection refusing a real model's answer. Run 74's
   refusal was the canary's own route check, not a product protection, and is
   not counted for it.
@@ -1282,7 +1302,8 @@ accepted test.
 - **Add** (after 2a, and lane 3 if `data`).
 - **Reorder** (after 2b and lane 3).
 - **Rules, picture swap and component**: after 2c–2e.
-- **Follow-up after a failure**: prepared as Test 9 (2026-09-30), not run.
+- **Follow-up after a failure**: Test 9 ran as run 82 (2026-09-30), every
+  pass item met, for the owner's review.
 
 The put-back routing (1d) needs no live test of its own. It would show up
 in the next data press.
@@ -1295,7 +1316,7 @@ in the next data press.
 - **Then**: one merge, one free runtime check, and the lane 4 presses. Those
   on different sites can overlap a minute apart, as Batch 1's did.
 
-## Test 9 — a follow-up after a failure, in the same chat tab (prepared 2026-09-30 on the owner's word, after runs 79 and 80 were closed; built on the branch as the canary's UI scenario `9-follow-up`, red-checked, swept, tested through the stand-in, and proven locally against the real app's code with supplied answers, which found and fixed a first-run modal that would have blocked the card at the current balance; the free rehearsal passed as run 81 the same evening; the paid run awaits the owner's approval)
+## Test 9 — a follow-up after a failure, in the same chat tab (prepared 2026-09-30 on the owner's word, after runs 79 and 80 were closed; built on the branch as the canary's UI scenario `9-follow-up`, red-checked, swept, tested through the stand-in, and proven locally against the real app's code with supplied answers, which found and fixed a first-run modal that would have blocked the card at the current balance; the free rehearsal passed as run 81 the same evening; the owner pressed the paid run as run 82 the same evening, and every pass item was met, for 4 credits; for the owner's review)
 
 **The owner** (the message arrived cut off after the third item): *"Next,
 prepare one bounded test of a follow-up after failure in the same chat tab:
@@ -1507,8 +1528,93 @@ artifact 11129406214), spend `no`, scenario `9-follow-up`, site
   (`writes` 0), and the page made no POST at all.
 - **Stopped** with message 1 typed and not sent; the balance 10 → 10.
 
-The paid run is next, only with the owner's approval: about 5 credits (3
-to 5) from 10, with the boxes above.
+The owner pressed the paid run next, with the boxes above: run 82, below.
+
+### Run 82 — the paid run: every pass item met (2026-09-30 22:21–22:23 UTC, 4 credits)
+
+Edit canary run 82 (36785026124, job 110124270397, from the branch at
+`709f8d9b`; evidence artifact 11128809989), spend `yes`, scenario
+`9-follow-up`, site `fretwork-1`, the deploy and image boxes filled, every
+other box blank. The canary ended *UI MODE PASSED: 2 messages sent*.
+- **Preflight**: both readers answered `8908b59d2069`, a cold container
+  `e71f7bae88b9ecf1`, and queued jobs and the runner were on. Every free
+  check passed. Its own zero-cost probe jobs (`a2e7a1f4…` on `fretwork-1`,
+  and `44429beb…` on the control, `washhouse-3`) settled `failed` at cost
+  0, billing `none`, with no ledger row (read in Supabase). The balance was
+  10.
+- **Before message 1** (22:22:05 UTC): `lessons` id 4 read as the Hour
+  one-to-one at 42 on both readers, three rows. The visitor's read equalled
+  the recorded table. `/prices` and `/` both showed the line at £42, at
+  `kk6qsh`.
+- **Message 1**, *"We've stopped running the Weekend workshop, please take
+  it off the price list."* (reply in 32 s):
+  - it left word for word, the real router answered `data` (cost 2), and
+    one edit went out: job `5cc0cc60…`;
+  - in the container the data step matched nothing. The stored reply is 422
+    `no-match` and names no row. The job's reserve of 1 (ledger row 346) was
+    refunded at 22:22:35 UTC (row 347). The job is `failed` and
+    `refunded`, and the page was served its edit cost as 0
+    (`refunded: 1`);
+  - on screen: *"⚠️ I couldn't match that to anything the site stores —
+    say which list it's in and I'll have another go. This edit cost you
+    nothing. Reading your message cost 2 credits."* The composer was usable
+    again;
+  - after it, the table was the baseline on both readers, byte for byte.
+- **Message 2**, *"Please change the Hour one-to-one's price to £45."*,
+  sent from the same tab (reply in 29 s):
+  - at its Send, the tab's mark and time origin were the ones the run took
+    when the workspace opened (`b5d170bc…`, the same project address), and
+    both replies were read in that tab;
+  - it left word for word, the real router answered `data` (cost 1), and
+    one edit went out: job `c608d15d…`;
+  - the stored reply is 200 and names exactly `lessons` id 4, `price`
+    (`failed` 0). On screen: *"✅ Updated one entry in lessons."* The
+    composer was usable again;
+  - in the database, exactly id 4's price changed, 42 → 45, on both
+    readers. Ids 1 and 3 are unchanged in every field, and no row was added
+    or removed;
+  - `/prices` and `/` show £45 on the Hour one-to-one line, with every
+    other line as before. Nothing was published: no version names either
+    job, neither job's row began a publish, and every page is still at
+    `kk6qsh`. The stored source is byte-identical before and after. The
+    served markup differs only in its render timestamps, because the pages
+    read their prices live.
+- **Money**: 10 → 6. That is routing 2 and 1 plus message 2's edit of 1
+  (its reserve, ledger row 348, `finalized`). Message 1's reserve and
+  refund net to nothing (rows 346 and 347, `refunded`). No job is open.
+- **The browser**: one console error, the browser's own line for message
+  1's poll answering 422, which is the failure's own status. No page error.
+  The page sent four POSTs: route, edit, route, edit.
+- **Nothing was put back** (the demo-site rule): the Hour one-to-one stays
+  at £45.
+
+**Read again independently, free, 22:27–22:28 UTC:**
+- the site's own read of `lessons`, whole (`0-2/3`, 541 bytes, sha256
+  `30f8ed88…`): ids 1, 3 and 4. Against the 21:31 read, only id 4's price
+  differs, 42 → 45;
+- `/prices` and `/`, read in a headless browser as a visitor: £0, £30 and
+  £45, version `kk6qsh`;
+- Supabase, non-secret columns only: balance 6; last ledger row 348 (rows
+  346–348 as above); job `5cc0cc60…` `failed` and `refunded`; job
+  `c608d15d…` `done`, `finalized`, cost 1. Neither job began a publish, and
+  no job is open. The platform's terminal states are `done`, `failed`,
+  `cancelled` and `lost`, so two `lost` jobs from 2026-09-01 and 09-02,
+  both refunded, count as closed, not open.
+
+**Against the pass list**, every item is met:
+- 1 and 2: the failure, and the table after it;
+- 3: the same tab, never reloaded;
+- 4: message 2's request;
+- 5 and 6: the change, and the rows left alone;
+- 7: both pages, with nothing published;
+- 8: one job per message, the refund, and the balance's move of 4.
+
+The cost was 4, inside the estimate of 3 to 5.
+
+**For the owner's review.** Closing is the owner's decision. The checks
+after the owner's third item are mine until the owner confirms or corrects
+them. What it does not show is unchanged (*Cost, and what it will not
+show*, above).
 
 ## Lane 4's delete — one row taken off `fretwork-1`'s price list, with real models (prepared 2026-09-30 after deploy 2171; its routing conflict corrected the same day on the owner's word, merged and deployed in deploy 2172, runtime-confirmed by run 76; pressed by the owner as run 77 the same day before its temporary row was added and with B2's recovery still open: the real router answered `data`, the picker found no such row, nothing changed, 2 credits; recorded by the owner as a failed deletion acceptance, its live routing and refunded no-match credited separately; the canary's fixture check added on the branch the same day; a new press prepared only after the price recovery and the temporary row are read back and verified; those two preconditions replaced the same day by the owner's demo-site rule, and the deletion re-prepared on the current table; the free rehearsal passed as run 79, the row check's first live run, and the paid deletion met every condition as run 80, for 3 credits; both closed by the owner the same day, the demo data kept as it stands)
 

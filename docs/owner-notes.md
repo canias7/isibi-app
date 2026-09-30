@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-09-30, 22:25 UTC)
+## Current handoff — read this first (2026-09-30, 22:35 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -11,62 +11,76 @@ is in git; the dated entries further down are the full story.*
   `claude/help-needed-ehlwlj` is `main` plus the canary's Test 9 scenario
   (scripts, tests, and the scenario box's text in the canary workflow) and
   documents. No product code changed; nothing needs deploying.
-- Runs 79 and 80 are closed by you, and the demo data stays: `fretwork-1`'s
-  lessons are First lesson £0, One-to-one £30, Hour one-to-one £42.
-- Balance 10 (read by run 81 at 22:15 UTC).
-- **Test 9's free rehearsal passed (run 81). The paid run waits for your
-  approval**: about 5 credits (3 to 5).
+- `fretwork-1`'s lessons are now First lesson £0, One-to-one £30, Hour
+  one-to-one **£45** (run 82's change, kept as the demo data).
+- Balance 6 (read at 22:27 UTC; last ledger row 348), and no job open.
+- **Test 9 ran as your paid run 82 and met every pass item, for 4
+  credits. It is for your review**: closing it is your call.
 
 **Completed**
-- Test 9 built, red-checked, swept and proven locally against the real
-  app's code (which found and fixed the welcome pop-up blocking the site
-  card at a balance of 20 or less).
-- **Run 81, the free rehearsal**: signed in, the card opened with no
-  pop-up, the table and both pages read at £42, message 1 typed and not
-  sent; no request from the page, no write, balance 10 → 10.
+- Test 9 was built, red-checked, swept and proven locally against the real
+  app's code. That proof found and fixed the welcome pop-up blocking the
+  site card at a balance of 20 or less.
+- Run 81, the free rehearsal, passed.
+- **Run 82, the paid run**, from one browser tab, never reloaded:
+  - *"We've stopped running the Weekend workshop, please take it off the
+    price list."* went to the database step, which found no such lesson.
+    The app showed *"⚠️ I couldn't match that to anything the site stores
+    — say which list it's in and I'll have another go. This edit cost you
+    nothing. Reading your message cost 2 credits."* The edit's credit came
+    back, and the table did not change.
+  - *"Please change the Hour one-to-one's price to £45."*, sent from the
+    same tab, changed exactly that price, 42 → 45. The app said *"✅
+    Updated one entry in lessons."* The other two lessons are untouched,
+    the price list and home page show £45, and nothing was published.
+  - Money: 10 → 6. Reading the two messages cost 2 and 1, and the price
+    change 1. The failed edit's 1 was charged and refunded.
+- I read it all again myself afterwards, free (22:27–22:28 UTC): the
+  table, both pages, the ledger and the jobs all agree.
 
 **Test results**
-- 15 new tests and one changed; red check 16 fail and 90 pass on the old
-  scripts; sweep 49 of 49 killed with the 3 controls surviving; full suite
-  `8403 / 8403 / 0 / 0` locally; unit CI `8403 / 8399 / 0 / 4` on
-  `04331c8c` and on `e6b659a1`.
-- Live: run 81 passed (free).
+- Unit tests unchanged since the last handoff (no code changed): `8403 /
+  8403 / 0 / 0` locally; unit CI `8403 / 8399 / 0 / 4` on `04331c8c` and
+  on `e6b659a1`.
+- Live: run 81 passed (free), and run 82 passed every check (4 credits).
 
 **Links**
+- Run 82: https://github.com/canias7/isibi-app/actions/runs/36785026124
 - Run 81: https://github.com/canias7/isibi-app/actions/runs/36784382993
 - Branch commits: https://github.com/canias7/isibi-app/commits/claude/help-needed-ehlwlj
-- The plan, the pass list and the presses: the checklist's *Test 9*. The
-  story: `docs/history/2026-09-30-follow-up-test.md`.
+- The record: the checklist's *Test 9* (*Run 82*). The story:
+  `docs/history/2026-09-30-follow-up-test.md`, section 7.
 
 **From our chat**
-- Your Test 9 message stopped after *"its intended change happens,"*. The
-  checks after it are mine, for you to confirm or correct: the failure
-  changed nothing and its edit charge came back; unrelated rows unchanged;
-  the website reflects the change; billing correct; no reload.
+- Your Test 9 message stopped after *"its intended change happens,"*. I
+  filled in the checks after it, and they are still for you to confirm or
+  correct:
+  - the failure changed nothing, and its edit charge came back;
+  - unrelated rows are unchanged;
+  - the website reflects the change;
+  - billing is correct;
+  - no reload happened.
+
+  Run 82 met all of them.
 - The demo data stays as it stands. CLAUDE.md is left alone.
 
 **Blockers**
-- None. The paid run needs your approval.
+- None.
 
 **Findings, kept separate**
 - The welcome pop-up greets returning owners on a new browser when an
   unpaid balance is 1 to 20, and still speaks of the deleted media side
   (backlog, not changed).
 - The deleted row's reply cuts each field at 40 characters (backlog).
+- Run 82 found nothing new.
 
 **Exact next action**
-- **Your approval of the paid run**, then its press. Edit canary, "Use
-  workflow from" `claude/help-needed-ehlwlj`:
-  - "Run the ONE paid edit as well (yes/no)": `yes`
-  - "RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: …":
-    `9-follow-up`
-  - "The site to edit": `fretwork-1`
-  - "Refuse to spend unless the Worker reports this deploy sha":
-    `8908b59d2069dfb5f11fa679a8b33b649194fe77`
-  - "Refuse to spend unless a cold container reports this image id":
-    `e71f7bae88b9ecf1`
-  - every other box blank.
-- Then I read it against the pass list and report. Nothing is put back.
+- **Your review of run 82**: close Test 9, or tell me what is missing, and
+  confirm or correct the checks I filled in.
+- Nothing else is prepared. The open items are adding and reordering rows,
+  broader rules, the picture swap, a first-attempt component, and a
+  follow-up after an escalation. They wait on your Lane 2 decisions (the
+  checklist's *Next independent work*).
 
 ---
 
@@ -126,6 +140,34 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-09-30 — Your paid run of Test 9 passed every check (run 82)
+
+**What happened**: your press (run 82, 22:21–22:23 UTC, from the branch)
+opened the app signed in and `fretwork-1`'s workspace. It first checked the
+price list and home page (Hour one-to-one at £42) and the lessons table.
+Then, from one tab:
+1. It sent *"We've stopped running the Weekend workshop, please take it off
+   the price list."* The site has no Weekend workshop, so the database step
+   found nothing to take off. The app showed its warning, the edit's 1
+   credit was charged and given back, and the table was exactly as before.
+2. Without reloading, it sent *"Please change the Hour one-to-one's price to
+   £45."* The database step changed exactly that price, 42 → 45, and the app
+   said *"✅ Updated one entry in lessons."* The other two lessons are
+   untouched, the price list and home page show £45, and nothing was
+   published.
+
+**Money**: 4 credits, 10 → 6. Reading the two messages cost 2 and 1, and
+the price change 1. The failed edit's credit came back.
+
+**Checked again myself** (free, 22:27–22:28 UTC): the table, both pages,
+the ledger and the jobs agree. My first count of open jobs included two
+jobs from September 1–2 that ended long ago as `lost` (refunded). Counted
+the way the platform counts, no job is open.
+
+**Next**: your review. Test 9 is not closed until you say so. The checks
+after your third item are mine until you confirm them. The price stays at
+£45 (demo data).
 
 ## 2026-09-30 — Your free rehearsal of Test 9 passed (run 81)
 

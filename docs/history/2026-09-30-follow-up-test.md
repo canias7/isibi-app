@@ -1,10 +1,11 @@
 # 2026-09-30 — Test 9: a follow-up after a failure, in the same chat tab
 
 Prepared on the owner's word after runs 79 and 80 were closed. Built on the
-branch as the canary's UI scenario `9-follow-up`. **Not run**: its free
-rehearsal and its paid press are the owner's, and the paid one waits for
-the owner's approval of the estimate. The plan, the pass list and the
-presses are in the checklist's *Test 9*.
+branch as the canary's UI scenario `9-follow-up`. **Both of the owner's
+presses passed**: the free rehearsal as run 81, and the paid run as run 82,
+which met every pass item for 4 credits (section 7). It is for the owner's
+review, not closed. The plan, the pass list and the presses are in the
+checklist's *Test 9*.
 
 ## 1. What was asked
 
@@ -176,7 +177,54 @@ artifact 11129406214), spend `no`, scenario `9-follow-up`, site
 - no conditional write, no recovery plan, no PATCH, and no POST from the
   page; message 1 typed and not sent; balance 10 → 10.
 
-## 7. What it will not show
+## 7. Run 82: the paid run met every pass item (22:21–22:23 UTC, 4 credits)
+
+Edit canary run 82 (36785026124, job 110124270397, from the branch at
+`709f8d9b`; evidence artifact 11128809989), spend `yes`, scenario
+`9-follow-up`, site `fretwork-1`, with the deploy and image boxes filled.
+- **Preflight**: `8908b59d2069` on both readers, a cold container
+  `e71f7bae88b9ecf1`, and every free check passed. Its probe jobs
+  (`a2e7a1f4…` on `fretwork-1`, and `44429beb…` on `washhouse-3`) settled
+  `failed` at cost 0, billing `none`, with no ledger row. The balance was
+  10.
+- **Before**: id 4 was the Hour one-to-one at 42 on both readers, three
+  rows, equal to the recorded table. Both pages showed £42.
+- **Message 1** (the Weekend workshop): routed `data` (2), one edit, job
+  `5cc0cc60…`.
+  - The data step matched nothing: the stored reply is 422 `no-match`,
+    naming no row.
+  - Its reserve of 1 (ledger row 346) was refunded (row 347), and the job
+    is `failed` and `refunded`.
+  - The app drew the warning with its money sentence. The composer came
+    back.
+  - The table was the baseline on both readers, byte for byte.
+- **Message 2** (the Hour one-to-one to £45), sent from the same tab: its
+  mark and time origin at Send were the ones taken when the workspace
+  opened, and both replies were read there.
+  - It was routed `data` (1), one edit, job `c608d15d…`.
+  - The stored reply names exactly `lessons` id 4, `price`, and the app
+    composed *"✅ Updated one entry in lessons."*
+  - Exactly id 4's price changed, 42 → 45, on both readers. Ids 1 and 3
+    are unchanged in every field.
+  - `/prices` and `/` show £45 and every other line as before. Nothing was
+    published: every page is still at `kk6qsh`, and the stored source is
+    byte-identical.
+- **Money**: 10 → 6, routing 2 and 1 plus message 2's edit 1 (ledger row
+  348, `finalized`). Message 1's reserve and refund net to nothing. No job
+  is open.
+- **The browser**: one console line, for message 1's poll answering 422 (the
+  failure's own status). No page error. Four POSTs: route, edit, route,
+  edit.
+- **Read again independently** (22:27–22:28 UTC, free):
+  - the site's read, whole (`0-2/3`, 541 bytes, `30f8ed88…`), differs from
+    the 21:31 read only in id 4's price;
+  - both pages in a headless browser show £0, £30 and £45, at `kk6qsh`;
+  - Supabase: balance 6, last ledger row 348, both jobs as above, and no
+    job open. The terminal states are `done`, `failed`, `cancelled` and
+    `lost`, so two refunded `lost` jobs from 2026-09-01 and 09-02 are closed.
+- Nothing was put back (the demo-site rule): the price stays at £45.
+
+## 8. What it will not show
 
 A follow-up after other failures (a hop, an escalation, a failure with no
 job); one that leans on the conversation (message 2 names its own row);
