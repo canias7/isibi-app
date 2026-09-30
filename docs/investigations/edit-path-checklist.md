@@ -1513,6 +1513,13 @@ workflow from" `main`. Boxes by description:
 
 It should print the row check `as-named` and stop before any routing call,
 with nothing charged. It is the row check's first live run.
+**Pressed as run 79 and passed** (36776533709, 21:00:35–21:01:06 UTC, from
+`main`):
+- `as named: 4 rows; the target is id 2, and the other 3 digest to
+  47c5b2217d6d6453`;
+- every free check passed, every page at `kk6qsh`, and the balance 13;
+- it stopped before the paid edit: no routing call, nothing charged;
+- the table was byte-identical before and after (21:00:47 and 21:01:50 UTC).
 
 **2. The paid deletion (only after the rehearsal passes and the owner
 approves the estimate).** The same form, "Use workflow from" `main`:

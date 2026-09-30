@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-09-30, 20:58 UTC)
+## Current handoff — read this first (2026-09-30, 21:03 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -17,10 +17,16 @@ is in git; the dated entries further down are the full story.*
   sha256 `2ec299b8…`): First lesson £0, Group of three £18, One-to-one £30,
   Hour one-to-one £42. The lessons show on `/` and `/prices`, both reading
   the table live. Every page is at `kk6qsh`.
-- Balance 13 at the last reading (run 78, 19:59 UTC). I haven't read it
-  since: you declined my Supabase query.
+- Balance 13, read by your free rehearsal, run 79, at 21:01 UTC.
 
 **Completed**
+- **Your free rehearsal passed: run 79** (21:00–21:01 UTC, from `main`).
+  - The row check's first live run: `as named: 4 rows; the target is id 2,
+    and the other 3 digest to 47c5b2217d6d6453`.
+  - Every free check passed, and it stopped before any routing call:
+    nothing charged.
+  - The table was byte-identical before and after (21:00:47 and 21:01:50
+    UTC).
 - **The deletion test, re-prepared on the current table** (the checklist's
   *Lane 4's delete*, "Re-prepared on the current table"):
   - **The disposable row is an existing one: id 2, "Group of three".** I
@@ -41,17 +47,18 @@ is in git; the dated entries further down are the full story.*
 - No code has changed since `8908b59d`: unit suite `8388 / 8388 / 0 / 0`
   locally (on `fc06edde` with its records, the same code) and `8388 / 8384 /
   0 / 4` on CI on `8908b59d` (CI skips four).
-- The row check has still not run live (run 78's box was blank). The
-  rehearsal below is its first live run.
+- The row check's first live run: run 79, as named, free.
 
 **Links**
 - Branch commits: https://github.com/canias7/isibi-app/commits/claude/help-needed-ehlwlj
 - The edit canary: https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml
 - Deploy 2173: https://github.com/canias7/isibi-app/actions/runs/36768265523
 - Run 78: https://github.com/canias7/isibi-app/actions/runs/36769355267
+- Run 79, the free rehearsal (evidence artifact 11125023825):
+  https://github.com/canias7/isibi-app/actions/runs/36776533709
 - Run 77, the first deletion press (a failed acceptance):
   https://github.com/canias7/isibi-app/actions/runs/36689829998
-- The story: `docs/history/2026-09-30-fixture-check.md`, §4 to §8
+- The story: `docs/history/2026-09-30-fixture-check.md`, §4 to §9
 
 **From our chat**
 - You asked me to make the £40 correction myself. The save route needs your
@@ -72,23 +79,21 @@ is in git; the dated entries further down are the full story.*
   the £40 are out of date.
 
 **Blockers**
-- None for the free rehearsal. It's yours to press, because a session's
-  dispatch answers 403.
-- The paid deletion waits for the rehearsal to pass and for your approval.
+- The paid deletion waits only for your approval of the estimate. It's
+  yours to press, because a session's dispatch answers 403.
 
 **Exact next action**
-1. **You press the free rehearsal**: edit canary, "Use workflow from"
-   `main`, spend `no`, site `fretwork-1`, and in "Refuse to route or spend
-   unless one table … is as named":
+1. **Your approval of the paid deletion**, about 3 credits: the routing call
+   1–2 and the data edit about 1. About 2 if the route check refuses;
+   nothing if the row check stops it. The balance is 13.
+2. **You press it**: edit canary, "Use workflow from" `main`, spend `yes`,
+   "What to change" `We don't do the Group of three any more, please take it off the price list.`, site `fretwork-1`, deploy
+   `8908b59d2069dfb5f11fa679a8b33b649194fe77`, image `e71f7bae88b9ecf1`,
+   route `intent=edit layer=data alsoAsked=none`, and the same row check:
    `{"table":"lessons","baseline":"47c5b2217d6d6453","target":{"id":2,"name":"Group of three","description":"Share a 45-minute lesson with two other beginners. Eighteen pounds each.","price":18,"duration":"45 minutes","created_at":"2026-09-02 16:57:02"}}`
-   It should print the row check `as-named` and stop before any routing
-   call, at no cost.
-2. **I read it**, and confirm the table is still the baseline.
-3. **Then, with your approval, the paid press**: the request "We don't do the Group of three any more, please take it off the price list.", with
-   the route check `intent=edit layer=data alsoAsked=none`, the same row
-   check, and the deploy and image checks (the checklist lists every box).
-   **About 3 credits** (the routing call 1–2, the data edit about 1); about
-   2 if the route check refuses; nothing if the row check stops it.
+3. **I check it against your four conditions**: the correct row deleted,
+   unrelated rows unchanged, the home page and `/prices` without it, and the
+   ledger matching the charges.
 
 ---
 
@@ -146,6 +151,22 @@ out of Open the moment it is resolved.
 Moved to [`owner-preferences.md`](owner-preferences.md) on 2026-09-28, word for
 word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
+
+---
+
+## 2026-09-30 — Your free rehearsal passed (run 79): the deletion is ready for your approval
+
+**Passed.** Run 79 (21:00–21:01 UTC) read the whole `lessons` table and found
+it exactly as named: four rows, "Group of three" as the row to delete, and the
+other three matching their fingerprint. It stopped before calling the AI, so
+nothing was charged, and the table was unchanged before and after. It's the
+first time the row check has run live.
+
+**Next**: the paid deletion, about 3 credits (balance 13), when you approve
+it. It sends "We don't do the Group of three any more, please take it off the
+price list." through the real edit route. I'll check the four things you
+named: the right row gone, the others untouched, the site showing it, and the
+billing.
 
 ---
 

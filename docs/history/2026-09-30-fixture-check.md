@@ -579,3 +579,39 @@ correct deletion the remaining rows must still digest to it.
 The presses, the pass and the estimate are in the checklist's *Lane 4's
 delete*, "Re-prepared on the current table".
 
+## 9. Run 79: the row check's first live run, as named (free)
+
+The owner pressed the free rehearsal: edit canary run 79
+([36776533709](https://github.com/canias7/isibi-app/actions/runs/36776533709),
+2026-09-30 21:00:35–21:01:06 UTC, from `main` at `8908b59d`, evidence
+artifact 11125023825).
+
+**The inputs, from the log**:
+- `CANARY_SLUG fretwork-1` and `CANARY_SPEND 0`;
+- `CANARY_EXPECT_ROWS` the box exactly as prepared;
+- the instruction, route, deploy and image boxes blank.
+
+**What it did:**
+- It printed `EXPECTED ROWS lessons: target {…id 2, Group of three…}, the
+  other rows 47c5b2217d6d6453` before the sign-in, and signed in as the
+  building account.
+- Preflight: `build-health 200 deploy=8908b59d2069 image=e71f7bae88b9ecf1`,
+  `runtime 200 async=true runner=true`, and the two readers agreeing.
+- The zero-cost checks: the free job on `fretwork-1` (`3dcbb84e…`) was
+  claimed at 2 s and settled after about 8 s at cost 0. The control's
+  (`5b6ccdae…` on `washhouse-3`) was queued the same way. The forged marker
+  and the foreign poll answered 404. `ALL FREE CHECKS PASSED`.
+- The before-inventory: the source read complete (`index.tsx`, `prices.tsx`,
+  `gear.tsx`; parts `chord-diagram`, `trial-booking-form`,
+  `day-space-lookup`), every page at `kk6qsh`, and the balance 13.
+- **The row check: `as named: 4 rows; the target is id 2, and the other 3
+  digest to 47c5b2217d6d6453`**, written to `fixture.json`.
+- Then `CANARY_SPEND is not 1 — stopping before the paid edit. Nothing was
+  charged.` No routing call was made.
+
+**Read around it, free**: the whole table at 21:00:47 and 21:01:50 UTC was
+byte-identical to the 20:57 read (736 bytes, `2ec299b8…`).
+
+**So the row check has now run live and passed on the real table.** The paid
+deletion is prepared, and it waits for the owner's approval of the estimate.
+
