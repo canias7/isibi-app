@@ -1047,6 +1047,95 @@ is the owner's.
 - **Either**: a refused press shows only which route the router chose. It
   says nothing about the edit path, which never ran.
 
+## Next independent work (prepared 2026-09-30 by free analysis only; nothing started)
+
+The owner asked for the next independent work from the remaining checklist,
+using free analysis only, with parallel execution wherever dependencies
+allow. It must not repeat accepted tests or grow into another testing
+campaign. Everything below was read in the code and the records. No model
+was called, nothing live was changed, and nothing is built until the owner
+approves it.
+
+### Where the remaining items stand
+
+- **Closed or credited by Batch 1**: redirect home (group A, accepted with
+  its timing limit), and the data rung's blank link (B1).
+- **Still open**:
+  - the data rung's adding, deleting and reordering rows;
+  - broader rules;
+  - the picture swap;
+  - a correct component on the first attempt;
+  - a follow-up message after a failure or an escalation.
+- **Kept separate**: a protection refusing a real model's answer. Run 74's
+  refusal was the canary's own route check, not a product protection, and is
+  not counted for it.
+- **Found by Batch 1, all in the backlog**:
+  - a failed routing call records no reason;
+  - a put-back routed `text` because no table names were sent;
+  - the Data button is dark on a blank-link site.
+
+### Lane 1: four small corrections, each unblocking something, buildable in parallel now
+
+Each has its own file or hunk, its own guard cases through the real route
+with supplied answers, a red check, a sweep with a comment-only control, and
+a record. One merge and one deploy carry all four. `worker.js`,
+`site-backend-state.mjs`, `builder/site-apply.mjs` and `builder/site-ask.mjs`
+are container inputs, so the merge rolls the image once, and container work
+waits 15–20 minutes after it.
+
+| # | Correction | Unblocks | Where | Depends on |
+|---|---|---|---|---|
+| 1a | The data picker's `changes` sentence stops telling it to return nothing for a deletion, since the item's own `remove` field now does deletions (`DATA_TOOL`, `builder/site-apply.mjs:446`) | the delete half of the data item | `builder/site-apply.mjs` | nothing |
+| 1b | A failed routing call carries its reason (the provider and status, never a secret) on the route's answer, and the canary prints it | the observability finding; run 70's empty balance would have named itself | `builder/site-ask.mjs` (the `catch` in `routeMessage`), `worker.js` (`/api/site/route`), `scripts/edit-canary.mjs` | nothing |
+| 1c | The site list counts an `incomplete` site as having a database, through the one state function, so the owner's Data button opens | the dark Data button; the owner's own free recoveries on the four blank-link sites | `worker.js` (the list route), `site-backend-state.mjs` | nothing |
+| 1d | When the digest names no tables, the route fills in the site's own table names (names only) before asking the router, and fails open to today's behavior if the lookup does not answer in time | the `text` misroute's cause; a fresh browser and the canary routing blind | `worker.js` (`/api/site/route`), through the owner-rows machinery (`siteBackendBySlug`, `loadSiteSchema`) | nothing. It changes inputs only, not the router's words, and is shown with supplied answers; how a real router then answers is not measured |
+
+1a, 1b and 1c touch different code and can be built side by side. 1b and 1d
+both touch `/api/site/route`, in different places (the reply and the
+digest), so they are built one after the other in the same file.
+
+### Lane 2: decisions only you can make, in parallel with lane 1
+
+| # | Decision | Why it blocks | What each answer leads to |
+|---|---|---|---|
+| 2a | Which step adds a row to a list the site already has: the add-on step (your 2026-09-02 rule, *"Add will always go in addon"*) or the data picker, which can already insert | an "add a row" acceptance has no expected route until this is decided | **add-on**: no product change, but the canary refuses to post an `addon` answer, so the acceptance needs the UI mode or a canary change. **data**: one router clause (lane 3). |
+| 2b | Whether reordering a list ("show the cheapest first") is `data` | the router says nothing about order, and a misroute to the page writer costs 6–22 | **yes**: one router clause (lane 3). **no**: the reordering half stays open. |
+| 2c | The broader-rules fixture: reopening `lido-axes-b`'s bookings, which you asked to keep closed, or a new disposable site (a first build, 11–45) | its only fixture is closed by your instruction | either way, one bounded rules acceptance afterwards |
+| 2d | Whether to take on the picture swap's product work: attachments reaching the picture step, the picker told which file fills which slot, and no fal purchase when a file is given | no natural message can reach it today without buying a photograph | yes: a product round of its own, later. No: it stays open. |
+| 2e | What "a correct component on the first attempt" must show, and on which site | no fixture has one, and the outcome cannot be fixed in advance | a definition first; no work until then |
+| 2f | Whether to add a UI-mode scenario for a follow-up after a failure: a free, deliberately failing first message, then a second one from the same tab | it needs a harness change, which is yours to ask for | yes: one scenario and one press later |
+| 2g | Whether to heal the four blank links with the existing repair (maintenance on live rows) | 1c covers the button without it. Healing also ends the blank-link fixtures | yes: a free maintenance press. No: nothing |
+
+### Lane 3: the router round, after 2a and 2b
+
+Only if 2a answers `data` or 2b answers yes. It is a wording change to
+`builder/site-ask.mjs`, the same kind as the whole-message rule round: a
+guard, a red check, a sweep, and the existing router cases. It can share
+lane 1's merge if the decisions come first; otherwise it takes its own.
+
+### Lane 4: live closure, after the merge and one free runtime check
+
+Each remaining item closes with at most one bounded press, proposed
+separately with its cost, and only once its blocker is gone. None repeats an
+accepted test.
+- **Delete** (after 1a): on `fretwork-1`, a throwaway row you add first is
+  deleted through the edit path. Nothing of the four baseline rows is
+  touched, so there is nothing to recover.
+- **Add** (after 2a, and lane 3 if `data`).
+- **Reorder** (after 2b and lane 3).
+- **Rules, picture swap, component and follow-up**: after 2c–2f.
+
+The put-back routing (1d) needs no live test of its own. It would show up
+in the next data press.
+
+### What can run at once
+
+- **Now, in parallel**: 1a, 1b and 1c, plus every decision in lane 2.
+- **Then**: 1d after 1b (same route).
+- **Then**: lane 3 once 2a and 2b are decided.
+- **Then**: one merge, one free runtime check, and the lane 4 presses. Those
+  on different sites can overlap a minute apart, as Batch 1's did.
+
 ## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; its free runtime check passed as run 62; pressed as run 63 the same day: the router answered `nav` with `remove` and held the band back, so only the menu change was made and the look door was not reached; the free restore, run 64, put everything back; the owner recorded run 63 as a partial outcome and accepted run 64, with the intended acceptance still open; the router's whole-message rule corrected on the branch the same day, made to choose by what a route can make on every page rather than by kind after the owner's review, and the acceptance prepared again, not run; the rule merged and deployed in deploy 2170 the same day and runtime-confirmed by run 65; pressed again as run 66 the same day: the router answered `look` with nothing held back, and both changes were stored and published exactly as expected, for 6 credits; every acceptance item met; the free restore, run 67, put everything back, checked; closed by the owner the same day for the exact combined request run 66 proved, with recovery verified by run 67, runs 63 and 64 kept as history, no further reruns)
 
 Owner, 2026-09-29: *"Also prepare one bounded real-model acceptance using

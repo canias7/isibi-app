@@ -337,6 +337,21 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   escalation. A protection refusing a real model's answer is kept separate.
   The four not in the batch are not ready. The record is the checklist's
   *Batch 1* and `docs/history/2026-09-30-expected-route.md`.
+- **The next independent work is prepared, not started** (2026-09-30, free
+  analysis only; the checklist's *Next independent work*).
+  - **Lane 1**, four small corrections, three of them buildable in
+    parallel now:
+    - the data picker's delete sentence;
+    - a failed route carrying its reason;
+    - the Data button for blank-link sites;
+    - then the route filling in table names when none are sent.
+  - **Lane 2**, seven decisions that are the owner's, in parallel: which
+    step adds a row, whether ordering is `data`, the rules fixture, the
+    picture swap's scope, the component definition, the follow-up
+    scenario, and healing the blank links.
+  - **Lane 3**, the router wording, after the decisions in lane 2.
+  - **Lane 4**, one bounded press per open item after one merge. Nothing
+    accepted is repeated.
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
   `docs/investigations/edit-path-checklist.md`, and every test's plan, readings

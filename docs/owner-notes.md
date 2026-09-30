@@ -57,6 +57,33 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-30 — The next work, prepared from free analysis (nothing started)
+
+**Three small fixes can be built side by side right away, with a fourth
+straight after**, each with its own tests, and all shipped in one deploy:
+- the data step stops being told to refuse deletions, which unblocks "remove a
+  row";
+- a failed routing call says why it failed (last night's empty Grok balance
+  would have named itself);
+- your Data button opens on the four sites whose database link is blank;
+- straight after the second one, because it's the same code: when a browser
+  sends no table names, the server fills them in, so a price change is less
+  likely to be read as a wording change.
+
+**Seven decisions are yours, and you can make them in any order**:
+1. Should adding a row go through the add-on step or the data step?
+2. Is "show the cheapest first" a data change?
+3. Where should the broader rules test run?
+4. Should we take on the photo-swap product work?
+5. What should "a correct component first time" mean?
+6. Should I add a follow-up-after-failure scenario to the canary?
+7. Should the four blank links be healed?
+
+**After one merge, each open item needs at most one small press**, proposed
+separately with its cost. Nothing already accepted is repeated.
+
+---
+
 ## 2026-09-30 — You accepted the gallery group and credited the first price change
 
 **Recorded as you said.**
