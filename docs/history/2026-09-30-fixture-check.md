@@ -684,3 +684,21 @@ row at 40 characters (`String(w[k]).slice(0, 40)`, `public/chat.js`),
 leaving "…with two other , price 18". It is logged in the backlog, and kept for
 the model-written replies the owner has deferred.
 
+
+## 11. Both closed by the owner (2026-09-30)
+
+**The owner**: "Run 79's live fixture check and run 80's AI row deletion
+pass review. Mark those acceptances closed in the active checklist. Keep the
+demo data as it stands."
+
+- **Run 79** is closed for the row check's first live run: the table read
+  whole (`0-3/4`) and as named, and the run stopped before any routing call,
+  at no cost.
+- **Run 80** is closed for the deletion acceptance the owner set: a normal
+  AI request through the real edit route, the correct row deleted, the
+  unrelated rows unchanged, the website reflecting it, and billing correct.
+- Neither is to be repeated. `fretwork-1`'s `lessons` stays at three rows
+  (ids 1, 3 and 4), and nothing is restored. The reply's 40-character cut
+  stays a separate backlog finding.
+- Recorded in the checklist's short list (*Closed by the owner*, *Proven
+  live*, item 5) and in *Lane 4's delete → Closed by the owner*.

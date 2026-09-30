@@ -52,6 +52,24 @@ run 66 proved, with recovery verified by run 67.**
 - Kept separate: the reply omission (review #9) and the saved-version list's
   label naming only the first change (backlog).
 
+**Closed by the owner (2026-09-30): the row check's first live run (run 79)
+and the AI row deletion (run 80)** (*Lane 4's delete*, below).
+- **Run 79**, free, from `main`: the canary read `fretwork-1`'s `lessons`
+  whole (`0-3/4`), found the target (id 2, "Group of three") as named and
+  the other three rows digesting to `47c5b2217d6d6453`, and stopped before
+  any routing call; nothing charged.
+- **Run 80**, one normal message through the real edit route (*We don't do
+  the Group of three any more, please take it off the price list.*): the
+  real router answered `data` and the route check matched; the job removed
+  exactly `lessons` id 2; the other three rows are unchanged, byte for
+  byte; `/` and `/prices` no longer show it, with nothing published; the
+  balance went 13 → 10 (routing 2, the job's 1 finalized, ledger row 345),
+  with no job open; 3 credits.
+- The demo data stays as it stands (the owner's rule): three rows, nothing
+  restored.
+- Kept separate: the reply cutting each deleted field at 40 characters
+  (backlog).
+
 **Lane 1 (2026-09-30): four corrections, merged and deployed in deploy 2171
 (`29111010`, image `cdb624837e099719`; the deployment credited by the owner),
 the code runtime-confirmed under deploy 2172 by run 76**
@@ -171,6 +189,9 @@ the owner's free press, run 51, at 22:57 UTC):
 - **One database row changed and put back** (42).
 - **One database row changed on a site whose database link is blank**
   (71, Batch 1's B1; the put-back is the owner's own write).
+- **One database row deleted by a normal AI request**, on a site whose
+  database link is blank (80), after the row check read the table whole
+  and as named, live and free (79). Closed by the owner.
 - **A removed page answering 301 home** (72, Batch 1's A2), read 14 and
   25 minutes after publication, not immediately, and the site restored
   exactly and free (75). Accepted by the owner with that limit.
@@ -223,9 +244,11 @@ the owner's free press, run 51, at 22:57 UTC):
 5. **The data rung beyond one row**: adding, removing or reordering rows, and a
    site whose database link is blank. **The blank link is credited** (Batch
    1's B1, run 71); B2's put-back was misrouted `text` and is a finding, not
-   a pass. Adding needs the owner's ruling on which step adds a row.
-   Removing needed the data picker's delete instructions corrected first:
-   **done on the branch (Lane 1a), not merged**, so it waits for the merge.
+   a pass. **Removing is closed by the owner** (run 80, after the row
+   check's first live run, 79; the data picker's delete instructions were
+   corrected first, Lane 1a, deploy 2171). Adding needs the owner's ruling
+   on which step adds a row (2a); reordering, on whether ordering is `data`
+   (2b).
 6. **The rules rung beyond one closing**: reopening, closing by taking write
    access away, limits, and any other wording or site.
 7. **The picture swap**: a new photograph into a slot. Not ready: no natural
@@ -1158,7 +1181,8 @@ approves it.
 - **Closed or credited by Batch 1**: redirect home (group A, accepted with
   its timing limit), and the data rung's blank link (B1).
 - **Still open**:
-  - the data rung's adding, deleting and reordering rows;
+  - the data rung's adding and reordering rows (deleting is closed by
+    the owner: run 80, 2026-09-30);
   - broader rules;
   - the picture swap;
   - a correct component on the first attempt;
@@ -1249,9 +1273,9 @@ lane 1's merge if the decisions come first; otherwise it takes its own.
 Each remaining item closes with at most one bounded press, proposed
 separately with its cost, and only once its blocker is gone. None repeats an
 accepted test.
-- **Delete** (after 1a): on `fretwork-1`, a throwaway row you add first is
-  deleted through the edit path. Nothing of the four baseline rows is
-  touched, so there is nothing to recover.
+- **Delete** (after 1a): on `fretwork-1`, one row deleted through the edit
+  path. **Closed by the owner** (run 80, after run 79's free rehearsal,
+  2026-09-30; *Lane 4's delete*, below).
 - **Add** (after 2a, and lane 3 if `data`).
 - **Reorder** (after 2b and lane 3).
 - **Rules, picture swap, component and follow-up**: after 2c–2f.
@@ -1267,7 +1291,7 @@ in the next data press.
 - **Then**: one merge, one free runtime check, and the lane 4 presses. Those
   on different sites can overlap a minute apart, as Batch 1's did.
 
-## Lane 4's delete — one row taken off `fretwork-1`'s price list, with real models (prepared 2026-09-30 after deploy 2171; its routing conflict corrected the same day on the owner's word, merged and deployed in deploy 2172, runtime-confirmed by run 76; pressed by the owner as run 77 the same day before its temporary row was added and with B2's recovery still open: the real router answered `data`, the picker found no such row, nothing changed, 2 credits; recorded by the owner as a failed deletion acceptance, its live routing and refunded no-match credited separately; the canary's fixture check added on the branch the same day; a new press prepared only after the price recovery and the temporary row are read back and verified)
+## Lane 4's delete — one row taken off `fretwork-1`'s price list, with real models (prepared 2026-09-30 after deploy 2171; its routing conflict corrected the same day on the owner's word, merged and deployed in deploy 2172, runtime-confirmed by run 76; pressed by the owner as run 77 the same day before its temporary row was added and with B2's recovery still open: the real router answered `data`, the picker found no such row, nothing changed, 2 credits; recorded by the owner as a failed deletion acceptance, its live routing and refunded no-match credited separately; the canary's fixture check added on the branch the same day; a new press prepared only after the price recovery and the temporary row are read back and verified; those two preconditions replaced the same day by the owner's demo-site rule, and the deletion re-prepared on the current table; the free rehearsal passed as run 79, the row check's first live run, and the paid deletion met every condition as run 80, for 3 credits; both closed by the owner the same day, the demo data kept as it stands)
 
 The next unaccepted live test. It is the only Lane 4 item whose blocker is
 gone (1a, deployed in 2171). Add, reorder, rules, the picture swap, the
@@ -1576,6 +1600,21 @@ credits). **Every condition was met**, pending the owner's review:
 A separate cosmetic finding: the reply cuts each field at 40 characters
 ("…with two other , price 18"). It is in the backlog.
 `docs/history/2026-09-30-fixture-check.md` §10.
+
+### Closed by the owner (2026-09-30)
+
+**The owner**: "Run 79's live fixture check and run 80's AI row deletion
+pass review. Mark those acceptances closed in the active checklist. Keep the
+demo data as it stands." Closed for what the two runs showed:
+- **run 79**: the row check read one table whole and as named, live, and
+  stopped before any routing call, at no cost;
+- **run 80**: a normal AI request through the real edit route deleted
+  exactly the named row; the other rows are unchanged; the website shows
+  the deletion with nothing published; and the money is exact.
+
+Not to be repeated. `fretwork-1`'s `lessons` stays at three rows (First
+lesson £0, One-to-one £30, Hour one-to-one £42), and nothing is restored.
+The reply's 40-character cut stays a separate backlog finding.
 
 ## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; its free runtime check passed as run 62; pressed as run 63 the same day: the router answered `nav` with `remove` and held the band back, so only the menu change was made and the look door was not reached; the free restore, run 64, put everything back; the owner recorded run 63 as a partial outcome and accepted run 64, with the intended acceptance still open; the router's whole-message rule corrected on the branch the same day, made to choose by what a route can make on every page rather than by kind after the owner's review, and the acceptance prepared again, not run; the rule merged and deployed in deploy 2170 the same day and runtime-confirmed by run 65; pressed again as run 66 the same day: the router answered `look` with nothing held back, and both changes were stored and published exactly as expected, for 6 credits; every acceptance item met; the free restore, run 67, put everything back, checked; closed by the owner the same day for the exact combined request run 66 proved, with recovery verified by run 67, runs 63 and 64 kept as history, no further reruns)
 

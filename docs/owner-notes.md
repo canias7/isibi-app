@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-09-30, 21:12 UTC)
+## Current handoff — read this first (2026-09-30, 21:23 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -10,8 +10,9 @@ is in git; the dated entries further down are the full story.*
 - `main` is `8908b59d` (deploy 2173). The branch `claude/help-needed-ehlwlj`
   is `main` plus documents only: no code or workflow has changed since
   `8908b59d`.
-- **The AI deletion ran and met every condition you set** (run 80, 21:05–21:06
-  UTC). It is for your review; closing it is yours.
+- **You closed run 79 (the row check's first live run) and run 80 (the AI
+  deletion)** after your review. The checklist marks both closed; neither is
+  repeated, and the demo data stays as it stands.
 - `fretwork-1`'s `lessons` now has three rows: First lesson £0, One-to-one
   £30 and Hour one-to-one £42. "Group of three" is gone.
 - Balance 10 (13 − 2 routing − 1 edit). No job is open.
@@ -72,11 +73,9 @@ is in git; the dated entries further down are the full story.*
   for model-written replies.
 
 **Exact next action**
-- **Your review of run 80** against your four conditions; closing it is
-  yours. Nothing is being repeated or restored.
-- After that, the next item on your list: data add, reorder, broader rules,
-  the picture swap, a first-attempt component, or a follow-up. Most wait on
-  your Lane 2 decisions (the checklist's *Next independent work*).
+- I am preparing your next item: one bounded test of a follow-up after a
+  failure, in the same chat tab (Test 9). Nothing will be pressed or spent
+  without your approval.
 
 ---
 
@@ -136,6 +135,24 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-09-30 — You closed run 79 and run 80; the demo data stays
+
+**What you said**: "Run 79's live fixture check and run 80's AI row deletion
+pass review. Mark those acceptances closed in the active checklist. Keep the
+demo data as it stands."
+
+**What I recorded**:
+- The checklist's short list now has a *Closed by the owner (2026-09-30)*
+  block for both runs, a *Proven live* line for the AI deletion, and item 5
+  says removing rows is closed. Adding and reordering still wait on your
+  Lane 2 decisions (2a and 2b).
+- The deletion's own section has a *Closed by the owner* note, and the
+  story's §11 (`docs/history/2026-09-30-fixture-check.md`) says the same.
+- Nothing is put back: `fretwork-1`'s lessons stay at three rows (First
+  lesson £0, One-to-one £30, Hour one-to-one £42).
+- Neither run is to be repeated. The reply's 40-character cut stays a
+  separate backlog item.
 
 ## 2026-09-30 — The AI deletion worked (run 80): every condition you set is met
 
