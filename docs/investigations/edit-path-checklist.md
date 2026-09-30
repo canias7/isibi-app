@@ -1480,6 +1480,76 @@ acceptance. The canary has no fixture check before a paid data press
   temporary row have both been read back and verified** (the owner). It is
   not prepared here.
 
+### Re-prepared on the current table (2026-09-30, the owner's demo-site rule)
+
+**The owner**: "Stop treating data restoration as a prerequisite. These are
+demo sites; I don't require them restored after each test. Use whatever state
+currently exists as the baseline." The £40 is not put back (row 4 stays at
+42). The owner's earlier preconditions 2 and 3 above (B2's recovery and a
+throwaway row entered by the owner) are replaced by the following.
+
+**The baseline, read whole at 20:53:26 UTC**: 4 rows, `0-3/4`, 736 bytes,
+sha256 `2ec299b8…` (First lesson 0, Group of three 18, One-to-one 30, Hour
+one-to-one 42). The lessons show on `/` and `/prices`, both reading the table
+live. Every page is at `kk6qsh`.
+
+**The disposable row**: id 2, "Group of three", an existing demo row. I cannot
+create one: the save needs the owner's session, and `lessons` refuses a
+visitor's write. Its name is the only one no other name contains.
+
+**The row check's box** (`expect_rows`), judged on that read by the canary's
+own functions: parses, `as-named`, the other three rows digest to
+`47c5b2217d6d6453`:
+
+`{"table":"lessons","baseline":"47c5b2217d6d6453","target":{"id":2,"name":"Group of three","description":"Share a 45-minute lesson with two other beginners. Eighteen pounds each.","price":18,"duration":"45 minutes","created_at":"2026-09-02 16:57:02"}}`
+
+**1. The free rehearsal (the owner's press, no cost).** Edit canary, "Use
+workflow from" `main`. Boxes by description:
+- "Run the ONE paid edit as well (yes/no)": `no`;
+- "The site to edit": `fretwork-1`;
+- "Refuse to route or spend unless one table, read whole as the site serves
+  it, is as named": the box above;
+- everything else blank.
+
+It should print the row check `as-named` and stop before any routing call,
+with nothing charged. It is the row check's first live run.
+
+**2. The paid deletion (only after the rehearsal passes and the owner
+approves the estimate).** The same form, "Use workflow from" `main`:
+- "Run the ONE paid edit as well (yes/no)": `yes`;
+- "What to change. REQUIRED when spend=1": `We don't do the Group of three any more, please take it off the price list.`;
+- "The site to edit": `fretwork-1`;
+- "Refuse to spend unless the Worker reports this deploy sha":
+  `8908b59d2069dfb5f11fa679a8b33b649194fe77`;
+- "Refuse to spend unless a cold container reports this image id":
+  `e71f7bae88b9ecf1`;
+- "Refuse to post the paid edit unless the router answers this":
+  `intent=edit layer=data alsoAsked=none`;
+- "Refuse to route or spend unless one table … is as named": the box above;
+- everything else blank.
+
+**Estimate: about 3 credits** (the routing call 1–2, the data edit about 1).
+About 2 if the route check refuses; nothing if the row check stops it. An
+estimate, not a cap. The balance was 13 at its last reading (run 78); the
+rehearsal prints it again.
+
+**Pass, as the owner set it, judged by what the operations did:**
+1. **The correct row deleted**: the job's stored result is `ok: true`, layer
+   `data`, with exactly one `applied` entry, `lessons` id 2 `removed`, whose
+   `was` is the row above; nothing `failed`. The whole read after has three
+   rows and no id 2.
+2. **Unrelated rows unchanged**: the three remaining rows digest to
+   `47c5b2217d6d6453…`, every field as before.
+3. **The website reflects it**: `/` and `/prices` no longer show "Group of
+   three" and show the other three as before; nothing is published (pages
+   still at `kk6qsh`).
+4. **Billing correct**: the routing call and the job's one reserve are
+   debited, the job's billing is final at its own cost, the balance falls by
+   exactly their sum, and no job is left open.
+
+**No recovery is owed** (the owner's rule). A wrong row deleted, or anything
+else unintended, is reported as a finding and left for the owner.
+
 ## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; its free runtime check passed as run 62; pressed as run 63 the same day: the router answered `nav` with `remove` and held the band back, so only the menu change was made and the look door was not reached; the free restore, run 64, put everything back; the owner recorded run 63 as a partial outcome and accepted run 64, with the intended acceptance still open; the router's whole-message rule corrected on the branch the same day, made to choose by what a route can make on every page rather than by kind after the owner's review, and the acceptance prepared again, not run; the rule merged and deployed in deploy 2170 the same day and runtime-confirmed by run 65; pressed again as run 66 the same day: the router answered `look` with nothing held back, and both changes were stored and published exactly as expected, for 6 credits; every acceptance item met; the free restore, run 67, put everything back, checked; closed by the owner the same day for the exact combined request run 66 proved, with recovery verified by run 67, runs 63 and 64 kept as history, no further reruns)
 
 Owner, 2026-09-29: *"Also prepare one bounded real-model acceptance using

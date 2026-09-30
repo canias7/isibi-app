@@ -518,3 +518,64 @@ says nothing about the owner's earlier browser attempt.
 - the owner's conditional `UPDATE` in the Neon console (the recorded
   fallback).
 
+## 8. Demo sites: no restoration; the deletion re-prepared on the current table (20:53 UTC)
+
+**The £40 through the canary, built and dropped.** After §7 the owner said
+"use my account", then "use the canary thing". The canary is the one route
+that signs in as the owner (inside GitHub Actions). A recover-only scenario
+for this row was built: `b2-price-restore`, the owner route's PATCH, the price
+alone, only while it reads 42.
+- A first attempt was refused by the environment's permission check
+  ("Modify Shared Resources"). After "use the canary thing" it went through.
+- Its sweep killed 15 of 15 with both controls surviving, and the full suite
+  was `8393 / 8393 / 0 / 0` locally.
+- It was then **discarded unpushed**: the owner stopped the restoration
+  before it was pressed.
+
+**The owner's rule** (2026-09-30): "Stop treating data restoration as a
+prerequisite. These are demo sites; I don't require them restored after each
+test. Use whatever state currently exists as the baseline. … Don't force the
+price back to £40." And the target: "a normal AI request going through the
+real edit route: correct row deleted, unrelated rows unchanged, website
+reflecting the deletion, and billing correct", the next paid run subject to
+the owner's approval and a credit estimate. So B2's recovery is closed by
+that rule, not by a write: row 4 stays at 42.
+
+**The current table, read whole at 20:53:26 UTC** (the site's own read,
+`Prefer: count=exact`): 200, `0-3/4`, 736 bytes, sha256 `2ec299b8…`:
+| id | name | price | duration |
+|---|---|---|---|
+| 1 | First lesson | 0 | 45 minutes |
+| 2 | Group of three | 18 | 45 minutes |
+| 3 | One-to-one | 30 | 45 minutes |
+| 4 | Hour one-to-one | 42 | 60 minutes |
+
+**Where a visitor sees them**: `/` and `/prices` both read the table live
+(`/api/db/fretwork-1/data/lessons?select=*&order=price.asc`) and show all four
+names; `/gear` shows none. Every page is at `kk6qsh`. Before-pictures of `/`
+and `/prices` are kept for the comparison afterwards.
+
+**The disposable row: an existing one, id 2, "Group of three".**
+- I cannot create a row myself. The Data panel's save needs the owner's
+  session, and a visitor cannot write to `lessons`, a display table.
+- The owner's rule makes an existing demo row fair game.
+- It is the one name no other name contains. "Hour one-to-one" contains
+  "One-to-one", which would test the picker's reading of two similar names
+  rather than the deletion.
+
+**The row check's box**, judged by the canary's own functions on that read:
+it parses, and the verdict is `as-named`: "4 rows; the target is id 2, and
+the other 3 digest to 47c5b2217d6d6453". The other three rows' full digest is
+`47c5b2217d6d6453e647bf65deccb0b6b63b805e9ee8d98e23d200e1fbd53a5e`. After a
+correct deletion the remaining rows must still digest to it.
+
+`{"table":"lessons","baseline":"47c5b2217d6d6453","target":{"id":2,"name":"Group of three","description":"Share a 45-minute lesson with two other beginners. Eighteen pounds each.","price":18,"duration":"45 minutes","created_at":"2026-09-02 16:57:02"}}`
+
+**The request** (75 characters, 75 bytes, sha256
+`2575a60b5dd3fc29…`), in run 77's form:
+
+> We don't do the Group of three any more, please take it off the price list.
+
+The presses, the pass and the estimate are in the checklist's *Lane 4's
+delete*, "Re-prepared on the current table".
+

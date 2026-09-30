@@ -336,4 +336,17 @@
 - **A guard proves its read is whole.** *"Prove the table read is complete
   using the existing API's supported count/pagination contract. An
   incomplete or unverifiable read must stop before paid routing."*
+- **Demo sites are not put back between tests.** *"Stop treating data
+  restoration as a prerequisite. These are demo sites; I don't require them
+  restored after each test. Use whatever state currently exists as the
+  baseline."* And, of `fretwork-1`'s row 4: *"Don't force the price back to
+  £40."* So a test starts from the table as it stands, read whole, and its
+  disposable row may be an existing demo row. A difference a test did not
+  intend is still reported and never swept back; putting data back is simply
+  no longer a step before the next test.
+- **The deletion acceptance, in your words.** *"The acceptance we're working
+  toward is a normal AI request going through the real edit route: correct
+  row deleted, unrelated rows unchanged, website reflecting the deletion, and
+  billing correct."* And: *"Keep the next paid run subject to my approval and
+  a credit estimate. Don't repeat accepted tests."*
 
