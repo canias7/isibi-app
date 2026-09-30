@@ -3,8 +3,8 @@
 Prepared on the owner's word after runs 79 and 80 were closed. Built on the
 branch as the canary's UI scenario `9-follow-up`. **Both of the owner's
 presses passed**: the free rehearsal as run 81, and the paid run as run 82,
-which met every pass item for 4 credits (section 7). It is for the owner's
-review, not closed. The plan, the pass list and the presses are in the
+which met every pass item for 4 credits (section 7). **Closed by the owner**
+the same day (section 8). The plan, the pass list and the presses are in the
 checklist's *Test 9*.
 
 ## 1. What was asked
@@ -224,7 +224,17 @@ Edit canary run 82 (36785026124, job 110124270397, from the branch at
     `lost`, so two refunded `lost` jobs from 2026-09-01 and 09-02 are closed.
 - Nothing was put back (the demo-site rule): the price stays at £45.
 
-## 8. What it will not show
+## 8. Closed by the owner (2026-09-30)
+
+> Run 82 passes review. Close Test 9 for the demonstrated no-match failure
+> followed by a successful edit in the same tab. The additional data,
+> website, refund, billing, and no-reload checks are accepted. Keep the
+> demo data unchanged and don't repeat this test.
+
+The checks filled in after the owner's third item (section 1) are accepted.
+The Hour one-to-one stays at £45, and there is no rerun.
+
+## 9. What it will not show
 
 A follow-up after other failures (a hop, an escalation, a failure with no
 job); one that leans on the conversation (message 2 names its own row);

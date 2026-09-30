@@ -55,7 +55,14 @@ here; take a closed one out of both.**
   router sends an addition to the add-on step, and the data picker can insert
   (the owner's ruling). Found 2026-09-29.
 - The router says nothing about the order of a list, so "show the cheapest
-  first" may not reach the data picker's sort. Found 2026-09-29.
+  first" may not reach the data picker's sort. Found 2026-09-29; traced on
+  the three demo sites and prepared as Test 10 on 2026-09-30 (decision 2b).
+- A hand-picked order ("put the Walnut Levain at the top") is told "I
+  couldn't match that to anything the site stores". Found 2026-09-30, not
+  changed.
+- No route test drives a successful sort through the edit route to its
+  publish; the one route case is a sort whose publish fails. Found
+  2026-09-30, rehearsed in scratch only.
 - A natural message cannot hand the picture step a new photograph without
   buying one from fal. Found 2026-09-29, not changed.
 - A routing call that fails records no reason: Batch 1's run 70 got `addon`
@@ -417,6 +424,32 @@ here; take a closed one out of both.**
   clause names rows only, and no clause mentions ordering. So "show the
   cheapest first" may be answered `data`, `look` or `page`, which is
   unmeasured; a page rewrite costs 6–22. It is item 5's reordering half.
+  **Traced 2026-09-30** (the checklist's *Test 10*): on all three demo sites
+  a list's order is the `{ order, dir }` of the page's `useRows` call, which
+  becomes the Data API's `order=`; no table has an ordering field. The sort
+  lane rewrites that call on every page reading the table and publishes;
+  the `page` rung can change one page's call and only reports the others
+  (`orderingMoved`); the look door has no lane for it. Waiting on the
+  owner's decision 2b; recommended `data` for a sort by something the
+  entries have, with one router clause.
+- **A HAND-PICKED ORDER IS TOLD "I COULDN'T MATCH THAT" (found 2026-09-30
+  preparing Test 10; rehearsed with supplied answers; not changed).** The
+  data picker is told that a sequence someone chose ("put the Fade above the
+  Beard trim") is not a sort and to leave `order` out, so "Put the Walnut
+  Levain at the top of the loaves" ends `no-match`. Its sentence says the
+  site stores nothing matching, which is false (the list is right there) and
+  gives no next step. The sort lane has its own sentences for a column the
+  list lacks and for an order already in place, but none for a sequence it
+  cannot keep. Keeping one needs a stored position per row (a schema change,
+  a backfill and a page rewrite), which is product work of its own.
+- **NO ROUTE TEST DRIVES A SUCCESSFUL SORT TO ITS PUBLISH (found 2026-09-30
+  preparing Test 10).** `test/site-order.test.mjs` drives `runDataEdit` and
+  `applySort` at the module level; the one route case
+  (`test/edit-failure.test.mjs`) is a sort whose publish fails. A sort-only
+  `data` answer through the real edit route (status 200, one compile, one
+  publish, the page's one line, the reply) was rehearsed in scratch for Test
+  10, synchronous path only. It belongs with lane 3's round if 2b is
+  decided.
 - **A NATURAL MESSAGE CANNOT HAND THE PICTURE STEP A NEW PHOTOGRAPH WITHOUT
   BUYING ONE (found 2026-09-29 while preparing Batch 1; read in the code; not
   changed).** It blocks item 7, the picture swap. Three things together:

@@ -359,5 +359,14 @@
   checks after it are mine, from your deletion and D1 lists, until you
   confirm or correct them: the failure changed nothing and its edit charge
   came back; unrelated rows unchanged; the website reflects the change;
-  billing correct; no reload.
+  billing correct; no reload. **Accepted when you closed Test 9**: *"The additional
+  data, website, refund, billing, and no-reload checks are accepted. Keep
+  the demo data unchanged and don't repeat this test."*
+- **A reordering test starts from what controls the order.** *"First trace
+  what controls its order: a stored ordering field, a database query, or
+  page code. Establish the supported edit path and choose a request that
+  visibly changes the order. Don't assume every reordering belongs to the
+  data layer or change routing policy merely to make the test pass."* And:
+  *"If a product decision is genuinely required, explain that specific
+  decision with your recommendation."*
 

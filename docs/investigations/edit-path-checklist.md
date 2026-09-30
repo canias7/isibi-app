@@ -70,9 +70,11 @@ and the AI row deletion (run 80)** (*Lane 4's delete*, below).
 - Kept separate: the reply cutting each deleted field at 40 characters
   (backlog).
 
-**Test 9 ran as run 82 (2026-09-30): every pass item met, for the owner's
-review** (*Test 9*, below). Not closed: closing is the owner's, and the
-checks after the owner's third item are mine until the owner confirms them.
+**Closed by the owner (2026-09-30): Test 9, for the demonstrated no-match
+failure followed by a successful edit in the same tab** (runs 81 and 82;
+*Test 9*, below). The additional data, website, refund, billing and
+no-reload checks are accepted. The demo data stays unchanged, and the test
+is not to be repeated.
 - **Run 81**, free: the rehearsal opened the app, read the table and both
   pages at £42, typed message 1 and sent nothing.
 - **Run 82**, from one browser tab, never reloaded:
@@ -87,6 +89,18 @@ checks after the owner's third item are mine until the owner confirms them.
   - 4 credits (10 → 6): routing 2 and 1, message 1's edit 0 once refunded
     (ledger rows 346 and 347), message 2's edit 1 (row 348); no job open.
 - The demo data stays as it stands: the Hour one-to-one is £45.
+
+**Test 10, a stored list re-sorted, is prepared and waits on the owner's
+decision 2b** (*Test 10*, below; free preparation only, not run). On all
+three demo sites a list's order is written in page code (the `{ order, dir
+}` of the page's `useRows` call); no table has an ordering field. The lane
+built to change it is the data rung's sort lane, which rewrites that call on
+every page reading the list, but the router has no clause for a list's
+order, so the same request could land on `data` or `page`. Recommended:
+`data`, for a sort by something the entries have, with one router clause.
+The acceptance: *"On the order page, list the loaves from cheapest to most
+expensive."* on `fold-lane-bakery`, one stored line changed, about 2–3
+credits.
 
 **Lane 1 (2026-09-30): four corrections, merged and deployed in deploy 2171
 (`29111010`, image `cdb624837e099719`; the deployment credited by the owner),
@@ -213,6 +227,10 @@ the owner's free press, run 51, at 22:57 UTC):
 - **A removed page answering 301 home** (72, Batch 1's A2), read 14 and
   25 minutes after publication, not immediately, and the site restored
   exactly and free (75). Accepted by the owner with that limit.
+- **A follow-up after a failure, from the same tab** (82): a data request
+  that matched nothing, shown as a warning with its edit refunded and
+  nothing changed, then a data edit sent from the same tab, never reloaded,
+  that changed exactly one price. Closed by the owner, not to be repeated.
 - **A rules closing enforced by the database** (44), for that closing only.
 - **A menu link removed through the removal door with a real picker, then the
   page removed** (49).
@@ -256,8 +274,9 @@ the owner's free press, run 51, at 22:57 UTC):
    A second message after a hop or a failure is outstanding too: one of the
    owner's remaining six (2026-09-29). **The failure half is prepared as Test
    9** (2026-09-30, the owner's word; the UI scenario `9-follow-up`, below):
-   a request that fails visibly, then a normal one from the same tab. Run
-   as run 82 (2026-09-30): every pass item met, for the owner's review. A
+   a request that fails visibly, then a normal one from the same tab.
+   **Closed by the owner** (run 82, 2026-09-30) for the demonstrated
+   no-match failure followed by a successful edit in the same tab. A
    follow-up after a hop stays unprepared.
 4. **A named page other than the home page** on a look edit: **closed with
    Test 6** (run 57): the picker scoped the move to `/visit`, and only
@@ -1203,13 +1222,14 @@ approves it.
   its timing limit), and the data rung's blank link (B1).
 - **Still open**:
   - the data rung's adding and reordering rows (deleting is closed by
-    the owner: run 80, 2026-09-30);
+    the owner: run 80, 2026-09-30; reordering traced and prepared as Test
+    10, waiting on 2b);
   - broader rules;
   - the picture swap;
   - a correct component on the first attempt;
   - a follow-up message after a failure or an escalation (the failure half
-    run as Test 9, run 82, 2026-09-30: every pass item met, for the owner's
-    review; the escalation half unprepared).
+    closed by the owner: Test 9, run 82, 2026-09-30; the escalation half
+    unprepared).
 - **Kept separate**: a protection refusing a real model's answer. Run 74's
   refusal was the canary's own route check, not a product protection, and is
   not counted for it.
@@ -1277,7 +1297,7 @@ digest), so they are built one after the other in the same file.
 | # | Decision | Why it blocks | What each answer leads to |
 |---|---|---|---|
 | 2a | Which step adds a row to a list the site already has: the add-on step (your 2026-09-02 rule, *"Add will always go in addon"*) or the data picker, which can already insert | an "add a row" acceptance has no expected route until this is decided | **add-on**: no product change, but the canary refuses to post an `addon` answer, so the acceptance needs the UI mode or a canary change. **data**: one router clause (lane 3). |
-| 2b | Whether reordering a list ("show the cheapest first") is `data` | the router says nothing about order, and a misroute to the page writer costs 6–22 | **yes**: one router clause (lane 3). **no**: the reordering half stays open. |
+| 2b | Whether reordering a list ("show the cheapest first") is `data` | the router says nothing about order, and a misroute to the page writer costs 6–22. **Traced 2026-09-30** (*Test 10*): a list's order is page code on every demo site, the site-wide sort lane is in the data rung, and the router reaches it by no rule; recommended **yes, for a sort by something the entries have** (not a hand-picked sequence, not a page-code arrangement) | **yes**: one router clause (lane 3), then Test 10. **no**: the reordering half stays open, or Test 10 is pressed as a measurement. |
 | 2c | The broader-rules fixture: reopening `lido-axes-b`'s bookings, which you asked to keep closed, or a new disposable site (a first build, 11–45) | its only fixture is closed by your instruction | either way, one bounded rules acceptance afterwards |
 | 2d | Whether to take on the picture swap's product work: attachments reaching the picture step, the picker told which file fills which slot, and no fal purchase when a file is given | no natural message can reach it today without buying a photograph | yes: a product round of its own, later. No: it stays open. |
 | 2e | What "a correct component on the first attempt" must show, and on which site | no fixture has one, and the outcome cannot be fixed in advance | a definition first; no work until then |
@@ -1300,10 +1320,10 @@ accepted test.
   path. **Closed by the owner** (run 80, after run 79's free rehearsal,
   2026-09-30; *Lane 4's delete*, below).
 - **Add** (after 2a, and lane 3 if `data`).
-- **Reorder** (after 2b and lane 3).
+- **Reorder** (after 2b and lane 3): prepared as Test 10 (2026-09-30).
 - **Rules, picture swap and component**: after 2c–2e.
-- **Follow-up after a failure**: Test 9 ran as run 82 (2026-09-30), every
-  pass item met, for the owner's review.
+- **Follow-up after a failure**: closed by the owner (Test 9, run 82,
+  2026-09-30).
 
 The put-back routing (1d) needs no live test of its own. It would show up
 in the next data press.
@@ -1316,7 +1336,231 @@ in the next data press.
 - **Then**: one merge, one free runtime check, and the lane 4 presses. Those
   on different sites can overlap a minute apart, as Batch 1's did.
 
-## Test 9 — a follow-up after a failure, in the same chat tab (prepared 2026-09-30 on the owner's word, after runs 79 and 80 were closed; built on the branch as the canary's UI scenario `9-follow-up`, red-checked, swept, tested through the stand-in, and proven locally against the real app's code with supplied answers, which found and fixed a first-run modal that would have blocked the card at the current balance; the free rehearsal passed as run 81 the same evening; the owner pressed the paid run as run 82 the same evening, and every pass item was met, for 4 credits; for the owner's review)
+## Test 10 — a stored list re-sorted, with real models (prepared 2026-09-30 on the owner's word, after Test 9 was closed; free preparation only; the order traced on all three demo sites; rehearsed with supplied answers through the real lane and the real edit route; waits on the owner's decision 2b; not run)
+
+**The owner**: *"Next, prepare one list-reordering acceptance on an existing
+demo site. First trace what controls its order: a stored ordering field, a
+database query, or page code. Establish the supported edit path and choose a
+request that visibly changes the order. Don't assume every reordering belongs
+to the data layer or change routing policy merely to make the test pass.
+Provide the exact request, expected route and changes, checks that unrelated
+content stays unchanged, and credit estimate. If a product decision is
+genuinely required, explain that specific decision with your
+recommendation."*
+
+### What controls a list's order (traced 2026-09-30, free)
+
+**Page code, on every list of all three demo sites.** A page reads a list
+with `useRows("<table>", { order, dir })`. The template's `pgQuery`
+(`builder/lovable/template/src/lib/rows.ts`) turns those two values into the
+Data API's `order=<column>.<dir>`, so Postgres does the sorting, by whatever
+the page names. No table has an ordering field, and the schema's
+`defaultSort` is acted on by nothing (`builder/site-order.mjs`).
+
+| Site | List | Read on | Order today | Notes |
+|---|---|---|---|---|
+| `fold-lane-bakery` (`8btpep`) | `loaves` | `/order` | `name` asc | one page; columns `id`, `name`, `description`, `price`, `photo`, `created_at`; English only |
+| `fretwork-1` (`kk6qsh`) | `lessons` | `/`, `/prices` | `price` asc | two pages; the site has Welsh, French and Spanish pages, so a publish reaches the parked translator |
+| `fretwork-1` | `bookings` | `/` | `appointment_date` asc, at most 100 | visitors' bookings (`usePublicRows`), not a list the owner edits |
+| `lido-axes-b` | `menu_items` | `/`, `/menu` | `name` asc | two pages; then grouped in page code by category, in the order of a `SECTION_ORDER` constant on each page, the home page showing two per category (from run 44's stored source) |
+
+**Measured live on the bakery** (22:42–22:51 UTC, read-only):
+- `/order` at `8btpep` sends `loaves?select=*&order=name.asc` and shows the
+  six loaves A to Z;
+- `loaves`, read whole (`0-5/6`, 1,045 bytes, sha256 `ef870ebc…`), has no
+  ordering column, and its six prices are all different;
+- every page answers 200 at `8btpep`, `/the-starter` answers 301 to
+  `/starter`, and no page declares another language.
+
+**So "the order" is three different things, and they live in different
+places:**
+1. **Which column a stored list is sorted by**: the list's read, in page
+   code. The data rung's sort lane rewrites it on every page reading that
+   table.
+2. **How page code arranges the list after reading it**: `lido-axes-b`'s
+   grouping by category, its `SECTION_ORDER`, and the home page's two per
+   category. That is page code proper: the `page` rung, one page at a time.
+3. **A hand-picked sequence** ("put the Walnut Levain first"): nothing can
+   keep one. It needs a stored position per row, which is a schema change, a
+   backfill and a page rewrite (`site-order.mjs`'s own note), and no lane
+   does that.
+
+The menu's order (`nav`) and a page's sections (`look`, `page`) are
+separate again, already routed and shown live.
+
+### The supported edit path, and where the router sends a reorder today
+
+- **The sort lane, in the data rung** (`DATA_TOOL.order` →
+  `readSortChange` → `applySort`, `builder/site-order.mjs`):
+  - the picker is shown each list and the order it comes out in, and may
+    answer one table, one of its columns and a direction;
+  - the lane rewrites the `{ order, dir }` of every `useRows` call for that
+    table, on every page, and the pages are published (the one data change
+    that publishes). No row is written;
+  - it refuses a column the list does not have (sorting by one would empty
+    the list on every page) and a read whose options are computed.
+- **The `page` rung can also change one page's read.** A writer model
+  rewrites that one file (the quick writer about 2 credits, the full writer
+  6–22). It never rewrites other pages showing the same list; it only
+  reports them (`orderingMoved`).
+- **The router has no clause for a list's order.**
+  - `data` is described as rows: *"prefer it whenever the thing being
+    changed is one row of something the site lists"*;
+  - `page` includes *"lay a list out differently"*, on one page;
+  - `nav` has the menu's order;
+  - the look door has no lane for a list's sort (`behavior` is what a
+    control does, `shape` a page's sections).
+
+  So a real "list the loaves cheapest first" may be answered `data` or
+  `page`, and which is unmeasured.
+
+### Rehearsed free (scratch, not committed; supplied answers only)
+
+- **The real lane** (`runDataEdit` on the bakery's stored `8btpep` pages and
+  its live rows):
+  - the picker is shown *"THE LISTS THIS SITE SHOWS, AND THE ORDER THEY COME
+    OUT IN: loaves — ordered by name asc"* and *"WHAT EACH ONE MAY BE ORDERED
+    BY: loaves: name, description, price, photo"*;
+  - given `order: {table: "loaves", column: "price", dir: "asc"}`, it
+    changes exactly one line of the whole site: `order.tsx` line 97,
+    `{ order: "name", dir: "asc" }` → `{ order: "price", dir: "asc" }`. The
+    four other pages are untouched, and no row is written;
+  - its sentence: *"✅ loaves now comes out in order of price, lowest first
+    — on 1 page."*
+- **The real edit route and the browser's own reply handler** (the
+  synchronous path, with `test/edit-failure.test.mjs`'s harness given the
+  bakery's pages and rows):
+  - status 200, one picker call, 1 credit;
+  - no UPDATE, INSERT or DELETE;
+  - one compile and one publish;
+  - the stored `order.tsx` differs in that line alone, and the other four
+    pages are byte-identical;
+  - the screen shows the same sentence.
+- **The lane's guards**, the same code:
+  - "Put the Walnut Levain at the top" (a hand-picked sequence) ends
+    `no-match`, which the customer reads as *"I couldn't match that to
+    anything the site stores …"*. That is misleading (backlog);
+  - "by popularity" (no such column) is refused, naming the list's columns;
+  - "A to Z" (the order it already has): *"loaves already comes out in that
+    order — nothing to change."*;
+  - "most expensive first" writes the same line with `dir: "desc"`.
+- **What a visitor would see** (a preview, read-only: the live `/order` with
+  its own data request rewritten in the browser to `order=price.asc`, which
+  is all the one line changes): Sea Salt Focaccia £4.50, Country White
+  £4.80, Dark Rye £5.20, Seeded Wholemeal £5.40, Olive & Rosemary £5.80,
+  Walnut Levain £6.00. Five of the six cards move. Compared pixel by pixel
+  with the live page, only the card list differs (the box 369,354–807,672 of
+  1280×1400).
+- **Not shown**: what a real router or picker answers; the queued path's
+  publish of a sort (read, not driven); anything live.
+
+### The decision this needs (2b), and my recommendation
+
+**The decision**: when someone asks to re-sort a stored list by something
+its entries have (cheapest first, A to Z, newest first), which layer
+answers it?
+
+**Why it is genuinely needed**: the expected route is part of the
+acceptance, and today's router has no rule for it. The same sentence can
+land on two paths with different costs and different results. Choosing one
+by wording the request to suit, or by adding a clause only for this test,
+is what the owner ruled out.
+
+**Recommended: `data`, for a sort only.** It is the lane the product built
+for this:
+- site-wide: on `fretwork-1` and `lido-axes-b` the list is on two pages,
+  and the `page` rung would leave them disagreeing;
+- deterministic: two values in one call;
+- guarded: a column the list lacks, or a computed read, is refused rather
+  than emptying the list;
+- cheap: one small model call, about 1 credit;
+- it says what it did.
+
+**What it would not cover**, left where it is:
+- a hand-picked sequence (unsupported; its misleading reply is in the
+  backlog);
+- a list's arrangement in page code (`lido-axes-b`'s grouping and
+  `SECTION_ORDER`): `page`;
+- the menu's order: `nav`;
+- a page's sections: `look`, `page`.
+
+**The change it needs** (lane 3):
+- one clause in the router's `data` description: the order one of those
+  lists comes out in is this layer when it is a sort by something its
+  entries have, on whatever page they saw it;
+- a matching exception in `page`'s *"lay a list out differently"* (the
+  list's layout, not its sort);
+- tested as the last two router rounds were: a wording guard, a red check,
+  a sweep, the existing router cases, and a committed route case for a
+  successful sort (the scratch rehearsal above), on both paths;
+- `builder/site-ask.mjs` is a container input, so the deploy rolls the
+  image (15–20 minutes before container work), and a free runtime check
+  follows.
+
+**If the owner decides otherwise**:
+- **leave the router as it is**: the acceptance has no single expected
+  route. It could go through `page` instead (expected route `layer=page
+  page=/order`, 2 to 22 credits for the writer, against a balance of 6), or
+  be pressed as a measurement;
+- **measure first**: the press below on today's deploy, with the route
+  enforced as `layer=data`. If the router answers `data`, the lane runs and
+  the acceptance is judged exactly as below (2–3 credits). Any other answer
+  is refused before the edit, at routing cost (1–2), and recorded.
+
+### The acceptance (as it would run once 2b is decided and deployed)
+
+- **Site**: `fold-lane-bakery` at `8btpep`, as it stands (the demo-site
+  rule). Only `/order` reads `loaves`, there are no language pages and no
+  translator, and the six distinct prices fix the new order completely.
+- **The request** (67 characters, 67 bytes, sha256 `93c4cace0190d65e…`):
+  *"On the order page, list the loaves from cheapest to most expensive."* It
+  names the page where the list is seen, as an owner would, and the
+  recommended clause must still answer `data` for it.
+- **Expected route**: `layer=data`, nothing held back (the route box:
+  `layer=data alsoAsked=none`).
+- **Expected changes, and nothing else**:
+  - one stored line: `order.tsx` line 97, `order: "name"` →
+    `order: "price"`, with `dir` still `asc`;
+  - one publish, from `8btpep`, built from those pages;
+  - `/order` sends `loaves?select=*&order=price.asc` and shows Sea Salt
+    Focaccia £4.50, Country White £4.80, Dark Rye £5.20, Seeded Wholemeal
+    £5.40, Olive & Rosemary £5.80, Walnut Levain £6.00;
+  - the reply: *"✅ loaves now comes out in order of price, lowest first —
+    on 1 page."*
+- **Unrelated content stays unchanged**:
+  - the table, read whole before and after (`0-5/6`): byte-identical
+    (1,045 bytes, `ef870ebc…` today). No row is written, and the job's
+    `applied` is empty;
+  - the stored source: the other four pages byte-identical, and `order.tsx`
+    identical apart from that line (the canary's before and after reads);
+  - each card's own text: name, price and description as before, only
+    their order changed;
+  - the rest of `/order` (headings, the form, the collection times 08:00 to
+    13:00 in their order, the footer): pixel-identical outside the card
+    list;
+  - `/`, `/starter`, `/visit` and `/gallery`: 200 at the new version,
+    markup identical apart from its render stamps, and pixel-identical; the
+    menu and the header's button unchanged; `/the-starter` still 301 to
+    `/starter`;
+  - one job for the message, and none left open.
+- **Money**: about **2–3 credits**, an estimate and not a cap: routing 1–2
+  and the picker 1. The publish is not charged. The balance is 6 (read at
+  22:27 UTC). If the route check refuses, 1–2.
+- **The presses** (the owner's, after the decision, its merge and its free
+  runtime check):
+  1. **the free rehearsal**: Edit canary; "Run the ONE paid edit as well
+     (yes/no)" `no`; "The site to edit" `fold-lane-bakery`; the deploy and
+     image boxes; every other box blank;
+  2. **the paid press**: "Run the ONE paid edit as well (yes/no)" `yes`;
+     "What to change. …" the request above; "The site to edit"
+     `fold-lane-bakery`; "Refuse to post the paid edit unless the router
+     answers this: …" `layer=data alsoAsked=none`; the deploy and image
+     boxes; every other box blank.
+- **What it will not show**: the site-wide rewrite on a list read on two
+  pages (the bakery has one; unit tests only); a page-code arrangement; a
+  hand-picked sequence; other sites; how often.
+
+## Test 9 — a follow-up after a failure, in the same chat tab (prepared 2026-09-30 on the owner's word, after runs 79 and 80 were closed; built on the branch as the canary's UI scenario `9-follow-up`, red-checked, swept, tested through the stand-in, and proven locally against the real app's code with supplied answers, which found and fixed a first-run modal that would have blocked the card at the current balance; the free rehearsal passed as run 81 the same evening; the owner pressed the paid run as run 82 the same evening, and every pass item was met, for 4 credits; closed by the owner the same day for the demonstrated no-match failure followed by a successful edit in the same tab, the filled-in checks accepted, the demo data kept, not to be repeated)
 
 **The owner** (the message arrived cut off after the third item): *"Next,
 prepare one bounded test of a follow-up after failure in the same chat tab:
@@ -1615,6 +1859,24 @@ The cost was 4, inside the estimate of 3 to 5.
 after the owner's third item are mine until the owner confirms or corrects
 them. What it does not show is unchanged (*Cost, and what it will not
 show*, above).
+
+### Closed by the owner (2026-09-30)
+
+*"Run 82 passes review. Close Test 9 for the demonstrated no-match failure
+followed by a successful edit in the same tab. The additional data,
+website, refund, billing, and no-reload checks are accepted. Keep the demo
+data unchanged and don't repeat this test."*
+- **Closed for**: one request that failed visibly (`no-match` through the
+  data rung, drawn as the app's warning, its edit refunded, nothing
+  changed), followed from the same tab, never reloaded, by a normal request
+  that changed exactly `lessons` id 4's price, 42 → 45.
+- **Accepted**: the checks filled in after the owner's third item: the
+  failure changed nothing and its charge came back; unrelated rows
+  unchanged; the website reflects the change; billing correct; no reload.
+- **Kept**: the demo data as it stands (the Hour one-to-one at £45).
+- **Not repeated**: no rerun of Test 9.
+- **Still open**: a follow-up after a hop (an escalation), unprepared; the
+  other failure kinds listed under *Cost, and what it will not show*.
 
 ## Lane 4's delete — one row taken off `fretwork-1`'s price list, with real models (prepared 2026-09-30 after deploy 2171; its routing conflict corrected the same day on the owner's word, merged and deployed in deploy 2172, runtime-confirmed by run 76; pressed by the owner as run 77 the same day before its temporary row was added and with B2's recovery still open: the real router answered `data`, the picker found no such row, nothing changed, 2 credits; recorded by the owner as a failed deletion acceptance, its live routing and refunded no-match credited separately; the canary's fixture check added on the branch the same day; a new press prepared only after the price recovery and the temporary row are read back and verified; those two preconditions replaced the same day by the owner's demo-site rule, and the deletion re-prepared on the current table; the free rehearsal passed as run 79, the row check's first live run, and the paid deletion met every condition as run 80, for 3 credits; both closed by the owner the same day, the demo data kept as it stands)
 

@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-09-30, 22:35 UTC)
+## Current handoff — read this first (2026-09-30, 22:55 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -8,79 +8,91 @@ is in git; the dated entries further down are the full story.*
 
 **State now**
 - `main` is `8908b59d` (deploy 2173), unchanged. The branch
-  `claude/help-needed-ehlwlj` is `main` plus the canary's Test 9 scenario
+  `claude/help-needed-ehlwlj` is `main` plus Test 9's canary scenario
   (scripts, tests, and the scenario box's text in the canary workflow) and
   documents. No product code changed; nothing needs deploying.
-- `fretwork-1`'s lessons are now First lesson £0, One-to-one £30, Hour
-  one-to-one **£45** (run 82's change, kept as the demo data).
-- Balance 6 (read at 22:27 UTC; last ledger row 348), and no job open.
-- **Test 9 ran as your paid run 82 and met every pass item, for 4
-  credits. It is for your review**: closing it is your call.
+- **Test 9 is closed by you** (runs 81 and 82), with the checks I filled in
+  accepted. The demo data stays: `fretwork-1`'s Hour one-to-one is £45.
+- **Test 10, re-sorting a stored list, is prepared and waits on your
+  decision 2b.** Nothing was spent; nothing was pressed.
+- Balance 6 (read at 22:27 UTC), and no job open.
 
 **Completed**
-- Test 9 was built, red-checked, swept and proven locally against the real
-  app's code. That proof found and fixed the welcome pop-up blocking the
-  site card at a balance of 20 or less.
-- Run 81, the free rehearsal, passed.
-- **Run 82, the paid run**, from one browser tab, never reloaded:
-  - *"We've stopped running the Weekend workshop, please take it off the
-    price list."* went to the database step, which found no such lesson.
-    The app showed *"⚠️ I couldn't match that to anything the site stores
-    — say which list it's in and I'll have another go. This edit cost you
-    nothing. Reading your message cost 2 credits."* The edit's credit came
-    back, and the table did not change.
-  - *"Please change the Hour one-to-one's price to £45."*, sent from the
-    same tab, changed exactly that price, 42 → 45. The app said *"✅
-    Updated one entry in lessons."* The other two lessons are untouched,
-    the price list and home page show £45, and nothing was published.
-  - Money: 10 → 6. Reading the two messages cost 2 and 1, and the price
-    change 1. The failed edit's 1 was charged and refunded.
-- I read it all again myself afterwards, free (22:27–22:28 UTC): the
-  table, both pages, the ledger and the jobs all agree.
+- Test 9's closure recorded in the checklist, the history and your
+  preferences.
+- **The trace** you asked for: on all three demo sites, a list's order is
+  set in the page's code, by the `{ order, dir }` of its `useRows` call,
+  which the database then sorts by. No table has an ordering field.
+  - On `lido-axes-b` the page code also groups the menu by category, in an
+    order written on each page, so there "the order" is partly page code
+    proper.
+  - A hand-picked sequence ("put the Walnut Levain first") cannot be kept
+    anywhere.
+- **The paths**: the data step's sort lane was built for exactly this. It
+  rewrites that one setting on every page that shows the list, then
+  republishes. The page step can change one page only. The router has no
+  rule for a list's order, so a real request could go either way.
+- **Rehearsed free with supplied answers**, through the real lane and the
+  real edit route, on the bakery's stored pages and live rows. One line of
+  the order page changes, it publishes once for 1 credit, and the reply is
+  *"✅ loaves now comes out in order of price, lowest first — on 1 page."*
+- **A preview**, read-only, of the bakery's order page with the loaves by
+  price: five of the six cards move, and nothing else on the page changes.
 
 **Test results**
-- Unit tests unchanged since the last handoff (no code changed): `8403 /
-  8403 / 0 / 0` locally; unit CI `8403 / 8399 / 0 / 4` on `04331c8c` and
-  on `e6b659a1`.
-- Live: run 81 passed (free), and run 82 passed every check (4 credits).
+- Unit tests unchanged (no code changed): `8403 / 8403 / 0 / 0` locally;
+  unit CI `8403 / 8399 / 0 / 4` on `04331c8c` and on `e6b659a1`.
+- The tests that read these documents pass after the edits.
+- Scratch rehearsals (not committed): the lane on its own, and the real edit
+  route end to end, both as expected.
 
 **Links**
-- Run 82: https://github.com/canias7/isibi-app/actions/runs/36785026124
-- Run 81: https://github.com/canias7/isibi-app/actions/runs/36784382993
+- The plan, the decision and the acceptance: the checklist's *Test 10*.
+  The readings: `docs/history/2026-09-30-reorder-prep.md`.
 - Branch commits: https://github.com/canias7/isibi-app/commits/claude/help-needed-ehlwlj
-- The record: the checklist's *Test 9* (*Run 82*). The story:
-  `docs/history/2026-09-30-follow-up-test.md`, section 7.
 
 **From our chat**
-- Your Test 9 message stopped after *"its intended change happens,"*. I
-  filled in the checks after it, and they are still for you to confirm or
-  correct:
-  - the failure changed nothing, and its edit charge came back;
-  - unrelated rows are unchanged;
-  - the website reflects the change;
-  - billing is correct;
-  - no reload happened.
-
-  Run 82 met all of them.
-- The demo data stays as it stands. CLAUDE.md is left alone.
+- Your rule for this test, recorded in `owner-preferences.md`: trace what
+  controls the order first; don't assume every reordering belongs to the
+  data step; don't change routing policy just to make the test pass.
+- CLAUDE.md is left alone.
 
 **Blockers**
-- None.
+- Nothing technical. The acceptance needs your decision 2b, because today's
+  router has no rule for it and the expected route is part of the test.
+
+**Decision needed (2b)**: when someone asks to re-sort a stored list by
+something its entries have (cheapest first, A to Z, newest first), which
+step answers it?
+- **My recommendation: the data step, for a sort only.** It is the step
+  built for it: it changes the list on every page that shows it, it is exact
+  and guarded, it costs about 1 credit, and it says what it did.
+- It needs one sentence added to the router's rules (and one exception in
+  the page step's), tested the way the last two router changes were, then
+  your merge and a free check.
+- A hand-picked order, the page code's own grouping, the menu's order and a
+  page's sections all stay where they are.
 
 **Findings, kept separate**
-- The welcome pop-up greets returning owners on a new browser when an
-  unpaid balance is 1 to 20, and still speaks of the deleted media side
-  (backlog, not changed).
-- The deleted row's reply cuts each field at 40 characters (backlog).
-- Run 82 found nothing new.
+- New: a hand-picked order ("put the Walnut Levain at the top") is told
+  "I couldn't match that to anything the site stores", which is false
+  (backlog).
+- New: no committed test drives a successful sort through the edit route to
+  its publish (backlog).
+- Unchanged: the welcome pop-up; the deleted row's reply cutting fields at
+  40 characters.
 
 **Exact next action**
-- **Your review of run 82**: close Test 9, or tell me what is missing, and
-  confirm or correct the checks I filled in.
-- Nothing else is prepared. The open items are adding and reordering rows,
-  broader rules, the picture swap, a first-attempt component, and a
-  follow-up after an escalation. They wait on your Lane 2 decisions (the
-  checklist's *Next independent work*).
+- **Your decision on 2b**, one of:
+  - **yes**: I write the router sentence with its guards, red check, sweep,
+    full suite and CI, and bring it for your review. After your merge and
+    free runtime check come Test 10's free rehearsal and its paid press,
+    about 2–3 credits;
+  - **measure first**: Test 10's press on today's deploy, with the route
+    enforced as the data step. It costs 2–3 credits if the router picks the
+    data step, and the test is judged in full; any other answer is refused
+    before the edit, for 1–2 credits, and recorded;
+  - **no**: reordering stays open.
 
 ---
 
@@ -140,6 +152,50 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-09-30 — Test 10 prepared: re-sorting a list, waiting on your decision (2b)
+
+**What I found**: on all three demo sites, the order a list comes out in is
+set in the page's own code. It is the `{ order, dir }` of the call that reads
+the list, which the database then sorts by. No table stores an order. The
+bakery's order page reads its loaves A to Z; `fretwork-1` reads its lessons
+cheapest first on two pages; `lido-axes-b` reads its menu A to Z on two pages
+and then groups it by category in an order written on each page.
+
+**The path**: the data step has a lane built for exactly this. It changes
+that one setting on every page that shows the list and republishes, for one
+small model call. The page step can change one page only. But the router has
+no rule that sends a sort there, so the same request could go either way.
+
+**Rehearsed free** with supplied answers, on the bakery: one line of the
+order page changes, it publishes once, 1 credit, and the reply is *"✅ loaves
+now comes out in order of price, lowest first — on 1 page."* A read-only
+preview of the page shows the new order, with five of the six cards moved
+and nothing else changed.
+
+**The test, once you decide**: *"On the order page, list the loaves from
+cheapest to most expensive."* on `fold-lane-bakery`. It expects the data
+step, that one line, one publish, and the table, the other pages and the
+rest of the order page unchanged. About 2–3 credits.
+
+**What I need from you**: decision 2b. I recommend the data step, for a sort
+only, with one router sentence added first, not worded for this test but for
+every sort. The alternatives (measure first, or leave it open) and the full
+plan are in the checklist's *Test 10*.
+
+**Also found** (backlog): a hand-picked order gets "I couldn't match that to
+anything the site stores", which is false; and no committed test drives a
+successful sort through the edit route.
+
+## 2026-09-30 — You closed Test 9 (runs 81 and 82)
+
+*"Run 82 passes review. Close Test 9 for the demonstrated no-match failure
+followed by a successful edit in the same tab. The additional data, website,
+refund, billing, and no-reload checks are accepted. Keep the demo data
+unchanged and don't repeat this test."* Recorded as closed for exactly that,
+in the checklist (it is in the proven list now) and the history, with the
+checks I filled in marked accepted. The Hour one-to-one stays at £45, and
+there is no rerun.
 
 ## 2026-09-30 — Your paid run of Test 9 passed every check (run 82)
 
