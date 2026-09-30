@@ -157,7 +157,9 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   - Red check on `fc06edde`'s tests over `3229272e`'s script: the partial
     and unverifiable answers were routed and edited there (the owner's
     false pass, reproduced); 8 fail, 40 pass. Sweep: 30 of 30 killed, 2
-    controls survived. Full suite `8388 / 8388 / 0 / 0` locally. (At `3229272e`: 18 of 18; full suite `8383 / 8383 /
+    controls survived. Full suite `8388 / 8388 / 0 / 0` locally and `8388 /
+    8384 / 0 / 4` on unit CI (run 36765527935 on `08da9b48`, the records on
+    top of `fc06edde`). (At `3229272e`: 18 of 18; full suite `8383 / 8383 /
     0 / 0` locally and `8383 / 8379 / 0 / 4` on unit CI, run 36758456675
     on `11bb6a14`.)
   - `docs/history/2026-09-30-fixture-check.md`.

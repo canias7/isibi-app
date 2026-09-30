@@ -379,5 +379,8 @@ count contract as the Data API does; five rows served, as named):
   as rows).
 - **Full suite**, from the main working tree at `fc06edde` with these
   records: **`8388 / 8388 / 0 / 0`** locally, the 8,383 before plus the 5
-  new cases.
+  new cases. **Unit CI** on the pushed head `08da9b48` (these records on
+  top of `fc06edde`): run 36765527935, job 110058603843, `8388 / 8384 / 0 /
+  4`, read from the job's own log. The totals match, and CI skips the same
+  four.
 
