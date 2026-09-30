@@ -52,15 +52,17 @@ run 66 proved, with recovery verified by run 67.**
 - Kept separate: the reply omission (review #9) and the saved-version list's
   label naming only the first change (backlog).
 
-**Batch 1 is proposed (2026-09-29), not run**: two acceptance groups that
-can run side by side on different sites. **A** (item 1's open half): from
-saved version `t5obxx`, "Remove the gallery page." on `fold-lane-bakery`,
-the removed page's addresses read for a 301 home, then the free restore to
-`8btpep`; about 1–2 credits. **B** (item 5, the blank database link): a
-`lessons` price changed and put back on `fretwork-1`; about 4–6. About 5–8
-for both, 10 at worst, against 22. The other four of the six are not ready
-(*Batch 1*, below, says why). No code change is needed for the overlap:
-money closes from each run's own routing line and its jobs' ledger rows.
+**Batch 1 is proposed (2026-09-29; corrected after the owner's review), not
+run**: two acceptance groups that can run side by side on different sites,
+each paid press with its route enforced by the canary's new expected-route
+box (on the branch). **A** (item 1's open half): from saved version
+`t5obxx`, "Remove the gallery page." on `fold-lane-bakery`, the removed
+page's addresses read for a 301 home, then the free restore to `8btpep`.
+**B** (the data item's missing reference only): a `lessons` price changed
+and put back on `fretwork-1`, against the full four-row baseline with a
+recovery for every kind of unintended difference. Estimates, not limits:
+about 1–2 and 4–6 credits, 5–8 together; the only hard bound is the balance
+of 22. The other four of the owner's six are not ready (*Batch 1*, below).
 
 **The look door's menu lane is merged, deployed and runtime-confirmed**
 (`47dea9c0`, deploy 2168 with a second run of the same push, 2169,
@@ -140,7 +142,10 @@ the owner's free press, run 51, at 22:57 UTC):
    proposes it (not run).
 2. **A protection refusing a real model's answer**: the photograph wall, the
    link and component judge, the text guard, reply validation and the failure
-   classification. Live, each has only let a correct answer through.
+   classification. Live, each has only let a correct answer through. Kept
+   separate from the owner's remaining six (2026-09-29): live evidence of a
+   guard rejecting an answer is recorded on its own, never substituted for the
+   follow-up case.
 3. **Two changes in one message**, which is two separate items:
    - **through the look door: closed with Test 6** (run 57; *Proven live*,
      above). The fix's withholding paths (a part put off, a scope that fails
@@ -157,7 +162,9 @@ the owner's free press, run 51, at 22:57 UTC):
      proposed. Test 7 showed the customer capability through the look door
      (runs 60 and 61, closed by the owner).
 
-   A second message after a hop or a failure is outstanding too.
+   A second message after a hop or a failure is outstanding too: one of the
+   owner's remaining six (2026-09-29), not ready, since only the UI mode sends a
+   second message from one tab and no scenario for it exists.
 4. **A named page other than the home page** on a look edit: **closed with
    Test 6** (run 57): the picker scoped the move to `/visit`, and only
    `visit.tsx` changed.
@@ -232,7 +239,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Batch 1 — a removed page's 301 home, and a row changed on a site whose database link is blank, run side by side (proposed 2026-09-29 after Test 8's closure; free, read-only preparation; not run)
+## Batch 1 — a removed page's 301 home, and a row changed on a site whose database link is blank, run side by side (proposed 2026-09-29 after Test 8's closure; corrected after the owner's review: the canary now enforces each press's expected route, the costs keep estimates apart from enforced limits, group B's recovery covers every row and field, and the remaining six are the owner's list; free preparation only; not run)
 
 The owner asked for the next bounded batch: up to three independent
 acceptance groups from the remaining six, on existing ready fixtures and
@@ -240,27 +247,101 @@ workflows, preferring checks that can genuinely overlap, and not forcing three
 when only two are ready. **Two are ready.** Nothing was spent, no live fixture
 or row was changed, and nothing was merged or deployed while preparing it.
 
-### The remaining six, and which are ready
+### The owner's review, and what it changed (2026-09-29)
 
-The six are the outstanding items still open, not parked and inside the edit
-path: **1** (a removed page answering 301 home), **2** (a protection refusing
-a real model's answer), **5** (the data rung beyond one row), **6** (the rules
-rung beyond one closing), **7** (the picture swap) and **9** (a correct
-component on the first attempt). Item 3's removal-door half stays the owner's
-call (none proposed), 8 is parked (D2, D3), 10 is an instrument gap rather
-than a live acceptance, and 11 is outside the edit path.
+1. **The plain canary did not enforce the routes this plan claimed.** It
+   refused only an answer that was not an edit or named no layer, then posted
+   whatever the router said. Corrected by the smallest generic, opt-in check
+   (*The expected-route check*, below): A's press requires the page removal of
+   `/gallery` and B's presses the data route, each with nothing held back.
+2. **The cost claims.** Estimates are now kept apart from what is enforced.
+   "10 at worst" and "the balance can't run dry" are withdrawn: nothing
+   enforced either (*Cost*, below).
+3. **Group B's recovery.** Setting row 4's price back cannot repair another
+   row or field. The four-row baseline is now recorded in full, with a
+   recovery for each kind of unintended difference. A saved page version
+   restores no database row.
+4. **The remaining six are the owner's list**, below. A protection refusing a
+   real model's answer is kept separate, not counted among the six.
 
-| Item | Ready? | Why |
-|---|---|---|
-| 1. A removed page answers 301 home | **Yes: group A** | Saved version `t5obxx` (run 63's publish) is the fixture with only the Gallery menu links taken out. There, no page but the gallery's own file names `"/gallery"`, so one "Remove the gallery page." passes the link rule, and the restore mode reaches the version for free. |
-| 5. A site whose database link is blank | **Yes: group B** | `fretwork-1` is `incomplete`, and its `lessons` table is public with 4 rows. A row change publishes nothing. |
-| 5. Adding a row | No | Which step adds a row to a list the site already has is undecided. The router follows your rule ("Add will always go in addon"), and the data picker can insert. Needs your ruling (backlog). |
-| 5. Removing a row | No | Found while preparing: the data picker is told both to delete a row and to return nothing when asked to delete (backlog). A live delete is likely to be refused until that one sentence is corrected. |
-| 5. Reordering rows | Not in this batch | The router says nothing about a list's order (backlog), and a misroute to the page writer costs 6–22 against a balance of 22. Only the bakery can take it: a publish on `fretwork-1` would reach the parked translator, and `lido-axes-b` has no saved versions. So it clashes with group A. A candidate for the next batch. |
-| 2. A protection refusing a real model's answer | No | A refusal needs a real model to answer wrongly, and no natural message makes that happen on demand. Supplied answers cover each protection. How to show one live, or whether to accept that coverage, is your call. |
-| 6. The rules rung beyond one closing | No | Its one fixture's bookings stay closed (`lido-axes-b`), and reopening them is the natural next case. The bakery's orders are D2 and D3 (parked), and the rules harness is wired to `lido-axes-b`. A new fixture is your decision. |
-| 7. The picture swap | No | An attached photograph reaches only the logo step. The picker sees bare file names, never which file fills which slot. The one other source, `describe`, buys a fal photograph (about 18.75 credits) whenever the balance affords one, which it does at 22. Needs product work first (backlog). |
-| 9. A correct component on the first attempt | No | No fixture has a component. A component request is an add-on (2–13) or a page rewrite (6–22), with an outcome nobody can fix in advance, and it isn't affordable beside the rest at 22. |
+### The remaining six (the owner's list), and which are ready
+
+| # | Item | Ready? | Why |
+|---|---|---|---|
+| 1 | Redirect home: a removed page answers 301 home (item 1's open half) | **Yes: group A** | Saved version `t5obxx` (run 63's publish) is the fixture with only the Gallery menu links taken out. There, no page but the gallery's own file names `"/gallery"`, so "Remove the gallery page." passes the link rule, and the restore mode reaches the version for free. |
+| 2 | The data rung: adding, deleting and reordering rows, and a missing (blank) database reference (item 5) | **Only the missing reference: group B** | `fretwork-1`'s database reference is blank, and its `lessons` table is public with 4 rows. **Adding** needs the owner's ruling on which step adds a row to a list the site has: the router follows "Add will always go in addon", while the data picker can insert. **Deleting**: the data picker is told both to delete a row and to return nothing when asked to delete, so a live delete is likely refused until that sentence is corrected. **Reordering**: the router says nothing about a list's order, and a misroute to the page writer costs 6–22; only the bakery can take it (a publish on `fretwork-1` reaches the parked translator, and `lido-axes-b` has no saved versions), which clashes with group A. All three are in the backlog. |
+| 3 | Broader rules (item 6) | No | Its one fixture's bookings stay closed (`lido-axes-b`), and reopening them is the natural next case. The bakery's orders are D2 and D3 (parked), and the rules harness is wired to `lido-axes-b`. A new fixture is the owner's decision. |
+| 4 | Picture replacement (item 7) | No | An attached photograph reaches only the logo step. The picker is shown bare file names, never which file fills which slot. Its one other source, `describe`, buys a fal photograph (about 18.75 credits) whenever the balance affords one, which it does at 22. Needs product work first (backlog). |
+| 5 | A correct component on the first attempt (item 9) | No | No fixture has a component, and a component request is an add-on (2–13) or a page rewrite (6–22) with an outcome nobody can fix in advance. |
+| 6 | A follow-up message after a failure or an escalation (item 3's second half) | No | It needs a second message in the same browser session after a classified failure or hop. Only the canary's UI mode sends a second message from one tab, and no scenario for this exists: a scripts change and a deliberate first-message failure, both the owner's decision. |
+
+**Kept separate, not one of the six**: a protection refusing a real model's
+answer (item 2). Live evidence of a guard rejecting an answer is recorded on
+its own if a run produces it, and is never substituted for the follow-up case.
+
+**Group B covers only part of the data item**: the missing reference.
+Adding, deleting and reordering rows stay open.
+
+### The expected-route check (built for this batch, on the branch; not merged)
+
+- **A new box on the edit canary**, "Refuse to post the paid edit unless the
+  router answers this…" (`expect_route`, passed as `CANARY_EXPECT_ROUTE`),
+  read by `scripts/canary-route.mjs`.
+- **Its form**: space-separated `key=value` over the router's own fields:
+  - `intent` and `layer`, checked against the router's own lists;
+  - `page` and `rename`, each a path or `none`;
+  - `remove` and `tab`, each `true` or `false`, where absent reads as false,
+    as the edit POST reads it;
+  - `alsoAsked=none`, meaning nothing held back.
+
+  Only the fields named are judged. Nothing in it knows a site, a page or a
+  sentence.
+- **Read whole before the sign-in.** A malformed box refuses at no cost
+  (exit 2), and so does a filled box beside a read, a restore or a scenario,
+  which make no routing call of the script's own.
+- **On a paid press:**
+  - the router's answer is written to `routing.json` the moment it arrives.
+    It used to be written after the watch, so a refusal kept no record of the
+    answer it refused.
+  - a mismatch is refused above the edit POST: the routing call is spent and
+    nothing else is.
+  - a match is posted exactly as it came, because the POST body never reads
+    the expectation.
+- **Cannot-tell is a mismatch.** A flag that is not a boolean, or a path that
+  is not a string, is reported as unreadable and never coerced.
+- **Verification**:
+  - **Tests**: 5 cases in `test/canary-route.test.mjs`, where the verdict is
+    judged on the Worker's own `/api/site/route` replies to supplied router
+    answers: A's removal, run 63's `nav` answer, a gallery edit without a
+    removal, another page removed, a move, a part held back, the add-on step,
+    B's data answer, data with a part held back, text and look. Plus 4
+    source-order guards in `test/edit-canary.test.mjs`. The stale ten-input
+    cap in `test/canary-ui.test.mjs` is now 25: GitHub's changelog of
+    2025-12-04, and `lane-sweep.yml`'s 11-input form dispatched four times
+    since 2026-09-16.
+  - **Red check on `da24ce1b`**: the new test file fails, and 3 of the 4 new
+    guards fail. The fourth guards the pass-through and passes on both trees.
+  - **The real script, driven under an in-process network stub** (no request
+    can leave the machine), with router answers taken from the Worker's own
+    route. There were 11 scenarios:
+    - each mismatch (run 63's answer, the edit without a removal, data with a
+      part held back, the add-on step) wrote `routing.json` with its verdict,
+      exited 1 and never reached the edit POST;
+    - each match posted a body identical, apart from the random retry key, to
+      the same answer's run with no expectation;
+    - a malformed box and a box beside a restore exited 2 with no network call
+      at all;
+    - a free run routed nothing.
+
+    **On `da24ce1b` the same stub showed the defect**: every mismatch, and even
+    the malformed box, reached the edit POST.
+  - **Mutation sweep** (`scripts/mutants/canary-expect-route.json`): 29 mutants
+    and 2 comment-only controls, against the two test files. The first pass
+    killed 28 of 29. The survivor was real: an unknown key whose value was a
+    path or `none` would pass, because the test's `colour=red` was refused
+    only by the later path check. The test now requires that refusal for such
+    values, and the second pass killed 29 of 29; both controls survived.
+  - **Full suite**: `8306 / 8306 / 0 / 0` locally (8,297 before, plus the 9 new cases).
 
 ### Group A — a removed page answers 301 home (item 1's open half)
 
@@ -283,12 +364,14 @@ than a live acceptance, and 11 is outside the edit path.
     which the removal rule does not read (backlog).
 - **Control**: `washhouse-3`.
 - **Deployment**: 2170, `907840c67497b2624f1a2febfdb27b947ca5222a`, image
-  `abf47dfeceba3c5c`, runtime-confirmed by run 65. `main` has not moved since,
-  and nothing was running (read 23:14 UTC).
+  `abf47dfeceba3c5c`, runtime-confirmed by run 65. `main` has not moved since.
+  The presses run the canary from the branch, against main's Worker.
 - **Request**: `Remove the gallery page.` (24 characters, sha256
   `ee4c723ee681dfb2…`). It is the sentence run 49 sent as Test 5's second
   message. This group judges the address; the removal itself stays closed
   with Test 5.
+- **Expected route, enforced**:
+  `intent=edit layer=page page=/gallery remove=true alsoAsked=none`.
 - **Before** (read 2026-09-29 23:20 UTC at `8btpep`, redirects not followed):
   - `/gallery`, `/gallery?ref=menu&x=1` and `/gallery/` answer 200;
   - `/the-starter` answers 301 → `/starter` with `public, max-age=600`, with
@@ -301,15 +384,17 @@ than a live acceptance, and 11 is outside the edit path.
      - its restored source equals run 63's (the hashes above);
      - `/gallery` answers 200 at `t5obxx`;
      - `/the-starter` answers 301 → `/starter`.
-  2. **Paid: the request.** Pass:
+  2. **Paid: the request, with the expected route.** Pass:
      1. `request.json` carries the sentence (sha256 above).
-     2. The router answers `edit`, layer `page`, page `/gallery`,
-        `remove: true`, with nothing held back.
-     3. The job removes `gallery.tsx` and nothing else: the other four
-        stored pages are byte-identical to `t5obxx`'s. Billing is `exempt`,
-        cost 0, with one publish built from `t5obxx`.
-     4. Read without following redirects, at once and again at least ten
-        minutes after the publish:
+     2. `routing.json` carries the router's answer and a verdict that
+        matches: `edit`, layer `page`, page `/gallery`, `remove: true`,
+        nothing held back.
+     3. The job removes `gallery.tsx` and nothing else: the other four stored
+        pages are byte-identical to `t5obxx`'s. Billing is `exempt`, cost 0,
+        with one publish built from `t5obxx`.
+     4. Read by me, free, without following redirects, at once and again at
+        least ten minutes after the publish (the canary's own after-read
+        follows redirects and reads only the new sitemap's pages):
         - `/gallery` → 301 to `https://fold-lane-bakery.gofarther.app/`, with
           `cache-control: public, max-age=600`;
         - `/gallery?ref=menu&x=1` → 301 to `/?ref=menu&x=1`;
@@ -338,19 +423,18 @@ than a live acceptance, and 11 is outside the edit path.
      This is also the first live restore over a stored `/gallery=/` (run 50
      came before the fix). If a 301 is still served at once, it is read again
      after ten minutes, to tell a cached answer from a stale map.
+- **Recovery**: step 3, the free restore to `8btpep`. Group A changes pages
+  and the stored redirects, never a database row.
 - **What each other outcome means**:
-  - The router answers anything other than `page` + `remove` for `/gallery`:
-    the canary refuses to post, and only routing is spent. Item 1 stays open,
-    and step 3 still runs.
+  - The router answers anything other than the expected route: the canary
+    refuses to post the edit, and only the routing call is spent. Item 1
+    stays open, and step 3 still runs.
   - The removal is refused (`kept`): nothing changes, and the edit costs 0.
     This is a finding (something still names the page). Step 3 still runs.
   - The page is removed but an address answers otherwise: item 1 fails, as a
     product finding. Step 3 still runs.
-- **Cost**: routing 1–2 (run 49's routing for this sentence was 1). The
-  removal is free (`exempt`). About 1–2 credits, and about 4 at worst: a
-  misroute to the menu editor, which would find nothing to take out.
 
-### Group B — a row changed on a site whose database link is blank (item 5, that half)
+### Group B — a row changed on a site whose database link is blank (item 5, the missing reference only)
 
 - **The gap.** On an `incomplete` site the data rung has to work out the
   database connection itself: the container has no lookup cache to hide the
@@ -376,17 +460,34 @@ than a live acceptance, and 11 is outside the edit path.
 
   The router is sent the site's pages and no table names. That is what the
   real app sent in run 42 as well, and that router still answered `data`.
-- **Before** (23:20 UTC):
-  - `GET https://gofarther.dev/api/db/fretwork-1/data/lessons?select=*&order=id.asc`
-    → 736 bytes, sha256 `a4f1dc305d7d6326…` (ids 1–4, prices 0, 18, 30,
-    40), the same as at 22:50;
-  - `/`, `/prices`, `/gear` and `/fr/prices` are at `kk6qsh`;
-  - `/prices` is drawn in Chromium (the before picture).
+- **Expected route, enforced on both presses**:
+  `intent=edit layer=data alsoAsked=none`.
+- **The baseline, in full**: `GET
+  https://gofarther.dev/api/db/fretwork-1/data/lessons?select=*&order=id.asc`,
+  read at 22:50, 23:20 and 23:59 UTC on 2026-09-29, identical each time.
+  736 bytes, sha256
+  `a4f1dc305d7d6326efb3b3d976c29edeebfc895a8c30a71db8038859475cf6ea`. The
+  served body has one space after each of the first three `},`; this copy
+  drops those three spaces, and the sha256 is of the served bytes:
+
+  ```json
+  [{"id":1,"name":"First lesson","description":"A free 45-minute taster in Crookes. Bring a guitar if you have one; there is a spare if not.","price":0,"duration":"45 minutes","created_at":"2026-09-02 16:57:02"},
+   {"id":2,"name":"Group of three","description":"Share a 45-minute lesson with two other beginners. Eighteen pounds each.","price":18,"duration":"45 minutes","created_at":"2026-09-02 16:57:02"},
+   {"id":3,"name":"One-to-one","description":"A private 45-minute lesson. Beginners welcome.","price":30,"duration":"45 minutes","created_at":"2026-09-02 16:57:02"},
+   {"id":4,"name":"Hour one-to-one","description":"A full hour when 45 minutes is not enough.","price":40,"duration":"60 minutes","created_at":"2026-09-02 16:57:02"}]
+  ```
+
+  `/`, `/prices`, `/gear` and `/fr/prices` are at `kk6qsh`, and `/prices`
+  is drawn in Chromium as the before picture. After each step the rows are
+  compared with this baseline, and each difference is checked against the
+  job's own stored `applied` (which rows and columns it wrote). A difference
+  the job does not account for is reported, never "recovered", until its
+  cause is known: it may be someone else's change.
 - **Steps, one after another**:
-  1. **Paid: request 1.** Pass:
-     1. `request.json` carries it.
-     2. The router answers `edit`, layer `data`, with nothing held back.
-     3. The job:
+  1. **Paid: request 1, with the expected route.** Pass:
+     1. `request.json` carries it, and `routing.json` carries a verdict that
+        matches: `edit`, layer `data`, nothing held back.
+     2. The job:
         - it ran in the site's container: its trace's `run` mark reads
           `where: "container"`;
         - it found the database without the reference: no
@@ -395,9 +496,11 @@ than a live acceptance, and 11 is outside the edit path.
           exactly `[{ table: "lessons", id: 4, columns: ["price"] }]` and
           `failed` empty;
         - it has one ledger reserve, `<job>#1`.
-     4. The rows: ids 1–3 are byte-identical, and id 4 is identical apart from
-        `price: 42`. `/prices` shows "Hour one-to-one … £42" in the same
-        order. Every page is still at `kk6qsh`: nothing was published.
+     3. The rows, compared field by field with the baseline: ids 1–3
+        identical, and id 4 identical apart from `price: 42`. No row added
+        or missing.
+     4. `/prices` shows "Hour one-to-one … £42" in the same order. Every page
+        is still at `kk6qsh`: nothing was published.
      5. The backend row's `neon_db` is still blank: the rung writes nothing to
         the reference.
      - **Expected, not judged**:
@@ -405,31 +508,47 @@ than a live acceptance, and 11 is outside the edit path.
          wording);
        - the canary's "CANARY PASSED … published", with the comparison
          UNVERIFIED because a row edit names no version.
-  2. **Paid, only after I've read step 1: request 2.** Pass: the same path,
-     and the rows read back byte-identical to the before-read (736 bytes,
+
+     **If step 1 changed anything besides row 4's price, step 2 is not
+     sent.** Step 2 can only set that one price, so the recovery below is
+     used instead, and group B stops as a finding.
+  2. **Paid, only after I've read step 1 and it changed exactly row 4's
+     price: request 2, with the same expected route.** Pass: the same path,
+     and the rows read back byte-identical to the baseline (736 bytes,
      `a4f1dc30…`). `/prices` matches the before picture.
-- **Recovery, at row level.** Step 2 is the put-back: one column of one row,
-  through the product.
-  - If step 2 fails, or step 1 changed anything else, you set `lessons` row
-    4's `price` back to 40 in the app's Data panel, signed in as the building
-    account. The panel re-saves the row's other fields as they are. This row
-    has no empty field, so the panel's blank-for-null does not come up. I then
-    re-read the rows.
-  - Nothing publishes, so no version restore is needed. If a version did
-    change, run the free restore to `01790404806543-kk6qsh`.
+- **Recovery, at row level, for every difference from the baseline.** A
+  saved page version does not restore database rows: the free restore to
+  `kk6qsh` puts back pages only. **No recovery write is made during
+  preparation.** Each one below is the owner's action, or needs the owner's
+  approval, at the time.
+
+  | Difference found after a step | Recovery | Exact? |
+  |---|---|---|
+  | Row 4's price is 42 and nothing else differs (step 1 as intended) | Step 2, through the product | Exact, if step 2 does only that |
+  | Row 4's price still differs after step 2, or step 2 was refused | The owner, in the app's Data panel signed in as the building account: row 4, price back to `40`, Save | Exact: the panel re-saves the row's other fields as they are, and none is empty, so its blank-for-null does not arise |
+  | Another field of row 4 changed (`name`, `description`, `duration`) | The Data panel: row 4, each changed field back to its baseline value above | Exact |
+  | A field of row 1, 2 or 3 changed | The Data panel: that row, each changed field back to its baseline value above | Exact |
+  | A row added (an id not in the baseline) | The Data panel: delete that row | Exact for the four rows (the id sequence has moved on, which nothing shows) |
+  | One of the four rows deleted | The Data panel: add a row with its baseline `name`, `description`, `price` and `duration` | **Not exact**: `id` and `created_at` are set by the database, so the row returns under a new id and time. `/prices`, which orders by price, reads the same. An exact return needs a database restore, which is a separate approval and also reverts every other change in that database since, its bookings included. |
+  | An `id` or `created_at` changed | Not something the data rung can write (it writes only the columns it offers, and never `id`). Stop and report; no write. | — |
+  | Another table changed (`bookings`, `gear`) | The data rung is offered display tables only, which on this site is `lessons`. Stop and report; no write without the owner's approval. | — |
+  | A page or the version changed (a data edit publishes nothing) | The free restore to `01790404806543-kk6qsh`, pages only | Exact for pages; it restores no row |
+  | The backend reference (`neon_db`) written | Not something the data rung writes. Report it. | — |
+
+  After any recovery, the rows are read again and compared with the baseline
+  byte for byte; the page is drawn again and compared with the before
+  picture.
 - **What each other outcome means**:
-  - The router answers `text`, which is possible with no table names: a
-    words-only edit that finds no price in the page source. That is a routing
-    finding, and nothing changes.
+  - The router answers anything other than the expected route: the canary
+    refuses to post the edit, and only the routing call is spent. A `text`
+    answer is possible, since the router is sent no table names, and would be
+    a routing finding.
   - `data/backend-unreadable`, `no-backend` or `no-meta`: the blank-link path
     failed live. That is the finding this group exists to find, and the edit
     costs nothing.
   - A no-match (422): the picker read the rows and matched none. It is
     charged, and it is a finding.
-  - Another row or column changed: the recovery above, and a finding.
-- **Cost**: each message is routing 1–2 plus the rung's reserve of 1 (run 42:
-  2 + 1). About 4–6 credits for both, and about 6 at worst: nothing climbs,
-  because the canary never follows an escalation.
+  - Another row or field changed: the recovery table above, and a finding.
 
 ### Running A and B side by side
 
@@ -448,7 +567,6 @@ Checked read-only in the code and the database on 2026-09-29:
   The one contention on the account is signing in: each press mints its own
   link. So press them a minute apart; a clash would fail before anything is
   spent.
-- **The balance can't run dry**: about 10 of 22 at worst.
 - **Every charge can be attributed.**
   - Routing leaves no ledger row. Each run's routing charge is in its own log
     (`routed in …: … cost=N`), which is what the Worker collected.
@@ -457,7 +575,7 @@ Checked read-only in the code and the database on 2026-09-29:
   - The account-wide "balance before / after (moved)" lines the plain canary
     prints are shared during an overlap, so they are not read. On this path
     they are only printed, never judged.
-- **The smallest adjustment: none in code.**
+- **Attribution needs no code change.**
   - The checks that misattribute are all in the browser scenarios: their money
     verdicts, their budget stop, and the put-back-only scenario's
     "nothing spent" check, each reading the account's balance. This batch uses
@@ -479,13 +597,33 @@ Checked read-only in the code and the database on 2026-09-29:
 
 ### Cost
 
-About 5–8 credits for the batch (A 1–2, B 4–6), and about 10 at worst. The
-balance is 22 (read 23:14 UTC; last ledger row 341; no job open).
+- **Estimates, from measured runs; not limits:**
+  - A: about 1–2 credits for routing (run 49's routing for this sentence was
+    1). The removal itself is `exempt`, measured at 0 in run 49.
+  - B: about 2–3 per message, routing 1–2 plus the data rung's reserve (run
+    42: routing 2 and the edit 1). About 4–6 for both messages.
+  - The batch: about 5–8.
+- **Enforced limits:**
+  - **None per request or per batch.** `edit_reserve` refuses only above
+    100,000.
+  - **The one hard bound is the balance, 22** (read 23:14 UTC; last ledger
+    row 341; no job open). `edit_reserve` refuses a reserve larger than the
+    balance and takes nothing, and the routing charge takes at most what is
+    left. So the balance cannot go below zero.
+  - The batch can still spend more than estimated. A later reserve the
+    balance cannot cover fails that job, is refunded, and shows in its run.
+- **What the expected-route check changes**: a press whose router answer
+  differs is stopped after routing, so it spends its routing charge and
+  nothing else. It does not cap the routing charge, or the charge of the rung
+  that runs.
 
 ### The presses
 
-All from `main`, on the edit canary. Leave every box not named here as it is
-(blank). There are three rounds, and you tell me after each one:
+All from the branch `claude/help-needed-ehlwlj`, whose canary has the
+expected-route box, against main's Worker (deploy 2170). Leave every box not
+named here as it is (blank); the expected-route box stays blank on the two
+restores, which refuse it. There are three rounds, and you tell me after each
+one:
 1. **Round 1**, a minute apart:
    - **A1**, free: "Run the ONE paid edit as well" `no`; "PUT ONE SAVED VERSION
      BACK, THEN READ IT AND STOP" `01790701419976-t5obxx`; "The site to edit"
@@ -494,12 +632,17 @@ All from `main`, on the edit canary. Leave every box not named here as it is
      `abf47dfeceba3c5c`.
    - **B1**, paid: "Run the ONE paid edit as well" `yes`; "What to change"
      request 1; "The site to edit" `fretwork-1`; "A second site…"
-     `washhouse-2`; and the same two expectations.
+     `washhouse-2`; "Refuse to post the paid edit unless the router answers
+     this…" `intent=edit layer=data alsoAsked=none`; and the same two
+     expectations.
 2. **Round 2**, after I've read round 1, a minute apart:
    - **A2**, paid: `yes`; "What to change" `Remove the gallery page.`;
-     `fold-lane-bakery`; `washhouse-3`; the same two expectations.
-   - **B2**, paid: `yes`; request 2; `fretwork-1`; `washhouse-2`; the same two
-     expectations.
+     `fold-lane-bakery`; `washhouse-3`; the route
+     `intent=edit layer=page page=/gallery remove=true alsoAsked=none`; the
+     same two expectations.
+   - **B2**, paid, only if B1 changed exactly row 4's price: `yes`; request 2;
+     `fretwork-1`; `washhouse-2`; the route
+     `intent=edit layer=data alsoAsked=none`; the same two expectations.
 3. **Round 3**, at least ten minutes after A2's publish, once I've read it
    twice:
    - **A3**, free: `no`; "PUT ONE SAVED VERSION BACK…"
@@ -515,9 +658,11 @@ All from `main`, on the edit canary. Leave every box not named here as it is
     own text pulls both ways);
   - where the QR code leads (backlog).
 - **Group B**:
-  - adding, removing or reordering a row (not ready, above);
+  - adding, deleting or reordering a row (not ready, above);
   - a site whose database is `none` or `unreadable`;
   - a data edit on a `ready` site (run 42, already credited).
+- **Either**: a refused press shows only which route the router chose. It
+  says nothing about the edit path, which never ran.
 
 ## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; its free runtime check passed as run 62; pressed as run 63 the same day: the router answered `nav` with `remove` and held the band back, so only the menu change was made and the look door was not reached; the free restore, run 64, put everything back; the owner recorded run 63 as a partial outcome and accepted run 64, with the intended acceptance still open; the router's whole-message rule corrected on the branch the same day, made to choose by what a route can make on every page rather than by kind after the owner's review, and the acceptance prepared again, not run; the rule merged and deployed in deploy 2170 the same day and runtime-confirmed by run 65; pressed again as run 66 the same day: the router answered `look` with nothing held back, and both changes were stored and published exactly as expected, for 6 credits; every acceptance item met; the free restore, run 67, put everything back, checked; closed by the owner the same day for the exact combined request run 66 proved, with recovery verified by run 67, runs 63 and 64 kept as history, no further reruns)
 

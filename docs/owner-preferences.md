@@ -271,3 +271,20 @@
   charge can be told apart; an account-wide balance reading cannot.
 - **Closing keeps the failed runs.** Closing Test 8: *"Record it as closed and
   retain earlier failed runs as history."*
+- **A plan's claims are enforced by the run.** Reviewing Batch 1: *"The plain
+  canary does not enforce the routing expectations claimed in Batch 1… Add the
+  smallest generic, opt-in expected-route check… Do not override the model's
+  answer or add fixture-specific product routing."* What a press is said to
+  require, the harness refuses when it does not happen, before anything
+  else is spent.
+- **Estimates are not limits.** *"Keep estimates separate from enforced
+  limits; remove '10 at worst' and 'balance can't run dry' unless supported by
+  an actual bound."*
+- **Recovery covers every difference.** *"Resetting row 4's price alone cannot
+  recover another changed row or field. Capture the complete four-row baseline
+  and specify recovery for each unintended difference. A saved page version
+  does not restore database rows. No live recovery writes are authorized
+  during preparation."*
+- **The agreed list stays as agreed.** *"Preserve the agreed remaining
+  acceptance list… Keep live guard-rejection evidence separate rather than
+  silently substituting it for the follow-up case."*

@@ -232,34 +232,40 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   reading is Test 8's run 66: the real router answered `look` for that mix,
   with nothing held back** (one sample; how often, and for other messages,
   is not measured). The image rolled to `abf47dfeceba3c5c`, as predicted. `docs/history/2026-09-29-whole-message-routing.md`.
-- **Batch 1 is proposed, not run** (2026-09-29, after Test 8's closure; the
-  owner asked for up to three independent acceptance groups from the remaining
-  six, overlapping where they genuinely can). **Two are ready**, on different
-  sites, with different controls:
-  - **A**, item 1's open half, a removed page answering 301 home, on
+- **Batch 1 is proposed, not run** (2026-09-29, after Test 8's closure;
+  corrected 2026-09-30 after the owner's review). **Two groups are ready**, on
+  different sites with different controls, each paid press with its route
+  enforced:
+  - **A**, item 1's open half (a removed page answering 301 home), on
     `fold-lane-bakery`: the free restore to run 63's `01790701419976-t5obxx`
-    (Gallery already out of the menus, so nothing else names `/gallery`), then
-    "Remove the gallery page.", then the addresses read without following
-    redirects, at once and ten minutes later, then the free restore to
-    `8btpep`. About 1–2 credits.
-  - **B**, item 5's blank-link half, on `fretwork-1` (`incomplete`): a
-    `lessons` price changed and then put back by a second message, with the
-    owner's Data panel as the row-level fallback. About 4–6 credits.
+    (Gallery already out of the menus, so nothing else names `/gallery`),
+    "Remove the gallery page." expecting `layer=page page=/gallery
+    remove=true alsoAsked=none`, the addresses read without following
+    redirects at once and ten minutes later, then the free restore to
+    `8btpep`.
+  - **B**, the data item's missing-reference half only, on `fretwork-1`
+    (`incomplete`): a `lessons` price changed and put back by a second
+    message, each expecting `layer=data alsoAsked=none`, against the full
+    four-row baseline (736 bytes, `a4f1dc30…`), with a recovery for every
+    kind of unintended difference. A saved page version restores no row, and
+    no recovery write is made during preparation.
 
-  About 5–8 for both, 10 at worst, against 22. **The other four are not
-  ready**:
-  - adding a row needs the owner's ruling on which step adds one;
-  - removing a row needs the data picker's contradictory delete instructions
-    corrected first;
-  - the rules, picture-swap, protection and component items need fixtures or
-    product work.
-
-  The findings are in the backlog. **The overlap needs no code change**:
-  locks are per site, and money closes from each run's own routing line and
-  its jobs' ledger rows (refs `<job>#n`), with the batch closing against 22
-  and ledger row 341. The account-wide balance lines the plain canary prints
-  are not read. The browser scenarios that judge the account's balance are
-  not used. The record is the checklist's *Batch 1*.
+  **Estimates, not limits**: A about 1–2 credits, B about 4–6, about 5–8
+  together. Nothing caps a request or the batch; the only hard bound is the
+  balance of 22. **The canary now enforces a press's expected route**
+  (`expect_route`, `scripts/canary-route.mjs`, on the branch, not merged;
+  the presses run from the branch). It is read before the sign-in; the
+  router's answer is saved to `routing.json` before any refusal; a mismatch
+  is refused above the edit POST; a match is posted unchanged. Verified with
+  9 new cases, a red check on `da24ce1b`, the real script under an in-process
+  network stub (11 scenarios), a sweep of 29 mutants all killed with 2
+  controls surviving, and the full suite `8306 / 8306 / 0 / 0` locally.
+  **The remaining six are the owner's list**: redirect home; data add,
+  delete and reorder plus the missing reference; broader rules; picture
+  replacement; a first-attempt component; a follow-up after a failure or
+  escalation. A protection refusing a real model's answer is kept separate.
+  The four not in the batch are not ready. The record is the checklist's
+  *Batch 1* and `docs/history/2026-09-30-expected-route.md`.
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
   `docs/investigations/edit-path-checklist.md`, and every test's plan, readings

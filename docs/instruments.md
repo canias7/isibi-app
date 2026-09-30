@@ -61,6 +61,17 @@ in `docs/instruments.md`; each test's plan and evidence is in the checklist.
   that caps no single request; scenarios `4a-part-b`, `4b-d1-price`,
   `4b-d1-restore`, `4b-rules-close`, `5-page-remove`); `rules_allow` (the rules
   test's approvals).
+- **The route a paid press expects** (`expect_route`, 2026-09-30,
+  `scripts/canary-route.mjs`): space-separated `key=value` over the router's
+  own fields (`intent`, `layer`, `page`, `rename`, `remove`, `tab`,
+  `alsoAsked=none`). Only the named fields are judged.
+  - It is read whole before the sign-in. A malformed box, or one beside a
+    mode, refuses at no cost.
+  - The router's answer is written to `routing.json` the moment it arrives.
+  - A different answer is refused above the edit POST: the routing call is
+    spent and nothing else is.
+  - A matching answer is posted exactly as it came.
+  - Blank means no check.
 - **Presses are the owner's.** A session's dispatch answers **403** (it lacks
   `actions: write`) even for a free read, so do not retry it: hand over the
   exact values and **name each box by its description**, because the form shows

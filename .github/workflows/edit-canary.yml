@@ -128,6 +128,16 @@ on:
         description: 'Refuse to spend unless a cold container reports this image id (exact). Blank = read and print only.'
         required: false
         default: ''
+      # THE ROUTE A PAID PRESS EXPECTS (Batch 1, 2026-09-29). Read whole by the
+      # script before it signs in (`scripts/canary-route.mjs`); a key or value it
+      # does not know refuses at no cost, and so does a filled box beside a read,
+      # a restore or a scenario. On a paid press the router's answer is checked
+      # field by field and a different one is refused before the edit is posted;
+      # a matching one is posted exactly as it came.
+      expect_route:
+        description: 'Refuse to post the paid edit unless the router answers this: space-separated key=value over intent, layer, page, rename (a path or none), remove, tab (true/false), alsoAsked=none (nothing held back). Blank = no check.'
+        required: false
+        default: ''
 
 jobs:
   canary:
@@ -231,6 +241,7 @@ jobs:
           CANARY_INSTRUCTION: ${{ github.event.inputs.instruction }}
           EXPECT_DEPLOY: ${{ github.event.inputs.expect_deploy }}
           EXPECT_IMAGE: ${{ github.event.inputs.expect_image }}
+          CANARY_EXPECT_ROUTE: ${{ github.event.inputs.expect_route }}
           CANARY_EVIDENCE_DIR: canary-evidence
         run: node scripts/edit-canary.mjs
       # THE RECORD SURVIVES THE RUN, and is uploaded even when the canary

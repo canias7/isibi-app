@@ -965,9 +965,11 @@ test("the canary refuses a bad scenario before it signs in, and runs the mode be
 test("the workflow carries the mode and installs the browser only for it, before the step that launches it", () => {
   assert.match(FLOW, /\n {6}ui_scenario:\n/, "the workflow has no ui_scenario input");
   assert.match(FLOW, /CANARY_UI:\s*\$\{\{\s*github\.event\.inputs\.ui_scenario\s*\}\}/);
-  // GitHub caps a dispatch form at ten inputs.
+  // GITHUB CAPS A DISPATCH FORM AT 25 INPUTS, not ten: its changelog of
+  // 2025-12-04 raised the limit, and lane-sweep.yml's 11-input form has been
+  // dispatched four times since 2026-09-16. Ten was true when this was written.
   const inputs = FLOW.slice(FLOW.indexOf("inputs:"), FLOW.indexOf("\njobs:")).match(/\n {6}[a-z_]+:\n/g) || [];
-  assert.ok(inputs.length >= 9 && inputs.length <= 10, `${inputs.length} inputs`);
+  assert.ok(inputs.length >= 9 && inputs.length <= 25, `${inputs.length} inputs`);
   // The spend switch is unchanged: the mode sends only with spend=yes and no other mode named.
   const spend = FLOW.match(/CANARY_SPEND:.*/)[0];
   assert.match(spend, /inputs\.read_job == ''/);

@@ -459,3 +459,70 @@ test("the canary decodes a response body once, so a character split across two c
   assert.ok(/Buffer\.concat\(\w+\)\.toString\("utf8"\)/.test(body) || body.includes('setEncoding("utf8")'),
     "call() no longer decodes the whole body once");
 });
+
+// ── THE ROUTE A PRESS EXPECTS (Batch 1, 2026-09-29) ─────────────────────────
+//
+// The paid canary refused only an answer that was not an edit or named no
+// layer, and then posted whatever the router said, so a press that claimed
+// "page + remove for /gallery" had nothing holding it to that. The check is
+// opt-in and generic, and its decisions are driven in `canary-route.test.mjs`;
+// these cases guard where it sits in the script.
+test("the expected route is read before the sign-in, and a bad or misplaced one refuses at no cost", () => {
+  const read = SRC.indexOf("readExpectRoute(process.env.CANARY_EXPECT_ROUTE)");
+  const signIn = SRC.indexOf("/auth/v1/admin/generate_link");
+  assert.ok(read > 0, "the expected-route box is no longer read");
+  assert.ok(signIn > read, "the expectation is read after the sign-in, so a typo would cost a routing call");
+  const win = SRC.slice(read, signIn);
+  const bad = win.indexOf("REFUSING THE EXPECTED ROUTE");
+  assert.ok(bad > 0, "a malformed expectation no longer refuses");
+  assert.match(win.slice(win.lastIndexOf("if (", bad), bad), /!EXPECT_ROUTE\.ok/, "the refusal no longer depends on the box failing to read");
+  assert.match(win.slice(bad, bad + 200), /process\.exit\(2\)/, "the refusal does not stop the run");
+  const other = win.indexOf("names another mode");
+  assert.ok(other > 0, "an expectation beside another mode is no longer refused");
+  const cond = win.slice(win.lastIndexOf("if (", other), other);
+  for (const mode of ["READ_JOB", "RESTORE", "UI"]) assert.match(cond, new RegExp("\\b" + mode + "\\b"), `an expectation beside ${mode} is not refused`);
+  assert.match(win.slice(other, other + 200), /process\.exit\(2\)/, "a misplaced box does not stop the run");
+});
+
+test("the router's answer is written down before any refusal, and a mismatch never reaches the edit POST", () => {
+  const paid = paidHalf();
+  const routed = paid.indexOf('"/api/site/route"');
+  const posted = paid.indexOf("/edit`");
+  assert.ok(routed > 0 && posted > routed, "the routing call or the edit POST is gone");
+  // THE RECORD comes before the first exit after the routing call, and it is
+  // the only one: a second write later would be the old place coming back.
+  const record = paid.indexOf("routing.json`", routed);
+  const firstExit = paid.indexOf("process.exit(", routed);
+  assert.ok(record > routed, "routing.json is no longer written after the routing call");
+  assert.ok(firstExit > record, "a refusal after routing exits before the answer is written down");
+  assert.equal(SRC.split("routing.json`").length - 1, 1, "routing.json is written in more than one place");
+  assert.match(paid.slice(record, paid.indexOf(";\n", record)), /expected:\s*EXPECT_ROUTE\.expect,\s*verdict:\s*ROUTE_VERDICT/,
+    "the record no longer carries the expectation and its verdict");
+  // THE VERDICT is taken on the router's own answer, and only when a press set one.
+  const verdict = paid.indexOf("routeVerdict(", routed);
+  assert.ok(verdict > routed && verdict < posted, "the verdict is not taken between the routing call and the POST");
+  const vLine = paid.slice(paid.lastIndexOf("\n", verdict), paid.indexOf("\n", verdict));
+  assert.match(vLine, /EXPECT_ROUTE\.expect \? routeVerdict\(EXPECT_ROUTE\.expect,\s*rd\) : null/,
+    "the verdict is not taken on the router's answer, or is taken with no expectation set");
+  // THE REFUSAL sits above the POST, on the verdict failing, and stops the run.
+  const refuse = paid.indexOf("REFUSING TO POST THE EDIT");
+  assert.ok(refuse > verdict && refuse < posted, "a mismatch is no longer refused above the edit POST");
+  assert.match(paid.slice(paid.lastIndexOf("if (", refuse), refuse), /!ROUTE_VERDICT\.ok/, "the refusal no longer depends on the verdict failing");
+  assert.match(paid.slice(refuse, refuse + 400), /process\.exit\(1\)/, "the refusal prints and posts anyway");
+});
+
+test("a matching answer is posted exactly as it came: the edit body never reads the expectation", () => {
+  const paid = paidHalf();
+  const at = paid.indexOf("/edit`");
+  const body = paid.slice(at, paid.indexOf("console.log", at));
+  assert.ok(body.includes("rd.layer"), "the edit body's landmark moved; this case would read nothing");
+  assert.doesNotMatch(body, /EXPECT_ROUTE|ROUTE_VERDICT|routeVerdict/, "the edit POST reads the expectation");
+});
+
+test("the workflow carries the expected route to the script as its own box, and it arms nothing", () => {
+  const FLOW = readFileSync(new URL("../.github/workflows/edit-canary.yml", import.meta.url), "utf8");
+  assert.match(FLOW, /\n {6}expect_route:\n/, "the form has no expected-route box");
+  assert.match(FLOW, /CANARY_EXPECT_ROUTE:\s*\$\{\{\s*github\.event\.inputs\.expect_route\s*\}\}/, "the box does not reach the script");
+  const spend = FLOW.match(/CANARY_SPEND:.*/)[0];
+  assert.doesNotMatch(spend, /expect_route/, "the expected-route box arms the spend switch");
+});

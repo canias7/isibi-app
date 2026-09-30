@@ -1,0 +1,252 @@
+[
+  {
+    "label": "CONTROL: the module's flag comment changes nothing",
+    "control": true,
+    "files": [
+      "scripts/canary-route.mjs"
+    ],
+    "from": "/** Fields read as flags, the way the edit POST reads them: absent is false. */",
+    "to": "/** Fields read as flags (control), the way the edit POST reads them: absent is false. */"
+  },
+  {
+    "label": "CONTROL: the canary's expected-route comment changes nothing",
+    "control": true,
+    "files": [
+      "scripts/edit-canary.mjs"
+    ],
+    "from": "// THE ROUTE THIS PRESS EXPECTS, from its own box (`canary-route.mjs`). Read",
+    "to": "// THE ROUTE THIS PRESS EXPECTS (control), from its own box (`canary-route.mjs`). Read"
+  },
+  {
+    "label": "K-1: an absent flag reads as true",
+    "files": [
+      "scripts/canary-route.mjs"
+    ],
+    "from": "if (raw === undefined || raw === null) got = false;",
+    "to": "if (raw === undefined || raw === null) got = true;"
+  },
+  {
+    "label": "K-2: a flag that is not a boolean is coerced",
+    "files": [
+      "scripts/canary-route.mjs"
+    ],
+    "from": "      else readable = false;\n    } else if (raw === undefined",
+    "to": "      else got = raw === true || raw === \"true\";\n    } else if (raw === undefined"
+  },
+  {
+    "label": "K-3: a text field that is not a string is coerced (String([\"/gallery\"]))",
+    "files": [
+      "scripts/canary-route.mjs"
+    ],
+    "from": "    } else {\n      readable = false;\n    }",
+    "to": "    } else {\n      got = String(raw);\n    }"
+  },
+  {
+    "label": "K-4: an empty text is no longer absent",
+    "files": [
+      "scripts/canary-route.mjs"
+    ],
+    "from": "} else if (raw === undefined || raw === null || raw === \"\") {",
+    "to": "} else if (raw === undefined || raw === null) {"
+  },
+  {
+    "label": "K-5: an unreadable field is not reported",
+    "files": [
+      "scripts/canary-route.mjs"
+    ],
+    "from": "if (!readable) diffs.push({ key, want, got: raw, readable: false });",
+    "to": "if (!readable) void 0;"
+  },
+  {
+    "label": "K-6: a key the router does not answer is accepted",
+    "files": [
+      "scripts/canary-route.mjs"
+    ],
+    "from": "if (!KEYS.includes(key)) return",
+    "to": "if (false) return"
+  },
+  {
+    "label": "K-7: a key named twice is accepted",
+    "files": [
+      "scripts/canary-route.mjs"
+    ],
+    "from": "if (Object.hasOwn(expect, key)) return",
+    "to": "if (false) return"
+  },
+  {
+    "label": "K-8: a flag's value is not checked",
+    "files": [
+      "scripts/canary-route.mjs"
+    ],
+    "from": "if (value !== \"true\" && value !== \"false\") return",
+    "to": "if (false) return"
+  },
+  {
+    "label": "K-9: alsoAsked takes any value",
+    "files": [
+      "scripts/canary-route.mjs"
+    ],
+    "from": "if (value !== \"none\") return { ok: false, msg: `${HELD}",
+    "to": "if (false) return { ok: false, msg: `${HELD}"
+  },
+  {
+    "label": "K-10: an intent the router cannot answer is accepted",
+    "files": [
+      "scripts/canary-route.mjs"
+    ],
+    "from": "if (!INTENTS.includes(value)) return",
+    "to": "if (false) return"
+  },
+  {
+    "label": "K-11: a layer the router cannot answer is accepted (layer=dta)",
+    "files": [
+      "scripts/canary-route.mjs"
+    ],
+    "from": "if (!EDIT_LAYERS.includes(value)) return",
+    "to": "if (false) return"
+  },
+  {
+    "label": "K-12: a path without its slash is accepted",
+    "files": [
+      "scripts/canary-route.mjs"
+    ],
+    "from": "} else if (!value.startsWith(\"/\")) {",
+    "to": "} else if (false) {"
+  },
+  {
+    "label": "K-13: a box that is not text is read as text",
+    "files": [
+      "scripts/canary-route.mjs"
+    ],
+    "from": "if (typeof raw !== \"string\") return { ok: false, msg: \"the expected route is not text\" };",
+    "to": "if (typeof raw !== \"string\") raw = String(raw);"
+  },
+  {
+    "label": "K-14: a mismatch is not recorded",
+    "files": [
+      "scripts/canary-route.mjs"
+    ],
+    "from": "else if (got !== want) diffs.push",
+    "to": "else if (false) diffs.push"
+  },
+  {
+    "label": "K-15: the verdict is always ok",
+    "files": [
+      "scripts/canary-route.mjs"
+    ],
+    "from": "return { ok: diffs.length === 0, diffs };",
+    "to": "return { ok: true, diffs };"
+  },
+  {
+    "label": "K-16: none is spelled back as null",
+    "files": [
+      "scripts/canary-route.mjs"
+    ],
+    "from": "const said = (v) => (v === null ? \"none\" : String(v));",
+    "to": "const said = (v) => String(v);"
+  },
+  {
+    "label": "K-17: a blank box refuses",
+    "files": [
+      "scripts/canary-route.mjs"
+    ],
+    "from": "if (!text) return { ok: true, expect: null };",
+    "to": "if (!text) return { ok: false, msg: \"blank\" };"
+  },
+  {
+    "label": "K-18: only the first pair is read",
+    "files": [
+      "scripts/canary-route.mjs"
+    ],
+    "from": "for (const token of text.split(/\\s+/)) {",
+    "to": "for (const token of [text.split(/\\s+/)[0]]) {"
+  },
+  {
+    "label": "S-1: a malformed box refuses and runs anyway",
+    "files": [
+      "scripts/edit-canary.mjs"
+    ],
+    "from": "  console.error(`REFUSING THE EXPECTED ROUTE: ${EXPECT_ROUTE.msg}`);\n  process.exit(2);",
+    "to": "  console.error(`REFUSING THE EXPECTED ROUTE: ${EXPECT_ROUTE.msg}`);"
+  },
+  {
+    "label": "S-2: an expectation beside a restore is allowed",
+    "files": [
+      "scripts/edit-canary.mjs"
+    ],
+    "from": "if (EXPECT_ROUTE.expect && (READ_JOB || RESTORE || UI)) {",
+    "to": "if (EXPECT_ROUTE.expect && (READ_JOB || UI)) {"
+  },
+  {
+    "label": "S-3: the box is read from the wrong variable",
+    "files": [
+      "scripts/edit-canary.mjs"
+    ],
+    "from": "readExpectRoute(process.env.CANARY_EXPECT_ROUTE)",
+    "to": "readExpectRoute(process.env.CANARY_EXPECT_ROUTES)"
+  },
+  {
+    "label": "S-4: a mismatch is refused in words and posted anyway",
+    "files": [
+      "scripts/edit-canary.mjs"
+    ],
+    "from": "the answer is in ${EVID}/routing.json.`);\n    process.exit(1);",
+    "to": "the answer is in ${EVID}/routing.json.`);"
+  },
+  {
+    "label": "S-5: the mismatch refusal is dead",
+    "files": [
+      "scripts/edit-canary.mjs"
+    ],
+    "from": "  if (!ROUTE_VERDICT.ok) {",
+    "to": "  if (false) {"
+  },
+  {
+    "label": "S-6: a verdict is taken with no expectation set",
+    "files": [
+      "scripts/edit-canary.mjs"
+    ],
+    "from": "const ROUTE_VERDICT = EXPECT_ROUTE.expect ? routeVerdict(EXPECT_ROUTE.expect, rd) : null;",
+    "to": "const ROUTE_VERDICT = routeVerdict(EXPECT_ROUTE.expect || {}, rd);"
+  },
+  {
+    "label": "S-7: the record drops the expectation and its verdict",
+    "files": [
+      "scripts/edit-canary.mjs"
+    ],
+    "from": "  ...(ROUTE_VERDICT ? { expected: EXPECT_ROUTE.expect, verdict: ROUTE_VERDICT } : {}) }, null, 2));",
+    "to": "  }, null, 2));"
+  },
+  {
+    "label": "S-8: the edit POST reads the expectation",
+    "files": [
+      "scripts/edit-canary.mjs"
+    ],
+    "from": "      layer: String(rd.layer || \"\"),",
+    "to": "      layer: String((EXPECT_ROUTE.expect && EXPECT_ROUTE.expect.layer) || rd.layer || \"\"),"
+  },
+  {
+    "label": "S-9: the verdict is taken on the wrong object",
+    "files": [
+      "scripts/edit-canary.mjs"
+    ],
+    "from": "routeVerdict(EXPECT_ROUTE.expect, rd)",
+    "to": "routeVerdict(EXPECT_ROUTE.expect, rt)"
+  },
+  {
+    "label": "S-10: the old late write comes back beside the early one",
+    "files": [
+      "scripts/edit-canary.mjs"
+    ],
+    "from": "// `routing.json` is written above, the moment the router answers.",
+    "to": "writeFileSync(`${EVID}/routing.json`, JSON.stringify({ instruction: INSTRUCTION, site: digest, status: rt.status, ms: rt.ms, body: rd }, null, 2));"
+  },
+  {
+    "label": "Y-1: the box never reaches the script",
+    "files": [
+      ".github/workflows/edit-canary.yml"
+    ],
+    "from": "          CANARY_EXPECT_ROUTE: ${{ github.event.inputs.expect_route }}\n",
+    "to": ""
+  }
+]

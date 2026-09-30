@@ -52,6 +52,9 @@ import { requestVerdict, storedReplyVerdict, moneyVerdict, unpublishedVerdict, r
 // many replies came back.
 import { removalVerdict } from "./canary-remove.mjs";
 import { OWNER_ROWS_LIMIT } from "./canary-rows.mjs";
+// BATCH 1: the route a paid press expects, read from its own box and compared
+// with the router's answer before the edit is posted.
+import { readExpectRoute, routeVerdict, expectSaid, mismatchSaid } from "./canary-route.mjs";
 import { publishedVersion } from "./canary-watch.mjs";
 // TEST 6: the description in the site's settings, beside the one the head serves.
 import { readStoredHead, storedHeadSaid } from "./canary-watch.mjs";
@@ -137,6 +140,22 @@ if (!ALLOW.ok) {
 if (ALLOW_RAW && !(UI_ASK && UI_ASK.scenario.rules)) {
   console.error("REFUSING: the approvals box is for the rules scenario only, and this run names no rules scenario");
   process.exit(2);
+}
+// THE ROUTE THIS PRESS EXPECTS, from its own box (`canary-route.mjs`). Read
+// whole before the sign-in, so a typo costs nothing, and only for the one paid
+// edit: a read, a restore and a browser scenario make no routing call of this
+// script's, so an expectation beside them would be a check that never runs.
+const EXPECT_ROUTE = readExpectRoute(process.env.CANARY_EXPECT_ROUTE);
+if (!EXPECT_ROUTE.ok) {
+  console.error(`REFUSING THE EXPECTED ROUTE: ${EXPECT_ROUTE.msg}`);
+  process.exit(2);
+}
+if (EXPECT_ROUTE.expect && (READ_JOB || RESTORE || UI)) {
+  console.error("REFUSING: the expected-route box is for the one paid edit, and this run names another mode");
+  process.exit(2);
+}
+if (EXPECT_ROUTE.expect) {
+  console.log(`EXPECTED ROUTE  ${expectSaid(EXPECT_ROUTE.expect)}  (checked after routing, before the edit is posted${SPEND ? "" : "; this run does not spend, so it routes nothing"})\n`);
 }
 // THIS RUN'S OWN ID, which goes into the rules test's marker booking's name.
 const RUN_ID = runIdOf(process.env);
@@ -1024,6 +1043,14 @@ const rt = await call("POST", "/api/site/route", {
 const rd = (rt.json || {});
 console.log(`  routed in ${(rt.ms / 1000).toFixed(1)}s: intent=${rd.intent || "?"} layer=${rd.layer || "-"} page=${rd.page || "-"} cost=${rd.cost ?? "?"}${rd.failed ? " FAILED" : ""}`);
 
+// THE ANSWER IS WRITTEN DOWN BEFORE ANYTHING IS DECIDED ON IT. `routing.json`
+// was written after the watch, so a refusal below left no record of the answer
+// it refused (Batch 1). The expectation and its verdict ride along only when
+// the press named one, so an ordinary run's file keeps its shape.
+const ROUTE_VERDICT = EXPECT_ROUTE.expect ? routeVerdict(EXPECT_ROUTE.expect, rd) : null;
+writeFileSync(`${EVID}/routing.json`, JSON.stringify({ instruction: INSTRUCTION, site: digest, status: rt.status, ms: rt.ms, body: rd,
+  ...(ROUTE_VERDICT ? { expected: EXPECT_ROUTE.expect, verdict: ROUTE_VERDICT } : {}) }, null, 2));
+
 // REFUSE TO SPEND BLIND. A blank layer costs nothing and proves nothing, and
 // the whole danger is that it PASSES: the round trip completes, the poll
 // returns a terminal answer, and the canary reports green having tested the
@@ -1032,6 +1059,18 @@ if (rt.status !== 200 || rd.intent !== "edit" || !rd.layer) {
   console.error(`  REFUSING TO SPEND: the router did not name an edit layer (${rt.status} ${rt.text.slice(0, 160)}).`);
   console.error("  Posting the edit anyway would escalate on `layer` for cost 0 and prove nothing.");
   process.exit(1);
+}
+// AND THE ROUTE THIS PRESS EXPECTED, when it named one. Another answer is
+// refused here, above the edit POST: the routing call is spent and nothing else
+// is. A matching answer is posted exactly as it came, because the body below
+// never reads the expectation.
+if (ROUTE_VERDICT) {
+  if (!ROUTE_VERDICT.ok) {
+    console.error(`  REFUSING TO POST THE EDIT: not the route this press expected — ${mismatchSaid(ROUTE_VERDICT)}.`);
+    console.error(`  Expected ${expectSaid(EXPECT_ROUTE.expect)}. The routing call is spent and nothing else is; the answer is in ${EVID}/routing.json.`);
+    process.exit(1);
+  }
+  console.log(`  the route matches the expectation (${expectSaid(EXPECT_ROUTE.expect)}); the answer is posted as it came`);
 }
 
 const idem = hex32();
@@ -1103,7 +1142,7 @@ console.log(`\n  balance after: ${after}  (moved ${(before - after).toFixed(2)})
 // refusal, a lane that never reached the page rung, an escalate and a
 // failure. Print all of it and let the reader judge.
 const rb = done && done.json ? done.json : null;
-writeFileSync(`${EVID}/routing.json`, JSON.stringify({ instruction: INSTRUCTION, site: digest, status: rt.status, ms: rt.ms, body: rd }, null, 2));
+// `routing.json` is written above, the moment the router answers.
 // THE STATUS AND THE FINAL HEADER SURVIVE INTO THE RECORD, because they are
 // what separates the three outcomes that used to write the same file: a
 // completed failure (a stored reply at 422/503), a terminal job with nothing

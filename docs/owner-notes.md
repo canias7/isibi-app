@@ -57,6 +57,51 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-30 — Your review of Batch 1: the canary now enforces each press's route, and the plan is corrected (not run)
+
+**The route is now enforced.** You were right: the canary checked only that
+the router named an edit, then posted whatever it said. It now has a new box,
+"Refuse to post the paid edit unless the router answers this…". A press names
+the route it expects there. If the router answers anything else, the canary
+saves the answer and stops before posting the edit, so only the routing call
+is spent. A matching answer is posted exactly as it came. The box knows nothing
+about any site or sentence, and it never changes the router's answer. It's on
+the branch, not merged, so the presses run from the branch.
+
+**How I checked it:**
+- tests on the Worker's real routing replies;
+- the real canary script, run with its network faked in-process: the
+  mismatches never reached the edit, the matches posted the same body as
+  before, and a typo cost nothing;
+- the same fake against the old script, which posted every mismatch;
+- a mutation sweep, which caught all 29 deliberate breakages;
+- the full suite, all 8,306 passing.
+
+**Costs, corrected**: about 1–2 credits for A, 4–6 for B, 5–8 together. Those
+are estimates from earlier runs, not limits. Nothing caps a single request or
+the batch; the only hard limit is your balance of 22, which can't go below
+zero. I've withdrawn "at most about 10" and "can't run dry".
+
+**B's recovery, completed**: all four lesson rows are recorded field by
+field. If the first message changes anything besides that one price, the
+second isn't sent, and each other kind of difference has its own fix in the
+Data panel. One case can't be put back exactly: a deleted row would come back
+under a new id. A saved page version doesn't restore rows. Nothing was
+written during preparation.
+
+**The six, as you listed them**:
+- redirect home;
+- data add, delete and reorder, plus the missing reference;
+- broader rules;
+- picture replacement;
+- a component right the first time;
+- a follow-up after a failure or escalation.
+
+A safety check refusing a model's answer stays separate. Group B covers only
+the missing reference.
+
+---
+
 ## 2026-09-29 — The next batch: two groups that can run side by side (proposed, not run)
 
 You asked for up to three acceptance groups from the six items still open,
@@ -77,7 +122,9 @@ puts it back to £40. It proves the builder finds that site's database on its
 own. About 4–6 credits. If the put-back fails, you'd set the price back in
 the app's Data panel.
 
-**About 5–8 credits for both, at most about 10**, against a balance of 22.
+**About 5–8 credits for both**, against a balance of 22. (An estimate: the
+"at most about 10" first written here was enforced by nothing, and is
+withdrawn in the entry above.)
 Each run's charges can be told apart even while they overlap. Nothing in the
 code needs changing for that.
 
