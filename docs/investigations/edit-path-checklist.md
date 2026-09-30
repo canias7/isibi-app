@@ -1098,9 +1098,18 @@ Lane 1's four corrections on the designated branch"*). Each correction was:
 - swept in its own worktree. Every mutant was killed and every comment-only
   control survived: 8 of 8, 17 of 17, 17 of 17 and 15 of 15.
 
-The full suite on `d19652c4` is `8343 / 8343 / 0 / 0` locally and
-`8343 / 8339 / 0 / 4` on CI, with `site build` green (runs 36667339503 and
-36667339564 on `dfaf8f7c`). What changed, what the
+**The owner credited the implementation and its CI** (the unit and site
+build runs on `dfaf8f7c`), and their review found two diagnostic gaps, closed
+in `ce992066`:
+- a provider's code is named only from a finite table by provider
+  (Anthropic's nine documented codes; xAI's `insufficient_quota`), and no
+  code is coerced from a non-string (`upstreamKind`, `xaiErrorDetail`);
+- the route cache's KV log line, which 1d's lookup reaches, names the
+  operation and a known error class, never the error's text.
+
+Both were red-checked (8 new cases failed on `3a728968`, every control
+passed) and swept: 25 of 25, 15 of 15 and 9 of 9, every control
+survived. The full suite on `ce992066` is `8351 / 8351 / 0 / 0`. What changed, what the
 tests drive and what they cannot establish are in
 `docs/history/2026-09-30-lane1.md`. Found along the way and corrected with
 1c: the card's click dropped the server's yes, so even a lit Data button

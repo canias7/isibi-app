@@ -57,6 +57,48 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-30 — The two gaps you found are closed on the branch (not merged)
+
+**Both are fixed and nothing was spent.** No model was called and nothing
+live was changed.
+- **Error codes.** A failed routing call named any code-shaped word the
+  provider sent, and a list like `["private_token_probe"]` was flattened
+  into one. It now names a code only from a fixed list for each provider:
+  Anthropic's nine documented codes, and for Grok, which publishes none,
+  the one "out of credits" code. Anything else, or anything that isn't
+  plain text, is dropped. The provider, the status, whether our account
+  was refused, and the kind of error are still reported.
+- **The site-address cache's log line.** When that cache failed, our log
+  printed the error's own text, which can include the database password
+  it was saving. It now prints only which step failed (read, write or
+  delete) and the kind of error. A failed cache read still falls back to
+  the database, as before.
+
+**Checked**, through the real routing route with passwords and markers
+planted:
+- none reached the reply, any log line, or the canary's line;
+- a failed cache read still finds the tables, and a cache that never
+  answers is cut off after 3 seconds;
+- each problem was reproduced before it was fixed;
+- the tests caught every deliberately broken version (49 of 49);
+- the whole test suite passes (8,351 tests).
+
+**Corrected**: my earlier note said last night's empty Grok balance would
+have shown "insufficient_quota". Nobody saw that body, and Grok publishes
+no codes, so it would most likely have read "provider xai 403 — refused on
+our account".
+
+**Not checked**: what a real provider's errors look like; nothing live.
+
+**Still yours**:
+- the £40 put-back (B2 stays failed until your free write is confirmed
+  and checked);
+- the seven decisions;
+- the merge and the deploy. When merged, the site image changes, and two
+  browser files change.
+
+---
+
 ## 2026-09-30 — The four small fixes are built on the branch, for your review (not merged)
 
 **All four are built, each in its own commit, and nothing was spent.** No
@@ -66,8 +108,9 @@ model was called and nothing live was changed.
   field. Adding a row is described as before, and the router's rule for
   additions is unchanged.
 - **A failed routing call now says why.** Last night's empty Grok balance
-  would have read "provider xai 403 insufficient_quota — refused on our
-  account". It carries only fixed words: the provider, the status, the
+  would have read "provider xai 403 — refused on our account" (corrected
+  in the entry above: the code shows only when the provider sends one we
+  recognize). It carries only fixed words: the provider, the status, the
   provider's own error code, whether our account was refused, and the kind of
   error. It never carries a message, so no key, password or customer text
   can leak. I tested that by planting them everywhere a failure can carry

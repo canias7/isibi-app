@@ -77,7 +77,12 @@ here; take a closed one out of both.**
   found 2026-09-30 during Lane 1c, not changed.
 - The backend lookup's KV log line prints a KV error's message, and the
   routing call now reaches it through Lane 1d. Pre-existing (`bd63040c`),
-  found 2026-09-30 in Lane 1's log review, not changed.
+  found 2026-09-30 in Lane 1's log review. **Corrected on the branch
+  2026-09-30 on the owner's review (`ce992066`), not merged: the line names
+  the operation and a known error class only.**
+- The build, edit and add-on error replies carry the provider's type as
+  `upstreamType`, shape-checked but not from a list of known codes. Found
+  2026-09-30 in the owner's review of Lane 1b, not changed.
 - A menu removal beside a layout move on another page is answered `nav` with
   `remove` and the move held back, against the router's own `alsoAsked` rule
   (Test 8, run 63). **Corrected 2026-09-29 (the router chooses one answer
@@ -182,7 +187,7 @@ here; take a closed one out of both.**
   flag, and the card reads a missing flag as a no. The fix, if wanted: read
   a missing flag as could-not-tell, as the list's `null` is now read.
 - **THE BACKEND LOOKUP'S KV LOG LINE PRINTS A KV ERROR'S MESSAGE (found
-  2026-09-30 in Lane 1's log review; pre-existing; not changed).**
+  2026-09-30 in Lane 1's log review; pre-existing).**
   `routeDeps`' `onBackfillError` logs `site route KV:` and the message
   (`worker.js`, since `bd63040c`, 2026-07-28). Every caller of
   `siteBackendBySlug` shares it, and Lane 1d makes the routing call one of
@@ -191,6 +196,21 @@ here; take a closed one out of both.**
   connection, so this breaks the log rule (allow-listed words only); it is
   not a known leak. The fix, if wanted: log the error's class, as the
   routing lines now do.
+  - **Corrected on the branch 2026-09-30 (`ce992066`; not merged)**, on the
+    owner's review of Lane 1: `lookupRoute` tells the callback which call
+    failed (`read`, `write`, `delete`), and the line is `site route KV:
+    <operation> <class>`, the class from a fixed list. Tested through the
+    routing route with the connection string planted in a failing read and
+    a failing backfill; the lookup still falls back.
+- **THE BUILD, EDIT AND ADD-ON ERROR REPLIES CARRY A SHAPE-CHECKED
+  PROVIDER TYPE, NOT A KNOWN CODE (found 2026-09-30 in the owner's review of
+  Lane 1b; not changed).** Seven callers of `upstreamKind` in `worker.js`
+  return its `type` as `upstreamType` (the page build, the edit and add-on
+  failures). It is a snake_case word of at most 40 characters and, since
+  `ce992066`, never coerced from a non-string, but any such word a provider
+  sends is echoed. The routing reason now names a code only from
+  `PROVIDER_CODES`; the same table could serve these replies. Kept
+  separate: the owner scoped the review to the routing path.
 - **A PRICE PUT BACK WAS ROUTED `text`, NOT `data`, WITH NO TABLE NAMES SENT
   (found 2026-09-30 in Batch 1's run 74; one sample each way; not changed).**
   - **What happened.** On `fretwork-1`, whose prices come from the
@@ -245,8 +265,11 @@ here; take a closed one out of both.**
     provider's token, whether our account was refused, and the error's
     class. It is built from allow-lists, and **never the message**: a
     provider's words can quote the request. It is logged and returned; the
-    canary prints it and `routing.json` keeps it. Run 70's shape would have
-    read `provider xai 403 insufficient_quota — refused on our account`.
+    canary prints it and `routing.json` keeps it. Run 70's refusal would
+    have read `provider xai 403 — refused on our account` (its body was
+    never recorded, and xAI documents no codes).
+    Since `ce992066` a provider's code is named only from its own
+    finite table (`PROVIDER_CODES`), and never coerced from a non-string.
     Since `d19652c4` the tests read the Worker's log too, and the table
     lookup's log line names only a known error class.
 - **THE DATA PICKER IS TOLD BOTH TO DELETE A ROW AND TO REFUSE A DELETION

@@ -339,12 +339,15 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   The four not in the batch are not ready. The record is the checklist's
   *Batch 1* and `docs/history/2026-09-30-expected-route.md`.
 - **Lane 1's four corrections are built on the branch, not merged**
-  (2026-09-30, on the owner's word; `docs/history/2026-09-30-lane1.md`):
+  (2026-09-30, on the owner's word; `docs/history/2026-09-30-lane1.md`).
+  **The owner credited the implementation and its CI**, and two diagnostic
+  gaps from their review are closed on the branch (`ce992066`, below):
   - **1a** (`19f6e480`): the data picker is sent to `remove` for a
     deletion, with add-row wording and routing unchanged;
-  - **1b** (`fe20e6cd`, `d19652c4`): a failed routing call carries
-    `failure`, from allow-lists only (the step, provider, status, token,
-    billing, error class), with the same fallback and no charge; the
+  - **1b** (`fe20e6cd`, `d19652c4`, `ce992066`): a failed routing call
+    carries `failure`, from allow-lists only (the step, provider, status,
+    billing, error class, and a provider's code only from its own finite
+    table, never coerced), with the same fallback and no charge; the
     canary prints it; the tests read the Worker's log as well as the
     reply;
   - **1c** (`b12dd43b`, `bd81a60e`): the site list's `db` comes from `backendState`
@@ -353,16 +356,15 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
     Data panel no longer calls a failed read "no tables";
   - **1d** (`a02c2003`, `d19652c4`): when the browser sent no table
     names, the route tells the router the verified owner's own, by name
-    only, in at most 3 s, failing open; its log line names only a known
-    error class.
+    only, in at most 3 s, failing open; its log line names the slug and a
+    known error class, and the route cache's KV line it reaches
+    (`ce992066`) names the operation and a known error class.
 
-  Every correction was red-checked and swept (8/8, 17/17, 17/17 and 15/15
-  killed, every control survived). The full suite on `d19652c4` is `8343 /
-  8343 / 0 / 0` locally and `8343 / 8339 / 0 / 4` on CI (unit run
-  36667339503 on `dfaf8f7c`, the same code), and `site build` reads the
-  twelve counts green there (run 36667339564). The image is predicted to roll `abf47dfeceba3c5c`
-  → `93d11b4a20be6c59`, and `public/chat.js` and `public/site-list.js`
-  change. **Real-model evidence: none**: shown with supplied answers
+  Every correction was red-checked and swept (8/8, 25/25, 17/17, 15/15
+  and the KV line's 9/9 killed, every control survived). The full suite on
+  `ce992066` is `8351 / 8351 / 0 / 0` locally. The image is predicted to
+  roll `abf47dfeceba3c5c` → `cdb624837e099719`, and `public/chat.js` and
+  `public/site-list.js` change. **Real-model evidence: none**: shown with supplied answers
   only. B2 stays failed and its recovery open.
 - **The rest of the next independent work** (2026-09-30, free analysis only;
   the checklist's *Next independent work*).
