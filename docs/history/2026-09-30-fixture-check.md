@@ -398,6 +398,9 @@ count contract as the Data API does; five rows served, as named):
   panel was closed and reopened), and the diagnosis waits for those
   answers. The temporary row's steps and the free rehearsal wait for the
   £40 to read back.
+- **Read again, free, at 20:04 UTC**, after run 78, the same way: 200,
+  `0-3/4`, whole, the same four rows (row 4 still 42, digest
+  `2fb9f28608ca8b27…`). The two questions are asked again.
 
 ## 5. Merged and deployed (deploy 2173)
 

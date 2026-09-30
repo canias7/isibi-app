@@ -433,10 +433,10 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
       calls, or one the logs did not keep, would leave no trace there.
       Neither a user error nor an app defect is shown. The owner's
       observation is asked for: what Save displayed, and the price after
-      reopening the panel. Row 4 still reads 42 at 18:22 and at 19:40 UTC
-      (the site's own read, free; at 19:40 read whole, `0-3/4`: rows 1–3
-      every field as the baseline, row 4 differing only in price, no other
-      row).
+      reopening the panel. Row 4 still reads 42 at 18:22, 19:40 and 20:04
+      UTC (the site's own read, free; at 19:40 and 20:04 read whole,
+      `0-3/4`: rows 1–3 every field as the baseline, row 4 differing only in
+      price, no other row).
     - Spent: 7 (22 → 15).
 
   **Estimates, not limits**: A about 1–2 credits, B about 4–6, about 5–8

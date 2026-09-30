@@ -1115,6 +1115,8 @@ is the owner's.
     rows 1–3 every field as the baseline, row 4 differing only in price
     (42), no other row. The owner's two answers are asked for again; the
     temporary row and the rehearsal wait for the £40.
+  - **Read again at 20:04 UTC**, after run 78, the same way: the same four
+    rows, row 4 still 42.
 
 ### What it will not establish
 
