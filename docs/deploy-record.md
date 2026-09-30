@@ -5,7 +5,7 @@
 > `docs/deploy.md`, where CLAUDE.md's **Deploy** section moved in the second
 > pass. This file keeps the measurements behind them: the
 > timing bands, every image-id prediction checked against a deploy's own log
-> (deploys 2137–2171), and the served-file check driven end to end on deploy
+> (deploys 2137–2172), and the served-file check driven end to end on deploy
 > 2139.
 >
 > **Add each new deploy here**, one paragraph per deploy, in the same shape:
@@ -464,6 +464,53 @@ fresh-browser read needs the building account's session, so it is the
 owner's own check. **The deployment is credited by the owner** (2026-09-30:
 *"Deployment 2171 is credited. Keep runtime confirmation and B2 recovery open
 until their evidence exists."*); its runtime confirmation stays open.
+
+**Deploy 2172 (2026-09-30) was predicted on both ends and built as
+predicted**: `origin/main` `29111010` answered `cdb624837e099719`, deploy
+2171's own image, and the candidate `80ece106` answered `e71f7bae88b9ecf1`,
+both from 188 inputs and 158 distinct paths. One container input changed
+among the push's 12 files: `builder/site-ask.mjs` (the row-removal routing
+correction). **A fast-forward of 5 commits**, `29111010` → `80ece106` at
+06:57:29Z, on the owner's word to merge the reviewed branch through
+`80ece10644a98bb90f376d7b6f85cb61b9a34680`. Checked first:
+- **the candidate unchanged**: the branch on GitHub was exactly `80ece106`,
+  and main was still `29111010`, re-read just before the push;
+- **nothing in flight**: on GitHub, no run in progress or queued; in
+  `edit_jobs`, none open (the newest, from 02:21);
+- **CI**: unit run 36679661698 on `80ece106` itself, `8360 / 8356 / 0 / 4`;
+  site build 36677496840 on `4e3ef512`, the twelve counts. `4e3ef512` →
+  `80ece106` changes documents only (seven files under `docs/` and
+  `CLAUDE.md`), so the site build's evidence carries;
+- **no commit message** in the range carries the skip-CI marker;
+- **the rollback**: reverting `29111010..80ece106` in a throwaway worktree
+  gives main's own tree (`fad0ae29…`), so a rollback reuses
+  `cdb624837e099719`;
+- **nothing under `public/`** changed, so no served-file comparison is owed.
+
+**One deploy run**, 2172 (36681001968, `push` on `80ece106`), `completed` /
+`success`:
+- **the gate** was set for `80ece106…`, taking over from `29111010…`, and the
+  drain found no live leases after 0 s;
+- **the image**: the log answered `built
+  isibi-app-sitebuildcontainer:e71f7bae88b9ecf1 (registry answered 404; 188
+  inputs off ./Dockerfile)` (masked `e7***f7bae88b9ecf***`, `***88`), and
+  `…:cdb624837e099719` → `…:e71f7bae88b9ecf1` under `SUCCESS Modified
+  application`, then `Applied changes` at 07:00:33, with **0 `CACHED`
+  lines**;
+- **timings**: image step 133 s (06:58:04–07:00:17), Wrangler 19 s, job 184 s
+  (06:57:37–07:00:41);
+- **Wrangler**: `DEPLOY_ID` `80ece10644a98bb90f376d7b6f85cb61b9a34680`
+  (masked); `No updated asset files to upload`; `Current Version ID:
+  58fff2af-9b88-4f***d-b748-70a***3f7***a8da`, masked.
+
+**Read at 07:02Z**: the gates answered 401 / 401 / 401 / 404; the served
+`chat.js` (789,646 bytes, `efcae48d…`) and `site-list.js` (15,846 bytes,
+`56ab5196…`) are still byte-identical to the merged files; `fretwork-1`
+answers `kk6qsh` and `fold-lane-bakery` `8btpep`. **Deployed, not
+runtime-confirmed**: the container image rolled at 07:00:33, so container
+work waits until about 07:21, and the confirmation is the owner's free press
+(`build-health` with `80ece106` and `e71f7bae88b9ecf1`). The session does not
+dispatch it again: its dispatch answers 403.
 
 ## The served-file check, driven end to end on deploy 2139
 

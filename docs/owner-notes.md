@@ -57,6 +57,36 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-30 — The row-removal fix is live (deployed; waiting for your free check)
+
+**Merged and deployed, as you asked.** Main is now `80ece106`, moved at
+06:57 UTC. Nothing was spent and no live data changed.
+
+**Before merging, I checked**:
+- the tests passed: the unit tests on this exact version (8,360) and the site
+  build on the fix itself; the only difference between the two is documents;
+- nothing else was running: no workflow and no edit job;
+- the new site image's name was worked out in advance, `e71f7bae88b9ecf1`;
+- undoing the merge gives back the old main exactly.
+
+**The deploy went as predicted**: one green run, finished at 07:00 UTC; the
+new image was built and the site's container moved to it at 07:00. No
+browser files changed this time.
+
+**Not yet confirmed at runtime**: your free canary press after 07:21 UTC
+confirms it. That one press also covers the earlier deploy (2171), whose own
+check was never pressed.
+
+**Still yours**:
+- the free canary press;
+- the Data panel look in a private window, and the £40 put-back there (then
+  I check every row and field, the price on the page, the site's version,
+  the credits and the queue). Putting it back does not turn B2's failed run
+  into a pass;
+- the paid delete test, only if you approve it after those.
+
+---
+
 ## 2026-09-30 — Taking a row off a list now points at the data step (on the branch, not merged)
 
 **What you asked**: fix the router instruction conflict before the paid

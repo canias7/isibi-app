@@ -71,8 +71,9 @@ build 36671505766, the twelve counts), and the served `chat.js` and
 recovery open. The next unaccepted live test, the delete (*Lane 4*), is
 prepared below and not run.
 
-**The row-removal routing (2026-09-30): corrected on the branch, not merged**
-(`4e3ef512`; `docs/history/2026-09-30-row-removal-routing.md`). The router's
+**The row-removal routing (2026-09-30): corrected, merged and deployed in
+deploy 2172 (`80ece106`, image `e71f7bae88b9ecf1`), not yet
+runtime-confirmed** (`4e3ef512`; `docs/history/2026-09-30-row-removal-routing.md`). The router's
 instructions gave a stored row taken off its list two answers, `look` and
 `data`; now it is `data`, said in the `data` clause, at `look`'s exceptions
 after the whole page, and in `look`'s reach. The whole-page exception, the
@@ -1198,7 +1199,7 @@ in the next data press.
 - **Then**: one merge, one free runtime check, and the lane 4 presses. Those
   on different sites can overlap a minute apart, as Batch 1's did.
 
-## Lane 4's delete — one row taken off `fretwork-1`'s price list, with real models (prepared 2026-09-30 after deploy 2171; its routing conflict corrected on the branch the same day on the owner's word, not merged; not run, not approved)
+## Lane 4's delete — one row taken off `fretwork-1`'s price list, with real models (prepared 2026-09-30 after deploy 2171; its routing conflict corrected the same day on the owner's word, merged and deployed in deploy 2172, not yet runtime-confirmed; not run, not approved)
 
 The next unaccepted live test. It is the only Lane 4 item whose blocker is
 gone (1a, deployed in 2171). Add, reorder, rules, the picture swap, the
@@ -1216,8 +1217,8 @@ protections, and the reply. This press is for the real models:
 - whether the job deletes exactly that row in the site's container, through
   the blank link.
 
-**The routing conflict, found in the code and corrected on the branch
-(`4e3ef512`, not merged).** The router's `look` clause claimed every removal:
+**The routing conflict, found in the code and corrected (`4e3ef512`; merged
+and deployed in deploy 2172, `80ece106`, image `e71f7bae88b9ecf1`).** The router's `look` clause claimed every removal:
 *"TAKING SOMETHING OFF THE SITE IS THIS LAYER, whatever the something is"*,
 with a whole page as its one exception, and `look`'s reach under `alsoAsked`
 said *"taking something off"*. The `data` clause said *"prefer it whenever
@@ -1234,15 +1235,19 @@ edit is posted, so a misroute costs the routing call alone and changes
 nothing.
 
 **Preconditions, all free and in this order:**
-0. **The routing correction merged and deployed**, on the owner's word, and
-   runtime-confirmed by the owner's free press with its own sha and image
-   (predicted `e71f7bae88b9ecf1`). The press below names them.
-1. **Deploy 2171 runtime-confirmed** by the owner's free press (credited by
-   the owner as deployed; its runtime confirmation is still open).
+1. **Deploy 2172 runtime-confirmed** by the owner's free press: both
+   readers answering `80ece106` and a cold container `e71f7bae88b9ecf1`.
+   Deploy 2172 runs deploy 2171's code plus the routing correction, so this
+   one press is the runtime check for both (2171's own was never pressed).
 2. **B2's recovery closed.** The owner puts row 4's price back to 40 in the
-   Data panel. My checks against the baseline: the served body byte-identical
-   (736 bytes, `a4f1dc30…`), `/prices` £40, every page at `kk6qsh`, the
-   balance 15, no ledger row after 342, and no open job.
+   Data panel, after checking in a private window that the panel opens on
+   `fretwork-1`. My checks against the baseline: every row and every field
+   (the served body byte-identical, 736 bytes, `a4f1dc30…`), `/prices`
+   showing £40, every page at `kk6qsh`, the balance 15 with no ledger row
+   after 342, no open job in the queue, and `neon_db` still blank. **The
+   recovery closes the batch's recovery only: B2's model run stays failed**
+   (the owner: *"Recovery does not turn B2's failed model run into a
+   pass."*).
 3. **The throwaway row**, the owner's own write in the Data panel (`lessons`,
    "+ Add", then "Add row"), shortly before the press, since it shows on the
    public `/prices` while it exists:
@@ -1264,10 +1269,10 @@ boxes by description:
 - "Run the ONE paid edit as well": `yes`;
 - "What to change. REQUIRED when spend=1": the request above, exactly;
 - "The site to edit": `fretwork-1`;
-- "Refuse to spend unless the Worker reports this deploy sha": the merged
-  sha of the routing correction, stated after that merge;
-- "Refuse to spend unless a cold container reports this image id": that
-  deploy's image, read from its log (predicted `e71f7bae88b9ecf1`);
+- "Refuse to spend unless the Worker reports this deploy sha":
+  `80ece10644a98bb90f376d7b6f85cb61b9a34680`;
+- "Refuse to spend unless a cold container reports this image id":
+  `e71f7bae88b9ecf1` (read from deploy 2172's log, as predicted);
 - "Refuse to post the paid edit unless the router answers this":
   `intent=edit layer=data alsoAsked=none`;
 - everything else blank.

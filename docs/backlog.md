@@ -93,10 +93,10 @@ here; take a closed one out of both.**
   `look`'s removal clause ("TAKING SOMETHING OFF THE SITE IS THIS LAYER,
   whatever the something is", a whole page its one exception) and `data`'s
   one-row clause. Neither names a row. Found 2026-09-30 while preparing Lane
-  4's delete; read in the code, not measured. **Corrected on the branch
-  2026-09-30 on the owner's word (`4e3ef512`), not merged: a stored row taken
-  off is `data` in both clauses and in `look`'s reach; shown with supplied
-  answers only.**
+  4's delete; read in the code, not measured. **Corrected 2026-09-30 on the
+  owner's word (`4e3ef512`), merged and deployed in deploy 2172 (not yet
+  runtime-confirmed): a stored row taken off is `data` in both clauses and in
+  `look`'s reach; shown with supplied answers only.**
 - A menu removal beside a layout move on another page is answered `nav` with
   `remove` and the move held back, against the router's own `alsoAsked` rule
   (Test 8, run 63). **Corrected 2026-09-29 (the router chooses one answer
@@ -323,7 +323,7 @@ here; take a closed one out of both.**
   the page's code rather than the stored row. So a customer's row removal may
   fail or change the wrong thing. The canary's route check makes the delete
   press safe (a misroute is refused for the routing call alone). **Corrected
-  on the branch 2026-09-30 (`4e3ef512`), not merged**, on the owner's word
+  2026-09-30 (`4e3ef512`), merged and deployed in deploy 2172**, on the owner's word
   (*"Before the paid row-deletion test, fix the specific router instruction
   conflict you found"*): the `data` clause claims an existing row taken off,
   `look`'s removal clause excepts a stored row for `data` after the whole

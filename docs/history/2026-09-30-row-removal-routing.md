@@ -1,4 +1,4 @@
-# A stored row taken off its list is routed to `data` (2026-09-30; on the branch, required CI green, not merged)
+# A stored row taken off its list is routed to `data` (2026-09-30; merged and deployed in deploy 2172, not yet runtime-confirmed)
 
 ## The owner's request
 
@@ -147,3 +147,34 @@ press after a merge and a deploy can show it.
   anything is posted.
 - **Kept separate**: add-row routing (2a), ordering (2b) and the other Lane 2
   decisions.
+
+## Merged and deployed: deploy 2172 (the same day)
+
+The owner: *"The row-removal routing fix passed review. Merge the reviewed
+branch through 80ece10644a98bb90f376d7b6f85cb61b9a34680 into main and deploy
+after the normal pre-merge checks."*
+
+- **The CI evidence used**: unit tests on `80ece106` itself (run
+  36679661698, `8360 / 8356 / 0 / 4`) and the site build on `4e3ef512` (run
+  36677496840, the twelve counts). Between those two commits only documents
+  changed: seven files, all under `docs/` or `CLAUDE.md`.
+- **Pre-merge**: the candidate unchanged on GitHub; main still `29111010`;
+  no Actions run in progress or queued; no open edit job; the image predicted
+  over both ends, `cdb624837e099719` → `e71f7bae88b9ecf1`; the range's
+  commit messages free of the skip-CI marker; the rollback, `git revert
+  --no-commit 29111010..80ece106` in a throwaway worktree, gives main's own
+  tree (`fad0ae29…`); nothing under `public/` changed.
+- **The merge**: a fast-forward, `29111010` → `80ece106`, at 06:57:29 UTC.
+- **The deploy**: run 2172 (36681001968), `completed` / `success` at 07:00:41.
+  The log says `built isibi-app-sitebuildcontainer:e71f7bae88b9ecf1
+  (registry answered 404; 188 inputs off ./Dockerfile)`, and the container
+  moved `cdb624837e099719` → `e71f7bae88b9ecf1` at 07:00:33, as predicted.
+  Wrangler had no asset files to upload.
+
+**Deployed, not runtime-confirmed.** The owner's free press after 07:21 UTC
+(the container wait) is the runtime check: `build-health` answering
+`80ece106` and a cold container `e71f7bae88b9ecf1`. Deploy 2172 runs deploy
+2171's code plus this correction, so that one press covers both. How a real
+router answers a row taken off a list is still not measured: that is Lane
+4's delete, prepared and not run. The readings are in
+`docs/deploy-record.md`.
