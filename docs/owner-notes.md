@@ -57,6 +57,33 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-30 — The gallery page is gone and its address sends people home (run 72)
+
+**Removing the gallery page worked, and its old address now sends visitors to
+the home page.**
+- The router answered as expected (remove the page `/gallery`), so the edit
+  went through.
+- Only the gallery page was taken out. The other four pages are exactly as
+  they were, and the site was republished once.
+- I read the gallery's addresses twice, at 01:35 and 01:46, without
+  following redirects. Both times, `/gallery`, `/gallery/` and `/gallery`
+  with extra bits after it all answered "moved permanently" to the home
+  page. The old starter address still sends people on, and a page that
+  never existed still says "not found".
+- Opened in a real browser, `/gallery` lands on the home page. Its menu has
+  no Gallery link, as before.
+- It cost 2 credits for routing; the removal itself is free. Your balance is
+  17, and the batch has spent 5 so far.
+- The canary printed one "FAIL" line about the gallery's photo. That's
+  expected, because the photo went with the page, and the plan said so in
+  advance.
+
+**Next**: I've handed you the free restore that puts the bakery back to its
+original version (A3). The price change back to £40 (B2) is still to be
+pressed.
+
+---
+
 ## 2026-09-30 — The price change worked (run 71); Round 2 is handed over
 
 **Exactly the one change, and nothing else.**

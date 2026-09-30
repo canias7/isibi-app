@@ -52,9 +52,11 @@ run 66 proved, with recovery verified by run 67.**
 - Kept separate: the reply omission (review #9) and the saved-version list's
   label naming only the first change (backlog).
 
-**Batch 1 is approved (2026-09-30); Round 1 is done, and Round 2 is handed
-over**: A1, the free restore to `t5obxx` (run 68), is done and checked. B1
-ran as run 71 after runs 69 and 70 went nowhere (a blank route box; a press
+**Batch 1 is approved (2026-09-30); Rounds 1 and 2's A2 are done; B2 and A3
+are handed over**: A2 (run 72) removed `/gallery`, which answers 301 home,
+read twice, for 2 credits (*A2 as run 72*, below). A1, the free restore to
+`t5obxx` (run 68), is done and checked. B1 ran as run 71 after runs 69 and
+70 went nowhere (a blank route box; a press
 from `main` whose routing call failed on an empty xAI balance). It changed
 exactly row 4's price, 40 → 42, through the blank-link path in the site's
 container, for 3 credits (*B1, pressed again as run 71*, below). The batch:
@@ -244,7 +246,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Batch 1 — a removed page's 301 home, and a row changed on a site whose database link is blank, run side by side (proposed 2026-09-29 after Test 8's closure; corrected after the owner's review: the canary now enforces each press's expected route, the costs keep estimates apart from enforced limits, group B's recovery covers every row and field, and the remaining six are the owner's list; approved 2026-09-30; Round 1 done: A1's free restore (run 68) checked, and B1 (run 71, after runs 69 and 70 went nowhere) changed exactly row 4's price for 3 credits; Round 2 handed over)
+## Batch 1 — a removed page's 301 home, and a row changed on a site whose database link is blank, run side by side (proposed 2026-09-29 after Test 8's closure; corrected after the owner's review: the canary now enforces each press's expected route, the costs keep estimates apart from enforced limits, group B's recovery covers every row and field, and the remaining six are the owner's list; approved 2026-09-30; Round 1 done: A1's free restore (run 68) checked, and B1 (run 71, after runs 69 and 70 went nowhere) changed exactly row 4's price for 3 credits; A2 (run 72) removed `/gallery`, which answers 301 home, read twice, for 2 credits; B2 and A3 handed over)
 
 The owner asked for the next bounded batch: up to three independent
 acceptance groups from the remaining six, on existing ready fixtures and
@@ -831,6 +833,80 @@ the balance 19, and no job open. The two presses go a minute apart:
 The estimates, not caps, are A2 1–2 (routing; a page removal is `exempt`)
 and B2 2–3, against the balance of 19. The batch has spent 3 so far. Round 3
 is A3, the free restore to `8btpep`, handed over after A2's second reading.
+
+### A2 as run 72 (2026-09-30 01:18–01:22 UTC, 2 credits)
+
+Pressed alone (B2 not yet pressed), from the branch at `6f2273aa`, with the
+route box filled. **Every pass item of step 2 is met.**
+- **The request**: `request.json` carries `Remove the gallery page.`, 24
+  characters, sha256 `ee4c723ee681dfb2…`.
+- **The route.** The router answered `edit`, `page`, `/gallery`,
+  `remove: true`, nothing held back, in 5.6 s at cost 2. `routing.json`
+  carries the verdict `{"ok":true,"diffs":[]}`, and the answer was posted as
+  it came.
+- **The job** is `16aaaddf6cc9beb648e7ad77038f447c`: queued, claimed, and
+  settled after 145.6 s. It ran in the container: trace
+  `e_munf3mf6qlcrs1a1`, `run ok`, `where: "container"`, 23 marks, 133,062 ms,
+  `ok`. Its reply: `pageOps` `[{page: "/gallery", removed: ["gallery.tsx"]}]`,
+  cost 0. The job row reads `done`, billing `exempt`, cost 0, published at
+  01:21:33.
+  - **One publish, `01790731167044-yuy16h`, built from `t5obxx`**, which the
+    canary's after-read matched on its first read. The comparison is
+    VERIFIED.
+  - The stored source now has four pages, each byte-identical to `t5obxx`'s
+    (index `637b7793`, order `0a0b5f41`, starter `37fb0e17`, visit
+    `ddd1fe39`). `gallery.tsx` is gone, there are still no stored components,
+    and the stored description is unchanged.
+- **The addresses**, read by me without following redirects at 01:35:34 and
+  again at 01:46:14 UTC. That is 14 and 25 minutes after the publish, so
+  there was no reading "at once". The two readings are line for line
+  identical:
+  - `/gallery` → 301 to `https://fold-lane-bakery.gofarther.app/`, with
+    `public, max-age=600`;
+  - `/gallery?ref=menu&x=1` → 301 to `/?ref=menu&x=1`;
+  - `/gallery/` → 301 to `/`;
+  - `/the-starter` → 301 to `/starter` (kept), with the query and the
+    trailing slash too;
+  - `/nonexistent-page` → 404;
+  - `/`, `/order`, `/starter` and `/visit` → 200 at `yuy16h`;
+  - the sitemap lists four pages.
+  - In Chromium, opening `/gallery` and following the 301 as a navigation
+    lands on `/`, the home page, whose menu has no Gallery. A first render
+    that followed the redirect inside the fetch left the browser at
+    `/gallery` and drew the client router's own 404. That is a harness
+    artifact, not what a visitor sees, and it was discarded.
+- **The markup** of `/`, `/order`, `/starter` and `/visit` is identical to
+  `t5obxx`'s apart from the build's script names. The same rebuild also
+  preloads one or two fewer chunks on `/`, `/order` and `/visit`
+  (`cta-band` and `section-header` are no longer listed as their own
+  chunks), with no change to the text.
+- **Money**: routing 2, and no ledger row for the job; 19 → 17. The free
+  check's two jobs (`a2befd93…` on the bakery, `62a49f0a…` on `washhouse-3`)
+  ended `billing none`, cost 0, and no job is open.
+- **Expected, not judged**:
+  - the canary's `FAIL  no route lost an on-page photograph -> /gallery:1`,
+    as predicted;
+  - the reply "✅ Took /gallery off the site. Every publish is kept, so say
+    the word if you want it back.";
+  - the QR code on `/visit` now leads to the 301 (backlog).
+
+**So the removed page's 301 home, item 1's open half, has now been seen
+live, read twice.** Closing it is the owner's decision.
+
+### Round 3 handed over (2026-09-30 01:47 UTC)
+
+A3, free: restore `01790468089054-8btpep` on `fold-lane-bakery`, with the
+route box blank (the canary refuses a route beside a restore). Pass, as
+planned:
+- RESTORED at `8btpep`;
+- `/gallery` answers 200 again, with the query and the trailing slash;
+- `/the-starter` answers 301 → `/starter`;
+- `/nonexistent-page` answers 404, and the sitemap lists five;
+- the stored pages are byte-identical to the fixture;
+- nothing is charged.
+
+B2 was handed over in Round 2 and has not been pressed. It may run beside
+A3, a minute apart.
 
 ### What it will not establish
 

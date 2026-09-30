@@ -103,9 +103,11 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 - **The branch `claude/help-needed-ehlwlj`** is `main` (`907840c6`) plus
   documents. A press from the branch runs the branch's script against main's
   Worker.
-- **Balance 19** on the building account after run 71 (Batch 1's B1,
-  2026-09-30 01:06 UTC): 22 → 19, routing 2 and the job's reserve of 1
-  (ledger row 342), with no job open. Before it, **22** after run 66 (Test
+- **Balance 17** on the building account after run 72 (Batch 1's A2,
+  2026-09-30 01:19 UTC): 19 → 17, routing 2, and no ledger row for the
+  removal (`exempt`), with no job open. Before it, **19** after run 71
+  (Batch 1's B1, 01:06 UTC): 22 → 19, routing 2 and the job's reserve of 1
+  (ledger row 342). Before it, **22** after run 66 (Test
   8's second paid run, 2026-09-29 21:57–22:00 UTC): 28 → 22, routing 2 and the job's
   reserves of 3 and 1 (ledger rows 340 and 341), with no job open; read
   again by the free restore (run 67) at 22:24, with no row after 341, and
@@ -235,7 +237,7 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   reading is Test 8's run 66: the real router answered `look` for that mix,
   with nothing held back** (one sample; how often, and for other messages,
   is not measured). The image rolled to `abf47dfeceba3c5c`, as predicted. `docs/history/2026-09-29-whole-message-routing.md`.
-- **Batch 1 is approved; Round 1 is done and Round 2 is handed over** (2026-09-29,
+- **Batch 1 is approved; A1, B1 and A2 are done; B2 and A3 are handed over** (2026-09-29,
   after Test 8's closure; corrected 2026-09-30 after the owner's review, and
   approved the same day at an estimated 5–8 credits, not a cap). **Two groups are ready**, on
   different sites with different controls, each paid press with its route
@@ -278,6 +280,17 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
     (measured free), so the throw came from the model call (grok-4.6).
   - **Round 2 was handed over at 01:12 UTC**: A2 ("Remove the gallery
     page.") and B2 (the price back to £40), a minute apart.
+  - **A2 ran as run 72** (01:18–01:22 UTC), and every pass item is met:
+    - the route matched (`page`, `/gallery`, `remove`, cost 2);
+    - job `16aaaddf…` removed only `gallery.tsx` (`exempt`, cost 0) and
+      published `yuy16h` from `t5obxx`; the other four pages are
+      byte-identical;
+    - `/gallery`, `/gallery/` and `/gallery?…` answer 301 to the home page,
+      read at 01:35 and 01:46 UTC, identical; `/the-starter` still answers
+      301;
+    - it cost 2 (routing only, no ledger row), 19 → 17.
+  - **A3 (the free restore to `8btpep`) was handed over at 01:47 UTC. B2
+    has not been pressed.**
 
   **Estimates, not limits**: A about 1–2 credits, B about 4–6, about 5–8
   together. Nothing caps a request or the batch; the only hard bound is the
@@ -467,9 +480,10 @@ The rules in full are `docs/deploy.md`; each deploy's readings go in
 Every earlier reading — the balance since run 9, the suite and site-build
 stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
 
-- **Balance 19** on the building account after run 71 (Batch 1's B1,
-  2026-09-30 01:06 UTC): 22 → 19, routing 2 and the job's reserve of 1
-  (ledger row 342). Before it: 22 after run 66 (Test 8's second paid run,
+- **Balance 17** on the building account after run 72 (Batch 1's A2,
+  2026-09-30 01:19 UTC): 19 → 17, routing 2 and no ledger row (the removal
+  is `exempt`). Before it: 19 after run 71 (Batch 1's B1, 01:06 UTC): 22 →
+  19, routing 2 and the job's reserve of 1 (ledger row 342). Before it: 22 after run 66 (Test 8's second paid run,
   2026-09-29 22:00 UTC): 28 → 22, routing 2 and the job's reserves of 3
   and 1 (ledger rows 340 and 341). Before it: 28 after run 63 (Test 8's paid
   run, 2026-09-29 17:03 UTC): 32 → 28, routing 2 and the job's reserve of 2
@@ -496,9 +510,10 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
   `ben-crowe-guitar`, and the older `fold-lane-bakery`, `harbourside-roast`,
   `the-lido-cafe`, `oak-and-ash`, `forno-and-co`. **Reusing one of those slugs
   revises that site.** The test fixtures now: `fold-lane-bakery` live at
-  `01790701419976-t5obxx` (Batch 1's A1, run 68; its original `8btpep` is
-  put back by A3),
-  `fretwork-1` at `01790404806543-kk6qsh` (Test 3's removal kept), and
+  `01790731167044-yuy16h` (Batch 1's A2, run 72: the gallery page removed;
+  its original `8btpep` is put back by A3),
+  `fretwork-1` at `01790404806543-kk6qsh` (Test 3's removal kept; `lessons`
+  row 4's price is 42 after B1, until B2 puts it back), and
   `lido-axes-b` with its bookings closed (run 44, kept).
 - **What things cost, measured** — routing 1–2 per message (it moves with the
   prompt cache); the page rung 6–22 (runs 21–37); a data or rules edit 1; a
