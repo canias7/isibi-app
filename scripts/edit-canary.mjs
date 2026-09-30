@@ -55,6 +55,10 @@ import { OWNER_ROWS_LIMIT } from "./canary-rows.mjs";
 // BATCH 1: the route a paid press expects, read from its own box and compared
 // with the router's answer before the edit is posted.
 import { readExpectRoute, routeVerdict, expectSaid, mismatchSaid, failureSaid } from "./canary-route.mjs";
+// AFTER RUN 77: the rows a paid data press is written for, read from their own
+// box and checked on the site's own read before the first paid call.
+import { readExpectRows, fixtureVerdict, fixtureSaid, expectRowsSaid, fixtureRecord } from "./canary-fixture.mjs";
+import { readRowList } from "./canary-rows.mjs";
 import { publishedVersion } from "./canary-watch.mjs";
 // TEST 6: the description in the site's settings, beside the one the head serves.
 import { readStoredHead, storedHeadSaid } from "./canary-watch.mjs";
@@ -156,6 +160,22 @@ if (EXPECT_ROUTE.expect && (READ_JOB || RESTORE || UI)) {
 }
 if (EXPECT_ROUTE.expect) {
   console.log(`EXPECTED ROUTE  ${expectSaid(EXPECT_ROUTE.expect)}  (checked after routing, before the edit is posted${SPEND ? "" : "; this run does not spend, so it routes nothing"})\n`);
+}
+// THE ROWS THIS PRESS IS WRITTEN FOR, from their own box (`canary-fixture.mjs`,
+// after run 77). Read whole before the sign-in, so a typo costs nothing, and
+// only beside the one edit: a read, a restore and a browser scenario are other
+// runs, and a setup named beside them would be checked for nothing.
+const EXPECT_ROWS = readExpectRows(process.env.CANARY_EXPECT_ROWS);
+if (!EXPECT_ROWS.ok) {
+  console.error(`REFUSING THE FIXTURE: ${EXPECT_ROWS.msg}`);
+  process.exit(2);
+}
+if (EXPECT_ROWS.expect && (READ_JOB || RESTORE || UI)) {
+  console.error("REFUSING: the fixture box is for the one paid edit and its free rehearsal, and this run names another mode");
+  process.exit(2);
+}
+if (EXPECT_ROWS.expect) {
+  console.log(`EXPECTED ROWS  ${expectRowsSaid(EXPECT_ROWS.expect)}  (read on both readers before any routing call)\n`);
 }
 // THIS RUN'S OWN ID, which goes into the rules test's marker booking's name.
 const RUN_ID = runIdOf(process.env);
@@ -598,6 +618,39 @@ const BAL = await balanceNow();
 console.log(`  balance ${BAL < 0 ? "UNREADABLE" : BAL}`);
 check("the balance is readable", BAL >= 0, String(BAL));
 console.log("");
+
+// ── THE ROWS THIS PRESS IS WRITTEN FOR, READ BEFORE THE FIRST PAID CALL ────
+//
+// ⚠ RUN 77 (2026-09-30) PAID FOR A SETUP THAT WAS NOT THERE: a deletion of a
+// temporary row nobody had added yet, beside a price not yet put back. The
+// router was bought, the job matched nothing, and the run said nothing about
+// the deletion it was for.
+//
+// BELOW THE FREE READS, ABOVE THE MODES AND THE SPEND SWITCH ON PURPOSE. A
+// press that does not spend runs this and stops, which makes it the free
+// rehearsal of the paid one; a press that does spend never reaches the routing
+// call unless the setup is exactly as named. A read, a restore or a scenario
+// never gets here with a box filled: that is refused before the sign-in.
+// ONE READER, THE SITE'S OWN (`canary-fixture.mjs` says why): the read the
+// named digests are computed from, and the one the job's writes show in.
+if (EXPECT_ROWS.expect) {
+  const T = EXPECT_ROWS.expect.table;
+  console.log(`FIXTURE — ${T} on ${CANARY}, as the site's own read serves it, before any routing call (written to ${EVID}/fixture.json)\n`);
+  let served;
+  try {
+    const r = await fetch(`${BEFORE.origin}/api/db/${encodeURIComponent(CANARY)}/data/${encodeURIComponent(T)}?select=*&order=id.asc`, { headers: { "cache-control": "no-cache" } });
+    served = { status: r.status, text: Buffer.from(await r.arrayBuffer()).toString("utf8") };
+  } catch { served = { status: 0 }; }
+  const FIX_READ = readRowList(served);
+  const FIX = fixtureVerdict(EXPECT_ROWS.expect, FIX_READ);
+  mkdirSync(EVID, { recursive: true });
+  writeFileSync(`${EVID}/fixture.json`, JSON.stringify(fixtureRecord(EXPECT_ROWS.expect, FIX_READ, FIX), null, 2));
+  console.log(`  ${fixtureSaid(FIX)}\n`);
+  if (!FIX.ok) {
+    console.error(`${SPEND ? "REFUSING TO SPEND" : "FIXTURE NOT AS NAMED"}: the rows are not the ones this press names (${FIX.why}). Nothing was routed or charged.`);
+    process.exit(1);
+  }
+}
 
 // THE RESTORE MODE STOPS HERE WHATEVER `spend` SAYS. The workflow already holds
 // `CANARY_SPEND` at 0 while a version is named; this is the second wall, in the

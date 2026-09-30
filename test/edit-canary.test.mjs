@@ -542,3 +542,68 @@ test("a failed routing call's line names its reason, read through the canary's o
   const record = paid.indexOf("routing.json`", routed);
   assert.match(paid.slice(record, paid.indexOf(";\n", record)), /body:\s*rd\b/, "routing.json no longer keeps the route's answer");
 });
+
+// ── THE ROWS A DATA PRESS IS WRITTEN FOR (after run 77, 2026-09-30) ─────────
+//
+// Run 77 paid for a deletion of a row nobody had added, beside a price not
+// yet put back. The check is opt-in and generic, its decisions are driven in
+// `canary-fixture.test.mjs` (the real script under a stub included); these
+// cases guard where it sits in the script.
+test("the fixture box is read before the sign-in, and a bad or misplaced one refuses at no cost", () => {
+  const read = SRC.indexOf("readExpectRows(process.env.CANARY_EXPECT_ROWS)");
+  const signIn = SRC.indexOf("/auth/v1/admin/generate_link");
+  assert.ok(read > 0, "the fixture box is no longer read");
+  assert.ok(signIn > read, "the fixture box is read after the sign-in, so a typo would cost a sign-in and more");
+  const win = SRC.slice(read, signIn);
+  const bad = win.indexOf("REFUSING THE FIXTURE");
+  assert.ok(bad > 0, "a malformed fixture box no longer refuses");
+  assert.match(win.slice(win.lastIndexOf("if (", bad), bad), /!EXPECT_ROWS\.ok/, "the refusal no longer depends on the box failing to read");
+  assert.match(win.slice(bad, bad + 200), /process\.exit\(2\)/, "the refusal does not stop the run");
+  const other = win.indexOf("the fixture box is for the one paid edit");
+  assert.ok(other > 0, "a fixture box beside another mode is no longer refused");
+  const cond = win.slice(win.lastIndexOf("if (", other), other);
+  for (const mode of ["READ_JOB", "RESTORE", "UI"]) assert.match(cond, new RegExp("\\b" + mode + "\\b"), `a fixture box beside ${mode} is not refused`);
+  assert.match(win.slice(other, other + 200), /process\.exit\(2\)/, "a misplaced box does not stop the run");
+});
+
+test("the rows are read on the site's own read and judged above the modes, the spend switch and every paid call, and a setup not as named exits there", () => {
+  const judged = SRC.indexOf("fixtureVerdict(EXPECT_ROWS.expect");
+  const balance = SRC.indexOf("const BAL = await balanceNow()");
+  const restoreStop = SRC.indexOf("RESTORE MODE — stopping before the paid edit");
+  const uiMode = SRC.indexOf("if (UI_ASK) {");
+  const spendSwitch = SRC.indexOf("if (!SPEND)");
+  const paid = SRC.indexOf(PAID_MARK);
+  const routing = SRC.indexOf('"/api/site/route"');
+  assert.ok(judged > 0, "the fixture is no longer judged");
+  assert.ok(balance > 0 && judged > balance, "the fixture is judged before the free reads are done");
+  assert.ok(restoreStop > judged && uiMode > judged, "the fixture is judged inside or below a mode's own stretch");
+  assert.ok(spendSwitch > judged, "the fixture is judged below the spend switch, so a free press would not read it");
+  assert.ok(paid > judged && routing > judged, "the fixture is judged after the paid half has begun");
+  const start = SRC.lastIndexOf("if (EXPECT_ROWS.expect)", judged);
+  assert.ok(start > balance && start < judged, "the check's own opening landmark is gone");
+  // THE BLOCK'S OWN BOUNDS: its closing brace at the start of a line. Read to
+  // the spend switch instead, a mode's own lines would answer for it.
+  const end = SRC.indexOf("\n}\n", judged);
+  assert.ok(end > judged && end < restoreStop, "the check's closing landmark is gone");
+  const block = SRC.slice(start, end);
+  assert.match(block, /\/api\/db\/\$\{encodeURIComponent\(CANARY\)\}\/data\//, "the site's own read is no longer what is read");
+  assert.match(block, /fixtureVerdict\(EXPECT_ROWS\.expect, FIX_READ\)/, "the verdict is no longer asked of the reading");
+  assert.match(block, /const FIX_READ = readRowList\(served\);/, "the reading is no longer the site's served list");
+  // THE OWNER ROUTE IS NOT A READER HERE: its driver hands NUMERIC columns back
+  // as text, so it cannot be held to digests taken from the site's read. The
+  // matches above prove this slice is the check's own block.
+  assert.doesNotMatch(block, /\/rows\//, "the owner route is read in the check");
+  const refuse = block.indexOf("process.exit(1)");
+  assert.ok(refuse > 0, "a setup that is not as named no longer stops the run");
+  assert.match(block.slice(block.lastIndexOf("if (", refuse), refuse), /!FIX\.ok/, "the stop no longer depends on the verdict failing");
+  const record = block.indexOf("fixture.json`");
+  assert.ok(record > 0 && record < refuse, "the reading is not written down before the stop");
+});
+
+test("the workflow carries the fixture to the script as its own box, and it arms nothing", () => {
+  const FLOW = readFileSync(new URL("../.github/workflows/edit-canary.yml", import.meta.url), "utf8");
+  assert.match(FLOW, /\n {6}expect_rows:\n/, "the form has no fixture box");
+  assert.match(FLOW, /CANARY_EXPECT_ROWS:\s*\$\{\{\s*github\.event\.inputs\.expect_rows\s*\}\}/, "the box does not reach the script");
+  const spend = FLOW.match(/CANARY_SPEND:.*/)[0];
+  assert.doesNotMatch(spend, /expect_rows/, "the fixture box arms the spend switch");
+});

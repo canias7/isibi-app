@@ -1,0 +1,164 @@
+[
+  {
+    "label": "CONTROL: the module's header comment changes nothing",
+    "control": true,
+    "files": [
+      "scripts/canary-fixture.mjs"
+    ],
+    "from": "// ── WHY THE CANARY NEEDS ONE (run 77, 2026-09-30) ──",
+    "to": "// ── WHY THE CANARY NEEDS ONE (run 77, 2026-09-30, control) ──"
+  },
+  {
+    "label": "CONTROL: the script's fixture comment changes nothing",
+    "control": true,
+    "files": [
+      "scripts/edit-canary.mjs"
+    ],
+    "from": "// ⚠ RUN 77 (2026-09-30) PAID FOR A SETUP THAT WAS NOT THERE:",
+    "to": "// ⚠ RUN 77 (2026-09-30, control) PAID FOR A SETUP THAT WAS NOT THERE:"
+  },
+  {
+    "label": "F-1: extra keys in the box are accepted",
+    "files": [
+      "scripts/canary-fixture.mjs"
+    ],
+    "from": "  if (extra.length) return { ok: false, msg: `it names ${extra.join(\", \")}; only ${KEYS.join(\", \")} are read` };\n",
+    "to": ""
+  },
+  {
+    "label": "F-2: the baseline's form is no longer checked",
+    "files": [
+      "scripts/canary-fixture.mjs"
+    ],
+    "from": "typeof v.baseline !== \"string\" || !DIGEST.test(v.baseline)",
+    "to": "typeof v.baseline !== \"string\""
+  },
+  {
+    "label": "F-3: a target value need not be a scalar",
+    "files": [
+      "scripts/canary-fixture.mjs"
+    ],
+    "from": "    if (!scalar(v.target[f])) return",
+    "to": "    if (false) return"
+  },
+  {
+    "label": "F-5: several matching rows are taken as one",
+    "files": [
+      "scripts/canary-fixture.mjs"
+    ],
+    "from": "  if (hits.length > 1) return stop(",
+    "to": "  if (false) return stop("
+  },
+  {
+    "label": "F-6: the baseline digest includes the target row",
+    "files": [
+      "scripts/canary-fixture.mjs"
+    ],
+    "from": "  const digest = rowsDigest(others);",
+    "to": "  const digest = rowsDigest(rows);"
+  },
+  {
+    "label": "F-7: a baseline that does not match is let through",
+    "files": [
+      "scripts/canary-fixture.mjs"
+    ],
+    "from": "  if (!digest.startsWith(expect.baseline)) {",
+    "to": "  if (false) {"
+  },
+  {
+    "label": "F-8: a column the row lacks meets a target of null",
+    "files": [
+      "scripts/canary-fixture.mjs"
+    ],
+    "from": "Object.hasOwn(row, f) && canonical(row[f]) === canonical(target[f])",
+    "to": "canonical(row[f]) === canonical(target[f])"
+  },
+  {
+    "label": "F-9: a target value is met by its text",
+    "files": [
+      "scripts/canary-fixture.mjs"
+    ],
+    "from": "Object.hasOwn(row, f) && canonical(row[f]) === canonical(target[f])",
+    "to": "Object.hasOwn(row, f) && String(row[f]) === String(target[f])"
+  },
+  {
+    "label": "F-10: keys are not sorted before the digest",
+    "files": [
+      "scripts/canary-fixture.mjs"
+    ],
+    "from": "Object.keys(v).sort().map(",
+    "to": "Object.keys(v).map("
+  },
+  {
+    "label": "F-11: an unreadable site read is not a stop",
+    "files": [
+      "scripts/canary-fixture.mjs"
+    ],
+    "from": "  if (!site || !site.ok) return stop(",
+    "to": "  if (!site) return stop("
+  },
+  {
+    "label": "F-12: the evidence keeps no rows",
+    "files": [
+      "scripts/canary-fixture.mjs"
+    ],
+    "from": "rows: ok ? site.rows : null,",
+    "to": "rows: null,"
+  },
+  {
+    "label": "W-1: a malformed box does not stop the run",
+    "files": [
+      "scripts/edit-canary.mjs"
+    ],
+    "from": "  console.error(`REFUSING THE FIXTURE: ${EXPECT_ROWS.msg}`);\n  process.exit(2);\n",
+    "to": "  console.error(`REFUSING THE FIXTURE: ${EXPECT_ROWS.msg}`);\n"
+  },
+  {
+    "label": "W-2: a box beside another mode is not refused",
+    "files": [
+      "scripts/edit-canary.mjs"
+    ],
+    "from": "if (EXPECT_ROWS.expect && (READ_JOB || RESTORE || UI)) {",
+    "to": "if (EXPECT_ROWS.expect && (READ_JOB || UI)) {"
+  },
+  {
+    "label": "W-3: a setup not as named does not stop the press",
+    "files": [
+      "scripts/edit-canary.mjs"
+    ],
+    "from": "the rows are not the ones this press names (${FIX.why}). Nothing was routed or charged.`);\n    process.exit(1);\n",
+    "to": "the rows are not the ones this press names (${FIX.why}). Nothing was routed or charged.`);\n"
+  },
+  {
+    "label": "W-4: the free rehearsal no longer reads the rows",
+    "files": [
+      "scripts/edit-canary.mjs"
+    ],
+    "from": "if (EXPECT_ROWS.expect) {\n  const T = EXPECT_ROWS.expect.table;",
+    "to": "if (EXPECT_ROWS.expect && SPEND) {\n  const T = EXPECT_ROWS.expect.table;"
+  },
+  {
+    "label": "W-5: the owner route is read in place of the site's own read",
+    "files": [
+      "scripts/edit-canary.mjs"
+    ],
+    "from": "  const FIX_READ = readRowList(served);",
+    "to": "  const FIX_READ = readRowList(await call(\"GET\", `/api/site/${encodeURIComponent(CANARY)}/rows/${encodeURIComponent(T)}?order=id&dir=asc&limit=${OWNER_ROWS_LIMIT}`), { owner: true });"
+  },
+  {
+    "label": "W-6: the site read's refusal is read as rows",
+    "files": [
+      "scripts/edit-canary.mjs"
+    ],
+    "from": "    served = { status: r.status, text: Buffer.from(await r.arrayBuffer()).toString(\"utf8\") };",
+    "to": "    served = { status: 200, text: r.status === 200 ? Buffer.from(await r.arrayBuffer()).toString(\"utf8\") : \"[]\" };"
+  },
+  {
+    "label": "WF-1: the box does not reach the script",
+    "files": [
+      ".github/workflows/edit-canary.yml"
+    ],
+    "from": "          CANARY_EXPECT_ROWS: ${{ github.event.inputs.expect_rows }}\n",
+    "to": ""
+  }
+]

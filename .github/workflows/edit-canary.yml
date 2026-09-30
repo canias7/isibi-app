@@ -138,6 +138,17 @@ on:
         description: 'Refuse to post the paid edit unless the router answers this: space-separated key=value over intent, layer, page, rename (a path or none), remove, tab (true/false), alsoAsked=none (nothing held back). Blank = no check.'
         required: false
         default: ''
+      # THE ROWS A DATA PRESS IS WRITTEN FOR (after run 77, 2026-09-30). Read
+      # whole by the script before it signs in (`scripts/canary-fixture.mjs`);
+      # a malformed box refuses at no cost, and so does a filled box beside a
+      # read, a restore or a scenario. The table is read on the owner route and
+      # on the site's own read before any routing call, the two must agree, and
+      # a setup that is not as named stops there, at no cost. With spend=no the
+      # check is the whole run: a free rehearsal of the paid press.
+      expect_rows:
+        description: 'Refuse to route or spend unless one table, read as the site serves it, is as named: JSON {"table":…,"baseline":<16+ hex: digest of the rows other than the target>,"target":{<fields of the one target row>}}. Blank = no check.'
+        required: false
+        default: ''
 
 jobs:
   canary:
@@ -242,6 +253,7 @@ jobs:
           EXPECT_DEPLOY: ${{ github.event.inputs.expect_deploy }}
           EXPECT_IMAGE: ${{ github.event.inputs.expect_image }}
           CANARY_EXPECT_ROUTE: ${{ github.event.inputs.expect_route }}
+          CANARY_EXPECT_ROWS: ${{ github.event.inputs.expect_rows }}
           CANARY_EVIDENCE_DIR: canary-evidence
         run: node scripts/edit-canary.mjs
       # THE RECORD SURVIVES THE RUN, and is uploaded even when the canary
