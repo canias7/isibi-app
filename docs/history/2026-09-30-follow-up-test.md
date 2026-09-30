@@ -160,7 +160,23 @@ rehearsal would have failed at opening the card.
   grew inside an existing case, so the count is unchanged). Unit CI on
   `e6b659a1`: run 36783584417, `8403 / 8399 / 0 / 4`, the same total.
 
-## 6. What it will not show
+## 6. Run 81: the free rehearsal passed (22:14–22:15 UTC)
+
+Edit canary run 81 (36784382993, from the branch at `bc313e9b`; evidence
+artifact 11129406214), spend `no`, scenario `9-follow-up`, site
+`fretwork-1`:
+- preflight `8908b59d2069` on both readers, a cold container
+  `e71f7bae88b9ecf1`, queued jobs and the runner on; every free check
+  passed (its own zero-cost probe jobs settled at cost 0); balance 10;
+- the app opened signed in and the card opened its workspace, with no
+  modal in the way at a balance of 10; the tab was marked; no console or
+  page error;
+- `lessons` id 4 read 42 on both readers, three rows, the visitor's 541
+  bytes equal to the recorded table; `/prices` and `/` both showed £42;
+- no conditional write, no recovery plan, no PATCH, and no POST from the
+  page; message 1 typed and not sent; balance 10 → 10.
+
+## 7. What it will not show
 
 A follow-up after other failures (a hop, an escalation, a failure with no
 job); one that leans on the conversation (message 2 names its own row);

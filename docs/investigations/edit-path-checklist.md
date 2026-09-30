@@ -1295,7 +1295,7 @@ in the next data press.
 - **Then**: one merge, one free runtime check, and the lane 4 presses. Those
   on different sites can overlap a minute apart, as Batch 1's did.
 
-## Test 9 — a follow-up after a failure, in the same chat tab (prepared 2026-09-30 on the owner's word, after runs 79 and 80 were closed; built on the branch as the canary's UI scenario `9-follow-up`, red-checked, swept, tested through the stand-in, and proven locally against the real app's code with supplied answers, which found and fixed a first-run modal that would have blocked the card at the current balance; not run)
+## Test 9 — a follow-up after a failure, in the same chat tab (prepared 2026-09-30 on the owner's word, after runs 79 and 80 were closed; built on the branch as the canary's UI scenario `9-follow-up`, red-checked, swept, tested through the stand-in, and proven locally against the real app's code with supplied answers, which found and fixed a first-run modal that would have blocked the card at the current balance; the free rehearsal passed as run 81 the same evening; the paid run awaits the owner's approval)
 
 **The owner** (the message arrived cut off after the third item): *"Next,
 prepare one bounded test of a follow-up after failure in the same chat tab:
@@ -1486,6 +1486,29 @@ the estimate. The same form, the same branch:
 
 **No recovery is owed** (the demo-site rule): the price stays at £45. Anything
 unintended is reported and left for the owner.
+
+### Run 81 — the free rehearsal passed (2026-09-30 22:14–22:15 UTC, free)
+
+Edit canary run 81 (36784382993, from the branch at `bc313e9b`; evidence
+artifact 11129406214), spend `no`, scenario `9-follow-up`, site
+`fretwork-1`, every other box blank:
+- **Preflight**: both readers answered `8908b59d2069`, a cold container
+  `e71f7bae88b9ecf1`, and queued jobs and the runner were on. Every free
+  check passed (its own two zero-cost probe jobs settled at cost 0, as on
+  every run), and the balance read 10.
+- **The app**: opened signed in as the building account, and the site's
+  card opened its workspace with no modal in the way (the greeting mark,
+  at a balance of 10). The tab was marked. No console or page error.
+- **The table and the pages**, read just before the stop: `lessons` id 4
+  is the Hour one-to-one at 42 on both readers, three rows, and a
+  visitor's read of 541 bytes equal to the recorded table; `/prices` and
+  `/` both show the line at £42.
+- **No write**: no conditional write asked, no recovery planned, no PATCH
+  (`writes` 0), and the page made no POST at all.
+- **Stopped** with message 1 typed and not sent; the balance 10 → 10.
+
+The paid run is next, only with the owner's approval: about 5 credits (3
+to 5) from 10, with the boxes above.
 
 ## Lane 4's delete — one row taken off `fretwork-1`'s price list, with real models (prepared 2026-09-30 after deploy 2171; its routing conflict corrected the same day on the owner's word, merged and deployed in deploy 2172, runtime-confirmed by run 76; pressed by the owner as run 77 the same day before its temporary row was added and with B2's recovery still open: the real router answered `data`, the picker found no such row, nothing changed, 2 credits; recorded by the owner as a failed deletion acceptance, its live routing and refunded no-match credited separately; the canary's fixture check added on the branch the same day; a new press prepared only after the price recovery and the temporary row are read back and verified; those two preconditions replaced the same day by the owner's demo-site rule, and the deletion re-prepared on the current table; the free rehearsal passed as run 79, the row check's first live run, and the paid deletion met every condition as run 80, for 3 credits; both closed by the owner the same day, the demo data kept as it stands)
 

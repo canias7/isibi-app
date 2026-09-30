@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-09-30, 22:10 UTC)
+## Current handoff — read this first (2026-09-30, 22:25 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -10,90 +10,63 @@ is in git; the dated entries further down are the full story.*
 - `main` is `8908b59d` (deploy 2173), unchanged. The branch
   `claude/help-needed-ehlwlj` is `main` plus the canary's Test 9 scenario
   (scripts, tests, and the scenario box's text in the canary workflow) and
-  documents. **No product code changed, so nothing needs deploying.**
-- You closed run 79 (the row check's first live run) and run 80 (the AI
-  deletion). The checklist marks both closed, and the demo data stays as it
-  stands: `fretwork-1`'s lessons are First lesson £0, One-to-one £30, Hour
-  one-to-one £42.
-- Balance 10 at its last reading (run 80). No job was open then.
-- **Test 9, a follow-up after a failure in the same chat tab, is built and
-  ready for your free rehearsal.** It has not been run.
+  documents. No product code changed; nothing needs deploying.
+- Runs 79 and 80 are closed by you, and the demo data stays: `fretwork-1`'s
+  lessons are First lesson £0, One-to-one £30, Hour one-to-one £42.
+- Balance 10 (read by run 81 at 22:15 UTC).
+- **Test 9's free rehearsal passed (run 81). The paid run waits for your
+  approval**: about 5 credits (3 to 5).
 
 **Completed**
-- **Runs 79 and 80 recorded as closed by you**: the checklist's short list,
-  *Proven live*, item 5 (removing rows closed), the deletion's own section,
-  and the story's §11.
-- **Test 9 built** (the canary's UI scenario `9-follow-up`, on `fretwork-1`,
-  two messages from one browser tab):
-  1. *"We've stopped running the Weekend workshop, please take it off the
-     price list."* There is no such lesson, so this must fail as the data
-     step's "couldn't match", be shown as a warning, refund its edit and
-     change nothing.
-  2. Only then, and only from the same tab with no reload: *"Please change
-     the Hour one-to-one's price to £45."*, kept afterwards (your demo-site
-     rule).
-- **The local proof against the real app's code** (free: the live app's own
-  files in a real browser, every server call answered by me, no live change,
-  no AI call). It found a blocker: the app's "Welcome to Go Farther — free
-  credits" pop-up covers the page on a fresh browser when an unpaid balance
-  is 20 or less. At 10 it would have stopped your rehearsal at the site's
-  card. The canary now marks it as already seen, as your own browser has it.
-  Then the whole flow ran through the real page code. Two pictures of it are
-  in the chat.
+- Test 9 built, red-checked, swept and proven locally against the real
+  app's code (which found and fixed the welcome pop-up blocking the site
+  card at a balance of 20 or less).
+- **Run 81, the free rehearsal**: signed in, the card opened with no
+  pop-up, the table and both pages read at £42, message 1 typed and not
+  sent; no request from the page, no write, balance 10 → 10.
 
 **Test results**
-- 15 new tests and one changed. The red check: those 16 fail on the old
-  scripts, and the 90 others pass.
-- Mutation sweep: 49 of 49 mutants killed, and the 3 comment-only controls
-  survived.
-- Full suite `8403 / 8403 / 0 / 0` locally. Unit CI on `04331c8c`: `8403 /
-  8399 / 0 / 4` (CI skips four); on `e6b659a1` (the greeting fix): `8403 /
-  8399 / 0 / 4`, the same total.
+- 15 new tests and one changed; red check 16 fail and 90 pass on the old
+  scripts; sweep 49 of 49 killed with the 3 controls surviving; full suite
+  `8403 / 8403 / 0 / 0` locally; unit CI `8403 / 8399 / 0 / 4` on
+  `04331c8c` and on `e6b659a1`.
+- Live: run 81 passed (free).
 
 **Links**
+- Run 81: https://github.com/canias7/isibi-app/actions/runs/36784382993
 - Branch commits: https://github.com/canias7/isibi-app/commits/claude/help-needed-ehlwlj
-- Unit CI on `04331c8c`: https://github.com/canias7/isibi-app/actions/runs/36782393786
-- Unit CI on `e6b659a1`: https://github.com/canias7/isibi-app/actions/runs/36783584417
-- The plan, the pass list and the form boxes: the checklist's *Test 9*
-  (`docs/investigations/edit-path-checklist.md`). The story:
-  `docs/history/2026-09-30-follow-up-test.md`.
+- The plan, the pass list and the presses: the checklist's *Test 9*. The
+  story: `docs/history/2026-09-30-follow-up-test.md`.
 
 **From our chat**
-- Your Test 9 message arrived cut off after *"its intended change
-  happens,"*. **The checks after it are mine, for you to confirm or
-  correct**: the failure changed nothing and its edit charge came back;
-  unrelated rows unchanged; the website reflects the change; billing
-  correct; no reload.
-- "Keep the demo data as it stands": nothing is put back, before or after
-  Test 9.
-- CLAUDE.md is left alone, as you asked. Its "where things stand" does not
-  mention runs 79 and 80 or Test 9.
+- Your Test 9 message stopped after *"its intended change happens,"*. The
+  checks after it are mine, for you to confirm or correct: the failure
+  changed nothing and its edit charge came back; unrelated rows unchanged;
+  the website reflects the change; billing correct; no reload.
+- The demo data stays as it stands. CLAUDE.md is left alone.
 
 **Blockers**
-- None for the rehearsal. The paid run needs your approval.
+- None. The paid run needs your approval.
 
 **Findings, kept separate**
-- The welcome pop-up greets a returning owner on any new browser when an
-  unpaid balance is 1 to 20, covers the page, and still speaks of images,
-  voice and video (the media side deleted on 2026-09-12). It is in the
-  backlog, not changed.
-- The deleted row's reply cuts each field at 40 characters (from run 80),
-  still in the backlog.
+- The welcome pop-up greets returning owners on a new browser when an
+  unpaid balance is 1 to 20, and still speaks of the deleted media side
+  (backlog, not changed).
+- The deleted row's reply cuts each field at 40 characters (backlog).
 
 **Exact next action**
-- **Your free rehearsal.** Edit canary, "Use workflow from"
-  `claude/help-needed-ehlwlj`. Boxes, by description:
-  - "Run the ONE paid edit as well (yes/no)": `no`
+- **Your approval of the paid run**, then its press. Edit canary, "Use
+  workflow from" `claude/help-needed-ehlwlj`:
+  - "Run the ONE paid edit as well (yes/no)": `yes`
   - "RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: …":
     `9-follow-up`
   - "The site to edit": `fretwork-1`
+  - "Refuse to spend unless the Worker reports this deploy sha":
+    `8908b59d2069dfb5f11fa679a8b33b649194fe77`
+  - "Refuse to spend unless a cold container reports this image id":
+    `e71f7bae88b9ecf1`
   - every other box blank.
-- It should pass the free checks, open the app signed in, read both pages
-  and the table, type message 1 and stop before Send, at no cost. I read it
-  and tell you.
-- **Then the paid run, only with your approval**: about 5 credits (3 to 5)
-  from a balance of 10. Its boxes are in the checklist's *Test 9 → The
-  presses*.
+- Then I read it against the pass list and report. Nothing is put back.
 
 ---
 
@@ -153,6 +126,20 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-09-30 — Your free rehearsal of Test 9 passed (run 81)
+
+**What happened**: your press (run 81, 22:14–22:15 UTC, from the branch)
+opened the app signed in, got past the welcome pop-up that the canary now
+marks as seen, and opened `fretwork-1`'s workspace. It read the price list
+and the home page (Hour one-to-one at £42 on both) and the lessons table
+(three rows, exactly as recorded), typed message 1, and stopped before
+sending. The page sent nothing, the run wrote nothing, and the balance
+stayed at 10.
+
+**Next**: the paid run, only with your approval, about 5 credits (3 to 5).
+Its form boxes are in the checklist's *Test 9 → The presses*, and the
+handoff above.
 
 ## 2026-09-30 — The follow-up test (Test 9) is built; your free rehearsal is next
 
