@@ -52,8 +52,11 @@ run 66 proved, with recovery verified by run 67.**
 - Kept separate: the reply omission (review #9) and the saved-version list's
   label naming only the first change (backlog).
 
-**Batch 1 is approved (2026-09-30); Rounds 1 and 2's A2 are done; B2 and A3
-are handed over**: A2 (run 72) removed `/gallery`, which answers 301 home,
+**Batch 1 is approved (2026-09-30); A1, B1 and A2 are done; A3 and B's
+put-back are not**: run 73 (A3) never started (the image id was in the
+route box), and run 74 (B2) was refused by the route check (the router
+answered `text`), for 2 credits and no change (*Runs 73 and 74*, below).
+Before that: A2 (run 72) removed `/gallery`, which answers 301 home,
 read twice, for 2 credits (*A2 as run 72*, below). A1, the free restore to
 `t5obxx` (run 68), is done and checked. B1 ran as run 71 after runs 69 and
 70 went nowhere (a blank route box; a press
@@ -246,7 +249,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Batch 1 — a removed page's 301 home, and a row changed on a site whose database link is blank, run side by side (proposed 2026-09-29 after Test 8's closure; corrected after the owner's review: the canary now enforces each press's expected route, the costs keep estimates apart from enforced limits, group B's recovery covers every row and field, and the remaining six are the owner's list; approved 2026-09-30; Round 1 done: A1's free restore (run 68) checked, and B1 (run 71, after runs 69 and 70 went nowhere) changed exactly row 4's price for 3 credits; A2 (run 72) removed `/gallery`, which answers 301 home, read twice, for 2 credits; B2 and A3 handed over)
+## Batch 1 — a removed page's 301 home, and a row changed on a site whose database link is blank, run side by side (proposed 2026-09-29 after Test 8's closure; corrected after the owner's review: the canary now enforces each press's expected route, the costs keep estimates apart from enforced limits, group B's recovery covers every row and field, and the remaining six are the owner's list; approved 2026-09-30; Round 1 done: A1's free restore (run 68) checked, and B1 (run 71, after runs 69 and 70 went nowhere) changed exactly row 4's price for 3 credits; A2 (run 72) removed `/gallery`, which answers 301 home, read twice, for 2 credits; run 73 (A3) never started, and run 74 (B2) was refused by the route check when the router answered `text`, for 2 credits and no change)
 
 The owner asked for the next bounded batch: up to three independent
 acceptance groups from the remaining six, on existing ready fixtures and
@@ -907,6 +910,50 @@ planned:
 
 B2 was handed over in Round 2 and has not been pressed. It may run beside
 A3, a minute apart.
+
+### Runs 73 and 74 (2026-09-30 02:08–02:12 UTC): neither changed anything
+
+- **Run 73 (A3's press, 02:08:32 UTC) never started.** The image id
+  `abf47dfeceba3c5c` went into the route box ("Refuse to post the paid edit
+  unless the router answers this…"), and the image box was left blank. The
+  canary refused before signing in (`REFUSING THE EXPECTED ROUTE:
+  "abf47dfeceba3c5c" is not key=value`, exit 2). There was no sign-in, no
+  job, no restore and no charge. The bakery is still at `yuy16h`, with the
+  gallery removed. This is the malformed-box refusal working live.
+- **Run 74 (B2, 02:10:45 UTC)** ran from the branch with every box as handed
+  over. **The router answered `edit` with layer `text`, not `data`,** in
+  26.9 s at cost 2. The canary refused to post the edit: `REFUSING TO POST
+  THE EDIT: not the route this press expected — layer: expected data, the
+  router answered text.`
+  - `routing.json` holds the answer, the expectation and the verdict
+    `{"ok":false,"diffs":[{"key":"layer","want":"data","got":"text","readable":true}]}`,
+    written before the refusal.
+  - Only the routing call was spent. No edit job was filed: the free
+    check's two jobs, `4c5797bd…` and `811538072…`, ended `billing none`,
+    cost 0. There was no ledger row, and the balance went 17 → 15.
+  - **This is the expected-route check's first live refusal.** A mismatch
+    was stopped above the edit POST, with its evidence kept and only the
+    routing call spent, as it was built to do.
+  - The router was sent the three pages and no table names (`tables: []`).
+    B1's sentence, the same change forward, was answered `data` (run 71);
+    the plan named a `text` answer as possible for this reason. The real
+    app sends table names only when the browser has them from a build or
+    revise in that browser; a fresh browser, like the canary and run 42's UI
+    run, sends none. It is recorded in the backlog as a routing finding (one
+    sample each way) and not changed.
+- **`lessons` is unchanged since B1**: row 4's price is still 42, and the
+  body is still 736 bytes, sha256 `2ec299b8…`, read at 02:12:56 UTC.
+  `fretwork-1` is still at `kk6qsh`.
+- **Where the batch stands (02:15 UTC)**:
+  - A3 still needs a correct press, with the route box blank.
+  - Group B's row 4 needs recovering. The plan's row for "step 2 was
+    refused" is the owner's own edit in the app's Data panel: row 4, price
+    back to 40, Save. It is free and exact. Pressing B2 again is also
+    possible: it is another routing call, and the router could answer
+    `text` again.
+  - Money so far: 22 → 15, 7 credits. That is routing 2 + 2 + 2 (runs 71,
+    72 and 74) and ledger row 342 (1). The estimate was 5–8, and it is not
+    a cap.
 
 ### What it will not establish
 

@@ -58,6 +58,9 @@ here; take a closed one out of both.**
 - A routing call that fails records no reason: Batch 1's run 70 got `addon`
   with `failed` at cost 0, and nothing says why. Found 2026-09-30, not
   changed.
+- A price put back to its old value was routed `text`, not `data`, with no
+  table names sent (Batch 1's run 74); the same change forward was `data`
+  (run 71). One sample each. Found 2026-09-30, not changed.
 - A menu removal beside a layout move on another page is answered `nav` with
   `remove` and the move held back, against the router's own `alsoAsked` rule
   (Test 8, run 63). **Corrected 2026-09-29 (the router chooses one answer
@@ -123,6 +126,23 @@ here; take a closed one out of both.**
 
 ## Backlog
 
+- **A PRICE PUT BACK WAS ROUTED `text`, NOT `data`, WITH NO TABLE NAMES SENT
+  (found 2026-09-30 in Batch 1's run 74; one sample each way; not changed).**
+  - **What happened.** On `fretwork-1`, whose prices come from the
+    `lessons` table, *Change the price of the Hour one-to-one lesson to
+    £42.* was answered `data` (run 71) and changed the row. *Change the
+    price of the Hour one-to-one lesson back to £40.* was answered `text`
+    (run 74, 26.9 s, cost 2). The canary's expected-route check refused it
+    before the edit, so what the words rung would have done with it never
+    ran.
+  - **Why it can happen.** Both routing calls were sent the three pages and
+    `tables: []`. The router's own `data` clause and its tie-break are
+    conditioned on the tables named to it. The real app sends table names
+    only when the browser has them from a build or revise in that browser
+    (`public/chat.js`, the digest in `siteSend`). A customer on a fresh
+    browser sends none, like the canary and run 42's UI run.
+  - **Not measured**: how often, for other wordings, or with table names
+    sent.
 - **A FAILED ROUTING CALL RECORDS NO REASON (found 2026-09-30 in Batch 1's
   run 70; read in the code and measured free; not changed).**
   - **The gap.** `routeMessage` in `builder/site-ask.mjs` wraps the request

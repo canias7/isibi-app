@@ -57,6 +57,33 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-30 — The restore didn't start, and the price change back was stopped by the route check (runs 73 and 74)
+
+**Neither press changed anything.**
+- **The restore (run 73)** stopped before doing anything. The image id went
+  into the last box ("Refuse to post the paid edit unless the router answers
+  this…") instead of the image box, and the canary refuses a box it can't
+  read. The bakery is still without its gallery page.
+- **Putting the price back (run 74)**: this time the router called it a
+  wording change ("text") instead of a data change. The check we added
+  stopped it before any edit was made, so the price is still £42. It cost 2
+  credits for the routing call. This is the first time that check has
+  stopped a real answer, and it worked as designed.
+- Why the router said "text": it isn't told the site's table names. Your
+  app only sends them from a browser where the site was built. I've put that
+  in the backlog and haven't changed anything.
+
+**Your balance is 15.** The batch has spent 7 so far: 3 for the first price
+change, 2 for the page removal, and 2 for this refused routing call.
+
+**What's left, both your call**:
+- Press the restore again with the last box empty.
+- Put the price back to £40. The free, exact way is in the app's Data panel:
+  lessons, "Hour one-to-one", Edit, price 40, Save changes. Pressing B2 again
+  would cost another routing call, and the router might say "text" again.
+
+---
+
 ## 2026-09-30 — The gallery page is gone and its address sends people home (run 72)
 
 **Removing the gallery page worked, and its old address now sends visitors to
