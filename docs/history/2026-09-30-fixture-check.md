@@ -384,3 +384,18 @@ count contract as the Data API does; five rows served, as named):
   4`, read from the job's own log. The totals match, and CI skips the same
   four.
 
+## 4. The guard passes review; the £40 still not there (19:40 UTC)
+
+- **The owner passed the whole-table guard's review** (2026-09-30), and
+  moved on to the unresolved £40.
+- **Read again, free, at 19:40 UTC**, as the guard reads it (`Prefer:
+  count=exact`): 200, `Content-Range: 0-3/4`, whole, 736 bytes, sha256
+  `2ec299b8…`. Rows 1–3 hold every field of the saved baseline; row 4
+  differs only in `price`, 40 → 42; no other row. The four rows digest to
+  `2fb9f28608ca8b27…`, not the baseline's `f93f11a2c1c90b77…`.
+- **So the £40 baseline is not verified.** As the owner asked, the two
+  questions go back to them (what Save displayed, and the price after the
+  panel was closed and reopened), and the diagnosis waits for those
+  answers. The temporary row's steps and the free rehearsal wait for the
+  £40 to read back.
+

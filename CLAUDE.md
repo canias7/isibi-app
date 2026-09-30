@@ -122,7 +122,8 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   main's Worker. The `expect_rows` box exists only there.
 - **The canary's opt-in fixture check** (2026-09-30, after run 77, on the
   owner's word; `3229272e`, and `fc06edde` after the owner's review of it;
-  **on the branch, pushed for review, not merged**). The `expect_rows` box takes one JSON object: `table`,
+  **the owner passed the whole-table guard's review (2026-09-30); on the
+  branch, not merged**). The `expect_rows` box takes one JSON object: `table`,
   `baseline` (16–64 hex, the start of the canonical sha256 of the rows
   other than the target) and `target` (the one row's fields).
   - The box is read before the sign-in: malformed, or beside another mode,
@@ -424,8 +425,10 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
       calls, or one the logs did not keep, would leave no trace there.
       Neither a user error nor an app defect is shown. The owner's
       observation is asked for: what Save displayed, and the price after
-      reopening the panel. Row 4 still reads 42 at 18:22 UTC (the site's
-      own read, free).
+      reopening the panel. Row 4 still reads 42 at 18:22 and at 19:40 UTC
+      (the site's own read, free; at 19:40 read whole, `0-3/4`: rows 1–3
+      every field as the baseline, row 4 differing only in price, no other
+      row).
     - Spent: 7 (22 → 15).
 
   **Estimates, not limits**: A about 1–2 credits, B about 4–6, about 5–8

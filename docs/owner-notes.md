@@ -57,6 +57,28 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-30 — The row check passed your review; the £40 is still not there (19:40)
+
+**Your review**: the whole-table check passed. It stays on the branch until
+you decide to merge it.
+
+**Fresh read of the lessons table** (19:40, free, read the same way the
+check reads it, so it had to prove it was the whole table: it did, "rows
+0–3 of 4"):
+- rows 1–3 match the saved baseline in every field;
+- row 4 ("Hour one-to-one") differs only in its price: **still 42**, not 40;
+- there is no other row.
+
+**So the £40 isn't verified yet**, and I've asked you the two questions
+again: what the panel displayed when you pressed Save, and what price row 4
+showed after you closed and reopened the panel. I'll work out what happened
+from your answers. The temporary row's steps and the free rehearsal wait
+until the £40 reads back.
+
+**Not done**: no paid run, merge, deploy or database write.
+
+---
+
 ## 2026-09-30 — The row check now proves it read the whole table (on the branch, not merged)
 
 **What you found**: the canary's row check believed any list the site sent

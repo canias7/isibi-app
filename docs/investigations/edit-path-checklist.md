@@ -1111,6 +1111,10 @@ is the owner's.
   - **Read again at 18:22 UTC** (the site's own read, free): four rows, row
     4 still 42, rows 1–3 unchanged. Both prepared fixture boxes answer
     `target-missing` on that body.
+  - **Read again at 19:40 UTC**, whole (`0-3/4`, the guard's own read):
+    rows 1–3 every field as the baseline, row 4 differing only in price
+    (42), no other row. The owner's two answers are asked for again; the
+    temporary row and the rehearsal wait for the £40.
 
 ### What it will not establish
 
@@ -1453,7 +1457,8 @@ acceptance. The canary has no fixture check before a paid data press
     `fc06edde`**: the read asks the Data API for its count and stops at no
     cost unless the answer is the whole table (`incomplete`,
     `completeness-unknown`), shown through the real script with no routing
-    call, no paid edit and nothing after the read.
+    call, no paid edit and nothing after the read. **Passed the owner's
+    review** (2026-09-30).
 - **A new deletion press is prepared only after the price recovery and the
   temporary row have both been read back and verified** (the owner). It is
   not prepared here.
