@@ -52,7 +52,8 @@ run 66 proved, with recovery verified by run 67.**
 - Kept separate: the reply omission (review #9) and the saved-version list's
   label naming only the first change (backlog).
 
-**Lane 1 (2026-09-30): four corrections built on the branch, not merged**
+**Lane 1 (2026-09-30): four corrections, merged and deployed in deploy 2171
+(`29111010`, image `cdb624837e099719`), not yet runtime-confirmed**
 (*Next independent work*, below; `docs/history/2026-09-30-lane1.md`):
 - the data picker is sent to `remove` for a deletion;
 - a failed routing call names why, from allow-lists only;
@@ -62,8 +63,12 @@ run 66 proved, with recovery verified by run 67.**
   none.
 
 Each was red-checked, swept, and shown through the real routes with
-supplied answers only. No real model was called. B2 stays failed and its
-price recovery open.
+supplied answers only. No real model was called. Required CI is green on
+the merged candidate itself (unit 36671505759, `8351 / 8347 / 0 / 4`; site
+build 36671505766, the twelve counts), and the served `chat.js` and
+`site-list.js` are the merged bytes. B2 stays failed and its price
+recovery open. The next unaccepted live test, the delete (*Lane 4*), is
+prepared below and not run.
 
 **Batch 1 (2026-09-30): group A accepted by the owner, B1 credited, and
 B's row 4 waits for the owner's free write** (*The owner's review of
@@ -1089,8 +1094,13 @@ approves it.
 
 ### Lane 1: four small corrections, each unblocking something, buildable in parallel now
 
-**Built on the branch 2026-09-30, not merged** (the owner: *"Proceed with
-Lane 1's four corrections on the designated branch"*). Each correction was:
+**Built on the branch 2026-09-30** (the owner: *"Proceed with Lane 1's four
+corrections on the designated branch"*), **and merged and deployed the same
+day in deploy 2171** (the owner: *"The two diagnostic fixes passed review.
+Continue from candidate 291110103024a68da9d0bca525a9d2302d5bd1f2."*):
+`907840c6` → `29111010` at 05:30:28 UTC, the image `abf47dfeceba3c5c` →
+`cdb624837e099719` as predicted, deployed and not yet runtime-confirmed
+(`docs/deploy-record.md`). Each correction was:
 - reproduced through the real route first (a red check);
 - fixed in its own commit: 1a `19f6e480`, 1b `fe20e6cd`, 1c `b12dd43b` with
   a follow-up `bd81a60e`, 1d `a02c2003`, and `d19652c4` for 1b's and 1d's log
@@ -1176,6 +1186,107 @@ in the next data press.
 - **Then**: lane 3 once 2a and 2b are decided.
 - **Then**: one merge, one free runtime check, and the lane 4 presses. Those
   on different sites can overlap a minute apart, as Batch 1's did.
+
+## Lane 4's delete — one row taken off `fretwork-1`'s price list, with real models (prepared 2026-09-30 after deploy 2171; not run, not approved)
+
+The next unaccepted live test. It is the only Lane 4 item whose blocker is
+gone (1a, deployed in 2171). Add, reorder, rules, the picture swap, the
+component and the follow-up still wait on the owner's Lane 2 decisions.
+Nothing accepted is repeated: B1 changed a field, and this removes a row.
+
+**What it shows that supplied answers cannot.** 1a's route cases
+(`test/data-remove-wording.test.mjs`) prove what the route does with a
+supplied `remove` answer: one bound `DELETE` of the named row, the targeting
+protections, and the reply. This press is for the real models:
+- whether the real router routes a row deletion to `data`, now that it is
+  told the site's table names (1d; the canary sends `tables: []`, so this is
+  1d's first live reading);
+- whether the real data picker answers `remove` for exactly the named row;
+- whether the job deletes exactly that row in the site's container, through
+  the blank link.
+
+**The routing risk, read in the code (not measured).** The router's `look`
+clause claims every removal: *"TAKING SOMETHING OFF THE SITE IS THIS LAYER,
+whatever the something is"*, with a whole page as its one exception. The
+`data` clause says *"prefer it whenever the thing being changed is one row of
+something the site lists"*. Neither names a row taken off a list. So the real
+router may answer `look`. The canary's route check refuses any answer other
+than `data` before the edit is posted, so a misroute costs the routing call
+alone and changes nothing. It is then a finding for Lane 3's router round,
+not a retry (backlog).
+
+**Preconditions, all free and in this order:**
+1. **Deploy 2171 runtime-confirmed** by the owner's free press.
+2. **B2's recovery closed.** The owner puts row 4's price back to 40 in the
+   Data panel. My checks against the baseline: the served body byte-identical
+   (736 bytes, `a4f1dc30…`), `/prices` £40, every page at `kk6qsh`, the
+   balance 15, no ledger row after 342, and no open job.
+3. **The throwaway row**, the owner's own write in the Data panel (`lessons`,
+   "+ Add", then "Add row"), shortly before the press, since it shows on the
+   public `/prices` while it exists:
+
+   | name | description | price | duration |
+   |---|---|---|---|
+   | `Ten-minute tune-up` | `A quick ten-minute check on how your practice is going.` | `10` | `10 minutes` |
+
+   Then my read: five rows, the first four unchanged (the served body's first
+   735 bytes equal the baseline's), and the fifth as entered, with its `id`
+   and `created_at` recorded. `/prices` shows it.
+
+**The request** (79 characters, 79 bytes, sha256 `50dc5e1f2b95e78e…`):
+
+> We don't do the Ten-minute tune-up any more, please take it off the price list.
+
+**The press** (paid, only after the owner's approval): edit canary, form
+boxes by description:
+- "Run the ONE paid edit as well": `yes`;
+- "What to change. REQUIRED when spend=1": the request above, exactly;
+- "The site to edit": `fretwork-1`;
+- "Refuse to spend unless the Worker reports this deploy sha": `29111010`;
+- "Refuse to spend unless a cold container reports this image id":
+  `cdb624837e099719`;
+- "Refuse to post the paid edit unless the router answers this":
+  `intent=edit layer=data alsoAsked=none`;
+- everything else blank.
+
+**Pass**, judged by what the operations did:
+1. **The route**: `request.json` carries the request, and `routing.json` a
+   matching verdict (`edit`, `data`, nothing held back) with `tablesFilled`
+   (the router was told the table names).
+2. **The job**:
+   - it ran in the container (`where: "container"`);
+   - no `data/backend-unreadable`, `no-backend` or `no-meta`;
+   - its stored result is `ok: true`, `layer: "data"`, with `applied` exactly
+     one entry, `{ table: "lessons", id: <the throwaway id>, removed: true,
+     was: … }`, whose `was` is the throwaway row;
+   - `failed` is empty;
+   - one ledger reserve, `<job>#1`.
+3. **The rows**: the served body byte-identical to the baseline again (736
+   bytes, `a4f1dc30…`).
+4. **The site**: `/prices` shows the four lessons as in the before picture;
+   every page is still at `kk6qsh` (nothing published); `neon_db` is still
+   blank.
+5. **The money**: the routing call (1–2) and the reserve of 1; exactly one new
+   ledger row; the balance 15 → 12 or 13.
+- **Expected, not judged**:
+  - the reply, "removed one entry" with the row's contents and how to put it
+    back (the kept deterministic wording);
+  - the canary's "CANARY PASSED", with the comparison UNVERIFIED because a
+    row edit names no version.
+
+**Other outcomes and their recovery:**
+
+| Outcome | Cost | Recovery |
+|---|---|---|
+| The route check refuses (the router did not answer `data`) | about 2 | The owner deletes the throwaway row in the Data panel (its ×, then "Delete this row?"), free. I read the body back to the baseline bytes. A routing finding for Lane 3; no retry with a model |
+| The picker matches nothing (422, `no-match`) | about 3 | The same: the owner's ×, and my read |
+| A baseline row deleted instead | about 3 | The owner re-adds it in the Data panel with its baseline values. **Not exact**: `id` and `created_at` are set by the database. An exact return needs a database restore, a separate approval that also reverts everything else since. The route refuses an id the picker was not shown, but not a wrong id it was shown, so this is the press's main risk |
+| Anything else changed | — | Batch 1's row-level recovery table (*Batch 1*, above), field by field |
+
+**Cost estimate: about 3 credits**: the routing call, 1–2, and the data
+rung's one call, about 1. About 2 if the route check refuses. An estimate,
+not a cap: nothing enforces a per-request limit, and the balance (15) is the
+only bound.
 
 ## Test 8 — a menu item taken out and a layout change on another page, in one message, with real models (proposed 2026-09-29 after deploy 2168; its free runtime check passed as run 62; pressed as run 63 the same day: the router answered `nav` with `remove` and held the band back, so only the menu change was made and the look door was not reached; the free restore, run 64, put everything back; the owner recorded run 63 as a partial outcome and accepted run 64, with the intended acceptance still open; the router's whole-message rule corrected on the branch the same day, made to choose by what a route can make on every page rather than by kind after the owner's review, and the acceptance prepared again, not run; the rule merged and deployed in deploy 2170 the same day and runtime-confirmed by run 65; pressed again as run 66 the same day: the router answered `look` with nothing held back, and both changes were stored and published exactly as expected, for 6 credits; every acceptance item met; the free restore, run 67, put everything back, checked; closed by the owner the same day for the exact combined request run 66 proved, with recovery verified by run 67, runs 63 and 64 kept as history, no further reruns)
 

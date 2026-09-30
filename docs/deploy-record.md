@@ -5,7 +5,7 @@
 > `docs/deploy.md`, where CLAUDE.md's **Deploy** section moved in the second
 > pass. This file keeps the measurements behind them: the
 > timing bands, every image-id prediction checked against a deploy's own log
-> (deploys 2137–2170), and the served-file check driven end to end on deploy
+> (deploys 2137–2171), and the served-file check driven end to end on deploy
 > 2139.
 >
 > **Add each new deploy here**, one paragraph per deploy, in the same shape:
@@ -402,6 +402,62 @@ minutes after the roll, from `main` at `907840c6` on `fold-lane-bakery`):
 200 deploy=907840c67497 async=true runner=true`, the two readers agreeing and
 both expectations met; the free job was claimed by a container at 2 s and
 finished at cost 0, and the balance read 28.
+
+**Deploy 2171 (2026-09-30) was predicted on both ends and built as
+predicted**: `origin/main` `907840c6` answered `abf47dfeceba3c5c`, deploy
+2170's own image, runtime-confirmed by run 65, and the candidate `29111010`
+answered `cdb624837e099719`, both from 188 inputs and 158 distinct paths.
+Five container inputs changed among the push's 40 files: `worker.js`,
+`site-routing.mjs`, `builder/site-ask.mjs`, `builder/site-apply.mjs` and
+`builder/model-xai.mjs` (Lane 1's four corrections and the owner's review
+round). **A fast-forward of 29 commits**, `907840c6` → `29111010` at
+05:30:28Z, on the owner's word to merge and deploy exactly the reviewed
+candidate `291110103024a68da9d0bca525a9d2302d5bd1f2`. Checked first:
+- **the candidate unchanged**: the branch on GitHub was exactly `29111010`
+  at the push;
+- **nothing in flight**: on GitHub, no run in progress or queued (the last,
+  site build 36671505766, had finished at 05:27:22); in `edit_jobs`, none
+  open (the newest, from 02:21);
+- **required CI green on the candidate itself**: unit run 36671505759,
+  `8351 / 8347 / 0 / 4`; site build 36671505766, `completed` / `success`, its
+  twelve counts read from the log (TAP 397, kit-typecheck 4, site-build 404,
+  contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
+  site-runtime 47, and kit-render, kit-a11y, kit-effects and kit-paint `all
+  passed`), with only the two known `##[error]` annotations
+  (`index.tsx(50,13) TS2322`, `menu.tsx(27,17) TS2339`);
+- **no commit message** in the range carries the skip-CI marker;
+- **the rollback**: reverting `907840c6..29111010` in a throwaway worktree
+  gives main's own tree (`0a16949c…`), so a rollback reuses
+  `abf47dfeceba3c5c`;
+- **the served files before**: `chat.js` 788,171 bytes, `82f36de3…`, and
+  `site-list.js` 14,957 bytes, `b64e0845…`, each byte-identical to
+  `907840c6`'s file, read at 05:30.
+
+**One deploy run**, 2171 (36673728752, `push` on `29111010`), `completed` /
+`success`:
+- **the gate** was set for `29111010…`, taking over from `907840c6…`, and the
+  drain found no live leases after 2 s;
+- **the image**: the log answered `built
+  isibi-app-sitebuildcontainer:cdb624837e099719 (registry answered 404; 188
+  inputs off ./Dockerfile)` (masked `cdb624837e0997***9`, `***88`), and
+  `…:abf47dfeceba3c5c` → `…:cdb624837e099719` under `SUCCESS Modified
+  application`, then `Applied changes` at 05:33:17, with **0 `CACHED`
+  lines**;
+- **timings**: image step 121 s (05:30:58–05:32:59), Wrangler 19 s, job 168 s
+  (05:30:36–05:33:24);
+- **Wrangler**: `DEPLOY_ID` `291110103024a68da9d0bca525a9d2302d5bd1f2`
+  (masked `29***0***03024…d***f2`); `Uploaded 2 files (84 already
+  uploaded)`; `Current Version ID: 5c47***b95-cefd-426a-83be-adcc5abd4290`,
+  masked.
+
+**The served files after** (05:34:36): `chat.js` 789,646 bytes,
+`efcae48d…`, and `site-list.js` 15,846 bytes, `56ab5196…`, each
+byte-identical to `29111010`'s file, with and without a cache-busting query.
+The gates answered 401 / 401 / 401 / 404; `fretwork-1` answers
+`kk6qsh` and `fold-lane-bakery` `8btpep`, as before. **Deployed, not
+runtime-confirmed**: the container image rolled at 05:33:17, so container work
+waits until about 05:53, and the confirmation is the owner's free press
+(`build-health` with `29111010` and `cdb624837e099719`).
 
 ## The served-file check, driven end to end on deploy 2139
 

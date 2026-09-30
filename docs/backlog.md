@@ -45,8 +45,10 @@ here; take a closed one out of both.**
   #9). Found 2026-09-29, not changed.
 - The data picker is told both to delete a row and to return nothing when
   asked to delete; a live row removal is likely refused. Found 2026-09-29
-  while preparing Batch 1. **Corrected on the branch 2026-09-30 (Lane 1a,
-  `19f6e480`), not merged; shown with supplied picker answers only.**
+  while preparing Batch 1. **Corrected 2026-09-30 (Lane 1a, `19f6e480`),
+  merged and deployed in deploy 2171 (not yet runtime-confirmed); shown with
+  supplied picker answers only. The live delete is prepared (the checklist's
+  *Lane 4's delete*), not run.**
 - An added row's reply reads "Updated one entry in added to <table>." Found
   2026-09-29, not changed.
 - Which step adds a row to a list the site already has is undecided: the
@@ -58,31 +60,40 @@ here; take a closed one out of both.**
   buying one from fal. Found 2026-09-29, not changed.
 - A routing call that fails records no reason: Batch 1's run 70 got `addon`
   with `failed` at cost 0, and nothing says why. Found 2026-09-30.
-  **Corrected on the branch 2026-09-30 (Lane 1b, `fe20e6cd`), not merged:
-  the answer carries `failure`, from allow-lists only, and the canary prints
-  it.**
+  **Corrected 2026-09-30 (Lane 1b, `fe20e6cd`, with `d19652c4` and
+  `ce992066`), merged and deployed in deploy 2171 (not yet
+  runtime-confirmed): the answer carries `failure`, from allow-lists only,
+  and the canary prints it.**
 - A price put back to its old value was routed `text`, not `data`, with no
   table names sent (Batch 1's run 74); the same change forward was `data`
   (run 71). One sample each. Found 2026-09-30. **The missing names are
-  filled in on the branch (Lane 1d, `a02c2003`, not merged); whether a real
-  router then answers `data` is not measured.**
+  filled in (Lane 1d, `a02c2003`), merged and deployed in deploy 2171 (not
+  yet runtime-confirmed); whether a real router then answers `data` is not
+  measured.**
 - The owner's Data button can be dark for a site whose database link is
   blank: the site list reads `db` from `neon_db` alone. Found 2026-09-30.
-  **Corrected on the branch 2026-09-30 (Lane 1c, `b12dd43b`, `bd81a60e`), not merged,
-  with the three hops behind it: adoption, the owner routes and the panel's
-  text.**
+  **Corrected 2026-09-30 (Lane 1c, `b12dd43b`, `bd81a60e`), with the three
+  hops behind it (adoption, the owner routes and the panel's text); merged
+  and deployed in deploy 2171 (not yet runtime-confirmed). The owner's
+  fresh-browser read of the Data panel is the live check.**
 - When the site list itself cannot be read, a card drawn from this
   browser's own record that never learned `backend` still says "No database
   yet" (the local record's missing flag is read as a no). Pre-existing,
   found 2026-09-30 during Lane 1c, not changed.
 - The backend lookup's KV log line prints a KV error's message, and the
   routing call now reaches it through Lane 1d. Pre-existing (`bd63040c`),
-  found 2026-09-30 in Lane 1's log review. **Corrected on the branch
-  2026-09-30 on the owner's review (`ce992066`), not merged: the line names
-  the operation and a known error class only.**
+  found 2026-09-30 in Lane 1's log review. **Corrected 2026-09-30 on the
+  owner's review (`ce992066`), merged and deployed in deploy 2171 (not yet
+  runtime-confirmed): the line names the operation and a known error class
+  only.**
 - The build, edit and add-on error replies carry the provider's type as
   `upstreamType`, shape-checked but not from a list of known codes. Found
   2026-09-30 in the owner's review of Lane 1b, not changed.
+- A row taken off a list has two claims in the router's instructions:
+  `look`'s removal clause ("TAKING SOMETHING OFF THE SITE IS THIS LAYER,
+  whatever the something is", a whole page its one exception) and `data`'s
+  one-row clause. Neither names a row. Found 2026-09-30 while preparing Lane
+  4's delete; read in the code, not measured, not changed.
 - A menu removal beside a layout move on another page is answered `nav` with
   `remove` and the move held back, against the router's own `alsoAsked` rule
   (Test 8, run 63). **Corrected 2026-09-29 (the router chooses one answer
@@ -287,12 +298,30 @@ here; take a closed one out of both.**
   no-match. Removal is tested only with supplied answers (`readDataChanges`
   with `remove: true`, `test/site-apply.test.mjs`). **It blocks a live "remove
   a row" acceptance (item 5).** The correction would be that one sentence;
-  whether and when is the owner's decision. **Corrected on the branch 2026-09-30 (Lane 1a,
-  `19f6e480`; not merged)** on the owner's word: the list sends a deletion to
-  `remove`, the empty array is kept for a request about the look, and adding
-  is described as before. Driven through the real edit route with supplied
-  answers (`test/data-remove-wording.test.mjs`). How a real picker answers a
-  deletion is still unmeasured.
+  whether and when is the owner's decision. **Corrected 2026-09-30 (Lane 1a,
+  `19f6e480`)** on the owner's word, and **merged and deployed in deploy 2171**
+  (not yet runtime-confirmed): the list sends a deletion to `remove`, the
+  empty array is kept for a request about the look, and adding is described
+  as before. Driven through the real edit route with supplied answers
+  (`test/data-remove-wording.test.mjs`). How a real picker answers a
+  deletion is still unmeasured; the live delete is prepared (the checklist's
+  *Lane 4's delete*), not run.
+- **A ROW TAKEN OFF A LIST HAS TWO CLAIMS IN THE ROUTER'S INSTRUCTIONS (found
+  2026-09-30 while preparing Lane 4's delete; read in the code, not
+  measured, not changed).** In `ASK_TOOL`'s `layer` description
+  (`builder/site-ask.mjs`), the `look` clause says *"TAKING SOMETHING OFF THE
+  SITE IS THIS LAYER, whatever the something is"*, with a whole page as its
+  one exception, and the `data` clause says to *"prefer it whenever the thing
+  being changed is one row of something the site lists"*. Neither names a row
+  taken off a list; the `intent` clause names "a row" only among things taken
+  away. A real router may answer `look` for "take the X off the price list".
+  On the look door, no lane deletes a row: `backend` dispatches to the rules
+  rung, which changes who may read or add, and the page lanes would change
+  the page's code rather than the stored row. So a customer's row removal may
+  fail or change the wrong thing. The canary's route check makes the delete
+  press safe (a misroute is refused for the routing call alone). A wording
+  change would belong to Lane 3's router round, with 2a and 2b; whether and
+  when is the owner's decision.
 - **AN ADDED ROW'S REPLY READS "✅ Updated one entry in added to <table>."
   (found 2026-09-29; read in the code; not changed).** The data reply in
   `public/chat.js` prefixes `added to ` to the table's name when a row has no

@@ -34,15 +34,21 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 
 ## Where things stand (2026-09-30)
 
-- **`main` is `907840c6`, deploy 2170** (2026-09-29 20:28 UTC, a
-  fast-forward from `47dea9c0`; one deploy run, green, on `907840c6`; it
-  built image `abf47dfeceba3c5c` from 188 inputs, predicted on both ends, and
-  the container moved `dd4f72842234135b` → `abf47dfeceba3c5c`) —
-  **runtime-confirmed by the owner's free press, run 65** (21:51 UTC, on
-  `fold-lane-bakery`): both readers answer `907840c67497`, a cold container
-  gets `abf47dfeceba3c5c`, and queued jobs and the runner are on. Nothing
-  under `public/` changed. It carries **the router's
-  whole-message rule, by targets** (below). `docs/deploy-record.md`.
+- **`main` is `29111010`, deploy 2171** (2026-09-30 05:30 UTC, a
+  fast-forward of 29 commits from `907840c6`, on the owner's word to merge
+  exactly the reviewed candidate; one deploy run, green, on `29111010`; it
+  built image `cdb624837e099719` from 188 inputs, predicted on both ends, and
+  the container moved `abf47dfeceba3c5c` → `cdb624837e099719` at 05:33:17).
+  The served `chat.js` (789,646 bytes, `efcae48d…`) and `site-list.js`
+  (15,846 bytes, `56ab5196…`) are byte-identical to the merged files.
+  **Deployed, not runtime-confirmed**: the confirmation is the owner's free
+  press after 05:53 UTC (`build-health` answering `29111010` and
+  `cdb624837e099719`). It carries **Lane 1's four corrections and the review
+  round** (below). `docs/deploy-record.md`.
+- **Deploy 2170** (`907840c6`, 2026-09-29 20:28 UTC, image
+  `abf47dfeceba3c5c`, predicted on both ends) was **runtime-confirmed by the
+  owner's free press, run 65** (21:51 UTC, on `fold-lane-bakery`). It
+  carries **the router's whole-message rule, by targets** (below).
 - **Deploy 2168** (`47dea9c0`, 2026-09-29 16:35 UTC, a fast-forward from
   `cb981a4a`; the one push started two deploy runs a second apart, 2168 and
   2169, both green on the same commit, and both built image
@@ -100,10 +106,9 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   run 52's publish kept the bakery's stored redirect, read at once and ten
   minutes later. Redirects dropped between 2026-08-17 and that deploy are not
   rebuilt.
-- **The branch `claude/help-needed-ehlwlj`** is `main` (`907840c6`) plus the
-  canary's expected-route check, **Lane 1's four corrections** (below; not
-  merged) and documents. A press from the branch runs the branch's script
-  against main's Worker.
+- **The branch `claude/help-needed-ehlwlj`** is `main` (`29111010`) plus
+  documents. The canary's expected-route check is merged with it, so a press
+  from either runs the same script against main's Worker.
 - **Balance 15** on the building account after run 74 (Batch 1's refused
   B2, 2026-09-30 02:11 UTC): 17 → 15, routing 2, and no edit. Before it,
   **17** after run 72 (Batch 1's A2, 01:19 UTC): 19 → 17, routing 2, and no
@@ -119,9 +124,9 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   339 and no job open, and again at 21:35 after deploy 2170 and by run 65 at
   21:51 (the same).
   Before it, 32 after run 60, unchanged through runs 61 and 62. The unit
-  suite is **8,297** on `main` (`907840c6`): `8297 / 8297 / 0 / 0` locally
-  (on `2771ed3f`, the same code) and `8297 / 8293 / 0 / 4` on CI (runs
-  36622422731 on `2771ed3f` and 36625806573 on `907840c6`).
+  suite is **8,351** on `main` (`29111010`): `8351 / 8351 / 0 / 0` locally
+  (on `ce992066`, the same code) and `8351 / 8347 / 0 / 4` on CI (run
+  36671505759 on `29111010`).
 - **Closed by the owner, not to be repeated**: live test 2 (run 32); Test 3
   (run 34) with the stylesheet corrections (deploy 2161); the kit-heading fix
   (2162); Test 4a (runs 37 and 39); Test 4b's D1 (run 42) and the conditional
@@ -324,8 +329,8 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   **Estimates, not limits**: A about 1–2 credits, B about 4–6, about 5–8
   together. Nothing caps a request or the batch; the only hard bound is the
   balance of 22. **The canary now enforces a press's expected route**
-  (`expect_route`, `scripts/canary-route.mjs`, on the branch, not merged;
-  the presses run from the branch). It is read before the sign-in; the
+  (`expect_route`, `scripts/canary-route.mjs`; merged with deploy 2171's
+  push, so a press from `main` or the branch runs it). It is read before the sign-in; the
   router's answer is saved to `routing.json` before any refusal; a mismatch
   is refused above the edit POST; a match is posted unchanged. Verified with
   9 new cases, a red check on `da24ce1b`, the real script under an in-process
@@ -338,10 +343,13 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   escalation. A protection refusing a real model's answer is kept separate.
   The four not in the batch are not ready. The record is the checklist's
   *Batch 1* and `docs/history/2026-09-30-expected-route.md`.
-- **Lane 1's four corrections are built on the branch, not merged**
-  (2026-09-30, on the owner's word; `docs/history/2026-09-30-lane1.md`).
-  **The owner credited the implementation and its CI**, and two diagnostic
-  gaps from their review are closed on the branch (`ce992066`, below):
+- **Lane 1's four corrections are merged and deployed in deploy 2171**
+  (built 2026-09-30 on the owner's word; `docs/history/2026-09-30-lane1.md`;
+  deployed, not runtime-confirmed). **The owner credited the implementation
+  and its CI**, and the two diagnostic fixes from their review (`ce992066`,
+  below) passed review; required CI is green on the merged candidate
+  `29111010` (unit 36671505759, `8351 / 8347 / 0 / 4`; site build
+  36671505766, the twelve counts):
   - **1a** (`19f6e480`): the data picker is sent to `remove` for a
     deletion, with add-row wording and routing unchanged;
   - **1b** (`fe20e6cd`, `d19652c4`, `ce992066`): a failed routing call
@@ -362,10 +370,11 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 
   Every correction was red-checked and swept (8/8, 25/25, 17/17, 15/15
   and the KV line's 9/9 killed, every control survived). The full suite on
-  `ce992066` is `8351 / 8351 / 0 / 0` locally. The image is predicted to
-  roll `abf47dfeceba3c5c` → `cdb624837e099719`, and `public/chat.js` and
-  `public/site-list.js` change. **Real-model evidence: none**: shown with supplied answers
-  only. B2 stays failed and its recovery open.
+  `ce992066` is `8351 / 8351 / 0 / 0` locally. The image rolled
+  `abf47dfeceba3c5c` → `cdb624837e099719`, as predicted, and the served
+  `public/chat.js` and `public/site-list.js` are the merged bytes.
+  **Real-model evidence: none**: shown with supplied answers only. B2 stays
+  failed and its recovery open until the owner's free write and my checks.
 - **The rest of the next independent work** (2026-09-30, free analysis only;
   the checklist's *Next independent work*).
   - **Lane 2**, seven decisions that are the owner's, in parallel: which
@@ -374,7 +383,12 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
     scenario, and healing the blank links.
   - **Lane 3**, the router wording, after the decisions in lane 2.
   - **Lane 4**, one bounded press per open item after one merge. Nothing
-    accepted is repeated.
+    accepted is repeated. The merge is deploy 2171. **The delete is the next
+    unaccepted live test**, prepared and not run: the checklist's *Lane 4's
+    delete* (a throwaway row the owner adds on `fretwork-1`, taken off by one
+    message, expected route `data`, about 3 credits). The router's
+    instructions give a row removal two claims, `look` and `data` (backlog);
+    the route check refuses a misroute before anything is posted.
 - **The short edit-path checklist** (demonstrated live · tested only with
   supplied model output · untested, material gaps first) is the top of
   `docs/investigations/edit-path-checklist.md`, and every test's plan, readings
@@ -596,12 +610,13 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
   bound. The default builder model is grok (`DEFAULT_PICKER`), and a cold new
   account is one credit short of building (`buildFloor` 20 against a grant of
   20, the routing call spending 1 first).
-- **The unit suite is 8,297** (`907840c6`, deploy 2170): `8297 / 8297 / 0 /
-  0` locally (on `2771ed3f`, the same code), where the two `sheet-rtl`
+- **The unit suite is 8,351** (`29111010`, deploy 2171): `8351 / 8351 / 0 /
+  0` locally (on `ce992066`, the same code), where the two `sheet-rtl`
   browser cases run because the template's dependencies are installed, and
-  `8297 / 8293 / 0 / 4` on CI (runs 36622422731 on `2771ed3f` and 36625806573
-  on `907840c6`) — **compare the totals, never `pass`**; CI skips four.
-  (Before the router's correction: 8,296 at `47dea9c0`, `8296 / 8296 / 0 / 0`
+  `8351 / 8347 / 0 / 4` on CI (run 36671505759 on `29111010`) — **compare the
+  totals, never `pass`**; CI skips four. (Before Lane 1: 8,297 at
+  `907840c6`, `8297 / 8297 / 0 / 0` locally and `8297 / 8293 / 0 / 4` on CI,
+  runs 36622422731 and 36625806573. Before the router's correction: 8,296 at `47dea9c0`, `8296 / 8296 / 0 / 0`
   locally and `8296 / 8292 / 0 / 4` on CI, runs 36595193059 and
   36597948276. Before the menu-lane correction:
   8,277 at `cb981a4a`, `8277 / 8277 / 0 / 0` locally and `8277 / 8273 / 0 / 4`
@@ -609,8 +624,9 @@ stamps, how each was taken — is in `docs/history/2026-09-28-live-state.md`.
   correction: 8,241 at `9ed7da51`, `8241 / 8239 / 0 / 2` locally and `8241 /
   8237 / 0 / 4` on CI, run 36511517996.) **`site build`** reads the same
   twelve counts green on `9ed7da51` (run 36511518084), on `4ee123d2` (run
-  36539848416), on `f2783aef` (run 36595193255) and on `2771ed3f` (run
-  36622422715), each read from each step's log: TAP 397, kit-typecheck 4, site-build **404** (382 plus the browser
+  36539848416), on `f2783aef` (run 36595193255), on `2771ed3f` (run
+  36622422715) and on `29111010` (run 36671505766), each read from each
+  step's log: TAP 397, kit-typecheck 4, site-build **404** (382 plus the browser
   control's 22), contrast-cases 16, theme-seam 11,
   theme-render 29, site-routing 14, site-runtime 47, and kit-render, kit-a11y,
   kit-effects and kit-paint `all passed` (census 7 + 4 + 1 = 12). Its two
@@ -677,7 +693,7 @@ guard, a sweep, a harness or a CI reader.** The ones met most often:
 | `docs/app-rules.md` | the builder app's rules, the model table, and the agent builder's half in this app |
 | `docs/platform.md` | the two halves, where the code lives, data, auth, payments and mail, credits |
 | `docs/deploy.md` | what a push starts, the paid workflows, the image predictor, runtime confirmation, the served-file check, secrets, rollback |
-| `docs/deploy-record.md` | every deploy's image prediction and timings, 2137 → 2170 (add new ones here) |
+| `docs/deploy-record.md` | every deploy's image prediction and timings, 2137 → 2171 (add new ones here) |
 | `docs/traps.md` | the full trap catalogue |
 | `docs/backlog.md` | the open items: a one-line index, then each in full |
 | `docs/history/` | dated records of every run and fix round, 2026-09-21 → 09-28, and the old status and live-state sections — indexed in `docs/history/README.md` |

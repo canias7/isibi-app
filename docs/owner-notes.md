@@ -57,6 +57,50 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-30 — The four fixes are live on the site (deployed; waiting for your free check)
+
+**Merged and deployed, as you asked.** Main is now exactly the candidate you
+reviewed, `29111010`, moved there at 05:30 UTC. Nothing was spent and no live
+data changed.
+
+**Before merging, I checked**:
+- the tests passed on that exact version: the unit tests (8,351) and the
+  site build, with all twelve of its counts as usual;
+- nothing else was running: no workflow and no edit job;
+- the new site image's name was worked out in advance, `cdb624837e099719`;
+- undoing the merge gives back the old main exactly.
+
+**The deploy went as predicted**:
+- one deploy run, green, finished at 05:33 UTC;
+- the new image was built, and the site's container moved to it at 05:33;
+- the two browser files that changed (the chat app and the site list) are
+  served byte for byte as merged.
+
+**Not yet confirmed at runtime.** The container needs 15–20 minutes to
+settle, and then your free canary press confirms that the running code and
+image are the new ones. I can't do that read myself: it needs your
+account's sign-in.
+
+**Still yours**:
+- the free canary press, after 05:53 UTC;
+- a look at the Data panel in a private window: fretwork-1's database
+  button should now be lit and open its four lessons;
+- the £40 put-back in that same panel (B2 stays failed until your write is
+  confirmed and I've checked it);
+- the next test (below), only if you approve it.
+
+**The next test, prepared and not run: taking a row off a list.** You add a
+throwaway lesson in the Data panel, then the canary asks: *"We don't do the
+Ten-minute tune-up any more, please take it off the price list."* It passes
+if exactly that row is deleted and the list is back byte for byte to what it
+was. It costs about 3 credits, or about 2 if the router doesn't route it to
+the data step. **One risk I found in the router's instructions**: they claim
+every removal for the look step, and say to prefer the data step for one row
+of a list. It could go either way. The canary refuses a wrong route before
+anything is changed. The details are in the checklist (*Lane 4's delete*).
+
+---
+
 ## 2026-09-30 — The two gaps you found are closed on the branch (not merged)
 
 **Both are fixed and nothing was spent.** No model was called and nothing
