@@ -236,7 +236,7 @@ import { sweepAfterPublish, P_ORPHANS } from "./site-sweep.mjs";
 import { loadConfig, saveConfig, withConfig, LEGACY_KEYS, CONFIG_KEY } from "./site-config.mjs";
 import { takeOffline, putBackOnline } from "./site-live.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
-import { routeMessage, clarifiedBrief, siteDigest, DOOR_LAYERS, heldBack } from "./builder/site-ask.mjs";
+import { routeMessage, clarifiedBrief, siteDigest, DOOR_LAYERS, heldBack, ROUTE_ERROR_CLASSES } from "./builder/site-ask.mjs";
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
@@ -5959,6 +5959,11 @@ async function ownerSiteConn(env, slug) {
  */
 const ROUTE_TABLES_MS = 3000;
 const ROUTE_TABLE_NAME = /^[a-z_][a-z0-9_]{0,62}$/i;
+// A THROWN ERROR'S NAME IS TEXT ANYONE CAN SET, so the lookup's log line names
+// a known class or says "Error" — the rule `routeFailure` keeps for the routing
+// reason, plus this file's own `BackendUnreadable`.
+const ROUTE_TABLES_ERRORS = [...ROUTE_ERROR_CLASSES, "BackendUnreadable"];
+const routeTablesError = (e) => (e && typeof e.name === "string" && ROUTE_TABLES_ERRORS.includes(e.name) ? e.name : "Error");
 async function routeTableNames(env, uid, slug) {
   if (!uid || (await siteOwnerBySlug(slug, env)) !== uid) return [];
   const conn = await ownerSiteConn(env, slug);
@@ -5986,7 +5991,7 @@ async function routeDigest(env, user, rb) {
   if (!/^[a-z0-9][a-z0-9-]{0,80}$/.test(slug)) return { site, filled: null };
   let timer = null;
   const names = await Promise.race([
-    routeTableNames(env, user && user.id, slug).catch((e) => { console.error("route tables:", slug, (e && e.name) || "Error"); return []; }),
+    routeTableNames(env, user && user.id, slug).catch((e) => { console.error("route tables:", slug, routeTablesError(e)); return []; }),
     new Promise((resolve) => { timer = setTimeout(() => resolve(null), ROUTE_TABLES_MS); }),
   ]);
   if (timer) clearTimeout(timer);

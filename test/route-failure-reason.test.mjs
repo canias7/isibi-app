@@ -19,9 +19,11 @@
 // token, a connection string and the customer's own words are planted in every
 // place a failure can carry text — the provider's message, its error token, the
 // thrown error's message, name, cause and extra fields — and each must be
-// absent from the route's whole reply and from the canary's line.
+// absent from the route's whole reply, from the Worker's own log and from the
+// canary's line.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { inspect } from "node:util";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { ASK_TOOL, FALLBACK_WITH_SITE, FALLBACK_NO_SITE, routeMessage, ROUTE_FAILURE_KINDS } from "../builder/site-ask.mjs";
 import { XAI_ENDPOINT } from "../builder/model-xai.mjs";
@@ -52,6 +54,14 @@ async function route({ picker = "grok", provider, env = {}, body = {} } = {}) {
   const worker = await loadWorker();
   const real = globalThis.fetch;
   const seen = { model: [], debits: [] };
+  // THE WORKER'S LOG IS AN EXIT TOO: every line it writes while it answers is
+  // kept, objects as a real console would print them.
+  const logs = [];
+  const quiet = {};
+  for (const k of ["error", "warn", "log", "info"]) {
+    quiet[k] = console[k];
+    console[k] = (...a) => logs.push(a.map((x) => (typeof x === "string" ? x : inspect(x, { depth: 6 }))).join(" "));
+  }
   globalThis.fetch = async (input, init) => {
     const url = String((input && input.url) || input || "");
     if (url.includes("/auth/v1/user")) return json(USER);
@@ -76,9 +86,10 @@ async function route({ picker = "grok", provider, env = {}, body = {} } = {}) {
         attached: false, slug: "fretwork-1", hasSite: true, ...body }),
     }), { ANTHROPIC_API_KEY: KEYS.anthropic, XAI_API_KEY: KEYS.xai, ...env }, makeCtx());
     const text = await res.text();
-    return { status: res.status, text, body: JSON.parse(text), seen };
+    return { status: res.status, text, body: JSON.parse(text), seen, logs };
   } finally {
     globalThis.fetch = real;
+    Object.assign(console, quiet);
   }
 }
 
@@ -99,6 +110,12 @@ function assertFallback(r, intent = FALLBACK_WITH_SITE) {
   assert.equal(r.body.cost, 0, "a failed routing call was billed");
   assert.equal(r.body.usage, undefined);
   assert.deepEqual(r.seen.debits, [], "the ledger was asked to collect for a failed call");
+  // THE LOG: the reason once, the same allow-listed object the reply carries —
+  // which also proves the capture is alive before the absence below is read.
+  const said = r.logs.filter((l) => l.startsWith("route failed:"));
+  assert.equal(said.length, 1, "the failure was not logged exactly once: " + JSON.stringify(r.logs).slice(0, 300));
+  assert.equal(said[0], "route failed: " + JSON.stringify(r.body.failure), "the log and the reply disagree");
+  assertNoSecrets("the Worker's log", r.logs.join("\n"));
 }
 
 // ── THE PROVIDER ANSWERED, WITH AN ERROR ───────────────────────────────────
@@ -200,6 +217,7 @@ test("CONTROL: an answer that routed is billed as before and carries no failure"
   assert.equal(r.body.layer, "data");
   assert.equal(r.body.failed, undefined, "a working route says it failed");
   assert.equal(Object.hasOwn(r.body, "failure"), false, "a working route carries a failure");
+  assert.deepEqual(r.logs.filter((l) => l.startsWith("route failed:")), [], "a working route logged a failure");
   assert.ok(r.body.cost > 0, "a routed answer was not billed");
   assert.equal(r.seen.debits.length, 1);
 });

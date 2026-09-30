@@ -26,6 +26,7 @@
 // context, not a proven cause of run 74's `text`.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { inspect } from "node:util";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { ASK_TOOL } from "../builder/site-ask.mjs";
 
@@ -43,12 +44,20 @@ const SPEC = { tables: [{ name: "lessons", access: "display", columns: [{ name: 
  * One routing call through the real Worker. The site answers as `wire` says:
  * `owner` (whose uid owns the slug; `hang`/`fail` for the ownership read),
  * `neonDb` (the reference: "" for a blank one), `project` (rows, or `fail`),
- * `catalog`/`spec` (the database), `sqlFail`.
+ * `catalog`/`spec` (the database), `sqlFail`, and `throws` ({at, error}: a
+ * Supabase read that throws, as a dropped connection does). The Worker's log
+ * lines come back as `logs`.
  */
 async function route({ slug, site = { name: slug, url: "https://" + slug + ".gofarther.app", pages: PAGES, tables: [] }, hasSite = true, wire = {} } = {}) {
   const worker = await loadWorker();
   const real = globalThis.fetch;
   const seen = { rest: [], writes: [], sql: [], router: [] };
+  const logs = [];
+  const quiet = {};
+  for (const k of ["error", "warn", "log", "info"]) {
+    quiet[k] = console[k];
+    console[k] = (...a) => logs.push(a.map((x) => (typeof x === "string" ? x : inspect(x, { depth: 6 }))).join(" "));
+  }
   globalThis.fetch = async (input, init) => {
     const u = String((input && input.url) || input || "");
     const method = String((init && init.method) || "GET").toUpperCase();
@@ -58,6 +67,7 @@ async function route({ slug, site = { name: slug, url: "https://" + slug + ".gof
     if (u.includes("/rest/v1/")) {
       if (method !== "GET") { seen.writes.push(method + " " + u); return json([]); }
       seen.rest.push(u);
+      if (wire.throws && wire.throws.at.test(u)) throw wire.throws.error();
       if (u.includes("/rest/v1/site_backends")) {
         // The ownership read asks for `uid` alone; the backend reads ask for more.
         if (/select=uid(&|$)/.test(u)) {
@@ -99,9 +109,10 @@ async function route({ slug, site = { name: slug, url: "https://" + slug + ".gof
       body: JSON.stringify({ message: MESSAGE, site, picker: "sonnet", firstBuild: false, brief: MESSAGE, qa: [], answering: false, attached: false, slug, hasSite }),
     }), { ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key", SUPABASE_SERVICE_KEY: "svc" }, makeCtx());
     const text = await res.text();
-    return { status: res.status, body: JSON.parse(text), text, seen, ms: Date.now() - t0 };
+    return { status: res.status, body: JSON.parse(text), text, seen, logs, ms: Date.now() - t0 };
   } finally {
     globalThis.fetch = real;
+    Object.assign(console, quiet);
   }
 }
 const url2 = (u) => u.startsWith("https://api.anthropic.com/");
@@ -210,6 +221,27 @@ test("every lookup failure routes blind, as before, and nothing is written", asy
     assert.equal(r.body.tablesFilled, undefined, what);
     assertReadOnly(r, what);
   }
+});
+
+test("a lookup that throws is logged by its class, never by what the error carries", async () => {
+  // AN ERROR'S NAME AND MESSAGE ARE TEXT ANYONE CAN SET. Planted with the
+  // project's connection string and its password, neither may reach the log,
+  // and the route still routes blind, as before.
+  const planted = () => Object.assign(new Error("read failed for " + PROJECT_CONN), { name: "Leak_npg_TablesSecret" });
+  const r = await route({ slug: "tables-throws", wire: { throws: { at: /\/rest\/v1\/site_backends\?.*neon_db/, error: planted } } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.intent, "edit", "routing stopped");
+  assert.deepEqual(tablesTold(r), []);
+  // The line is there (the observer is alive), and it names no more than a class.
+  assert.deepEqual(r.logs.filter((l) => l.startsWith("route tables:")), ["route tables: tables-throws Error"]);
+  for (const s of [PROJECT_CONN, "npg_TablesSecret", "read failed for"]) {
+    assert.ok(!r.logs.join("\n").includes(s), "the lookup's error reached the log: " + JSON.stringify(r.logs).slice(0, 300));
+  }
+  // A class the Worker names itself is kept, so the log still says which step
+  // failed: an incomplete link whose project row cannot be read.
+  const known = await route({ slug: "tables-unreadable", wire: { neonDb: "", project: "fail" } });
+  assert.deepEqual(known.logs.filter((l) => l.startsWith("route tables:")), ["route tables: tables-unreadable BackendUnreadable"]);
+  assert.deepEqual(tablesTold(known), []);
 });
 
 test("a table name that is not a name never reaches the router", async () => {

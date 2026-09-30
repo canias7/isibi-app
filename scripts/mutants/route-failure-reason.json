@@ -144,5 +144,13 @@
     ],
     "from": "    intent: !!hasSite ? FALLBACK_WITH_SITE : FALLBACK_NO_SITE, answer: \"\", usage: null, failed: true,\n    failure:",
     "to": "    intent: FALLBACK_NO_SITE, answer: \"\", usage: null, failed: true,\n    failure:"
+  },
+  {
+    "label": "R-17: routeMessage logs the error it caught (only the log can see it)",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "  const fail = (stage, e) => ({\n",
+    "to": "  const fail = (stage, e) => (console.error(\"route:\", e), {\n"
   }
 ]
