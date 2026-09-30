@@ -415,3 +415,50 @@ container on `e71f7bae88b9ecf1`, every free check passed, nothing charged.
 The `expect_rows` box is now on `main` as well as the branch.
 The £40 and the paid deletion acceptance stay open.
 
+**The owner accepted deploy 2173 and run 78** (2026-09-30), with one
+clarification: **run 78 did not exercise the fixture guard**. Its
+`expect_rows` box was blank (the log's `CANARY_EXPECT_ROWS` is empty, no
+`EXPECTED ROWS` line was printed, and the press was on `fold-lane-bakery`,
+which has no `lessons` table), and `expect_route` was blank too. It
+confirmed the runtime only. The guard has run only under the in-process stub;
+its first live run is the free rehearsal, after the £40 and the temporary row
+are verified.
+
+## 6. One observed Save (handed over after the 20:13 UTC read)
+
+**The owner's instruction** (2026-09-30): "guide me through one observed Save:
+fretwork-1 → Data → lessons → "Hour one-to-one", price 42 → 40. Capture what
+Save displays and the value after reopening the panel." Then a whole read
+against the baseline, and, if the change did not persist, an investigation
+from that observed result.
+
+**Read just before the steps, free, at 20:13 UTC**: 200, `0-3/4`, whole; rows
+1–3 every field as the baseline, row 4 differing only in price (42), no other
+row.
+
+**What the code does on this path** (read, not run):
+- The site card's database button (title "Data") opens the workspace on its
+  Data view; the workspace's top tabs are Preview, Code, Data and More. The
+  button is lit when the list says the site has a database, which for
+  `fretwork-1` comes from `backendState` (`incomplete` counts) since Lane 1c.
+- The panel lists the declared tables on the left and reads the chosen one
+  through `GET /api/site/fretwork-1/rows/lessons` (newest first). Each row has
+  **Edit** and **×** (delete, behind a confirm box).
+- **Edit** opens a form above the table with one box per declared column
+  that is not managed: `name`, `description`, `price` and `duration` (never
+  `id` or `created_at`).
+- **Save changes** sends `PATCH /api/site/fretwork-1/rows/lessons/4` with all
+  four boxes as text, and the route writes those four columns with one
+  `UPDATE … WHERE id=?` (`handleOwnerWrite`, `site-owner.mjs`).
+- **On success there is no message**: the form closes and the table is read
+  again. **On a refusal** a message shows at the bottom centre for 5 seconds
+  (the server's own `error`, or "Couldn't save that."), and the form stays
+  open. A dropped connection says "Couldn't save that — check your
+  connection."; a 401 brings up the sign-in screen.
+- **Every owner data request looks the owner up in Supabase, uncached**
+  (`ownerOf`: `site_backends?slug=eq.fretwork-1&select=uid`), after the
+  session check. So Supabase's request logs can show whether the panel's
+  reads and the Save reached the owner route, and when.
+
+**The owner's report**: awaited.
+

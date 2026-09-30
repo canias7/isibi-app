@@ -57,6 +57,23 @@ since. Add new ones there.
 
 ---
 
+## 2026-09-30 — You accepted deploy 2173 and run 78; the row check hasn't run live yet
+
+**Accepted**, with the clarification you asked for: run 78 confirmed the
+running version, and that's all it confirmed. **It did not exercise the new
+row check**: its `expect_rows` box was blank (the run's log shows the box
+empty, and it never printed the check's line), and it pressed on
+`fold-lane-bakery`, which has no `lessons` table. So the row check has only
+run in the tests, not yet against the live site. Its first live run will be
+the free rehearsal, after the £40 and the temporary row are confirmed.
+
+**Next**: one observed Save in the Data panel (42 → 40 on "Hour one-to-one"),
+with what Save displayed and the price after reopening. I read the whole
+table again at 20:13 UTC, just before handing you the steps: row 4 still
+£42, the other three rows exactly as saved, no other row.
+
+---
+
 ## 2026-09-30 — Your free check passed: deploy 2173 is running (run 78)
 
 **Confirmed.** Your free canary press (run 78, 19:58 UTC, from `main`) found

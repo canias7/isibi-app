@@ -584,6 +584,12 @@ independently afterwards: the balance 13, the building account's last ledger
 row still 344, both free jobs `failed` with billing `none` and cost 0, and no
 job open.
 
+**The owner accepted deploy 2173 and run 78** (2026-09-30). **Run 78 did not
+exercise the fixture guard**: its `expect_rows` box was blank (the log's
+`CANARY_EXPECT_ROWS` is empty and no `EXPECTED ROWS` line was printed), and so
+was `expect_route`. It confirmed the runtime only; the guard it carries has not
+yet run live.
+
 ## The served-file check, driven end to end on deploy 2139
 
 **DRIVEN END TO END ON DEPLOY 2139 (2026-09-21), and it is stronger than the

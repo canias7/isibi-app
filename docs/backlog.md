@@ -115,9 +115,9 @@ here; take a closed one out of both.**
   found it believed any 200 list** (a read leaving a row out passed);
   `fc06edde` makes the read prove it is the whole table by the Data API's
   count contract, and stop at no cost when it cannot. The owner passed that
-  review (2026-09-30); merged and deployed in deploy 2173 (`8908b59d`),
-  runtime-confirmed by run 78. A setup that is not as named stops at no
-  cost. `docs/history/2026-09-30-fixture-check.md`.
+  review (2026-09-30); merged and deployed in deploy 2173 (`8908b59d`), whose
+  runtime run 78 confirmed with the box blank, so the guard has not yet run
+  live. A setup that is not as named stops at no cost. `docs/history/2026-09-30-fixture-check.md`.
 - A menu removal beside a layout move on another page is answered `nav` with
   `remove` and the move held back, against the router's own `alsoAsked` rule
   (Test 8, run 63). **Corrected 2026-09-29 (the router chooses one answer

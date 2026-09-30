@@ -73,7 +73,8 @@ in `docs/instruments.md`; each test's plan and evidence is in the checklist.
   - A matching answer is posted exactly as it came.
   - Blank means no check.
 - **The rows a data press is written for** (`expect_rows`, 2026-09-30, after
-  run 77; `scripts/canary-fixture.mjs`; merged and deployed in deploy 2173): one JSON
+  run 77; `scripts/canary-fixture.mjs`; merged and deployed in deploy 2173, and
+  not yet run live: run 78 confirmed that deploy with the box blank): one JSON
   object, `{"table":…, "baseline":…, "target":{…}}`.
   - `baseline` is 16 to 64 hex characters, the start of the sha256 of the
     table's rows other than the target, in canonical form: keys sorted, rows

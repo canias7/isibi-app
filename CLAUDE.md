@@ -44,7 +44,11 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   78** (19:58 UTC, from `main` on `fold-lane-bakery`): both readers answered
   `8908b59d2069`, a cold container got `e71f7bae88b9ecf1`, and queued jobs
   and the runner were on; nothing was charged (balance 13, last ledger row
-  344, no job open). `docs/deploy-record.md`.
+  344, no job open). **The owner accepted deploy 2173 and run 78**
+  (2026-09-30). **Run 78 did not exercise the fixture guard**: its
+  `expect_rows` box was blank (the log's `CANARY_EXPECT_ROWS` is empty and
+  no `EXPECTED ROWS` line was printed; `expect_route` was blank too), so it
+  confirmed the runtime only. `docs/deploy-record.md`.
 - **Deploy 2172** (`80ece106`, 2026-09-30 06:57 UTC, a
   fast-forward of 5 commits from `29111010`, on the owner's word to merge the
   reviewed branch through `80ece106`; one deploy run, green, on `80ece106`;
@@ -131,7 +135,9 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
 - **The canary's opt-in fixture check** (2026-09-30, after run 77, on the
   owner's word; `3229272e`, and `fc06edde` after the owner's review of it;
   the owner passed the whole-table guard's review (2026-09-30); **merged and
-  deployed in deploy 2173, runtime-confirmed by run 78**). The `expect_rows` box takes one JSON object: `table`,
+  deployed in deploy 2173**, whose runtime run 78 confirmed with this box
+  blank, so **the guard has not yet run live**: it is shown only under the
+  in-process stub). The `expect_rows` box takes one JSON object: `table`,
   `baseline` (16–64 hex, the start of the canonical sha256 of the rows
   other than the target) and `target` (the one row's fields).
   - The box is read before the sign-in: malformed, or beside another mode,
@@ -433,10 +439,14 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
       calls, or one the logs did not keep, would leave no trace there.
       Neither a user error nor an app defect is shown. The owner's
       observation is asked for: what Save displayed, and the price after
-      reopening the panel. Row 4 still reads 42 at 18:22, 19:40 and 20:04
-      UTC (the site's own read, free; at 19:40 and 20:04 read whole,
-      `0-3/4`: rows 1–3 every field as the baseline, row 4 differing only in
-      price, no other row).
+      reopening the panel. Row 4 still reads 42 at 18:22, 19:40, 20:04 and
+      20:13 UTC (the site's own read, free; from 19:40 read whole, `0-3/4`:
+      rows 1–3 every field as the baseline, row 4 differing only in price,
+      no other row). **The owner asked for one observed Save** (42 → 40
+      through the Data panel, capturing what Save displays and the price
+      after reopening); the steps were handed over after the 20:13 read,
+      and the result is awaited. `docs/history/2026-09-30-fixture-check.md`
+      §6.
     - Spent: 7 (22 → 15).
 
   **Estimates, not limits**: A about 1–2 credits, B about 4–6, about 5–8

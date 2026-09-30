@@ -1117,6 +1117,11 @@ is the owner's.
     temporary row and the rehearsal wait for the £40.
   - **Read again at 20:04 UTC**, after run 78, the same way: the same four
     rows, row 4 still 42.
+  - **Read again at 20:13 UTC**: the same. **The owner asked for one
+    observed Save** through the Data panel (42 → 40), capturing what Save
+    displays and the price after reopening; the steps were handed over
+    after this read (`docs/history/2026-09-30-fixture-check.md` §6), and the
+    result is awaited.
 
 ### What it will not establish
 
@@ -1461,8 +1466,10 @@ acceptance. The canary has no fixture check before a paid data press
     `completeness-unknown`), shown through the real script with no routing
     call, no paid edit and nothing after the read. **Passed the owner's
     review** (2026-09-30), and **merged and deployed in deploy 2173**
-    (`8908b59d`, image reused), runtime-confirmed by the owner's free
-    press, run 78.
+    (`8908b59d`, image reused). The owner's free press, run 78, confirmed
+    that deploy's runtime with the `expect_rows` box blank, so it did not
+    exercise the guard: **the guard has not yet run live** (only under the
+    in-process stub).
 - **A new deletion press is prepared only after the price recovery and the
   temporary row have both been read back and verified** (the owner). It is
   not prepared here.
