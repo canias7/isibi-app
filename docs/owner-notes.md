@@ -90,9 +90,9 @@ model was called and nothing live was changed.
 
 **Checked**:
 - each problem was reproduced before it was fixed;
-- the tests caught every deliberately broken version (52 of 52), and every
+- the tests caught every deliberately broken version (53 of 53), and every
   harmless change left them passing;
-- the whole test suite passes (8,341 tests).
+- the whole test suite passes (8,342 tests).
 
 **Not checked**: how a real model behaves with any of it.
 

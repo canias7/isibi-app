@@ -68,7 +68,7 @@ here; take a closed one out of both.**
   router then answers `data` is not measured.**
 - The owner's Data button can be dark for a site whose database link is
   blank: the site list reads `db` from `neon_db` alone. Found 2026-09-30.
-  **Corrected on the branch 2026-09-30 (Lane 1c, `b12dd43b`), not merged,
+  **Corrected on the branch 2026-09-30 (Lane 1c, `b12dd43b`, `bd81a60e`), not merged,
   with the three hops behind it: adoption, the owner routes and the panel's
   text.**
 - When the site list itself cannot be read, a card drawn from this
@@ -161,7 +161,7 @@ here; take a closed one out of both.**
     Healing the four links with the existing repair would also close it,
     but it is maintenance on live rows, is the owner's call, and ends the
     blank-link fixtures.
-  - **Corrected on the branch 2026-09-30 (Lane 1c, `b12dd43b`; not merged).**
+  - **Corrected on the branch 2026-09-30 (Lane 1c, `b12dd43b`, `bd81a60e`; not merged).**
     - The list decides through `backendState`: `null` for a failed project
       read, never a no.
     - Three more hops were found behind it and corrected: the card's click

@@ -1092,12 +1092,12 @@ approves it.
 **Built on the branch 2026-09-30, not merged** (the owner: *"Proceed with
 Lane 1's four corrections on the designated branch"*). Each correction was:
 - reproduced through the real route first (a red check);
-- fixed in its own commit: 1a `19f6e480`, 1b `fe20e6cd`, 1c `b12dd43b`, 1d
-  `a02c2003`;
+- fixed in its own commit: 1a `19f6e480`, 1b `fe20e6cd`, 1c `b12dd43b` with
+  a follow-up `bd81a60e`, 1d `a02c2003`;
 - swept in its own worktree. Every mutant was killed and every comment-only
-  control survived: 8 of 8, 16 of 16, 16 of 16 and 12 of 12.
+  control survived: 8 of 8, 16 of 16, 17 of 17 and 12 of 12.
 
-The full suite on `a02c2003` is `8341 / 8341 / 0 / 0`. What changed, what the
+The full suite on `bd81a60e` is `8342 / 8342 / 0 / 0`. What changed, what the
 tests drive and what they cannot establish are in
 `docs/history/2026-09-30-lane1.md`. Found along the way and corrected with
 1c: the card's click dropped the server's yes, so even a lit Data button

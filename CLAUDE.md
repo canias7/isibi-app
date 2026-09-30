@@ -345,7 +345,7 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
   - **1b** (`fe20e6cd`): a failed routing call carries `failure`, from
     allow-lists only (the step, provider, status, token, billing, error
     class), with the same fallback and no charge; the canary prints it;
-  - **1c** (`b12dd43b`): the site list's `db` comes from `backendState`
+  - **1c** (`b12dd43b`, `bd81a60e`): the site list's `db` comes from `backendState`
     (`null` when a lookup fails, never a no); adoption keeps the server's
     yes; the owner data routes open a blank-link database read-only; the
     Data panel no longer calls a failed read "no tables";
@@ -353,10 +353,10 @@ product: the media side was deleted on 2026-09-12 (`docs/platform.md`).
     tells the router the verified owner's own, by name only, in at most
     3 s, failing open.
 
-  Every correction was red-checked and swept (8/8, 16/16, 16/16 and 12/12
-  killed, every control survived). The full suite on `a02c2003` is `8341 /
-  8341 / 0 / 0` locally. The image is predicted to roll `abf47dfeceba3c5c`
-  → `d72310b1abe69e13`, and `public/chat.js` and `public/site-list.js`
+  Every correction was red-checked and swept (8/8, 16/16, 17/17 and 12/12
+  killed, every control survived). The full suite on `bd81a60e` is `8342 /
+  8342 / 0 / 0` locally. The image is predicted to roll `abf47dfeceba3c5c`
+  → `fae219dd685e943d`, and `public/chat.js` and `public/site-list.js`
   change. **Real-model evidence: none**: shown with supplied answers
   only. B2 stays failed and its recovery open.
 - **The rest of the next independent work** (2026-09-30, free analysis only;
