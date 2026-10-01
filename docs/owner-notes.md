@@ -1,140 +1,65 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-01, 23:30 UTC)
+## Current handoff — read this first (2026-10-02, 00:05 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**State now: the router fix is merged, deployed and runtime-confirmed
-(deploy 2177, run 87); Test 11's paid retry is next, on your approval**
-- **Merged on your word**: `main` fast-forwarded `78a95a47` → `25faac78` at
-  22:50:07 UTC, through `25faac78` exactly (the plan commits after it stay on
-  the branch only).
-- **The existing CI was reused, not repeated**: unit tests on `25faac78`
-  itself (run 36916597462, `8543 / 8539 / 0 / 4`), and the site build on
-  `710ad704` (run 36914784000), whose inputs fingerprint `899b2151f6729573`
-  is the same on `25faac78`.
-- **Deploy 2177 succeeded**: the image was built and rolled
-  `c051f625db27b5b7` → `9a71a6384b4206a2` at 23:05:58 UTC, as predicted, and
-  the Worker is on `25faac78`. The job took 15m50s, almost all of it one
-  image layer's slow upload to the registry; nothing of ours caused it.
-- **Runtime-confirmed by your free press, run 87** (23:25 UTC): both
-  readers on `25faac78`, a cold container on `9a71a6384b4206a2`, every free
-  check passed, the loaves table *"as named"*, and nothing charged.
-- **The broad test plan and the batch runner are paused**, as you said.
-  Nothing in that plan is approved or being built.
-- Balance **101**, ledger's last row 349, no job open (22:53 UTC). Nothing
-  spent since run 86.
+**State now: Test 11 passed (run 88), for your review; the router audit is
+next, as you ordered**
+- **Run 88, your paid retry** (23:51 UTC), the same sentence as run 86:
+  - **the real router answered `addon`**, nothing held back. Run 86, on the
+    old wording, answered `edit`/`data`;
+  - the add-on step (kind `row` only) saved **exactly one entry**: `loaves`
+    id 7, "Rye & Caraway", £5, "A light rye with toasted caraway.", no photo;
+  - the reply: *"✅ Done — added “Rye & Caraway” to loaves (entry 7)."*
+- **Checked independently afterwards**, free:
+  - the table read whole: 7 rows; the six existing ones unchanged, field for
+    field;
+  - `/order` in a browser: Rye & Caraway third (after £4.50 and £4.80), and
+    the order form offers it with its new id. No order placed;
+  - every page still on `dgmag4`, byte-identical apart from the render
+    stamps and the live hours badge: nothing published;
+  - the money: **101 → 96**. Routing 3 (no ledger row) and the add-on 2
+    (ledger row 350); the job done and billed; no job open.
+- **Cost: 5, one more than the 3–4 estimate**: routing cost 3 this time.
+- **Deploy 2177 is runtime-confirmed** (your free press, run 87).
+- **What it does not show**: other phrasings, other kinds of list, several
+  entries at once, mixed messages. One sample.
+- **Closing Test 11 is yours**, after your review.
 
-**Test 11's starting state** (22:52 UTC, free, as a visitor): `loaves` read
-whole, `0-5/6`, the same bytes as after run 86; the rows box *"as named"*;
-the five pages at `dgmag4`.
+**Screenshot**: `/order` after run 88 (sent in chat).
 
-**Press 1 — the free runtime check and rehearsal: done, passed (run 87).**
-Its boxes, kept for reference; press 2 uses the same ones:
-- "Run the ONE paid edit as well (yes/no)": `no`
-- "What to change. REQUIRED when spend=1 …": exactly this one line:
-  ```text
-  Add one loaf to today's loaves: Rye & Caraway at £5.00, described as "A light rye with toasted caraway."
-  ```
-- "The site to edit. …": `fold-lane-bakery`
-- "Refuse to spend unless the Worker reports this deploy sha …":
-  `25faac78e192ad6923544f90eb7cdb81c8e4c385`
-- "Refuse to spend unless a cold container reports this image id (exact)
-  …": `9a71a6384b4206a2`
-- "Refuse to post the paid edit unless the router answers this: …":
-  `intent=addon alsoAsked=none`
-- "Refuse to route or spend unless one table, read whole as the site serves
-  it, is as named: …":
-  `{"table":"loaves","baseline":"093f2130a37a6704","target":{"id":6,"name":"Sea Salt Focaccia","description":"A tray bake, heavy on the oil, finished with flaky salt.","price":4.5,"photo":null,"created_at":"2026-08-21 23:06:23"}}`
-- every other box as it stands.
-
-It checks, free: both readers on `25faac78e192`, a cold container on
-`9a71a6384b4206a2`, the queue and runner on, a free job at cost 0, the route
-box read, and the loaves table whole and as named. **It routes nothing**, so
-it cannot show how the router now classifies the request.
-
-**Press 2 — the paid retry**: the same boxes with "Run the ONE paid edit as
-well (yes/no)": `yes`, after press 1 passes and on your approval.
-- **The request is the original, byte for byte as run 86 sent it** (104
-  characters, sha256 `7cc5f1ca…`). Your message wrote the inner quotes as
-  single quotes; I kept run 86's straight double quotes so the retry tests
-  the same sentence.
-- **Pass**:
-  - the real router answers `intent=addon`, nothing held back (anything else
-    is refused before posting; only routing is paid);
-  - the add-on step answers ok with kinds exactly `row`, naming one saved
-    entry;
-  - `loaves` then holds **7 rows**: the six existing ones byte-identical,
-    and exactly one new one: "Rye & Caraway", price 5, "A light rye with
-    toasted caraway.", photo null, with the id the database gives it;
-  - `/order` lists it third, after £4.50 and £4.80, and offers it in the
-    order form with its id;
-  - nothing published: every page still at `dgmag4`, the other pages
-    unchanged;
-  - the money: routing plus one add-on charge, and no job open;
-  - the reply names the loaf, the list and the id.
-- **Estimate: about 3–4 credits**: routing 1–2 (run 86's was 2) and the
-  add-on's own charge (measured at 2 for an addition that changes no page).
-  Not a cap; the balance is 101.
-
-**What is proven, and what is not**
-- The new instructions are in the request the router is sent: proven by the
-  tests on the real routing route.
-- How a real model now classifies this request: **not shown**. Only press 2
-  can show it. Supplied-answer tests prove what happens after an answer,
-  not the answer.
-
-**The order of work** (your word, 2026-10-01, after deploy 2177)
-1. **Now: Test 11's retry**, with the routing fix as deployed: press 1
-   (free), then press 2 (paid) on your approval, then my independent
-   verification.
-2. **Next, once that result is verified: a router audit**, before any
-   broader test resumes. Free analysis only, covering:
-   - the routing instructions (`builder/site-ask.mjs`);
-   - the context the router is given: the site digest of pages and tables,
-     what the browser sends, and no chat history;
-   - route selection: how an answer becomes `intent` and `layer`;
-   - fallback behaviour: failed calls, unreadable answers, and what the
-     customer sees;
-   - mixed requests: the whole-message rule and the held-back part
-     (`alsoAsked`);
-   - page scope: named pages, selections of pages, and the sort rules;
-   - follow-ups: what carries from one message to the next;
-   - attachments: what each route accepts.
-
-   It explains the actual decision flow, names the contradictions and
-   gaps, and proposes a focused batch of real-model routing tests with a
-   cost estimate, for your approval. Nothing is spent on it before then.
-3. **The broad plan and the batch runner stay paused** until you lift the
-   pause.
+**The order of work** (your word, 2026-10-01)
+1. Test 11's retry: **done** (run 88), for your review.
+2. **Now: the router audit**, free analysis only: the routing instructions,
+   the context the router is given, route selection, fallbacks, mixed
+   requests, page scope, follow-ups and attachments. It explains the actual
+   decision flow, names the contradictions and gaps, and proposes a focused
+   batch of real-model routing tests with a cost estimate, for your
+   approval. Nothing is spent on it before then.
+3. **The broad plan and the batch runner stay paused.**
 
 **Links**
+- Run 88: https://github.com/canias7/isibi-app/actions/runs/36942972947
+- Run 87: https://github.com/canias7/isibi-app/actions/runs/36940738610
 - Deploy 2177: https://github.com/canias7/isibi-app/actions/runs/36937413961
-- The fix: https://github.com/canias7/isibi-app/commit/710ad704de7504286fff367790b4f7093fc94409
-- Run 86: https://github.com/canias7/isibi-app/actions/runs/36908358798
-- Records: the checklist's *Test 11* (*Deploy 2177*), `docs/deploy-record.md`.
+- Records: the checklist's *Test 11* (*Run 88*), `docs/addon-path.md` (the
+  `row` kind's live proof), `docs/history/2026-10-01-addon-row-routing.md`
+  §8–9, `docs/deploy-record.md`.
 
 **From our chat**
-- You paused the broad plan and the batch runner, asked for the merge
-  through `25faac78` reusing the passing CI, and for the original Test 11
-  request prepared with its route box, the canary's free checks before
-  spending, and the inputs and cost before the paid retry. No other
-  capability is touched. CLAUDE.md left alone.
-- Then you set the order: Test 11's retry first; once its result is
-  verified, the router audit; the broad plan and the batch runner paused
-  until then.
+- You set the order: Test 11's retry first; once its result was verified,
+  the router audit; the broad plan and the batch runner paused until then.
+  CLAUDE.md left alone.
 
 **Blockers**
-- Your approval of press 2.
+- None for the audit (free). Your review of run 88 for Test 11's closure.
 
 **Exact next action**
-1. Press 1 passed (run 87).
-2. You press press 2, the paid retry, on your approval.
-3. I verify the result independently and record it.
-4. Then the router audit (free), returned to you with its findings and a
-   proposed routing-test batch and cost.
+- I do the router audit now and bring you its findings with a proposed
+  routing-test batch and its cost.
 
 ---
 
@@ -194,6 +119,19 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-02 — Test 11 passed: the real router now sends a new loaf to the add-on step (run 88)
+
+- **What happened**: your free check (run 87) confirmed deploy 2177, and
+  your paid retry (run 88) sent run 86's sentence again. The real router
+  answered `addon` this time, and exactly one loaf was added: "Rye &
+  Caraway", entry 7.
+- **What I checked myself**: the whole table (seven rows, the six old ones
+  unchanged), the order page in a browser (the new loaf third, orderable),
+  every page unchanged, and the money (101 → 96: routing 3, the add-on 2).
+- **Cost**: 5, one above my 3–4 estimate, because routing cost 3.
+- **Next**: the router audit you ordered, free, then a proposed batch of
+  real-model routing tests for your approval. The broad plan stays paused.
 
 ## 2026-10-01 — The router fix is merged and deployed (deploy 2177); Test 11's retry is prepared
 

@@ -196,3 +196,23 @@ new-entry sentence.
 - **Not yet shown**: the runtime check (the owner's free press, not before
   23:26 UTC), and how a real model classifies an added entry, which only
   Test 11's paid retry can show (the checklist's *Test 11*, *Deploy 2177*).
+
+## 9. The real router, after the fix: run 88 (Test 11's paid retry)
+
+- **Run 87** (23:25 UTC, free): the runtime check passed on `25faac78` and
+  `9a71a6384b4206a2`, the table *"as named"*, nothing charged.
+- **Run 88** (23:51 UTC, the owner's paid press): the same sentence run 86
+  sent, *Add one loaf to today's loaves: Rye & Caraway at £5.00, described
+  as "A light rye with toasted caraway."*:
+  - **the real router answered `intent=addon`, nothing held back**
+    (grok-4.6's answer as the route returned it; cost 3, 8.3 s). Run 86, on
+    the old wording, answered `edit`/`data`;
+  - the add-on step's `row` kind saved exactly one entry, `loaves` id 7, and
+    the reply said so; the six existing rows and every page were unchanged;
+  - 5 credits in all (routing 3, the add-on 2), against an estimate of 3–4.
+- **What this shows**: for this sentence, the corrected wording changed the
+  real router's answer from `edit` to `addon`. It is one sample: how often,
+  and for other lists, phrasings or mixed messages, is not measured. The
+  owner's next order is a router audit with its own focused real-model
+  routing tests (the checklist's *Test 11*, *Run 88*; the owner-notes
+  handoff).

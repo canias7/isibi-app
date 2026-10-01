@@ -116,8 +116,10 @@ pressed as run 86 and refused by the route check: the real router answered
 row; 2 credits, nothing added, not passed. The router's wording is corrected
 on the owner's word and merged and deployed in deploy 2177 (`25faac78`,
 image `9a71a6384b4206a2`, rolled at 23:05:58 UTC) and runtime-confirmed
-by run 87; the paid retry with the original request is next, on the
-owner's approval, not pressed**
+by run 87. **The paid retry passed as run 88**: the real router answered
+`addon`, the `row` kind saved exactly one entry (id 7, "Rye & Caraway"),
+the six existing rows and every page unchanged, the reply true; 5 credits
+(routing 3, the add-on 2). For the owner's review and closure**
 (*Test 11*, below). Under the owner's rule (*"Add will always
 go in addon"*) the request reaches the add-on step, and **none of its nine
 kinds added a row to a table the site already has**: a table's seed fills
@@ -265,6 +267,10 @@ the owner's free press, run 51, at 22:57 UTC):
 - **One database row changed and put back** (42).
 - **One database row changed on a site whose database link is blank**
   (71, Batch 1's B1; the put-back is the owner's own write).
+- **One new entry added to a list the site already keeps** (88, Test 11):
+  routed `addon` by the real router after the router fix, written by the
+  add-on step's `row` kind, the six existing rows and every page unchanged.
+  For the owner's review.
 - **One database row deleted by a normal AI request**, on a site whose
   database link is blank (80), after the row check read the table whole
   and as named, live and free (79). Closed by the owner.
@@ -2697,6 +2703,69 @@ the owner's approval, with the same boxes and "Run the ONE paid edit as well
 (yes/no)" `yes`. It sends run 86's request again, now to the deployed
 wording, and it is the only evidence of how a real model now classifies
 it.
+
+### Run 88: the paid retry — every condition met (2026-10-01, 5 credits; for the owner's review)
+
+- **The press**: edit canary run 88 (36942972947), pressed by the owner at
+  23:51:04 UTC from `main` at `25faac78`, spend `yes`, on
+  `fold-lane-bakery`, with the boxes above. Every check before routing
+  passed again: both readers `25faac78e192`, a cold container
+  `9a71a6384b4206a2`, ALL FREE CHECKS PASSED, the source read complete with
+  the five pages at `dgmag4`, balance 101, the rows box *"as named"*.
+- **The real router answered `intent=addon`, with nothing held back**:
+  `routed in 8.3s: intent=addon layer=- page=- cost=3`; *"the route matches
+  the expectation (intent=addon alsoAsked=none); the answer is posted as it
+  came"*. Run 86 sent the same sentence to the old wording and got
+  `edit`/`data`. One sample: how often, and for other lists and wordings, is
+  not measured.
+- **The add-on step**: job `b83b059c…`, posted 23:51:56, settled after 20.2
+  s with a stored reply: `{"ok":true,"kinds":["row"],"rows":[{"table":
+  "loaves","id":7,"label":"Rye & Caraway","row":{"id":7,"name":"Rye &
+  Caraway","description":"A light rye with toasted caraway.","price":5,
+  "photo":null,"created_at":"2026-10-01 23:52:15"}}],"added":[],
+  "changed":[],"removed":[],"moved":[],"cost":2}`. **Kinds exactly `row`.**
+- **The customer's reply**, from the browser's own composer: *"✅ Done —
+  added “Rye & Caraway” to loaves (entry 7)."* It matches what was saved.
+- **The canary's verdict**: the after-read VERIFIED (no publish; every page
+  still `01790819484141-dgmag4`, the headings in the same order and the same
+  word counts; the stored description unchanged): *"CANARY PASSED: the
+  add-on step answered ok — saved loaves #7 “Rye & Caraway”; no page
+  published; cost=2"*. The evidence zip's digest is `15972521…`.
+- **Verified independently afterwards** (23:52–23:58 UTC, free):
+  - **the table**, read whole as the site serves it: 200, **`0-6/7`**, 1,188
+    bytes, sha256 `4fbe7da4…`. **The six existing rows are unchanged**: ids
+    1–5 still digest to `093f2130a37a6704`, and id 6 is exactly as named.
+    **Exactly one row beyond them**: id 7, "Rye & Caraway", price 5, "A light
+    rye with toasted caraway.", photo null, `created_at` 2026-10-01
+    23:52:15. The id is the database's;
+  - **`/order` in a browser** (Chromium fed by Node's verified fetches; reads
+    only): the page reads `loaves?select=*&order=price.asc` and lists seven
+    choices, Sea Salt Focaccia £4.50 (6), Country White £4.80 (1), **Rye &
+    Caraway £5.00 (7)**, Dark Rye £5.20 (2), Seeded Wholemeal £5.40 (3),
+    Olive & Rosemary £5.80 (4), Walnut Levain £6.00 (5). The new card
+    carries the value `7`, so the order form would order it. No order was
+    placed. The only console errors were the harness's own refusals of
+    Cloudflare's analytics POSTs (`/cdn-cgi/rum`);
+  - **nothing else changed**: the five pages still serve `dgmag4` with their
+    before-read sizes, and are byte-identical to run 86's before-read once
+    the 13-digit render stamps and the live hours badge are masked;
+  - **the money** (Supabase): 101 → **96**. Routing 3 writes no ledger row;
+    the job's one row is 350 (`b83b059c…#1`, `reserve`, −2, balance after
+    96), and the job is `done`, billing `finalized`, cost 2, `needs_review`
+    false. Its `published_at` (23:52:15) is the job's write mark under the
+    publish gate, not a site publish: every page still serves `dgmag4`. The
+    two free jobs (`49be0006…` on the bakery, `df340b76…` on `washhouse-3`)
+    are `failed`, billing `none`, cost 0. No job open.
+- **Cost: 5 credits, one above the 3–4 estimate.** Routing cost 3, against
+  the 1–2 measured before (run 86's was 2): the routing prompt is longer by
+  the four new sentences, and routing's cost moves with the prompt cache.
+- **Status: Test 11 passed on every condition**, for the owner's review and
+  closure. What it shows: one new entry in a list the site already keeps,
+  routed `addon` by the real router after the fix, written by the add-on
+  step's `row` kind with the real picker and designer, exactly one row, no
+  page changed, the reply true. What it does not show: other phrasings,
+  other kinds of list, several entries in one message, or a mixed message.
+  The demo data stays: the bakery now lists seven loaves.
 
 ## Test 10 — a stored list re-sorted, with real models (prepared 2026-09-30 on the owner's word, after Test 9 was closed; free preparation only; the order traced on all three demo sites; rehearsed with supplied answers through the real lane and the real edit route; decision 2b taken by the owner the same day with a scope correction: a sort across the whole site goes to the data sorter, a sort limited to one named page to the page editor, and no "whatever page they saw it" rule; the rule implemented on the branch with committed route coverage, and its scope corrected on 2026-10-01 so that a selection of pages is never sent to the sorter; passed by the owner and merged and deployed in deploy 2174 (2026-10-01); the request revised to state its scope; the baseline read; the authorized free dispatch refused (403); the owner's free press, run 83, confirmed the runtime and rehearsed Test 10, passing every check; the paid press run as run 84, 3 credits, every acceptance item met; closed by the owner the same day for run 84's demonstrated request, the bakery left at `dgmag4`, not to be repeated)
 
