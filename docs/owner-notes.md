@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-01, 07:03 UTC)
+## Current handoff — read this first (2026-10-01, 07:42 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,134 +9,140 @@ is in git; the dated entries further down are the full story.*
 **State now**
 - `main` is `322c2430` (deploy 2174, image `b8c8789aa8e395d6`),
   runtime-confirmed, and unchanged.
-- **The add-on `row` kind (Test 11's capability) is on the branch, with two
+- **The add-on `row` kind (Test 11's capability) is on the branch, with three
   correction rounds from your reviews, for your review.** Not merged, not
   deployed.
   - `31741f6f`, after your review of `f6532d66`: an entry whose answer is
-    lost is settled from the request's key, and the canary's checks decide
-    the press. Its CI is green (below).
+    lost is settled from the request's key.
+  - `c3e310e6`, after your review of `31741f6f`: protection before the entry
+    is written. Its CI is green (below).
   - This round's commit (the branch's head), after your review of
-    `31741f6f`: protection before the entry is written.
-- Nothing spent, no live data written, no routing change. The bakery is at
-  `dgmag4` with its six loaves. Balance 3.
+    `c3e310e6`: before an entry is written, the ledger itself confirms the
+    job may still write and starts the write, in one step, both before and
+    after the entry's key is recorded.
+- Nothing spent, no live data written, no live SQL change, no routing change.
+  The bakery is at `dgmag4` with its six loaves. Balance 3.
 
-**Completed this round** (your review of `31741f6f`)
-- **The defect, confirmed**: the job was put under review only after a write
-  it couldn't see. When the ledger refused that, the consumer refunded an
-  entry that was in fact saved, nothing held the site, and the next message
-  saved it again. A test asserted that behaviour; it is replaced by one that
-  asserts the opposite.
-- **Protection now comes first, and without it nothing is written.** On a
-  queued job, after the reserve and before the database statement, the job is
-  marked with the request's key. If that is refused or doesn't answer, no
-  statement is sent: the customer reads "nothing was added and you won't be
-  charged for it", which is true, and the reserve comes back.
-- **Once marked, nothing refunds the job as unsaved.**
-  - The consumer, the lost-job sweep and a redelivered job all park it with
-    the money held.
-  - Your site takes no new message while it is parked.
-  - The entry's key settles it: kept if the entry is there; refunded only
-    after an empty key is closed, so nothing can land afterwards.
-- **The money is kept only on a recorded outcome.** The job records the saved
-  entries before its finalize may keep the reserve. If that record is
-  refused, the review keeps the money from the key instead.
-- **A database refusal on a queued job now goes through the review too**
-  (the job was marked first). The review confirms nothing was saved, refunds,
-  and keeps the step's own reply ("the database didn't accept it…").
-- **The canary's wording**: an answer that couldn't tell whether it saved now
-  fails with "It could not tell whether its change was saved, so it may be on
-  the site…" and never "a completed round trip that added nothing". The
-  pass/fail rules are unchanged.
+**Completed this round** (your review of `c3e310e6`)
+- **Your reviewer's race, reproduced first**, through the real handler and
+  the real consumer. The job's mark checks only who holds the job, and a
+  refund leaves the holder on the row. So a job that stalled after its
+  reserve, while the sweep refunded it, came back to a mark that still said
+  yes, and wrote the entry: seven loaves, billing refunded, and a success
+  reply showing a cost.
+- **The guard is now the ledger's own gate, and no database function
+  changed.** The gate (`edit_may_publish`) is the one the page publisher
+  already uses. In a single database statement it checks four things: the
+  job is still this consumer's, with a live lease; it isn't finished,
+  refunded, cancelled or under review; and it's paid for, or exempt. In the
+  same statement it marks the write as started. Before an entry is written:
+  1. the gate;
+  2. the entry's key is recorded;
+  3. the gate again, last.
 
-**Completed in the round before** (`31741f6f`, your review of `f6532d66`;
-recorded now, since its handoff was overtaken by your next review)
-- An entry whose answer was lost was told "nothing was added", refunded, and
-  saved again by the next message. Now:
-  - the request's key settles it: what the key holds is the reply, charged
-    once;
-  - anything else is said as not knowing, never "nothing was added", never
-    "try again";
-  - an empty key is closed before any refund, so a late write is refused
-    whole.
-- The canary's add-on press now fails on an unverified after-read and on a
-  "success" that shows no saved entry; a pageless addition that verifies
-  still passes.
+  Anything but three yeses writes nothing.
+- **If a refund or the end of the job wins the race, no entry is written.**
+  The customer reads "nothing was added and you won't be charged for it", and
+  the reserve comes back once.
+- **If the gate wins, a later refund can't undo it.** The sweep finds the
+  write started and pauses the job with the money held. Then the entry's key
+  settles it: kept if the entry is there, refunded only after an empty key is
+  closed.
+- **Founder (exempt) accounts work as before**: let through, written once,
+  charged nothing.
+- **Two older limits are closed by the same gate.** A cancel asked before the
+  entry is written now stops it, and your site is held busy from the gate on.
 
 **Test results** (all free: supplied answers, a test database, nothing live,
 nothing paid)
-- **The red check on `31741f6f`**, with this round's tests:
-  - 14 of the 61 row tests and 2 of the 15 canary tests fail.
-  - With only one missing export added, 12 row tests fail. They include
-    "the sweep refunded an entry that was saved" (7 entries where 6 were
-    expected): your reviewer's defect, reached through the sweep.
-- **Now**: 61 of 61 row tests and 15 of 15 canary tests pass. New coverage:
-  - protection refused, unanswered, and landed with its answer lost;
-  - a lost answer after a real commit, with the consumer gone, settled by
-    the sweep and the review: one entry, one charge;
-  - a write that never landed: the key closed and then refunded, and the late
-    statement refused;
-  - a redelivery with no stored request; a job run again; a recorded outcome
-    refused.
-- **Mutation sweeps**: this round's caught 48 of 48 deliberate breakages,
-  and its 3 comment-only controls stayed green. The older add-row sweep was
-  stopped at 21 of 49 caught, none missed, so as not to keep you waiting;
-  the rest are on lines this round didn't touch.
-- **Full suite**: 8,503 of 8,503 (8,491 on `31741f6f`, plus the 12 new
-  cases).
-- **CI on `31741f6f`**: unit tests `8491 / 8487 / 0 / 4` (run 36818860221,
-  CI skips its usual four); the site build is green with its twelve counts
-  (run 36818860242). **CI on this round's push** starts with the push; it is not read yet.
+- **The red check on `c3e310e6`**: 7 of the 84 tests fail there (69 row
+  tests, 15 canary tests).
+  - "the entry was written after the refund won": your reviewer's race.
+  - "a row was written by a job no longer eligible": twice, once with the
+    lease run out and once with a cancel asked.
+  - "a row was written by a job the review had refunded": a refund that wins
+    just after the first gate.
+  - The two lost-gate-answer cases, and one changed expectation.
+- **Now**: 69 of 69 row tests and 15 of 15 canary tests pass. New coverage:
+  - your reviewer's exact race;
+  - the opposite order: protection wins, and the uncertain write is held
+    until the key keeps it (one entry, one charge);
+  - a refund just after the first gate;
+  - a lost gate answer, before and after it applied;
+  - a job no longer eligible, two ways;
+  - a founder account.
+- **Mutation sweep**: 16 of 16 deliberate breakages caught (12 for the gate,
+  4 for lines this round moved), and the comment-only control stayed green.
+  One more breakage turned out to be impossible to tell apart from the real
+  code, and was replaced by one that can be told apart.
+- **Full suite**: 8,511 of 8,511 (8,503 on `c3e310e6`, plus the 8 new cases).
+- **CI on `c3e310e6`**: unit tests `8503 / 8499 / 0 / 4` (run 36828211851,
+  CI skips its usual four). The site build's job and every one of its steps
+  passed (run 36828211849); I read its overall result, not each step's counts.
+  **CI on this round's push** starts with the push; it is not read yet.
 
 **Remaining limits** (backlog; none changes your data)
 - Real routing, the real picker and the real row designer are untested until
   the live run.
-- While a row job is under review, a new message gets the general "That edit
-  stopped while it was publishing…" sentence (a browser change, not done).
-- Inline (only when the queue switch is off; production queues every add-on):
-  there is no job to mark, so nothing pauses the site and a new message can
-  add a second entry. An entry nobody could confirm is never charged.
-- A cancel asked while the row step runs doesn't stop its write. This
-  predates these rounds.
-- Between a dead consumer's lease running out and the sweep parking its job
-  (about one to three minutes: a 60-second grace, then the next two-minute
-  tick), another job already queued on the same site can run. It is a
-  different request: this request's entry is never written twice.
-- A database refusal on a queued job is refunded through the review. If the
-  site's database is unreachable at that moment, the site stays paused until
-  the next sweep tick.
-- A job that died after recording its entries and before its finalize gets
-  the sweep's general "recovered" reply, which names no entry. The entry and
-  the charge are right.
-- A job that runs again (only when deleting its stored request failed) and
-  writes fresh reports cost 0 in its reply, while the first reserve is the
-  one kept.
-- From the build, still true: a site whose database has no settings table
-  can't take an entry; "£5.00" instead of 5 is refused as a generic write
-  failure; one marker row per request stays; a list named in other capitals
-  is refused; an entry beside other additions is set aside; every addition
-  on a site with a public list reads one marker first; a site with no public
-  list still costs us one model call before refusing; the canary's
-  after-read sentence says "the edit did not publish" for an addition.
+- **New this round**:
+  - A job whose consumer dies after the gate holds your site until its
+    publishing time runs out. The sweep pauses it about six minutes later,
+    rather than about three. The page publisher does the same.
+  - A job refunded while its consumer was stalled is paused once more when
+    that consumer comes back. It is settled again at once, with no money
+    moving. That is how the live refund function behaves; nothing changed
+    there.
+- **Unchanged**:
+  - While a row job is under review, a new message gets the general "That
+    edit stopped while it was publishing…" sentence (a browser change, not
+    done).
+  - Inline (only when the queue switch is off; production queues every
+    add-on): there is no job to gate, so nothing pauses the site and a new
+    message can add a second entry. An entry nobody could confirm is never
+    charged.
+  - A database refusal on a queued job is refunded through the review. If the
+    site's database is unreachable at that moment, the site stays paused
+    until the next sweep tick.
+  - A job that died after recording its entries and before its finalize gets
+    the sweep's general "recovered" reply, which names no entry. The entry
+    and the charge are right.
+  - A job that runs again (only when deleting its stored request failed) and
+    writes fresh entries reports cost 0 in its reply, while the first reserve
+    is the one kept.
+  - From the build, still true:
+    - a site whose database has no settings table can't take an entry;
+    - "£5.00" instead of 5 is refused as a generic write failure;
+    - one marker row per request stays;
+    - a list named in other capitals is refused;
+    - an entry beside other additions is set aside;
+    - every addition on a site with a public list reads one marker first;
+    - a site with no public list still costs us one model call before
+      refusing;
+    - the canary's after-read sentence says "the edit did not publish" for
+      an addition.
 
 **Updated paid-test estimate** (Test 11, once merged and deployed)
 - About 3–4 credits, not a cap: routing 1–2, plus the add-on's own charge of
   at least 1 (2 measured for an add-on that changes no page).
 - Before it: your merge, a deploy (the container image rolls
-  `b8c8789aa8e395d6` → `7e03604050b345c0`, then 15–20 minutes), your free runtime
+  `b8c8789aa8e395d6` → `c051f625db27b5b7`, then 15–20 minutes), your free runtime
   check, and a top-up (balance 3).
 
 **Links**
-- The story and the evidence: `docs/history/2026-10-01-add-row.md` §9 and
-  §10. The kind's rules: `docs/addon-path.md` (*THE `row` KIND*). The limits:
-  `docs/backlog.md` (*THE ADD-ON `row` STEP'S KNOWN LIMITS*). The test: the
-  checklist's *Test 11*.
+- The story and the evidence: `docs/history/2026-10-01-add-row.md` §9, §10
+  and §11. The kind's rules: `docs/addon-path.md` (*THE `row` KIND*). The
+  limits: `docs/backlog.md` (*THE ADD-ON `row` STEP'S KNOWN LIMITS*). The
+  test: the checklist's *Test 11*.
 - Branch commits: https://github.com/canias7/isibi-app/commits/claude/help-needed-ehlwlj
 
 **From our chat**
-- Recorded in `owner-preferences.md`: protection before an irreversible
-  write, or no write; a refund needs a confirmed non-application and a kept
-  charge a recorded outcome; a test that asserts a defect is replaced; a
-  failure line says what is known; the handoff is rewritten every round.
+- Recorded in `owner-preferences.md`:
+  - a guard decides eligibility and protection in one step (a status read
+    followed by an unconditional mark doesn't);
+  - reuse an existing guarded operation when it enforces the rule, and
+    prepare any database change for review without applying it live;
+  - a race is covered in both orders.
+- No database function needed changing, so no change is prepared for one.
 - Test 11 stays unproven live; no accepted test reopened; CLAUDE.md left
   alone.
 
@@ -206,6 +212,35 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-01 — Your review of `c3e310e6`: the entry is written only after the ledger's own gate says yes, for your review
+
+- **What your reviewer found**: the step's guard was the job's mark, and the
+  mark checks only who holds the job. A refund leaves the holder on the row,
+  so a job refunded while its consumer was stalled still got a yes, and its
+  entry was written: seven loaves, billing refunded, a success reply showing
+  a cost. Reproduced here first, through the real code.
+- **What changed**: the guard is now the gate the page publisher already
+  uses (`edit_may_publish`). In one database statement it confirms the job
+  is still this consumer's, live, not finished, refunded, cancelled or under
+  review, and paid for (or exempt), and it starts the write. It is asked
+  before the entry's key is recorded and again just before the entry is
+  written; anything but yes writes nothing. No database function changed,
+  and nothing live was touched.
+- **What it closes**: your reviewer's race; a refund that wins just after
+  the first gate; a cancel asked before the entry is written (it now stops
+  it); and the site is held busy from the gate on.
+- **Tests**: 69 of 69 row tests and 15 of 15 canary tests; 7 of them fail on
+  `c3e310e6` (your reviewer's race among them). The opposite order passes:
+  protection wins, and an uncertain write is held until its key settles it,
+  with one entry and one charge. Founder accounts are charged nothing, as
+  before. 16 of 16 deliberate breakages were caught. Full suite: 8,511 of 8,511.
+- **New limits, kept**: a consumer that dies after the gate holds the site
+  about six minutes, as a page publish does; a job refunded while its
+  consumer was stalled is paused once more when the consumer returns, and
+  settled again at once with no money moving.
+- Test 11 stays unproven live. The record is
+  `docs/history/2026-10-01-add-row.md` §11.
 
 ## 2026-10-01 — Your review of `31741f6f`: protection now comes before the entry is written, for your review
 

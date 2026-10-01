@@ -2523,6 +2523,19 @@ export function rowUncertainBody({ why = "lost", review = false, deferred = "", 
 export const ROW_DEFINITE_REPLIES = new Set(["row-write", "row-duplicate", "row-unprotected"]);
 
 /**
+ * WHETHER A JOB'S STORED REPLY IS ONE OF THOSE — the reconcile's test before it
+ * stores a refund's own sentence over it. A job whose gate was granted and
+ * whose key could then not be recorded is parked with no key, so the publish's
+ * reconcile settles it ("never staged", which is true: nothing was written);
+ * the reply it keeps is still the step's.
+ */
+export function keepsRowReply(row) {
+  let b = null;
+  try { b = row && row.result && typeof row.result.body === "string" ? JSON.parse(row.result.body) : null; } catch { b = null; }
+  return !!(b && typeof b === "object" && !Array.isArray(b) && b.ok === false && ROW_DEFINITE_REPLIES.has(b.error));
+}
+
+/**
  * THE REPLY THE RECONCILE STORES FOR A ROW WRITE IT SETTLED, in the consumer's
  * stored shape (`{ status, type, body }`), or null for a verdict that stores
  * nothing. Kept: the entries the key recorded, with what the first reply set
@@ -2547,7 +2560,7 @@ export function rowReviewReply(out, row, refunded = 0) {
     }) };
   }
   if (out && out.verdict === "refunded") {
-    if (asked.ok === false && ROW_DEFINITE_REPLIES.has(asked.error)) return null;
+    if (keepsRowReply(row)) return null;
     const back = Number(refunded) || 0;
     return { status: 409, type: "application/json", body: JSON.stringify({
       ok: false, error: "reconciled", kind: out.kind, refunded: back,

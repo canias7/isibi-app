@@ -450,3 +450,21 @@
   action, then commit and push."* With its bounds: *"No merge, deployment,
   paid calls or live data writes. Keep Test 11 unproven live and leave
   CLAUDE.md alone."*
+- **A guard before a write establishes eligibility and protection in one
+  step; a status read followed by an unconditional mark is not one.** On the
+  review of `c3e310e6` (2026-10-01): *"Make the pre-write guard establish
+  that the job is both eligible to write and protected. If refund or
+  termination wins the race, issue no row write. A status read followed by
+  the current unconditional mark is insufficient."*
+- **Reuse an existing guarded operation when it enforces the rule; a
+  database-function change is prepared for review, never applied live.** The
+  same review: *"Reuse existing guarded job operations if they enforce this
+  correctly. If a database-function change is necessary, prepare it for
+  review without applying it live. Preserve exempt-account behavior."* With
+  its bounds: *"No merge, deployment, live SQL changes, paid calls or live
+  data writes. Test 11 remains unproven live. Keep accepted tests closed and
+  leave CLAUDE.md alone."*
+- **A race is covered in both orders.** The same review: *"Add focused
+  coverage for this exact interleaving and the opposite ordering, where
+  protection wins and an uncertain write must remain held until its marker
+  settles it."*

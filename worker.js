@@ -257,7 +257,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { requirementNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
@@ -13269,6 +13269,8 @@ async function applyReconcile(env, row, outIn, refundedHint = 0) {
     if (typeof compose === "function") {
       const own = compose(refunded);
       if (own) await editRpc(env, "edit_finalize", { p_id: id, p_result: own, p_ok: out.verdict === "kept" });
+    } else if (out.verdict === "refunded" && keepsRowReply(row)) {
+      // THE ROW STEP SAID NOTHING WAS ADDED, AND WHY: its reply stands.
     } else if (!(out.verdict === "kept" && hasReply)) {
       await editRpc(env, "edit_finalize", { p_id: id, p_result: reconcileReply(out, row, refunded), p_ok: out.verdict === "kept" });
     }
@@ -26159,18 +26161,46 @@ async function handleRequest(request, env, ctx) {
               const was = readRowMarker(back[0] && back[0].v, aRowLists);
               return was ? { state: "found", was } : { state: "unreadable" };
             };
-            // THE PROTECTION, CONFIRMED OR NOT: only an answer of `ok: true`
-            // from the ledger counts. Inline there is nothing to mark.
+            // THE GUARD: ELIGIBLE AND PROTECTED, DECIDED BY THE LEDGER IN ONE
+            // STATEMENT (2026-10-01, the review of c3e310e6). The mark alone
+            // was not a guard: the live `edit_publish_mark` matches only the
+            // job and its holder, and a refund keeps the holder on the row, so
+            // a consumer that stalled while the sweep refunded its job came
+            // back to a mark that still said yes — and wrote an entry its job
+            // had been refunded for. `edit_may_publish` is the publish spine's
+            // own gate: one conditional update, granted only to the holder of
+            // a live lease on a job not finished, not refunded, not cancelled,
+            // not under review and billed (`reserved`, or `exempt` for a
+            // founder), and it starts the write in the same statement — so a
+            // refund that wins makes it refuse, and one that loses finds the
+            // write begun and parks the job instead.
+            //
+            // THREE STEPS, IN THIS ORDER. The gate first, so a job no longer
+            // ours is never touched. The mark, for the request's key, which is
+            // how the reconcile knows a row job by its row. The gate again,
+            // LAST: the mark matches no more than the holder, so only a gate
+            // granted after it can say the job is still ours when the statement
+            // is sent. Anything but three yeses sends no statement. Inline
+            // there is no job to ask.
+            const aRowGate = async (when) => {
+              const g = await editRpc(env, "edit_may_publish", { p_id: aJob.id, p_owner: aJob.owner, p_ttl: PUBLISH_LEASE_S });
+              if (g && g.granted === true) return true;
+              console.error("addon row: job", aJob.id, "may not write", when, "—", String((g && g.error) || "rpc"));
+              return false;
+            };
             const aRowGuard = async () => {
               if (!aJob) return true;
               if (!aRowKey) return false;
+              if (!(await aRowGate("before its key is recorded"))) return false;
               const m = await editRpc(env, "edit_publish_mark", {
                 p_id: aJob.id, p_owner: aJob.owner, p_artifact_build: aRowKey,
                 p_dist_etag: null, p_sidecar_etag: null, p_source_etag: null, p_worker_status: null,
               });
-              if (m && m.ok === true) return true;
-              console.error("addon row: job", aJob.id, "could not be protected before its write —", String((m && m.error) || "rpc"));
-              return false;
+              if (!(m && m.ok === true)) {
+                console.error("addon row: job", aJob.id, "could not record its key before its write —", String((m && m.error) || "rpc"));
+                return false;
+              }
+              return aRowGate("once its key is recorded");
             };
             // THE OUTCOME, RECORDED: the entries were read back, so the job's
             // reserve may be kept. A record the ledger refuses leaves the job
@@ -26180,9 +26210,10 @@ async function handleRequest(request, env, ctx) {
               const c = await editRpc(env, "edit_committed", { p_id: aJob.id, p_owner: aJob.owner, p_build: aRowKey });
               if (!(c && c.ok === true)) console.error("addon row: job", aJob.id, "saved entries the ledger could not record —", String((c && c.error) || "rpc"));
             };
-            // NOT KNOWING, SAID: a queued job reaching here was marked before
-            // any write of this request (above, and the unread key below), so
-            // its consumer parks it and the site waits for the key.
+            // NOT KNOWING, SAID: a queued job reaching here began its write at
+            // the gate before any statement of this request was sent — this
+            // run, or (an unreadable key, below) the earlier run that left it —
+            // so its consumer parks it and the site waits for the key.
             const aRowsUnknown = (why, skipped = []) => {
               const review = !!aJob;
               aMark("add:row", "fail", { uncertain: why, review: review ? 1 : 0 });
@@ -26203,10 +26234,12 @@ async function handleRequest(request, env, ctx) {
                 // AN EARLIER RUN SAVED UNDER THIS KEY, AND WHAT IT SAVED CANNOT
                 // BE READ: its entries may be on the site, so adding them again
                 // is the one wrong answer — and refunding them is another.
-                // The run that wrote it was marked first; the mark is asked
-                // again, unchanged if it stands, so the job is parked either way.
+                // Nothing is asked of the ledger here: that run sent its
+                // statement only after the gate had begun the job's write
+                // (`publish_started_at`, which nothing clears), so the refund
+                // this answer leads to parks the job whatever this run does.
                 const was = readRowMarker(seen[0] && seen[0].v, aRowLists);
-                if (!was) { await aRowGuard(); return aRowsUnknown("unread"); }
+                if (!was) return aRowsUnknown("unread");
                 await aRowCommitted();
                 aMark("add:row", "ok", { repeat: 1, rows: was.rows.length });
                 return aRowsReply(was.rows, { repeat: true, cost: aJob ? (was.cost || 0) : 0 });
@@ -26273,10 +26306,12 @@ async function handleRequest(request, env, ctx) {
                 rowCost = await aCharge(rowBill);
                 if (aCharges.refused() > 0) return unbilledReply(aCharges);
               }
-              // NO PROTECTION, NO WRITE (2026-10-01, the review of 31741f6f).
-              // Nothing was sent, so "nothing was added" is true, and the
-              // consumer gives the reserve back — or, when the mark landed and
-              // its answer did not, the review closes the empty key and does.
+              // NO PROTECTION, NO WRITE (2026-10-01, the reviews of 31741f6f
+              // and c3e310e6). Nothing was sent, so "nothing was added" is
+              // true. A job the gate refused was never touched, and its
+              // consumer gives the reserve back; one the gate granted and then
+              // refused, or whose answer was lost, is parked and refunded by
+              // the review — with its key closed first when it has one.
               if (!(await aRowGuard())) {
                 aMark("add:row", "fail", { unprotected: 1 });
                 return Response.json({

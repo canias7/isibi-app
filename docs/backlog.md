@@ -102,16 +102,18 @@ here; take a closed one out of both.**
   write failure; one `_meta` key per request is never removed; a list named
   in another letter case is refused, as the data step refuses it. Found
   2026-10-01 building it, not changed. **After the owner's reviews of
-  `f6532d66` and `31741f6f`** (an unknown outcome is settled from the key;
-  a queued job is protected before its write and written only when that is
-  confirmed): a site with a row job under review refuses new messages with
-  the general "stopped while publishing" sentence; inline (queue switch off
-  only) nothing pauses the site, so a new message can add a second entry,
-  and an entry nobody could confirm is never charged; a cancel asked while
-  the row step runs does not stop its write; between a dead consumer's lease
-  running out and the lost sweep parking its job, the site is not held busy;
-  a definite refusal under a job is refunded through the review. In full
-  under *THE ADD-ON `row` STEP'S KNOWN LIMITS*.
+  `f6532d66`, `31741f6f` and `c3e310e6`** (an unknown outcome is settled
+  from the key; a queued job writes only after the ledger's own gate,
+  `edit_may_publish`, has said it is still eligible and has begun its write,
+  asked before and after its key is recorded): a site with a row job under
+  review refuses new messages with the general "stopped while publishing"
+  sentence; inline (queue switch off only) nothing pauses the site, so a new
+  message can add a second entry, and an entry nobody could confirm is never
+  charged; a definite refusal under a job is refunded through the review; a
+  consumer that dies after the gate holds its site until its publish lease
+  runs out; a consumer that resumes after the review refunded its job parks
+  it once more, settled again at once. In full under *THE ADD-ON `row` STEP'S
+  KNOWN LIMITS*.
 - ~~No route test drives a successful sort to its publish~~: covered
   (`test/edit-list-sort.test.mjs`, both paths, 2026-09-30).
 - A natural message cannot hand the picture step a new photograph without
@@ -323,19 +325,27 @@ here; take a closed one out of both.**
   - By design for this bounded change: a `row` beside other kinds is set
     aside and named, never written; the canary's after-read sentence says
     "the edit did not publish" for an addition.
-  - **AFTER THE OWNER'S REVIEWS OF `f6532d66` AND `31741f6f` (2026-10-01;
-    on the branch, not merged).** A write whose outcome the step cannot see
-    is settled from the request's key. A queued job is protected before its
-    write (`edit_publish_mark` first; no write when that is not confirmed),
-    every road the ledger has parks it once marked, and the money is kept
-    only on a recorded outcome (`edit_committed` after the entries were read
-    back) or by the review's own reading of the key (`docs/addon-path.md`,
-    *THE `row` KIND*). **Closed by the review of `31741f6f`** (they were
-    recorded here for `f6532d66`'s correction): a process dying between the
-    write and the review mark, and a review mark that is refused or
-    unanswered, no longer end in a refund with the entry saved. The mark now
-    comes before the write, and without it nothing is written. What remains,
-    each found while building it:
+  - **AFTER THE OWNER'S REVIEWS OF `f6532d66`, `31741f6f` AND `c3e310e6`
+    (2026-10-01; on the branch, not merged).** A write whose outcome the step
+    cannot see is settled from the request's key. A queued job writes only
+    after three yeses: the ledger's own gate (`edit_may_publish`: the lease's
+    live holder, the job not finished, refunded, cancelled or under review,
+    and billed, its write begun in the same statement), the key's mark
+    (`edit_publish_mark`), and the gate again. Every road the ledger has
+    parks the job once its write has begun, and the money is kept only on a
+    recorded outcome (`edit_committed` after the entries were read back) or
+    by the review's own reading of the key (`docs/addon-path.md`, *THE `row`
+    KIND*). **Closed by the review of `31741f6f`** (they were recorded here
+    for `f6532d66`'s correction): a process dying between the write and the
+    review mark, and a review mark that is refused or unanswered, no longer
+    end in a refund with the entry saved. **Closed by the review of
+    `c3e310e6`**: a consumer that stalls while the sweep refunds its job no
+    longer writes the entry on resuming (the mark answered yes to a refunded
+    job's holder; the gate refuses it); a cancel asked before the statement
+    is sent now stops the write (the gate refuses `cancelled`); and from the
+    gate on, the site is held busy (`site_busy` reads the `publishing` state
+    the gate sets). No database function was changed. What remains, each
+    found while building it:
     - **While a row job is under review, a new message is refused with the
       review machinery's general sentence**: the browser's own *"That edit
       stopped while it was publishing and I can't tell yet whether it went
@@ -353,18 +363,31 @@ here; take a closed one out of both.**
       the empty key and refunds at once, keeping the step's reply. A site
       database unreachable at that moment leaves the job parked, and the site
       paused, until a sweep tick settles it.
-    - **A cancel asked while the row step runs does not stop its write**:
-      before writing, the step asks neither the job's own `gate` (which reads
-      a cancel and the time left) nor `edit_may_publish`, the page path's
-      gate. It predates this round. Found 2026-10-01 reading the gates; not
-      changed.
-    - **Between a dead consumer's lease running out and the lost sweep
-      parking its job, the site is not held busy.** The mark sets
-      `publish_started_at`, not the `publishing` state `site_busy` reads;
-      `edit_may_publish` would set that. So a job already queued on the same
-      site can run in that window. It is a different request: this request's
-      entry is never written twice, because its key refuses a second write.
-      Found 2026-10-01; not changed.
+    - ~~A cancel asked while the row step runs does not stop its write~~:
+      closed by the review of `c3e310e6` for a cancel asked before the
+      statement is sent (the gate refuses it). One asked after the last gate
+      cannot stop a statement already on its way, as on the page path.
+    - ~~Between a dead consumer's lease running out and the lost sweep
+      parking its job, the site is not held busy~~: closed by the review of
+      `c3e310e6` (the gate sets `publishing`, which `site_busy` reads).
+    - **A consumer that dies after the gate holds its site until its publish
+      lease runs out**: the gate gives the job the publish lease (300 s), so
+      the sweep parks it about six minutes later (300 s, the 60-second grace,
+      then the next two-minute tick) rather than within three. The page path
+      holds a site the same way. Found 2026-10-01; not changed.
+    - **A consumer that resumes after the review refunded its job parks it
+      once more.** The live `edit_refund` parks any job whose write has begun
+      unless it published or is `done`, so after the refund-after-the-gate
+      ordering (the job refunded while its consumer was stalled, the last
+      gate refusing) the consumer's own refund parks the refunded job again.
+      Its reconcile settles it at once (the key empty: closed, `failed`, no
+      money moving) and the step's reply stands. Pre-existing in the live
+      function; shown with supplied answers; not changed.
+    - **A job granted at the gate whose key then could not be recorded** is
+      parked with no key and settled by the publish's own reconcile as never
+      staged (refunded; true, nothing was sent), keeping the step's reply.
+      If the site's pointer cannot be read at that moment, it stays parked
+      until a sweep tick settles it.
     - **A row job that dies after `edit_committed` and before its finalize**
       is finalized by the lost sweep with its general recovered reply (`{ ok:
       true, recovered: true }`), which names no entry. The entry is saved and

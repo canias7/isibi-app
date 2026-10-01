@@ -1,0 +1,107 @@
+[
+ {
+  "label": "CONTROL: a comment in the guard's note changes nothing",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            // THREE STEPS, IN THIS ORDER. The gate first, so a job no longer\n",
+  "to": "            // THREE STEPS, IN THIS ORDER (control). The gate first, so a job no longer\n",
+  "control": true
+ },
+ {
+  "label": "G-1: the first gate is never asked",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              if (!(await aRowGate(\"before its key is recorded\"))) return false;\n",
+  "to": ""
+ },
+ {
+  "label": "G-2: the first gate is asked and its refusal ignored",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              if (!(await aRowGate(\"before its key is recorded\"))) return false;\n",
+  "to": "              await aRowGate(\"before its key is recorded\");\n"
+ },
+ {
+  "label": "G-3: the key's mark is asked and its refusal ignored",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              if (!(m && m.ok === true)) {\n",
+  "to": "              if (false) {\n"
+ },
+ {
+  "label": "G-4: the last gate is never asked",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              return aRowGate(\"once its key is recorded\");\n",
+  "to": "              return true;\n"
+ },
+ {
+  "label": "G-5: the last gate is asked and its refusal ignored",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              return aRowGate(\"once its key is recorded\");\n",
+  "to": "              await aRowGate(\"once its key is recorded\"); return true;\n"
+ },
+ {
+  "label": "G-6: a refusal the ledger answered is read as a grant (ok, not granted)",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              if (g && g.granted === true) return true;\n",
+  "to": "              if (g && g.ok === true) return true;\n"
+ },
+ {
+  "label": "G-7: an answer that does not say granted — a lost one — counts as granted",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              if (g && g.granted === true) return true;\n",
+  "to": "              if (g && g.granted !== false) return true;\n"
+ },
+ {
+  "label": "G-8: the key is not recorded on the mark",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                p_id: aJob.id, p_owner: aJob.owner, p_artifact_build: aRowKey,\n",
+  "to": "                p_id: aJob.id, p_owner: aJob.owner, p_artifact_build: null,\n"
+ },
+ {
+  "label": "G-9: the gate asks for another job's holder",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              const g = await editRpc(env, \"edit_may_publish\", { p_id: aJob.id, p_owner: aJob.owner, p_ttl: PUBLISH_LEASE_S });\n",
+  "to": "              const g = await editRpc(env, \"edit_may_publish\", { p_id: aJob.id, p_owner: \"someone-else\", p_ttl: PUBLISH_LEASE_S });\n"
+ },
+ {
+  "label": "G-10: the publish's reconcile stores its own sentence over the step's definite reply",
+  "files": [
+   "worker.js"
+  ],
+  "from": "    } else if (out.verdict === \"refunded\" && keepsRowReply(row)) {\n",
+  "to": "    } else if (false) {\n"
+ },
+ {
+  "label": "G-11: the reconcile keeps any refusal, not only the step's definite ones",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  return !!(b && typeof b === \"object\" && !Array.isArray(b) && b.ok === false && ROW_DEFINITE_REPLIES.has(b.error));\n",
+  "to": "  return !!(b && typeof b === \"object\" && !Array.isArray(b) && b.ok === false);\n"
+ },
+ {
+  "label": "G-12: an unreadable key on a queued job is answered as an ordinary failure",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              const review = !!aJob;\n",
+  "to": "              const review = false;\n"
+ }
+]

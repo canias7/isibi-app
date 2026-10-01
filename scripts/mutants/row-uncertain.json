@@ -159,7 +159,7 @@
   "files": [
    "builder/site-add.mjs"
   ],
-  "from": "    if (asked.ok === false && ROW_DEFINITE_REPLIES.has(asked.error)) return null;\n",
+  "from": "    if (keepsRowReply(row)) return null;\n",
   "to": "    if (false) return null;\n"
  },
  {
@@ -219,12 +219,12 @@
   "to": "              if (!(await aRowGuard()) && false) {\n"
  },
  {
-  "label": "W-3c: an unconfirmed answer counts as protection",
+  "label": "W-3c: an unconfirmed answer counts as the key recorded",
   "files": [
    "worker.js"
   ],
-  "from": "              if (m && m.ok === true) return true;\n",
-  "to": "              if (m) return true;\n"
+  "from": "              if (!(m && m.ok === true)) {\n",
+  "to": "              if (!(m)) {\n"
  },
  {
   "label": "W-3d: an inline write is refused for want of a job to mark",
@@ -255,16 +255,8 @@
   "files": [
    "worker.js"
   ],
-  "from": "                if (!was) { await aRowGuard(); return aRowsUnknown(\"unread\"); }\n",
+  "from": "                if (!was) return aRowsUnknown(\"unread\");\n",
   "to": "                if (!was) return aFailure(\"no-meta\");\n"
- },
- {
-  "label": "W-6b: an earlier run's unreadable key is answered without protecting the job",
-  "files": [
-   "worker.js"
-  ],
-  "from": "                if (!was) { await aRowGuard(); return aRowsUnknown(\"unread\"); }\n",
-  "to": "                if (!was) { return aRowsUnknown(\"unread\"); }\n"
  },
  {
   "label": "W-12: a confirmed write is not recorded",
@@ -279,8 +271,8 @@
   "files": [
    "worker.js"
   ],
-  "from": "                if (!was) { await aRowGuard(); return aRowsUnknown(\"unread\"); }\n                await aRowCommitted();\n",
-  "to": "                if (!was) { await aRowGuard(); return aRowsUnknown(\"unread\"); }\n"
+  "from": "                if (!was) return aRowsUnknown(\"unread\");\n                await aRowCommitted();\n",
+  "to": "                if (!was) return aRowsUnknown(\"unread\");\n"
  },
  {
   "label": "W-14: an entry found by the write's own key is not recorded",

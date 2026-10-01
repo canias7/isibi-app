@@ -127,7 +127,7 @@ function bucket(slug) {
  * site with a job under review; and the reconcile reads the rows back by id
  * or by review, as `readEditRows` asks PostgREST.
  */
-function wire({ db, answers, slug, reserveRefuses = false, usage = {}, markRefuses = 0, markLost = null, commitRefuses = false }) {
+function wire({ db, answers, slug, reserveRefuses = false, usage = {}, markRefuses = 0, markLost = null, commitRefuses = false, exempt = false, mayLost = null }) {
   const real = globalThis.fetch;
   const seen = { timeline: [], models: [], debits: [], rpc: [], uploads: 0, jobs: new Map(), ledger: new Map(), done: new Set(), rows: new Map(), refunds: [], consumerDown: false };
   // THE PROTECTION'S FAILURES (2026-10-01, the review of 31741f6f): the first
@@ -136,6 +136,11 @@ function wire({ db, answers, slug, reserveRefuses = false, usage = {}, markRefus
   // commit landed and whose answer did not.
   let refuseMarks = markRefuses === true ? Infinity : Number(markRefuses) || 0;
   let loseMarks = markLost ? Number(markLost.n) || 1 : 0;
+  // AND THE GATE'S (2026-10-01, the review of c3e310e6): the first `mayLost.n`
+  // answers of `edit_may_publish` are a 503 — after granting when
+  // `mayLost.applied`. Its refusals are the ledger's own, from the row.
+  let loseMays = mayLost ? Number(mayLost.n) || 1 : 0;
+  const TERMINAL = ["done", "failed", "cancelled", "lost"];
   const unavailable = () => new Response("unavailable", { status: 503 });
   const now = () => new Date().toISOString();
   const rowOf = (id, init = {}) => {
@@ -145,6 +150,28 @@ function wire({ db, answers, slug, reserveRefuses = false, usage = {}, markRefus
         published_at: null, result: null, lease_owner: null, updated_at: now(), ...init });
     }
     return seen.rows.get(id);
+  };
+  // THE LOST-JOB SWEEP, by the live function's rules: a job no longer leased
+  // (the test says which, `lease_expired`), not finished and not under review,
+  // goes through `edit_refund(lost)`, which KEEPS `lease_owner` — refused when
+  // it published (finalized as recovered), parked when its write began,
+  // refunded otherwise. Also what a hook calls to make the sweep run while a
+  // consumer is stalled.
+  seen.sweepLost = () => {
+    const out = { ok: true, lost: 0, review: 0, recovered: 0, exhausted: 0, stuck: 0, refunded: 0 };
+    for (const r of seen.rows.values()) {
+      if (!r.lease_expired || r.needs_review || ["done", "failed", "cancelled", "lost"].includes(r.state)) continue;
+      if (r.published_at) {
+        r.result = { status: 200, type: "application/json", body: JSON.stringify({ ok: true, recovered: true, job: r.id, cost: r.cost, build: r.artifact_build }) };
+        r.state = "done"; if (r.billing === "reserved") r.billing = "finalized"; seen.done.add(r.id);
+        out.recovered++; continue;
+      }
+      if (r.publish_started_at) { r.state = "lost"; r.needs_review = true; r.review_note = "lease expired"; out.review++; continue; }
+      seen.done.add(r.id); r.state = "lost";
+      if (r.billing === "reserved") { r.billing = "refunded"; seen.refunds.push(r.cost); out.refunded += r.cost; }
+      out.lost++;
+    }
+    return out;
   };
   globalThis.fetch = async (input, init) => {
     const url = String((input && input.url) || input || "");
@@ -168,12 +195,15 @@ function wire({ db, answers, slug, reserveRefuses = false, usage = {}, markRefus
           return json({ ok: true, job: args.p_id, state: "queued", duplicate: false });
         }
         // A JOB THAT HAS FINISHED IS NOT CLAIMED AGAIN — the live function's
-        // `terminal` answer — so a second delivery of its message runs nothing.
+        // `terminal` answer, and `settled` for one paid for or paid back — so a
+        // second delivery of its message runs nothing. A job claimed again keeps
+        // its state, as the live claim does; only a queued one becomes claimed.
         case "edit_claim": {
           const r = rowOf(args.p_id);
           if (r.needs_review) return json({ ok: true, claimed: false, state: r.state, error: "needs-review" });
           if (seen.done.has(args.p_id)) return json({ ok: true, claimed: false, state: "done", reason: "terminal" });
-          r.lease_owner = args.p_owner; r.state = "claimed"; r.updated_at = now();
+          if (r.billing === "finalized" || r.billing === "refunded") return json({ ok: true, claimed: false, state: r.state, error: "settled" });
+          r.lease_owner = args.p_owner; r.lease_expired = false; if (r.state === "queued") r.state = "claimed"; r.updated_at = now();
           return json({ ok: true, claimed: true, state: "claimed", billing: r.billing, uid: r.uid, slug: r.slug, needs_review: false });
         }
         case "edit_beat": {
@@ -181,20 +211,56 @@ function wire({ db, answers, slug, reserveRefuses = false, usage = {}, markRefus
           if (args.p_phase) r.phase = args.p_phase;
           return json({ ok: true, alive: true, state: "routing", cancel: false });
         }
+        // THE LIVE RESERVE: a finished job is refused; the same sequence again
+        // charges nothing; a founder's job is `exempt` at cost 0, no debit.
+        // `afterReserve` is a consumer that stalls once the reserve has landed
+        // — whatever the test makes happen meanwhile happens here.
         case "edit_reserve": {
           if (reserveRefuses) return json({ ok: false, error: "insufficient", cost: 0 });
-          const ref = args.p_id + "#" + args.p_seq;
-          if (seen.ledger.has(ref)) return json({ ok: true, charged: 0, repeat: true, billing: "reserved" });
-          seen.ledger.set(ref, Number(args.p_cost) || 0);
           const r = rowOf(args.p_id);
-          r.cost += Number(args.p_cost) || 0; r.billing = "reserved";
-          return json({ ok: true, charged: Number(args.p_cost) || 0, billing: "reserved" });
+          if (TERMINAL.includes(r.state)) return json({ ok: false, error: "terminal", state: r.state });
+          const ref = args.p_id + "#" + args.p_seq;
+          if (seen.ledger.has(ref)) return json({ ok: true, charged: 0, cost: r.cost, billing: r.billing, repeat: true });
+          let out;
+          if (exempt) { r.billing = "exempt"; r.cost = 0; out = { ok: true, charged: 0, cost: 0, billing: "exempt" }; }
+          else {
+            seen.ledger.set(ref, Number(args.p_cost) || 0);
+            r.cost += Number(args.p_cost) || 0; r.billing = "reserved";
+            out = { ok: true, charged: Number(args.p_cost) || 0, cost: r.cost, billing: "reserved" };
+          }
+          if (typeof seen.afterReserve === "function") { const f = seen.afterReserve; seen.afterReserve = null; f(r); }
+          return json(out);
         }
-        case "edit_exempt": return json({ ok: true, billing: "exempt", state: "routing" });
-        case "edit_may_publish": return json({ ok: true, granted: true });
+        case "edit_exempt": {
+          const r = rowOf(args.p_id);
+          if (r.billing === "none") r.billing = "exempt";
+          return json({ ok: true, billing: r.billing, state: "routing" });
+        }
+        // THE GATE, AS THE LIVE FUNCTION KEEPS IT: one conditional update that
+        // grants only the lease's holder, its lease live, no cancel asked, not
+        // under review, not finished, and billed (`reserved` or `exempt`) — and
+        // marks the start of the write in the same statement. Told why when not.
+        case "edit_may_publish": {
+          const r = rowOf(args.p_id);
+          if (loseMays > 0 && !mayLost.applied) { loseMays--; return unavailable(); }
+          const ok = r.lease_owner === args.p_owner && !r.lease_expired && !r.cancel_requested && !r.needs_review
+            && !TERMINAL.includes(r.state) && (r.billing === "reserved" || r.billing === "exempt");
+          if (!ok) {
+            const error = r.cancel_requested ? "cancelled" : r.needs_review ? "needs-review" : r.lease_owner !== args.p_owner ? "lease-lost"
+              : r.lease_expired ? "lease-expired" : r.billing === "none" ? "unbilled" : "terminal";
+            return json({ ok: true, granted: false, state: r.state, error });
+          }
+          r.state = "publishing"; r.publish_started_at = r.publish_started_at || now(); r.updated_at = now();
+          if (loseMays > 0) { loseMays--; return unavailable(); }
+          return json({ ok: true, granted: true });
+        }
         case "edit_phase_write": return json({ ok: true });
+        // THE LIVE MARK matches the job and its holder, and nothing else — a
+        // refunded job's holder is still on its row. `beforeMark` is a consumer
+        // that stalls between its gate and its mark.
         case "edit_publish_mark": {
           const r = rowOf(args.p_id);
+          if (typeof seen.beforeMark === "function") { const f = seen.beforeMark; seen.beforeMark = null; await f(r); }
           if (refuseMarks > 0) { refuseMarks--; return json({ ok: false }); }
           if (loseMarks > 0 && !markLost.applied) { loseMarks--; return unavailable(); }
           if (r.lease_owner !== args.p_owner) return json({ ok: false });
@@ -205,9 +271,12 @@ function wire({ db, answers, slug, reserveRefuses = false, usage = {}, markRefus
         }
         case "edit_committed": {
           const r = rowOf(args.p_id);
-          // THE COMMIT WALL (stage 6): a holder whose lease lapsed cannot record one.
+          // THE COMMIT WALL (stage 6): only the holder, its lease live, the job
+          // not finished — as the live function asks.
           if (commitRefuses) return json({ ok: false, error: "lease-expired", state: r.state });
+          if (TERMINAL.includes(r.state)) return json({ ok: false, error: "terminal", state: r.state });
           if (r.lease_owner !== args.p_owner) return json({ ok: false, error: "not-holder" });
+          if (r.lease_expired) return json({ ok: false, error: "lease-expired", state: r.state });
           r.published_at = r.published_at || now();
           return json({ ok: true });
         }
@@ -263,22 +332,7 @@ function wire({ db, answers, slug, reserveRefuses = false, usage = {}, markRefus
         // under review, goes through `edit_refund(lost)` — refused when it
         // published (finalized as recovered), parked when its write began,
         // refunded otherwise.
-        case "edit_sweep_lost": {
-          const out = { ok: true, lost: 0, review: 0, recovered: 0, exhausted: 0, stuck: 0, refunded: 0 };
-          for (const r of seen.rows.values()) {
-            if (!r.lease_expired || r.needs_review || ["done", "failed", "cancelled", "lost"].includes(r.state)) continue;
-            if (r.published_at) {
-              r.result = { status: 200, type: "application/json", body: JSON.stringify({ ok: true, recovered: true, job: r.id, cost: r.cost, build: r.artifact_build }) };
-              r.state = "done"; if (r.billing === "reserved") r.billing = "finalized"; seen.done.add(r.id);
-              out.recovered++; continue;
-            }
-            if (r.publish_started_at) { r.state = "lost"; r.needs_review = true; r.review_note = "lease expired"; out.review++; continue; }
-            seen.done.add(r.id); r.state = "lost";
-            if (r.billing === "reserved") { r.billing = "refunded"; seen.refunds.push(r.cost); out.refunded += r.cost; }
-            out.lost++;
-          }
-          return json(out);
-        }
+        case "edit_sweep_lost": return json(seen.sweepLost());
         default: return json({ ok: false, error: "no stub for " + fn }, 500);
       }
     }
@@ -307,6 +361,9 @@ function wire({ db, answers, slug, reserveRefuses = false, usage = {}, markRefus
     if (url.includes("/rest/v1/")) return json([]);
     if (url.includes("neon.tech/sql")) {
       const q = String(args.query || "");
+      // A CONSUMER THAT STALLS WITH ITS ROW STATEMENT IN HAND: whatever the
+      // test makes happen meanwhile happens before the statement is sent.
+      if (q.startsWith("WITH r0") && typeof seen.beforeRowStatement === "function") { const f = seen.beforeRowStatement; seen.beforeRowStatement = null; f(); }
       seen.timeline.push("sql:" + q.slice(0, 40));
       const own = db.answer(q, Array.isArray(args.params) ? args.params : []);
       if (own) return own;
@@ -619,7 +676,12 @@ async function finishedJob({ db, answers }) {
   store.store.set(EDIT_JOB_PREFIX + id, request());
   await runJob(worker, env, id);
   const again = async () => {
+    // THE JOB LEFT OPEN, as a run that died before finishing would leave it:
+    // its finalize never ran, so the reserve is still held and the write it
+    // began at the gate is still under way; its lease ran out.
+    const r = w.seen.rows.get(id);
     w.seen.done.delete(id);
+    r.state = "publishing"; if (r.billing === "finalized") r.billing = "reserved"; r.lease_expired = true;
     store.store.set(EDIT_JOB_PREFIX + id, request());
     await runJob(worker, env, id);
   };
@@ -1076,10 +1138,10 @@ test("the cleaner: a display list's declared columns only, capped, each refusal 
  * database, one ledger. The browser's own POST body; the reply a poll would
  * hand back is the job row's stored `result`.
  */
-async function openSite({ db, mode = "job", answers = { pick_adds: PICK_ROW, add_to_site: { row: [ENTRY] } }, markRefuses = 0, markLost = null, commitRefuses = false }) {
+async function openSite({ db, mode = "job", answers = { pick_adds: PICK_ROW, add_to_site: { row: [ENTRY] } }, markRefuses = 0, markLost = null, commitRefuses = false, exempt = false, mayLost = null }) {
   const slug = "addon-row-lost-" + mode + "-" + hex(4);
   const store = bucket(slug);
-  const w = wire({ db, slug, answers, markRefuses, markLost, commitRefuses });
+  const w = wire({ db, slug, answers, markRefuses, markLost, commitRefuses, exempt, mayLost });
   const worker = await loadWorker();
   const mod = await loadWorkerModule();
   const env = baseEnv(store, mode === "job" ? { EDIT_ASYNC: "1", EDIT_ASYNC_CANARY: slug, BUILD_QUEUE: { send: async () => {} } } : {});
@@ -1110,6 +1172,7 @@ const afterWrite = (db) => {
   assert.ok(at >= 0, "the row step never wrote — this case tests nothing");
   return log.slice(at + 1);
 };
+const TERMINAL_STATES = ["done", "failed", "cancelled", "lost"];
 const KEY_READ = /^SELECT v FROM _meta WHERE k = \$1$/;
 const UNSAID = /nothing was added|try again|didn't accept|wasn't saved/i;
 
@@ -1270,6 +1333,9 @@ test("protection refused before the write: no write is issued, nothing is added,
 test("protection the ledger does not answer: no write is issued, nothing is added, and the reserve comes back", async () => {
   // THE MARK'S ANSWER NEVER CAME AND IT DID NOT LAND: unconfirmed is not
   // protected, so nothing is sent — and nothing sent is "nothing was added".
+  // The gate had already begun the job's write, so the job, with no key, is
+  // parked by its consumer and settled by the publish's own reconcile: never
+  // staged, refunded — and the step's reply is the one kept.
   const db = bakeryDb();
   const s = await openSite({ db, mode: "job", markLost: { n: 1, applied: false } });
   try {
@@ -1282,8 +1348,12 @@ test("protection the ledger does not answer: no write is issued, nothing is adde
     assert.equal(first.body.error, "row-unprotected");
     assert.match(first.body.msg, /nothing was added/);
     assert.equal(first.said.text, "⚠️ " + first.body.msg);
-    assert.equal(j.publish_started_at, null);
+    assert.ok(j.publish_started_at, "the gate did not begin the write — this case tests nothing");
+    assert.equal(j.artifact_build, null);
+    assert.equal(s.seen.rpc.filter((x) => x.fn === "edit_reconcile").length, 1, "the parked job was not settled");
+    assert.equal(s.seen.rpc.filter((x) => x.fn === "edit_finalize").length, 1, "the step's own reply was replaced");
     assert.equal(j.needs_review, false);
+    assert.equal(j.state, "failed");
     assert.equal(j.billing, "refunded", "a reserve for a write never issued was kept");
     assert.deepEqual(s.seen.refunds, [j.cost]);
     assert.equal(s.seen.rpc.filter((x) => x.fn === "edit_committed").length, 0);
@@ -1539,15 +1609,209 @@ test("a write that never landed while its consumer could not settle: the sweep p
   } finally { s.restore(); }
 });
 
+// ── THE GUARD MUST FIND THE JOB STILL ITS TO WRITE (2026-10-01, the review of
+//    c3e310e6) ────────────────────────────────────────────────────────────
+//
+// The live `edit_publish_mark` matches only `id` and `lease_owner`, and
+// `edit_refund` keeps `lease_owner`; so a consumer that stalled after its
+// reserve, while the lost sweep refunded its unmarked job, came back to a mark
+// that still answered ok — and wrote an entry its job had already been
+// refunded for. The guard is now the ledger's own conditional gate,
+// `edit_may_publish`: granted only to the lease's live holder of a job that is
+// not finished, not refunded, not cancelled, not under review and billed, and
+// marking the write's start in the same statement.
+
+test("the reviewer's interleaving: the sweep refunds the job while its consumer is stalled after the reserve — the guard refuses, nothing is written, and the refund stands alone", async () => {
+  const db = bakeryDb();
+  const s = await openSite({ db, mode: "job" });
+  try {
+    // 1. The reserve lands. 2. The consumer stalls, its lease runs out and the
+    // sweep refunds the unmarked job (its holder kept on the row). 3. It resumes.
+    s.seen.afterReserve = (r) => { r.lease_expired = true; s.seen.sweepLost(); };
+    const first = await s.send();
+    const j = s.row(first.job);
+    assert.equal(s.seen.refunds.length, 1, "the sweep did not refund the stalled job — this case tests nothing");
+    assert.ok(j.lease_owner, "the refund cleared the holder, which the live function does not do — this case tests nothing");
+    // 4. NO ROW IS WRITTEN: still six entries.
+    assert.deepEqual(writesOf(db).filter((q) => q.startsWith("WITH r0")), [], "the entry was written after the refund won");
+    assert.equal(db.rows("loaves").length, 6);
+    // 5. THE MONEY AND THE REPLY AGREE: refunded once, nothing recorded, and the
+    // reply says nothing was added at no cost — never a success at cost 2.
+    assert.equal(j.billing, "refunded");
+    assert.deepEqual(s.seen.refunds, [j.cost]);
+    assert.equal(s.seen.rpc.filter((x) => x.fn === "edit_committed").length, 0, "an outcome was recorded for a refunded job");
+    assert.equal(first.body.ok, false, JSON.stringify(first.body));
+    assert.equal(first.body.error, "row-unprotected");
+    assert.equal(first.body.cost, 0);
+    assert.match(first.body.msg, /nothing was added/);
+    // AND THE REFUNDED JOB IS LEFT AS THE SWEEP LEFT IT: not marked, not parked.
+    assert.equal(j.publish_started_at, null, "the guard marked a job already refunded");
+    assert.equal(j.artifact_build, null);
+    assert.equal(j.needs_review, false);
+    // The site is open, and the next message adds the entry once.
+    const next = await s.send();
+    assert.equal(next.body.ok, true, JSON.stringify(next.body));
+    assert.equal(db.rows("loaves").length, 7);
+  } finally { s.restore(); }
+});
+
+for (const [what, stall] of [
+  ["its lease ran out before the sweep came", (r) => { r.lease_expired = true; }],
+  ["a cancel was asked", (r) => { r.cancel_requested = true; }],
+]) {
+  test(`a job no longer eligible when its consumer resumes (${what}) is refused by the guard: nothing written, the reserve given back once`, async () => {
+    const db = bakeryDb();
+    const s = await openSite({ db, mode: "job" });
+    try {
+      s.seen.afterReserve = stall;
+      const first = await s.send();
+      const j = s.row(first.job);
+      assert.deepEqual(writesOf(db).filter((q) => q.startsWith("WITH r0")), [], "a row was written by a job no longer eligible");
+      assert.equal(db.rows("loaves").length, 6);
+      assert.equal(first.body.error, "row-unprotected", JSON.stringify(first.body));
+      assert.equal(j.billing, "refunded");
+      assert.deepEqual(s.seen.refunds, [j.cost]);
+      assert.equal(j.publish_started_at, null, "a job refused by the gate was marked");
+      assert.equal(j.needs_review, false);
+    } finally { s.restore(); }
+  });
+}
+
+// A GATE WHOSE ANSWER NEVER CAME IS NOT A GRANT. Before it landed, the job is
+// untouched and its consumer refunds it; after, the write was begun and no key
+// recorded, so the job is parked and the publish's own reconcile settles it as
+// never staged. Either way nothing is written and the reserve comes back once.
+for (const [what, applied] of [["it never landed", false], ["it landed", true]]) {
+  test(`a gate whose answer is lost (${what}) grants nothing: no mark, no write, the reserve given back once, the step's reply kept`, async () => {
+    const db = bakeryDb();
+    const s = await openSite({ db, mode: "job", mayLost: { n: 1, applied } });
+    try {
+      const first = await s.send();
+      const j = s.row(first.job);
+      assert.equal(s.seen.rpc.filter((x) => x.fn === "edit_may_publish").length, 1);
+      assert.equal(s.seen.rpc.filter((x) => x.fn === "edit_publish_mark").length, 0, "the key was recorded on an unanswered gate");
+      assert.deepEqual(writesOf(db), [], "a write was issued on an unanswered gate");
+      assert.equal(db.rows("loaves").length, 6);
+      assert.equal(first.body.error, "row-unprotected", JSON.stringify(first.body));
+      assert.equal(Boolean(j.publish_started_at), applied, "the fixture's gate did not do what it was told — this case tests nothing");
+      assert.equal(j.needs_review, false);
+      assert.equal(j.billing, "refunded");
+      assert.deepEqual(s.seen.refunds, [j.cost]);
+      assert.equal(s.seen.rpc.filter((x) => x.fn === "edit_reconcile").length, applied ? 1 : 0);
+      const next = await s.send();
+      assert.equal(next.body.ok, true, JSON.stringify(next.body));
+      assert.equal(db.rows("loaves").length, 7);
+    } finally { s.restore(); }
+  });
+}
+
+test("the opposite ordering: protection wins, the sweep that comes for the stalled consumer parks the job, and its uncertain write is held until the key settles it — one entry, one charge", async () => {
+  // THE GUARD IS GRANTED; THEN, WITH THE STATEMENT IN HAND, THE CONSUMER STALLS:
+  // its lease runs out and the sweep comes for the job. The statement then
+  // commits with its answer lost, and the key cannot be read until the second tick.
+  const db = bakeryDb({ loseAnswer: 1, failKeyReads: 2 });
+  const s = await openSite({ db, mode: "job" });
+  try {
+    s.seen.beforeRowStatement = () => {
+      const r = [...s.seen.rows.values()].find((x) => x.op === "addon" && !TERMINAL_STATES.includes(x.state));
+      r.lease_expired = true;
+      s.seen.sweepLost();
+    };
+    const first = await s.send();
+    const id = first.job;
+    let j = s.row(id);
+    assert.equal(db.rows("loaves").length, 7, "the write did not commit — this case tests nothing");
+    // PARKED, NEVER REFUNDED: the sweep found the write begun.
+    assert.equal(j.needs_review, true, "the sweep did not park a job whose write had begun");
+    assert.equal(j.billing, "reserved");
+    assert.deepEqual(s.seen.refunds, [], "a write that may have happened was refunded");
+    assert.equal(first.body.error, "row-uncertain");
+    assert.equal(first.body.review, true);
+    // HELD: the site takes no new message while the key cannot be read.
+    const blocked = await s.send();
+    assert.equal(blocked.status, 409, JSON.stringify(blocked.body));
+    assert.equal(blocked.body.error, "needs-review");
+    assert.equal(db.rows("loaves").length, 7);
+    // THE KEY SETTLES IT: kept, charged once, said.
+    await s.mod.runReviewReconcile(s.env);
+    j = s.row(id);
+    assert.equal(j.needs_review, false);
+    assert.equal(j.state, "done");
+    assert.equal(j.billing, "finalized");
+    assert.deepEqual(s.seen.refunds, []);
+    assert.equal(s.seen.ledger.size, 1);
+    const now = s.stored(id);
+    assert.equal(now.body.ok, true, JSON.stringify(now.body));
+    assert.equal(now.body.reconciled, "saved");
+    assert.equal(now.body.cost, j.cost);
+    unchangedSix(db);
+  } finally { s.restore(); }
+});
+
+test("a refund that wins after the first gate: the consumer stalls before its mark, the sweep parks the job and the review refunds it — the mark lands, the last gate refuses, nothing is written", async () => {
+  // WHY THE GATE IS ASKED AGAIN, LAST. The mark matches no more than the
+  // holder, so a consumer that stalls past its publish lease between its gate
+  // and its mark finds the mark still answering yes on a job the review has
+  // since refunded — and only the gate after it can say no.
+  const db = bakeryDb();
+  const s = await openSite({ db, mode: "job" });
+  try {
+    s.seen.beforeMark = async (r) => { r.lease_expired = true; await s.mod.runLostEditJobs(s.env); };
+    const first = await s.send();
+    const j = s.row(first.job);
+    assert.equal(s.seen.beforeMark, null, "the consumer never stalled before its mark — this case tests nothing");
+    assert.equal(writesOf(db).filter((q) => q.startsWith("WITH r0")).length, 0, "a row was written by a job the review had refunded");
+    assert.equal(db.rows("loaves").length, 6);
+    assert.equal(s.seen.rpc.filter((x) => x.fn === "edit_may_publish").length, 2, "the gate was not asked again after the mark");
+    unchangedSix(db);
+    // ONE REFUND, the review's; the consumer's own comes after it and moves no money.
+    assert.equal(j.billing, "refunded");
+    assert.deepEqual(s.seen.refunds, [j.cost], "the refund was taken twice, or not at all");
+    assert.equal(j.needs_review, false, "the job was left parked");
+    assert.equal(s.seen.rpc.filter((x) => x.fn === "edit_committed").length, 0);
+    assert.equal(first.body.error, "row-unprotected", JSON.stringify(first.body));
+    assert.match(first.body.msg, /nothing was added/);
+    const next = await s.send();
+    assert.equal(next.body.ok, true, JSON.stringify(next.body));
+    assert.equal(db.rows("loaves").length, 7, "the next message did not add the entry once");
+  } finally { s.restore(); }
+});
+
+test("an exempt account's entry passes the guard as before: granted on `exempt`, written once, recorded, charged nothing", async () => {
+  const db = bakeryDb();
+  const s = await openSite({ db, mode: "job", exempt: true });
+  try {
+    const r = await s.send();
+    const j = s.row(r.job);
+    assert.equal(r.body.ok, true, JSON.stringify(r.body));
+    assert.equal(db.rows("loaves").length, 7);
+    assert.equal(writesOf(db).filter((q) => q.startsWith("WITH r0")).length, 1);
+    assert.equal(j.billing, "exempt");
+    assert.equal(j.cost, 0);
+    assert.equal(j.state, "done");
+    assert.equal(j.needs_review, false);
+    assert.equal(r.body.cost, 0);
+    assert.deepEqual(s.seen.refunds, []);
+    assert.equal(s.seen.ledger.size, 0, "an exempt account was debited");
+    assert.equal(s.seen.rpc.filter((x) => x.fn === "edit_committed").length, 1);
+  } finally { s.restore(); }
+});
+
 test("a job whose key already holds a value nobody can read is put under review before any model call", async () => {
   // THE SAME JOB'S EARLIER RUN SAVED UNDER ITS KEY, AND WHAT IT SAVED CANNOT BE
-  // READ: neither "add it again" nor "refund it" is true.
+  // READ: neither "add it again" nor "refund it" is true. The job is as that
+  // run left it: reserved, its write begun at the gate, its lease run out.
   const id = hex(16);
   const key = "addon-row:job:" + id;
   const db = bakeryDb({ meta: { [key]: "{not json" } });
   const slug = "addon-row-unread-" + hex(4);
   const store = bucket(slug);
   const w = wire({ db, slug, answers: { pick_adds: PICK_ROW, add_to_site: { row: [ENTRY] } } });
+  const at = new Date().toISOString();
+  w.seen.rows.set(id, { id, uid: USER.id, slug, op: "addon", state: "publishing", phase: null, billing: "reserved", cost: 2,
+    needs_review: false, review_note: null, artifact_build: key, worker_status: null, publish_started_at: at,
+    published_at: null, result: null, lease_owner: "the-earlier-run", lease_expired: true, updated_at: at });
+  w.seen.ledger.set(id + "#1", 2);
   try {
     const worker = await loadWorker();
     const env = baseEnv(store);
@@ -1561,6 +1825,8 @@ test("a job whose key already holds a value nobody can read is put under review 
     assert.equal(j.needs_review, true, "an unreadable key was not put under review");
     assert.equal(j.artifact_build, key);
     assert.deepEqual(w.seen.refunds, []);
+    assert.equal(j.billing, "reserved", "the money moved on a key nobody can read");
+    assert.equal(w.seen.rpc.filter((r) => r.fn === "edit_reserve").length, 0, "the request was reserved again");
     assert.equal(w.seen.models.length, 0, "a model was called for a request already saved");
     assert.deepEqual(writesOf(db), [], "something was written over an unreadable key");
     const body = JSON.parse(j.result.body);

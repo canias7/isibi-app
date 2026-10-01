@@ -1710,6 +1710,66 @@ unproven live and leave CLAUDE.md alone."*
   - a definite refusal under a job is refunded through the review.
 - **Test 11 stays unproven live**; no accepted test is reopened.
 
+### Corrected after the owner's review of `c3e310e6` (2026-10-01, on the branch; not merged or deployed)
+
+**The owner**: *"Fix the remaining pre-write race on c3e310e6. The reviewer
+checked the live Supabase function read-only: edit_publish_mark checks only
+`id = p_id AND lease_owner = p_owner`. It does not reject an expired,
+terminal or refunded job, and edit_refund preserves lease_owner. […] Make
+the pre-write guard establish that the job is both eligible to write and
+protected. If refund or termination wins the race, issue no row write. […]
+Reuse existing guarded job operations if they enforce this correctly. If a
+database-function change is necessary, prepare it for review without
+applying it live. Preserve exempt-account behavior. Add focused coverage for
+this exact interleaving and the opposite ordering […] No merge, deployment,
+live SQL changes, paid calls or live data writes. Test 11 remains unproven
+live."*
+
+- **The defect** (on `c3e310e6`, reproduced through the real route and
+  consumer): the mark answers yes to a refunded job's holder. A consumer that
+  stalled after its reserve, while the sweep refunded its unmarked job, wrote
+  the entry on resuming: 7 entries, billing `refunded`, a success reply with
+  its cost.
+- **Corrected** (`docs/history/2026-10-01-add-row.md` §11), with no database
+  change: the guard is three yeses, in this order.
+  - **The gate**, `edit_may_publish`, the publish spine's own: one
+    conditional update, granted only to the lease's live holder of a job not
+    finished, refunded, cancelled or under review, and billed (`reserved`,
+    or `exempt`), beginning the write in the same statement. A job no longer
+    eligible is refused and never touched.
+  - **The mark**, for the request's key, unchanged.
+  - **The gate again, last**, so a refund that wins after the first gate
+    (the consumer stalled past its publish lease) still stops the write.
+  - A refund that loses finds the write begun and parks the job; the key
+    settles it, as before. The step's definite reply is kept by the
+    publish's reconcile too, for a job parked with no key.
+- **Verified free**:
+  - The red check on `c3e310e6`: 7 of 84 cases fail (69 add-row, 15
+    canary). They include the reviewer's interleaving ("the entry was written
+    after the refund won"), both eligibility cases, and the refund after the
+    first gate ("a row was written by a job the review had refunded").
+  - `test/addon-row.test.mjs` 69 of 69 and `test/canary-addon.test.mjs` 15
+    of 15. The opposite ordering (protection wins; the uncertain write held
+    until the key keeps it: one entry, one charge) and the exempt account
+    pass, on `c3e310e6` too.
+  - The sweep (`row-guard.json`, with the four moved `row-uncertain.json`
+    mutants): 16 of 16 killed, the control surviving. One equivalent
+    candidate was replaced (§11.5).
+  - The full suite: `8511 / 8511 / 0 / 0` locally (8,503 on `c3e310e6`, plus
+    the 8 new cases).
+  - The image rolls `b8c8789aa8e395d6` → `c051f625db27b5b7` on merge. CI on
+    `c3e310e6`: unit `8503 / 8499 / 0 / 4` (run 36828211851); the site build
+    green (run 36828211849).
+- **Closed limits**: a cancel asked before the statement now stops it, and
+  the site is held busy from the gate on.
+- **Remaining limits** (backlog): a consumer that dies after the gate holds
+  its site until the publish lease runs out (about six minutes); a consumer
+  that resumes after the review refunded its job parks it once more, settled
+  again at once with no money moving; and the earlier ones (the general
+  "stopped while publishing" sentence, inline, a definite refusal through
+  the review).
+- **Test 11 stays unproven live**; no accepted test is reopened.
+
 ## Test 10 — a stored list re-sorted, with real models (prepared 2026-09-30 on the owner's word, after Test 9 was closed; free preparation only; the order traced on all three demo sites; rehearsed with supplied answers through the real lane and the real edit route; decision 2b taken by the owner the same day with a scope correction: a sort across the whole site goes to the data sorter, a sort limited to one named page to the page editor, and no "whatever page they saw it" rule; the rule implemented on the branch with committed route coverage, and its scope corrected on 2026-10-01 so that a selection of pages is never sent to the sorter; passed by the owner and merged and deployed in deploy 2174 (2026-10-01); the request revised to state its scope; the baseline read; the authorized free dispatch refused (403); the owner's free press, run 83, confirmed the runtime and rehearsed Test 10, passing every check; the paid press run as run 84, 3 credits, every acceptance item met; closed by the owner the same day for run 84's demonstrated request, the bakery left at `dgmag4`, not to be repeated)
 
 **The owner**: *"Next, prepare one list-reordering acceptance on an existing
