@@ -18,8 +18,8 @@
 
 The full law is `docs/addon-path.md`. **"Add" always goes to the add-on step;
 an edit changes what already exists.** `builder/site-add.mjs` runs `pick_adds`,
-then one call per kind in run order — `table · function · api · job · page ·
-component · qr · three · photo` (`MAX_ADDS` 9) — then one publish; the first
+then one call per kind in run order — `table · row · function · api · job · page ·
+component · qr · three · photo` (`MAX_ADDS` 10; `row` on the branch, below) — then one publish; the first
 backend kind on a site with none makes its database (`ensureSiteBackend`). An
 addition is always a new thing: every page it changed must still say every word
 it said (`keptProse`, else 422 `rewrote` at no cost), and a second one copies
@@ -36,7 +36,11 @@ own never ships; a QR code pointing at a page that did not survive is withheld
 together with everything that renders it. Outside connections carry `returns`,
 typed `params` and `credential` (`site-api-shape.mjs`), none of them in the
 cache key. Which kinds have been proven live is the table under *What is proven
-live*, below.
+live*, below. **One more entry in a list the site already stores is `row`**
+(2026-10-01, on the branch, not merged): asked alone it is written with the
+data step's own parameterised insert, beside the request's key in one
+statement, with no page call and no publish; beside other kinds it is set
+aside and named (*THE `row` KIND*, below).
 
 ## What is proven live, per addon kind
 
@@ -56,9 +60,11 @@ and its next step is a CHANGE.
 | `qr` | 51 published `qr-gallery.svg` and **the served file re-encodes to `/gallery`** | nothing has ever scanned one |
 | `three` | **measured live today**: `fretwork-1` and `ashgrove-1` each serve a `@react-three/fiber` canvas | **which PATH made it** — `three` is a dispatched EDIT lane as well as an addon kind, so a probe of the document cannot say |
 | `photo` | **NONE.** Run 51 reached the provider and was **refused** | **the whole kind**, parked on fal funding |
+| `row` | **NONE yet** — built on the branch 2026-10-01, shown only with supplied answers through the real route; Test 11 is its live test | **the whole kind live**: real routing, the real picker and designer, a real write |
 
 **Eight of nine have landed their own work on a real site. The ninth has not,
-and its blocker is a balance rather than code.**
+and its blocker is a balance rather than code.** The tenth, `row`, is new
+(2026-10-01) and waits on Test 11.
 
 **AND THE BACKEND TIER HAS NO CORPUS, which bounds what can be claimed.** The
 100-site corpus is **324 `.tsx` files with ZERO `useRows`, ZERO `useCreateRow`,
@@ -148,6 +154,50 @@ measurements this file leans on (the kit closure's 9–53 files, the 322-against
 does name one — moved up to the supported list on 2026-09-20.)*
 
 ---
+
+### THE `row` KIND: ONE MORE ENTRY IN A LIST THE SITE ALREADY STORES (2026-10-01, on the branch)
+
+The owner's rule is *"Add will always go in addon"*, and until this kind no
+add-on kind could add a row to a table the site already has (Test 11's trace,
+`docs/history/2026-10-01-add-row-prep.md`). Built on the owner's word;
+`docs/history/2026-10-01-add-row.md` has the story and the evidence.
+
+- **Which lists**: `rowTables(spec)` — every stored table whose access is the
+  DISPLAY preset, asked of `resolveAccess` against `ACCESS_PRESETS.display`,
+  exactly as the data step asks it. A table visitors send in, a members'
+  table, and a public table visitors write (a guestbook) take no entry.
+- **Which values**: the data step's own rule, now shared (`rowValues` in
+  `builder/site-rows.mjs`): a declared column, a scalar or `null`, a string
+  cut to 2,000 characters; `id` and `created_at` are always the database's.
+  Refused by name, at no cost: no list named (`no-row-table`), a list the
+  site does not store (`row-no-table`), a list that is not a display list
+  (`row-not-list`), nothing left to write (`row-no-values`). Up to
+  `MAX_ADD_ROWS` (12) entries per message; one refused entry beside a good
+  one is named, not fatal.
+- **The write**: the data step's own `insertStatement` (shared, not copied),
+  each entry `RETURNING *`, all of them and a `_meta` row keyed by the
+  request (`addon-row:job:<id>` under a job, `addon-row:idem:<key>` inline)
+  in ONE statement (`rowsInsert`). A second run of the same request — a job
+  replayed, a POST resent — is answered from the key before the picker runs
+  (no model call, no second charge), and two runs racing past that check
+  collide on `_meta`'s primary key, which rolls the loser back whole.
+  Measured on a local Postgres 16 (the history file has the probe).
+- **The answer is what the database saved**: `rows: [{table, id, label,
+  row}]`, the id the database assigned and the row as stored; `added: []`
+  and no publish, because the pages read the list as it stands. The
+  browser says "✅ Done — added “Rye & Caraway” to loaves (entry N).", N
+  being that id.
+- **The money**: one charge, `pageCredits` of the picker's and the row
+  designer's usage. Under a job it is reserved before the write (a refused
+  reserve writes nothing, `unbilled`), and a write that fails is refunded by
+  the consumer; inline it is collected after a write that landed.
+- **Beside other kinds** a `row` is set aside and named (`row-alone`), and
+  the rest of the message runs as before; beside a kind that hops to an edit
+  rung (a photograph alone), the message is refused whole at no cost, so
+  the entry cannot vanish on the hop.
+- **Not shown**: real routing and the real picker/designer (supplied answers
+  only), and any live write. Its known limits are in `docs/backlog.md`
+  (*THE ADD-ON `row` STEP'S KNOWN LIMITS*).
 
 ### THE ADD STEP IS ITS OWN PATH TOO (2026-09-02)
 

@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-01, 03:05 UTC)
+## Current handoff — read this first (2026-10-01, 04:24 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,127 +9,117 @@ is in git; the dated entries further down are the full story.*
 **State now**
 - `main` is `322c2430` (deploy 2174, image `b8c8789aa8e395d6`),
   runtime-confirmed, and unchanged in this round.
-- **Test 10 is closed by you**, for run 84's request. The bakery stays at
-  version `dgmag4`, with the loaves listed cheapest first.
-- **Test 11 (adding one item to an existing list) is prepared but not
-  runnable yet**: the add-on step can't add a row to a table that already
-  has rows. Details below.
-- Balance 3, as your reviewer verified. Nothing spent in this round, and no
-  routing change.
+- **Test 11's capability is built on the branch, for your review**: the
+  add-on step can now add one more entry to a list a site already stores (a
+  new add-on kind, `row`), and the canary can press an add-on. Not merged,
+  not deployed.
+- Nothing spent, no live data written, no routing change. The bakery is at
+  `dgmag4` with its six loaves, as you left it. Balance 3.
 
 **Completed**
-- **Test 10 recorded as closed**, with your reviewer's independent Supabase
-  check:
-  - the job done, billing finalized, cost 1, not flagged for review;
-  - one ledger row (349, a reservation of −1), and nothing more for it;
-  - balance 3, no job open;
-  - with routing's 2, it spent 3 in all.
+- **The add-on `row` kind** (one more entry in an existing list):
+  - checked against the site's own stored schema: a public display list
+    only (never one visitors send in, never members'), its own columns only,
+    and never `id` or `created_at`, which the database gives;
+  - written with the data step's own insert, now shared rather than copied;
+    the data step's statement is byte for byte what it always wrote, and
+    nothing else in it changed;
+  - the reply is what the database saved, with the id it assigned: "✅ Done
+    — added “Rye & Caraway” to loaves (entry N).";
+  - no page call, no compile, no publish: the pages read the list as it
+    stands;
+  - billed once with the existing machinery: on a queued job, reserved
+    before the write and refunded if the write fails; inline, collected
+    after a write that landed;
+  - **a duplicate submission or a replayed job saves nothing twice and
+    charges once**: the entries and the request's key go in one database
+    statement, so a second run is refused whole and answers what the first
+    saved (checked on a real Postgres 16, locally);
+  - refused by name, at no cost: a list the site doesn't store, a visitors'
+    list, an entry with nothing usable in it, no list named;
+  - beside other additions in one message, the entry is set aside and
+    named, and the rest runs as before.
+- **The canary's add-on press**: with the route box `intent=addon` and the
+  router answering "addon", it posts the add-on request exactly as the
+  browser does, watches it, shows what the customer would read, checks that
+  nothing was published, and passes only if the step answered ok. Without
+  `intent=addon` in the box it refuses as before.
+- **Test 11 corrected** (the checklist's *Test 11*):
+  - the new loaf's id is read back from the database, not predicted: it may
+    not be 7;
+  - on `/order`, the new loaf must appear both in the price-sorted list and
+    as one of the order form's choices. On the bakery they are the same
+    control ("Today's loaves" is the order form's choice list), so both are
+    checked on it: its place in the price order, and that its choice
+    carries the new id;
+  - real model routing stays unproven until the live run.
 
-  The optional "read one job" press I'd offered is removed from the
-  records.
-- **The add-on route traced** for "add one item to an existing list", under
-  your rule ("Add will always go in addon"):
-  - the router sends such a request to the add-on step. Nothing in it was
-    changed;
-  - the add-on step has nine kinds (table, database function, outside
-    connection, scheduled job, page, section, QR code, 3D scene,
-    photograph). **None of them adds a row to a table the site already
-    has**;
-  - its "table" kind can include starter rows, but only for a new table:
-    the code that writes them skips any table that already has rows;
-  - the only code that inserts a single row today is on the edit side (the
-    data step), which your rule doesn't send additions to. I haven't
-    proposed changing that.
-- **Rehearsed through the real add-on route with supplied answers**, for
-  every answer the picker could plausibly give:
-  - it either refuses, at no cost for the step:
-    - "I couldn't determine a supported addition…";
-    - "That table would have nothing in it…";
-    - "The builder produced no page changes…";
-  - **or it reports a false success**: it publishes a hand-written card on
-    `/order` and says "✅ Done — updated /order", while the list itself is
-    unchanged. The new loaf then wouldn't be in the order form's choices,
-    the price order or the Data panel.
-- **The baseline**, read free at 02:45 UTC, matches run 84's after-read:
-  six loaves, all five pages at `dgmag4`, `/order` cheapest first, and the
-  redirects as before.
+**Test results** (all free; no model, no network write, nothing spent)
+- **Before the fix** (the new tests on the old code): 44 tests, 42 fail,
+  2 pass. The 2 are controls that must behave the same before and after.
+  The old route answered "no supported addition" and wrote nothing.
+- **After**: 35 of 35 route and unit tests, through the real route against
+  a test database that already has rows, and 9 of 9 for the canary (the
+  real script, run five times against a stand-in server). They cover
+  existing rows, schema and pages kept; five invalid targets; write
+  failures (refunded on a job); a duplicate entry; a refused charge; a
+  duplicate submission and four replay shapes, each with one row and one
+  charge; two entries in order.
+- **Mutation sweep**: 49 deliberate breakages and 3 comment-only controls.
+  47 caught at first; the 2 that slipped through were gaps in what the
+  tests looked at, now closed, and both are caught on the re-run. The
+  controls stayed green.
+- **Full suite**: 8,471 of 8,471 on the code commit (8,427 before; +44).
+- **Postgres 16** (local copy, not your database): ids 12 and 13 on a table
+  that had lost rows (so never assume 7), a replay refused whole, a bad
+  price and a duplicate refused whole.
+- **/order, read as a visitor**: the order form's choices are the price
+  list, each carrying the loaf's id; a preview with the new entry put it
+  third.
+- **Unit CI and site build**: read after this push (next entry).
 
-**The test, as prepared** (the checklist's *Test 11*)
-- **Site**: `fold-lane-bakery` at `dgmag4`.
-- **Request**: *Add one loaf to today's loaves: Rye & Caraway at £5.00,
-  described as "A light rye with toasted caraway."* "Today's loaves" is
-  the list's own label on `/order`.
-- **Expected route**: the add-on step (route box `intent=addon
-  alsoAsked=none`).
-- **Expected result**:
-  - exactly one new row (Rye & Caraway, 5, that description, no photo);
-  - `/order` lists seven loaves, with Rye & Caraway third;
-  - a reply that names the loaf.
-- **Kept unchanged**:
-  - the six existing loaves (every field) and the five stored pages;
-  - no new published version, if the addition changes no page;
-  - the other four pages, to the pixel;
-  - menus, headings, the description and the redirects.
-- **Cost once it can run**: about 3–4 credits. The balance is 3, so it
-  needs a top-up first.
+**Remaining limits** (backlog; none changes your data)
+- Real routing, the real picker and the real row designer are untested
+  until the live run.
+- A site whose database has no settings table (`_meta`) can't take an
+  entry: it fails whole, with a generic "try again" message.
+- A price written as "£5.00" instead of 5 is refused as a generic write
+  failure, not explained.
+- One small marker row per added request stays in `_meta`.
+- A list named in different capitals ("Loaves") is refused, as the data
+  step refuses it.
+- An entry asked beside other additions is set aside and named, not added.
+- The canary's after-read sentence says "the edit did not publish" for an
+  addition.
 
-**The smallest next step (proposed, not built; your call)**
-1. **One new add-on kind**, "a new entry in a list the site already stores":
-   - it writes the row with the data step's own insert, shared rather than
-     copied;
-   - it only adds to public lists, never to a table visitors submit to;
-   - it changes no page, and it publishes nothing, because the list is read
-     live;
-   - its reply is built from the row actually added;
-   - tested free through the real add-on route, on a stand-in where the
-     table already has rows.
-2. **Let the canary press an add-on**: today it refuses unless the router
-   answers "edit". The route box can already say `intent=addon`.
-3. Then the paid test, after a merge, a deploy, your free check and a
-   top-up.
-
-**Test results**
-- The rehearsal: 8 scratch cases through the real add-on route (not
-  committed). No model, no network, nothing spent.
-- The 8 test files that read the docs: 356 of 356.
-- No product code changed in this round.
+**Updated paid-test estimate** (Test 11, once merged and deployed)
+- About 3–4 credits, not a cap: routing 1–2, plus the add-on's own charge
+  of at least 1 (2 measured for an add-on that changes no page).
+- Before it: your merge, a deploy (the container image rolls,
+  `b8c8789aa8e395d6` → `66d4f686aed60de0`, then 15–20 minutes), your free
+  runtime check, and a top-up (balance 3).
 
 **Links**
-- The test and the trace: the checklist's *Test 11*, and
-  `docs/history/2026-10-01-add-row-prep.md`.
-- Test 10's closure: the checklist's *Test 10* (*Closed*), and
-  `docs/history/2026-10-01-sort-scope.md` §7.
+- The test: the checklist's *Test 11*. The story and the evidence:
+  `docs/history/2026-10-01-add-row.md`. The kind's rules: `docs/addon-path.md`
+  (*THE `row` KIND*).
 - Branch commits: https://github.com/canias7/isibi-app/commits/claude/help-needed-ehlwlj
 
 **From our chat**
-- Your 2a answer, recorded in `owner-preferences.md`: adding an item to an
-  existing list goes to the add-on step ("Add will always go in addon").
-- A reading your reviewer verified is recorded as theirs, and the manual
-  check I'd offered for it is withdrawn (also in `owner-preferences.md`).
-- A sort limited to a selection of pages stays unproven with real models.
-  Accepted tests stay closed, and CLAUDE.md is left alone.
+- Recorded in `owner-preferences.md`: a new entry's id is the database's and
+  is never predicted; real model routing stays unproven until a live run;
+  universal, shared, a stateful fixture, the existing job and billing
+  machinery; no merge, deploy, live write or paid call yet.
+- The seed-skip wording stays in the backlog, unchanged. CLAUDE.md is left
+  alone.
 
 **Blockers**
-- Test 11 can't run until the add-on step can add a row (step 1 above). It
-  also needs the canary change (step 2) and a top-up.
-
-**Findings, kept separate** (backlog)
-- New: the add-on step can't add a row to a table the site already has
-  (above).
-- New: the starter-rows sentence drops its reason. "loaves: already has
-  rows" is told to the customer as "that table isn't one visitors can read,
-  so it starts empty", which is wrong on both counts.
-- New: the add-on route's test fixture reads every table as empty, so a
-  test of adding a row built on it would pass where the product doesn't.
-  My rehearsal modelled the table as having rows.
-- New: the edit canary can't press an add-on.
-- Earlier: a data-step job reads "routing" until it publishes; the
-  selection-of-pages limits; the welcome pop-up; the deleted row's reply cut
-  at 40 characters.
+- None for review. The paid test needs your merge, the deploy and your free
+  check, and a top-up.
 
 **Exact next action**
-- Your review of Test 11's preparation, and whether to build step 1 (and
-  step 2) next. Nothing spends until you approve a paid run.
+- Your review of the branch. Nothing merges, deploys or spends until you say
+  so.
 
 ---
 
@@ -189,6 +179,30 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-01 — Adding an item to an existing list is built (the add-on `row` kind), for your review
+
+**Built on the branch, on your word; not merged, not deployed, nothing
+spent, no live write.** "Add will always go in addon" now has a way to add
+one more entry to a list a site already stores: a new add-on kind, `row`.
+It checks each entry against the site's own stored schema (a public display
+list, its own columns, never `id` or `created_at`), writes it with the data
+step's own insert (now shared rather than copied), reports what the database
+saved with the id it assigned, and changes no page. A duplicate submission or
+a replayed job saves nothing twice and charges once. The canary can press an
+add-on when its route box says `intent=addon`, and refuses as before
+otherwise.
+
+**Test 11 corrected**: the new loaf's id is read back, not predicted (it may
+not be 7), and the new loaf must appear both in `/order`'s price-sorted list
+and as one of the order form's choices, carrying its id. Real model routing
+stays unproven until the live run.
+
+**Verified free**: 42 of 44 new tests fail on the old code (the 2 controls
+pass); 35 + 9 pass on the new; the sweep's 49 breakages are all caught (2
+after adding what the tests failed to look at); the full suite is 8,471 of
+8,471; the statement was checked on a local Postgres 16. Kept separate
+(backlog): the seed-skip wording, and the new step's known limits.
 
 ## 2026-10-01 — Test 10 closed; adding one item to a list traced (Test 11 prepared, blocked)
 

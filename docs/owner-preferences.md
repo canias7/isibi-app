@@ -397,6 +397,18 @@
   policy or start a paid run during preparation."* A capability or testing
   gap found on the way is explained, with the smallest next step proposed,
   not built.
+- **A new entry's id is the database's to give, and an expectation never
+  predicts it; real model routing stays unproven until a live run.** Asking
+  for Test 11's capability to be built (2026-10-01): *"Correct Test 11's
+  expectation: the new ID is database-assigned, not necessarily 7. Verify
+  the new item appears in both the sorted list and the order form's
+  choices. Keep actual model routing marked unproven until a live run
+  exercises it."* For the build: *"Keep it universal—no bakery-specific
+  rules."*, *"Share the existing parameterized insertion logic instead of
+  copying it."*, *"Use a stateful test fixture containing existing rows."*,
+  *"Use the existing job and billing machinery."* And its bounds: *"No
+  merge, deployment, live data writes or paid calls yet. Leave demo data as
+  it stands."*
 - **A reading the owner's reviewer verified is recorded as theirs, and the
   manual check offered for it is withdrawn.** After run 84 (2026-10-01):
   *"ChatGPT independently verified Supabase … Record that verification and

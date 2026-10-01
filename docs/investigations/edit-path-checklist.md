@@ -107,16 +107,22 @@ request.**
 - The bakery stays at version `dgmag4`. A sort limited to a selection of
   pages stays unproven with real models. Not to be repeated.
 
-**Test 11, one item added to an existing list: prepared, not runnable yet**
-(*Test 11*, below; free analysis only, nothing spent). Under the owner's rule
-(*"Add will always go in addon"*) the request reaches the add-on step, and
-**none of its nine kinds adds a row to a table the site already has**: a
-table's seed fills only an empty table. Rehearsed through the real add-on
-route with supplied answers: every plausible answer ends in a refusal or in
-a false success (a hand-written card published on `/order`, the list
-unchanged). The smallest next step, proposed: one add-on kind for a new
-entry in an existing list, writing with the data step's own insert, and the
-canary able to post an add-on press.
+**Test 11, one item added to an existing list: prepared, then its
+capability built on the branch (2026-10-01, on the owner's word), not merged
+or deployed** (*Test 11*, below). Under the owner's rule (*"Add will always
+go in addon"*) the request reaches the add-on step, and **none of its nine
+kinds added a row to a table the site already has**: a table's seed fills
+only an empty table, and every plausible answer ended in a refusal or in a
+false success (a hand-written card published on `/order`, the list
+unchanged). **Built**: a tenth add-on kind, `row`, that writes a new entry to
+a display list the site already stores with the data step's own
+parameterised insert (shared, not copied), returns the row the database
+saved with its own id, and changes no page; one statement saves the entries
+and the request's key together, so a duplicate submission or a replayed job
+saves nothing twice and charges once; and the canary can post an add-on
+press when its route box says `intent=addon`. Shown with supplied answers
+only: **real model routing and the real picker are unproven** until a live
+run exercises them. `docs/history/2026-10-01-add-row.md`.
 
 **Lane 1 (2026-09-30): four corrections, merged and deployed in deploy 2171
 (`29111010`, image `cdb624837e099719`; the deployment credited by the owner),
@@ -303,7 +309,8 @@ the owner's free press, run 51, at 22:57 UTC):
    a pass. **Removing is closed by the owner** (run 80, after the row
    check's first live run, 79; the data picker's delete instructions were
    corrected first, Lane 1a, deploy 2171). Adding goes to the add-on step
-   (the owner, 2026-10-01), which cannot add a row yet (*Test 11*).
+   (the owner, 2026-10-01), whose `row` kind is built on the branch and not
+   yet merged, deployed or shown live (*Test 11*).
    **Reordering is closed by the owner** (Test 10, run 84, 2026-10-01).
 6. **The rules rung beyond one closing**: reopening, closing by taking write
    access away, limits, and any other wording or site.
@@ -1239,8 +1246,8 @@ approves it.
 - **Still open**:
   - adding a row to a list (deleting is closed by the owner: run 80,
     2026-09-30; reordering closed by the owner: Test 10, run 84,
-    2026-10-01). Adding goes to the add-on step, which cannot add a row
-    yet (*Test 11*);
+    2026-10-01). Adding goes to the add-on step, whose `row` kind is built
+    on the branch, not merged and not shown live (*Test 11*);
   - broader rules;
   - the picture swap;
   - a correct component on the first attempt;
@@ -1313,7 +1320,7 @@ digest), so they are built one after the other in the same file.
 
 | # | Decision | Why it blocks | What each answer leads to |
 |---|---|---|---|
-| 2a | Which step adds a row to a list the site already has: the add-on step (your 2026-09-02 rule, *"Add will always go in addon"*) or the data picker, which can already insert | an "add a row" acceptance has no expected route until this is decided | **Answered by the owner (2026-10-01): the add-on step** (*"Respect my existing rule: 'Add will always go in addon.'"*). The earlier reading here, "no product change", was wrong: traced on 2026-10-01, no add-on kind adds a row to a table the site already has (*Test 11*). So it needs a product change and a canary change. |
+| 2a | Which step adds a row to a list the site already has: the add-on step (your 2026-09-02 rule, *"Add will always go in addon"*) or the data picker, which can already insert | an "add a row" acceptance has no expected route until this is decided | **Answered by the owner (2026-10-01): the add-on step** (*"Respect my existing rule: 'Add will always go in addon.'"*). The earlier reading here, "no product change", was wrong: traced on 2026-10-01, no add-on kind adds a row to a table the site already has (*Test 11*). So it needs a product change and a canary change. **Both built on the branch on 2026-10-01** (the `row` kind and the canary's add-on press; not merged). |
 | 2b | Whether reordering a list ("show the cheapest first") is `data` | the router says nothing about order, and a misroute to the page writer costs 6–22. **Traced 2026-09-30** (*Test 10*): a list's order is page code on every demo site, the site-wide sort lane is in the data rung, and the router reaches it by no rule. **Decided by the owner, 2026-09-30, the scope corrected 2026-10-01**: a sort across the whole site is `data` (the site-wide sorter); a sort limited to one named page is `page`; a selection of pages is never sent to the sorter (the closing rule decides it); no "whatever page they saw it" rule | Built (lane 3's sort half), its scope corrected, and merged and deployed in deploy 2174; then Test 10. |
 | 2c | The broader-rules fixture: reopening `lido-axes-b`'s bookings, which you asked to keep closed, or a new disposable site (a first build, 11–45) | its only fixture is closed by your instruction | either way, one bounded rules acceptance afterwards |
 | 2d | Whether to take on the picture swap's product work: attachments reaching the picture step, the picker told which file fills which slot, and no fal purchase when a file is given | no natural message can reach it today without buying a photograph | yes: a product round of its own, later. No: it stays open. |
@@ -1342,8 +1349,9 @@ accepted test.
 - **Delete** (after 1a): on `fretwork-1`, one row deleted through the edit
   path. **Closed by the owner** (run 80, after run 79's free rehearsal,
   2026-09-30; *Lane 4's delete*, below).
-- **Add**: 2a answered (the add-on step). *Test 11* is prepared and waits on
-  the add-on step's missing row capability and the canary's add-on press.
+- **Add**: 2a answered (the add-on step). *Test 11*'s row capability and
+  the canary's add-on press are built on the branch (2026-10-01); the press
+  waits on a merge, a deploy, a free runtime check and a top-up.
 - **Reorder**: **closed by the owner** (Test 10, run 84, 2026-10-01).
 - **Rules, picture swap and component**: after 2c–2e.
 - **Follow-up after a failure**: closed by the owner (Test 9, run 82,
@@ -1360,7 +1368,7 @@ in the next data press.
 - **Then**: one merge, one free runtime check, and the lane 4 presses. Those
   on different sites can overlap a minute apart, as Batch 1's did.
 
-## Test 11 — one item added to an existing list (prepared 2026-10-01 on the owner's word, after Test 10 was closed; free analysis only, nothing spent, no routing change; not runnable yet: no add-on kind adds a row to a table the site already has)
+## Test 11 — one item added to an existing list (prepared 2026-10-01 on the owner's word, after Test 10 was closed; free analysis only, nothing spent, no routing change; its capability — the add-on `row` kind — and the canary's add-on press built on the branch the same day on the owner's word, verified free, not merged or deployed; real model routing unproven; the expectation corrected: the new entry's id is the database's, not necessarily 7)
 
 **The owner**: *"Next, prepare the remaining 'add one item to an existing
 list' test using free analysis only. Respect my existing rule: 'Add will
@@ -1432,18 +1440,25 @@ real model's answer ends in one of two ways:
 
 ### Testing support
 
-- **The canary cannot press it.** Its one-request path refuses unless the
-  router answers `edit` with a layer ("REFUSING TO SPEND: the router did not
-  name an edit layer"), so an `addon` answer is refused after the routing
-  call. The route box can already say `intent=addon`.
+- **The canary could not press it** (as prepared): its one-request path
+  refused unless the router answered `edit` with a layer ("REFUSING TO
+  SPEND: the router did not name an edit layer"). **Built on the branch
+  (2026-10-01)**: when the route box says `intent=addon` and the router
+  answers `addon`, the canary posts the add-on request exactly as the
+  browser's `siteAddon` does (`scripts/canary-addon.mjs`), watches the job,
+  composes the customer's screen with the add route's own composer, and
+  passes only on an `ok` answer, saying what was saved. Without
+  `intent=addon` in the box an `addon` answer is still refused as before; an
+  `edit` answer to a box expecting an addition is refused by the route check.
 - **The rows box can pin the table before** the press: Test 10's box still
   reads `as named`. The after-checks would be free reads, as in Test 10.
 - The UI mode follows the app's own add-on request, but would need a new
   named scenario.
 - `scripts/addon-sweep.mjs` posts to the add-on route directly, so it skips
-  the router.
+  the router. Its new `row` case runs only when typed by name, never under
+  `all`, because it writes a real entry.
 
-### The test, as prepared (not runnable until the gap is closed)
+### The test (runnable once the branch is merged and deployed, after a free runtime check and a top-up)
 
 - **Site**: `fold-lane-bakery` at `01790819484141-dgmag4`, as the owner left
   it after Test 10.
@@ -1452,7 +1467,8 @@ real model's answer ends in one of two ways:
   light rye with toasted caraway."* "Today's loaves" is the list's own label
   on `/order` (`order.tsx` line 165).
 - **Expected route**: `intent=addon`, nothing held back (the route box
-  `intent=addon alsoAsked=none`).
+  `intent=addon alsoAsked=none`). The canary posts the router's `addon`
+  answer to the add-on route only because the box says so.
 - **The baseline** (read 2026-10-01 at 02:45 UTC, free, read-only, as a
   visitor; identical to the after-read of Test 10's run 84 at 01:57):
   - `loaves` read whole: 200, `0-5/6`, 1,045 bytes, sha256 `ef870ebc…`, the
@@ -1464,13 +1480,30 @@ real model's answer ends in one of two ways:
     £5.40, Olive & Rosemary £5.80, Walnut Levain £6.00;
   - all six redirect probes as at 01:57;
   - full-page screenshots of the five pages.
-- **Expected result**:
+- **Expected result** (corrected 2026-10-01 on the owner's word: *"the new
+  ID is database-assigned, not necessarily 7"*):
   - exactly one new row in `loaves`: `name` "Rye & Caraway", `price` 5,
     `description` "A light rye with toasted caraway.", `photo` null, with
-    `id` 7 and `created_at` the database's own;
-  - `/order` lists seven loaves, Rye & Caraway £5.00 third, after Sea Salt
-    Focaccia £4.50 and Country White £4.80;
-  - a reply naming the loaf and the list.
+    **the `id` the database assigns** and `created_at` its own. The id is
+    read back, never predicted: from the add-on reply (`rows[0].id`, the row
+    as stored) and from the whole-table read after the press. A visitor
+    cannot read the sequence, and a table that has lost rows keeps counting
+    past them (the stateful fixture starts its sequence at 12 to make that
+    point);
+  - **on `/order`, the new loaf in both the sorted list and the order form's
+    choices.** On the bakery those are one control: "Today's loaves" is the
+    order form's `RadioCards` group, fed by the page's own read
+    (`/api/db/fold-lane-bakery/data/loaves?select=*&order=price.asc`, read
+    free on 2026-10-01 as a visitor). So the check is two-fold on it:
+    - the list: seven choices in price order, Rye & Caraway £5.00 third,
+      after Sea Salt Focaccia £4.50 and Country White £4.80;
+    - the choice: Rye & Caraway's card carries the new id as its value
+      (each card's value is `String(l.id)`, read on the live page: today the
+      six cards carry 6, 1, 2, 3, 4, 5), so the form would order that loaf.
+      No order is placed: that would be a live write;
+  - a reply naming the loaf, the list and the id the database gave it, from
+    the browser's own composer: "✅ Done — added “Rye & Caraway” to loaves
+    (entry N).".
 - **Unrelated content to preserve**:
   - the six existing rows, every field (the whole-table read before and
     after);
@@ -1482,13 +1515,15 @@ real model's answer ends in one of two ways:
   - on `/order`, the region above the list identical, and the region below
     it identical one card lower;
   - headings, menus, the stored description and the redirects unchanged.
-- **Estimated cost, once runnable**: about 3–4 credits. That is routing 1–2,
-  plus about 2 for the add-on picker and one row designer (2 credits is the
-  measured price of an add-on that changes no page, `docs/addon-path.md`).
-  The balance is 3, so a top-up comes first. Pressed today, it would spend
-  the routing (1–2) and be refused by the canary.
+- **Estimated cost, once runnable**: about 3–4 credits, not a cap. That is
+  routing 1–2, plus the add-on's own charge: the picker and one row
+  designer, billed once as `pageCredits` of their two usages, at least 1
+  and measured at 2 for an add-on that changes no page
+  (`docs/addon-path.md`). Under a job it is reserved before the write and
+  refunded if the write fails; inline it is collected after the write. The
+  balance is 3, so a top-up comes first.
 
-### The smallest next step (proposed, not built)
+### The smallest next step (proposed; then built on the owner's word, below)
 
 1. **One add-on kind, `row`: a new entry in a list the site already stores.**
    - Its designer is shown each existing display table with its columns, and
@@ -1513,6 +1548,72 @@ real model's answer ends in one of two ways:
    and a top-up.
 
 No routing policy changes in any of it.
+
+### Built on the branch (2026-10-01, on the owner's word; not merged or deployed)
+
+**The owner**: *"Proceed with the bounded implementation for Test 11 on the
+designated branch. Add support for inserting entries into an existing display
+table through the add-on path, preserving 'Add will always go in addon.' Keep
+it universal—no bakery-specific rules."* With: validation against the site's
+stored schema and eligible display tables; the existing parameterised insert
+shared, not copied, and the edit behaviour preserved; the inserted row and its
+database-assigned id returned; rows, schema, permissions and page source
+preserved, with no page-generation call or publication; the canary extended to
+post the real add-on answer when the box expects `intent=addon`; a stateful
+fixture with existing rows; the existing job and billing machinery; and *"No
+merge, deployment, live data writes or paid calls yet. Leave demo data as it
+stands."*
+
+Steps 1 and 2 above, as built (`docs/history/2026-10-01-add-row.md`; the
+kind's law is `docs/addon-path.md`, *THE `row` KIND*):
+- **The `row` kind**: a display list the site stores (`rowTables`, by
+  `resolveAccess` against the display preset, the data step's own
+  condition), its declared columns only, `id` and `created_at` always the
+  database's; each refusal named, at no cost.
+- **The write**: the data step's own `insertStatement` and `rowValues`, moved
+  to `builder/site-rows.mjs` and imported by both doors (the data step's
+  statement byte for byte unchanged); every entry `RETURNING *`, beside the
+  request's `_meta` key, in one statement.
+- **The reply**: the rows as the database stored them, with their ids; no
+  page call, compile or publish.
+- **Duplicates and replays**: the key is read before the picker (a repeat
+  answers what was saved, with no model call and no second charge), and two
+  runs racing past it collide on `_meta`'s primary key, which rolls the
+  loser back whole.
+- **The money**: one charge with the existing machinery — under a job,
+  reserved before the write and refunded by the consumer when the write
+  fails; inline, collected after a write that landed.
+- **The canary**: posts the router's `addon` answer only when the box says
+  `intent=addon`; every other press is refused or posted exactly as before.
+
+### Verified free (2026-10-01)
+
+- **Red check**, the new tests on the code before (`c91d1c3e`): 44 tests, 42
+  fail, 2 pass — the two controls (an unasked addition refused as before; an
+  edit answer to a box expecting an addition refused by the route check).
+  Before the fix the route answered `no-add` and wrote nothing.
+- **After**: `test/addon-row.test.mjs` 35 of 35 and
+  `test/canary-addon.test.mjs` 9 of 9 — preservation, five invalid targets,
+  a decline, a partial answer, write failures (sync and queued, refunded),
+  a duplicate entry, a missing `_meta`, a refused reserve, duplicate
+  submission and four replay shapes with one row and one charge, two
+  entries in order, and a row beside other kinds.
+- **Postgres 16** (local): the real statement, untyped parameters, ids 12
+  and 13 on a table that had lost rows, a replay refused whole on
+  `_meta_pkey`, 22P02 and a unique key refused whole, 42P01 with no `_meta`.
+- **Sweep**: 49 mutants, 3 comment-only controls; 47 killed and 2 survivors
+  whose observations were then added (both killed on the re-run, the
+  control surviving).
+- **`/order`, read as a visitor**: the order form's choices are the price
+  list, each choice's value the loaf's id; a preview with the entry in the
+  page's own read showed it third, value 12.
+- **Full suite** on the code commit `a54ceae4`: `8471 / 8471 / 0 / 0`
+  locally (the base `c91d1c3e`: `8427 / 8427 / 0 / 0`, the 44 more being the
+  two new files). Unit CI and site build: read after the push.
+- **The image rolls on merge**, predicted from git objects:
+  `b8c8789aa8e395d6` → `66d4f686aed60de0` (189 inputs, 159 distinct).
+- **Not shown**: real model routing, the real picker and designer, and any
+  live write.
 
 ## Test 10 — a stored list re-sorted, with real models (prepared 2026-09-30 on the owner's word, after Test 9 was closed; free preparation only; the order traced on all three demo sites; rehearsed with supplied answers through the real lane and the real edit route; decision 2b taken by the owner the same day with a scope correction: a sort across the whole site goes to the data sorter, a sort limited to one named page to the page editor, and no "whatever page they saw it" rule; the rule implemented on the branch with committed route coverage, and its scope corrected on 2026-10-01 so that a selection of pages is never sent to the sorter; passed by the owner and merged and deployed in deploy 2174 (2026-10-01); the request revised to state its scope; the baseline read; the authorized free dispatch refused (403); the owner's free press, run 83, confirmed the runtime and rehearsed Test 10, passing every check; the paid press run as run 84, 3 credits, every acceptance item met; closed by the owner the same day for run 84's demonstrated request, the bakery left at `dgmag4`, not to be repeated)
 

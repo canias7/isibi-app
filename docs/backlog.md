@@ -83,15 +83,25 @@ here; take a closed one out of both.**
   observed once, not changed.
 - **The add-on step cannot add a row to a table the site already has**: no
   kind inserts one, and a table's seed fills only an empty table. Test 11
-  waits on it. Found 2026-10-01 (supplied answers), not changed.
+  waits on it. Found 2026-10-01 (supplied answers). **Built on the branch
+  the same day: the add-on `row` kind (not merged, not shown live).**
 - The seed-skip sentence drops its reason: "loaves: already has rows" is
   told as "isn't one visitors can read, so it starts empty". Found
   2026-10-01 (supplied answers), not changed.
 - The add-on route's test fixture reads every table as empty (its existence
   probe answers no rows), so a seed into an existing table looks inserted.
-  Found 2026-10-01, not changed.
+  Found 2026-10-01. **Addressed for the new tests**: a stateful database
+  fixture with rows (`test/fixtures/rows-db.mjs`), taken by the route
+  fixture opt-in; its own default is unchanged.
 - The edit canary cannot press an add-on: it refuses unless the router
-  answers `edit` with a layer. Found 2026-10-01 (read), not changed.
+  answers `edit` with a layer. Found 2026-10-01 (read). **Built on the
+  branch the same day**: with the route box `intent=addon` it posts the
+  add-on request (not merged).
+- The add-on `row` step's known limits: a database with no `_meta` table
+  cannot take an entry; a value its column cannot read is told as a generic
+  write failure; one `_meta` key per request is never removed; a list named
+  in another letter case is refused, as the data step refuses it. Found
+  2026-10-01 building it, not changed.
 - ~~No route test drives a successful sort to its publish~~: covered
   (`test/edit-list-sort.test.mjs`, both paths, 2026-09-30).
 - A natural message cannot hand the picture step a new photograph without
@@ -243,6 +253,11 @@ here; take a closed one out of both.**
   - Proposed: one add-on kind for a new entry in an existing list, writing
     with the data step's own insert, with no page call and no publish.
     *Test 11* in the checklist.
+  - **Built on the branch on 2026-10-01, on the owner's word** (not merged,
+    not deployed, not shown live): the `row` kind, written with the data
+    step's own insert (`builder/site-rows.mjs`), its entries and the
+    request's key in one statement, no page call and no publish.
+    `docs/history/2026-10-01-add-row.md`.
 - **THE SEED-SKIP SENTENCE DROPS ITS REASON (found 2026-10-01; not
   changed).** `seedSkipNote` (`builder/site-add.mjs`) keeps the table name
   before the colon and says "that table isn't one visitors can read, so it
@@ -254,11 +269,42 @@ here; take a closed one out of both.**
   `SELECT 1 AS x FROM "<table>" LIMIT 1` with no rows. So a seed for an
   existing table is inserted (`seeded: {loaves: 1}`), where the live
   product skips it. A test of adding rows must model a table that has them.
+  **Addressed for the new tests (2026-10-01)**: `test/fixtures/rows-db.mjs`
+  is a database that remembers — tables that already hold rows, an identity
+  sequence, the column types, `_meta`'s key — and `addon-route.mjs` takes
+  it opt-in (`db`), so the existing tests and the fixture's default are
+  unchanged.
 - **THE EDIT CANARY CANNOT PRESS AN ADD-ON (found 2026-10-01; not
   changed).** Its one-request path refuses unless the router answers `edit`
   with a layer, after the routing call. The route box can already say
   `intent=addon`. Proposed beside the add-on row kind: post an `addon`
-  answer to the add-on route as the browser does.
+  answer to the add-on route as the browser does. **Built on the branch on
+  2026-10-01** (`scripts/canary-addon.mjs`; not merged): only when the box
+  says `intent=addon` and the router answers `addon`; otherwise refused as
+  before.
+- **THE ADD-ON `row` STEP'S KNOWN LIMITS (found 2026-10-01 building it; not
+  changed).**
+  - **A database with no `_meta` table cannot take a new entry.** The one
+    statement saves the entries beside the request's key in `_meta`, so it
+    is refused whole (42P01) and nothing is saved: the honest outcome, but
+    told as "the database didn't accept it … try again in a moment", which
+    will fail again. A real state (`META_TABLE_SQL`'s note in
+    `site-schema.mjs`: a recovery meets it); the check before the picker
+    reads a missing `_meta` as nothing saved, so other additions, whose
+    schema apply makes `_meta`, are not stopped by it.
+  - **A value the column cannot read is told as a generic write failure.**
+    "£5.00" for a number is Postgres's 22P02, and the reply says the
+    database didn't accept the entry, with the code in `detail`, not what
+    was wrong with it. The designer is told "a number as a number".
+  - **One `_meta` key per request that saved entries is never removed**
+    (`addon-row:job:<id>` or `addon-row:idem:<key>`, a few hundred bytes
+    each).
+  - **A list named in another letter case is refused** (`Loaves` for
+    `loaves`, "This site doesn't store a list by that name"), as the data
+    step matches table names exactly.
+  - By design for this bounded change: a `row` beside other kinds is set
+    aside and named, never written; the canary's after-read sentence says
+    "the edit did not publish" for an addition.
 - **A DATA-STEP JOB'S ROW READS `routing` UNTIL IT PUBLISHES (found
   2026-10-01 in Test 10's run 84; not changed).** The canary's poll printed
   `routing` from 18 s to 112 s and `publishing` at 126 s, while the sort

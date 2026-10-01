@@ -272,6 +272,13 @@ many words, because the line sat at the page. Four hops, each guarded:
   `look`/`logo` dead gate again, one step over: a first build provisions none,
   so `no-backend` had sent every "add a QR code" on most of the platform to a
   rebuild.
+- **One more entry in a list the site already stores is the add-on step's
+  too** (the owner, 2026-10-01, answering 2a). It is the add-on `row` kind
+  (built on the branch, not merged; `docs/addon-path.md`, *THE `row`
+  KIND*). The data step's INSERT for a new row is now shared with it
+  (`insertStatement` and `rowValues` in `builder/site-rows.mjs`), byte for
+  byte the statement the data step always wrote; the data step itself, its
+  routing and its other writes are unchanged.
 
 ### WHAT THE EDIT'S PAGE RUNG PRESERVES (2026-09-20 → 09-21)
 
