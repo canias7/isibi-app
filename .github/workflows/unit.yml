@@ -25,6 +25,13 @@ on:
 permissions:
   contents: read
 
+# ONE RUN PER BRANCH (2026-10-01). A push while a run is going cancels the older
+# one: only the newest commit of a round of corrections can be merged, and the
+# suite reads the whole tree, so its run covers the commits it replaced.
+concurrency:
+  group: unit-tests-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest

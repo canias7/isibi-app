@@ -167,14 +167,19 @@ test("every step that launches a browser runs after one that installs it", () =>
 test("site build installs the browser before both of its browser steps", () => {
   // The specific regression, pinned by name. The derived test above is the
   // general rule; this one fails with the name of the file that broke.
-  const steps = jobsOf(fs.readFileSync(path.join(DIR, "site-build.yml"), "utf8"))[0].steps;
-  const installAt = steps.findIndex((s) => INSTALLS.test(s));
-  const render = steps.findIndex((s) => /theme-render\.mjs/.test(s));
-  const runtime = steps.findIndex((s) => /site-runtime\.mjs/.test(s));
-  assert.ok(installAt !== -1 && render !== -1 && runtime !== -1,
-    `install ${installAt}, theme-render ${render}, site-runtime ${runtime} — a step went missing`);
-  assert.ok(installAt < render, "theme-render runs before the browser is installed");
-  assert.ok(installAt < runtime, "site-runtime runs before the browser is installed");
+  //
+  // PER JOB SINCE 2026-10-01, when `site build` became parallel jobs: each
+  // browser step is checked against the install in ITS OWN job, because an
+  // install in another job is on another runner and does nothing for it.
+  const jobs = jobsOf(fs.readFileSync(path.join(DIR, "site-build.yml"), "utf8"));
+  for (const [script, name] of [[/theme-render\.mjs/, "theme-render"], [/site-runtime\.mjs/, "site-runtime"], [/site-build\.mjs/, "site-build"]]) {
+    const job = jobs.find((j) => j.steps.some((s) => script.test(s)));
+    assert.ok(job, `no job in site-build.yml runs ${name} — a step went missing`);
+    const installAt = job.steps.findIndex((s) => INSTALLS.test(s));
+    const at = job.steps.findIndex((s) => script.test(s));
+    assert.ok(installAt !== -1, `${job.job} runs ${name} and never installs the browser`);
+    assert.ok(installAt < at, `${name} runs before the browser is installed in ${job.job}`);
+  }
 });
 
 test("a workflow triggers on changes to the scripts it runs", () => {

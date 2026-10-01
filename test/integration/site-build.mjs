@@ -12,6 +12,7 @@
 //   cd builder/lovable/template && npm ci
 //   node test/integration/site-build.mjs
 import { spawn } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
@@ -64,7 +65,40 @@ function themeAsSeeds(name) {
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const TEMPLATE = path.join(ROOT, "builder", "lovable", "template");
-const PORT = 8123;
+// 8123 unless told otherwise, so two shards can run side by side on one machine
+// (the sandbox is already a fresh `mkdtemp` per process).
+const PORT = Number(process.env.SITE_BUILD_PORT) || 8123;
+
+// ── SECTIONS AND SHARDS (2026-10-01) ─────────────────────────────────────────
+//
+// THIS FILE WAS 18 OF THE 24½ MINUTES `site build` TOOK: 1,088 seconds of real
+// builds, one after another, through one service (run 36832053168 on
+// 2188f706). So the checks below are grouped into SECTIONS, each a block that
+// names the shard it runs in, and CI runs the four shards at once, each on its
+// own runner with its own service, sandbox and port. A gate job then refuses
+// the run unless every section ran exactly once, in its own shard, and passed.
+//
+// WITH NO SHARD SET THIS IS THE FILE IT WAS: every section, in order, through
+// one service. `SITE_BUILD_SHARD=n` runs the preamble (the sandbox, the
+// service, /health) and then shard n's sections, in file order. The checks are
+// the same lines either way, and a shard fails on what the whole file failed
+// on. The sections are NOT re-indented, so every line keeps its place and the
+// landmarks other suites read out of this file still match.
+//
+// A CUT IS SAFE ON TWO COUNTS, and neither is taken on trust:
+//   - NAMES. Each section is its own block, so one that read a binding another
+//     section declares would throw in every mode; `test/site-build-shards.test.mjs`
+//     resolves every name in the file and fails on any such read.
+//   - STATE. A check that relies on what an EARLIER build left behind in the
+//     container names that section in `needs`, and refuses to run unless it
+//     ran first in the same process: the reset of the routes, and the logo and
+//     language that must not leak into the next site.
+//
+// `SITE_BUILD_SECTIONS=a,b` runs only those sections: a focused run while
+// correcting something, never evidence, because the gate takes shard reports
+// only. `SITE_BUILD_REPORT=<file>` writes what ran, check by check, for the gate
+// (`scripts/site-build-gate.mjs`).
+const SHARDS = 4;
 
 /**
  * How deeply nested is `at`? Zero means top level — for a CSS rule, UNLAYERED.
@@ -97,7 +131,85 @@ let passed = 0, failed = 0;
 const ok = (name, cond, extra) => {
   if (cond) { passed++; console.log(`  ok   ${name}`); }
   else { failed++; console.log(`  FAIL ${name}${extra ? "\n       -> " + String(extra).slice(0, 900) : ""}`); }
+  tally(name, cond);
 };
+
+// Which shard this process runs (0: all of them), or which named sections.
+const SHARD = process.env.SITE_BUILD_SHARD ? Number(process.env.SITE_BUILD_SHARD) : 0;
+const ONLY = (process.env.SITE_BUILD_SECTIONS || "").split(",").map((s) => s.trim()).filter(Boolean);
+if (process.env.SITE_BUILD_SHARD && !(Number.isInteger(SHARD) && SHARD >= 1 && SHARD <= SHARDS)) {
+  console.error(`SITE_BUILD_SHARD must be a whole number from 1 to ${SHARDS}, not ${JSON.stringify(process.env.SITE_BUILD_SHARD)}`);
+  process.exit(2);
+}
+if (SHARD && ONLY.length) {
+  console.error("SITE_BUILD_SHARD and SITE_BUILD_SECTIONS choose two different runs: set one");
+  process.exit(2);
+}
+const preamble = { checks: [], failed: 0 };
+const sections = [];                 // every section reached, in file order, run or not
+let current = null;                  // the section whose checks are being counted
+let completed = false;               // the try block reached its end
+
+/** Does the section that starts here run in this process? */
+function SECTION(name, shard, { needs = [] } = {}) {
+  if (!Number.isInteger(shard) || shard < 1 || shard > SHARDS) throw new Error(`section ${name}: shard ${shard} is not 1 to ${SHARDS}`);
+  if (sections.some((s) => s.name === name)) throw new Error(`section ${name} is declared twice`);
+  closeSection();
+  const run = ONLY.length ? ONLY.includes(name) : (!SHARD || SHARD === shard);
+  const s = { name, shard, needs, ran: run, checks: [], failed: 0, ms: 0 };
+  sections.push(s);
+  if (!run) return false;
+  for (const n of needs) {
+    const dep = sections.find((x) => x.name === n);
+    if (!dep || !dep.ran) {
+      throw new Error(`section ${name} relies on what section ${n} leaves behind, and ${n} ` +
+        (dep ? "did not run first in this process" : "is not above it") + " — run them together");
+    }
+  }
+  current = s;
+  s.t0 = Date.now();
+  console.log(`\n── section ${name} (shard ${shard} of ${SHARDS})`);
+  return true;
+}
+
+function closeSection() {
+  if (!current) return;
+  current.ms = Date.now() - current.t0;
+  delete current.t0;
+  current = null;
+}
+
+/** Every check, counted where it ran: the preamble or the open section. */
+function tally(name, cond) {
+  const into = current || preamble;
+  into.checks.push(name);
+  if (!cond) into.failed++;
+}
+
+/** What this process ran, for the gate. Written only when asked for. */
+function writeReport() {
+  const file = process.env.SITE_BUILD_REPORT;
+  if (!file) return;
+  const abortedIn = current ? current.name : null;    // an uncaught throw leaves its section open
+  closeSection();
+  const report = {
+    v: 1,
+    harness: "test/integration/site-build.mjs",
+    harnessSha256: crypto.createHash("sha256").update(fs.readFileSync(fileURLToPath(import.meta.url))).digest("hex"),
+    sha: process.env.GITHUB_SHA || null,
+    mode: ONLY.length ? "sections" : SHARD ? "shard" : "all",
+    shard: SHARD || null,
+    shards: SHARDS,
+    port: PORT,
+    completed,
+    abortedIn,
+    passed,
+    failed,
+    preamble,
+    sections,
+  };
+  fs.writeFileSync(file, JSON.stringify(report, null, 1) + "\n");
+}
 
 if (!fs.existsSync(path.join(TEMPLATE, "node_modules"))) {
   console.error("the template's dependencies are not installed — run `npm ci` in " + TEMPLATE);
@@ -682,6 +794,7 @@ try {
   ok("the build service answers /health", up);
   if (!up) throw new Error("build service never came up");
 
+  if (SECTION("job-door", 3)) {
   // ── THE JOB RUNNER'S DOOR, THROUGH THE REAL SERVICE (2026-09-05) ─────────
   //
   // `POST /job/run` is how a queued edit comes to run INSIDE the site's
@@ -756,7 +869,9 @@ try {
     const gone = await fetch(`http://127.0.0.1:${PORT}/job/no_such_job_1`);
     ok("GET /job/<id> answers 404 for a job this service never ran", gone.status === 404, `status ${gone.status}`);
   }
+  }
 
+  if (SECTION("job-stop", 3)) {
   // ── A CHILD IS STOPPED FROM OUTSIDE (stage 5d, 2026-09-06) ────────────────
   //
   // `DELETE /job/<id>` sends the child SIGTERM; the runner turns it into an
@@ -806,7 +921,9 @@ try {
     const busy2 = await (await fetch(`http://127.0.0.1:${PORT}/busy`)).json().catch(() => ({}));
     ok("…and the container is not held busy after a stopped child", busy2 && !busy2.busy, JSON.stringify(busy2).slice(0, 120));
   }
+  }
 
+  if (SECTION("job-build", 3)) {
   // ── A BUILD LAUNCH THROUGH THE REAL RUNNER (stage 5b, 2026-09-06) ────────
   //
   // `kind: "build"` runs the Worker's BUILD consumer inside the container:
@@ -850,7 +967,9 @@ try {
     const busy3 = await (await fetch(`http://127.0.0.1:${PORT}/busy`)).json().catch(() => ({}));
     ok("…and the container is not held busy after it", busy3 && !busy3.busy, JSON.stringify(busy3).slice(0, 120));
   }
+  }
 
+  if (SECTION("model-call", 3)) {
   // ── THE CONTAINER CAN MAKE THE MODEL CALL, DRIVEN ──────────────────────────
   //
   // Page generation is moving here because a queue consumer is capped at
@@ -901,7 +1020,9 @@ try {
     ok("…and three failed /model calls left the queue empty, not permanently busy",
       busy && busy.busy === false && busy.jobs === 0, JSON.stringify(busy));
   }
+  }
 
+  if (SECTION("model-start", 3)) {
   // ── FIRE AND STORE, DRIVEN ──────────────────────────────────────────────────
   //
   // The half that lets the Worker stop waiting: `/model/start` answers with an
@@ -977,7 +1098,9 @@ try {
     ok("…and a fired-and-forgotten job still released its queue slot when it settled",
       busyAfter && busyAfter.busy === false && busyAfter.jobs === 0, JSON.stringify(busyAfter));
   }
+  }
 
+  if (SECTION("model-fanout", 3)) {
   // ── A FAN-OUT: N CALLS IN ONE JOB, DRIVEN ───────────────────────────────────
   //
   // The band split writes a page a band at a time, so `/model/start` takes
@@ -1084,7 +1207,9 @@ try {
     ok("…and the fan-out released its one queue slot when it settled",
       busyOut && busyOut.busy === false && busyOut.jobs === 0, JSON.stringify(busyOut));
   }
+  }
 
+  if (SECTION("model-durable", 3)) {
   // ── THE ANSWER LEAVES THE CONTAINER'S MEMORY, DRIVEN ────────────────────────
   //
   // `MODEL_JOBS` is a Map in ONE instance's memory. Cloudflare does not promise
@@ -1200,7 +1325,9 @@ try {
       await new Promise((r) => sink.close(r));
     }
   }
+  }
 
+  if (SECTION("two-page", 3)) {
   console.log("\nbuilding a two-page site…");
   const t0 = Date.now();
   // `lang` rides on the main build rather than costing its own: it is a
@@ -1839,7 +1966,9 @@ try {
     const bytes = names.reduce((n, k) => n + ((built.files[k].t || "").length || (built.files[k].b || "").length), 0);
     ok("the bundle is the expected order of magnitude", bytes > 100_000 && bytes < 4_000_000, bytes + " bytes");
   }
+  }
 
+  if (SECTION("drawn-mark", 3)) {
   // ── the designer-drawn mark, through the real container (2026-08-28) ─────
   //
   // The unit suite proves `cleanFavicon` and the merge; what it structurally
@@ -1892,7 +2021,9 @@ try {
     ok("a wordmark build composes its card too", !!(((withMark.files || {})["card.png"] || {}).b),
       "the drawn-wordmark path through the compose did not land a card");
   }
+  }
 
+  if (SECTION("type-error", 3)) {
   // ── A TYPE ERROR SHIPS NOW (2026-08-30, owner) ─────────────────────────────
   //
   // Owner: "I want it to ship as it is, dont matter if its anything broken, even
@@ -1921,7 +2052,9 @@ try {
   ok("…and the build really produced a bundle rather than an empty pass",
     Object.keys(broken.files || {}).some((n) => n.endsWith(".js")),
     Object.keys(broken.files || {}).slice(0, 6).join(", ") || "(no files)");
+  }
 
+  if (SECTION("excluded-import", 3)) {
   // tsconfig EXCLUDES src/components/charts, because it is a catalogue rather
   // than application code and typechecking all 70 on every build cost 3s a site.
   // (src/blocks was excluded for the same reason until it was deleted
@@ -1965,7 +2098,9 @@ try {
     !!importsExcluded.typeErrors, JSON.stringify(importsExcluded).slice(0, 200));
   ok("and it is blamed on the excluded file, not the page",
     /chart-bar-label/.test(importsExcluded.typeErrors || ""), (importsExcluded.typeErrors || "").slice(0, 300));
+  }
 
+  if (SECTION("empty-state", 3)) {
   // ── the empty state, written the way the model actually writes it ───────────
   //
   // MEASURED, not imagined: on 2026-08-04 the page-gen eval scored 0/3, and all
@@ -2017,7 +2152,9 @@ function Home() {
   const emptyCompound = await post({ files: { "index.tsx": EMPTY_COMPOUND }, slug: "fold-coffee" });
   ok("the compound form DataList uses still compiles", emptyCompound.ok === true,
     (emptyCompound.stage || "") + ": " + String(emptyCompound.error || "").slice(0, 300));
+  }
 
+  if (SECTION("fonts", 4)) {
   // The typeface, which until 2026-07-30 no generated site had at all: the
   // template declared neither --font-sans nor --font-heading, so every site
   // rendered in whatever the visitor's machine defaulted to.
@@ -2066,7 +2203,9 @@ function Home() {
   ok("and it says so rather than silently substituting",
     !!(badFont.fonts && badFont.fonts.notes && badFont.fonts.notes.length),
     JSON.stringify(badFont.fonts));
+  }
 
+  if (SECTION("colour-override", 4)) {
   // ── ONE COLOUR, CHANGED ──────────────────────────────────────────────────
   //
   // Same class of check as the fonts above, and for the same reason: the
@@ -2105,7 +2244,9 @@ function Home() {
     ok("the theme still applied alongside it", all.length > ours.length,
       `${all.length} --background declarations, ${ours.length} of them ours`);
   }
+  }
 
+  if (SECTION("style-overrides", 1)) {
   // ── CORNERS ──────────────────────────────────────────────────────────────
   //
   // The one non-colour token, and the only place its behaviour is real: the
@@ -3446,7 +3587,9 @@ function Page() {
         `heavy ${heavy.join(",")} against dim ${dim.join(",")}`);
     }
   }
+  }
 
+  if (SECTION("unusable-style", 3)) {
   // A patch that cannot be used must not fail a build that otherwise worked —
   // and must not reach the stylesheet, which is the same discipline the colour
   // parser follows for the same reason: this goes into CSS.
@@ -3490,7 +3633,9 @@ function Page() {
       !/site tokens/.test(css),
       css.slice(0, 200));
   }
+  }
 
+  if (SECTION("refusals", 3)) {
   console.log("\nrejecting what must never be written…");
   const root = await post({ files: { "__root.tsx": "export const x = 1;" } });
   ok("the root layout cannot be overwritten", root.ok === false && /no valid route files/.test(root.error || ""), JSON.stringify(root).slice(0, 200));
@@ -3525,7 +3670,9 @@ function H() { return <main><h1>Contained</h1></main>; }
   ok("a path escaping src/routes cannot reach outside it", escaped.length === 0,
     escaped.slice(0, 4).join(", ") || JSON.stringify(esc).slice(0, 160));
   ok("nothing was written outside the sandbox", !fs.existsSync("/etc/passwd.tsx"));
+  }
 
+  if (SECTION("routes-reset", 3, { needs: ["unusable-style", "refusals"] })) {
   console.log("\nrebuilding to prove the routes are reset…");
   const solo = await post({ files: { "index.tsx": MENU.replace('createFileRoute("/menu")', 'createFileRoute("/")').replace("function Menu", "function Home").replace("component: Menu", "component: Home") }, slug: "fold-coffee", wordmark: "text" });
   ok("`text` is a full wordmark answer: nothing is drawn and the header keeps the name in type",
@@ -3533,7 +3680,9 @@ function H() { return <main><h1>Contained</h1></main>; }
     JSON.stringify({ file: !!(solo.files || {})["logo.svg"], wordmark: (solo.brand || {}).wordmark }));
   ok("a rebuild with fewer pages succeeds", solo.ok === true, solo.stage + ": " + solo.error);
   ok("the previous build's extra route is gone", !fs.existsSync(path.join(sandbox, "src/routes/menu.tsx")));
+  }
 
+  if (SECTION("concurrent", 3, { needs: ["two-page"] })) {
   // ── two builds at once ──────────────────────────────────────────────────────
   //
   // The reset above proves builds do not leak SEQUENTIALLY, and says nothing at
@@ -3607,7 +3756,9 @@ function Home() { return <main><h1>${brand}</h1></main>; }`;
       !A.includes("logo.png") && !B.includes("logo.png"),
       "the previous build's logo is still on disk and reached a site that never asked for one");
   }
+  }
 
+  if (SECTION("logo-and-serving", 2)) {
   // ── the logo in a real header, server-rendered ───────────────────────────
   //
   // ITS OWN BUILD, on a page that uses `SiteChrome` — the fixtures above render
@@ -4241,6 +4392,8 @@ function Home() {
   ok("a malformed version bakes as none", junkVer.ok === true && !(junkVer.worker && junkVer.worker.version), JSON.stringify(junkVer.worker && junkVer.worker.version));
   const junkHome = await serveAt(junkVer, "ver-site", layoutBucket, "/");
   ok("…and that script sends no version header", !!junkHome && junkHome.headers.get("x-site-version") === null, junkHome && junkHome.headers.get("x-site-version"));
+  }
+  if (SECTION("dead-link", 2)) {
   // ── a link to a page that does not exist ─────────────────────────────────────
   //
   // PROVEN AS A CHAIN, not as a regex. The unit test asserts validatePages rewrites
@@ -4289,7 +4442,9 @@ function Home() {
         .map(([, x]) => (x && typeof x === "object" ? x.t || "" : String(x))).join("").includes("/menu"),
       "the live route was rewritten too");
   }
+  }
 
+  if (SECTION("row-value", 4)) {
   // ── what a row VALUE is, proved by compiling ────────────────────────────────
   //
   // `Row` is the most load-bearing type the generator writes against, and the
@@ -4333,7 +4488,9 @@ function Home() {
       !!loose.typeErrors,
       `${loose.stage || "ok"}: ${String(loose.typeErrors || "").slice(0, 240)}`);
   }
+  }
 
+  if (SECTION("edit-shapes", 4)) {
   // ── the two shapes an edit can be written in ────────────────────────────────
   //
   // `useCreateRow` takes the columns bare, so `{ id, values: {...} }` is the
@@ -4376,7 +4533,9 @@ function P() {
       !!bogus.typeErrors,
       `${bogus.stage || "ok"}: ${String(bogus.typeErrors || "").slice(0, 240)}`);
   }
+  }
 
+  if (SECTION("salvage-stub", 4)) {
   // ── the salvage stub ────────────────────────────────────────────────────────
   //
   // A page that does not compile is replaced by `stubPage` and the container runs
@@ -4434,7 +4593,9 @@ function P() {
         html.slice(0, 300));
     }
   }
+  }
 
+  if (SECTION("render-check", 4)) {
   /* ---------------------------------------- 1.t: the check that LOOKS at it */
   //
   // THE ONLY THING THAT CAN VALIDATE THE PROBE. `test/site-render.test.mjs`
@@ -4615,7 +4776,9 @@ function P() {
       ((faint.render && faint.render.findings) || []).some((f) => f.kind === "contrast"),
       JSON.stringify((faint.render && faint.render.findings) || []).slice(0, 300));
   }
+  }
 
+  if (SECTION("comment-boundary", 4)) {
   // ── A COMMENT BETWEEN TWO CLASSES, ASKED OF A REAL CHROMIUM (2026-09-26) ──
   //
   // Owner: *"Add this route regression and a browser-backed control
@@ -4693,7 +4856,9 @@ function P() {
         JSON.stringify((rep && rep.deadSelectors) || []) === JSON.stringify([".a .b"]), JSON.stringify(rep && rep.deadSelectors));
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   }
+  }
 
+  if (SECTION("stopping", 4)) {
   // ── STOPPING REFUSES A LAUNCH (stage 3a, 2026-09-05) — LAST, because it ends the service ──
   //
   // Cloudflare stops an instance with SIGTERM; the service drains what it
@@ -4724,6 +4889,9 @@ function P() {
     const gone = await fetch(`http://127.0.0.1:${PORT}/job/${id}`);
     ok("…and the refused launch left no job record", gone.status === 404, `status ${gone.status}`);
   }
+  }
+  closeSection();
+  completed = true;
 
 } catch (e) {
   failed++;
@@ -4734,6 +4902,7 @@ function P() {
   try { fs.rmSync(sandbox, { recursive: true, force: true }); } catch {}
 }
 
+writeReport();
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

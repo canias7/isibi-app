@@ -1,0 +1,404 @@
+[
+ {
+  "label": "CONTROL: a comment in the gate changes nothing",
+  "files": [
+   "scripts/site-build-gate.mjs"
+  ],
+  "from": "// SO THIS JOB IS THE ANSWER, and it is green only when ALL of these hold:\n",
+  "to": "// SO THIS JOB IS THE ANSWER (control), and it is green only when ALL of these hold:\n",
+  "control": true
+ },
+ {
+  "label": "CONTROL: a comment in the workflow changes nothing",
+  "files": [
+   ".github/workflows/site-build.yml"
+  ],
+  "from": "# ONE RUN PER BRANCH. A push while a run is going cancels the older one: during\n",
+  "to": "# ONE RUN PER BRANCH (control). A push while a run is going cancels the older one: during\n",
+  "control": true
+ },
+ {
+  "label": "G-1: a job that did not succeed is accepted",
+  "files": [
+   "scripts/site-build-gate.mjs"
+  ],
+  "from": "if (!v || v.result !== \"success\") say(",
+  "to": "if (!v) say("
+ },
+ {
+  "label": "G-2: an empty NEEDS is accepted",
+  "files": [
+   "scripts/site-build-gate.mjs"
+  ],
+  "from": "  if (!jobs.length) say(\"the gate was given no jobs to wait on (NEEDS is empty)\");\n",
+  "to": ""
+ },
+ {
+  "label": "G-3: a non-shard run is accepted as evidence",
+  "files": [
+   "scripts/site-build-gate.mjs"
+  ],
+  "from": "if (r.mode !== \"shard\") {",
+  "to": "if (false) {"
+ },
+ {
+  "label": "G-4: a report from another commit is accepted",
+  "files": [
+   "scripts/site-build-gate.mjs"
+  ],
+  "from": "if (!sha || r.sha !== sha) say(",
+  "to": "if (false) say("
+ },
+ {
+  "label": "G-5: a report from another harness is accepted",
+  "files": [
+   "scripts/site-build-gate.mjs"
+  ],
+  "from": "if (!harnessSha256 || r.harnessSha256 !== harnessSha256) say(",
+  "to": "if (false) say("
+ },
+ {
+  "label": "G-6: a shard that stopped partway is accepted",
+  "files": [
+   "scripts/site-build-gate.mjs"
+  ],
+  "from": "if (r.completed !== true) say(",
+  "to": "if (false) say("
+ },
+ {
+  "label": "G-7: a failed check is accepted",
+  "files": [
+   "scripts/site-build-gate.mjs"
+  ],
+  "from": "else if (r.failed !== 0) say(",
+  "to": "else if (false) say("
+ },
+ {
+  "label": "G-8: a missing shard report is not noticed",
+  "files": [
+   "scripts/site-build-gate.mjs"
+  ],
+  "from": "  for (let n = 1; n <= plan.shards; n++) if (!byShard.has(n)) say(`shard ${n}: no report`);\n",
+  "to": ""
+ },
+ {
+  "label": "G-9: a section run twice is accepted",
+  "files": [
+   "scripts/site-build-gate.mjs"
+  ],
+  "from": "if (ran.length !== 1) {",
+  "to": "if (ran.length === 0) {"
+ },
+ {
+  "label": "G-10: a section run in the wrong shard is accepted",
+  "files": [
+   "scripts/site-build-gate.mjs"
+  ],
+  "from": "if (shard !== s.shard) say(",
+  "to": "if (false) say("
+ },
+ {
+  "label": "G-11: a section with no checks is accepted",
+  "files": [
+   "scripts/site-build-gate.mjs"
+  ],
+  "from": "if (!checks) say(",
+  "to": "if (false) say("
+ },
+ {
+  "label": "G-12: a failed check inside a section is accepted",
+  "files": [
+   "scripts/site-build-gate.mjs"
+  ],
+  "from": "if (hit.failed !== 0) say(",
+  "to": "if (false) say("
+ },
+ {
+  "label": "G-13: a second report for one shard replaces the first",
+  "files": [
+   "scripts/site-build-gate.mjs"
+  ],
+  "from": "if (byShard.has(r.shard)) { say(`shard ${r.shard} reported twice",
+  "to": "if (false) { say(`shard ${r.shard} reported twice"
+ },
+ {
+  "label": "G-14: a shard that saw fewer sections is accepted",
+  "files": [
+   "scripts/site-build-gate.mjs"
+  ],
+  "from": "if (saw !== declared) say(",
+  "to": "if (false) say("
+ },
+ {
+  "label": "G-15: a failed preamble is accepted",
+  "files": [
+   "scripts/site-build-gate.mjs"
+  ],
+  "from": "if (!pre || !Array.isArray(pre.checks) || !pre.checks.length || pre.failed !== 0) say(",
+  "to": "if (false) say("
+ },
+ {
+  "label": "G-16: an unknown glob shape is read as a match",
+  "files": [
+   "scripts/site-build-gate.mjs"
+  ],
+  "from": "  throw new Error(\"the gate does not understand the glob \" + JSON.stringify(glob));\n",
+  "to": "  return true;\n"
+ },
+ {
+  "label": "G-17: the fingerprint ignores file contents",
+  "files": [
+   "scripts/site-build-gate.mjs"
+  ],
+  "from": "h.update(e.path + \" \" + e.blob + \"\\n\");",
+  "to": "h.update(e.path + \"\\n\");"
+ },
+ {
+  "label": "G-18: the fingerprint ignores the trigger",
+  "files": [
+   "scripts/site-build-gate.mjs"
+  ],
+  "from": "const hit = entries.filter((e) => globs.some((g) => covers(g, e.path)))",
+  "to": "const hit = entries.filter(() => true)"
+ },
+ {
+  "label": "G-19: a report of another shard count is accepted",
+  "files": [
+   "scripts/site-build-gate.mjs"
+  ],
+  "from": "if (r.shards !== plan.shards) say(",
+  "to": "if (false) say("
+ },
+ {
+  "label": "G-20: the plan reader drops needs",
+  "files": [
+   "scripts/site-build-gate.mjs"
+  ],
+  "from": "needs: x[3] ? x[3].split(\",\").map((s) => JSON.parse(s.trim())) : [],",
+  "to": "needs: [],"
+ },
+ {
+  "label": "G-21: the CLI exits 0 whatever the verdict",
+  "files": [
+   "scripts/site-build-gate.mjs"
+  ],
+  "from": "  return v.ok ? 0 : 1;\n",
+  "to": "  return 0;\n"
+ },
+ {
+  "label": "G-22: an unreadable report is skipped silently",
+  "files": [
+   "scripts/site-build-gate.mjs"
+  ],
+  "from": "if (!r || typeof r !== \"object\" || Array.isArray(r)) { say(`${where} is not a report`); continue; }",
+  "to": "if (!r || typeof r !== \"object\" || Array.isArray(r)) { continue; }"
+ },
+ {
+  "label": "W-1: the matrix starts three shards",
+  "files": [
+   ".github/workflows/site-build.yml"
+  ],
+  "from": "        shard: [1, 2, 3, 4]\n",
+  "to": "        shard: [1, 2, 3]\n"
+ },
+ {
+  "label": "W-2: the gate does not wait on the theme job",
+  "files": [
+   ".github/workflows/site-build.yml"
+  ],
+  "from": "    needs: [kit, theme, site, shards]\n",
+  "to": "    needs: [kit, site, shards]\n"
+ },
+ {
+  "label": "W-3: the gate runs on a cancelled run",
+  "files": [
+   ".github/workflows/site-build.yml"
+  ],
+  "from": "    if: ${{ !cancelled() }}\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n",
+  "to": "    if: always()\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n"
+ },
+ {
+  "label": "W-4: the gate is skipped when a job fails",
+  "files": [
+   ".github/workflows/site-build.yml"
+  ],
+  "from": "    if: ${{ !cancelled() }}\n    runs-on: ubuntu-latest\n    timeout-minutes: 5\n",
+  "to": "    runs-on: ubuntu-latest\n    timeout-minutes: 5\n"
+ },
+ {
+  "label": "W-5: site build stops cancelling superseded runs",
+  "files": [
+   ".github/workflows/site-build.yml"
+  ],
+  "from": "  group: site-build-${{ github.ref }}\n  cancel-in-progress: true\n",
+  "to": "  group: site-build-${{ github.ref }}\n  cancel-in-progress: false\n"
+ },
+ {
+  "label": "W-6: unit tests stop cancelling superseded runs",
+  "files": [
+   ".github/workflows/unit.yml"
+  ],
+  "from": "  cancel-in-progress: true\n",
+  "to": "  cancel-in-progress: false\n"
+ },
+ {
+  "label": "W-7: the cancellation group spans branches",
+  "files": [
+   ".github/workflows/site-build.yml"
+  ],
+  "from": "  group: site-build-${{ github.ref }}\n",
+  "to": "  group: site-build\n"
+ },
+ {
+  "label": "W-8: a shard runs without its shard number",
+  "files": [
+   ".github/workflows/site-build.yml"
+  ],
+  "from": "          SITE_BUILD_SHARD: ${{ matrix.shard }}\n",
+  "to": ""
+ },
+ {
+  "label": "W-9: a missing report is not an upload error",
+  "files": [
+   ".github/workflows/site-build.yml"
+  ],
+  "from": "          if-no-files-found: error\n",
+  "to": "          if-no-files-found: ignore\n"
+ },
+ {
+  "label": "W-10: one failing shard cancels the rest",
+  "files": [
+   ".github/workflows/site-build.yml"
+  ],
+  "from": "      fail-fast: false\n",
+  "to": "      fail-fast: true\n"
+ },
+ {
+  "label": "W-11: the shared site server leaves the trigger",
+  "files": [
+   ".github/workflows/site-build.yml"
+  ],
+  "from": "      - 'test/integration/lib/**'\n",
+  "to": ""
+ },
+ {
+  "label": "W-12: the generated pages leave the trigger",
+  "files": [
+   ".github/workflows/site-build.yml"
+  ],
+  "from": "      - 'test/fixtures/generated/**'\n",
+  "to": ""
+ },
+ {
+  "label": "W-13: the gate script leaves the trigger",
+  "files": [
+   ".github/workflows/site-build.yml"
+  ],
+  "from": "      - 'scripts/site-build-gate.mjs'\n",
+  "to": ""
+ },
+ {
+  "label": "W-14: the theme job installs without the cache",
+  "files": [
+   ".github/workflows/site-build.yml"
+  ],
+  "from": "    name: theme checks\n    runs-on: ubuntu-latest\n    timeout-minutes: 20\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: '22'\n          cache: npm\n",
+  "to": "    name: theme checks\n    runs-on: ubuntu-latest\n    timeout-minutes: 20\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: '22'\n"
+ },
+ {
+  "label": "W-15: the gate is not given the jobs' results",
+  "files": [
+   ".github/workflows/site-build.yml"
+  ],
+  "from": "          NEEDS: ${{ toJSON(needs) }}\n",
+  "to": ""
+ },
+ {
+  "label": "W-16: the site job runs a browser check before installing one",
+  "files": [
+   ".github/workflows/site-build.yml"
+  ],
+  "from": "    name: published-site checks\n    runs-on: ubuntu-latest\n    timeout-minutes: 20\n    steps:\n      - uses: actions/checkout@v4\n",
+  "to": "    name: published-site checks\n    runs-on: ubuntu-latest\n    timeout-minutes: 20\n    steps:\n      - uses: actions/checkout@v4\n      - run: node test/integration/site-runtime.mjs\n"
+ },
+ {
+  "label": "H-1: the no-leak checks lose the build they rely on",
+  "files": [
+   "test/integration/site-build.mjs"
+  ],
+  "from": "  if (SECTION(\"concurrent\", 3, { needs: [\"two-page\"] })) {\n",
+  "to": "  if (SECTION(\"concurrent\", 3)) {\n"
+ },
+ {
+  "label": "H-2: the reset check moves away from its builds",
+  "files": [
+   "test/integration/site-build.mjs"
+  ],
+  "from": "  if (SECTION(\"routes-reset\", 3, { needs: [\"unusable-style\", \"refusals\"] })) {\n",
+  "to": "  if (SECTION(\"routes-reset\", 4, { needs: [\"unusable-style\", \"refusals\"] })) {\n"
+ },
+ {
+  "label": "H-3: a section is put in a shard that does not exist",
+  "files": [
+   "test/integration/site-build.mjs"
+  ],
+  "from": "  if (SECTION(\"dead-link\", 2)) {\n",
+  "to": "  if (SECTION(\"dead-link\", 5)) {\n"
+ },
+ {
+  "label": "H-4: shard 1 is left with nothing to run",
+  "files": [
+   "test/integration/site-build.mjs"
+  ],
+  "from": "  if (SECTION(\"style-overrides\", 1)) {\n",
+  "to": "  if (SECTION(\"style-overrides\", 2)) {\n"
+ },
+ {
+  "label": "H-5: two sections share a name",
+  "files": [
+   "test/integration/site-build.mjs"
+  ],
+  "from": "  if (SECTION(\"salvage-stub\", 4)) {\n",
+  "to": "  if (SECTION(\"edit-shapes\", 4)) {\n"
+ },
+ {
+  "label": "H-6: a section reads what another declares",
+  "files": [
+   "test/integration/site-build.mjs"
+  ],
+  "from": "  if (SECTION(\"row-value\", 4)) {\n",
+  "to": "  if (SECTION(\"row-value\", 4)) {\n  void withLogo;\n"
+ },
+ {
+  "label": "H-7: the run is never marked complete",
+  "files": [
+   "test/integration/site-build.mjs"
+  ],
+  "from": "  closeSection();\n  completed = true;\n\n} catch (e) {",
+  "to": "  closeSection();\n\n} catch (e) {"
+ },
+ {
+  "label": "H-8: the report loses abortedIn",
+  "files": [
+   "test/integration/site-build.mjs"
+  ],
+  "from": "    completed,\n    abortedIn,\n",
+  "to": "    completed,\n"
+ },
+ {
+  "label": "H-9: a check slips into the preamble",
+  "files": [
+   "test/integration/site-build.mjs"
+  ],
+  "from": "  ok(\"the build service answers /health\", up);\n",
+  "to": "  ok(\"the build service answers /health\", up);\n  ok(\"an extra preamble check\", true);\n"
+ },
+ {
+  "label": "H-10: a statement sits between two sections",
+  "files": [
+   "test/integration/site-build.mjs"
+  ],
+  "from": "  if (SECTION(\"comment-boundary\", 4)) {\n",
+  "to": "  console.log(\"between\");\n  if (SECTION(\"comment-boundary\", 4)) {\n"
+ }
+]

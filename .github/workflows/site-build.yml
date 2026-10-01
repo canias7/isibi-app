@@ -6,6 +6,32 @@
 # Costs nothing: no model call, no container, no Neon project. Runs on changes to
 # the generator, the template or the build service — on every branch but main,
 # where a merge is a fast-forward of a sha it already ran on.
+#
+# ── SEVEN JOBS AT ONCE AND ONE ANSWER (2026-10-01) ──────────────────────────────
+#
+# This was ONE job of 24m35s (run 36832053168 on 2188f706), and
+# `site-build.mjs` was 18m08s of it, one real build after another. Owner: "I
+# don't want a 20–25-minute wait after every correction." Nothing was dropped
+# to make it faster; the same checks run, side by side:
+#
+#   kit      page-gen and publish-pages tests, kit-typecheck, kit-render,
+#            contrast-cases, kit-a11y, kit-effects, kit-paint
+#   theme    theme-seam, theme-render (and its screenshots)
+#   site     site-routing, site-runtime
+#   shards   site-build.mjs in four shards, each on its own runner with its
+#            own build service, sandbox and port; every section of the file
+#            names its shard (`SITE_BUILD_SHARD`), and run with no shard the
+#            file is still the whole suite, in order
+#   all checks   the GATE: green only when every job above succeeded and every
+#            section of site-build.mjs ran exactly once, in its own shard, on
+#            this commit, and passed (`scripts/site-build-gate.mjs`). It prints
+#            the fingerprint of this run's inputs, so the evidence can be
+#            matched to the commit being merged. READ THIS ONE BEFORE A MERGE.
+#
+# A newer push to the same branch cancels a run still in progress (`concurrency`
+# below): only the newest commit's answer matters, and a correction no longer
+# queues behind the run it replaced. A cancelled run has no gate result, which
+# is never read as a pass.
 name: site build
 
 on:
@@ -66,50 +92,93 @@ on:
       - 'test/fixtures/comment-boundary.mjs'
       - 'test/page-gen.test.mjs'
       - '.github/workflows/site-build.yml'
+      # WHAT THE SCRIPTS ABOVE IMPORT FROM test/, AND THE GATE (2026-10-01).
+      # None of these was listed, so a change to the shared site server or the
+      # theme fixtures alone ran nothing here. Found when the gate began to
+      # fingerprint the run's inputs: a fingerprint over this list is only
+      # honest if the list is complete, so `test/site-build-shards.test.mjs`
+      # now walks the import graph of every script these jobs run and fails on
+      # a file this list does not name. The two directories are the data the
+      # corpus and generated-page fixtures read.
+      - 'test/publish-pages.test.mjs'
+      - 'test/integration/lib/**'
+      - 'test/integration/schema-tool.mjs'
+      - 'test/fixtures/themes.mjs'
+      - 'test/fixtures/build-path.mjs'
+      - 'test/fixtures/build-source.mjs'
+      - 'test/fixtures/corpus.mjs'
+      - 'test/fixtures/corpus/**'
+      - 'test/fixtures/generated.mjs'
+      - 'test/fixtures/generated/**'
+      - 'scripts/site-build-gate.mjs'
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# ONE RUN PER BRANCH. A push while a run is going cancels the older one: during
+# a round of corrections only the newest commit can be merged, and its run is
+# the one that has to finish.
+concurrency:
+  group: site-build-${{ github.ref }}
+  cancel-in-progress: true
+
+# EVERY INDEPENDENT CHECK RUNS EVEN WHEN AN EARLIER ONE FAILED, and that is a
+# fix for a measured incident rather than tidiness. Actions stops a job at the
+# first failing step, so on 2026-08-19 one component missing from an allow-list
+# took `kit-render` down and, with it, the NINE checks after it — including
+# `site-build` itself, the strongest free signal in the repo. Four consecutive
+# runs went red for the same known reason and nobody read past the first line,
+# so a SECOND real bug (matrix-table's numbers at 3.21:1 in dark) sat behind it
+# for fifteen hours.
+#
+# The condition gates on the SETUP rather than on the previous check: with a
+# bare `success() || failure()` a broken `npm ci` produces eleven identical
+# module-not-found failures instead of one that names the cause, which is the
+# opposite of a failure that can name itself. `!cancelled()` rather than
+# `always()`, so a cancelled run stops rather than spending a runner on doomed
+# steps. Separate jobs keep the same property one level up: a red shard cannot
+# stop a theme check, and every job's result reaches the gate.
+#
+# THE SETUP EVERY JOB REPEATS, in the order it always ran:
+#
+# THE ROOT INSTALL IS NOT OPTIONAL ANY MORE (2026-08-30). The generator step
+# carried "both modules are dependency-free, so no install is needed" — true
+# when it was written, and false from the moment `builder/site-qr.mjs` began
+# importing `qrcode-generator` to draw a QR. One test there evaluates the real
+# design tool, which imports that module, so it failed with "Cannot find
+# package" on a runner with no root node_modules. IT WENT UNNOTICED FOR FIVE
+# COMMITS because the suite passes locally, where the dependency IS installed —
+# the check and the thing it checks disagreed about the environment.
+# `test/workflow-deps.test.mjs` now derives this from the import graph, so the
+# next dependency added to a builder module fails in the unit suite instead.
+#
+# The template's `npm ci` is the same dependency set the container image bakes,
+# from the same lockfile.
+#
+# THE RENDER CHECK'S DRIVER, AT THE REPO ROOT — not in the template.
+# `builder/render-check.mjs` does `import("playwright-core")`, and Node resolves
+# that from `builder/` upward, so the template's node_modules is never
+# consulted. The image installs it into /app beside the build service; this is
+# the runner's equivalent. It passed locally and failed here for exactly that
+# reason — measured on the first run on main: 102 passed, 6 failed, all six
+# `Cannot find package 'playwright-core'`. PINNED TO WHAT THE TEMPLATE ACTUALLY
+# INSTALLED, not to a range: the browser is downloaded by the template's
+# `playwright`, and playwright-core resolves it by an EXACT revision directory,
+# so two copies a patch apart look for `chromium-1193` and `chromium-1194` and
+# one of them is not there. `--no-save`, like the Dockerfile: a published
+# customer site must never carry a browser driver in its dependency tree.
+#
+# THE BROWSER, BEFORE every browser step. This container has /opt/pw-browsers
+# pre-populated and a runner does not, so a browser step above the install
+# passes locally and fails only in CI — which is what theme-render did on its
+# first run on main, and then what the render check did when it landed above
+# the line. `test/ci-browser-order.test.mjs` holds every job to it.
 jobs:
-  build:
+  kit:
+    name: kit and generator checks
     runs-on: ubuntu-latest
-    # 15 UNTIL 2026-08-19, AND IT HAD BEEN ONE SMALL ADDITION FROM THE WALL FOR
-    # A WHILE. Measured across the preceding runs: 13m50s, 14m26s, 14m23s,
-    # 11m42s, 14m18s, 14m24s. Two extra container builds (~28s) tipped it, and
-    # GitHub reports a job TIMEOUT as `cancelled` — so the run showed neither a
-    # failing assertion nor a red step: `site-build.mjs` had already passed and
-    # the job died three steps later, in `site-runtime.mjs`, at exactly 15m.
-    # That reads as flaky infrastructure rather than as a budget, which is why
-    # the numbers are written down here instead of being rediscovered.
-    #
-    # A CAP EXISTS TO CATCH A HANG, not to police a suite that legitimately
-    # grew. This one really does ~20 real container builds plus six browser
-    # harnesses; 25 leaves headroom for another feature's worth of checks while
-    # still killing a genuine hang inside half an hour.
-    #
-    # 25 UNTIL 2026-09-06, AND IT HAPPENED AGAIN, IN THE SAME STEP, AND WENT
-    # UNREAD FOR AN HOUR. The suite grew from 326 real cases to 373 in three
-    # days (stage 7 added eleven, 3a four, 4b four, 5d eight, 5b/5c six), and
-    # the whole job walked into the wall: measured across the five runs of that
-    # stretch, 22m50s (4b), 23m17s (stage 8), 23m47s (5d), 24m26s (5e), and
-    # 25m12s (5b/5c) — the last one KILLED, 28 seconds into `site-runtime.mjs`,
-    # the same last-step-standing the 15-minute wall picked in August. It wears
-    # `cancelled`, so the run showed no failing assertion and no red step, and
-    # it read as a superseded run rather than as a budget. `site build` was
-    # stamped 373/373 for that stage off a LOCAL run; CI never finished it.
-    #
-    # Nothing is hanging: `site-build.mjs` alone is ~18m of the ~24 and does
-    # the container builds, and the eleven steps around it total ~6m. So the
-    # cap moves rather than the suite, on the same reasoning as the 15 → 25
-    # bump. 35 is ten more minutes — roughly ten more stages at the rate this
-    # week ran — and still kills a genuine hang well inside the hour.
-    #
-    # CONFIRMED under the new cap: runs 1065 (21m18s) and 1066 (24m12s) both
-    # finished green and both printed `373 passed, 0 failed`, so the count that
-    # had only ever been stamped off a local run is a CI reading now. 1066 used
-    # 24m11s of the 35, `site-build.mjs` 17m35s of that.
-    timeout-minutes: 35
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -117,42 +186,10 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: builder/lovable/template/package-lock.json
-
+      - run: npm ci --no-audit --no-fund --loglevel=error
       # The generator's rules, tool schema and output checks, plus the decisions
       # made around them — which attempt is published, and what it cost.
-      #
-      # THE ROOT INSTALL IS NOT OPTIONAL ANY MORE (2026-08-30). This step carried
-      # "both modules are dependency-free, so no install is needed" — true when it
-      # was written, and false from the moment `builder/site-qr.mjs` began
-      # importing `qrcode-generator` to draw a QR. One test here evaluates the
-      # real design tool, which imports that module, so it failed with "Cannot
-      # find package" on a runner with no root node_modules.
-      #
-      # IT WENT UNNOTICED FOR FIVE COMMITS because the suite passes locally, where
-      # the dependency IS installed — the check and the thing it checks disagreed
-      # about the environment. `test/workflow-deps.test.mjs` now derives this from
-      # the import graph, so the next dependency added to a builder module fails
-      # in the unit suite instead of here.
-      - run: npm ci --no-audit --no-fund --loglevel=error
       - run: node --test "test/page-gen.test.mjs" "test/publish-pages.test.mjs"
-
-      # EVERY INDEPENDENT CHECK BELOW RUNS EVEN WHEN AN EARLIER ONE FAILED, and
-      # that is a fix for a measured incident rather than tidiness. Actions stops
-      # a job at the first failing step, so on 2026-08-19 one component missing
-      # from an allow-list took `kit-render` down and, with it, the NINE checks
-      # after it — including `site-build` itself, the strongest free signal in
-      # the repo. Four consecutive runs went red for the same known reason and
-      # nobody read past the first line, so a SECOND real bug (matrix-table's
-      # numbers at 3.21:1 in dark) sat behind it for fifteen hours.
-      #
-      # The condition gates on the SETUP rather than on the previous check: with
-      # a bare `success() || failure()` a broken `npm ci` produces eleven
-      # identical module-not-found failures instead of one that names the cause,
-      # which is the opposite of a failure that can name itself. `!cancelled()`
-      # rather than `always()`, so a cancelled run stops rather than spending a
-      # runner on eleven doomed steps.
-      #
-      # The same dependency set the container image bakes, from the same lockfile.
       - run: npm ci --no-audit --no-fund --loglevel=error
         id: deps
         working-directory: builder/lovable/template
@@ -175,44 +212,14 @@ jobs:
       - run: node test/integration/kit-render.mjs
         if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
 
-      # THE RENDER CHECK'S DRIVER, AT THE REPO ROOT — not in the template.
-      # `builder/render-check.mjs` does `import("playwright-core")`, and Node
-      # resolves that from `builder/` upward, so the template's node_modules is
-      # never consulted. The image installs it into /app beside the build
-      # service; this is the runner's equivalent.
-      #
-      # It passed locally and failed here for exactly that reason: this repo's
-      # own root install has playwright-core, and THIS workflow never runs a root
-      # `npm ci`. Measured on the first run on main — 102 passed, 6 failed, all
-      # six `Cannot find package 'playwright-core'`.
-      #
-      # PINNED TO WHAT THE TEMPLATE ACTUALLY INSTALLED, not to a range. The
-      # browser is downloaded by the template's `playwright`, and playwright-core
-      # resolves it by an EXACT revision directory — so two copies a patch apart
-      # look for `chromium-1193` and `chromium-1194` and one of them is not
-      # there. A range on each side is two independent resolutions that agree
-      # today and need not tomorrow, and the failure reads as the render check
-      # being broken rather than as a version skew.
-      #
-      # `--no-save`, like the Dockerfile: a published customer site must never
-      # carry a browser driver in its dependency tree.
       - name: playwright-core at the root, matching the template's playwright
         run: |
           V=$(node -p "require('./builder/lovable/template/node_modules/playwright/package.json').version")
           echo "template playwright is $V"
           npm i --no-save --no-audit --no-fund --loglevel=error "playwright-core@$V"
-
-      # BEFORE every browser step, which now starts with site-build. This
-      # container has /opt/pw-browsers pre-populated and a runner does not, so a
-      # browser step above this one passes locally and fails only in CI — which
-      # is what theme-render did on its first run on main, and then what the
-      # render check did when it landed above this line.
       - run: npx playwright install --with-deps chromium
         id: browser
         working-directory: builder/lovable/template
-
-      - run: node test/integration/site-build.mjs
-        if: ${{ !cancelled() && steps.deps.outcome == 'success' && steps.browser.outcome == 'success' }}
 
       # THE FALSE-ALARM RATE OF THE CONTRAST CHECK, which is the number that
       # decides whether that check may exist at all: its verdict goes to the
@@ -228,12 +235,6 @@ jobs:
       # compiled site can show.
       - run: node test/integration/contrast-cases.mjs
         if: ${{ !cancelled() && steps.deps.outcome == 'success' && steps.browser.outcome == 'success' }}
-
-      # Does a theme reach the DIST? The response cannot answer that — the font
-      # write shipped defaults while reporting the right choice, and a theme has
-      # the same failure available to it.
-      - run: node test/integration/theme-seam.mjs
-        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
 
       # WHAT EACH CONTROL IS CALLED, asked of Chromium's own accessibility tree
       # rather than guessed from the source. A name can come from six different
@@ -270,6 +271,36 @@ jobs:
       - run: node test/integration/kit-paint.mjs
         if: ${{ !cancelled() && steps.deps.outcome == 'success' && steps.browser.outcome == 'success' }}
 
+  theme:
+    name: theme checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: builder/lovable/template/package-lock.json
+      - run: npm ci --no-audit --no-fund --loglevel=error
+      - run: npm ci --no-audit --no-fund --loglevel=error
+        id: deps
+        working-directory: builder/lovable/template
+      - name: playwright-core at the root, matching the template's playwright
+        run: |
+          V=$(node -p "require('./builder/lovable/template/node_modules/playwright/package.json').version")
+          echo "template playwright is $V"
+          npm i --no-save --no-audit --no-fund --loglevel=error "playwright-core@$V"
+      - run: npx playwright install --with-deps chromium
+        id: browser
+        working-directory: builder/lovable/template
+
+      # Does a theme reach the DIST? The response cannot answer that — the font
+      # write shipped defaults while reporting the right choice, and a theme has
+      # the same failure available to it.
+      - run: node test/integration/theme-seam.mjs
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' }}
+
       # What a themed site LOOKS like. The seam test proves the CSS reaches the
       # dist; this proves the page is not blank, nothing throws, and the two
       # modes actually differ — the checks a picture can be held to.
@@ -288,6 +319,30 @@ jobs:
           path: theme-shots
           if-no-files-found: ignore
 
+  site:
+    name: published-site checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: builder/lovable/template/package-lock.json
+      - run: npm ci --no-audit --no-fund --loglevel=error
+      - run: npm ci --no-audit --no-fund --loglevel=error
+        id: deps
+        working-directory: builder/lovable/template
+      - name: playwright-core at the root, matching the template's playwright
+        run: |
+          V=$(node -p "require('./builder/lovable/template/node_modules/playwright/package.json').version")
+          echo "template playwright is $V"
+          npm i --no-save --no-audit --no-fund --loglevel=error "playwright-core@$V"
+      - run: npx playwright install --with-deps chromium
+        id: browser
+        working-directory: builder/lovable/template
+
       # REAL ADDRESSES FOR PUBLISHED PAGES, both halves at once. The Worker's
       # fallback and the template's runtime basepath are useless apart, and each
       # looks fine on its own: hash routing hid the missing fallback for months,
@@ -303,3 +358,78 @@ jobs:
       # are all checked rather than assumed.
       - run: node test/integration/site-runtime.mjs
         if: ${{ !cancelled() && steps.deps.outcome == 'success' && steps.browser.outcome == 'success' }}
+
+  shards:
+    name: site-build.mjs, shard ${{ matrix.shard }} of 4
+    runs-on: ubuntu-latest
+    # THE OLD SINGLE JOB'S CAP WAS 35 MINUTES, and its history is why a cap is
+    # written down at all: 15 until 2026-08-19 and 25 until 2026-09-06, and both
+    # times the whole job walked into the wall in the last step standing, which
+    # GitHub reports as `cancelled` — no failing assertion, no red step, read as
+    # a superseded run rather than as a budget. A CAP EXISTS TO CATCH A HANG,
+    # not to police a suite that grew. A shard is a quarter of the builds (its
+    # longest section about five minutes on a runner), so 20 still kills a hang
+    # inside the half hour with room for the suite to grow.
+    timeout-minutes: 20
+    strategy:
+      # Every shard finishes even when another fails, for the same reason every
+      # check above runs after a failure: one red line must not hide the next.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: builder/lovable/template/package-lock.json
+      - run: npm ci --no-audit --no-fund --loglevel=error
+      - run: npm ci --no-audit --no-fund --loglevel=error
+        id: deps
+        working-directory: builder/lovable/template
+      - name: playwright-core at the root, matching the template's playwright
+        run: |
+          V=$(node -p "require('./builder/lovable/template/node_modules/playwright/package.json').version")
+          echo "template playwright is $V"
+          npm i --no-save --no-audit --no-fund --loglevel=error "playwright-core@$V"
+      - run: npx playwright install --with-deps chromium
+        id: browser
+        working-directory: builder/lovable/template
+
+      - run: node test/integration/site-build.mjs
+        if: ${{ !cancelled() && steps.deps.outcome == 'success' && steps.browser.outcome == 'success' }}
+        env:
+          SITE_BUILD_SHARD: ${{ matrix.shard }}
+          SITE_BUILD_REPORT: site-build-report-${{ matrix.shard }}.json
+
+      # WHAT THIS SHARD RAN, check by check, for the gate. Uploaded whatever
+      # happened above, and an absent report is an error here as well as there.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: site-build-report-${{ matrix.shard }}
+          path: site-build-report-${{ matrix.shard }}.json
+          if-no-files-found: error
+
+  gate:
+    name: all checks
+    needs: [kit, theme, site, shards]
+    # Runs when a job above failed, so the failure is named here too; never on
+    # a cancelled run, which has no answer to give.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: site-build-report-*
+          path: site-build-reports
+          merge-multiple: true
+      - run: node scripts/site-build-gate.mjs gate site-build-reports
+        env:
+          NEEDS: ${{ toJSON(needs) }}
