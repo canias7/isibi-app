@@ -63,14 +63,48 @@ export function savedSaid(body) {
 }
 
 /**
- * THE VERDICT ON THE ADD-ON PRESS: `{ pass, line }`.
- *
- * A TERMINAL ANSWER IS NOT A PASS, the edit press's own lesson: only an `ok`
- * answer says the step did what it was asked. What it did is stated beside it
- * — the entries saved, the pages written — so a pass that saved nothing reads
- * as such rather than as success.
+ * AN ANSWER THAT IS ENTRIES ONLY — the `row` kind and nothing beside it. Its
+ * whole claim is the entries it saved; it writes no page.
  */
-export function addonVerdict(body) {
+export function entriesOnly(body) {
+  return !!(body && Array.isArray(body.kinds) && body.kinds.length === 1 && body.kinds[0] === "row");
+}
+
+/**
+ * EVERY ENTRY THE ANSWER SAYS IT SAVED, AS SAVED: a non-empty `rows` whose
+ * every item names its table and carries the row the database stored. An
+ * empty list, a missing one, or any item that is not a saved entry is not.
+ */
+export function savedEntries(body) {
+  const rows = body && Array.isArray(body.rows) ? body.rows : [];
+  const good = rows.filter((r) => r && typeof r === "object" && typeof r.table === "string" && r.table
+    && r.row && typeof r.row === "object" && !Array.isArray(r.row));
+  return rows.length > 0 && good.length === rows.length;
+}
+
+/**
+ * THE VERDICT ON THE ADD-ON PRESS: `{ pass, line }`, from the answer AND the
+ * after-read.
+ *
+ * THREE THINGS MUST HOLD, and the first that does not is the line:
+ *
+ *   1. THE STEP ANSWERED OK. A terminal answer is not a pass, the edit press's
+ *      own lesson.
+ *   2. AN ENTRIES-ONLY ANSWER NAMES EVERY ENTRY IT SAVED (2026-10-01, the review
+ *      of f6532d66): a "success" for the `row` kind with no saved entry in it
+ *      claims an addition it cannot show, whatever its words say.
+ *   3. THE AFTER-READ VERIFIED (`afterReadVerdict`, passed in as
+ *      `{ verified, sentence }`): every page read at the version the answer
+ *      implies — the before-read's for one that published nothing, the job's
+ *      own for one that did. Until that review the press printed the verdict
+ *      and exited 0 whatever it said; an after-read that did not verify means
+ *      the comparison is not about this job, and that is not a pass.
+ *
+ * A pageless addition that verified — a job, an internal function — passes as
+ * before. What it did is stated beside the verdict: the entries saved, the
+ * pages written.
+ */
+export function addonVerdict(body, after) {
   if (!body || typeof body !== "object") return { pass: false, line: "CANARY FAILED: the add-on step left no stored answer to read." };
   if (body.ok !== true) {
     const why = typeof body.error === "string" && body.error ? body.error : (typeof body.reason === "string" ? body.reason : "no reason");
@@ -78,8 +112,14 @@ export function addonVerdict(body) {
   }
   const saved = savedSaid(body);
   const pages = addonPages(body);
-  return {
-    pass: true,
-    line: `CANARY PASSED: the add-on step answered ok — ${saved ? "saved " + saved : "no entry saved"}; ${pages.length ? "pages written: " + pages.join(", ") : "no page published"}${body.repeat === true ? "; a repeat of a request already saved" : ""}; cost=${body.cost ?? "?"}`,
-  };
+  const what = `${saved ? "saved " + saved : "no entry saved"}; ${pages.length ? "pages written: " + pages.join(", ") : "no page published"}${body.repeat === true ? "; a repeat of a request already saved" : ""}; cost=${body.cost ?? "?"}`;
+  if (entriesOnly(body) && !savedEntries(body)) {
+    return { pass: false, line: `CANARY FAILED: the add-on step answered ok for an entry and reported no saved entry it can show — ${what}. An addition that names nothing it saved is not a pass.` };
+  }
+  const a = after && typeof after === "object" ? after : null;
+  if (!a || a.verified !== true) {
+    const said = a && typeof a.sentence === "string" && a.sentence ? a.sentence : "UNVERIFIED — no after-read verdict was given";
+    return { pass: false, line: `CANARY FAILED: the add-on step answered ok — ${what} — but the after-read did not verify: ${said}. The comparison is not about this job; do not read it as a pass.` };
+  }
+  return { pass: true, line: `CANARY PASSED: the add-on step answered ok — ${what}` };
 }

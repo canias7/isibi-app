@@ -4,8 +4,8 @@
   "files": [
    "worker.js"
   ],
-  "from": "              // A WRITE THAT LANDED AND CANNOT BE READ BACK is not one to call\n",
-  "to": "              // A WRITE THAT LANDED AND CANNOT BE READ BACK (control) is not one to call\n",
+  "from": "                // AN ANSWER THAT CANNOT BE READ BACK — or not all of it — is\n",
+  "to": "                // AN ANSWER THAT CANNOT BE READ BACK (control) — or not all of it — is\n",
   "control": true
  },
  {
@@ -243,11 +243,11 @@
   "to": "              if (false) rowCost = await aCharge(rowBill);\n"
  },
  {
-  "label": "W-7: a unique-key refusal is reported as a failed write",
+  "label": "W-7: a unique-key refusal is not read as one",
   "files": [
    "worker.js"
   ],
-  "from": "                if (code === \"23505\") {\n",
+  "from": "                if (thrown.outcome === \"duplicate\") {\n",
   "to": "                if (false) {\n"
  },
  {
@@ -255,7 +255,7 @@
   "files": [
    "worker.js"
   ],
-  "from": "                  if (back && back.length) {\n",
+  "from": "                  if (back.state === \"found\") {\n",
   "to": "                  if (false) {\n"
  },
  {

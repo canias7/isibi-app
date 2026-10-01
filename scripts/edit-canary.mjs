@@ -1284,7 +1284,10 @@ if (ADDON) {
   console.log(`  stored description  ${storedHeadSaid(BEFORE.stored)} -> ${storedHeadSaid(AFTER.stored)}`);
   writeFileSync(`${EVID}/compare.json`, JSON.stringify(cmp, null, 2));
   console.log(`  comparison  ${SAID}`);
-  const v = addonVerdict(rb);
+  // THE AFTER-READ DECIDES WITH THE ANSWER (2026-10-01, the review of
+  // f6532d66): an unverified comparison, or an entry "saved" with no entry in
+  // the answer, is a failed press and exits 1.
+  const v = addonVerdict(rb, { verified: VERDICT.verified === true, sentence: SAID });
   if (v.pass) console.log("\n" + v.line); else console.error("\n" + v.line);
   process.exit(v.pass ? 0 : 1);
 }

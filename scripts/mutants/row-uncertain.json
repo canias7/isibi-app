@@ -1,0 +1,301 @@
+[
+ {
+  "label": "CONTROL: a comment above the thrown-write reader changes nothing",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": " * WHAT A THROWN ROW WRITE SAYS: `{ outcome, code }`.\n",
+  "to": " * WHAT A THROWN ROW WRITE SAYS (control): `{ outcome, code }`.\n",
+  "control": true
+ },
+ {
+  "label": "CONTROL: a comment in the route's unknown-outcome note changes nothing",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            // THE KEY IS READ, and settles it one of two ways. It holds this\n",
+  "to": "            // THE KEY IS READ (control), and settles it one of two ways. It holds this\n",
+  "control": true
+ },
+ {
+  "label": "CONTROL: a comment in the canary's verdict note changes nothing",
+  "files": [
+   "scripts/canary-addon.mjs"
+  ],
+  "from": " * THE VERDICT ON THE ADD-ON PRESS: `{ pass, line }`, from the answer AND the\n",
+  "to": " * THE VERDICT ON THE ADD-ON PRESS (control): `{ pass, line }`, from the answer AND the\n",
+  "control": true
+ },
+ {
+  "label": "U-1: a unique-key refusal is read as a refusal",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  if (c === \"23505\") return { outcome: \"duplicate\", code: c };\n",
+  "to": "  if (false) return { outcome: \"duplicate\", code: c };\n"
+ },
+ {
+  "label": "U-2: 40003, statement completion unknown, is read as a refusal",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  if (c && c !== \"40003\" && ROW_REFUSED_CLASSES.has(c.slice(0, 2))) return { outcome: \"refused\", code: c };\n",
+  "to": "  if (c && ROW_REFUSED_CLASSES.has(c.slice(0, 2))) return { outcome: \"refused\", code: c };\n"
+ },
+ {
+  "label": "U-3: a connection exception is read as a refusal",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "const ROW_REFUSED_CLASSES = new Set([\"0A\", \"21\", \"22\", \"23\", \"25\", \"27\", \"28\", \"2F\", \"38\", \"39\", \"3D\", \"3F\", \"40\", \"42\", \"44\", \"54\", \"55\", \"P0\"]);\n",
+  "to": "const ROW_REFUSED_CLASSES = new Set([\"08\", \"0A\", \"21\", \"22\", \"23\", \"25\", \"27\", \"28\", \"2F\", \"38\", \"39\", \"3D\", \"3F\", \"40\", \"42\", \"44\", \"54\", \"55\", \"P0\"]);\n"
+ },
+ {
+  "label": "U-4: any code at all is read as a refusal",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  if (c && c !== \"40003\" && ROW_REFUSED_CLASSES.has(c.slice(0, 2))) return { outcome: \"refused\", code: c };\n",
+  "to": "  if (c) return { outcome: \"refused\", code: c };\n"
+ },
+ {
+  "label": "U-5: a lost answer with no SQLSTATE is read as a refusal",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  return { outcome: \"uncertain\", code: c };\n",
+  "to": "  return { outcome: c ? \"uncertain\" : \"refused\", code: c };\n"
+ },
+ {
+  "label": "U-6: a closed key is never recognised",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  return !!(m && typeof m === \"object\" && !Array.isArray(m) && m.void === true);\n",
+  "to": "  return false;\n"
+ },
+ {
+  "label": "U-7: every add-on job under review is read as a row write",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  return key && key.startsWith(\"addon-row:job:\") && r.artifact_build === key ? key : \"\";\n",
+  "to": "  return key ? key : \"\";\n"
+ },
+ {
+  "label": "U-8: a row naming another job's key is read by that key",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  return key && key.startsWith(\"addon-row:job:\") && r.artifact_build === key ? key : \"\";\n",
+  "to": "  return typeof r.artifact_build === \"string\" && r.artifact_build.startsWith(\"addon-row:job:\") ? r.artifact_build : \"\";\n"
+ },
+ {
+  "label": "U-9: an empty key is refunded on a read, without being closed",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    if (!c) return unknown(\"key-empty\", \"nothing is saved under the request's key yet; applying closes the key, so a write still on its way can never land, and then refunds\");\n",
+  "to": "    if (!c) return { verdict: \"refunded\", kind: \"key-empty\", why: \"\", rows: null };\n"
+ },
+ {
+  "label": "U-10: a write that landed while the key was being closed is refunded",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    if (c.state === \"lost\") return settle(c.value, true);\n",
+  "to": "    if (c.state === \"lost\") return { verdict: \"refunded\", kind: \"closed-now\", why: \"\", rows: null };\n"
+ },
+ {
+  "label": "U-11: a database with no _meta is left unknown",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  if (m.state === \"no-meta\") return { verdict: \"refunded\", kind: \"no-meta\", why: \"the site's database has no _meta table, and the write names it, so it saved nothing\", rows: null };\n",
+  "to": "  if (m.state === \"no-meta\") return unknown(\"no-meta\", \"\");\n"
+ },
+ {
+  "label": "U-12: a key nobody can read is kept as saved",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    if (!was) return unknown(\"key-unreadable\", \"the request's key holds a value that cannot be read\");\n",
+  "to": "    if (!was) return { verdict: \"kept\", kind: \"saved\", why: \"\", rows: [] };\n"
+ },
+ {
+  "label": "U-13: not knowing is said as nothing added",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    : \"I couldn't tell whether that entry was saved: the database stopped answering partway through.\";\n",
+  "to": "    : \"Nothing was added: the database stopped answering partway through.\";\n"
+ },
+ {
+  "label": "U-14: a job under review is invited to try again instead of told it is paused",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    ? \" So it can't be added twice, I've paused changes to this site until that's settled — if nothing was saved, you won't be charged for it. Meanwhile you can check the list in the Data panel.\"\n",
+  "to": "    ? \" Try again in a moment.\"\n"
+ },
+ {
+  "label": "U-15: a kept review stores no saved entry",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "      ok: true, kinds: [\"row\"], rows: out.rows, reconciled: out.kind,\n",
+  "to": "      ok: true, kinds: [\"row\"], rows: [], reconciled: out.kind,\n"
+ },
+ {
+  "label": "U-16: a refunded review does not say the money came back",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "      msg: \"I've now confirmed that entry wasn't saved, so nothing was added\" + (back > 0 ? \", and the credits held for it are back in your balance\" : \"\") + \". You can ask for it again.\",\n",
+  "to": "      msg: \"I've now confirmed that entry wasn't saved, so nothing was added. You can ask for it again.\",\n"
+ },
+ {
+  "label": "W-1: a lost answer is answered as a failed write again",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                rowLost = \"lost\";\n",
+  "to": "                return Response.json({ ok: false, error: \"row-write\", cost: 0, ours: true, msg: \"nothing was added\" }, { status: 502 });\n"
+ },
+ {
+  "label": "W-2: an answer that cannot be read is taken as done",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                if (!rowSaved || rowSaved.length !== rowClean.value.length) { rowSaved = null; rowLost = \"unread\"; }\n",
+  "to": "                if (false) { rowSaved = null; rowLost = \"unread\"; }\n"
+ },
+ {
+  "label": "W-3: a queued job with an unknown outcome is not put under review",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              if (aJob && aRowKey) {\n",
+  "to": "              if (false) {\n"
+ },
+ {
+  "label": "W-4: the review mark does not carry the request's key",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                  p_id: aJob.id, p_owner: aJob.owner, p_artifact_build: aRowKey,\n",
+  "to": "                  p_id: aJob.id, p_owner: aJob.owner, p_artifact_build: null,\n"
+ },
+ {
+  "label": "W-5: a refused mark is still said to be under review",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                review = !!(m && m.ok === true);\n",
+  "to": "                review = true;\n"
+ },
+ {
+  "label": "W-6: an earlier run's unreadable key is answered as a failure",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                if (!was) return aRowsUnknown(\"unread\");\n",
+  "to": "                if (!was) return aFailure(\"no-meta\");\n"
+ },
+ {
+  "label": "W-7: the reconcile reads a row write as a publish",
+  "files": [
+   "worker.js"
+  ],
+  "from": "  if (rowKey) {\n",
+  "to": "  if (false) {\n"
+ },
+ {
+  "label": "W-8: applying a review never closes an empty key",
+  "files": [
+   "worker.js"
+  ],
+  "from": "    const rf = await rowReviewFacts(env, row, rowKey, { close: true });\n",
+  "to": "    const rf = await rowReviewFacts(env, row, rowKey, { close: false });\n"
+ },
+ {
+  "label": "W-9: a close that found the write already there counts as closed",
+  "files": [
+   "worker.js"
+  ],
+  "from": "      if (w && w.length) shut = { state: \"won\" };\n",
+  "to": "      if (true) shut = { state: \"won\" };\n"
+ },
+ {
+  "label": "W-10: a kept review leaves the step's not-knowing reply standing",
+  "files": [
+   "worker.js"
+  ],
+  "from": "    if (typeof compose === \"function\") {\n",
+  "to": "    if (false) {\n"
+ },
+ {
+  "label": "W-11: the owner's dry read closes the key",
+  "files": [
+   "worker.js"
+  ],
+  "from": "          const rf = await rowReviewFacts(env, row, rk, { close: false });\n",
+  "to": "          const rf = await rowReviewFacts(env, row, rk, { close: true });\n"
+ },
+ {
+  "label": "K-1: the after-read is ignored",
+  "files": [
+   "scripts/canary-addon.mjs"
+  ],
+  "from": "  if (!a || a.verified !== true) {\n",
+  "to": "  if (false) {\n"
+ },
+ {
+  "label": "K-2: a truthy after-read that is not true passes",
+  "files": [
+   "scripts/canary-addon.mjs"
+  ],
+  "from": "  if (!a || a.verified !== true) {\n",
+  "to": "  if (!a || !a.verified) {\n"
+ },
+ {
+  "label": "K-3: an entries-only answer with no entry passes",
+  "files": [
+   "scripts/canary-addon.mjs"
+  ],
+  "from": "  if (entriesOnly(body) && !savedEntries(body)) {\n",
+  "to": "  if (false) {\n"
+ },
+ {
+  "label": "K-4: an empty list counts as saved entries",
+  "files": [
+   "scripts/canary-addon.mjs"
+  ],
+  "from": "  return rows.length > 0 && good.length === rows.length;\n",
+  "to": "  return good.length === rows.length;\n"
+ },
+ {
+  "label": "K-5: one good entry beside a bad one counts as saved entries",
+  "files": [
+   "scripts/canary-addon.mjs"
+  ],
+  "from": "  return rows.length > 0 && good.length === rows.length;\n",
+  "to": "  return good.length > 0;\n"
+ },
+ {
+  "label": "K-6: any answer naming the row kind is entries-only",
+  "files": [
+   "scripts/canary-addon.mjs"
+  ],
+  "from": "  return !!(body && Array.isArray(body.kinds) && body.kinds.length === 1 && body.kinds[0] === \"row\");\n",
+  "to": "  return !!(body && Array.isArray(body.kinds) && body.kinds.includes(\"row\"));\n"
+ },
+ {
+  "label": "K-7: the script hands the verdict a verified after-read whatever it read",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "  const v = addonVerdict(rb, { verified: VERDICT.verified === true, sentence: SAID });\n",
+  "to": "  const v = addonVerdict(rb, { verified: true, sentence: SAID });\n"
+ }
+]

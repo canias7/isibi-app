@@ -66,20 +66,56 @@ test("an entry-only addition publishes nothing; a page it wrote does", async () 
   assert.equal(savedSaid({ rows: [{ table: "menu", id: null, label: "" }] }), "menu");
 });
 
-test("the verdict: only an ok answer passes, and it says what was saved", async () => {
+const VERIFIED = { verified: true, sentence: "VERIFIED — the edit did not publish, and every page still reports 01790404806543-kk6qsh, the version the before-read saw" };
+const UNVERIFIED = { verified: false, sentence: "UNVERIFIED — the site moved on to 01790404906543-zzzzzz, a later version than this job's 01790404806543-kk6qsh, so this job's pages could not be read" };
+const PAGELESS = { ok: true, kinds: ["job"], skipped: [], added: [], changed: [], removed: [], moved: [], functions: [], jobs: [{ name: "daily_reminder", everyMinutes: 1440 }], cost: 3 };
+
+test("the verdict: an ok answer passes only with a verified after-read, and says what was saved", async () => {
   const { addonVerdict } = await ca();
-  assert.deepEqual(addonVerdict(ROW_REPLY), { pass: true, line: "CANARY PASSED: the add-on step answered ok — saved loaves #12 “Rye & Caraway”; no page published; cost=2" });
-  assert.equal(addonVerdict(REFUSED).pass, false);
-  assert.match(addonVerdict(REFUSED).line, /^CANARY FAILED: the add-on step answered "add" — This site doesn't store/);
-  assert.equal(addonVerdict(null).pass, false);
-  assert.match(addonVerdict({ ...ROW_REPLY, repeat: true }).line, /a repeat of a request already saved/);
+  assert.deepEqual(addonVerdict(ROW_REPLY, VERIFIED), { pass: true, line: "CANARY PASSED: the add-on step answered ok — saved loaves #12 “Rye & Caraway”; no page published; cost=2" });
+  assert.equal(addonVerdict(REFUSED, VERIFIED).pass, false);
+  assert.match(addonVerdict(REFUSED, VERIFIED).line, /^CANARY FAILED: the add-on step answered "add" — This site doesn't store/);
+  assert.equal(addonVerdict(null, VERIFIED).pass, false);
+  assert.match(addonVerdict({ ...ROW_REPLY, repeat: true }, VERIFIED).line, /a repeat of a request already saved/);
+  // THE AFTER-READ DECIDES WITH THE ANSWER (the review of f6532d66).
+  const off = addonVerdict(ROW_REPLY, UNVERIFIED);
+  assert.equal(off.pass, false, "an unverified after-read passed");
+  assert.match(off.line, /^CANARY FAILED: the add-on step answered ok — saved loaves #12 “Rye & Caraway”; no page published; cost=2 — but the after-read did not verify: UNVERIFIED — the site moved on/);
+  for (const missing of [undefined, null, {}, { verified: "true" }, { verified: 1 }]) {
+    assert.equal(addonVerdict(ROW_REPLY, missing).pass, false, "an after-read of " + JSON.stringify(missing) + " passed");
+  }
+  assert.match(addonVerdict(ROW_REPLY).line, /UNVERIFIED — no after-read verdict was given/);
+  // A PAGELESS ADDITION THAT VERIFIED PASSES AS BEFORE; UNVERIFIED, IT DOES NOT.
+  assert.deepEqual(addonVerdict(PAGELESS, VERIFIED), { pass: true, line: "CANARY PASSED: the add-on step answered ok — no entry saved; no page published; cost=3" });
+  assert.equal(addonVerdict(PAGELESS, UNVERIFIED).pass, false);
+});
+
+test("an entries-only success that shows no saved entry fails, whatever the after-read says", async () => {
+  const { addonVerdict, entriesOnly, savedEntries } = await ca();
+  assert.equal(entriesOnly(ROW_REPLY), true);
+  assert.equal(entriesOnly(PAGELESS), false);
+  assert.equal(entriesOnly({ ...ROW_REPLY, kinds: ["row", "job"] }), false);
+  assert.equal(savedEntries(ROW_REPLY), true);
+  for (const [why, body] of [
+    ["an empty list", { ...ROW_REPLY, rows: [] }],
+    ["no list", (({ rows, ...rest }) => rest)(ROW_REPLY)],
+    ["a list that is not one", { ...ROW_REPLY, rows: "loaves #12" }],
+    ["an entry with no table", { ...ROW_REPLY, rows: [{ ...SAVED, table: "" }] }],
+    ["an entry with no saved row", { ...ROW_REPLY, rows: [{ ...SAVED, row: null }] }],
+    ["one good entry beside one that is not", { ...ROW_REPLY, rows: [SAVED, { table: "loaves", id: 13 }] }],
+  ]) {
+    assert.equal(savedEntries(body), false, why);
+    const v = addonVerdict(body, VERIFIED);
+    assert.equal(v.pass, false, why + " passed");
+    assert.match(v.line, /^CANARY FAILED: the add-on step answered ok for an entry and reported no saved entry it can show/, why);
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THE REAL SCRIPT
 // ─────────────────────────────────────────────────────────────────────────────
 
-function runCanary(name, { route, box = "", addon = null, addonStatus = 200 } = {}) {
+function runCanary(name, { route, box = "", addon = null, addonStatus = 200, afterVersion = "" } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), "canary-addon-" + name + "-"));
   const logFile = path.join(dir, "wire.jsonl");
   writeFileSync(logFile, "");
@@ -91,6 +127,7 @@ function runCanary(name, { route, box = "", addon = null, addonStatus = 200 } = 
     CANARY_EVIDENCE_DIR: path.join(dir, "evidence"),
     STUB_LOG: logFile, STUB_ROUTE: JSON.stringify(route),
     ...(addon ? { STUB_ADDON: JSON.stringify(addon), STUB_ADDON_STATUS: String(addonStatus) } : {}),
+    ...(afterVersion ? { STUB_AFTER_VERSION: afterVersion } : {}),
   };
   return new Promise((resolve) => {
     const p = spawn(process.execPath, ["--import", path.join(REPO, "test/fixtures/canary-stub.mjs"), "scripts/edit-canary.mjs"], { cwd: REPO, env });
@@ -169,4 +206,48 @@ test("an addition the step refused is a failed press, read through the add route
   assert.equal(r.addonPosts.length, 1);
   assert.equal(r.customer, "⚠️ " + REFUSED.msg);
   assert.match(r.err, /CANARY FAILED: the add-on step answered "add"/);
+});
+
+// ── THE AFTER-READ AND THE SAVED ENTRIES DECIDE THE PRESS (2026-10-01) ──────
+//
+// The review of f6532d66: in the add-on branch the after-read's verdict was
+// printed and then ignored — the press exited 0 on any ok answer — and an ok
+// answer for an entry that carried no saved entry passed. Both now fail the
+// press, through the real script, and a pageless addition that verified still
+// passes.
+
+test("an add-on press whose after-read does not verify fails and exits 1", { timeout: 150_000 }, async () => {
+  // A PUBLISH LANDS UNDER THE PRESS: every page reports a later version than
+  // the before-read's, which an addition that published nothing cannot explain.
+  const r = await runCanary("after-unverified", { route: { ok: true, intent: "addon", cost: 2 }, box: "intent=addon", addon: ROW_REPLY, afterVersion: "01790404906543-zzzzzz" });
+  assert.equal(r.unknown.length, 0, JSON.stringify(r.unknown));
+  assert.equal(r.addonPosts.length, 1);
+  assert.equal(r.paidEdits.length, 0);
+  assert.equal(r.compare.comparison.verified, false);
+  assert.equal(r.compare.comparison.why, "superseded");
+  assert.match(r.out, /comparison  UNVERIFIED — the site moved on to 01790404906543-zzzzzz/);
+  assert.equal(r.code, 1, "an unverified add-on press exited " + r.code + "\n" + r.out + r.err);
+  assert.match(r.err, /CANARY FAILED: the add-on step answered ok — saved loaves #12 “Rye & Caraway”; no page published; cost=2 — but the after-read did not verify: UNVERIFIED — the site moved on to 01790404906543-zzzzzz/);
+  assert.doesNotMatch(r.out + r.err, /CANARY PASSED/);
+});
+
+test("an entries-only success with no saved entry fails and exits 1, though the after-read verified", { timeout: 150_000 }, async () => {
+  const r = await runCanary("no-rows", { route: { ok: true, intent: "addon", cost: 2 }, box: "intent=addon", addon: { ...ROW_REPLY, rows: [] } });
+  assert.equal(r.unknown.length, 0, JSON.stringify(r.unknown));
+  assert.equal(r.addonPosts.length, 1);
+  assert.equal(r.compare.comparison.verified, true, "this case needs a verified after-read to test the entries alone");
+  assert.equal(r.code, 1, "a success with no saved entry exited " + r.code + "\n" + r.out + r.err);
+  assert.match(r.err, /CANARY FAILED: the add-on step answered ok for an entry and reported no saved entry it can show — no entry saved; no page published; cost=2/);
+  assert.doesNotMatch(r.out + r.err, /CANARY PASSED/);
+});
+
+test("a pageless addition that verified still passes: no entry, no page, exit 0", { timeout: 150_000 }, async () => {
+  const r = await runCanary("pageless", { route: { ok: true, intent: "addon", cost: 2 }, box: "intent=addon", addon: PAGELESS });
+  assert.equal(r.unknown.length, 0, JSON.stringify(r.unknown));
+  assert.equal(r.addonPosts.length, 1);
+  assert.equal(r.paidEdits.length, 0);
+  assert.equal(r.compare.comparison.verified, true);
+  assert.equal(r.code, 0, r.out + r.err);
+  assert.match(r.out, /CANARY PASSED: the add-on step answered ok — no entry saved; no page published; cost=3/);
+  assert.ok(r.customer && !/^could not compose/.test(r.customer), "the customer's screen was not composed: " + r.customer);
 });

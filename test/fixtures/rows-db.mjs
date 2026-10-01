@@ -71,9 +71,29 @@ function cast(type, v) {
  * the database has no `_meta` table at all (a real state: `META_TABLE_SQL`'s
  * note in `site-schema.mjs`), so a request's key is read and written against a
  * relation Postgres says does not exist (42P01).
+ *
+ * THE ANSWER THAT NEVER ARRIVES (2026-10-01, the review of f6532d66). A thrown
+ * answer is how the Neon driver reports a request whose response was lost: its
+ * `fetch` rejects and the driver throws "Error connecting to database" with no
+ * SQLSTATE. Three ways to get there, each counted down per statement:
+ *   - `loseAnswer`: the next N `row` statements COMMIT — entries and key —
+ *     and then the answer is lost (the reviewer's reproduction);
+ *   - `inFlight`: the next N are lost before they commit and stay PENDING:
+ *     `land()` applies one later, by the same all-or-nothing rule, so a key
+ *     closed in the meantime refuses it whole; with `landOnClose`, a pending
+ *     statement lands the moment a key is closed — a write that commits while
+ *     the reconcile is closing the key, and wins;
+ *   - `garbleAnswer`: the next N commit and answer rows that cannot be read.
+ * `failKeyReads`: once a `row` statement has been sent, the next N reads of a
+ * request's key throw the same way, so a key that is there cannot be seen —
+ * the check before the picker reads as it always did.
  */
-export function rowsDb({ tables = {}, meta = {}, failWrite = null, hideMarker = 0, noMeta = false, now = NOW } = {}) {
-  const state = { tables: new Map(), meta: new Map(Object.entries(meta)), log: [] };
+export function rowsDb({ tables = {}, meta = {}, failWrite = null, hideMarker = 0, noMeta = false, now = NOW,
+  loseAnswer = 0, inFlight = 0, landOnClose = false, garbleAnswer = 0, failKeyReads = 0 } = {}) {
+  const state = { tables: new Map(), meta: new Map(Object.entries(meta)), log: [], pending: [], sent: false };
+  let lose = Number(loseAnswer) || 0, flying = Number(inFlight) || 0, garble = Number(garbleAnswer) || 0, keyFails = Number(failKeyReads) || 0;
+  /** The driver's own report of a request whose answer never came back. */
+  const lost = () => { throw new TypeError("fetch failed"); };
   for (const [name, t] of Object.entries(tables)) {
     const rows = (t.rows || []).map((r) => ({ ...r }));
     state.tables.set(name, {
@@ -144,6 +164,46 @@ export function rowsDb({ tables = {}, meta = {}, failWrite = null, hideMarker = 
     return { ok: true };
   }
 
+  /**
+   * `rowsInsert`'s statement, applied all or nothing: `{ saved }`, the result
+   * rows in order, or `{ error }` the way Postgres refuses it, nothing kept.
+   */
+  function rowStatement(q, p) {
+    const found = inserts(q, p);
+    const named = [...q.matchAll(/SELECT (\d+) AS n, \$(\d+)::text AS t, row_to_json\(r(\d+)\)::text AS row FROM r\d+/g)];
+    const mark = /INSERT INTO _meta \(k, v\) SELECT \$(\d+), json_build_object\('rows'.*'cost', \$(\d+)::numeric\)::text FROM saved/.exec(q);
+    // NO `_meta`: the statement names a relation that is not there, so
+    // Postgres refuses it whole before any entry is kept.
+    if (noMeta && mark) return { error: ["42P01", "relation \"_meta\" does not exist"] };
+    const built = [];
+    for (const f of found) {
+      const b = build(f.table, f.cols, f.vals);
+      if (b.error) return { error: b.error };
+      built.push({ ...b, name: f.table });
+    }
+    const key = mark ? String(p[Number(mark[1]) - 1]) : null;
+    const done = commit(built, key);
+    if (done.error) return { error: done.error };
+    const saved = named.map((m) => ({ n: Number(m[1]), t: String(p[Number(m[2]) - 1]), row: JSON.stringify(built[Number(m[3])].saved) }));
+    if (mark) {
+      const costRaw = p[Number(mark[2]) - 1];
+      state.meta.set(key, JSON.stringify({
+        rows: saved.map((s) => ({ n: s.n, table: s.t, row: JSON.parse(s.row) })),
+        cost: costRaw === null || costRaw === undefined ? null : Number(costRaw),
+      }));
+    }
+    return { saved: saved.sort((a, b) => a.n - b.n) };
+  }
+
+  /** The oldest pending statement arrives: `{ saved }` or `{ error }`, by the same rule. */
+  function land() {
+    const next = state.pending.shift();
+    if (!next) throw new Error("rows-db: nothing pending to land");
+    const done = rowStatement(next.q, next.p);
+    state.log.push({ query: "-- landed: " + next.q.slice(0, 40), params: [], landed: done.error ? "refused " + done.error[0] : "saved" });
+    return done;
+  }
+
   function answer(query, params) {
     const q = String(query || "");
     const p = Array.isArray(params) ? params : [];
@@ -157,6 +217,21 @@ export function rowsDb({ tables = {}, meta = {}, failWrite = null, hideMarker = 
     if (/role_table_grants|pg_policies|pg_trigger/i.test(q)) return wire([{ name: "t" }], []);
     if (/^SELECT 1\s*$/i.test(q.trim())) return wire([{ name: "?column?", type: 23 }], [{ "?column?": 1 }]);
 
+    // A REQUEST'S KEY CLOSED BY THE RECONCILE: `INSERT … ON CONFLICT DO
+    // NOTHING`, one row back when it closed the key and none when a value was
+    // already there. A pending statement lands first when `landOnClose` says
+    // it wins the race.
+    const close = /^INSERT INTO _meta \(k, v\) VALUES \(\$1, \$2\) ON CONFLICT \(k\) DO NOTHING RETURNING k$/i.exec(q.trim());
+    if (close) {
+      const k = String(p[0]);
+      if (!k.startsWith("addon-row:")) return null;
+      if (noMeta) return pgError("42P01", "relation \"_meta\" does not exist");
+      if (landOnClose) while (state.pending.length) land();
+      if (state.meta.has(k)) return wire([{ name: "k" }], [], "INSERT");
+      state.meta.set(k, String(p[1]));
+      return wire([{ name: "k" }], [{ k }], "INSERT");
+    }
+
     // `_meta`, read by one key: the schema by literal, a request's key by parameter.
     const literal = /^SELECT v FROM _meta WHERE k\s*=\s*'([^']+)'\s*$/i.exec(q.trim());
     const bound = /^SELECT v FROM _meta WHERE k\s*=\s*\$1\s*$/i.exec(q.trim());
@@ -166,6 +241,7 @@ export function rowsDb({ tables = {}, meta = {}, failWrite = null, hideMarker = 
       // database holds it — so inside another fixture the schema read stays
       // that fixture's, and two fixtures never give two answers.
       if (!k.startsWith("addon-row:") && !state.meta.has(k)) return null;
+      if (bound && k.startsWith("addon-row:") && state.sent && keyFails > 0) { keyFails--; lost(); }
       if (noMeta && k.startsWith("addon-row:")) return pgError("42P01", "relation \"_meta\" does not exist");
       // THE READ THAT LOSES THE RACE: a key another run has ALREADY saved, read
       // as absent — so the first run's own empty read never uses one up.
@@ -193,31 +269,17 @@ export function rowsDb({ tables = {}, meta = {}, failWrite = null, hideMarker = 
 
     // THE `row` STEP'S ONE STATEMENT: entries and the request's key together.
     if (/^WITH r0 AS \(INSERT INTO "/.test(q.trim())) {
-      const found = inserts(q, p);
-      const named = [...q.matchAll(/SELECT (\d+) AS n, \$(\d+)::text AS t, row_to_json\(r(\d+)\)::text AS row FROM r\d+/g)];
-      const mark = /INSERT INTO _meta \(k, v\) SELECT \$(\d+), json_build_object\('rows'.*'cost', \$(\d+)::numeric\)::text FROM saved/.exec(q);
+      state.sent = true;
       if (failWrite) return pgError(failWrite.code || "XX000", failWrite.message || "the write failed");
-      // NO `_meta`: the statement names a relation that is not there, so
-      // Postgres refuses it whole before any entry is kept.
-      if (noMeta && mark) return pgError("42P01", "relation \"_meta\" does not exist");
-      const built = [];
-      for (const f of found) {
-        const b = build(f.table, f.cols, f.vals);
-        if (b.error) return pgError(...b.error);
-        built.push({ ...b, name: f.table });
-      }
-      const key = mark ? String(p[Number(mark[1]) - 1]) : null;
-      const done = commit(built, key);
+      // LOST BEFORE IT COMMITS, AND STILL ON ITS WAY: kept to land later.
+      if (flying > 0) { flying--; state.pending.push({ q, p }); lost(); }
+      const done = rowStatement(q, p);
       if (done.error) return pgError(...done.error);
-      const saved = named.map((m) => ({ n: Number(m[1]), t: String(p[Number(m[2]) - 1]), row: JSON.stringify(built[Number(m[3])].saved) }));
-      if (mark) {
-        const costRaw = p[Number(mark[2]) - 1];
-        state.meta.set(key, JSON.stringify({
-          rows: saved.map((s) => ({ n: s.n, table: s.t, row: JSON.parse(s.row) })),
-          cost: costRaw === null || costRaw === undefined ? null : Number(costRaw),
-        }));
-      }
-      return wire([{ name: "n", type: 23 }, { name: "t" }, { name: "row" }], saved.sort((a, b) => a.n - b.n));
+      // COMMITTED — entries and key — AND THE ANSWER LOST on the way back.
+      if (lose > 0) { lose--; lost(); }
+      // COMMITTED, AND ANSWERED WITH ROWS NOBODY CAN READ.
+      if (garble > 0) { garble--; return wire([{ name: "n", type: 23 }, { name: "t" }, { name: "row" }], done.saved.map((s) => ({ ...s, row: "{not json" }))); }
+      return wire([{ name: "n", type: 23 }, { name: "t" }, { name: "row" }], done.saved);
     }
 
     // A PLAIN ROW INSERT — the data step's, with or without RETURNING.
@@ -238,6 +300,10 @@ export function rowsDb({ tables = {}, meta = {}, failWrite = null, hideMarker = 
 
   return {
     answer,
+    /** A statement lost on its way (`inFlight`) arrives now. */
+    land,
+    /** How many statements are still on their way. */
+    pending: () => state.pending.length,
     /** The table's rows as stored now — a copy. */
     rows: (name) => (state.tables.get(name) ? state.tables.get(name).rows.map((r) => ({ ...r })) : null),
     /** A `_meta` value, or `undefined`. */

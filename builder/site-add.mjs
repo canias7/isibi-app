@@ -2371,6 +2371,178 @@ export function readRowMarker(v, lists) {
   return { rows: out, cost };
 }
 
+// ── A WRITE WHOSE OUTCOME THE ROUTE CANNOT SEE (2026-10-01, the review of
+//    f6532d66) ──────────────────────────────────────────────────────────────
+//
+// The reviewer committed the entry and its key, then threw where the answer
+// should have been. The step said "nothing was added. Try again in a moment.",
+// the job refunded its reserve, and the customer's next message saved the
+// entry a second time. A thrown write is not one fact. The pieces below read
+// which one it is; the route and the reconcile act on them.
+
+/**
+ * THE SQLSTATE CLASSES THAT END ONE STATEMENT BEFORE IT COMMITS: a value it
+ * cannot read (22), a constraint (23), a name it does not know or a right it
+ * lacks (42), the rest of the ordinary refusals a single INSERT can meet. A
+ * class not named here is not assumed to be one.
+ */
+const ROW_REFUSED_CLASSES = new Set(["0A", "21", "22", "23", "25", "27", "28", "2F", "38", "39", "3D", "3F", "40", "42", "44", "54", "55", "P0"]);
+
+/**
+ * WHAT A THROWN ROW WRITE SAYS: `{ outcome, code }`.
+ *
+ *   duplicate  23505 — a unique key refused the statement whole: this
+ *              request's key (another run saved first) or the list's own.
+ *   refused    the database's own SQLSTATE, in a class that ends the
+ *              statement before it commits. Nothing was kept, and saying so
+ *              is true.
+ *   uncertain  everything else: no SQLSTATE at all — the driver's report of a
+ *              request or an answer lost on the way (a transport error, a
+ *              timeout, a proxy's 5xx) — or a class whose error does not
+ *              settle whether the commit happened: a connection (08),
+ *              resources (53), an operator (57), the system (58), an internal
+ *              error (XX), and 40003, "statement completion unknown". Only the
+ *              request's key can answer those.
+ *
+ * Read off the error's own `code`, and only as a SQLSTATE: a code is five
+ * characters of [0-9A-Z], and one whose class is not listed — a five-letter
+ * Node code such as EPIPE among them — is uncertain, never refused.
+ */
+export function rowWriteOutcome(err) {
+  const c = err && typeof err === "object" && typeof err.code === "string" && /^[0-9A-Z]{5}$/.test(err.code) ? err.code : "";
+  if (c === "23505") return { outcome: "duplicate", code: c };
+  if (c && c !== "40003" && ROW_REFUSED_CLASSES.has(c.slice(0, 2))) return { outcome: "refused", code: c };
+  return { outcome: "uncertain", code: c };
+}
+
+/**
+ * THE VALUE THAT CLOSES A REQUEST'S KEY ONCE NOTHING WAS SAVED UNDER IT.
+ *
+ * Written only by the reconcile, and only after it read the key empty:
+ * `INSERT … ON CONFLICT (k) DO NOTHING`. A write still on its way either
+ * committed first — the insert then does nothing, and the entries are there —
+ * or meets this row on `_meta`'s key and is refused whole, entries and all.
+ * Either way the answer is final the moment the close commits, with no clock
+ * and no guess at how long a lost write may take to land.
+ */
+export const ROW_VOID = JSON.stringify({ void: true, why: "nothing was saved under this request's key, and the key is closed so nothing can be" });
+
+/** Is this `_meta` value a closed key (`ROW_VOID`)? A value that does not parse is not. */
+export function isRowVoid(v) {
+  let m = null;
+  try { m = typeof v === "string" ? JSON.parse(v) : null; } catch { m = null; }
+  return !!(m && typeof m === "object" && !Array.isArray(m) && m.void === true);
+}
+
+/**
+ * THE KEY OF A QUEUED ROW WRITE UNDER REVIEW, from its `edit_jobs` row, or "".
+ *
+ * The step records the request's key as the job's `artifact_build` with the
+ * mark that puts it under review — what the write left in the world, as a
+ * publish records its build — so the reconcile knows a row write by its row
+ * alone, even when the reply that says so was never stored. Only the job's
+ * OWN key counts: a row naming another job's key is not read as one.
+ */
+export function rowReviewKey(row) {
+  const r = row && typeof row === "object" ? row : {};
+  const key = rowMarkerKey({ job: typeof r.id === "string" ? r.id : "" });
+  return key && key.startsWith("addon-row:job:") && r.artifact_build === key ? key : "";
+}
+
+/**
+ * THE ROW REVIEW'S VERDICT, from what the site's database holds under the key.
+ *
+ *   marker  { state: "found", value } | { state: "absent" } | { state: "no-meta" }
+ *           | { state: "failed" } | { state: "no-db" }
+ *   close   undefined (a dry read: the key was not closed) | { state: "won" }
+ *           | { state: "lost", value } | { state: "failed" }
+ *
+ * → `{ verdict: "kept" | "refunded" | "unknown", kind, why, rows }`. Kept only
+ * on the entries the key recorded; refunded only on a key closed as not saved,
+ * or a database with no `_meta` (the statement names it, so it saved nothing);
+ * every other answer is unknown and leaves the job where it is. An EMPTY key
+ * is never refunded on a read: it is closed first, and decided by the close.
+ */
+export function rowReviewVerdict({ marker, close, lists } = {}) {
+  const m = marker && typeof marker === "object" ? marker : {};
+  const unknown = (kind, why) => ({ verdict: "unknown", kind, why, rows: null });
+  const settle = (value, late) => {
+    if (isRowVoid(value)) return { verdict: "refunded", kind: "closed", why: "the request's key was closed as not saved", rows: null };
+    const was = readRowMarker(value, lists);
+    if (!was) return unknown("key-unreadable", "the request's key holds a value that cannot be read");
+    return { verdict: "kept", kind: late ? "saved-late" : "saved", why: "the request's key holds the " + was.rows.length + (was.rows.length === 1 ? " entry" : " entries") + " it saved", rows: was.rows };
+  };
+  if (m.state === "found") return settle(m.value, false);
+  if (m.state === "no-meta") return { verdict: "refunded", kind: "no-meta", why: "the site's database has no _meta table, and the write names it, so it saved nothing", rows: null };
+  if (m.state === "absent") {
+    const c = close && typeof close === "object" ? close : null;
+    if (!c) return unknown("key-empty", "nothing is saved under the request's key yet; applying closes the key, so a write still on its way can never land, and then refunds");
+    if (c.state === "won") return { verdict: "refunded", kind: "closed-now", why: "nothing was saved under the request's key, and the key is closed now, so the write can never land", rows: null };
+    if (c.state === "lost") return settle(c.value, true);
+    return unknown("close-failed", "the request's key was empty and could not be closed");
+  }
+  if (m.state === "no-db") return unknown("db-unreadable", "the site's database could not be opened");
+  return unknown("key-unread", "the request's key could not be read");
+}
+
+/**
+ * WHAT A ROW WRITE WITH NO KNOWN OUTCOME TELLS THE CUSTOMER — the reply's
+ * body. `why` is "lost" (the write's answer never came) or "unread" (an
+ * answer, or a key, that cannot be read). Never "nothing was added", never an
+ * invitation to try again: until the key answers, a second attempt is the
+ * duplicate. `review` says whether the job was put under review (the site
+ * paused, the money held); without it — inline, or a job the mark refused —
+ * nothing is charged.
+ */
+export function rowUncertainBody({ why = "lost", review = false, deferred = "", notAdded = [] } = {}) {
+  const first = why === "unread"
+    ? "The database answered, but I couldn't read back what it saved."
+    : "I couldn't tell whether that entry was saved: the database stopped answering partway through.";
+  const then = review
+    ? " So it can't be added twice, I've paused changes to this site until that's settled — if nothing was saved, you won't be charged for it. Meanwhile you can check the list in the Data panel."
+    : " I haven't charged for it. Please check the list in the Data panel to see whether it's there.";
+  const left = Array.isArray(notAdded) ? notAdded : [];
+  return {
+    ok: false, error: "row-uncertain", why: why === "unread" ? "unread" : "lost", cost: 0, ours: true,
+    review: review || undefined,
+    deferred: deferred || undefined,
+    notAdded: left.length ? left.slice(0, 6) : undefined,
+    msg: first + then,
+  };
+}
+
+/**
+ * THE REPLY THE RECONCILE STORES FOR A ROW WRITE IT SETTLED, in the consumer's
+ * stored shape (`{ status, type, body }`), or null for a verdict that stores
+ * nothing. Kept: the entries the key recorded, with what the first reply set
+ * aside (`deferred`, `notAdded`), at the job's own cost — the browser's
+ * ordinary success. Refunded: the confirmation, and the amount that came back.
+ */
+export function rowReviewReply(out, row, refunded = 0) {
+  let asked = {};
+  try {
+    const b = row && row.result && typeof row.result.body === "string" ? JSON.parse(row.result.body) : null;
+    if (b && typeof b === "object" && !Array.isArray(b)) asked = b;
+  } catch { asked = {}; }
+  if (out && out.verdict === "kept" && Array.isArray(out.rows) && out.rows.length) {
+    return { status: 200, type: "application/json", body: JSON.stringify({
+      ok: true, kinds: ["row"], rows: out.rows, reconciled: out.kind,
+      deferred: typeof asked.deferred === "string" && asked.deferred ? asked.deferred : undefined,
+      notAdded: Array.isArray(asked.notAdded) && asked.notAdded.length ? asked.notAdded : undefined,
+      added: [], changed: [], removed: [], moved: [],
+      cost: Number(row && row.cost) || 0,
+    }) };
+  }
+  if (out && out.verdict === "refunded") {
+    const back = Number(refunded) || 0;
+    return { status: 409, type: "application/json", body: JSON.stringify({
+      ok: false, error: "reconciled", kind: out.kind, refunded: back,
+      msg: "I've now confirmed that entry wasn't saved, so nothing was added" + (back > 0 ? ", and the credits held for it are back in your balance" : "") + ". You can ask for it again.",
+    }) };
+  }
+  return null;
+}
+
 /**
  * Refuse an answer down to a usable design, or say why not.
  *

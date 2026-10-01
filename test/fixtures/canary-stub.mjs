@@ -23,6 +23,10 @@
 //               that job; STUB_ADDON_STATUS is the reply's own status (200 by
 //               default). Unset, the add-on POST is recorded and answered 500,
 //               like the paid edit.
+//   STUB_AFTER_VERSION  once the add-on POST has been made, the version every
+//               page of the site reports (by default the before-read's, as an
+//               addition that publishes nothing leaves it) — a publish landing
+//               under the press.
 import https from "node:https";
 import { EventEmitter } from "node:events";
 import { appendFileSync } from "node:fs";
@@ -44,6 +48,8 @@ const JOB = "a".repeat(32);
 const ADDON = process.env.STUB_ADDON ? JSON.parse(process.env.STUB_ADDON) : null;
 const ADDON_STATUS = Number(process.env.STUB_ADDON_STATUS) || 200;
 const ADDON_JOB = "b".repeat(32);
+const AFTER_VERSION = process.env.STUB_AFTER_VERSION || "";
+let addonPosted = false;
 const log = (e) => { if (LOG) appendFileSync(LOG, JSON.stringify(e) + "\n"); };
 
 function worker(method, path, body, headers) {
@@ -58,6 +64,7 @@ function worker(method, path, body, headers) {
   }
   if (method === "POST" && p === `/api/site/${SLUG}/addon`) {
     if (!ADDON) return [500, { error: "stub: the paid add-on is recorded, not run" }];
+    addonPosted = true;
     return [202, { ok: true, job: ADDON_JOB, status: "queued", poll: "/api/site/edit/" + ADDON_JOB }];
   }
   if (method === "GET" && ADDON && p === "/api/site/edit/" + ADDON_JOB) return [ADDON_STATUS, ADDON, { "x-gf-edit": "final" }];
@@ -102,7 +109,7 @@ globalThis.fetch = async (input, init = {}) => {
     log({ via: "fetch", method, url, status: r.status, prefer, range });
     return r;
   }
-  else if (url.startsWith(`https://${SLUG}.gofarther.app/`)) r = reply("<html><body><h1>Home</h1></body></html>", 200, { "x-site-version": "01790404806543-kk6qsh" });
+  else if (url.startsWith(`https://${SLUG}.gofarther.app/`)) r = reply("<html><body><h1>Home</h1></body></html>", 200, { "x-site-version": addonPosted && AFTER_VERSION ? AFTER_VERSION : "01790404806543-kk6qsh" });
   else r = reply({ error: "stub has no answer" }, 599);
   log({ via: "fetch", method, url, status: r.status });
   return r;

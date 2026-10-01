@@ -257,7 +257,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { requirementNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
@@ -13251,8 +13251,12 @@ async function retryLostUpload(env, row, facts, out) {
  * more than "recovered" ever could and is left as it is. An unknown verdict
  * applies nothing and is said once per isolate.
  */
-async function applyReconcile(env, row, out, refundedHint = 0) {
+async function applyReconcile(env, row, outIn, refundedHint = 0) {
   const id = String(row.id);
+  // A VERDICT MAY CARRY ITS OWN REPLY (2026-10-01): the row review's, whose
+  // kept job holds the step's "could not tell" reply — the one stored reply
+  // that must NOT be left standing once the key has answered.
+  const { compose, ...out } = outIn || {};
   if (out.verdict === "kept" || out.verdict === "refunded") {
     const r = await editRpc(env, "edit_reconcile", { p_id: id, p_committed: out.verdict === "kept", p_note: ("reconciled: " + out.kind + " — " + out.why).slice(0, 200) });
     if (!r || r.ok !== true) {
@@ -13260,8 +13264,12 @@ async function applyReconcile(env, row, out, refundedHint = 0) {
       return { ...out, applied: false, error: String((r && r.error) || "rpc") };
     }
     const hasReply = !!(row.result && typeof row.result === "object" && typeof row.result.body === "string");
-    if (!(out.verdict === "kept" && hasReply)) {
-      await editRpc(env, "edit_finalize", { p_id: id, p_result: reconcileReply(out, row, Number(r.refunded) || refundedHint || 0), p_ok: out.verdict === "kept" });
+    const refunded = Number(r.refunded) || refundedHint || 0;
+    if (typeof compose === "function") {
+      const own = compose(refunded);
+      if (own) await editRpc(env, "edit_finalize", { p_id: id, p_result: own, p_ok: out.verdict === "kept" });
+    } else if (!(out.verdict === "kept" && hasReply)) {
+      await editRpc(env, "edit_finalize", { p_id: id, p_result: reconcileReply(out, row, refunded), p_ok: out.verdict === "kept" });
     }
     // THE MIGRATION RECORD FOLLOWS THE VERDICT (stage 8). An addon that
     // applied its schema and then died between the seam and its own mark
@@ -13298,11 +13306,69 @@ export async function reconcileEditJob(env, id, hint = null) {
   if (!row) { console.error("reconcile:", id, "— the row could not be read"); return { verdict: "unknown", kind: "row-unreadable", applied: false }; }
   if (row.needs_review !== true) return { verdict: "skip", kind: "not-in-review", applied: false };
   if (String(row.op || "") === BUILD_OP) return { verdict: "skip", kind: "build-row", applied: false };
+  // A ROW WRITE IS NOT A PUBLISH: nothing of it is staged or live, so the
+  // three facts below would call it "never staged" and refund entries that
+  // may be on the site. Its one fact is its key.
+  const rowKey = String(row.op || "") === "addon" ? rowReviewKey(row) : "";
+  if (rowKey) {
+    const rf = await rowReviewFacts(env, row, rowKey, { close: true });
+    const out = rowReviewVerdict(rf);
+    const applied = await applyReconcile(env, row, { ...out, compose: (refunded) => rowReviewReply(out, row, refunded) });
+    return { ...applied, job: String(row.id), facts: { row: rowReviewPublic(rf, rowKey) } };
+  }
   const facts = await reconcileFacts(env, row);
   let out = reconcileVerdict(facts);
   if (out.verdict === "retry") out = await retryLostUpload(env, row, facts, out);
   const applied = await applyReconcile(env, row, out);
   return { ...applied, job: String(row.id), facts: publicFacts(facts) };
+}
+
+/**
+ * A ROW WRITE UNDER REVIEW, READ (2026-10-01, the review of f6532d66): what the
+ * site's own database holds under the request's key. With `close`, an EMPTY key
+ * is closed (`ROW_VOID`, `INSERT … ON CONFLICT DO NOTHING`) before anything is
+ * decided, so a write still on its way can never land after a refund: it
+ * committed first and the close finds its entries, or it meets the closed key
+ * and is refused whole. The owner's dry read never closes. Every failure to
+ * read is its own state, never "nothing there".
+ */
+async function rowReviewFacts(env, row, key, { close = false } = {}) {
+  let conn = null;
+  try { conn = (await siteBackendDetail(env, String(row.slug || ""))).conn || null; } catch { conn = null; }
+  if (!conn) return { marker: { state: "no-db" } };
+  const read = async () => {
+    try {
+      const r = await sqlQuery(conn, "SELECT v FROM _meta WHERE k = ?", [key]);
+      return r && r.length ? { state: "found", value: r[0] && r[0].v } : { state: "absent" };
+    } catch (e) { return e && e.code === "42P01" ? { state: "no-meta" } : { state: "failed" }; }
+  };
+  const marker = await read();
+  let shut;
+  if (close && marker.state === "absent") {
+    try {
+      const w = await sqlQuery(conn, "INSERT INTO _meta (k, v) VALUES (?, ?) ON CONFLICT (k) DO NOTHING RETURNING k", [key, ROW_VOID]);
+      if (w && w.length) shut = { state: "won" };
+      else {
+        const again = await read();
+        shut = again.state === "found" ? { state: "lost", value: again.value } : { state: "failed" };
+      }
+    } catch (e) {
+      console.error("reconcile:", String(row.id), "— the request's key could not be closed:", String((e && e.message) || e));
+      shut = { state: "failed" };
+    }
+  }
+  // THE LISTS, for the words each saved entry is called by; best-effort.
+  let lists = new Map();
+  try {
+    const s = await sqlQuery(conn, "SELECT v FROM _meta WHERE k = 'schema'");
+    lists = rowTables(JSON.parse(String((s && s[0] && s[0].v) || "{}")));
+  } catch { lists = new Map(); }
+  return { marker, close: shut, lists };
+}
+
+/** A row review's facts as an owner may read them: the key and what was found, never a row's values. */
+function rowReviewPublic(rf, key) {
+  return { key, marker: (rf && rf.marker && rf.marker.state) || "unread", closed: (rf && rf.close && rf.close.state) || null };
 }
 
 /** The consumer's own door: the reconcile the moment its refund answered `needs-review`, never a throw out of the consumer. */
@@ -19136,6 +19202,15 @@ async function handleRequest(request, env, ctx) {
       for (const row of rrows) {
         if (String(row.uid || "") !== ru.id) continue;
         if (rapply) { rout.push(await reconcileEditJob(env, row.id, row)); continue; }
+        // A ROW WRITE'S DRY READ (2026-10-01): its key, read and NEVER closed —
+        // so an empty key answers unknown here, and only applying closes it.
+        const rk = String(row.op || "") === "addon" ? rowReviewKey(row) : "";
+        if (rk) {
+          const rf = await rowReviewFacts(env, row, rk, { close: false });
+          const v = rowReviewVerdict(rf);
+          rout.push({ job: String(row.id), op: row.op, state: row.state, note: row.review_note || null, verdict: v.verdict, kind: v.kind, why: v.why, applied: false, facts: { row: rowReviewPublic(rf, rk) } });
+          continue;
+        }
         const facts = await reconcileFacts(env, row);
         const v = String(row.op || "") === BUILD_OP ? { verdict: "skip", kind: "build-row", why: "a build's row is a person's" } : reconcileVerdict(facts);
         rout.push({ job: String(row.id), op: row.op, state: row.state, note: row.review_note || null, verdict: v.verdict, kind: v.kind, why: v.why, applied: false, facts: publicFacts(facts) });
@@ -26035,12 +26110,55 @@ async function handleRequest(request, env, ctx) {
               added: [], changed: [], removed: [], moved: [],
               cost,
             });
-            // AN EARLIER RUN WROTE SOMETHING WE CANNOT READ BACK. Its entries
-            // may be on the site, so adding them again is the one wrong answer.
-            const aRowsUnread = () => Response.json({
-              ok: false, error: "row-unread", cost: 0, ours: true,
-              msg: "An earlier attempt at this same request may already have saved its entry, and I couldn't read back what it saved — so I've stopped rather than add anything twice. Check the list in the Data panel before asking again.",
-            }, { status: 502 });
+            // ── AN OUTCOME THIS STEP CANNOT SEE (2026-10-01, the review of
+            //    f6532d66) ───────────────────────────────────────────────
+            //
+            // The reviewer committed the entry and its key, then threw where
+            // the answer should have been: this step said "nothing was added",
+            // the consumer refunded, and the next message saved the entry a
+            // second time. A write whose answer is lost or cannot be read is
+            // not a failure, it is not knowing — and the key it carried is the
+            // one thing that can say what happened.
+            //
+            // THE KEY IS READ, and settles it one of two ways. It holds this
+            // request's entries: they were saved, and the reply is what the key
+            // recorded, charged as if the answer had arrived. Anything else —
+            // no key, a read that fails, a value that cannot be read, an empty
+            // key while the write may still be landing — stays unknown, and
+            // unknown is never "nothing was added". A queued job is put under
+            // review, the money where it is: `edit_publish_mark` FIRST, with
+            // the request's key as what the write left behind, so the
+            // consumer's refund parks the job instead of refunding it, the
+            // site takes no new job until it is settled (`edit_create`), and
+            // the reconcile reads the key again — closing it when it is still
+            // empty — and settles it (`rowReviewVerdict`). Inline, nothing is
+            // charged and the customer is told to look. No sentence here
+            // invites a fresh attempt: until the key answers, that attempt is
+            // the duplicate.
+            const aRowMarker = async () => {
+              if (!aRowKey) return { state: "no-key" };
+              let back = null;
+              try { back = await sqlQuery(adb, "SELECT v FROM _meta WHERE k = ?", [aRowKey]); }
+              catch (e) { console.error("addon row marker read-back failed:", ownerSlug, e && e.message); return { state: "failed" }; }
+              if (!back || !back.length) return { state: "absent" };
+              const was = readRowMarker(back[0] && back[0].v, aRowLists);
+              return was ? { state: "found", was } : { state: "unreadable" };
+            };
+            const aRowsUnknown = async (why, skipped = []) => {
+              let review = false;
+              if (aJob && aRowKey) {
+                const m = await editRpc(env, "edit_publish_mark", {
+                  p_id: aJob.id, p_owner: aJob.owner, p_artifact_build: aRowKey,
+                  p_dist_etag: null, p_sidecar_etag: null, p_source_etag: null, p_worker_status: null,
+                });
+                review = !!(m && m.ok === true);
+                // SAID, NEVER SWALLOWED: a job that could not be parked is
+                // refunded by its consumer, the recorded limit of this step.
+                if (!review) console.error("addon row: job", aJob.id, "could not be put under review —", String((m && m.error) || "rpc"));
+              }
+              aMark("add:row", "fail", { uncertain: why, review: review ? 1 : 0 });
+              return Response.json(rowUncertainBody({ why, review, deferred: aLater.held, notAdded: skipped }), { status: review ? 409 : 502 });
+            };
             if (aRowKey) {
               let seen = null;
               try { seen = await sqlQuery(adb, "SELECT v FROM _meta WHERE k = ?", [aRowKey]); }
@@ -26053,8 +26171,11 @@ async function handleRequest(request, env, ctx) {
                 }
               }
               if (seen && seen.length) {
+                // AN EARLIER RUN SAVED UNDER THIS KEY, AND WHAT IT SAVED CANNOT
+                // BE READ: its entries may be on the site, so adding them again
+                // is the one wrong answer — and refunding them is another.
                 const was = readRowMarker(seen[0] && seen[0].v, aRowLists);
-                if (!was) return aRowsUnread();
+                if (!was) return aRowsUnknown("unread");
                 aMark("add:row", "ok", { repeat: 1, rows: was.rows.length });
                 return aRowsReply(was.rows, { repeat: true, cost: aJob ? (was.cost || 0) : 0 });
               }
@@ -26120,44 +26241,55 @@ async function handleRequest(request, env, ctx) {
                 if (aCharges.refused() > 0) return unbilledReply(aCharges);
               }
               const rowWrite = rowsInsert(rowClean.value, aRowKey ? { key: aRowKey, cost: aJob ? rowCost : null } : null);
-              let rowSaved = null;
+              let rowSaved = null, rowLost = "";
               try {
                 rowSaved = readSavedRows(await sqlQuery(adb, rowWrite.sql, rowWrite.params), aRowLists);
+                // AN ANSWER THAT CANNOT BE READ BACK — or not all of it — is
+                // an outcome this step cannot see, never one to call done.
+                if (!rowSaved || rowSaved.length !== rowClean.value.length) { rowSaved = null; rowLost = "unread"; }
               } catch (e) {
-                const code = e && typeof e.code === "string" && /^[0-9A-Z]{5}$/.test(e.code) ? e.code : "";
+                const thrown = rowWriteOutcome(e);
                 // A UNIQUE KEY REFUSED THE WRITE, AND THE WHOLE STATEMENT WITH
                 // IT. Ours (`_meta`'s key: another run of this request saved
                 // first) is answered with what that run saved; the list's own
                 // (an entry it does not allow twice) is the customer's to know.
-                if (code === "23505") {
-                  let back = null, backRead = true;
-                  if (aRowKey) {
-                    try { back = await sqlQuery(adb, "SELECT v FROM _meta WHERE k = ?", [aRowKey]); }
-                    catch (e2) { backRead = false; console.error("addon row marker read-back failed:", ownerSlug, e2 && e2.message); }
+                if (thrown.outcome === "duplicate") {
+                  const back = await aRowMarker();
+                  if (back.state === "found") {
+                    aMark("add:row", "ok", { repeat: 1, rows: back.was.rows.length });
+                    return aRowsReply(back.was.rows, { repeat: true, cost: aJob ? (back.was.cost || 0) : 0, skipped: rowSkipped });
                   }
-                  if (!backRead) return aRowsUnread();
-                  if (back && back.length) {
-                    const was = readRowMarker(back[0] && back[0].v, aRowLists);
-                    if (!was) return aRowsUnread();
-                    aMark("add:row", "ok", { repeat: 1, rows: was.rows.length });
-                    return aRowsReply(was.rows, { repeat: true, cost: aJob ? (was.cost || 0) : 0, skipped: rowSkipped });
-                  }
+                  // WITHOUT A KEY THE STATEMENT WROTE NONE, so the key refused
+                  // can only be the list's own.
+                  if (back.state !== "absent" && back.state !== "no-key") return aRowsUnknown("unread", rowSkipped);
                   return Response.json({
                     ok: false, error: "row-duplicate", cost: 0,
                     msg: "That list doesn't allow two entries the same, and one like this is already there — so nothing was added.",
                   }, { status: 422 });
                 }
-                console.error("addon row write failed:", ownerSlug, code || (e && e.message));
-                return Response.json({
-                  ok: false, error: "row-write", cost: 0, ours: true, detail: code || undefined,
-                  msg: "I couldn't save that entry — the database didn't accept it, so nothing was added. Try again in a moment.",
-                }, { status: 502 });
+                // THE DATABASE'S OWN REFUSAL ENDED THE STATEMENT before it
+                // committed: nothing was saved, and saying so is true.
+                if (thrown.outcome === "refused") {
+                  console.error("addon row write failed:", ownerSlug, thrown.code);
+                  return Response.json({
+                    ok: false, error: "row-write", cost: 0, ours: true, detail: thrown.code,
+                    msg: "I couldn't save that entry — the database didn't accept it, so nothing was added. Try again in a moment.",
+                  }, { status: 502 });
+                }
+                console.error("addon row write's outcome unknown:", ownerSlug, thrown.code || (e && e.message));
+                rowLost = "lost";
               }
-              // A WRITE THAT LANDED AND CANNOT BE READ BACK is not one to call
-              // done: the rows are not reported, the answer says so.
-              if (!rowSaved || rowSaved.length !== rowClean.value.length) return aRowsUnread();
+              // THE KEY ANSWERS WHAT THE WRITE DID NOT — only the whole of what
+              // was asked counts as saved.
+              let rowRecovered = false;
+              if (rowLost) {
+                const back = await aRowMarker();
+                if (!(back.state === "found" && back.was.rows.length === rowClean.value.length)) return aRowsUnknown(rowLost, rowSkipped);
+                rowSaved = back.was.rows;
+                rowRecovered = true;
+              }
               if (!aJob) rowCost = await aCharge(rowBill);
-              aMark("add:row", "ok", { rows: rowSaved.length });
+              aMark("add:row", "ok", { rows: rowSaved.length, recovered: rowRecovered ? rowLost : undefined });
               return aRowsReply(rowSaved, { cost: rowCost, skipped: rowSkipped });
             }
             // A ROW BESIDE OTHER KINDS IS SET ASIDE, SAID BY NAME: the step above

@@ -25,7 +25,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import vm from "node:vm";
-import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
+import { loadWorker, loadWorkerModule, makeCtx } from "./fixtures/worker-harness.mjs";
 import { isDispatchUpload, dispatchOk } from "./fixtures/cf-containers.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
 import { ASK_TOOL } from "../builder/site-ask.mjs";
@@ -74,10 +74,15 @@ function bakeryDb(opts = {}) {
       loaves: { columns: LOAF_COLUMNS, rows: BAKERY_LOAVES, next: 12, unique: opts.unique || [] },
       orders: { columns: ORDER_COLUMNS, rows: ORDERS },
     },
-    meta: { schema: JSON.stringify(SPEC) },
+    meta: { schema: JSON.stringify(SPEC), ...(opts.meta || {}) },
     failWrite: opts.failWrite || null,
     hideMarker: opts.hideMarker || 0,
     noMeta: !!opts.noMeta,
+    loseAnswer: opts.loseAnswer || 0,
+    inFlight: opts.inFlight || 0,
+    landOnClose: !!opts.landOnClose,
+    garbleAnswer: opts.garbleAnswer || 0,
+    failKeyReads: opts.failKeyReads || 0,
   });
 }
 
@@ -111,10 +116,29 @@ function bucket(slug) {
  * (job, seq), as the live functions are (`supabase/applied/…live_snapshot…`):
  * a second create with the same key answers the first job as a duplicate, a
  * second reserve of the same sequence answers `repeat` and charges nothing.
+ *
+ * AND EACH JOB HAS ITS ROW (2026-10-01, the review of f6532d66), kept by the
+ * rules the live functions keep: `edit_publish_mark` records the start of a
+ * write only for the lease's holder; `edit_finalize` stores the reply first,
+ * then finishes a job that published, or one that never began and answered
+ * ok; `edit_refund` refuses a published job, parks one that began (needs
+ * review, the money where it is) and gives a reserve back otherwise;
+ * `edit_reconcile` settles only a job under review; `edit_create` refuses a
+ * site with a job under review; and the reconcile reads the rows back by id
+ * or by review, as `readEditRows` asks PostgREST.
  */
-function wire({ db, answers, slug, reserveRefuses = false, usage = {} }) {
+function wire({ db, answers, slug, reserveRefuses = false, usage = {}, markRefuses = false }) {
   const real = globalThis.fetch;
-  const seen = { timeline: [], models: [], debits: [], rpc: [], uploads: 0, jobs: new Map(), ledger: new Map(), done: new Set() };
+  const seen = { timeline: [], models: [], debits: [], rpc: [], uploads: 0, jobs: new Map(), ledger: new Map(), done: new Set(), rows: new Map(), refunds: [] };
+  const now = () => new Date().toISOString();
+  const rowOf = (id, init = {}) => {
+    if (!seen.rows.has(id)) {
+      seen.rows.set(id, { id, uid: USER.id, slug, op: "addon", state: "queued", phase: null, billing: "none", cost: 0,
+        needs_review: false, review_note: null, artifact_build: null, worker_status: null, publish_started_at: null,
+        published_at: null, result: null, lease_owner: null, updated_at: now(), ...init });
+    }
+    return seen.rows.get(id);
+  };
   globalThis.fetch = async (input, init) => {
     const url = String((input && input.url) || input || "");
     let args = {};
@@ -129,33 +153,106 @@ function wire({ db, answers, slug, reserveRefuses = false, usage = {} }) {
           if (!/^[A-Za-z0-9_-]{16,64}$/.test(String(args.p_idem || ""))) return json({ ok: false, error: "bad-idem" });
           const key = [args.p_uid, args.p_slug, args.p_op, args.p_idem].join("|");
           if (seen.jobs.has(key)) return json({ ok: true, job: seen.jobs.get(key), state: "queued", duplicate: true });
+          // A SITE UNDER REVIEW TAKES NO NEW EDITS — the live gate.
+          const blocked = [...seen.rows.values()].find((r) => r.slug === args.p_slug && r.needs_review);
+          if (blocked) return json({ ok: false, error: "needs-review", job: blocked.id });
           seen.jobs.set(key, args.p_id);
+          rowOf(args.p_id, { uid: args.p_uid, slug: args.p_slug, op: args.p_op });
           return json({ ok: true, job: args.p_id, state: "queued", duplicate: false });
         }
         // A JOB THAT HAS FINISHED IS NOT CLAIMED AGAIN — the live function's
         // `terminal` answer — so a second delivery of its message runs nothing.
-        case "edit_claim":
+        case "edit_claim": {
+          const r = rowOf(args.p_id);
+          if (r.needs_review) return json({ ok: true, claimed: false, state: r.state, error: "needs-review" });
           if (seen.done.has(args.p_id)) return json({ ok: true, claimed: false, state: "done", reason: "terminal" });
-          return json({ ok: true, claimed: true, state: "claimed", billing: "none", uid: USER.id, slug, needs_review: false });
-        case "edit_beat": return json({ ok: true, alive: true, state: "routing", cancel: false });
+          r.lease_owner = args.p_owner; r.state = "claimed"; r.updated_at = now();
+          return json({ ok: true, claimed: true, state: "claimed", billing: r.billing, uid: r.uid, slug: r.slug, needs_review: false });
+        }
+        case "edit_beat": {
+          const r = rowOf(args.p_id);
+          if (args.p_phase) r.phase = args.p_phase;
+          return json({ ok: true, alive: true, state: "routing", cancel: false });
+        }
         case "edit_reserve": {
           if (reserveRefuses) return json({ ok: false, error: "insufficient", cost: 0 });
           const ref = args.p_id + "#" + args.p_seq;
           if (seen.ledger.has(ref)) return json({ ok: true, charged: 0, repeat: true, billing: "reserved" });
           seen.ledger.set(ref, Number(args.p_cost) || 0);
+          const r = rowOf(args.p_id);
+          r.cost += Number(args.p_cost) || 0; r.billing = "reserved";
           return json({ ok: true, charged: Number(args.p_cost) || 0, billing: "reserved" });
         }
         case "edit_exempt": return json({ ok: true, billing: "exempt", state: "routing" });
         case "edit_may_publish": return json({ ok: true, granted: true });
-        case "edit_publish_mark": case "edit_committed": case "edit_phase_write": return json({ ok: true });
-        case "edit_finalize":
-          if (args.p_ok) seen.done.add(args.p_id);
-          return json(args.p_ok ? { ok: true, billing: "finalized" } : { ok: false, error: "not-published" });
-        case "edit_refund":
+        case "edit_phase_write": return json({ ok: true });
+        case "edit_publish_mark": {
+          const r = rowOf(args.p_id);
+          if (markRefuses || r.lease_owner !== args.p_owner) return json({ ok: false });
+          if (args.p_artifact_build !== null && args.p_artifact_build !== undefined) r.artifact_build = args.p_artifact_build;
+          r.publish_started_at = r.publish_started_at || now(); r.updated_at = now();
+          return json({ ok: true });
+        }
+        case "edit_committed": {
+          const r = rowOf(args.p_id);
+          if (r.lease_owner !== args.p_owner) return json({ ok: false, error: "not-holder" });
+          r.published_at = r.published_at || now();
+          return json({ ok: true });
+        }
+        case "edit_finalize": {
+          const r = rowOf(args.p_id);
+          if (args.p_result) r.result = args.p_result;
+          if ((r.published_at || (!r.publish_started_at && args.p_ok)) && !["cancelled", "lost", "failed"].includes(r.state)) {
+            r.state = "done"; if (r.billing === "reserved") r.billing = "finalized";
+            seen.done.add(args.p_id);
+            return json({ ok: true, billing: r.billing, cost: r.cost, published: !!r.published_at });
+          }
+          return json({ ok: false, state: r.state, error: r.published_at ? "terminal" : "not-published" });
+        }
+        case "edit_refund": {
+          const r = rowOf(args.p_id);
+          if (r.published_at) return json({ ok: false, error: "published", state: r.state });
+          if (r.state === "done") return json({ ok: false, error: "terminal", state: r.state });
+          if (r.publish_started_at) {
+            r.state = args.p_state; r.needs_review = true; r.review_note = args.p_note || "died during publish";
+            return json({ ok: false, error: "needs-review", refunded: 0 });
+          }
           seen.done.add(args.p_id);
-          return json({ ok: true, refunded: [...seen.ledger.entries()].filter(([k]) => k.startsWith(args.p_id + "#")).reduce((n, [, v]) => n + v, 0) });
+          if (r.billing === "reserved") {
+            const back = r.cost;
+            r.billing = "refunded"; r.state = args.p_state; seen.refunds.push(back);
+            return json({ ok: true, refunded: back });
+          }
+          r.state = args.p_state;
+          return json({ ok: true, refunded: 0, billing: r.billing });
+        }
+        case "edit_reconcile": {
+          const r = rowOf(args.p_id);
+          if (!r.needs_review) return json({ ok: false, error: "not-in-review", state: r.state });
+          r.review_note = args.p_note || r.review_note; r.needs_review = false;
+          if (args.p_committed) {
+            r.published_at = r.published_at || now(); r.state = "done";
+            if (r.billing === "reserved") r.billing = "finalized";
+            seen.done.add(args.p_id);
+            return json({ ok: true, outcome: "kept", cost: r.cost });
+          }
+          const back = r.billing === "reserved" ? r.cost : 0;
+          if (r.billing === "reserved") { r.billing = "refunded"; seen.refunds.push(back); }
+          r.state = "failed"; seen.done.add(args.p_id);
+          return json({ ok: true, outcome: "refunded", refunded: back });
+        }
         default: return json({ ok: false, error: "no stub for " + fn }, 500);
       }
+    }
+    // THE ROWS, READ BACK BY THE RECONCILE (`readEditRows`): by id, or every
+    // row under review on a slug — PostgREST's own filters.
+    if (url.includes("/rest/v1/edit_jobs?")) {
+      const q = new URL(url).searchParams;
+      const id = (q.get("id") || "").replace(/^eq\./, "");
+      const review = q.get("needs_review") === "eq.true";
+      const onSlug = (q.get("slug") || "").replace(/^eq\./, "");
+      const rows = [...seen.rows.values()].filter((r) => (!id || r.id === id) && (!review || r.needs_review) && (!onSlug || r.slug === onSlug));
+      return json(rows.map((r) => ({ ...r })));
     }
     if (url.includes("/auth/v1/user")) return json(USER);
     if (url.includes("/rpc/get_credits")) return json(50);
@@ -869,4 +966,419 @@ test("the cleaner: a display list's declared columns only, capped, each refusal 
   assert.deepEqual(cleanAdd("row", [{ table: "toString", values: { name: "x" } }], site).why, "row-no-table",
     "a prototype key read as a list");
   assert.equal(cleanAdd("row", [ENTRY], { tables: ["loaves"] }).why, "row-not-list", "a list was offered with no list map");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. AN OUTCOME THE ROUTE CANNOT SEE (2026-10-01, the review of f6532d66)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// THE REVIEWER'S REPRODUCTION is where these start: the entry and its key are
+// COMMITTED, and the answer is lost on the way back (the driver throws, as it
+// does for a lost response). On f6532d66 the step answered `row-write` —
+// "nothing was added. Try again in a moment." — the consumer refunded the
+// reserve, and the customer's next message saved the entry a second time.
+//
+// What each case pins: a write the key confirms is answered with what it saved
+// and settled once (inline charged, queued kept); a write nobody can confirm is
+// never called unsaved — queued, the job is put under review with the money
+// held and the site paused, and the reconcile settles it from the key (closing
+// an empty key first, so a write still on its way cannot land after a refund);
+// inline, nothing is charged; a definite refusal by the database is still a
+// refusal; and running the same request again saves and charges nothing more.
+
+/**
+ * ONE SITE KEPT OPEN across several messages and the reconcile's own doors:
+ * the add-on route (inline, or filed and run by the real consumer), one
+ * database, one ledger. The browser's own POST body; the reply a poll would
+ * hand back is the job row's stored `result`.
+ */
+async function openSite({ db, mode = "job", answers = { pick_adds: PICK_ROW, add_to_site: { row: [ENTRY] } }, markRefuses = false }) {
+  const slug = "addon-row-lost-" + mode + "-" + hex(4);
+  const store = bucket(slug);
+  const w = wire({ db, slug, answers, markRefuses });
+  const worker = await loadWorker();
+  const mod = await loadWorkerModule();
+  const env = baseEnv(store, mode === "job" ? { EDIT_ASYNC: "1", EDIT_ASYNC_CANARY: slug, BUILD_QUEUE: { send: async () => {} } } : {});
+  const stored = (id) => {
+    const r = w.seen.rows.get(id);
+    assert.ok(r && r.result && typeof r.result.body === "string", "the job stored no reply");
+    const body = JSON.parse(r.result.body);
+    return { status: r.result.status, body, said: screen(r.result.status, body) };
+  };
+  const send = async (instruction = ASK, idem = "idem-lost-" + hex(8)) => {
+    const res = await worker.fetch(post(slug, { instruction, picker: "sonnet", idem, tz: "Europe/London" }), env, makeCtx());
+    const status = res.status;
+    const body = await res.json().catch(() => null);
+    if (mode !== "job" || status !== 202) return { status, body, said: screen(status, body) };
+    await runJob(worker, env, body.job);
+    return { job: body.job, ...stored(body.job) };
+  };
+  const row = (id) => ({ ...w.seen.rows.get(id) });
+  return { slug, store, w, seen: w.seen, worker, mod, env, send, row, stored, restore: () => w.restore() };
+}
+
+/** The statements sent after the `row` step's own, by text. */
+const afterWrite = (db) => {
+  const log = db.log().map((e) => e.query);
+  const at = log.findIndex((q) => q.startsWith("WITH r0"));
+  assert.ok(at >= 0, "the row step never wrote — this case tests nothing");
+  return log.slice(at + 1);
+};
+const KEY_READ = /^SELECT v FROM _meta WHERE k = \$1$/;
+const UNSAID = /nothing was added|try again|didn't accept|wasn't saved/i;
+
+for (const [what, opt] of [["lost its answer", { loseAnswer: 1 }], ["answered rows nobody can read", { garbleAnswer: 1 }]]) {
+  for (const mode of ["sync", "job"]) {
+    test(`a write that saved and ${what} is answered with what it saved, and settled once (${mode})`, async () => {
+      const db = bakeryDb(opt);
+      const s = await openSite({ db, mode });
+      try {
+        const r = await s.send();
+        // THE ENTRY IS THERE, ONCE — the committed write — and was not written again.
+        assert.equal(db.rows("loaves").length, 7);
+        unchangedSix(db);
+        assert.equal(writesOf(db).length, 1, "the entry was written again: " + JSON.stringify(writesOf(db)));
+        // THE REPLY SAYS WHAT WAS SAVED, read from the key after the write.
+        assert.equal(r.body.ok, true, JSON.stringify(r.body));
+        assert.deepEqual(r.body.rows.map((x) => [x.table, x.id, x.label]), [["loaves", 12, "Rye & Caraway"]]);
+        assert.deepEqual(r.body.rows[0].row, db.rows("loaves")[6]);
+        assert.equal(r.said.text, "✅ Done — added “Rye & Caraway” to loaves (entry 12).");
+        assert.doesNotMatch(JSON.stringify(r.body), /nothing was added/i);
+        assert.ok(afterWrite(db).some((q) => KEY_READ.test(q)), "the key was not read back after the write");
+        if (mode === "sync") {
+          // ONE COLLECTION, AFTER THE WRITE, FOR WHAT THE REPLY SAYS.
+          assert.deepEqual(s.seen.debits, [r.body.cost]);
+          assert.ok(r.body.cost >= 1);
+        } else {
+          const j = s.row(r.job);
+          assert.equal(j.state, "done");
+          assert.equal(j.billing, "finalized", "the saved entry's reserve was not kept");
+          assert.equal(j.needs_review, false);
+          assert.equal(r.body.cost, j.cost, "the reply's cost is not the reserve");
+          assert.deepEqual(s.seen.refunds, [], "the saved entry's reserve was refunded");
+          assert.equal(s.seen.rpc.filter((x) => x.fn === "edit_publish_mark").length, 0, "a confirmed entry was put under review");
+          assert.deepEqual(s.seen.debits, [], "the queued add-on collected beside its reserve");
+        }
+      } finally { s.restore(); }
+    });
+  }
+}
+
+test("a lost answer whose key cannot be read is put under review — the money held, the site paused, nothing said to be unsaved — and the key settles it (job)", async () => {
+  // THE HANDLER'S READ AND THE CONSUMER'S IMMEDIATE RECONCILE BOTH FAIL.
+  const db = bakeryDb({ loseAnswer: 1, failKeyReads: 2 });
+  const s = await openSite({ db, mode: "job" });
+  try {
+    const first = await s.send();
+    const j = s.row(first.job);
+    // UNDER REVIEW, THE RESERVE WHERE IT IS.
+    assert.equal(j.needs_review, true, "an unknown outcome was not put under review");
+    assert.equal(j.billing, "reserved");
+    assert.ok(j.cost >= 1);
+    assert.deepEqual(s.seen.refunds, [], "an entry nobody could confirm was refunded as a failure");
+    // THE REQUEST'S KEY IS ON THE JOB — how the reconcile knows it by the row alone.
+    assert.equal(j.artifact_build, "addon-row:job:" + first.job);
+    const marks = s.seen.rpc.filter((x) => x.fn === "edit_publish_mark");
+    assert.equal(marks.length, 1);
+    const markAt = s.seen.timeline.indexOf("rpc:edit_publish_mark");
+    assert.ok(markAt > 0 && markAt < s.seen.timeline.indexOf("rpc:edit_refund"), "the job was marked after its refund was asked");
+    // WHAT THE CUSTOMER READS: not knowing, said as not knowing.
+    assert.equal(first.body.ok, false);
+    assert.equal(first.body.error, "row-uncertain");
+    assert.equal(first.body.review, true);
+    assert.doesNotMatch(first.body.msg, UNSAID);
+    assert.match(first.body.msg, /couldn't tell whether that entry was saved/);
+    assert.match(first.body.msg, /paused changes to this site/);
+    assert.match(first.body.msg, /Data panel/);
+    assert.equal(first.said.text, "⚠️ " + first.body.msg);
+    // THE NEXT MESSAGE IS REFUSED BEFORE ANYTHING RUNS: no second entry.
+    const again = await s.send();
+    assert.equal(again.status, 409, JSON.stringify(again.body));
+    assert.equal(again.body.error, "needs-review");
+    assert.equal(db.rows("loaves").length, 7, "a second entry was saved while the first was unknown");
+    assert.equal(writesOf(db).length, 1);
+    // THE SWEEP'S TICK, WITH THE KEY READABLE NOW: kept, and said.
+    await s.mod.runReviewReconcile(s.env);
+    const k = s.row(first.job);
+    assert.equal(k.needs_review, false);
+    assert.equal(k.state, "done");
+    assert.equal(k.billing, "finalized");
+    assert.deepEqual(s.seen.refunds, []);
+    const now = s.stored(first.job);
+    assert.equal(now.body.ok, true, JSON.stringify(now.body));
+    assert.equal(now.body.reconciled, "saved");
+    assert.deepEqual(now.body.rows.map((x) => [x.table, x.id, x.label]), [["loaves", 12, "Rye & Caraway"]]);
+    assert.equal(now.body.cost, k.cost);
+    assert.equal(now.said.text, "✅ Done — added “Rye & Caraway” to loaves (entry 12).");
+    // AND THE SITE TAKES CHANGES AGAIN.
+    const next = await s.send();
+    assert.equal(next.body.ok, true, JSON.stringify(next.body));
+    assert.equal(db.rows("loaves").length, 8);
+  } finally { s.restore(); }
+});
+
+test("inline, a lost answer whose key cannot be read is said as not knowing, and charged nothing", async () => {
+  const db = bakeryDb({ loseAnswer: 1, failKeyReads: 1 });
+  const s = await openSite({ db, mode: "sync" });
+  try {
+    const r = await s.send();
+    assert.equal(r.status, 502, JSON.stringify(r.body));
+    assert.equal(r.body.error, "row-uncertain");
+    assert.equal(r.body.cost, 0);
+    assert.equal(r.body.review, undefined);
+    assert.deepEqual(s.seen.debits, [], "an entry nobody could confirm was charged");
+    assert.doesNotMatch(r.body.msg, UNSAID);
+    assert.match(r.body.msg, /couldn't tell whether that entry was saved/);
+    assert.match(r.body.msg, /haven't charged for it/);
+    assert.match(r.body.msg, /Data panel/);
+    assert.equal(r.said.text, "⚠️ " + r.body.msg);
+    // IT WAS IN FACT SAVED — which is exactly why "nothing was added" would be false.
+    assert.equal(db.rows("loaves").length, 7);
+  } finally { s.restore(); }
+});
+
+test("a job the review mark refuses is never called paused: its consumer refunds, and the reply says nothing was charged", async () => {
+  // THE RECORDED LIMIT, SHOWN: the outcome is unknown and the job could not be
+  // parked, so the consumer's refund runs — and the entry is in fact saved.
+  // What this pins is that the customer is not told the site is paused.
+  const db = bakeryDb({ loseAnswer: 1, failKeyReads: 1 });
+  const s = await openSite({ db, mode: "job", markRefuses: true });
+  try {
+    const first = await s.send();
+    const j = s.row(first.job);
+    assert.equal(s.seen.rpc.filter((x) => x.fn === "edit_publish_mark").length, 1, "the review mark was never asked");
+    assert.equal(j.needs_review, false);
+    assert.equal(j.billing, "refunded");
+    assert.deepEqual(s.seen.refunds, [j.cost]);
+    assert.equal(first.body.error, "row-uncertain");
+    assert.equal(first.body.review, undefined, "a job that could not be parked was said to be under review");
+    assert.match(first.body.msg, /haven't charged for it/);
+    assert.doesNotMatch(first.body.msg, /paused/);
+    assert.doesNotMatch(first.body.msg, UNSAID);
+    assert.equal(db.rows("loaves").length, 7);
+  } finally { s.restore(); }
+});
+
+test("a job whose key already holds a value nobody can read is put under review before any model call", async () => {
+  // THE SAME JOB'S EARLIER RUN SAVED UNDER ITS KEY, AND WHAT IT SAVED CANNOT BE
+  // READ: neither "add it again" nor "refund it" is true.
+  const id = hex(16);
+  const key = "addon-row:job:" + id;
+  const db = bakeryDb({ meta: { [key]: "{not json" } });
+  const slug = "addon-row-unread-" + hex(4);
+  const store = bucket(slug);
+  const w = wire({ db, slug, answers: { pick_adds: PICK_ROW, add_to_site: { row: [ENTRY] } } });
+  try {
+    const worker = await loadWorker();
+    const env = baseEnv(store);
+    store.store.set(EDIT_JOB_PREFIX + id, JSON.stringify(packEditJob({
+      url: "https://gofarther.dev/api/site/" + slug + "/addon",
+      body: JSON.stringify({ instruction: ASK, picker: "sonnet", idem: "idem-unread-" + hex(8), tz: "Europe/London" }),
+      uid: USER.id, slug, secret: hex(16), at: Date.now(),
+    })));
+    await runJob(worker, env, id);
+    const j = w.seen.rows.get(id);
+    assert.equal(j.needs_review, true, "an unreadable key was not put under review");
+    assert.equal(j.artifact_build, key);
+    assert.deepEqual(w.seen.refunds, []);
+    assert.equal(w.seen.models.length, 0, "a model was called for a request already saved");
+    assert.deepEqual(writesOf(db), [], "something was written over an unreadable key");
+    const body = JSON.parse(j.result.body);
+    assert.equal(body.error, "row-uncertain");
+    assert.equal(body.why, "unread");
+    assert.match(body.msg, /couldn't read back what it saved/);
+    assert.doesNotMatch(body.msg, UNSAID);
+    // THE RECONCILE CANNOT READ IT EITHER: left where it is, said once.
+    assert.equal(db.meta(key), "{not json");
+  } finally { w.restore(); }
+});
+
+test("a write that never landed: the review closes the request's key before it refunds, and a late arrival is refused whole", async () => {
+  const db = bakeryDb({ inFlight: 1 });
+  const s = await openSite({ db, mode: "job" });
+  try {
+    const first = await s.send();
+    const j = s.row(first.job);
+    // SETTLED AT ONCE BY THE CONSUMER'S RECONCILE: refunded, because the key
+    // was empty and is now closed.
+    assert.equal(j.needs_review, false, "the review did not settle");
+    assert.equal(j.state, "failed");
+    assert.equal(j.billing, "refunded");
+    assert.ok(j.cost >= 1);
+    assert.deepEqual(s.seen.refunds, [j.cost]);
+    const key = "addon-row:job:" + first.job;
+    const { isRowVoid } = await add();
+    assert.equal(isRowVoid(db.meta(key)), true, "the request's key was not closed");
+    const t = s.seen.timeline;
+    const closeAt = t.findIndex((e) => e.startsWith("sql:INSERT INTO _meta (k, v) VALUES"));
+    const settleAt = t.indexOf("rpc:edit_reconcile");
+    assert.ok(closeAt > 0 && settleAt > closeAt, "the refund did not wait for the key to close: " + JSON.stringify(t));
+    // WHAT THE CUSTOMER READS NOW: confirmed, and the money back.
+    const now = s.stored(first.job);
+    assert.equal(now.body.ok, false);
+    assert.equal(now.body.error, "reconciled");
+    assert.equal(now.body.refunded, j.cost);
+    assert.match(now.body.msg, /confirmed that entry wasn't saved/);
+    assert.match(now.body.msg, /back in your balance/);
+    // THE STATEMENT ARRIVES AFTER ALL, AND THE CLOSED KEY REFUSES IT WHOLE.
+    const late = db.land();
+    assert.equal(late.error && late.error[0], "23505");
+    assert.equal(db.rows("loaves").length, 6, "a write that arrived after the refund was kept");
+    // AND THE SITE IS OPEN: the next message adds the entry, once.
+    const next = await s.send();
+    assert.equal(next.body.ok, true, JSON.stringify(next.body));
+    assert.equal(db.rows("loaves").length, 7);
+  } finally { s.restore(); }
+});
+
+test("a write that lands while the review closes its key is kept, not refunded", async () => {
+  const db = bakeryDb({ inFlight: 1, landOnClose: true });
+  const s = await openSite({ db, mode: "job" });
+  try {
+    const first = await s.send();
+    const j = s.row(first.job);
+    assert.equal(j.needs_review, false);
+    assert.equal(j.state, "done");
+    assert.equal(j.billing, "finalized");
+    assert.deepEqual(s.seen.refunds, [], "a saved entry was refunded");
+    assert.equal(db.rows("loaves").length, 7);
+    const now = s.stored(first.job);
+    assert.equal(now.body.ok, true, JSON.stringify(now.body));
+    assert.equal(now.body.reconciled, "saved-late");
+    assert.deepEqual(now.body.rows.map((x) => [x.id, x.label]), [[12, "Rye & Caraway"]]);
+  } finally { s.restore(); }
+});
+
+for (const mode of ["sync", "job"]) {
+  test(`a definite refusal by the database is still a refusal: nothing saved and said so, no key read after it, no review (${mode})`, async () => {
+    const db = bakeryDb();
+    const s = await openSite({ db, mode, answers: { pick_adds: PICK_ROW, add_to_site: { row: [{ table: "loaves", values: { ...ENTRY.values, price: "£5.00" } }] } } });
+    try {
+      const r = await s.send();
+      assert.equal(r.status, 502, JSON.stringify(r.body));
+      assert.equal(r.body.error, "row-write");
+      assert.equal(r.body.detail, "22P02");
+      assert.match(r.body.msg, /nothing was added/);
+      assert.equal(db.rows("loaves").length, 6);
+      assert.equal(afterWrite(db).filter((q) => /_meta/.test(q)).length, 0, "a refused write's key was read back or closed");
+      assert.equal(s.seen.rpc.filter((x) => x.fn === "edit_publish_mark").length, 0, "a refused write was put under review");
+      if (mode === "sync") assert.deepEqual(s.seen.debits, []);
+      else {
+        const j = s.row(r.job);
+        assert.equal(j.needs_review, false);
+        assert.equal(j.billing, "refunded");
+        assert.deepEqual(s.seen.refunds, [j.cost]);
+      }
+    } finally { s.restore(); }
+  });
+}
+
+test("the same request run again after a recovered answer saves nothing more and charges nothing more", async () => {
+  // QUEUED: the same job's request a second time, after its answer was lost.
+  const db = bakeryDb({ loseAnswer: 1 });
+  const j = await finishedJob({ db, answers: { pick_adds: PICK_ROW, add_to_site: { row: [ENTRY] } } });
+  try {
+    const first = storedReply(j.w.seen);
+    assert.equal(first.body.ok, true, JSON.stringify(first.body));
+    const reserves = j.w.seen.rpc.filter((r) => r.fn === "edit_reserve").length;
+    const models = j.w.seen.models.length;
+    await j.again();
+    const replay = storedReply(j.w.seen);
+    assert.equal(db.rows("loaves").length, 7, "the second run saved a second entry");
+    assert.equal(replay.body.ok, true);
+    assert.equal(replay.body.repeat, true);
+    assert.deepEqual(replay.body.rows, first.body.rows);
+    assert.equal(replay.body.cost, first.body.cost);
+    assert.equal(j.w.seen.rpc.filter((r) => r.fn === "edit_reserve").length, reserves, "the second run reserved again");
+    assert.equal(j.w.seen.models.length, models, "the second run called a model");
+    assert.equal(j.w.seen.ledger.size, 1);
+    assert.deepEqual(j.w.seen.refunds, []);
+  } finally { j.w.restore(); }
+  // INLINE: the same POST sent again after its answer was lost.
+  const db2 = bakeryDb({ loseAnswer: 1 });
+  const s = await openSite({ db: db2, mode: "sync" });
+  try {
+    const idem = "idem-lost-resend-" + hex(8);
+    const a = await s.send(ASK, idem);
+    const b = await s.send(ASK, idem);
+    assert.equal(a.body.ok, true, JSON.stringify(a.body));
+    assert.equal(b.body.repeat, true);
+    assert.equal(b.body.cost, 0);
+    assert.deepEqual(b.body.rows, a.body.rows);
+    assert.deepEqual(s.seen.debits, [a.body.cost], "the resend was charged");
+    assert.equal(db2.rows("loaves").length, 7);
+  } finally { s.restore(); }
+});
+
+test("a thrown write is read three ways: refused, a duplicate, or not knowing", async () => {
+  const { rowWriteOutcome } = await add();
+  const of = (code) => rowWriteOutcome(Object.assign(new Error("x"), { code }));
+  // THE DATABASE'S OWN REFUSALS: the statement ended before it committed.
+  for (const c of ["22P02", "23502", "23503", "42P01", "42703", "42501", "40001", "40P01", "55P03", "0A000", "P0001"]) {
+    assert.deepEqual(of(c), { outcome: "refused", code: c }, c);
+  }
+  assert.deepEqual(of("23505"), { outcome: "duplicate", code: "23505" });
+  // NOT KNOWING: the commit may or may not have happened.
+  for (const c of ["08006", "08003", "57P01", "57014", "53300", "58030", "XX000", "40003", "EPIPE", "F0000", "HV000"]) {
+    assert.deepEqual(of(c), { outcome: "uncertain", code: c }, c);
+  }
+  // NO SQLSTATE AT ALL — the driver's report of a lost request or answer.
+  for (const e of [new TypeError("fetch failed"), Object.assign(new Error("x"), { code: "ECONNRESET" }), Object.assign(new Error("x"), { code: 22 }), null, undefined, "08006", { code: "22p02" }]) {
+    assert.deepEqual(rowWriteOutcome(e), { outcome: "uncertain", code: "" }, String(e && e.code));
+  }
+});
+
+test("the row review's verdict: kept on the key's entries, refunded only on a closed key or no _meta, unknown otherwise", async () => {
+  const { rowReviewVerdict, ROW_VOID, rowTables } = await add();
+  const lists = rowTables(SPEC);
+  const saved = JSON.stringify({ rows: [{ n: 0, table: "loaves", row: { id: 12, name: "Rye & Caraway", price: 5 } }], cost: 2 });
+  const v = (marker, close) => rowReviewVerdict({ marker, close, lists });
+  assert.deepEqual(v({ state: "found", value: saved }).rows.map((r) => [r.id, r.label]), [[12, "Rye & Caraway"]]);
+  assert.equal(v({ state: "found", value: saved }).kind, "saved");
+  assert.equal(v({ state: "found", value: ROW_VOID }).verdict, "refunded");
+  assert.equal(v({ state: "found", value: "{not json" }).verdict, "unknown");
+  assert.equal(v({ state: "no-meta" }).verdict, "refunded");
+  // AN EMPTY KEY IS NEVER REFUNDED ON A READ: only a close decides it.
+  assert.equal(v({ state: "absent" }).verdict, "unknown");
+  assert.equal(v({ state: "absent" }).kind, "key-empty");
+  assert.equal(v({ state: "absent" }, { state: "won" }).verdict, "refunded");
+  assert.equal(v({ state: "absent" }, { state: "lost", value: saved }).verdict, "kept");
+  assert.equal(v({ state: "absent" }, { state: "lost", value: saved }).kind, "saved-late");
+  assert.equal(v({ state: "absent" }, { state: "failed" }).verdict, "unknown");
+  for (const s of ["failed", "no-db", "bogus", undefined]) assert.equal(v({ state: s }).verdict, "unknown", String(s));
+  assert.equal(rowReviewVerdict().verdict, "unknown");
+});
+
+test("the reconcile knows a row write only by its own key on the row, and the owner's dry read closes nothing", async () => {
+  const mod = await loadWorkerModule();
+  const worker = await loadWorker();
+  const db = bakeryDb();
+  const slug = "addon-row-dry-" + hex(4);
+  const w = wire({ db, slug, answers: {} });
+  try {
+    const env = baseEnv(bucket(slug));
+    const id = hex(16), other = hex(16);
+    const parked = (jid, key) => ({ id: jid, uid: USER.id, slug, op: "addon", state: "failed", phase: null, billing: "reserved", cost: 2,
+      needs_review: true, review_note: "edit did not ship", artifact_build: key, worker_status: null, publish_started_at: "2026-10-01T05:00:00Z",
+      published_at: null, result: null, lease_owner: "owner-x", updated_at: "2026-10-01T05:00:00Z" });
+    // THE OWNER'S DRY READ OF A ROW WRITE WITH AN EMPTY KEY: unknown, and the key left open.
+    w.seen.rows.set(id, parked(id, "addon-row:job:" + id));
+    const res = await worker.fetch(new Request("https://gofarther.dev/api/site/reconcile?slug=" + slug + "&job=" + id, { headers: { Authorization: TOKEN } }), env, makeCtx());
+    const out = await res.json();
+    assert.equal(res.status, 200, JSON.stringify(out));
+    assert.equal(out.rows.length, 1);
+    assert.equal(out.rows[0].verdict, "unknown");
+    assert.equal(out.rows[0].kind, "key-empty");
+    assert.deepEqual(out.rows[0].facts, { row: { key: "addon-row:job:" + id, marker: "absent", closed: null } });
+    assert.deepEqual(db.writes().map((e) => e.query), [], "the dry read wrote to the site's database");
+    assert.equal(db.meta("addon-row:job:" + id), undefined, "the dry read closed the key");
+    assert.equal(w.seen.rpc.filter((x) => x.fn === "edit_reconcile").length, 0, "the dry read settled the job");
+    // ANOTHER JOB'S KEY ON A ROW is not that row's: never read as a row write.
+    w.seen.rows.set(other, parked(other, "addon-row:job:" + id));
+    const before = db.log().length;
+    const r2 = await mod.reconcileEditJob(env, other);
+    assert.notEqual(r2.kind, "closed-now");
+    assert.equal(db.log().slice(before).filter((e) => /_meta/.test(e.query)).length, 0, "another job's key was read for this one");
+    assert.equal(db.meta("addon-row:job:" + id), undefined);
+  } finally { w.restore(); }
 });
