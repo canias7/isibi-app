@@ -1571,7 +1571,9 @@ real model gives; only a live press after a merge and a deploy can.
   expecting it, and a `data` answer passed on by the route and refused by
   that press;
 - `test/edit-list-sort.test.mjs`, 10 cases, all supplied answers. The 7
-  before are unchanged apart from their names. The new ones use three pages
+  before keep their assertions (renamed, and one comment added: the quick
+  writer's answer in the one-page case is not the one its rules point to).
+  The new ones use three pages
   showing the same list and *"On the home page and the menu page, but not
   the order page, list the loaves from cheapest to most expensive."*:
   - synchronous and queued: `/` and `/menu` re-sorted, `/order` and `/visit`
@@ -1584,8 +1586,9 @@ real model gives; only a live press after a merge and a deploy can.
 - sweep: 24 of 24 mutants killed, 3 comment-only controls survived;
 - the 29 other files that read the router's wording: 967 of 967;
 - full suite `8427 / 8427 / 0 / 0` locally (8,420 plus the 7 new cases);
-- unit CI and the site build: read after the push
-  (`docs/history/2026-10-01-sort-scope.md`).
+- unit CI `8427 / 8423 / 0 / 4` on `99837db1` (run 36795891188), and the
+  site build on the same commit (run 36795891162): see
+  `docs/history/2026-10-01-sort-scope.md`.
 
 **Test 10 is unchanged by it**: its request says *"Across the site"*, so it
 is `data` under the corrected rule, with the same route box, fixture, checks

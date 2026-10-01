@@ -180,8 +180,16 @@ after a merge and a deploy can, and none has been made for this rule.
   967 of 967, on the corrected wording.
 - **Full suite**: `8427 / 8427 / 0 / 0` locally (8,420 before, plus the 7
   new cases), run from the working tree after the sweep had finished.
-- **Unit CI and the site build**: read after the push (the handoff in
-  `docs/owner-notes.md`).
+- **Unit CI**: `8427 / 8423 / 0 / 4` on `99837db1` (run 36795891188; the
+  total matches, and CI skips its four), read from the job's own fields and
+  its `npm test` step's log.
+- **Site build** (it ran because the router's file is an image path): green on `99837db1` (run 36795891162), the twelve counts read from each
+  step's log as before: TAP 397, kit-typecheck 4, site-build 404,
+  contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
+  site-runtime 47, and kit-render, kit-a11y, kit-effects and kit-paint `all
+  passed`. Its two `##[error]` annotations (`index.tsx(50,13) TS2322`,
+  `menu.tsx(27,17) TS2339`) are the known ones, inside the case that compiles
+  a broken page on purpose.
 
 ## 5. Test 10
 

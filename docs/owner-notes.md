@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-09-30, 23:50 UTC)
+## Current handoff — read this first (2026-10-01, 00:52 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -10,84 +10,108 @@ is in git; the dated entries further down are the full story.*
 - `main` is `8908b59d` (deploy 2173), unchanged: nothing merged, nothing
   deployed, nothing spent.
 - The branch `claude/help-needed-ehlwlj` is `main` plus Test 9's canary
-  scenario, documents, and now **decision 2b's router rule with its tests**
-  (for your review).
-- Test 9 is closed by you (runs 81 and 82); the demo data stays
-  (`fretwork-1`'s Hour one-to-one at £45).
-- Balance 6, read again at 23:41 UTC (last ledger row 348), and no job
-  open.
+  scenario, documents, decision 2b's router rule, and now **your scope
+  correction to that rule** (for your review).
+- Balance 6, read again at 00:23 UTC (last ledger row 348), and no job open.
 
 **Completed**
-- **The router rule, as you corrected it** (`builder/site-ask.mjs`, two
-  sentences):
-  - a sort by something every entry has, **not limited to one page**, goes
-    to the data step's sorter, which re-sorts the list on every page that
-    shows it;
-  - a sort **limited to one page they name** goes to the page editor, and
-    only that page changes, because different pages may use different
-    orders;
-  - no "whatever page they saw it" rule anywhere;
-  - a hand-placed entry ("put that one first") is no sort, and the rule
-    sends it nowhere;
-  - the whole-message rule and every other route are unchanged.
-- **Coverage for a list on two pages**, through the whole chain (the
-  routing step, the browser's own request, the edit step, the reply):
-  - a site-wide request re-sorts both pages and leaves the third alone;
-  - a request limited to /menu re-sorts only /menu, through the quick
-    writer (direct and queued) and through the full writer, which names
-    the other page without touching it.
-- **The scratch rehearsal, committed**: the bakery's real pages with Test
-  10's request, direct and queued. Exactly one line of the order page
-  changes. It publishes once, writes no row, and charges once (1 credit for
-  the data step's call; the publication is free).
-- **Test 10 revised**: *"Across the site, list the loaves from cheapest to
-  most expensive."* The bakery fixture and every preservation check are
-  unchanged. About **2–3 credits** (routing 1–2, the data step 1).
+- **The two broad phrases are corrected** (`builder/site-ask.mjs`, the same
+  two sentences, nothing else in the router):
+  - **the data sorter only for the whole site**: when they say so ("across
+    the site", "everywhere"), or name no page at all;
+  - **one page they name stays on the page editor**, and only that page
+    changes;
+  - **a selection of pages is never sent to the sorter**: it re-sorts every
+    page showing the list, so it is never the answer for "these two pages"
+    or "everywhere except that one";
+  - such a selection is left to the existing whole-message rule (unchanged),
+    and no page they left out is re-sorted.
+- **What carries a selection today, traced without a model**: the `look`
+  step. It already makes each change on its own page (one page step per
+  named page, each handed only that change's words), and none of its parts
+  reaches the sorter. So an existing route carries your three-page case, and
+  nothing new was built. Its limits are below, under *Findings*.
+- **Coverage for three pages showing the same list**, with *"On the home
+  page and the menu page, but not the order page, list the loaves from
+  cheapest to most expensive."*:
+  - through the whole chain, direct and queued: `/` and `/menu` are
+    re-sorted, one line each; `/order` and the page with no list stay
+    byte-identical. The sorter is never asked, no row is written, and the
+    site publishes once with `/order` unchanged;
+  - billing: one charge per page step, the picker's call billed once, and
+    nothing refunded or credited back;
+  - and why the router's choice matters: the same request answered with the
+    sorter (which the router is now told never to do) re-sorts `/order` too.
+- **Test 10 is unchanged**: *"Across the site, list the loaves from cheapest
+  to most expensive."* still goes to the sorter, about 2–3 credits.
+
+**Instructions, supplied answers and real models, kept apart** (every test
+name now says which it is):
+- *instructions*: what the router is told: the wording, and the request the
+  real routing step sends. It proves the rule is stated, not that a model
+  follows it.
+- *supplied answers*: a model's answer is given, and the real route's
+  handling of it is checked. It proves what the route does with each answer,
+  not which answer a real model gives.
+- *real models*: not tested. Only a live press after a merge and deploy can
+  show what a real router and picker choose; none has been made.
 
 **Test results**
-- 17 new tests: 10 on the router's wording and request, 7 through the
-  whole chain.
-- Red check: on the old wording exactly the 7 wording tests fail; the other
-  10 pass, because they cover behaviour that already existed.
-- Sweep: 22 of 22 mutants killed, 3 comment-only controls survived.
-- The 29 existing test files that read the router's wording: 967 of 967.
-- Full suite: `8420 / 8420 / 0 / 0` locally.
-- Unit CI: `8420 / 8416 / 0 / 4` on `429aa75a` (run 36790235168; CI
+- 24 sort tests (17 before, 7 new): 14 on the router (9 instructions, 1
+  structure, 4 supplied answers) and 10 through the whole chain (all
+  supplied answers).
+- Red check: on the previous wording, exactly the 8 instruction tests that
+  read the corrected sentences fail; the other 16 pass.
+- Sweep: 24 of 24 deliberate breaks caught, 3 comment-only controls
+  survived.
+- The 29 other test files that read the router's wording: 967 of 967.
+- Full suite: `8427 / 8427 / 0 / 0` locally.
+- Unit CI: `8427 / 8423 / 0 / 4` on `99837db1` (run 36795891188; CI
   skips four).
-- Site build: green on the same commit (run 36790235176), its twelve counts
+- Site build: green on the same commit (run 36795891162), its twelve counts
   as before. It ran because the router's file is part of the container
   image.
 
 **Links**
-- The rule and its tests: `docs/history/2026-09-30-sort-routing.md`.
-- Test 10's plan: the checklist's *Test 10*.
+- The correction: `docs/history/2026-10-01-sort-scope.md`.
+- The first round: `docs/history/2026-09-30-sort-routing.md`.
 - Branch commits: https://github.com/canias7/isibi-app/commits/claude/help-needed-ehlwlj
 
 **From our chat**
-- Your correction, recorded in `owner-preferences.md`: site-wide sorting is
-  the data sorter; a request limited to one page is the page editor; no
-  "whatever page they saw it" rule; different pages may use different
-  orders; Test 10's request states its scope.
-- No spending, merge or deployment yet. CLAUDE.md is left alone. Accepted
-  tests stay closed.
+- Your correction, recorded in `owner-preferences.md`: "not limited to one
+  page" is not "site-wide"; a selection of pages keeps its selection; report
+  a limitation rather than widen.
+- **One reading of mine to confirm**: a request that names no page at all
+  ("list the loaves cheapest first") is treated as across the site, as it
+  was before. Say if you want those handled differently.
+- No spending, merge or deployment. CLAUDE.md is left alone. Accepted tests
+  stay closed.
 
 **Blockers**
-- None. The rule needs your review.
+- None. The correction needs your review.
 
 **Findings, kept separate** (backlog)
-- New: a sort limited to one page that reaches the data step anyway would
-  re-sort every page (the sorter has no page scope); its reply says how many
-  pages changed.
-- New: the quick writer declines "a change to what the page lists", so a
-  one-page re-sort may cost the full writer (6–22 credits). Read, not
-  measured.
-- New: a one-page re-sort through the quick writer does not mention the
-  other pages showing the list; the full writer's reply does.
+- New: the `look` step's picker is told of no part for a list's order. So
+  which part a real picker names for a selection is unknown:
+  - the page parts make the change;
+  - "what the site stores" reaches the rules step, which sorts nothing;
+  - either way, nothing is widened.
+- New: a selection costs the full page writer on each named page, likely
+  6–22 credits per page, because the quick writer is told to decline list
+  changes. The site-wide sorter costs about 1.
+- New: the reply for a selection says "✅ Updated the look." and names
+  neither page. It is a case of the parked multi-step look reply (review
+  #9).
+- Updated: only the router's instructions keep a selection away from the
+  sorter. If a real router answered the sorter anyway, the excluded page
+  would be re-sorted, and its reply would say so ("— on 3 pages."). A press
+  with the route box set refuses that answer before any edit.
 - Unchanged: a hand-placed order is told "I couldn't match that"; the
-  welcome pop-up; the deleted row's reply cut at 40 characters.
+  quick writer's one-page reply doesn't mention other pages; the welcome
+  pop-up; the deleted row's reply cut at 40 characters.
 
 **Exact next action**
-- **Your review of the router rule** (the two sentences and the 17 tests).
+- **Your review of the correction** (the two sentences and the 24 tests).
 - Then, only on your word:
   1. merge and deploy. The router's file is part of the container image,
      so the image rolls and container work waits 15–20 minutes;
@@ -154,6 +178,39 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-01 — Your scope correction to the sorting rule is built, for your review
+
+**What you corrected**: "not limited to one page" isn't the same as "across
+the site". The data sorter is for the whole site; one page goes to the page
+editor; a selection of pages must keep its selection and never spread to
+every page showing the list.
+
+**What I changed**: the same two sentences in the router's rules. Nothing
+else in the router changed, and the whole-message rule is untouched.
+
+**What carries a selection**: the existing `look` step, which already makes
+each change on its own page and can't reach the sorter. So your three-page
+case is carried without anything new. Its limits: which part of the site
+the real picker names for it is untested, each page likely costs the full
+page writer, and the reply doesn't name the pages.
+
+**How it's tested** (all free; every test name says whether it checks the
+instructions or uses supplied answers, and none proves what a real model
+does):
+- Three pages showing the same list, two named and the third excluded:
+  only the two named pages change, direct and queued. The excluded page is
+  untouched, no row is written, and it publishes once.
+- The same request sent to the sorter re-sorts the excluded page too. That
+  is why the router is told never to do it.
+- The old wording fails exactly the 8 instruction tests that read the new
+  sentences; 24 of 24 deliberate breaks were caught.
+- Full suite `8427 / 8427 / 0 / 0` locally; CI green on the pushed commit.
+
+**Test 10 is unchanged**: it says "Across the site", so it still goes to the
+sorter, about 2–3 credits, once merged and deployed.
+
+**Next**: your review. Nothing is merged, deployed or spent.
 
 ## 2026-09-30 — Your decision on sorting (2b) is built, for your review
 
