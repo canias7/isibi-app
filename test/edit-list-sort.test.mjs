@@ -1,19 +1,29 @@
-// A LIST RE-SORTED THROUGH THE REAL CHAIN (2026-09-30, decision 2b).
+// A LIST RE-SORTED THROUGH THE REAL CHAIN (2026-09-30, decision 2b; the scope
+// corrected 2026-10-01).
 //
 // The router's rule (`test/router-list-sort.test.mjs`): a sort by something
-// every entry has, not limited to one page, is `data`, and the data step's sort
+// every entry has, ACROSS THE WHOLE SITE, is `data`, and the data step's sort
 // lane rewrites the `{ order, dir }` of every `useRows` call for that table; a
-// sort limited to ONE named page is `page`, and only that page changes. The
-// owner: *"Different pages may intentionally use different orders."*
+// sort limited to ONE named page is `page`, and only that page changes; a sort
+// limited to SEVERAL named pages is a change on each of them, which the
+// router's closing rule decides (`look`, one page step per page). The owner:
+// *"Different pages may intentionally use different orders"*, and *"A request
+// limited to a selected group of pages must preserve that selection; never
+// expand it to every page showing the table."*
 //
-// EVERY HOP IS DRIVEN: the real `POST /api/site/route` (the router's answer
-// SUPPLIED), the real `siteEdit` cut out of `public/chat.js` posting its own
-// body, the real edit route — synchronously and through the job queue — and the
-// real browser composer on what came back. Every model answer is supplied, so
-// this shows what the route does with each answer, never that a real model
-// gives it.
+// ⚠ SUPPLIED ANSWERS ONLY — THIS FILE PROVES WHAT THE ROUTE DOES WITH AN
+// ANSWER, NEVER WHICH ANSWER A REAL MODEL GIVES. Every model answer here is
+// supplied: the router's, the look picker's, the data picker's and the page
+// writers'. What the router is TOLD is checked in `router-list-sort`; which
+// answer a real router, picker or writer gives is measured only by a live
+// press, and none has been made for any of this.
 //
-// TWO FIXTURES:
+// EVERY HOP IS DRIVEN: the real `POST /api/site/route`, the real `siteEdit` cut
+// out of `public/chat.js` posting its own body, the real edit route —
+// synchronously and through the job queue — and the real browser composer on
+// what came back.
+//
+// THREE FIXTURES:
 //   1. The bakery as it is live (`8btpep`, whose five stored pages are byte for
 //      byte `fixtures/run47/`, and its six `loaves` rows as read whole on
 //      2026-09-30 at 22:42 UTC). Test 10's request, site-wide: publication,
@@ -21,6 +31,10 @@
 //   2. A list shown on TWO pages. A site-wide request changes both; a request
 //      limited to one page changes only that page, through the quick writer and
 //      through the full writer.
+//   3. A list shown on THREE pages, and a request naming two of them and
+//      excluding the third: only the two named pages change, through the look
+//      door's two scoped page steps; and the same request answered `data`, which
+//      the router is told never to answer for it, re-sorts the excluded page too.
 //
 // THE WRITERS ACT ON WHAT THEY ARE SHOWN: the page writers re-sort the file
 // they are handed, so a step aimed at the wrong page shows up as the wrong
@@ -41,8 +55,10 @@ import { SITE_PAGES_TOOL } from "../builder/page-gen.mjs";
 import { KEEP_TOOL } from "../builder/page-keep.mjs";
 import { packEditJob, EDIT_JOB_PREFIX, EDIT_JOB_KIND } from "../builder/edit-job.mjs";
 import { editBrowserReply } from "../scripts/addon-sweep.mjs";
+import { pickTool, laneLayer } from "../builder/site-lanes.mjs";
+import { readExpectRoute, routeVerdict } from "../scripts/canary-route.mjs";
 
-const T = { route: ASK_TOOL.name, data: DATA_TOOL.name, tweak: TWEAK_TOOL.name, pages: SITE_PAGES_TOOL.name, keep: KEEP_TOOL.name };
+const T = { route: ASK_TOOL.name, data: DATA_TOOL.name, tweak: TWEAK_TOOL.name, pages: SITE_PAGES_TOOL.name, keep: KEEP_TOOL.name, pick: pickTool().name };
 
 const USER = { id: "u-list-sort-1", email: "owner@example.com" };
 const TOKEN = "Bearer some-token";
@@ -346,7 +362,7 @@ const TEST10 = "Across the site, list the loaves from cheapest to most expensive
 const SORT = { changes: [], order: { table: "loaves", column: "price", dir: "asc" } };
 
 for (const mode of ["sync", "job"]) {
-  test("the bakery, Test 10's request: one line of order.tsx, one publication, no row written, one charge (" + mode + ")", async () => {
+  test("supplied answers: the bakery, Test 10's request: one line of order.tsx, one publication, no row written, one charge (" + mode + ")", async () => {
     const r = await chain({ pages: BAKERY, routes: BAKERY_ROUTES, message: TEST10, routed: { intent: "edit", layer: "data" }, answers: { [T.data]: SORT }, mode });
     // THE ROUTE AND THE POST: data, site-wide, with no page.
     assert.equal(r.d.layer, "data");
@@ -392,7 +408,7 @@ for (const mode of ["sync", "job"]) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 for (const mode of ["sync", "job"]) {
-  test("a list on two pages, a site-wide request: both pages re-sorted, the third untouched (" + mode + ")", async () => {
+  test("supplied answers: a list on two pages, a site-wide request: both pages re-sorted, the third untouched (" + mode + ")", async () => {
     const r = await chain({ pages: TWO, routes: TWO_ROUTES, message: TEST10, routed: { intent: "edit", layer: "data" }, answers: { [T.data]: SORT }, mode });
     assert.match(String(r.seen.requests[T.data][0].messages[0].content), /loaves — ordered by name asc {2}\(read on 2 pages\)/);
     assert.equal(r.status, 200, JSON.stringify(r.body));
@@ -415,11 +431,15 @@ for (const mode of ["sync", "job"]) {
 const ON_MENU = "On the menu page, list the loaves from cheapest to most expensive.";
 
 for (const mode of ["sync", "job"]) {
-  test("a list on two pages, a request limited to /menu: only /menu re-sorted, through the quick writer (" + mode + ")", async () => {
+  test("supplied answers: a list on two pages, a request limited to /menu: only /menu re-sorted, through the quick writer (" + mode + ")", async () => {
     const r = await chain({
       pages: TWO, routes: TWO_ROUTES, message: ON_MENU, routed: { intent: "edit", layer: "page", page: "/menu" }, mode,
       // The quick writer re-sorts WHATEVER file it is shown, so a wrong target
-      // would show up as the wrong page changed.
+      // would show up as the wrong page changed. SUPPLIED, AND NOT WHAT ITS
+      // RULES POINT TO: they send "a change to what the page LISTS" to
+      // `cannot`, so a real quick writer most likely declines and the full
+      // writer answers (the case after this one). This shows only that, if it
+      // does answer, nothing but /menu changes.
       answers: { [T.tweak]: (args) => ({ source: cheapestFirst(shownFile(args)) }) },
     });
     assert.equal(r.post.body.layer, "page");
@@ -442,7 +462,7 @@ for (const mode of ["sync", "job"]) {
   });
 }
 
-test("a list on two pages, a request limited to /menu: only /menu re-sorted, through the full writer, and the reply says the list is shown elsewhere", async () => {
+test("supplied answers: a list on two pages, a request limited to /menu: only /menu re-sorted, through the full writer, and the reply says the list is shown elsewhere", async () => {
   const r = await chain({
     pages: TWO, routes: TWO_ROUTES, message: ON_MENU, routed: { intent: "edit", layer: "page", page: "/menu" },
     answers: {
@@ -463,4 +483,149 @@ test("a list on two pages, a request limited to /menu: only /menu re-sorted, thr
   assert.deepEqual(r.body.reordered, ["loaves"]);
   billedOnce(r, "sync", r.body.cost);
   assert.equal(r.said.text, "✅ Updated /menu. Heads up: loaves is listed on other pages too, and I only changed this one — say “do the same everywhere” if you want them to match.");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. A LIST ON THREE PAGES, A REQUEST NAMING TWO AND EXCLUDING THE THIRD
+//    (the owner's scope correction, 2026-10-01)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// The same list on three pages, in the same order; /visit reads nothing.
+const THREE = [
+  { path: "index.tsx", source: listPage("/", "Home", "Harbour Loaf") },
+  { path: "menu.tsx", source: listPage("/menu", "Menu", "The menu") },
+  { path: "order.tsx", source: listPage("/order", "Order", "Order for collection") },
+  TWO.find((p) => p.path === "visit.tsx"),
+];
+const THREE_ROUTES = ["/", "/menu", "/order", "/visit"];
+const SELECTED = "On the home page and the menu page, but not the order page, list the loaves from cheapest to most expensive.";
+// The one change in the customer's own words, as it is scoped to each named page.
+const SORT_WORDS = "list the loaves from cheapest to most expensive";
+const before = (path) => THREE.find((p) => p.path === path).source;
+/** The text a model request carries. */
+const asked = (args) => String((args.messages && args.messages[0] && args.messages[0].content) || "");
+const shownPath = (args) => {
+  const m = /Below is the current source of (\S+), exactly/.exec(asked(args));
+  assert.ok(m, "the full writer's request names no file");
+  return m[1];
+};
+
+// THE ANSWERS THE LOOK DOOR NEEDS, every one SUPPLIED:
+//  - the router's `look`, with no page — the answer the corrected instructions
+//    lead to (`data` cannot leave a page out, `page` edits one, and the closing
+//    rule gives changes on several pages to `look`), given here, never chosen;
+//  - the picker's one page lane, scoped once per named page with the same words
+//    (its tool: "The same part on two pages is two entries"). WHICH lane a real
+//    picker names is not settled by its instructions — no lane's description
+//    names a list's order (backlog) — so `components` is supplied, and every
+//    lane leading to the page rung runs the same page step, which reads the
+//    words and not the lane;
+//  - the quick writer's `cannot`, where its rules send "a change to what the
+//    page LISTS";
+//  - the full writer re-sorting WHICHEVER file it is shown, so a step aimed at
+//    the wrong page shows up as the wrong page changed.
+const LOOK_ANSWERS = {
+  [T.pick]: { fields: ["components"], scopes: [
+    { part: "components", words: SORT_WORDS, page: "/" },
+    { part: "components", words: SORT_WORDS, page: "/menu" },
+  ] },
+  [T.tweak]: { cannot: "that changes what the page lists, so it needs the page writer" },
+  [T.pages]: (args) => {
+    const path = shownPath(args);
+    assert.ok(THREE.some((p) => p.path === path), "the full writer was shown a file the site does not have: " + path);
+    return { pages: [{ path: "src/routes/" + path, source: cheapestFirst(before(path)) }] };
+  },
+};
+
+/** One charge per page step, every model call billed once, nothing given back. */
+function billedPerStep(r, mode, steps) {
+  assert.ok(r.body.cost >= steps, "the reply's cost is below one charge per step");
+  // THE RECEIPT: the picker, then each step's quick writer and full writer —
+  // each call once. The picker's call is folded into the FIRST step's charge
+  // (`eCharge`: billed once per message, never once per step).
+  assert.equal(r.body.usage.langUsage.length, 1 + 2 * steps, "the receipt does not list every call exactly once");
+  assert.deepEqual(r.seen.credited, [], "something was credited back");
+  if (mode === "job") {
+    assert.deepEqual(r.reserves.map((x) => x.seq), Array.from({ length: steps }, (_, i) => i + 1), "the job's reserves are not one per step, in sequence");
+    assert.equal(r.reserves.reduce((n, x) => n + x.cost, 0), r.body.cost, "the reserves do not add up to the reply's cost");
+    assert.deepEqual(r.finalized, [true], "the job was not finalized once as published");
+    assert.equal(r.refunds, 0, "the job was refunded");
+    assert.deepEqual(r.editDebits, [], "the job also debited directly");
+  } else {
+    assert.equal(r.editDebits.length, steps, "not one debit per step");
+    assert.equal(r.editDebits.reduce((n, x) => n + x, 0), r.body.cost, "the debits do not add up to the reply's cost");
+    assert.deepEqual(r.reserves, [], "a synchronous edit reserved through the job ledger");
+  }
+  assert.equal(r.routingDebits.length, 1, "the routing call was not charged exactly once");
+}
+
+for (const mode of ["sync", "job"]) {
+  test("supplied answers: three pages, a request naming two and excluding the third — the look door re-sorts / and /menu and leaves /order as it was (" + mode + ")", async () => {
+    assert.equal(laneLayer("components"), "page", "the supplied lane does not lead to the page rung");
+    const r = await chain({ pages: THREE, routes: THREE_ROUTES, message: SELECTED, routed: { intent: "edit", layer: "look" }, answers: LOOK_ANSWERS, mode });
+    // THE ROUTE AND THE POST: `look`, with no page — the change is on two.
+    assert.equal(r.d.layer, "look");
+    assert.ok(!r.d.page && !r.post.body.page, "a page was carried for a change on two pages");
+    assert.ok(!r.d.alsoAsked, "the routing answer held part of it back");
+    assert.equal(r.post.body.layer, "look");
+    assert.equal(r.post.body.instruction, SELECTED);
+    // THE MODEL CALLS: the picker once, then one page step per NAMED page —
+    // the quick writer declining and the full writer re-sorting — and never
+    // the data step, which is the only thing that sorts every page at once.
+    assert.deepEqual(r.seen.calls, [T.route, T.pick, T.tweak, T.pages, T.tweak, T.pages], "the model calls");
+    assert.equal(asked(r.seen.requests[T.pick][0]).includes(SELECTED), true, "the picker was not shown the message");
+    // EACH STEP WAS SHOWN ITS OWN PAGE AND ONLY THE CHANGE'S WORDS — never the
+    // excluded page, and never the rest of the sentence that excludes it.
+    assert.deepEqual(r.seen.requests[T.pages].map(shownPath), ["index.tsx", "menu.tsx"], "the full writer's files");
+    assert.deepEqual(r.seen.requests[T.tweak].map((a) => /\n\nTHE FILE \(([^)]+)\)/.exec(asked(a))[1]), ["index.tsx", "menu.tsx"], "the quick writer's files");
+    for (const c of [...r.seen.requests[T.tweak], ...r.seen.requests[T.pages]].map(asked)) {
+      assert.ok(c.includes(SORT_WORDS), "a writer was not given the change's words");
+      assert.ok(!c.includes("but not the order page"), "a writer was handed the whole message");
+    }
+    // THE ANSWER.
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.ok, true);
+    assert.deepEqual(r.body.pageOps, [{ page: "/" }, { page: "/menu" }]);
+    // THE STORED SITE: the two named pages re-sorted, each in that one line…
+    for (const path of ["index.tsx", "menu.tsx"]) {
+      assert.equal(page(r, path), cheapestFirst(before(path)), path + " is not the same page re-sorted");
+      assert.equal(changedLines(before(path), page(r, path)).length, 1, path + " changed in more than its read");
+    }
+    // …THE EXCLUDED PAGE AND THE PAGE WITH NO LIST, byte for byte.
+    for (const path of ["order.tsx", "visit.tsx"]) assert.equal(page(r, path), before(path), path + " changed");
+    assert.match(page(r, "order.tsx"), /useRows<Loaf>\("loaves", \{ order: "name", dir: "asc" \}\)/);
+    assert.equal(r.stored.length, THREE.length, "a page was added or taken away");
+    // NOT THE SORTER, AND NO ROW: no sort reported, no data step, nothing written.
+    assert.ok(!Object.hasOwn(r.body, "sort") && !Object.hasOwn(r.body, "sortChanged"), "the sorter answered");
+    assert.deepEqual(writes(r), [], "a statement that writes reached the database");
+    // PUBLICATION: one compile carrying both re-sorted pages and the excluded
+    // page as it was, and one upload.
+    assert.equal(r.compiles, 1, "not exactly one compile");
+    for (const path of ["index.tsx", "menu.tsx"]) assert.equal(r.compiled(path), page(r, path), "the compile did not carry " + path);
+    assert.equal(r.compiled("order.tsx"), before("order.tsx"), "the compile did not carry the excluded page as it was");
+    assert.equal(r.seen.uploads, 1, "not exactly one publish upload");
+    // THE MONEY: one charge per page step; the picker billed once.
+    billedPerStep(r, mode, 2);
+    // THE SCREEN, AS IT IS TODAY: the look door's merged reply names neither
+    // page (the parked "a multi-step look reply names only the look", review
+    // #9, kept separate), and says nothing about the excluded one.
+    assert.equal(r.said.text, "✅ Updated the look.");
+  });
+}
+
+test("supplied answers, a forbidden answer: `data` for the same request would re-sort the excluded page too — only the router's choice keeps the selection", async () => {
+  // NOT WHAT THE ROUTER IS TOLD TO ANSWER (`router-list-sort`: "never the
+  // answer when they limit the sort to some of the pages"). It is supplied to
+  // show what that instruction is the only guard against: the route reads no
+  // page out of the message, and the sort lane has no page scope.
+  const r = await chain({ pages: THREE, routes: THREE_ROUTES, message: SELECTED, routed: { intent: "edit", layer: "data" }, answers: { [T.data]: SORT } });
+  assert.equal(r.d.layer, "data");
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(r.body.sortChanged, ["index.tsx", "menu.tsx", "order.tsx"], "the sorter did not re-sort every page that shows the list");
+  assert.equal(page(r, "order.tsx"), cheapestFirst(before("order.tsx")), "the excluded page kept its order");
+  assert.equal(r.said.text, "✅ loaves now comes out in order of price, lowest first — on 3 pages.");
+  // WHAT STOPS IT BEFORE ANY EDIT ON A PRESS: a route box stating `look`.
+  const press = readExpectRoute("layer=look alsoAsked=none");
+  assert.ok(press.ok);
+  assert.deepEqual(routeVerdict(press.expect, r.d).diffs.map((d) => d.key), ["layer"], "a press expecting look would post this data answer");
 });

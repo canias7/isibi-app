@@ -26,6 +26,11 @@ prepared:
 
 ## 1. The rule (`builder/site-ask.mjs`, two sentences, nothing else)
 
+**Corrected on 2026-10-01** (`2026-10-01-sort-scope.md`): both sentences sent
+every sort "not limited to one page" to `data`, which re-sorts a selection's
+left-out pages too. The owner: *"'not limited to one page' does not mean
+'site-wide.'"* The wording below is the first one, kept as the record.
+
 - **In the `data` clause**, after the row-removal sentence (which keeps its
   place as the clause's second line):
 

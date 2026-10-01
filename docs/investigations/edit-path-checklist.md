@@ -91,18 +91,27 @@ is not to be repeated.
 - The demo data stays as it stands: the Hour one-to-one is £45.
 
 **Test 10, a stored list re-sorted: decision 2b taken by the owner, the rule
-built on the branch, not merged** (*Test 10*, below; nothing spent, not run).
-On all three demo sites a list's order is written in page code (the `{
-order, dir }` of the page's `useRows` call); no table has an ordering field.
-The owner's rule: a sort not limited to one page goes to the data step's
-site-wide sort lane; a sort limited to one named page goes to the page
-editor, and only that page changes; no "whatever page they saw it" rule,
-because different pages may intentionally use different orders. Implemented
-as two router sentences, with 17 new tests (10 on the router, 7 through the
-whole chain on both paths), red-checked and swept. The acceptance, revised to
-state its scope: *"Across the site, list the loaves from cheapest to most
-expensive."* on `fold-lane-bakery`, one stored line changed, about 2–3
-credits, after the owner's review, a merge and a deploy.
+built on the branch and its scope corrected after the owner's review, not
+merged** (*Test 10*, below; nothing spent, not run). On all three demo sites
+a list's order is written in page code (the `{ order, dir }` of the page's
+`useRows` call); no table has an ordering field. The owner's rule, as
+corrected on 2026-10-01 (*"'not limited to one page' does not mean
+'site-wide'"*):
+- a sort across the whole site goes to the data step's sort lane;
+- a sort limited to one named page goes to the page editor, and only that
+  page changes;
+- a sort limited to a selection of pages keeps its selection. It is never
+  sent to the sorter, which cannot leave a page out: the whole-message rule
+  decides it, and `look` makes it page by page;
+- no "whatever page they saw it" rule, because different pages may
+  intentionally use different orders.
+
+Implemented as two router sentences. 24 tests cover it (14 on the router, 10
+through the whole chain), each named as an instruction check, a structure
+check or a supplied-answer check, none a real model. Red-checked and swept.
+The acceptance states its scope: *"Across the site, list the loaves from
+cheapest to most expensive."* on `fold-lane-bakery`, one stored line
+changed, about 2–3 credits, after the owner's review, a merge and a deploy.
 
 **Lane 1 (2026-09-30): four corrections, merged and deployed in deploy 2171
 (`29111010`, image `cdb624837e099719`; the deployment credited by the owner),
@@ -1299,7 +1308,7 @@ digest), so they are built one after the other in the same file.
 | # | Decision | Why it blocks | What each answer leads to |
 |---|---|---|---|
 | 2a | Which step adds a row to a list the site already has: the add-on step (your 2026-09-02 rule, *"Add will always go in addon"*) or the data picker, which can already insert | an "add a row" acceptance has no expected route until this is decided | **add-on**: no product change, but the canary refuses to post an `addon` answer, so the acceptance needs the UI mode or a canary change. **data**: one router clause (lane 3). |
-| 2b | Whether reordering a list ("show the cheapest first") is `data` | the router says nothing about order, and a misroute to the page writer costs 6–22. **Traced 2026-09-30** (*Test 10*): a list's order is page code on every demo site, the site-wide sort lane is in the data rung, and the router reaches it by no rule. **Decided by the owner, 2026-09-30**: a sort not limited to one page is `data` (the site-wide sorter); a sort limited to one named page is `page`; no "whatever page they saw it" rule | Built on the branch (lane 3's sort half; not merged), then Test 10. |
+| 2b | Whether reordering a list ("show the cheapest first") is `data` | the router says nothing about order, and a misroute to the page writer costs 6–22. **Traced 2026-09-30** (*Test 10*): a list's order is page code on every demo site, the site-wide sort lane is in the data rung, and the router reaches it by no rule. **Decided by the owner, 2026-09-30, the scope corrected 2026-10-01**: a sort across the whole site is `data` (the site-wide sorter); a sort limited to one named page is `page`; a selection of pages is never sent to the sorter (the closing rule decides it); no "whatever page they saw it" rule | Built on the branch (lane 3's sort half; not merged), then Test 10. |
 | 2c | The broader-rules fixture: reopening `lido-axes-b`'s bookings, which you asked to keep closed, or a new disposable site (a first build, 11–45) | its only fixture is closed by your instruction | either way, one bounded rules acceptance afterwards |
 | 2d | Whether to take on the picture swap's product work: attachments reaching the picture step, the picker told which file fills which slot, and no fal purchase when a file is given | no natural message can reach it today without buying a photograph | yes: a product round of its own, later. No: it stays open. |
 | 2e | What "a correct component on the first attempt" must show, and on which site | no fixture has one, and the outcome cannot be fixed in advance | a definition first; no work until then |
@@ -1342,7 +1351,7 @@ in the next data press.
 - **Then**: one merge, one free runtime check, and the lane 4 presses. Those
   on different sites can overlap a minute apart, as Batch 1's did.
 
-## Test 10 — a stored list re-sorted, with real models (prepared 2026-09-30 on the owner's word, after Test 9 was closed; free preparation only; the order traced on all three demo sites; rehearsed with supplied answers through the real lane and the real edit route; decision 2b taken by the owner the same day with a scope correction: a sort not limited to one page goes to the data sorter, a sort limited to one named page to the page editor, and no "whatever page they saw it" rule; the rule implemented on the branch with committed route coverage, not merged and not deployed; the request revised to state its scope; not run)
+## Test 10 — a stored list re-sorted, with real models (prepared 2026-09-30 on the owner's word, after Test 9 was closed; free preparation only; the order traced on all three demo sites; rehearsed with supplied answers through the real lane and the real edit route; decision 2b taken by the owner the same day with a scope correction: a sort across the whole site goes to the data sorter, a sort limited to one named page to the page editor, and no "whatever page they saw it" rule; the rule implemented on the branch with committed route coverage, and its scope corrected on 2026-10-01 so that a selection of pages is never sent to the sorter; not merged and not deployed; the request revised to state its scope; not run)
 
 **The owner**: *"Next, prepare one list-reordering acceptance on an existing
 demo site. First trace what controls its order: a stored ordering field, a
@@ -1473,8 +1482,8 @@ use the existing page editor while the data sorter remains site-wide. Do not
 add the proposed 'whatever page they saw it' rule. Different pages may
 intentionally use different orders."*
 
-**The rule, as implemented** (`builder/site-ask.mjs`, two sentences; on the
-branch, not merged):
+**The rule, as first implemented** (`builder/site-ask.mjs`, two sentences;
+on the branch, not merged; **its scope corrected on 2026-10-01**, below):
 - in the `data` clause, after the row-removal sentence: a sort by something
   every entry already has, **not limited to one page**, is `data`, and the
   list is re-sorted on every page that shows it; **limited to one page they
@@ -1514,6 +1523,73 @@ they saw it" rule exists anywhere the router reads.
 - unit CI `8420 / 8416 / 0 / 4` on `429aa75a` (run 36790235168), and site
   build green on the same commit (run 36790235176, the twelve counts as
   before).
+
+### The scope correction (2026-10-01, after the owner's review)
+
+**The owner**: *"Fix one scope issue in the new routing rule: 'not limited to
+one page' does not mean 'site-wide.' Use data-sort when the requested change
+applies across the site. Keep a one-page request on the page editor. A
+request limited to a selected group of pages must preserve that selection;
+never expand it to every page showing the table."* And: *"If no existing
+route supports a requested selection, report that limitation rather than
+silently widening the change. Do not build another capability for this
+correction."*
+
+**The defect**: both sentences sent to `data` every sort "not limited to one
+page". A request naming two pages of three is that, and the sort lane has no
+page scope, so the page left out was re-sorted too (a supplied `data` answer
+to the three-page request re-sorts all three: *"… — on 3 pages."*).
+
+**The correction** (the same two sentences; the whole-message rule,
+`alsoAsked` and every other clause unchanged):
+- `data`: a sort **across the whole site** (they say so, or name no page)
+  re-sorts every page that shows the list. **It cannot leave a page out**, so
+  it is never the answer when the sort is limited to some of those pages;
+- one page they name is `page`, as before;
+- several pages they name, or every page but those they exclude, is a change
+  on each of those pages and on no other. The field's closing rule decides
+  it, and a page left out keeps its order.
+
+**What carries a selection, traced without a model**: `look`. Its picker
+scopes the change once per named page, and each page lane runs one page step
+on that page with only that change's words: the quick writer, then the full
+writer. No lane on that door reaches the sorter. So an existing route
+carries it, and nothing new was built. What is not known (backlog):
+- which lane a real picker names: no lane's description names a list's
+  order;
+- the cost: likely the full writer on each page, 6–22 credits a page;
+- the reply: *"✅ Updated the look."*, which names neither page.
+
+**Tests, each named as what it is**: *instructions* (what the router is
+told), *structure* (a fact about the code they rely on), *supplied answers*
+(a model answer given, the route's handling read). None shows which answer a
+real model gives; only a live press after a merge and a deploy can.
+- `test/router-list-sort.test.mjs`, 14 cases: 9 instructions, 1 structure,
+  4 supplied answers. They include the broad phrases gone from everything
+  the router reads, a selection never `data`, no look lane reaching the
+  sorter, and the three-page request: a `look` answer posted by a press
+  expecting it, and a `data` answer passed on by the route and refused by
+  that press;
+- `test/edit-list-sort.test.mjs`, 10 cases, all supplied answers. The 7
+  before are unchanged apart from their names. The new ones use three pages
+  showing the same list and *"On the home page and the menu page, but not
+  the order page, list the loaves from cheapest to most expensive."*:
+  - synchronous and queued: `/` and `/menu` re-sorted, `/order` and `/visit`
+    byte-identical, no sort, no row written, one publication, one charge
+    per page step with the picker billed once;
+  - the same request answered `data`: all three pages re-sorted.
+- red check: exactly the 8 instruction cases that read the corrected
+  sentences fail on the previous wording (`3c4e201a`), and the other 16
+  pass;
+- sweep: 24 of 24 mutants killed, 3 comment-only controls survived;
+- the 29 other files that read the router's wording: 967 of 967;
+- full suite `8427 / 8427 / 0 / 0` locally (8,420 plus the 7 new cases);
+- unit CI and the site build: read after the push
+  (`docs/history/2026-10-01-sort-scope.md`).
+
+**Test 10 is unchanged by it**: its request says *"Across the site"*, so it
+is `data` under the corrected rule, with the same route box, fixture, checks
+and estimate.
 
 ### The acceptance (once the rule is merged and deployed; revised 2026-09-30)
 

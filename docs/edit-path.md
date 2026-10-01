@@ -73,16 +73,26 @@ answers unless a run is named.
   home page. The browser routes with the site's real page list and waits for it
   on an existing site (`siteRoutesRead`, `SITE_ROUTES_WAIT_MS` 15,000), so an
   existing site never becomes a first build.
-- **A list's order** (decision 2b, 2026-09-30; on the branch, not merged;
-  `docs/history/2026-09-30-sort-routing.md`). A list's order is page code:
-  the `{ order, dir }` of the page's `useRows` call. A sort by something
-  every entry has, **not limited to one page**, is `data`: the sort lane
-  (`applySort`) rewrites that call on every page reading the table,
-  publishes once, and writes no row. A sort **limited to one page they
-  name** is `page`: only that file changes, and every other page keeps its
-  own order (the owner: *"Different pages may intentionally use different
-  orders"*). A hand-placed entry is no sort, and this rule routes it
-  nowhere. Shown with supplied answers only.
+- **A list's order** (decision 2b, 2026-09-30, its scope corrected
+  2026-10-01; on the branch, not merged;
+  `docs/history/2026-09-30-sort-routing.md`,
+  `docs/history/2026-10-01-sort-scope.md`). A list's order is page code: the
+  `{ order, dir }` of the page's `useRows` call.
+  - A sort by something every entry has, **across the whole site** (they say
+    so, or name no page), is `data`. The sort lane (`applySort`) rewrites
+    that call on every page reading the table, publishes once, and writes no
+    row. **It cannot leave a page out.**
+  - A sort **limited to one page they name** is `page`. Only that file
+    changes, and every other page keeps its own order (the owner:
+    *"Different pages may intentionally use different orders"*).
+  - A sort **limited to several pages** (two named of three, or every page
+    but one) is never `data`. The field's closing rule decides it, and a page
+    left out keeps its order. On `look` each named page gets its own page
+    step with only that change's words, and no lane there reaches the sorter.
+    Which lane a real picker names for it is unmeasured, and each page likely
+    costs the full writer (backlog).
+  - A hand-placed entry is no sort, and this rule routes it nowhere.
+  - All of it is shown with supplied answers only.
 - **Lane 1** (2026-09-30, on the branch, not merged;
   `docs/history/2026-09-30-lane1.md`):
   - **the router is told the owner's own table names** when the browser sent

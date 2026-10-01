@@ -55,10 +55,21 @@ here; take a closed one out of both.**
   router sends an addition to the add-on step, and the data picker can insert
   (the owner's ruling). Found 2026-09-29.
 - ~~The router says nothing about the order of a list~~: decided (2b,
-  2026-09-30) and its rule built on the branch, not merged: a sort not
-  limited to one page is `data`, one limited to a named page is `page`.
-- A page-limited sort that reaches `data` anyway is applied on every page
-  (the sort lane has no page scope). Found 2026-09-30, not changed.
+  2026-09-30) and its rule built on the branch, not merged; its scope
+  corrected 2026-10-01: a sort across the whole site is `data`, one limited
+  to a named page is `page`, and a selection of pages is never sent to the
+  sorter.
+- A page-limited sort, or a selection of pages, that reaches `data` anyway
+  is applied on every page (the sort lane has no page scope); only the
+  router's instructions keep it away. Found 2026-09-30, the selection
+  2026-10-01, not changed.
+- The look picker is told of no lane for a list's order, so which lane a
+  real picker names for a selection of pages is unknown. Found 2026-10-01,
+  not changed.
+- A selection of pages costs the full writer on each page (the quick writer
+  declines list changes). Found 2026-10-01, read, not measured.
+- The look door's reply for a selection of pages names neither page
+  (*"✅ Updated the look."*). Found 2026-10-01, not changed.
 - The quick writer sends "a change to what the page LISTS" to `cannot`, so a
   one-page re-sort may cost the full writer. Found 2026-09-30, read, not
   measured.
@@ -441,14 +452,46 @@ here; take a closed one out of both.**
   day, with a scope correction**, and built on the branch (not merged): a
   sort not limited to one page is `data`; a sort limited to one named page
   is `page`, and only that page changes; no "whatever page they saw it"
-  rule (`docs/history/2026-09-30-sort-routing.md`).
+  rule (`docs/history/2026-09-30-sort-routing.md`). **Its scope corrected
+  after the owner's review (2026-10-01)**: "not limited to one page" is not
+  "across the site". A sort across the whole site (said, or no page named)
+  is `data`; one named page is `page`; a selection of pages is never `data`,
+  and the closing rule decides it (`docs/history/2026-10-01-sort-scope.md`).
 - **A PAGE-LIMITED SORT THAT REACHES `data` ANYWAY IS APPLIED ON EVERY PAGE
   (found 2026-09-30; read; not changed).** The sort lane (`applySort`) has no
   page scope by design: it rewrites every `useRows` call for the table. The
   router now sends a sort limited to one named page to `page`; if it
   answers `data` for one anyway, every page showing the list is re-sorted.
   The reply names how many pages changed (*"… — on 2 pages."*), so it is
-  visible, not silent.
+  visible, not silent. **The same for a selection of pages (2026-10-01)**:
+  a supplied `data` answer to *"On the home page and the menu page, but not
+  the order page, …"* re-sorts all three pages (*"… — on 3 pages."*). The
+  route reads no page out of the message, so only the router's instructions
+  keep a selection from the sorter; on a press, the route box refuses a
+  `data` answer before any edit. No code guard was added: it would be a
+  keyword rule.
+- **THE LOOK PICKER IS TOLD OF NO LANE FOR A LIST'S ORDER (found 2026-10-01;
+  read; not changed).** A selection of pages goes to `look` under the closing
+  rule, and the look picker's lanes (`builder/site-lanes.mjs`) describe
+  sections, building blocks, built parts and what the site stores, never a
+  list's order. A page lane (`components`, `shape`, `tsx`, `purpose`,
+  `three`) runs the page editor on each scoped page and makes the change;
+  `backend` reaches the rules step, which sorts nothing; anything else
+  changes nothing. No lane reaches the sorter, so none widens. Which lane a
+  real picker names is unmeasured. The committed coverage supplies
+  `components`.
+- **A SELECTION OF PAGES COSTS THE FULL WRITER ON EACH PAGE (found
+  2026-10-01; read, not measured).** Each named page's step tries the quick
+  writer first, whose rules send *"a change to what the page LISTS"* to
+  `cannot`, so each page likely costs the full writer (6–22 credits a page),
+  against about 1 for the sorter across the whole site.
+- **THE LOOK DOOR'S REPLY FOR A SELECTION NAMES NEITHER PAGE (found
+  2026-10-01; shown with supplied answers; not changed).** Two pages
+  re-sorted through the look door read *"✅ Updated the look."*: a case of
+  the parked multi-step look reply that names only the look (review #9).
+  The full writer's `reordered` heads-up is not shown there, which is as
+  well: it suggests *"do the same everywhere"*, which would widen a
+  selection.
 - **THE QUICK WRITER DECLINES A LIST CHANGE, SO A ONE-PAGE RE-SORT MAY COST
   THE FULL WRITER (found 2026-09-30; read, not measured).** `TWEAK_RULES`
   (`builder/site-tweak.mjs`) tells the quick writer to answer `cannot` for

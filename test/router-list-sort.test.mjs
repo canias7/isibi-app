@@ -1,5 +1,6 @@
-// A LIST SORTED ACROSS THE SITE IS `data`; ON ONE NAMED PAGE IT IS `page`
-// (2026-09-30, decision 2b).
+// A LIST SORTED ACROSS THE WHOLE SITE IS `data`; ON ONE NAMED PAGE IT IS
+// `page`; ON A SELECTION OF PAGES IT IS NEVER WIDENED (2026-09-30, decision 2b;
+// the scope corrected 2026-10-01).
 //
 // A list's order is written in PAGE CODE: the `{ order, dir }` of the page's
 // `useRows` call, which the Data API sorts by. The data step's sort lane
@@ -15,16 +16,32 @@
 // different orders. Implement the general routing rule, preserving the existing
 // whole-message handling and other edit routes."*
 //
-// WHAT THIS ESTABLISHES, AND WHAT IT CANNOT. The first cases read what the
-// router is TOLD: the tool as defined, and the request the real
-// `POST /api/site/route` sends. The route cases supply the router's answer and
-// read what the route does with it. None of it shows which answer a real model
-// chooses; only a live press after a merge and a deploy can. What each answer
-// then does on the edit route is `test/edit-list-sort.test.mjs`.
+// AND THE CORRECTION (2026-10-01): *"'not limited to one page' does not mean
+// 'site-wide.' Use data-sort when the requested change applies across the site.
+// Keep a one-page request on the page editor. A request limited to a selected
+// group of pages must preserve that selection; never expand it to every page
+// showing the table."* The first wording sent every sort "not limited to one
+// page" to `data` — two pages of three included — and the sort lane has no page
+// scope, so the page left out was re-sorted too (shown with a supplied answer in
+// `test/edit-list-sort.test.mjs`).
+//
+// THREE KINDS OF CASE, NAMED IN EACH TITLE, AND NONE OF THEM IS A REAL MODEL:
+//   instructions:     what the router is TOLD — the tool as defined, and the
+//                     request the real `POST /api/site/route` sends. Proves the
+//                     rule is stated, never that a model follows it.
+//   structure:        a fact about the code the instructions rely on.
+//   supplied answers: a router answer is GIVEN and the real route's handling of
+//                     it is read. Proves what the route does with each answer,
+//                     never which answer a real model gives.
+// Which answer a real router gives is measured only by a live press after a
+// merge and a deploy, and none has been made for this rule. What each answer
+// then does on the edit route is `test/edit-list-sort.test.mjs`, supplied
+// answers too.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { ASK_TOOL, EDIT_LAYERS, readEdit } from "../builder/site-ask.mjs";
+import { LANE_FIELDS, laneLayer } from "../builder/site-lanes.mjs";
 import { readExpectRoute, routeVerdict } from "../scripts/canary-route.mjs";
 
 const P = ASK_TOOL.input_schema.properties;
@@ -48,27 +65,53 @@ function oneLine(lines, re, what) {
 
 const DATA = clause("data", "text");
 const PAGE = clause("page", "rename");
-// The two new sentences, found positively before anything is asserted about
-// what they must not say. Read inside each case, so a wording without one fails
-// the cases that need it and no others.
-const siteWide = () => oneLine(DATA, /^SORTING ONE OF THOSE LISTS ACROSS THE SITE IS THIS LAYER TOO:/, "the data clause's site-wide sort");
+// The two sentences, found positively before anything is asserted about what
+// they must not say. Read inside each case, so a wording without one fails the
+// cases that need it and no others.
+const siteWide = () => oneLine(DATA, /^SORTING ONE OF THOSE LISTS ACROSS THE WHOLE SITE IS THIS LAYER TOO:/, "the data clause's site-wide sort");
 const onePage = () => oneLine(PAGE, /^THE ORDER OF A LIST ON ONE PAGE THEY NAME IS THIS LAYER TOO/, "the page clause's one-page sort");
 
-test("a sort not limited to one page is `data`, said in the data clause after the row sentence", () => {
+test("instructions: a sort across the whole site is `data` — said so, or no page named — in the data clause after the row sentence", () => {
   const { line: s, at } = siteWide();
   // WHAT IT CLAIMS: a sort by something every entry already has, which is
-  // what the sort lane can do (a column), and it names no page.
+  // what the sort lane can do (a column), everywhere the list is shown.
   assert.match(s, /in order of something every entry already has/);
-  assert.match(s, /and do not limit it to one page/);
+  assert.match(s, /everywhere it is shown \(they say so, or they name no page\)/);
   // THE TARGETS: the lane rewrites the read on every page that shows the list.
-  assert.match(s, /it is re-sorted on every page that shows it\./);
+  assert.match(s, /it is re-sorted on every page that shows it, all at once\./);
   // AFTER THE ROW SENTENCE, which keeps its place as the clause's second line.
   assert.match(DATA[1], /^TAKING AN EXISTING ROW OFF ONE OF THOSE LISTS IS THIS LAYER TOO/);
   assert.equal(at, 2, "the sort sentence is not the data clause's third line");
   assert.match(DATA[0], /The tables it has are named above\./);
 });
 
-test("a sort limited to one page they name is `page`, and only that page changes", () => {
+test("instructions: \"not limited to one page\" no longer means the whole site — the broad phrases are gone from everything the router reads", () => {
+  // THE OBSERVER IS ALIVE: both sentences exist, and both now scope by the
+  // whole site.
+  assert.match(siteWide().line, /ACROSS THE WHOLE SITE/);
+  assert.match(onePage().line, /Across the whole site the same sort is "data"\./);
+  // THE TWO PHRASES THE OWNER CORRECTED, in any spelling, anywhere: the data
+  // clause's "do not limit it to one page" and the page clause's "Not limited
+  // to one page, the same sort is data".
+  const everything = JSON.stringify(ASK_TOOL);
+  assert.doesNotMatch(everything, /limit(?:ed)? it to one page|not limited to one page/i, "a broad phrase is back");
+});
+
+test("instructions: a sort limited to a selection of pages is never `data`, and a page left out keeps its order", () => {
+  const d = siteWide().line;
+  // THE DATA CLAUSE SAYS WHY, then hands each kind of selection on.
+  assert.match(d, /THIS LAYER CANNOT LEAVE A PAGE OUT, so it is never the answer when they limit the sort to some of the pages that show the list:/);
+  assert.match(d, /ONE page they name is "page"/);
+  assert.match(d, /several pages they name, or every page but the ones they exclude, is a change on each of those pages and on no other, which the last paragraph of this field decides\./);
+  assert.match(d, /A page they left out keeps its order: different pages may show the same list in different orders\./);
+  // THE PAGE CLAUSE SAYS THE SAME FROM ITS SIDE: several named pages are
+  // neither layer, and the closing rule decides.
+  assert.match(onePage().line, /On SEVERAL pages they name it is neither — this layer edits one page, and "data" cannot leave a page out — so the last paragraph of this field decides it, and a page they left out is never re-sorted\.$/);
+  // THE RULE THEY POINT AT IS THERE, LAST, and is the existing one.
+  assert.match(LINES[LINES.length - 1], /^ONE ANSWER FOR THE WHOLE MESSAGE/);
+});
+
+test("instructions: a sort limited to one page they name is `page`, and only that page changes", () => {
   const { line: s, at } = onePage();
   assert.match(s, /only that page's list is re-sorted/);
   assert.match(s, /every other page that shows the same list keeps its own order/);
@@ -80,21 +123,20 @@ test("a sort limited to one page they name is `page`, and only that page changes
   assert.ok(at < several.at, "the one-page sort is not before the several-pages paragraph");
 });
 
-test("no 'whatever page they saw it' rule: naming one page never sends a sort site-wide", () => {
-  // THE CORRECTION ITSELF, both ways round: the data clause hands a sort
-  // limited to one named page to `page`, and the page clause hands every other
-  // sort to `data`. So a page is never read as where the list was merely seen.
-  const d = siteWide().line;
-  assert.match(d, /When they limit it to ONE page they name, it is "page" instead, and only that page changes/);
-  assert.match(d, /different pages may show the same list in different orders/, "the reason, in the owner's terms");
-  assert.match(onePage().line, /Not limited to one page, the same sort is "data"\.$/);
+test("instructions: no 'whatever page they saw it' rule — naming one page never sends a sort site-wide", () => {
+  // THE FIRST CORRECTION, both ways round: the data clause hands a sort
+  // limited to one named page to `page`, and the page clause hands only the
+  // whole site to `data`. So a page is never read as where the list was
+  // merely seen.
+  assert.match(siteWide().line, /ONE page they name is "page"/);
+  assert.match(onePage().line, /Across the whole site the same sort is "data"\./);
   // Absent everywhere the router reads, prose and all.
   for (const text of [LAYER, ALSO, P.page.description]) {
     assert.doesNotMatch(text, /whatever page they saw|on whatever page|wherever they saw/i, "a seen-on-this-page rule is back");
   }
 });
 
-test("a hand-placed entry is no sort, and the new sentences route it nowhere", () => {
+test("instructions: a hand-placed entry is no sort, and the sort sentences route it nowhere", () => {
   const d = siteWide().line;
   assert.match(d, /Placing one entry by hand \("put that one first"\) is not a sort\.$/);
   // The sentence ends there: it names no layer for a hand-placed order.
@@ -103,35 +145,47 @@ test("a hand-placed entry is no sort, and the new sentences route it nowhere", (
   assert.deepEqual(quoted, ["put that one first"], "a layer is named for a hand-placed order");
 });
 
-test("the rule is universal: it quotes layers or examples only and names no site, table or test request", () => {
+test("instructions: the rule is universal — it quotes layers or examples only and names no site, page, table or test request", () => {
   const added = [siteWide().line, onePage().line];
   const examples = ["put that one first", "on the services page, show the cheapest first"];
   for (const s of added) {
     for (const q of [...s.matchAll(/"([^"]+)"/g)].map((m) => m[1])) {
-      assert.ok(EDIT_LAYERS.includes(q) || examples.includes(q), "a new sentence quotes something that is neither a layer nor its example: " + q);
+      assert.ok(EDIT_LAYERS.includes(q) || examples.includes(q), "a sort sentence quotes something that is neither a layer nor its example: " + q);
     }
-    // No fixture: the demo sites, their tables, their loaves, or the words of
-    // the prepared request ("… list the loaves from cheapest to most expensive").
-    assert.doesNotMatch(s, /fold-lane|bakery|loaves|focaccia|levain|fretwork|lesson|lido|menu_items|most expensive/i, "a new sentence names a fixture: " + s);
+    // No fixture: the demo sites, their tables, their loaves, the pages of the
+    // three-page case, or the words of the prepared requests.
+    assert.doesNotMatch(s, /fold-lane|bakery|loaves|focaccia|levain|fretwork|lesson|lido|menu_items|most expensive|home page|menu page|order page/i, "a sort sentence names a fixture: " + s);
   }
 });
 
-test("the whole-message rule, alsoAsked and every other clause are as they were: only the two new lines speak of sorting", () => {
+test("instructions: the whole-message rule, alsoAsked and every other clause are as they were — only the two sort lines speak of sorting", () => {
   // THE CLOSING RULE is still the field's last word, and silent about order.
   const last = LINES[LINES.length - 1];
   assert.match(last, /^ONE ANSWER FOR THE WHOLE MESSAGE/);
   assert.match(last, /A layer other than "look" is the answer when it can make all of them, on every page each one is on\./);
+  assert.match(last, /changes on different pages are one "look" answer even when they are all of one kind\. Hold a change back only when no one answer can make it with the rest\.$/);
   assert.doesNotMatch(last, /sort|order/i, "the whole-message rule itself was reworded");
   // `alsoAsked` holds nothing new, and a data change beside a change of
   // another kind is still its legitimate hold.
   assert.doesNotMatch(ALSO, /\bsort/i, "alsoAsked now speaks about sorting");
   assert.match(ALSO, /a change to what the site's lists hold \("data"\)[^.]*beside a change of another kind/);
-  // THE ONLY LINES THAT SAY "sort" ARE THE TWO NEW ONES. The observer is alive:
-  // both are found before the scan, and the scan counts them.
+  // THE ONLY LINES THAT SAY "sort" ARE THE TWO SORT SENTENCES. The observer is
+  // alive: both are found before the scan, and the scan counts them.
   const sorting = LINES.filter((l) => /\bsort|re-sorted/i.test(l));
   assert.deepEqual(sorting, [siteWide().line, onePage().line], "another clause now speaks about sorting");
   // `nav` still owns the menu's order, untouched.
   assert.match(LAYER, /THE MENU — which items are in it, what order they come in, taking one out\./);
+});
+
+test("structure: no lane on the look door reaches the sorter, so a selection the closing rule gives to `look` is made page by page and never widened", () => {
+  // WHAT THE INSTRUCTIONS RELY ON when they leave a selection to the closing
+  // rule: `look`'s lanes dispatch to their own rungs (`laneLayer`), the page
+  // lanes one scoped page step each, and none to `data`, whose sort lane is
+  // the only thing that re-sorts every page at once.
+  const rungs = LANE_FIELDS.map((f) => [f, laneLayer(f)]);
+  const toPage = rungs.filter(([, r]) => r === "page").map(([f]) => f);
+  assert.ok(toPage.length >= 1, "no lane reaches the page rung, so this proves nothing");
+  assert.deepEqual(rungs.filter(([, r]) => r === "data"), [], "a look lane now reaches the data step's sorter");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -141,6 +195,8 @@ test("the whole-message rule, alsoAsked and every other clause are as they were:
 const OWNER = { id: "66666666-6666-6666-6666-666666666666", email: "owner@example.com" };
 // Test 10's request, as the owner wrote it (2026-09-30).
 const TEST10 = "Across the site, list the loaves from cheapest to most expensive.";
+// The owner's three-page case: two pages named, the third excluded.
+const SELECTED = "On the home page and the menu page, but not the order page, list the loaves from cheapest to most expensive.";
 const json = (v, status = 200) => new Response(JSON.stringify(v), { status, headers: { "content-type": "application/json" } });
 
 async function route(answer, message = TEST10) {
@@ -160,7 +216,8 @@ async function route(answer, message = TEST10) {
     return new Response("unavailable", { status: 503 });
   };
   try {
-    // A browser that built the site sends its pages and tables.
+    // A browser that built the site sends its pages and tables: the same list
+    // is read on three of them.
     const site = { name: "list-sort", url: "https://list-sort.gofarther.app", pages: ["/", "/menu", "/order"], tables: ["loaves", "orders"] };
     const res = await worker.fetch(new Request("https://gofarther.dev/api/site/route", {
       method: "POST",
@@ -175,7 +232,7 @@ async function route(answer, message = TEST10) {
 // Test 10's paid press enforces this route (the canary's route box).
 const PRESS = readExpectRoute("layer=data alsoAsked=none");
 
-test("the router is sent both sentences, with the tables they point at", async () => {
+test("instructions: the router is sent both sentences, with the pages and tables they point at", async () => {
   const r = await route({ intent: "edit", layer: "data" });
   assert.equal(r.status, 200);
   assert.equal(r.router.length, 1, "the router was not asked exactly once");
@@ -185,11 +242,14 @@ test("the router is sent both sentences, with the tables they point at", async (
   const layer = tool.input_schema.properties.layer.description;
   assert.ok(layer.includes(siteWide().line), "the site-wide sort sentence is not in the request");
   assert.ok(layer.includes(onePage().line), "the one-page sort sentence is not in the request");
-  // "Those lists" have a referent in the same request.
-  assert.match(String(r.router[0].messages[0].content), /Its database tables are: loaves, orders\./);
+  assert.doesNotMatch(JSON.stringify(r.router[0]), /limit(?:ed)? it to one page|not limited to one page/i, "a broad phrase left in the request");
+  // "Those lists" and "the pages" have referents in the same request.
+  const content = String(r.router[0].messages[0].content);
+  assert.match(content, /Its database tables are: loaves, orders\./);
+  assert.match(content, /Its pages are: \/, \/menu, \/order\./);
 });
 
-test("a site-wide sort goes on as a data edit with no page, and Test 10's press would post it", async () => {
+test("supplied answers: a site-wide sort goes on as a data edit with no page, and Test 10's press would post it", async () => {
   const r = await route({ intent: "edit", layer: "data" });
   assert.equal(r.body.intent, "edit");
   assert.equal(r.body.layer, "data");
@@ -201,7 +261,7 @@ test("a site-wide sort goes on as a data edit with no page, and Test 10's press 
   assert.deepEqual(readEdit({ layer: "data", page: "/menu" }, ["/", "/menu"]), { intent: "edit", answer: "", layer: "data" });
 });
 
-test("a page answer for Test 10's request is refused by its press before anything is posted", async () => {
+test("supplied answers: a page answer for Test 10's request is refused by its press before anything is posted", async () => {
   const r = await route({ intent: "edit", layer: "page", page: "/order" });
   assert.equal(r.body.layer, "page");
   const v = routeVerdict(PRESS.expect, r.body);
@@ -209,10 +269,31 @@ test("a page answer for Test 10's request is refused by its press before anythin
   assert.deepEqual(v.diffs.map((d) => d.key), ["layer"]);
 });
 
-test("a sort limited to one page keeps that page all the way to the edit route", async () => {
+test("supplied answers: a sort limited to one page keeps that page all the way to the edit route", async () => {
   const r = await route({ intent: "edit", layer: "page", page: "/menu" }, "On the menu page, list the loaves from cheapest to most expensive.");
   assert.equal(r.body.layer, "page");
   assert.equal(r.body.page, "/menu");
   // And a page the site does not have is not guessed at.
   assert.equal(readEdit({ layer: "page", page: "/nowhere" }, ["/", "/menu"]).intent, "addon");
+});
+
+test("supplied answers: two pages named and the third excluded — a `look` answer goes on with no page and nothing held back; a press expecting it refuses `data`", async () => {
+  // THE ANSWER THE INSTRUCTIONS LEAD TO, given here: `data` cannot leave a page
+  // out, `page` edits one, and the closing rule gives changes on several pages
+  // to `look`. Whether a real router gives it is not measured.
+  const look = await route({ intent: "edit", layer: "look" }, SELECTED);
+  assert.equal(look.status, 200);
+  assert.equal(look.body.intent, "edit");
+  assert.equal(look.body.layer, "look");
+  assert.ok(!look.body.page, "a page was kept for a change on two pages");
+  assert.ok(!look.body.alsoAsked, "part of the selection was held back");
+  const press = readExpectRoute("layer=look alsoAsked=none");
+  assert.ok(press.ok);
+  assert.deepEqual(routeVerdict(press.expect, look.body), { ok: true, diffs: [] });
+  // THE ROUTE ITSELF DOES NOT STOP A `data` ANSWER: it reads no page out of
+  // the message. Only the router's instructions keep a selection from the
+  // sorter — and, on a press, a route box stating the expected answer.
+  const data = await route({ intent: "edit", layer: "data" }, SELECTED);
+  assert.equal(data.body.layer, "data", "the route changed a data answer by itself");
+  assert.deepEqual(routeVerdict(press.expect, data.body).diffs.map((d) => d.key), ["layer"]);
 });

@@ -376,4 +376,13 @@
   the proposed 'whatever page they saw it' rule. Different pages may
   intentionally use different orders."* And for the test: *"make the intended
   scope explicit"* in the request itself.
+- **"Not limited to one page" is not "across the site"; a selection keeps
+  its selection.** Correcting the rule (2026-10-01): *"Use data-sort when the
+  requested change applies across the site. Keep a one-page request on the
+  page editor. A request limited to a selected group of pages must preserve
+  that selection; never expand it to every page showing the table."* And:
+  *"If no existing route supports a requested selection, report that
+  limitation rather than silently widening the change. Do not build another
+  capability for this correction."* And for the tests: *"Clearly distinguish
+  checking the router's instructions from proving a real model's choice."*
 

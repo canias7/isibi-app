@@ -348,14 +348,30 @@ export const ASK_TOOL = {
           // Requests limited to one page should use the existing page editor
           // while the data sorter remains site-wide. Do not add the proposed
           // 'whatever page they saw it' rule. Different pages may intentionally
-          // use different orders."* So a sort NOT limited to one page is here,
-          // and a sort limited to one named page is `page` (said there too). A
-          // hand-placed entry is no sort, and nothing here says where it goes.
-          "SORTING ONE OF THOSE LISTS ACROSS THE SITE IS THIS LAYER TOO: when they want a list in order of something " +
-          "every entry already has — cheapest first, A to Z, newest at the top — and do not limit it to one page, it " +
-          "is re-sorted on every page that shows it. When they limit it to ONE page they name, it is \"page\" " +
-          "instead, and only that page changes: different pages may show the same list in different orders. Placing " +
-          "one entry by hand (\"put that one first\") is not a sort.\n" +
+          // use different orders."* A sort limited to one named page is `page`
+          // (said there too). A hand-placed entry is no sort, and nothing here
+          // says where it goes.
+          //
+          // ⚠ "NOT LIMITED TO ONE PAGE" IS NOT "ACROSS THE SITE" (the owner's
+          // correction, 2026-10-01): *"Use data-sort when the requested change
+          // applies across the site. Keep a one-page request on the page editor.
+          // A request limited to a selected group of pages must preserve that
+          // selection; never expand it to every page showing the table."* The
+          // first wording sent here every sort "not limited to one page", two
+          // pages of three included, and the sort lane has no page scope — so
+          // the page they left out was re-sorted too. This layer is now the
+          // answer only for the whole site (said, or no page named); a selection
+          // is a change on each page in it, and the field's closing rule decides
+          // it, unchanged. On `look` each change is made on its own page, and no
+          // lane on that door reaches the sorter (`laneLayer`).
+          "SORTING ONE OF THOSE LISTS ACROSS THE WHOLE SITE IS THIS LAYER TOO: when they want a list in order of " +
+          "something every entry already has — cheapest first, A to Z, newest at the top — everywhere it is shown " +
+          "(they say so, or they name no page), it is re-sorted on every page that shows it, all at once. THIS LAYER " +
+          "CANNOT LEAVE A PAGE OUT, so it is never the answer when they limit the sort to some of the pages that show " +
+          "the list: ONE page they name is \"page\", and several pages they name, or every page but the ones they " +
+          "exclude, is a change on each of those pages and on no other, which the last paragraph of this field " +
+          "decides. A page they left out keeps its order: different pages may show the same list in different " +
+          "orders. Placing one entry by hand (\"put that one first\") is not a sort.\n" +
           "\"text\" — ONLY the words change and nothing else: a heading, a sentence, a button label, a phone number, an " +
           "address, a price written on the page. Nothing moves and nothing changes colour. This is the cheapest thing the " +
           "builder can do, so prefer it whenever it is honestly true.\n" +
@@ -492,10 +508,15 @@ export const ASK_TOOL = {
           // downwards meets whichever clause its candidate answer is. This layer
           // edits the one file named and leaves the others as they are, which is
           // the point when the owner limits a sort to one page (*"Different
-          // pages may intentionally use different orders"*).
+          // pages may intentionally use different orders"*). Its last sentence
+          // said "not limited to one page" is `data`, the broad phrase the owner
+          // corrected (2026-10-01): only the whole site is `data`, and a
+          // selection of several pages is left to the closing rule.
           "THE ORDER OF A LIST ON ONE PAGE THEY NAME IS THIS LAYER TOO — \"on the services page, show the cheapest " +
           "first\": only that page's list is re-sorted, and every other page that shows the same list keeps its own " +
-          "order. Not limited to one page, the same sort is \"data\".\n" +
+          "order. Across the whole site the same sort is \"data\". On SEVERAL pages they name it is neither — this " +
+          "layer edits one page, and \"data\" cannot leave a page out — so the last paragraph of this field decides " +
+          "it, and a page they left out is never re-sorted.\n" +
           // ── A SECTION'S OWN ARITHMETIC IS THIS LAYER ────────────────────────
           //
           // The other half of the enforcement/display line stated under
