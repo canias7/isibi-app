@@ -763,6 +763,16 @@ word: the known 403 is not repeated), so the press is the owner's, with
 serves for deploy 2175, whose product code is the same: no separate check is
 asked for the old deployment.
 
+**Runtime-confirmed by the owner's free press, run 85** (36846351799,
+2026-10-01 10:00:16–10:00:49 UTC, from `main` at `78a95a47`, spend `no`, on
+`fold-lane-bakery`): `build-health 200 deploy=78a95a47bfe5
+image=c051f625db27b5b7` and `runtime 200 deploy=78a95a47bfe5 async=true
+runner=true`, so both readers answered `78a95a47bfe5` and a cold container
+`c051f625db27b5b7`; the zero-cost confirmations passed (the free job settled
+`empty` at cost 0); ALL FREE CHECKS PASSED; the balance read 3 and nothing
+was charged. Deploy 2175's code is the same, so this is its runtime check
+too.
+
 ## The served-file check, driven end to end on deploy 2139
 
 **DRIVEN END TO END ON DEPLOY 2139 (2026-09-21), and it is stronger than the

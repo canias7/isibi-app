@@ -1,50 +1,36 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-01, 09:55 UTC)
+## Current handoff — read this first (2026-10-01, 10:10 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **`main` is `78a95a47`, deploy 2176**: the parallel CI change, merged on
-  your word at 09:41 UTC (a fast-forward of 4 commits from `2188f706`). No
-  product file changed, so what runs is still deploy 2175's code, add-on
-  `row` kind included.
-- **Deployment: succeeded**, and the container image was **reused**,
-  `c051f625db27b5b7`, as predicted (the evidence below).
-- **Runtime confirmation: not yet.** It is one free press, yours, with the
-  boxes below. No dispatch was attempted, as you asked, and no separate check
-  is needed for deploy 2175: same code.
-- **Test 11** (adding Rye & Caraway to the bakery's list) is ready except
-  for the balance, which that press reads. The paid run waits for your
-  approval.
-- Nothing spent, no live data written. The bakery is unchanged at `dgmag4`,
-  six loaves (re-read at 09:43 UTC).
+- **`main` is `78a95a47`, deploy 2176, deployed and runtime-confirmed.**
+  Your free press, run 85 (10:00 UTC), passed:
+  - both readers answered `78a95a47bfe5`;
+  - a cold container answered `c051f625db27b5b7`;
+  - queued jobs and the runner were on, and the free job settled at cost 0;
+  - ALL FREE CHECKS PASSED, and nothing was charged.
+- Deploy 2175 runs the same code, so run 85 is its runtime check too.
+- **The balance is 3** (read by run 85 at 10:00:48 UTC). A free press reads
+  the balance only; the ledger is read on a paid run.
+- **Test 11 (adding Rye & Caraway to the bakery's list) is prepared, and
+  blocked by the balance.** It needs at least 4 credits (5 for a margin),
+  and your approval. Nothing is spent and no live data is written.
+- The bakery is unchanged: six loaves, the five pages at `dgmag4`, re-read
+  free at 10:01 UTC.
 
-**Merge and deployment evidence** (the deploy reporting on itself, not the
-live server answering)
-- Before merging:
-  - nothing was running on GitHub;
-  - `unit tests` on `78a95a47` itself: `8531 / 8527 / 0 / 4` (run
-    36842657567);
-  - the full `site build` **not repeated**, as you said: run 36841508489 on
-    `34fbd36d` passed, and `78a95a47` has the same inputs fingerprint,
-    `1d31ea591baf27b1`;
-  - the image worked out on both ends: `c051f625db27b5b7`, 189 inputs;
-  - undoing the merge gives back the old main exactly.
-- **Deploy 2176** (run 36844328324): `success` in 44 seconds.
-  - **Image reused**: `reused isibi-app-sitebuildcontainer:c051f625db27b5b7
-    (189 inputs)`, and the container step said "no changes". Nothing rolled,
-    so there is no wait before the check.
-  - The Worker was uploaded with `DEPLOY_ID` `78a95a47…`; no browser file
-    changed, so none was uploaded.
-  - No edit job was in flight (the drain found none). `site build` and
-    `unit tests` did not run on `main`, as designed.
+**Test 11: cost and why 3 is not enough**
+- **About 3–4 credits** (an estimate, not a cap): routing 1–2, then the
+  addition about 2. The addition's charge is reserved after routing is paid.
+- At 3, if routing costs 2, the addition is then refused: 2 credits spent
+  and nothing added. At 4 both fit.
+- So the balance has to be raised to at least 4 first. That is your call.
 
-**Runtime check: ONE free press** (the edit canary, spend `no`). Its boxes,
-by the description the form shows; leave every other box as it is, "What to
-change" empty:
+**Test 11: the paid press** (do not press until the balance is at least 4
+and you approve; edit canary, every other box as it is)
 
 "Use workflow from":
 ```
@@ -52,7 +38,11 @@ main
 ```
 "Run the ONE paid edit as well (yes/no)":
 ```
-no
+yes
+```
+"What to change. REQUIRED when spend=1 — there is no default, and a blank one refuses.":
+```
+Add one loaf to today's loaves: Rye & Caraway at £5.00, described as "A light rye with toasted caraway."
 ```
 "The site to edit. Defaults to the canary site; name another to run this against it. Not needed with read_job.":
 ```
@@ -66,50 +56,44 @@ fold-lane-bakery
 ```
 c051f625db27b5b7
 ```
-It spends nothing. It confirms the runtime when both readers answer
-`78a95a47bfe5` and a cold container answers `c051f625db27b5b7`, and it reads
-the balance and the ledger, which Test 11 needs.
+"Refuse to post the paid edit unless the router answers this: …":
+```
+intent=addon alsoAsked=none
+```
+"Refuse to route or spend unless one table, read whole as the site serves it, is as named: …":
+```
+{"table":"loaves","baseline":"093f2130a37a6704","target":{"id":6,"name":"Sea Salt Focaccia","description":"A tray bake, heavy on the oil, finished with flaky salt.","price":4.5,"photo":null,"created_at":"2026-08-21 23:06:23"}}
+```
 
-**Test 11** (prepared; the paid run is not run and waits for your approval)
-- The request: *Add one loaf to today's loaves: Rye & Caraway at £5.00,
-  described as "A light rye with toasted caraway."*, on `fold-lane-bakery`,
-  expecting the router's answer `intent=addon`, nothing held back.
-- The starting state, re-read at 09:43 UTC: the six loaves, cheapest first
-  Sea Salt Focaccia £4.50 to Walnut Levain £6.00, and the list pinned by the
-  same rows box as Test 10 (it reads "as named").
-- Expected: one new loaf, Rye & Caraway £5.00, with the id the database
-  gives it, third in the list on `/order` and a choice in its order form;
-  the six loaves and every page unchanged.
-- **Cost: about 3–4 credits** (routing 1–2, the addition about 2). **The
-  balance must be at least 4 before the paid press, 5 to leave a margin.**
-  At the last reading it was 3: routing would be paid and the addition could
-  then be refused, with nothing added. Your runtime press reads the balance
-  now.
-- The paid press's boxes are written out in the checklist's *Test 11*
-  (*Deploy 2176, and the press prepared again*). I hand them over with the
-  balance after your runtime press.
+**What a pass looks like** (the checklist's *Test 11*)
+- One new loaf: Rye & Caraway, £5.00, *A light rye with toasted caraway.*,
+  with the id the database gives it.
+- It is third in the price list on `/order` and a choice in its order form.
+- The six loaves and every page are otherwise unchanged.
+- The money closes: routing plus the addition's charge equal the balance's
+  move.
 
 **Links**
+- Run 85 (runtime check): https://github.com/canias7/isibi-app/actions/runs/36846351799
 - Deploy 2176: https://github.com/canias7/isibi-app/actions/runs/36844328324
-- The `site build` evidence: https://github.com/canias7/isibi-app/actions/runs/36841508489
-- Branch commits: https://github.com/canias7/isibi-app/commits/claude/help-needed-ehlwlj
-- Records: `docs/deploy-record.md` (deploy 2176), the checklist's *Test 11*,
-  `docs/history/2026-10-01-ci-speed.md` §8.
+- The edit canary (to press): https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml
+- Records: `docs/deploy-record.md` (deploy 2176 and run 85), the checklist's
+  *Test 11*, `docs/history/2026-10-01-ci-speed.md` §8.
 
 **From our chat**
-- The CI change passed your review; merged on your word, with the full
-  `site build` not repeated for unchanged inputs. One runtime check, for the
-  new commit; the 403 dispatch not repeated. Test 11 after the runtime
-  confirmation, paid run on your approval. CLAUDE.md left alone.
+- The CI change was merged on your word; the full `site build` was not
+  repeated for unchanged inputs. You pressed the one runtime check (run 85).
+  I made no dispatch attempt. The paid run waits for your approval.
+  CLAUDE.md left alone.
 
 **Blockers**
-- The runtime check needs your press.
-- Test 11's paid run needs a balance of at least 4, and your approval.
+- The balance (3) is below the 4 Test 11 needs.
+- The paid press needs your approval.
 
 **Exact next action**
-- Your free runtime press (the boxes above). I then read it, record the
-  runtime confirmation, and hand over Test 11's paid press with the balance
-  it read.
+- Raise the balance to at least 4, then approve and press Test 11 with the
+  boxes above. I then read the run and check the result against the pass
+  list.
 
 ---
 
@@ -169,6 +153,19 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-01 — Deploy 2176 confirmed live (run 85); Test 11 waits on the balance
+
+- **Your free check passed** (run 85, 10:00 UTC): the live server runs
+  `78a95a47`, a fresh container runs image `c051f625db27b5b7`, and jobs and
+  the runner are on. Nothing was charged. It also covers deploy 2175, which
+  runs the same code.
+- **The balance is 3.** Test 11 (adding Rye & Caraway) needs about 3–4
+  credits, so at least 4 on the balance (5 to be safe). At 3, the
+  addition could be refused after routing is paid, leaving nothing added.
+- **Test 11 is otherwise ready**: the bakery is unchanged (re-read at
+  10:01), and the paid press's boxes are in the handoff. It waits for the
+  balance and your approval.
 
 ## 2026-10-01 — Merged and deployed: deploy 2176 (the faster CI), image reused; one free check is next
 

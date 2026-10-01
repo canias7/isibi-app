@@ -110,8 +110,9 @@ request.**
 **Test 11, one item added to an existing list: prepared, then its
 capability built (2026-10-01, on the owner's word), corrected in three
 rounds and merged and deployed in deploy 2175 the same day, its code
-unchanged in deploy 2176 (the CI change); the one runtime check, now naming
-`78a95a47`, is pending and the paid test not run** (*Test 11*, below). Under the owner's rule (*"Add will always
+unchanged in deploy 2176 (the CI change) and runtime-confirmed by run 85;
+the paid test not run: it needs a balance of at least 4 (it is 3) and the
+owner's approval** (*Test 11*, below). Under the owner's rule (*"Add will always
 go in addon"*) the request reaches the add-on step, and **none of its nine
 kinds added a row to a table the site already has**: a table's seed fills
 only an empty table, and every plausible answer ended in a refusal or in a
@@ -1856,6 +1857,23 @@ estimated cost; paid execution remains pending approval."*
   at least 4 before the paid press (5 leaves a margin)**: at the last
   reading, 3, routing would be paid and the addition could then be refused.
   The runtime check reads the balance now.
+- **Runtime-confirmed by the owner's free press, run 85** (36846351799,
+  10:00 UTC, from `main` at `78a95a47`, spend `no`, on `fold-lane-bakery`):
+  both readers answered `78a95a47bfe5`, a cold container answered
+  `c051f625db27b5b7`, and queued jobs and the runner were on; the free job
+  settled at cost 0 (`empty`); ALL FREE CHECKS PASSED; nothing was charged.
+  Its before-read: the five pages at `01790819484141-dgmag4`, the source
+  read complete. The evidence zip's digest is `35851d44…`, as the log
+  printed. A free press reads the balance only; the ledger is read on a
+  paid run.
+- **The balance is 3** (run 85, 10:00:48 UTC), **below the 4 the paid press
+  needs.** So Test 11 is prepared and **not pressable yet**: the balance has
+  to be raised first (to at least 4, 5 for a margin), and the paid press
+  needs the owner's approval. Its boxes are the ones above, unchanged.
+- **The starting state, re-read after run 85** (10:01:39Z, free, as a
+  visitor): `loaves` 200, `0-5/6`, 1,045 bytes, sha256 `ef870ebc…`, the rows
+  box *"as named"*; the five pages 200 at `dgmag4`, the same bytes as at
+  09:43. Nothing has changed.
 
 ## Test 10 — a stored list re-sorted, with real models (prepared 2026-09-30 on the owner's word, after Test 9 was closed; free preparation only; the order traced on all three demo sites; rehearsed with supplied answers through the real lane and the real edit route; decision 2b taken by the owner the same day with a scope correction: a sort across the whole site goes to the data sorter, a sort limited to one named page to the page editor, and no "whatever page they saw it" rule; the rule implemented on the branch with committed route coverage, and its scope corrected on 2026-10-01 so that a selection of pages is never sent to the sorter; passed by the owner and merged and deployed in deploy 2174 (2026-10-01); the request revised to state its scope; the baseline read; the authorized free dispatch refused (403); the owner's free press, run 83, confirmed the runtime and rehearsed Test 10, passing every check; the paid press run as run 84, 3 credits, every acceptance item met; closed by the owner the same day for run 84's demonstrated request, the bakery left at `dgmag4`, not to be repeated)
 
