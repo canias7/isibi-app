@@ -130,15 +130,16 @@ press when its route box says `intent=addon`. Shown with supplied answers
 only: **real model routing and the real picker are unproven** until a live
 run exercises them. `docs/history/2026-10-01-add-row.md`.
 
-**Broad real-model batches: proposed 2026-10-01 for the owner's approval;
-nothing sent, spent or merged** (*Broad real-model batches*, below). Four
+**Broad real-model batches: proposed 2026-10-01, then paused by the owner
+the same day to focus on Test 11's routing; nothing sent or spent**
+(*Broad real-model batches*, below). Four
 chats typed in the normal app, with the builder choosing its own routes:
 the bakery (eight messages, Test 11's addition carried in as 1.1), the
 repair workshop's backend (three), and two first builds, Lune Yoga
 (members, bookings, time zones) and Kiln Coffee (stock, checkout, two
 languages). Follow-ups come in a second round in the same chats. The
-estimate is 135–330 credits against a balance of 101. Message 1.1 needs
-the router fix (`710ad704`) merged first.
+estimate is 135–330 credits against a balance of 101. Nothing in it is to
+be pressed until the owner lifts the pause.
 
 **Lane 1 (2026-09-30): four corrections, merged and deployed in deploy 2171
 (`29111010`, image `cdb624837e099719`; the deployment credited by the owner),
@@ -394,7 +395,12 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## Broad real-model batches — four chats through the normal app (proposed 2026-10-01 on the owner's word, for approval; nothing sent, spent or merged)
+## Broad real-model batches — four chats through the normal app (proposed 2026-10-01 on the owner's word; paused by the owner the same day; nothing sent or spent)
+
+**Paused by the owner (2026-10-01)**: *"Pause the broad test plan and
+batch-runner work. Focus only on the routing issue from run 86."* The plan
+below stays as written, for when the pause is lifted; nothing in it is
+approved, and no batch runner is being built.
 
 The owner asked for broad real-model testing in a few substantial requests:
 - through the normal app, with the builder choosing its own routes;
