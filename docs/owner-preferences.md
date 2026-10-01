@@ -468,3 +468,16 @@
   coverage for this exact interleaving and the opposite ordering, where
   protection wins and an uncertain write must remain held until its marker
   settles it."*
+- **CI: fast checks while correcting, the whole integration suite before a
+  merge, and nothing skipped to get there** (2026-10-01): *"I don't want a
+  20–25-minute wait after every correction."* — *"Run fast unit tests and
+  relevant focused checks during correction rounds. Keep the full integration
+  suite as the final pre-merge check, with evidence matching the code and test
+  inputs being merged."* — *"Don't simply delete worker.js from the trigger
+  list, silently skip necessary checks, or report skipped coverage as passed.
+  Runtime code inside the image still needs appropriate validation."* So a
+  correction is reported once the unit suite and its focused checks pass,
+  without waiting for `site build`; a merge waits for `site build`'s `all
+  checks` gate on the candidate, or on a commit with the same inputs
+  fingerprint (`node scripts/site-build-gate.mjs fingerprint <rev>`). The
+  record is `docs/history/2026-10-01-ci-speed.md`.

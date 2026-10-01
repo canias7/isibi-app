@@ -58,6 +58,32 @@ These two rules were bullets in CLAUDE.md's working rules.
   **The cost of this is that nothing catches a regression by accident any more.**
   Run the smokes by hand before anything that matters.
 
+## `site build` in parallel, and the merge evidence (2026-10-01)
+
+Added after the move above; the story is `docs/history/2026-10-01-ci-speed.md`.
+
+- **`site build` is seven jobs at once and a gate** (owner: *"I don't want a
+  20–25-minute wait after every correction."*): kit and generator checks,
+  theme checks, published-site checks, and `test/integration/site-build.mjs`
+  in four shards, each on its own runner. Its trigger is unchanged apart from
+  the test-side files the jobs import, which it now names too; `worker.js`
+  and every other image input still run it.
+- **Read `all checks`, the gate** (`scripts/site-build-gate.mjs`). It is
+  green only when every job succeeded and every section of the harness ran
+  exactly once, in its own shard, on that commit. A skipped or cancelled job,
+  a missing report and a section run twice or nowhere are each red and named.
+  A cancelled run has no answer.
+- **A newer push cancels the older run** of `site build` and of `unit tests`
+  on the same branch. No other workflow cancels anything.
+- **Before a merge**: `unit tests` green on the candidate, and `all checks`
+  green on the candidate or on an earlier commit with the same inputs
+  fingerprint. The gate prints `site build inputs <hash>`;
+  `node scripts/site-build-gate.mjs fingerprint <candidate>` prints the
+  candidate's, and equal means no file the checks read changed in between.
+- **While correcting**: the focused unit tests, and the harness sections the
+  change touches (`SITE_BUILD_SECTIONS=a,b node test/integration/site-build.mjs`,
+  or one shard with `SITE_BUILD_SHARD=n`). A hand-picked run is never evidence.
+
 ## Deploy
 
 Push to `main` → GitHub Actions → Wrangler → Cloudflare Workers → gofarther.dev.

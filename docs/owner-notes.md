@@ -1,55 +1,88 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-01, 08:22 UTC)
+## Current handoff — read this first (2026-10-01, 09:40 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **`main` is `2188f706`, deploy 2175** (merged at 08:09 UTC, a fast-forward
-  of 10 commits from `322c2430`, on your word after your review passed the
-  fix). It carries the add-on `row` kind (Test 11's capability) with all
-  three correction rounds from your reviews.
-- **Deployment: succeeded** (the deploy's own record, below).
-- **Runtime confirmation: not yet.** I tried the free check's dispatch once,
-  at 08:33 UTC after the image hold; GitHub refused it (403, as on every
-  earlier deploy) and I did not retry. The press is yours, with the boxes
-  below.
-- Nothing spent, no live data written, no live SQL change, no routing change.
-  The bakery is still at `dgmag4` with its six loaves; fretwork-1 at
-  `kk6qsh`. The balance was 3 at the last reading; your free check reads it
-  again.
+- **The CI change is on the branch, for your review**: `34fbd36d` (the
+  change) plus the records on top. Not merged, nothing deployed.
+- `main` is still `2188f706`, **deploy 2175**: deployed; its runtime
+  confirmation still waits for your free press (the boxes below, unchanged).
+- **Test 11 stays pending**: prepared after your runtime press, not run.
+- Nothing spent, no model call, no live data written, no product file
+  changed. CLAUDE.md left alone.
 
-**CI on the merged commit** (`2188f706` itself, both green before the merge)
-- Unit tests: `8511 / 8507 / 0 / 4` (run 36832053188; the same total as
-  locally, CI skipping its usual four).
-- Site build: `success` (run 36832053168), with all twelve counts read from
-  each step's log: 397, 4, all passed, 404, 16, 11, all passed ×3, 29, 14,
-  47. Its two error annotations are the known ones in the case that compiles
-  a broken page on purpose.
+**What changed** (the record: `docs/history/2026-10-01-ci-speed.md`)
+- `site build` is **seven jobs at once and a gate** instead of one 24½-minute
+  job: kit and generator checks, theme checks, published-site checks, and
+  `test/integration/site-build.mjs` in **four shards**, each on its own
+  runner with its own build service, sandbox and port.
+- The harness is cut into 27 sections. Only lines were added (plus the port
+  setting): no check, message or condition changed, and run with no shard it
+  is still the whole file in order. Three checks that depend on an earlier
+  build's leftovers name that build and always run after it, in its shard.
+- **`all checks`**, the gate, is green only when every job succeeded and
+  every section ran exactly once, in its own shard, on that commit. A skipped
+  or cancelled job, a missing report, or a section run twice or nowhere turns
+  it red and is named.
+- A newer push **cancels the older run** of `site build` and `unit tests` on
+  the same branch (and nothing else). The npm cache is kept in every job.
+- **The trigger keeps every path it had**, `worker.js` included, and now also
+  names the test files these jobs import (the shared site server, the theme
+  and page-gen fixtures), which nothing named before. `deploy.yml` and the
+  image reuse are untouched; the image is `c051f625db27b5b7` from the same 189
+  inputs before and after.
 
-**Deployment evidence** (the deploy reporting on itself, not the live
-server answering)
-- Before merging: the rollback gives back the old main exactly; nothing was
-  running on GitHub; the served `chat.js` was read (identical to the old
-  main's).
-- Deploy 2175 (run 36834581890): `success`.
-  - The Worker was uploaded with `DEPLOY_ID` `2188f706…`.
-  - The container image was built exactly as predicted from the build
-    inputs: `c051f625db27b5b7` (189 inputs), and the container moved from
-    `b8c8789aa8e395d6` to `c051f625db27b5b7` at 08:17:51 UTC.
-  - No edit job was in flight (the deploy's drain found none).
-  - The one changed browser file, `chat.js`, is served byte for byte as
-    merged.
-  - The image step took 7½ minutes instead of the usual 2–3: one slow
-    package download on GitHub's machine (the Chromium install, 356 s),
-    nothing of ours.
+**Timings** (both runs read from GitHub)
 
-**Runtime check** (your free canary press, spend `no`)
-- Not yet run: my one dispatch at 08:33 UTC got the usual 403. Its boxes, by
-  the description the form shows (leave every other box as
-it is, "What to change" empty):
+| | before (run 36832053168) | after (run 36841508489) |
+|---|---|---|
+| `site build`, push to answer | **24m39s** (the job 24m35s) | **7m20s** |
+| site-build.mjs | 18m08s in one step | 5m12s / 5m36s / 3m55s / 4m04s, side by side |
+| kit, theme, site checks | ~6 min in the same job | 2m44s / 3m51s / 2m08s, side by side |
+| `unit tests` | 2m27s | about 2½ min (unchanged) |
+
+Runner time is spread, not saved: about 32 runner-minutes against 25.
+
+**Which checks run while correcting**
+- Every push: `unit tests` (all 8,531, ~2½ min) and, when the push touches its
+  inputs, `site build` (its jobs report as they finish; the whole answer in
+  ~7½ min). A newer push cancels the older runs.
+- Before reporting a correction, locally: the focused unit tests, and the
+  harness sections the change touches, e.g.
+  `SITE_BUILD_SECTIONS=job-door,job-stop,job-build node test/integration/site-build.mjs`
+  for the job runtime inside the image (never evidence; CI never sets it).
+
+**How the merge check keeps every check**
+- Before a merge: `unit tests` green on the candidate, and **`all checks`**
+  green on the candidate itself, or on an earlier commit whose **inputs
+  fingerprint** is the same (the gate prints `site build inputs <hash>`;
+  `node scripts/site-build-gate.mjs fingerprint <candidate>` prints the
+  candidate's). These records sit on top of `34fbd36d` and touch no input, so
+  their fingerprint is the gate's own `1d31ea591baf27b1`.
+- Measured on the validation run: the same twelve counts as the old run, read
+  from the step logs (397, 4, all, 16, all ×3, 11, 29, 14, 47), and the four
+  shards' check names are **exactly the old run's 404**, with no failure.
+
+**Verification**
+- Local: the four shards (separate ports) pass 109 + 76 + 159 + 63 and match
+  the old run's 404 names exactly; the gate on those reports is green, and red
+  with one removed.
+- Guards: `test/site-build-shards.test.mjs`, 20 cases (every name in the
+  sections resolved by TypeScript, 4,219 references, none crossing; the plan,
+  the workflow, the trigger against the import graph, the fingerprint, the
+  gate's verdict on 22 ways coverage can go missing). Sweep 48 of 48 killed,
+  the two controls survived. Full suite `8531 / 8531 / 0 / 0` locally.
+- CI on `34fbd36d`: `site build` run 36841508489 **success** (*"ALL CHECKS:
+  404 checks in 27 sections across 4 shards, every job green"*); `unit tests`
+  run 36841509002 **success**, `8531 / 8527 / 0 / 4`.
+
+**Runtime check** for deploy 2175 (your free canary press, spend `no`):
+still not run. Its boxes, by the description the form shows (leave every
+other box as it is, "What to change" empty):
 
 "Use workflow from":
 ```
@@ -72,35 +105,35 @@ fold-lane-bakery
 c051f625db27b5b7
 ```
 It spends nothing. It confirms the runtime when both readers answer
-`2188f70680a8` and a cold container answers `c051f625db27b5b7`, and it
-reads the balance and the ledger.
+`2188f70680a8` and a cold container answers `c051f625db27b5b7`.
 
-**Test 11** (adding one loaf): prepared once your free check confirms the
-runtime, with the balance it reads and an updated estimate. The paid test is
-not run.
-
-**Remaining limits** (backlog; none changes your data): unchanged from the
-last handoff, in `docs/backlog.md` (*THE ADD-ON `row` STEP'S KNOWN LIMITS*).
-Real routing, the real picker and the real row designer stay untested until
-Test 11's live run.
+**When you merge the CI change** (only on your word): it changes workflow
+files, so the merge starts **one deploy run**. The image inputs are
+unchanged, so it should reuse `c051f625db27b5b7`, and the Worker code is the
+same; the deploy would carry the new commit's id, so the runtime boxes above
+would then name that commit instead of `2188f706`.
 
 **Links**
-- The deploy: `docs/deploy-record.md` (deploy 2175). The kind and its three
-  rounds: `docs/history/2026-10-01-add-row.md` §9–§12. The test: the
-  checklist's *Test 11*.
+- Validation run: https://github.com/canias7/isibi-app/actions/runs/36841508489
+- Before: https://github.com/canias7/isibi-app/actions/runs/36832053168
 - Branch commits: https://github.com/canias7/isibi-app/commits/claude/help-needed-ehlwlj
 
 **From our chat**
-- Merged on your word once both required checks were green; deployment and
-  runtime confirmation recorded as two separate things. Accepted tests stay
-  closed, demo data as it stands, CLAUDE.md left alone.
+- You asked for no 20–25-minute wait after every correction: fast checks
+  while correcting, the whole integration suite before a merge with evidence
+  matching what is merged, `worker.js` kept in the trigger, nothing skipped or
+  reported as passed when it did not run. Recorded in `owner-preferences.md`.
 
 **Blockers**
-- The free runtime check needs your press: my one dispatch was refused (403).
+- None for the CI change. Deploy 2175's runtime check still needs your press.
+
+**Not changed, for you to decide**
+- CLAUDE.md still describes `site build` as one job (its "Reading CI"
+  bullet). I left it alone, as asked.
 
 **Exact next action**
-- Your press of the free runtime check (the boxes above). Once it confirms,
-  I prepare Test 11 with the balance it reads. Nothing spends until you say so.
+- Your review of the CI change. Separately, your free press confirms deploy
+  2175; after it, I prepare Test 11 with the balance it reads.
 
 ---
 
@@ -160,6 +193,26 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-01 — `site build` takes 7m20s instead of 24½ minutes, with every check kept, for your review
+
+- **What you asked for**: no 20–25-minute wait after every correction, the
+  whole integration suite kept as the check before a merge, and nothing
+  skipped. On the branch at `34fbd36d`, not merged.
+- **How**: the build-service checks were 18 of the 24½ minutes, one build
+  after another. They now run as four groups at once on four machines, beside
+  the kit, theme and published-site checks, and one final job, `all checks`,
+  says whether everything ran and passed.
+- **Measured**: the validation run took **7m20s** (before: 24m39s). Every
+  count is the same as before (397, 4, 16, 11, 29, 14, 47, the kit's four
+  "all passed", and the 404 build-service checks, name for name).
+- **Safety**: the final job refuses a run where any part was skipped,
+  cancelled, ran twice or ran on another commit, and prints a fingerprint of
+  the files it checked, so a merge can be matched to the evidence. `worker.js`
+  and the image's other files still start it. A newer push cancels the older
+  run.
+- **Nothing spent, nothing deployed, no live data touched.** Deploy 2175's
+  free check and Test 11 are as they were.
 
 ## 2026-10-01 — Merged and deployed: deploy 2175 carries the add-on `row` kind; the free runtime check is next
 
