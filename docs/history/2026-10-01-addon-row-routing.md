@@ -159,3 +159,22 @@ new-entry sentence.
 - **The full unit suite**, locally on the finished change: **8,543 / 8,543 /
   0 / 0** in 138 s (8,531 before, plus the 12 new cases; the revised case
   replaces one). `playwright-core` was present, so the two browser cases ran.
+
+## 7. Required CI on the candidate, `710ad704`
+
+- **Unit tests**, run 36914783961: `success`, **`8543 / 8539 / 0 / 4`**. The
+  total matches the local run; CI skips the same 4 as always.
+- **Site build**, run 36914784000: `success` (19:30:27–19:43:48 UTC). Two
+  shards spent about six minutes installing the browser, so the run was longer
+  than the 7m20s of its validation run.
+  - The gate: *"ALL CHECKS: 404 checks in 27 sections across 4 shards, every
+    job green"*, at inputs `899b2151f6729573` (3,967 files), the fingerprint
+    computed locally before the push.
+  - The other counts, from each step's log: TAP 397, kit-typecheck 4,
+    contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
+    site-runtime 47; kit-render, kit-a11y, kit-effects and kit-paint all
+    passed.
+- **The image**: `builder/site-ask.mjs` is one of its inputs, so a deploy
+  would roll it, `c051f625db27b5b7` → **`9a71a6384b4206a2`** (189 inputs,
+  predicted from git objects at both ends). After such a deploy the container
+  work waits 15–20 minutes before the runtime check.

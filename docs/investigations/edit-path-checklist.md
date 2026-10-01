@@ -1991,7 +1991,13 @@ paid test yet."*
   - sweep: 19 of 19 killed, the 2 comment-only controls survived, nothing
     left unapplied;
   - after the revision, the router's 49 test files 1,771 of 1,771, and the
-    full unit suite `8543 / 8543 / 0 / 0` locally.
+    full unit suite `8543 / 8543 / 0 / 0` locally;
+  - **required CI green on `710ad704`**: unit tests run 36914783961,
+    `8543 / 8539 / 0 / 4`; site build run 36914784000, *"ALL CHECKS: 404
+    checks in 27 sections across 4 shards, every job green"* at inputs
+    `899b2151f6729573`, the other counts as before.
+- **A deploy would roll the image**, `c051f625db27b5b7` → `9a71a6384b4206a2`
+  (189 inputs), because the router file is one of its inputs.
 - **Real classification is not shown**: only a live press after a merge and a
   deploy can show which answer a real model gives. Test 11's paid press is
   not retried.

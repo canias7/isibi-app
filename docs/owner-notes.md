@@ -1,107 +1,93 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-01, 18:55 UTC)
+## Current handoff — read this first (2026-10-01, 19:50 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**State now**
-- **Test 11's paid press, run 86 (18:38 UTC), was refused by the route check
-  and is not passed.** The real router answered `edit`/`data`, not `addon`.
-  The edit was never posted: nothing was added, and only routing was paid
-  (2 credits, 3 → 1).
-- **Why**: the router's wording never says where an added row goes.
-  - Its tie-break, "does the thing they name exist? It does: edit", reads
-    the loaves list as existing.
-  - The `data` clause claims "one row of something the site lists".
-  - A comment there still calls an added row "the owner's open decision".
-  - So your rule, "add will always go in addon", is not in the wording for a
-    row.
-- **Topped up on your word**: the balance went 1 → 101 at 18:48 UTC, read
-  back, with no job open.
-- The bakery is unchanged: six loaves and the five pages at `dgmag4`,
-  re-read at 18:41 UTC.
-- `main` is still `78a95a47` (deploy 2176, runtime-confirmed by run 85).
+**State now: the router fix for Test 11 is ready for your review**
+- On the branch as `710ad704`, with these records on top. **Not merged, not
+  deployed, and Test 11 not retried**, as you said.
+- **What changed: the router's instructions only** (`builder/site-ask.mjs`).
+  Your rule, *"Adding a NEW record to an existing table/list must select
+  addon"*, is said in four places, for every kind of list:
+  - **the add-on clause**: a new entry in a list the site already keeps (a
+    product, service, dish, class, event or team member) is an addition. Of
+    its two examples, one does not say "add";
+  - **the edit/add-on tie-break**: asked of the thing itself, never of the
+    list it goes into. Changing or removing an existing entry is an edit;
+  - **the data clause**: it prefers itself only for a row the site already
+    stores, and sends a new entry to the add-on step however cheap data is;
+  - **the cost rule**: cost never makes a new entry an edit.
 
-**Your decision: the next step for Test 11**
-- **Recommended**: put your rule into the router's wording, so an entry
-  added to a list the site already stores is `addon`. I'd test it with
-  supplied answers and push it for your review; then merge and deploy on
-  your word and press Test 11 again (about 3–4 credits).
-- Pressing again without that change would most likely spend 2 on the same
-  answer.
-- Not checked: whether the data step could add the row itself. This
-  session's permission check refused that read, and I did not retry it.
+  The old "owner's open decision" comment is gone.
+- **Unchanged**:
+  - the route itself, so there is no keyword rule;
+  - updating and deleting an existing row (still edit + data);
+  - both sort sentences;
+  - the hold rule and the whole-message rule for mixed requests;
+  - the canary's expected-route guard.
+- Balance **101**; nothing spent since run 86.
 
-**Test 11's paid press, for after the router change** (the same boxes as
-run 86; the deploy and image boxes will change with the new deploy)
+**What is proven, and what is not**
+- **The words the model gets: proven.**
+  - The new sentences are checked in the router's tool and system prompt.
+  - They are also checked in the actual request as it leaves the real
+    routing route, to xAI (the default, which answered run 86) and to
+    Anthropic.
+- **What happens after an answer: proven with supplied answers only**:
+  - an add-on answer goes on, and Test 11's route box would post it;
+  - run 86's edit + data answer passes through unchanged, with or without
+    "add", so nothing rewrites it from the words, and the box refuses it;
+  - updates, deletions and a site-wide sort stay data edits;
+  - a mixed message keeps its hold.
+- **How a real model classifies: not shown.** Only a live press after a
+  merge and a deploy can show that.
 
-"Use workflow from":
-```
-main
-```
-"Run the ONE paid edit as well (yes/no)":
-```
-yes
-```
-"What to change. REQUIRED when spend=1 — there is no default, and a blank one refuses.":
-```
-Add one loaf to today's loaves: Rye & Caraway at £5.00, described as "A light rye with toasted caraway."
-```
-"The site to edit. Defaults to the canary site; name another to run this against it. Not needed with read_job.":
-```
-fold-lane-bakery
-```
-"Refuse to spend unless the Worker reports this deploy sha (prefix, >=7 chars). Blank = read and print only.":
-```
-78a95a47bfe5eaf3880fdcfd07f8bb4e083031b7
-```
-"Refuse to spend unless a cold container reports this image id (exact). Blank = read and print only.":
-```
-c051f625db27b5b7
-```
-"Refuse to post the paid edit unless the router answers this: …":
-```
-intent=addon alsoAsked=none
-```
-"Refuse to route or spend unless one table, read whole as the site serves it, is as named: …":
-```
-{"table":"loaves","baseline":"093f2130a37a6704","target":{"id":6,"name":"Sea Salt Focaccia","description":"A tray bake, heavy on the oil, finished with flaky salt.","price":4.5,"photo":null,"created_at":"2026-08-21 23:06:23"}}
-```
-
-**What a pass looks like** (the checklist's *Test 11*)
-- One new loaf: Rye & Caraway, £5.00, *A light rye with toasted caraway.*,
-  with the id the database gives it.
-- It is third in the price list on `/order` and a choice in its order form.
-- The six loaves and every page are otherwise unchanged.
-- The money closes: routing plus the addition's charge equal the balance's
-  move.
+**Test results**
+- New `test/router-row-add.test.mjs`, 12 cases. One older guard revised: it
+  required the data clause to say nothing about adding, from the 2026-09-30
+  instruction not to decide add-row routing.
+- **Red check**: on the old wording, 9 of 21 fail, which are exactly the
+  wording and request cases and the revised guard. The 4 supplied-answer
+  cases pass on both, which is why they are not counted as proof of the fix.
+- **Mutation sweep**: 19 of 19 killed, and the 2 comment-only controls
+  survived. The kills include an added keyword override, the canary's guard
+  ignoring intent, and the xAI request dropping the tool's schema.
+- **The router's 49 test files**: 1,771 of 1,771. **Full suite**:
+  `8543 / 8543 / 0 / 0` locally.
+- **Required CI on `710ad704`**: unit tests run 36914783961, `8543 / 8539 /
+  0 / 4`; site build run 36914784000, *"ALL CHECKS: 404 checks in 27 sections
+  across 4 shards, every job green"* at inputs `899b2151f6729573`.
+- **A deploy would roll the image**: `c051f625db27b5b7` →
+  `9a71a6384b4206a2`, because the router file is one of its inputs. That
+  means a 15–20 minute wait after the deploy before the runtime check.
 
 **Links**
-- Run 86 (Test 11's press): https://github.com/canias7/isibi-app/actions/runs/36908358798
-- Run 85 (runtime check): https://github.com/canias7/isibi-app/actions/runs/36846351799
-- Deploy 2176: https://github.com/canias7/isibi-app/actions/runs/36844328324
-- The edit canary (to press): https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml
-- Records: the checklist's *Test 11* (*Run 86*), `docs/deploy-record.md`
-  (deploy 2176 and run 85).
+- The change: https://github.com/canias7/isibi-app/commit/710ad704de7504286fff367790b4f7093fc94409
+- Unit tests: https://github.com/canias7/isibi-app/actions/runs/36914783961
+- Site build: https://github.com/canias7/isibi-app/actions/runs/36914784000
+- Run 86 (the refused press): https://github.com/canias7/isibi-app/actions/runs/36908358798
+- Records: `docs/history/2026-10-01-addon-row-routing.md`, the checklist's
+  *Test 11* (*The router fix*), `docs/edit-path.md`.
 
 **From our chat**
-- You pressed Test 11 at a balance of 3 (*"also it may fail but top it
-  up"*); it failed on the route, not the balance. I topped the balance up
-  as asked. CLAUDE.md left alone.
+- You asked for the router fix with no keyword or bakery rule, for updating
+  and deleting to stay data, for the sort scope and mixed requests to be
+  kept, for tests on the request the model gets, and for no merge, no
+  deploy and no retry. Your rules are in `owner-preferences.md`.
+  CLAUDE.md left alone.
 
 **Blockers**
-- Test 11 needs the router's wording to carry your rule for an added row,
-  and that change needs your word.
-- The backlog entry for this finding is not written: this session's
-  permission check refused reading the backlog. It is recorded in the
-  checklist's *Run 86* instead.
+- Your review.
 
 **Exact next action**
-- Your decision on the router change. On your word I make it, test it with
-  supplied answers, and push it for your review; after the merge and deploy
-  I hand over Test 11's press again.
+- Review `710ad704`. On your word, the steps after that are:
+  1. merge and deploy (the image rolls to `9a71a6384b4206a2`);
+  2. wait 15–20 minutes, then one free runtime check;
+  3. Test 11's paid press again (about 3–4 credits, balance 101), with the
+     same boxes and the new deploy and image.
 
 ---
 
@@ -161,6 +147,28 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-01 — The router now sends a new entry in an existing list to the add-on step (for your review)
+
+- **What was wrong**: run 86 asked to add a loaf to the bakery's list, and
+  the router called it an edit of the list. Its instructions said "if the
+  thing exists, it's an edit", and the list exists. They also told it to
+  prefer the cheap data step for "one row of something the site lists".
+- **What I changed**: only the router's instructions, in four places, for
+  every kind of list (products, services, dishes, classes, events, team
+  members). A new entry is an addition even when its list already exists.
+  Changing or removing an entry that exists is still an edit. Nothing reads
+  the words of a message.
+- **What I checked**: the new instructions are in the actual request sent
+  to both model providers. With supplied answers, an addition goes to the
+  add-on step and run 86's answer would still be refused by the canary's
+  guard. Updates, deletions, sorting and mixed messages behave as before. A
+  check against the old instructions fails where it should. All 19
+  deliberate breakages were caught. The full suite and the required CI are
+  green.
+- **What is not shown**: how a real model answers now. That needs your
+  merge, a deploy (it rolls the image) and Test 11 pressed again.
+- **Nothing merged, deployed or spent.** Balance 101.
 
 ## 2026-10-01 — Test 11's press (run 86) was refused: the router sent the new loaf to the data step; balance topped up to 101
 
