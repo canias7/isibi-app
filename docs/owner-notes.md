@@ -12,9 +12,10 @@ is in git; the dated entries further down are the full story.*
   fix). It carries the add-on `row` kind (Test 11's capability) with all
   three correction rounds from your reviews.
 - **Deployment: succeeded** (the deploy's own record, below).
-- **Runtime confirmation: not yet.** The free check is next. After the image hold
-  (until about 08:33 UTC) I try its dispatch once; if GitHub refuses it with
-  the usual 403, the press is yours, with the boxes below.
+- **Runtime confirmation: not yet.** I tried the free check's dispatch once,
+  at 08:33 UTC after the image hold; GitHub refused it (403, as on every
+  earlier deploy) and I did not retry. The press is yours, with the boxes
+  below.
 - Nothing spent, no live data written, no live SQL change, no routing change.
   The bakery is still at `dgmag4` with its six loaves; fretwork-1 at
   `kk6qsh`. The balance was 3 at the last reading; your free check reads it
@@ -46,7 +47,8 @@ server answering)
     nothing of ours.
 
 **Runtime check** (your free canary press, spend `no`)
-- Not yet run. Its boxes, by the description the form shows (leave every other box as
+- Not yet run: my one dispatch at 08:33 UTC got the usual 403. Its boxes, by
+  the description the form shows (leave every other box as
 it is, "What to change" empty):
 
 "Use workflow from":
@@ -94,13 +96,11 @@ Test 11's live run.
   closed, demo data as it stands, CLAUDE.md left alone.
 
 **Blockers**
-- The free runtime check needs your press if my one dispatch is refused
-  (403, as on every earlier deploy).
+- The free runtime check needs your press: my one dispatch was refused (403).
 
 **Exact next action**
-- The free runtime check (the boxes above), after 08:33 UTC. Once it
-  confirms, I prepare Test 11 with the balance it reads. Nothing spends until
-  you say so.
+- Your press of the free runtime check (the boxes above). Once it confirms,
+  I prepare Test 11 with the balance it reads. Nothing spends until you say so.
 
 ---
 
@@ -175,8 +175,9 @@ since. Add new ones there.
   actual inputs, and the new `chat.js` is served exactly as merged. No edit
   job was in flight. The image step was slow (7½ minutes) because of one
   slow download on GitHub's machine, not anything we changed.
-- **Not yet confirmed from the live server.** That is the free canary press
-  (boxes in the handoff above), after the image hold.
+- **Not yet confirmed from the live server.** I tried the free canary press
+  once at 08:33 UTC; GitHub refused it (403), so the press is yours, with the
+  boxes in the handoff above.
 - **Nothing spent, no live data written.** The bakery is unchanged at
   `dgmag4`; Test 11 is not run.
 

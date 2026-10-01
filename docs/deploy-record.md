@@ -709,9 +709,10 @@ with 3 occurrences of `rowsAdded` (0 before). The gates answered 401 / 401 /
 `dgmag4` and `fretwork-1` `kk6qsh`. The image rolled at 08:17:51Z, so
 container work waits 15–20 minutes.
 
-**Deployed, not runtime-confirmed**: pending. The free canary press reads the Worker's sha and a cold
-container's image; the session tries its dispatch once after the 15–20
-minute hold from 08:17:51Z, and on the known 403 the press is the owner's.
+**Deployed, not runtime-confirmed**: the free canary press reads the Worker's sha and a cold
+container's image. The session's one dispatch, at 08:32:55Z (15 minutes
+after the roll), answered **403** (`Resource not accessible by integration`)
+and was not retried, so the press is the owner's.
 
 ## The served-file check, driven end to end on deploy 2139
 

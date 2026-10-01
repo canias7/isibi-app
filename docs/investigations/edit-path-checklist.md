@@ -1796,8 +1796,9 @@ yet."*
   `b8c8789aa8e395d6` → `c051f625db27b5b7` at 08:17:51Z; `/chat.js` was the
   one asset uploaded, and the served file is byte-identical to the merged one.
   The drain found no live leases. `docs/deploy-record.md`.
-- **Runtime confirmation**: pending: the free canary press, after the image hold; the session
-  tries its dispatch once, and on the known 403 the press is the owner's.
+- **Runtime confirmation**: pending. The session's one dispatch of the free
+  canary press (08:32:55Z, after the image hold) answered 403 and was not
+  retried; the press is the owner's.
 - **The test itself is not run.** It is prepared after the runtime check
   reads the Worker and a cold container, with the balance that check reads.
 
