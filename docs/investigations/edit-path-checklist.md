@@ -1596,7 +1596,7 @@ kind's law is `docs/addon-path.md`, *THE `row` KIND*):
   `test/canary-addon.test.mjs` 9 of 9 — preservation, five invalid targets,
   a decline, a partial answer, write failures (sync and queued, refunded),
   a duplicate entry, a missing `_meta`, a refused reserve, duplicate
-  submission and four replay shapes with one row and one charge, two
+  submission and five replay shapes with one row and one charge, two
   entries in order, and a row beside other kinds.
 - **Postgres 16** (local): the real statement, untyped parameters, ids 12
   and 13 on a table that had lost rows, a replay refused whole on
@@ -1609,7 +1609,8 @@ kind's law is `docs/addon-path.md`, *THE `row` KIND*):
   page's own read showed it third, value 12.
 - **Full suite** on the code commit `a54ceae4`: `8471 / 8471 / 0 / 0`
   locally (the base `c91d1c3e`: `8427 / 8427 / 0 / 0`, the 44 more being the
-  two new files). Unit CI and site build: read after the push.
+  two new files). Unit CI on `a15ef170`: run 36815036559, `8471 / 8467 /
+  0 / 4` (CI skips its usual four). Site build run 36815036563: still running at 04:30 UTC, recorded when it finishes.
 - **The image rolls on merge**, predicted from git objects:
   `b8c8789aa8e395d6` → `66d4f686aed60de0` (189 inputs, 159 distinct).
 - **Not shown**: real model routing, the real picker and designer, and any

@@ -63,7 +63,7 @@ is in git; the dated entries further down are the full story.*
   real script, run five times against a stand-in server). They cover
   existing rows, schema and pages kept; five invalid targets; write
   failures (refunded on a job); a duplicate entry; a refused charge; a
-  duplicate submission and four replay shapes, each with one row and one
+  duplicate submission and five replay shapes, each with one row and one
   charge; two entries in order.
 - **Mutation sweep**: 49 deliberate breakages and 3 comment-only controls.
   47 caught at first; the 2 that slipped through were gaps in what the
@@ -76,7 +76,8 @@ is in git; the dated entries further down are the full story.*
 - **/order, read as a visitor**: the order form's choices are the price
   list, each carrying the loaf's id; a preview with the new entry put it
   third.
-- **Unit CI and site build**: read after this push (next entry).
+- **Unit CI** on the pushed branch: 8,471 tests, none failed (run
+  36815036559; CI skips its usual four). The site build (run 36815036563) was still running at 04:30 UTC; I record it when it finishes.
 
 **Remaining limits** (backlog; none changes your data)
 - Real routing, the real picker and the real row designer are untested
@@ -89,6 +90,11 @@ is in git; the dated entries further down are the full story.*
 - A list named in different capitals ("Loaves") is refused, as the data
   step refuses it.
 - An entry asked beside other additions is set aside and named, not added.
+- On a site with a public list, every addition now reads one marker first;
+  if that read fails, the request stops at no cost (as a failed settings
+  read already does).
+- A site with no public list still costs us one model call before an entry
+  is refused (not charged to you).
 - The canary's after-read sentence says "the edit did not publish" for an
   addition.
 

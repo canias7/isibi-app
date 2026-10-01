@@ -302,6 +302,14 @@ here; take a closed one out of both.**
   - **A list named in another letter case is refused** (`Loaves` for
     `loaves`, "This site doesn't store a list by that name"), as the data
     step matches table names exactly.
+  - **Every addition on a site with a display list reads one `_meta` key
+    before the picker** (the replay check). A read that fails for any reason
+    but a missing `_meta` stops the request at no cost (`no-meta`), as a
+    failed spec read already does a moment earlier; on a site with no
+    display list nothing extra is read.
+  - **A `row` answer on a site with no display list still calls the row
+    designer** before the cleaner refuses it (at no cost to the customer,
+    the model call ours); an earlier refusal would save that call.
   - By design for this bounded change: a `row` beside other kinds is set
     aside and named, never written; the canary's after-read sentence says
     "the edit did not publish" for an addition.
