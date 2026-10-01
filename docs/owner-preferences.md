@@ -510,3 +510,23 @@
   change is checked on the request as it leaves the route, to each provider,
   and a supplied-answer case is never reported as evidence of how a real
   model classifies.
+- **Broad real-model testing, in a few substantial requests, with the
+  builder choosing its routes** (2026-10-01, after the router fix):
+  *"Prioritize broad, real-model product testing and move faster by grouping
+  compatible changes into a few substantial requests."* — *"Let the builder
+  choose its routes and execution steps; do not manually force routes or
+  split a mixed request behind the scenes to manufacture success."* —
+  *"Verify every instruction independently against the actual pages, stored
+  data and functioning behaviour, preserve unrelated content, and leave
+  intentional demo changes in place."* — *"keeping first-message and
+  follow-up outcomes separate"* — *"verify that the builder's reply matches
+  what actually happened."* — *"Before paid execution, present the exact
+  requests, required attachments and fixtures, concise acceptance checks, and
+  a realistic total cost estimate for approval."* — *"Reuse setup and matching
+  CI evidence, keep internal testing tied to concrete failures or required
+  gates."* So a batch groups what one route can make together, and keeps a
+  mixed message as a mixed-request test; no route box gates what the builder
+  answers; each part is reported as completed, failed, ignored, deferred or
+  unsupported, with the reply checked against what the operations did; and
+  new tooling waits for a concrete failure or the owner's word. The first
+  plan under it is the checklist's *Broad real-model batches*.

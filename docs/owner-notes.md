@@ -1,93 +1,109 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-01, 19:50 UTC)
+## Current handoff — read this first (2026-10-01, 22:40 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**State now: the router fix for Test 11 is ready for your review**
-- On the branch as `710ad704`, with these records on top. **Not merged, not
-  deployed, and Test 11 not retried**, as you said.
-- **What changed: the router's instructions only** (`builder/site-ask.mjs`).
-  Your rule, *"Adding a NEW record to an existing table/list must select
-  addon"*, is said in four places, for every kind of list:
-  - **the add-on clause**: a new entry in a list the site already keeps (a
-    product, service, dish, class, event or team member) is an addition. Of
-    its two examples, one does not say "add";
-  - **the edit/add-on tie-break**: asked of the thing itself, never of the
-    list it goes into. Changing or removing an existing entry is an edit;
-  - **the data clause**: it prefers itself only for a row the site already
-    stores, and sends a new entry to the add-on step however cheap data is;
-  - **the cost rule**: cost never makes a new entry an edit.
-
-  The old "owner's open decision" comment is gone.
-- **Unchanged**:
-  - the route itself, so there is no keyword rule;
-  - updating and deleting an existing row (still edit + data);
-  - both sort sentences;
-  - the hold rule and the whole-message rule for mixed requests;
-  - the canary's expected-route guard.
+**State now: the broad test plan is ready for your approval; nothing sent,
+spent or merged**
+- **The plan** is the checklist's *Broad real-model batches*: 22 messages
+  in four chats. You type them in the real app, the builder chooses its own
+  routes, and I verify each one independently.
+- **No approved deployment is pending.** Deploy 2176 is live and confirmed
+  (run 85).
+- **The router fix (`710ad704`) is still unmerged**, as you said. Message
+  1.1 (Test 11's addition, now three loaves) needs it: without it, the real
+  router sent an added loaf to the data step (run 86).
 - Balance **101**; nothing spent since run 86.
 
-**What is proven, and what is not**
-- **The words the model gets: proven.**
-  - The new sentences are checked in the router's tool and system prompt.
-  - They are also checked in the actual request as it leaves the real
-    routing route, to xAI (the default, which answered run 86) and to
-    Anthropic.
-- **What happens after an answer: proven with supplied answers only**:
-  - an add-on answer goes on, and Test 11's route box would post it;
-  - run 86's edit + data answer passes through unchanged, with or without
-    "add", so nothing rewrites it from the words, and the box refuses it;
-  - updates, deletions and a site-wide sort stay data edits;
-  - a mixed message keeps its hold.
-- **How a real model classifies: not shown.** Only a live press after a
-  merge and a deploy can show that.
+**The four chats**
+1. **The bakery** (8 messages):
+   - three new loaves (Test 11 carried in);
+   - prices, descriptions and a removal;
+   - a warmer look: colours, fonts, the buttons, the tab icon, the menu and
+     a section move;
+   - seven new things: an FAQ page, a QR code, search with a filter and
+     pages of six, a calculator, a 3D loaf, a call button, and the list on
+     two more pages;
+   - a sort on two chosen pages;
+   - a mixed price-and-page message;
+   - an attached photo on an edit;
+   - a link on an edit, which also finishes the unfinished Starter page.
+2. **The repair workshop** (3): a quote form with a photo upload; a
+   five-a-day limit on its existing booking form; a morning job and a
+   weather panel whose key is missing.
+3. **Lune Yoga, a first build** (one brief, with a logo, a PDF timetable and
+   two links): members, bookings, capacity, cancelling and moving, times
+   across the 25 October clock change, an admin, photo uploads.
+4. **Kiln Coffee, a first build** (one brief, with a logo and a PDF price
+   list): 14 coffees, search, filters, pages, basket totals, stock, Stripe
+   test checkout, an admin, English and Welsh.
+- **Round 2**, after I report round 1: follow-ups in the same chats ("the
+  last loaf you added", "the same style", corrections, and finishing what
+  was held back or failed).
 
-**Test results**
-- New `test/router-row-add.test.mjs`, 12 cases. One older guard revised: it
-  required the data clause to say nothing about adding, from the 2026-09-30
-  instruction not to decide add-row routing.
-- **Red check**: on the old wording, 9 of 21 fail, which are exactly the
-  wording and request cases and the revised guard. The 4 supplied-answer
-  cases pass on both, which is why they are not counted as proof of the fix.
-- **Mutation sweep**: 19 of 19 killed, and the 2 comment-only controls
-  survived. The kills include an added keyword override, the canary's guard
-  ignoring intent, and the xAI request dropping the tool's schema.
-- **The router's 49 test files**: 1,771 of 1,771. **Full suite**:
-  `8543 / 8543 / 0 / 0` locally.
-- **Required CI on `710ad704`**: unit tests run 36914783961, `8543 / 8539 /
-  0 / 4`; site build run 36914784000, *"ALL CHECKS: 404 checks in 27 sections
-  across 4 shards, every job green"* at inputs `899b2151f6729573`.
-- **A deploy would roll the image**: `c051f625db27b5b7` →
-  `9a71a6384b4206a2`, because the router file is one of its inputs. That
-  means a 15–20 minute wait after the deploy before the runtime check.
+**What is expected not to work, and is tested anyway**
+- References to earlier messages: the router sees only the current one.
+- An attached photo for a page's picture: an edit takes an image only for
+  the logo.
+- A link in an edit: links are read only on a first build.
+- Welsh: you deferred translation, and the translator is parked. It is in
+  the Kiln brief only because you listed multilingual work; say if it stays
+  out.
+- The checkout, until you add a Stripe test key.
+
+**What I need from you**
+1. Approval of the messages and the estimate: **135–330 credits** (about
+   $1.08–2.64) against 101, so a top-up of about 230 for the high end.
+2. Your word to merge `710ad704`. The image rolls, so a 15–20 minute wait
+   and one free check follow.
+3. Two member accounts for Lune Yoga, on addresses whose mail you read (you
+   do the sign-up and reset on your phone), or a yes to a throwaway inbox.
+4. A Stripe test key and webhook secret in Kiln Coffee's secrets, after its
+   build. I never read them.
+5. A yes to the visitor writes in the plan (repair quotes and bookings,
+   Lune bookings, Kiln test orders), all kept as demo data.
+6. Whether the builds may buy photos from fal.
+
+**Why you type the messages**
+- The canary's API mode refuses an add-on answer unless its route box
+  expects one; its UI mode blocks add-ons and builds; neither can carry a
+  chat. So it would gate the routes you want the builder to choose.
+- A batch runner can be built instead, on your word.
+
+**Attachments**: five files in `docs/test-fixtures/broad-batches/` (two
+logos, a timetable PDF, a price-list PDF, a picture of the bakery's
+window).
 
 **Links**
-- The change: https://github.com/canias7/isibi-app/commit/710ad704de7504286fff367790b4f7093fc94409
-- Unit tests: https://github.com/canias7/isibi-app/actions/runs/36914783961
-- Site build: https://github.com/canias7/isibi-app/actions/runs/36914784000
-- Run 86 (the refused press): https://github.com/canias7/isibi-app/actions/runs/36908358798
-- Records: `docs/history/2026-10-01-addon-row-routing.md`, the checklist's
-  *Test 11* (*The router fix*), `docs/edit-path.md`.
+- The plan: the checklist's *Broad real-model batches*
+  (`docs/investigations/edit-path-checklist.md`).
+- The router fix: https://github.com/canias7/isibi-app/commit/710ad704de7504286fff367790b4f7093fc94409
+- Its CI: unit tests https://github.com/canias7/isibi-app/actions/runs/36914783961,
+  site build https://github.com/canias7/isibi-app/actions/runs/36914784000
 
 **From our chat**
-- You asked for the router fix with no keyword or bakery rule, for updating
-  and deleting to stay data, for the sort scope and mixed requests to be
-  kept, for tests on the request the model gets, and for no merge, no
-  deploy and no retry. Your rules are in `owner-preferences.md`.
-  CLAUDE.md left alone.
+- You asked for broad real-model testing in a few substantial requests,
+  through the normal app:
+  - the builder choosing its routes, with nothing forced or split;
+  - every instruction verified independently;
+  - closed tests not repeated, and Test 11 carried in;
+  - follow-ups kept apart from first messages, and outcomes reported
+    honestly;
+  - the exact requests and the cost before any spending.
+- CLAUDE.md left alone.
 
 **Blockers**
-- Your review.
+- Your approval (the list above).
 
 **Exact next action**
-- Review `710ad704`. On your word, the steps after that are:
-  1. merge and deploy (the image rolls to `9a71a6384b4206a2`);
-  2. wait 15–20 minutes, then one free runtime check;
-  3. Test 11's paid press again (about 3–4 credits, balance 101), with the
-     same boxes and the new deploy and image.
+- On your word:
+  1. I merge `710ad704` and read the deploy;
+  2. after the image rolls, you press one free runtime check;
+  3. I take the before-reads;
+  4. you send round 1.
 
 ---
 
@@ -147,6 +163,29 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-01 — The broad real-model test plan, for your approval (nothing sent or spent)
+
+- **What it is**: 22 messages in four chats, typed by you in the real app.
+  - **The bakery**: new loaves, data edits, the look, new features, a sort,
+    a mixed message, and a photo and a link on edits.
+  - **The repair workshop**: a form, a limit, a job, and a missing key.
+  - **Two first builds**: Lune Yoga (members and bookings) and Kiln Coffee
+    (shop and checkout).
+  - Follow-ups come in a second round, in the same chats.
+- **Why this way**: the builder chooses every route. The canary would have
+  gated them and could not carry a chat.
+- **Checked while planning, free**:
+  - every message is under the composer's 2,000-character cut, which
+    applies to a build's brief too;
+  - the look message uses at most four lanes, and the new loaves go alone;
+  - the two new slugs are free;
+  - the workshop already has a booking form, so the plan limits that form
+    instead of copying it.
+- **What it needs from you**: approval, the merge of the router fix, a
+  top-up, two member accounts, a Stripe test key, and a yes to the visitor
+  writes.
+- **Nothing merged, deployed or spent.** Balance 101.
 
 ## 2026-10-01 — The router now sends a new entry in an existing list to the add-on step (for your review)
 

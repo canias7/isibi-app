@@ -130,6 +130,16 @@ press when its route box says `intent=addon`. Shown with supplied answers
 only: **real model routing and the real picker are unproven** until a live
 run exercises them. `docs/history/2026-10-01-add-row.md`.
 
+**Broad real-model batches: proposed 2026-10-01 for the owner's approval;
+nothing sent, spent or merged** (*Broad real-model batches*, below). Four
+chats typed in the normal app, with the builder choosing its own routes:
+the bakery (eight messages, Test 11's addition carried in as 1.1), the
+repair workshop's backend (three), and two first builds, Lune Yoga
+(members, bookings, time zones) and Kiln Coffee (stock, checkout, two
+languages). Follow-ups come in a second round in the same chats. The
+estimate is 135–330 credits against a balance of 101. Message 1.1 needs
+the router fix (`710ad704`) merged first.
+
 **Lane 1 (2026-09-30): four corrections, merged and deployed in deploy 2171
 (`29111010`, image `cdb624837e099719`; the deployment credited by the owner),
 the code runtime-confirmed under deploy 2172 by run 76**
@@ -383,6 +393,515 @@ stylesheet scope and rule keys (deploy 2161).
 
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
+
+## Broad real-model batches — four chats through the normal app (proposed 2026-10-01 on the owner's word, for approval; nothing sent, spent or merged)
+
+The owner asked for broad real-model testing in a few substantial requests:
+- through the normal app, with the builder choosing its own routes;
+- each instruction verified independently against the pages, the data and
+  the behaviour;
+- closed tests not repeated as their own projects, and Test 11's addition
+  carried in with its own acceptance;
+- follow-ups in the same chat, judged apart from the first messages.
+
+This section is the plan for approval: the exact messages, the attachments
+and fixtures, the checks, and the cost.
+
+### Before any message
+
+- **No approved deployment is pending.** Deploy 2176 (`78a95a47`) is done
+  and was runtime-confirmed by run 85.
+- **Message 1.1 needs the router fix** (`710ad704`; *Test 11 → The router
+  fix*). It is on the branch with required CI green (unit 36914783961,
+  `8543 / 8539 / 0 / 4`; site build 36914784000), and not merged.
+  - Without it, run 86's real router answered `edit`/`data` for an added
+    loaf.
+  - Merging is a fast-forward: `main` is the branch's ancestor, and
+    everything after `710ad704` is documents, so its CI stands.
+  - The image would roll `c051f625db27b5b7` → `9a71a6384b4206a2`. A 15–20
+    minute wait and one free runtime check (your press) follow.
+- **Balance 101**: the ledger's last row is 349, and no job is open (read
+  after run 86's top-up).
+
+### How the messages are sent
+
+- **Recommended: you type them in the real app** (gofarther.dev, signed in
+  as the building account).
+  - One chat per site below, one message at a time, each sent after the
+    previous reply.
+  - Nothing gates or forces a route: whatever the builder answers is what
+    runs.
+- **I verify each one independently, free**:
+  - the jobs, their stored replies and charges (Supabase, non-secret
+    columns only);
+  - the published pages, heads, redirects and assets;
+  - the public data reads;
+  - Playwright as a visitor, at desktop and phone width (390 × 844).
+  - A free canary inventory (your press, spend `no`) reads the stored pages
+    and the tables a visitor cannot.
+- **Why not the existing tools**:
+  - the canary's API mode sends one message per press, and posts an add-on
+    answer only when its route box expects one;
+  - its UI mode runs only named scenarios and blocks add-ons and builds;
+  - no workflow builds through the router.
+
+  So they would gate routes, and none can carry a chat.
+- **Alternative, only on your word**: a canary batch runner (one tab, a list
+  of messages, attachments, a phone viewport, posting whatever the router
+  answers). It is new harness work with its own tests, and not started.
+- **Two rounds.**
+  1. Round 1: every first message, chats 1–4. I verify and report.
+  2. Round 2: the follow-ups in the same chats, and the visitor flows. I
+     verify and report.
+- **How the money is read**: routing writes no ledger row, so routing is
+  measured as a total per round (the balance before and after, less the
+  jobs' ledger rows). Each job's charge is its own row.
+
+### The app's limits, respected
+
+- **Length**: every message is under 2,000 characters. That is the
+  composer's cut, and it applies to a first build's brief too (`siteSend`
+  in `public/chat.js` cuts every message at 2,000; the server's 4,000 is not
+  reachable from the composer).
+- **Look lanes**: one message runs at most 4. Message 1.3 is written for
+  four: the stylesheet, the tab icon, the menu and button, and the page's
+  shape.
+- **New entries**: they go alone, because `row` beside other kinds is set
+  aside. Message 1.1 asks for nothing else, with three entries (at most 12).
+- **Add-ons**: at most 10 kinds and no attachment. Message 1.4 asks for
+  seven things.
+- **Attachments**: at most 3 a message, images up to 5 MB, PDFs up to
+  3.5 MB.
+  - An edit takes an image only for the logo; message 1.7 tests what
+    happens otherwise.
+  - Links are read only on a build; message 1.8 tests what happens
+    otherwise.
+
+### Attachments
+
+In `docs/test-fixtures/broad-batches/`, made free with Chromium.
+
+| file | for | bytes | sha256 | what it holds |
+|---|---|---|---|---|
+| `lune-yoga-logo.png` | 3.1 | 9,545 | `2a7a014a19ccc8a3…` | a crescent mark, "LUNE YOGA", 512 × 512 |
+| `lune-yoga-timetable.pdf` | 3.1 | 31,610 | `83257638e71c1061…` | 8 weekly classes, 3 teachers, 3 prices, capacity 12, the 2-hour rule |
+| `kiln-coffee-logo.png` | 4.1 | 6,760 | `a9056d782c55730c…` | a kiln-and-flame mark, "KILN COFFEE", 512 × 512 |
+| `kiln-coffee-price-list.pdf` | 4.1 | 29,569 | `891f9f855bbf8212…` | 14 coffees (3 light, 7 medium, 4 dark); Rwanda Huye stock 0; Costa Rica Tarrazú stock 3; delivery £3.95, free over £30 |
+| `harbour-loaf-window.jpg` | 1.7 (and 1.F5 if needed) | 52,603 | `47f45273f956cd73…` | a drawing of the bakery's window, 1600 × 1066 |
+
+### What you provide
+
+1. **Your word to merge `710ad704` and deploy**, for message 1.1.
+2. **A top-up**: the estimate is 135–330 credits against 101 (*Cost*,
+   below).
+3. **Chat 3: two member accounts** on addresses whose mail you read
+   (plus-addresses of your own mailbox work).
+   - You sign up, sign in, sign out and reset on your phone; I hand you the
+     steps and verify from the site and a free inventory.
+   - Or say if I should use a throwaway inbox service instead.
+4. **Chat 4: a Stripe test key**, entered by you in Kiln Coffee's secrets
+   after the build (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`). I never
+   read either. Without them the checkout is recorded as blocked, and the
+   rest runs.
+5. **Approval for the visitor writes** listed under each chat. All of them
+   stay as demo data.
+6. **fal**: the two builds may buy photographs if fal has a balance. I read
+   it before and after; say "no photos" if you want none bought.
+
+### Chat 1 — `fold-lane-bakery` (at `dgmag4`; every intended change stays)
+
+**1.1 — three new loaves, carrying Test 11** (271 characters)
+```text
+Add three loaves to today's loaves: Rye & Caraway at £5.00, described as "A light rye with toasted caraway."; Spelt Sourdough at £5.60, described as "Nutty spelt with a long, slow rise."; and Cinnamon Knot at £3.20, described as "A sweet twisted bun with cinnamon sugar."
+```
+- **Expected**: `addon`, the `row` kind, nothing held back. The route is
+  observed, never gated.
+- **Test 11's own acceptance (Rye & Caraway)**:
+  - exactly that row: name, price 5, the description, photo null, and the id
+    the database gives it;
+  - on `/order` in price order, and an order-form choice carrying its id;
+  - the reply names it.
+  - **Any route other than `addon` fails Test 11 on routing**, whatever
+    else happens.
+- **Also**:
+  - Spelt Sourdough (5.6) and Cinnamon Knot (3.2) exact;
+  - the six existing rows unchanged;
+  - no page changed and nothing published;
+  - `/order` lists nine, Cinnamon Knot (£3.20) first and Rye & Caraway
+    fourth;
+  - the reply names all three.
+- **Estimate**: 3–6 credits.
+
+**1.2 — two prices or descriptions changed, one loaf taken off** (251)
+```text
+Update today's loaves: Dark Rye is now £5.40 and its description should read "Dense, malty rye with a dark crust."; change Walnut Levain's description to "Toasted walnuts folded through a long-fermented dough."; and take Olive & Rosemary off the list.
+```
+- **Expected**: `edit`, `data`.
+- Dark Rye (id 2): price 5.4 and the new description.
+- Walnut Levain (id 5): the new description; price still 6.
+- Olive & Rosemary (id 4): gone.
+- Every other row unchanged; nothing published; `/order` lists eight in
+  price order.
+- The reply matches each change, or names what it did not do.
+- **Estimate**: 2–5.
+
+**1.3 — the look, one button, the menu, a section** (470)
+```text
+Give the whole site a warmer look: a cream background, dark brown text, and deep green for buttons and links, with a serif typeface for headings. Make all the Order a loaf buttons fully rounded pills, and change the one in the header to read "Order for collection". Change the tab icon to a simple wheat sheaf. Take The starter out of the menu but keep its page. On the home page, move the "Order a loaf for collection" section above "Fed every morning since we opened".
+```
+- **Expected**: `edit`, `look`, nothing held back.
+- **On every page** (computed styles): a cream background, dark brown text,
+  deep green buttons and links, and serif headings.
+- **The buttons**: the Order a loaf buttons fully rounded; the header's
+  reads "Order for collection" and still goes to `/order`.
+- **The tab icon**: a wheat sheaf (the served icon changes).
+- **The menu**: The starter gone from every menu; `/starter` still answers
+  200, and `/the-starter` still 301.
+- **The home page**: "Order a loaf for collection" above "Fed every morning
+  since we opened", with nothing else moved.
+- **Unchanged**: words, data, photos, and every other piece of content.
+- **The reply** names each change. A reply naming only the look is review #9
+  (recorded already, not new).
+- **Estimate**: 6–14.
+
+**1.4 — seven new things** (900)
+```text
+Please add these to the site: 1) a new FAQ page, linked in the menu, answering five questions: how to order (online, for collection), when to collect (08:00 to 13:00), allergens (we bake with wheat, rye, spelt, sesame and walnuts, so nothing is free of them), how to pay (card or cash when you collect), and what our starter is (fed every morning since we opened); 2) a QR code on the Visit page that opens the order page; 3) on the order page, above today's loaves, a search box and an "Under £5" filter, showing six loaves at a time with Next and Previous buttons; 4) on the order page, a small calculator where a customer picks loaves and quantities and sees the total price; 5) a slowly turning 3D loaf at the top of the Gallery page; 6) a "Call the bakery" button on the Visit page that rings 0117 496 0000 when tapped; 7) today's loaves with their prices on the home page and on the Visit page.
+```
+- **Expected**: `addon`, with the kinds the builder picks (likely a page, a
+  QR code, components and a 3D scene).
+- **`/faq`**: in the menu, five answers carrying the facts given, its own
+  title.
+- **`/visit`**: a QR code that decodes to the order page, and "Call the
+  bakery" linking `tel:` to 0117 496 0000.
+- **`/order`**:
+  - search: "rye" finds Rye & Caraway and Dark Rye;
+  - "Under £5": Cinnamon Knot, Sea Salt Focaccia, Country White;
+  - six at a time with Next and Previous: eight loaves make 6 + 2;
+  - the order form still offers every loaf;
+  - the calculator: 2 × Country White + 1 × Dark Rye = £15.00, at 1.2's
+    prices.
+- **`/gallery`**: a turning 3D loaf, no console errors, the photographs
+  kept.
+- **`/` and `/visit`**: today's loaves with their prices.
+- **Unchanged**: every row, and unrelated content.
+- **The reply** names what was added and anything set aside.
+- **Estimate**: 12–30.
+
+**1.5 — a sort on two chosen pages** (135)
+
+This is the case Test 10 left open: a sort limited to a selection of pages,
+unproven with real models.
+```text
+On the home page and the Visit page, list the loaves in alphabetical order. Keep the order page sorted from cheapest to most expensive.
+```
+- **Expected**: whatever the builder picks. A selection of pages is never
+  the data sorter.
+- `/` and `/visit` list the loaves A–Z, Cinnamon Knot to Walnut Levain.
+- `/order` is still cheapest first.
+- No row written.
+- **Estimate**: 4–12.
+
+**1.6 — a mixed message: a price and a new page** (138)
+```text
+Seeded Wholemeal is now £5.60. Also, please add a Gift vouchers page offering £10, £25 and £50 vouchers, bought and collected in the shop.
+```
+- **Expected**: one answer. Either both parts are done, or one is done and
+  the other held back and named.
+- **If done**: Seeded Wholemeal (id 3) at 5.6; `/gift-vouchers` offering
+  £10, £25 and £50, bought and collected in the shop, in the menu.
+- **What was not done** is named, not claimed. Nothing else changed.
+- **Estimate**: 3–12.
+
+**1.7 — an attached photo for a page's picture** (97; attach
+`harbour-loaf-window.jpg`)
+```text
+Please use the attached photo as the main picture on the Visit page, in place of the current one.
+```
+- **Expected**: unsupported, because an edit takes an image only for the
+  logo.
+- **Pass**: a clear refusal or question, nothing changed, and no claim that
+  the photo was used.
+- If the Visit picture does become the attachment, it is recorded as a new
+  capability.
+- **Estimate**: 1–4.
+
+**1.8 — a link in an edit, and the unfinished page** (310)
+```text
+Please finish The starter page: explain what a sourdough starter is and give a short history of sourdough, based on https://en.wikipedia.org/wiki/Sourdough and written in our own words; say that ours has been fed every morning since we opened; and give the page its own tab title, "The starter — Harbour Loaf".
+```
+- **Expected**: `edit`, most likely the page writer. The link is not read on
+  an edit.
+- `/starter` no longer says "This page isn't finished yet". It explains a
+  starter, gives a short history, and says ours is fed every morning.
+- Its tab title is "The starter — Harbour Loaf" (today it is "Harbour
+  Loaf").
+- The other pages are unchanged.
+- **The reply must not claim it read the link.**
+- **Estimate**: 8–24.
+
+**Round 2: follow-ups in the same chat**, each judged apart from the first
+messages.
+
+- **1.F1, a reference to the chat** (43):
+  ```text
+  Make the last loaf you added £3.50 instead.
+  ```
+  - Expected: unsupported. The router and the steps see no chat history.
+  - Pass: Cinnamon Knot at 3.5 and nothing else, or an honest question.
+  - Fail: another row changed, or a claim without a change.
+- **1.F2, "the same style"** (96):
+  ```text
+  Make the Call the bakery button the same style as the Order for collection button in the header.
+  ```
+  - Pass: the two buttons' computed styles match, and nothing else changed.
+  - If 1.3 or 1.4 did not make either button, the wording is adjusted then
+    and shown to you before you send it.
+- **1.F3, a correction** (59):
+  ```text
+  Sorry, I got Dark Rye wrong: it should be £5.30, not £5.40.
+  ```
+  - Pass: Dark Rye at 5.3, and nothing else.
+- **1.F4, completion after a hand-off**, sent only if 1.6 held a part back
+  (49):
+  ```text
+  Yes, please go ahead with the part you held back.
+  ```
+  - Pass: that part done as asked, or an honest reply that it cannot see
+    it.
+- **1.F5, completion after a failure.**
+  - Written from the builder's own reply to whichever first message failed,
+    and shown to you before you send it.
+  - If 1.7 was refused: attach the same photo, with *"Then use the attached
+    photo as our logo instead."* The logo path is proven (run 39); here it
+    is only the completion.
+- **Estimate**: 8–25 for the five.
+
+### Chat 2 — `repairbench-1` ("Hebden Bike Repair": the backend)
+
+Its home page already has a "Book a repair" form (name, bike, drop-off day)
+writing to `bookings`, open Tuesday to Saturday. No existing table gains a
+column here: that is the parked schema-change item (D2).
+
+**2.1 — a quote form with a photo** (357)
+```text
+Please add a Get a quote page, linked in the menu, with a form asking for the customer's name, email, phone, bike type (road, mountain, hybrid or e-bike), what is wrong (at least 20 characters) and an optional photo of the bike. Save each request with the status "new", and email us when one arrives. Visitors can send a request but never see anyone else's.
+```
+- **Expected**: `addon` (a table, a page, a form with an upload, a
+  notification).
+- The page in the menu, with the fields asked for.
+- The email format, the 20-character minimum and the bike types enforced by
+  the page and by the database.
+- The optional photo stored as an upload; the status "new".
+- A visitor can send a request but cannot read any.
+- The existing pages, tables, functions and both jobs unchanged.
+- **The email**: no mail key is set, so the reply should name it as your
+  step, and the form should still save.
+- **Visitor writes**: one valid request with a photo; three invalid ones,
+  each expected refused, with no row.
+- **Estimate**: 8–20.
+
+**2.2 — a daily limit on the existing booking form** (227)
+```text
+We take at most five drop-offs a day. On the Book a repair form, show how many places are left for the chosen day, refuse a booking once that day has five, and only accept days from Tuesday to Saturday that are not in the past.
+```
+- **Expected**: whatever the builder picks (rules, a function, the page).
+- The form shows the places left for a chosen day.
+- Sundays, Mondays and past days refused.
+- A sixth booking for one day refused by the database, not only by the page.
+- The three existing bookings unchanged.
+- **Visitor writes**: five bookings for Tuesday 27 October, then a sixth
+  (expected refused); one for a Monday (expected refused).
+- **Estimate**: 4–12.
+
+**2.3 — a morning job, and a keyed weather panel without its key**
+(279)
+```text
+Every Tuesday to Saturday at 07:30 UK time, count that day's drop-offs and save the number, and show this morning's count on the Workshop Load page. Also add a panel to the home page showing today's weather forecast for Hebden Bridge from OpenWeather; I'll add the API key later.
+```
+- **Expected**: `addon` (a job, an outside connection, a panel).
+- **The job**: registered for Tuesday to Saturday at 07:30 Europe/London.
+  **Its first automatic run is read on the next such morning** (Friday 2
+  October at 06:30 UTC, if sent tonight). A job running on its own tick has
+  never been shown live. The count appears on `/workshop-load`.
+- **The weather panel without a key**: an understandable message on the
+  page, not a blank or a raw error. The reply names the missing OpenWeather
+  key as your step.
+- **Left alone**: the one-time job `count_bookings_once` (3 October, 09:00).
+  "Run now" is never pressed.
+- **Estimate**: 6–15.
+
+**2.F1 — a correction** (52)
+```text
+Actually, we can take six drop-offs a day, not five.
+```
+- The limit reads six; the day with five shows one place left; a sixth
+  booking for it is accepted (one visitor write).
+- **Estimate**: 2–8.
+
+### Chat 3 — a first build: Lune Yoga (a new slug; members, bookings, time zones)
+
+**3.1 — the brief** (1,092; attach `lune-yoga-logo.png` and
+`lune-yoga-timetable.pdf`)
+```text
+Build a website for Lune Yoga, a small yoga studio at Unit 3, Lantern Yard, Bristol. Use the attached logo, and take the weekly timetable, teachers and prices from the attached PDF. Write the Hatha and Vinyasa class descriptions from https://en.wikipedia.org/wiki/Hatha_yoga and https://en.wikipedia.org/wiki/Vinyasa, in our own words.
+
+Members make an account with their email: sign up, sign in, sign out, and reset a forgotten password. A signed-in member can book a place in a class, see their own upcoming bookings, cancel one, or move it to another class, up to 2 hours before it starts. Each class holds at most 12 people; when one is full, booking is refused and it shows "Full". Members never see other members' bookings. Members can add a profile photo.
+
+I am the admin: I add, edit and cancel classes, and see every booking with the member's name.
+
+Show all times in UK time, correctly on both sides of the clock change on 25 October.
+
+Pages: Home, Timetable (filter by day and by class type), My bookings, Account, and Admin. Calm and simple: off-white, deep blue, plenty of space.
+```
+- **The build**:
+  - a new slug, with no live site revised (`lune-yoga` answers 404 today);
+  - the logo in the header;
+  - the eight classes, teachers, lengths and three prices exactly as in the
+    PDF;
+  - the Hatha and Vinyasa descriptions drawn from the two links, in its own
+    words;
+  - the pages asked for, each opening by direct link;
+  - titles, a description, a share image and a tab icon.
+- **Members** (you, two accounts):
+  - sign up, sign in, sign out, and reset by email;
+  - a member books, sees their own bookings, cancels one and moves one;
+  - the other member cannot see them;
+  - nothing can be cancelled or moved inside 2 hours.
+- **Capacity**: the 13th booking refused and "Full" shown. It is tried on a
+  class you set to capacity 1 as admin, if the admin page allows; otherwise
+  it is recorded as not exercised.
+- **Times**: in UK time, on both sides of 25 October.
+- **The admin**: sees every booking with names, and edits classes.
+- **Uploads**: a profile photo, for its own member only.
+- **Persistence**: after a reload and in a new session.
+- **Phone width**: the menu, forms, dialogs and buttons work.
+- **Estimate**: 25–45.
+
+**3.F1 — reminders and a waiting list** (206)
+```text
+Please email each member a reminder at 18:00 UK time the evening before their class, and add a waiting list: when someone cancels a place in a full class, give it to the first person waiting and email them.
+```
+- The job at 18:00 Europe/London.
+- The waiting list gives a freed place to the first member waiting
+  (exercised with the two accounts).
+- Mail without a key is named as your step.
+- **Estimate**: 8–20.
+
+**3.F2 — "the same style", and "that" filter** (112)
+```text
+Make the Book buttons the same style as the Sign up button, and put that class-type filter on the home page too.
+```
+- The computed styles match, and the class-type filter works on `/`.
+- **Estimate**: 2–10.
+
+### Chat 4 — a first build: Kiln Coffee (shop, stock, checkout, two languages)
+
+**4.1 — the brief** (1,247; attach `kiln-coffee-logo.png` and
+`kiln-coffee-price-list.pdf`)
+```text
+Build an online shop for Kiln Coffee, a small coffee roaster in Leeds. Use the attached logo, and take the coffees, origins, roasts, tasting notes, prices and stock from the attached price list (14 coffees).
+
+The shop lists the coffees with a search box, filters by roast (light, medium, dark) and by origin, and shows 6 coffees per page with page numbers. Each coffee has its own page with its own link. Customers add coffees to a basket, change quantities, and see each line's total, the subtotal, delivery (£3.95, free on orders over £30) and the total. Nobody can order more bags than we have in stock, and a coffee with no stock shows "Sold out".
+
+Checkout takes card payment with Stripe. After paying, the customer sees an order confirmation with an order number and what they bought. Each order is saved with its items, total and a status (paid, roasted, shipped), and stock goes down by the bags bought. I am the admin: I see every order, change its status, and update stock and prices.
+
+Pages: Shop, a page for each coffee, Basket, Checkout, Order confirmation, Admin, and About. Warm and modern: cream, charcoal and a copper accent. Make the site available in English and Welsh, with the coffee names and prices exactly the same in both.
+```
+- **The catalogue**:
+  - the 14 coffees exactly as in the PDF;
+  - search: "Colombia" finds 3 (Colombia Huila, Kiln House Espresso, Night
+    Shift Decaf);
+  - filters: light 3, medium 7, dark 4;
+  - 6 a page, so 3 pages;
+  - a page per coffee, opening by direct link;
+  - Rwanda Huye "Sold out", and 4 bags of Costa Rica Tarrazú refused (stock
+    3).
+- **The basket**: 2 × Colombia Huila + 1 × Kenya Nyeri AA = £27.50, plus
+  £3.95 delivery = £31.45. Adding Brazil Cerrado makes £35.00, with free
+  delivery.
+- **The checkout, with your test key**:
+  - the test card 4242 4242 4242 4242 pays;
+  - a confirmation with an order number and the items;
+  - the order saved as paid, with its items and total;
+  - stock down by the bags bought.
+  - Without the key: an understandable message, and no order marked paid.
+- **The admin**: changes a status and a stock figure.
+- **English and Welsh**: the same names and prices, with the basket and the
+  checkout working in Welsh. **You deferred translation, and the translator
+  is parked.** The sentence is in because you listed multilingual work; say
+  if it stays out, and it comes out.
+- **Also**: titles, a description, a share image and a tab icon;
+  persistence; phone width.
+- **Visitor writes**: one or two test-mode orders.
+- **Estimate**: 25–45.
+
+**4.F1 — gift wrap, and a coffee of the month** (127)
+```text
+Add a gift wrap option at checkout for £2.50, and feature the Ethiopia Yirgacheffe on the home page as our coffee of the month.
+```
+- £2.50 added once to the total.
+- Ethiopia Yirgacheffe featured on `/`, linking to its page.
+- **Estimate**: 6–15.
+
+**4.F2 — a correction by reference** (86)
+```text
+That free-delivery threshold is wrong: make delivery free on orders over £35, not £30.
+```
+- The £31.45 basket now pays delivery; £35 and over is free; in both
+  languages.
+- **Estimate**: 2–8.
+
+### For every message
+
+- **The route** the builder chose, and anything held back (the job's
+  record).
+- **What each operation did**: the stored source, the rows, the publishes.
+- **The reply**, checked against that, and each part classed as completed,
+  failed, ignored, deferred or unsupported.
+- **Unrelated content**, compared with the before-read.
+- **The money**: the ledger's job rows, the balance, and no job open.
+
+**Not used:**
+- `lido-axes-b`: its bookings stay closed, and it is kept byte for byte;
+- `fretwork-1`: its blank link and the parked translator;
+- D2 and D3: no order on the bakery, and no grants apply;
+- repairbench's one-time job.
+
+**Closed tests** (Tests 2–10, D1, the run-44 rules closing, the deletion,
+and Batch 1's A and B1) are not repeated as their own tests. Where a closed
+capability sits inside a bigger message (a menu link, a section move), it is
+there only as part of the mix.
+
+### Cost (estimates, not limits)
+
+| chat | messages | credits |
+|---|---|---|
+| 1 — the bakery | 8, then up to 5 follow-ups | 47–132 |
+| 2 — repairbench | 3, then 1 | 20–55 |
+| 3 — Lune Yoga | a build, then 2 | 35–75 |
+| 4 — Kiln Coffee | a build, then 2 | 33–68 |
+| **all four** | **22** | **135–330** (about $1.08–2.64) |
+
+- Routing (1–2 a message) is included.
+- Nothing caps a request: the balance is the only bound.
+- At 101, chats 1 and 2 may fit. Chats 3 and 4 need a top-up of about 230
+  to cover the high ends.
+- fal purchases are not included.
+
+### The order
+
+1. **Your approval**: the messages, the merge, the top-up, the fixtures and
+   the visitor writes.
+2. **I fast-forward `main`** to the branch and read the deploy. After the
+   image rolls and 15–20 minutes, you press one free runtime check.
+3. **I take the before-reads** (free).
+4. **Round 1**: you send the first messages of chats 1–4. I verify and
+   report.
+5. **Round 2**: the follow-ups and the visitor flows (yours on the phone for
+   the members; mine as a visitor elsewhere). I verify and report.
+6. **Records**: this section, a dated history file and the owner-notes
+   handoff; commit and push.
 
 ## Batch 1 — a removed page's 301 home, and a row changed on a site whose database link is blank, run side by side (proposed 2026-09-29 after Test 8's closure; corrected after the owner's review: the canary now enforces each press's expected route, the costs keep estimates apart from enforced limits, group B's recovery covers every row and field, and the remaining six are the owner's list; approved 2026-09-30; Round 1 done: A1's free restore (run 68) checked, and B1 (run 71, after runs 69 and 70 went nowhere) changed exactly row 4's price for 3 credits; A2 (run 72) removed `/gallery`, which answers 301 home, read twice, for 2 credits; run 73 (A3) never started, and run 74 (B2) was refused by the route check when the router answered `text`, for 2 credits and no change; A3 (run 75) restored `8btpep` exactly, free; the owner accepted group A (the redirects read 14 and 25 minutes after publication, not immediately) and credited B1; B2's misroute kept as a separate finding, not counted as passed nor retried with a model; row 4 left for the owner's free write)
 
