@@ -1,61 +1,40 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-01, 01:30 UTC)
+## Current handoff — read this first (2026-10-01, 01:55 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- `main` is `322c2430`, **deploy 2174** (2026-10-01): your reviewed branch,
-  merged and deployed on your word. **The deployed commit is `322c2430` and
-  the container image `b8c8789aa8e395d6`**, both as predicted.
-- **Deployed, not yet runtime-confirmed**: your free press confirms it.
+- `main` is `322c2430`, **deploy 2174**, container image
+  `b8c8789aa8e395d6`. **Runtime-confirmed by your free press, run 83**
+  (01:42 UTC).
 - The branch `claude/help-needed-ehlwlj` is `main` plus these records.
-- Balance 6 (last ledger row 348, read at 01:12 UTC), no job open, nothing
-  spent.
+- Balance 6 (run 83's own read, 01:42 UTC). Nothing spent.
 
 **Completed**
-- **Merged**: a fast-forward of 22 commits, `8908b59d` → `322c2430`, at
-  00:58 UTC. Before the push I checked:
-  - nothing in flight: no workflow run, and no edit job on any account;
-  - the tests on that exact commit: unit CI `8427 / 8423 / 0 / 4` (CI
-    skips four);
-  - the container image, worked out in advance on both ends:
-    `e71f7bae88b9ecf1` → `b8c8789aa8e395d6`, because the router's file is
-    part of it;
-  - undoing the merge gives back the old main exactly;
-  - nothing under `public/` changed, so there was no browser file to
-    compare.
-- **Deployed**: one green deploy run (2174). Its log built
-  `b8c8789aa8e395d6`, and the container moved to it at 01:01:45 UTC. The
-  site addresses answer as before, and both test sites are on their usual
-  versions.
-- **Your default kept**: a sorting request that names no page applies
-  across the whole site (recorded in `owner-preferences.md`).
-- **Test 10's baseline, read automatically, free and read-only** (as a
-  visitor, every write request blocked, the demo as it stands):
-  - the whole `loaves` table: six rows, read at 01:00 and again at 01:10
-    UTC, identical both times and the same as yesterday;
-  - the five pages, all live at version `8btpep`;
-  - the order shown on `/order`, the only page that shows the list:
-    alphabetical (Country White £4.80, Dark Rye £5.20, Olive & Rosemary
-    £5.80, Sea Salt Focaccia £4.50, Seeded Wholemeal £5.40, Walnut Levain
-    £6.00);
-  - the redirects: `/the-starter` sends visitors to `/starter` (301),
-    keeping a query; `/gallery` answers on its own; an unknown page answers
-    404;
-  - screenshots of all five pages, for the comparison after the paid run;
-  - the stored page sources need the owner sign-in, so your free press
-    reads them, and it reads the table again.
-- **The free dispatch, tried once** at 01:22 UTC, after the 20-minute
-  rollout wait: refused, `403 Resource not accessible by integration` (the
-  known permission blocker). Not retried, and no run started.
+- **Your free press, run 83, passed every check**:
+  - both deploy readers answered `322c24301da9`, and a cold container
+    answered `b8c8789aa8e395d6`, so the deploy is live;
+  - `ALL FREE CHECKS PASSED`;
+  - the stored pages were read in full, and all five are byte-identical to
+    the bakery's recorded pages (`test/fixtures/run47`);
+  - the `loaves` table read `as named`: the same six rows, the target row
+    exact and the other five matching their digest;
+  - the balance read 6, and it stopped with "Nothing was charged".
+- **The pages haven't changed**: run 83's copy of each page matches my 01:04
+  read in length. A fresh read at 01:45 matches run 83's copy exactly, apart
+  from two time stamps the site writes into every page on each visit.
+- **The baseline for Test 10 is complete**: the table, the stored pages, the
+  order shown on `/order` (alphabetical), the redirects, and screenshots.
 
-**Your free press: the runtime check and Test 10's rehearsal in one run**
+**Your paid press: Test 10, for your approval** (about 2–3 credits; the
+balance is 6)
 
-Edit canary, "Use workflow from" `main`. The boxes, by their descriptions:
-- "Run the ONE paid edit as well (yes/no)": `no`
+Edit canary, "Use workflow from" `main`. The same boxes as run 83, except
+the first:
+- "Run the ONE paid edit as well (yes/no)": `yes`
 - "What to change. REQUIRED when spend=1 — there is no default, and a blank
   one refuses.": `Across the site, list the loaves from cheapest to most
   expensive.`
@@ -79,42 +58,48 @@ Edit canary, "Use workflow from" `main`. The boxes, by their descriptions:
   {"table":"loaves","baseline":"093f2130a37a6704","target":{"id":6,"name":"Sea Salt Focaccia","description":"A tray bake, heavy on the oil, finished with flaky salt.","price":4.5,"photo":null,"created_at":"2026-08-21 23:06:23"}}
   ```
 
-It passes when:
-- both deploy readers answer `322c24301da9`, and a cold container answers
-  `b8c8789aa8e395d6`;
-- it prints `ALL FREE CHECKS PASSED`;
-- the source read is complete, with the five pages;
-- the table reads `as named` (6 rows, the target id 6, and the other five
-  digesting to `093f2130a37a6704`);
-- the balance is read (6);
-- it stops before the paid edit with "Nothing was charged", and the balance
-  is unchanged.
+What it should do:
+- the router sends it to the data step, with nothing held back. Any other
+  answer is refused before the edit, costing only the routing (1–2
+  credits);
+- one line of the order page changes (sorted by price instead of by name),
+  and the site publishes once;
+- `/order` then shows the loaves cheapest first: Sea Salt Focaccia £4.50,
+  Country White £4.80, Dark Rye £5.20, Seeded Wholemeal £5.40, Olive &
+  Rosemary £5.80, Walnut Levain £6.00;
+- the reply: "✅ loaves now comes out in order of price, lowest first — on 1
+  page.";
+- no row changes, and every other page stays as it is.
 
-It should be run 83.
+The cost is routing 1–2 plus the data step 1. Publishing is free. This is an
+estimate, not a cap.
 
 **Test results**
-- No code changed since your review. On `322c2430`: unit CI `8427 / 8423 /
-  0 / 4` (run 36798198283).
-- The 8 test files that read the docs: 356 of 356, on these records.
+- Run 83: every check passed, as listed above.
+- No code changed since your review. Unit CI on the branch's records is
+  green (run 36801044473, on `a7d6dd84`).
 
 **Links**
-- Main at the merge: https://github.com/canias7/isibi-app/commit/322c24301da9a413f609c1ed8e0d020bbe8fd48c
+- Run 83: https://github.com/canias7/isibi-app/actions/runs/36802348994
 - Deploy run 2174: https://github.com/canias7/isibi-app/actions/runs/36798842190
-- Unit CI on `322c2430`: https://github.com/canias7/isibi-app/actions/runs/36798198283
+- The press: https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml
 - The records: `docs/history/2026-10-01-sort-scope.md` §7,
   `docs/deploy-record.md` (deploy 2174), and the checklist's *Test 10*.
-- Branch commits: https://github.com/canias7/isibi-app/commits/claude/help-needed-ehlwlj
 
 **From our chat**
-- The scope correction passed your review through `322c2430`. A sorting
-  request that names no page stays site-wide.
+- A sorting request that names no page stays site-wide.
 - What a real model does with a request for a chosen group of pages stays
   unproven. There is no extra paid test for it.
-- Nothing spent. Accepted tests stay closed, the demo data stays as it
-  stands, and CLAUDE.md is left alone.
+- Accepted tests stay closed, the demo data stays as it stands, and
+  CLAUDE.md is left alone.
 
 **Blockers**
-- The dispatch permission (403): the free press is yours.
+- None for the press.
+- One limit on my checks: the Supabase connector dropped out of this
+  session after 01:12, so I couldn't re-read the ledger after run 83. The
+  run's own balance read is the evidence. After the paid run, if its own
+  money lines aren't enough, a free "read one job" press gives the ledger
+  rows.
 
 **Findings, kept separate** (backlog, unchanged since your review)
 - For a chosen group of pages:
@@ -127,11 +112,10 @@ It should be run 83.
   pop-up; the deleted row's reply cut at 40 characters.
 
 **Exact next action**
-1. Your free press, with the boxes above.
-2. I read it: the runtime confirmation, the stored page sources against the
-   bakery's recorded pages, and the table.
-3. Once it passes, I give you the exact paid Test 10 inputs, about 2–3
-   credits (balance 6). Nothing is spent without your approval.
+1. Your approval and the paid press, with the boxes above.
+2. I read it and check: the route; the one changed line and the other four
+   pages; the table unchanged; the order shown on `/order`; the other pages
+   and the redirects; and the money.
 
 ---
 
@@ -191,6 +175,21 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-01 — Your free check passed (run 83): deploy 2174 is live, and Test 10 is ready to press
+
+**Run 83 passed every check.** Both deploy readers answered `322c24301da9`,
+and a cold container answered `b8c8789aa8e395d6`, so the new version is the
+one answering. Nothing was charged, and the balance is still 6.
+
+**The same run rehearsed Test 10**: the bakery's five stored pages are
+exactly the recorded ones, the loaves table is exactly as named (six rows),
+and it stopped before the paid edit, as asked. The pages also match my
+earlier read, apart from two time stamps the site writes into every page on
+each visit.
+
+**Next**: the paid Test 10 press is in the handoff, for your approval (about
+2–3 credits). Once you press it, I check the result against the baseline.
 
 ## 2026-10-01 — Merged and deployed (deploy 2174); Test 10's free check is yours to press
 

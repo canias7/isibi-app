@@ -282,8 +282,31 @@ fixture and the preservation checks as they were. Not run.
   83. Checked just before: balance 6, last ledger row 348 and none after,
   no job open on any account (the newest from 2026-09-30 22:22), and no
   workflow run in progress.
-- **Still to come**: the owner's free press. It confirms the runtime (sha
-  and image), reads the stored page sources (`before/source.json`, expected
-  to equal `test/fixtures/run47/*.before.tsx`, as run 75 left them), and
-  reads the table again against the rows box. **The paid press is handed
-  over only after that passes**, and pressed only on the owner's approval.
+- **The owner's free press, run 83** (36802348994, 01:42 UTC, from `main`,
+  spend `no`, the boxes exactly as handed over), **passed every check**:
+  - **the runtime**: build-health 200 `deploy=322c24301da9
+    image=b8c8789aa8e395d6`, runtime 200 `deploy=322c24301da9 async=true
+    runner=true`; the Worker is the expected build and a cold container gets
+    the expected image. **Deploy 2174 is runtime-confirmed**;
+  - `ALL FREE CHECKS PASSED` (the free job settled with `reason: "empty"`,
+    `cost: 0`, as on every free press);
+  - **the stored page sources** (`before/source.json`): complete (pages,
+    parts and assets all read), the five pages byte-identical to
+    `test/fixtures/run47/*.before.tsx`, no components, and the stored
+    description unchanged;
+  - **the table**: `as named: 6 rows; the target is id 6, and the other 5
+    digest to 093f2130a37a6704`, read whole (`0-5/6`), the same six rows;
+  - the balance read 6, after its free job, as at 01:12;
+  - `CANARY_SPEND is not 1 — stopping before the paid edit. Nothing was
+    charged.`
+- **The page markup** in run 83's evidence has exactly the byte lengths of
+  the 01:04 read. A fresh read at 01:45 is identical to run 83's capture on
+  all five pages once the two per-request render stamps (`u:` followed by 13
+  digits) are masked, so the pages carry nothing else per request. The
+  after-checks compare markup that way.
+- **I could not re-read the ledger myself after run 83**: the Supabase
+  connector dropped out of this session after the 01:12 read. The run's own
+  balance read is the evidence. After the paid press, a free "read one job"
+  press can supply the ledger rows if they are needed.
+- **The paid press** was handed over for the owner's approval: the same
+  boxes with spend `yes`, about 2–3 credits.

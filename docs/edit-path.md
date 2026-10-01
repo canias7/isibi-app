@@ -74,7 +74,7 @@ answers unless a run is named.
   on an existing site (`siteRoutesRead`, `SITE_ROUTES_WAIT_MS` 15,000), so an
   existing site never becomes a first build.
 - **A list's order** (decision 2b, 2026-09-30, its scope corrected
-  2026-10-01; merged and deployed in deploy 2174, not yet runtime-confirmed;
+  2026-10-01; merged and deployed in deploy 2174, runtime-confirmed by run 83;
   `docs/history/2026-09-30-sort-routing.md`,
   `docs/history/2026-10-01-sort-scope.md`). A list's order is page code: the
   `{ order, dir }` of the page's `useRows` call.

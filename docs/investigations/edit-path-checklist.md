@@ -1352,7 +1352,7 @@ in the next data press.
 - **Then**: one merge, one free runtime check, and the lane 4 presses. Those
   on different sites can overlap a minute apart, as Batch 1's did.
 
-## Test 10 — a stored list re-sorted, with real models (prepared 2026-09-30 on the owner's word, after Test 9 was closed; free preparation only; the order traced on all three demo sites; rehearsed with supplied answers through the real lane and the real edit route; decision 2b taken by the owner the same day with a scope correction: a sort across the whole site goes to the data sorter, a sort limited to one named page to the page editor, and no "whatever page they saw it" rule; the rule implemented on the branch with committed route coverage, and its scope corrected on 2026-10-01 so that a selection of pages is never sent to the sorter; passed by the owner and merged and deployed in deploy 2174 (2026-10-01), not yet runtime-confirmed; the request revised to state its scope; the baseline read; the authorized free dispatch refused (403), so the free press is the owner's; not run)
+## Test 10 — a stored list re-sorted, with real models (prepared 2026-09-30 on the owner's word, after Test 9 was closed; free preparation only; the order traced on all three demo sites; rehearsed with supplied answers through the real lane and the real edit route; decision 2b taken by the owner the same day with a scope correction: a sort across the whole site goes to the data sorter, a sort limited to one named page to the page editor, and no "whatever page they saw it" rule; the rule implemented on the branch with committed route coverage, and its scope corrected on 2026-10-01 so that a selection of pages is never sent to the sorter; passed by the owner and merged and deployed in deploy 2174 (2026-10-01); the request revised to state its scope; the baseline read; the authorized free dispatch refused (403); the owner's free press, run 83, confirmed the runtime and rehearsed Test 10, passing every check; the paid press handed over for the owner's approval; not run)
 
 **The owner**: *"Next, prepare one list-reordering acceptance on an existing
 demo site. First trace what controls its order: a stored ordering field, a
@@ -1652,14 +1652,22 @@ and estimate.
     max-age=600`), keeping a query, and `/the-starter/` the same; `/gallery`
     with a query and with a trailing slash 200; an unknown page 404;
   - a full-page screenshot of each page, for the pixel checks afterwards;
-  - the stored page sources come from the free press's own inventory
-    (`before/source.json`), and its fixture check reads the table again
-    (`fixture.json`).
+  - the stored page sources, from run 83's inventory (`before/source.json`):
+    complete, the five pages byte-identical to
+    `test/fixtures/run47/*.before.tsx`, no components; its fixture check
+    read the table again, as named (`fixture.json`);
+  - the page markup: run 83's capture has the 01:04 byte lengths, and a read
+    at 01:45 is identical to it once the two per-request render stamps on
+    each page (`u:` and 13 digits) are masked. The after-checks compare
+    markup with those stamps masked.
 - **The presses** (the owner's). The image rolled at 01:01:45Z, so container
   work waited until about 01:20Z. **The authorized free dispatch was tried
   once at 01:22:02Z and refused (`403 Resource not accessible by
-  integration`); no run started, so the owner's press will be run 83.** Edit
-  canary, from `main` (`322c2430`):
+  integration`); no run started.** The owner pressed the free press as
+  **run 83** (36802348994, 01:42 UTC), and **it passed every check** below:
+  both readers `322c24301da9`, the image `b8c8789aa8e395d6`, every free
+  check, the source read complete, the table as named, the balance 6, and
+  nothing charged. Edit canary, from `main` (`322c2430`):
   1. **The free press: runtime confirmation and rehearsal in one.** The boxes:
      - "Run the ONE paid edit as well (yes/no)": `no`;
      - "What to change. REQUIRED when spend=1 …": the request above;
@@ -1690,8 +1698,8 @@ and estimate.
      - the balance is read (6);
      - `CANARY_SPEND is not 1 — stopping before the paid edit. Nothing was
        charged.`, and the balance unchanged.
-  2. **The paid press**, handed over only once the free press has passed,
-     and pressed only on the owner's approval (about 2–3 credits): the same
+  2. **The paid press**, handed over after run 83 passed, and pressed only
+     on the owner's approval (about 2–3 credits): the same
      boxes with "Run the ONE paid edit as well (yes/no)" `yes`. It reads the
      same fixture before the routing call, and refuses before any charge if
      a row moved.

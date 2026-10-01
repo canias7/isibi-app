@@ -629,10 +629,19 @@ deploy"). Checked first:
   bd…2a39b-…` (masked).
 
 **Read at 01:05Z**: the gates answered 401 / 401 / 401 / 404; `fretwork-1`
-answers `kk6qsh` and `fold-lane-bakery` `8btpep`. **Deployed, not
-runtime-confirmed**: the image rolled at 01:01:45Z, so container work waits
-15–20 minutes, and the confirmation is the owner's free press (build-health
-answering `322c2430` and `b8c8789aa8e395d6`).
+answers `kk6qsh` and `fold-lane-bakery` `8btpep`. The image rolled at
+01:01:45Z, so container work waited 15–20 minutes; the session's dispatch at
+01:22:02Z answered 403 and was not retried.
+
+**Runtime-confirmed by the owner's free press, run 83** (36802348994,
+01:42 UTC, from `main` on `fold-lane-bakery`, spend `no`): build-health 200
+`deploy=322c24301da9 image=b8c8789aa8e395d6`, runtime 200
+`deploy=322c24301da9 async=true runner=true`, the control `washhouse-3`
+async; the two deploy readers agree, and both demands passed (the Worker is
+`322c2430`, a cold container gets `b8c8789aa8e395d6`); every free check
+passed. Nothing was charged: the run's own balance read, taken after its free
+job, was 6, as at 01:12. The same press rehearsed Test 10 (the checklist's
+*Test 10*).
 
 ## The served-file check, driven end to end on deploy 2139
 
