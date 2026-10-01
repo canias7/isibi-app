@@ -481,3 +481,16 @@
   checks` gate on the candidate, or on a commit with the same inputs
   fingerprint (`node scripts/site-build-gate.mjs fingerprint <rev>`). The
   record is `docs/history/2026-10-01-ci-speed.md`.
+- **Matching inputs are evidence: the full suite is not repeated for them**
+  (2026-10-01, merging the CI change): *"Full run 36841508489 covers the
+  current code: both commits have input fingerprint 1d31ea591baf27b1. Don't
+  repeat the full suite for unchanged inputs."* So a `site build` run counts
+  for every commit with the same inputs fingerprint; read the fingerprint on
+  both commits before relying on it.
+- **One runtime check, for the deployed commit; the 403 dispatch is not
+  tried again** (2026-10-01, deploy 2176): *"provide the exact inputs for ONE
+  free runtime check using the newly deployed commit. Don't request a
+  separate check for the old deployment or repeat the known 403 dispatch
+  attempt."* So when a deploy follows one whose runtime was never checked and
+  carries the same code, one press naming the newest commit covers both; and
+  the boxes are handed over without a dispatch attempt.

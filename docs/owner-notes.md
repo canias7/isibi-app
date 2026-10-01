@@ -1,88 +1,50 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-01, 09:40 UTC)
+## Current handoff — read this first (2026-10-01, 09:55 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **The CI change is on the branch, for your review**: `34fbd36d` (the
-  change) plus the records on top. Not merged, nothing deployed.
-- `main` is still `2188f706`, **deploy 2175**: deployed; its runtime
-  confirmation still waits for your free press (the boxes below, unchanged).
-- **Test 11 stays pending**: prepared after your runtime press, not run.
-- Nothing spent, no model call, no live data written, no product file
-  changed. CLAUDE.md left alone.
+- **`main` is `78a95a47`, deploy 2176**: the parallel CI change, merged on
+  your word at 09:41 UTC (a fast-forward of 4 commits from `2188f706`). No
+  product file changed, so what runs is still deploy 2175's code, add-on
+  `row` kind included.
+- **Deployment: succeeded**, and the container image was **reused**,
+  `c051f625db27b5b7`, as predicted (the evidence below).
+- **Runtime confirmation: not yet.** It is one free press, yours, with the
+  boxes below. No dispatch was attempted, as you asked, and no separate check
+  is needed for deploy 2175: same code.
+- **Test 11** (adding Rye & Caraway to the bakery's list) is ready except
+  for the balance, which that press reads. The paid run waits for your
+  approval.
+- Nothing spent, no live data written. The bakery is unchanged at `dgmag4`,
+  six loaves (re-read at 09:43 UTC).
 
-**What changed** (the record: `docs/history/2026-10-01-ci-speed.md`)
-- `site build` is **seven jobs at once and a gate** instead of one 24½-minute
-  job: kit and generator checks, theme checks, published-site checks, and
-  `test/integration/site-build.mjs` in **four shards**, each on its own
-  runner with its own build service, sandbox and port.
-- The harness is cut into 27 sections. Only lines were added (plus the port
-  setting): no check, message or condition changed, and run with no shard it
-  is still the whole file in order. Three checks that depend on an earlier
-  build's leftovers name that build and always run after it, in its shard.
-- **`all checks`**, the gate, is green only when every job succeeded and
-  every section ran exactly once, in its own shard, on that commit. A skipped
-  or cancelled job, a missing report, or a section run twice or nowhere turns
-  it red and is named.
-- A newer push **cancels the older run** of `site build` and `unit tests` on
-  the same branch (and nothing else). The npm cache is kept in every job.
-- **The trigger keeps every path it had**, `worker.js` included, and now also
-  names the test files these jobs import (the shared site server, the theme
-  and page-gen fixtures), which nothing named before. `deploy.yml` and the
-  image reuse are untouched; the image is `c051f625db27b5b7` from the same 189
-  inputs before and after.
+**Merge and deployment evidence** (the deploy reporting on itself, not the
+live server answering)
+- Before merging:
+  - nothing was running on GitHub;
+  - `unit tests` on `78a95a47` itself: `8531 / 8527 / 0 / 4` (run
+    36842657567);
+  - the full `site build` **not repeated**, as you said: run 36841508489 on
+    `34fbd36d` passed, and `78a95a47` has the same inputs fingerprint,
+    `1d31ea591baf27b1`;
+  - the image worked out on both ends: `c051f625db27b5b7`, 189 inputs;
+  - undoing the merge gives back the old main exactly.
+- **Deploy 2176** (run 36844328324): `success` in 44 seconds.
+  - **Image reused**: `reused isibi-app-sitebuildcontainer:c051f625db27b5b7
+    (189 inputs)`, and the container step said "no changes". Nothing rolled,
+    so there is no wait before the check.
+  - The Worker was uploaded with `DEPLOY_ID` `78a95a47…`; no browser file
+    changed, so none was uploaded.
+  - No edit job was in flight (the drain found none). `site build` and
+    `unit tests` did not run on `main`, as designed.
 
-**Timings** (both runs read from GitHub)
-
-| | before (run 36832053168) | after (run 36841508489) |
-|---|---|---|
-| `site build`, push to answer | **24m39s** (the job 24m35s) | **7m20s** |
-| site-build.mjs | 18m08s in one step | 5m12s / 5m36s / 3m55s / 4m04s, side by side |
-| kit, theme, site checks | ~6 min in the same job | 2m44s / 3m51s / 2m08s, side by side |
-| `unit tests` | 2m27s | about 2½ min (unchanged) |
-
-Runner time is spread, not saved: about 32 runner-minutes against 25.
-
-**Which checks run while correcting**
-- Every push: `unit tests` (all 8,531, ~2½ min) and, when the push touches its
-  inputs, `site build` (its jobs report as they finish; the whole answer in
-  ~7½ min). A newer push cancels the older runs.
-- Before reporting a correction, locally: the focused unit tests, and the
-  harness sections the change touches, e.g.
-  `SITE_BUILD_SECTIONS=job-door,job-stop,job-build node test/integration/site-build.mjs`
-  for the job runtime inside the image (never evidence; CI never sets it).
-
-**How the merge check keeps every check**
-- Before a merge: `unit tests` green on the candidate, and **`all checks`**
-  green on the candidate itself, or on an earlier commit whose **inputs
-  fingerprint** is the same (the gate prints `site build inputs <hash>`;
-  `node scripts/site-build-gate.mjs fingerprint <candidate>` prints the
-  candidate's). These records sit on top of `34fbd36d` and touch no input, so
-  their fingerprint is the gate's own `1d31ea591baf27b1`.
-- Measured on the validation run: the same twelve counts as the old run, read
-  from the step logs (397, 4, all, 16, all ×3, 11, 29, 14, 47), and the four
-  shards' check names are **exactly the old run's 404**, with no failure.
-
-**Verification**
-- Local: the four shards (separate ports) pass 109 + 76 + 159 + 63 and match
-  the old run's 404 names exactly; the gate on those reports is green, and red
-  with one removed.
-- Guards: `test/site-build-shards.test.mjs`, 20 cases (every name in the
-  sections resolved by TypeScript, 4,219 references, none crossing; the plan,
-  the workflow, the trigger against the import graph, the fingerprint, the
-  gate's verdict on 22 ways coverage can go missing). Sweep 48 of 48 killed,
-  the two controls survived. Full suite `8531 / 8531 / 0 / 0` locally.
-- CI on `34fbd36d`: `site build` run 36841508489 **success** (*"ALL CHECKS:
-  404 checks in 27 sections across 4 shards, every job green"*); `unit tests`
-  run 36841509002 **success**, `8531 / 8527 / 0 / 4`.
-
-**Runtime check** for deploy 2175 (your free canary press, spend `no`):
-still not run. Its boxes, by the description the form shows (leave every
-other box as it is, "What to change" empty):
+**Runtime check: ONE free press** (the edit canary, spend `no`). Its boxes,
+by the description the form shows; leave every other box as it is, "What to
+change" empty:
 
 "Use workflow from":
 ```
@@ -98,42 +60,56 @@ fold-lane-bakery
 ```
 "Refuse to spend unless the Worker reports this deploy sha (prefix, >=7 chars). Blank = read and print only.":
 ```
-2188f70680a844a3e7c56dd339a0483e357b51af
+78a95a47bfe5eaf3880fdcfd07f8bb4e083031b7
 ```
 "Refuse to spend unless a cold container reports this image id (exact). Blank = read and print only.":
 ```
 c051f625db27b5b7
 ```
 It spends nothing. It confirms the runtime when both readers answer
-`2188f70680a8` and a cold container answers `c051f625db27b5b7`.
+`78a95a47bfe5` and a cold container answers `c051f625db27b5b7`, and it reads
+the balance and the ledger, which Test 11 needs.
 
-**When you merge the CI change** (only on your word): it changes workflow
-files, so the merge starts **one deploy run**. The image inputs are
-unchanged, so it should reuse `c051f625db27b5b7`, and the Worker code is the
-same; the deploy would carry the new commit's id, so the runtime boxes above
-would then name that commit instead of `2188f706`.
+**Test 11** (prepared; the paid run is not run and waits for your approval)
+- The request: *Add one loaf to today's loaves: Rye & Caraway at £5.00,
+  described as "A light rye with toasted caraway."*, on `fold-lane-bakery`,
+  expecting the router's answer `intent=addon`, nothing held back.
+- The starting state, re-read at 09:43 UTC: the six loaves, cheapest first
+  Sea Salt Focaccia £4.50 to Walnut Levain £6.00, and the list pinned by the
+  same rows box as Test 10 (it reads "as named").
+- Expected: one new loaf, Rye & Caraway £5.00, with the id the database
+  gives it, third in the list on `/order` and a choice in its order form;
+  the six loaves and every page unchanged.
+- **Cost: about 3–4 credits** (routing 1–2, the addition about 2). **The
+  balance must be at least 4 before the paid press, 5 to leave a margin.**
+  At the last reading it was 3: routing would be paid and the addition could
+  then be refused, with nothing added. Your runtime press reads the balance
+  now.
+- The paid press's boxes are written out in the checklist's *Test 11*
+  (*Deploy 2176, and the press prepared again*). I hand them over with the
+  balance after your runtime press.
 
 **Links**
-- Validation run: https://github.com/canias7/isibi-app/actions/runs/36841508489
-- Before: https://github.com/canias7/isibi-app/actions/runs/36832053168
+- Deploy 2176: https://github.com/canias7/isibi-app/actions/runs/36844328324
+- The `site build` evidence: https://github.com/canias7/isibi-app/actions/runs/36841508489
 - Branch commits: https://github.com/canias7/isibi-app/commits/claude/help-needed-ehlwlj
+- Records: `docs/deploy-record.md` (deploy 2176), the checklist's *Test 11*,
+  `docs/history/2026-10-01-ci-speed.md` §8.
 
 **From our chat**
-- You asked for no 20–25-minute wait after every correction: fast checks
-  while correcting, the whole integration suite before a merge with evidence
-  matching what is merged, `worker.js` kept in the trigger, nothing skipped or
-  reported as passed when it did not run. Recorded in `owner-preferences.md`.
+- The CI change passed your review; merged on your word, with the full
+  `site build` not repeated for unchanged inputs. One runtime check, for the
+  new commit; the 403 dispatch not repeated. Test 11 after the runtime
+  confirmation, paid run on your approval. CLAUDE.md left alone.
 
 **Blockers**
-- None for the CI change. Deploy 2175's runtime check still needs your press.
-
-**Not changed, for you to decide**
-- CLAUDE.md still describes `site build` as one job (its "Reading CI"
-  bullet). I left it alone, as asked.
+- The runtime check needs your press.
+- Test 11's paid run needs a balance of at least 4, and your approval.
 
 **Exact next action**
-- Your review of the CI change. Separately, your free press confirms deploy
-  2175; after it, I prepare Test 11 with the balance it reads.
+- Your free runtime press (the boxes above). I then read it, record the
+  runtime confirmation, and hand over Test 11's paid press with the balance
+  it read.
 
 ---
 
@@ -193,6 +169,22 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-01 — Merged and deployed: deploy 2176 (the faster CI), image reused; one free check is next
+
+- **Merged, as you asked**: `main` is `78a95a47` (09:41 UTC). It carries the
+  faster CI only; no product file changed.
+- **The full integration suite was not run again**, as you said: the passing
+  run on `34fbd36d` covers `78a95a47`, whose checked files are identical
+  (same fingerprint). The unit tests passed on `78a95a47` itself.
+- **The deploy went as predicted**: one green run (2176) in 44 seconds, the
+  site image reused (`c051f625db27b5b7`), nothing to wait for.
+- **Not yet confirmed from the live server**: one free press, yours, naming
+  the new commit (the boxes in the handoff). I did not try the dispatch.
+- **Test 11 is ready except for the balance**: it needs at least 4 credits,
+  and the last reading was 3. Your free press reads the balance; the paid
+  run waits for your approval.
+- **Nothing spent, no live data written.** The bakery is unchanged.
 
 ## 2026-10-01 — `site build` takes 7m20s instead of 24½ minutes, with every check kept, for your review
 

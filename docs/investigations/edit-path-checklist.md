@@ -109,8 +109,9 @@ request.**
 
 **Test 11, one item added to an existing list: prepared, then its
 capability built (2026-10-01, on the owner's word), corrected in three
-rounds and merged and deployed in deploy 2175 the same day; the runtime
-check is pending and the paid test not run** (*Test 11*, below). Under the owner's rule (*"Add will always
+rounds and merged and deployed in deploy 2175 the same day, its code
+unchanged in deploy 2176 (the CI change); the one runtime check, now naming
+`78a95a47`, is pending and the paid test not run** (*Test 11*, below). Under the owner's rule (*"Add will always
 go in addon"*) the request reaches the add-on step, and **none of its nine
 kinds added a row to a table the site already has**: a table's seed fills
 only an empty table, and every plausible answer ended in a refusal or in a
@@ -1801,6 +1802,60 @@ yet."*
   retried; the press is the owner's.
 - **The test itself is not run.** It is prepared after the runtime check
   reads the Worker and a cold container, with the balance that check reads.
+
+### Deploy 2176, and the press prepared again (2026-10-01)
+
+**The owner**, passing the CI change: *"Merge them into main and monitor
+deployment. […] Confirm deployment succeeds and reuses image
+c051f625db27b5b7. Then provide the exact inputs for ONE free runtime check
+using the newly deployed commit. Don't request a separate check for the old
+deployment or repeat the known 403 dispatch attempt. After runtime
+confirmation, return to Test 11 […] Prepare it with the current balance and
+estimated cost; paid execution remains pending approval."*
+
+- **Deploy 2176** (run 36844328324, `success`): `main` fast-forwarded
+  `2188f706` → `78a95a47` at 09:41:11Z, the CI change only. The image was
+  reused, `c051f625db27b5b7` from 189 inputs, as predicted on both ends, and
+  the Worker's `DEPLOY_ID` is `78a95a47…`. **The product code is deploy
+  2175's**, so the one free runtime check names `78a95a47` and serves for
+  both. No dispatch was attempted. `docs/deploy-record.md`.
+- **The starting state, re-read** (09:43:29Z, free, as a visitor, with the
+  canary's own fixture code):
+  - `loaves` read whole: 200, `0-5/6`, 1,045 bytes, sha256 `ef870ebc…`,
+    the same bytes as the baseline above;
+  - the rows box below reads *"as named: 6 rows; the target is id 6, and the
+    other 5 digest to 093f2130a37a6704"*;
+  - the page's own read in price order: Sea Salt Focaccia £4.50 (id 6),
+    Country White £4.80 (1), Dark Rye £5.20 (2), Seeded Wholemeal £5.40 (3),
+    Olive & Rosemary £5.80 (4), Walnut Levain £6.00 (5);
+  - `/`, `/order`, `/gallery`, `/starter` and `/visit` all 200 at
+    `01790819484141-dgmag4`.
+- **The paid press** (prepared, **not pressed**: it waits for the runtime
+  check, the balance that check reads, and the owner's approval). Edit
+  canary, from `main`:
+  - "Run the ONE paid edit as well (yes/no)": `yes`;
+  - "What to change. REQUIRED when spend=1 …": the request above, *Add one
+    loaf to today's loaves: Rye & Caraway at £5.00, described as "A light rye
+    with toasted caraway."*;
+  - "The site to edit. …": `fold-lane-bakery`;
+  - "Refuse to spend unless the Worker reports this deploy sha …":
+    `78a95a47bfe5eaf3880fdcfd07f8bb4e083031b7`;
+  - "Refuse to spend unless a cold container reports this image id (exact)
+    …": `c051f625db27b5b7`;
+  - "Refuse to post the paid edit unless the router answers this: …":
+    `intent=addon alsoAsked=none`;
+  - "Refuse to route or spend unless one table, read whole as the site serves
+    it, is as named: …": Test 10's box, unchanged,
+    `{"table":"loaves","baseline":"093f2130a37a6704","target":{"id":6,"name":"Sea Salt Focaccia","description":"A tray bake, heavy on the oil, finished with flaky salt.","price":4.5,"photo":null,"created_at":"2026-08-21 23:06:23"}}`;
+  - every other box as it stands.
+- **The cost**: about 3–4 credits, not a cap: routing 1–2, then the add-on
+  step's own charge (the picker and the row designer, billed once, measured
+  at 2 for an addition that changes no page). Under a job that charge is
+  reserved **after** routing is paid and before the entry is written, and a
+  refused reserve stops the step with nothing added. **So the balance must be
+  at least 4 before the paid press (5 leaves a margin)**: at the last
+  reading, 3, routing would be paid and the addition could then be refused.
+  The runtime check reads the balance now.
 
 ## Test 10 — a stored list re-sorted, with real models (prepared 2026-09-30 on the owner's word, after Test 9 was closed; free preparation only; the order traced on all three demo sites; rehearsed with supplied answers through the real lane and the real edit route; decision 2b taken by the owner the same day with a scope correction: a sort across the whole site goes to the data sorter, a sort limited to one named page to the page editor, and no "whatever page they saw it" rule; the rule implemented on the branch with committed route coverage, and its scope corrected on 2026-10-01 so that a selection of pages is never sent to the sorter; passed by the owner and merged and deployed in deploy 2174 (2026-10-01); the request revised to state its scope; the baseline read; the authorized free dispatch refused (403); the owner's free press, run 83, confirmed the runtime and rehearsed Test 10, passing every check; the paid press run as run 84, 3 credits, every acceptance item met; closed by the owner the same day for run 84's demonstrated request, the bakery left at `dgmag4`, not to be repeated)
 

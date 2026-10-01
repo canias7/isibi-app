@@ -5,7 +5,7 @@
 > `docs/deploy.md`, where CLAUDE.md's **Deploy** section moved in the second
 > pass. This file keeps the measurements behind them: the
 > timing bands, every image-id prediction checked against a deploy's own log
-> (deploys 2137–2175), and the served-file check driven end to end on deploy
+> (deploys 2137–2176), and the served-file check driven end to end on deploy
 > 2139.
 >
 > **Add each new deploy here**, one paragraph per deploy, in the same shape:
@@ -713,6 +713,55 @@ container work waits 15–20 minutes.
 container's image. The session's one dispatch, at 08:32:55Z (15 minutes
 after the roll), answered **403** (`Resource not accessible by integration`)
 and was not retried, so the press is the owner's.
+
+**Deploy 2176 (2026-10-01) was predicted on both ends and reused as
+predicted**: `origin/main` `2188f706` and the candidate `78a95a47` both
+answered `c051f625db27b5b7`, from the same 189 inputs (159 distinct paths).
+The push carried the parallel `site build` (`34fbd36d`) and its records
+(`78a95a47`): two workflow files (`site-build.yml`, `unit.yml`), a script,
+tests and documents. **No product file moved**: nothing under `public/`,
+`builder/`, `worker.js`, the root modules, the Dockerfile or the package
+files. It deployed at all because a workflow file is not in `deploy.yml`'s
+ignored paths. **A fast-forward of 4 commits**, `2188f706` → `78a95a47` at
+09:41:11Z, on the owner's word ("The CI changes through 78a95a47 pass review.
+Merge them into main and monitor deployment"). Checked first:
+- **the candidate unchanged**: the branch on GitHub was exactly `78a95a47`,
+  and main was still `2188f706`;
+- **nothing in flight on GitHub**: no run in progress or queued. `edit_jobs`
+  was not read (no Supabase connector here); the deploy's drain is that
+  reading;
+- **CI**: unit run 36842657567 on `78a95a47` itself, `8531 / 8527 / 0 / 4`.
+  The full `site build`, run 36841508489, ran on `34fbd36d`, and **was not
+  repeated, on the owner's word**: `78a95a47` changed documents only, and
+  both commits print the same inputs fingerprint, `1d31ea591baf27b1` (3,967
+  files), which the run's gate printed (`ALL CHECKS: 404 checks in 27
+  sections across 4 shards, every job green`);
+- **the rollback**: reverting `2188f706..78a95a47` in a throwaway worktree
+  gives main's own tree (`026b9c93…`);
+- **no served-file reading**: nothing under `public/` changed.
+
+**One deploy run**, 2176 (36844328324, `push` on `78a95a47`), `completed` /
+`success`, the job 44 s (09:41:17–09:42:01):
+- **the gate** was set for `78a95a47…`, taking over from `2188f706…`, and the
+  drain answered `no live leases after 1s — deploying` (masked `***s`);
+- **the image**: `reused isibi-app-sitebuildcontainer:c051f625db27b5b7
+  (registry answered 200; 189 inputs off ./Dockerfile)` (masked
+  `c05***f625db27b5b7`, `***89`), in 1 s; Wrangler's container step answered
+  `no changes isibi-app-sitebuildcontainer`, the image
+  `…:c051f625db27b5b7`. **No roll, so no wait** before container work;
+- **Wrangler** (15 s): `DEPLOY_ID` `78a95a47bfe5eaf3880fdcfd07f8bb4e083031b7`
+  (masked); `No updated asset files to upload`; `Uploaded isibi-app`,
+  `Deployed isibi-app triggers`, `Current Version ID:
+  e2c54aba-778e-4d6e-b5a…-ed3f0f0525a9` (masked). The `npm error npx
+  canceled … wrangler` line before it is the action's check for an installed
+  Wrangler, also in 2175's log.
+
+**Deployed, not runtime-confirmed**: the free canary press reads the Worker's
+sha and a cold container's image. No dispatch was attempted (the owner's
+word: the known 403 is not repeated), so the press is the owner's, with
+`expect_deploy` `78a95a47…` and `expect_image` `c051f625db27b5b7`. It also
+serves for deploy 2175, whose product code is the same: no separate check is
+asked for the old deployment.
 
 ## The served-file check, driven end to end on deploy 2139
 
