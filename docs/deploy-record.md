@@ -5,7 +5,7 @@
 > `docs/deploy.md`, where CLAUDE.md's **Deploy** section moved in the second
 > pass. This file keeps the measurements behind them: the
 > timing bands, every image-id prediction checked against a deploy's own log
-> (deploys 2137–2174), and the served-file check driven end to end on deploy
+> (deploys 2137–2175), and the served-file check driven end to end on deploy
 > 2139.
 >
 > **Add each new deploy here**, one paragraph per deploy, in the same shape:
@@ -642,6 +642,76 @@ async; the two deploy readers agree, and both demands passed (the Worker is
 passed. Nothing was charged: the run's own balance read, taken after its free
 job, was 6, as at 01:12. The same press rehearsed Test 10 (the checklist's
 *Test 10*).
+
+**Deploy 2175 (2026-10-01) was predicted on both ends and built as
+predicted**: `origin/main` `322c2430` answered `b8c8789aa8e395d6` (the image
+2174 built) and the candidate `2188f706` answered `c051f625db27b5b7`, from
+188 and 189 inputs (158 and 159 distinct paths): `builder/site-rows.mjs`
+joined the Dockerfile's COPY line, and `worker.js`, `builder/site-add.mjs`
+and `builder/site-apply.mjs` moved. The push also changed `public/chat.js`
+(the add-on reply names the entries a `row` addition saved), one workflow's
+text (`lane-sweep.yml`'s harness box), scripts, tests and documents. **A
+fast-forward of 10 commits**, `322c2430` → `2188f706` at 08:09:23Z, on the
+owner's word ("The fix on 2188f706 passes review … Once both required checks
+are green, merge the reviewed changes into main and monitor deployment").
+Checked first:
+- **the candidate unchanged**: the branch on GitHub was exactly `2188f706`,
+  and main was still `322c2430`, re-read at 08:09:18Z;
+- **nothing in flight on GitHub**: no run in progress or queued at 08:09Z.
+  **`edit_jobs` was not read** (this session has no Supabase connector); the
+  deploy's own drain is the reading for jobs (below);
+- **CI on `2188f706` itself**: unit run 36832053188, `8511 / 8507 / 0 / 4`;
+  the site build, run 36832053168, `completed` / `success` with every step
+  `success` and the twelve counts read from each step's log (TAP 397,
+  kit-typecheck 4, site-build 404, contrast-cases 16, theme-seam 11,
+  theme-render 29, site-routing 14, site-runtime 47; kit-render, kit-a11y,
+  kit-effects and kit-paint `all passed`), its two `##[error]` annotations
+  the known ones inside the case that compiles a broken page on purpose;
+- **the rollback**: reverting `322c2430..2188f706` in a throwaway worktree
+  gives main's own tree (`b2115304…`), so a rollback reuses
+  `b8c8789aa8e395d6`;
+- **`public/chat.js` changed**, so its before-reading was taken at 07:54:08Z:
+  200, 789,646 bytes, sha256 `efcae48da9d14edf…`, byte-identical to
+  `322c2430`'s, with 0 occurrences of `rowsAdded` (the candidate's file has 3,
+  sha256 `b294117a4d1de7bb…`). The gates answered 401 / 401 / 401 / 404, and
+  `fold-lane-bakery` answered `01790819484141-dgmag4`, `fretwork-1`
+  `01790404806543-kk6qsh`.
+
+**One deploy run**, 2175 (36834581890, `push` on `2188f706`), `completed` /
+`success`:
+- **the gate** was set for `2188f706…`, taking over from `322c2430…`, and the
+  drain answered `no live leases after 0s — deploying`; the clear step left
+  it to expire on `DEPLOY_OUTCOME: success`;
+- **the image**: the log answered `built
+  isibi-app-sitebuildcontainer:c051f625db27b5b7 (registry answered 404; 189
+  inputs off ./Dockerfile)` (masked `c05***f625db27b5b7`, `***89`), 15 layers
+  `Pushed`, no second attempt; and Wrangler's container step `EDIT
+  isibi-app-sitebuildcontainer`, `- "image": …:b8c8789aa8e395d6` / `+
+  "image": …:c051f625db27b5b7`, `SUCCESS Modified application
+  isibi-app-sitebuildcontainer`, `Applied changes`;
+- **timings**: image step **7m37s** (08:09:54–08:17:31), outside the band
+  for a roll (2m06s–2m16s on 2138, 2139 and 2143; up to ~3m on a cold
+  runner). Read from the step's own timestamps: 0 `CACHED` lines as always,
+  and the first `RUN apt-get update && apt-get install … chromium …` layer
+  alone took **355.8 s**; the rest of the build ~31 s and the push 63 s. A
+  slow package mirror on the runner, not a change of ours: the Dockerfile's
+  apt layer did not move. Wrangler 19 s (08:17:32–08:17:51), job 8m24s
+  (08:09:30–08:17:54);
+- **Wrangler**: `DEPLOY_ID` `2188f70680a844a3e7c56dd339a0483e357b51af`
+  (masked); one asset uploaded, `+ /chat.js` (`Uploaded 1 of 1 asset`, 85
+  already uploaded); `Uploaded isibi-app`, `Deployed isibi-app triggers`,
+  `Current Version ID: 6aa6d40…-2efb-4a03-be36-4…376e355df5` (masked).
+
+**The served file, read after** (08:20:32Z): `/chat.js` 200, 790,308 bytes,
+sha256 `b294117a4d1de7bb…`, **byte-identical to `2188f706:public/chat.js`**,
+with 3 occurrences of `rowsAdded` (0 before). The gates answered 401 / 401 /
+401 / 404, as before every deploy; `fold-lane-bakery` still answers
+`dgmag4` and `fretwork-1` `kk6qsh`. The image rolled at 08:17:51Z, so
+container work waits 15–20 minutes.
+
+**Deployed, not runtime-confirmed**: pending. The free canary press reads the Worker's sha and a cold
+container's image; the session tries its dispatch once after the 15–20
+minute hold from 08:17:51Z, and on the known 403 the press is the owner's.
 
 ## The served-file check, driven end to end on deploy 2139
 

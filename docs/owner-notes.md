@@ -1,158 +1,106 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-01, 07:42 UTC)
+## Current handoff — read this first (2026-10-01, 08:22 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- `main` is `322c2430` (deploy 2174, image `b8c8789aa8e395d6`),
-  runtime-confirmed, and unchanged.
-- **The add-on `row` kind (Test 11's capability) is on the branch, with three
-  correction rounds from your reviews, for your review.** Not merged, not
-  deployed.
-  - `31741f6f`, after your review of `f6532d66`: an entry whose answer is
-    lost is settled from the request's key.
-  - `c3e310e6`, after your review of `31741f6f`: protection before the entry
-    is written. Its CI is green (below).
-  - This round's commit (the branch's head), after your review of
-    `c3e310e6`: before an entry is written, the ledger itself confirms the
-    job may still write and starts the write, in one step, both before and
-    after the entry's key is recorded.
+- **`main` is `2188f706`, deploy 2175** (merged at 08:09 UTC, a fast-forward
+  of 10 commits from `322c2430`, on your word after your review passed the
+  fix). It carries the add-on `row` kind (Test 11's capability) with all
+  three correction rounds from your reviews.
+- **Deployment: succeeded** (the deploy's own record, below).
+- **Runtime confirmation: not yet.** The free check is next. After the image hold
+  (until about 08:33 UTC) I try its dispatch once; if GitHub refuses it with
+  the usual 403, the press is yours, with the boxes below.
 - Nothing spent, no live data written, no live SQL change, no routing change.
-  The bakery is at `dgmag4` with its six loaves. Balance 3.
+  The bakery is still at `dgmag4` with its six loaves; fretwork-1 at
+  `kk6qsh`. The balance was 3 at the last reading; your free check reads it
+  again.
 
-**Completed this round** (your review of `c3e310e6`)
-- **Your reviewer's race, reproduced first**, through the real handler and
-  the real consumer. The job's mark checks only who holds the job, and a
-  refund leaves the holder on the row. So a job that stalled after its
-  reserve, while the sweep refunded it, came back to a mark that still said
-  yes, and wrote the entry: seven loaves, billing refunded, and a success
-  reply showing a cost.
-- **The guard is now the ledger's own gate, and no database function
-  changed.** The gate (`edit_may_publish`) is the one the page publisher
-  already uses. In a single database statement it checks four things: the
-  job is still this consumer's, with a live lease; it isn't finished,
-  refunded, cancelled or under review; and it's paid for, or exempt. In the
-  same statement it marks the write as started. Before an entry is written:
-  1. the gate;
-  2. the entry's key is recorded;
-  3. the gate again, last.
+**CI on the merged commit** (`2188f706` itself, both green before the merge)
+- Unit tests: `8511 / 8507 / 0 / 4` (run 36832053188; the same total as
+  locally, CI skipping its usual four).
+- Site build: `success` (run 36832053168), with all twelve counts read from
+  each step's log: 397, 4, all passed, 404, 16, 11, all passed ×3, 29, 14,
+  47. Its two error annotations are the known ones in the case that compiles
+  a broken page on purpose.
 
-  Anything but three yeses writes nothing.
-- **If a refund or the end of the job wins the race, no entry is written.**
-  The customer reads "nothing was added and you won't be charged for it", and
-  the reserve comes back once.
-- **If the gate wins, a later refund can't undo it.** The sweep finds the
-  write started and pauses the job with the money held. Then the entry's key
-  settles it: kept if the entry is there, refunded only after an empty key is
-  closed.
-- **Founder (exempt) accounts work as before**: let through, written once,
-  charged nothing.
-- **Two older limits are closed by the same gate.** A cancel asked before the
-  entry is written now stops it, and your site is held busy from the gate on.
+**Deployment evidence** (the deploy reporting on itself, not the live
+server answering)
+- Before merging: the rollback gives back the old main exactly; nothing was
+  running on GitHub; the served `chat.js` was read (identical to the old
+  main's).
+- Deploy 2175 (run 36834581890): `success`.
+  - The Worker was uploaded with `DEPLOY_ID` `2188f706…`.
+  - The container image was built exactly as predicted from the build
+    inputs: `c051f625db27b5b7` (189 inputs), and the container moved from
+    `b8c8789aa8e395d6` to `c051f625db27b5b7` at 08:17:51 UTC.
+  - No edit job was in flight (the deploy's drain found none).
+  - The one changed browser file, `chat.js`, is served byte for byte as
+    merged.
+  - The image step took 7½ minutes instead of the usual 2–3: one slow
+    package download on GitHub's machine (the Chromium install, 356 s),
+    nothing of ours.
 
-**Test results** (all free: supplied answers, a test database, nothing live,
-nothing paid)
-- **The red check on `c3e310e6`**: 7 of the 84 tests fail there (69 row
-  tests, 15 canary tests).
-  - "the entry was written after the refund won": your reviewer's race.
-  - "a row was written by a job no longer eligible": twice, once with the
-    lease run out and once with a cancel asked.
-  - "a row was written by a job the review had refunded": a refund that wins
-    just after the first gate.
-  - The two lost-gate-answer cases, and one changed expectation.
-- **Now**: 69 of 69 row tests and 15 of 15 canary tests pass. New coverage:
-  - your reviewer's exact race;
-  - the opposite order: protection wins, and the uncertain write is held
-    until the key keeps it (one entry, one charge);
-  - a refund just after the first gate;
-  - a lost gate answer, before and after it applied;
-  - a job no longer eligible, two ways;
-  - a founder account.
-- **Mutation sweep**: 16 of 16 deliberate breakages caught (12 for the gate,
-  4 for lines this round moved), and the comment-only control stayed green.
-  One more breakage turned out to be impossible to tell apart from the real
-  code, and was replaced by one that can be told apart.
-- **Full suite**: 8,511 of 8,511 (8,503 on `c3e310e6`, plus the 8 new cases).
-- **CI on `c3e310e6`**: unit tests `8503 / 8499 / 0 / 4` (run 36828211851,
-  CI skips its usual four). The site build's job and every one of its steps
-  passed (run 36828211849); I read its overall result, not each step's counts.
-  **CI on this round's push** starts with the push; it is not read yet.
+**Runtime check** (your free canary press, spend `no`)
+- Not yet run. Its boxes, by the description the form shows (leave every other box as
+it is, "What to change" empty):
 
-**Remaining limits** (backlog; none changes your data)
-- Real routing, the real picker and the real row designer are untested until
-  the live run.
-- **New this round**:
-  - A job whose consumer dies after the gate holds your site until its
-    publishing time runs out. The sweep pauses it about six minutes later,
-    rather than about three. The page publisher does the same.
-  - A job refunded while its consumer was stalled is paused once more when
-    that consumer comes back. It is settled again at once, with no money
-    moving. That is how the live refund function behaves; nothing changed
-    there.
-- **Unchanged**:
-  - While a row job is under review, a new message gets the general "That
-    edit stopped while it was publishing…" sentence (a browser change, not
-    done).
-  - Inline (only when the queue switch is off; production queues every
-    add-on): there is no job to gate, so nothing pauses the site and a new
-    message can add a second entry. An entry nobody could confirm is never
-    charged.
-  - A database refusal on a queued job is refunded through the review. If the
-    site's database is unreachable at that moment, the site stays paused
-    until the next sweep tick.
-  - A job that died after recording its entries and before its finalize gets
-    the sweep's general "recovered" reply, which names no entry. The entry
-    and the charge are right.
-  - A job that runs again (only when deleting its stored request failed) and
-    writes fresh entries reports cost 0 in its reply, while the first reserve
-    is the one kept.
-  - From the build, still true:
-    - a site whose database has no settings table can't take an entry;
-    - "£5.00" instead of 5 is refused as a generic write failure;
-    - one marker row per request stays;
-    - a list named in other capitals is refused;
-    - an entry beside other additions is set aside;
-    - every addition on a site with a public list reads one marker first;
-    - a site with no public list still costs us one model call before
-      refusing;
-    - the canary's after-read sentence says "the edit did not publish" for
-      an addition.
+"Use workflow from":
+```
+main
+```
+"Run the ONE paid edit as well (yes/no)":
+```
+no
+```
+"The site to edit. Defaults to the canary site; name another to run this against it. Not needed with read_job.":
+```
+fold-lane-bakery
+```
+"Refuse to spend unless the Worker reports this deploy sha (prefix, >=7 chars). Blank = read and print only.":
+```
+2188f70680a844a3e7c56dd339a0483e357b51af
+```
+"Refuse to spend unless a cold container reports this image id (exact). Blank = read and print only.":
+```
+c051f625db27b5b7
+```
+It spends nothing. It confirms the runtime when both readers answer
+`2188f70680a8` and a cold container answers `c051f625db27b5b7`, and it
+reads the balance and the ledger.
 
-**Updated paid-test estimate** (Test 11, once merged and deployed)
-- About 3–4 credits, not a cap: routing 1–2, plus the add-on's own charge of
-  at least 1 (2 measured for an add-on that changes no page).
-- Before it: your merge, a deploy (the container image rolls
-  `b8c8789aa8e395d6` → `c051f625db27b5b7`, then 15–20 minutes), your free runtime
-  check, and a top-up (balance 3).
+**Test 11** (adding one loaf): prepared once your free check confirms the
+runtime, with the balance it reads and an updated estimate. The paid test is
+not run.
+
+**Remaining limits** (backlog; none changes your data): unchanged from the
+last handoff, in `docs/backlog.md` (*THE ADD-ON `row` STEP'S KNOWN LIMITS*).
+Real routing, the real picker and the real row designer stay untested until
+Test 11's live run.
 
 **Links**
-- The story and the evidence: `docs/history/2026-10-01-add-row.md` §9, §10
-  and §11. The kind's rules: `docs/addon-path.md` (*THE `row` KIND*). The
-  limits: `docs/backlog.md` (*THE ADD-ON `row` STEP'S KNOWN LIMITS*). The
-  test: the checklist's *Test 11*.
+- The deploy: `docs/deploy-record.md` (deploy 2175). The kind and its three
+  rounds: `docs/history/2026-10-01-add-row.md` §9–§12. The test: the
+  checklist's *Test 11*.
 - Branch commits: https://github.com/canias7/isibi-app/commits/claude/help-needed-ehlwlj
 
 **From our chat**
-- Recorded in `owner-preferences.md`:
-  - a guard decides eligibility and protection in one step (a status read
-    followed by an unconditional mark doesn't);
-  - reuse an existing guarded operation when it enforces the rule, and
-    prepare any database change for review without applying it live;
-  - a race is covered in both orders.
-- No database function needed changing, so no change is prepared for one.
-- Test 11 stays unproven live; no accepted test reopened; CLAUDE.md left
-  alone.
+- Merged on your word once both required checks were green; deployment and
+  runtime confirmation recorded as two separate things. Accepted tests stay
+  closed, demo data as it stands, CLAUDE.md left alone.
 
 **Blockers**
-- None for review. The paid test needs your merge, the deploy and your free
-  check, and a top-up.
+- The free runtime check needs your press if my one dispatch is refused
+  (403, as on every earlier deploy).
 
 **Exact next action**
-- Your review of the branch. Nothing merges, deploys or spends until you
-  say so.
+- The free runtime check (the boxes above), after 08:33 UTC. Once it
+  confirms, I prepare Test 11 with the balance it reads. Nothing spends until
+  you say so.
 
 ---
 
@@ -212,6 +160,25 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-01 — Merged and deployed: deploy 2175 carries the add-on `row` kind; the free runtime check is next
+
+- **Merged, as you asked**, once both required checks were green on the
+  reviewed commit itself: unit tests 8,511 (four skipped on GitHub, as
+  always) and the site build with all twelve counts. Main is `2188f706`,
+  moved at 08:09 UTC.
+- **Checked before merging**: undoing the merge gives back the old main
+  exactly; nothing was running; the site image was worked out in advance
+  (`c051f625db27b5b7`); the served `chat.js` was read first.
+- **The deploy went as predicted**: one green run (deploy 2175). The Worker
+  is `2188f706`, the container image `c051f625db27b5b7`, built from the
+  actual inputs, and the new `chat.js` is served exactly as merged. No edit
+  job was in flight. The image step was slow (7½ minutes) because of one
+  slow download on GitHub's machine, not anything we changed.
+- **Not yet confirmed from the live server.** That is the free canary press
+  (boxes in the handoff above), after the image hold.
+- **Nothing spent, no live data written.** The bakery is unchanged at
+  `dgmag4`; Test 11 is not run.
 
 ## 2026-10-01 — Your review of `c3e310e6`: the entry is written only after the ledger's own gate says yes, for your review
 

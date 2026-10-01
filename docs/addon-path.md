@@ -37,7 +37,8 @@ together with everything that renders it. Outside connections carry `returns`,
 typed `params` and `credential` (`site-api-shape.mjs`), none of them in the
 cache key. Which kinds have been proven live is the table under *What is proven
 live*, below. **One more entry in a list the site already stores is `row`**
-(2026-10-01, on the branch, not merged): asked alone it is written with the
+(2026-10-01; merged and deployed in deploy 2175, not yet shown live): asked
+alone it is written with the
 data step's own parameterised insert, beside the request's key in one
 statement, with no page call and no publish; beside other kinds it is set
 aside and named (*THE `row` KIND*, below).
@@ -60,7 +61,7 @@ and its next step is a CHANGE.
 | `qr` | 51 published `qr-gallery.svg` and **the served file re-encodes to `/gallery`** | nothing has ever scanned one |
 | `three` | **measured live today**: `fretwork-1` and `ashgrove-1` each serve a `@react-three/fiber` canvas | **which PATH made it** — `three` is a dispatched EDIT lane as well as an addon kind, so a probe of the document cannot say |
 | `photo` | **NONE.** Run 51 reached the provider and was **refused** | **the whole kind**, parked on fal funding |
-| `row` | **NONE yet** — built on the branch 2026-10-01, shown only with supplied answers through the real route; Test 11 is its live test | **the whole kind live**: real routing, the real picker and designer, a real write |
+| `row` | **NONE yet** — merged and deployed in deploy 2175 (2026-10-01), shown only with supplied answers through the real route; Test 11 is its live test | **the whole kind live**: real routing, the real picker and designer, a real write |
 
 **Eight of nine have landed their own work on a real site. The ninth has not,
 and its blocker is a balance rather than code.** The tenth, `row`, is new
@@ -155,7 +156,7 @@ does name one — moved up to the supported list on 2026-09-20.)*
 
 ---
 
-### THE `row` KIND: ONE MORE ENTRY IN A LIST THE SITE ALREADY STORES (2026-10-01, on the branch)
+### THE `row` KIND: ONE MORE ENTRY IN A LIST THE SITE ALREADY STORES (2026-10-01, deploy 2175)
 
 The owner's rule is *"Add will always go in addon"*, and until this kind no
 add-on kind could add a row to a table the site already has (Test 11's trace,

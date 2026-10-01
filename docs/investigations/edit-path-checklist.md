@@ -108,8 +108,9 @@ request.**
   pages stays unproven with real models. Not to be repeated.
 
 **Test 11, one item added to an existing list: prepared, then its
-capability built on the branch (2026-10-01, on the owner's word), not merged
-or deployed** (*Test 11*, below). Under the owner's rule (*"Add will always
+capability built (2026-10-01, on the owner's word), corrected in three
+rounds and merged and deployed in deploy 2175 the same day; the runtime
+check is pending and the paid test not run** (*Test 11*, below). Under the owner's rule (*"Add will always
 go in addon"*) the request reaches the add-on step, and **none of its nine
 kinds added a row to a table the site already has**: a table's seed fills
 only an empty table, and every plausible answer ended in a refusal or in a
@@ -309,8 +310,8 @@ the owner's free press, run 51, at 22:57 UTC):
    a pass. **Removing is closed by the owner** (run 80, after the row
    check's first live run, 79; the data picker's delete instructions were
    corrected first, Lane 1a, deploy 2171). Adding goes to the add-on step
-   (the owner, 2026-10-01), whose `row` kind is built on the branch and not
-   yet merged, deployed or shown live (*Test 11*).
+   (the owner, 2026-10-01), whose `row` kind is merged and deployed (deploy
+   2175) and not yet shown live (*Test 11*).
    **Reordering is closed by the owner** (Test 10, run 84, 2026-10-01).
 6. **The rules rung beyond one closing**: reopening, closing by taking write
    access away, limits, and any other wording or site.
@@ -1246,8 +1247,8 @@ approves it.
 - **Still open**:
   - adding a row to a list (deleting is closed by the owner: run 80,
     2026-09-30; reordering closed by the owner: Test 10, run 84,
-    2026-10-01). Adding goes to the add-on step, whose `row` kind is built
-    on the branch, not merged and not shown live (*Test 11*);
+    2026-10-01). Adding goes to the add-on step, whose `row` kind is merged
+    and deployed (deploy 2175) and not shown live (*Test 11*);
   - broader rules;
   - the picture swap;
   - a correct component on the first attempt;
@@ -1368,7 +1369,7 @@ in the next data press.
 - **Then**: one merge, one free runtime check, and the lane 4 presses. Those
   on different sites can overlap a minute apart, as Batch 1's did.
 
-## Test 11 — one item added to an existing list (prepared 2026-10-01 on the owner's word, after Test 10 was closed; free analysis only, nothing spent, no routing change; its capability — the add-on `row` kind — and the canary's add-on press built on the branch the same day on the owner's word, verified free, not merged or deployed; real model routing unproven; the expectation corrected: the new entry's id is the database's, not necessarily 7)
+## Test 11 — one item added to an existing list (prepared 2026-10-01 on the owner's word, after Test 10 was closed; free analysis only, nothing spent, no routing change; its capability — the add-on `row` kind — and the canary's add-on press built on the branch the same day on the owner's word, verified free, corrected in three rounds after the owner's reviews, and merged and deployed in deploy 2175 the same day (runtime check pending); real model routing unproven; the expectation corrected: the new entry's id is the database's, not necessarily 7)
 
 **The owner**: *"Next, prepare the remaining 'add one item to an existing
 list' test using free analysis only. Respect my existing rule: 'Add will
@@ -1769,6 +1770,36 @@ live."*
   "stopped while publishing" sentence, inline, a definite refusal through
   the review).
 - **Test 11 stays unproven live**; no accepted test is reopened.
+
+### Merged and deployed (deploy 2175, 2026-10-01)
+
+**The owner**: *"The fix on 2188f706 passes review. Wait for its site-build
+CI to finish successfully. If it fails, diagnose and report before merging.
+Once both required checks are green, merge the reviewed changes into main and
+monitor deployment. Confirm the deployed commit and expected container image
+from the actual build inputs. Then run the existing non-spending runtime
+check. Try dispatch once; if it returns the known 403, stop and give me the
+exact workflow inputs, each separately copyable. Deployment success and
+runtime confirmation must be recorded separately. After runtime
+confirmation, prepare Test 11's existing add-one-loaf request with the
+current credit balance and updated cost estimate. Do not run the paid test
+yet."*
+
+- **CI on `2188f706`**: unit run 36832053188, `8511 / 8507 / 0 / 4`; the
+  site build, run 36832053168, `success`, its twelve counts as recorded.
+- **Merged**: `main` fast-forwarded `322c2430` → `2188f706` (10 commits) at
+  08:09:23Z, after the rollback, the image prediction and the served
+  `chat.js` before-reading.
+- **Deployment, deploy 2175** (run 36834581890, `success`): the Worker's
+  `DEPLOY_ID` is `2188f706…`; the image was built as predicted,
+  `c051f625db27b5b7` from 189 inputs, and the container moved
+  `b8c8789aa8e395d6` → `c051f625db27b5b7` at 08:17:51Z; `/chat.js` was the
+  one asset uploaded, and the served file is byte-identical to the merged one.
+  The drain found no live leases. `docs/deploy-record.md`.
+- **Runtime confirmation**: pending: the free canary press, after the image hold; the session
+  tries its dispatch once, and on the known 403 the press is the owner's.
+- **The test itself is not run.** It is prepared after the runtime check
+  reads the Worker and a cold container, with the balance that check reads.
 
 ## Test 10 — a stored list re-sorted, with real models (prepared 2026-09-30 on the owner's word, after Test 9 was closed; free preparation only; the order traced on all three demo sites; rehearsed with supplied answers through the real lane and the real edit route; decision 2b taken by the owner the same day with a scope correction: a sort across the whole site goes to the data sorter, a sort limited to one named page to the page editor, and no "whatever page they saw it" rule; the rule implemented on the branch with committed route coverage, and its scope corrected on 2026-10-01 so that a selection of pages is never sent to the sorter; passed by the owner and merged and deployed in deploy 2174 (2026-10-01); the request revised to state its scope; the baseline read; the authorized free dispatch refused (403); the owner's free press, run 83, confirmed the runtime and rehearsed Test 10, passing every check; the paid press run as run 84, 3 credits, every acceptance item met; closed by the owner the same day for run 84's demonstrated request, the bakery left at `dgmag4`, not to be repeated)
 

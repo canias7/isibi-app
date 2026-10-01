@@ -326,7 +326,7 @@ here; take a closed one out of both.**
     aside and named, never written; the canary's after-read sentence says
     "the edit did not publish" for an addition.
   - **AFTER THE OWNER'S REVIEWS OF `f6532d66`, `31741f6f` AND `c3e310e6`
-    (2026-10-01; on the branch, not merged).** A write whose outcome the step
+    (2026-10-01; merged and deployed in deploy 2175).** A write whose outcome the step
     cannot see is settled from the request's key. A queued job writes only
     after three yeses: the ledger's own gate (`edit_may_publish`: the lease's
     live holder, the job not finished, refunded, cancelled or under review,
