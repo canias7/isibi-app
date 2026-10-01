@@ -78,6 +78,9 @@ here; take a closed one out of both.**
 - A hand-picked order ("put the Walnut Levain at the top") is told "I
   couldn't match that to anything the site stores". Found 2026-09-30, not
   changed.
+- A data-step job's row reads `routing` until it publishes (run 84: from
+  18 s to 112 s, while it sorted, compiled and checked). Found 2026-10-01,
+  observed once, not changed.
 - ~~No route test drives a successful sort to its publish~~: covered
   (`test/edit-list-sort.test.mjs`, both paths, 2026-09-30).
 - A natural message cannot hand the picture step a new photograph without
@@ -213,6 +216,14 @@ here; take a closed one out of both.**
 
 ## Backlog
 
+- **A DATA-STEP JOB'S ROW READS `routing` UNTIL IT PUBLISHES (found
+  2026-10-01 in Test 10's run 84; not changed).** The canary's poll printed
+  `routing` from 18 s to 112 s and `publishing` at 126 s, while the sort
+  lane rewrote `order.tsx`, compiled the site and checked it. A reader of
+  the job row, or of the canary's progress lines, cannot tell the data
+  step's work from a routing wait. The browser shows no text from the
+  state, so the customer sees nothing different. Observed once; whether
+  every data-step job does this is not read.
 - **THE FIRST-RUN WELCOME MODAL GREETS A RETURNING OWNER ON A NEW BROWSER
   (found 2026-09-30 by Test 9's local proof; not changed).**
   - **What happens**: `maybeShowWelcome` (`public/chat.js`) covers the page

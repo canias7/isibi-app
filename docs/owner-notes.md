@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-01, 01:55 UTC)
+## Current handoff — read this first (2026-10-01, 02:10 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -8,114 +8,80 @@ is in git; the dated entries further down are the full story.*
 
 **State now**
 - `main` is `322c2430`, **deploy 2174**, container image
-  `b8c8789aa8e395d6`. **Runtime-confirmed by your free press, run 83**
-  (01:42 UTC).
-- The branch `claude/help-needed-ehlwlj` is `main` plus these records.
-- Balance 6 (run 83's own read, 01:42 UTC). Nothing spent.
+  `b8c8789aa8e395d6`, runtime-confirmed by your free press, run 83.
+- **Test 10 ran as your paid run 84, and every check passed**, for your
+  review. Closing it is your call.
+- The bakery is now live at version `dgmag4`, with the loaves listed
+  cheapest first. Nothing was put back (the demo-site rule).
+- Balance 3 (run 84's own read after the edit).
 
-**Completed**
-- **Your free press, run 83, passed every check**:
-  - both deploy readers answered `322c24301da9`, and a cold container
-    answered `b8c8789aa8e395d6`, so the deploy is live;
-  - `ALL FREE CHECKS PASSED`;
-  - the stored pages were read in full, and all five are byte-identical to
-    the bakery's recorded pages (`test/fixtures/run47`);
-  - the `loaves` table read `as named`: the same six rows, the target row
-    exact and the other five matching their digest;
-  - the balance read 6, and it stopped with "Nothing was charged".
-- **The pages haven't changed**: run 83's copy of each page matches my 01:04
-  read in length. A fresh read at 01:45 matches run 83's copy exactly, apart
-  from two time stamps the site writes into every page on each visit.
-- **The baseline for Test 10 is complete**: the table, the stored pages, the
-  order shown on `/order` (alphabetical), the redirects, and screenshots.
-
-**Your paid press: Test 10, for your approval** (about 2–3 credits; the
-balance is 6)
-
-Edit canary, "Use workflow from" `main`. The same boxes as run 83, except
-the first:
-- "Run the ONE paid edit as well (yes/no)": `yes`
-- "What to change. REQUIRED when spend=1 — there is no default, and a blank
-  one refuses.": `Across the site, list the loaves from cheapest to most
-  expensive.`
-- "READ ONE EXISTING JOB AND STOP: …": blank
-- "PUT ONE SAVED VERSION BACK, THEN READ IT AND STOP: …": blank
-- "RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: …": blank
-- "Rules test only (4b-rules-close): …": blank
-- "The site to edit. …": `fold-lane-bakery`
-- "A second site, used only to prove the OTHER half of the async shape. …":
-  `washhouse-3` (as it stands)
-- "Refuse to spend unless the Worker reports this deploy sha (prefix, >=7
-  chars). …": `322c2430`
-- "Refuse to spend unless a cold container reports this image id (exact).
-  …": `b8c8789aa8e395d6`
-- "Refuse to post the paid edit unless the router answers this: …":
-  `layer=data alsoAsked=none`
-- "Refuse to route or spend unless one table, read whole as the site serves
-  it, is as named: …":
-
-  ```
-  {"table":"loaves","baseline":"093f2130a37a6704","target":{"id":6,"name":"Sea Salt Focaccia","description":"A tray bake, heavy on the oil, finished with flaky salt.","price":4.5,"photo":null,"created_at":"2026-08-21 23:06:23"}}
-  ```
-
-What it should do:
-- the router sends it to the data step, with nothing held back. Any other
-  answer is refused before the edit, costing only the routing (1–2
-  credits);
-- one line of the order page changes (sorted by price instead of by name),
-  and the site publishes once;
-- `/order` then shows the loaves cheapest first: Sea Salt Focaccia £4.50,
-  Country White £4.80, Dark Rye £5.20, Seeded Wholemeal £5.40, Olive &
-  Rosemary £5.80, Walnut Levain £6.00;
-- the reply: "✅ loaves now comes out in order of price, lowest first — on 1
-  page.";
-- no row changes, and every other page stays as it is.
-
-The cost is routing 1–2 plus the data step 1. Publishing is free. This is an
-estimate, not a cap.
+**Completed: run 84** (01:50–01:53 UTC, 3 credits)
+- **The router**: the real router sent it to the data step, with nothing
+  held back (2 credits). It also found the site's tables by itself, as
+  Lane 1's fix intended.
+- **The change**: exactly one line of the order page changed, from sorted
+  by name to sorted by price, lowest first. The other four pages are
+  byte-identical, and the site published once.
+- **What visitors see**: `/order` lists Sea Salt Focaccia £4.50, Country
+  White £4.80, Dark Rye £5.20, Seeded Wholemeal £5.40, Olive & Rosemary
+  £5.80, Walnut Levain £6.00. Each loaf's text is as before; only the order
+  changed. I sent you a before/after picture.
+- **The reply**: "✅ loaves now comes out in order of price, lowest first —
+  on 1 page."
+- **Nothing else changed**:
+  - the loaves table is byte-identical (no row written);
+  - the other four pages match their earlier screenshots to the pixel, and
+    on `/order` only the list itself moved;
+  - menus, headings, photos, the site description and the redirects are all
+    as before.
+- **Money**: 6 → 3, which is routing 2 and the edit 1, inside the 2–3
+  estimate.
 
 **Test results**
-- Run 83: every check passed, as listed above.
-- No code changed since your review. Unit CI on the branch's records is
-  green (run 36801044473, on `a7d6dd84`).
+- Run 84: every acceptance item met (the checklist's *Test 10*, *Run 84*).
+- My own reads, free and read-only: the table at 01:57 UTC, every page in a
+  browser, a pixel comparison of all five pages, and the redirects.
 
 **Links**
+- Run 84: https://github.com/canias7/isibi-app/actions/runs/36802989624
 - Run 83: https://github.com/canias7/isibi-app/actions/runs/36802348994
-- Deploy run 2174: https://github.com/canias7/isibi-app/actions/runs/36798842190
-- The press: https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml
-- The records: `docs/history/2026-10-01-sort-scope.md` §7,
-  `docs/deploy-record.md` (deploy 2174), and the checklist's *Test 10*.
+- The records: the checklist's *Test 10* (*Run 84*), and
+  `docs/history/2026-10-01-sort-scope.md` §7.
 
 **From our chat**
 - A sorting request that names no page stays site-wide.
 - What a real model does with a request for a chosen group of pages stays
-  unproven. There is no extra paid test for it.
-- Accepted tests stay closed, the demo data stays as it stands, and
-  CLAUDE.md is left alone.
+  unproven, with no extra paid test.
+- Accepted tests stay closed, and CLAUDE.md is left alone.
 
 **Blockers**
-- None for the press.
+- None.
 - One limit on my checks: the Supabase connector dropped out of this
-  session after 01:12, so I couldn't re-read the ledger after run 83. The
-  run's own balance read is the evidence. After the paid run, if its own
-  money lines aren't enough, a free "read one job" press gives the ledger
-  rows.
+  session, so I couldn't read the job's ledger rows, or whether any job is
+  left open. The canary's own balance reads (6 before the edit, 3 after)
+  cover the money. If you want the ledger rows, one free press reads them.
+  Edit canary, `main`:
+  - "Run the ONE paid edit as well (yes/no)": `no`;
+  - "READ ONE EXISTING JOB AND STOP: …": `7bf9cbcbad73bf4d86c2d379154604d3`;
+  - "Refuse to post the paid edit unless the router answers this: …" and
+    "Refuse to route or spend unless one table, …": blank (a filled box
+    beside a read is refused);
+  - the other boxes don't matter for a read.
 
-**Findings, kept separate** (backlog, unchanged since your review)
-- For a chosen group of pages:
-  - the `look` step's picker has no part described for a list's order;
-  - each page likely costs the full page writer (6–22 credits);
-  - the reply names neither page;
-  - only the router's instructions keep such a request from the sorter.
-- Also unchanged: a hand-placed order is told "I couldn't match that"; the
-  quick writer's one-page reply doesn't mention other pages; the welcome
-  pop-up; the deleted row's reply cut at 40 characters.
+**Findings, kept separate** (backlog)
+- New: a data-step job's row reads "routing" until it publishes (run 84: for
+  about 95 seconds while it sorted and rebuilt the site). The browser shows
+  nothing from it, so customers see no difference. Observed once.
+- Unchanged: for a chosen group of pages, the picker has no part described
+  for a list's order, each page likely costs the full page writer, the
+  reply names neither page, and only the router's instructions keep it from
+  the sorter. Also a hand-placed order is told "I couldn't match that", the
+  quick writer's one-page reply doesn't mention other pages, the welcome
+  pop-up, and the deleted row's reply cut at 40 characters.
 
 **Exact next action**
-1. Your approval and the paid press, with the boxes above.
-2. I read it and check: the route; the one changed line and the other four
-   pages; the table unchanged; the order shown on `/order`; the other pages
-   and the redirects; and the money.
+- Your review of Test 10 (runs 83 and 84). Closing it is your call.
+- Optional: the free press above, for the job's ledger rows.
 
 ---
 
@@ -175,6 +141,29 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-01 — Test 10 passed every check (run 84): the loaves are listed cheapest first, for your review
+
+**What you asked for**: "Across the site, list the loaves from cheapest to
+most expensive."
+
+**What happened**: the real router sent it to the data step, which changed
+exactly one line of the order page (sorted by price instead of by name) and
+published once. `/order` now lists Sea Salt Focaccia £4.50 first and Walnut
+Levain £6.00 last, and the reply said exactly what was done, "on 1 page".
+
+**What didn't change**: the loaves themselves (the table is byte-identical),
+the other four pages (identical to the pixel), the rest of the order page,
+menus, photos, the site description and the redirects.
+
+**Cost**: 3 credits (routing 2, the edit 1), inside the 2–3 estimate. The
+balance is 3.
+
+**Not read**: the job's ledger rows, because the Supabase connector dropped
+out of this session. The canary's own before-and-after balance covers the
+money, and a free press can read the rows if you want them.
+
+**Next**: your review. Closing Test 10 is your call.
 
 ## 2026-10-01 — Your free check passed (run 83): deploy 2174 is live, and Test 10 is ready to press
 

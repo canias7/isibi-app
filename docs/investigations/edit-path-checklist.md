@@ -91,8 +91,10 @@ is not to be repeated.
 - The demo data stays as it stands: the Hour one-to-one is £45.
 
 **Test 10, a stored list re-sorted: decision 2b taken by the owner, the rule
-built on the branch and its scope corrected after the owner's review, not
-merged** (*Test 10*, below; nothing spent, not run). On all three demo sites
+built and its scope corrected after the owner's review, merged and deployed
+(deploy 2174, runtime-confirmed by run 83), and run as the paid run 84 for 3
+credits, every acceptance item met, for the owner's review** (*Test 10*,
+below). On all three demo sites
 a list's order is written in page code (the `{ order, dir }` of the page's
 `useRows` call); no table has an ordering field. The owner's rule, as
 corrected on 2026-10-01 (*"'not limited to one page' does not mean
@@ -110,8 +112,10 @@ Implemented as two router sentences. 24 tests cover it (14 on the router, 10
 through the whole chain), each named as an instruction check, a structure
 check or a supplied-answer check, none a real model. Red-checked and swept.
 The acceptance states its scope: *"Across the site, list the loaves from
-cheapest to most expensive."* on `fold-lane-bakery`, one stored line
-changed, about 2–3 credits, after the owner's review, a merge and a deploy.
+cheapest to most expensive."* on `fold-lane-bakery`. Run 84: the real router
+answered `data`, exactly one stored line changed, one publish, no row
+written, the rest of the site identical, 3 credits (routing 2, the data step
+1).
 
 **Lane 1 (2026-09-30): four corrections, merged and deployed in deploy 2171
 (`29111010`, image `cdb624837e099719`; the deployment credited by the owner),
@@ -1335,8 +1339,9 @@ accepted test.
   path. **Closed by the owner** (run 80, after run 79's free rehearsal,
   2026-09-30; *Lane 4's delete*, below).
 - **Add** (after 2a, and lane 3 if `data`).
-- **Reorder** (after 2b and lane 3): 2b decided and its rule built on the
-  branch; Test 10 prepared (2026-09-30), after a merge and a deploy.
+- **Reorder** (after 2b and lane 3): 2b decided and its rule merged and
+  deployed (deploy 2174); Test 10 run as run 84 (2026-10-01), every
+  acceptance item met, for the owner's review.
 - **Rules, picture swap and component**: after 2c–2e.
 - **Follow-up after a failure**: closed by the owner (Test 9, run 82,
   2026-09-30).
@@ -1352,7 +1357,7 @@ in the next data press.
 - **Then**: one merge, one free runtime check, and the lane 4 presses. Those
   on different sites can overlap a minute apart, as Batch 1's did.
 
-## Test 10 — a stored list re-sorted, with real models (prepared 2026-09-30 on the owner's word, after Test 9 was closed; free preparation only; the order traced on all three demo sites; rehearsed with supplied answers through the real lane and the real edit route; decision 2b taken by the owner the same day with a scope correction: a sort across the whole site goes to the data sorter, a sort limited to one named page to the page editor, and no "whatever page they saw it" rule; the rule implemented on the branch with committed route coverage, and its scope corrected on 2026-10-01 so that a selection of pages is never sent to the sorter; passed by the owner and merged and deployed in deploy 2174 (2026-10-01); the request revised to state its scope; the baseline read; the authorized free dispatch refused (403); the owner's free press, run 83, confirmed the runtime and rehearsed Test 10, passing every check; the paid press handed over for the owner's approval; not run)
+## Test 10 — a stored list re-sorted, with real models (prepared 2026-09-30 on the owner's word, after Test 9 was closed; free preparation only; the order traced on all three demo sites; rehearsed with supplied answers through the real lane and the real edit route; decision 2b taken by the owner the same day with a scope correction: a sort across the whole site goes to the data sorter, a sort limited to one named page to the page editor, and no "whatever page they saw it" rule; the rule implemented on the branch with committed route coverage, and its scope corrected on 2026-10-01 so that a selection of pages is never sent to the sorter; passed by the owner and merged and deployed in deploy 2174 (2026-10-01); the request revised to state its scope; the baseline read; the authorized free dispatch refused (403); the owner's free press, run 83, confirmed the runtime and rehearsed Test 10, passing every check; the paid press run as run 84, 3 credits, every acceptance item met, for the owner's review)
 
 **The owner**: *"Next, prepare one list-reordering acceptance on an existing
 demo site. First trace what controls its order: a stored ordering field, a
@@ -1707,6 +1712,62 @@ and estimate.
   pages (the bakery has one; shown with supplied answers only, in the
   committed two-page cases); a one-page sort through the page editor; a
   page-code arrangement; a hand-picked sequence; other sites; how often.
+
+### Run 84, the paid press (2026-10-01): every acceptance item met, for the owner's review
+
+Edit canary run 84 (36802989624, 01:50–01:53 UTC, from `main` at
+`322c2430`, the boxes as handed over, spend `yes`), pressed on the owner's
+approval. The preflight, the free checks, the before-read and the fixture
+(`as named`) were as in run 83.
+- **The route**: the real router answered `intent=edit layer=data`, nothing
+  held back, in 9.6 s, cost 2. The route check matched, so the answer was
+  posted as it came. The canary sent no table names, and the route filled
+  them itself (`tablesFilled: loaves, orders`, Lane 1's 1d, live again).
+- **The job** `7bf9cbcbad73bf4d86c2d379154604d3`: claimed in 5 s, `routing`
+  until 112 s, `publishing` at 126 s, and a final stored reply at 129 s
+  (`x-gf-edit: final`). The reply: `layer: data`, `sort: {loaves, price,
+  asc}`, `sortChanged: ["order.tsx"]`, `applied: []`, `failed: 0`, `cost: 1`,
+  from one picker call (grok-4.6, 1,401 tokens in, 35 out).
+- **The stored source**: exactly `order.tsx` line 97 changed, from `order:
+  "name"` to `order: "price"`, with `dir: "asc"` kept. It still has 291
+  lines and its final newline. The other four pages are byte-identical, and
+  equal to `test/fixtures/run47/*.before.tsx`.
+- **One publish**: `01790819484141-dgmag4`, built from `8btpep`. The
+  canary's comparison is `VERIFIED`: every page was read at `dgmag4`.
+- **`/order`** (a visitor's read in Chromium, 01:57 UTC): it requests
+  `loaves?select=*&order=price.asc` and shows Sea Salt Focaccia £4.50,
+  Country White £4.80, Dark Rye £5.20, Seeded Wholemeal £5.40, Olive &
+  Rosemary £5.80, Walnut Levain £6.00. Each card's text is as before; only
+  their order changed.
+- **The reply on screen**: *"✅ loaves now comes out in order of price,
+  lowest first — on 1 page."*, and the browser would then refresh the
+  balance.
+- **The table**, read whole again at 01:57 UTC: `0-5/6`, 1,045 bytes,
+  byte-identical to before and `as named`. No row was written.
+- **Pixels** (full-page screenshots, before 01:04 and after 01:57): `/`,
+  `/gallery`, `/starter` and `/visit` have 0 differing pixels. On `/order`,
+  19,227 pixels differ, all within x 369–807, y 354–672, inside the card
+  list (x 328–952, y 336–760).
+- **Markup**: every page is identical before and after once the
+  per-request `u:` stamps and the new build's hashed asset names are masked
+  (the build renamed the hashed chunks the pages load).
+- **Everything else**:
+  - headings, the menu and the header's links are unchanged on every page,
+    with the same photographs;
+  - the stored description is unchanged, and there are no components
+    (0 → 0);
+  - all six redirect probes answer as before (`/the-starter` 301 to
+    `/starter`, keeping a query and with a trailing slash; `/gallery` with
+    a query or a trailing slash 200; an unknown page 404).
+- **Money**: balance 6 → 3 on the canary's own reads before and after the
+  paid edit: routing 2 and the job 1, within the estimate.
+- **Not read**: the job row's billing state and its ledger rows, and
+  whether any job is left open. The Supabase connector dropped out of this
+  session. A free press with "READ ONE EXISTING JOB AND STOP: …" set to
+  `7bf9cbcbad73bf4d86c2d379154604d3` reads the job's row and its ledger
+  rows.
+- **An observation (backlog)**: the job's row read `routing` through the
+  sort, compile and check, and `publishing` only at the end.
 
 ## Test 9 — a follow-up after a failure, in the same chat tab (prepared 2026-09-30 on the owner's word, after runs 79 and 80 were closed; built on the branch as the canary's UI scenario `9-follow-up`, red-checked, swept, tested through the stand-in, and proven locally against the real app's code with supplied answers, which found and fixed a first-run modal that would have blocked the card at the current balance; the free rehearsal passed as run 81 the same evening; the owner pressed the paid run as run 82 the same evening, and every pass item was met, for 4 credits; closed by the owner the same day for the demonstrated no-match failure followed by a successful edit in the same tab, the filled-in checks accepted, the demo data kept, not to be repeated)
 

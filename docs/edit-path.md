@@ -92,7 +92,10 @@ answers unless a run is named.
     Which lane a real picker names for it is unmeasured, and each page likely
     costs the full writer (backlog).
   - A hand-placed entry is no sort, and this rule routes it nowhere.
-  - All of it is shown with supplied answers only.
+  - The site-wide sort is shown live: Test 10's run 84 (2026-10-01, for the
+    owner's review) was routed `data` by the real router, changed one line
+    of `order.tsx`, published once, wrote no row and cost 3. A one-page
+    sort and a selection are shown with supplied answers only.
 - **Lane 1** (2026-09-30, on the branch, not merged;
   `docs/history/2026-09-30-lane1.md`):
   - **the router is told the owner's own table names** when the browser sent

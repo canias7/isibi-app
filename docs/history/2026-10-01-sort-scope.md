@@ -310,3 +310,23 @@ fixture and the preservation checks as they were. Not run.
   press can supply the ledger rows if they are needed.
 - **The paid press** was handed over for the owner's approval: the same
   boxes with spend `yes`, about 2–3 credits.
+- **The owner pressed it as run 84** (36802989624, 01:50–01:53 UTC).
+  **Every acceptance item is met**, for the owner's review (the checklist's
+  *Run 84*):
+  - the real router answered `data` with nothing held back (cost 2);
+  - the job changed exactly `order.tsx` line 97 (`order: "name"` →
+    `order: "price"`, `dir: "asc"` kept) and published `dgmag4` from
+    `8btpep`;
+  - `/order` now requests `order=price.asc` and lists the loaves cheapest
+    first, from Sea Salt Focaccia £4.50 to Walnut Levain £6.00;
+  - the reply was exactly *"✅ loaves now comes out in order of price,
+    lowest first — on 1 page."*;
+  - the table is byte-identical, and no row was written;
+  - the other four pages are pixel-identical, and `/order` changed only
+    inside its card list;
+  - the redirects answer as before;
+  - balance 6 → 3 (routing 2, the data step 1).
+- **The site-wide sort is now shown live with real models.** A one-page
+  sort and a selection of pages are still shown with supplied answers only.
+  The selection's real-model behaviour stays unproven, as the owner asked,
+  with no extra paid test.
