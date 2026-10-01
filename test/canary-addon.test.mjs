@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readExpectRoute, routeVerdict } from "../scripts/canary-route.mjs";
+import { rowUncertainBody } from "../builder/site-add.mjs";
 // THE NEW MODULE IS IMPORTED WHERE IT IS USED, so the script runs below also
 // load on the canary before it — the red check reads them against the old one.
 const ca = () => import("../scripts/canary-addon.mjs");
@@ -24,6 +25,10 @@ const ASK = "Add one loaf to today's loaves: Rye & Caraway at £5.00, described 
 const SAVED = { table: "loaves", id: 12, label: "Rye & Caraway", row: { id: 12, name: "Rye & Caraway", description: "A light rye with toasted caraway.", price: 5, photo: null, created_at: "2026-10-01T03:00:00+00:00" } };
 const ROW_REPLY = { ok: true, kinds: ["row"], rows: [SAVED], added: [], changed: [], removed: [], moved: [], cost: 2 };
 const REFUSED = { ok: false, error: "add", kind: "row", reason: "row-no-table", cost: 0, msg: "This site doesn't store a list by that name, so that entry had nowhere to go. Nothing was added." };
+// NOT KNOWING, FROM ITS REAL PRODUCER (the step's own body): queued, so the job
+// is under review; inline, nothing charged.
+const UNSURE = rowUncertainBody({ why: "lost", review: true });
+const UNSURE_INLINE = rowUncertainBody({ why: "unread" });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THE PIECES
@@ -88,6 +93,29 @@ test("the verdict: an ok answer passes only with a verified after-read, and says
   // A PAGELESS ADDITION THAT VERIFIED PASSES AS BEFORE; UNVERIFIED, IT DOES NOT.
   assert.deepEqual(addonVerdict(PAGELESS, VERIFIED), { pass: true, line: "CANARY PASSED: the add-on step answered ok — no entry saved; no page published; cost=3" });
   assert.equal(addonVerdict(PAGELESS, UNVERIFIED).pass, false);
+});
+
+test("an answer that could not tell whether it saved fails, and is never called a round trip that added nothing", async () => {
+  const { addonVerdict } = await ca();
+  // THE REVIEW OF 31741f6f: the line for every terminal answer said "a
+  // completed round trip that added nothing" — false for an entry whose save
+  // the step could not confirm.
+  for (const [body, paused] of [[UNSURE, true], [UNSURE_INLINE, false]]) {
+    const v = addonVerdict(body, VERIFIED);
+    assert.equal(v.pass, false);
+    assert.doesNotMatch(v.line, /added nothing/, v.line);
+    assert.match(v.line, /^CANARY FAILED: the add-on step answered "row-uncertain" — /);
+    assert.match(v.line, /could not tell whether its change was saved, so it may be on the site/);
+    assert.equal(/takes no new change until the review settles it/.test(v.line), paused, v.line);
+    assert.match(v.line, /Read the site before anything else is pressed; do not read it as a pass\.$/);
+  }
+  // ANY JOB PARKED FOR REVIEW IS THE SAME KIND OF ANSWER, whatever its error.
+  const parked = addonVerdict({ ok: false, error: "stopped", review: true, msg: "That edit stopped while it was publishing." }, VERIFIED);
+  assert.equal(parked.pass, false);
+  assert.doesNotMatch(parked.line, /added nothing/);
+  // A REFUSAL STILL IS ONE: nothing added, and said so.
+  assert.match(addonVerdict(REFUSED, VERIFIED).line, /This is a completed round trip that added nothing\./);
+  assert.match(addonVerdict({ ok: false, error: "row-unprotected", msg: "nothing was added" }, VERIFIED).line, /added nothing/);
 });
 
 test("an entries-only success that shows no saved entry fails, whatever the after-read says", async () => {
@@ -206,6 +234,17 @@ test("an addition the step refused is a failed press, read through the add route
   assert.equal(r.addonPosts.length, 1);
   assert.equal(r.customer, "⚠️ " + REFUSED.msg);
   assert.match(r.err, /CANARY FAILED: the add-on step answered "add"/);
+});
+
+test("an addition whose save could not be confirmed fails and exits 1, and its line says it may be on the site", { timeout: 150_000 }, async () => {
+  const r = await runCanary("unsure", { route: { ok: true, intent: "addon", cost: 2 }, box: "intent=addon", addon: UNSURE, addonStatus: 409 });
+  assert.equal(r.unknown.length, 0, JSON.stringify(r.unknown));
+  assert.equal(r.addonPosts.length, 1);
+  assert.equal(r.code, 1, r.out + r.err);
+  assert.equal(r.customer, "⚠️ " + UNSURE.msg);
+  assert.match(r.err, /CANARY FAILED: the add-on step answered "row-uncertain" — I couldn't tell whether that entry was saved/);
+  assert.match(r.err, /so it may be on the site, and the site takes no new change until the review settles it/);
+  assert.doesNotMatch(r.out + r.err, /added nothing|CANARY PASSED/);
 });
 
 // ── THE AFTER-READ AND THE SAVED ENTRIES DECIDE THE PRESS (2026-10-01) ──────

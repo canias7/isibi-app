@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-01, 04:24 UTC)
+## Current handoff — read this first (2026-10-01, 07:03 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -8,115 +8,136 @@ is in git; the dated entries further down are the full story.*
 
 **State now**
 - `main` is `322c2430` (deploy 2174, image `b8c8789aa8e395d6`),
-  runtime-confirmed, and unchanged in this round.
-- **Test 11's capability is built on the branch, for your review**: the
-  add-on step can now add one more entry to a list a site already stores (a
-  new add-on kind, `row`), and the canary can press an add-on. Not merged,
-  not deployed.
+  runtime-confirmed, and unchanged.
+- **The add-on `row` kind (Test 11's capability) is on the branch, with two
+  correction rounds from your reviews, for your review.** Not merged, not
+  deployed.
+  - `31741f6f`, after your review of `f6532d66`: an entry whose answer is
+    lost is settled from the request's key, and the canary's checks decide
+    the press. Its CI is green (below).
+  - This round's commit (the branch's head), after your review of
+    `31741f6f`: protection before the entry is written.
 - Nothing spent, no live data written, no routing change. The bakery is at
-  `dgmag4` with its six loaves, as you left it. Balance 3.
+  `dgmag4` with its six loaves. Balance 3.
 
-**Completed**
-- **The add-on `row` kind** (one more entry in an existing list):
-  - checked against the site's own stored schema: a public display list
-    only (never one visitors send in, never members'), its own columns only,
-    and never `id` or `created_at`, which the database gives;
-  - written with the data step's own insert, now shared rather than copied;
-    the data step's statement is byte for byte what it always wrote, and
-    nothing else in it changed;
-  - the reply is what the database saved, with the id it assigned: "✅ Done
-    — added “Rye & Caraway” to loaves (entry N).";
-  - no page call, no compile, no publish: the pages read the list as it
-    stands;
-  - billed once with the existing machinery: on a queued job, reserved
-    before the write and refunded if the write fails; inline, collected
-    after a write that landed;
-  - **a duplicate submission or a replayed job saves nothing twice and
-    charges once**: the entries and the request's key go in one database
-    statement, so a second run is refused whole and answers what the first
-    saved (checked on a real Postgres 16, locally);
-  - refused by name, at no cost: a list the site doesn't store, a visitors'
-    list, an entry with nothing usable in it, no list named;
-  - beside other additions in one message, the entry is set aside and
-    named, and the rest runs as before.
-- **The canary's add-on press**: with the route box `intent=addon` and the
-  router answering "addon", it posts the add-on request exactly as the
-  browser does, watches it, shows what the customer would read, checks that
-  nothing was published, and passes only if the step answered ok. Without
-  `intent=addon` in the box it refuses as before.
-- **Test 11 corrected** (the checklist's *Test 11*):
-  - the new loaf's id is read back from the database, not predicted: it may
-    not be 7;
-  - on `/order`, the new loaf must appear both in the price-sorted list and
-    as one of the order form's choices. On the bakery they are the same
-    control ("Today's loaves" is the order form's choice list), so both are
-    checked on it: its place in the price order, and that its choice
-    carries the new id;
-  - real model routing stays unproven until the live run.
+**Completed this round** (your review of `31741f6f`)
+- **The defect, confirmed**: the job was put under review only after a write
+  it couldn't see. When the ledger refused that, the consumer refunded an
+  entry that was in fact saved, nothing held the site, and the next message
+  saved it again. A test asserted that behaviour; it is replaced by one that
+  asserts the opposite.
+- **Protection now comes first, and without it nothing is written.** On a
+  queued job, after the reserve and before the database statement, the job is
+  marked with the request's key. If that is refused or doesn't answer, no
+  statement is sent: the customer reads "nothing was added and you won't be
+  charged for it", which is true, and the reserve comes back.
+- **Once marked, nothing refunds the job as unsaved.**
+  - The consumer, the lost-job sweep and a redelivered job all park it with
+    the money held.
+  - Your site takes no new message while it is parked.
+  - The entry's key settles it: kept if the entry is there; refunded only
+    after an empty key is closed, so nothing can land afterwards.
+- **The money is kept only on a recorded outcome.** The job records the saved
+  entries before its finalize may keep the reserve. If that record is
+  refused, the review keeps the money from the key instead.
+- **A database refusal on a queued job now goes through the review too**
+  (the job was marked first). The review confirms nothing was saved, refunds,
+  and keeps the step's own reply ("the database didn't accept it…").
+- **The canary's wording**: an answer that couldn't tell whether it saved now
+  fails with "It could not tell whether its change was saved, so it may be on
+  the site…" and never "a completed round trip that added nothing". The
+  pass/fail rules are unchanged.
 
-**Test results** (all free; no model, no network write, nothing spent)
-- **Before the fix** (the new tests on the old code): 44 tests, 42 fail,
-  2 pass. The 2 are controls that must behave the same before and after.
-  The old route answered "no supported addition" and wrote nothing.
-- **After**: 35 of 35 route and unit tests, through the real route against
-  a test database that already has rows, and 9 of 9 for the canary (the
-  real script, run five times against a stand-in server). They cover
-  existing rows, schema and pages kept; five invalid targets; write
-  failures (refunded on a job); a duplicate entry; a refused charge; a
-  duplicate submission and five replay shapes, each with one row and one
-  charge; two entries in order.
-- **Mutation sweep**: 49 deliberate breakages and 3 comment-only controls.
-  47 caught at first; the 2 that slipped through were gaps in what the
-  tests looked at, now closed, and both are caught on the re-run. The
-  controls stayed green.
-- **Full suite**: 8,471 of 8,471 on the code commit (8,427 before; +44).
-- **Postgres 16** (local copy, not your database): ids 12 and 13 on a table
-  that had lost rows (so never assume 7), a replay refused whole, a bad
-  price and a duplicate refused whole.
-- **/order, read as a visitor**: the order form's choices are the price
-  list, each carrying the loaf's id; a preview with the new entry put it
-  third.
-- **Unit CI** on the pushed branch: 8,471 tests, none failed (run
-  36815036559; CI skips its usual four). The site build (run 36815036563) was still running at 04:30 UTC; I record it when it finishes.
+**Completed in the round before** (`31741f6f`, your review of `f6532d66`;
+recorded now, since its handoff was overtaken by your next review)
+- An entry whose answer was lost was told "nothing was added", refunded, and
+  saved again by the next message. Now:
+  - the request's key settles it: what the key holds is the reply, charged
+    once;
+  - anything else is said as not knowing, never "nothing was added", never
+    "try again";
+  - an empty key is closed before any refund, so a late write is refused
+    whole.
+- The canary's add-on press now fails on an unverified after-read and on a
+  "success" that shows no saved entry; a pageless addition that verifies
+  still passes.
+
+**Test results** (all free: supplied answers, a test database, nothing live,
+nothing paid)
+- **The red check on `31741f6f`**, with this round's tests:
+  - 14 of the 61 row tests and 2 of the 15 canary tests fail.
+  - With only one missing export added, 12 row tests fail. They include
+    "the sweep refunded an entry that was saved" (7 entries where 6 were
+    expected): your reviewer's defect, reached through the sweep.
+- **Now**: 61 of 61 row tests and 15 of 15 canary tests pass. New coverage:
+  - protection refused, unanswered, and landed with its answer lost;
+  - a lost answer after a real commit, with the consumer gone, settled by
+    the sweep and the review: one entry, one charge;
+  - a write that never landed: the key closed and then refunded, and the late
+    statement refused;
+  - a redelivery with no stored request; a job run again; a recorded outcome
+    refused.
+- **Mutation sweeps**: this round's caught 48 of 48 deliberate breakages,
+  and its 3 comment-only controls stayed green. The older add-row sweep was
+  stopped at 21 of 49 caught, none missed, so as not to keep you waiting;
+  the rest are on lines this round didn't touch.
+- **Full suite**: 8,503 of 8,503 (8,491 on `31741f6f`, plus the 12 new
+  cases).
+- **CI on `31741f6f`**: unit tests `8491 / 8487 / 0 / 4` (run 36818860221,
+  CI skips its usual four); the site build is green with its twelve counts
+  (run 36818860242). **CI on this round's push** starts with the push; it is not read yet.
 
 **Remaining limits** (backlog; none changes your data)
-- Real routing, the real picker and the real row designer are untested
-  until the live run.
-- A site whose database has no settings table (`_meta`) can't take an
-  entry: it fails whole, with a generic "try again" message.
-- A price written as "£5.00" instead of 5 is refused as a generic write
-  failure, not explained.
-- One small marker row per added request stays in `_meta`.
-- A list named in different capitals ("Loaves") is refused, as the data
-  step refuses it.
-- An entry asked beside other additions is set aside and named, not added.
-- On a site with a public list, every addition now reads one marker first;
-  if that read fails, the request stops at no cost (as a failed settings
-  read already does).
-- A site with no public list still costs us one model call before an entry
-  is refused (not charged to you).
-- The canary's after-read sentence says "the edit did not publish" for an
-  addition.
+- Real routing, the real picker and the real row designer are untested until
+  the live run.
+- While a row job is under review, a new message gets the general "That edit
+  stopped while it was publishing…" sentence (a browser change, not done).
+- Inline (only when the queue switch is off; production queues every add-on):
+  there is no job to mark, so nothing pauses the site and a new message can
+  add a second entry. An entry nobody could confirm is never charged.
+- A cancel asked while the row step runs doesn't stop its write. This
+  predates these rounds.
+- Between a dead consumer's lease running out and the sweep parking its job
+  (about one to three minutes: a 60-second grace, then the next two-minute
+  tick), another job already queued on the same site can run. It is a
+  different request: this request's entry is never written twice.
+- A database refusal on a queued job is refunded through the review. If the
+  site's database is unreachable at that moment, the site stays paused until
+  the next sweep tick.
+- A job that died after recording its entries and before its finalize gets
+  the sweep's general "recovered" reply, which names no entry. The entry and
+  the charge are right.
+- A job that runs again (only when deleting its stored request failed) and
+  writes fresh reports cost 0 in its reply, while the first reserve is the
+  one kept.
+- From the build, still true: a site whose database has no settings table
+  can't take an entry; "£5.00" instead of 5 is refused as a generic write
+  failure; one marker row per request stays; a list named in other capitals
+  is refused; an entry beside other additions is set aside; every addition
+  on a site with a public list reads one marker first; a site with no public
+  list still costs us one model call before refusing; the canary's
+  after-read sentence says "the edit did not publish" for an addition.
 
 **Updated paid-test estimate** (Test 11, once merged and deployed)
-- About 3–4 credits, not a cap: routing 1–2, plus the add-on's own charge
-  of at least 1 (2 measured for an add-on that changes no page).
-- Before it: your merge, a deploy (the container image rolls,
-  `b8c8789aa8e395d6` → `66d4f686aed60de0`, then 15–20 minutes), your free
-  runtime check, and a top-up (balance 3).
+- About 3–4 credits, not a cap: routing 1–2, plus the add-on's own charge of
+  at least 1 (2 measured for an add-on that changes no page).
+- Before it: your merge, a deploy (the container image rolls
+  `b8c8789aa8e395d6` → `7e03604050b345c0`, then 15–20 minutes), your free runtime
+  check, and a top-up (balance 3).
 
 **Links**
-- The test: the checklist's *Test 11*. The story and the evidence:
-  `docs/history/2026-10-01-add-row.md`. The kind's rules: `docs/addon-path.md`
-  (*THE `row` KIND*).
+- The story and the evidence: `docs/history/2026-10-01-add-row.md` §9 and
+  §10. The kind's rules: `docs/addon-path.md` (*THE `row` KIND*). The limits:
+  `docs/backlog.md` (*THE ADD-ON `row` STEP'S KNOWN LIMITS*). The test: the
+  checklist's *Test 11*.
 - Branch commits: https://github.com/canias7/isibi-app/commits/claude/help-needed-ehlwlj
 
 **From our chat**
-- Recorded in `owner-preferences.md`: a new entry's id is the database's and
-  is never predicted; real model routing stays unproven until a live run;
-  universal, shared, a stateful fixture, the existing job and billing
-  machinery; no merge, deploy, live write or paid call yet.
-- The seed-skip wording stays in the backlog, unchanged. CLAUDE.md is left
+- Recorded in `owner-preferences.md`: protection before an irreversible
+  write, or no write; a refund needs a confirmed non-application and a kept
+  charge a recorded outcome; a test that asserts a defect is replaced; a
+  failure line says what is known; the handoff is rewritten every round.
+- Test 11 stays unproven live; no accepted test reopened; CLAUDE.md left
   alone.
 
 **Blockers**
@@ -124,8 +145,8 @@ is in git; the dated entries further down are the full story.*
   check, and a top-up.
 
 **Exact next action**
-- Your review of the branch. Nothing merges, deploys or spends until you say
-  so.
+- Your review of the branch. Nothing merges, deploys or spends until you
+  say so.
 
 ---
 
@@ -185,6 +206,50 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-01 — Your review of `31741f6f`: protection now comes before the entry is written, for your review
+
+**Corrected on the branch, as you asked; not merged, not deployed, nothing
+spent, no live write.** Your reviewer was right. On `31741f6f` a queued job was
+put under review only after a write it couldn't see. When the ledger refused
+that, the consumer refunded an entry that was in fact saved, nothing held the
+site, and the next message saved it again. A test asserted exactly that; it
+is replaced.
+
+**Now**:
+- **Protection first, or no write.** On a queued job, after the reserve and
+  before the database statement, the job is marked with the request's key.
+  If the mark is refused or doesn't answer, nothing is sent, and the customer
+  reads "nothing was added and you won't be charged for it", which is true.
+- **Once marked, nothing refunds it as unsaved.** The consumer, the lost-job
+  sweep and a redelivery all park it with the money held, and the site takes
+  no new message until the key settles it.
+- **The money is kept only on a recorded outcome.**
+- **The canary** no longer calls an answer that couldn't tell "a completed
+  round trip that added nothing".
+
+Verified free: on `31741f6f` 14 of the 61 row tests and 2 of the 15 canary
+tests fail; now all pass. The sweep caught 48 of 48 breakages; the full suite is 8,503 of 8,503. Kept separate (backlog):
+- the review's general "stopped while publishing" sentence;
+- inline, which can't pause a site;
+- a cancel not stopping the write;
+- the window before the lost sweep parks a job;
+- a re-run reply that reports cost 0.
+
+## 2026-10-01 — Your review of `f6532d66`: an unseen outcome is settled from the entry's key (`31741f6f`)
+
+**Corrected on the branch and pushed as `31741f6f`; recorded now, since its
+handoff was never written before your next review.** Your reviewer showed
+that a committed entry whose answer was lost was reported as "nothing was
+added", refunded, and saved again by the next message.
+- **A lost answer is now settled from the request's key**: what it holds is
+  the reply, charged once; anything else is said as not knowing.
+- **The canary's after-read and saved-entry checks now decide the press.**
+
+Verified free: 14 row and 4 canary cases failed on `f6532d66`; the full suite
+was 8,491 of 8,491; the sweep caught 34 of 34. CI on `31741f6f` is green: unit
+`8491 / 8487 / 0 / 4` (run 36818860221) and the site build (run 36818860242).
+Its one gap, a refused review mark, was your next finding (the entry above).
 
 ## 2026-10-01 — Adding an item to an existing list is built (the add-on `row` kind), for your review
 

@@ -2490,9 +2490,10 @@ export function rowReviewVerdict({ marker, close, lists } = {}) {
  * body. `why` is "lost" (the write's answer never came) or "unread" (an
  * answer, or a key, that cannot be read). Never "nothing was added", never an
  * invitation to try again: until the key answers, a second attempt is the
- * duplicate. `review` says whether the job was put under review (the site
- * paused, the money held); without it — inline, or a job the mark refused —
- * nothing is charged.
+ * duplicate. `review` says the job is under review (the site paused, the
+ * money held): every queued job that reaches this was marked before its
+ * write. Without it — inline, where there is no job to mark — nothing is
+ * charged.
  */
 export function rowUncertainBody({ why = "lost", review = false, deferred = "", notAdded = [] } = {}) {
   const first = why === "unread"
@@ -2512,11 +2513,23 @@ export function rowUncertainBody({ why = "lost", review = false, deferred = "", 
 }
 
 /**
+ * THE STEP'S OWN REPLIES THAT ALREADY SAY NOTHING WAS ADDED, AND WHY
+ * (2026-10-01, the review of 31741f6f): the database refused the statement
+ * (`row-write`), the list refused a second entry like this one
+ * (`row-duplicate`), or no statement was sent because the job could not be
+ * protected first (`row-unprotected`). A job marked before its write reaches
+ * the review even then, and the review's refund confirms what the reply said.
+ */
+export const ROW_DEFINITE_REPLIES = new Set(["row-write", "row-duplicate", "row-unprotected"]);
+
+/**
  * THE REPLY THE RECONCILE STORES FOR A ROW WRITE IT SETTLED, in the consumer's
  * stored shape (`{ status, type, body }`), or null for a verdict that stores
  * nothing. Kept: the entries the key recorded, with what the first reply set
  * aside (`deferred`, `notAdded`), at the job's own cost — the browser's
- * ordinary success. Refunded: the confirmation, and the amount that came back.
+ * ordinary success. Refunded: the confirmation, and the amount that came back
+ * — unless the stored reply is one of the step's own definite ones, which is
+ * kept, since it says the same and says why.
  */
 export function rowReviewReply(out, row, refunded = 0) {
   let asked = {};
@@ -2534,6 +2547,7 @@ export function rowReviewReply(out, row, refunded = 0) {
     }) };
   }
   if (out && out.verdict === "refunded") {
+    if (asked.ok === false && ROW_DEFINITE_REPLIES.has(asked.error)) return null;
     const back = Number(refunded) || 0;
     return { status: 409, type: "application/json", body: JSON.stringify({
       ok: false, error: "reconciled", kind: out.kind, refunded: back,

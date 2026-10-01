@@ -189,8 +189,45 @@ add-on kind could add a row to a table the site already has (Test 11's trace,
   being that id.
 - **The money**: one charge, `pageCredits` of the picker's and the row
   designer's usage. Under a job it is reserved before the write (a refused
-  reserve writes nothing, `unbilled`), and a write that fails is refunded by
-  the consumer; inline it is collected after a write that landed.
+  reserve writes nothing, `unbilled`) and kept only on a recorded outcome
+  (below); inline it is collected after a write that was read back.
+- **Protection first, or no write** (2026-10-01, the owner's review of
+  `31741f6f`). Under a job, after the reserve and before the statement is
+  sent, the job is marked: `edit_publish_mark`, with the request's key as
+  `artifact_build`. A mark that is refused or does not answer means no
+  statement is sent (`row-unprotected`, *"nothing was added"*, which is
+  true). The consumer then gives the reserve back; or, when the mark landed
+  and only its answer was lost, the review closes the empty key and refunds.
+  **Once marked, every road the ledger has treats the job as possibly
+  written**: the consumer's refund, the lost-job sweep and a redelivery that
+  finds no stored request all park it with the money held; the site takes
+  no new job while it is parked; and only the reconcile settles it, from the
+  key.
+- **The money is kept only on a recorded outcome**: `edit_committed`, with
+  the key as the build, after the entries were read back. They come from the
+  answer, from the key after a lost or unreadable answer, or as a repeat
+  found by the check before the picker or by the write's own key. Without
+  that record the finalize keeps nothing, and the review keeps the money from
+  the key or refunds it.
+- **An outcome the step cannot see** (the owner's review of `f6532d66`): a
+  write whose answer is lost (`rowWriteOutcome`: no SQLSTATE, or a class
+  whose error does not settle the commit: 08, 53, 57, 58, XX, 40003), or
+  whose answer cannot be read back, is settled from the request's key.
+  - When the key holds the whole of what was asked, the reply is what it
+    saved, charged once.
+  - Otherwise the outcome is unknown and said so (`row-uncertain`: never
+    "nothing was added", never "try again"). Under a job it is said with the
+    review, since the job was marked before its write.
+  - The reconcile knows a row job by its key (`rowReviewKey`) and reads that
+    key in the site's database (`rowReviewFacts`, `rowReviewVerdict`).
+    Found: kept. Empty: closed first with `ROW_VOID` (`INSERT … ON CONFLICT
+    DO NOTHING`), then refunded, or kept when the write committed first.
+    Unreadable: left in review.
+  - Inline, which has no job to mark, nothing is charged.
+- **A definite refusal** (22, 23, 42 and the other listed classes) is refused
+  as before. Under a job it reaches the review, since the job was marked
+  before its write; the review closes the empty key, refunds, and keeps the
+  step's own reply (`ROW_DEFINITE_REPLIES`).
 - **Beside other kinds** a `row` is set aside and named (`row-alone`), and
   the rest of the message runs as before; beside a kind that hops to an edit
   rung (a photograph alone), the message is refused whole at no cost, so

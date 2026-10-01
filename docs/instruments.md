@@ -87,6 +87,22 @@ in `docs/instruments.md`; each test's plan and evidence is in the checklist.
     spent and nothing else is.
   - A matching answer is posted exactly as it came.
   - Blank means no check.
+- **The add-on press** (`intent=addon` in the route box, 2026-10-01,
+  `scripts/canary-addon.mjs`; on the branch, not merged): the router's
+  `addon` answer is posted to the add-on route as the browser posts it,
+  watched, and read through the add route's own composer, and the after-read
+  checks the pages against the version the answer implies. **It passes only
+  when all three hold** (after the owner's review of `f6532d66`): the step
+  answered ok; an entries-only answer (`kinds` exactly `["row"]`) shows every
+  entry it saved, each with its table and the stored row; and the after-read
+  verified. Anything else exits 1. A pageless addition that verifies passes.
+  **A failed press says what kind of failure it was** (after the owner's
+  review of `31741f6f`): a refusal is *"a completed round trip that added
+  nothing"*. An answer that could not tell whether it saved (`row-uncertain`,
+  or any job parked for review) is never called that. Its line says the
+  change may be on the site, says whether the site is paused until the
+  review settles it, and says to read the site before pressing anything
+  else.
 - **The rows a data press is written for** (`expect_rows`, 2026-09-30, after
   run 77; `scripts/canary-fixture.mjs`; merged and deployed in deploy 2173;
   run 78 confirmed that deploy with the box blank, and run 79 was its first

@@ -413,3 +413,40 @@
   manual check offered for it is withdrawn.** After run 84 (2026-10-01):
   *"ChatGPT independently verified Supabase … Record that verification and
   remove the optional manual billing-check instruction."*
+- **A write whose outcome is not known is never told as a failure, never
+  refunded as one, and never invites a retry; the request's own marker
+  settles it, and what it cannot settle goes to the existing review
+  machinery.** On the review of `f6532d66` (2026-10-01): *"After an uncertain
+  write or unreadable result, reconcile against the existing request marker.
+  If it confirms the insertion, return the saved result and settle billing
+  correctly. If the outcome remains unknown, report that uncertainty and use
+  the existing review machinery; don't claim nothing changed, invite a fresh
+  retry, or refund as a confirmed failure."* And: *"Keep same-request replay
+  from duplicating rows or charges."*
+- **A check a test prints must decide the test.** The same review: *"In the
+  addon branch, the after-read verdict must affect the final pass/fail and
+  exit status. A row-only success containing no saved rows must fail. Add
+  negative tests for both cases. Preserve valid pageless add-ons and existing
+  edit behavior."* With its bounds: *"Keep this correction scoped to the new
+  row flow and its settlement/testing integration. Keep Test 11 unproven live
+  and accepted tests closed."* and *"No merge, deployment, paid calls or live
+  data writes. Do not edit CLAUDE.md."*
+- **Protection comes before an irreversible write, or there is no write; a
+  refund needs a confirmed non-application, and a kept charge needs a
+  recorded outcome.** On the review of `31741f6f` (2026-10-01):
+  *"Establish durable protection before issuing the row write. If that
+  protection cannot be confirmed, do not issue the write. Once a write may
+  have happened, the consumer and sweeper must preserve its uncertain state
+  until the request marker settles it. Keep refunds tied to confirmed
+  non-application, and billing claims tied to recorded outcomes."*
+- **A test that asserts the defect is replaced, never kept.** The same review:
+  *"The test "a job the review mark refuses…" currently asserts this behavior.
+  Replace that expectation; it does not satisfy the previous instruction."*
+- **A failure line says what is known.** *"A row-uncertain answer must not be
+  described as "a completed round trip that added nothing.""*
+- **The handoff is rewritten for every correction round.** *"The current
+  handoff has not been updated for this correction round; update
+  docs/owner-notes.md with the final changes, results, limitations and next
+  action, then commit and push."* With its bounds: *"No merge, deployment,
+  paid calls or live data writes. Keep Test 11 unproven live and leave
+  CLAUDE.md alone."*

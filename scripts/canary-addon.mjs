@@ -89,7 +89,11 @@ export function savedEntries(body) {
  * THREE THINGS MUST HOLD, and the first that does not is the line:
  *
  *   1. THE STEP ANSWERED OK. A terminal answer is not a pass, the edit press's
- *      own lesson.
+ *      own lesson. And the line says what kind of "not ok" it was
+ *      (2026-10-01, the review of 31741f6f): a refusal is a round trip that
+ *      added nothing; an answer that could not tell whether its change was
+ *      saved (`row-uncertain`, or any job parked for review) may have changed
+ *      the site, and is never called one that added nothing.
  *   2. AN ENTRIES-ONLY ANSWER NAMES EVERY ENTRY IT SAVED (2026-10-01, the review
  *      of f6532d66): a "success" for the `row` kind with no saved entry in it
  *      claims an addition it cannot show, whatever its words say.
@@ -108,7 +112,11 @@ export function addonVerdict(body, after) {
   if (!body || typeof body !== "object") return { pass: false, line: "CANARY FAILED: the add-on step left no stored answer to read." };
   if (body.ok !== true) {
     const why = typeof body.error === "string" && body.error ? body.error : (typeof body.reason === "string" ? body.reason : "no reason");
-    return { pass: false, line: `CANARY FAILED: the add-on step answered ${JSON.stringify(why)}${typeof body.msg === "string" && body.msg ? " — " + body.msg : ""}. This is a completed round trip that added nothing. Do not read it as a pass.` };
+    const said = typeof body.msg === "string" && body.msg ? " — " + body.msg : "";
+    if (body.error === "row-uncertain" || body.review === true) {
+      return { pass: false, line: `CANARY FAILED: the add-on step answered ${JSON.stringify(why)}${said}. It could not tell whether its change was saved, so it may be on the site${body.review === true ? ", and the site takes no new change until the review settles it" : ""}. Read the site before anything else is pressed; do not read it as a pass.` };
+    }
+    return { pass: false, line: `CANARY FAILED: the add-on step answered ${JSON.stringify(why)}${said}. This is a completed round trip that added nothing. Do not read it as a pass.` };
   }
   const saved = savedSaid(body);
   const pages = addonPages(body);

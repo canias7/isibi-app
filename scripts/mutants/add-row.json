@@ -231,7 +231,7 @@
   "files": [
    "worker.js"
   ],
-  "from": "              if (!aJob) rowCost = await aCharge(rowBill);\n",
+  "from": "              else rowCost = await aCharge(rowBill);\n",
   "to": "              rowCost = await aCharge(rowBill);\n"
  },
  {
@@ -239,8 +239,8 @@
   "files": [
    "worker.js"
   ],
-  "from": "              if (!aJob) rowCost = await aCharge(rowBill);\n",
-  "to": "              if (false) rowCost = await aCharge(rowBill);\n"
+  "from": "              else rowCost = await aCharge(rowBill);\n",
+  "to": "              else rowCost = 0;\n"
  },
  {
   "label": "W-7: a unique-key refusal is not read as one",

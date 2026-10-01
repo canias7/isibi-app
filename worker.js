@@ -13063,7 +13063,8 @@ async function editStopped(env, { job, why, phase, trace, ctx, msg, kept = false
   }, { status: review ? 409 : 503 });
 }
 
-async function runLostEditJobs(env) {
+/** The scheduled sweep of lost, stale and reviewed jobs. Exported for the test, which drives a dead consumer's job through it. */
+export async function runLostEditJobs(env) {
   if (!env.SUPABASE_SERVICE_KEY || !env.CREDITS_MINT_SECRET) return;
   const r = await editRpc(env, "edit_sweep_lost", { p_limit: 20, p_grace: STALE_GRACE_S });
   // SILENT WHEN THERE IS NOTHING TO SAY. On an ordinary tick this is one call
@@ -26110,31 +26111,45 @@ async function handleRequest(request, env, ctx) {
               added: [], changed: [], removed: [], moved: [],
               cost,
             });
-            // ── AN OUTCOME THIS STEP CANNOT SEE (2026-10-01, the review of
-            //    f6532d66) ───────────────────────────────────────────────
+            // ── AN OUTCOME THIS STEP CANNOT SEE (2026-10-01, the reviews of
+            //    f6532d66 and 31741f6f) ──────────────────────────────────
             //
-            // The reviewer committed the entry and its key, then threw where
-            // the answer should have been: this step said "nothing was added",
-            // the consumer refunded, and the next message saved the entry a
-            // second time. A write whose answer is lost or cannot be read is
-            // not a failure, it is not knowing — and the key it carried is the
-            // one thing that can say what happened.
+            // The first reviewer committed the entry and its key, then threw
+            // where the answer should have been: this step said "nothing was
+            // added", the consumer refunded, and the next message saved the
+            // entry a second time. A write whose answer is lost or cannot be
+            // read is not a failure, it is not knowing — and the key it carried
+            // is the one thing that can say what happened.
             //
-            // THE KEY IS READ, and settles it one of two ways. It holds this
-            // request's entries: they were saved, and the reply is what the key
-            // recorded, charged as if the answer had arrived. Anything else —
-            // no key, a read that fails, a value that cannot be read, an empty
-            // key while the write may still be landing — stays unknown, and
-            // unknown is never "nothing was added". A queued job is put under
-            // review, the money where it is: `edit_publish_mark` FIRST, with
-            // the request's key as what the write left behind, so the
-            // consumer's refund parks the job instead of refunding it, the
-            // site takes no new job until it is settled (`edit_create`), and
-            // the reconcile reads the key again — closing it when it is still
-            // empty — and settles it (`rowReviewVerdict`). Inline, nothing is
-            // charged and the customer is told to look. No sentence here
-            // invites a fresh attempt: until the key answers, that attempt is
-            // the duplicate.
+            // PROTECTION COMES FIRST, AND NO WRITE IS ISSUED WITHOUT IT. The
+            // second reviewer found the hole the first fix left: the job was
+            // put under review only AFTER a write it could not see, so a mark
+            // the ledger refused fell through to a refund, nothing held the
+            // site, and the next message saved the entry again. Now a queued
+            // job is marked (`edit_publish_mark`, the request's key as what
+            // the write will leave behind) BEFORE the statement is sent, and a
+            // mark that is refused or unanswered means no statement is sent at
+            // all — "nothing was added" is then true, and the consumer gives
+            // the reserve back. Once the mark stands, every road the ledger
+            // has treats the job as one whose write may have happened: the
+            // consumer's refund parks it under review with the money where it
+            // is, the lost-job sweep parks it the same way, the site takes no
+            // new job (`edit_create`), and only the reconcile settles it — by
+            // the key, closing it first when it is still empty
+            // (`rowReviewVerdict`).
+            //
+            // A KEPT RESERVE FOLLOWS A RECORDED OUTCOME. `edit_committed` is
+            // called only when this step has read the entries back — from the
+            // answer or from the key — and only then can the consumer's
+            // finalize keep the money. A write the key cannot confirm is said
+            // as not knowing, never as "nothing was added", and no sentence
+            // here invites a fresh attempt: until the key answers, that
+            // attempt is the duplicate.
+            //
+            // INLINE THERE IS NO JOB TO MARK. The charge follows a write that
+            // was read back; one that was not is never charged, and the
+            // customer is told to look (the recorded limit: nothing pauses the
+            // site, so a new message can add a second entry).
             const aRowMarker = async () => {
               if (!aRowKey) return { state: "no-key" };
               let back = null;
@@ -26144,18 +26159,32 @@ async function handleRequest(request, env, ctx) {
               const was = readRowMarker(back[0] && back[0].v, aRowLists);
               return was ? { state: "found", was } : { state: "unreadable" };
             };
-            const aRowsUnknown = async (why, skipped = []) => {
-              let review = false;
-              if (aJob && aRowKey) {
-                const m = await editRpc(env, "edit_publish_mark", {
-                  p_id: aJob.id, p_owner: aJob.owner, p_artifact_build: aRowKey,
-                  p_dist_etag: null, p_sidecar_etag: null, p_source_etag: null, p_worker_status: null,
-                });
-                review = !!(m && m.ok === true);
-                // SAID, NEVER SWALLOWED: a job that could not be parked is
-                // refunded by its consumer, the recorded limit of this step.
-                if (!review) console.error("addon row: job", aJob.id, "could not be put under review —", String((m && m.error) || "rpc"));
-              }
+            // THE PROTECTION, CONFIRMED OR NOT: only an answer of `ok: true`
+            // from the ledger counts. Inline there is nothing to mark.
+            const aRowGuard = async () => {
+              if (!aJob) return true;
+              if (!aRowKey) return false;
+              const m = await editRpc(env, "edit_publish_mark", {
+                p_id: aJob.id, p_owner: aJob.owner, p_artifact_build: aRowKey,
+                p_dist_etag: null, p_sidecar_etag: null, p_source_etag: null, p_worker_status: null,
+              });
+              if (m && m.ok === true) return true;
+              console.error("addon row: job", aJob.id, "could not be protected before its write —", String((m && m.error) || "rpc"));
+              return false;
+            };
+            // THE OUTCOME, RECORDED: the entries were read back, so the job's
+            // reserve may be kept. A record the ledger refuses leaves the job
+            // to the review, which reads the same key and keeps it there.
+            const aRowCommitted = async () => {
+              if (!aJob) return;
+              const c = await editRpc(env, "edit_committed", { p_id: aJob.id, p_owner: aJob.owner, p_build: aRowKey });
+              if (!(c && c.ok === true)) console.error("addon row: job", aJob.id, "saved entries the ledger could not record —", String((c && c.error) || "rpc"));
+            };
+            // NOT KNOWING, SAID: a queued job reaching here was marked before
+            // any write of this request (above, and the unread key below), so
+            // its consumer parks it and the site waits for the key.
+            const aRowsUnknown = (why, skipped = []) => {
+              const review = !!aJob;
               aMark("add:row", "fail", { uncertain: why, review: review ? 1 : 0 });
               return Response.json(rowUncertainBody({ why, review, deferred: aLater.held, notAdded: skipped }), { status: review ? 409 : 502 });
             };
@@ -26174,8 +26203,11 @@ async function handleRequest(request, env, ctx) {
                 // AN EARLIER RUN SAVED UNDER THIS KEY, AND WHAT IT SAVED CANNOT
                 // BE READ: its entries may be on the site, so adding them again
                 // is the one wrong answer — and refunding them is another.
+                // The run that wrote it was marked first; the mark is asked
+                // again, unchanged if it stands, so the job is parked either way.
                 const was = readRowMarker(seen[0] && seen[0].v, aRowLists);
-                if (!was) return aRowsUnknown("unread");
+                if (!was) { await aRowGuard(); return aRowsUnknown("unread"); }
+                await aRowCommitted();
                 aMark("add:row", "ok", { repeat: 1, rows: was.rows.length });
                 return aRowsReply(was.rows, { repeat: true, cost: aJob ? (was.cost || 0) : 0 });
               }
@@ -26213,9 +26245,10 @@ async function handleRequest(request, env, ctx) {
             // THE FIRST ROW IS WRITTEN under a job — the data step's rule, so a
             // refused reserve writes nothing — and written with the data step's
             // own parameterised INSERT, in one statement with this request's key
-            // (`rowsInsert`). Inline, the charge follows a write that landed,
-            // as the pageless answer's does; a failed write charges nothing, and
-            // under a job the consumer refunds a reply that did not ship.
+            // (`rowsInsert`). Inline, the charge follows a write that was read
+            // back, as the pageless answer's does, and a failed write charges
+            // nothing. Under a job the reserve comes back only for a write that
+            // was never sent; once the job is protected, the key decides (below).
             if (aPicked.kinds.length === 1 && aPicked.kinds[0] === "row") {
               aMark("add:row", "start");
               const rowRan = await runAdd({ send: aQuick("add:row") }, { kind: "row", message: aInstruction, site: aSite, model: aModels.quick, brief: rowBrief(aRowLists) });
@@ -26240,6 +26273,17 @@ async function handleRequest(request, env, ctx) {
                 rowCost = await aCharge(rowBill);
                 if (aCharges.refused() > 0) return unbilledReply(aCharges);
               }
+              // NO PROTECTION, NO WRITE (2026-10-01, the review of 31741f6f).
+              // Nothing was sent, so "nothing was added" is true, and the
+              // consumer gives the reserve back — or, when the mark landed and
+              // its answer did not, the review closes the empty key and does.
+              if (!(await aRowGuard())) {
+                aMark("add:row", "fail", { unprotected: 1 });
+                return Response.json({
+                  ok: false, error: "row-unprotected", cost: 0, ours: true,
+                  msg: "I couldn't start saving that entry safely just now, so nothing was added and you won't be charged for it. Try again in a moment.",
+                }, { status: 503 });
+              }
               const rowWrite = rowsInsert(rowClean.value, aRowKey ? { key: aRowKey, cost: aJob ? rowCost : null } : null);
               let rowSaved = null, rowLost = "";
               try {
@@ -26256,6 +26300,7 @@ async function handleRequest(request, env, ctx) {
                 if (thrown.outcome === "duplicate") {
                   const back = await aRowMarker();
                   if (back.state === "found") {
+                    await aRowCommitted();
                     aMark("add:row", "ok", { repeat: 1, rows: back.was.rows.length });
                     return aRowsReply(back.was.rows, { repeat: true, cost: aJob ? (back.was.cost || 0) : 0, skipped: rowSkipped });
                   }
@@ -26288,7 +26333,8 @@ async function handleRequest(request, env, ctx) {
                 rowSaved = back.was.rows;
                 rowRecovered = true;
               }
-              if (!aJob) rowCost = await aCharge(rowBill);
+              if (aJob) await aRowCommitted();
+              else rowCost = await aCharge(rowBill);
               aMark("add:row", "ok", { rows: rowSaved.length, recovered: rowRecovered ? rowLost : undefined });
               return aRowsReply(rowSaved, { cost: rowCost, skipped: rowSkipped });
             }

@@ -13,8 +13,8 @@
   "files": [
    "worker.js"
   ],
-  "from": "            // THE KEY IS READ, and settles it one of two ways. It holds this\n",
-  "to": "            // THE KEY IS READ (control), and settles it one of two ways. It holds this\n",
+  "from": "            // PROTECTION COMES FIRST, AND NO WRITE IS ISSUED WITHOUT IT. The\n",
+  "to": "            // PROTECTION COMES FIRST (control), AND NO WRITE IS ISSUED WITHOUT IT. The\n",
   "control": true
  },
  {
@@ -155,6 +155,38 @@
   "to": "      msg: \"I've now confirmed that entry wasn't saved, so nothing was added. You can ask for it again.\",\n"
  },
  {
+  "label": "U-17: a refunding review replaces the step's own definite reply",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    if (asked.ok === false && ROW_DEFINITE_REPLIES.has(asked.error)) return null;\n",
+  "to": "    if (false) return null;\n"
+ },
+ {
+  "label": "U-18: a database refusal's reply is replaced by the review",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "export const ROW_DEFINITE_REPLIES = new Set([\"row-write\", \"row-duplicate\", \"row-unprotected\"]);\n",
+  "to": "export const ROW_DEFINITE_REPLIES = new Set([\"row-duplicate\", \"row-unprotected\"]);\n"
+ },
+ {
+  "label": "U-19: the list's own duplicate refusal is replaced by the review",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "export const ROW_DEFINITE_REPLIES = new Set([\"row-write\", \"row-duplicate\", \"row-unprotected\"]);\n",
+  "to": "export const ROW_DEFINITE_REPLIES = new Set([\"row-write\", \"row-unprotected\"]);\n"
+ },
+ {
+  "label": "U-20: an unprotected job's reply is replaced by the review",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "export const ROW_DEFINITE_REPLIES = new Set([\"row-write\", \"row-duplicate\", \"row-unprotected\"]);\n",
+  "to": "export const ROW_DEFINITE_REPLIES = new Set([\"row-write\", \"row-duplicate\"]);\n"
+ },
+ {
   "label": "W-1: a lost answer is answered as a failed write again",
   "files": [
    "worker.js"
@@ -171,36 +203,92 @@
   "to": "                if (false) { rowSaved = null; rowLost = \"unread\"; }\n"
  },
  {
-  "label": "W-3: a queued job with an unknown outcome is not put under review",
+  "label": "W-3: a queued job's write is issued without asking for protection",
   "files": [
    "worker.js"
   ],
-  "from": "              if (aJob && aRowKey) {\n",
+  "from": "              if (!(await aRowGuard())) {\n",
   "to": "              if (false) {\n"
  },
  {
-  "label": "W-4: the review mark does not carry the request's key",
+  "label": "W-3b: a refused protection is asked for and then ignored",
   "files": [
    "worker.js"
   ],
-  "from": "                  p_id: aJob.id, p_owner: aJob.owner, p_artifact_build: aRowKey,\n",
-  "to": "                  p_id: aJob.id, p_owner: aJob.owner, p_artifact_build: null,\n"
+  "from": "              if (!(await aRowGuard())) {\n",
+  "to": "              if (!(await aRowGuard()) && false) {\n"
  },
  {
-  "label": "W-5: a refused mark is still said to be under review",
+  "label": "W-3c: an unconfirmed answer counts as protection",
   "files": [
    "worker.js"
   ],
-  "from": "                review = !!(m && m.ok === true);\n",
-  "to": "                review = true;\n"
+  "from": "              if (m && m.ok === true) return true;\n",
+  "to": "              if (m) return true;\n"
+ },
+ {
+  "label": "W-3d: an inline write is refused for want of a job to mark",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              if (!aJob) return true;\n              if (!aRowKey) return false;\n",
+  "to": "              if (!aJob) return false;\n              if (!aRowKey) return false;\n"
+ },
+ {
+  "label": "W-4: the protection does not carry the request's key",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                p_id: aJob.id, p_owner: aJob.owner, p_artifact_build: aRowKey,\n",
+  "to": "                p_id: aJob.id, p_owner: aJob.owner, p_artifact_build: null,\n"
+ },
+ {
+  "label": "W-5: a queued job's unknown outcome is not said to be under review",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              const review = !!aJob;\n",
+  "to": "              const review = false;\n"
  },
  {
   "label": "W-6: an earlier run's unreadable key is answered as a failure",
   "files": [
    "worker.js"
   ],
-  "from": "                if (!was) return aRowsUnknown(\"unread\");\n",
+  "from": "                if (!was) { await aRowGuard(); return aRowsUnknown(\"unread\"); }\n",
   "to": "                if (!was) return aFailure(\"no-meta\");\n"
+ },
+ {
+  "label": "W-6b: an earlier run's unreadable key is answered without protecting the job",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                if (!was) { await aRowGuard(); return aRowsUnknown(\"unread\"); }\n",
+  "to": "                if (!was) { return aRowsUnknown(\"unread\"); }\n"
+ },
+ {
+  "label": "W-12: a confirmed write is not recorded",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              if (aJob) await aRowCommitted();\n",
+  "to": "              if (false) await aRowCommitted();\n"
+ },
+ {
+  "label": "W-13: an entry found by the check before the picker is not recorded",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                if (!was) { await aRowGuard(); return aRowsUnknown(\"unread\"); }\n                await aRowCommitted();\n",
+  "to": "                if (!was) { await aRowGuard(); return aRowsUnknown(\"unread\"); }\n"
+ },
+ {
+  "label": "W-14: an entry found by the write's own key is not recorded",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                    await aRowCommitted();\n                    aMark(\"add:row\", \"ok\", { repeat: 1, rows: back.was.rows.length });\n",
+  "to": "                    aMark(\"add:row\", \"ok\", { repeat: 1, rows: back.was.rows.length });\n"
  },
  {
   "label": "W-7: the reconcile reads a row write as a publish",
@@ -289,6 +377,30 @@
   ],
   "from": "  return !!(body && Array.isArray(body.kinds) && body.kinds.length === 1 && body.kinds[0] === \"row\");\n",
   "to": "  return !!(body && Array.isArray(body.kinds) && body.kinds.includes(\"row\"));\n"
+ },
+ {
+  "label": "K-8: an answer that could not tell is called a round trip that added nothing",
+  "files": [
+   "scripts/canary-addon.mjs"
+  ],
+  "from": "    if (body.error === \"row-uncertain\" || body.review === true) {\n",
+  "to": "    if (false) {\n"
+ },
+ {
+  "label": "K-9: only a row's not knowing counts as unsure",
+  "files": [
+   "scripts/canary-addon.mjs"
+  ],
+  "from": "    if (body.error === \"row-uncertain\" || body.review === true) {\n",
+  "to": "    if (body.error === \"row-uncertain\") {\n"
+ },
+ {
+  "label": "K-10: an inline unsure answer is said to have paused the site",
+  "files": [
+   "scripts/canary-addon.mjs"
+  ],
+  "from": "${body.review === true ? \", and the site takes no new change until the review settles it\" : \"\"}",
+  "to": ", and the site takes no new change until the review settles it"
  },
  {
   "label": "K-7: the script hands the verdict a verified after-read whatever it read",

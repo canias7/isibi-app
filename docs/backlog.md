@@ -101,7 +101,17 @@ here; take a closed one out of both.**
   cannot take an entry; a value its column cannot read is told as a generic
   write failure; one `_meta` key per request is never removed; a list named
   in another letter case is refused, as the data step refuses it. Found
-  2026-10-01 building it, not changed.
+  2026-10-01 building it, not changed. **After the owner's reviews of
+  `f6532d66` and `31741f6f`** (an unknown outcome is settled from the key;
+  a queued job is protected before its write and written only when that is
+  confirmed): a site with a row job under review refuses new messages with
+  the general "stopped while publishing" sentence; inline (queue switch off
+  only) nothing pauses the site, so a new message can add a second entry,
+  and an entry nobody could confirm is never charged; a cancel asked while
+  the row step runs does not stop its write; between a dead consumer's lease
+  running out and the lost sweep parking its job, the site is not held busy;
+  a definite refusal under a job is refunded through the review. In full
+  under *THE ADD-ON `row` STEP'S KNOWN LIMITS*.
 - ~~No route test drives a successful sort to its publish~~: covered
   (`test/edit-list-sort.test.mjs`, both paths, 2026-09-30).
 - A natural message cannot hand the picture step a new photograph without
@@ -313,6 +323,63 @@ here; take a closed one out of both.**
   - By design for this bounded change: a `row` beside other kinds is set
     aside and named, never written; the canary's after-read sentence says
     "the edit did not publish" for an addition.
+  - **AFTER THE OWNER'S REVIEWS OF `f6532d66` AND `31741f6f` (2026-10-01;
+    on the branch, not merged).** A write whose outcome the step cannot see
+    is settled from the request's key. A queued job is protected before its
+    write (`edit_publish_mark` first; no write when that is not confirmed),
+    every road the ledger has parks it once marked, and the money is kept
+    only on a recorded outcome (`edit_committed` after the entries were read
+    back) or by the review's own reading of the key (`docs/addon-path.md`,
+    *THE `row` KIND*). **Closed by the review of `31741f6f`** (they were
+    recorded here for `f6532d66`'s correction): a process dying between the
+    write and the review mark, and a review mark that is refused or
+    unanswered, no longer end in a refund with the entry saved. The mark now
+    comes before the write, and without it nothing is written. What remains,
+    each found while building it:
+    - **While a row job is under review, a new message is refused with the
+      review machinery's general sentence**: the browser's own *"That edit
+      stopped while it was publishing and I can't tell yet whether it went
+      live…"* (`EditPoll.outcomeMessage("needs_review")`), which speaks of
+      publishing. The job's own reply says what happened. Changing it means
+      a `public/` change; not done.
+    - **Inline has no job to mark** (it runs only when the queue switch is
+      off; production queues every add-on). An entry nobody could confirm is
+      never charged, and the customer is told to look in the Data panel.
+      Nothing pauses the site, so a new message (a new retry key) can add a
+      second entry. A resend of the same POST answers it from the key, at no
+      charge.
+    - **A definite refusal under a job is refunded through the review**: the
+      job was marked before its write. The consumer's own reconcile closes
+      the empty key and refunds at once, keeping the step's reply. A site
+      database unreachable at that moment leaves the job parked, and the site
+      paused, until a sweep tick settles it.
+    - **A cancel asked while the row step runs does not stop its write**:
+      before writing, the step asks neither the job's own `gate` (which reads
+      a cancel and the time left) nor `edit_may_publish`, the page path's
+      gate. It predates this round. Found 2026-10-01 reading the gates; not
+      changed.
+    - **Between a dead consumer's lease running out and the lost sweep
+      parking its job, the site is not held busy.** The mark sets
+      `publish_started_at`, not the `publishing` state `site_busy` reads;
+      `edit_may_publish` would set that. So a job already queued on the same
+      site can run in that window. It is a different request: this request's
+      entry is never written twice, because its key refuses a second write.
+      Found 2026-10-01; not changed.
+    - **A row job that dies after `edit_committed` and before its finalize**
+      is finalized by the lost sweep with its general recovered reply (`{ ok:
+      true, recovered: true }`), which names no entry. The entry is saved and
+      the reserve kept, as they should be; the reply is the general one.
+    - **A job that runs again** (only when the delete of its stored request
+      failed) **and writes fresh reports cost 0** in its reply. The repeated
+      reserve answers `charged: 0`; the first run's reserve is the one kept.
+      Found 2026-10-01 reading `edit_reserve`; not changed.
+    - **A closed key (`ROW_VOID`) stays**, as the saved keys do.
+    - **A key holding fewer entries than were asked counts as unknown**,
+      never as saved. The fixture cannot produce one, so it is not tested.
+    - **"Not knowing" is read wide**: a statement timeout (57014) and the
+      other listed classes are treated as possibly committed. The cost is a
+      key read, and under a job possibly a review that the reconcile settles
+      at once; never a duplicate.
 - **A DATA-STEP JOB'S ROW READS `routing` UNTIL IT PUBLISHES (found
   2026-10-01 in Test 10's run 84; not changed).** The canary's poll printed
   `routing` from 18 s to 112 s and `publishing` at 126 s, while the sort

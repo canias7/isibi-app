@@ -1610,11 +1610,105 @@ kind's law is `docs/addon-path.md`, *THE `row` KIND*):
 - **Full suite** on the code commit `a54ceae4`: `8471 / 8471 / 0 / 0`
   locally (the base `c91d1c3e`: `8427 / 8427 / 0 / 0`, the 44 more being the
   two new files). Unit CI on `a15ef170`: run 36815036559, `8471 / 8467 /
-  0 / 4` (CI skips its usual four). Site build run 36815036563: still running at 04:30 UTC, recorded when it finishes.
+  0 / 4` (CI skips its usual four). Site build run 36815036563 on
+  `a15ef170`: green, the twelve counts as before (TAP 397, site-build 404).
 - **The image rolls on merge**, predicted from git objects:
   `b8c8789aa8e395d6` → `66d4f686aed60de0` (189 inputs, 159 distinct).
 - **Not shown**: real model routing, the real picker and designer, and any
   live write.
+
+### Corrected after the owner's review of `f6532d66` (2026-10-01, on the branch; not merged or deployed)
+
+**The owner**: *"Fix these two findings on f6532d66 before merge or
+deployment. 1. Handle uncertain row-write outcomes correctly. […] After an
+uncertain write or unreadable result, reconcile against the existing request
+marker. If it confirms the insertion, return the saved result and settle
+billing correctly. If the outcome remains unknown, report that uncertainty and
+use the existing review machinery; don't claim nothing changed, invite a fresh
+retry, or refund as a confirmed failure. […] 2. Enforce the new canary's
+checks. In the addon branch, the after-read verdict must affect the final
+pass/fail and exit status. A row-only success containing no saved rows must
+fail. […] Keep Test 11 unproven live and accepted tests closed."*
+
+- **Reproduced on `f6532d66`**: a committed entry whose answer was lost was
+  answered *"nothing was added. Try again in a moment."*, its reserve
+  refunded, and the next message saved it a second time (entries 12 and 13).
+  The add-on press exited 0 on an unverified after-read and on a `row`
+  success with no saved entry.
+- **Corrected** (`docs/history/2026-10-01-add-row.md` §9): a thrown write is
+  read as a duplicate, a definite refusal or not knowing; not knowing, and an
+  answer that cannot be read back, are settled from the request's key —
+  confirmed, the saved entries and one charge; unknown, said as unknown, a
+  queued job put under review with the money held and the site paused, and
+  the reconcile settling it from the key (an empty key closed before any
+  refund); inline, nothing charged. A definite refusal is refused and
+  refunded as before. The canary's add-on press passes only on an ok answer
+  that, if entries-only, shows its saved entries, and an after-read that
+  verified; otherwise exit 1. A pageless addition that verifies passes.
+- **Verified free**: the red check on `f6532d66` (14 add-row and 4 canary
+  cases fail; the definite-refusal controls, the pageless control and every
+  earlier case pass); `test/addon-row.test.mjs` 51 of 51 and
+  `test/canary-addon.test.mjs` 13 of 13; the full suite `8491 / 8491 / 0 / 0`
+  on `31741f6f`; the image `b8c8789aa8e395d6` → `ae09ff19611cba11` on merge.
+- **CI on `31741f6f`**: unit run 36818860221, `8491 / 8487 / 0 / 4`; site
+  build run 36818860242, green, the twelve counts as before. **The sweep**
+  (`scripts/mutants/row-uncertain.json`): 34 of 34 killed, the 3 controls
+  survived.
+- **Its limits were superseded by the next correction**: the owner's review
+  of `31741f6f` found that a refused review mark still refunded a saved
+  entry. That limit was recorded here, and a test asserted it.
+- **Test 11 stays unproven live**; no accepted test is reopened.
+
+### Corrected after the owner's review of `31741f6f` (2026-10-01, on the branch; not merged or deployed)
+
+**The owner**: *"Fix the remaining unknown-outcome path on 31741f6f. In
+aRowsUnknown, a failed edit_publish_mark still falls through to ordinary
+failure/refund. […] Establish durable protection before issuing the row
+write. If that protection cannot be confirmed, do not issue the write. Once a
+write may have happened, the consumer and sweeper must preserve its uncertain
+state until the request marker settles it. Keep refunds tied to confirmed
+non-application, and billing claims tied to recorded outcomes. […] Also
+correct addonVerdict's failure wording: a row-uncertain answer must not be
+described as "a completed round trip that added nothing." […] Keep Test 11
+unproven live and leave CLAUDE.md alone."*
+
+- **The defect** (on `31741f6f`): the review mark came after a write the step
+  could not see. A refused mark left the job unmarked, so the consumer
+  refunded a saved entry, nothing held the site, and the next message saved
+  it again. A test asserted that behaviour.
+- **Corrected** (`docs/history/2026-10-01-add-row.md` §10):
+  - **Protection is established before the write.** Under a job, after the
+    reserve, `edit_publish_mark` is sent with the request's key, and a mark
+    that is refused or unanswered means no statement is sent (`row-unprotected`,
+    *"nothing was added"*, the reserve given back).
+  - **Once marked, the job is never refunded as unsaved.** The consumer's
+    refund, the lost-job sweep and a redelivery with no stored request all
+    park it, and only the key settles it.
+  - **The money is kept only on a recorded outcome** (`edit_committed`, after
+    the entries were read back).
+  - **A refunding review keeps the step's own definite reply.**
+  - **The canary's line for an unsure answer** says the change may be on the
+    site, never that the round trip added nothing.
+- **Verified free**:
+  - The red check on `31741f6f`: 14 of 61 add-row cases fail (12 with only
+    the export added, the sweep case with the protection refused among them)
+    and 2 of 15 canary cases fail.
+  - `test/addon-row.test.mjs` 61 of 61 and `test/canary-addon.test.mjs` 15
+    of 15.
+  - The sweep (`row-uncertain.json`): 48 of 48 killed, the 3 controls
+    survived. The add-row sweep was stopped at 21 of 49 killed, none
+    surviving, to hand over.
+  - The image rolls `b8c8789aa8e395d6` → `7e03604050b345c0` on merge.
+  - The full suite: `8503 / 8503 / 0 / 0` locally (8,491 on `31741f6f`,
+    plus the 10 and 2 new cases).
+- **Remaining limits** (backlog, *THE ADD-ON `row` STEP'S KNOWN LIMITS*):
+  - a site under review refuses new messages with the general "stopped while
+    publishing" sentence;
+  - inline (queue switch off only) nothing pauses the site;
+  - a cancel does not stop the row write;
+  - the site is not held busy between a dead consumer's lease and the sweep;
+  - a definite refusal under a job is refunded through the review.
+- **Test 11 stays unproven live**; no accepted test is reopened.
 
 ## Test 10 — a stored list re-sorted, with real models (prepared 2026-09-30 on the owner's word, after Test 9 was closed; free preparation only; the order traced on all three demo sites; rehearsed with supplied answers through the real lane and the real edit route; decision 2b taken by the owner the same day with a scope correction: a sort across the whole site goes to the data sorter, a sort limited to one named page to the page editor, and no "whatever page they saw it" rule; the rule implemented on the branch with committed route coverage, and its scope corrected on 2026-10-01 so that a selection of pages is never sent to the sorter; passed by the owner and merged and deployed in deploy 2174 (2026-10-01); the request revised to state its scope; the baseline read; the authorized free dispatch refused (403); the owner's free press, run 83, confirmed the runtime and rehearsed Test 10, passing every check; the paid press run as run 84, 3 credits, every acceptance item met; closed by the owner the same day for run 84's demonstrated request, the bakery left at `dgmag4`, not to be repeated)
 
