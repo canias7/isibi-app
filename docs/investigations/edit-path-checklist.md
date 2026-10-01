@@ -114,7 +114,10 @@ unchanged in deploy 2176 (the CI change) and runtime-confirmed by run 85;
 pressed as run 86 and refused by the route check: the real router answered
 `edit`/`data`, not `addon`, because its wording has no rule for an added
 row; 2 credits, nothing added, not passed. The router's wording is corrected
-on the branch on the owner's word (not merged; the paid test not retried)**
+on the owner's word and merged and deployed in deploy 2177 (`25faac78`,
+image `9a71a6384b4206a2`, rolled at 23:05:58 UTC); the retry with the
+original request is prepared, behind one free runtime check, and not
+pressed**
 (*Test 11*, below). Under the owner's rule (*"Add will always
 go in addon"*) the request reaches the add-on step, and **none of its nine
 kinds added a row to a table the site already has**: a table's seed fills
@@ -2467,7 +2470,7 @@ estimated cost; paid execution remains pending approval."*
   (about 3–4). Pressing again without that change would most likely spend 2
   on the same answer.
 
-### The router fix (2026-10-01, after run 86, on the owner's word; on the branch, not merged)
+### The router fix (2026-10-01, after run 86, on the owner's word; merged and deployed in deploy 2177 the same day, below)
 
 **The owner**: *"Fix the router for Test 11. Adding a NEW record to an
 existing table/list must select addon. The parent list already existing does
@@ -2526,6 +2529,145 @@ paid test yet."*
 - **Real classification is not shown**: only a live press after a merge and a
   deploy can show which answer a real model gives. Test 11's paid press is
   not retried.
+
+### Deploy 2177: the router fix merged, and Test 11's retry prepared (2026-10-01; not pressed)
+
+**The owner**, after the broad plan: *"Pause the broad test plan and
+batch-runner work. Focus only on the routing issue from run 86. Complete the
+approved merge and deployment of the reviewed router fix through 25faac78,
+reusing the existing passing CI evidence. Then prepare the original Test 11
+request […] Keep the expected route intent=addon alsoAsked=none and verify
+that exactly one correct item is added without unrelated changes. Use the
+canary's existing runtime checks before spending. Provide the updated
+deployment/image inputs and estimated cost before the paid retry. Don't
+expand into other capabilities or treat mocked answers as proof that routing
+works."*
+
+**Checked before the merge** (22:46–22:50 UTC):
+- **a fast-forward**: `main` (`78a95a47`) is an ancestor of `25faac78`;
+  everything after `710ad704` is documents;
+- **the existing CI, reused, not repeated**:
+  - unit tests on `25faac78` itself, run 36916597462: `success`, **`8543 /
+    8539 / 0 / 4`** (the total as on `710ad704`, run 36914783961);
+  - site build run 36914784000 on `710ad704`: `success`, the gate *"ALL
+    CHECKS: 404 checks in 27 sections across 4 shards, every job green"* at
+    inputs `899b2151f6729573`. **`25faac78` prints the same fingerprint**
+    (3,967 files), so that run covers it;
+- **the image predicted at both ends**: `78a95a47` → `c051f625db27b5b7`,
+  `25faac78` → **`9a71a6384b4206a2`** (189 inputs, 159 distinct paths). The
+  router file is an input, so the image rolls;
+- **the rollback**: reverting `78a95a47..25faac78` in a throwaway worktree
+  gives main's own tree (`fe877d94…`);
+- **nothing in flight**: no Actions run in progress or queued; no edit job
+  open (the only two rows not `done` or `failed` are `lost` jobs from 1 and 2
+  September, refunded);
+- **nothing under `public/` changed**, so no served-file reading is owed.
+
+**Merged and deployed: deploy 2177** (run 36937413961, `success`):
+- `main` fast-forwarded `78a95a47` → **`25faac78`** at 22:50:07 UTC,
+  through `25faac78` exactly (the branch's later commits, the paused broad
+  plan, stay off `main`);
+- **the image was built and rolled as predicted**: `built
+  isibi-app-sitebuildcontainer:9a71a6384b4206a2 (registry answered 404; 189
+  inputs off ./Dockerfile)`, then Wrangler's `- c051f625db27b5b7` / `+
+  9a71a6384b4206a2` and `SUCCESS Modified application` at **23:05:58 UTC**;
+- the Worker's `DEPLOY_ID` is `25faac78…`; no asset changed;
+- the job took 15m50s, almost all of it one image layer's upload to the
+  registry (about 13½ minutes); the build itself was quick
+  (`docs/deploy-record.md`).
+
+**Deployed, not runtime-confirmed.** Container work waits 15–20 minutes
+after the roll, so the free runtime check is **not to be pressed before
+23:26 UTC**. No dispatch is attempted (the known 403 is not repeated).
+
+**Test 11's starting state, re-read** (22:52:06 UTC, free, as a visitor, with
+the canary's own fixture code):
+- `loaves` read whole: 200, `0-5/6`, 1,045 bytes, sha256 `ef870ebc…`, the
+  same bytes as run 86's after-read;
+- the rows box reads *"as named: 6 rows; the target is id 6, and the other 5
+  digest to 093f2130a37a6704"*;
+- in price order: Sea Salt Focaccia £4.50 (id 6), Country White £4.80 (1),
+  Dark Rye £5.20 (2), Seeded Wholemeal £5.40 (3), Olive & Rosemary £5.80
+  (4), Walnut Levain £6.00 (5);
+- `/`, `/order`, `/gallery`, `/starter` and `/visit` all 200 at
+  `01790819484141-dgmag4`.
+
+**The money** (22:53 UTC, Supabase, non-secret columns): balance **101**,
+unchanged since the top-up at 18:48:46; the ledger's last row is still 349;
+no job open.
+
+**Press 1, the free runtime check and rehearsal** (the owner's press; no
+dispatch is attempted). Edit canary, from `main`, **only after
+23:26 UTC**, so that the rolled image is serving:
+- "Run the ONE paid edit as well (yes/no)": `no`;
+- "What to change. REQUIRED when spend=1 …": exactly this one line (the
+  request below):
+  ```text
+  Add one loaf to today's loaves: Rye & Caraway at £5.00, described as "A light rye with toasted caraway."
+  ```
+- "The site to edit. …": `fold-lane-bakery`;
+- "Refuse to spend unless the Worker reports this deploy sha …":
+  `25faac78e192ad6923544f90eb7cdb81c8e4c385`;
+- "Refuse to spend unless a cold container reports this image id (exact)
+  …": `9a71a6384b4206a2`;
+- "Refuse to post the paid edit unless the router answers this: …":
+  `intent=addon alsoAsked=none`;
+- "Refuse to route or spend unless one table, read whole as the site serves
+  it, is as named: …": Test 10's box, unchanged,
+  `{"table":"loaves","baseline":"093f2130a37a6704","target":{"id":6,"name":"Sea Salt Focaccia","description":"A tray bake, heavy on the oil, finished with flaky salt.","price":4.5,"photo":null,"created_at":"2026-08-21 23:06:23"}}`;
+- every other box as it stands.
+
+What it shows, at no cost: both readers answer `25faac78e192`, a cold
+container answers `9a71a6384b4206a2`, queued jobs and the runner are on, the
+free job settles at cost 0, the route box is read (*"this run does not
+spend, so it routes nothing"*), the table is read whole and as named, and it
+stops before any routing call. **It does not route**, so it says nothing
+about how the real router classifies the request.
+
+**Press 2, the paid retry** (after press 1 passes, and only on the owner's
+approval): the same boxes with "Run the ONE paid edit as well (yes/no)":
+`yes`.
+- **The request, the original, byte for byte as run 86 sent it** (104
+  characters, 105 bytes, sha256 `7cc5f1ca7ec8bcc3…`; the quotes inside are
+  straight double quotes): *Add one loaf to today's loaves: Rye & Caraway at
+  £5.00, described as "A light rye with toasted caraway."*
+- **The routing check**: the real router must answer `intent=addon` with
+  nothing held back. Any other answer is refused before anything is posted,
+  as run 86's was; only routing is paid. **This is the only evidence of real
+  classification**: the router's supplied-answer tests prove handling, not
+  what a real model chooses.
+- **The canary's own checks after the add-on step**: it answered ok; its
+  kinds are exactly `row` (printed as `step addon kinds=…`; any other kind,
+  such as a hand-written card on `/order`, fails Test 11 whatever the
+  canary's verdict says); it names the entry the database saved (`loaves #N “Rye & Caraway”`, with the
+  row as stored); the after-read finds the five pages still at `dgmag4`
+  (an entry publishes nothing) and the stored description unchanged; the
+  balance moved by the charge.
+- **My independent checks afterwards** (free, as a visitor, and Supabase):
+  - `loaves` read whole: **7 rows** (`0-6/7`);
+  - the six existing rows **byte-identical** to the baseline (ids 1–6, every
+    field);
+  - **exactly one new row**: `name` "Rye & Caraway", `price` 5,
+    `description` "A light rye with toasted caraway.", `photo` null, the id
+    the database gave it (read back, never predicted), `created_at` its own;
+  - `/order`: seven choices in price order, Rye & Caraway £5.00 third (after
+    Sea Salt Focaccia £4.50 and Country White £4.80), its card carrying the
+    new id as its value. No order is placed;
+  - nothing published: every page still at `dgmag4`; `/`, `/gallery`,
+    `/starter` and `/visit` byte-identical apart from the render timestamp
+    and the live hours badge;
+  - **the money**: routing (no ledger row) plus one add-on charge row for the
+    job; the balance down by their sum; no job open;
+  - **the reply** names the loaf, the list and the id, and matches what was
+    saved.
+- **Estimate: about 3–4 credits**, not a cap: routing 1–2 (run 86's was 2),
+  then the add-on step's own charge (the picker and the row designer, billed
+  once, measured at 2 for an addition that changes no page), reserved after
+  routing and before the entry is written. At a balance of 101 the money is
+  no constraint.
+
+**Not shown until press 2**: how the real router classifies this request
+after the fix.
 
 ## Test 10 — a stored list re-sorted, with real models (prepared 2026-09-30 on the owner's word, after Test 9 was closed; free preparation only; the order traced on all three demo sites; rehearsed with supplied answers through the real lane and the real edit route; decision 2b taken by the owner the same day with a scope correction: a sort across the whole site goes to the data sorter, a sort limited to one named page to the page editor, and no "whatever page they saw it" rule; the rule implemented on the branch with committed route coverage, and its scope corrected on 2026-10-01 so that a selection of pages is never sent to the sorter; passed by the owner and merged and deployed in deploy 2174 (2026-10-01); the request revised to state its scope; the baseline read; the authorized free dispatch refused (403); the owner's free press, run 83, confirmed the runtime and rehearsed Test 10, passing every check; the paid press run as run 84, 3 credits, every acceptance item met; closed by the owner the same day for run 84's demonstrated request, the bakery left at `dgmag4`, not to be repeated)
 

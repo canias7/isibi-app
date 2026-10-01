@@ -1,7 +1,8 @@
 # A new entry in an existing list is routed to the add-on step (2026-10-01)
 
-On the branch after run 86, for the owner's review. Not merged, not deployed.
-The paid test (Test 11) is not retried.
+Written on the branch after run 86, for the owner's review; merged and
+deployed in deploy 2177 the same evening, on the owner's word (§8). Test 11's
+retry is prepared, not pressed.
 
 ## 1. What happened
 
@@ -178,3 +179,20 @@ new-entry sentence.
   would roll it, `c051f625db27b5b7` → **`9a71a6384b4206a2`** (189 inputs,
   predicted from git objects at both ends). After such a deploy the container
   work waits 15–20 minutes before the runtime check.
+
+## 8. Merged and deployed (deploy 2177, 2026-10-01)
+
+- **The owner's word**: *"Complete the approved merge and deployment of the
+  reviewed router fix through 25faac78, reusing the existing passing CI
+  evidence."*
+- **The merge**: `main` fast-forwarded `78a95a47` → `25faac78` at 22:50:07
+  UTC. No CI was repeated:
+  - unit tests on `25faac78` itself, run 36916597462, `8543 / 8539 / 0 / 4`;
+  - the site build above (§7), whose inputs fingerprint `25faac78` shares.
+- **The deploy**: run 36937413961, `success`. The image was built and
+  rolled `c051f625db27b5b7` → `9a71a6384b4206a2` at 23:05:58 UTC, as
+  predicted, and the Worker's `DEPLOY_ID` is `25faac78…`
+  (`docs/deploy-record.md`).
+- **Not yet shown**: the runtime check (the owner's free press, not before
+  23:26 UTC), and how a real model classifies an added entry, which only
+  Test 11's paid retry can show (the checklist's *Test 11*, *Deploy 2177*).

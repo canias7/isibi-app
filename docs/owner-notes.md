@@ -1,109 +1,111 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-01, 22:40 UTC)
+## Current handoff — read this first (2026-10-01, 23:10 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**State now: the broad test plan is ready for your approval; nothing sent,
-spent or merged**
-- **The plan** is the checklist's *Broad real-model batches*: 22 messages
-  in four chats. You type them in the real app, the builder chooses its own
-  routes, and I verify each one independently.
-- **No approved deployment is pending.** Deploy 2176 is live and confirmed
-  (run 85).
-- **The router fix (`710ad704`) is still unmerged**, as you said. Message
-  1.1 (Test 11's addition, now three loaves) needs it: without it, the real
-  router sent an added loaf to the data step (run 86).
-- Balance **101**; nothing spent since run 86.
+**State now: the router fix is merged and deployed (deploy 2177); Test 11's
+retry is prepared, not pressed**
+- **Merged on your word**: `main` fast-forwarded `78a95a47` → `25faac78` at
+  22:50:07 UTC, through `25faac78` exactly (the plan commits after it stay on
+  the branch only).
+- **The existing CI was reused, not repeated**: unit tests on `25faac78`
+  itself (run 36916597462, `8543 / 8539 / 0 / 4`), and the site build on
+  `710ad704` (run 36914784000), whose inputs fingerprint `899b2151f6729573`
+  is the same on `25faac78`.
+- **Deploy 2177 succeeded**: the image was built and rolled
+  `c051f625db27b5b7` → `9a71a6384b4206a2` at 23:05:58 UTC, as predicted, and
+  the Worker is on `25faac78`. The job took 15m50s, almost all of it one
+  image layer's slow upload to the registry; nothing of ours caused it.
+- **Deployed, not runtime-confirmed**: that is press 1 below.
+- **The broad test plan and the batch runner are paused**, as you said.
+  Nothing in that plan is approved or being built.
+- Balance **101**, ledger's last row 349, no job open (22:53 UTC). Nothing
+  spent since run 86.
 
-**The four chats**
-1. **The bakery** (8 messages):
-   - three new loaves (Test 11 carried in);
-   - prices, descriptions and a removal;
-   - a warmer look: colours, fonts, the buttons, the tab icon, the menu and
-     a section move;
-   - seven new things: an FAQ page, a QR code, search with a filter and
-     pages of six, a calculator, a 3D loaf, a call button, and the list on
-     two more pages;
-   - a sort on two chosen pages;
-   - a mixed price-and-page message;
-   - an attached photo on an edit;
-   - a link on an edit, which also finishes the unfinished Starter page.
-2. **The repair workshop** (3): a quote form with a photo upload; a
-   five-a-day limit on its existing booking form; a morning job and a
-   weather panel whose key is missing.
-3. **Lune Yoga, a first build** (one brief, with a logo, a PDF timetable and
-   two links): members, bookings, capacity, cancelling and moving, times
-   across the 25 October clock change, an admin, photo uploads.
-4. **Kiln Coffee, a first build** (one brief, with a logo and a PDF price
-   list): 14 coffees, search, filters, pages, basket totals, stock, Stripe
-   test checkout, an admin, English and Welsh.
-- **Round 2**, after I report round 1: follow-ups in the same chats ("the
-  last loaf you added", "the same style", corrections, and finishing what
-  was held back or failed).
+**Test 11's starting state** (22:52 UTC, free, as a visitor): `loaves` read
+whole, `0-5/6`, the same bytes as after run 86; the rows box *"as named"*;
+the five pages at `dgmag4`.
 
-**What is expected not to work, and is tested anyway**
-- References to earlier messages: the router sees only the current one.
-- An attached photo for a page's picture: an edit takes an image only for
-  the logo.
-- A link in an edit: links are read only on a first build.
-- Welsh: you deferred translation, and the translator is parked. It is in
-  the Kiln brief only because you listed multilingual work; say if it stays
-  out.
-- The checkout, until you add a Stripe test key.
+**Press 1 — the free runtime check and rehearsal** (yours; I won't dispatch).
+Edit canary, from `main`, **not before 23:26 UTC**:
+- "Run the ONE paid edit as well (yes/no)": `no`
+- "What to change. REQUIRED when spend=1 …": exactly this one line:
+  ```text
+  Add one loaf to today's loaves: Rye & Caraway at £5.00, described as "A light rye with toasted caraway."
+  ```
+- "The site to edit. …": `fold-lane-bakery`
+- "Refuse to spend unless the Worker reports this deploy sha …":
+  `25faac78e192ad6923544f90eb7cdb81c8e4c385`
+- "Refuse to spend unless a cold container reports this image id (exact)
+  …": `9a71a6384b4206a2`
+- "Refuse to post the paid edit unless the router answers this: …":
+  `intent=addon alsoAsked=none`
+- "Refuse to route or spend unless one table, read whole as the site serves
+  it, is as named: …":
+  `{"table":"loaves","baseline":"093f2130a37a6704","target":{"id":6,"name":"Sea Salt Focaccia","description":"A tray bake, heavy on the oil, finished with flaky salt.","price":4.5,"photo":null,"created_at":"2026-08-21 23:06:23"}}`
+- every other box as it stands.
 
-**What I need from you**
-1. Approval of the messages and the estimate: **135–330 credits** (about
-   $1.08–2.64) against 101, so a top-up of about 230 for the high end.
-2. Your word to merge `710ad704`. The image rolls, so a 15–20 minute wait
-   and one free check follow.
-3. Two member accounts for Lune Yoga, on addresses whose mail you read (you
-   do the sign-up and reset on your phone), or a yes to a throwaway inbox.
-4. A Stripe test key and webhook secret in Kiln Coffee's secrets, after its
-   build. I never read them.
-5. A yes to the visitor writes in the plan (repair quotes and bookings,
-   Lune bookings, Kiln test orders), all kept as demo data.
-6. Whether the builds may buy photos from fal.
+It checks, free: both readers on `25faac78e192`, a cold container on
+`9a71a6384b4206a2`, the queue and runner on, a free job at cost 0, the route
+box read, and the loaves table whole and as named. **It routes nothing**, so
+it cannot show how the router now classifies the request.
 
-**Why you type the messages**
-- The canary's API mode refuses an add-on answer unless its route box
-  expects one; its UI mode blocks add-ons and builds; neither can carry a
-  chat. So it would gate the routes you want the builder to choose.
-- A batch runner can be built instead, on your word.
+**Press 2 — the paid retry**: the same boxes with "Run the ONE paid edit as
+well (yes/no)": `yes`, after press 1 passes and on your approval.
+- **The request is the original, byte for byte as run 86 sent it** (104
+  characters, sha256 `7cc5f1ca…`). Your message wrote the inner quotes as
+  single quotes; I kept run 86's straight double quotes so the retry tests
+  the same sentence.
+- **Pass**:
+  - the real router answers `intent=addon`, nothing held back (anything else
+    is refused before posting; only routing is paid);
+  - the add-on step answers ok with kinds exactly `row`, naming one saved
+    entry;
+  - `loaves` then holds **7 rows**: the six existing ones byte-identical,
+    and exactly one new one: "Rye & Caraway", price 5, "A light rye with
+    toasted caraway.", photo null, with the id the database gives it;
+  - `/order` lists it third, after £4.50 and £4.80, and offers it in the
+    order form with its id;
+  - nothing published: every page still at `dgmag4`, the other pages
+    unchanged;
+  - the money: routing plus one add-on charge, and no job open;
+  - the reply names the loaf, the list and the id.
+- **Estimate: about 3–4 credits**: routing 1–2 (run 86's was 2) and the
+  add-on's own charge (measured at 2 for an addition that changes no page).
+  Not a cap; the balance is 101.
 
-**Attachments**: five files in `docs/test-fixtures/broad-batches/` (two
-logos, a timetable PDF, a price-list PDF, a picture of the bakery's
-window).
+**What is proven, and what is not**
+- The new instructions are in the request the router is sent: proven by the
+  tests on the real routing route.
+- How a real model now classifies this request: **not shown**. Only press 2
+  can show it. Supplied-answer tests prove what happens after an answer,
+  not the answer.
 
 **Links**
-- The plan: the checklist's *Broad real-model batches*
-  (`docs/investigations/edit-path-checklist.md`).
-- The router fix: https://github.com/canias7/isibi-app/commit/710ad704de7504286fff367790b4f7093fc94409
-- Its CI: unit tests https://github.com/canias7/isibi-app/actions/runs/36914783961,
-  site build https://github.com/canias7/isibi-app/actions/runs/36914784000
+- Deploy 2177: https://github.com/canias7/isibi-app/actions/runs/36937413961
+- The fix: https://github.com/canias7/isibi-app/commit/710ad704de7504286fff367790b4f7093fc94409
+- Run 86: https://github.com/canias7/isibi-app/actions/runs/36908358798
+- Records: the checklist's *Test 11* (*Deploy 2177*), `docs/deploy-record.md`.
 
 **From our chat**
-- You asked for broad real-model testing in a few substantial requests,
-  through the normal app:
-  - the builder choosing its routes, with nothing forced or split;
-  - every instruction verified independently;
-  - closed tests not repeated, and Test 11 carried in;
-  - follow-ups kept apart from first messages, and outcomes reported
-    honestly;
-  - the exact requests and the cost before any spending.
-- CLAUDE.md left alone.
+- You paused the broad plan and the batch runner, asked for the merge
+  through `25faac78` reusing the passing CI, and for the original Test 11
+  request prepared with its route box, the canary's free checks before
+  spending, and the inputs and cost before the paid retry. No other
+  capability is touched. CLAUDE.md left alone.
 
 **Blockers**
-- Your approval (the list above).
+- Press 1 (free), not before 23:26 UTC: the new image needs 15–20 minutes
+  to serve.
+- Your approval of press 2.
 
 **Exact next action**
-- On your word:
-  1. I merge `710ad704` and read the deploy;
-  2. after the image rolls, you press one free runtime check;
-  3. I take the before-reads;
-  4. you send round 1.
+1. You press press 1 (free) not before 23:26 UTC.
+2. I read it; if it passes, you press press 2 on your approval.
+3. I verify the result independently and record it.
 
 ---
 
@@ -163,6 +165,22 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-01 — The router fix is merged and deployed (deploy 2177); Test 11's retry is prepared
+
+- **What happened**: on your word, `main` moved to `25faac78`, the reviewed
+  router fix and its handoff, and nothing after it. The existing passing CI
+  was reused: unit tests on `25faac78` itself, and the site build whose
+  inputs match.
+- **The deploy**: success. The container image changed to
+  `9a71a6384b4206a2` at 23:05:58 UTC, exactly as predicted. It was slow
+  (about 16 minutes) because one image layer took 13½ minutes to upload.
+- **Test 11 is ready to retry, not pressed**: the original request, the
+  route box `intent=addon alsoAsked=none`, and the table check. First one
+  free press (after 23:26 UTC) checks the new deploy and the table and
+  routes nothing; then the paid press, about 3–4 credits, on your approval.
+- **The broad test plan is paused**, as you asked.
+- **Nothing spent.** Balance 101.
 
 ## 2026-10-01 — The broad real-model test plan, for your approval (nothing sent or spent)
 

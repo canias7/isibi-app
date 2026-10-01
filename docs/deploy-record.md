@@ -5,7 +5,7 @@
 > `docs/deploy.md`, where CLAUDE.md's **Deploy** section moved in the second
 > pass. This file keeps the measurements behind them: the
 > timing bands, every image-id prediction checked against a deploy's own log
-> (deploys 2137–2176), and the served-file check driven end to end on deploy
+> (deploys 2137–2177), and the served-file check driven end to end on deploy
 > 2139.
 >
 > **Add each new deploy here**, one paragraph per deploy, in the same shape:
@@ -772,6 +772,66 @@ runner=true`, so both readers answered `78a95a47bfe5` and a cold container
 `empty` at cost 0); ALL FREE CHECKS PASSED; the balance read 3 and nothing
 was charged. Deploy 2175's code is the same, so this is its runtime check
 too.
+
+**Deploy 2177 (2026-10-01) was predicted on both ends and built as
+predicted**: `origin/main` `78a95a47` answered `c051f625db27b5b7` and the
+candidate `25faac78` **`9a71a6384b4206a2`**, from the same 189 inputs (159
+distinct paths). The push carried the router fix for Test 11 (`710ad704`:
+`builder/site-ask.mjs`, an image input, with its tests, its mutant spec and
+records) and the handoff on top (`25faac78`, documents). Nothing under
+`public/` moved. **A fast-forward of 5 commits**, `78a95a47` → `25faac78` at
+22:50:07Z, **through `25faac78` exactly**, on the owner's word (*"Complete
+the approved merge and deployment of the reviewed router fix through
+25faac78, reusing the existing passing CI evidence"*); the branch's later
+commits (the paused broad plan) stay off `main`. Checked first:
+- **the candidate**: `main` was still `78a95a47`, an ancestor of
+  `25faac78`; everything after `710ad704` is documents;
+- **nothing in flight**: no Actions run in progress or queued; no edit job
+  open in `edit_jobs` (the only rows not `done` or `failed` are two `lost`
+  jobs from 1 and 2 September, refunded);
+- **CI, reused, not repeated**: unit run 36916597462 on `25faac78` itself,
+  `8543 / 8539 / 0 / 4`; site build run 36914784000 on `710ad704`, whose
+  gate printed *"ALL CHECKS: 404 checks in 27 sections across 4 shards, every
+  job green"* at inputs `899b2151f6729573`, the fingerprint `25faac78` prints
+  too (3,967 files);
+- **the rollback**: reverting `78a95a47..25faac78` in a throwaway worktree
+  gives main's own tree (`fe877d94…`);
+- **no served-file reading**: nothing under `public/` changed.
+
+**One deploy run**, 2177 (36937413961, `push` on `25faac78`), `completed` /
+`success`, the job **15m50s** (22:50:15–23:06:05):
+- **the gate** was set for `25faac78…`; the drain answered `no live leases
+  after 1s — deploying` (masked `***s`), and the gate was `left to expire`
+  for the new sha;
+- **the image**: `built isibi-app-sitebuildcontainer:9a71a6384b4206a2
+  (registry answered 404; 189 inputs off ./Dockerfile)` (masked
+  `9a7***a6384b4206a2`, `***89`). 0 `CACHED` lines, as always; 15 layers
+  `Pushed` and 4 `Layer already exists`; the digest `sha256:ea2d9cc8…`. Then
+  Wrangler's container step: `EDIT isibi-app-sitebuildcontainer`, `-
+  "image": …:c051f625db27b5b7` / `+ "image": …:9a71a6384b4206a2`, `SUCCESS
+  Modified application isibi-app-sitebuildcontainer` at **23:05:58Z**;
+- **timings**: image step **15m07s** (22:50:35–23:05:42), the slowest
+  recorded, and not for 2175's reason: the apt layer took **20.6 s** this
+  time, and the build was named at 22:51:28. The push began at 22:51:29;
+  fourteen layers were up by 22:52:01, and **the last one,
+  `2d5c0e5a6b4b`, finished at 23:05:35, about 13½ minutes for one layer's
+  upload** to the registry. Nothing of ours changed the Dockerfile. Wrangler
+  17 s (23:05:43–23:06:00);
+- **Wrangler**: `DEPLOY_ID` `25faac78e192ad6923544f90eb7cdb81c8e4c385`
+  (masked); `No updated asset files to upload`; `Uploaded isibi-app`,
+  `Deployed isibi-app triggers`, `Current Version ID:
+  b96e7f53-7733-4c23-8…d9-64a5857…d762` (masked). The `npm error npx
+  canceled … wrangler` line is the action's check for an installed Wrangler,
+  as in 2175 and 2176.
+
+**The image rolled at 23:05:58Z**, so container work waits 15–20 minutes:
+the free runtime check is not to be pressed before 23:26 UTC.
+
+**Deployed, not runtime-confirmed**: the free canary press reads the
+Worker's sha and a cold container's image. No dispatch was attempted (the
+known 403 is not repeated), so the press is the owner's, with
+`expect_deploy` `25faac78…` and `expect_image` `9a71a6384b4206a2`, together
+with Test 11's boxes (the checklist's *Test 11*, *Deploy 2177*).
 
 ## The served-file check, driven end to end on deploy 2139
 
