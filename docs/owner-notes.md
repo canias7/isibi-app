@@ -1,13 +1,13 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-01, 23:15 UTC)
+## Current handoff — read this first (2026-10-01, 23:30 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**State now: the router fix is merged and deployed (deploy 2177); Test 11's
-retry is prepared, not pressed**
+**State now: the router fix is merged, deployed and runtime-confirmed
+(deploy 2177, run 87); Test 11's paid retry is next, on your approval**
 - **Merged on your word**: `main` fast-forwarded `78a95a47` → `25faac78` at
   22:50:07 UTC, through `25faac78` exactly (the plan commits after it stay on
   the branch only).
@@ -19,7 +19,9 @@ retry is prepared, not pressed**
   `c051f625db27b5b7` → `9a71a6384b4206a2` at 23:05:58 UTC, as predicted, and
   the Worker is on `25faac78`. The job took 15m50s, almost all of it one
   image layer's slow upload to the registry; nothing of ours caused it.
-- **Deployed, not runtime-confirmed**: that is press 1 below.
+- **Runtime-confirmed by your free press, run 87** (23:25 UTC): both
+  readers on `25faac78`, a cold container on `9a71a6384b4206a2`, every free
+  check passed, the loaves table *"as named"*, and nothing charged.
 - **The broad test plan and the batch runner are paused**, as you said.
   Nothing in that plan is approved or being built.
 - Balance **101**, ledger's last row 349, no job open (22:53 UTC). Nothing
@@ -29,8 +31,8 @@ retry is prepared, not pressed**
 whole, `0-5/6`, the same bytes as after run 86; the rows box *"as named"*;
 the five pages at `dgmag4`.
 
-**Press 1 — the free runtime check and rehearsal** (yours; I won't dispatch).
-Edit canary, from `main`, **not before 23:26 UTC**:
+**Press 1 — the free runtime check and rehearsal: done, passed (run 87).**
+Its boxes, kept for reference; press 2 uses the same ones:
 - "Run the ONE paid edit as well (yes/no)": `no`
 - "What to change. REQUIRED when spend=1 …": exactly this one line:
   ```text
@@ -125,13 +127,11 @@ well (yes/no)": `yes`, after press 1 passes and on your approval.
   until then.
 
 **Blockers**
-- Press 1 (free), not before 23:26 UTC: the new image needs 15–20 minutes
-  to serve.
 - Your approval of press 2.
 
 **Exact next action**
-1. You press press 1 (free) not before 23:26 UTC.
-2. I read it; if it passes, you press press 2 on your approval.
+1. Press 1 passed (run 87).
+2. You press press 2, the paid retry, on your approval.
 3. I verify the result independently and record it.
 4. Then the router audit (free), returned to you with its findings and a
    proposed routing-test batch and cost.

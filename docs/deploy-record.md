@@ -833,6 +833,17 @@ known 403 is not repeated), so the press is the owner's, with
 `expect_deploy` `25faac78…` and `expect_image` `9a71a6384b4206a2`, together
 with Test 11's boxes (the checklist's *Test 11*, *Deploy 2177*).
 
+**Runtime-confirmed by the owner's free press, run 87** (36940738610,
+2026-10-01 23:25:37–23:26:37 UTC, 19½ minutes after the roll, from `main` at
+`25faac78`, spend `no`, on `fold-lane-bakery`): `build-health 200
+deploy=25faac78e192 image=9a71a6384b4206a2` and `runtime 200
+deploy=25faac78e192 async=true runner=true`, so both readers answered
+`25faac78e192` and a cold container `9a71a6384b4206a2`; the zero-cost
+confirmations passed (the free jobs `52ab9449…` and `c47d529b…` settled
+`empty` at cost 0, billing `none`); ALL FREE CHECKS PASSED. The balance read
+101 and nothing was charged (read again in Supabase: the ledger's last row
+still 349, no job open).
+
 ## The served-file check, driven end to end on deploy 2139
 
 **DRIVEN END TO END ON DEPLOY 2139 (2026-09-21), and it is stronger than the

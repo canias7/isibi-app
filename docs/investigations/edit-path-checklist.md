@@ -115,9 +115,9 @@ pressed as run 86 and refused by the route check: the real router answered
 `edit`/`data`, not `addon`, because its wording has no rule for an added
 row; 2 credits, nothing added, not passed. The router's wording is corrected
 on the owner's word and merged and deployed in deploy 2177 (`25faac78`,
-image `9a71a6384b4206a2`, rolled at 23:05:58 UTC); the retry with the
-original request is prepared, behind one free runtime check, and not
-pressed**
+image `9a71a6384b4206a2`, rolled at 23:05:58 UTC) and runtime-confirmed
+by run 87; the paid retry with the original request is next, on the
+owner's approval, not pressed**
 (*Test 11*, below). Under the owner's rule (*"Add will always
 go in addon"*) the request reaches the add-on step, and **none of its nine
 kinds added a row to a table the site already has**: a table's seed fills
@@ -2670,6 +2670,33 @@ approval): the same boxes with "Run the ONE paid edit as well (yes/no)":
 
 **Not shown until press 2**: how the real router classifies this request
 after the fix.
+
+**Press 1 passed: run 87** (36940738610, the owner's press at 23:25:37 UTC,
+19½ minutes after the roll, from `main` at `25faac78`, spend `no`, with the
+boxes above):
+- **the runtime**: both readers answered `25faac78e192`, and a cold
+  container answered `9a71a6384b4206a2`; queued jobs and the runner on;
+- **the zero-cost confirmations**: the async shapes on the bakery and on
+  `washhouse-3`, a forged replay marker and a foreign poll both 404, and the
+  free job settled `empty` at cost 0; **ALL FREE CHECKS PASSED**;
+- **the before-read**: the source read complete; the five pages at
+  `01790819484141-dgmag4`, the same byte sizes as the 22:52 read; the stored
+  description unchanged; the balance 101;
+- **the route box** read as `intent=addon alsoAsked=none`, *"this run does
+  not spend, so it routes nothing"*;
+- **the rows box**: *"as named: 6 rows; the target is id 6, and the other 5
+  digest to 093f2130a37a6704"*;
+- *"CANARY_SPEND is not 1 — stopping before the paid edit. Nothing was
+  charged."* The evidence zip's digest is `73b0d215…`;
+- **the money, read again in Supabase**: balance 101, the ledger's last row
+  349, no job open; the two free jobs (`52ab9449…`, `c47d529b…`) `failed`
+  with billing `none` and cost 0.
+
+**Deploy 2177 is runtime-confirmed.** Press 2, the paid retry, is next, on
+the owner's approval, with the same boxes and "Run the ONE paid edit as well
+(yes/no)" `yes`. It sends run 86's request again, now to the deployed
+wording, and it is the only evidence of how a real model now classifies
+it.
 
 ## Test 10 — a stored list re-sorted, with real models (prepared 2026-09-30 on the owner's word, after Test 9 was closed; free preparation only; the order traced on all three demo sites; rehearsed with supplied answers through the real lane and the real edit route; decision 2b taken by the owner the same day with a scope correction: a sort across the whole site goes to the data sorter, a sort limited to one named page to the page editor, and no "whatever page they saw it" rule; the rule implemented on the branch with committed route coverage, and its scope corrected on 2026-10-01 so that a selection of pages is never sent to the sorter; passed by the owner and merged and deployed in deploy 2174 (2026-10-01); the request revised to state its scope; the baseline read; the authorized free dispatch refused (403); the owner's free press, run 83, confirmed the runtime and rehearsed Test 10, passing every check; the paid press run as run 84, 3 credits, every acceptance item met; closed by the owner the same day for run 84's demonstrated request, the bakery left at `dgmag4`, not to be repeated)
 
