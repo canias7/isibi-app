@@ -270,7 +270,7 @@ function bucket(slug, stored, look, parts, css, partsFail, configFail, uploads, 
  * to and IS honestly empty. Those two look identical from the old code and need
  * opposite answers.
  */
-function stub({ kinds, answers, fnFail = false, jobsFail = false, sql, prompts, meta, registered, patched, traces, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null, credits = null, shots = null, shotFail = false, legacyRows = [], legacyFail = false, notes = "" }) {
+function stub({ kinds, answers, fnFail = false, jobsFail = false, sql, prompts, meta, registered, patched, traces, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null, credits = null, shots = null, shotFail = false, legacyRows = [], legacyFail = false, notes = "", db = null }) {
   let provisioned = false;
   const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
@@ -463,6 +463,13 @@ function stub({ kinds, answers, fnFail = false, jobsFail = false, sql, prompts, 
       let q = "", params = [];
       try { const b = JSON.parse(String((init && init.body) || "{}")); q = b.query || ""; params = Array.isArray(b.params) ? b.params : []; } catch { q = ""; }
       sql.push(String(q));
+      // ── A DATABASE WITH ROWS IN IT, WHEN A CASE HANDS ONE IN (2026-10-01) ─
+      //
+      // `db` is `rows-db.mjs`: tables that already hold entries, answering the
+      // row statements and its own `_meta` keys, and `null` for everything
+      // else — so a case without one is byte for byte what it was, and the
+      // schema this fixture keeps in `meta` stays the one the route reads.
+      if (db) { const own = db.answer(q, params); if (own) return own; }
       // ── `_meta` REMEMBERS WHAT WAS WRITTEN TO IT (2026-09-14) ─────────────
       //
       // It used to answer `STORED_SCHEMA` to every read, whatever had been

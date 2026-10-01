@@ -120,6 +120,8 @@ import { routeOf, mergeAddonSchema } from "./site-addon.mjs";
 // the tweak rung, whose guards keep the words and the route; the render
 // check's own serious kinds; the language-prefix reading — and nothing else.
 import { runTweak } from "./site-tweak.mjs";
+// ONE NEW ROW'S VALUE RULE AND ITS INSERT, shared with the data step (2026-10-01).
+import { rowValues, insertStatement } from "./site-rows.mjs";
 import { SERIOUS } from "./site-render.mjs";
 import { stripLangPrefix } from "./site-langs.mjs";
 // THE QR LIST (2026-09-03): a site carries several, each named, so the `qr`
@@ -240,7 +242,7 @@ export const ADD_DESIGN_RULE =
  * are generous. The rule per kind says "as many as they asked for, and not
  * one they did not", which is the ceiling that matters.
  */
-export const MAX_ADDS = 9;
+export const MAX_ADDS = 10;
 
 /** Pages one message may add — the page writer keeps six, so a seventh would be dropped there. */
 export const MAX_ADD_PAGES = 6;
@@ -250,6 +252,14 @@ export const MAX_ADD_COMPONENTS = 12;
 
 /** Tables one message may add. */
 export const MAX_ADD_TABLES = 6;
+
+/**
+ * Entries one message may add to lists the site already stores (the `row`
+ * kind, 2026-10-01) — the seed ceiling, `MAX_ADD_SEED_ROWS`, for the same
+ * reason: a dozen is a real "add these to the menu", a hundred is an import,
+ * and the Data panel's import is the door for that.
+ */
+export const MAX_ADD_ROWS = 12;
 
 /**
  * ── THE BACKEND IS THE ADDON'S (owner, 2026-09-03) ──────────────────────────
@@ -334,7 +344,7 @@ export const MAX_SECTIONS = 12;
 export const MAX_ADD_SEED_ROWS = 12;
 
 /** The kinds whose answer is a LIST of additions rather than one. */
-export const LIST_ADDS = ["table", "function", "api", "job", "page", "component", "photo"];
+export const LIST_ADDS = ["table", "row", "function", "api", "job", "page", "component", "photo"];
 
 /** The kinds that live in the site's DATABASE — the ones whose first addition makes one. */
 export const BACKEND_ADDS = ["table", "function", "api", "job"];
@@ -560,6 +570,57 @@ const ADDS = {
         "AND ANSWER `requirements` WHATEVER ELSE YOU ANSWER, including when you answer no tables at all: it " +
         "is the list of what this change has to be able to do and what became of each one, and a requirement " +
         "you could not express is `unsupported` with a reason, never a requirement left out.",
+    },
+  },
+  // ── ONE MORE ENTRY IN A LIST THE SITE ALREADY STORES (owner, 2026-10-01) ─
+  //
+  // "Add will always go in addon" — and until this kind existed no add-on kind
+  // could add a ROW. `table` declares a table (its `seed` is for a new one, and
+  // `seedSiteRows` skips a table that already has rows), and `component` or
+  // `page` draw on a page, so "add a loaf to today's loaves" ended in a refusal
+  // or in a hand-written card while the list, the order form's choices and the
+  // Data panel stayed as they were (Test 11's trace). An entry is written to the
+  // table the pages already read, so it appears wherever that list is shown,
+  // with no page call and no publish. The route cleans each entry against the
+  // site's stored schema (a display table, its declared columns: `cleanAdd`'s
+  // `row` case) and writes it with the data step's own parameterised INSERT.
+  row: {
+    hint: "One or more new ENTRIES in a list the site ALREADY stores — another loaf, dish, class, product, event or date " +
+      "added to a table it already has, which every page showing that list then shows by itself. Say `row` when what " +
+      "they name is one more item of a kind the site already keeps a table of. Not a new kind of list (that is a " +
+      "`table`), not a change to an entry that is already there, and never a card or section drawn onto a page by hand.",
+    shape: {
+      type: "array",
+      maxItems: MAX_ADD_ROWS,
+      items: {
+        type: "object",
+        properties: {
+          table: { type: "string", description: "The list the entry goes in: the exact name of one of the tables the site stores, as listed." },
+          values: {
+            type: "object",
+            description:
+              "The new entry, column by column, in that table's own columns only — never `id` or `created_at`, which " +
+              "the database fills in itself. A number as a number (5, not \"£5.00\"), words exactly as they should read " +
+              "on the site, and a column they gave nothing for left out.",
+          },
+        },
+        required: ["table", "values"],
+      },
+    },
+    add: {
+      is: "The new entries for lists the site already stores: for each one, the table it goes in and its values, column by column, using that table's own columns.",
+      yours:
+        "EVERY VALUE IS YOURS TO WRITE FROM WHAT THEY SAID: the name, the price, the description, the date — in the " +
+        "table's own columns and in the style of the entries already there. The database gives the entry its number " +
+        "and its time; you never write `id` or `created_at`.",
+      wide:
+        "AS MANY ENTRIES AS THEY ASKED FOR, AND NOT ONE MORE. One item named is one entry; \"add a rye and a spelt\" " +
+        "is two. Never an entry in a list the site does not store — that is a new table, not an entry — and never one " +
+        "in a list visitors send in (bookings, orders, enquiries, messages): those are made by visitors, not here.",
+      keep:
+        "NOTHING ELSE ABOUT THE SITE MOVES: no page, no column, no table, no entry that is already there. The pages that " +
+        "show this list read it as it stands, so a new entry appears on them by itself. If they asked to change or " +
+        "remove an entry that exists, or to add something that is not an entry in a stored list, answer nothing here.",
     },
   },
   // ── THE OTHER THREE TIERS OF THE BACKEND (owner, 2026-09-03) ────────────
@@ -1266,7 +1327,12 @@ const PICK_SYSTEM =
   "enquiries, applications, reviews, messages, anything the owner edits later, and anything phrased as \"my\" " +
   "or \"their\" all need one. A page that only shows words does not.\n\n" +
   "The site as it stands is below, with what it already stores. A thing it ALREADY has a table for needs no " +
-  "second one — but a feature with nothing behind it needs its own, whatever the page is called.";
+  "second one — but a feature with nothing behind it needs its own, whatever the page is called.\n\n" +
+  // ONE MORE ENTRY IN A LIST IT HAS IS A `row` (2026-10-01). Without this the
+  // nearest kinds were `table` (whose seed never fills a list that has rows)
+  // and `component` (a card drawn on the page while the list stays as it was).
+  "One more ENTRY in a list it already stores — another loaf, dish, class, product or date for a table listed " +
+  "below — is a `row`: never a second `table`, and never a `component` or `page` drawn by hand to show it.";
 
 /** The routing request. Shaped like `pickRequest` in site-lanes.mjs, for the same reasons. */
 export function pickRequest({ message, kinds = ADD_KINDS, current = "", model = ADD_MODEL }) {
@@ -2141,6 +2207,171 @@ export function fileOfRoute(r) {
 }
 
 /**
+ * THE LISTS AN ENTRY MAY BE ADDED TO (the `row` kind, 2026-10-01): each table of
+ * the stored spec whose access is the DISPLAY preset — visitors read it and
+ * nothing on the site writes it — with its declared columns, in their order.
+ *
+ * The data step's own boundary, and for its reason: a table visitors SUBMIT to
+ * holds their bookings and enquiries, so an entry written there by us is a
+ * made-up submission, and a members' table holds rows that belong to somebody.
+ * Asked of `resolveAccess` against `ACCESS_PRESETS.display`, never spelled out,
+ * exactly as the data step asks it in `worker.js` — a test holds the two to one
+ * answer. A Map, so a table called `constructor` is a name and not a prototype.
+ */
+export function rowTables(spec) {
+  const out = new Map();
+  const display = ACCESS_PRESETS.display;
+  for (const t of (spec && Array.isArray(spec.tables) ? spec.tables : [])) {
+    if (!t || typeof t !== "object" || typeof t.name !== "string" || !t.name.trim()) continue;
+    const pair = resolveAccess(t);
+    if (pair.read !== display.read || pair.write !== display.write) continue;
+    const cols = (Array.isArray(t.columns) ? t.columns : [])
+      .map((c) => (typeof c === "string" ? c : c && typeof c.name === "string" ? c.name : ""))
+      .filter((c) => c);
+    out.set(t.name, cols);
+  }
+  return out;
+}
+
+/**
+ * WHAT THE `row` DESIGNER IS TOLD BESIDE THE SITE: the lists an entry may go in,
+ * each with the columns it may fill. The site note already lists every table
+ * with its columns and access; this names the subset this step may write, so a
+ * list visitors send in is never offered as one to add to. `""` when there is
+ * none, which leaves the request as it was.
+ */
+export function rowBrief(lists) {
+  const m = lists instanceof Map ? lists : new Map();
+  if (!m.size) return "";
+  const lines = [...m.entries()].slice(0, 24)
+    .map(([t, cols]) => "- " + t + " (" + (Array.isArray(cols) ? cols : []).filter((c) => c !== "id" && c !== "created_at").join(", ") + ")");
+  return "THE LISTS A NEW ENTRY CAN GO IN — these, and no other table:\n" + lines.join("\n") +
+    "\nEvery other table is one visitors send in, or one that belongs to members, and takes no entry from you.";
+}
+
+/**
+ * THE KEY ONE ADD-ON REQUEST'S ENTRIES ARE SAVED UNDER (2026-10-01), or `""`.
+ *
+ * A queued job is the job's id: a lease that expires mid-run, or a container
+ * that dies between the write and the stored reply, replays THE SAME JOB from
+ * the start, and its entries must not be written twice. A request run inline is
+ * its retry key, which the browser mints once per message (`siteAddon`) and a
+ * resend of the same POST repeats. No key, no guard: a second message is a
+ * second request, and adding the entry twice is what it asked for.
+ */
+export function rowMarkerKey({ job, idem } = {}) {
+  const j = typeof job === "string" ? job.trim() : "";
+  if (/^[A-Za-z0-9_-]{8,64}$/.test(j)) return "addon-row:job:" + j;
+  const k = typeof idem === "string" ? idem.trim() : "";
+  if (/^[A-Za-z0-9_-]{16,64}$/.test(k)) return "addon-row:idem:" + k;
+  return "";
+}
+
+/**
+ * THE ENTRIES IN ONE STATEMENT — with this request's key beside them when it
+ * has one (2026-10-01).
+ *
+ * WHY ONE STATEMENT. A row is the one write on this path that is not idempotent:
+ * a schema apply is `IF NOT EXISTS` and a publish is found again by its job, but
+ * an `INSERT` run twice is two entries. So every entry and a `_meta` row keyed
+ * by the request are one Postgres statement. The key is `_meta`'s primary key:
+ * a second run collides on it, and the collision rolls that run's entries back
+ * with it — all or nothing, whichever run gets there first. The caller reads the
+ * key back and answers what the first run saved.
+ *
+ * Each entry is the data step's own `insertStatement`, with `RETURNING *`, so
+ * the answer is the row the database stored — its own id, its own defaults —
+ * never the values we sent. `{ sql, params }`; the result's rows are
+ * `{ n, t, row }`, `row` the saved row as JSON text and `n` its position.
+ */
+export function rowsInsert(rows, marker) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) throw new Error("rowsInsert: no rows to insert");
+  const ctes = [], params = [];
+  list.forEach((r, n) => {
+    const ins = insertStatement(r.table, r.values);
+    ctes.push("r" + n + " AS (" + ins.sql + " RETURNING *)");
+    params.push(...ins.params);
+  });
+  ctes.push("saved AS (" + list.map((r, n) => "SELECT " + n + " AS n, ?::text AS t, row_to_json(r" + n + ")::text AS row FROM r" + n).join(" UNION ALL ") + ")");
+  for (const r of list) params.push(String(r.table));
+  if (marker && typeof marker.key === "string" && marker.key) {
+    ctes.push("mark AS (INSERT INTO _meta (k, v) SELECT ?, json_build_object('rows', json_agg(json_build_object('n', n, 'table', t, 'row', row::json) ORDER BY n), 'cost', ?::numeric)::text FROM saved)");
+    params.push(marker.key, Number.isFinite(marker.cost) ? marker.cost : null);
+  }
+  return { sql: "WITH " + ctes.join(", ") + " SELECT n, t, row FROM saved ORDER BY n", params };
+}
+
+/**
+ * The words a saved entry is called by: its first declared column holding
+ * words, as the database stored it — "Rye & Caraway", not the request's
+ * spelling of it. `""` when no such column is filled.
+ */
+export function rowLabel(row, columns) {
+  const r = row && typeof row === "object" && !Array.isArray(row) ? row : {};
+  for (const c of Array.isArray(columns) ? columns : []) {
+    const v = Object.hasOwn(r, c) ? r[c] : undefined;
+    if (typeof v === "string" && v.trim()) return v.trim().slice(0, 80);
+  }
+  return "";
+}
+
+/**
+ * ONE SAVED ENTRY, AS THE REPLY CARRIES IT: `{ table, id, label, row }`, every
+ * field read from what the database returned. A row that is not an object is
+ * not a saved entry this route can report: `null`, never coerced into one.
+ *
+ * `id` IS THE DATABASE'S OWN, OR `null`. The engine gives a table an integer
+ * identity `id` unless it declares a key of its own, and a table that does has
+ * no number to report — the row itself still is what was saved.
+ */
+function savedEntry(table, row, lists) {
+  const t = typeof table === "string" ? table : "";
+  const r = typeof row === "string" ? (() => { try { return JSON.parse(row); } catch { return null; } })() : row;
+  if (!t || !r || typeof r !== "object" || Array.isArray(r)) return null;
+  const id = Number.isSafeInteger(r.id) && r.id > 0 ? r.id : null;
+  const cols = lists instanceof Map && lists.has(t) ? lists.get(t) : [];
+  return { table: t, id, label: rowLabel(r, cols), row: r };
+}
+
+/**
+ * WHAT THE STATEMENT SAVED, from `rowsInsert`'s result rows: `[{table, id,
+ * label, row}]` in the order asked, or `null` when any row cannot be read — a
+ * write we cannot read back is not one to report as done.
+ */
+export function readSavedRows(result, lists) {
+  const list = Array.isArray(result) ? result : [];
+  if (!list.length) return null;
+  const out = [];
+  for (const x of [...list].sort((a, b) => Number(a && a.n) - Number(b && b.n))) {
+    const e = savedEntry(x && x.t, x && x.row, lists);
+    if (!e) return null;
+    out.push(e);
+  }
+  return out;
+}
+
+/**
+ * WHAT AN EARLIER RUN OF THIS REQUEST SAVED, from the `_meta` value
+ * `rowsInsert` wrote beside it: `{ rows, cost }`, or `null` when it cannot be
+ * read. `cost` is what that run reserved before it wrote — a number, or `null`
+ * when it was not recorded (an inline request collects after the write).
+ */
+export function readRowMarker(v, lists) {
+  let m = null;
+  try { m = typeof v === "string" ? JSON.parse(v) : null; } catch { m = null; }
+  if (!m || typeof m !== "object" || !Array.isArray(m.rows) || !m.rows.length) return null;
+  const out = [];
+  for (const x of [...m.rows].sort((a, b) => Number(a && a.n) - Number(b && b.n))) {
+    const e = savedEntry(x && x.table, x && x.row, lists);
+    if (!e) return null;
+    out.push(e);
+  }
+  const cost = typeof m.cost === "number" && Number.isFinite(m.cost) && m.cost >= 0 ? m.cost : null;
+  return { rows: out, cost };
+}
+
+/**
  * Refuse an answer down to a usable design, or say why not.
  *
  * `{ ok: true, value }` or `{ ok: false, why }`, with `why` a fixed token the
@@ -2429,6 +2660,25 @@ export function cleanAdd(kind, value, site) {
         ctx.tables.push(name);
         return { ok: true, value: { table: { ...t, name, columns }, seed, shows: route(v.shows), exists } };
       }
+      // ONE ENTRY FOR A LIST THE SITE ALREADY STORES (2026-10-01). Checked
+      // against the site's OWN schema, never the answer's: the table must be
+      // one the site has (`s.tables`) and a display list (`s.rowTables`, from
+      // `rowTables`); the values are admitted by the data step's own rule
+      // (`rowValues`), so `id`, `created_at` and any column the table does not
+      // declare are dropped, and an entry with nothing left is refused.
+      case "row": {
+        const table = typeof v.table === "string" ? v.table.trim() : "";
+        if (!table) return { ok: false, why: "no-row-table" };
+        const known = (Array.isArray(s.tables) ? s.tables : []).some((n) => n === table);
+        const lists = s.rowTables instanceof Map ? s.rowTables : new Map();
+        if (!lists.has(table)) return { ok: false, why: known ? "row-not-list" : "row-no-table" };
+        // `id` AND `created_at` ARE THE DATABASE'S TO GIVE, declared or not:
+        // the entry's number has to be the one Postgres assigns, never one a
+        // model wrote down.
+        const values = rowValues(v.values, lists.get(table).filter((c) => c !== "id" && c !== "created_at"));
+        if (!values || !Object.keys(values).length) return { ok: false, why: "row-no-values" };
+        return { ok: true, value: { table, values } };
+      }
       // ── THE OTHER THREE TIERS (2026-09-03) ───────────────────────────────
       //
       // Cleaned to what the engine will take — `normalizeSchema` refuses the
@@ -2706,7 +2956,7 @@ export function cleanAdd(kind, value, site) {
   // with the first entry's reason — the same sentence a single bad answer
   // gets. A bare object is tolerated as a list of one.
   if (LIST_ADDS.includes(kind)) {
-    const cap = kind === "page" ? MAX_ADD_PAGES : kind === "table" ? MAX_ADD_TABLES
+    const cap = kind === "page" ? MAX_ADD_PAGES : kind === "table" ? MAX_ADD_TABLES : kind === "row" ? MAX_ADD_ROWS
       : kind === "function" ? MAX_ADD_FUNCTIONS : kind === "api" ? MAX_ADD_APIS : kind === "job" ? MAX_ADD_JOBS
       // THE PLATFORM'S OWN PHOTOGRAPH CEILING, not a constant of this file's:
       // `planImages` and the design step both slice at `IMAGE_CAP`, so a wider
@@ -2719,7 +2969,9 @@ export function cleanAdd(kind, value, site) {
     if (!items.length) return { ok: false, why: "nothing" };
     const ctx = freshCtx();
     const kept = [], skipped = [];
-    const named = (v) => str(v.path, 120) || str(v.name, 120) || (isObj(v.table) ? str(v.table.name, 63) : "") || str(v.does, 80);
+    const named = (v) => str(v.path, 120) || str(v.name, 120) || (isObj(v.table) ? str(v.table.name, 63) : "") || str(v.does, 80)
+      || (kind === "row" && isObj(v.values) ? str(v.values.name, 120) || str(v.values.title, 120) : "")
+      || (kind === "row" ? str(v.table, 63) : "");
     for (const v of items) {
       const r = one(v, ctx);
       if (r.ok) kept.push(r.value);
@@ -2805,6 +3057,15 @@ export function addRefusal(why, kind) {
     case "no-component": return "I couldn't tell which component to add — say what you want on the page: a form, a map, an FAQ, testimonials, a price list…";
     case "no-table": return "I couldn't tell what the site should store from that — say what a visitor sends in, or what the business keeps.";
     case "no-columns": return "That table would have nothing in it — say what it should hold.";
+    // THE FIVE `row` REFUSALS SAY NOTHING ABOUT THE REST OF THE MESSAGE: each
+    // is also the sentence beside an entry left out of a message that added
+    // another, so "nothing was changed" would be false there. The route adds
+    // that clause itself when every entry was refused.
+    case "no-row-table": return "I couldn't tell which list that goes in — name the list, like the menu or the price list, and I'll add it.";
+    case "row-no-table": return "This site doesn't store a list by that name, so that entry had nowhere to go.";
+    case "row-not-list": return "That list holds what visitors send in or what belongs to members, so I don't add entries to it myself — the Data panel is where those rows are changed.";
+    case "row-no-values": return "I couldn't tell what that entry should say — give its details, like a name and a price, and I'll add it.";
+    case "row-alone": return "A new entry for one of the site's lists is a step of its own — ask for it in a message of its own and I'll add it.";
     case "no-function": return "I couldn't turn that into a database function — say what it should look up, change or receive, and I'll write it.";
     case "no-api": return "I couldn't tell which outside service to connect to — name the service and what the page should read from it.";
     case "bad-url": return "An outside connection has to be an https address — that one isn't. Nothing was changed.";

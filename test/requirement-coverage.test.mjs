@@ -299,9 +299,17 @@ test("the coverage list is a sibling of the kind and never a field inside TABLE_
   // reads the flag off the tool for every kind that has one, and the hardcoded
   // list above is what goes red if a kind loses its flag. The day a tenth kind
   // arrives without one, this loop is an observer again with no edit needed.
+  // ⚠ AND THE NEGATIVE IS LIVE AGAIN (2026-10-01): `row` is the tenth kind
+  // and it carries no coverage flag, deliberately. Its step writes entries to
+  // a list the site already stores and either saves each one or refuses it by
+  // name (`row-no-table`, `row-not-list`, `row-no-values`) — there is no part
+  // of an entry the tool cannot express, so a coverage list would be a field
+  // the row path never reads. Driven, as the note above asked: the tool
+  // offers no `requirements`, and the loop below holds the rest to the flag.
   const flagless = designing.filter((k) => !REQUIREMENT_ADDS.includes(k));
-  assert.deepEqual(flagless, [],
+  assert.deepEqual(flagless, ["row"],
     "a kind now has a tool and no coverage flag — this census's negative direction is live again, so drive it");
+  assert.equal(addTool("row").input_schema.properties.requirements, undefined, "the row tool asks for a coverage list nothing reads");
   for (const k of designing) {
     const has = !!addTool(k).input_schema.properties.requirements;
     assert.equal(has, REQUIREMENT_ADDS.includes(k),

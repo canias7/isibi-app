@@ -192,6 +192,7 @@ import { ASKABLE as SITE_TOKEN_NAMES } from "./builder/site-tokens.mjs";
 import { readCss, cssNote, MAX_CSS, changedSelectors } from "./builder/site-freecss.mjs";
 import { extractText, applyEdits, staleContactLinks } from "./builder/site-text.mjs";
 import { runTextEdit, runDataEdit, renamePages, renameRoute, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
+import { insertStatement } from "./builder/site-rows.mjs";
 import { runRulesEdit } from "./builder/site-rules.mjs";
 import { runPictureEdit, newEmptySlots, newListFrames } from "./builder/site-picture.mjs";
 import { runTweak, keptProse, tweakParser } from "./builder/site-tweak.mjs";
@@ -256,7 +257,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { requirementNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
@@ -22277,9 +22278,12 @@ async function handleRequest(request, env, ctx) {
                     return true;
                   }
                   const cols = Object.keys(c.values);
+                  // A NEW ROW: the one parameterised INSERT, shared with the
+                  // add-on's `row` kind (2026-10-01) — the same statement,
+                  // spelled in one place.
                   if (c.id === undefined) {
-                    const marks = cols.map(() => "?").join(", ");
-                    await sqlQuery(ddb, "INSERT INTO \"" + name + "\" (" + cols.map((k) => '"' + k.replace(/"/g, "") + '"').join(", ") + ") VALUES (" + marks + ")", cols.map((k) => c.values[k]));
+                    const ins = insertStatement(name, c.values);
+                    await sqlQuery(ddb, ins.sql, ins.params);
                     return true;
                   }
                   const sets = cols.map((k) => '"' + k.replace(/"/g, "") + '" = ?').join(", ");
@@ -25974,6 +25978,88 @@ async function handleRequest(request, env, ctx) {
                 timeout: timedOut || undefined,
               }, { status: 503 });
             };
+            // ── THE CHARGE, ONE FUNCTION FOR BOTH ROADS ────────────────────
+            //
+            // Declared HERE, above the picker, because the first caller is the
+            // `row` step (2026-10-01), which reserves before it writes and runs
+            // straight after the picker; the backend block below places
+            // sequence #1 ahead of the schema apply (stage 1a-ii). What it does
+            // and when each caller takes money is written up under "THE BILL,
+            // AND WHEN IT IS TAKEN", below the backend block, where it lived.
+            const aCharge = async (bill, seq = 1) => {
+              if (aJob) {
+                const r = await editRpc(env, "edit_reserve", { p_id: aJob.id, p_seq: seq, p_cost: bill });
+                if (r && r.ok === true) { if (typeof aJob.noteReserve === "function") aJob.noteReserve(); return Number(r.charged) || 0; }
+                // RECORDED, NEVER SWALLOWED — the edit route's rule (2026-09-05).
+                if (typeof aJob.noteRefusal === "function") aJob.noteRefusal((r && r.error) || "rpc");
+                return 0;
+              }
+              try { return await collectCredits(aAuth, bill); } catch { return 0; }
+            };
+            // THE ROUTE'S READER OF THE LEDGER'S REFUSALS (2026-09-05): the
+            // job's count. Synchronously this route collects AFTER the
+            // publish — a refusal there can prevent nothing — so it reads
+            // zero, honestly, rather than a count of nothing.
+            const aCharges = {
+              refused: () => (aJob && typeof aJob.refused === "function") ? aJob.refused() : 0,
+              refusals: () => (aJob && typeof aJob.refusals === "function") ? aJob.refusals() : [],
+            };
+
+            // ── AN ENTRY THIS REQUEST HAS ALREADY SAVED (2026-10-01) ───────
+            //
+            // ASKED BEFORE THE PICKER, AND THAT ORDER IS THE GUARD. A queued job
+            // can run twice (its lease expires mid-run, or the container dies
+            // between the write and the stored reply) and a resent POST repeats
+            // its retry key; a run that finds this request's entries already
+            // saved answers what was saved — no model call, no second charge,
+            // and no second guess at which kind it was, since a picker answering
+            // `table` this time would take another road over a write already
+            // made. The write itself carries the same key (`rowsInsert`), so two
+            // runs racing past this read still save the entries once.
+            //
+            // ONLY ON A SITE WITH A LIST AN ENTRY CAN GO IN, so every other
+            // addition reads nothing it did not read before.
+            const aRowLists = adb ? rowTables(aSpec) : new Map();
+            const aRowKey = aRowLists.size ? rowMarkerKey({ job: aJob && aJob.id, idem: ab && ab.idem }) : "";
+            // WHAT THE CUSTOMER IS TOLD, FROM WHAT THE DATABASE SAVED — every
+            // entry's table, its own id and the row as stored, never the
+            // request's wording. `added: []` and no publish: the pages read the
+            // list as it stands, so the entry is on them already.
+            const aRowsReply = (saved, { repeat = false, cost = 0, skipped = [] } = {}) => Response.json({
+              ok: true,
+              deferred: aLater.held || undefined,
+              kinds: ["row"],
+              rows: saved,
+              repeat: repeat || undefined,
+              notAdded: skipped.length ? skipped.slice(0, 6) : undefined,
+              added: [], changed: [], removed: [], moved: [],
+              cost,
+            });
+            // AN EARLIER RUN WROTE SOMETHING WE CANNOT READ BACK. Its entries
+            // may be on the site, so adding them again is the one wrong answer.
+            const aRowsUnread = () => Response.json({
+              ok: false, error: "row-unread", cost: 0, ours: true,
+              msg: "An earlier attempt at this same request may already have saved its entry, and I couldn't read back what it saved — so I've stopped rather than add anything twice. Check the list in the Data panel before asking again.",
+            }, { status: 502 });
+            if (aRowKey) {
+              let seen = null;
+              try { seen = await sqlQuery(adb, "SELECT v FROM _meta WHERE k = ?", [aRowKey]); }
+              catch (e) {
+                // `_meta` NOT EXISTING IS "NOTHING SAVED" — a database made and
+                // never applied to — and is the only failure read that way.
+                if (!(e && e.code === "42P01")) {
+                  console.error("addon row marker read failed:", ownerSlug, e && e.message);
+                  return aFailure("no-meta");
+                }
+              }
+              if (seen && seen.length) {
+                const was = readRowMarker(seen[0] && seen[0].v, aRowLists);
+                if (!was) return aRowsUnread();
+                aMark("add:row", "ok", { repeat: 1, rows: was.rows.length });
+                return aRowsReply(was.rows, { repeat: true, cost: aJob ? (was.cost || 0) : 0 });
+              }
+            }
+
             aMark("pick_adds", "start");
             const aPicked = await pickAdds(
               { send: aQuick("pick_adds") },
@@ -25994,7 +26080,92 @@ async function handleRequest(request, env, ctx) {
             if (aPicked.failed) return aDown(aPicked.error, "The builder is busy — try again in a moment.");
             // An empty or invalid picker answer establishes no broader request.
             if (!aPicked.kinds.length) return aFailure("no-add");
-            const aKinds = aPicked.kinds;
+            // ── ONE MORE ENTRY IN A LIST THE SITE ALREADY STORES (2026-10-01) ──
+            //
+            // A `row` asked for ALONE is written here and nothing else runs: no
+            // page call, no compile, no publish — the pages read the list as it
+            // stands, so the new entry appears on them by itself. Beside other
+            // kinds it is set aside below and said by name.
+            //
+            // EVERY ENTRY IS CHECKED AGAINST THE SITE'S OWN SCHEMA (`cleanAdd`'s
+            // `row` case: a display list, its declared columns), BILLED BEFORE
+            // THE FIRST ROW IS WRITTEN under a job — the data step's rule, so a
+            // refused reserve writes nothing — and written with the data step's
+            // own parameterised INSERT, in one statement with this request's key
+            // (`rowsInsert`). Inline, the charge follows a write that landed,
+            // as the pageless answer's does; a failed write charges nothing, and
+            // under a job the consumer refunds a reply that did not ship.
+            if (aPicked.kinds.length === 1 && aPicked.kinds[0] === "row") {
+              aMark("add:row", "start");
+              const rowRan = await runAdd({ send: aQuick("add:row") }, { kind: "row", message: aInstruction, site: aSite, model: aModels.quick, brief: rowBrief(aRowLists) });
+              aMark("add:row", rowRan.failed ? "fail" : "ok", { answered: rowRan.value !== undefined });
+              if (rowRan.usage) aDesignUsage.push(rowRan.usage);
+              if (rowRan.failed) return aDown(rowRan.error, "The builder is busy — try again in a moment.");
+              if (rowRan.value === undefined) {
+                return Response.json({ ok: false, error: "declined", kinds: ["row"], cost: 0, msg: addRefusal("nothing") }, { status: 422 });
+              }
+              const rowClean = cleanAdd("row", rowRan.value, { ...aSite, today: aToday, rowTables: aRowLists });
+              const rowSkipped = (Array.isArray(rowClean.skipped) ? rowClean.skipped : []).map((sk) => ({ kind: "row", ...sk, msg: addRefusal(sk.why, "row") }));
+              if (!rowClean.ok) {
+                return Response.json({
+                  ok: false, error: "add", kind: "row", reason: rowClean.why, cost: 0,
+                  msg: addRefusal(rowClean.why, "row") + " Nothing was added.",
+                  notAdded: rowSkipped.length > 1 ? rowSkipped.slice(0, 6) : undefined,
+                }, { status: 422 });
+              }
+              const rowBill = pageCredits(...aDesignUsage);
+              let rowCost = 0;
+              if (aJob) {
+                rowCost = await aCharge(rowBill);
+                if (aCharges.refused() > 0) return unbilledReply(aCharges);
+              }
+              const rowWrite = rowsInsert(rowClean.value, aRowKey ? { key: aRowKey, cost: aJob ? rowCost : null } : null);
+              let rowSaved = null;
+              try {
+                rowSaved = readSavedRows(await sqlQuery(adb, rowWrite.sql, rowWrite.params), aRowLists);
+              } catch (e) {
+                const code = e && typeof e.code === "string" && /^[0-9A-Z]{5}$/.test(e.code) ? e.code : "";
+                // A UNIQUE KEY REFUSED THE WRITE, AND THE WHOLE STATEMENT WITH
+                // IT. Ours (`_meta`'s key: another run of this request saved
+                // first) is answered with what that run saved; the list's own
+                // (an entry it does not allow twice) is the customer's to know.
+                if (code === "23505") {
+                  let back = null, backRead = true;
+                  if (aRowKey) {
+                    try { back = await sqlQuery(adb, "SELECT v FROM _meta WHERE k = ?", [aRowKey]); }
+                    catch (e2) { backRead = false; console.error("addon row marker read-back failed:", ownerSlug, e2 && e2.message); }
+                  }
+                  if (!backRead) return aRowsUnread();
+                  if (back && back.length) {
+                    const was = readRowMarker(back[0] && back[0].v, aRowLists);
+                    if (!was) return aRowsUnread();
+                    aMark("add:row", "ok", { repeat: 1, rows: was.rows.length });
+                    return aRowsReply(was.rows, { repeat: true, cost: aJob ? (was.cost || 0) : 0, skipped: rowSkipped });
+                  }
+                  return Response.json({
+                    ok: false, error: "row-duplicate", cost: 0,
+                    msg: "That list doesn't allow two entries the same, and one like this is already there — so nothing was added.",
+                  }, { status: 422 });
+                }
+                console.error("addon row write failed:", ownerSlug, code || (e && e.message));
+                return Response.json({
+                  ok: false, error: "row-write", cost: 0, ours: true, detail: code || undefined,
+                  msg: "I couldn't save that entry — the database didn't accept it, so nothing was added. Try again in a moment.",
+                }, { status: 502 });
+              }
+              // A WRITE THAT LANDED AND CANNOT BE READ BACK is not one to call
+              // done: the rows are not reported, the answer says so.
+              if (!rowSaved || rowSaved.length !== rowClean.value.length) return aRowsUnread();
+              if (!aJob) rowCost = await aCharge(rowBill);
+              aMark("add:row", "ok", { rows: rowSaved.length });
+              return aRowsReply(rowSaved, { cost: rowCost, skipped: rowSkipped });
+            }
+            // A ROW BESIDE OTHER KINDS IS SET ASIDE, SAID BY NAME: the step above
+            // writes entries and nothing else, and a message that also adds a
+            // page or a table is a different change that publishes. The rest of
+            // the message runs exactly as it did before `row` existed.
+            const aRowAside = aPicked.kinds.includes("row");
+            const aKinds = aPicked.kinds.filter((k) => k !== "row");
             // A PHOTOGRAPH ALONE IS THE PICTURE RUNG'S, one step sideways: it
             // fills a slot, prices it against the real balance and refuses
             // honestly. Named with that layer so the browser hops there with
@@ -26016,6 +26187,12 @@ async function handleRequest(request, env, ctx) {
             // designed. `addLayer` is still right for a caller asking about
             // the KIND rather than about this message.
             const aHop = aKinds.find((k) => addLayerIn(k, aKinds));
+            // A ROW SET ASIDE BESIDE A KIND THAT HOPS TO AN EDIT RUNG: that answer
+            // carries no list of what was left out, so the entry would vanish
+            // unsaid. Refused instead, at no cost, with both halves named.
+            if (aRowAside && aHop && aKinds.length === 1) {
+              return Response.json({ ok: false, error: "add", kind: "row", reason: "row-alone", cost: 0, msg: addRefusal("row-alone", "row") + " Nothing was changed." }, { status: 422 });
+            }
             if (aHop && aKinds.length === 1) return aFailure("layer", { layer: addLayerIn(aHop, aKinds), kind: aHop });
             const aSkipped = aKinds.filter((k) => addLayerIn(k, aKinds));
             // THE SITE ALREADY HAS IT — the edit route's wall, mirrored, so the
@@ -26043,7 +26220,7 @@ async function handleRequest(request, env, ctx) {
             // AN ENTRY LEFT OUT OF A LIST IS SAID (owner: no low limits, so a
             // page, component or table answer is a list; one bad entry must
             // not throw the good ones away, and must not vanish either).
-            const aNotAdded = [];
+            const aNotAdded = aRowAside ? [{ kind: "row", why: "row-alone", msg: addRefusal("row-alone", "row") }] : [];
             // EVERY DESIGNER'S RAW REPLY, KEPT (run 28, 2026-09-03) — answered
             // or not — and written to the site's own store the moment the
             // loop ends, before a decline can return. Three live declines had
@@ -26843,31 +27020,6 @@ async function handleRequest(request, env, ctx) {
                 unbuilt: Object.values(aUnbuilt).reduce((n, v) => n + (Array.isArray(v) ? v.length : 0), 0),
               });
             }
-
-            // ── THE CHARGE, ONE FUNCTION FOR BOTH ROADS ────────────────────
-            //
-            // Declared HERE, above the backend block, because that block places
-            // sequence #1 ahead of the schema apply (stage 1a-ii). What it does
-            // and when each caller takes money is written up under "THE BILL,
-            // AND WHEN IT IS TAKEN", below the backend block, where it lived.
-            const aCharge = async (bill, seq = 1) => {
-              if (aJob) {
-                const r = await editRpc(env, "edit_reserve", { p_id: aJob.id, p_seq: seq, p_cost: bill });
-                if (r && r.ok === true) { if (typeof aJob.noteReserve === "function") aJob.noteReserve(); return Number(r.charged) || 0; }
-                // RECORDED, NEVER SWALLOWED — the edit route's rule (2026-09-05).
-                if (typeof aJob.noteRefusal === "function") aJob.noteRefusal((r && r.error) || "rpc");
-                return 0;
-              }
-              try { return await collectCredits(aAuth, bill); } catch { return 0; }
-            };
-            // THE ROUTE'S READER OF THE LEDGER'S REFUSALS (2026-09-05): the
-            // job's count. Synchronously this route collects AFTER the
-            // publish — a refusal there can prevent nothing — so it reads
-            // zero, honestly, rather than a count of nothing.
-            const aCharges = {
-              refused: () => (aJob && typeof aJob.refused === "function") ? aJob.refused() : 0,
-              refusals: () => (aJob && typeof aJob.refusals === "function") ? aJob.refusals() : [],
-            };
 
             // ── THE BACKEND, ANY TIER OF IT, AND A DATABASE ON FIRST TOUCH ──
             //

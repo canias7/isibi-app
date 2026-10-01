@@ -1571,6 +1571,26 @@ export const CASES = [
     // the claim under test; what that rung then does (the image balance is
     // empty, so a placeholder or an honest "couldn't be made") is noted.
     check: (b, a, r, x) => ({ ok: x.hopped === "picture", note: `hopped to ${x.hopped || "nowhere"}; the picture rung answered ${x.hopNote || "(nothing)"}` }) },
+  // ONE MORE ENTRY IN A LIST THE SITE ALREADY STORES (2026-10-01). A row
+  // leaves no mark on the page a mirror can read — the list is drawn from the
+  // table at runtime — so, like the backend tiers, it is judged on the reply's
+  // own evidence: entries the database SAVED (each with its table, and its id
+  // when the table has one), on a build that did not move, because adding an
+  // entry publishes nothing.
+  //
+  // OPT-IN, NEVER PART OF `all`: it writes a real entry into the sweep site's
+  // list, which stays there until somebody takes it off in the Data panel, and
+  // a live row write is the owner's to approve by name.
+  { name: "row", kinds: ["row"], optIn: true,
+    ask: "Add a 45-minute lesson to the price list at £30",
+    check: (b, a, r) => {
+      const rows = r && r.ok === true && Array.isArray(r.rows) ? r.rows : [];
+      const saved = rows.length > 0 && rows.every((x) => x && typeof x.table === "string" && x.table
+        && (x.id === null || Number.isSafeInteger(x.id)) && x.row && typeof x.row === "object");
+      const still = a.build === b.build;
+      return { ok: saved && still,
+               note: `saved ${JSON.stringify(rows.map((x) => x && [x.table, x.id, x.label]))}; build ${still ? "unchanged (an entry publishes nothing)" : "MOVED — an entry needs no publish"}` };
+    } },
 ];
 
 /**
@@ -1583,7 +1603,10 @@ export const CASES = [
 export function chooseCases(want, cases) {
   const trim = (s) => s.replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, "");
   const w = trim(String(want || "all").trim().toLowerCase());
-  if (!w || w === "all") return cases.map((c) => c.name);
+  // `all` IS EVERY CASE BUT THE OPT-IN ONES (2026-10-01): a case marked
+  // `optIn` writes something a sweep should not write unasked — `row` adds a
+  // real entry to the site's list — so it runs only when it is named.
+  if (!w || w === "all") return cases.filter((c) => !c.optIn).map((c) => c.name);
   const names = [...new Set(w.split(/[\s,;]+/).map(trim).filter(Boolean))];
   const known = cases.map((c) => c.name);
   const strangers = names.filter((n) => !known.includes(n));

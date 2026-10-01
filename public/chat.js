@@ -10526,6 +10526,15 @@ function addonReplyText(a) {
   if (Array.isArray(a.functions) && a.functions.length) bits.push('added the function' + (a.functions.length > 1 ? 's ' : ' ') + a.functions.join(', '));
   if (Array.isArray(a.apis) && a.apis.length) bits.push('connected ' + a.apis.join(', '));
   if (Array.isArray(a.jobs) && a.jobs.length) bits.push('scheduled ' + a.jobs.map(jobWords).filter(Boolean).join(', '));
+  // ENTRIES ADDED TO A LIST THE SITE ALREADY STORES (2026-10-01), said from
+  // what the database saved — the entry's own words, its list and the number
+  // the database gave it — never from the request's wording.
+  const rowsAdded = (Array.isArray(a.rows) ? a.rows : []).filter((r) => r && typeof r.table === 'string' && r.table);
+  for (const r of rowsAdded.slice(0, 6)) {
+    bits.push('added ' + (typeof r.label === 'string' && r.label ? '“' + r.label + '”' : 'an entry') + ' to ' + r.table +
+      (Number.isSafeInteger(r.id) ? ' (entry ' + r.id + ')' : ''));
+  }
+  if (rowsAdded.length > 6) bits.push('and ' + (rowsAdded.length - 6) + ' more');
   let out = bits.length ? '✅ Done — ' + bits.join(', ') + '.' : '✅ Done.';
   // WHAT A ONE-TIME JOB DOES NEXT, said right after the schedule it belongs to
   // and before anything about the database or the pictures.

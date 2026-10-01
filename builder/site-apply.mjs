@@ -51,6 +51,9 @@
 import { extractText, applyEdits } from "./site-text.mjs";
 import { sortSlots, sortDigest, sortColumns, applySort, sortReply, sortRefusal, SORT_DIRS } from "./site-order.mjs";
 import { modelsFor } from "./build-models.mjs";
+// ONE NEW ROW, ADMITTED AND WRITTEN THE SAME WAY FROM EITHER DOOR (2026-10-01):
+// the value rule `readDataChanges` applies, and the INSERT the route writes.
+import { rowValues } from "./site-rows.mjs";
 
 /** A small call: choosing which of a list of strings to change is not a design task. */
 /**
@@ -682,16 +685,8 @@ export function readDataChanges(reply, tables) {
       if (out.length >= MAX_DATA_OPS) break;
       continue;
     }
-    const values = c.values && typeof c.values === "object" && !Array.isArray(c.values) ? c.values : null;
-    if (!values) continue;
-    const set = {};
-    for (const [k, v] of Object.entries(values)) {
-      if (!t.cols.has(k)) continue;
-      if (v === null) { set[k] = null; continue; }
-      if (typeof v === "object") continue; // a shape in a column is not a value
-      set[k] = typeof v === "string" ? v.slice(0, 2000) : v;
-    }
-    if (!Object.keys(set).length) continue;
+    const set = rowValues(c.values, t.cols);
+    if (!set || !Object.keys(set).length) continue;
     if (c.id === undefined || c.id === null) { out.push({ table: String(c.table), values: set }); }
     else {
       const id = Math.floor(Number(c.id));

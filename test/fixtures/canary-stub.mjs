@@ -18,6 +18,11 @@
 //               header at all) replaces the header outright.
 // The paid edit POST is recorded and answered 500: a harness proves which calls
 // were made, and nothing here runs an edit.
+//   STUB_ADDON  the add-on press (2026-10-01): when set, the stored reply the
+//               add-on job's poll hands back (JSON), and the add-on POST queues
+//               that job; STUB_ADDON_STATUS is the reply's own status (200 by
+//               default). Unset, the add-on POST is recorded and answered 500,
+//               like the paid edit.
 import https from "node:https";
 import { EventEmitter } from "node:events";
 import { appendFileSync } from "node:fs";
@@ -36,6 +41,9 @@ function siteRange(prefer) {
 }
 const SLUG = "stub-site";
 const JOB = "a".repeat(32);
+const ADDON = process.env.STUB_ADDON ? JSON.parse(process.env.STUB_ADDON) : null;
+const ADDON_STATUS = Number(process.env.STUB_ADDON_STATUS) || 200;
+const ADDON_JOB = "b".repeat(32);
 const log = (e) => { if (LOG) appendFileSync(LOG, JSON.stringify(e) + "\n"); };
 
 function worker(method, path, body, headers) {
@@ -48,6 +56,11 @@ function worker(method, path, body, headers) {
     if (b.instruction === "") return [202, { ok: true, job: JOB, status: "queued", poll: "/api/site/edit/" + JOB }];
     return [500, { error: "stub: the paid edit is recorded, not run" }];
   }
+  if (method === "POST" && p === `/api/site/${SLUG}/addon`) {
+    if (!ADDON) return [500, { error: "stub: the paid add-on is recorded, not run" }];
+    return [202, { ok: true, job: ADDON_JOB, status: "queued", poll: "/api/site/edit/" + ADDON_JOB }];
+  }
+  if (method === "GET" && ADDON && p === "/api/site/edit/" + ADDON_JOB) return [ADDON_STATUS, ADDON, { "x-gf-edit": "final" }];
   if (method === "GET" && p === "/api/site/edit/" + JOB) return [200, { ok: false, escalate: true, reason: "empty", cost: 0 }, { "x-gf-edit": "final" }];
   if (method === "GET" && p.startsWith("/api/site/edit/")) return [404, { error: "not found" }];
   if (method === "GET" && p === "/api/site/source") return [200, { reads: { pages: true, parts: true, assets: true }, pages: [{ path: "index.tsx", source: "export default 1\n" }], parts: [] }];

@@ -421,7 +421,18 @@ test("the step imports nothing from worker.js and carries none of the build's to
     // only import is `site-access.mjs`, which this step already reaches, so it
     // costs no new dependency; it carries VOCABULARY and no path's wording,
     // which is the property this test is really about.
-    assert.ok(["./site-plan.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs", "./site-tweak.mjs", "./site-render.mjs", "./site-langs.mjs", "./site-requirements.mjs", "./site-files.mjs", "./site-images.mjs", "../site-access.mjs", "../site-schema.mjs", "../site-apis.mjs", "../site-api-shape.mjs", "../site-rls.mjs"].includes(from),
+    // `./site-rows.mjs` (2026-10-01) is a LEAF with no imports of its own and
+    // is the platform's single answer to "which values may a new row be
+    // handed, and what statement writes it" — `rowValues` and
+    // `insertStatement`. The `row` kind adds an entry to a list the site
+    // already stores, which the edit path's data step has always been able to
+    // do; the rule and the INSERT were lifted out of that step (and out of
+    // `worker.js`) so both doors use one copy rather than two, the "two copies
+    // of one thing" trap the body caps above are imported to avoid. It
+    // carries no path's wording, which is the property this test is really
+    // about — and the edit path's own module, `site-apply.mjs`, stays off
+    // this list.
+    assert.ok(["./site-plan.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs", "./site-tweak.mjs", "./site-render.mjs", "./site-langs.mjs", "./site-requirements.mjs", "./site-files.mjs", "./site-images.mjs", "./site-rows.mjs", "../site-access.mjs", "../site-schema.mjs", "../site-apis.mjs", "../site-api-shape.mjs", "../site-rls.mjs"].includes(from),
       "the add step reaches into a module the two paths do not share: " + from);
     assert.notEqual(from, "./site-repair.mjs", "the add step imports the BUILD's repair — the addon path triggering the build path");
   }
@@ -453,8 +464,10 @@ test("the table kind asks for the ONE table shape the build asks for — by iden
 test("a message may name every kind, and the kinds that come in numbers answer lists with ceilings a site can hold", () => {
   assert.equal(MAX_ADDS, ADD_KINDS.length, "a message cannot name every kind it asks for");
   // `photo` JOINED 2026-09-17: a message may ask for several pictures, so the
-  // answer is a list like every other kind that comes in numbers.
-  assert.deepEqual([...LIST_ADDS].sort(), ["api", "component", "function", "job", "page", "photo", "table"]);
+  // answer is a list like every other kind that comes in numbers. `row`
+  // JOINED 2026-10-01 for the same reason: "add a rye and a spelt" is two
+  // entries in one list.
+  assert.deepEqual([...LIST_ADDS].sort(), ["api", "component", "function", "job", "page", "photo", "row", "table"]);
   for (const k of LIST_ADDS) {
     const p = addTool(k).input_schema.properties[k];
     assert.equal(p.type, "array", k + " answers one thing, not a list");

@@ -24,7 +24,10 @@ import { mkdirSync, writeFileSync } from "node:fs";
 // is the browser's real selection and `editBrowserReply` runs it with the
 // outward arms injected as recorders, which is the only way a harness can
 // report what the customer would read rather than a second copy of it.
-import { editBrowserReply } from "./addon-sweep.mjs";
+import { editBrowserReply, browserReply } from "./addon-sweep.mjs";
+// THE ADD-ON PRESS (2026-10-01): posted only when the route box expects
+// `intent=addon` and the router answers it — see `canary-addon.mjs`.
+import { expectsAddon, addonBody, addonPublished, savedSaid, addonPages, addonVerdict } from "./canary-addon.mjs";
 // THE INSTRUCTION WALL AND THE WATCH, lifted out so they can be driven. This
 // file is a script with top-level await that spends money, so a test cannot
 // import it to reach a function — see the header of `canary-watch.mjs`.
@@ -1174,9 +1177,16 @@ writeFileSync(`${EVID}/routing.json`, JSON.stringify({ instruction: INSTRUCTION,
 // the whole danger is that it PASSES: the round trip completes, the poll
 // returns a terminal answer, and the canary reports green having tested the
 // queue and none of the work. A visible refusal is the only honest outcome.
-if (rt.status !== 200 || rd.intent !== "edit" || !rd.layer) {
+// …EXCEPT THE ADD-ON STEP, WHEN THIS PRESS ASKED FOR IT BY NAME (2026-10-01).
+// "Add will always go in addon", and the route box's `intent=addon` is the one
+// way to say a press expects that; without it an `addon` answer is refused
+// here exactly as before, and with it the answer is still held to the box
+// below like any other.
+const ADDON = expectsAddon(EXPECT_ROUTE.expect) && rt.status === 200 && rd.intent === "addon";
+if (!ADDON && (rt.status !== 200 || rd.intent !== "edit" || !rd.layer)) {
   console.error(`  REFUSING TO SPEND: the router did not name an edit layer (${rt.status} ${rt.text.slice(0, 160)}).`);
   console.error("  Posting the edit anyway would escalate on `layer` for cost 0 and prove nothing.");
+  if (expectsAddon(EXPECT_ROUTE.expect)) console.error("  Nor did it answer the add-on step this press expects.");
   process.exit(1);
 }
 // AND THE ROUTE THIS PRESS EXPECTED, when it named one. Another answer is
@@ -1190,6 +1200,93 @@ if (ROUTE_VERDICT) {
     process.exit(1);
   }
   console.log(`  the route matches the expectation (${expectSaid(EXPECT_ROUTE.expect)}); the answer is posted as it came`);
+}
+
+// ── THE ADD-ON PRESS: THE ROUTER'S `addon`, POSTED AS THE BROWSER POSTS IT ──
+//
+// Reached only through the gate above: the box said `intent=addon` and the
+// router answered it. The request is `siteAddon`'s own body (`addonBody`), the
+// watch and the customer's screen are the browser's (`watchEdit`, and
+// `browserReply`, which runs `addonAnswer` — the ADD route's composer, never
+// the edit one), and the after-read is the edit press's: an addition that
+// wrote no page published nothing, so every page must still report the version
+// the before-read saw. It ends the run here; the edit press below is untouched.
+if (ADDON) {
+  const idem = hex32();
+  const t0 = Date.now();
+  const sent = addonBody({ instruction: INSTRUCTION, idem, tz: Intl.DateTimeFormat().resolvedOptions().timeZone, alsoAsked: rd.alsoAsked });
+  const p = await call("POST", `/api/site/${encodeURIComponent(CANARY)}/addon`, { body: sent });
+  console.log(`  ADD-ON POST returned ${p.status} in ${(p.ms / 1000).toFixed(1)}s: ${p.text.slice(0, 200)}`);
+  if (p.status !== 202 || !p.json || !p.json.job) { console.error("  the add-on POST did not queue a job"); process.exit(1); }
+  const job = p.json.job;
+  const watch = await watchEdit((i) => call("GET", `/api/site/edit/${job}`), {
+    onTick: (i, q, act) => {
+      if (i % 4 !== 0) return;
+      const b = q.json || {};
+      console.log(`  ${String(Math.round((Date.now() - t0) / 1000)).padStart(4)}s  ${q.status}  ${act.act.padEnd(5)}  ${b.status || "?"}${b.phase ? " / " + b.phase : ""}  cost=${b.cost ?? "?"}`);
+    },
+  });
+  const rep = watchReport(watch);
+  const done = watch.kind === "reply" ? watch.q : null;
+  console.log(`\n  settled after ${((Date.now() - t0) / 1000).toFixed(1)}s — ${rep.headline}`);
+  if (done) console.log("  " + done.text.slice(0, 600));
+  else if (rep.message) console.log("  the browser would say: " + rep.message);
+  const after = await balanceNow();
+  console.log(`\n  balance after: ${after}  (moved ${(before - after).toFixed(2)})`);
+  const rb = done && done.json ? done.json : null;
+  writeFileSync(`${EVID}/terminal.json`, JSON.stringify({
+    step: "addon", watch: watch.kind, outcome: watch.outcome || null, headline: rep.headline, polls: watch.polls,
+    transientReadFailures: watch.retries, status: done ? done.status : null,
+    finalHeader: done ? (done.headers || {})[EditPoll.FINAL_HEADER] || null : null, body: rb, text: done ? done.text : "",
+  }, null, 2));
+  console.log("\nEXECUTION PATH");
+  console.log(`  router      intent=${rd.intent} cost=${rd.cost ?? "?"}`);
+  console.log(`  step        addon  kinds=${Array.isArray(rb && rb.kinds) ? rb.kinds.join(", ") : "-"}`);
+  console.log(`  saved       ${savedSaid(rb) || "(no entry)"}`);
+  console.log(`  pages       ${addonPages(rb).join(", ") || "(none written)"}`);
+  console.log(`  cost        ${rb ? rb.cost : "?"}`);
+  if (rb && rb.error) console.log(`  error       ${rb.error}  ${rb.msg || ""}`);
+  // THE CUSTOMER'S OWN SCREEN, FROM THE ADD ROUTE'S OWN COMPOSER, on a stored
+  // reply or not at all (run 14's rule).
+  const said = rep.compose ? browserReply(rb, done.status >= 200 && done.status < 300) : null;
+  console.log("\nWHAT THE CUSTOMER READS");
+  if (!said) console.log(`  (not composed — ${rep.headline})`);
+  else if (!said.ok) console.log(`  (could not compose: ${said.why})`);
+  else console.log("  " + (said.text || "(nothing is shown)"));
+  for (const a of (said && Array.isArray(said.actions) ? said.actions : [])) console.log(`    -> the browser would then (NOT done here): ${a}`);
+  writeFileSync(`${EVID}/customer-reply.txt`, !said ? `not composed — ${rep.headline}` : said.ok ? (said.text || "(nothing shown)") : `could not compose: ${said.why}`);
+  // THE AFTER-READ, judged by what the addition wrote: no page, no new version.
+  const published = addonPublished(rb);
+  const BEFORE_VERSION = sameVersion(Object.values(BEFORE.render).map((v) => v.version));
+  const versionList = published ? await call("GET", `/api/site/${encodeURIComponent(CANARY)}/versions`) : null;
+  const TARGET = afterReadTarget({ published, before: BEFORE_VERSION, list: versionList, job });
+  const liveRead = async () => {
+    try {
+      const r = await fetch(`${BEFORE.origin}/?after-check=${Date.now()}`, { headers: { "cache-control": "no-cache" } });
+      return { version: String(r.headers.get("x-site-version") || "") };
+    } catch { return { version: "" }; }
+  };
+  const WAIT = TARGET.ok ? await awaitVersion({ read: liveRead, expect: TARGET.id }) : { kind: "no-target", reads: 0, seen: "" };
+  console.log(`\nINVENTORY — after (written to ${EVID}/after)\n`);
+  const AFTER = await inventory("after", WAIT.kind === "match" ? TARGET.id : "");
+  const VERDICT = afterReadVerdict({ published, before: BEFORE_VERSION, target: TARGET, wait: WAIT, after: AFTER.render });
+  const SAID = verdictSentence(VERDICT);
+  // EVERY PAGE, BEFORE AND AFTER — its version, its headings and its words — so
+  // what an entry-only addition left alone is a recorded fact, not an absence.
+  const cmp = { slug: CANARY, step: "addon", comparison: { ...VERDICT, sentence: SAID, wait: { kind: WAIT.kind, reads: WAIT.reads, seen: WAIT.seen } }, routes: {} };
+  for (const r of Object.keys(BEFORE.render)) {
+    const b = BEFORE.render[r], a = AFTER.render[r] || { headings: [], words: 0 };
+    cmp.routes[r] = { versionBefore: b.version || "", versionAfter: a.version || "", headingsBefore: b.headings, headingsAfter: a.headings,
+                      orderChanged: JSON.stringify(b.headings) !== JSON.stringify(a.headings), wordsBefore: b.words, wordsAfter: a.words };
+    console.log(`  ${r.padEnd(14)} version ${b.version || "?"} -> ${a.version || "?"}  order ${cmp.routes[r].orderChanged ? "CHANGED" : "same"}  words ${b.words} -> ${a.words}`);
+  }
+  cmp.stored = { before: BEFORE.stored, after: AFTER.stored };
+  console.log(`  stored description  ${storedHeadSaid(BEFORE.stored)} -> ${storedHeadSaid(AFTER.stored)}`);
+  writeFileSync(`${EVID}/compare.json`, JSON.stringify(cmp, null, 2));
+  console.log(`  comparison  ${SAID}`);
+  const v = addonVerdict(rb);
+  if (v.pass) console.log("\n" + v.line); else console.error("\n" + v.line);
+  process.exit(v.pass ? 0 : 1);
 }
 
 const idem = hex32();

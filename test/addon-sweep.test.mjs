@@ -375,7 +375,11 @@ test("a decline is read off the kept replies, never guessed (run 28)", () => {
 });
 
 test("chooseCases refuses a stranger before anything is spent and forgives punctuation", () => {
-  assert.deepEqual(chooseCases("all", CASES), CASES.map((c) => c.name));
+  // `all` LEAVES OUT THE OPT-IN CASES (2026-10-01) — `row` writes a real
+  // entry into the site's list — and naming one runs it.
+  assert.deepEqual(chooseCases("all", CASES), CASES.filter((c) => !c.optIn).map((c) => c.name));
+  assert.deepEqual(CASES.filter((c) => c.optIn).map((c) => c.name), ["row"], "the opt-in set changed — say which case and why");
+  assert.deepEqual(chooseCases("row", CASES), ["row"]);
   assert.deepEqual(chooseCases(" page, component. ", CASES), ["page", "component"]);
   assert.deepEqual(chooseCases("qr,qr", CASES), ["qr"]);
   assert.throws(() => chooseCases("page,nope", CASES), /not a case: "nope"/);

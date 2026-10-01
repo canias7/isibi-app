@@ -1,0 +1,421 @@
+[
+ {
+  "label": "CONTROL: a comment in the row step's read-back note changes nothing",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              // A WRITE THAT LANDED AND CANNOT BE READ BACK is not one to call\n",
+  "to": "              // A WRITE THAT LANDED AND CANNOT BE READ BACK (control) is not one to call\n",
+  "control": true
+ },
+ {
+  "label": "CONTROL: a comment above the row refusals changes nothing",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    // THE FIVE `row` REFUSALS SAY NOTHING ABOUT THE REST OF THE MESSAGE: each\n",
+  "to": "    // THE FIVE `row` REFUSALS (control) SAY NOTHING ABOUT THE REST OF THE MESSAGE: each\n",
+  "control": true
+ },
+ {
+  "label": "CONTROL: a comment in the canary's add-on helpers changes nothing",
+  "files": [
+   "scripts/canary-addon.mjs"
+  ],
+  "from": "/** Whether this press expects the add-on step: the route box's own `intent`. */\n",
+  "to": "/** Whether this press expects the add-on step (control): the route box's own `intent`. */\n",
+  "control": true
+ },
+ {
+  "label": "R-1: a column the table does not declare is admitted",
+  "files": [
+   "builder/site-rows.mjs"
+  ],
+  "from": "    if (!cols.has(k)) continue;\n",
+  "to": "    if (false) continue;\n"
+ },
+ {
+  "label": "R-2: an object in a column is admitted as a value",
+  "files": [
+   "builder/site-rows.mjs"
+  ],
+  "from": "    if (typeof v === \"object\") continue; // a shape in a column is not a value\n",
+  "to": "    // (mutant) objects pass\n"
+ },
+ {
+  "label": "R-3: the bound values are handed over in the wrong order",
+  "files": [
+   "builder/site-rows.mjs"
+  ],
+  "from": "    params: cols.map((k) => values[k]),\n",
+  "to": "    params: cols.map((k) => values[k]).reverse(),\n"
+ },
+ {
+  "label": "R-4: a double quote in the table name is no longer dropped",
+  "files": [
+   "builder/site-rows.mjs"
+  ],
+  "from": "  const name = String(table).replace(/\"/g, \"\");\n",
+  "to": "  const name = String(table);\n"
+ },
+ {
+  "label": "R-5: an empty row is written as () VALUES ()",
+  "files": [
+   "builder/site-rows.mjs"
+  ],
+  "from": "  if (!cols.length) throw new Error(\"insertStatement: no values to insert\");\n",
+  "to": "  // (mutant) no empty-row check\n"
+ },
+ {
+  "label": "A-1: every table is a list an entry may go in",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    if (pair.read !== display.read || pair.write !== display.write) continue;\n",
+  "to": "    if (false) continue;\n"
+ },
+ {
+  "label": "A-2: a table everyone reads is a list, whoever writes it",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    if (pair.read !== display.read || pair.write !== display.write) continue;\n",
+  "to": "    if (pair.read !== display.read) continue;\n"
+ },
+ {
+  "label": "A-3: the visitors' list and an unknown list swap their refusals",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "        if (!lists.has(table)) return { ok: false, why: known ? \"row-not-list\" : \"row-no-table\" };\n",
+  "to": "        if (!lists.has(table)) return { ok: false, why: known ? \"row-no-table\" : \"row-not-list\" };\n"
+ },
+ {
+  "label": "A-4: the model's id and created_at reach the INSERT",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "        const values = rowValues(v.values, lists.get(table).filter((c) => c !== \"id\" && c !== \"created_at\"));\n",
+  "to": "        const values = rowValues(v.values, [...lists.get(table), \"id\", \"created_at\"]);\n"
+ },
+ {
+  "label": "A-5: an entry with nothing left in it is not refused",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "        if (!values || !Object.keys(values).length) return { ok: false, why: \"row-no-values\" };\n",
+  "to": "        if (!values) return { ok: false, why: \"row-no-values\" };\n"
+ },
+ {
+  "label": "A-6: every job shares one key",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  if (/^[A-Za-z0-9_-]{8,64}$/.test(j)) return \"addon-row:job:\" + j;\n",
+  "to": "  if (/^[A-Za-z0-9_-]{8,64}$/.test(j)) return \"addon-row:job:\";\n"
+ },
+ {
+  "label": "A-7: every retry key shares one key",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  if (/^[A-Za-z0-9_-]{16,64}$/.test(k)) return \"addon-row:idem:\" + k;\n",
+  "to": "  if (/^[A-Za-z0-9_-]{16,64}$/.test(k)) return \"addon-row:idem:\";\n"
+ },
+ {
+  "label": "A-8: the entries are written without the request's key",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  if (marker && typeof marker.key === \"string\" && marker.key) {\n",
+  "to": "  if (false) {\n"
+ },
+ {
+  "label": "A-9: the statement returns only the id, not the row saved",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    ctes.push(\"r\" + n + \" AS (\" + ins.sql + \" RETURNING *)\");\n",
+  "to": "    ctes.push(\"r\" + n + \" AS (\" + ins.sql + \" RETURNING id)\");\n"
+ },
+ {
+  "label": "A-10: the key forgets what the run reserved",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    params.push(marker.key, Number.isFinite(marker.cost) ? marker.cost : null);\n",
+  "to": "    params.push(marker.key, null);\n"
+ },
+ {
+  "label": "A-11: the database's id is not reported",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  const id = Number.isSafeInteger(r.id) && r.id > 0 ? r.id : null;\n",
+  "to": "  const id = null;\n"
+ },
+ {
+  "label": "A-12: the saved entries are reported in reverse",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  for (const x of [...list].sort((a, b) => Number(a && a.n) - Number(b && b.n))) {\n    const e = savedEntry(x && x.t, x && x.row, lists);\n",
+  "to": "  for (const x of [...list].sort((a, b) => Number(a && a.n) - Number(b && b.n)).reverse()) {\n    const e = savedEntry(x && x.t, x && x.row, lists);\n"
+ },
+ {
+  "label": "A-13: an earlier run's reserved cost is read as unknown",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  const cost = typeof m.cost === \"number\" && Number.isFinite(m.cost) && m.cost >= 0 ? m.cost : null;\n",
+  "to": "  const cost = null;\n"
+ },
+ {
+  "label": "A-14: one message may add one entry only",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    const cap = kind === \"page\" ? MAX_ADD_PAGES : kind === \"table\" ? MAX_ADD_TABLES : kind === \"row\" ? MAX_ADD_ROWS\n",
+  "to": "    const cap = kind === \"page\" ? MAX_ADD_PAGES : kind === \"table\" ? MAX_ADD_TABLES : kind === \"row\" ? 1\n"
+ },
+ {
+  "label": "A-15: the picker is no longer told an entry is a row",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  \"One more ENTRY in a list it already stores — another loaf, dish, class, product or date for a table listed \" +\n  \"below — is a `row`: never a second `table`, and never a `component` or `page` drawn by hand to show it.\";\n",
+  "to": "  \"\";\n"
+ },
+ {
+  "label": "A-16: a refused visitors' list says nothing about where its rows change",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    case \"row-not-list\": return \"That list holds what visitors send in or what belongs to members, so I don't add entries to it myself — the Data panel is where those rows are changed.\";\n",
+  "to": "    case \"row-not-list\": return \"Nothing was changed.\";\n"
+ },
+ {
+  "label": "W-1: the data step's new row loses a bound value",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                    await sqlQuery(ddb, ins.sql, ins.params);\n",
+  "to": "                    await sqlQuery(ddb, ins.sql, ins.params.slice(1));\n"
+ },
+ {
+  "label": "W-2: no check for entries this request already saved",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            if (aRowKey) {\n              let seen = null;\n",
+  "to": "            if (false) {\n              let seen = null;\n"
+ },
+ {
+  "label": "W-3: a missing _meta stops every addition before the picker",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                if (!(e && e.code === \"42P01\")) {\n",
+  "to": "                if (true) {\n"
+ },
+ {
+  "label": "W-4: a refused reserve does not stop the write",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                rowCost = await aCharge(rowBill);\n                if (aCharges.refused() > 0) return unbilledReply(aCharges);\n",
+  "to": "                rowCost = await aCharge(rowBill);\n                if (false) return unbilledReply(aCharges);\n"
+ },
+ {
+  "label": "W-5: a queued entry is charged again after the write",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              if (!aJob) rowCost = await aCharge(rowBill);\n",
+  "to": "              rowCost = await aCharge(rowBill);\n"
+ },
+ {
+  "label": "W-6: an inline entry is never charged",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              if (!aJob) rowCost = await aCharge(rowBill);\n",
+  "to": "              if (false) rowCost = await aCharge(rowBill);\n"
+ },
+ {
+  "label": "W-7: a unique-key refusal is reported as a failed write",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                if (code === \"23505\") {\n",
+  "to": "                if (false) {\n"
+ },
+ {
+  "label": "W-8: the key's refusal is never answered with what the first run saved",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                  if (back && back.length) {\n",
+  "to": "                  if (false) {\n"
+ },
+ {
+  "label": "W-9: a row beside a photograph hops and is lost",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            if (aRowAside && aHop && aKinds.length === 1) {\n",
+  "to": "            if (false) {\n"
+ },
+ {
+  "label": "W-10: a row set aside beside other kinds is not said",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            const aNotAdded = aRowAside ? [{ kind: \"row\", why: \"row-alone\", msg: addRefusal(\"row-alone\", \"row\") }] : [];\n",
+  "to": "            const aNotAdded = [];\n"
+ },
+ {
+  "label": "W-11: a row beside other kinds is not set aside",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            const aKinds = aPicked.kinds.filter((k) => k !== \"row\");\n",
+  "to": "            const aKinds = aPicked.kinds;\n"
+ },
+ {
+  "label": "W-12: a row asked alone never reaches the row step",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            if (aPicked.kinds.length === 1 && aPicked.kinds[0] === \"row\") {\n",
+  "to": "            if (false) {\n"
+ },
+ {
+  "label": "W-13: a replay of a queued job says it cost nothing",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                aMark(\"add:row\", \"ok\", { repeat: 1, rows: was.rows.length });\n                return aRowsReply(was.rows, { repeat: true, cost: aJob ? (was.cost || 0) : 0 });\n",
+  "to": "                aMark(\"add:row\", \"ok\", { repeat: 1, rows: was.rows.length });\n                return aRowsReply(was.rows, { repeat: true, cost: 0 });\n"
+ },
+ {
+  "label": "W-14: the key does not record the queued run's reserve",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              const rowWrite = rowsInsert(rowClean.value, aRowKey ? { key: aRowKey, cost: aJob ? rowCost : null } : null);\n",
+  "to": "              const rowWrite = rowsInsert(rowClean.value, aRowKey ? { key: aRowKey, cost: null } : null);\n"
+ },
+ {
+  "label": "W-15: the row designer's usage is left out of the bill",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              if (rowRan.usage) aDesignUsage.push(rowRan.usage);\n",
+  "to": "              // (mutant) designer usage dropped\n"
+ },
+ {
+  "label": "W-16: a repeat is not said to be one",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              repeat: repeat || undefined,\n",
+  "to": "              repeat: undefined,\n"
+ },
+ {
+  "label": "W-17: the row designer is not told which lists take an entry",
+  "files": [
+   "worker.js"
+  ],
+  "from": "brief: rowBrief(aRowLists) });\n",
+  "to": "brief: \"\" });\n"
+ },
+ {
+  "label": "C-1: the reply drops the entry's database id",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "(Number.isSafeInteger(r.id) ? ' (entry ' + r.id + ')' : '')",
+  "to": "''"
+ },
+ {
+  "label": "C-2: the reply calls every entry \"an entry\"",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "(typeof r.label === 'string' && r.label ? '“' + r.label + '”' : 'an entry')",
+  "to": "'an entry'"
+ },
+ {
+  "label": "C-3: entries past six vanish from the reply",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "  if (rowsAdded.length > 6) bits.push('and ' + (rowsAdded.length - 6) + ' more');\n",
+  "to": "  // (mutant) no count of the rest\n"
+ },
+ {
+  "label": "K-1: any route box asks for the add-on press",
+  "files": [
+   "scripts/canary-addon.mjs"
+  ],
+  "from": "  return !!(expect && typeof expect === \"object\" && expect.intent === \"addon\");\n",
+  "to": "  return !!(expect && typeof expect === \"object\");\n"
+ },
+ {
+  "label": "K-2: a refused addition passes",
+  "files": [
+   "scripts/canary-addon.mjs"
+  ],
+  "from": "  if (body.ok !== true) {\n",
+  "to": "  if (false) {\n"
+ },
+ {
+  "label": "K-3: an entry-only addition is read as a publish",
+  "files": [
+   "scripts/canary-addon.mjs"
+  ],
+  "from": "  return !!(body && body.ok === true && addonPages(body).length > 0);\n",
+  "to": "  return !!(body && body.ok === true);\n"
+ },
+ {
+  "label": "K-4: the add-on answer is posted to the edit route",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "  const p = await call(\"POST\", `/api/site/${encodeURIComponent(CANARY)}/addon`, { body: sent });\n",
+  "to": "  const p = await call(\"POST\", `/api/site/${encodeURIComponent(CANARY)}/edit`, { body: sent });\n"
+ },
+ {
+  "label": "K-5: the press that expects an addition is refused at the gate",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "if (!ADDON && (rt.status !== 200 || rd.intent !== \"edit\" || !rd.layer)) {\n",
+  "to": "if (rt.status !== 200 || rd.intent !== \"edit\" || !rd.layer) {\n"
+ },
+ {
+  "label": "K-6: any answer passes the gate on a press that expects an addition",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "const ADDON = expectsAddon(EXPECT_ROUTE.expect) && rt.status === 200 && rd.intent === \"addon\";\n",
+  "to": "const ADDON = expectsAddon(EXPECT_ROUTE.expect) && rt.status === 200;\n"
+ },
+ {
+  "label": "K-7: the refusal no longer names the add-on step",
+  "files": [
+   "scripts/edit-canary.mjs"
+  ],
+  "from": "  if (expectsAddon(EXPECT_ROUTE.expect)) console.error(\"  Nor did it answer the add-on step this press expects.\");\n",
+  "to": ""
+ },
+ {
+  "label": "S-1: the sweep's `all` runs the case that writes a real entry",
+  "files": [
+   "scripts/addon-sweep.mjs"
+  ],
+  "from": "  if (!w || w === \"all\") return cases.filter((c) => !c.optIn).map((c) => c.name);\n",
+  "to": "  if (!w || w === \"all\") return cases.map((c) => c.name);\n"
+ }
+]
