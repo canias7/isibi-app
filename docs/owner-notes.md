@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-01, 23:10 UTC)
+## Current handoff — read this first (2026-10-01, 23:15 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -84,6 +84,30 @@ well (yes/no)": `yes`, after press 1 passes and on your approval.
   can show it. Supplied-answer tests prove what happens after an answer,
   not the answer.
 
+**The order of work** (your word, 2026-10-01, after deploy 2177)
+1. **Now: Test 11's retry**, with the routing fix as deployed: press 1
+   (free), then press 2 (paid) on your approval, then my independent
+   verification.
+2. **Next, once that result is verified: a router audit**, before any
+   broader test resumes. Free analysis only, covering:
+   - the routing instructions (`builder/site-ask.mjs`);
+   - the context the router is given: the site digest of pages and tables,
+     what the browser sends, and no chat history;
+   - route selection: how an answer becomes `intent` and `layer`;
+   - fallback behaviour: failed calls, unreadable answers, and what the
+     customer sees;
+   - mixed requests: the whole-message rule and the held-back part
+     (`alsoAsked`);
+   - page scope: named pages, selections of pages, and the sort rules;
+   - follow-ups: what carries from one message to the next;
+   - attachments: what each route accepts.
+
+   It explains the actual decision flow, names the contradictions and
+   gaps, and proposes a focused batch of real-model routing tests with a
+   cost estimate, for your approval. Nothing is spent on it before then.
+3. **The broad plan and the batch runner stay paused** until you lift the
+   pause.
+
 **Links**
 - Deploy 2177: https://github.com/canias7/isibi-app/actions/runs/36937413961
 - The fix: https://github.com/canias7/isibi-app/commit/710ad704de7504286fff367790b4f7093fc94409
@@ -96,6 +120,9 @@ well (yes/no)": `yes`, after press 1 passes and on your approval.
   request prepared with its route box, the canary's free checks before
   spending, and the inputs and cost before the paid retry. No other
   capability is touched. CLAUDE.md left alone.
+- Then you set the order: Test 11's retry first; once its result is
+  verified, the router audit; the broad plan and the batch runner paused
+  until then.
 
 **Blockers**
 - Press 1 (free), not before 23:26 UTC: the new image needs 15–20 minutes
@@ -106,6 +133,8 @@ well (yes/no)": `yes`, after press 1 passes and on your approval.
 1. You press press 1 (free) not before 23:26 UTC.
 2. I read it; if it passes, you press press 2 on your approval.
 3. I verify the result independently and record it.
+4. Then the router audit (free), returned to you with its findings and a
+   proposed routing-test batch and cost.
 
 ---
 

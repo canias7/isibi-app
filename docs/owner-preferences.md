@@ -530,3 +530,13 @@
   unsupported, with the reply checked against what the operations did; and
   new tooling waits for a concrete failure or the owner's word. The first
   plan under it is the checklist's *Broad real-model batches*.
+- **A router audit comes before any broader test** (2026-10-01, after deploy
+  2177): *"Keep the current routing fix and original Test 11 retry as the
+  immediate task. Once that result is verified, our next priority is a router
+  audit before resuming any broader tests. Audit the routing instructions,
+  supplied context, route selection, fallback behavior, mixed requests, page
+  scope, follow-ups and attachments. Explain the actual decision flow and
+  identify contradictions or gaps, then propose a focused batch of real-model
+  routing tests with a cost estimate. Keep the broad plan and batch-runner work
+  paused."* So nothing broader is pressed until the audit is delivered and its
+  test batch approved, and the audit itself spends nothing.

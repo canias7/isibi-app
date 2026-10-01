@@ -142,7 +142,9 @@ repair workshop's backend (three), and two first builds, Lune Yoga
 (members, bookings, time zones) and Kiln Coffee (stock, checkout, two
 languages). Follow-ups come in a second round in the same chats. The
 estimate is 135–330 credits against a balance of 101. Nothing in it is to
-be pressed until the owner lifts the pause.
+be pressed until the owner lifts the pause. The owner's order (2026-10-01):
+Test 11's retry first, then a router audit with its own focused routing
+tests, before any broader test resumes.
 
 **Lane 1 (2026-09-30): four corrections, merged and deployed in deploy 2171
 (`29111010`, image `cdb624837e099719`; the deployment credited by the owner),
