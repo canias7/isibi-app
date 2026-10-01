@@ -239,6 +239,25 @@ export const ASK_TOOL = {
           "something it has no table for, or a section, a QR code, a 3D scene, a form, a map or a photograph on a page " +
           "that does not have one. The page existing does not make it an edit: \"Add a testimonials section to the home " +
           "page\" is an addon, because the section does not exist yet.\n" +
+          // ── A NEW ENTRY IN A LIST THE SITE ALREADY KEEPS IS AN ADDITION (owner, 2026-10-01) ──
+          //
+          // Run 86 (Test 11): a new entry for a list the site stores came back
+          // `edit` + `data`. Nothing here said where a new row goes, and three
+          // sentences pointed at `data`: the tie-break below asked whether "the
+          // thing they name" exists, and the list did; the data clause said to
+          // prefer it for "one row of something the site lists"; and the
+          // system's cost rule said to pick the cheapest answer. The owner:
+          // *"Adding a NEW record to an existing table/list must select addon.
+          // The parent list already existing does not make the new item an
+          // edit."* Said for every kind of list, never by a table's name or a
+          // word in the message, and said four times: here, at the tie-break,
+          // in the data clause and in the system's cost rule, because a model
+          // reading downwards meets whichever one its candidate answer is.
+          // Changing or deleting an entry that exists stays `edit` + `data`.
+          "A NEW ENTRY IN A LIST THE SITE ALREADY KEEPS IS AN ADDITION TOO: a new product, service, dish, class, event " +
+          "or team member is a new row in a table the site already has. The list existing does not make it an edit, " +
+          "for the same reason: \"add a new service to our list\" and \"put our new apprentice on the team page\" are " +
+          "both \"addon\", because that entry does not exist yet.\n" +
           // THE BACKEND IS THE ADDON'S TOO (owner, 2026-09-03): a first build
           // sends none of it, so every function, outside connection and
           // scheduled job a site gets is added after the build — and the
@@ -251,7 +270,10 @@ export const ASK_TOOL = {
           "languages, what a control does — and its own code. Changing a component is an edit, because the page's code " +
           "always exists.\n\n" +
           "THE QUESTION THAT SEPARATES EDIT FROM ADDON: does the thing they name exist on the site now? It does — " +
-          "\"edit\". It does not — \"addon\". A page the site does not have, or a table it does not have, is always " +
+          "\"edit\". It does not — \"addon\". ASK IT OF THE THING ITSELF, NEVER OF WHAT IT GOES INTO: a new entry in a " +
+          "list the site already keeps does not exist yet, so it is \"addon\" however long the list has been there, " +
+          "just as a new section on an existing page is. Changing an entry that is already there, or taking one off, " +
+          "is \"edit\". A page the site does not have, or a table it does not have, is always " +
           "\"addon\". The pages and tables it has are listed above.\n" +
           // THE TIE-BREAK HAD ONE FALSE CLAUSE IN IT, and it cost the deletion
           // twice. Measured live: with "taking a page off is an edit" added
@@ -319,8 +341,10 @@ export const ASK_TOOL = {
           "\"data\" — the content the site STORES and shows in a list: a price, a menu item, a service, an opening " +
           "time, a team member. ASK YOURSELF WHETHER IT IS ONE OF MANY — a price sits in a price list, a dish sits on " +
           "a menu, and those live in the site's database rather than being written into the page. This is the " +
-          "cheapest and fastest thing the builder can do, so prefer it whenever the thing being changed is one row " +
-          "of something the site lists. The tables it has are named above.\n" +
+          "cheapest and fastest thing the builder can do, so prefer it whenever the thing being changed is a row " +
+          "the site already stores. A NEW ENTRY IS NOT THIS LAYER: adding one to any of those lists is intent " +
+          "\"addon\", not an edit, however cheap this layer is and however long the list has been there. The tables " +
+          "it has are named above.\n" +
           // ── A ROW TAKEN OFF IS THIS LAYER TOO (2026-09-30) ───────────────────
           //
           // `look`'s removal clause claimed EVERY removal ("whatever the
@@ -330,9 +354,10 @@ export const ASK_TOOL = {
           // is the rules rung). The data step deletes one itself (the row's
           // `remove`, `DATA_TOOL`). Said here AND at `look`'s exceptions,
           // because a model reading downwards meets whichever clause its
-          // candidate answer is. DELETION ONLY: whether an added row is this
-          // layer or the add-on step is the owner's open decision, and nothing
-          // here says.
+          // candidate answer is. A NEW ROW IS NOT THIS LAYER (owner,
+          // 2026-10-01): it is the add-on step's, said in this clause's
+          // opening line, at `intent`'s tie-break and in the system's cost
+          // rule; the history is at `intent`'s addon clause.
           "TAKING AN EXISTING ROW OFF ONE OF THOSE LISTS IS THIS LAYER TOO: when an entry the site stores should no " +
           "longer be there, its row is deleted from the table that holds it, and every page showing that list stops " +
           "showing it.\n" +
@@ -807,7 +832,9 @@ const SYSTEM =
   "   A SITE EXISTS — \"edit\" or \"addon\", and \"build\" only to throw the whole site away and start again. Pick the " +
   "cheapest one that can honestly do the job: an edit is seconds and costs almost nothing, an addon costs a few " +
   "credits, a rebuild costs about twenty-five and replaces every page they have. Somebody who asked for a different " +
-  "shade of blue must never be given a new site.\n\n" +
+  "shade of blue must never be given a new site. COST NEVER MAKES A NEW ENTRY AN EDIT: a new product, service or " +
+  "team member in one of their lists is an \"addon\" even though the list already exists, because for a list an " +
+  "edit only changes or takes away the entries that are already there.\n\n" +
   "WHAT THE THREE COST, because it is the whole reason they are separate. Changing words: no model writes anything, " +
   "the words are lifted out of the page and put back. Changing the look: the design is adjusted and the site is " +
   "recompiled, and not one page is rewritten. Adding a page: one page is written. Rebuilding: every page is written " +

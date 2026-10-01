@@ -274,11 +274,29 @@ many words, because the line sat at the page. Four hops, each guarded:
   rebuild.
 - **One more entry in a list the site already stores is the add-on step's
   too** (the owner, 2026-10-01, answering 2a). It is the add-on `row` kind
-  (built on the branch, not merged; `docs/addon-path.md`, *THE `row`
+  (merged and deployed in deploy 2175; `docs/addon-path.md`, *THE `row`
   KIND*). The data step's INSERT for a new row is now shared with it
   (`insertStatement` and `rowValues` in `builder/site-rows.mjs`), byte for
-  byte the statement the data step always wrote; the data step itself, its
-  routing and its other writes are unchanged.
+  byte the statement the data step always wrote; the data step itself and
+  its other writes are unchanged.
+- **And the router is told so** (on the branch after run 86, 2026-10-01,
+  not merged). Run 86's real router answered `edit` + `data` for a new loaf
+  in the bakery's list, because its wording never said where a new row
+  goes and three sentences pointed at `data`. The owner: *"Adding a NEW
+  record to an existing table/list must select addon. The parent list
+  already existing does not make the new item an edit."* The rule is said
+  in four places in `builder/site-ask.mjs`, for every kind of list:
+  - the `addon` clause claims a new entry in a list the site already keeps;
+  - the edit/addon tie-break is asked of the thing itself, never of what it
+    goes into;
+  - the `data` clause prefers itself only for a row the site already
+    stores, and sends a new entry to `addon`;
+  - the system's cost rule says cost never makes a new entry an edit.
+
+  Changing or deleting an entry that exists stays `edit` + `data`, and the
+  sort scope and the mixed-request rules are unchanged. There is no
+  keyword rule: the route passes the model's answer on as given.
+  `test/router-row-add.test.mjs`; `docs/history/2026-10-01-addon-row-routing.md`.
 
 ### WHAT THE EDIT'S PAGE RUNG PRESERVES (2026-09-20 → 09-21)
 

@@ -1,0 +1,172 @@
+[
+  {
+    "label": "CONTROL: the new-entry comment's header changes nothing",
+    "control": true,
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "          // ── A NEW ENTRY IN A LIST THE SITE ALREADY KEEPS IS AN ADDITION (owner, 2026-10-01) ──",
+    "to": "          // ── A NEW ENTRY IN A LIST THE SITE ALREADY KEEPS IS AN ADDITION (owner, 2026-10-01, control) ──"
+  },
+  {
+    "label": "CONTROL: the new-entry comment's last line changes nothing",
+    "control": true,
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "          // Changing or deleting an entry that exists stays `edit` + `data`.",
+    "to": "          // Changing or deleting an entry that exists stays `edit` + `data` (control)."
+  },
+  {
+    "label": "A-1: the addon clause no longer claims a new entry",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "          \"A NEW ENTRY IN A LIST THE SITE ALREADY KEEPS IS AN ADDITION TOO: a new product, service, dish, class, event \" +\n          \"or team member is a new row in a table the site already has. The list existing does not make it an edit, \" +\n          \"for the same reason: \\\"add a new service to our list\\\" and \\\"put our new apprentice on the team page\\\" are \" +\n          \"both \\\"addon\\\", because that entry does not exist yet.\\n\" +\n",
+    "to": ""
+  },
+  {
+    "label": "A-2: the list existing makes it an edit",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "          \"or team member is a new row in a table the site already has. The list existing does not make it an edit, \" +",
+    "to": "          \"or team member is a new row in a table the site already has. The list existing makes it an edit, \" +"
+  },
+  {
+    "label": "A-3: the examples are answered edit",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "          \"both \\\"addon\\\", because that entry does not exist yet.\\n\" +",
+    "to": "          \"both \\\"edit\\\", because that entry does not exist yet.\\n\" +"
+  },
+  {
+    "label": "A-4: one kind of list only",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "          \"A NEW ENTRY IN A LIST THE SITE ALREADY KEEPS IS AN ADDITION TOO: a new product, service, dish, class, event \" +\n          \"or team member is a new row in a table the site already has. The list existing does not make it an edit, \" +",
+    "to": "          \"A NEW ENTRY IN A LIST THE SITE ALREADY KEEPS IS AN ADDITION TOO: a new product \" +\n          \"is a new row in a table the site already has. The list existing does not make it an edit, \" +"
+  },
+  {
+    "label": "A-5: every example says add",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "          \"for the same reason: \\\"add a new service to our list\\\" and \\\"put our new apprentice on the team page\\\" are \" +",
+    "to": "          \"for the same reason: \\\"add a new service to our list\\\" and \\\"add our new apprentice to the team page\\\" are \" +"
+  },
+  {
+    "label": "T-1: the tie-break as it was before the rule",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "          \"\\\"edit\\\". It does not — \\\"addon\\\". ASK IT OF THE THING ITSELF, NEVER OF WHAT IT GOES INTO: a new entry in a \" +\n          \"list the site already keeps does not exist yet, so it is \\\"addon\\\" however long the list has been there, \" +\n          \"just as a new section on an existing page is. Changing an entry that is already there, or taking one off, \" +\n          \"is \\\"edit\\\". A page the site does not have, or a table it does not have, is always \" +",
+    "to": "          \"\\\"edit\\\". It does not — \\\"addon\\\". A page the site does not have, or a table it does not have, is always \" +"
+  },
+  {
+    "label": "T-2: a new entry is an edit at the tie-break",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "          \"list the site already keeps does not exist yet, so it is \\\"addon\\\" however long the list has been there, \" +",
+    "to": "          \"list the site already keeps does not exist yet, so it is \\\"edit\\\" however long the list has been there, \" +"
+  },
+  {
+    "label": "T-3: the tie-break drops an existing entry's edit",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "          \"just as a new section on an existing page is. Changing an entry that is already there, or taking one off, \" +\n          \"is \\\"edit\\\". A page the site does not have, or a table it does not have, is always \" +",
+    "to": "          \"just as a new section on an existing page is. \" +\n          \"A page the site does not have, or a table it does not have, is always \" +"
+  },
+  {
+    "label": "D-1: the data clause's preference as it was before the rule",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "          \"cheapest and fastest thing the builder can do, so prefer it whenever the thing being changed is a row \" +\n          \"the site already stores. A NEW ENTRY IS NOT THIS LAYER: adding one to any of those lists is intent \" +\n          \"\\\"addon\\\", not an edit, however cheap this layer is and however long the list has been there. The tables \" +\n          \"it has are named above.\\n\" +",
+    "to": "          \"cheapest and fastest thing the builder can do, so prefer it whenever the thing being changed is one row \" +\n          \"of something the site lists. The tables it has are named above.\\n\" +"
+  },
+  {
+    "label": "D-2: the data clause drops the new-entry sentence",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "          \"the site already stores. A NEW ENTRY IS NOT THIS LAYER: adding one to any of those lists is intent \" +\n          \"\\\"addon\\\", not an edit, however cheap this layer is and however long the list has been there. The tables \" +",
+    "to": "          \"the site already stores. The tables \" +"
+  },
+  {
+    "label": "D-3: the data clause sends a new entry to edit",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "          \"\\\"addon\\\", not an edit, however cheap this layer is and however long the list has been there. The tables \" +",
+    "to": "          \"\\\"edit\\\", not an addon, however cheap this layer is and however long the list has been there. The tables \" +"
+  },
+  {
+    "label": "D-4: the data preference claims any row of a list again",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "          \"cheapest and fastest thing the builder can do, so prefer it whenever the thing being changed is a row \" +\n          \"the site already stores. A NEW ENTRY IS NOT THIS LAYER: adding one to any of those lists is intent \" +",
+    "to": "          \"cheapest and fastest thing the builder can do, so prefer it whenever the thing being changed is a row \" +\n          \"of something the site lists. A NEW ENTRY IS NOT THIS LAYER: adding one to any of those lists is intent \" +"
+  },
+  {
+    "label": "N-1: the note calling a new row an open decision is back",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "          // candidate answer is. A NEW ROW IS NOT THIS LAYER (owner,",
+    "to": "          // candidate answer is. Whether an added row is this layer is the owner's open decision. A NEW ROW IS NOT THIS LAYER (owner,"
+  },
+  {
+    "label": "C-1: the cost rule drops the new-entry sentence",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "  \"shade of blue must never be given a new site. COST NEVER MAKES A NEW ENTRY AN EDIT: a new product, service or \" +\n  \"team member in one of their lists is an \\\"addon\\\" even though the list already exists, because for a list an \" +\n  \"edit only changes or takes away the entries that are already there.\\n\\n\" +",
+    "to": "  \"shade of blue must never be given a new site.\\n\\n\" +"
+  },
+  {
+    "label": "C-2: the cost rule makes a new entry an edit",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "  \"team member in one of their lists is an \\\"addon\\\" even though the list already exists, because for a list an \" +",
+    "to": "  \"team member in one of their lists is an \\\"edit\\\" even though the list already exists, because for a list an \" +"
+  },
+  {
+    "label": "K-1: the route rewrites the answer to addon on the words add or put",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "  return { ...routed, usage: askUsage(reply, model) };",
+    "to": "  return { ...routed, ...(/\\b(add|put)\\b/i.test(text) ? { intent: \"addon\", layer: undefined } : {}), usage: askUsage(reply, model) };"
+  },
+  {
+    "label": "R-1: the system prompt sent stops before the cost rule's new sentence",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "    system: [{ type: \"text\", text: SYSTEM }],",
+    "to": "    system: [{ type: \"text\", text: SYSTEM.split(\" COST NEVER\")[0] }],"
+  },
+  {
+    "label": "X-1: the xAI request drops the tool's schema",
+    "files": [
+      "builder/model-xai.mjs"
+    ],
+    "from": "parameters: t.input_schema || { type: \"object\", properties: {} }",
+    "to": "parameters: { type: \"object\", properties: {} }"
+  },
+  {
+    "label": "G-1: the canary's route check ignores the intent",
+    "files": [
+      "scripts/canary-route.mjs"
+    ],
+    "from": "    else if (got !== want) diffs.push({ key, want, got, readable: true });",
+    "to": "    else if (got !== want && key !== \"intent\") diffs.push({ key, want, got, readable: true });"
+  }
+]

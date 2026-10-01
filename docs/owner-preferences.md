@@ -494,3 +494,19 @@
   attempt."* So when a deploy follows one whose runtime was never checked and
   carries the same code, one press naming the newest commit covers both; and
   the boxes are handed over without a dispatch attempt.
+- **A new record in an existing list is an addition, everywhere, by rule and
+  not by keyword** (2026-10-01, after run 86): *"Adding a NEW record to an
+  existing table/list must select addon. The parent list already existing
+  does not make the new item an edit."* — *"Make this general across
+  products, services, team members, etc. No bakery-specific rule or keyword
+  override. Updating or deleting an existing row remains edit/data; preserve
+  sorting scope and mixed-request handling."* So the router's wording says it
+  for every kind of list, the route never rewrites an answer from the
+  message's words, and changing or removing an existing entry stays `data`.
+- **A routing test reads the request the model is sent; a supplied answer
+  proves only what happens next** (the same day): *"Verify the actual request
+  sent to the model; supplied model answers prove downstream handling, not
+  real classification. Keep the canary's expected-addon guard."* So a wording
+  change is checked on the request as it leaves the route, to each provider,
+  and a supplied-answer case is never reported as evidence of how a real
+  model classifies.

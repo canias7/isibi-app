@@ -113,7 +113,9 @@ rounds and merged and deployed in deploy 2175 the same day, its code
 unchanged in deploy 2176 (the CI change) and runtime-confirmed by run 85;
 pressed as run 86 and refused by the route check: the real router answered
 `edit`/`data`, not `addon`, because its wording has no rule for an added
-row; 2 credits, nothing added, not passed** (*Test 11*, below). Under the owner's rule (*"Add will always
+row; 2 credits, nothing added, not passed. The router's wording is corrected
+on the branch on the owner's word (not merged; the paid test not retried)**
+(*Test 11*, below). Under the owner's rule (*"Add will always
 go in addon"*) the request reaches the add-on step, and **none of its nine
 kinds added a row to a table the site already has**: a table's seed fills
 only an empty table, and every plausible answer ended in a refusal or in a
@@ -1939,6 +1941,60 @@ estimated cost; paid execution remains pending approval."*
   merged and deployed on the owner's word, and Test 11 then pressed again
   (about 3–4). Pressing again without that change would most likely spend 2
   on the same answer.
+
+### The router fix (2026-10-01, after run 86, on the owner's word; on the branch, not merged)
+
+**The owner**: *"Fix the router for Test 11. Adding a NEW record to an
+existing table/list must select addon. The parent list already existing does
+not make the new item an edit. […] Make this general across products,
+services, team members, etc. No bakery-specific rule or keyword override.
+Updating or deleting an existing row remains edit/data; preserve sorting scope
+and mixed-request handling. […] Verify the actual request sent to the model;
+supplied model answers prove downstream handling, not real classification.
+Keep the canary's expected-addon guard. […] Don't merge, deploy, or retry the
+paid test yet."*
+
+- **The change** (`builder/site-ask.mjs`, wording only; the history and every
+  sentence are in `docs/history/2026-10-01-addon-row-routing.md`). The rule
+  is said in four places, for every kind of list:
+  - the `addon` clause claims a new entry in a list the site already keeps
+    (a product, service, dish, class, event or team member);
+  - the edit/addon tie-break is asked of the thing itself, never of what it
+    goes into;
+  - the data clause prefers itself only for a row the site already stores,
+    and sends a new entry to `addon` however cheap `data` is;
+  - the system's cost rule says cost never makes a new entry an edit.
+
+  The obsolete "owner's open decision" comment is gone.
+- **Unchanged**: the route (no keyword rule), changing or deleting an
+  existing row (`edit` + `data`), both sort sentences, the hold rule, the
+  whole-message rule and the canary's route check.
+- **Tests** (`test/router-row-add.test.mjs`, 12 cases), by what each shows:
+  - **six read the wording**;
+  - **two read the request as it leaves the real routing route**, to xAI
+    with no picker (the canary's call and run 86's router) and to Anthropic;
+  - **four supply the router's answer**, so they show handling and never
+    classification:
+    - `addon` goes on, and Test 11's box would post it;
+    - run 86's `edit` + `data` comes out as given, with or without "add",
+      and the box refuses it;
+    - an update, a deletion and a site-wide sort stay data edits;
+    - a mixed message keeps its hold.
+  - **One guard revised** (`test/router-row-removal.test.mjs`): it required
+    the data clause to say nothing about adding, from the 2026-09-30 *"Do not
+    decide or change add-row routing"*.
+- **Measured**:
+  - the router's 48 test files: 1,758 of 1,759 before the guard's revision,
+    the one failure being that guard;
+  - red check on the old wording: 9 of 21 fail, the 8 wording and request
+    cases and the revised guard. The 4 supplied-answer cases pass on both.
+  - sweep: 19 of 19 killed, the 2 comment-only controls survived, nothing
+    left unapplied;
+  - after the revision, the router's 49 test files 1,771 of 1,771, and the
+    full unit suite `8543 / 8543 / 0 / 0` locally.
+- **Real classification is not shown**: only a live press after a merge and a
+  deploy can show which answer a real model gives. Test 11's paid press is
+  not retried.
 
 ## Test 10 — a stored list re-sorted, with real models (prepared 2026-09-30 on the owner's word, after Test 9 was closed; free preparation only; the order traced on all three demo sites; rehearsed with supplied answers through the real lane and the real edit route; decision 2b taken by the owner the same day with a scope correction: a sort across the whole site goes to the data sorter, a sort limited to one named page to the page editor, and no "whatever page they saw it" rule; the rule implemented on the branch with committed route coverage, and its scope corrected on 2026-10-01 so that a selection of pages is never sent to the sorter; passed by the owner and merged and deployed in deploy 2174 (2026-10-01); the request revised to state its scope; the baseline read; the authorized free dispatch refused (403); the owner's free press, run 83, confirmed the runtime and rehearsed Test 10, passing every check; the paid press run as run 84, 3 credits, every acceptance item met; closed by the owner the same day for run 84's demonstrated request, the bakery left at `dgmag4`, not to be repeated)
 

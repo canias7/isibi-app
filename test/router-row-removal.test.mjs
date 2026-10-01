@@ -126,14 +126,20 @@ test("the rule is universal: it quotes layers only and names no table, site or c
   }
 });
 
-test("the open decisions stay open: nothing new says how a row is added or how a list is ordered", () => {
+test("the removal sentences say nothing about adding or ordering, and the data clause speaks of adding only to send a new entry to addon", () => {
   for (const s of [dataRow().line, lookRow().line, reachRow()]) {
-    assert.doesNotMatch(s, /\badd/i, "a new sentence speaks about adding a row: " + s);
-    assert.doesNotMatch(s, /\border|\bsort|\bfirst\b/i, "a new sentence speaks about order: " + s);
+    assert.doesNotMatch(s, /\badd/i, "a removal sentence speaks about adding a row: " + s);
+    assert.doesNotMatch(s, /\border|\bsort|\bfirst\b/i, "a removal sentence speaks about order: " + s);
   }
-  // The data clause as a whole still says nothing about adding, and the addon
-  // clause still owns "adding something the site does not have yet".
-  for (const l of DATA) assert.doesNotMatch(l, /\badd/i, "the data clause now speaks about adding: " + l);
+  // REVISED 2026-10-01. This case read "the open decisions stay open" and
+  // required the data clause to say nothing about adding, because the owner
+  // had not decided where a new row goes. After run 86 the owner did: *"Adding
+  // a NEW record to an existing table/list must select addon."* So the data
+  // clause now speaks about adding exactly once, and only to say a new entry
+  // is not this layer; the rule's own guards are `router-row-add.test.mjs`.
+  const adding = DATA.filter((l) => /\badd/i.test(l));
+  assert.equal(adding.length, 1, "the data clause speaks about adding on " + adding.length + " lines, not one");
+  assert.match(adding[0], /A NEW ENTRY IS NOT THIS LAYER: adding one to any of those lists is intent "addon"/);
   assert.match(P.intent.description, /"addon" — ADDING SOMETHING THE SITE DOES NOT HAVE YET/);
   // `remove` is still asked for exactly the layers that carry it; `data` is
   // not one of them, because the data step deletes its own rows.
