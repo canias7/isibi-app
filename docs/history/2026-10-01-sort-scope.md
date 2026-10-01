@@ -1,6 +1,7 @@
 # 2026-10-01 — The sort rule's scope: "not limited to one page" is not "across the site"
 
-On the branch, not merged and not deployed; no model was called and nothing
+**Passed by the owner through `322c2430`, merged and deployed in deploy 2174
+(2026-10-01, image `b8c8789aa8e395d6`; §7).** No model was called and nothing
 was spent. The owner's review of decision 2b's rule
 (`docs/history/2026-09-30-sort-routing.md`):
 
@@ -65,8 +66,9 @@ pages."*
   as the page clause's several-pages line already points there, rather than
   at a layer of its own.
 - **A request that names no page** is read as across the site (*"they say
-  so, or they name no page"*), as it was before the correction. That reading
-  is mine, recorded for the owner to confirm or correct.
+  so, or they name no page"*), as it was before the correction. **Confirmed
+  by the owner** when passing the correction: *"Keep the default that an
+  unqualified list-sorting request applies site-wide."*
 
 ## 3. What carries a selection today, traced without a model
 
@@ -213,3 +215,75 @@ fixture and the preservation checks as they were. Not run.
   re-sorts the pages left out, and says *"— on 3 pages."*. On a press, the
   route box refuses it before any edit. No code guard was added: it would be
   a keyword rule.
+
+## 7. The owner's review, the merge, deploy 2174 and Test 10's baseline
+
+- **The review** (2026-10-01): *"The scope correction passes review through
+  322c2430. Keep the default that an unqualified list-sorting request applies
+  site-wide."* So a sort that names no page stays `data`, as §2 reads it.
+  *"Keep selected-page real-model behavior marked unproven; don't expand this
+  into extra paid tests."* No press is planned for a selection.
+- **The merge and deploy**: a fast-forward of 22 commits, `8908b59d` →
+  `322c2430`, pushed at 00:58:41Z on the owner's word. Before the push:
+  nothing in flight on GitHub or in `edit_jobs`; unit CI green on
+  `322c2430` itself (run 36798198283, `8427 / 8423 / 0 / 4`); the image
+  predicted over both ends (`e71f7bae88b9ecf1` → `b8c8789aa8e395d6`, 188
+  inputs, one moved: `builder/site-ask.mjs`); the rollback checked in a
+  throwaway worktree. **One deploy run, 2174** (36798842190), green. Its log
+  answered `built …:b8c8789aa8e395d6`, and Wrangler moved the container
+  `e71f7bae88b9ecf1` → `b8c8789aa8e395d6` at 01:01:45Z. **The deployed
+  commit is `322c2430` and the image `b8c8789aa8e395d6`, both as predicted.**
+  Nothing under `public/` changed. The readings are in
+  `docs/deploy-record.md`. **Deployed, not runtime-confirmed** until the
+  owner's free press reads build-health.
+- **Test 10's baseline, read free and read-only** (as a visitor, every
+  write request aborted; the demo as it stands):
+  - **the table, whole**: `loaves` through the site's own read, at 01:00:37
+    and again at 01:10:41 UTC, after the roll, byte-identical: 200,
+    `Content-Range: 0-5/6`, 1,045 bytes, sha256 `ef870ebc…`. The same six
+    rows as on 2026-09-30: Country White 4.8, Dark Rye 5.2, Seeded Wholemeal
+    5.4, Olive & Rosemary 5.8, Walnut Levain 6 and Sea Salt Focaccia 4.5,
+    ids 1–6, `photo` null. The canary's own functions turned it into the
+    rows box, read back `as named`: target row 6 with every field, and the
+    other five digesting to `093f2130a37a6704`;
+  - **the pages** (01:04 UTC, after the roll): the sitemap's five, read
+    without following redirects, all 200 at `01790468089054-8btpep` (build
+    `muj2gzlo-iptyvw`): `/` 11,634 bytes (`31256cdc…`), `/gallery` 17,912
+    (`4646c1a4…`), `/order` 15,425 (`980e0c02…`), `/starter` 3,087
+    (`d1a3ef86…`, the stub page with no menu, as before), `/visit` 12,803
+    (`2faf5e62…`);
+  - **the displayed order**: only `/order` reads the table
+    (`loaves?select=*&order=name.asc`), and it shows Country White £4.80,
+    Dark Rye £5.20, Olive & Rosemary £5.80, Sea Salt Focaccia £4.50,
+    Seeded Wholemeal £5.40 and Walnut Levain £6.00. No other page made a
+    data request;
+  - **the redirects**: `/the-starter` 301 → `/starter` (`public,
+    max-age=600`), keeping a query, and `/the-starter/` the same; `/gallery`
+    with a query and with a trailing slash 200; an unknown page 404;
+  - **screenshots** of the five pages, for the pixel checks after the paid
+    run;
+  - **the stored page sources** are not readable as a visitor. The free
+    press's own inventory reads them (`before/source.json`), with the
+    versions and every page's markup, and its fixture check reads the table
+    again (`fixture.json`).
+- **One free press does both jobs.** The canary's preflight reads
+  build-health and the runtime, and refuses on another sha or image. Its
+  free checks, inventory, balance and fixture check all run before the
+  spend switch, and a press with spend `no` stops there: *"CANARY_SPEND is
+  not 1 — stopping before the paid edit. Nothing was charged."* The route
+  box is accepted on a free run and routes nothing, so the free press
+  carries the paid press's boxes unchanged except the spend switch. The
+  boxes are in the checklist's *Test 10*.
+- **The authorized free dispatch, tried once** at 01:22:02 UTC, 20 minutes
+  after the roll, from `main` with exactly those boxes: **refused, `403
+  Resource not accessible by integration`**, the known blocker (the
+  session's token lacks `actions: write`). Not retried. No run started: the
+  newest edit canary run is still run 82, so the owner's press will be run
+  83. Checked just before: balance 6, last ledger row 348 and none after,
+  no job open on any account (the newest from 2026-09-30 22:22), and no
+  workflow run in progress.
+- **Still to come**: the owner's free press. It confirms the runtime (sha
+  and image), reads the stored page sources (`before/source.json`, expected
+  to equal `test/fixtures/run47/*.before.tsx`, as run 75 left them), and
+  reads the table again against the rows box. **The paid press is handed
+  over only after that passes**, and pressed only on the owner's approval.

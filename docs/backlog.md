@@ -55,8 +55,8 @@ here; take a closed one out of both.**
   router sends an addition to the add-on step, and the data picker can insert
   (the owner's ruling). Found 2026-09-29.
 - ~~The router says nothing about the order of a list~~: decided (2b,
-  2026-09-30) and its rule built on the branch, not merged; its scope
-  corrected 2026-10-01: a sort across the whole site is `data`, one limited
+  2026-09-30), its scope corrected 2026-10-01, and merged and deployed in
+  deploy 2174: a sort across the whole site is `data`, one limited
   to a named page is `page`, and a selection of pages is never sent to the
   sorter.
 - A page-limited sort, or a selection of pages, that reaches `data` anyway

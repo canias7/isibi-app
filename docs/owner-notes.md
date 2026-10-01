@@ -1,124 +1,137 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-01, 00:52 UTC)
+## Current handoff — read this first (2026-10-01, 01:30 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- `main` is `8908b59d` (deploy 2173), unchanged: nothing merged, nothing
-  deployed, nothing spent.
-- The branch `claude/help-needed-ehlwlj` is `main` plus Test 9's canary
-  scenario, documents, decision 2b's router rule, and now **your scope
-  correction to that rule** (for your review).
-- Balance 6, read again at 00:23 UTC (last ledger row 348), and no job open.
+- `main` is `322c2430`, **deploy 2174** (2026-10-01): your reviewed branch,
+  merged and deployed on your word. **The deployed commit is `322c2430` and
+  the container image `b8c8789aa8e395d6`**, both as predicted.
+- **Deployed, not yet runtime-confirmed**: your free press confirms it.
+- The branch `claude/help-needed-ehlwlj` is `main` plus these records.
+- Balance 6 (last ledger row 348, read at 01:12 UTC), no job open, nothing
+  spent.
 
 **Completed**
-- **The two broad phrases are corrected** (`builder/site-ask.mjs`, the same
-  two sentences, nothing else in the router):
-  - **the data sorter only for the whole site**: when they say so ("across
-    the site", "everywhere"), or name no page at all;
-  - **one page they name stays on the page editor**, and only that page
-    changes;
-  - **a selection of pages is never sent to the sorter**: it re-sorts every
-    page showing the list, so it is never the answer for "these two pages"
-    or "everywhere except that one";
-  - such a selection is left to the existing whole-message rule (unchanged),
-    and no page they left out is re-sorted.
-- **What carries a selection today, traced without a model**: the `look`
-  step. It already makes each change on its own page (one page step per
-  named page, each handed only that change's words), and none of its parts
-  reaches the sorter. So an existing route carries your three-page case, and
-  nothing new was built. Its limits are below, under *Findings*.
-- **Coverage for three pages showing the same list**, with *"On the home
-  page and the menu page, but not the order page, list the loaves from
-  cheapest to most expensive."*:
-  - through the whole chain, direct and queued: `/` and `/menu` are
-    re-sorted, one line each; `/order` and the page with no list stay
-    byte-identical. The sorter is never asked, no row is written, and the
-    site publishes once with `/order` unchanged;
-  - billing: one charge per page step, the picker's call billed once, and
-    nothing refunded or credited back;
-  - and why the router's choice matters: the same request answered with the
-    sorter (which the router is now told never to do) re-sorts `/order` too.
-- **Test 10 is unchanged**: *"Across the site, list the loaves from cheapest
-  to most expensive."* still goes to the sorter, about 2–3 credits.
+- **Merged**: a fast-forward of 22 commits, `8908b59d` → `322c2430`, at
+  00:58 UTC. Before the push I checked:
+  - nothing in flight: no workflow run, and no edit job on any account;
+  - the tests on that exact commit: unit CI `8427 / 8423 / 0 / 4` (CI
+    skips four);
+  - the container image, worked out in advance on both ends:
+    `e71f7bae88b9ecf1` → `b8c8789aa8e395d6`, because the router's file is
+    part of it;
+  - undoing the merge gives back the old main exactly;
+  - nothing under `public/` changed, so there was no browser file to
+    compare.
+- **Deployed**: one green deploy run (2174). Its log built
+  `b8c8789aa8e395d6`, and the container moved to it at 01:01:45 UTC. The
+  site addresses answer as before, and both test sites are on their usual
+  versions.
+- **Your default kept**: a sorting request that names no page applies
+  across the whole site (recorded in `owner-preferences.md`).
+- **Test 10's baseline, read automatically, free and read-only** (as a
+  visitor, every write request blocked, the demo as it stands):
+  - the whole `loaves` table: six rows, read at 01:00 and again at 01:10
+    UTC, identical both times and the same as yesterday;
+  - the five pages, all live at version `8btpep`;
+  - the order shown on `/order`, the only page that shows the list:
+    alphabetical (Country White £4.80, Dark Rye £5.20, Olive & Rosemary
+    £5.80, Sea Salt Focaccia £4.50, Seeded Wholemeal £5.40, Walnut Levain
+    £6.00);
+  - the redirects: `/the-starter` sends visitors to `/starter` (301),
+    keeping a query; `/gallery` answers on its own; an unknown page answers
+    404;
+  - screenshots of all five pages, for the comparison after the paid run;
+  - the stored page sources need the owner sign-in, so your free press
+    reads them, and it reads the table again.
+- **The free dispatch, tried once** at 01:22 UTC, after the 20-minute
+  rollout wait: refused, `403 Resource not accessible by integration` (the
+  known permission blocker). Not retried, and no run started.
 
-**Instructions, supplied answers and real models, kept apart** (every test
-name now says which it is):
-- *instructions*: what the router is told: the wording, and the request the
-  real routing step sends. It proves the rule is stated, not that a model
-  follows it.
-- *supplied answers*: a model's answer is given, and the real route's
-  handling of it is checked. It proves what the route does with each answer,
-  not which answer a real model gives.
-- *real models*: not tested. Only a live press after a merge and deploy can
-  show what a real router and picker choose; none has been made.
+**Your free press: the runtime check and Test 10's rehearsal in one run**
+
+Edit canary, "Use workflow from" `main`. The boxes, by their descriptions:
+- "Run the ONE paid edit as well (yes/no)": `no`
+- "What to change. REQUIRED when spend=1 — there is no default, and a blank
+  one refuses.": `Across the site, list the loaves from cheapest to most
+  expensive.`
+- "READ ONE EXISTING JOB AND STOP: …": blank
+- "PUT ONE SAVED VERSION BACK, THEN READ IT AND STOP: …": blank
+- "RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: …": blank
+- "Rules test only (4b-rules-close): …": blank
+- "The site to edit. …": `fold-lane-bakery`
+- "A second site, used only to prove the OTHER half of the async shape. …":
+  `washhouse-3` (as it stands)
+- "Refuse to spend unless the Worker reports this deploy sha (prefix, >=7
+  chars). …": `322c2430`
+- "Refuse to spend unless a cold container reports this image id (exact).
+  …": `b8c8789aa8e395d6`
+- "Refuse to post the paid edit unless the router answers this: …":
+  `layer=data alsoAsked=none`
+- "Refuse to route or spend unless one table, read whole as the site serves
+  it, is as named: …":
+
+  ```
+  {"table":"loaves","baseline":"093f2130a37a6704","target":{"id":6,"name":"Sea Salt Focaccia","description":"A tray bake, heavy on the oil, finished with flaky salt.","price":4.5,"photo":null,"created_at":"2026-08-21 23:06:23"}}
+  ```
+
+It passes when:
+- both deploy readers answer `322c24301da9`, and a cold container answers
+  `b8c8789aa8e395d6`;
+- it prints `ALL FREE CHECKS PASSED`;
+- the source read is complete, with the five pages;
+- the table reads `as named` (6 rows, the target id 6, and the other five
+  digesting to `093f2130a37a6704`);
+- the balance is read (6);
+- it stops before the paid edit with "Nothing was charged", and the balance
+  is unchanged.
+
+It should be run 83.
 
 **Test results**
-- 24 sort tests (17 before, 7 new): 14 on the router (9 instructions, 1
-  structure, 4 supplied answers) and 10 through the whole chain (all
-  supplied answers).
-- Red check: on the previous wording, exactly the 8 instruction tests that
-  read the corrected sentences fail; the other 16 pass.
-- Sweep: 24 of 24 deliberate breaks caught, 3 comment-only controls
-  survived.
-- The 29 other test files that read the router's wording: 967 of 967.
-- Full suite: `8427 / 8427 / 0 / 0` locally.
-- Unit CI: `8427 / 8423 / 0 / 4` on `99837db1` (run 36795891188; CI
-  skips four).
-- Site build: green on the same commit (run 36795891162), its twelve counts
-  as before. It ran because the router's file is part of the container
-  image.
+- No code changed since your review. On `322c2430`: unit CI `8427 / 8423 /
+  0 / 4` (run 36798198283).
+- The 8 test files that read the docs: 356 of 356, on these records.
 
 **Links**
-- The correction: `docs/history/2026-10-01-sort-scope.md`.
-- The first round: `docs/history/2026-09-30-sort-routing.md`.
+- Main at the merge: https://github.com/canias7/isibi-app/commit/322c24301da9a413f609c1ed8e0d020bbe8fd48c
+- Deploy run 2174: https://github.com/canias7/isibi-app/actions/runs/36798842190
+- Unit CI on `322c2430`: https://github.com/canias7/isibi-app/actions/runs/36798198283
+- The records: `docs/history/2026-10-01-sort-scope.md` §7,
+  `docs/deploy-record.md` (deploy 2174), and the checklist's *Test 10*.
 - Branch commits: https://github.com/canias7/isibi-app/commits/claude/help-needed-ehlwlj
 
 **From our chat**
-- Your correction, recorded in `owner-preferences.md`: "not limited to one
-  page" is not "site-wide"; a selection of pages keeps its selection; report
-  a limitation rather than widen.
-- **One reading of mine to confirm**: a request that names no page at all
-  ("list the loaves cheapest first") is treated as across the site, as it
-  was before. Say if you want those handled differently.
-- No spending, merge or deployment. CLAUDE.md is left alone. Accepted tests
-  stay closed.
+- The scope correction passed your review through `322c2430`. A sorting
+  request that names no page stays site-wide.
+- What a real model does with a request for a chosen group of pages stays
+  unproven. There is no extra paid test for it.
+- Nothing spent. Accepted tests stay closed, the demo data stays as it
+  stands, and CLAUDE.md is left alone.
 
 **Blockers**
-- None. The correction needs your review.
+- The dispatch permission (403): the free press is yours.
 
-**Findings, kept separate** (backlog)
-- New: the `look` step's picker is told of no part for a list's order. So
-  which part a real picker names for a selection is unknown:
-  - the page parts make the change;
-  - "what the site stores" reaches the rules step, which sorts nothing;
-  - either way, nothing is widened.
-- New: a selection costs the full page writer on each named page, likely
-  6–22 credits per page, because the quick writer is told to decline list
-  changes. The site-wide sorter costs about 1.
-- New: the reply for a selection says "✅ Updated the look." and names
-  neither page. It is a case of the parked multi-step look reply (review
-  #9).
-- Updated: only the router's instructions keep a selection away from the
-  sorter. If a real router answered the sorter anyway, the excluded page
-  would be re-sorted, and its reply would say so ("— on 3 pages."). A press
-  with the route box set refuses that answer before any edit.
-- Unchanged: a hand-placed order is told "I couldn't match that"; the
+**Findings, kept separate** (backlog, unchanged since your review)
+- For a chosen group of pages:
+  - the `look` step's picker has no part described for a list's order;
+  - each page likely costs the full page writer (6–22 credits);
+  - the reply names neither page;
+  - only the router's instructions keep such a request from the sorter.
+- Also unchanged: a hand-placed order is told "I couldn't match that"; the
   quick writer's one-page reply doesn't mention other pages; the welcome
   pop-up; the deleted row's reply cut at 40 characters.
 
 **Exact next action**
-- **Your review of the correction** (the two sentences and the 24 tests).
-- Then, only on your word:
-  1. merge and deploy. The router's file is part of the container image,
-     so the image rolls and container work waits 15–20 minutes;
-  2. your free runtime check;
-  3. Test 10's free rehearsal;
-  4. its paid press, about 2–3 credits, with the route box
-     `layer=data alsoAsked=none`.
+1. Your free press, with the boxes above.
+2. I read it: the runtime confirmation, the stored page sources against the
+   bakery's recorded pages, and the table.
+3. Once it passes, I give you the exact paid Test 10 inputs, about 2–3
+   credits (balance 6). Nothing is spent without your approval.
 
 ---
 
@@ -178,6 +191,43 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-01 — Merged and deployed (deploy 2174); Test 10's free check is yours to press
+
+**Merged, as you asked.** Main is now `322c2430`, moved at 00:58 UTC, after
+your review passed the scope correction. Nothing was spent.
+
+**What it carries**: the sorting rule (across the whole site goes to the
+data step's sorter, one named page to the page editor, and a chosen group of
+pages never to the sorter), its tests, Test 9's canary scenario, and the
+records.
+
+**Before merging, I checked**:
+- the tests passed on this exact version (8,427; four skipped on GitHub as
+  always);
+- nothing was running: no workflow and no edit job;
+- the site image was worked out in advance: it changes, to
+  `b8c8789aa8e395d6`;
+- undoing the merge gives back the old main exactly.
+
+**The deploy went as predicted**: one green run. The deployed commit is
+`322c2430` and the container image `b8c8789aa8e395d6`. The site addresses
+answer as before.
+
+**Your default kept**: a sort that names no page applies across the site.
+
+**Test 10's baseline, read for free**: the table (six rows, unchanged), the
+five pages, the order shown on `/order` (alphabetical), the redirects, and
+screenshots. The stored page sources come from your free press.
+
+**The free check**: I tried once to start it, after waiting 20 minutes for
+the new image, and GitHub refused (403), as before. It's yours to press,
+with the boxes in the handoff. One free run confirms the deploy at runtime
+and rehearses Test 10.
+
+**Next**: once the free check passes, I give you the paid Test 10 inputs
+(about 2–3 credits). A real model's choice for a chosen group of pages stays
+unproven, and there is no extra paid test for it.
 
 ## 2026-10-01 — Your scope correction to the sorting rule is built, for your review
 

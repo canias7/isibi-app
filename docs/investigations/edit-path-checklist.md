@@ -1308,7 +1308,7 @@ digest), so they are built one after the other in the same file.
 | # | Decision | Why it blocks | What each answer leads to |
 |---|---|---|---|
 | 2a | Which step adds a row to a list the site already has: the add-on step (your 2026-09-02 rule, *"Add will always go in addon"*) or the data picker, which can already insert | an "add a row" acceptance has no expected route until this is decided | **add-on**: no product change, but the canary refuses to post an `addon` answer, so the acceptance needs the UI mode or a canary change. **data**: one router clause (lane 3). |
-| 2b | Whether reordering a list ("show the cheapest first") is `data` | the router says nothing about order, and a misroute to the page writer costs 6–22. **Traced 2026-09-30** (*Test 10*): a list's order is page code on every demo site, the site-wide sort lane is in the data rung, and the router reaches it by no rule. **Decided by the owner, 2026-09-30, the scope corrected 2026-10-01**: a sort across the whole site is `data` (the site-wide sorter); a sort limited to one named page is `page`; a selection of pages is never sent to the sorter (the closing rule decides it); no "whatever page they saw it" rule | Built on the branch (lane 3's sort half; not merged), then Test 10. |
+| 2b | Whether reordering a list ("show the cheapest first") is `data` | the router says nothing about order, and a misroute to the page writer costs 6–22. **Traced 2026-09-30** (*Test 10*): a list's order is page code on every demo site, the site-wide sort lane is in the data rung, and the router reaches it by no rule. **Decided by the owner, 2026-09-30, the scope corrected 2026-10-01**: a sort across the whole site is `data` (the site-wide sorter); a sort limited to one named page is `page`; a selection of pages is never sent to the sorter (the closing rule decides it); no "whatever page they saw it" rule | Built (lane 3's sort half), its scope corrected, and merged and deployed in deploy 2174; then Test 10. |
 | 2c | The broader-rules fixture: reopening `lido-axes-b`'s bookings, which you asked to keep closed, or a new disposable site (a first build, 11–45) | its only fixture is closed by your instruction | either way, one bounded rules acceptance afterwards |
 | 2d | Whether to take on the picture swap's product work: attachments reaching the picture step, the picker told which file fills which slot, and no fal purchase when a file is given | no natural message can reach it today without buying a photograph | yes: a product round of its own, later. No: it stays open. |
 | 2e | What "a correct component on the first attempt" must show, and on which site | no fixture has one, and the outcome cannot be fixed in advance | a definition first; no work until then |
@@ -1317,8 +1317,9 @@ digest), so they are built one after the other in the same file.
 
 ### Lane 3: the router round, after 2a and 2b
 
-**2b's half is built on the branch (2026-09-30, not merged)**: the sort
-rule, *Test 10*'s decision. 2a (which step adds a row) stays open.
+**2b's half is built (2026-09-30), its scope corrected (2026-10-01), and
+merged and deployed in deploy 2174**: the sort rule, *Test 10*'s decision. 2a
+(which step adds a row) stays open.
 
 Only if 2a answers `data` or 2b answers yes. It is a wording change to
 `builder/site-ask.mjs`, the same kind as the whole-message rule round: a
@@ -1351,7 +1352,7 @@ in the next data press.
 - **Then**: one merge, one free runtime check, and the lane 4 presses. Those
   on different sites can overlap a minute apart, as Batch 1's did.
 
-## Test 10 — a stored list re-sorted, with real models (prepared 2026-09-30 on the owner's word, after Test 9 was closed; free preparation only; the order traced on all three demo sites; rehearsed with supplied answers through the real lane and the real edit route; decision 2b taken by the owner the same day with a scope correction: a sort across the whole site goes to the data sorter, a sort limited to one named page to the page editor, and no "whatever page they saw it" rule; the rule implemented on the branch with committed route coverage, and its scope corrected on 2026-10-01 so that a selection of pages is never sent to the sorter; not merged and not deployed; the request revised to state its scope; not run)
+## Test 10 — a stored list re-sorted, with real models (prepared 2026-09-30 on the owner's word, after Test 9 was closed; free preparation only; the order traced on all three demo sites; rehearsed with supplied answers through the real lane and the real edit route; decision 2b taken by the owner the same day with a scope correction: a sort across the whole site goes to the data sorter, a sort limited to one named page to the page editor, and no "whatever page they saw it" rule; the rule implemented on the branch with committed route coverage, and its scope corrected on 2026-10-01 so that a selection of pages is never sent to the sorter; passed by the owner and merged and deployed in deploy 2174 (2026-10-01), not yet runtime-confirmed; the request revised to state its scope; the baseline read; the authorized free dispatch refused (403), so the free press is the owner's; not run)
 
 **The owner**: *"Next, prepare one list-reordering acceptance on an existing
 demo site. First trace what controls its order: a stored ordering field, a
@@ -1483,7 +1484,8 @@ add the proposed 'whatever page they saw it' rule. Different pages may
 intentionally use different orders."*
 
 **The rule, as first implemented** (`builder/site-ask.mjs`, two sentences;
-on the branch, not merged; **its scope corrected on 2026-10-01**, below):
+**its scope corrected on 2026-10-01**, below, and merged and deployed in
+deploy 2174):
 - in the `data` clause, after the row-removal sentence: a sort by something
   every entry already has, **not limited to one page**, is `data`, and the
   list is re-sorted on every page that shows it; **limited to one page they
@@ -1634,19 +1636,65 @@ and estimate.
 - **Money**: about **2–3 credits**, an estimate and not a cap: routing 1–2
   and the data step's picker 1. The publication is not charged (the
   committed coverage shows one charge of 1 on both paths). The balance is 6
-  (read at 22:27 UTC). If the route check refuses, 1–2.
-- **The presses** (the owner's, after the owner's review, the merge and
-  deploy of the rule, and a free runtime check; the router's file is a
-  container input, so the image rolls and container work waits 15–20
-  minutes):
-  1. **the free rehearsal**: Edit canary; "Run the ONE paid edit as well
-     (yes/no)" `no`; "The site to edit" `fold-lane-bakery`; the deploy and
-     image boxes; every other box blank;
-  2. **the paid press**: "Run the ONE paid edit as well (yes/no)" `yes`;
-     "What to change. …" the request above; "The site to edit"
-     `fold-lane-bakery`; "Refuse to post the paid edit unless the router
-     answers this: …" `layer=data alsoAsked=none`; the deploy and image
-     boxes; every other box blank.
+  (read again on 2026-10-01 at 01:12 UTC, last ledger row 348). If the route
+  check refuses, 1–2.
+- **The baseline, read 2026-10-01 around deploy 2174** (free, read-only, as
+  a visitor, every write request aborted; the demo as it stands):
+  - the table whole, at 01:00:37 and again at 01:10:41 UTC (after the roll),
+    byte-identical: 200, `0-5/6`, 1,045 bytes, sha256 `ef870ebc…`, the same
+    six rows as on 2026-09-30;
+  - every sitemap page (`/`, `/gallery`, `/order`, `/starter`, `/visit`)
+    200 at `01790468089054-8btpep`, read at 01:04 UTC;
+  - `/order` requests `loaves?select=*&order=name.asc` and shows Country
+    White £4.80, Dark Rye £5.20, Olive & Rosemary £5.80, Sea Salt Focaccia
+    £4.50, Seeded Wholemeal £5.40, Walnut Levain £6.00;
+  - redirects, not followed: `/the-starter` 301 → `/starter` (`public,
+    max-age=600`), keeping a query, and `/the-starter/` the same; `/gallery`
+    with a query and with a trailing slash 200; an unknown page 404;
+  - a full-page screenshot of each page, for the pixel checks afterwards;
+  - the stored page sources come from the free press's own inventory
+    (`before/source.json`), and its fixture check reads the table again
+    (`fixture.json`).
+- **The presses** (the owner's). The image rolled at 01:01:45Z, so container
+  work waited until about 01:20Z. **The authorized free dispatch was tried
+  once at 01:22:02Z and refused (`403 Resource not accessible by
+  integration`); no run started, so the owner's press will be run 83.** Edit
+  canary, from `main` (`322c2430`):
+  1. **The free press: runtime confirmation and rehearsal in one.** The boxes:
+     - "Run the ONE paid edit as well (yes/no)": `no`;
+     - "What to change. REQUIRED when spend=1 …": the request above;
+     - "The site to edit. …": `fold-lane-bakery`;
+     - "Refuse to spend unless the Worker reports this deploy sha …":
+       `322c2430`;
+     - "Refuse to spend unless a cold container reports this image id
+       (exact) …": `b8c8789aa8e395d6`;
+     - "Refuse to post the paid edit unless the router answers this: …":
+       `layer=data alsoAsked=none`;
+     - "Refuse to route or spend unless one table, read whole as the site
+       serves it, is as named: …":
+       `{"table":"loaves","baseline":"093f2130a37a6704","target":{"id":6,"name":"Sea Salt Focaccia","description":"A tray bake, heavy on the oil, finished with flaky salt.","price":4.5,"photo":null,"created_at":"2026-08-21 23:06:23"}}`
+       (the whole table pinned: every field of one row, and the digest of
+       the other five);
+     - every other box as it stands: the job, version, scenario and rules
+       boxes blank, and the second site `washhouse-3`.
+
+     Pass:
+     - `build-health 200 deploy=322c24301da9 image=b8c8789aa8e395d6`, and
+       `runtime 200 deploy=322c24301da9 async=true runner=true`, so the two
+       deploy readers agree, the Worker is the expected build, and a cold
+       container gets the expected image;
+     - `ALL FREE CHECKS PASSED`;
+     - the source read is complete, with the five pages;
+     - the fixture line: `as named: 6 rows; the target is id 6, and the
+       other 5 digest to 093f2130a37a6704`;
+     - the balance is read (6);
+     - `CANARY_SPEND is not 1 — stopping before the paid edit. Nothing was
+       charged.`, and the balance unchanged.
+  2. **The paid press**, handed over only once the free press has passed,
+     and pressed only on the owner's approval (about 2–3 credits): the same
+     boxes with "Run the ONE paid edit as well (yes/no)" `yes`. It reads the
+     same fixture before the routing call, and refuses before any charge if
+     a row moved.
 - **What it will not show**: the site-wide rewrite on a list read on two
   pages (the bakery has one; shown with supplied answers only, in the
   committed two-page cases); a one-page sort through the page editor; a

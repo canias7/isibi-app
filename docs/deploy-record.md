@@ -5,7 +5,7 @@
 > `docs/deploy.md`, where CLAUDE.md's **Deploy** section moved in the second
 > pass. This file keeps the measurements behind them: the
 > timing bands, every image-id prediction checked against a deploy's own log
-> (deploys 2137–2173), and the served-file check driven end to end on deploy
+> (deploys 2137–2174), and the served-file check driven end to end on deploy
 > 2139.
 >
 > **Add each new deploy here**, one paragraph per deploy, in the same shape:
@@ -589,6 +589,50 @@ exercise the fixture guard**: its `expect_rows` box was blank (the log's
 `CANARY_EXPECT_ROWS` is empty and no `EXPECTED ROWS` line was printed), and so
 was `expect_route`. It confirmed the runtime only; the guard it carries has not
 yet run live.
+
+**Deploy 2174 (2026-10-01) was predicted on both ends and built as
+predicted**: `origin/main` `8908b59d` answered `e71f7bae88b9ecf1` (the image
+2173 reused) and the candidate `322c2430` answered `b8c8789aa8e395d6`, both
+from 188 inputs and 158 distinct paths. One input moved,
+`builder/site-ask.mjs` (decision 2b's sort rule and its scope correction);
+the push also changed the canary's workflow text (Test 9's scenario box),
+scripts, tests and documents. **A fast-forward of 22 commits**, `8908b59d` →
+`322c2430` at 00:58:41Z, on the owner's word ("Merge the reviewed branch and
+deploy"). Checked first:
+- **the candidate unchanged**: the branch on GitHub was exactly `322c2430`,
+  and main was still `8908b59d`, re-read just before the push;
+- **nothing in flight**: on GitHub, no run in progress or queued; in
+  `edit_jobs`, none open on any account (the newest from 2026-09-30 22:22);
+- **CI**: unit run 36798198283 on `322c2430` itself, `8427 / 8423 / 0 / 4`;
+  the site build on `99837db1` (run 36795891162, the twelve counts), the
+  last commit touching its paths, the candidate adding documents only;
+- **the rollback**: reverting `8908b59d..322c2430` in a throwaway worktree
+  gives main's own tree, so a rollback reuses `e71f7bae88b9ecf1`;
+- **nothing under `public/`** changed, so no served-file comparison is owed.
+
+**One deploy run**, 2174 (36798842190, `push` on `322c2430`), `completed` /
+`success`:
+- **the gate** was set for `322c2430…`, taking over from `8908b59d…`, and the
+  drain found no live leases;
+- **the image**: the log answered `built
+  isibi-app-sitebuildcontainer:b8c8789aa8e395d6 (registry answered 404; 188
+  inputs off ./Dockerfile)` (masked `***88`), and Wrangler's container step
+  `EDIT isibi-app-sitebuildcontainer`, `- "image": …:e71f7bae88b9ecf1`
+  (masked `e7***f7bae88b9ecf***`) / `+ "image": …:b8c8789aa8e395d6`,
+  `SUCCESS Modified application isibi-app-sitebuildcontainer`, `Applied
+  changes`;
+- **timings**: image step 2m14s (00:59:12–01:01:26), Wrangler 18 s
+  (01:01:27–01:01:45), job 3m00s (00:58:48–01:01:48): the band for a push
+  that rolls the image (2m06s–2m16s on 2138, 2139 and 2143);
+- **Wrangler**: `DEPLOY_ID` `322c24301da9a413f609c1ed8e0d020bbe8fd48c`
+  (masked); `No updated asset files to upload`; `Current Version ID:
+  bd…2a39b-…` (masked).
+
+**Read at 01:05Z**: the gates answered 401 / 401 / 401 / 404; `fretwork-1`
+answers `kk6qsh` and `fold-lane-bakery` `8btpep`. **Deployed, not
+runtime-confirmed**: the image rolled at 01:01:45Z, so container work waits
+15–20 minutes, and the confirmation is the owner's free press (build-health
+answering `322c2430` and `b8c8789aa8e395d6`).
 
 ## The served-file check, driven end to end on deploy 2139
 

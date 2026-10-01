@@ -385,4 +385,9 @@
   limitation rather than silently widening the change. Do not build another
   capability for this correction."* And for the tests: *"Clearly distinguish
   checking the router's instructions from proving a real model's choice."*
+- **A list-sorting request that names no page applies across the site.**
+  Passing the correction (2026-10-01): *"Keep the default that an unqualified
+  list-sorting request applies site-wide."* And: *"Keep selected-page
+  real-model behavior marked unproven; don't expand this into extra paid
+  tests."*
 

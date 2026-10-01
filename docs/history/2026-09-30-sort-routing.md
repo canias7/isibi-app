@@ -1,8 +1,9 @@
 # 2026-09-30 — Decision 2b: a list sorted site-wide is `data`, on one named page it is `page`
 
-On the branch, not merged and not deployed; no model was called and nothing
-was spent. The owner's decision and scope correction, after Test 10 was
-prepared:
+Merged and deployed in deploy 2174 (2026-10-01) together with the next
+day's scope correction (`2026-10-01-sort-scope.md`), so the first wording in
+§1 was never deployed. No model was called and nothing was spent. The
+owner's decision and scope correction, after Test 10 was prepared:
 
 > Proceed with decision 2b, with this scope correction:
 >
