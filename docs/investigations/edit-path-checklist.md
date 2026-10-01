@@ -111,8 +111,9 @@ request.**
 capability built (2026-10-01, on the owner's word), corrected in three
 rounds and merged and deployed in deploy 2175 the same day, its code
 unchanged in deploy 2176 (the CI change) and runtime-confirmed by run 85;
-the paid test not run: it needs a balance of at least 4 (it is 3) and the
-owner's approval** (*Test 11*, below). Under the owner's rule (*"Add will always
+pressed as run 86 and refused by the route check: the real router answered
+`edit`/`data`, not `addon`, because its wording has no rule for an added
+row; 2 credits, nothing added, not passed** (*Test 11*, below). Under the owner's rule (*"Add will always
 go in addon"*) the request reaches the add-on step, and **none of its nine
 kinds added a row to a table the site already has**: a table's seed fills
 only an empty table, and every plausible answer ended in a refusal or in a
@@ -1874,6 +1875,70 @@ estimated cost; paid execution remains pending approval."*
   visitor): `loaves` 200, `0-5/6`, 1,045 bytes, sha256 `ef870ebc…`, the rows
   box *"as named"*; the five pages 200 at `dgmag4`, the same bytes as at
   09:43. Nothing has changed.
+
+### Run 86: the paid press, refused by the route check (2026-10-01)
+
+- **The press**: edit canary run 86 (36908358798), pressed by the owner at
+  18:38 UTC from `main` at `78a95a47`, spend `yes`, on `fold-lane-bakery`,
+  with the boxes as handed over (deploy `78a95a47…`, image
+  `c051f625db27b5b7`, route `intent=addon alsoAsked=none`, Test 10's rows
+  box). It was pressed at a balance of 3, below the 4 asked for, with the
+  owner's word *"also it may fail but top it up"*.
+- **Every check before routing passed**:
+  - both readers answered `78a95a47bfe5`, a cold container
+    `c051f625db27b5b7`, and queued jobs and the runner were on;
+  - the free job settled at cost 0, and ALL FREE CHECKS PASSED;
+  - the source read was complete, with the five pages at `dgmag4`;
+  - the balance read 3;
+  - the rows box read *"as named: 6 rows; the target is id 6, and the other
+    5 digest to 093f2130a37a6704"*.
+- **The router answered `intent=edit layer=data`**: cost 2, 19.6 s,
+  grok-4.6. The press sent no table names, so the route filled them
+  (`loaves`, `orders`), as Lane 1d does.
+- **The route check refused before posting the edit**: *"intent: expected
+  addon, the router answered edit"*. Nothing else ran: no job, no row, no
+  publish. The evidence zip's digest is `aa9bfea6…`.
+- **The money**: 3 → 1 at 18:39:51 UTC, routing 2 only, read directly
+  afterwards. Routing writes no ledger row (the last is still 349), and no
+  job is open.
+- **The bakery is unchanged** (18:41 UTC, free, as a visitor):
+  - `loaves` 200, `0-5/6`, sha256 `ef870ebc…`, the rows box *"as named"*;
+  - the five pages at `dgmag4`;
+  - the pages' bytes differ from run 85's only in the render timestamp and
+    the Visit page's live hours badge: "Open now … until 2 PM" at 10:00 UTC,
+    "Closed … opens 8 AM tomorrow" at 18:39.
+- **Why the router answered `data`** (read free in `builder/site-ask.mjs`):
+  its wording never says where an added row goes.
+  - The `intent` field's `addon` clause names a page, a table for something
+    the site has no table for, and a section or similar on a page. It does
+    not name an entry added to a list the site already stores.
+  - Its tie-break asks *"does the thing they name exist on the site now? It
+    does — "edit""*, and the loaves list exists.
+  - The `data` clause says to prefer it *"whenever the thing being changed
+    is one row of something the site lists"*.
+  - The comment at that clause still reads *"whether an added row is this
+    layer or the add-on step is the owner's open decision, and nothing here
+    says"*.
+
+  So the owner's rule (*"add will always go in addon"*) is not in the
+  wording for a row, and the add-on step's `row` kind, built for Test 11, was
+  not reached by the real router for this message. This is one sample.
+- **Not checked**: whether the data step itself can add a row. Reading its
+  tool was refused by this session's permission check, and was not tried
+  again.
+- **Status: Test 11 is not passed** (nothing was added). The route check did
+  its job: the edit was not posted down a route the press did not expect,
+  and only the routing call was paid.
+- **The balance after the owner's top-up**: on the owner's word (*"top it
+  up"*), it went 1 → 101 at 18:48:46 UTC. Read back at 18:49:27: 101, no job
+  open, the ledger's last row still 349. Only the readings are recorded
+  here.
+- **Next is the owner's decision.** The recommendation is to put the owner's
+  rule into the router's wording, so that an entry added to a list the site
+  already stores is `addon`. It would be tested with supplied answers,
+  merged and deployed on the owner's word, and Test 11 then pressed again
+  (about 3–4). Pressing again without that change would most likely spend 2
+  on the same answer.
 
 ## Test 10 — a stored list re-sorted, with real models (prepared 2026-09-30 on the owner's word, after Test 9 was closed; free preparation only; the order traced on all three demo sites; rehearsed with supplied answers through the real lane and the real edit route; decision 2b taken by the owner the same day with a scope correction: a sort across the whole site goes to the data sorter, a sort limited to one named page to the page editor, and no "whatever page they saw it" rule; the rule implemented on the branch with committed route coverage, and its scope corrected on 2026-10-01 so that a selection of pages is never sent to the sorter; passed by the owner and merged and deployed in deploy 2174 (2026-10-01); the request revised to state its scope; the baseline read; the authorized free dispatch refused (403); the owner's free press, run 83, confirmed the runtime and rehearsed Test 10, passing every check; the paid press run as run 84, 3 credits, every acceptance item met; closed by the owner the same day for run 84's demonstrated request, the bakery left at `dgmag4`, not to be repeated)
 

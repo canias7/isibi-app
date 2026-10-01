@@ -1,36 +1,41 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-01, 10:10 UTC)
+## Current handoff — read this first (2026-10-01, 18:55 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **`main` is `78a95a47`, deploy 2176, deployed and runtime-confirmed.**
-  Your free press, run 85 (10:00 UTC), passed:
-  - both readers answered `78a95a47bfe5`;
-  - a cold container answered `c051f625db27b5b7`;
-  - queued jobs and the runner were on, and the free job settled at cost 0;
-  - ALL FREE CHECKS PASSED, and nothing was charged.
-- Deploy 2175 runs the same code, so run 85 is its runtime check too.
-- **The balance is 3** (read by run 85 at 10:00:48 UTC). A free press reads
-  the balance only; the ledger is read on a paid run.
-- **Test 11 (adding Rye & Caraway to the bakery's list) is prepared, and
-  blocked by the balance.** It needs at least 4 credits (5 for a margin),
-  and your approval. Nothing is spent and no live data is written.
-- The bakery is unchanged: six loaves, the five pages at `dgmag4`, re-read
-  free at 10:01 UTC.
+- **Test 11's paid press, run 86 (18:38 UTC), was refused by the route check
+  and is not passed.** The real router answered `edit`/`data`, not `addon`.
+  The edit was never posted: nothing was added, and only routing was paid
+  (2 credits, 3 → 1).
+- **Why**: the router's wording never says where an added row goes.
+  - Its tie-break, "does the thing they name exist? It does: edit", reads
+    the loaves list as existing.
+  - The `data` clause claims "one row of something the site lists".
+  - A comment there still calls an added row "the owner's open decision".
+  - So your rule, "add will always go in addon", is not in the wording for a
+    row.
+- **Topped up on your word**: the balance went 1 → 101 at 18:48 UTC, read
+  back, with no job open.
+- The bakery is unchanged: six loaves and the five pages at `dgmag4`,
+  re-read at 18:41 UTC.
+- `main` is still `78a95a47` (deploy 2176, runtime-confirmed by run 85).
 
-**Test 11: cost and why 3 is not enough**
-- **About 3–4 credits** (an estimate, not a cap): routing 1–2, then the
-  addition about 2. The addition's charge is reserved after routing is paid.
-- At 3, if routing costs 2, the addition is then refused: 2 credits spent
-  and nothing added. At 4 both fit.
-- So the balance has to be raised to at least 4 first. That is your call.
+**Your decision: the next step for Test 11**
+- **Recommended**: put your rule into the router's wording, so an entry
+  added to a list the site already stores is `addon`. I'd test it with
+  supplied answers and push it for your review; then merge and deploy on
+  your word and press Test 11 again (about 3–4 credits).
+- Pressing again without that change would most likely spend 2 on the same
+  answer.
+- Not checked: whether the data step could add the row itself. This
+  session's permission check refused that read, and I did not retry it.
 
-**Test 11: the paid press** (do not press until the balance is at least 4
-and you approve; edit canary, every other box as it is)
+**Test 11's paid press, for after the router change** (the same boxes as
+run 86; the deploy and image boxes will change with the new deploy)
 
 "Use workflow from":
 ```
@@ -74,26 +79,29 @@ intent=addon alsoAsked=none
   move.
 
 **Links**
+- Run 86 (Test 11's press): https://github.com/canias7/isibi-app/actions/runs/36908358798
 - Run 85 (runtime check): https://github.com/canias7/isibi-app/actions/runs/36846351799
 - Deploy 2176: https://github.com/canias7/isibi-app/actions/runs/36844328324
 - The edit canary (to press): https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml
-- Records: `docs/deploy-record.md` (deploy 2176 and run 85), the checklist's
-  *Test 11*, `docs/history/2026-10-01-ci-speed.md` §8.
+- Records: the checklist's *Test 11* (*Run 86*), `docs/deploy-record.md`
+  (deploy 2176 and run 85).
 
 **From our chat**
-- The CI change was merged on your word; the full `site build` was not
-  repeated for unchanged inputs. You pressed the one runtime check (run 85).
-  I made no dispatch attempt. The paid run waits for your approval.
-  CLAUDE.md left alone.
+- You pressed Test 11 at a balance of 3 (*"also it may fail but top it
+  up"*); it failed on the route, not the balance. I topped the balance up
+  as asked. CLAUDE.md left alone.
 
 **Blockers**
-- The balance (3) is below the 4 Test 11 needs.
-- The paid press needs your approval.
+- Test 11 needs the router's wording to carry your rule for an added row,
+  and that change needs your word.
+- The backlog entry for this finding is not written: this session's
+  permission check refused reading the backlog. It is recorded in the
+  checklist's *Run 86* instead.
 
 **Exact next action**
-- Raise the balance to at least 4, then approve and press Test 11 with the
-  boxes above. I then read the run and check the result against the pass
-  list.
+- Your decision on the router change. On your word I make it, test it with
+  supplied answers, and push it for your review; after the merge and deploy
+  I hand over Test 11's press again.
 
 ---
 
@@ -153,6 +161,23 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-01 — Test 11's press (run 86) was refused: the router sent the new loaf to the data step; balance topped up to 101
+
+- **Run 86 was refused before the edit.** You pressed Test 11 at 18:38 UTC.
+  Every check before routing passed, and the bakery's list read exactly as
+  expected. The router then answered "edit, data" instead of "add-on". The
+  press expected "add-on", so it refused to post the edit.
+- **Cost: 2 credits** (the routing call), and nothing else. No loaf was
+  added, and nothing was published.
+- **Why**: the router's instructions never say where a new entry in an
+  existing list goes. They tell it that if the thing named already exists,
+  it's an edit, and the loaves list exists. Your rule, "add will always go
+  in addon", was never written in for this case.
+- **Topped up, as you asked**: 1 → 101.
+- **My recommendation**: add your rule to the router's instructions, test
+  it, and press Test 11 again after you approve the change. Pressing again
+  now would most likely waste 2 credits on the same answer.
 
 ## 2026-10-01 — Deploy 2176 confirmed live (run 85); Test 11 waits on the balance
 
