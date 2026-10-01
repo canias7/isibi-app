@@ -391,3 +391,13 @@
   real-model behavior marked unproven; don't expand this into extra paid
   tests."*
 
+- **Adding one item to an existing list goes to the add-on step.** Answering
+  2a while asking for Test 11 (2026-10-01): *"Respect my existing rule: 'Add
+  will always go in addon.'"* And for preparing it: *"Don't change routing
+  policy or start a paid run during preparation."* A capability or testing
+  gap found on the way is explained, with the smallest next step proposed,
+  not built.
+- **A reading the owner's reviewer verified is recorded as theirs, and the
+  manual check offered for it is withdrawn.** After run 84 (2026-10-01):
+  *"ChatGPT independently verified Supabase … Record that verification and
+  remove the optional manual billing-check instruction."*

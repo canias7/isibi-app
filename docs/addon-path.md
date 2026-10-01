@@ -134,6 +134,12 @@ measurements this file leans on (the kit closure's 9–53 files, the 322-against
 
 **UNSUPPORTED, and the honest reason for each:**
 
+- **Nothing adds a row to a table the site already has** (traced 2026-10-01,
+  Test 11). `table`'s `seed` is starter rows for a new table, and
+  `seedSiteRows` skips any table that already has rows, so "add one item to
+  the list" is refused, or publishes a hand-written card while the list is
+  unchanged (rehearsed with supplied answers). The only row insert is the
+  edit side's data step, which an addition does not reach.
 - **Nothing deletes a table, a saved function, a connection or a scheduled job**
   — `NOT_REMOVABLE` is `backend · lang · slug · kind · purpose`. **SIXTEEN**
   lanes ARE removable (`components` and `tsx` among them) and `PAGE_VERBS` is

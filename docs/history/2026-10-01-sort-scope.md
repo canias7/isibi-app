@@ -1,8 +1,9 @@
 # 2026-10-01 — The sort rule's scope: "not limited to one page" is not "across the site"
 
 **Passed by the owner through `322c2430`, merged and deployed in deploy 2174
-(2026-10-01, image `b8c8789aa8e395d6`; §7).** No model was called and nothing
-was spent. The owner's review of decision 2b's rule
+(2026-10-01, image `b8c8789aa8e395d6`); Test 10 run as run 84 and closed by
+the owner (§7).** The correction itself called no model and spent nothing.
+The owner's review of decision 2b's rule
 (`docs/history/2026-09-30-sort-routing.md`):
 
 > Fix one scope issue in the new routing rule: "not limited to one page" does
@@ -306,8 +307,8 @@ fixture and the preservation checks as they were. Not run.
   after-checks compare markup that way.
 - **I could not re-read the ledger myself after run 83**: the Supabase
   connector dropped out of this session after the 01:12 read. The run's own
-  balance read is the evidence. After the paid press, a free "read one job"
-  press can supply the ledger rows if they are needed.
+  balance read is the evidence, and the owner's reviewer later verified the
+  ledger after run 84 (below).
 - **The paid press** was handed over for the owner's approval: the same
   boxes with spend `yes`, about 2–3 credits.
 - **The owner pressed it as run 84** (36802989624, 01:50–01:53 UTC).
@@ -330,3 +331,15 @@ fixture and the preservation checks as they were. Not run.
   sort and a selection of pages are still shown with supplied answers only.
   The selection's real-model behaviour stays unproven, as the owner asked,
   with no extra paid test.
+- **The money, verified independently.** This session could not read the
+  ledger after run 84, because its Supabase connector had dropped out. The
+  owner's reviewer verified it in Supabase:
+  - job `7bf9cbcbad73bf4d86c2d379154604d3` done, billing finalized, cost 1,
+    `needs_review` false;
+  - ledger row 349, one reservation of −1, and no further entry for the job;
+  - balance 3, no job open;
+  - with the routing call's 2, the run spent 3.
+- **Closed by the owner** (2026-10-01): *"Test 10 passes review for run 84's
+  demonstrated request. Mark it closed and leave the bakery at version
+  dgmag4. Keep selected-page real-model behavior marked unproven; don't
+  repeat accepted tests."*

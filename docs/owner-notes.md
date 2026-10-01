@@ -1,87 +1,135 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-01, 02:10 UTC)
+## Current handoff — read this first (2026-10-01, 03:05 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- `main` is `322c2430`, **deploy 2174**, container image
-  `b8c8789aa8e395d6`, runtime-confirmed by your free press, run 83.
-- **Test 10 ran as your paid run 84, and every check passed**, for your
-  review. Closing it is your call.
-- The bakery is now live at version `dgmag4`, with the loaves listed
-  cheapest first. Nothing was put back (the demo-site rule).
-- Balance 3 (run 84's own read after the edit).
+- `main` is `322c2430` (deploy 2174, image `b8c8789aa8e395d6`),
+  runtime-confirmed, and unchanged in this round.
+- **Test 10 is closed by you**, for run 84's request. The bakery stays at
+  version `dgmag4`, with the loaves listed cheapest first.
+- **Test 11 (adding one item to an existing list) is prepared but not
+  runnable yet**: the add-on step can't add a row to a table that already
+  has rows. Details below.
+- Balance 3, as your reviewer verified. Nothing spent in this round, and no
+  routing change.
 
-**Completed: run 84** (01:50–01:53 UTC, 3 credits)
-- **The router**: the real router sent it to the data step, with nothing
-  held back (2 credits). It also found the site's tables by itself, as
-  Lane 1's fix intended.
-- **The change**: exactly one line of the order page changed, from sorted
-  by name to sorted by price, lowest first. The other four pages are
-  byte-identical, and the site published once.
-- **What visitors see**: `/order` lists Sea Salt Focaccia £4.50, Country
-  White £4.80, Dark Rye £5.20, Seeded Wholemeal £5.40, Olive & Rosemary
-  £5.80, Walnut Levain £6.00. Each loaf's text is as before; only the order
-  changed. I sent you a before/after picture.
-- **The reply**: "✅ loaves now comes out in order of price, lowest first —
-  on 1 page."
-- **Nothing else changed**:
-  - the loaves table is byte-identical (no row written);
-  - the other four pages match their earlier screenshots to the pixel, and
-    on `/order` only the list itself moved;
-  - menus, headings, photos, the site description and the redirects are all
-    as before.
-- **Money**: 6 → 3, which is routing 2 and the edit 1, inside the 2–3
-  estimate.
+**Completed**
+- **Test 10 recorded as closed**, with your reviewer's independent Supabase
+  check:
+  - the job done, billing finalized, cost 1, not flagged for review;
+  - one ledger row (349, a reservation of −1), and nothing more for it;
+  - balance 3, no job open;
+  - with routing's 2, it spent 3 in all.
+
+  The optional "read one job" press I'd offered is removed from the
+  records.
+- **The add-on route traced** for "add one item to an existing list", under
+  your rule ("Add will always go in addon"):
+  - the router sends such a request to the add-on step. Nothing in it was
+    changed;
+  - the add-on step has nine kinds (table, database function, outside
+    connection, scheduled job, page, section, QR code, 3D scene,
+    photograph). **None of them adds a row to a table the site already
+    has**;
+  - its "table" kind can include starter rows, but only for a new table:
+    the code that writes them skips any table that already has rows;
+  - the only code that inserts a single row today is on the edit side (the
+    data step), which your rule doesn't send additions to. I haven't
+    proposed changing that.
+- **Rehearsed through the real add-on route with supplied answers**, for
+  every answer the picker could plausibly give:
+  - it either refuses, at no cost for the step:
+    - "I couldn't determine a supported addition…";
+    - "That table would have nothing in it…";
+    - "The builder produced no page changes…";
+  - **or it reports a false success**: it publishes a hand-written card on
+    `/order` and says "✅ Done — updated /order", while the list itself is
+    unchanged. The new loaf then wouldn't be in the order form's choices,
+    the price order or the Data panel.
+- **The baseline**, read free at 02:45 UTC, matches run 84's after-read:
+  six loaves, all five pages at `dgmag4`, `/order` cheapest first, and the
+  redirects as before.
+
+**The test, as prepared** (the checklist's *Test 11*)
+- **Site**: `fold-lane-bakery` at `dgmag4`.
+- **Request**: *Add one loaf to today's loaves: Rye & Caraway at £5.00,
+  described as "A light rye with toasted caraway."* "Today's loaves" is
+  the list's own label on `/order`.
+- **Expected route**: the add-on step (route box `intent=addon
+  alsoAsked=none`).
+- **Expected result**:
+  - exactly one new row (Rye & Caraway, 5, that description, no photo);
+  - `/order` lists seven loaves, with Rye & Caraway third;
+  - a reply that names the loaf.
+- **Kept unchanged**:
+  - the six existing loaves (every field) and the five stored pages;
+  - no new published version, if the addition changes no page;
+  - the other four pages, to the pixel;
+  - menus, headings, the description and the redirects.
+- **Cost once it can run**: about 3–4 credits. The balance is 3, so it
+  needs a top-up first.
+
+**The smallest next step (proposed, not built; your call)**
+1. **One new add-on kind**, "a new entry in a list the site already stores":
+   - it writes the row with the data step's own insert, shared rather than
+     copied;
+   - it only adds to public lists, never to a table visitors submit to;
+   - it changes no page, and it publishes nothing, because the list is read
+     live;
+   - its reply is built from the row actually added;
+   - tested free through the real add-on route, on a stand-in where the
+     table already has rows.
+2. **Let the canary press an add-on**: today it refuses unless the router
+   answers "edit". The route box can already say `intent=addon`.
+3. Then the paid test, after a merge, a deploy, your free check and a
+   top-up.
 
 **Test results**
-- Run 84: every acceptance item met (the checklist's *Test 10*, *Run 84*).
-- My own reads, free and read-only: the table at 01:57 UTC, every page in a
-  browser, a pixel comparison of all five pages, and the redirects.
+- The rehearsal: 8 scratch cases through the real add-on route (not
+  committed). No model, no network, nothing spent.
+- The 8 test files that read the docs: 356 of 356.
+- No product code changed in this round.
 
 **Links**
-- Run 84: https://github.com/canias7/isibi-app/actions/runs/36802989624
-- Run 83: https://github.com/canias7/isibi-app/actions/runs/36802348994
-- The records: the checklist's *Test 10* (*Run 84*), and
+- The test and the trace: the checklist's *Test 11*, and
+  `docs/history/2026-10-01-add-row-prep.md`.
+- Test 10's closure: the checklist's *Test 10* (*Closed*), and
   `docs/history/2026-10-01-sort-scope.md` §7.
+- Branch commits: https://github.com/canias7/isibi-app/commits/claude/help-needed-ehlwlj
 
 **From our chat**
-- A sorting request that names no page stays site-wide.
-- What a real model does with a request for a chosen group of pages stays
-  unproven, with no extra paid test.
-- Accepted tests stay closed, and CLAUDE.md is left alone.
+- Your 2a answer, recorded in `owner-preferences.md`: adding an item to an
+  existing list goes to the add-on step ("Add will always go in addon").
+- A reading your reviewer verified is recorded as theirs, and the manual
+  check I'd offered for it is withdrawn (also in `owner-preferences.md`).
+- A sort limited to a selection of pages stays unproven with real models.
+  Accepted tests stay closed, and CLAUDE.md is left alone.
 
 **Blockers**
-- None.
-- One limit on my checks: the Supabase connector dropped out of this
-  session, so I couldn't read the job's ledger rows, or whether any job is
-  left open. The canary's own balance reads (6 before the edit, 3 after)
-  cover the money. If you want the ledger rows, one free press reads them.
-  Edit canary, `main`:
-  - "Run the ONE paid edit as well (yes/no)": `no`;
-  - "READ ONE EXISTING JOB AND STOP: …": `7bf9cbcbad73bf4d86c2d379154604d3`;
-  - "Refuse to post the paid edit unless the router answers this: …" and
-    "Refuse to route or spend unless one table, …": blank (a filled box
-    beside a read is refused);
-  - the other boxes don't matter for a read.
+- Test 11 can't run until the add-on step can add a row (step 1 above). It
+  also needs the canary change (step 2) and a top-up.
 
 **Findings, kept separate** (backlog)
-- New: a data-step job's row reads "routing" until it publishes (run 84: for
-  about 95 seconds while it sorted and rebuilt the site). The browser shows
-  nothing from it, so customers see no difference. Observed once.
-- Unchanged: for a chosen group of pages, the picker has no part described
-  for a list's order, each page likely costs the full page writer, the
-  reply names neither page, and only the router's instructions keep it from
-  the sorter. Also a hand-placed order is told "I couldn't match that", the
-  quick writer's one-page reply doesn't mention other pages, the welcome
-  pop-up, and the deleted row's reply cut at 40 characters.
+- New: the add-on step can't add a row to a table the site already has
+  (above).
+- New: the starter-rows sentence drops its reason. "loaves: already has
+  rows" is told to the customer as "that table isn't one visitors can read,
+  so it starts empty", which is wrong on both counts.
+- New: the add-on route's test fixture reads every table as empty, so a
+  test of adding a row built on it would pass where the product doesn't.
+  My rehearsal modelled the table as having rows.
+- New: the edit canary can't press an add-on.
+- Earlier: a data-step job reads "routing" until it publishes; the
+  selection-of-pages limits; the welcome pop-up; the deleted row's reply cut
+  at 40 characters.
 
 **Exact next action**
-- Your review of Test 10 (runs 83 and 84). Closing it is your call.
-- Optional: the free press above, for the job's ledger rows.
+- Your review of Test 11's preparation, and whether to build step 1 (and
+  step 2) next. Nothing spends until you approve a paid run.
 
 ---
 
@@ -141,6 +189,29 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-01 — Test 10 closed; adding one item to a list traced (Test 11 prepared, blocked)
+
+**Test 10 is closed** for run 84's request, with your reviewer's independent
+Supabase check recorded: the job finalized at cost 1, one ledger row (349),
+balance 3, no job open, and 3 spent in all with routing. The optional billing
+check I'd offered is removed. The bakery stays at `dgmag4`.
+
+**Adding one item to an existing list, under your rule "Add will always go in
+addon"**: the request reaches the add-on step, and nothing there can add a
+row to a table that already has rows. Its table kind can include starter
+rows only for a new table. With supplied answers through the real route, it
+either refuses at no cost, or publishes a hand-written card on `/order` and
+says "✅ Done" while the list is unchanged.
+
+**The test is prepared** (request, baseline, expectations, what must stay
+unchanged, about 3–4 credits), but it can't pass until the add-on step can
+add a row. Proposed next, not built: one new add-on kind that adds an entry
+to an existing public list using the data step's own insert, and the canary
+able to press an add-on. No routing change, nothing spent.
+
+**Also found**: the starter-rows sentence gives the customer the wrong
+reason, and the add-on test fixture treats every table as empty (backlog).
 
 ## 2026-10-01 — Test 10 passed every check (run 84): the loaves are listed cheapest first, for your review
 

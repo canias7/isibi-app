@@ -90,32 +90,33 @@ is not to be repeated.
     (ledger rows 346 and 347), message 2's edit 1 (row 348); no job open.
 - The demo data stays as it stands: the Hour one-to-one is £45.
 
-**Test 10, a stored list re-sorted: decision 2b taken by the owner, the rule
-built and its scope corrected after the owner's review, merged and deployed
-(deploy 2174, runtime-confirmed by run 83), and run as the paid run 84 for 3
-credits, every acceptance item met, for the owner's review** (*Test 10*,
-below). On all three demo sites
-a list's order is written in page code (the `{ order, dir }` of the page's
-`useRows` call); no table has an ordering field. The owner's rule, as
-corrected on 2026-10-01 (*"'not limited to one page' does not mean
-'site-wide'"*):
-- a sort across the whole site goes to the data step's sort lane;
-- a sort limited to one named page goes to the page editor, and only that
-  page changes;
-- a sort limited to a selection of pages keeps its selection. It is never
-  sent to the sorter, which cannot leave a page out: the whole-message rule
-  decides it, and `look` makes it page by page;
-- no "whatever page they saw it" rule, because different pages may
-  intentionally use different orders.
+**Closed by the owner (2026-10-01): Test 10, for run 84's demonstrated
+request.**
+- **Run 84**, one message, *"Across the site, list the loaves from cheapest to
+  most expensive."*:
+  - the real router answered `data`, with nothing held back;
+  - exactly `order.tsx` line 97 changed (sorted by price, lowest first), and
+    the site published once;
+  - `/order` lists the loaves cheapest first;
+  - no row was written, and the rest of the site is identical;
+  - 3 credits.
+- **The money, verified independently in Supabase** by the owner's reviewer:
+  the job done, billing finalized, cost 1, `needs_review` false; one ledger
+  row (349, a reservation of −1) and nothing more for it; with routing's 2,
+  3 in all; balance 3, no job open.
+- The bakery stays at version `dgmag4`. A sort limited to a selection of
+  pages stays unproven with real models. Not to be repeated.
 
-Implemented as two router sentences. 24 tests cover it (14 on the router, 10
-through the whole chain), each named as an instruction check, a structure
-check or a supplied-answer check, none a real model. Red-checked and swept.
-The acceptance states its scope: *"Across the site, list the loaves from
-cheapest to most expensive."* on `fold-lane-bakery`. Run 84: the real router
-answered `data`, exactly one stored line changed, one publish, no row
-written, the rest of the site identical, 3 credits (routing 2, the data step
-1).
+**Test 11, one item added to an existing list: prepared, not runnable yet**
+(*Test 11*, below; free analysis only, nothing spent). Under the owner's rule
+(*"Add will always go in addon"*) the request reaches the add-on step, and
+**none of its nine kinds adds a row to a table the site already has**: a
+table's seed fills only an empty table. Rehearsed through the real add-on
+route with supplied answers: every plausible answer ends in a refusal or in
+a false success (a hand-written card published on `/order`, the list
+unchanged). The smallest next step, proposed: one add-on kind for a new
+entry in an existing list, writing with the data step's own insert, and the
+canary able to post an add-on press.
 
 **Lane 1 (2026-09-30): four corrections, merged and deployed in deploy 2171
 (`29111010`, image `cdb624837e099719`; the deployment credited by the owner),
@@ -301,9 +302,9 @@ the owner's free press, run 51, at 22:57 UTC):
    1's B1, run 71); B2's put-back was misrouted `text` and is a finding, not
    a pass. **Removing is closed by the owner** (run 80, after the row
    check's first live run, 79; the data picker's delete instructions were
-   corrected first, Lane 1a, deploy 2171). Adding needs the owner's ruling
-   on which step adds a row (2a); reordering, on whether ordering is `data`
-   (2b).
+   corrected first, Lane 1a, deploy 2171). Adding goes to the add-on step
+   (the owner, 2026-10-01), which cannot add a row yet (*Test 11*).
+   **Reordering is closed by the owner** (Test 10, run 84, 2026-10-01).
 6. **The rules rung beyond one closing**: reopening, closing by taking write
    access away, limits, and any other wording or site.
 7. **The picture swap**: a new photograph into a slot. Not ready: no natural
@@ -1236,9 +1237,10 @@ approves it.
 - **Closed or credited by Batch 1**: redirect home (group A, accepted with
   its timing limit), and the data rung's blank link (B1).
 - **Still open**:
-  - the data rung's adding and reordering rows (deleting is closed by
-    the owner: run 80, 2026-09-30; reordering decided (2b) and its rule
-    built on the branch, Test 10 prepared, not run);
+  - adding a row to a list (deleting is closed by the owner: run 80,
+    2026-09-30; reordering closed by the owner: Test 10, run 84,
+    2026-10-01). Adding goes to the add-on step, which cannot add a row
+    yet (*Test 11*);
   - broader rules;
   - the picture swap;
   - a correct component on the first attempt;
@@ -1311,7 +1313,7 @@ digest), so they are built one after the other in the same file.
 
 | # | Decision | Why it blocks | What each answer leads to |
 |---|---|---|---|
-| 2a | Which step adds a row to a list the site already has: the add-on step (your 2026-09-02 rule, *"Add will always go in addon"*) or the data picker, which can already insert | an "add a row" acceptance has no expected route until this is decided | **add-on**: no product change, but the canary refuses to post an `addon` answer, so the acceptance needs the UI mode or a canary change. **data**: one router clause (lane 3). |
+| 2a | Which step adds a row to a list the site already has: the add-on step (your 2026-09-02 rule, *"Add will always go in addon"*) or the data picker, which can already insert | an "add a row" acceptance has no expected route until this is decided | **Answered by the owner (2026-10-01): the add-on step** (*"Respect my existing rule: 'Add will always go in addon.'"*). The earlier reading here, "no product change", was wrong: traced on 2026-10-01, no add-on kind adds a row to a table the site already has (*Test 11*). So it needs a product change and a canary change. |
 | 2b | Whether reordering a list ("show the cheapest first") is `data` | the router says nothing about order, and a misroute to the page writer costs 6–22. **Traced 2026-09-30** (*Test 10*): a list's order is page code on every demo site, the site-wide sort lane is in the data rung, and the router reaches it by no rule. **Decided by the owner, 2026-09-30, the scope corrected 2026-10-01**: a sort across the whole site is `data` (the site-wide sorter); a sort limited to one named page is `page`; a selection of pages is never sent to the sorter (the closing rule decides it); no "whatever page they saw it" rule | Built (lane 3's sort half), its scope corrected, and merged and deployed in deploy 2174; then Test 10. |
 | 2c | The broader-rules fixture: reopening `lido-axes-b`'s bookings, which you asked to keep closed, or a new disposable site (a first build, 11–45) | its only fixture is closed by your instruction | either way, one bounded rules acceptance afterwards |
 | 2d | Whether to take on the picture swap's product work: attachments reaching the picture step, the picker told which file fills which slot, and no fal purchase when a file is given | no natural message can reach it today without buying a photograph | yes: a product round of its own, later. No: it stays open. |
@@ -1322,8 +1324,10 @@ digest), so they are built one after the other in the same file.
 ### Lane 3: the router round, after 2a and 2b
 
 **2b's half is built (2026-09-30), its scope corrected (2026-10-01), and
-merged and deployed in deploy 2174**: the sort rule, *Test 10*'s decision. 2a
-(which step adds a row) stays open.
+merged and deployed in deploy 2174**: the sort rule, *Test 10*'s decision,
+closed by the owner after run 84. **2a is answered by the owner
+(2026-10-01): the add-on step**, so there is no router wording left to do
+for it.
 
 Only if 2a answers `data` or 2b answers yes. It is a wording change to
 `builder/site-ask.mjs`, the same kind as the whole-message rule round: a
@@ -1338,10 +1342,9 @@ accepted test.
 - **Delete** (after 1a): on `fretwork-1`, one row deleted through the edit
   path. **Closed by the owner** (run 80, after run 79's free rehearsal,
   2026-09-30; *Lane 4's delete*, below).
-- **Add** (after 2a, and lane 3 if `data`).
-- **Reorder** (after 2b and lane 3): 2b decided and its rule merged and
-  deployed (deploy 2174); Test 10 run as run 84 (2026-10-01), every
-  acceptance item met, for the owner's review.
+- **Add**: 2a answered (the add-on step). *Test 11* is prepared and waits on
+  the add-on step's missing row capability and the canary's add-on press.
+- **Reorder**: **closed by the owner** (Test 10, run 84, 2026-10-01).
 - **Rules, picture swap and component**: after 2c–2e.
 - **Follow-up after a failure**: closed by the owner (Test 9, run 82,
   2026-09-30).
@@ -1357,7 +1360,161 @@ in the next data press.
 - **Then**: one merge, one free runtime check, and the lane 4 presses. Those
   on different sites can overlap a minute apart, as Batch 1's did.
 
-## Test 10 — a stored list re-sorted, with real models (prepared 2026-09-30 on the owner's word, after Test 9 was closed; free preparation only; the order traced on all three demo sites; rehearsed with supplied answers through the real lane and the real edit route; decision 2b taken by the owner the same day with a scope correction: a sort across the whole site goes to the data sorter, a sort limited to one named page to the page editor, and no "whatever page they saw it" rule; the rule implemented on the branch with committed route coverage, and its scope corrected on 2026-10-01 so that a selection of pages is never sent to the sorter; passed by the owner and merged and deployed in deploy 2174 (2026-10-01); the request revised to state its scope; the baseline read; the authorized free dispatch refused (403); the owner's free press, run 83, confirmed the runtime and rehearsed Test 10, passing every check; the paid press run as run 84, 3 credits, every acceptance item met, for the owner's review)
+## Test 11 — one item added to an existing list (prepared 2026-10-01 on the owner's word, after Test 10 was closed; free analysis only, nothing spent, no routing change; not runnable yet: no add-on kind adds a row to a table the site already has)
+
+**The owner**: *"Next, prepare the remaining 'add one item to an existing
+list' test using free analysis only. Respect my existing rule: 'Add will
+always go in addon.' Trace whether that route can add exactly one row to an
+existing table. Identify the exact request, existing demo, current baseline,
+expected result, unrelated content to preserve, testing support, and
+estimated cost. If there is a concrete capability or testing gap, explain it
+and propose the smallest next step. Don't change routing policy or start a
+paid run during preparation."*
+
+### The route under the owner's rule (traced 2026-10-01, free)
+
+- **The router sends it to the add-on step.** Its `intent` field defines
+  "addon" as "ADDING SOMETHING THE SITE DOES NOT HAVE YET". The question it
+  asks is "does the thing they name exist on the site now?", and it closes
+  with "WHEN YOU CANNOT TELL, ANSWER addon". Its `data` clause speaks of
+  deleting a row only, and says so: "whether an added row is this layer or
+  the add-on step is the owner's open decision, and nothing here says".
+  Nothing was changed.
+- **The add-on step has nine kinds** (`table · function · api · job · page
+  · component · qr · three · photo`), and **none of them adds a row to a
+  table the site already has**:
+  - `table` creates a table, or gives an existing one a new column, payment
+    or a public view. Its `seed` is "starter rows for the new table";
+  - the seed is written by `seedSiteRows` (`site-schema.mjs`), which seeds
+    display tables only and skips any table that already has rows;
+  - `component` and `page` change page code, so a hand-written card is a
+    band on the page, not an entry in the list.
+- **The only code that inserts one row today is on the edit side**: the
+  data step (`DATA_TOOL`: "LEAVE [id] OUT to add a new row", written by
+  `runDataEdit`'s `INSERT`). The owner's rule does not route an addition
+  there, and changing that would be a routing change, so it is not
+  proposed.
+
+### Rehearsed through the real add-on route (supplied answers, scratch, not committed)
+
+`POST /api/site/<slug>/addon` with the request below, on a stand-in of the
+bakery, through the add-on route's own test fixture:
+- `loaves` is a public list that already has rows: the existence probe
+  answers one row, and every insert into it is recorded;
+- no model, container, credit or network is used.
+
+Each answer a picker could plausibly give:
+
+| the picker answers | the route's outcome | the customer reads | rows added |
+|---|---|---|---|
+| no kind | `no-add`, cost 0 | "I couldn't determine a supported addition from that message. Please clarify what you'd like to add." | 0 |
+| `table`: `loaves` with no columns, one seed row | refused (`no-columns`), cost 0 | "That table would have nothing in it — say what it should hold." | 0 |
+| `table`: `loaves` with its columns and one seed row; the page writer returns `/order` unchanged | `no-change`, cost 0 | "The builder produced no page changes for this addition. I've stopped instead of starting a full-site rewrite." | 0 |
+| the same; the page writer adds a hand-written card | **published, `ok: true`**: the stored schema re-applied as it stood, and `seedSkipped: ["loaves: already has rows"]` | **"✅ Done — updated /order. I had starter rows ready for loaves and didn't put them in — that table isn't one visitors can read, so it starts empty."** | 0 |
+| `component`: a kit part on `/order` | **published, `ok: true`** | "✅ Done — updated /order." | 0 |
+
+**So the add-on route cannot add exactly one row to an existing table.** A
+real model's answer ends in one of two ways:
+- a refusal, costing nothing for the step;
+- a false success: a hand-written card published on `/order` while `loaves`
+  is unchanged. The new loaf is then missing from the order form's choices,
+  the price order and the Data panel.
+
+### Found on the way (backlog)
+
+- **The seed-skip sentence drops its reason** (`seedSkipNote`). "loaves:
+  already has rows" is told as "that table isn't one visitors can read, so
+  it starts empty", which is wrong on both counts for `loaves`.
+- **The add-on route's fixture reads every table as empty.** Its existence
+  probe answers no rows, so with the fixture unchanged the same `table`
+  answer *inserts* the seed row (`seeded: {loaves: 1}`). A test of adding a
+  row built on it would pass where the product does not.
+
+### Testing support
+
+- **The canary cannot press it.** Its one-request path refuses unless the
+  router answers `edit` with a layer ("REFUSING TO SPEND: the router did not
+  name an edit layer"), so an `addon` answer is refused after the routing
+  call. The route box can already say `intent=addon`.
+- **The rows box can pin the table before** the press: Test 10's box still
+  reads `as named`. The after-checks would be free reads, as in Test 10.
+- The UI mode follows the app's own add-on request, but would need a new
+  named scenario.
+- `scripts/addon-sweep.mjs` posts to the add-on route directly, so it skips
+  the router.
+
+### The test, as prepared (not runnable until the gap is closed)
+
+- **Site**: `fold-lane-bakery` at `01790819484141-dgmag4`, as the owner left
+  it after Test 10.
+- **The request** (104 characters, 105 bytes, sha256 `7cc5f1ca7ec8bcc3…`):
+  *Add one loaf to today's loaves: Rye & Caraway at £5.00, described as "A
+  light rye with toasted caraway."* "Today's loaves" is the list's own label
+  on `/order` (`order.tsx` line 165).
+- **Expected route**: `intent=addon`, nothing held back (the route box
+  `intent=addon alsoAsked=none`).
+- **The baseline** (read 2026-10-01 at 02:45 UTC, free, read-only, as a
+  visitor; identical to the after-read of Test 10's run 84 at 01:57):
+  - `loaves` read whole: 200, `0-5/6`, 1,045 bytes, sha256 `ef870ebc…`, the
+    six rows of Test 10, and Test 10's rows box reads `as named`;
+  - all five pages 200 at `01790819484141-dgmag4`, with the same bytes as at
+    01:57;
+  - `/order` requests `loaves?select=*&order=price.asc` and shows Sea Salt
+    Focaccia £4.50, Country White £4.80, Dark Rye £5.20, Seeded Wholemeal
+    £5.40, Olive & Rosemary £5.80, Walnut Levain £6.00;
+  - all six redirect probes as at 01:57;
+  - full-page screenshots of the five pages.
+- **Expected result**:
+  - exactly one new row in `loaves`: `name` "Rye & Caraway", `price` 5,
+    `description` "A light rye with toasted caraway.", `photo` null, with
+    `id` 7 and `created_at` the database's own;
+  - `/order` lists seven loaves, Rye & Caraway £5.00 third, after Sea Salt
+    Focaccia £4.50 and Country White £4.80;
+  - a reply naming the loaf and the list.
+- **Unrelated content to preserve**:
+  - the six existing rows, every field (the whole-table read before and
+    after);
+  - no row written anywhere else. A visitor cannot read `orders`, so this
+    rests on the job's own record of what it wrote;
+  - the five stored pages byte-identical, and no new published version, if
+    the addition changes no page;
+  - `/`, `/gallery`, `/starter` and `/visit` pixel-identical;
+  - on `/order`, the region above the list identical, and the region below
+    it identical one card lower;
+  - headings, menus, the stored description and the redirects unchanged.
+- **Estimated cost, once runnable**: about 3–4 credits. That is routing 1–2,
+  plus about 2 for the add-on picker and one row designer (2 credits is the
+  measured price of an add-on that changes no page, `docs/addon-path.md`).
+  The balance is 3, so a top-up comes first. Pressed today, it would spend
+  the routing (1–2) and be refused by the canary.
+
+### The smallest next step (proposed, not built)
+
+1. **One add-on kind, `row`: a new entry in a list the site already stores.**
+   - Its designer is shown each existing display table with its columns, and
+     answers one entry per row they asked for, and not one more.
+   - Each entry is cleaned against the stored schema: a table the site has;
+     a display table only (never one visitors submit to, which would be a
+     made-up submission); only the columns it has, never `id` or
+     `created_at`.
+   - It is written by the same parameterized `INSERT` the data step uses,
+     shared rather than copied.
+   - It changes no page: no page call, compile or publish, because the list
+     is read live. It is billed once, like the add-ons that change no page.
+   - The reply is composed from the rows really inserted.
+   - Tests: through the real add-on route with supplied answers, on a
+     stand-in where `loaves` already has rows (the case above), and the
+     refusals (a table the site lacks, a table visitors submit to, an
+     unknown column).
+2. **The canary carries an add-on press**: with the route box
+   `intent=addon`, an `addon` answer is posted to the add-on route as the
+   browser posts it, instead of being refused.
+3. Then the live test above, after a merge, a deploy, a free runtime check
+   and a top-up.
+
+No routing policy changes in any of it.
+
+## Test 10 — a stored list re-sorted, with real models (prepared 2026-09-30 on the owner's word, after Test 9 was closed; free preparation only; the order traced on all three demo sites; rehearsed with supplied answers through the real lane and the real edit route; decision 2b taken by the owner the same day with a scope correction: a sort across the whole site goes to the data sorter, a sort limited to one named page to the page editor, and no "whatever page they saw it" rule; the rule implemented on the branch with committed route coverage, and its scope corrected on 2026-10-01 so that a selection of pages is never sent to the sorter; passed by the owner and merged and deployed in deploy 2174 (2026-10-01); the request revised to state its scope; the baseline read; the authorized free dispatch refused (403); the owner's free press, run 83, confirmed the runtime and rehearsed Test 10, passing every check; the paid press run as run 84, 3 credits, every acceptance item met; closed by the owner the same day for run 84's demonstrated request, the bakery left at `dgmag4`, not to be repeated)
 
 **The owner**: *"Next, prepare one list-reordering acceptance on an existing
 demo site. First trace what controls its order: a stored ordering field, a
@@ -1713,7 +1870,7 @@ and estimate.
   committed two-page cases); a one-page sort through the page editor; a
   page-code arrangement; a hand-picked sequence; other sites; how often.
 
-### Run 84, the paid press (2026-10-01): every acceptance item met, for the owner's review
+### Run 84, the paid press (2026-10-01): every acceptance item met; closed by the owner
 
 Edit canary run 84 (36802989624, 01:50–01:53 UTC, from `main` at
 `322c2430`, the boxes as handed over, spend `yes`), pressed on the owner's
@@ -1761,13 +1918,23 @@ approval. The preflight, the free checks, the before-read and the fixture
     a query or a trailing slash 200; an unknown page 404).
 - **Money**: balance 6 → 3 on the canary's own reads before and after the
   paid edit: routing 2 and the job 1, within the estimate.
-- **Not read**: the job row's billing state and its ledger rows, and
-  whether any job is left open. The Supabase connector dropped out of this
-  session. A free press with "READ ONE EXISTING JOB AND STOP: …" set to
-  `7bf9cbcbad73bf4d86c2d379154604d3` reads the job's row and its ledger
-  rows.
+- **The job and the ledger**, which this session could not read (its
+  Supabase connector had dropped out), **verified independently in Supabase
+  by the owner's reviewer**: job `7bf9cbcbad73bf4d86c2d379154604d3` done,
+  billing finalized, cost 1, `needs_review` false; ledger row 349, one
+  reservation of −1, and no further ledger entry for the job; balance 3, no
+  job open. With the routing call's 2, the run spent 3.
 - **An observation (backlog)**: the job's row read `routing` through the
   sort, compile and check, and `publishing` only at the end.
+
+### Closed (2026-10-01)
+
+The owner: *"Test 10 passes review for run 84's demonstrated request. Mark it
+closed and leave the bakery at version dgmag4. Keep selected-page real-model
+behavior marked unproven; don't repeat accepted tests."* Closed for exactly
+that request: a sort across the whole site, routed `data` by the real router
+and made by the data step's sort lane. A one-page sort and a selection of
+pages stay shown with supplied answers only. Not to be repeated.
 
 ## Test 9 — a follow-up after a failure, in the same chat tab (prepared 2026-09-30 on the owner's word, after runs 79 and 80 were closed; built on the branch as the canary's UI scenario `9-follow-up`, red-checked, swept, tested through the stand-in, and proven locally against the real app's code with supplied answers, which found and fixed a first-run modal that would have blocked the card at the current balance; the free rehearsal passed as run 81 the same evening; the owner pressed the paid run as run 82 the same evening, and every pass item was met, for 4 credits; closed by the owner the same day for the demonstrated no-match failure followed by a successful edit in the same tab, the filled-in checks accepted, the demo data kept, not to be repeated)
 

@@ -81,6 +81,17 @@ here; take a closed one out of both.**
 - A data-step job's row reads `routing` until it publishes (run 84: from
   18 s to 112 s, while it sorted, compiled and checked). Found 2026-10-01,
   observed once, not changed.
+- **The add-on step cannot add a row to a table the site already has**: no
+  kind inserts one, and a table's seed fills only an empty table. Test 11
+  waits on it. Found 2026-10-01 (supplied answers), not changed.
+- The seed-skip sentence drops its reason: "loaves: already has rows" is
+  told as "isn't one visitors can read, so it starts empty". Found
+  2026-10-01 (supplied answers), not changed.
+- The add-on route's test fixture reads every table as empty (its existence
+  probe answers no rows), so a seed into an existing table looks inserted.
+  Found 2026-10-01, not changed.
+- The edit canary cannot press an add-on: it refuses unless the router
+  answers `edit` with a layer. Found 2026-10-01 (read), not changed.
 - ~~No route test drives a successful sort to its publish~~: covered
   (`test/edit-list-sort.test.mjs`, both paths, 2026-09-30).
 - A natural message cannot hand the picture step a new photograph without
@@ -216,6 +227,38 @@ here; take a closed one out of both.**
 
 ## Backlog
 
+- **THE ADD-ON STEP CANNOT ADD A ROW TO A TABLE THE SITE ALREADY HAS (found
+  2026-10-01 preparing Test 11; not changed).**
+  - Under the owner's rule an addition reaches the add-on step, whose nine
+    kinds are `table · function · api · job · page · component · qr · three
+    · photo`. `table` creates a table, or gives an existing one a column,
+    payment or a public view. Its seed is written by `seedSiteRows`, which
+    skips any table that already has rows.
+  - Rehearsed through the real add-on route with supplied answers, on a
+    stand-in where `loaves` has rows: every plausible answer is refused, or
+    publishes a hand-written card on `/order` as "✅ Done" while the list is
+    unchanged.
+  - The one row insert in the product is the edit side's data step, which
+    the rule does not route an addition to.
+  - Proposed: one add-on kind for a new entry in an existing list, writing
+    with the data step's own insert, with no page call and no publish.
+    *Test 11* in the checklist.
+- **THE SEED-SKIP SENTENCE DROPS ITS REASON (found 2026-10-01; not
+  changed).** `seedSkipNote` (`builder/site-add.mjs`) keeps the table name
+  before the colon and says "that table isn't one visitors can read, so it
+  starts empty" for every skip. `seedSiteRows` also skips for "already has
+  rows", "no writable columns" and database errors. For `loaves` (public,
+  six rows) the sentence is wrong on both counts.
+- **THE ADD-ON ROUTE'S FIXTURE READS EVERY TABLE AS EMPTY (found 2026-10-01;
+  not changed).** `test/fixtures/addon-route.mjs` answers the existence probe
+  `SELECT 1 AS x FROM "<table>" LIMIT 1` with no rows. So a seed for an
+  existing table is inserted (`seeded: {loaves: 1}`), where the live
+  product skips it. A test of adding rows must model a table that has them.
+- **THE EDIT CANARY CANNOT PRESS AN ADD-ON (found 2026-10-01; not
+  changed).** Its one-request path refuses unless the router answers `edit`
+  with a layer, after the routing call. The route box can already say
+  `intent=addon`. Proposed beside the add-on row kind: post an `addon`
+  answer to the add-on route as the browser does.
 - **A DATA-STEP JOB'S ROW READS `routing` UNTIL IT PUBLISHES (found
   2026-10-01 in Test 10's run 84; not changed).** The canary's poll printed
   `routing` from 18 s to 112 s and `publishing` at 126 s, while the sort
