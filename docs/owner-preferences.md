@@ -658,3 +658,23 @@
   container build."* So the batch is pushed with the handoff, nothing is
   merged, deployed or spent before your review, and the image a merge would
   roll is predicted, not built.
+- **The model names the targets; code only checks them** (2026-10-02,
+  reviewing batch 1): *"Let the model identify the targets and have code
+  validate them, without customer-word heuristics."* So when a step must know
+  which entries the customer meant (a language, a QR code, a control), the
+  model answers their names from the list it is shown, and code compares
+  those names with the stored list: a name on it acts, a name not on it acts
+  on nothing and is said. Nothing in code reads the customer's words to
+  decide which.
+- **How many there are never says which one was meant** (the same review):
+  *"list length does not establish which item the customer meant, so a
+  request for an absent language or code must preserve the existing
+  item."* So a list of one is asked about like any other, and a request
+  naming something the site does not have changes nothing, even when the
+  site has exactly one such thing.
+- **A review's gaps are fixed together before the merge** (the same
+  review): *"Hold the merge and fix these batch-1 gaps together … Add
+  focused regressions for these cases and preserved neighbors."* So a batch
+  you send back stays unmerged until each gap you name is reproduced, fixed,
+  checked against your exact case and the neighbours it must leave alone,
+  and pushed for your review again.

@@ -950,15 +950,26 @@ export function menuApply(items, change) {
     }
     out.push(item);
   };
-  for (const href of c.moved) {
-    const at = out.findIndex((x) => x.href === href);
-    if (at < 0) continue;
-    const [item] = out.splice(at, 1);
-    place(item);
-  }
-  for (const it of c.added) {
-    if (out.some((x) => x.href === it.href)) continue;
-    place({ ...it });
+  // EVERY MOVED ITEM COMES OUT FIRST, and the moved and the added go back in
+  // the answer's order (owner's review, 2026-10-02: "Order, Status, Home,
+  // Menu, Visit" from "Home, Menu, Visit, Order, Status" came back as "nothing
+  // to change", and 9 of the 120 orders of five items came out wrong). Placed
+  // one at a time with the rest still standing, a moved item anchored on a
+  // later moved item where that one used to be, and was carried back with it.
+  // With them all out, an item is placed beside an item already where the
+  // answer wants it, and an item the answer puts earlier is always placed
+  // first.
+  const moving = new Set(c.moved);
+  const lifted = new Map();
+  out = out.filter((it) => {
+    if (!moving.has(it.href)) return true;
+    lifted.set(it.href, it);
+    return false;
+  });
+  const adding = new Map(c.added.map((it) => [it.href, it]));
+  for (const href of order) {
+    if (lifted.has(href)) place(lifted.get(href));
+    else if (adding.has(href) && !out.some((x) => x.href === href)) place({ ...adding.get(href) });
   }
   return out;
 }

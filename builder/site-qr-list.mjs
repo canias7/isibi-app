@@ -147,10 +147,10 @@ export function qrList(v) {
  *
  * Answers `{ ok, list, moved, name }` or `{ ok: false, why, names }`, and `why`
  * is one of `no-codes`, `which-code`, `no-such-code`, `bad-destination` — each
- * with a sentence in `qrRefusal`. With `{ remove: true }` the named code comes
- * off the list instead, and the answer carries `removed: [name]`.
+ * with a sentence in `qrRefusal`. A REMOVAL IS NOT A PATCH: it names every code
+ * that goes and is read by the `qr` lane's `takeOff` (`site-lanes.mjs`).
  */
-export function patchQr(stored, patch, opts = {}) {
+export function patchQr(stored, patch) {
   const list = qrList(stored);
   const names = list.map((c) => c.name);
   if (!list.length) return { ok: false, why: "no-codes", names };
@@ -167,20 +167,20 @@ export function patchQr(stored, patch, opts = {}) {
     return { ok: false, why: "which-code", names };
   }
   const cur = list[i];
-  // A REMOVAL TAKES THAT ONE CODE OFF AND KEEPS EVERY OTHER (2026-10-02, the
-  // whole-router audit's W2). The removal itself is the picker's decision —
-  // the route passes `remove: true` only for a field the picker named as one —
-  // and the patch says only WHICH code, found exactly as a change finds it:
-  // by name, or the only one. What it would have re-pointed or reworded is
-  // not read.
-  if (opts && opts.remove === true) {
-    return { ok: true, list: list.filter((_, j) => j !== i), moved: true, name: cur.name, removed: [cur.name] };
-  }
   const points = typeof p.points === "string" && p.points.trim() ? p.points.trim() : cur.points;
   const label = typeof p.label === "string" && p.label.trim() ? p.label.trim().slice(0, 80) : cur.label;
   if (points !== cur.points && !readQrText(points).text) return { ok: false, why: "bad-destination", names, said: cur.name };
   if (points === cur.points && label === cur.label) return { ok: true, list, moved: false, name: cur.name };
   return { ok: true, list: list.map((c, j) => (j === i ? { name: c.name, points, label } : c)), moved: true, name: cur.name };
+}
+
+const codeNames = (said) => (Array.isArray(said) ? said : [said]).filter((n) => typeof n === "string" && n).map((n) => n.slice(0, 40));
+const codeCount = (said) => codeNames(said).length;
+function codesSaid(said) {
+  const n = codeNames(said);
+  if (!n.length) return "that code";
+  if (n.length === 1) return "the `" + n[0] + "` code";
+  return "the " + n.slice(0, -1).map((x) => "`" + x + "`").join(", ") + " and `" + n.at(-1) + "` codes";
 }
 
 /** What the customer is told when a patch could not be applied, by its token. */
@@ -192,11 +192,14 @@ export function qrRefusal(why, names, said) {
     case "which-code": return "This site has " + have.length + " QR codes (" + listed + ") — say which one you mean.";
     case "no-such-code": return "This site has no QR code called " + (said ? "`" + String(said).slice(0, 40) + "`" : "that") + " — its codes are: " + listed + ".";
     case "bad-destination": return "A QR code can carry a link, a phone number, an email address, a wifi network or plain text — not that. Nothing was changed.";
-    // THE CODE'S FIGURE COULD NOT COME OFF WITH IT (2026-10-02, W2): the
-    // code stays on the list and on the page, rather than leaving a page that
-    // reads a code which is no longer there. `said` is the code's name.
-    case "figure-part": return "I couldn't take " + (said ? "the `" + String(said).slice(0, 40) + "` code" : "that code") + " off the page that shows it without changing more than the code itself, so nothing was changed.";
-    case "figure-unchecked": return "I couldn't check where " + (said ? "the `" + String(said).slice(0, 40) + "` code" : "that code") + " is shown on your pages, so nothing was changed — try again in a moment.";
+    // THE CODES' FIGURES COULD NOT COME OFF WITH THEM (2026-10-02, W2): the
+    // codes stay on the list and on the page, rather than leaving a page that
+    // reads a code which is no longer there. `said` names the codes being
+    // taken off — one name, or every one when there are several. ONLY WHAT
+    // THIS STEP FOUND: the reply is `unchanged` and the browser says that, and
+    // what it cost, itself — said here as well, it was said twice.
+    case "figure-part": return "I couldn't take " + codesSaid(said) + " off the pages that show " + (codeCount(said) > 1 ? "them" : "it") + " without changing more than " + (codeCount(said) > 1 ? "the codes themselves" : "the code itself") + ".";
+    case "figure-unchecked": return "I couldn't check where " + codesSaid(said) + " " + (codeCount(said) > 1 ? "are" : "is") + " shown on your pages — try again in a moment.";
     default: return "I couldn't change that QR code — say which code and what should be different about it.";
   }
 }

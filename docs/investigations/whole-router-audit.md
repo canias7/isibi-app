@@ -46,7 +46,12 @@ and no container was built. Line numbers in the findings are still those of
   route-level tests, red checks on the unfixed code and mutation sweeps
   (§4); not merged, not deployed, and no live check has run (Group D's
   D1–D4 wait for your merge and deploy). W5–W26 stand, each classed in
-  §3.0, and stay tracked for the following batches.
+  §3.0, and stay tracked for the following batches. **The three gaps your
+  review found are fixed on the branch too** (§4.2): menu moves of several
+  items (W4), removals that name their entries, checked by code, with no
+  one-entry shortcut (W2, N1 resolved), and the last "opposite" sentence in
+  the page writer's prompts (W3); three findings from that work are
+  recorded apart (N11–N13).
 - **Who decides.** One model call (the router) decides every message on a
   live site, and smaller model calls then decide inside each step. Code
   around them mostly validates, checks permission or money, or sends work to
@@ -355,9 +360,9 @@ Three classes, so a confirmed defect is never read as a risk or a guess:
 | # | Class | What is confirmed | What still rests on a model or a condition | Status |
 |---|---|---|---|---|
 | W1 | Confirmed code defect | a hand-over carried `remove`; the page step deleted with no model call (free check) | how often the photo step answers `needs-place` for a removal (U7) | **fixed on the branch** |
-| W2 | Confirmed code defect | one removal emptied the whole list (free check; `fretwork-1` has two of each) | — | **fixed on the branch** |
-| W3 | Confirmed code defect | two opposite rules in one request; the publish kept only returned pages | how often a writer leaves pages out (U6) — harmless after the fix | **fixed on the branch** |
-| W4 | Confirmed code defect | one menu written everywhere (free check on run 92's pages) | — | **fixed on the branch** |
+| W2 | Confirmed code defect | one removal emptied the whole list (free check; `fretwork-1` has two of each) | what a real model names as the entries to take off (Group D) | **fixed on the branch**; your review's gaps fixed too (§3.1, §4.2) |
+| W3 | Confirmed code defect | two opposite rules in one request; the publish kept only returned pages | how often a writer leaves pages out (U6) — harmless after the fix | **fixed on the branch**; the last "opposite" sentence removed after your review (§3.1, §4.2) |
+| W4 | Confirmed code defect | one menu written everywhere (free check on run 92's pages) | — | **fixed on the branch**; multi-item moves fixed after your review (§3.3, §4.2) |
 | W5 | Confirmed code defect | a converted answer swaps the halves (free check) | the trigger: a router answer naming a page the browser didn't send | open |
 | W6 | Conditional risk | six pages sent after a reload (code) | a site of seven or more pages; no live site has more than five | open |
 | W7 | Confirmed code defect | the held-back part is named on success only (code) | — | open |
@@ -385,7 +390,7 @@ Three classes, so a confirmed defect is never read as a risk or a guess:
 
 | # | Class | What | Where it stands |
 |---|---|---|---|
-| N1 | Conditional risk | a removal the picker marks on a list holding **one** entry still empties it for nothing, even when the customer named an entry the site doesn't have (W2's free path asks no lane) | kept as before in this batch, for your review: asking the lane would add a model call to every such removal |
+| N1 | Conditional risk | a removal the picker marks on a list holding **one** entry still empties it for nothing, even when the customer named an entry the site doesn't have (W2's free path asks no lane) | **resolved after your review** (2026-10-02): no shortcut; every removal on a list asks the model which entries it names, and code checks each name against the list (§3.1 W2). The cost: one small call where a one-entry removal was free |
 | N2 | Conditional risk | with no TypeScript parser (an edit run inline in the Worker), a QR removal whose code a page shows is refused (`figure-unchecked`), never guessed | recorded; the container has the parser, as the photo removal already needs |
 | N3 | Limit (by design) | a figure whose caption is the page's own words keeps the caption: only the code's own element comes off | recorded |
 | N4 | Conditional risk | the footer's two lists (`social`, small print) on an ordinary edit still write one list into every page (`applyChromeList`), W4's shape one place over | tracked; per-page footer lists not measured on the live sites |
@@ -395,6 +400,9 @@ Three classes, so a confirmed defect is never read as a risk or a guess:
 | N8 | Conditional risk | a translation that fails publishes the language behind (new words in the site's own language); traced, not said | tracked |
 | N9 | Conditional risk | the edit route's synchronous path keeps a refusal's model charge; the queued path, the one in use, refunds it | recorded |
 | N10 | Untested model behaviour | after W3, a rewrite's writer could name in `remove` a page nobody asked to delete; the home page and linked pages are refused, an unlinked page so named goes | tracked; Group R/D can measure it on a rewrite |
+| N11 | Conditional risk (pre-existing) | a QR **edit** (a new destination or caption, not a removal) on a site with one code changes that code when the answer names none (`patchQr`'s one-code rule): the list's length again standing in for which code was meant, the edit's counterpart of N1 | tracked (found during the review's gap fixes); not changed in this batch |
+| N12 | Confirmed instruction, untested effect | the long-site rewrite (pages over 90,000 characters in all) is shown no page source and told to "write them again in full"; since batch 1 a page not returned is kept, so a page written from its name alone would replace the real one | tracked (found while checking W3's prompts); what a long-site rewrite returns is your call — the add-on's way is to show what fits and name the rest |
+| N13 | Confirmed code defect (pre-existing) | the look reply names a list field by its key ("✅ Updated the look — langs.", "— qr.", "— behavior.") and never reads `qrRemoved` or `qrPages`, so which codes came off, and from which pages, is not said | tracked (seen in the gap fixes' screenshots); a word map and a reply change |
 
 **Tracked for the following batches** (a proposed grouping, your call):
 lost and deferred parts W5, W7, W8, W15, W24; context and files W6, W12,
@@ -481,6 +489,38 @@ half); its reach is untested.*
   reading a binding the publish no longer writes. A one-entry list is still
   emptied for nothing, as before (N1). *Not covered*: what a real lane names;
   N2 and N3.
+- **Your review of batch 1, and the gap fixes (2026-10-02, not deployed)**:
+  *"Remove the one-entry shortcut too: list length does not establish which
+  item the customer meant, so a request for an absent language or code must
+  preserve the existing item. Let the model identify the targets and have
+  code validate them."* Reproduced on `d4e3f1c7` through the real route:
+  German asked off a site offered only in French took French off with no
+  model call; "both codes" left the ringing code (the patch could name one
+  code); the wifi code asked off a site whose one code is for prices took the
+  prices code and its figure off. **Now every removal on a list is one small
+  call** (`take_off`, in `site-lanes.mjs`): the model is shown each entry by
+  the name to answer with (a language by its tag, a code by its name with its
+  caption and destination, a control by its number) and answers the names of
+  the entries the customer asked to take off — one, several, every one, or
+  none. Code checks each name against the stored list by the lane's own rule
+  (`takeOffTargets`: a tag whatever its case, a code by the one code-name
+  rule, a control by its number). A name on the list comes off; a name not on
+  it takes nothing off and is said beside what did (`takeOffNote`, shown
+  after the look sentence); every entry not named stays as stored. A removal
+  that names nothing on the list changes nothing and says what the site has
+  (422, nothing charged for the edit); an unreadable answer is refused as
+  such; a failed call is the editor-busy reply. Every entry named empties the
+  field (for codes through the merge's `clear`, every figure off with them);
+  several codes' figures come off together, and the figure refusals name
+  every code. Two removals in one message each get only their own words. The
+  refusal sentences say only what the step found: the browser adds "Nothing
+  on your site changed" and the money, as it does for every `unchanged`
+  reply (saying it in the sentence too printed it twice; batch 1's figure
+  refusals did that as well, and are corrected). **Nothing reads the
+  customer's words but the model**: the same words with a different answer
+  take a different entry off (a control). Cost: a one-entry removal that was
+  free now makes one small call, on the bill by its own usage. *Not
+  covered*: what a real model names (Group D); N11, N13.
 
 **W3. The full rewrite is told opposite things about pages it leaves out,
 and the code deletes them.** *Confirmed (code); how often a writer leaves
@@ -522,6 +562,15 @@ pages out is untested.*
   the real `/api/site/react-revise` route. *Not covered*: how often a writer
   returns a subset (U6, harmless now), and a writer naming a page in
   `remove` unasked (N10).
+- **Your review of batch 1 (2026-10-02, not deployed)**: the add-on block
+  still said an unreturned page being kept was *"the opposite of what it
+  means on an ordinary rewrite"* — false once the rewrite keeps them too.
+  Removed. Every prompt the page writer can be given — the rewrite, the
+  long-site rewrite, the add-on with every page shown or some withheld, the
+  one-page edit, and the tool's own `remove` field — is held by one test to
+  one contract: a page not returned is kept, `remove` is the only delete,
+  nothing calls that the opposite of anything, and no block says a page not
+  returned goes. *Found while checking, kept separate*: N12.
 
 **W9 (removal wording) is in §3.8. W20 (removing custom styling) is in §3.9.**
 
@@ -635,6 +684,24 @@ check on run 92's stored pages).*
   the real edit route on both money paths, on a site whose four menus all
   differ. *Not covered*: the footer's two lists still write one list (N4);
   N5.
+- **Your review of batch 1, and the fix (2026-10-02, not deployed)**:
+  *"through runNavEdit, start with Home, Menu, Visit, Order, Status and
+  supply the correct model answer Order, Status, Home, Menu, Visit — the
+  current code returns no-change … nine of the 120 permutations of five
+  items failed my comparison"*. Reproduced: 9 of the 120 orders of a
+  five-item menu came out wrong through `runNavEdit`, yours as "nothing to
+  change". The cause: moved items were placed one at a time with the others
+  still standing in their old places, so an item anchored on a later moved
+  item where that one used to be, and went back with it. Now every moved
+  item is lifted out first, and the moved and the added go back in the
+  answer's order, each after the nearest item the answer put before it that
+  the page has (else before the nearest one after it). All 120 orders through
+  `runNavEdit` end as the answer (119 changed, the restatement unchanged); a
+  property test over the 120 orders on four menus that differ holds each
+  page's items and words, keeps what the answer did not move in the page's
+  own order, and places each moved item after its nearest earlier neighbour;
+  through the real route, two items moved together on four differing menus
+  keep each page's words and the rest of its order.
 
 **W6. Pages the browser didn't keep are unknown to the router.** *Confirmed
 (code); corrects R8.*
@@ -996,7 +1063,7 @@ with supplied inputs: no model, no network, no site, no money.
 | Check | What it drives | Result |
 |---|---|---|
 | W1 | the browser's `editAnswer` and `EditPoll` (cut from `chat.js` as `scripts/addon-sweep.mjs` cuts them) with a `needs-place` escalation | on `f9979497`: a routed photo removal re-posted `{"layer":"page","page":"/about","remove":true}`; on the branch since batch 1 it posts `{"layer":"page","page":"/about"}`, like the control |
-| W2, W20 | `mergeLook` as the look door called it for a removal; since batch 1 also `removalNote` and `patchQr`, as the route now calls them | on `f9979497`: languages `["fr","es"]` → `[]`; two QR codes → none. On the branch: the lane is asked, `["fr"]` kept; the prices code comes off by name, the other stays; one language stored is still emptied for nothing (N1); `css` not cleared (W20, open) |
+| W2, W20 | `mergeLook` as the look door called it for a removal; since the review's gap fixes `takeOffTargets` and `takeOffRefusal`, as the route now calls them, with the model's answer supplied | on `f9979497`: languages `["fr","es"]` → `[]`; two QR codes → none. On the branch: answering `["es"]` keeps `["fr"]`; German asked off a French-only site takes nothing off and says so; `["prices"]` keeps the ringing code, both names empty the list, and the wifi code asked off a prices-only site takes nothing off; `css` not cleared (W20, open) |
 | W4 | on `f9979497`, `applyNav` with an edited list; since batch 1, `runNavEdit` (what the edit route calls) with the editor's answer supplied, on two pages whose menus differ | on `f9979497`: the shorter menu gained every item of the longer one (on run 92's stored bakery pages, one rename added Gallery to `/order` and `/visit`). On the branch: the rename reaches both menus and the shorter keeps its two items; taking Workshop Load out rewrites only the page that listed it |
 | W5 | `readRouting` and `heldBack` with a supplied router answer | with `/events` missing from the list: `addon`, `page-unknown`, and the add-on runs the removal and holds back the addition |
 | W9 | `preservePageProse` (with its real parser) on one page change, eight wordings | 3 published, 5 withheld |
@@ -1067,6 +1134,51 @@ database). The new batch file was read with the press's own reader
 (`readProbeBatch`: 20 probes, valid), compared with the two completed
 batches (no message repeated) and with the router's full request text (no
 run of five words shared).
+
+### 4.2 The review's gap fixes (W2, W3, W4, 2026-10-02)
+
+Your review of batch 1 found three gaps; each was reproduced on `d4e3f1c7`
+first, through the real code, and the tests below drive the real code with
+every model answer supplied (no model, no network, no site, no money). The
+red checks ran in a worktree at `d4e3f1c7` with this round's test files
+copied in.
+
+| File | Cases | Red on `d4e3f1c7` | What it holds |
+|---|---|---|---|
+| `test/menu-per-page.test.mjs` | 32 (10 new) | 5 fail | your case through `runNavEdit` (Home, Menu, Visit us, Order, Status answered Order, Status, Home, Menu, Visit us); all 120 orders of five items through `runNavEdit` (119 changed, the restatement unchanged); every order over four menus that differ (items and words kept, unmoved items in the page's order, each moved item after its nearest earlier neighbour); `menuApply` never lists an address twice; through the real route on both money paths: Order and Status first, Order then Visit us first (the case red on the old code) and the whole menu reversed, each page keeping its own words |
+| `test/partial-removal.test.mjs` | 34 (rewritten to the new contract) | 33 fail; the failed-call control passes | through the real route, sync and queued: one language of two; your two absent-entry cases (German on a French-only site, the wifi code on a prices-only site) take nothing off, with the call made and the list shown; an empty answer; the only language named comes off (asked, not assumed); one code of two, two of three and every code, each with its figures; a guarded figure and an unreadable answer refused; the same words with a different answer (the control); several of three languages; every language; a name present and one absent (the note, on the customer's screen too); a failed call; an empty list asks no one; two removals in one message each told only their own words; a control by number; a figure in a component, or shown twice; an unreadable component store; a code no page shows. Every case checks what the removal was shown, the stored look field by field, pages and components byte for byte, the reply and the money, with the removal call on the bill by its own usage |
+| `test/take-off.test.mjs` | 7 (new) | the file cannot load (the functions do not exist there) | which lanes take entries off by name; the tool answers a list of names only, forced; what the model is shown and the system rules; an answer read as names only, never coerced; each lane's matching rule and what stays; one call, an empty list asking no one, failed, cut-off and unreadable answers; the three refusal sentences and the note |
+| `test/page-gen.test.mjs` | +1 | 1 fails | every prompt the page writer can be given holds one contract (see W3) |
+| `test/site-qr-list.test.mjs` | +1, one pin re-anchored | 2 fail | the figure refusals name every code coming off in words that agree with how many; the qr fold is handed a patch only, after the removal |
+| `test/site-addon.test.mjs` | one pin re-anchored | 1 fails | the add-on block's removal paragraph without "here" or "opposite" |
+
+**Mutation sweeps** (from a verified-green baseline, each with two
+comment-only controls that survived):
+- **W4**: 10 mutants over the new `menuApply`, 9 killed. One survivor, a
+  missing-guard mutant (an addition placed where the page already lists it),
+  is unreachable through `runNavEdit` (the change is read against the union
+  of the very menus it is applied to); a direct `menuApply` case now pins it.
+  The other, putting the moved items back in reverse answer order, is
+  equivalent: 494,721 page applications (161,179 with moves; differing
+  menus, renames, removals and additions) gave identical menus, which fits
+  the reason: with every moved item lifted out, each one is placed beside
+  its nearest unmoved neighbour, so either order ends the same.
+- **W2**: 35 mutants, 35 killed, over the take-off module, the route's
+  branch, the merge, the bill, the reply, the browser's note and the figure
+  refusals' words. One survivor of the first run (the removal call left off
+  the bill) was closed by checking the bill for the call's own usage.
+- **W3**: 8 mutants, 8 killed. One survivor of the first run (the withheld
+  pages said to go when not returned, beside a block that still says
+  "kept") was closed by checking that no block says a page not returned
+  goes.
+
+**Full unit suite** on the final tree: `8766 / 8766 / 0 / 0` locally (8741
+before this round, plus 25 new cases).
+
+**Screenshots** (the chat's own markup and stylesheet, the real route's
+replies on the old and the new code): `docs/edits/router-batch-1-gaps-*.png`
+— the absent language, the absent code, the note beside a removal, and two
+menu items moved together.
 
 ## 5. The validation matrix
 

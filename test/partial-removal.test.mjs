@@ -1,10 +1,10 @@
-// ONE ENTRY OF A LIST TAKEN OFF KEEPS THE OTHERS (2026-10-02, the whole-router
-// audit's W2).
+// ONE ENTRY OF A LIST TAKEN OFF KEEPS THE OTHERS — AND ONLY WHAT THE MODEL
+// NAMED, CHECKED BY CODE, COMES OFF (2026-10-02, the whole-router audit's W2,
+// and the owner's review of batch 1).
 //
 // A removal on the look door made no lane call: the field was emptied by name
 // (`mergeLook`'s `clear`). Right for a value that is one thing; wrong for a
-// list. REPRODUCED FIRST on 5ce037a0 through the real route, with the picker's
-// answer supplied (`removes: [field]`):
+// list. REPRODUCED FIRST on 5ce037a0 through the real route:
 //
 //   "We've stopped teaching in Spanish, so take the Spanish version of the site
 //    down."                                   langs ["fr", "es"] → []
@@ -13,19 +13,34 @@
 //                                             home page still read both codes'
 //                                             bindings, which no longer existed
 //
-// THE FIX: when the stored list holds more than one entry, the field's own lane
-// answers the removal (`removalNote`): `langs` and `behavior` answer the list
-// with the named entry gone, `qr` names the code that goes (`patchQr` with
-// `remove`). Every code that comes off — one of several or the only one — takes
-// its figure off the pages and components that show it (`codeFigureRemoval`),
-// or nothing changes. A field holding one entry is still emptied for nothing.
+// BATCH 1 (22b0f93b) asked the field's lane only when the list held more than
+// one entry, and the qr lane answered ONE name. The owner's review: *"list
+// length does not establish which item the customer meant, so a request for an
+// absent language or code must preserve the existing item"*, and a single-name
+// patch cannot take several codes off, or every one. REPRODUCED on d4e3f1c7:
+// German asked off a site offered only in French → French gone, no call;
+// "both codes" → the ringing code stayed; the wifi code asked off a site whose
+// one code is for prices → the prices code and its figure gone.
 //
-// WHAT EVERY CASE ASSERTS, through the real `POST /api/site/<slug>/edit`, both
-// money paths, every model answer SUPPLIED: the model calls made, what the
-// lane was told, the stored look field by field, the pages and components in
-// the compiler payload and the store byte by byte, and what was charged.
+// THE CONTRACT NOW: every removal on a list is one small call (`take_off`).
+// The model is shown each entry by its name and answers the names of the
+// entries the customer asked to take off — one, several, every one, or none.
+// The route checks each name against the stored list (`takeOffTargets`): a
+// name on the list comes off, a name not on it takes nothing off and is said,
+// and every entry not named stays exactly as stored. A removal that names
+// nothing on the list changes nothing (422, nothing charged for the edit).
+// Every code that comes off takes its figure off the pages and components that
+// show it (`codeFigureRemoval`), or nothing changes. NOTHING READS THE
+// CUSTOMER'S WORDS BUT THE MODEL: the same words with a different answer take a
+// different entry off (the control below).
 //
-// ⚠ NOT CLAIMED: that a real lane names the right entry. The lane's answer is
+// WHAT EVERY CASE ASSERTS, through the real `POST /api/site/<slug>/edit`, the
+// sync and queued paths, every model answer SUPPLIED: the model calls made,
+// what the removal was shown, the stored look field by field, the pages and
+// components in the compiler payload and the store byte by byte, the reply,
+// and what was charged.
+//
+// ⚠ NOT CLAIMED: that a real model names the right entries. The answer is
 // supplied; what is shown is what the route does with it.
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -35,6 +50,7 @@ import { installCompiler, dispatchEnv, isDispatchUpload, dispatchOk } from "./fi
 import { CONFIG_KEY } from "../site-config.mjs";
 import { packEditJob, EDIT_JOB_PREFIX, EDIT_JOB_KIND } from "../builder/edit-job.mjs";
 import { pickTool } from "../builder/site-lanes.mjs";
+import { editBrowserReply } from "../scripts/addon-sweep.mjs";
 
 const PICK = pickTool().name;
 const USER = { id: "u-partial-1", email: "owner@example.com" };
@@ -72,17 +88,23 @@ function bucket(slug, { look = LOOK, pages, parts = [PART] } = {}) {
 }
 
 const hex = (n) => randomBytes(n).toString("hex");
+const OFF_USAGE = { input_tokens: 777, output_tokens: 33 };
 const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { "content-type": "application/json" } });
 
-/** One message through the real route; `pick` is the picker's answer, `lane` the lane's (or null: none supplied). */
-async function drive({ mode = "sync", ask, pick, lane = null, setup = {} }) {
+/**
+ * One message through the real route. `pick` is the picker's answer, `lane` an
+ * edit lane's, `off` the removal's: a list of names (`{ targets }`), any other
+ * value the tool's raw input, a function of the request answering either, or
+ * null — no answer, so the call fails.
+ */
+async function drive({ mode = "sync", ask, pick, lane = null, off = null, setup = {} }) {
   const slug = "partial-" + mode + "-" + hex(4);
   const b = bucket(slug, setup);
   const id = hex(16), secret = hex(16);
   const url = "https://gofarther.dev/api/site/" + slug + "/edit";
   const body = JSON.stringify({ layer: "look", page: "", remove: false, rename: "", tab: false, instruction: ask, picker: "sonnet", idem: "idem" + hex(10) });
   if (mode === "job") b.store.set(EDIT_JOB_PREFIX + id, JSON.stringify(packEditJob({ url, body, uid: USER.id, slug, secret, at: Date.now() })));
-  const seen = { calls: [], laneSaw: [], rpc: [], debits: [] };
+  const seen = { calls: [], laneSaw: [], offReq: [], rpc: [], debits: [] };
   let reserved = 0;
   const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
@@ -115,6 +137,13 @@ async function drive({ mode = "sync", ask, pick, lane = null, setup = {} }) {
       seen.calls.push(tool);
       const usage = { input_tokens: 500, output_tokens: 60 };
       if (tool === PICK) return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: pick }], usage });
+      if (tool === "take_off") {
+        seen.offReq.push(args);
+        if (off === null) return new Response("no stub for tool take_off", { status: 503 });
+        const said = typeof off === "function" ? off(args) : off;
+        // ITS OWN USAGE, so the bill can be read for this call by name.
+        return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: Array.isArray(said) ? { targets: said } : said }], usage: OFF_USAGE });
+      }
       if (tool === "edit_site" && lane) {
         seen.laneSaw.push(String((args.messages && args.messages[0] && args.messages[0].content) || ""));
         return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: lane }], usage });
@@ -150,7 +179,7 @@ async function drive({ mode = "sync", ask, pick, lane = null, setup = {} }) {
     const pick1 = (fs, name) => { const k = Object.keys(fs).find((p) => p.endsWith("/" + name) || p === name); return k ? fs[k] : undefined; };
     const stored = JSON.parse(b.store.get("source/" + slug + "/pages.json"));
     return {
-      status, reply, calls: seen.calls, laneSaw: seen.laneSaw, compiles: c.calls.length,
+      status, reply, calls: seen.calls, laneSaw: seen.laneSaw, offReq: seen.offReq, compiles: c.calls.length,
       compiled: (name) => (files[0] ? pick1(files[0], name) : undefined),
       compiledParts: c.calls[0] && c.calls[0].body ? c.calls[0].body.parts : undefined,
       qrPayload: c.calls[0] && c.calls[0].body ? (c.calls[0].body.qr || []) : null,
@@ -163,49 +192,124 @@ async function drive({ mode = "sync", ask, pick, lane = null, setup = {} }) {
   } finally { c.uninstall(); globalThis.fetch = real; }
 }
 
+
 const SPANISH = "We've stopped teaching in Spanish, so take the Spanish version of the site down.";
+const GERMAN = "We've stopped teaching in German, so take the German version of the site down.";
 const ONE_CODE = "Take the Scan for prices QR code off the home page but keep the one for ringing us.";
+const TWO_CODES = "Take the prices and wifi QR codes off, keep the one for ringing us.";
+const BOTH_CODES = "Take both QR codes off the home page, we've stopped using them.";
+const WIFI = "Take the wifi QR code off the home page.";
+const REMOVE = (field) => ({ fields: [field], removes: [field] });
+const PAGES = [{ path: "index.tsx", source: HOME }, { path: "prices.tsx", source: PRICES }];
+const WIFI_CODE = { name: "wifi", points: "WIFI:T:WPA;S:Crookes;P:strings;;", label: "Scan to join our wifi" };
+const WIFI_FIG = "      <Figure caption={SITE_QRS.wifi.label}><img src={SITE_QRS.wifi.src} alt={SITE_QRS.wifi.label} /></Figure>\n";
+// THE RINGING CODE'S WRAPPER HAS CLASSES OF ITS OWN, so when that code comes
+// off the wrapper is kept, emptied — a photograph's rule (`codeFigureRemoval`).
+const RING_EMPTIED = "      <div className=\"mx-auto max-w-6xl px-6 py-8\">\n      </div>\n";
+
+const modelCalls = (r) => r.calls.filter((t) => t !== "write_translation");
+const shown = (r) => String((r.offReq[0] && r.offReq[0].messages && r.offReq[0].messages[0] && r.offReq[0].messages[0].content) || "");
 
 /** Every look field but the ones named stays exactly as stored. */
-function assertLookKept(look, except, label) {
-  for (const [k, v] of Object.entries(LOOK)) {
+function assertLookKept(look, except, label, base = LOOK) {
+  for (const [k, v] of Object.entries(base)) {
     if (except.includes(k)) continue;
     assert.deepEqual(look[k], v, label + ": the stored `" + k + "` changed");
   }
 }
-/** Charged for exactly one lane call, on the path the job ran. */
+/** Charged for the one removal call, on the path the job ran. */
 function assertCharged(r, mode, label) {
   const total = mode === "sync" ? r.debits.reduce((a, b) => a + b, 0) : r.reserves.reduce((a, b) => a + b, 0);
-  assert.ok(total >= 1, label + ": the lane call was not charged");
+  assert.ok(total >= 1, label + ": nothing was charged");
   assert.equal(r.reply.cost, total, label + ": the reply's cost is not what was charged");
+  // THE REMOVAL CALL IS ON THE BILL, by its own usage — the picker's call is
+  // billed whatever happens, so a total of one or more alone would pass with
+  // this call left off.
+  const bill = (r.reply.usage && Array.isArray(r.reply.usage.langUsage)) ? r.reply.usage.langUsage : [];
+  assert.ok(bill.some((u) => u && u.in === OFF_USAGE.input_tokens && u.out === OFF_USAGE.output_tokens), label + ": the removal call is not on the bill: " + JSON.stringify(bill));
+}
+/** Refused: nothing stored, nothing published, nothing charged. */
+function assertRefused(r, look, pages, label) {
+  assert.equal(r.reply.unchanged, true, label + ": the refusal does not say nothing changed");
+  assert.equal(r.reply.cost, 0, label + ": the refusal was charged");
+  assert.deepEqual(r.debits.filter(Boolean), [], label + ": something was debited");
+  assert.deepEqual(r.reserves, [], label + ": something was reserved");
+  assert.equal(r.compiles, 0, label + ": something was published");
+  assert.deepEqual(r.look, look, label + ": the stored look moved");
+  assert.deepEqual(r.stored, Object.fromEntries(pages.map((p) => [p.path, p.source])), label + ": a page moved");
+  assert.deepEqual(r.parts, [PART], label + ": a component moved");
 }
 
 for (const mode of ["sync", "job"]) {
-  test("W2 — taking ONE language off keeps the other, through the language lane (" + mode + ")", async () => {
-    const r = await drive({ mode, ask: SPANISH, pick: { fields: ["langs"], removes: ["langs"] }, lane: { langs: ["fr"] } });
+  test("W2 — ONE language of two comes off by the name the removal gave; the other stays (" + mode + ")", async () => {
+    const r = await drive({ mode, ask: SPANISH, pick: REMOVE("langs"), off: ["es"] });
     const label = "one language (" + mode + ")";
     assert.equal(r.reply.ok, true, label + ": " + JSON.stringify(r.reply));
-    // THE LANE RAN — before the fix there was no lane call and the field emptied —
-    // shown the stored list and told what it is being asked.
-    assert.deepEqual(r.calls.filter((t) => t !== "write_translation"), [PICK, "edit_site"], label + ": model calls");
-    assert.match(r.laneSaw[0], /\["fr","es"\]/, label + ": the lane was not shown the stored list");
-    assert.match(r.laneSaw[0], /TAKEN OFF THIS LIST/, label + ": the lane was not told this is a removal");
+    assert.deepEqual(modelCalls(r), [PICK, "take_off"], label + ": model calls");
+    // WHAT THE REMOVAL WAS SHOWN AND ASKED: every entry by the name to answer
+    // with, the customer's words as they wrote them, and one forced tool whose
+    // answer is a list of names.
+    const req = r.offReq[0];
+    assert.equal(req.tool_choice && req.tool_choice.name, "take_off", label + ": the removal's tool was not forced");
+    assert.deepEqual(req.tools.map((t) => t.name), ["take_off"], label + ": the removal's tools");
+    assert.deepEqual(req.tools[0].input_schema.properties.targets, { type: "array", items: { type: "string" }, description: req.tools[0].input_schema.properties.targets.description },
+      label + ": the answer is not a list of names");
+    assert.match(shown(r), /^- fr\n- es$/m, label + ": the removal was not shown the stored list by name");
+    assert.ok(shown(r).endsWith("What they asked for:\n" + SPANISH), label + ": the customer's words were not passed as written");
     assert.deepEqual(r.look.langs, ["fr"], label + ": French was not kept");
     assertLookKept(r.look, ["langs"], label);
     // NOTHING ELSE MOVED: the pages and components are the stored ones.
     assert.equal(r.compiles, 1, label + ": compiles");
     assert.deepEqual(r.stored, { "index.tsx": HOME, "prices.tsx": PRICES }, label + ": a page changed");
     assert.deepEqual(r.parts, [PART], label + ": a component changed");
+    assert.equal(r.reply.takeOffNote, undefined, label + ": a note about a name that was there");
     assertCharged(r, mode, label);
   });
 
-  test("W2 — taking ONE QR code off keeps the other code and its figure, and takes the removed code's figure off (" + mode + ")", async () => {
-    const r = await drive({ mode, ask: ONE_CODE, pick: { fields: ["qr"], removes: ["qr"] }, lane: { qr: { name: "prices" } } });
+  test("THE OWNER'S CASE — a language the site is not offered in, asked off a site with ONE extra language, takes nothing off (" + mode + ")", async () => {
+    const look = { ...LOOK, langs: ["fr"] };
+    const r = await drive({ mode, ask: GERMAN, pick: REMOVE("langs"), off: ["de"], setup: { look } });
+    const label = "absent language (" + mode + ")";
+    assert.equal(r.status, 422, label + ": " + JSON.stringify(r.reply));
+    assert.equal(r.reply.error, "take-off", label + ": the refusal's error");
+    assert.equal(r.reply.reason, "not-found", label + ": the refusal's reason");
+    assert.deepEqual(r.reply.named, ["de"], label + ": the names the removal gave");
+    assert.equal(r.reply.msg, "This site has no extra language `de` — its only extra language is `fr`.", label + ": the sentence");
+    // THE REMOVAL WAS ASKED — the list's length decides nothing — and shown French.
+    assert.deepEqual(modelCalls(r), [PICK, "take_off"], label + ": model calls");
+    assert.match(shown(r), /^- fr$/m, label + ": the removal was not shown the list");
+    assertRefused(r, look, PAGES, label);
+  });
+
+  test("THE OWNER'S CASE — answered with no names at all, the one extra language stays (" + mode + ")", async () => {
+    const look = { ...LOOK, langs: ["fr"] };
+    const r = await drive({ mode, ask: GERMAN, pick: REMOVE("langs"), off: [], setup: { look } });
+    const label = "nothing named (" + mode + ")";
+    assert.equal(r.status, 422, label + ": " + JSON.stringify(r.reply));
+    assert.equal(r.reply.reason, "not-found", label + ": the refusal's reason");
+    assert.equal(r.reply.msg, "Nothing you asked to take off is on this site — its only extra language is `fr`.", label + ": the sentence");
+    assertRefused(r, look, PAGES, label);
+  });
+
+  test("the ONLY language, named, comes off — asked, not assumed from the list's length (" + mode + ")", async () => {
+    const look = { ...LOOK, langs: ["es"] };
+    const r = await drive({ mode, ask: SPANISH, pick: REMOVE("langs"), off: ["es"], setup: { look } });
+    const label = "only language (" + mode + ")";
+    assert.equal(r.reply.ok, true, label + ": " + JSON.stringify(r.reply));
+    assert.deepEqual(modelCalls(r), [PICK, "take_off"], label + ": the removal was not asked");
+    assert.deepEqual(r.look.langs, [], label + ": the only language was not taken off");
+    assertLookKept(r.look, ["langs"], label, look);
+    assert.deepEqual(r.stored, { "index.tsx": HOME, "prices.tsx": PRICES }, label + ": a page changed");
+    assertCharged(r, mode, label);
+  });
+
+  test("W2 — ONE QR code of two comes off with its figure; the other code and its figure stay (" + mode + ")", async () => {
+    const r = await drive({ mode, ask: ONE_CODE, pick: REMOVE("qr"), off: ["prices"] });
     const label = "one code (" + mode + ")";
     assert.equal(r.reply.ok, true, label + ": " + JSON.stringify(r.reply));
-    assert.deepEqual(r.calls.filter((t) => t !== "write_translation"), [PICK, "edit_site"], label + ": model calls");
-    assert.match(r.laneSaw[0], /TAKEN OFF THE SITE/, label + ": the qr lane was not told this is a removal");
-    // THE LIST: the ringing code, exactly as stored.
+    assert.deepEqual(modelCalls(r), [PICK, "take_off"], label + ": model calls");
+    assert.match(shown(r), /^- prices — “Scan for prices”, scanning it opens https:\/\/crookes\.gofarther\.app\/prices\n- ring — “Scan to ring and book”, scanning it opens tel:\+441140000000$/m,
+      label + ": the removal was not shown the codes by name");
     assert.deepEqual(r.look.qr, [RING_CODE], label + ": the stored codes");
     assertLookKept(r.look, ["qr"], label);
     // THE PAGE: the prices figure gone, character for character, and the
@@ -221,53 +325,193 @@ for (const mode of ["sync", "job"]) {
     assertCharged(r, mode, label);
   });
 
-  test("CONTROL: the ONLY language is still taken off for nothing, with no lane call (" + mode + ")", async () => {
-    const r = await drive({ mode, ask: SPANISH, pick: { fields: ["langs"], removes: ["langs"] }, setup: { look: { ...LOOK, langs: ["es"] } } });
-    const label = "only language (" + mode + ")";
+  test("W2 — TWO codes of three come off with their figures; the third code and its figure stay (" + mode + ")", async () => {
+    const look = { ...LOOK, qr: [PRICES_CODE, RING_CODE, WIFI_CODE] };
+    const home = route("/", QR_IMPORTS, HOME_TOP + PRICES_FIG + RING_FIG + WIFI_FIG);
+    const r = await drive({ mode, ask: TWO_CODES, pick: REMOVE("qr"), off: ["prices", "wifi"],
+      setup: { look, pages: [{ path: "index.tsx", source: home }, { path: "prices.tsx", source: PRICES }] } });
+    const label = "two codes of three (" + mode + ")";
     assert.equal(r.reply.ok, true, label + ": " + JSON.stringify(r.reply));
-    assert.deepEqual(r.calls, [PICK], label + ": a lane was called for the only entry");
-    assert.deepEqual(r.look.langs, [], label + ": the only language was not taken off");
-    assert.deepEqual(r.stored, { "index.tsx": HOME, "prices.tsx": PRICES }, label + ": a page changed");
+    assert.deepEqual(modelCalls(r), [PICK, "take_off"], label + ": model calls");
+    assert.deepEqual(r.look.qr, [RING_CODE], label + ": the stored codes");
+    assertLookKept(r.look, ["qr"], label, look);
+    const expectHome = route("/", QR_IMPORTS, HOME_TOP + RING_FIG);
+    assert.equal(r.stored["index.tsx"], expectHome, label + ": the home page as stored");
+    assert.equal(r.compiled("index.tsx"), expectHome, label + ": the home page as compiled");
+    assert.equal(r.stored["prices.tsx"], PRICES, label + ": a page that shows no code changed");
+    assert.deepEqual(r.parts, [PART], label + ": a component changed");
+    assert.deepEqual(r.qrPayload.map((q) => q.name), ["ring"], label + ": the codes drawn for the publish");
+    assert.deepEqual(r.reply.qrRemoved, ["prices", "wifi"], label + ": the reply's removed codes");
+    assertCharged(r, mode, label);
   });
 
-  test("the ONLY QR code comes off with its figure, for nothing (" + mode + ")", async () => {
-    const home = route("/", QR_IMPORTS, HOME_TOP + PRICES_FIG);
-    const r = await drive({ mode, ask: "Take the QR code off, we don't use it.", pick: { fields: ["qr"], removes: ["qr"] },
-      setup: { look: { ...LOOK, qr: [PRICES_CODE] }, pages: [{ path: "index.tsx", source: home }, { path: "prices.tsx", source: PRICES }] } });
-    const label = "only code (" + mode + ")";
+  test("W2 — EVERY code asked off comes off, each with its figure (" + mode + ")", async () => {
+    const r = await drive({ mode, ask: BOTH_CODES, pick: REMOVE("qr"), off: ["prices", "ring"] });
+    const label = "every code (" + mode + ")";
     assert.equal(r.reply.ok, true, label + ": " + JSON.stringify(r.reply));
-    assert.deepEqual(r.calls.filter((t) => t !== "write_translation"), [PICK], label + ": a lane was called for the only code");
-    assert.deepEqual(r.look.qr, [], label + ": the code was not taken off");
-    // BEFORE THE FIX the figure stayed, reading a binding the publish no longer writes.
-    assert.equal(r.stored["index.tsx"], route("/", QR_IMPORTS, HOME_TOP), label + ": the figure was not taken off");
-    assert.equal(r.stored["prices.tsx"], PRICES, label + ": another page changed");
+    assert.deepEqual(modelCalls(r), [PICK, "take_off"], label + ": model calls");
+    assert.deepEqual(r.look.qr, [], label + ": a code stayed");
+    assertLookKept(r.look, ["qr"], label);
+    // BOTH FIGURES OFF. The ringing code's classed wrapper stays, emptied; the
+    // import of `SITE_QRS` stays and stays valid — every publish writes it,
+    // as `{}` when the site has no codes.
+    const expectHome = route("/", QR_IMPORTS, HOME_TOP + RING_EMPTIED);
+    assert.equal(r.stored["index.tsx"], expectHome, label + ": the home page as stored");
+    assert.equal(r.compiled("index.tsx"), expectHome, label + ": the home page as compiled");
+    assert.equal(r.stored["prices.tsx"], PRICES, label + ": a page that shows no code changed");
+    assert.deepEqual(r.parts, [PART], label + ": a component changed");
+    assert.deepEqual(r.qrPayload, [], label + ": a code was drawn for the publish");
+    assert.deepEqual(r.reply.qrRemoved, ["prices", "ring"], label + ": the reply's removed codes");
+    assertCharged(r, mode, label);
+  });
+
+  test("THE OWNER'S CASE — a code the site does not have, asked off a site with ONE code, keeps that code and its figure (" + mode + ")", async () => {
+    const look = { ...LOOK, qr: [PRICES_CODE] };
+    const pages = [{ path: "index.tsx", source: route("/", QR_IMPORTS, HOME_TOP + PRICES_FIG) }, { path: "prices.tsx", source: PRICES }];
+    const r = await drive({ mode, ask: WIFI, pick: REMOVE("qr"), off: ["wifi"], setup: { look, pages } });
+    const label = "absent code (" + mode + ")";
+    assert.equal(r.status, 422, label + ": " + JSON.stringify(r.reply));
+    assert.equal(r.reply.reason, "not-found", label + ": the refusal's reason");
+    assert.deepEqual(r.reply.named, ["wifi"], label + ": the names the removal gave");
+    assert.equal(r.reply.msg, "This site has no QR code `wifi` — its only QR code is `prices`.", label + ": the sentence");
+    assert.deepEqual(modelCalls(r), [PICK, "take_off"], label + ": model calls");
+    assertRefused(r, look, pages, label);
   });
 
   test("a removed code whose figure sits inside a condition is REFUSED: nothing written, nothing published, nothing charged (" + mode + ")", async () => {
     const guarded = "      {SITE_QRS.prices && <Figure caption={SITE_QRS.prices.label}><img src={SITE_QRS.prices.src} alt={SITE_QRS.prices.label} /></Figure>}\n";
-    const home = route("/", QR_IMPORTS, HOME_TOP + guarded + RING_FIG);
-    const r = await drive({ mode, ask: ONE_CODE, pick: { fields: ["qr"], removes: ["qr"] }, lane: { qr: { name: "prices" } },
-      setup: { pages: [{ path: "index.tsx", source: home }, { path: "prices.tsx", source: PRICES }] } });
+    const pages = [{ path: "index.tsx", source: route("/", QR_IMPORTS, HOME_TOP + guarded + RING_FIG) }, { path: "prices.tsx", source: PRICES }];
+    const r = await drive({ mode, ask: ONE_CODE, pick: REMOVE("qr"), off: ["prices"], setup: { pages } });
     const label = "guarded figure (" + mode + ")";
     assert.equal(r.status, 422, label + ": " + JSON.stringify(r.reply));
     assert.equal(r.reply.reason, "figure-part", label + ": the refusal's reason");
-    assert.match(r.reply.msg, /couldn't take the `prices` code off the page/, label + ": the sentence");
-    assert.equal(r.reply.unchanged, true, label + ": the refusal does not say nothing changed");
-    assert.equal(r.compiles, 0, label + ": something was published");
-    assert.deepEqual(r.look, LOOK, label + ": the stored look moved");
-    assert.equal(r.stored["index.tsx"], home, label + ": the page moved");
-    assert.equal(r.reply.cost, 0, label + ": a refusal was charged");
+    assert.equal(r.reply.msg, "I couldn't take the `prices` code off the pages that show it without changing more than the code itself.", label + ": the sentence");
+    assertRefused(r, LOOK, pages, label);
   });
 
-  test("a removal on a site with several codes where the lane names none is asked which, and changes nothing (" + mode + ")", async () => {
-    const r = await drive({ mode, ask: "Take the QR code off.", pick: { fields: ["qr"], removes: ["qr"] }, lane: { qr: {} } });
-    const label = "which code (" + mode + ")";
+  test("a removal whose answer cannot be read changes nothing and says it could not tell (" + mode + ")", async () => {
+    const r = await drive({ mode, ask: SPANISH, pick: REMOVE("langs"), off: { targets: "es" } });
+    const label = "unreadable answer (" + mode + ")";
     assert.equal(r.status, 422, label + ": " + JSON.stringify(r.reply));
-    assert.equal(r.reply.reason, "which-code", label + ": the refusal's reason");
-    assert.equal(r.compiles, 0, label + ": something was published");
-    assert.deepEqual(r.look, LOOK, label + ": the stored look moved");
+    assert.equal(r.reply.reason, "unread", label + ": the refusal's reason");
+    assert.deepEqual(r.reply.named, [], label + ": an unreadable answer named something");
+    assert.equal(r.reply.msg, "I couldn't tell which extra language to take off — its extra languages are `fr`, `es`. Say which one.", label + ": the sentence");
+    assertRefused(r, LOOK, PAGES, label);
   });
 }
+
+// ── THE MODEL DECIDES; CODE ONLY CHECKS ───────────────────────────────────────
+
+test("CONTROL — the same words with a different answer take a different entry off: nothing here reads the customer's words", async () => {
+  const r = await drive({ ask: SPANISH, pick: REMOVE("langs"), off: ["fr"] });
+  assert.equal(r.reply.ok, true, JSON.stringify(r.reply));
+  assert.deepEqual(r.look.langs, ["es"], "the route did not take off what the removal named");
+});
+
+test("several languages of three: the two named come off, the third stays", async () => {
+  const look = { ...LOOK, langs: ["fr", "es", "de"] };
+  const r = await drive({ ask: "Stop offering the site in Spanish and German.", pick: REMOVE("langs"), off: ["es", "de"], setup: { look } });
+  assert.equal(r.reply.ok, true, JSON.stringify(r.reply));
+  assert.deepEqual(r.look.langs, ["fr"]);
+  assertLookKept(r.look, ["langs"], "two of three", look);
+});
+
+test("every extra language asked off empties the field", async () => {
+  const r = await drive({ ask: "Stop offering the site in any other language.", pick: REMOVE("langs"), off: ["fr", "es"] });
+  assert.equal(r.reply.ok, true, JSON.stringify(r.reply));
+  assert.deepEqual(r.look.langs, []);
+  assertLookKept(r.look, ["langs"], "all languages");
+});
+
+test("one name on the list and one not: the one there comes off, and the reply says the other changed nothing — on the customer's screen too", async () => {
+  const r = await drive({ ask: "Stop offering the site in Spanish and German.", pick: REMOVE("langs"), off: ["es", "de"] });
+  assert.equal(r.reply.ok, true, JSON.stringify(r.reply));
+  assert.deepEqual(r.look.langs, ["fr"]);
+  const note = "There was no extra language `de` to take off, so that part changed nothing.";
+  assert.equal(r.reply.takeOffNote, note);
+  // THE BROWSER'S OWN COMPOSER, cut from `public/chat.js` and handed this
+  // reply as the route returned it.
+  const screen = editBrowserReply(r.reply, true);
+  assert.equal(screen.ok, true, screen.why);
+  // (Which words name the field is the look sentence's business — backlog —
+  // so this pins the note's place after it, not those words.)
+  assert.match(screen.text, /^✅ Updated the look[^.]*\. There was no extra language `de` to take off, so that part changed nothing\./, "the screen: " + JSON.stringify(screen.text));
+  // CONTROL: the same reply without the note shows no note.
+  const plain = editBrowserReply({ ...r.reply, takeOffNote: undefined }, true);
+  assert.ok(plain.ok && !plain.text.includes("to take off"), "a reply with no note shows one: " + JSON.stringify(plain.text));
+  for (const v of [7, ["x"], "  "]) assert.ok(!editBrowserReply({ ...r.reply, takeOffNote: v }, true).text.includes(String(v).trim() || "never"), "a note that is not a sentence was shown: " + JSON.stringify(v));
+});
+
+test("a removal that took nothing off is shown as its sentence, said once that nothing changed, and the browser starts nothing else", async () => {
+  const look = { ...LOOK, langs: ["fr"] };
+  const r = await drive({ ask: GERMAN, pick: REMOVE("langs"), off: ["de"], setup: { look } });
+  assert.equal(r.status, 422, JSON.stringify(r.reply));
+  const screen = editBrowserReply(r.reply, false);
+  assert.equal(screen.ok, true, screen.why);
+  // THE STEP SAYS WHAT IT FOUND; THE BROWSER SAYS NOTHING CHANGED AND WHAT IT
+  // COST — once. The step's sentence said "Nothing was changed." as well until
+  // the screenshot showed both.
+  assert.equal(screen.text, "⚠️ This site has no extra language `de` — its only extra language is `fr`. Nothing on your site changed, and this edit cost you nothing.",
+    "the screen: " + JSON.stringify(screen.text));
+  assert.equal(screen.text.match(/[Nn]othing (?:on your site |was )?changed/g).length, 1, "the screen says twice that nothing changed");
+  assert.deepEqual(screen.actions.filter((a) => /PAID/.test(a)), [], "the browser started a paid request after a refusal: " + JSON.stringify(screen.actions));
+});
+
+test("two removals in one message: each is shown only its own words, both come off, one publish", async () => {
+  const ask = "Stop offering the site in Spanish, and take the prices QR code off the home page.";
+  const langsWords = "Stop offering the site in Spanish";
+  const qrWords = "take the prices QR code off the home page";
+  const r = await drive({
+    ask,
+    pick: { fields: ["langs", "qr"], removes: ["langs", "qr"], scopes: [{ part: "langs", words: langsWords }, { part: "qr", words: qrWords }] },
+    off: (req) => (/\(`qr`\)/.test(String(req.messages[0].content)) ? ["prices"] : ["es"]),
+  });
+  assert.equal(r.reply.ok, true, JSON.stringify(r.reply));
+  assert.deepEqual(modelCalls(r), [PICK, "take_off", "take_off"], "model calls");
+  const told = r.offReq.map((q) => String(q.messages[0].content));
+  const forLangs = told.find((t) => t.includes("(`langs`)"));
+  const forQr = told.find((t) => t.includes("(`qr`)"));
+  assert.ok(forLangs && forQr, "each removal was not asked once: " + JSON.stringify(told));
+  assert.ok(forLangs.endsWith("What they asked for:\n" + langsWords), "the language removal was handed more than its own words: " + forLangs.slice(-200));
+  assert.ok(forQr.endsWith("What they asked for:\n" + qrWords), "the code removal was handed more than its own words: " + forQr.slice(-200));
+  assert.deepEqual(r.look.langs, ["fr"]);
+  assert.deepEqual(r.look.qr, [RING_CODE]);
+  assertLookKept(r.look, ["langs", "qr"], "two removals");
+  assert.equal(r.compiles, 1, "not one publish");
+  assert.equal(r.stored["index.tsx"], route("/", QR_IMPORTS, HOME_TOP + RING_FIG), "the home page");
+});
+
+test("a removal call that fails changes nothing and charges nothing", async () => {
+  const r = await drive({ ask: SPANISH, pick: REMOVE("langs"), off: null });
+  assert.equal(r.status, 503, JSON.stringify(r.reply));
+  assert.equal(r.reply.error, "send");
+  assert.equal(r.reply.msg, "The editor is busy — try again in a moment.");
+  assert.equal(r.reply.cost, 0);
+  assert.equal(r.compiles, 0, "something was published");
+  assert.deepEqual(r.look, LOOK, "the stored look moved");
+});
+
+test("a list with nothing on it asks no one: there is nothing to take off, and nothing changes", async () => {
+  const look = { ...LOOK, langs: [] };
+  const r = await drive({ ask: SPANISH, pick: REMOVE("langs"), setup: { look } });
+  assert.equal(r.status, 422, JSON.stringify(r.reply));
+  assert.deepEqual(modelCalls(r), [PICK], "a removal was asked about an empty list");
+  assert.equal(r.reply.msg, "This site has no extra languages to take off.");
+  assertRefused(r, look, PAGES, "empty list");
+});
+
+test("one control of several stops by the number the removal gave; the other keeps what it does", async () => {
+  const filter = { control: "the filter chips", on: "pressing one", does: "shows only the lessons for that instrument", affects: "the lessons list", result: "the list narrows to one instrument", source: "component" };
+  const tabs = { control: "the term tabs", on: "pressing one", does: "switches between the autumn and spring timetables", affects: "the timetable", result: "the other term shows", source: "component" };
+  const look = { ...LOOK, behavior: [filter, tabs] };
+  const r = await drive({ ask: "Stop the term tabs switching, leave them showing autumn.", pick: REMOVE("behavior"), off: ["2"], setup: { look } });
+  assert.equal(r.reply.ok, true, JSON.stringify(r.reply));
+  assert.deepEqual(modelCalls(r), [PICK, "take_off"], "the removal was not asked");
+  assert.match(shown(r), /^- 1 — the filter chips — pressing one — shows only the lessons for that instrument\n- 2 — the term tabs — pressing one — switches between the autumn and spring timetables$/m,
+    "the controls were not shown by number");
+  assert.deepEqual(r.look.behavior, [filter], "the other control's behaviour was not kept");
+  assertLookKept(r.look, ["behavior"], "one control", look);
+});
 
 // ── WHERE ELSE A FIGURE CAN BE, AND WHAT STOPS THE CHANGE ─────────────────────
 //
@@ -282,7 +526,7 @@ const QR_BAND = {
 
 test("a removed code's figure inside a COMPONENT comes off the component, which is handed to the publish; the pages stay", async () => {
   const home = route("/", "", HOME_TOP);
-  const r = await drive({ ask: ONE_CODE, pick: { fields: ["qr"], removes: ["qr"] }, lane: { qr: { name: "prices" } },
+  const r = await drive({ ask: ONE_CODE, pick: REMOVE("qr"), off: ["prices"],
     setup: { pages: [{ path: "index.tsx", source: home }, { path: "prices.tsx", source: PRICES }], parts: [PART, QR_BAND] } });
   assert.equal(r.reply.ok, true, JSON.stringify(r.reply));
   const band = QR_BAND.source.replace(PRICES_FIG, "");
@@ -297,7 +541,7 @@ test("a removed code's figure inside a COMPONENT comes off the component, which 
 
 test("the removed code shown twice on one page comes off in both places, and the code that stays is untouched", async () => {
   const home = route("/", QR_IMPORTS, HOME_TOP + PRICES_FIG + RING_FIG + PRICES_FIG);
-  const r = await drive({ ask: ONE_CODE, pick: { fields: ["qr"], removes: ["qr"] }, lane: { qr: { name: "prices" } },
+  const r = await drive({ ask: ONE_CODE, pick: REMOVE("qr"), off: ["prices"],
     setup: { pages: [{ path: "index.tsx", source: home }, { path: "prices.tsx", source: PRICES }] } });
   assert.equal(r.reply.ok, true, JSON.stringify(r.reply));
   assert.equal(r.stored["index.tsx"], route("/", QR_IMPORTS, HOME_TOP + RING_FIG), "both copies did not come off, or something else moved");
@@ -306,44 +550,28 @@ test("the removed code shown twice on one page comes off in both places, and the
 
 for (const mode of ["sync", "job"]) {
   test("a component store that cannot be read STOPS the removal: nothing written, nothing published, nothing charged (" + mode + ")", async () => {
-    const r = await drive({ mode, ask: ONE_CODE, pick: { fields: ["qr"], removes: ["qr"] }, lane: { qr: { name: "prices" } }, setup: { parts: "unreadable" } });
+    const r = await drive({ mode, ask: TWO_CODES, pick: REMOVE("qr"), off: ["prices", "ring"], setup: { parts: "unreadable" } });
     const label = "unreadable components (" + mode + ")";
     assert.equal(r.status, 422, label + ": " + JSON.stringify(r.reply));
     assert.equal(r.reply.reason, "figure-unchecked", label + ": the refusal's reason");
-    assert.match(r.reply.msg, /couldn't check where/, label + ": the sentence");
+    assert.equal(r.reply.msg, "I couldn't check where the `prices` and `ring` codes are shown on your pages — try again in a moment.", label + ": the sentence");
     assert.equal(r.compiles, 0, label + ": something was published");
     assert.deepEqual(r.look, LOOK, label + ": the stored look moved");
     assert.deepEqual(r.stored, { "index.tsx": HOME, "prices.tsx": PRICES }, label + ": a page moved");
+    assert.equal(r.parts, "unreadable", label + ": the component store was written");
     assert.equal(r.reply.cost, 0, label + ": the refusal was charged");
   });
 }
 
 test("a code no page shows yet is taken off without a placement step and without touching a page", async () => {
   const home = route("/", QR_IMPORTS, HOME_TOP + RING_FIG);
-  const r = await drive({ ask: ONE_CODE, pick: { fields: ["qr"], removes: ["qr"] }, lane: { qr: { name: "prices" } },
+  const r = await drive({ ask: ONE_CODE, pick: REMOVE("qr"), off: ["prices"],
     setup: { pages: [{ path: "index.tsx", source: home }, { path: "prices.tsx", source: PRICES }] } });
   assert.equal(r.reply.ok, true, JSON.stringify(r.reply));
   // BEFORE: the placement step read the codes as they stood and asked the page
   // writer to PLACE the code being taken off. A removal places nothing.
-  assert.deepEqual(r.calls.filter((t) => t !== "write_translation"), [PICK, "edit_site"], "a page writer was asked to place a code being removed");
+  assert.deepEqual(modelCalls(r), [PICK, "take_off"], "a page writer was asked to place a code being removed");
   assert.deepEqual(r.look.qr, [RING_CODE]);
   assert.deepEqual(r.stored, { "index.tsx": home, "prices.tsx": PRICES }, "a page changed");
   assert.equal(r.reply.qrPages, undefined, "a page was reported changed");
-});
-
-test("every extra language asked off: the lane's empty list empties the field", async () => {
-  const r = await drive({ ask: "Stop offering the site in any other language.", pick: { fields: ["langs"], removes: ["langs"] }, lane: { langs: [] } });
-  assert.equal(r.reply.ok, true, JSON.stringify(r.reply));
-  assert.deepEqual(r.look.langs, []);
-  assertLookKept(r.look, ["langs"], "all languages");
-});
-
-test("one control of several stops, the others keep what they do", async () => {
-  const filter = { el: "the filter chips", does: "show only the lessons for that instrument", how: "existing" };
-  const tabs = { el: "the term tabs", does: "switch between autumn and spring timetables", how: "existing" };
-  const r = await drive({ ask: "Stop the term tabs switching, leave them showing autumn.", pick: { fields: ["behavior"], removes: ["behavior"] },
-    lane: { behavior: [filter] }, setup: { look: { ...LOOK, behavior: [filter, tabs] } } });
-  assert.equal(r.reply.ok, true, JSON.stringify(r.reply));
-  assert.deepEqual(r.calls.filter((t) => t !== "write_translation"), [PICK, "edit_site"], "the behaviour lane did not answer the removal");
-  assert.deepEqual(r.look.behavior, [filter], "the other control's behaviour was not kept");
 });

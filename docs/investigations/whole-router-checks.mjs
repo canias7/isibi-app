@@ -12,8 +12,7 @@ import { fileURLToPath } from "node:url";
 import { EDIT_BROWSER_FNS } from "../../scripts/addon-sweep.mjs";
 import { mergeLook } from "../../builder/site-edit.mjs";
 import { navSlots, runNavEdit, NAV_TOOL } from "../../builder/site-nav.mjs";
-import { removalNote } from "../../builder/site-lanes.mjs";
-import { patchQr } from "../../builder/site-qr-list.mjs";
+import { takeOffTargets, takeOffRefusal } from "../../builder/site-lanes.mjs";
 import { preservePageProse } from "../../builder/page-prose.mjs";
 import { readRouting, heldBack } from "../../builder/site-ask.mjs";
 import { readTextEdits } from "../../builder/site-apply.mjs";
@@ -55,24 +54,33 @@ const say = (s = "") => console.log(s);
 
 // ── W2 and W20: the look door's removals ───────────────────────────────────
 // On f9979497 the look door made no lane call for a removal and handed the
-// field names to mergeLook, which emptied the list. Since the branch's W2 fix
-// (2026-10-02) a list holding more than one entry is answered by its own lane
-// (`removalNote` says when), the lane's answer is merged, and only the fields
-// no lane answered are cleared; a code comes off by name (`patchQr` with
-// `remove`). The route itself is driven in test/partial-removal.test.mjs;
-// these are the pieces it calls. fretwork-1 today: Welsh pages, French and
-// Spanish versions, two QR codes.
+// field names to mergeLook, which emptied the list. Batch 1 asked the field's
+// lane only when the list held more than one entry; since the owner's review
+// (2026-10-02) every removal on a list is one `take_off` call: the model names
+// the entries to take off, and `takeOffTargets` checks each name against the
+// stored list. Only names on the list come off; a removal naming nothing on
+// the list changes nothing. The route itself is driven in
+// test/partial-removal.test.mjs; these are the pieces it calls, with the
+// model's answer supplied. fretwork-1 today: Welsh pages, French and Spanish
+// versions, two QR codes.
 {
   const prior = { theme: "slate", lang: "cy", langs: ["fr", "es"], qr: [{ name: "prices", points: "https://fretwork-1.gofarther.app/prices", label: "Scan for prices" }, { name: "ring", points: "tel:+441140000000", label: "Scan to ring and book" }] };
   const merged = (designed, clear) => mergeLook(prior, designed, {}, { instructed: true, asked: true, clear });
+  const off = (field, value, names) => {
+    const t = takeOffTargets(field, value, names);
+    if (!t.matched.length) return "nothing comes off: " + takeOffRefusal(field, { ok: true, unknown: t.unknown }, value);
+    return JSON.stringify(value.map ? (field === "qr" ? value.map((c) => c.name) : value) : value) + " -> " + JSON.stringify(t.all ? [] : (field === "qr" ? t.kept.map((c) => c.name) : t.kept))
+      + (t.unknown.length ? " (not on the list: " + JSON.stringify(t.unknown) + ")" : "");
+  };
   say("W2  'take the Spanish version down' (picker: removes langs)");
   say("    on f9979497 (no lane, the field cleared): langs " + JSON.stringify(prior.langs) + " -> " + JSON.stringify(merged({}, ["langs"]).langs));
-  say("    now: the lane is asked (" + (removalNote("langs", prior.langs) ? "told it is a removal" : "NOT asked") + "); answering [\"fr\"] gives langs " + JSON.stringify(merged({ langs: ["fr"] }, []).langs));
-  say("    one language stored: " + (removalNote("langs", ["es"]) ? "the lane is asked" : "still cleared for nothing, no lane call"));
-  const one = patchQr(prior.qr, { name: "prices" }, { remove: true });
-  say("W2  'take the Scan for prices code off, keep the other' (removes qr)");
-  say("    on f9979497: " + prior.qr.length + " codes -> " + merged({}, ["qr"]).qr.length);
-  say("    now: the lane names the code; " + prior.qr.length + " codes -> " + JSON.stringify(one.list.map((c) => c.name)) + " (removed " + JSON.stringify(one.removed) + "), and the figure comes off its pages (codeFigureRemoval)");
+  say("    now, the removal answering [\"es\"]: langs " + off("langs", prior.langs, ["es"]));
+  say("    German asked off a site offered only in French, answering [\"de\"]: " + off("langs", ["fr"], ["de"]));
+  say("W2  QR codes (removes qr)");
+  say("    on f9979497, one code asked off: " + prior.qr.length + " codes -> " + merged({}, ["qr"]).qr.length);
+  say("    now, answering [\"prices\"]: " + off("qr", prior.qr, ["prices"]) + ", and the figure comes off its pages (codeFigureRemoval)");
+  say("    'both codes', answering [\"prices\", \"ring\"]: " + off("qr", prior.qr, ["prices", "ring"]));
+  say("    the wifi code asked off a site whose one code is for prices, answering [\"wifi\"]: " + off("qr", prior.qr.slice(0, 1), ["wifi"]));
   const c = merged({}, ["css"]);
   say("W20 'remove the custom styling' (removes css): " + (Object.hasOwn(c, "css") ? "css cleared" : "css is not a look field mergeLook clears, so nothing moves") + " (not in this batch)");
   say();

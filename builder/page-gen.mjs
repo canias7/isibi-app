@@ -2852,12 +2852,16 @@ export function priorPagesBlock(pages, mode = "revise", target = "", { keep = []
       // block one branch below said "to delete a page, simply do not return it"
       // until 2026-10-02 (W3), and a model working from that habit answers
       // "remove the gallery" by returning nothing — the merge reports no change.
-      // Both blocks now say what the tool says: an unreturned page is KEPT, and
-      // `remove` is the only thing that deletes one.
+      // Every block now says what the tool says: an unreturned page is KEPT, and
+      // `remove` is the only thing that deletes one. THE SAME ON EVERY PATH, so
+      // this says nothing about the rewrite: it said an unreturned page being
+      // kept was "the opposite of what it means on an ordinary rewrite", which
+      // stopped being true when the rewrite began keeping them too, and the
+      // owner's review of batch 1 asked for it gone.
       "ARE THEY ASKING FOR A PAGE TO GO AWAY? THEN `remove` IS THE ONLY THING THAT DOES IT. Put its file path in " +
-      "`remove` — \"src/routes/gallery.tsx\". NOT returning it does NOTHING here: a page you do not return is " +
-      "KEPT, which is the opposite of what it means on an ordinary rewrite, and answering a deletion by returning " +
-      "the other pages leaves the page exactly where it was. Measured: that is what happens when this is missed. " +
+      "`remove` — \"src/routes/gallery.tsx\". NOT returning it does NOTHING: a page you do not return is KEPT, " +
+      "and answering a deletion by returning the other pages leaves the page exactly where it was. Measured: that " +
+      "is what happens when this is missed. " +
       "Also return any page that LINKS to the one being removed, with the link taken out, or the site will not " +
       "compile and nothing will change at all.\n\n" +
       "Anything you DO return must be the whole file, and everything in it that this change does not touch stays " +

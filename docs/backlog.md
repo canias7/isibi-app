@@ -288,14 +288,21 @@ here; take a closed one out of both.**
     turns every message on a live site into a build attempt (W22);
   - the model prompts carry wording from the test sites and test sentences
     (W23); a row refusal names only the row (W25); stale comments (W26).
-- **What batch 1 left, and what the traces found** (2026-10-02, N1–N10 in
-  the audit's §3.0): a removal on a one-entry list still empties it for
-  nothing (N1); a QR removal with no parser is refused (N2); the footer's
+- **What batch 1 left, and what the traces found** (2026-10-02, N1–N13 in
+  the audit's §3.0): a removal on a one-entry list still emptied it for
+  nothing (N1; **resolved after the owner's review**: every list removal
+  now names its entries and code checks them); a QR removal with no parser
+  is refused (N2); the footer's
   two lists still write one list into every page (N4); a menu item for a
   page the site lacks comes off every menu (N5); an empty band publishes
   silently on the split path (N7); a failed translation publishes behind,
   unsaid (N8); the synchronous edit path keeps a refusal's charge (N9); a
-  rewrite's writer could name a page in `remove` unasked (N10).
+  rewrite's writer could name a page in `remove` unasked (N10). **Found in
+  the review's gap fixes:** a QR edit on a one-code site changes that code
+  when the answer names none (N11); the long-site rewrite is told to write
+  every page again in full without seeing them (N12); the look reply names
+  a list field by its key ("— langs", "— qr") and never says which codes
+  came off (N13).
 
 ---
 
@@ -310,7 +317,13 @@ here; take a closed one out of both.**
   off only when the writer names it and nothing still needs it (W3); a menu
   change is made to each page's own menu (W4). Shown with supplied answers
   only; D1–D3 wait for the merge. What batch 1 left (N1–N10) is in the
-  audit's §3.0 and the index above. The original record follows.
+  audit's §3.0 and the index above. **The owner's review of batch 1 found
+  three gaps, fixed on the branch the same day** (the history's §6, the
+  audit's §4.2): menu moves of several items (W4); removals that name their
+  entries, checked by code, for one, several or every language or code,
+  with no one-entry shortcut (W2, N1 resolved); and the last "opposite"
+  sentence in the page writer's prompts (W3). Three findings from that work
+  are recorded apart, below (N11–N13). The original record follows.
   `docs/investigations/whole-router-audit.md` gives each one's code
   location, expected and actual behaviour, evidence, impact and proposed
   fix; `docs/investigations/whole-router-checks.mjs` re-runs the free
@@ -329,6 +342,33 @@ here; take a closed one out of both.**
   (`scripts/router-probes/whole-router-1.json`, routing only) is prepared,
   not run. **Owner's call** on the order of fixes and on W9 (the text guard
   is a deliberate grammar).
+- **A QR EDIT ON A ONE-CODE SITE CHANGES THAT CODE WHEN THE ANSWER NAMES
+  NONE (N11; found 2026-10-02 in the review's gap fixes; not changed).**
+  `patchQr` (`builder/site-qr-list.mjs`) takes the only code when the qr
+  lane's patch names no code — the list's length standing in for which code
+  was meant, the edit's counterpart of the removal shortcut the owner had
+  removed. On a one-code site that is usually the code they meant; when it
+  is not (a new destination for a code the site does not have), the one code
+  is changed. A fix would ask the lane to name the code always and refuse a
+  name not on the list, as removals now do.
+- **THE LONG-SITE REWRITE IS TOLD TO WRITE EVERY PAGE AGAIN WITHOUT SEEING
+  THEM (N12; found 2026-10-02 while checking W3's prompts; not changed).**
+  `priorPagesBlock` (`builder/page-gen.mjs`), for a rewrite whose pages are
+  over 90,000 characters in all, shows no source and says *"write them
+  again in full — keep the same pages, the same sections and the same
+  wording"*. Since batch 1 a page not returned is kept, so a page written
+  from its name alone would replace the real one. Its deletion contract
+  agrees with every other block. What a long-site rewrite should return is
+  the owner's call; the add-on's way is to show what fits and name the rest
+  (`priorPagesSent`).
+- **THE LOOK REPLY NAMES A LIST FIELD BY ITS KEY AND NEVER SAYS WHICH CODES
+  CAME OFF (N13; found 2026-10-02 in the gap fixes' screenshots; not
+  changed).** `editReplyBody`'s look branch (`public/chat.js`) maps a few
+  field keys to words (`SAY`) and prints the rest raw: a removal reads
+  "✅ Updated the look — langs.", "— qr.", "— behavior.". The reply carries
+  `qrRemoved` and `qrPages` (which codes came off, which pages changed) and
+  the browser reads neither. A word for each list field and a sentence from
+  those two fields would say what happened.
 - **A PHOTO ADDITION'S REPLY CAPITALISES MID-SENTENCE (found 2026-10-02 in
   run 92; not changed).** The add-on's cover note reads *"I've set that up,
   but I can't confirm from here that A visitor can see a photo of the

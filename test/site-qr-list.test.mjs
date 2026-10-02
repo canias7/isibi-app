@@ -131,6 +131,25 @@ test("qrRefusal: a sentence per token, naming the codes the site has", () => {
   assert.ok(!/undefined|null|\[object/.test(qrRefusal("which-code", null, null)), "a missing name list leaks into the sentence");
 });
 
+test("qrRefusal: the figure refusals name every code coming off, one or several, in words that agree with how many", () => {
+  // SEVERAL CODES CAN COME OFF AT ONCE (2026-10-02, the owner's review of W2),
+  // so the two sentences said when their figures cannot come off name each one
+  // and speak of one code or of several.
+  assert.equal(qrRefusal("figure-part", ["prices", "ring"], ["prices"]),
+    "I couldn't take the `prices` code off the pages that show it without changing more than the code itself.");
+  assert.equal(qrRefusal("figure-part", ["prices", "ring", "wifi"], ["prices", "wifi"]),
+    "I couldn't take the `prices` and `wifi` codes off the pages that show them without changing more than the codes themselves.");
+  assert.equal(qrRefusal("figure-part", ["a", "b", "c"], ["a", "b", "c"]),
+    "I couldn't take the `a`, `b` and `c` codes off the pages that show them without changing more than the codes themselves.");
+  assert.equal(qrRefusal("figure-unchecked", ["prices"], "prices"),
+    "I couldn't check where the `prices` code is shown on your pages — try again in a moment.");
+  assert.equal(qrRefusal("figure-unchecked", ["prices", "ring"], ["prices", "ring"]),
+    "I couldn't check where the `prices` and `ring` codes are shown on your pages — try again in a moment.");
+  // NOTHING NAMED IS "that code", never a list of nothing; a non-name is dropped.
+  assert.equal(qrRefusal("figure-unchecked", [], [7, null, ""]),
+    "I couldn't check where that code is shown on your pages — try again in a moment.");
+});
+
 test("qrUnplaced: a code no page shows, by its own binding, or by the old one for the first code only", () => {
   const p = (...srcs) => srcs.map((source) => ({ path: "x.tsx", source }));
   assert.deepEqual(qrUnplaced(TWO, p("<h1/>")), ["ring", "wifi"], "on a page showing nothing, both codes are unplaced");
@@ -202,10 +221,13 @@ test("the edit route folds the lane's patch over the stored list and refuses wit
   const generic = loop.indexOf("answers[field] = ran.value;");
   assert.ok(fold > 0 && generic > fold, "the qr fold is not inside the lane loop ahead of the generic store — the patch would be stored AS the list");
   const body = loop.slice(fold, generic);
-  // WITH THE REMOVAL FLAG SINCE 2026-10-02 (the whole-router audit's W2): a code
-  // the picker asked off, on a site with several, comes off by the name the
-  // lane answered (driven in `partial-removal.test.mjs`).
-  assert.match(body, /const patched = patchQr\(\(priorLook \|\| \{\}\)\.qr, ran\.value, \{ remove: !!oneOff \}\);/, "the patch is not folded over the stored list");
+  // A PATCH ONLY (2026-10-02, the owner's review of W2): a code asked OFF
+  // never reaches this fold — the removal names its codes through `take_off`
+  // above it (driven in `partial-removal.test.mjs`) — so the fold is handed
+  // the lane's patch and nothing else.
+  assert.match(body, /const patched = patchQr\(\(priorLook \|\| \{\}\)\.qr, ran\.value\);/, "the patch is not folded over the stored list");
+  const takeOff = loop.indexOf("if (eRemoves.remove.includes(field) && takeOffLane(field)) {");
+  assert.ok(takeOff > 0 && takeOff < fold, "a removal is not answered ahead of the qr fold — a code asked off would be read as a patch");
   assert.match(body, /if \(!patched\.ok\) \{/, "a refused patch is not refused");
   assert.match(body, /msg: qrRefusal\(patched\.why, patched\.names, patched\.said\)/, "the refusal does not use the module's sentence");
   assert.match(body, /\{ status: 422 \}/, "the refusal is not a 422 the browser shows as a sentence");

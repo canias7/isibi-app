@@ -2851,6 +2851,48 @@ test("a site too large to show degrades instead of blowing the prompt", async ()
   assert.match(b, /to delete one, put its file in `remove`/, "the long-site block does not say how a page is deleted");
 });
 
+test("every prompt the page writer can be given says the tool's one contract: an unreturned page is kept, `remove` deletes, and nothing calls that the opposite of anything", async () => {
+  // THE OWNER'S REVIEW OF BATCH 1 (2026-10-02, W3): the add-on block still said
+  // an unreturned page being kept was "the opposite of what it means on an
+  // ordinary rewrite" — false since the rewrite keeps them too, and a sentence
+  // that tells a model the paths disagree. Every block the writer can be handed
+  // is rendered here, beside the tool's own `remove` field, and held to one
+  // rule rather than each block being pinned on its own.
+  const { priorPagesBlock, SITE_PAGES_TOOL, MAX_PRIOR_CHARS } = await import("../builder/page-gen.mjs");
+  const small = [{ path: "index.tsx", source: "export const A = 1;" }, { path: "gallery.tsx", source: "export const G = 2;" }];
+  const big = [{ path: "index.tsx", source: "export const A = 1;" }, { path: "gallery.tsx", source: "g".repeat(MAX_PRIOR_CHARS) }];
+  const blocks = {
+    "rewrite": priorPagesBlock(small),
+    "rewrite, too large to show": priorPagesBlock([{ path: "index.tsx", source: "x".repeat(MAX_PRIOR_CHARS + 1) }]),
+    "add-on": priorPagesBlock(small, "addon"),
+    "add-on, some pages withheld": priorPagesBlock(big, "addon"),
+    "one page": priorPagesBlock(small, "page", "index.tsx"),
+    "the tool's `remove`": SITE_PAGES_TOOL.input_schema.properties.remove.description,
+  };
+  // EACH OBSERVER ALIVE FIRST: every block rendered, and the withheld variant
+  // really withholding — a negative check over an empty block passes.
+  for (const [name, b] of Object.entries(blocks)) assert.ok(typeof b === "string" && b.length > 80, name + ": nothing rendered");
+  assert.match(blocks["add-on, some pages withheld"], /THE PAGES YOU CANNOT SEE ARE STILL THERE/, "the withheld variant did not withhold");
+  for (const [name, b] of Object.entries(blocks)) {
+    assert.doesNotMatch(b, /opposite/i, name + ": says the contract is the opposite of something");
+    assert.doesNotMatch(b, /simply do not return|delete (?:a|one|the) page[^.]*(?:by )?(?:leaving it out|not returning)/i, name + ": deletes a page by leaving it out");
+    // WHEREVER A BLOCK SPEAKS OF A PAGE NOT RETURNED, IT IS KEPT; wherever it
+    // speaks of deleting one, it is through `remove`.
+    if (/not return|unreturned|out of `pages`/i.test(b)) assert.match(b, /(?:IS KEPT|is kept exactly as it is|and must not return)/i, name + ": a page not returned is not said to be kept");
+    // …AND NOWHERE SAYS THE OPPOSITE: a block that says "kept" in one sentence
+    // and "removed" in another contradicts itself, and the positive check above
+    // reads only that the first is there.
+    assert.doesNotMatch(b, /(?:not return|unreturned|leaving a page out)[^.]*\b(?:removed|deleted|goes away|is gone|disappears)\b/i, name + ": says a page not returned goes");
+    // (The tool's entry IS the `remove` field, so it names itself by being it.)
+    if (/delete|go away/i.test(b) && name !== "the tool's `remove`") assert.match(b, /`remove`/, name + ": deletion is mentioned without `remove`");
+  }
+  assert.match(blocks["the tool's `remove`"], /^THE ONLY WAY TO DELETE A PAGE\./, "the tool's own field no longer says it is the only way to delete");
+  // THE ADD-ON'S REMOVAL PARAGRAPH KEEPS ITS TEETH without the clause: `remove`
+  // is the only way, and leaving the page out does nothing.
+  assert.match(blocks["add-on"], /`remove` IS THE ONLY THING THAT DOES IT/);
+  assert.match(blocks["add-on"], /NOT returning it does NOTHING: a page you do not return is KEPT, and answering a deletion by returning the other pages leaves the page exactly where it was\./);
+});
+
 test("the source that produced a build is stored, and read back on a revise", () => {
   // A CHAIN. The publish writes it, the route reads it, and the read is gated on
   // this being a revise — any link missing and the generator is back to writing

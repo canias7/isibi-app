@@ -11252,6 +11252,10 @@ function editReplyBody(e) {
     var where = typeof e.tokensPage === 'string' && e.tokensPage ? ' on ' + e.tokensPage : '';
     let out = !bits.length && opsSaid ? '✅ ' + opsSaid
       : '✅ Updated the look' + (bits.length ? ' — ' + bits.join(', ') : '') + where + '.';
+    // A REMOVAL THAT ALSO NAMED SOMETHING THE SITE DOES NOT HAVE (2026-10-02,
+    // W2): what was there came off, and the server's sentence says which names
+    // took nothing off — composed there, because only it held the list.
+    if (typeof e.takeOffNote === 'string' && e.takeOffNote.trim()) out += ' ' + e.takeOffNote.trim();
     // A RENAME REACHES THE PAGES, and saying how far is the honest half. The
     // name is stored once and written into every page; the customer can check
     // the second half by looking, and a count of zero on a rename is the one

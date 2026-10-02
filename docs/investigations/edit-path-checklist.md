@@ -411,6 +411,18 @@ the owner's free press, run 51, at 22:57 UTC):
     (confirmed defect, conditional risk, untested model behaviour), and the
     eight replies left untraced are traced. D1–D3 wait for the merge;
     `docs/history/2026-10-02-router-batch-1.md`.
+    **The owner's review of batch 1 (same day): the merge held, three gaps
+    fixed on the branch, for review.** A menu answer moving several items is
+    now applied for every one of the 120 orders of five items, on menus that
+    differ per page (W4); a removal on a list names its entries — one,
+    several or every language or QR code — and code checks each name against
+    the site's list, so an entry the site does not have takes nothing off and
+    the one-entry shortcut is gone (W2, N1 resolved); and the page writer's
+    prompts no longer call keeping an unreturned page the opposite of a
+    rewrite (W3). 25 new cases, all red on batch 1 but their controls; sweeps
+    W4 9 of 10 (one equivalent, measured), W2 35 of 35, W3 8 of 8; full
+    suite 8,766. Found and kept apart: N11–N13. The history's §6 and the
+    audit's §4.2.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

@@ -912,11 +912,14 @@ test("the reply says what went and what was left behind", () => {
 });
 
 test("the model is TOLD how to remove, in the addon block and in the tool", () => {
-  // THE VERB IS UNREACHABLE WITHOUT THE SENTENCE. The full-revise block says
-  // "to delete a page, simply do not return it" — true there, and a no-op here,
-  // where an unreturned page is KEPT. A model working from that habit answers
-  // "remove the gallery" by returning nothing, which is precisely the escalation
-  // this change exists to stop.
+  // THE VERB IS UNREACHABLE WITHOUT THE SENTENCE. The full-revise block said
+  // "to delete a page, simply do not return it" until 2026-10-02 (the
+  // whole-router audit's W3) — a no-op here, where an unreturned page is KEPT.
+  // A model working from that habit answers "remove the gallery" by returning
+  // nothing, which is precisely the escalation this change exists to stop.
+  // Every block now says the tool's one contract, so this sentence no longer
+  // says "here", or that the rewrite means the opposite (the owner's review of
+  // batch 1; every block is held to it in `page-gen.test.mjs`).
   const block = priorPagesBlock(SITE, "addon");
   // NOT just the word `remove` — the surviving half of the paragraph contains it,
   // which a mutation proved by deleting the sentence that does the work and
@@ -924,8 +927,9 @@ test("the model is TOLD how to remove, in the addon block and in the tool", () =
   // the model is actually asking itself.
   assert.match(block, /`remove` IS THE ONLY THING THAT DOES IT/,
     "the addon prompt never says which field deletes a page");
-  assert.match(block, /NOT returning it does NOTHING here/,
+  assert.match(block, /NOT returning it does NOTHING:/,
     "the prompt does not contradict the not-returning habit head-on");
+  assert.doesNotMatch(block, /opposite/i, "the prompt still says the rewrite's contract is the opposite");
   assert.match(block, /a page you do not return is\s+KEPT/i, "the prompt does not correct the revise habit");
   // AND IT MUST BIND ON COST. Measured live: "add a gallery page" rewrote all
   // four existing pages for 28 credits, with the "return only what is new or

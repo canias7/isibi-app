@@ -245,6 +245,95 @@ test("runNavEdit: a button changed beside a menu answer that changed no menu is 
   for (const p of r.pages) assert.deepEqual(menuOf(p.source), menuOf(ORIG[p.path]), p.path + ": a menu moved");
 });
 
+// ── SEVERAL ITEMS MOVED AT ONCE (owner's review of batch 1, 2026-10-02) ───────
+//
+// "through runNavEdit, start with Home, Menu, Visit, Order, Status and supply
+// the correct model answer Order, Status, Home, Menu, Visit — the current code
+// returns no-change … nine of the 120 permutations of five items failed my
+// comparison." Reproduced on d4e3f1c7: the same nine, that one included. Each
+// moved item was put back while the later moved items still stood where they
+// were, so "before the nearest item after it" found one of those and the move
+// carried it back. Every moved item now comes out first and goes back in the
+// answer's order.
+const perms = (a) => (a.length <= 1 ? [a] : a.flatMap((x, i) => perms([...a.slice(0, i), ...a.slice(i + 1)]).map((p) => [x, ...p])));
+const hrefs = (l) => l.map((it) => it.href);
+/** A one-page site whose one menu is `items`, written the way the editor rewrites it. */
+const onePage = (items) => ({ path: "index.tsx", source: "import { SiteChrome } from \"@/components/ui/site-chrome\";\nexport default function P() {\n  return (\n"
+  + "    <SiteChrome name=\"Kiln Street Cafe\" links={[" + items.map((it) => "{ label: \"" + it.label + "\", href: \"" + it.href + "\" }").join(", ") + "]}>\n      <h1>Hi</h1>\n    </SiteChrome>\n  );\n}\n" });
+const editorSays = (links) => ({ send: async () => ({ content: [{ type: "tool_use", name: NAV_TOOL.name, input: { links } }], usage: { input_tokens: 10, output_tokens: 5 } }) });
+
+test("the owner's case through runNavEdit: Home, Menu, Visit us, Order, Status answered Order, Status, Home, Menu, Visit us becomes that menu — not 'nothing to change'", async () => {
+  const r = await runNavEdit(editorSays([ORD, STA, HOME, MEN, VIS]), { instruction: "Put Order and Status first in the menu.", pages: [onePage(SHOWN)], routes: ROUTES });
+  assert.equal(r.ok, true, JSON.stringify({ reason: r.reason, msg: r.msg }));
+  assert.deepEqual(menuOf(r.pages[0].source), [[ORD, STA, HOME, MEN, VIS]]);
+  assert.deepEqual(r.changed, ["index.tsx"]);
+  assert.equal(r.msg, "✅ Updated the menu on 1 page: Order · Status · Home · Menu · Visit us.");
+});
+
+test("every one of the 120 orders of a five-item menu, answered by the editor, is the order that page ends up with (through runNavEdit)", async () => {
+  let changed = 0, restated = 0;
+  for (const answer of perms(SHOWN)) {
+    const r = await runNavEdit(editorSays(answer), { instruction: "Reorder the menu.", pages: [onePage(SHOWN)], routes: ROUTES });
+    const label = hrefs(answer).join(" ");
+    if (label === hrefs(SHOWN).join(" ")) {
+      assert.equal(r.reason, "no-change", label + ": restating the menu changed it");
+      restated++;
+      continue;
+    }
+    assert.equal(r.ok, true, label + ": " + r.msg);
+    assert.deepEqual(menuOf(r.pages[0].source), [answer], label);
+    changed++;
+  }
+  assert.deepEqual([changed, restated], [119, 1], "not every order was tried");
+});
+
+test("menuApply never lists an address twice: an item the answer adds that this page already lists is not added again", () => {
+  // UNREACHABLE THROUGH `runNavEdit`, and said so: there the change is read
+  // against the union of the very menus it is applied to, so an added address
+  // is on no page. `menuApply` is a function of whatever change it is handed,
+  // though, and one read against a menu that lacked an item this page lists
+  // must not give the page that item twice.
+  const shown = [{ href: "/", label: "Home" }, { href: "/menu", label: "Menu" }];
+  const change = menuChange(shown, [...shown, { href: "/order", label: "Order" }]);
+  assert.deepEqual(change.added.map((it) => it.href), ["/order"], "the fixture's answer adds nothing");
+  assert.deepEqual(change.moved, [], "the fixture's answer moves something");
+  const page = [{ href: "/", label: "Home" }, { href: "/order", label: "Order now" }, { href: "/menu", label: "Menu" }];
+  assert.deepEqual(menuApply(page, change), page, "the page lists an address twice, or lost its own words for it");
+  // CONTROL: a page without it gains it, after the item the answer put before it.
+  assert.deepEqual(menuApply(shown, change), [...shown, { href: "/order", label: "Order" }]);
+});
+
+test("every one of the 120 orders over four menus that differ: no page gains or loses an item or its words; what the answer did not move keeps the page's order; a menu in the order shown ends in the answer's; a moved item follows the nearest item the answer put before it", () => {
+  const pages = { "index.tsx": [HOME, MEN, VIS, ORD], "menu.tsx": [MEN, L("Visit", "/visit"), ORD], "visit.tsx": [HOME, VIS, MEN, ORD], "status.tsx": [HOME, STA] };
+  const isSub = (sub, of) => { let k = 0; for (const x of of) if (x === sub[k]) k++; return k === sub.length; };
+  let inOrder = 0, moves = 0, anchored = 0;
+  for (const answer of perms(SHOWN)) {
+    const c = menuChange(SHOWN, answer);
+    const order = hrefs(answer);
+    for (const [path, items] of Object.entries(pages)) {
+      const got = menuApply(items, c);
+      const label = path + " for " + order.join(" ");
+      assert.deepEqual([...hrefs(got)].sort(), [...hrefs(items)].sort(), label + ": an item came or went");
+      for (const g of got) assert.equal(g.label, items.find((i) => i.href === g.href).label, label + ": the page's own words changed");
+      assert.ok(isSub(hrefs(items).filter((h) => !c.moved.includes(h)), hrefs(got)), label + ": an item the answer did not move changed place");
+      if (isSub(hrefs(items), hrefs(SHOWN))) {
+        inOrder++;
+        assert.deepEqual(hrefs(got), order.filter((h) => hrefs(items).includes(h)), label + ": not the answer's order");
+      }
+      for (const m of c.moved.filter((h) => hrefs(items).includes(h))) {
+        moves++;
+        const before = order.slice(0, order.indexOf(m)).filter((h) => hrefs(items).includes(h));
+        if (!before.length) continue;
+        anchored++;
+        assert.equal(hrefs(got)[hrefs(got).indexOf(m) - 1], before.at(-1), label + ": " + m + " does not follow " + before.at(-1));
+      }
+    }
+  }
+  // THE OBSERVERS ARE ALIVE: three of the four menus are in the order shown,
+  // and the moves measured on this fixture were each checked.
+  assert.deepEqual([inOrder, moves, anchored], [360, 721, 599]);
+});
+
 // ── THROUGH THE REAL EDIT ROUTE ───────────────────────────────────────────────
 
 const hex32 = () => randomBytes(16).toString("hex");
@@ -413,6 +502,46 @@ for (const mode of ["sync", "job"]) {
       "order.tsx": [],
       "takeaway.tsx": [],
     }, "rename " + mode);
+  });
+
+  test(`(${mode}) "put Order and Status first": two items moved at once, on four menus that differ — each page's own items, words and the rest of its order kept`, async () => {
+    const r = await drive({ mode, answer: { links: [ORD, STA, HOME, MEN, VIS] } });
+    assertShipped(r, mode, {
+      "index.tsx": [[ORD, HOME, MEN, VIS]],
+      "menu.tsx": [[ORD, MEN, L("Visit", "/visit")]],
+      "visit.tsx": [[ORD, HOME, VIS, MEN]],
+      "status.tsx": [[STA, HOME]],
+      "order.tsx": [],
+      "takeaway.tsx": [],
+    }, "two moved " + mode);
+    assert.equal(r.reply.msg, "✅ Updated the menu on 4 pages, each keeping its own items — Order · Home · Menu · Visit us (1 page); Order · Menu · Visit (1 page); Order · Home · Visit us · Menu (1 page); Status · Home (1 page).");
+  });
+
+  // TWO MOVED ITEMS ON ONE PAGE, which is where the old placement went wrong:
+  // Order went back before Visit us while Visit us still stood in its old
+  // place, and Visit us then went back after Order — both where they started.
+  test(`(${mode}) "put Order and then Visit us first": two items moved together on the pages that list both, and each page keeps its own words and the rest of its order`, async () => {
+    const r = await drive({ mode, answer: { links: [ORD, VIS, HOME, MEN, STA] } });
+    assertShipped(r, mode, {
+      "index.tsx": [[ORD, VIS, HOME, MEN]],
+      "menu.tsx": [[ORD, L("Visit", "/visit"), MEN]],
+      "visit.tsx": [[ORD, VIS, HOME, MEN]],
+      "status.tsx": OWN["status.tsx"],
+      "order.tsx": [],
+      "takeaway.tsx": [],
+    }, "two moved together " + mode);
+  });
+
+  test(`(${mode}) "reverse the menu": every item but one moved, on four menus that differ — none flattened into another`, async () => {
+    const r = await drive({ mode, answer: { links: [STA, ORD, VIS, MEN, HOME] } });
+    assertShipped(r, mode, {
+      "index.tsx": [[ORD, VIS, MEN, HOME]],
+      "menu.tsx": [[ORD, L("Visit", "/visit"), MEN]],
+      "visit.tsx": [[ORD, VIS, MEN, HOME]],
+      "status.tsx": [[STA, HOME]],
+      "order.tsx": [],
+      "takeaway.tsx": [],
+    }, "reversed " + mode);
   });
 
   test(`(${mode}) "move Order to the front": it moves on each page that has it, and each page's own order of the rest stays`, async () => {

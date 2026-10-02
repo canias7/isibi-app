@@ -104,9 +104,10 @@ import { MAX_CSS } from "./site-freecss.mjs";
 // but the model table, so this adds no cycle.
 import { DOOR_LAYERS, layerLine, wordsIn, normalizePagePath } from "./site-ask.mjs";
 // THE QR CODES AS A LIST, read the one way every other reader reads them, so
-// the `qr` lane counts the codes a site has exactly as the route patches them.
+// the `qr` lane names the codes a site has exactly as the route patches them,
+// and a name a model answers is read by the one rule every name is read by.
 // Dependency-free, and already in the container image beside worker.js.
-import { qrList } from "./site-qr-list.mjs";
+import { qrList, qrName } from "./site-qr-list.mjs";
 
 /** A small call: naming which part of a site a sentence is about is routing, not work. */
 /**
@@ -617,16 +618,22 @@ const LANES = {
     },
   },
   langs: {
-    remove: "stop offering the site in a language — the one they name, or every extra one",
-    // ONE OF SEVERAL TAKEN OFF (2026-10-02, the whole-router audit's W2). A
-    // removal used to empty the field, so "stop offering Spanish" took French
-    // away too. With more than one entry stored, the lane answers instead —
-    // shown the list and told this — and the field is emptied only when that
-    // answer is an empty list (`removalNote`).
-    removeOne:
-      "THEY ASKED FOR SOMETHING TO BE TAKEN OFF THIS LIST. Answer the whole list with what they named gone and " +
-      "every other entry exactly as it is. An empty list only when they asked for every one of them to go.",
-    entries: (v) => (Array.isArray(v) ? v.length : 0),
+    remove: "stop offering the site in one or more of its extra languages — the ones they name, or every one",
+    // TAKEN OFF BY NAME (2026-10-02, the whole-router audit's W2, and the
+    // owner's review of batch 1). The lane names the tags to take off and the
+    // route checks each against the stored list (`takeOffTargets`); a tag the
+    // site is not offered in takes nothing off, however short the list is.
+    takeOff: {
+      one: "extra language",
+      many: "extra languages",
+      entries: (v) => (Array.isArray(v) ? v : [])
+        .filter((t) => typeof t === "string" && t.trim())
+        .map((t) => ({ id: t.trim(), show: t.trim(), say: "`" + t.trim() + "`" })),
+      // A TAG IS A TAG WHATEVER ITS CASE (BCP-47 says so); nothing else is
+      // forgiven — `es-ES` is not `es`.
+      same: (said, id) => said.toLowerCase() === id.toLowerCase(),
+      keep: (v, gone) => (Array.isArray(v) ? v : []).filter((t) => !(typeof t === "string" && gone.has(t.trim()))),
+    },
     hint: "The other languages the site is also offered in.",
     shape: { type: "array", items: { type: "string" }, maxItems: 12 },
     edit: {
@@ -668,12 +675,20 @@ const LANES = {
   // to reach the `page` rung as well. Named in CLAUDE.md's backlog.
   behavior: {
     remove: "stop a control on the page doing what it does, leaving the control itself where it is",
-    // ONE CONTROL OF SEVERAL (2026-10-02, W2): `langs`'s rule, for a list of
-    // controls — the others keep doing what they do.
-    removeOne:
-      "THEY ASKED FOR SOMETHING TO BE TAKEN OFF THIS LIST. Answer the whole list with what they named gone and " +
-      "every other entry exactly as it is. An empty list only when they asked for every one of them to go.",
-    entries: (v) => (Array.isArray(v) ? v.length : 0),
+    // TAKEN OFF BY NUMBER (2026-10-02, W2): `langs`'s rule, for a list of
+    // controls. An entry has no name of its own — two can be about one
+    // button — so each is shown with its place in the list, and that number is
+    // what the lane answers and the route checks.
+    takeOff: {
+      one: "control",
+      many: "controls",
+      entries: (v) => (Array.isArray(v) ? v : []).map((b, i) => {
+        const what = b && typeof b === "object" ? [b.control, b.on, b.does].filter((x) => typeof x === "string" && x.trim()).join(" — ") : "";
+        return { id: String(i + 1), show: what || "(no description)", say: "`" + (i + 1) + "`" + (b && typeof b.control === "string" && b.control.trim() ? " (" + b.control.trim().slice(0, 40) + ")" : "") };
+      }),
+      same: (said, id) => said === id,
+      keep: (v, gone) => (Array.isArray(v) ? v : []).filter((_, i) => !gone.has(String(i + 1))),
+    },
     hint: "What something on the page DOES when someone uses it — a button, a link, a form, a tab, a filter, a menu, a carousel. What it opens, what it changes, what you see happen. This is the lane for any 'when someone presses / clicks / submits X, then Y' — even about the header button or the menu; their WORDS, LINKS and items are `action`.",
     shape: { type: "array", items: BEHAVIOR_ITEM },
     edit: {
@@ -726,15 +741,22 @@ const LANES = {
   // code is a printed card that stops working. `patchQr` folds the patch over
   // the stored list where the lane's answer is read.
   qr: {
-    remove: "take a QR code off the site — the one they name, or the only one when it has just one",
-    // ONE CODE OF SEVERAL (2026-10-02, W2). This lane answers a patch to one
-    // code, so on a removal it answers WHICH code goes, and the route takes
-    // that one off the list (`patchQr` with `remove`) and its figure off the
-    // pages — every other code, and every page showing it, stays as it is.
-    removeOne:
-      "THEY ASKED FOR ONE OF THESE CODES TO BE TAKEN OFF THE SITE. Answer `name` with the code that goes, by the " +
-      "name it has in the list you were shown, and leave `points` and `label` out.",
-    entries: (v) => qrList(v).length,
+    remove: "take QR codes off the site — the ones they name: one, several or every one",
+    // TAKEN OFF BY NAME (2026-10-02, W2, and the owner's review of batch 1:
+    // "support explicitly selected QR removals, including several or all
+    // codes"). A removal is not a patch: the lane names every code that goes
+    // (`takeOff`), the route checks each name against the stored list, takes
+    // exactly those off and their figures off the pages — and a name the site
+    // does not have takes nothing off, even on a site with one code.
+    takeOff: {
+      one: "QR code",
+      many: "QR codes",
+      entries: (v) => qrList(v).map((c) => ({ id: c.name, show: "“" + c.label + "”, scanning it opens " + c.points, say: "`" + c.name + "`" })),
+      // A NAME IS READ BY THE ONE RULE EVERY CODE NAME IS READ BY (`qrName`),
+      // never matched loosely.
+      same: (said, id) => qrName(said) === id,
+      keep: (v, gone) => qrList(v).filter((c) => !gone.has(c.name)),
+    },
     hint: "A QR CODE the site has — where scanning it takes you, or what the words beside it say. Which one, when the site has several.",
     shape: {
       type: "object",
@@ -865,29 +887,186 @@ export const VERB_LANES = LANE_FIELDS.filter((f) => LANES[f].verbs);
 export const REMOVABLE_LANES = LANE_FIELDS.filter((f) => !!LANES[f].remove);
 
 /**
- * A REMOVAL THAT TAKES ONE ENTRY OFF, NOT THE FIELD (2026-10-02, the
- * whole-router audit's W2).
+ * A REMOVAL FROM A LIST: THE MODEL NAMES WHAT GOES, CODE CHECKS EACH NAME
+ * (2026-10-02, the whole-router audit's W2; reworked after the owner's review
+ * of batch 1).
  *
- * A removal used to make no lane call at all — the field was emptied by name
+ * A removal used to make no lane call — the field was emptied by name
  * (`mergeLook`'s `clear`) — which is right for a value that is one thing (a
- * stylesheet, a summary, a mark) and wrong for a list: "stop offering the site
- * in Spanish" emptied `langs`, French with it, and "take the prices code off,
- * keep the other" took both codes. So a lane that keeps a list carries
- * `removeOne` (what it is told on a removal) and `entries` (how many its stored
- * value holds), and when that is MORE THAN ONE its lane answers the removal —
- * shown every entry and the customer's words, it names what goes and keeps the
- * rest. A field holding one entry, or none, is still emptied for nothing, as
- * before: that IS taking off "the only one".
+ * stylesheet, a summary, a mark) and wrong for a list: "stop offering Spanish"
+ * took French too. Batch 1 asked the lane only when the list held more than
+ * one entry, and the owner's review found what that left: *"list length does
+ * not establish which item the customer meant, so a request for an absent
+ * language or code must preserve the existing item"*, and a single-name patch
+ * could not take off several codes or every one. *"Let the model identify the
+ * targets and have code validate them."*
  *
- * Answers the note to hand the lane, or null when the removal is the whole
- * field. Asked of the lane table, never of a field's name, so a lane that gains
- * a list gains this by gaining the two keys.
+ * So a lane that keeps a list carries `takeOff`, and every removal on it is
+ * one small call: the model is shown each entry with the name it goes by and
+ * answers the names of the entries the customer asked to take off — one,
+ * several or every one, or none when what they named is not there. The route
+ * then checks each name against the stored list (`takeOffTargets`): a name on
+ * the list comes off, a name not on it takes nothing off and is said, and
+ * every entry not named stays exactly as it is. Nothing here reads the
+ * customer's words: the model reads them, and code compares two lists.
  */
-export function removalNote(field, value) {
-  if (typeof field !== "string" || !Object.hasOwn(LANES, field)) return null;
-  const lane = LANES[field];
-  if (typeof lane.removeOne !== "string" || typeof lane.entries !== "function") return null;
-  return lane.entries(value) > 1 ? lane.removeOne : null;
+export function takeOffLane(field) {
+  return typeof field === "string" && Object.hasOwn(LANES, field) && !!LANES[field].takeOff;
+}
+
+const TAKE_OFF_SYSTEM =
+  "You are taking things off a website that already exists, for the person who owns it.\n\n" +
+  "One list from their site is in front of you, each entry with the name it goes by, and one message says what " +
+  "they want taken off it. Answer with the names of the entries they asked to take off, each copied exactly as it " +
+  "is written in the list. There is nothing else to answer with and nothing else to decide.\n\n" +
+  "NAME ONLY WHAT THEY ASKED TO TAKE OFF. An entry they did not mention stays, so it is not named. When they asked " +
+  "for several, name each one; when they asked for every one to go, name every entry.\n\n" +
+  "WHAT IS NOT IN THE LIST IS NOT ON THE SITE. Never answer with the nearest entry in place of something they " +
+  "named that is not in the list: answer that one as they wrote it, so they can be told it is not there, and the " +
+  "site keeps everything it has. If they named nothing that could be taken off, answer an empty list.";
+
+/** The removal tool for one list lane: the names of the entries that go. */
+export function takeOffTool(field) {
+  if (!takeOffLane(field)) throw new Error("takeOffTool: no list lane for: " + field);
+  const t = LANES[field].takeOff;
+  return {
+    name: "take_off",
+    description: "Name the " + t.many + " they asked to take off this site.",
+    input_schema: {
+      type: "object",
+      properties: {
+        targets: {
+          type: "array",
+          items: { type: "string" },
+          description: "Each " + t.one + " they asked to take off, by the name it has in the list you were shown, " +
+            "copied exactly — every one of them when they asked for all to go. Empty when nothing they named is in " +
+            "the list.",
+        },
+      },
+      required: ["targets"],
+    },
+  };
+}
+
+/** The removal request: the list as it stands, each entry by its name, and their words. */
+export function takeOffRequest({ field, message, value, model }) {
+  const tool = takeOffTool(field);
+  const t = LANES[field].takeOff;
+  const list = t.entries(value);
+  return {
+    model,
+    max_tokens: 400,
+    tools: [{ ...tool, cache_control: { type: "ephemeral" } }],
+    tool_choice: { type: "tool", name: tool.name },
+    system: [{ type: "text", cache_control: { type: "ephemeral" }, text: TAKE_OFF_SYSTEM }],
+    messages: [{ role: "user", content:
+      "The " + t.many + " on their site (`" + field + "`), each by the name to answer with:\n" +
+      (list.length ? list.map((e) => "- " + e.id + (e.show && e.show !== e.id ? " — " + e.show : "")).join("\n") : "(none)") +
+      "\n\nWhat they asked for:\n" + String(message || "").slice(0, MAX_MESSAGE) },
+    ],
+  };
+}
+
+/**
+ * The names the removal named, or `ok: false` when there is no list to read.
+ * A name that is not a string is not a name — dropped, never coerced
+ * (`String(["es"])` is `"es"`).
+ */
+export function readTakeOff(reply) {
+  const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
+  const use = blocks.find((b) => b && b.type === "tool_use" && b.name === "take_off");
+  const raw = use && use.input && typeof use.input === "object" ? use.input.targets : undefined;
+  if (!Array.isArray(raw)) return { ok: false, targets: [] };
+  return { ok: true, targets: raw.filter((t) => typeof t === "string" && t.trim()).map((t) => t.trim().slice(0, 80)) };
+}
+
+/**
+ * CODE CHECKS WHAT THE MODEL NAMED. Each name is compared with the stored
+ * entries by the lane's own rule (`same`); a name on the list comes off, a name
+ * not on it is `unknown`, and the value that stays (`kept`) is the stored one
+ * without exactly the matched entries. `all` when every entry the list held was
+ * named — the field is then emptied, which the merge does by name.
+ */
+export function takeOffTargets(field, value, targets) {
+  if (!takeOffLane(field)) throw new Error("takeOffTargets: no list lane for: " + field);
+  const t = LANES[field].takeOff;
+  const list = t.entries(value);
+  const gone = new Set();
+  const unknown = [];
+  for (const said of Array.isArray(targets) ? targets : []) {
+    if (typeof said !== "string" || !said.trim()) continue;
+    const hit = list.find((e) => t.same(said.trim(), e.id));
+    if (hit) gone.add(hit.id);
+    else if (!unknown.includes(said.trim())) unknown.push(said.trim());
+  }
+  return {
+    matched: [...new Set(list.filter((e) => gone.has(e.id)).map((e) => e.id))],
+    unknown,
+    kept: t.keep(value, gone),
+    // EVERY ENTRY, not as many names as entries: a list that repeats a tag
+    // (`["fr", "fr"]`) is all gone when that one tag is named.
+    all: list.length > 0 && list.every((e) => gone.has(e.id)),
+  };
+}
+
+/**
+ * One removal: one call, `send` injected. A list with nothing on it asks no
+ * one — nothing can be taken off it — and answers as a removal that named
+ * nothing. A call that fails or is cut off is `failed`; an answer with no list
+ * of names is `ok: false`.
+ */
+export async function runTakeOff(deps, { field, message, value, model }) {
+  if (!takeOffLane(field)) throw new Error("runTakeOff: no list lane for: " + field);
+  if (!LANES[field].takeOff.entries(value).length) {
+    return { field, ok: true, failed: false, usage: null, targets: [], ...takeOffTargets(field, value, []) };
+  }
+  let reply;
+  try {
+    reply = await deps.send(takeOffRequest({ field, message, value, model }));
+  } catch (e) {
+    return { field, ok: false, failed: true, error: e, usage: null, targets: [] };
+  }
+  const usage = laneUsage(reply, model);
+  if (reply && reply.stop_reason === "max_tokens") {
+    const e = new Error("take-off truncated at max_tokens");
+    e.truncated = true;
+    return { field, ok: false, failed: true, error: e, usage, targets: [] };
+  }
+  const read = readTakeOff(reply);
+  if (!read.ok) return { field, ok: false, failed: false, usage, targets: [] };
+  return { field, ok: true, failed: false, usage, targets: read.targets, ...takeOffTargets(field, value, read.targets) };
+}
+
+/**
+ * What the customer is told when a removal took nothing off: what they named
+ * that is not there, and what is.
+ *
+ * ONLY WHAT THIS STEP FOUND. The reply carries `unchanged: true` and the
+ * browser adds "Nothing on your site changed" with what the edit and the
+ * routing call cost (`wholeRequestNote`, 2026-09-23) — a sentence here saying
+ * so as well printed it twice.
+ */
+export function takeOffRefusal(field, run, value) {
+  if (!takeOffLane(field)) return "I couldn't take that off.";
+  const t = LANES[field].takeOff;
+  const have = t.entries(value).map((e) => e.say);
+  if (!have.length) return "This site has no " + t.many + " to take off.";
+  const has = have.length === 1 ? "its only " + t.one + " is " + have[0] : "its " + t.many + " are " + have.join(", ");
+  const named = run && Array.isArray(run.unknown) ? run.unknown.slice(0, 3).map((n) => "`" + String(n).slice(0, 40) + "`") : [];
+  // THREE DIFFERENT FACTS, three sentences: what they named is not on the
+  // site; they named nothing the site has; or the answer could not be read —
+  // only the last is ours not to know.
+  if (run && run.ok && named.length) return "This site has no " + t.one + " " + named.join(" or ") + " — " + has + ".";
+  if (run && run.ok) return "Nothing you asked to take off is on this site — " + has + ".";
+  return "I couldn't tell which " + t.one + " to take off — " + has + ". Say which one.";
+}
+
+/** Said beside a removal that took something off: the names it named that were not there. */
+export function takeOffNote(field, unknown) {
+  if (!takeOffLane(field) || !Array.isArray(unknown) || !unknown.length) return "";
+  const t = LANES[field].takeOff;
+  const named = unknown.slice(0, 3).map((n) => "`" + String(n).slice(0, 40) + "`");
+  return "There was no " + t.one + " " + named.join(" or ") + " to take off, so that part changed nothing.";
 }
 
 /**

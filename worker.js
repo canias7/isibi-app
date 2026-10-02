@@ -241,7 +241,7 @@ import { routeMessage, routeDecision, clarifiedBrief, siteDigest, DOOR_LAYERS, h
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
-import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage, themeNote, landmarkNote, verbLayer, REMOVABLE_LANES, removalNote, mergePageSteps, pageStepDone, samePageOperation, doorLane, doorDispatch } from "./builder/site-lanes.mjs";
+import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage, themeNote, landmarkNote, verbLayer, REMOVABLE_LANES, takeOffLane, runTakeOff, takeOffRefusal, takeOffNote, mergePageSteps, pageStepDone, samePageOperation, doorLane, doorDispatch } from "./builder/site-lanes.mjs";
 // EVERY WAY THE EDIT ROUTE DECLINES, CLASSIFIED (2026-09-23): rewrite, add-on,
 // hop or explain, one table, and `test/edit-failure.test.mjs` holds the route to it.
 import { editFailure, failureMsg, stepMsg } from "./builder/edit-failure.mjs";
@@ -23563,10 +23563,13 @@ async function handleRequest(request, env, ctx) {
               // moves none of them, so without this a two-lane edit and a
               // one-lane edit are the same response.
               let ranLanes = [];
-              // THE REMOVALS A LANE ANSWERED, rather than an empty field
-              // (`removalNote`, W2): kept out of the merge's `clear` below, so
-              // what the lane kept is what is stored.
-              const laneRemovals = new Set();
+              // A REMOVAL FROM A LIST (W2): the lane names the entries that go
+              // and the route checks each against the stored list. When every
+              // entry was named the field is emptied by name, in the merge's
+              // `clear` below; otherwise what stays is the answer stored. The
+              // names a removal gave that the list does not hold are said.
+              const takeOffAll = new Set();
+              const takeOffMissed = [];
               {
                 // THE LANES WERE PICKED AT THE DOOR, not here. `pick_lanes` runs
                 // above the layer dispatch so that what it names can decide
@@ -23597,25 +23600,55 @@ async function handleRequest(request, env, ctx) {
                 // rather than a pipeline, and one publish covers all of them.
                 const answers = {};
                 for (const field of pickedFields) {
-                  // TAKING A FIELD OFF IS NOT A CALL (2026-09-06). There is
-                  // nothing for a model to write: the answer is "nothing", and
-                  // `mergeLook` is told the name below. So a removal costs no
-                  // tokens, no seconds and no credits — it is the `logo` lane's
-                  // shape, which is why `edit_exempt` already exists for a rung
-                  // that publishes without reserving.
+                  // ── A REMOVAL FROM A LIST NAMES WHAT GOES (2026-10-02, W2) ──
                   //
-                  // ⚠ EXCEPT ONE ENTRY OF A LIST THAT HOLDS SEVERAL (2026-10-02,
-                  // the whole-router audit's W2). Emptied by name, "stop
-                  // offering Spanish" took French away too, and "take the prices
-                  // code off, keep the other" took both codes. When the stored
-                  // list holds more than one entry the lane answers instead,
-                  // told it is a removal (`removalNote`), and names what goes;
-                  // the field is emptied only by an answer that is empty.
-                  const oneOff = eRemoves.remove.includes(field)
-                    ? removalNote(field, field === "css" ? priorCss : (priorLook || {})[field])
-                    : null;
-                  if (oneOff) laneRemovals.add(field);
-                  if (eRemoves.remove.includes(field) && !oneOff) {
+                  // Emptied by name, "stop offering Spanish" took French away
+                  // too, and "take the prices code off, keep the other" took
+                  // both. Batch 1 asked the lane only when the list held more
+                  // than one entry — and the owner's review: "list length does
+                  // not establish which item the customer meant, so a request
+                  // for an absent language or code must preserve the existing
+                  // item." So every removal on a list is one small call
+                  // (`runTakeOff`): the model names the entries the customer
+                  // asked to take off, the route checks each against the
+                  // stored list, and only names on the list come off. A
+                  // removal that named nothing on the list changes nothing and
+                  // is told, at no cost for the edit.
+                  if (eRemoves.remove.includes(field) && takeOffLane(field)) {
+                    editTrace.mark("lane:" + field, "take-off");
+                    const stored = (priorLook || {})[field];
+                    const off = await runTakeOff(
+                      { send: eQuick("lane") },
+                      {
+                        field,
+                        message: (eAsks && typeof eAsks[field] === "string" && eAsks[field]) || eInstruction,
+                        value: stored,
+                        model: modelsFor(eb && eb.picker).design,
+                      },
+                    );
+                    if (off.usage) laneUsages.push(off.usage);
+                    if (off.failed) return modelDown(off.error, "The editor is busy — try again in a moment.");
+                    if (!off.ok || !off.matched.length) {
+                      editTrace.mark("lane:" + field, "take-off-none", { named: off.targets.length });
+                      return Response.json({
+                        ok: false, error: "take-off", field, reason: off.ok ? "not-found" : "unread",
+                        named: off.ok ? off.unknown : [], cost: 0, unchanged: true,
+                        msg: takeOffRefusal(field, off, stored),
+                      }, { status: 422 });
+                    }
+                    editTrace.mark("lane:" + field, "taken-off", { matched: off.matched.length, unknown: off.unknown.length, all: off.all });
+                    if (off.unknown.length) takeOffMissed.push({ field, unknown: off.unknown });
+                    if (off.all) takeOffAll.add(field);
+                    else answers[field] = off.kept;
+                    continue;
+                  }
+                  // TAKING A FIELD THAT IS ONE THING OFF IS NOT A CALL
+                  // (2026-09-06). There is nothing for a model to write: the
+                  // answer is "nothing", and `mergeLook` is told the name below.
+                  // So such a removal costs no tokens, no seconds and no credits
+                  // — it is the `logo` lane's shape, which is why `edit_exempt`
+                  // already exists for a rung that publishes without reserving.
+                  if (eRemoves.remove.includes(field)) {
                     editTrace.mark("lane:" + field, "removed");
                     continue;
                   }
@@ -23648,10 +23681,9 @@ async function handleRequest(request, env, ctx) {
                       // job: the lane's first decision is WHICH element, and
                       // only then WHAT COLOUR. Both are context and neither is
                       // the value being edited.
-                      // AND ON A REMOVAL OF ONE ENTRY, WHAT IT IS BEING ASKED.
-                      note: oneOff || (field === "css"
+                      note: field === "css"
                         ? [landmarkNote(eMarks), themeNote(themeSheet)].filter(Boolean).join("\n\n")
-                        : ""),
+                        : "",
                       model: modelsFor(eb && eb.picker).design,
                     },
                   );
@@ -23685,7 +23717,7 @@ async function handleRequest(request, env, ctx) {
                   // stores the list as it was, which the no-change reply
                   // below reads as "already like that".
                   if (field === "qr") {
-                    const patched = patchQr((priorLook || {}).qr, ran.value, { remove: !!oneOff });
+                    const patched = patchQr((priorLook || {}).qr, ran.value);
                     if (!patched.ok) {
                       return Response.json({
                         ok: false, error: "qr", reason: patched.why, codes: patched.names, cost: 0,
@@ -23743,7 +23775,7 @@ async function handleRequest(request, env, ctx) {
               // left, since the next reader would otherwise inherit the wrong
               // reason for a behaviour that is right. `markRemove` is what the
               // removal leaves behind.
-              const merged = mergeLook(priorLook, designed, {}, { instructed: true, asked: true, clear: eRemoves.remove.filter((f) => !laneRemovals.has(f)) });
+              const merged = mergeLook(priorLook, designed, {}, { instructed: true, asked: true, clear: eRemoves.remove.filter((f) => !takeOffLane(f)).concat([...takeOffAll]) });
               const moved = movedFields(priorLook, merged);
               // ── A CODE THAT COMES OFF TAKES ITS FIGURE WITH IT (2026-10-02, W2) ──
               //
@@ -23769,7 +23801,7 @@ async function handleRequest(request, env, ctx) {
                     editTrace.mark("qr:figure", "refused", { why, codes: goneNames.length });
                     return Response.json({
                       ok: false, error: "qr", reason: why, codes: before.map((c) => c.name), cost: 0, unchanged: true,
-                      msg: qrRefusal(why, before.map((c) => c.name), goneNames[0]),
+                      msg: qrRefusal(why, before.map((c) => c.name), goneNames),
                     }, { status: 422 });
                   };
                   const qrParts = await editParts();
@@ -24043,6 +24075,9 @@ async function handleRequest(request, env, ctx) {
                 // name and file — never a destination or a caption.
                 qrRemoved: qrCut ? qrCut.names : undefined,
                 qrPages: qrCut && qrCut.changed.length ? qrCut.changed : undefined,
+                // WHAT A REMOVAL NAMED THAT THE LIST DID NOT HOLD (W2): the rest
+                // came off, and this says which names took nothing off.
+                takeOffNote: takeOffMissed.length ? takeOffMissed.map((m) => takeOffNote(m.field, m.unknown)).join(" ") : undefined,
                 renamed, files: pub.files, render: pub.render, renderNote: pub.renderNote, cost: await eCharge(dUsage), usage: { langUsage: billParts(dUsage) },
               });
             }
