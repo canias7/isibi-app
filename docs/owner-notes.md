@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-02, 14:20 UTC)
+## Current handoff — read this first (2026-10-02, 14:18 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -47,9 +47,9 @@ one combined deploy. Nothing is waiting on a press.
   rewrite and the chat, 23 of 24 on the look step (the survivor changes
   nothing today and is kept as a safeguard). Full suite `8839 / 8839 / 0 /
   0`.
-- **CI**: unit tests green on `129a1757` (8,839, the same total; CI skips
-  its usual four). The site build was still running when this was written;
-  its result goes in on the next push.
+- **CI**: both required checks are green on `129a1757`: unit tests (8,839,
+  the same total; CI skips its usual four) and the site build (404 checks in
+  27 sections across 4 shards, every job green).
 - **What you'll see on screen**: two before-and-after pictures, rendered by
   the chat's own code from the real chain's replies
   (`docs/edits/router-batch-2-review-resume-*.png`).
@@ -95,8 +95,8 @@ one combined deploy. Nothing is waiting on a press.
 - Checks for 202 → finished build → the chat's reply, two additions on two
   pages beside a supported edit, and a removal beside an addition put off,
   each asserting what the models were handed: done.
-- Fast tests and unit CI, the audit and these notes: done; the site build
-  is still running.
+- Fast tests, unit CI and the site build, the audit and these notes:
+  done.
 - Not done, on purpose: no deploy, paid run or container build; CLAUDE.md
   untouched.
 
@@ -190,7 +190,7 @@ since. Add new ones there.
   helper), asserting what each model was handed and the parts named at
   every step; four existing cases changed with their reasons; sweeps 20 of
   20 and 23 of 24 (one equivalent, kept as a safeguard); full suite `8839 /
-  8839 / 0 / 0`; unit CI green on `129a1757`.
+  8839 / 0 / 0`; unit CI and the site build green on `129a1757`.
 - **Not done, on purpose**: no merge, deploy, spend or container build;
   CLAUDE.md untouched. A merge would roll the image to `5fcfae2277e23544`.
 - **The grouped live batch** (the audit's §5.4) now has H4 and is about

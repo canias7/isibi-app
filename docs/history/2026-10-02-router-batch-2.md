@@ -577,6 +577,12 @@ surviving):
 **Full suite, locally: `8839 / 8839 / 0 / 0`** on `129a1757`'s tree. The
 base is 8,813, and the 26 new cases account for the difference.
 
+**CI on `129a1757`**: unit tests run 37017956143, `8839 / 8835 / 0 / 4`, the
+same total as locally (CI skips its usual four); site build run
+37017956398, all 8 jobs green (each job's own conclusion), the gate printing
+*"ALL CHECKS: 404 checks in 27 sections across 4 shards, every job green"*
+at inputs `c0ca5ff6e57434fe` (3,968 files, as many as batch 2's).
+
 ### 7.5 What this does not show, and the limits it leaves
 
 - **What a real model answers**: whether a real picker gives each addition

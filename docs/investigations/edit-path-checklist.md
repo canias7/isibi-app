@@ -465,7 +465,9 @@ the owner's free press, run 51, at 22:57 UTC):
     26 new cases (25 red on `03189a0d`, 1 needing the new export), asserting
     the actual model inputs and the parts named at every hop; sweeps 20 of
     20 and 23 of 24 (the survivor equivalent, kept as a defence); full suite
-    `8839 / 8839 / 0 / 0`. The live batch is now about 35–59 credits, with
+    `8839 / 8839 / 0 / 0`; unit CI `8839 / 8835 / 0 / 4` and the site build
+    (404 checks, every job green) on `129a1757`. The live batch is now about
+    35–59 credits, with
     H4 (two codes beside a heading change on `oak-and-ash`). The history's
     §7 and the audit's §4.4.
 
