@@ -817,8 +817,8 @@ export const PICTURE_TOOL = {
           "`pictures` array, and only when they are asking for a picture to be ADDED somewhere that has none.\n" +
           "THIS IS THE DIFFERENCE BETWEEN A REFUSAL AND THE WORK. Every slot the site has is listed below, so a page " +
           "that is not among them has nowhere to put a photograph and swapping cannot help — saying so here sends it " +
-          "to the step that can add one. LEAVE IT OUT when they meant a slot that IS listed and you simply could not " +
-          "tell which: that is an honest no, and guessing here costs them a page rewrite they did not ask for.",
+          "to the step that can add one. LEAVE IT OUT when they meant a slot that IS listed and you could not tell " +
+          "which: ask them which instead (`question`) — guessing here costs them a page rewrite they did not ask for.",
       },
       // A QUESTION BACK (2026-10-02, builder/clarify.mjs): asked instead of acting, with nothing changed.
       question: QUESTION_FIELD,
@@ -833,7 +833,7 @@ const PICTURE_SYSTEM =
   "has uploaded, and one instruction from them.\n\n" +
   "MATCH ON WHAT THE PICTURE IS OF. The descriptions were written to say what each photograph shows, so \"the one " +
   "of the chairs\" is the slot whose description mentions chairs. When two could fit and only one was asked for, " +
-  "change neither and return an empty list — they will say which.\n\n" +
+  "change neither and ask them which (`question`).\n\n" +
   "USE WHAT THEY HAVE UPLOADED WHENEVER IT FITS. A real photograph of their real shop beats anything made up, and " +
   "it costs them nothing. Only describe a new picture when they have uploaded nothing that suits.\n\n" +
   "CHANGE ONLY WHAT THEY ASKED FOR. Every other picture is there because it was wanted.";

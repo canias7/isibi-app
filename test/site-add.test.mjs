@@ -26,6 +26,7 @@ import { EDIT_LAYERS } from "../builder/site-ask.mjs";
 import { TABLE_ITEM, FUNCTION_ITEM, API_ITEM, JOB_ITEM } from "../builder/site-table.mjs";
 import { TSX_ITEM, MAX_TSX, MAX_COMPONENTS, TOOL_DIRECTIVE } from "../builder/site-plan.mjs";
 import { MAX_PAGES } from "../builder/page-gen.mjs";
+import { QUESTION_FIELD } from "../builder/clarify.mjs";
 import { routeOf } from "../builder/site-addon.mjs";
 import { modelsFor } from "../builder/build-models.mjs";
 import { MAX_QRS } from "../builder/site-qr-list.mjs";
@@ -625,7 +626,11 @@ test("one property per tool, named by the kind, nothing required at the top, the
     // DERIVED FROM WHETHER THE KIND ASKS FOR IT, so a kind that does not
     // declare `requirements` still has exactly one property and a kind that
     // does cannot quietly gain a third.
-    const want = REQUIREMENT_ADDS.includes(k) ? [k, "requirements"] : [k];
+    //
+    // RE-ANCHORED 2026-10-02 (the owner's review: *"Extend clarification into
+    // … add-on designers"*): and the one question back (`QUESTION_FIELD`,
+    // never designed into the site) — still no other metadata.
+    const want = (REQUIREMENT_ADDS.includes(k) ? [k, "requirements"] : [k]).concat("question");
     assert.deepEqual(Object.keys(t.input_schema.properties).sort(), want.slice().sort(),
       k + ": the tool has a property that is neither the kind nor this step's own metadata");
     if (REQUIREMENT_ADDS.includes(k)) {
@@ -634,6 +639,7 @@ test("one property per tool, named by the kind, nothing required at the top, the
       assert.ok(!Object.keys(TABLE_ITEM.properties).includes("requirements"),
         "the coverage list leaked into TABLE_ITEM, which design_schema binds by identity");
     }
+    assert.equal(t.input_schema.properties.question, QUESTION_FIELD, k + ": the designer's question is not the shared question field");
     assert.deepEqual(t.input_schema.required, [], k + ": something is required of a kind that may decline");
     const p = t.input_schema.properties[k];
     assert.equal(p.description, addRule(k), k + ": the property does not carry the kind's rule");
@@ -687,7 +693,13 @@ test("the picker's tool is built from the kinds and describes every one of them"
   const kinds = t.input_schema.properties.kinds;
   assert.deepEqual(kinds.items.enum, ADD_KINDS);
   assert.equal(kinds.maxItems, MAX_ADDS);
-  assert.equal(kinds.minItems, 1);
+  // RE-ANCHORED 2026-10-02 (the owner's review: *"Reconcile contradictory
+  // prompts, including the add-on picker's instruction to choose the closest
+  // kind when uncertain"*): no `minItems`, and no closest kind — a picker that
+  // cannot tell names none and asks.
+  assert.equal(kinds.minItems, undefined);
+  assert.match(kinds.description, /name none and ask them \(`question`\)/);
+  assert.doesNotMatch(kinds.description, /closest/i);
   for (const k of ADD_KINDS) assert.ok(kinds.description.includes('"' + k + '" — '), "the picker is not told what " + k + " means");
   assert.throws(() => pickTool(["page", "nope"]), /no add for kind: nope/);
   assert.throws(() => pickTool([]), /no kinds/);

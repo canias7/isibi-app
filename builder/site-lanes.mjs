@@ -105,7 +105,7 @@ import { MAX_CSS } from "./site-freecss.mjs";
 import { DOOR_LAYERS, layerLine, wordsIn, normalizePagePath } from "./site-ask.mjs";
 // THE QUESTION BACK (2026-10-02): the one field every step's tool carries, and
 // its reader — `builder/clarify.mjs`, shared with every other step.
-import { QUESTION_FIELD, askOf } from "./clarify.mjs";
+import { QUESTION_FIELD, askOf, withQuestion } from "./clarify.mjs";
 // THE QR CODES AS A LIST, read the one way every other reader reads them, so
 // the `qr` lane names the codes a site has exactly as the route patches them,
 // and a name a model answers is read by the one rule every name is read by.
@@ -928,11 +928,16 @@ const TAKE_OFF_SYSTEM =
   "named that is not in the list: answer that one as they wrote it, so they can be told it is not there, and the " +
   "site keeps everything it has. If they named nothing that could be taken off, answer an empty list.";
 
-/** The removal tool for one list lane: the names of the entries that go. */
+/**
+ * The removal tool for one list lane: the names of the entries that go — or,
+ * when what they named could be more than one entry and nothing settles which,
+ * the one question that settles it (2026-10-02, `QUESTION_FIELD`: the owner's
+ * review found this call could not ask, so it could only guess or refuse).
+ */
 export function takeOffTool(field) {
   if (!takeOffLane(field)) throw new Error("takeOffTool: no list lane for: " + field);
   const t = LANES[field].takeOff;
-  return {
+  return withQuestion({
     name: "take_off",
     description: "Name the " + t.many + " they asked to take off this site.",
     input_schema: {
@@ -943,12 +948,12 @@ export function takeOffTool(field) {
           items: { type: "string" },
           description: "Each " + t.one + " they asked to take off, by the name it has in the list you were shown, " +
             "copied exactly — every one of them when they asked for all to go. Empty when nothing they named is in " +
-            "the list.",
+            "the list, and empty when you ask them instead.",
         },
       },
       required: ["targets"],
     },
-  };
+  });
 }
 
 /** The removal request: the list as it stands, each entry by its name, and their words. */
@@ -1035,6 +1040,9 @@ export async function runTakeOff(deps, { field, message, value, model }) {
     e.truncated = true;
     return { field, ok: false, failed: true, error: e, usage, targets: [] };
   }
+  // A QUESTION BACK (2026-10-02): asked instead of naming, so nothing is named.
+  const ask = askOf(reply);
+  if (ask) return { field, ok: false, failed: false, usage, targets: [], ask };
   const read = readTakeOff(reply);
   if (!read.ok) return { field, ok: false, failed: false, usage, targets: [] };
   return { field, ok: true, failed: false, usage, targets: read.targets, ...takeOffTargets(field, value, read.targets) };
@@ -1319,9 +1327,14 @@ export function pickTool(fields = LANE_FIELDS, { routed = false } = {}) {
     input_schema: {
       type: "object",
       properties: {
+        // NO `minItems` AND NO "CLOSEST ONE" (2026-10-02, the owner's review:
+        // *"Reconcile contradictory prompts"*). A picker that could not tell
+        // was told to guess, beside a question field that says to ask and leave
+        // the rest empty — and the schema obliged a part. Empty now only beside
+        // a question; an empty answer with none is refused at no cost, as
+        // before (`picker/no-lane`).
         fields: {
           type: "array",
-          minItems: 1,
           maxItems: MAX_LANES,
           items: { type: "string", enum: list },
           description:
@@ -1331,7 +1344,8 @@ export function pickTool(fields = LANE_FIELDS, { routed = false } = {}) {
             "NAME A SECOND ONLY WHEN THEY REALLY ASKED FOR A SECOND, SEPARATE THING — \"rename us to Northwind " +
             "and make the tab icon a leaf\" is `brand` and `favicon`. Each name you add is a separate change to " +
             "a separate part of their site, so one added on a guess changes something nobody asked about.\n" +
-            "NEVER NAME EVERYTHING. If you cannot tell which part they mean, name the single closest one.\n\n" +
+            "NEVER NAME EVERYTHING. If you cannot tell which part they mean and nothing above settles it, name " +
+            "none and ask them (`question`) instead of guessing. When one part plainly fits best, name it.\n\n" +
             "The parts:\n" + lines.join("\n"),
         },
         removes: removesProp("fields"),
@@ -1380,8 +1394,8 @@ function removesProp(list, extra = "") {
       "ONLY WHEN THEY REALLY MEAN GONE — \"take the QR code off\", \"delete the testimonials section\", " +
       "\"we don't want the 3D thing any more\", \"drop the Spanish version\". A request to make something " +
       "different, smaller, plainer or hidden is a CHANGE, not this: \"make the hero less busy\" edits it.\n" +
-      "IF YOU CANNOT TELL, LEAVE IT OUT. A change they meant as a removal is one more sentence from them; " +
-      "a removal they meant as a change has taken part of their site away.\n\n" +
+      "IF YOU CANNOT TELL WHETHER THEY WANT IT GONE, never take it off on a guess: ask them (`question`). A " +
+      "removal they meant as a change has taken part of their site away.\n\n" +
       "What taking each one off means:\n" +
       REMOVABLE_LANES.map((f) => "  " + f + " — " + LANES[f].remove).join("\n"),
   };
@@ -1465,7 +1479,8 @@ function pageProps(list) {
         "\"move\" — the same page at a DIFFERENT ADDRESS. \"Move the gallery to /work\", \"/about-us should be /about\".\n" +
         "AN ADDRESS IS NOT A HEADING. \"Call that page Services instead\" is about the WORDS on it and is not this " +
         "field at all — leave `pages` out and let the wording lane have it.\n" +
-        "LEAVE THIS OUT IF YOU CANNOT TELL. It is better to be asked again than to delete a page they wanted kept.",
+        "IF YOU CANNOT TELL WHICH, leave this out and ask them (`question`) — never guess: a page deleted on a " +
+        "guess is a page they wanted kept.",
     },
     pageName: {
       type: "string",
@@ -1543,8 +1558,8 @@ function doorPickTool(list, lines) {
             "things said about it are still that one change.\n" +
             "NAME A PART HERE ONLY FOR A SECOND, SEPARATE THING THEY REALLY ASKED FOR, one entry for each such " +
             "thing. Each name here is a separate change to a separate part of their site, so one added on a guess " +
-            "changes something nobody asked about. If you cannot tell which part a second thing is, name the " +
-            "single closest one.\n\n" +
+            "changes something nobody asked about. If you cannot tell which part a second thing is and nothing " +
+            "above settles it, ask them (`question`) instead of guessing.\n\n" +
             "The parts:\n" + lines.join("\n"),
         },
         removes: removesProp("additional", "The already-routed change is taken off already; it never goes here.\n"),
@@ -1997,7 +2012,18 @@ export async function pickLanes(deps, { message, fields = LANE_FIELDS, current =
  * answer. This repo's own record is that a rule in prose is one a model
  * eventually reads past; a property that does not exist is not.
  */
-export function editTool(field) {
+// ── AND IT MAY ASK (2026-10-02, the owner's review: *"Extend clarification
+//    into the edit models … that currently cannot ask when missing details
+//    become apparent after picking the path"*) ─────────────────────────────────
+//
+// The lane was picked for its part of the site, and only it sees that part's
+// current value: whether "the button" is one of two it is shown is something
+// only this call can find out. It asks through the one field every step
+// carries (`QUESTION_FIELD`), and the look step that ran it changes nothing.
+// `ask: false` is for a call that is not the customer's request at all — the
+// correction round, re-aiming selectors that matched nothing — which has
+// nobody to ask.
+export function editTool(field, { ask = true } = {}) {
   if (typeof field !== "string" || !Object.hasOwn(LANES, field)) throw new Error("editTool: no lane for: " + field);
   const lane = LANES[field];
   // A LANE THAT DOES NOT ACT HAS NO TOOL, and asking for one is a caller that
@@ -2007,7 +2033,7 @@ export function editTool(field) {
   if (lane.unbuilt) throw new Error("editTool: `" + field + "` does not act here — it needs " + laneUnbuilt(field));
   if (lane.verbs) throw new Error("editTool: `" + field + "` does not act here — its rung depends on the verb");
   if (lane.escalate) throw new Error("editTool: `" + field + "` does not act here — the " + lane.escalate + " rung does this");
-  return {
+  const tool = {
     name: "edit_site",
     description: "Make the one change they asked for to this part of their site.",
     input_schema: {
@@ -2016,6 +2042,7 @@ export function editTool(field) {
       required: [],
     },
   };
+  return ask ? withQuestion(tool) : tool;
 }
 
 /**
@@ -2196,8 +2223,8 @@ export function landmarkNote(marks) {
     "level everywhere — does not need a row and is still yours to write.";
 }
 
-export function editRequest({ field, message, value, model, note = "" }) {
-  const tool = editTool(field);
+export function editRequest({ field, message, value, model, note = "", ask = true }) {
+  const tool = editTool(field, { ask });
   return {
     model,
     max_tokens: laneMaxTokens(field),
@@ -2245,10 +2272,10 @@ export function readLaneAnswer(reply, field) {
  * missing its last rules — which stores and publishes and looks like the model
  * doing a bad job. Same check the design and pages calls make.
  */
-export async function runLane(deps, { field, message, value, model, note = "" }) {
+export async function runLane(deps, { field, message, value, model, note = "", ask = true }) {
   let reply;
   try {
-    reply = await deps.send(editRequest({ field, message, value, model, note }));
+    reply = await deps.send(editRequest({ field, message, value, model, note, ask }));
   } catch (e) {
     return { field, value: undefined, usage: null, failed: true, error: e };
   }
@@ -2257,5 +2284,9 @@ export async function runLane(deps, { field, message, value, model, note = "" })
     e.truncated = true;
     return { field, value: undefined, usage: laneUsage(reply, model), failed: true, error: e };
   }
+  // A QUESTION BACK (2026-10-02): asked instead of answering, so no value is
+  // read beside it — only where a question was offered.
+  const q = ask ? askOf(reply) : null;
+  if (q) return { field, value: undefined, usage: laneUsage(reply, model), failed: false, ask: q };
   return { field, value: readLaneAnswer(reply, field), usage: laneUsage(reply, model), failed: false };
 }

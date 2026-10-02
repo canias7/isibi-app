@@ -83,16 +83,6 @@ export const MAX_MESSAGE = 2000;
  */
 export const MAX_CLARIFY = 3;
 
-/**
- * HOW MANY QUESTIONS ONE REQUEST ON A SITE THAT EXISTS MAY ASK, ENFORCED IN
- * CODE (2026-10-02). The router's and the steps' together: a question the
- * router asked and one a step asked after the answer are two. Past it a
- * question is shown as the model wrote it and nothing waits for an answer
- * (`builder/clarify.mjs`), so a request can never become an interview. A first
- * build keeps its own budget, `MAX_CLARIFY`, untouched.
- */
-export const MAX_ASK_ROUNDS = 2;
-
 /** Two to four. One option is not a choice; five is a form. */
 export const MIN_OPTIONS = 2;
 export const MAX_OPTIONS = 4;
@@ -826,6 +816,20 @@ const LIVE_CLARIFY =
   "sees the page and asks for itself if it must. Never to check that they meant it, never for something you can see " +
   "above, never for a choice the work can make sensibly on its own. When the message is clear, answer with the work.\n\n";
 
+// ── AND THE TIE-BREAK, WHERE A QUESTION MAY BE ASKED (2026-10-02, the owner's
+//    review: *"Reconcile contradictory prompts"*) ─────────────────────────────
+//
+// The shared tie-break says "WHEN YOU CANNOT TELL, ANSWER addon", and on a site
+// that exists the live clause says to ask when a detail decides whether it is a
+// change or an addition: two instructions for one case. Here the tie-break is
+// for where questions are closed, and where one may be asked, not being able to
+// tell is what the question is for. The first build's tool keeps its own words.
+const SHARED_TIE_BREAK = "WHEN YOU CANNOT TELL, ANSWER \"addon\" — it can do everything an edit can EXCEPT take something away.\n";
+const LIVE_TIE_BREAK =
+  "WHEN YOU CANNOT TELL WHETHER IT IS A CHANGE OR AN ADDITION, ASK THEM (\"clarify\") where a question may be asked " +
+  "(said below); only where questions are closed, answer \"addon\" — it can do everything an edit can EXCEPT take " +
+  "something away.\n";
+
 function liveIntentDescription() {
   const d = ASK_TOOL.input_schema.properties.intent.description;
   const at = d.indexOf(FIRST_BUILD_CLARIFY_AT);
@@ -833,7 +837,10 @@ function liveIntentDescription() {
   if (at < 0 || end < 0 || d.indexOf(FIRST_BUILD_CLARIFY_AT, at + 1) >= 0) {
     throw new Error("site-ask: the first build's clarify clause was not found exactly once");
   }
-  return d.slice(0, at) + LIVE_CLARIFY + d.slice(end + FIRST_BUILD_CLARIFY_END.length);
+  const live = d.slice(0, at) + LIVE_CLARIFY + d.slice(end + FIRST_BUILD_CLARIFY_END.length);
+  const tie = live.indexOf(SHARED_TIE_BREAK);
+  if (tie < 0 || live.indexOf(SHARED_TIE_BREAK, tie + 1) >= 0) throw new Error("site-ask: the tie-break was not found exactly once");
+  return live.slice(0, tie) + LIVE_TIE_BREAK + live.slice(tie + SHARED_TIE_BREAK.length);
 }
 
 export const LIVE_ASK_TOOL = {
@@ -990,12 +997,13 @@ const SYSTEM =
 // ── WHAT A SITE THAT EXISTS IS TOLD ABOUT QUESTIONS (2026-10-02) ───────────
 //
 // Two facts, each said outright rather than left to be inferred: whether a
-// question may be asked for this request (and how many are left — the budget is
-// spent in arithmetic by `routeMessage`), and, when the message may be the
-// answer to one already asked, the request that is waiting, the question and
-// the answers offered. The router then says whether the message answers it
-// (`answered`); nothing in code reads the customer's words to decide that.
-function liveBlock({ canAsk = false, askLeft = 0, pending = null } = {}) {
+// question may be asked for this request (wherever one can be kept — there is
+// no count of them), with the questions it has already asked, never to be
+// asked again; and, when the message may be the answer to one already asked,
+// the request that is waiting, the question and the answers offered. The
+// router then says whether the message answers it (`answered`); nothing in
+// code reads the customer's words to decide that.
+function liveBlock({ canAsk = false, pending = null, asked = [] } = {}) {
   const p = pending && typeof pending === "object" ? pending : null;
   const q = p && p.question && typeof p.question === "object" ? p.question : null;
   const opts = q && Array.isArray(q.options) ? q.options.filter((o) => typeof o === "string" && o) : [];
@@ -1008,17 +1016,23 @@ function liveBlock({ canAsk = false, askLeft = 0, pending = null } = {}) {
       "With true, decide everything for their last request with the answer taken into account, and copy any part you " +
       "hold back from their last request. With false, decide everything for the new message alone."
     : "";
-  const left = Number.isInteger(askLeft) && askLeft > 0 ? askLeft : 0;
-  const asking = canAsk && left
+  // THE QUESTIONS THIS REQUEST HAS ASKED, each its own line: never asked
+  // again, and a repeat is refused in code as well (`askRepeat`).
+  const before = (Array.isArray(asked) ? asked : []).filter((t) => typeof t === "string" && t.trim())
+    .map((t) => "- " + t.trim().slice(0, MAX_QUESTION_CHARS));
+  const asking = canAsk
     ? "\n\nA QUESTION MAY BE ASKED\nBefore answering with work you may ask them one question instead (\"clarify\"), when " +
       "a detail they left out decides your answer — whether it is a change or an addition, which page or part of the " +
       "site, or what should happen — and neither their message nor the site above settles it. When the message is " +
-      "clear, answer with the work. You may ask " + left + " more question" + (left === 1 ? "" : "s") + " about this request."
+      "clear, answer with the work." +
+      (before.length
+        ? "\nWHAT THIS REQUEST HAS ALREADY ASKED THEM — never ask any of these again; their answers are in the request:\n" + before.join("\n")
+        : "")
     : "\n\nQUESTIONS\nQuestions are closed for this message — never answer \"clarify\".";
   return waiting + asking;
 }
 
-export function askRequest({ message, site, canClarify = false, brief = "", qa = [], hasSite = false, model = ASK_MODEL, live = false, canAsk = false, askLeft = 0, pending = null } = {}) {
+export function askRequest({ message, site, canClarify = false, brief = "", qa = [], hasSite = false, model = ASK_MODEL, live = false, canAsk = false, pending = null, asked = [] } = {}) {
   const text = String(message || "").trim().slice(0, MAX_MESSAGE);
   // WHICH ANSWERS ARE EVEN AVAILABLE, said outright rather than left to be
   // inferred from whether the digest happens to list any pages. The digest is a
@@ -1031,8 +1045,8 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
       "they are explicitly asking to scrap this site and make a different one. Rebuilding replaces every page they have."
     : "\n\nWHICH CASE YOU ARE IN\nTHERE IS NO SITE YET. Answer \"build\" for work — never \"edit\" or \"addon\", because " +
       "there is nothing yet to change or to add to.";
-  const asked = (Array.isArray(qa) ? qa : []).filter((p) => p && p.q && p.a).slice(0, MAX_CLARIFY);
-  const left = MAX_CLARIFY - asked.length;
+  const qaDone = (Array.isArray(qa) ? qa : []).filter((p) => p && p.q && p.a).slice(0, MAX_CLARIFY);
+  const left = MAX_CLARIFY - qaDone.length;
   // WHAT THE ROUND SO FAR WAS, so the next question is not the last one again.
   // Only present on a first build; a revise sends none of this and is told
   // plainly that questions are closed, rather than being left to infer it from
@@ -1042,9 +1056,9 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
       "building. You have " + left + " question" + (left === 1 ? "" : "s") + " left, and the build starts on its own " +
       "once they are used up — but a question is worth asking only if its answer changes what you would build. If " +
       "you already know what the business is and what people do on the site, build now.\n" +
-      (asked.length
+      (qaDone.length
         ? "WHAT YOU HAVE ALREADY ASKED — do not ask any of these again, or anything close to them:\n" +
-          asked.map((p) => "- " + String(p.q).trim() + " -> " + String(p.a).trim()).join("\n") + "\n"
+          qaDone.map((p) => "- " + String(p.q).trim() + " -> " + String(p.a).trim()).join("\n") + "\n"
         : "") +
       "THE BRIEF THEY STARTED WITH\n" + String(brief || "").trim().slice(0, MAX_MESSAGE)
     // NO WORK-INTENT ENUMERATION HERE, deliberately. This sentence read
@@ -1057,7 +1071,7 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
     // A SITE THAT EXISTS (2026-10-02) is told its own two facts instead
     // (`liveBlock`); everything else in this request is what it was.
     : live
-      ? liveBlock({ canAsk, askLeft, pending })
+      ? liveBlock({ canAsk, pending, asked })
       : "\n\nQUESTIONS\nQuestions are closed for this message — never answer \"clarify\".";
   return {
     model,
@@ -1111,12 +1125,16 @@ export const ROUTE_REASONS = Object.freeze({
   "intent-unknown": Object.freeze({ kind: "fallback", what: "the answer named no intent, or one that is not among the five" }),
   "clarify-closed": Object.freeze({ kind: "fallback", what: "a question back, when no question may be asked" }),
   "clarify-unreadable": Object.freeze({ kind: "fallback", what: "a question back with no usable question" }),
-  // A SITE THAT EXISTS (2026-10-02): a question past the request's budget is
-  // shown as the model wrote it, with nothing waiting for an answer; a reply to
-  // a waiting question that did not say whether it answers it is a failure of
-  // the answer, never read either way; and the flag on a message with no
-  // question waiting is left out.
-  "clarify-spent": Object.freeze({ kind: "changed", what: "a question back past this request's questions, shown as a reply with nothing waiting for an answer" }),
+  // A SITE THAT EXISTS (2026-10-02): a question asked where none can be kept
+  // fails the call — never shown with nothing waiting for an answer; a reply
+  // to a waiting question that did not say whether it answers it is a failure
+  // of the answer, never read either way; and the flag on a message with no
+  // question waiting is left out. A question this request already asked, or
+  // one whose answer could not fit beside the request it resumes, is never
+  // asked (the route's own two checks, `askRepeat` and `askRoom`).
+  "clarify-unkeepable": Object.freeze({ kind: "fallback", what: "a question back where no question can be kept, a failure of the answer" }),
+  "clarify-repeat": Object.freeze({ kind: "fallback", what: "a question back this request had already asked, never asked again" }),
+  "clarify-no-room": Object.freeze({ kind: "fallback", what: "a question back whose answer could not fit beside the request it resumes, never asked" }),
   "answered-unread": Object.freeze({ kind: "fallback", what: "a reply to a waiting question that did not say whether it answers it" }),
   "answered-ignored": Object.freeze({ kind: "changed", what: "an answer flag on a message with no question waiting, left out" }),
   "work-without-site": Object.freeze({ kind: "fallback", what: "an edit or an add-on, with no site to change" }),
@@ -1191,6 +1209,17 @@ export function routeDecision(reasons, input) {
   return decision;
 }
 
+/**
+ * A decision with one more code from the list, its source derived again — for
+ * the route's own checks after the model answered (`clarify-repeat`,
+ * `clarify-no-room`). A code not on the list leaves the decision as it was.
+ */
+export function addReason(decision, code) {
+  const d = decision && typeof decision === "object" ? decision : routeDecision([]);
+  const next = routeDecision([...(Array.isArray(d.reasons) ? d.reasons : []), code]);
+  return d.raw ? { ...next, raw: d.raw } : next;
+}
+
 /** Records into a caller's trace; a no-op without one, so a reader's result never depends on it. */
 function noteTo(trace) {
   return trace && Array.isArray(trace.reasons) ? (code) => { trace.reasons.push(code); } : () => {};
@@ -1256,9 +1285,9 @@ function markQuestion(raw, q, mark) {
 // to ask was overruled into `FALLBACK_WITH_SITE` — a paid add-on it had not
 // chosen. Now, on a site that exists (`live`):
 //
-//   * a readable question is the answer, while the request has questions left
-//     (`canAsk`, spent in arithmetic by `routeMessage`); past them it is shown
-//     as a reply with nothing waiting (`clarify-spent`), never turned into work;
+//   * a readable question is the answer wherever a question can be kept
+//     (`canAsk`); where none can, it fails the call (`clarify-unkeepable`) —
+//     never shown with nothing waiting for an answer, never turned into work;
 //   * a question that cannot be shown is a failure of the answer (`unusable`),
 //     which the route answers as the routing call failing — never as work;
 //   * when a question is waiting (`pending`), the model says whether the
@@ -1296,8 +1325,8 @@ export function readRouting(reply, opts = {}) {
     markQuestion(input.question, q, mark);
     markLeftOut(input, ["question"], mark);
     if (o.canAsk !== true) {
-      mark("clarify-spent");
-      return withAnswered({ intent: "ask", answer: q.text });
+      mark("clarify-unkeepable");
+      return { intent: fallback, answer: "", unusable: true };
     }
     return withAnswered({ intent: "clarify", answer: "", question: q });
   }
@@ -2189,7 +2218,7 @@ export function routeFailure(stage, e, { model, classify } = {}) {
  * for a call that failed — the same our-fault rule the build path follows. And
  * it says why, as `failure` (`routeFailure` above).
  */
-export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, attached = false, hasSite = false, model = ASK_MODEL, tablesFilled = false, askRound = 0, pending = null } = {}) {
+export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, attached = false, hasSite = false, model = ASK_MODEL, tablesFilled = false, canAsk: askable = false, asked = [], pending = null } = {}) {
   const text = String(message || "").trim();
   // AN EMPTY MESSAGE NEVER REACHES THE MODEL. The composer will not send one, but
   // this is a paid call behind a public route and "the client wouldn't do that"
@@ -2199,17 +2228,16 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
   // call is one question at a time on a first build; `MAX_CLARIFY` is what stops
   // "one at a time" becoming "one after another after another", and a cap the
   // model is merely told about is not a cap.
-  const asked = (Array.isArray(qa) ? qa : []).filter((p) => p && p.q && p.a);
-  const canClarify = !!firstBuild && asked.length < MAX_CLARIFY;
-  // A SITE THAT EXISTS HAS ITS OWN BUDGET (2026-10-02), spent the same way:
-  // `askRound` is how many questions this request has already asked (the
-  // waiting question's own count when this message may answer it), and the
-  // router is told how many are left. A caller that lies about it gets fewer
+  const questions = (Array.isArray(qa) ? qa : []).filter((p) => p && p.q && p.a);
+  const canClarify = !!firstBuild && questions.length < MAX_CLARIFY;
+  // A SITE THAT EXISTS ASKS WHEREVER A QUESTION CAN BE KEPT (2026-10-02):
+  // `canAsk` is the route's word that it can keep one, and nothing counts them
+  // — every question kept is one its answer resumes. `asked` is what this
+  // request has already asked, shown so it is never asked again (and refused
+  // in the route if it is). A caller that lies about either gets fewer
   // questions or more of its own routing calls, never anybody else's.
   const live = !!hasSite && !firstBuild;
-  const rounds = Number.isInteger(askRound) && askRound > 0 ? Math.min(askRound, MAX_ASK_ROUNDS) : 0;
-  const askLeft = live ? MAX_ASK_ROUNDS - rounds : 0;
-  const canAsk = askLeft > 0;
+  const canAsk = live && askable === true;
   const waiting = live && pending && typeof pending === "object" ? pending : null;
   // `hasSite` IS NOT `!firstBuild`, and collapsing them is the tempting mistake.
   // `firstBuild` is the composer's belief about a project in localStorage;
@@ -2248,7 +2276,7 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
     if (lists.tablesCut) shown.push("tables-cut");
     // The route's own word that it filled the table names in (Lane 1d).
     if (tablesFilled === true) shown.push("tables-filled");
-    request = askRequest({ message: text, site, canClarify, brief, qa: asked, hasSite: !!hasSite, model, live, canAsk, askLeft, pending: waiting });
+    request = askRequest({ message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live, canAsk, pending: waiting, asked: live ? asked : [] });
   } catch (e) {
     return fail("request", e);
   }

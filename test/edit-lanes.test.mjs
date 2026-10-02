@@ -29,6 +29,7 @@ import { PLAN_KEYS } from "../builder/site-plan.mjs";
 import { EDIT_FIELDS } from "../builder/site-edit.mjs";
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
 import { modelsFor } from "../builder/build-models.mjs";
+import { QUESTION_FIELD } from "../builder/clarify.mjs";
 // The storage caps themselves, so the per-field token ceiling can be asserted
 // to BE the refusals rather than a plausible second set of numbers.
 import { MAX_WORDMARK, MAX_FAVICON } from "../builder/site-favicon.mjs";
@@ -261,7 +262,14 @@ test("a lane's tool is one property and nothing required — the wall, not the r
   for (const field of OWN_LANES) {
     const t = editTool(field);
     const props = Object.keys(t.input_schema.properties);
-    assert.deepEqual(props, [field], "the " + field + " lane can reach fields that are not its own: " + props.join(","));
+    // RE-ANCHORED 2026-10-02 (the owner's review: *"Extend clarification into
+    // the edit models … that currently cannot ask"*): beside the lane's own
+    // field, the one question back — `QUESTION_FIELD` itself, read by `askOf`
+    // and never applied as a value. Still no other lane's field; and the
+    // correction round, which re-aims a change nobody asked for again, has none.
+    assert.deepEqual(props, [field, "question"], "the " + field + " lane can reach fields that are not its own: " + props.join(","));
+    assert.equal(t.input_schema.properties.question, QUESTION_FIELD, "the " + field + " lane's question is not the shared question field");
+    assert.deepEqual(Object.keys(editTool(field, { ask: false }).input_schema.properties), [field], "the " + field + " lane cannot be offered without the question");
     // NOTHING REQUIRED, for the reason the whole edit path empties it: a
     // required field is one the model MUST answer, and answering it is what
     // moves a value nobody asked to move.

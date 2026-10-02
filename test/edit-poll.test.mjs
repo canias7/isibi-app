@@ -959,12 +959,14 @@ test("the resume is wired: on site selection, once per job, with the ask and the
   // (`fromAddon`), so a resumed watch keeps the bound that stops it going back.
   // AND A REQUEST RESUMED FROM A QUESTION KEEPS ITS TWO FACTS (2026-10-02):
   // what it put off before the question, and how many questions it has asked.
-  assert.match(CHAT, /EditPoll\.rememberJob\(slug, \w+\.job, undefined, \{ ask: instruction, op: 'edit', layer: String\(d\.layer \|\| ''\), page: d\.page \? String\(d\.page\) : '', handedOff: !!handedOff, also: d\.alsoAsked, fromAddon: d\.fromAddon === true, putOff: d\.putOff, askRound: d\.askRound \}\)/,
+  // AND THE QUESTIONS IT HAS ASKED (2026-10-02, the owner's review), so the
+  // step a resumed job reaches never asks one of them again.
+  assert.match(CHAT, /EditPoll\.rememberJob\(slug, \w+\.job, undefined, \{ ask: instruction, op: 'edit', layer: String\(d\.layer \|\| ''\), page: d\.page \? String\(d\.page\) : '', handedOff: !!handedOff, also: d\.alsoAsked, fromAddon: d\.fromAddon === true, putOff: d\.putOff, askRound: d\.askRound, asked: d\.asked \}\)/,
     "the edit route no longer stores the ask");
-  assert.match(CHAT, /EditPoll\.rememberJob\(slug, \w+\.job, undefined, \{ ask: instruction, op: 'addon'[^\n]*, also: d && d\.alsoAsked, putOff: d && d\.putOff, askRound: d && d\.askRound \}\)/,
+  assert.match(CHAT, /EditPoll\.rememberJob\(slug, \w+\.job, undefined, \{ ask: instruction, op: 'addon'[^\n]*, also: d && d\.alsoAsked, putOff: d && d\.putOff, askRound: d && d\.askRound, asked: d && d\.asked \}\)/,
     "the addon route does not store what was held back");
   // AND A RESUMED QUESTION'S REQUEST KEEPS ITS TWO FACTS ON THE HOP (2026-10-02).
-  assert.match(re, /const d = \{ layer: rec\.layer, page: rec\.page, \.\.\.\(rec\.also \? \{ alsoAsked: rec\.also \} : \{\}\), \.\.\.\(rec\.fromAddon \? \{ fromAddon: true \} : \{\}\),\s+\.\.\.\(rec\.putOff \? \{ putOff: rec\.putOff \} : \{\}\), \.\.\.\(rec\.askRound \? \{ askRound: rec\.askRound \} : \{\}\) \};/,
+  assert.match(re, /const d = \{ layer: rec\.layer, page: rec\.page, \.\.\.\(rec\.also \? \{ alsoAsked: rec\.also \} : \{\}\), \.\.\.\(rec\.fromAddon \? \{ fromAddon: true \} : \{\}\),\s+\.\.\.\(rec\.putOff \? \{ putOff: rec\.putOff \} : \{\}\), \.\.\.\(rec\.askRound \? \{ askRound: rec\.askRound \} : \{\}\), \.\.\.\(rec\.asked \? \{ asked: rec\.asked \} : \{\}\) \};/,
     "a resumed watch does not hand its hop what was held back");
   // RE-ANCHORED 2026-09-24: the add-on's receipt is read by `readAddonReply`
   // now, and its job rides the reader's answer. The property is the ask and the

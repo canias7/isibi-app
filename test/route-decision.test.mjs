@@ -20,7 +20,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   ROUTE_REASONS, ROUTE_SOURCES, routeDecision, readRouting, readEdit, readAlso, routeMessage, digestLists,
-  siteDigest, EDIT_LAYERS, MAX_MESSAGE, MAX_CLARIFY,
+  siteDigest, EDIT_LAYERS, MAX_MESSAGE, MAX_CLARIFY, addReason,
 } from "../builder/site-ask.mjs";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 
@@ -60,11 +60,11 @@ const CASES = [
     firstBuild: true, hasSite: false, site: {},
     qa: [{ q: "a?", a: "1" }, { q: "b?", a: "2" }, { q: "c?", a: "3" }],
   }), "fallback"],
-  // A SITE THAT EXISTS (2026-10-02): a question past this request's questions is
-  // shown as written with nothing waiting — never turned into work; a reply to a
-  // waiting question that does not say whether it answers it fails the call;
-  // and the flag with no question waiting is left out.
-  ["clarify-spent", () => routed({ intent: "clarify", question: QUESTION }, { askRound: 2 }), "model"],
+  // A SITE THAT EXISTS (2026-10-02): a question where none can be kept fails
+  // the call — never shown as words nobody's answer can resume, never turned
+  // into work; a reply to a waiting question that does not say whether it
+  // answers it fails the call; and the flag with no question waiting is left out.
+  ["clarify-unkeepable", () => routed({ intent: "clarify", question: QUESTION }, { canAsk: false }), "fallback"],
   ["answered-unread", () => routed({ intent: "edit", layer: "look" }, {
     pending: { request: "Change the photo.", question: { text: "Which photo?", options: [] } },
   }), "fallback"],
@@ -127,8 +127,12 @@ test("every reason code is reached by the branch that names it, and gives the so
 });
 
 // DECIDED IN THE WORKER, NOT IN THE ROUTER MODULE: the zero-balance rule. Its
-// case is the real route's, below ("…and the zero-balance rule").
-const ROUTE_ONLY = ["no-credits"];
+// case is the real route's, below ("…and the zero-balance rule"). AND THE
+// ROUTE'S TWO QUESTION CHECKS (2026-10-02), after the model answered: a
+// question this request already asked, and one whose answer could not fit
+// beside its request — each driven through the real route in
+// `test/live-clarify-continue.test.mjs`, and their composition below.
+const ROUTE_ONLY = ["no-credits", "clarify-repeat", "clarify-no-room"];
 
 test("every declared code has a case, and no case names a code that is not declared", () => {
   const covered = new Set([...CASES.map(([code]) => code), ...ROUTE_ONLY]);
@@ -356,4 +360,14 @@ test("the route names the table names it filled in, through the decision", async
   const r = await route({ input: { intent: "edit", layer: "data" }, body: { site: { name: "x", pages: ["/"], tables: [] } } });
   assert.equal(r.body.tablesFilled, undefined);
   assert.ok(!r.body.decision.reasons.includes("tables-filled"), "a fill that did not happen was reported");
+});
+
+test("THE ROUTE'S OWN QUESTION CHECKS ADD THEIR CODE TO THE MODEL'S DECISION: the source is derived again, the model's own answer kept, and a code off the list changes nothing", () => {
+  const model = routeDecision([], { intent: "clarify" });
+  const repeat = addReason(model, "clarify-repeat");
+  assert.deepEqual(repeat, { source: "fallback", reasons: ["clarify-repeat"], raw: { intent: "clarify", layer: "none" } });
+  assert.deepEqual(addReason(model, "clarify-no-room").reasons, ["clarify-no-room"]);
+  assert.deepEqual(addReason(repeat, "clarify-repeat").reasons, ["clarify-repeat"], "a code was named twice");
+  assert.deepEqual(addReason(model, "made-up"), model, "a code off the list widened the decision");
+  assert.deepEqual(addReason(undefined, "clarify-repeat"), { source: "fallback", reasons: ["clarify-repeat"] });
 });

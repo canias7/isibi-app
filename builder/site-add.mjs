@@ -125,7 +125,7 @@ import { extractText } from "./site-text.mjs";
 // check's own serious kinds; the language-prefix reading — and nothing else.
 import { runTweak } from "./site-tweak.mjs";
 // THE QUESTION BACK (2026-10-02), shared with every step (`builder/clarify.mjs`).
-import { QUESTION_FIELD, askOf } from "./clarify.mjs";
+import { QUESTION_FIELD, askOf, withQuestion } from "./clarify.mjs";
 // ONE NEW ROW'S VALUE RULE AND ITS INSERT, shared with the data step (2026-10-01).
 import { rowValues, insertStatement } from "./site-rows.mjs";
 import { SERIOUS } from "./site-render.mjs";
@@ -1386,9 +1386,15 @@ export function pickTool(kinds = ADD_KINDS) {
     input_schema: {
       type: "object",
       properties: {
+        // NO `minItems` (2026-10-02, the owner's review: *"Reconcile
+        // contradictory prompts, including the add-on picker's instruction to
+        // choose the closest kind when uncertain"*). It told a picker that could
+        // not tell to guess, beside a question field that says to ask and leave
+        // the rest empty — and the schema obliged at least one kind, so asking
+        // AND guessing was the only answer it allowed. Empty now only beside a
+        // question; an empty answer with none is refused at no cost, as before.
         kinds: {
           type: "array",
-          minItems: 1,
           maxItems: MAX_ADDS,
           items: { type: "string", enum: list },
           description:
@@ -1401,7 +1407,8 @@ export function pickTool(kinds = ADD_KINDS) {
             "returns the messages). " +
             "Each name you add is a separate addition the customer pays for, so one added on a guess is " +
             "something they did not ask for.\n" +
-            "If you cannot tell which kind they mean, name the single closest one.\n\n" +
+            "If you cannot tell which kind they mean and the choice matters, name none and ask them (`question`) " +
+            "instead of guessing. When one kind plainly fits better than the others, name it.\n\n" +
             "The kinds:\n" + lines.join("\n"),
         },
         // A QUESTION BACK (2026-10-02, builder/clarify.mjs): asked instead of
@@ -1569,14 +1576,25 @@ export function addTool(kind) {
         "What this change has to be able to do, and what became of each one. One entry per requirement you " +
         "worked out above — what they asked for AND what it implies. Answer this even when you answer no " +
         "design at all: a requirement you could not express is the single most useful thing you can tell us, " +
-        "and leaving it out is the one outcome that reaches the customer as silence.",
+        "and leaving it out is the one outcome that reaches the customer as silence. The one exception is a " +
+        "question back to them: then leave this out too, since nothing is designed until they reply.",
     };
   }
-  return {
+  // ── AND THE DESIGNER MAY ASK (2026-10-02, the owner's review: *"Extend
+  //    clarification into … add-on designers that currently cannot ask when
+  //    missing details become apparent after picking the path"*) ─────────────
+  //
+  // The picker named the kind; only this call designs it, and only here does a
+  // missing detail show — which page a gallery goes on, whether a form's
+  // entries are stored or sent. It asks through the one field every step
+  // carries (`QUESTION_FIELD`), and the route then designs, applies and charges
+  // nothing of the addition: every designer runs before anything is applied,
+  // so the answer resumes the addition whole.
+  return withQuestion({
     name: "add_to_site",
     description: "Design the one thing they asked to add to their site.",
     input_schema: { type: "object", properties, required: [] },
-  };
+  });
 }
 
 /** The four parts of a kind's rule, in the order they are read. */
@@ -2197,6 +2215,10 @@ export async function runAdd(deps, { kind, message, site, model, brief = "" }) {
   // row and nothing anywhere recorded what the model had said — the answer
   // existed only in a Worker's memory, run 90's shape again. The route keeps
   // it for the owner to read; this function only hands it up.
+  // A QUESTION BACK (2026-10-02): asked instead of designing, so no design is
+  // read beside it. The raw reply still rides out, for the record.
+  const ask = askOf(reply);
+  if (ask) return { kind, value: undefined, ...none, usage: addUsage(reply, model), failed: false, raw: reply, ask };
   const answer = readAddAnswer(reply, kind);
   return {
     kind,

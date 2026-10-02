@@ -286,7 +286,11 @@ test("a step's own ask replaces the customer's sentence for that step only", () 
   // later turn (`heldBack`) — and a step the picker scoped runs on its own
   // words (`step.ask`). The property is the one this case always held: the
   // step's words are set before the rung runs, and this turn's sentence after.
-  const set = loop.indexOf("eInstruction = step.instruction || step.ask || eRun;");
+  //
+  // RE-ANCHORED 2026-10-02 (the owner's review: *"verify actual resumed model
+  // inputs"*): a scoped step's own words carry the resumed request's answers
+  // (`withAnswers`), which are in no change's words. The property is unchanged.
+  const set = loop.indexOf("eInstruction = step.instruction || (step.ask ? withAnswers(step.ask) : eRun);");
   const run = loop.indexOf("await runLayer(step.layer, step.page, step.fields");
   const restore = loop.indexOf("eInstruction = eRun;");
   assert.ok(set > 0 && run > set && restore > run, "the step's ask must be set before the rung runs and restored after");

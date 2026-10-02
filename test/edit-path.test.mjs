@@ -32,6 +32,7 @@ import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { installCompiler, dispatchEnv, isDispatchUpload, dispatchOk } from "./fixtures/cf-containers.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
 import { LANE_FIELDS, OWN_LANES, UNBUILT_LANES, laneLayer, laneUnbuilt, laneEscalate } from "../builder/site-lanes.mjs";
+import { QUESTION_FIELD } from "../builder/clarify.mjs";
 // THE PAGE LAYER'S TOOL NAME, TAKEN FROM THE MODULE THAT DEFINES IT. Typed by
 // hand it was wrong, the stub never matched, the call 503d, and the billing
 // assertion below "failed" for a reason that had nothing to do with billing.
@@ -210,7 +211,10 @@ test("one ask: the router runs, then one lane, and nothing else", async () => {
       // the module. A lane that can reach a second field is one that can rename
       // a site while changing a colour.
       const props = Object.keys(lane.body.tools[0].input_schema.properties);
-      assert.deepEqual(props, ["css"], "the acting lane carries more than its own field: " + props.join(","));
+      // RE-ANCHORED 2026-10-02 (the owner's review): its own field and the one
+      // question back (`QUESTION_FIELD`, never applied as a value), on the wire.
+      assert.deepEqual(props, ["css", "question"], "the acting lane carries more than its own field: " + props.join(","));
+      assert.deepEqual(lane.body.tools[0].input_schema.properties.question, JSON.parse(JSON.stringify(QUESTION_FIELD)), "the acting lane's question is not the shared question field");
       assert.deepEqual(lane.body.tools[0].input_schema.required, [], "the acting lane requires an answer");
 
       // AND IT IS HANDED THE SITE'S OWN STYLESHEET AND THEIR OWN WORDS. This is
@@ -481,7 +485,8 @@ test("every acting lane can actually be reached through the route", async () => 
         await edit("wire-reach-" + field, "change the " + field);
         const acting = calls.filter((c) => c.tool === "edit_site");
         assert.equal(acting.length, 1, "the " + field + " lane was never called: " + JSON.stringify(toolsOf(calls)));
-        assert.deepEqual(Object.keys(acting[0].body.tools[0].input_schema.properties), [field],
+        // RE-ANCHORED 2026-10-02: and the one question back, never another field.
+        assert.deepEqual(Object.keys(acting[0].body.tools[0].input_schema.properties), [field, "question"],
           "the " + field + " lane was called with somebody else's field");
       },
     );

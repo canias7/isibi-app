@@ -20,223 +20,15 @@
 // and acts when it can, is a live measurement this file cannot make.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { randomBytes } from "node:crypto";
-import vm from "node:vm";
-import { createRequire } from "node:module";
-import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
-import { installCompiler, dispatchEnv, isDispatchUpload, dispatchOk } from "./fixtures/cf-containers.mjs";
-import { CONFIG_KEY } from "../site-config.mjs";
+import { loadWorker } from "./fixtures/worker-harness.mjs";
+import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { ASK_TOOL, LIVE_ASK_TOOL } from "../builder/site-ask.mjs";
-import { pickTool, editTool } from "../builder/site-lanes.mjs";
-import { TWEAK_TOOL } from "../builder/site-tweak.mjs";
-import { TEXT_TOOL } from "../builder/site-apply.mjs";
-import { QUESTION_KEY, packAsk, newAskId, readAskRecord, ASK_TTL_MS } from "../builder/clarify.mjs";
-import { packEditJob, EDIT_JOB_PREFIX, EDIT_JOB_KIND } from "../builder/edit-job.mjs";
+import { QUESTION_KEY, packAsk, newAskId, ASK_TTL_MS } from "../builder/clarify.mjs";
 import { editBrowserReply } from "../scripts/addon-sweep.mjs";
-
-const realEditPoll = createRequire(import.meta.url)("../public/edit-poll.js");
-const T = { route: ASK_TOOL.name, pick: pickTool().name, lane: editTool("description").name, tweak: TWEAK_TOOL.name, text: TEXT_TOOL.name, adds: "pick_adds" };
-const USER = { id: "u-live-clarify-1", email: "owner@example.com" };
-const OTHER = "u-live-clarify-2";
-const TOKEN = "Bearer some-token";
-const SOURCE_KEY = (slug) => "source/" + slug + "/pages.json";
-const PARTS_KEY = (slug) => "source/" + slug + "/parts.json";
-const page = (route, body) => "import { createFileRoute } from '@tanstack/react-router'\n"
-  + "export const Route = createFileRoute('" + route + "')({ component: Page })\n"
-  + "function Page(){ return <main>" + body + "</main> }\n";
-const HOME = page("/", "<section className=\"hero\"><h1>Harbour Loaf</h1><p>Bread from the harbour, every morning.</p></section>"
-  + "<section className=\"order\"><h2>Order a loaf for collection</h2><p>Pick a loaf and a time.</p></section>");
-const VISIT = page("/visit", "<section className=\"come\"><h1>Come to the bakery</h1><p>The shutters and the street.</p></section>"
-  + "<section className=\"band\"><h2>Order a collection so we hold a loaf</h2><p>We keep one back for you.</p></section>");
-const PAGES = [{ path: "index.tsx", source: HOME }, { path: "visit.tsx", source: VISIT }];
-const ROUTES = ["/", "/visit"];
-const OLD_DESC = "Neighbourhood sourdough in Bristol.";
-const NEW_DESC = "Overnight sourdough from a Bristol side street, ready to collect at the counter.";
-const Q = { text: "Which page should the band move on — Home or Visit?", options: ["Home", "Visit"] };
-const json = (v, status = 200) => new Response(JSON.stringify(v), { status, headers: { "content-type": "application/json" } });
-const hex32 = () => randomBytes(16).toString("hex");
-const freshSlug = (k) => "live-q-" + k + "-" + hex32().slice(0, 8);
-
-/** R2 as the binding behaves: etags, conditional puts answering null, and a question put that can be made to fail. */
-function bucket(slug, { failQuestion = false, failQuestionRead = false } = {}) {
-  const store = new Map();
-  let n = 0;
-  const put = (k, v) => { store.set(k, { body: String(v), etag: "e" + (++n) }); };
-  put(SOURCE_KEY(slug), JSON.stringify(PAGES));
-  put(PARTS_KEY(slug), JSON.stringify([]));
-  put(CONFIG_KEY(slug), JSON.stringify({ look: { brand: "Harbour Loaf", theme: "broadsheet", description: OLD_DESC }, css: "" }));
-  const obj = (o) => ({ etag: o.etag, text: async () => o.body, json: async () => JSON.parse(o.body), arrayBuffer: async () => new TextEncoder().encode(o.body).buffer });
-  const questionWrites = [];
-  return {
-    store, questionWrites,
-    raw: (k) => (store.get(k) || {}).body,
-    async get(k) {
-      if (failQuestionRead && k === QUESTION_KEY(slug)) throw new Error("r2 down");
-      const o = store.get(k); return o ? obj(o) : null;
-    },
-    async put(k, v, opts = {}) {
-      if (k === QUESTION_KEY(slug)) {
-        if (failQuestion) throw new Error("r2 down");
-        questionWrites.push(String(v));
-      }
-      const cur = store.get(k);
-      if (opts.onlyIf && opts.onlyIf.etagMatches != null && (!cur || cur.etag !== String(opts.onlyIf.etagMatches))) return null;
-      put(k, v);
-      return { etag: store.get(k).etag };
-    },
-    async delete(k) { store.delete(k); },
-    async list() { return { objects: [], truncated: false }; },
-    async head(k) { return store.has(k) ? { key: k } : null; },
-  };
-}
-const question = (b, slug) => readAskRecord(b.raw(QUESTION_KEY(slug)) || "null");
-const seedQuestion = (b, slug, over = {}) => {
-  const rec = packAsk({ id: newAskId(), uid: USER.id, slug, stage: "route", round: 1, question: Q,
-    request: "Put the \"Order a collection so we hold a loaf\" band above \"Come to the bakery\"", held: [], at: Date.now(), ...over });
-  assert.ok(rec, "the seeded question is not a question");
-  b.store.set(QUESTION_KEY(slug), { body: JSON.stringify(rec), etag: "seed-" + rec.id.slice(0, 6) });
-  return rec;
-};
-
-/** The text a request carried after one of its own headings. */
-function after(body, marker, until) {
-  const content = String(body && body.messages && body.messages[0] && body.messages[0].content || "");
-  const at = content.indexOf(marker);
-  if (at < 0) return null;
-  const rest = content.slice(at + marker.length);
-  const end = until ? rest.indexOf(until) : -1;
-  return end < 0 ? rest : rest.slice(0, end);
-}
-
-/**
- * THE MODEL AND THE PLATFORM, per call. `answers[tool]` is the model's answer
- * (`route` may be a list, one per routing call). A tool with no stub is
- * refused. `owner` is who the site_backends row names.
- */
-function withWire(answers, run, { owner = USER.id, slug = "" } = {}) {
-  const real = globalThis.fetch;
-  const seen = { calls: [], routerAsked: [], picks: [], lanes: [], writers: [], texts: [], debits: [], rpc: [] };
-  let reserved = 0;
-  let routes = 0;
-  globalThis.fetch = async (input, init) => {
-    const url = String((input && input.url) || input || "");
-    let args = {};
-    try { args = JSON.parse(String((init && init.body) || "{}")); } catch { args = {}; }
-    const rpc = url.match(/\/rest\/v1\/rpc\/(edit_\w+)/);
-    if (rpc) {
-      const fn = rpc[1];
-      seen.rpc.push({ fn, args });
-      switch (fn) {
-        case "edit_claim": return json({ ok: true, claimed: true, state: "claimed", billing: "none", uid: USER.id, slug, needs_review: false });
-        case "edit_beat": return json({ ok: true, alive: true, state: "routing", cancel: false });
-        case "edit_reserve": reserved += Number(args.p_cost) || 0; return json({ ok: true, charged: Number(args.p_cost) || 0, cost: reserved, billing: "reserved" });
-        case "edit_exempt": return json({ ok: true, billing: "exempt", state: "routing" });
-        case "edit_may_publish": return json({ ok: true, granted: true });
-        case "edit_publish_mark": case "edit_committed": case "edit_phase_write": return json({ ok: true });
-        case "edit_finalize": return json(args.p_ok ? { ok: true, billing: "finalized" } : { ok: false, error: "not-published" });
-        case "edit_refund": return json({ ok: true, refunded: reserved, billing: "reserved" });
-        default: return json({ ok: false, error: "no stub for " + fn }, 500);
-      }
-    }
-    if (url.includes("/auth/v1/user")) return json(USER);
-    if (url.includes("/rpc/get_credits")) return json(50);
-    if (url.includes("/rpc/use_credits")) { seen.debits.push(Number(args.cost) || 0); return json(Number(args.cost) || 0); }
-    if (url.includes("/rpc/credit_back")) return new Response(null, { status: 204 });
-    if (url.includes("/rest/v1/site_backends")) return json([{ uid: owner, brief: "", neon_db: "" }]);
-    if (url.includes("/rest/v1/site_project") || url.includes("/rest/v1/site_aliases")) return json([]);
-    if (url.includes("/v1/messages")) {
-      const tool = (args.tool_choice && args.tool_choice.name) || "";
-      seen.calls.push(tool);
-      const usage = { input_tokens: 10, output_tokens: 5 };
-      if (tool === T.route) {
-        seen.routerAsked.push(args);
-        const a = Array.isArray(answers.route) ? answers.route[routes++] : answers.route;
-        if (!a) return new Response("no stub for this routing call", { status: 503 });
-        return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: a }], usage });
-      }
-      if (tool === T.pick) seen.picks.push(after(args, "Their message:\n"));
-      if (tool === T.text) seen.texts.push(String(args.messages && args.messages[0] && args.messages[0].content || ""));
-      if (tool === T.lane) {
-        const field = Object.keys((args.tools && args.tools[0] && args.tools[0].input_schema && args.tools[0].input_schema.properties) || {})[0] || "";
-        seen.lanes.push({ field, asked: after(args, "What they asked for:\n") });
-        if (!Object.hasOwn(answers, "lane:" + field)) return new Response("no stub for lane " + field, { status: 503 });
-        return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: { [field]: answers["lane:" + field] } }], usage });
-      }
-      if (tool === T.tweak) {
-        seen.writers.push({ instruction: after(args, "THE CHANGE THEY ASKED FOR\n", "\n\nTHE FILE (") });
-        if (!Object.hasOwn(answers, T.tweak)) return new Response("no stub for the page writer", { status: 503 });
-        return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: answers[T.tweak] }], usage });
-      }
-      if (!Object.hasOwn(answers, tool)) return new Response("no stub for tool " + tool, { status: 503 });
-      return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input: answers[tool] }], usage });
-    }
-    if (isDispatchUpload(url)) return dispatchOk();
-    return new Response("unavailable", { status: 503 });
-  };
-  return (async () => { try { return await run(seen); } finally { globalThis.fetch = real; } })();
-}
-
-const envFor = (store) => ({ SITES_BUCKET: store, ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key", SUPABASE_SERVICE_KEY: "svc-test", CREDITS_MINT_SECRET: "mint-test", ...dispatchEnv() });
-
-async function routeCall(worker, env, { slug, message, ask, firstBuild = false, hasSite = true, attached = false }) {
-  const res = await worker.fetch(new Request("https://gofarther.dev/api/site/route", {
-    method: "POST",
-    headers: { "content-type": "application/json", Authorization: TOKEN },
-    body: JSON.stringify({ message, site: { name: "Harbour Loaf", url: "https://" + slug + ".gofarther.app", pages: ROUTES, tables: ["loaves"] },
-      picker: "sonnet", firstBuild, brief: message, qa: [], answering: false, attached, slug, hasSite, ...(ask === undefined ? {} : { ask }) }),
-  }), env, makeCtx());
-  return { status: res.status, body: await res.json().catch(() => null) };
-}
-async function questionCall(worker, env, slug, method, body) {
-  const res = await worker.fetch(new Request("https://gofarther.dev/api/site/" + slug + "/question", {
-    method, headers: { "content-type": "application/json", Authorization: TOKEN }, body: body === undefined ? undefined : JSON.stringify(body),
-  }), env, makeCtx());
-  return { status: res.status, body: await res.json().catch(() => null) };
-}
-
-// THE BROWSER'S OWN POST, cut out of chat.js — the body `siteEdit` or `siteAddon` composes.
-const CHAT = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8").replace(/\r\n/g, "\n");
-const cut = (head) => {
-  const open = CHAT.indexOf("\nfunction " + head + "(");
-  const shut = CHAT.indexOf("\n}\n", open);
-  assert.ok(open > 0 && shut > open, head + "'s landmarks are gone from chat.js");
-  return CHAT.slice(open, shut + 2);
-};
-function browserPost(site, d, instruction, imgs = []) {
-  const sent = [];
-  const ctx = vm.createContext({
-    editBlocked: new Set(), editInFlight: new Map(), editIdem: new Map(),
-    EditPoll: { ...realEditPoll, newIdemKey: () => "idem-live-q-" + hex32().slice(0, 12), outcomeMessage: (s) => "outcome:" + s },
-    buildPicker: "sonnet", browserTimeZone: () => "Europe/London",
-    apiFetch: (url, init) => { sent.push({ url, init }); return new Promise(() => {}); },
-  });
-  vm.runInContext([cut("editAsk"), cut("editAskDone"), cut("siteEdit"), cut("siteAddon")].join("\n"), ctx);
-  if (d.intent === "addon") ctx.siteAddon(site, instruction, "origin-1", () => {}, () => {}, d, imgs);
-  else ctx.siteEdit(site, d, instruction, "origin-1", () => {}, () => {}, imgs, false);
-  assert.equal(sent.length, 1, "the browser made " + sent.length + " requests, not one");
-  return { url: sent[0].url, body: JSON.parse(sent[0].init.body) };
-}
-
-/** The POST, synchronously or as a queued job; `{ status, body }` as the browser would read it. */
-async function postRoute(worker, env, store, seen, slug, post, mode) {
-  const url = "https://gofarther.dev" + post.url;
-  if (mode === "job") {
-    const id = hex32();
-    store.store.set(EDIT_JOB_PREFIX + id, { body: JSON.stringify(packEditJob({ url, body: JSON.stringify(post.body), uid: USER.id, slug, secret: hex32(), at: Date.now() })), etag: "job" });
-    const ctx = makeCtx();
-    await worker.queue({ messages: [{ body: { kind: EDIT_JOB_KIND, id }, ack() {}, retry() {} }] }, env, ctx);
-    await Promise.allSettled(ctx.pending || []);
-    const fin = seen.rpc.find((r) => r.fn === "edit_finalize");
-    assert.ok(fin, "the queued job never finalized: " + JSON.stringify(seen.rpc.map((r) => r.fn)));
-    return { status: fin.args.p_result.status, body: JSON.parse(fin.args.p_result.body), finalized: fin.args, refunded: seen.rpc.some((r) => r.fn === "edit_refund") };
-  }
-  const res = await worker.fetch(new Request(url, { method: "POST", headers: { "content-type": "application/json", Authorization: TOKEN }, body: JSON.stringify(post.body) }), env, makeCtx());
-  return { status: res.status, body: await res.json().catch(() => null) };
-}
-const SITE = (slug) => ({ slug, name: "Harbour Loaf", react: true, pages: ROUTES.map((p) => ({ path: p })), msgs: [] });
-const storedLook = (b, slug) => (JSON.parse(b.raw(CONFIG_KEY(slug)) || "{}").look || {});
-const storedPage = (b, slug, path) => (JSON.parse(b.raw(SOURCE_KEY(slug))).find((p) => p.path === path) || {}).source;
+import {
+  T, USER, OTHER, HOME, VISIT, NEW_DESC, Q, freshSlug, bucket, question, seedQuestion, withWire, envFor,
+  routeCall, questionCall, browserPost, postRoute, SITE, storedLook, storedPage,
+} from "./fixtures/live-ask.mjs";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. THE ROUTER ASKS — and a clear request goes straight through
@@ -368,15 +160,21 @@ test("A QUESTION THAT CANNOT BE USED OR KEPT IS A TECHNICAL FAILURE: said as one
     });
   }
   // (e) No question can be kept here (no address to keep it under): the router
-  // is told questions are closed, and one it asks anyway is said as words.
+  // is told questions are closed, and one it asks anyway is a failure of the
+  // answer, charged nothing — never shown as words nobody's answer can resume
+  // (2026-10-02, the owner's review).
   {
     const store = bucket("unused");
     await withWire({ route: { intent: "clarify", question: Q } }, async (seen) => {
       const r = await routeCall(worker, envFor(store), { slug: "", message: "Move the band" });
       assert.match(String(seen.routerAsked[0].messages[0].content), /Questions are closed for this message/, "a router that cannot keep a question was told it may ask");
-      assert.equal(r.body.intent, "ask");
-      assert.equal(r.body.answer, Q.text);
+      assert.equal(r.body.failed, true, "a question nothing can keep was used: " + JSON.stringify(r.body));
+      assert.equal(r.body.failure.kind, "answer");
+      assert.equal(r.body.cost, 0);
+      assert.equal(r.body.answer, undefined, "the question was said as words with nothing waiting");
       assert.equal(r.body.question, undefined, "a question nothing can answer was offered with a card");
+      assert.ok(r.body.decision.reasons.includes("clarify-unkeepable"), JSON.stringify(r.body.decision));
+      assert.deepEqual(seen.debits, [], "an unusable answer was charged");
       assert.deepEqual(store.questionWrites, []);
     });
   }
@@ -408,7 +206,7 @@ test("A TYPED ANSWER RESUMES THE WAITING REQUEST with the question and answer ad
     assert.equal(r.body.intent, "edit");
     assert.equal(r.body.instruction, q.request + "\n\nThey were asked: " + Q.text + "\nThey answered: Visit",
       "the request the answer resumes is not the waiting one with the answer added");
-    assert.deepEqual(r.body.ask, { answered: true, round: 1, putOff: ["add a gallery page"] });
+    assert.deepEqual(r.body.ask, { answered: true, round: 1, putOff: ["add a gallery page"], asked: [Q.text] });
     assert.ok(r.body.cost > 0, "the answer's routing call was not charged");
     const told = String(seen.routerAsked[0].messages[0].content);
     assert.match(told, /THEIR LAST REQUEST IS WAITING ON AN ANSWER/);
@@ -520,22 +318,28 @@ test("AN ANSWER TOO LONG TO ADD TO ITS REQUEST IS REFUSED AT NO COST, and the qu
   });
 });
 
-test("A RESUMED REQUEST MAY ASK ONE MORE QUESTION, keeping what it put off; PAST THE BUDGET THE ROUTER IS TOLD QUESTIONS ARE CLOSED", async () => {
+test("A RESUMED REQUEST MAY ASK ANOTHER QUESTION, keeping what it put off — and the router is told every question it has already asked, never that questions are closed", async () => {
   const slug = freshSlug("round2");
   const store = bucket(slug);
   const q = seedQuestion(store, slug, { held: ["add a gallery page"], attached: true });
   const worker = await loadWorker();
-  await withWire({ route: { intent: "clarify", question: { text: "Above which heading exactly?" }, answered: true } }, async (seen) => {
+  const Q2 = { text: "Above which heading exactly?" };
+  await withWire({ route: { intent: "clarify", question: Q2, answered: true } }, async (seen) => {
     const r = await routeCall(worker, envFor(store), { slug, message: "Visit", ask: { id: q.id } });
     assert.equal(r.body.intent, "clarify");
     // THE ANSWER WAS TAKEN, AND THE REQUEST WAITS ON THE NEW QUESTION: no
     // request to run yet, so none is sent — the browser's reader must accept that.
-    assert.deepEqual(r.body.ask, { answered: true, round: 1, putOff: ["add a gallery page"] });
+    assert.deepEqual(r.body.ask, { answered: true, round: 1, putOff: ["add a gallery page"], asked: [Q.text] });
     assert.equal(r.body.instruction, undefined, "a request to run rode the second question");
-    assert.match(String(seen.routerAsked[0].messages[0].content), /You may ask 1 more question/);
+    const told = String(seen.routerAsked[0].messages[0].content);
+    assert.match(told, /A QUESTION MAY BE ASKED/);
+    assert.match(told, /WHAT THIS REQUEST HAS ALREADY ASKED THEM/);
+    assert.ok(told.includes("- " + Q.text), "the router was not told the question it already asked");
+    assert.doesNotMatch(told, /more questions? about this request/, "the router was told a count of questions");
     const q2 = question(store, slug);
     assert.equal(q2.id, r.body.question.id);
     assert.equal(q2.round, 2);
+    assert.deepEqual(q2.asked, [Q.text, Q2.text], "the second question does not carry the first");
     assert.equal(q2.request, q.request + "\n\nThey were asked: " + Q.text + "\nThey answered: Visit", "the second question does not resume the first answer");
     assert.deepEqual(q2.held, ["add a gallery page"], "what the request put off was lost at the second question");
     assert.equal(q2.attached, true, "the request's files were forgotten at the second question, though the answer carried none");
@@ -544,7 +348,10 @@ test("A RESUMED REQUEST MAY ASK ONE MORE QUESTION, keeping what it put off; PAST
   await withWire({ route: { intent: "edit", layer: "look", answered: true } }, async (seen) => {
     const r = await routeCall(worker, envFor(store), { slug, message: "Above Come to the bakery", ask: { id: q2.id } });
     assert.equal(r.body.ask.round, 2);
-    assert.match(String(seen.routerAsked[0].messages[0].content), /Questions are closed for this message/);
+    assert.deepEqual(r.body.ask.asked, [Q.text, Q2.text], "the step would not know what this request has asked");
+    const told = String(seen.routerAsked[0].messages[0].content);
+    assert.doesNotMatch(told, /Questions are closed for this message/, "a second answer closed questions: the next one would be words nobody can answer");
+    assert.match(told, /A QUESTION MAY BE ASKED/);
   });
 });
 
@@ -684,19 +491,23 @@ test("A MIXED REQUEST: the part that can run runs and is published; the step tha
   } finally { compiler.uninstall(); }
 });
 
-test("PAST THE BUDGET A STEP'S QUESTION IS SAID AS WORDS, with nothing kept to answer", async () => {
-  const slug = freshSlug("budget");
+test("A STEP'S THIRD QUESTION IS KEPT AND ANSWERABLE: no count turns it into words nobody can answer", async () => {
+  const slug = freshSlug("third-step");
   const store = bucket(slug);
   const worker = await loadWorker();
   await withWire({ [T.pick]: { fields: ["shape"], question: Q } }, async (seen) => {
-    const post = browserPost(SITE(slug), { intent: "edit", layer: "look", askRound: 2 }, "Move the band\n\nThey were asked: x\nThey answered: y");
+    const post = browserPost(SITE(slug), { intent: "edit", layer: "look", askRound: 2, asked: ["Which band?", "Above which heading?"] }, "Move the band\n\nThey were asked: Which band?\nThey answered: The order band\n\nThey were asked: Above which heading?\nThey answered: The first one");
     assert.equal(post.body.askRound, 2, "the browser did not post the question count");
+    assert.deepEqual(post.body.asked, ["Which band?", "Above which heading?"], "the browser did not post what the request has asked");
     const r = await postRoute(worker, envFor(store), store, seen, slug, post, "sync");
-    assert.deepEqual(r.body.clarify, { text: Q.text, options: [] });
-    assert.deepEqual(store.questionWrites, [], "a question past the budget was kept");
+    assert.match(r.body.clarify.id, /^[0-9a-f]{32}$/, "a third question was shown with nothing waiting: " + JSON.stringify(r.body.clarify));
+    const q = question(store, slug);
+    assert.equal(q.id, r.body.clarify.id);
+    assert.equal(q.round, 3);
+    assert.deepEqual(q.asked, ["Which band?", "Above which heading?", Q.text]);
     const said = editBrowserReply(r.body, true, {});
     assert.equal(said.text, Q.text);
-    assert.equal(said.asked, null, "a question past the budget was drawn with a card");
+    assert.equal(said.asked.id, q.id, "the third question was drawn without its card");
   }, { slug });
 });
 
@@ -787,5 +598,9 @@ test("A QUESTION A STEP CANNOT KEEP IS SAID AS OURS, never as a question nobody 
     assert.equal(r.body.error, "clarify-unkept");
     assert.equal(r.body.ours, true);
     assert.equal(r.body.clarify, undefined, "a question that was not kept was offered to be answered");
+    // WHAT IT LEFT TO DO GOES BACK TO THE MESSAGE BOX (2026-10-02), so the
+    // request can be sent again with the detail — nothing done is in it.
+    assert.equal(r.body.resume, "Move the band");
+    assert.ok(r.body.msg.includes(Q.text), "the detail it needed was not named: " + r.body.msg);
   }, { slug });
 });

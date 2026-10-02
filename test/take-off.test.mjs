@@ -15,6 +15,7 @@ import {
   LANE_FIELDS, REMOVABLE_LANES, MAX_MESSAGE, pickTool,
   takeOffLane, takeOffTool, takeOffRequest, readTakeOff, takeOffTargets, runTakeOff, takeOffRefusal, takeOffNote,
 } from "../builder/site-lanes.mjs";
+import { QUESTION_FIELD } from "../builder/clarify.mjs";
 
 const PRICES = { name: "prices", points: "https://crookes.gofarther.app/prices", label: "Scan for prices" };
 const RING = { name: "ring", points: "tel:+441140000000", label: "Scan to ring and book" };
@@ -40,7 +41,10 @@ test("the removal's tool answers a list of names and nothing else, and it is the
   for (const f of ["langs", "qr", "behavior"]) {
     const tool = takeOffTool(f);
     assert.equal(tool.name, "take_off");
-    assert.deepEqual(Object.keys(tool.input_schema.properties), ["targets"], f + ": the answer carries more than names");
+    // RE-ANCHORED 2026-10-02 (the owner's review): and the one question back,
+    // asked instead of naming an entry on a guess (`QUESTION_FIELD`).
+    assert.deepEqual(Object.keys(tool.input_schema.properties), ["targets", "question"], f + ": the answer carries more than names");
+    assert.equal(tool.input_schema.properties.question, QUESTION_FIELD);
     assert.deepEqual(tool.input_schema.required, ["targets"]);
     assert.equal(tool.input_schema.properties.targets.type, "array");
     assert.deepEqual(tool.input_schema.properties.targets.items, { type: "string" });

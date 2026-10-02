@@ -581,7 +581,7 @@ test("A STEP THAT ASKS: its question becomes the live card, kept with the messag
   assert.equal(p.busy(), false);
 });
 
-test("A MIXED REPLY: what ran is said first, the question last with its card; past the budget a question is words with no card", async () => {
+test("A MIXED REPLY: what ran is said first, the question last with its card; a question with no id is never drawn as one, nor as words to answer", async () => {
   {
     const reply = { ok: true, cost: 1, lanes: ["description"], changed: ["description"], msg: "Updated the site's description.",
       partial: [{ layer: "page", ok: false, error: "clarify", msg: STEP_Q.text }], clarify: STEP_Q };
@@ -600,9 +600,95 @@ test("A MIXED REPLY: what ran is said first, the question last with its card; pa
       : url === EDIT ? { body: { ok: false, error: "clarify", layer: "look", cost: 0, unchanged: true, msg: STEP_Q.text, clarify: { text: STEP_Q.text, options: [] } } } : null) });
     p.ctx.siteSend("Move the order band up");
     await settle();
-    assert.deepEqual(p.last(), { r: "a", t: STEP_Q.text }, "a question past the budget was drawn with a card");
-    assert.equal(p.ask(), null);
+    // THERE IS NO BUDGET, AND NO QUESTION WITHOUT AN ID (2026-10-02): a reply
+    // carrying one is a reply this page cannot read, said as such — the
+    // question nobody's answer could resume is never on the thread.
+    assert.equal(p.ask(), null, "an id-less question became the live card");
+    assert.ok(!p.said().some((m) => m.t === STEP_Q.text), "a question nobody can answer was drawn as words");
+    assert.match(p.last().t, /^⚠️ /, "an unreadable reply was not said as one: " + p.last().t);
   }
+});
+
+test("A STEP'S QUESTION THAT COULD NOT BE KEPT PUTS WHAT IT LEFT TO DO BACK IN THE MESSAGE BOX, with the message's files — beside what ran, or alone", async () => {
+  const REST = "put the order band above the other one";
+  const unkept = "I needed to ask you something about that part — " + STEP_Q.text + " — but couldn't keep track of the question just now, so I left it alone. What was left of your request is back in your message box: add the detail and send it, and I'll make it.";
+  {
+    const reply = { ok: true, cost: 1, lanes: ["description"], changed: ["description"], msg: "Updated the site's description.",
+      partial: [{ layer: "page", ok: false, error: "clarify-unkept", msg: unkept }], resume: REST };
+    const p = page({ site: { ...LIVE, draft: { t: "", imgs: [IMG] } }, answer: (url) => (url === ROUTE ? { body: { ok: true, intent: "edit", layer: "look", cost: 2 } } : url === EDIT ? { body: reply } : null) });
+    p.ctx.siteSend("Change the description, then " + REST);
+    await settle();
+    assert.match(p.last().t, /^✅/, "what ran was not said: " + p.last().t);
+    assert.deepEqual(copy(p.s.unsent), [{ t: REST, imgs: [IMG] }], "what the question left to do was not put back with its files");
+    assert.equal(p.ask(), null, "a question that was not kept became a card");
+  }
+  {
+    const reply = { ok: false, error: "clarify-unkept", ours: true, cost: 0, unchanged: true, msg: unkept, resume: "Move the order band up" };
+    const p = page({ site: LIVE, answer: (url) => (url === ROUTE ? { body: { ok: true, intent: "edit", layer: "look", cost: 2 } } : url === EDIT ? { status: 503, body: reply } : null) });
+    p.ctx.siteSend("Move the order band up");
+    await settle();
+    assert.ok(p.last().t.startsWith("⚠️ " + unkept), "the route's sentence was not said: " + p.last().t);
+    assert.deepEqual(copy(p.s.unsent), [{ t: "Move the order band up", imgs: [] }]);
+  }
+  {
+    // A `resume` THAT IS NOT A MESSAGE'S WORDS makes the reply unreadable, never a composer full of junk —
+    // and never a refusal read as if it were whole.
+    for (const resume of [["Move the band"], "   ", "x".repeat(2001), 7]) {
+      const p = page({ site: LIVE, answer: (url) => (url === ROUTE ? { body: { ok: true, intent: "edit", layer: "look", cost: 2 } }
+        : url === EDIT ? { body: { ok: false, error: "clarify-unkept", msg: "THE ROUTE'S OWN SENTENCE", resume } } : null) });
+      p.ctx.siteSend("Move the order band up");
+      await settle();
+      assert.equal(p.s.unsent, undefined, "a malformed resume reached the message box: " + JSON.stringify(resume).slice(0, 40));
+      assert.ok(!p.said().some((m) => String(m.t).includes("THE ROUTE'S OWN SENTENCE")), "a reply with a malformed resume was read as a refusal: " + JSON.stringify(resume).slice(0, 40));
+      assert.match(p.last().t, /^⚠️ /);
+    }
+  }
+});
+
+test("A REPLACEMENT THAT LOST A RACE STARTS NOTHING AND COMES BACK TO THE BOX; A QUESTION THE ROUTER WOULD HAVE ASKED AGAIN ENDS THE REQUEST, SAID, WITH ITS CARD OFF", async () => {
+  {
+    const msg = "Your last question was being answered somewhere else at the same moment, so I didn't act on this message. Send it again and I'll take it from there.";
+    const p = page({ site: asking(), answer: (url) => (url === ROUTE ? { status: 409, body: { ok: false, error: "question-busy", cost: 0, msg } } : null) });
+    p.ctx.siteSend("Actually, make the footer blue");
+    await settle();
+    assert.equal(p.calls.length, 1, "work was sent after the replacement lost its race");
+    assert.deepEqual(p.last(), { r: "a", t: "⚠️ " + msg });
+    assert.deepEqual(copy(p.s.unsent), [{ t: "Actually, make the footer blue", imgs: [] }], "the message was not held to send again");
+    assert.equal(p.ask(), null, "the card of a question closed elsewhere stayed up");
+  }
+  {
+    const msg = "Your answer didn't settle what I asked, and I won't ask you the same thing twice — so I've stopped there and nothing more was changed. Send the change again with that detail spelled out, and I'll make it.";
+    const p = page({ site: asking(), answer: (url) => (url === ROUTE ? { status: 422, body: { ok: false, error: "question-ended", why: "repeat", cost: 0, msg } } : null) });
+    p.ctx.siteSend("the big one");
+    await settle();
+    assert.equal(p.calls.length, 1);
+    assert.deepEqual(p.last(), { r: "a", t: "⚠️ " + msg });
+    assert.equal(p.ask(), null, "a request that ended kept its card");
+    assert.equal(p.s.unsent, undefined, "an answer to a request that ended came back to the box as if to send again");
+  }
+  {
+    const msg = "That request has grown too long for me to ask about it and still take your answer, so I've stopped there and nothing more was changed. Send it again a little shorter, with the details in it.";
+    const long = "Move the band ".repeat(10).trim();
+    const p = page({ site: LIVE, answer: (url) => (url === ROUTE ? { status: 422, body: { ok: false, error: "question-ended", why: "room", cost: 0, msg, resume: long } } : null) });
+    p.ctx.siteSend(long);
+    await settle();
+    assert.deepEqual(copy(p.s.unsent), [{ t: long, imgs: [] }], "a request too long to ask about was not put back to shorten");
+  }
+});
+
+test("AN ANSWERED QUESTION'S EARLIER QUESTIONS RIDE TO THE STEP, so it never asks one again", async () => {
+  const asked = [Q.text];
+  const p = page({ site: asking(), answer: (url) => (url === ROUTE ? { body: { ...RESUME_ANSWER, ask: { ...RESUME_ANSWER.ask, asked } } } : null) });
+  p.ctx.siteSend("Visit");
+  await settle();
+  const [e] = posted(p, EDIT);
+  assert.deepEqual(e.body.asked, asked, "the step was not told what the request has asked");
+  // A LIST THAT CANNOT BE READ IS NOT ACTED ON: held to send again, the question kept.
+  const bad = page({ site: asking(), answer: (url) => (url === ROUTE ? { body: { ...RESUME_ANSWER, ask: { ...RESUME_ANSWER.ask, asked: [3] } } } : null) });
+  bad.ctx.siteSend("Visit");
+  await settle();
+  assert.equal(posted(bad, EDIT).length, 0, "work was sent on an answer whose question list nobody can read");
+  assert.equal(bad.ask().id, QID);
 });
 
 test("THE ADD-ON STEP'S QUESTION becomes the live card too", async () => {

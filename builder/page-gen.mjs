@@ -48,6 +48,7 @@ import { qrList } from "./site-qr-list.mjs";
 // is the defect the lint refuses.
 import { CHART_USAGE } from "./chart-usage.mjs";
 import { normalizePayment } from "../site-payments.mjs";
+import { withQuestion, askOf } from "./clarify.mjs";
 
 /**
  * The house motion set. Spec and reasoning: builder/MOTION.md.
@@ -1768,6 +1769,17 @@ export const SITE_PAGES_TOOL = {
     required: ["pages"],
   },
 };
+
+/**
+ * THE SAME TOOL, WITH THE ONE QUESTION FIELD (2026-10-02, the owner's review:
+ * *"Extend clarification into the edit models … that currently cannot ask"*),
+ * sent ONLY for the edit route's one-page change (`mode === "page"`): that
+ * writer is shown the page and may find what the customer named is two things
+ * on it. A first build, a revise and an add-on's pages are sent the tool they
+ * always were, byte for byte — the add-on's questions are its picker's and its
+ * designers', asked before anything of it is applied.
+ */
+export const SITE_PAGES_TOOL_ASK = withQuestion(SITE_PAGES_TOOL);
 
 /**
  * What each READ level means to a page, in the words the generator acts on.
@@ -4463,7 +4475,7 @@ export function pagesRequest({ brief, spec, brand, attachments, model, priorPage
     // fourth copy of a model id is a fourth place for it to go stale.
     model: model || modelsFor().pages,
     max_tokens: SITE_PAGES_MAX_TOKENS,
-    tools: [SITE_PAGES_TOOL],
+    tools: [mode === "page" ? SITE_PAGES_TOOL_ASK : SITE_PAGES_TOOL],
     tool_choice: { type: "tool", name: "write_pages" },
     // WHICH RULES, DECIDED BY THE SPEC RATHER THAN BY A FLAG. `siteHasTables` is
     // the one reading of the question and every lane reaches this through it —
@@ -4531,6 +4543,10 @@ export async function generateSitePages(keys, brief, spec, brand, attachments, m
   // into a page whose last file is truncated. Treat it as a failed generation
   // rather than shipping a file that ends mid-expression.
   if (j.stop_reason === "max_tokens") return { input: null, truncated: true, ...used };
+  // A QUESTION BACK (2026-10-02), only where the tool offered one: nothing it
+  // wrote beside the question is read.
+  const ask = req.tools[0] === SITE_PAGES_TOOL_ASK ? askOf(j) : null;
+  if (ask) return { input: null, ask, ...used };
   const use = (Array.isArray(j.content) ? j.content : []).find((b) => b && b.type === "tool_use");
   // WHY THERE ARE NO PAGES, when there are none. Measured live 2026-08-04: a
   // build spent 9,810 output tokens and 22 credits, `validatePages` got null, and

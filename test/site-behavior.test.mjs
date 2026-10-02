@@ -19,6 +19,7 @@ import { readFileSync } from "node:fs";
 import { BEHAVIOR_FIELD, BEHAVIOR_ITEM, MAX_BEHAVIOR } from "../builder/site-plan.mjs";
 import { EDIT_FIELDS, mergeLook, currentStateNote, movedFields } from "../builder/site-edit.mjs";
 import { OWN_LANES, LANE_FIELDS, editTool, laneRule } from "../builder/site-lanes.mjs";
+import { QUESTION_FIELD } from "../builder/clarify.mjs";
 import { readSchemaTool } from "./integration/schema-tool.mjs";
 
 // Prose in this repo contains the things it forbids — a comment arguing about a
@@ -148,8 +149,11 @@ test("the behaviour lane ACTS in this module — it is not dispatched to a page 
   // THE WALL, NOT THE RULE: one property and nothing required, so the lane
   // physically cannot answer another field.
   const t = editTool("behavior");
-  assert.deepEqual(Object.keys(t.input_schema.properties), ["behavior"],
+  // RE-ANCHORED 2026-10-02 (the owner's review): and the one question back
+  // (`QUESTION_FIELD`, never applied as a value) — never another field.
+  assert.deepEqual(Object.keys(t.input_schema.properties), ["behavior", "question"],
     "the behaviour lane can answer more than behaviour");
+  assert.equal(t.input_schema.properties.question, QUESTION_FIELD);
   assert.deepEqual(t.input_schema.required, [], "the behaviour lane compels an answer on an edit");
 });
 

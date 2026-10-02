@@ -619,7 +619,9 @@ test("the row designer is told the lists it may add to — the display list, nev
   assert.doesNotMatch(block, /- orders/, "the visitors' list was offered as one to add to");
   // AND ITS TOOL IS THE `row` KIND'S: a list of { table, values }.
   const props = designer.args.tools[0].input_schema.properties;
-  assert.deepEqual(Object.keys(props), ["row"]);
+  // RE-ANCHORED 2026-10-02 (the owner's review: the add-on designers can ask):
+  // and the one question back, never designed into the site.
+  assert.deepEqual(Object.keys(props), ["row", "question"]);
   assert.deepEqual(props.row.items.required, ["table", "values"]);
   assert.equal(props.row.maxItems, MAX_ADD_ROWS);
 });

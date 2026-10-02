@@ -648,8 +648,12 @@ export function photoLines(reply) {
  */
 // THE QUESTION BLOCK BOTH READERS REACH (2026-10-02): the reader of a question,
 // the message it is drawn under, and its keeping on the site with its files.
+// AND WHAT A QUESTION THAT COULD NOT BE KEPT LEAVES TO DO (2026-10-02,
+// `holdResume`): put back in the message box through `siteHoldUnsent`, which
+// stops at `siteById`, a stub here.
 const ASK_READER_FNS = Object.freeze([
   "clarifyOf", "askReplyMsg", "askFromReply", "siteAskKeep", "askFilesDb", "askFilesStore", "askFilesDrop",
+  "holdResume", "siteHoldUnsent",
 ]);
 export const BROWSER_FNS = Object.freeze([
   // ⚠ `listPhotoNote` IS HERE BECAUSE ITS ABSENCE THREW (2026-09-19). This list

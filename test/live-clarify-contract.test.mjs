@@ -18,18 +18,20 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { createRequire } from "node:module";
 import {
-  QUESTION_FIELD, ASK_TTL_MS, QUESTION_KEY, MAX_ASK_ROUNDS, askOf, answeredRequest, newAskId,
-  packAsk, readAskRecord, askLive, loadAsk, storeAsk, closeAsk, withQuestion,
+  QUESTION_FIELD, ASK_TTL_MS, QUESTION_KEY, MAX_ASKED, ASK_ANSWER_ROOM, askOf, answeredRequest, newAskId,
+  packAsk, readAskRecord, askLive, loadAsk, storeAsk, closeAsk, replaceAsk, withQuestion, askRepeat, askRoom, askedList,
+  answerLines, askedIn,
 } from "../builder/clarify.mjs";
 import { allowedJobKey } from "../builder/job-gateway.mjs";
 import { routeMessage, readRouting, readAsk, askRequest, ASK_TOOL, LIVE_ASK_TOOL, MAX_MESSAGE } from "../builder/site-ask.mjs";
-import { pickTool as lanePickTool, pickLanes, editTool, LANE_FIELDS } from "../builder/site-lanes.mjs";
+import { pickTool as lanePickTool, pickLanes, editTool, LANE_FIELDS, OWN_LANES, takeOffTool, runLane, runTakeOff } from "../builder/site-lanes.mjs";
 import { TEXT_TOOL, DATA_TOOL, runTextEdit, runDataEdit } from "../builder/site-apply.mjs";
 import { RULES_TOOL, runRulesEdit } from "../builder/site-rules.mjs";
 import { PICTURE_TOOL, runPictureEdit } from "../builder/site-picture.mjs";
 import { NAV_TOOL, runNavEdit } from "../builder/site-nav.mjs";
 import { TWEAK_TOOL, runTweak } from "../builder/site-tweak.mjs";
-import { pickTool as addPickTool, pickAdds } from "../builder/site-add.mjs";
+import { pickTool as addPickTool, pickAdds, addTool, runAdd } from "../builder/site-add.mjs";
+import { SITE_PAGES_TOOL, SITE_PAGES_TOOL_ASK, pagesRequest, generateSitePages } from "../builder/page-gen.mjs";
 import { heldReport } from "../builder/hand-over.mjs";
 
 const require = createRequire(import.meta.url);
@@ -80,12 +82,20 @@ test("A STORED QUESTION IS EVERY FIELD CHECKED, and one field wrong makes it no 
   assert.deepEqual(readAskRecord(JSON.stringify(good)), good, "a stored question does not read back as it was written");
   for (const [field, bad] of [
     ["id", "nope"], ["id", 7], ["uid", ""], ["slug", "Not A Slug"], ["stage", "build"], ["stage", 3],
-    ["round", 0], ["round", MAX_ASK_ROUNDS + 1], ["round", 1.5], ["question", { text: "" }], ["question", "Which?"],
+    ["round", 0], ["round", 1.5], ["round", "3"], ["question", { text: "" }], ["question", "Which?"],
     ["request", ""], ["request", "x".repeat(MAX_MESSAGE + 1)], ["held", [3]], ["held", "x".repeat(5000)],
     ["at", "now"], ["status", "open"], ["attached", "yes"], ["attached", 1],
+    // EVERY QUESTION THE REQUEST HAS ASKED, THIS ONE LAST (2026-10-02): a list
+    // that is anything else makes no question at all, never a shorter list.
+    ["asked", []], ["asked", ["Which one?"]], ["asked", [Q.text, "Which one?"]], ["asked", [3, Q.text]],
+    ["asked", ["", Q.text]], ["asked", ["x".repeat(241), Q.text]], ["asked", Q.text],
+    ["asked", [...Array.from({ length: MAX_ASKED }, (_, i) => "Q" + i + "?"), Q.text]],
   ]) {
     assert.equal(rec({ [field]: bad }), null, field + " = " + JSON.stringify(bad) + " was accepted");
   }
+  // NO COUNT OF QUESTIONS: a request's tenth question is a question like its first.
+  assert.equal(rec({ round: 10, asked: [...Array.from({ length: 9 }, (_, i) => "Q" + i + "?"), Q.text] }).round, 10);
+  assert.deepEqual(good.asked, [Q.text], "a question with no earlier ones does not name itself as asked");
   assert.equal(readAskRecord("{not json"), null);
   assert.equal(readAskRecord(JSON.stringify({ ...good, v: 2 })), null, "a record of another version was read");
   // EVERY STEP THAT CAN ASK, AND THE ROUTER, IS A STAGE; nothing else is.
@@ -262,14 +272,17 @@ test("THE FIRST BUILD IS UNCHANGED, BYTE FOR BYTE: the router's request and its 
 
 const LIVE_SITE = { name: "Fold Lane", url: "https://fold-lane-bakery.gofarther.app", pages: ["/", "/visit"], tables: ["loaves"] };
 const said = (input) => ({ stop_reason: "tool_use", content: [{ type: "tool_use", name: LIVE_ASK_TOOL.name, input }], usage: { input_tokens: 10, output_tokens: 5 } });
+// `canAsk` IS THE ROUTE'S WORD THAT A QUESTION CAN BE KEPT (2026-10-02): a
+// site that exists, with an address and a store. Every case here has one
+// unless it says otherwise.
 async function liveRoute(input, opts = {}) {
   let sent = null;
   const r = await routeMessage({ send: async (req) => { sent = req; return said(input); } },
-    { message: "Change the heading", site: LIVE_SITE, hasSite: true, firstBuild: false, model: "test-model", ...opts });
+    { message: "Change the heading", site: LIVE_SITE, hasSite: true, firstBuild: false, model: "test-model", canAsk: true, ...opts });
   return { r, sent };
 }
 
-test("A LIVE SITE'S ROUTER IS OFFERED A QUESTION, TOLD ITS BUDGET, AND TOLD WHEN IT IS SPENT — in the model's terms, never a word list", async () => {
+test("A LIVE SITE'S ROUTER IS OFFERED A QUESTION WHEREVER ONE CAN BE KEPT — with no count of them — and is told what this request has already asked", async () => {
   const fresh = await liveRoute({ intent: "edit", layer: "text" });
   assert.equal(fresh.sent.tools[0], LIVE_ASK_TOOL, "a live site was not sent the live tool");
   const props = LIVE_ASK_TOOL.input_schema.properties;
@@ -277,15 +290,22 @@ test("A LIVE SITE'S ROUTER IS OFFERED A QUESTION, TOLD ITS BUDGET, AND TOLD WHEN
   assert.deepEqual(props.question.required, ["text"], "a question must carry answers to be asked");
   const told = String(fresh.sent.messages[0].content);
   assert.match(told, /A QUESTION MAY BE ASKED/);
-  assert.match(told, /You may ask 2 more questions about this request/);
+  assert.doesNotMatch(told, /more questions? about this request/, "the router was told a count, so a later question could be words nobody can answer");
   assert.doesNotMatch(told, /THEIR LAST REQUEST IS WAITING/, "a fresh message was told a request is waiting");
-  const one = await liveRoute({ intent: "edit", layer: "text" }, { askRound: 1 });
-  assert.match(String(one.sent.messages[0].content), /You may ask 1 more question about this request/);
-  const spent = await liveRoute({ intent: "edit", layer: "text" }, { askRound: 2 });
-  assert.match(String(spent.sent.messages[0].content), /Questions are closed for this message — never answer "clarify"/);
+  assert.doesNotMatch(told, /ALREADY ASKED/, "a fresh request was told it had asked something");
+  // A REQUEST THAT HAS ASKED: every question named, never to be asked again.
+  const asked = ["Which heading?", "On which page?", "Bigger by how much?"];
+  const later = await liveRoute({ intent: "edit", layer: "text" }, { asked, pending: { request: "Change the heading", question: { text: asked[2], options: [] } } });
+  const laterTold = String(later.sent.messages[0].content);
+  assert.match(laterTold, /A QUESTION MAY BE ASKED/, "a third question was closed off");
+  assert.match(laterTold, /WHAT THIS REQUEST HAS ALREADY ASKED THEM — never ask any of these again/);
+  for (const q of asked) assert.ok(laterTold.includes("- " + q), "the router was not told it asked: " + q);
+  // WHERE NONE CAN BE KEPT, NONE MAY BE ASKED.
+  const closed = await liveRoute({ intent: "edit", layer: "text" }, { canAsk: false });
+  assert.match(String(closed.sent.messages[0].content), /Questions are closed for this message — never answer "clarify"/);
 });
 
-test("THE ROUTER ASKS: a readable question is the answer; an unreadable one is a technical failure that charges nothing; past the budget it is said as words", async () => {
+test("THE ROUTER ASKS: a readable question is the answer; an unreadable one, or one where none can be kept, is a technical failure that charges nothing — never words nobody can answer", async () => {
   const asks = await liveRoute({ intent: "clarify", question: Q });
   assert.equal(asks.r.intent, "clarify");
   assert.deepEqual(json(asks.r.question), Q);
@@ -297,25 +317,27 @@ test("THE ROUTER ASKS: a readable question is the answer; an unreadable one is a
     assert.equal(bad.r.usage, null, JSON.stringify(question) + ": an unusable question was charged");
     assert.equal(bad.r.failure && bad.r.failure.kind, "answer");
   }
-  const spent = await liveRoute({ intent: "clarify", question: Q }, { askRound: MAX_ASK_ROUNDS });
-  assert.equal(spent.r.intent, "ask", "a question past the budget was kept as a question");
-  assert.equal(spent.r.answer, Q.text);
+  const nowhere = await liveRoute({ intent: "clarify", question: Q }, { canAsk: false });
+  assert.equal(nowhere.r.failed, true, "a question nothing can keep was used: " + JSON.stringify(nowhere.r));
+  assert.equal(nowhere.r.usage, null, "a question nothing can keep was charged");
+  assert.notEqual(nowhere.r.intent, "ask", "a question nothing can keep was said as words");
+  assert.ok(nowhere.r.decision.reasons.includes("clarify-unkeepable"));
 });
 
 test("A MESSAGE BESIDE A WAITING QUESTION: the router says whether it answers it — a pressed answer always does — and a reply that says neither is a technical failure", async () => {
   const pending = { request: "Change the heading", question: Q, chosen: false };
-  const yes = await liveRoute({ intent: "edit", layer: "text", answered: true }, { askRound: 1, pending });
+  const yes = await liveRoute({ intent: "edit", layer: "text", answered: true }, { pending });
   assert.equal(yes.r.answered, true);
   const told = String(yes.sent.messages[0].content);
   assert.match(told, /THEIR LAST REQUEST IS WAITING ON AN ANSWER/);
   assert.ok(told.includes("Change the heading") && told.includes(Q.text) && told.includes("Visit"), "the router was not shown the waiting request, its question and its answers");
-  const no = await liveRoute({ intent: "addon", answered: false }, { askRound: 1, pending });
+  const no = await liveRoute({ intent: "addon", answered: false }, { pending });
   assert.equal(no.r.answered, false, "a changed request was read as an answer");
-  const chosen = await liveRoute({ intent: "edit", layer: "text", answered: false }, { askRound: 1, pending: { ...pending, chosen: true } });
+  const chosen = await liveRoute({ intent: "edit", layer: "text", answered: false }, { pending: { ...pending, chosen: true } });
   assert.equal(chosen.r.answered, true, "a pressed answer was read as a changed request");
   assert.match(String(chosen.sent.messages[0].content), /They picked one of those answers/);
   for (const answered of [undefined, "yes", 1, null]) {
-    const unread = await liveRoute({ intent: "edit", layer: "text", ...(answered === undefined ? {} : { answered }) }, { askRound: 1, pending });
+    const unread = await liveRoute({ intent: "edit", layer: "text", ...(answered === undefined ? {} : { answered }) }, { pending });
     assert.equal(unread.r.failed, true, JSON.stringify(answered) + ": an answer the router did not settle was acted on");
     assert.equal(unread.r.usage, null, JSON.stringify(answered) + ": it was charged");
   }
@@ -342,23 +364,32 @@ test("A LIVE SITE'S QUESTION IS NEVER TURNED INTO ADD-ON WORK — the first buil
 
 // ── EVERY STEP CAN ASK, AND A STEP THAT ASKS CHANGES NOTHING ────────────────
 
-test("THE QUESTION FIELD IS ONE FIELD, ON EVERY STEP'S TOOL: the look picker and its door, text, data, rules, picture, menu, the page writer and the add-on picker", () => {
+test("THE QUESTION FIELD IS ONE FIELD, ON EVERY STEP'S TOOL: the pickers, text, data, rules, picture, menu, the quick and the full page writer, every lane, the removal picker and every add-on designer", () => {
   const tools = {
     look: lanePickTool(), door: lanePickTool(LANE_FIELDS, { routed: true }), text: TEXT_TOOL, data: DATA_TOOL,
     rules: RULES_TOOL, picture: PICTURE_TOOL, nav: NAV_TOOL, page: TWEAK_TOOL, addon: addPickTool(),
+    // AND THE MODELS THAT COULD NOT ASK (2026-10-02, the owner's review: *"the
+    // edit models and add-on designers that currently cannot ask when missing
+    // details become apparent after picking the path"*).
+    "full page writer (one-page edit)": SITE_PAGES_TOOL_ASK, "removal picker": takeOffTool("qr"),
   };
+  for (const f of OWN_LANES) tools["lane " + f] = editTool(f);
+  for (const k of ["page", "table", "component", "qr"]) tools["designer " + k] = addTool(k);
   for (const [name, tool] of Object.entries(tools)) {
     const q = tool.input_schema.properties.question;
     assert.equal(q, QUESTION_FIELD, name + ": the step does not carry the one question field");
     assert.ok(!(tool.input_schema.required || []).includes("question"), name + ": the question is required, so every answer asks");
   }
-  // A LANE'S OWN CALL DOES NOT ASK (it acts on one field it was picked for).
-  for (const f of LANE_FIELDS.slice(0, 3)) assert.equal(editTool(f).input_schema.properties.question, undefined, f);
+  // ONLY WHERE SOMEBODY CAN BE ASKED: the correction round re-aims selectors the
+  // change already made, and the first build's page writer is the first build's.
+  assert.equal(editTool("css", { ask: false }).input_schema.properties.question, undefined, "the correction round can ask");
+  assert.equal(SITE_PAGES_TOOL.input_schema.properties.question, undefined, "the first build's page writer gained a question");
   assert.throws(() => withQuestion(TEXT_TOOL), /already has a question field/, "a second question field could replace the first");
   // DESCRIBED BY PURPOSE, never by a customer's words or a site's names.
   const d = QUESTION_FIELD.description;
   assert.match(d, /ONLY WHEN YOU CANNOT DO THIS WITHOUT ONE DETAIL THEY LEFT OUT/);
   assert.match(d, /nothing is changed until they reply/);
+  assert.match(d, /never\s+what they were already asked/, "a step is not told never to ask again what was answered");
   assert.doesNotMatch(d, /bakery|gallery|footer|heading|menu|photo/i, "the question field names a site's own things");
 });
 
@@ -427,7 +458,7 @@ test("A HAND-OVER CARRIES A RESUMED REQUEST'S TWO FACTS, AND A JOB RECORD KEEPS 
   // The step's own reply wins when it names the earlier parts, as with `deferred`.
   const said = EditPoll.handOver(d, { layer: "nav" }, { from: "text", reply: { putOff: ["add a gallery", "x"] } });
   assert.deepEqual(said.putOff, ["add a gallery", "x"]);
-  for (const askRound of [0, -1, 1.5, "1", 10, null]) {
+  for (const askRound of [0, -1, 1.5, "1", 65, null]) {
     assert.equal(EditPoll.handOver({ ...d, askRound }, { layer: "nav" }, {}).askRound, undefined, JSON.stringify(askRound) + " was carried as a count");
   }
   const store = { data: {}, getItem(k) { return this.data[k] || null; }, setItem(k, v) { this.data[k] = v; } };
@@ -439,4 +470,200 @@ test("A HAND-OVER CARRIES A RESUMED REQUEST'S TWO FACTS, AND A JOB RECORD KEEPS 
   const again = EditPoll.resumableRecord(SLUG, Date.now(), store);
   assert.equal(again.putOff, "one part");
   assert.equal(again.askRound, undefined, "a count spelled as text was stored");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FINISHING THE FEATURE (2026-10-02, the owner's review): no question its
+// answer cannot resume, a repeat never asked, an answered question replaced in
+// one write, every model that decides a change able to ask, and the prompts
+// that told a model to guess beside a field that tells it to ask reconciled.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("A QUESTION ALREADY ASKED IS RECOGNISED HOWEVER IT IS SPELLED — case, accents, spacing and punctuation set aside — and a different question is not", () => {
+  const asked = ["Which band — the one on Home, or on Visit?"];
+  for (const again of ["which band the one on home or on visit", "WHICH BAND — THE ONE ON HOME, OR ON VISIT ?", "Which  band, the one on Home or on Visit"]) {
+    assert.equal(askRepeat(asked, { text: again }), true, again + " was not read as the same question");
+  }
+  assert.equal(askRepeat(["Café hours?"], { text: "cafe hours" }), true, "an accent made a repeat a new question");
+  for (const other of ["Which band should move?", "Which page — Home or Visit?", "Which band — the one on Home, or on Order?"]) {
+    assert.equal(askRepeat(asked, { text: other }), false, other + " was read as the question already asked");
+  }
+  // AN UNREADABLE LIST PROTECTS AGAINST NOTHING, AND REFUSES NOTHING.
+  for (const bad of [null, undefined, "Which band?", [3], [""], Array.from({ length: MAX_ASKED + 1 }, () => "q")]) {
+    assert.deepEqual(askedList(bad), [], JSON.stringify(bad));
+    assert.equal(askRepeat(bad, { text: "Which band?" }), false, JSON.stringify(bad));
+  }
+  assert.equal(askRepeat(asked, { text: "" }), false, "an empty question was a repeat");
+});
+
+test("THE ANSWERS A RESUMED REQUEST CARRIES are read from the line that asked its first question to the end, exactly as `answeredRequest` composed them; the questions a request still answers are those it holds the lines for", () => {
+  const q1 = "Which band — the one on Home, or on Visit?";
+  const q2 = "Above which heading?";
+  const once = answeredRequest("Move the order band up", q1, "Visit");
+  const twice = answeredRequest(once, q2, "Come to the bakery");
+  assert.equal(answerLines(once, [q1]), "They were asked: " + q1 + "\nThey answered: Visit");
+  assert.equal(answerLines(twice, [q1, q2]), "They were asked: " + q1 + "\nThey answered: Visit\n\nThey were asked: " + q2 + "\nThey answered: Come to the bakery");
+  // A FRESH REQUEST CARRIES NONE; NOR ONE WHOSE LINES ARE NOT THERE; NOR AN UNREADABLE LIST.
+  assert.equal(answerLines("Move the order band up", []), "");
+  assert.equal(answerLines("Move the order band up", [q1]), "");
+  assert.equal(answerLines("They were asked: " + q1 + "\nThey answered: Visit", [q1]), "", "lines at the very start are the customer's own words, never our appended answers");
+  for (const bad of [null, "Which band?", [3]]) assert.equal(answerLines(once, bad), "", JSON.stringify(bad));
+  assert.equal(answerLines(null, [q1]), "");
+  // THE QUESTIONS IT STILL ANSWERS.
+  assert.deepEqual(askedIn(twice, [q1, q2]), [q1, q2]);
+  assert.deepEqual(askedIn("Move the order band up\n\nThey were asked: " + q2 + "\nThey answered: Come to the bakery", [q1, q2]), [q2]);
+  assert.deepEqual(askedIn("Move the order band up", [q1, q2]), []);
+  assert.deepEqual(askedIn("Asked " + q1 + " before", [q1]), [], "a question's words alone are not its answer");
+  assert.deepEqual(askedIn(twice, null), []);
+});
+
+test("A QUESTION IS ASKED ONLY WHERE AN ANSWER CAN STILL RESUME ITS REQUEST: the request, the question and an answer as long as its longest option (never under a short typed one) fit one message", () => {
+  const q = { text: "Which page?", options: ["Home", "Visit"] };
+  const fits = (n, question = q) => askRoom("x".repeat(n), question);
+  // THE BOUNDARY, measured with the request an answer would really resume.
+  const overhead = answeredRequest("x", q.text, "y".repeat(ASK_ANSWER_ROOM)).length - 1;
+  assert.equal(fits(MAX_MESSAGE - overhead), true, "a request with exactly room for an answer was refused");
+  assert.equal(fits(MAX_MESSAGE - overhead + 1), false, "a request with no room for an answer was asked about");
+  // A LONG OPTION NEEDS ITS OWN ROOM: offered, it must be an answer that fits.
+  // (As it is shown: an option is cut to a button's length first, `readAsk`.)
+  const long = { text: "Which?", options: ["o".repeat(60), "Visit"] };
+  const shown = readAsk(long).options[0];
+  assert.ok(shown.length > ASK_ANSWER_ROOM, "the case does not exercise an option longer than a short answer");
+  const longOverhead = answeredRequest("x", long.text, shown).length - 1;
+  assert.equal(askRoom("x".repeat(MAX_MESSAGE - longOverhead), long), true);
+  assert.equal(askRoom("x".repeat(MAX_MESSAGE - longOverhead + 1), long), false, "an offered answer that could not fit was offered");
+  assert.equal(askRoom("Move the band", { text: "" }), false, "an unreadable question had room");
+});
+
+test("THE NEXT QUESTION REPLACES THE ANSWERED ONE IN ONE WRITE: a write that fails or loses leaves the answered question waiting, and a closed one is never replaced", async () => {
+  const b = bucket();
+  const first = rec();
+  await storeAsk(b, first);
+  const next = rec({ round: 2, question: { text: "Above which heading?" }, request: "Change the heading\n\nThey were asked: " + Q.text + "\nThey answered: Visit", asked: [Q.text, "Above which heading?"] });
+  // A WRITE THAT THROWS: the answered question is still the live one.
+  const realPut = b.put.bind(b);
+  b.put = async () => { throw new Error("r2 down"); };
+  await assert.rejects(replaceAsk(b, { slug: SLUG, id: first.id, uid: UID, next }), /r2 down/);
+  b.put = realPut;
+  let st = await loadAsk(b, SLUG);
+  assert.equal(st.record.id, first.id, "a failed replace lost the answered question");
+  assert.equal(st.record.status, "pending", "a failed replace used up the answer");
+  // A WRITE THAT LOSES THE RACE: another writer moved the record first.
+  const realGet = b.get.bind(b);
+  b.get = async (k) => { const o = await realGet(k); await realPut(k, JSON.stringify({ ...first, status: "cancelled" })); return o; };
+  assert.deepEqual(await replaceAsk(b, { slug: SLUG, id: first.id, uid: UID, next }), { ok: false, why: "raced" });
+  b.get = realGet;
+  st = await loadAsk(b, SLUG);
+  assert.equal(st.record.status, "cancelled", "a lost replace wrote over the winner");
+  // A CLOSED QUESTION IS NEVER REPLACED, and the next is never written.
+  assert.deepEqual(await replaceAsk(b, { slug: SLUG, id: first.id, uid: UID, next }), { ok: false, why: "closed" });
+  // AND THE ONE THAT WINS writes the next question whole, over the answered one.
+  const fresh = rec();
+  await storeAsk(b, fresh);
+  const won = await replaceAsk(b, { slug: SLUG, id: fresh.id, uid: UID, next });
+  assert.equal(won.ok, true);
+  assert.equal(won.record.id, fresh.id);
+  st = await loadAsk(b, SLUG);
+  assert.equal(st.record.id, next.id);
+  assert.deepEqual(st.record.asked, [Q.text, "Above which heading?"]);
+  // A NEXT QUESTION FOR ANOTHER OWNER, ANOTHER SITE, OR NOT PENDING IS REFUSED BEFORE ANY READ.
+  for (const bad of [{ ...next, uid: OTHER }, { ...next, slug: "fretwork-1" }, { ...next, status: "answered" }, null]) {
+    await assert.rejects(replaceAsk(b, { slug: SLUG, id: next.id, uid: UID, next: bad }), /not a next question/);
+  }
+});
+
+test("EVERY MODEL THAT COULD NOT ASK NOW ASKS, AND WHAT IT WROTE BESIDE THE QUESTION IS NEVER READ: each lane, the removal picker, the full page writer and each add-on designer", async () => {
+  const withQ = (name, input) => ({ stop_reason: "tool_use", content: [{ type: "tool_use", name, input: { ...input, question: Q } }], usage: { input_tokens: 50, output_tokens: 10 } });
+  const lane = await runLane({ send: async () => withQ("edit_site", { description: "A guess." }) }, { field: "description", message: "Change the description", value: "Old.", model: "m" });
+  assert.deepEqual(json(lane.ask), Q);
+  assert.equal(lane.value, undefined, "a lane that asked had its guess read");
+  assert.ok(lane.usage, "the lane's call was not accounted");
+  // THE CORRECTION ROUND HAS NOBODY TO ASK: a question there is not one.
+  const fix = await runLane({ send: async () => withQ("edit_site", { css: "a{}" }) }, { field: "css", message: "x", value: "", model: "m", ask: false });
+  assert.equal(fix.ask, undefined);
+  assert.equal(fix.value, "a{}");
+  const off = await runTakeOff({ send: async () => withQ("take_off", { targets: ["menu"] }) },
+    { field: "qr", message: "Take the code off", value: [{ name: "menu", label: "Our menu", points: "/menu" }, { name: "wifi", label: "Wifi", points: "/wifi" }], model: "m" });
+  assert.deepEqual(json(off.ask), Q);
+  assert.equal(off.ok, false, "a removal that asked reported names to take off");
+  assert.deepEqual(off.targets, [], "a removal that asked named entries");
+  const designed = await runAdd({ send: async () => withQ("add_to_site", { page: [{ path: "/gallery", name: "Gallery" }] }) }, { kind: "page", message: "Add a gallery", site: {}, model: "m" });
+  assert.deepEqual(json(designed.ask), Q);
+  assert.equal(designed.value, undefined, "a designer that asked had its design read");
+  assert.ok(designed.raw, "the designer's raw reply was not kept for the record");
+  // THE FULL PAGE WRITER, IN THE ONE-PAGE EDIT ONLY.
+  const asks = await generateSitePages({}, "Move the band", { tables: [] }, "Fold Lane", [], "m", [{ path: "index.tsx", source: "x" }], "page", "index.tsx", null,
+    async () => withQ("write_pages", { pages: [] }));
+  assert.deepEqual(json(asks.ask), Q);
+  assert.equal(asks.input, null, "the page writer's answer beside its question was read");
+  // A BUILD'S WRITER IS NOT OFFERED ONE, SO A QUESTION FIELD IN ITS ANSWER IS NOT ONE.
+  const build = await generateSitePages({}, "A bakery", { tables: [] }, "Fold Lane", [], "m", [], undefined, undefined, null,
+    async () => withQ("write_pages", { pages: [{ path: "index.tsx", source: "x" }] }));
+  assert.equal(build.ask, undefined, "a first build's page writer asked");
+  assert.ok(build.input && build.input.pages, "a first build's pages were not read");
+});
+
+test("THE FIRST BUILD'S PAGE WRITER IS UNCHANGED, BYTE FOR BYTE — and so are a revise's and an add-on's; only the one-page edit is offered the question", () => {
+  const h16 = (v) => crypto.createHash("sha256").update(JSON.stringify(v)).digest("hex").slice(0, 16);
+  const SPEC = { tables: [] };
+  const prior = [{ path: "index.tsx", source: "export default function P(){return <main/>}" }];
+  // MEASURED AT 22184a46, the commit before this change, with the same inputs.
+  const pinned = { build: "5f88c5a2f738b9eb", revise: "66e12434e0bde0a2", addon: "f58a2d99f8705356" };
+  assert.equal(h16(pagesRequest({ brief: "A bakery in Leeds", spec: SPEC, brand: "Fold Lane", model: "test-model" })), pinned.build, "the first build's page request changed");
+  assert.equal(h16(pagesRequest({ brief: "Make it warmer", spec: SPEC, brand: "Fold Lane", model: "test-model", priorPages: prior, mode: "revise" })), pinned.revise, "a revise's page request changed");
+  assert.equal(h16(pagesRequest({ brief: "Add a gallery page", spec: SPEC, brand: "Fold Lane", model: "test-model", priorPages: prior, mode: "addon" })), pinned.addon, "an add-on's page request changed");
+  const edit = pagesRequest({ brief: "Move the band", spec: SPEC, brand: "Fold Lane", model: "test-model", priorPages: prior, mode: "page", target: "index.tsx" });
+  assert.equal(edit.tools[0], SITE_PAGES_TOOL_ASK, "the one-page edit was not offered the question");
+});
+
+test("NO PROMPT TELLS A MODEL THAT CANNOT TELL TO GUESS BESIDE A FIELD THAT TELLS IT TO ASK: the add-on picker, the look picker and its door, the removal and page-verb flags, the picture step and the router's tie-break", () => {
+  const addKinds = addPickTool().input_schema.properties.kinds;
+  assert.doesNotMatch(addKinds.description, /closest/i, "the add-on picker still names the closest kind when it cannot tell");
+  assert.match(addKinds.description, /ask them \(`question`\) instead of guessing/);
+  assert.equal(addKinds.minItems, undefined, "the add-on picker must name a kind beside its question");
+  const look = lanePickTool().input_schema.properties;
+  assert.doesNotMatch(look.fields.description, /closest/i, "the look picker still names the closest part when it cannot tell");
+  assert.match(look.fields.description, /ask them \(`question`\) instead of guessing/);
+  assert.equal(look.fields.minItems, undefined, "the look picker must name a part beside its question");
+  const door = lanePickTool(LANE_FIELDS, { routed: true }).input_schema.properties;
+  assert.doesNotMatch(door.additional.description, /closest/i, "the door's picker still names the closest part");
+  assert.match(look.removes.description, /never take it off on a guess: ask them \(`question`\)/);
+  assert.doesNotMatch(look.removes.description, /IF YOU CANNOT TELL, LEAVE IT OUT/);
+  assert.match(look.pageVerb.description, /ask them \(`question`\)/);
+  assert.doesNotMatch(look.pageVerb.description, /LEAVE THIS OUT IF YOU CANNOT TELL/);
+  const pic = PICTURE_TOOL.input_schema.properties.needsPlace.description;
+  assert.doesNotMatch(pic, /honest no/, "the picture step still declines when it cannot tell which slot");
+  assert.match(pic, /ask them which instead \(`question`\)/);
+  // THE ROUTER: where a question may be asked, not being able to tell is what
+  // the question is for; the first build's tool keeps its own tie-break.
+  const live = LIVE_ASK_TOOL.input_schema.properties.intent.description;
+  assert.doesNotMatch(live, /WHEN YOU CANNOT TELL, ANSWER "addon"/, "the live router is still told to answer addon when it cannot tell");
+  assert.match(live, /WHEN YOU CANNOT TELL WHETHER IT IS A CHANGE OR AN ADDITION, ASK THEM \("clarify"\)/);
+  assert.match(ASK_TOOL.input_schema.properties.intent.description, /WHEN YOU CANNOT TELL, ANSWER "addon"/, "the first build's tie-break moved");
+  // AND THE DESIGNER'S COVERAGE LIST DOES NOT DEMAND AN ANSWER BESIDE A QUESTION.
+  assert.match(addTool("page").input_schema.properties.requirements.description, /question back to them: then leave this out too/);
+});
+
+test("THE PICTURE STEP IS TOLD TO ASK WHICH, NOT TO RETURN NOTHING, when two slots fit", async () => {
+  const { pictureRequest } = await import("../builder/site-picture.mjs");
+  const req = pictureRequest({ instruction: "Swap the photo", slots: [], library: [] });
+  const sys = req.system.map((b) => b.text).join("\n");
+  assert.match(sys, /When two could fit and only one was asked for, change neither and ask them which \(`question`\)/);
+  assert.doesNotMatch(sys, /they will say which/, "the picture step still returns nothing for the customer to say which");
+});
+
+test("A HAND-OVER AND A JOB RECORD CARRY THE QUESTIONS A REQUEST HAS ASKED, and a count past nine is still a count", () => {
+  const asked = ["Which band?", "Above which heading?"];
+  const hop = EditPoll.handOver({ layer: "text", asked, askRound: 12 }, { layer: "nav" }, {});
+  assert.deepEqual(hop.asked, asked, "a hop forgot what the request has asked");
+  assert.equal(hop.askRound, 12, "a request's twelfth question lost its count");
+  assert.equal(EditPoll.handOver({ layer: "text", asked: [3] }, { layer: "nav" }, {}).asked, undefined, "an unreadable list was carried");
+  assert.deepEqual(EditPoll.askedOf(undefined), []);
+  assert.equal(EditPoll.askedOf("Which band?"), null);
+  assert.equal(EditPoll.askedWire([]), undefined);
+  const store = { data: {}, getItem(k) { return this.data[k] || null; }, setItem(k, v) { this.data[k] = v; } };
+  EditPoll.rememberJob(SLUG, "job-3", store, { ask: "x", op: "edit", asked, askRound: 3 });
+  const back = EditPoll.resumableRecord(SLUG, Date.now(), store);
+  assert.deepEqual(back.asked, asked, "a resumed watch forgot what the request has asked");
+  assert.equal(back.askRound, 3);
 });

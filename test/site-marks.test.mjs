@@ -16,6 +16,7 @@ import { cleanGif, cleanFavicon, GIF_TAGS, GIF_ATTRS, GIF_ANIMATABLE, MAX_GIF, G
 import { qrSvg, qrModules, qrEncodes, readQrText, QR_FIELD, MAX_QR_TEXT, MAX_QRS } from "../builder/site-qr.mjs";
 import { EDIT_FIELDS, currentStateNote, mergeLook } from "../builder/site-edit.mjs";
 import { OWN_LANES, LANE_FIELDS, editTool, laneRule } from "../builder/site-lanes.mjs";
+import { QUESTION_FIELD } from "../builder/clarify.mjs";
 import { marksDirective, briefWithLayout, sceneDirective, pageRulesFor } from "../builder/page-gen.mjs";
 import { readSchemaTool } from "./integration/schema-tool.mjs";
 import qrcode from "qrcode-generator";
@@ -356,7 +357,10 @@ test("the QR acts here — two strings are the cheapest edit there is", () => {
   // asserted in test/edit-lanes.test.mjs, in both directions.
   assert.ok(LANE_FIELDS.includes("qr"), "there is no `qr` lane, so it can never be changed");
   assert.ok(OWN_LANES.includes("qr"), "the `qr` lane no longer acts here");
-  assert.deepEqual(Object.keys(editTool("qr").input_schema.properties), ["qr"], "the `qr` lane can answer another field");
+  // RE-ANCHORED 2026-10-02 (the owner's review): and the one question back
+  // (`QUESTION_FIELD`, never applied as a value) — never another field.
+  assert.deepEqual(Object.keys(editTool("qr").input_schema.properties), ["qr", "question"], "the `qr` lane can answer another field");
+  assert.equal(editTool("qr").input_schema.properties.question, QUESTION_FIELD);
   assert.deepEqual(editTool("qr").input_schema.required, [], "the `qr` lane compels an answer on an edit");
   // The QR lane's own sharpest rule, which is not a syntax rule.
   assert.match(laneRule("qr"), /NEVER INVENT A DESTINATION/, "the QR lane may invent a URL on an edit");

@@ -434,7 +434,11 @@ test("THE SELECTOR'S CONTRACT: on the door it is told what was routed and asked 
   // (run 52). The door's `required` above is unchanged — its scopes cover only
   // the work asked beside the routed change, and that list is usually empty.
   assert.deepEqual(look.tools[0].input_schema.required, ["fields", "scopes"]);
-  assert.equal(look.tools[0].input_schema.properties.fields.minItems, 1);
+  // RE-ANCHORED 2026-10-02 (the owner's review: *"Reconcile contradictory
+  // prompts"*): no `minItems` — it obliged a picker that could not tell which
+  // part is meant to name one anyway, beside a question field that says to ask.
+  assert.equal(look.tools[0].input_schema.properties.fields.minItems, undefined);
+  assert.match(look.tools[0].input_schema.properties.fields.description, /name none and ask them \(`question`\) instead of guessing/);
   assert.equal(look.messages[0].content, current + "\n\nTheir message:\n" + ask);
   assert.doesNotMatch(look.system[0].text, /ALREADY been routed/);
   for (const routed of [null, { layer: "nav" }, { layer: "nav", remove: "true" }, { layer: "look", remove: true }, { layer: "page", remove: true },

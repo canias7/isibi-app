@@ -11,7 +11,7 @@
 export const ASK_FNS = Object.freeze([
   "clarifyOf", "liveQuestion", "partialShown", "siteReplyMsg", "askReplyMsg", "askFromReply",
   "siteAskKeep", "siteAskClear", "siteAskSet", "askFilesDb", "askFilesStore", "askFilesFor",
-  "askFilesDrop", "siteAskReply",
+  "askFilesDrop", "siteAskReply", "holdResume",
 ]);
 
 // The block's three top-level lines, each one line of chat.js named by its opening.
