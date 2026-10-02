@@ -111,6 +111,22 @@ answers unless a run is named.
 
   All of it is shown with supplied answers only; no real model has been
   measured on any of it.
+- **The route's decision report** (2026-10-02, the router audit; on the branch
+  for review, not merged): the route's reply carries `decision`, saying where
+  its answer came from. It is reporting only: what the route answers is
+  unchanged, and the browser reads none of it.
+  - `source`: `model` (the model's own intent and layer were used), `fallback`
+    (the call failed, or the model's answer could not be used and the
+    fallback was given), or `rule` (no model was asked: an empty message or a
+    zero balance).
+  - `reasons`: every code that applied, from one fixed list
+    (`ROUTE_REASONS` in `builder/site-ask.mjs`), covering every fallback and
+    normalization branch of `routeMessage`, `readRouting`, `readEdit` and
+    `readAlso`, the context cuts, and the route's zero-balance rule and table
+    fill.
+  - `raw`: the model's own intent and layer, read only from their fixed lists
+    (`other` for anything else, `none` for nothing). No message text and no
+    model text is ever in it.
 - **Several changes in one message** (2026-09-29, deploy 2166; shown live by
   run 57 for a site-wide description beside a band move on one named page,
   closed by the owner as Test 6; the withholding paths are shown only with

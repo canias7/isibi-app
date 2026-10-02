@@ -27,6 +27,12 @@
 //               page of the site reports (by default the before-read's, as an
 //               addition that publishes nothing leaves it) — a publish landing
 //               under the press.
+//   STUB_ROUTES the routing-only batch (2026-10-02): a JSON list of routing
+//               answers, one per routing call in order; past its end, or unset,
+//               every call gets STUB_ROUTE. An entry `{"__status": n}` answers
+//               that status with no body instead.
+//   STUB_PAGES_DOWN  a slug whose page list (`/api/site/routes`) answers 503.
+//   STUB_BALANCE the balance the credits read answers (13 by default).
 import https from "node:https";
 import { EventEmitter } from "node:events";
 import { appendFileSync } from "node:fs";
@@ -49,6 +55,9 @@ const ADDON = process.env.STUB_ADDON ? JSON.parse(process.env.STUB_ADDON) : null
 const ADDON_STATUS = Number(process.env.STUB_ADDON_STATUS) || 200;
 const ADDON_JOB = "b".repeat(32);
 const AFTER_VERSION = process.env.STUB_AFTER_VERSION || "";
+const ROUTES = process.env.STUB_ROUTES ? JSON.parse(process.env.STUB_ROUTES) : null;
+const PAGES_DOWN = process.env.STUB_PAGES_DOWN || "";
+let routeCalls = 0;
 let addonPosted = false;
 const log = (e) => { if (LOG) appendFileSync(LOG, JSON.stringify(e) + "\n"); };
 
@@ -72,8 +81,17 @@ function worker(method, path, body, headers) {
   if (method === "GET" && p.startsWith("/api/site/edit/")) return [404, { error: "not found" }];
   if (method === "GET" && p === "/api/site/source") return [200, { reads: { pages: true, parts: true, assets: true }, pages: [{ path: "index.tsx", source: "export default 1\n" }], parts: [] }];
   if (method === "GET" && p === `/api/site/${SLUG}/seo`) return [200, {}];
-  if (method === "GET" && p === "/api/site/routes") return [200, { ok: true, routes: ["/", "/prices"] }];
-  if (method === "POST" && p === "/api/site/route") return [200, ROUTE];
+  if (method === "GET" && p === "/api/site/routes") {
+    const slug = new URLSearchParams(path.split("?")[1] || "").get("slug");
+    if (PAGES_DOWN && slug === PAGES_DOWN) return [503, { error: "down" }];
+    return [200, { ok: true, routes: ["/", "/prices"] }];
+  }
+  if (method === "POST" && p === "/api/site/route") {
+    const answer = ROUTES && routeCalls < ROUTES.length ? ROUTES[routeCalls] : ROUTE;
+    routeCalls++;
+    if (answer && Number.isInteger(answer.__status)) return [answer.__status, {}];
+    return [200, answer];
+  }
   return [599, { error: "stub has no answer for " + method + " " + path }];
 }
 
@@ -100,7 +118,7 @@ globalThis.fetch = async (input, init = {}) => {
   let r;
   if (url.endsWith("/auth/v1/admin/generate_link")) r = reply({ hashed_token: "h" });
   else if (url.endsWith("/auth/v1/verify")) r = reply({ access_token: "t", user: { id: "u-stub", email: "owner@example.com" } });
-  else if (url.includes("/rest/v1/credits")) r = reply([{ balance: 13 }]);
+  else if (url.includes("/rest/v1/credits")) r = reply([{ balance: process.env.STUB_BALANCE ? Number(process.env.STUB_BALANCE) : 13 }]);
   else if (url.startsWith(`https://${SLUG}.gofarther.app/sitemap.xml`)) r = reply(`<urlset><url><loc>https://${SLUG}.gofarther.app/</loc></url></urlset>`);
   else if (url.startsWith(`https://${SLUG}.gofarther.app/api/db/${SLUG}/data/`)) {
     const prefer = new Headers(init.headers || {}).get("prefer");

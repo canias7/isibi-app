@@ -2,8 +2,11 @@
 
 **Free analysis only.** Nothing was spent, sent to a model, merged, or
 changed on any site. The code was read on `main` at `25faac78` (deploy 2177,
-runtime-confirmed by run 87). The branch adds documents only, so its code is
-the same. Balance 96 after run 88.
+runtime-confirmed by run 87), and every line reference below is to that
+code. Balance 96 after run 88. The branch now also carries the decision
+report and the routing-only batch (§5), built for review and not merged.
+Its `site-ask.mjs` is unchanged up to line 788, so a reference past that
+line is to `main`'s file, not the branch's.
 
 **Corrected the same day after the owner's review.**
 - The expected outcomes now follow the owner's standing policy (below).
@@ -64,7 +67,8 @@ Line numbers are for `builder/site-ask.mjs` unless another file is named.
      one, and nothing tells the customer.
   3. **Fallbacks are silent (R3).** Seven kinds of unusable answer quietly
      become a paid `addon`, and the route's reply can't tell them apart from
-     the model's own choice.
+     the model's own choice. (The decision report built on the branch, §5,
+     names them in the reply. It changes no route.)
      - **Test 11 (run 88) proved the saved-row outcome**: exactly one correct
        entry, through the add-on path, nothing else changed.
      - **It did not prove the raw model's choice.** For that sentence the
@@ -95,11 +99,12 @@ Line numbers are for `builder/site-ask.mjs` unless another file is named.
   - **Cost: about 36–54 credits** (2–3 a probe).
   - The press runs its own runtime checks before the first paid call, so it
     needs no separate free press.
-  - Two things are being built on the branch for your review, with no merge,
+  - Two things are built on the branch for your review, with no merge,
     deploy or spend:
     - **decision-source reporting**: the route's reply says whether its
       answer is the model's own, a fallback, or decided without the model,
-      with a fixed reason code for every fallback and normalization branch;
+      with one of 42 fixed reason codes for every fallback and normalization
+      branch;
     - **a routing-only batch mode** in the canary, which cannot post an edit,
       an add-on, a build or a publish.
 
@@ -526,28 +531,93 @@ BUILD" (899–913). On a live site the fallback is `addon` (117, 923).
   the intended outcome. A different answer is a finding, not a failure of the
   batch.
 
-### Two things being built first (on the branch, for review; no merge, deploy or spend)
+### Built on the branch for review (no merge, deploy or spend)
 
-- **(a) Decision-source reporting.**
-  - The route's reply gains a `decision`:
-    - whether the answer is the model's own (`model`), a fallback
-      (`fallback`), or decided without asking the model (`rule`);
-    - every reason code that applied, each from one fixed list that covers
-      every fallback and normalization branch;
-    - the model's own intent and layer, read only from the fixed lists.
-  - It carries no message text, shows nothing to the customer, and changes
-    nothing that runs.
-  - `worker.js` and `builder/site-ask.mjs` are container-image inputs, so it
-    needs a merge and a deploy with an image roll before the batch can read
-    it.
-- **(b) A routing-only batch mode in the edit canary.**
-  - One new form box names a committed probe list.
-  - The press runs the canary's own runtime checks first: the Worker's
-    commit and the container's image against the expected ones, and the
-    balance. Only then does it route each probe, as the browser would.
-  - A network allow-list makes an edit, an add-on, a build, a publish or a
-    restore impossible from this mode.
-  - It needs no deploy (scripts and the workflow only).
+**(a) Decision-source reporting** (`builder/site-ask.mjs`, `worker.js`).
+- The route's reply gains `decision`:
+  - `source`: `model` (the model's own intent and layer were used),
+    `fallback` (the call failed, or the model's answer could not be used and
+    the fallback was given instead), or `rule` (no model was asked);
+  - `reasons`: every code that applied, in order, each from one fixed list,
+    `ROUTE_REASONS`;
+  - `raw`: the model's own intent and layer, read only from their fixed lists
+    (`other` for anything else, `none` for nothing). It is present whenever a
+    model's reply was read, and absent when a rule decided or the call itself
+    failed.
+- It is reporting only: every reader returns exactly what it returned before,
+  the route answers exactly as before, and the browser reads none of it. No
+  message text and no model text is ever in it.
+- **The fixed reason codes, one per branch** (42):
+
+  | Kind | What it means for `source` | Codes |
+  |---|---|---|
+  | `rule` | no model was asked: `rule` | `no-message` (an empty message), `no-credits` (a zero balance, decided in the Worker) |
+  | `fallback` | the model's answer was not used: `fallback` | `request-failed`, `send-failed`, `no-tool-call`, `intent-unknown`, `clarify-closed`, `clarify-unreadable`, `work-without-site`, `ask-empty`, `ask-while-answering`, `ask-with-attachment`, `layer-missing`, `layer-unknown`, `page-missing`, `page-unknown` |
+  | `changed` | the model's answer was used with a part dropped or rewritten: stays `model` | `page-normalized`, `page-unreadable`, `page-unchecked`, `page-ignored`, `remove-not-true`, `remove-ignored`, `tab-not-true`, `tab-ignored`, `rename-with-remove`, `rename-not-path`, `rename-same-page`, `rename-normalized`, `rename-ignored`, `edit-fields-ignored`, `also-not-text`, `also-too-long`, `also-ignored`, `answer-ignored`, `question-ignored`, `question-clipped`, `options-changed` |
+  | `context` | what the model was shown was cut or filled in: stays `model` | `message-cut`, `brief-cut`, `pages-cut`, `tables-cut`, `tables-filled` |
+
+  Every code is reached by the branch that names it in
+  `test/route-decision.test.mjs`, and the real route carries the decision.
+- `worker.js` and `builder/site-ask.mjs` are container-image inputs, so this
+  needs a merge and a deploy with an image roll before a batch can read it.
+
+**(b) The routing-only batch mode** (`scripts/canary-probes.mjs`, wired into
+`scripts/edit-canary.mjs` and `edit-canary.yml`).
+- **One form box**, *"ROUTING-ONLY BATCH: the name of a committed probe
+  list…"*, takes a batch's name. The probes are the committed file
+  `scripts/router-probes/router-audit-1.json` (all 18 below), and the press
+  prints its sha256.
+- **The batch's own runtime check comes before any spending.** A paid press
+  must fill the deploy-sha and image boxes. The canary's preflight then
+  checks the Worker's commit and the container's image against them, and
+  that the two readers agree, and any failure stops the batch at no cost. No
+  separate free press is needed.
+- **It cannot edit, add, build, publish or restore**:
+  - the canary's one request helper asks `assertProbeCall` first, which
+    allows the two runtime reads, a site's page list and the routing call,
+    and throws on anything else before it is made;
+  - `fetch` allows the balance read alone;
+  - the mode exits above the free edit checks, so none of the code below it
+    runs.
+- It reads each site's page list once, before any routing call, and refuses
+  below a balance of 3 credits a probe (54 for 18): a floor so the batch is
+  never cut short, not a cap.
+- Each answer is saved whole with its decision, and set beside its intended
+  outcome:
+  - *matches* (the model's own answer);
+  - *matches only through a fallback or a rule* (never counted as a match);
+  - *differs*;
+  - *recorded* (no intended outcome set);
+  - *failed* (the routing call itself failed).
+- It stops early only on a 401, a non-200, or a reply with no readable
+  decision (a Worker that does not report it, whose answers it could not
+  attribute). That costs at most one routing call.
+- It needs no deploy (scripts and the workflow only).
+
+**Checked on the branch** (the record is
+`docs/history/2026-10-02-route-decision.md`):
+- **36 new tests**:
+  - `test/route-decision.test.mjs` (14): every code reached by the branch
+    that names it, through the real readers and `routeMessage`; the readers
+    unchanged with and without a trace; the real route carrying the
+    decision;
+  - `test/canary-probes.test.mjs` (22): the box, the committed batch and
+    its policy guard, both walls, and the mode's place in the script. The
+    real `scripts/edit-canary.mjs` is driven end to end under an in-process
+    stub: a paid press of all 18 probes makes only the allowed requests.
+- **The red check**:
+  - on the old code, the two new files cannot load, and the two cases in
+    `test/route-table-names.test.mjs` with new assertions fail;
+  - with the new modules but the old Worker and canary, exactly the 15
+    integration tests fail and the 35 module tests pass.
+- **A mutation sweep**: 84 changes over the four files.
+  - 82 were caught at first.
+  - The two it missed are caught by two added cases: a page normalised on
+    the look layer's own branch, and an option cut to a button's length
+    with the count unchanged.
+  - Both comment-only controls survived.
+- **The full suite**: `8579 / 8579 / 0 / 0` locally, 36 more than
+  `25faac78`'s 8,543.
 
 ### The test matrix
 

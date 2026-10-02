@@ -19,7 +19,7 @@
 // Admin magic-link, the same way `wall-probe.mjs` and `build-as-owner.mjs` do:
 // no password anywhere, and the session is minted for this run and thrown away.
 import https from "node:https";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 // THE CUSTOMER'S OWN SCREEN, EXECUTED — never re-composed here. `editAnswer`
 // is the browser's real selection and `editBrowserReply` runs it with the
 // outward arms injected as recorders, which is the only way a harness can
@@ -64,6 +64,12 @@ import { readExpectRoute, routeVerdict, expectSaid, mismatchSaid, failureSaid } 
 // AFTER RUN 77: the rows a paid data press is written for, read from their own
 // box and checked on the site's own read, whole, before the first paid call.
 import { readExpectRows, readWhole, fixtureVerdict, fixtureSaid, expectRowsSaid, fixtureRecord } from "./canary-fixture.mjs";
+// THE ROUTING-ONLY BATCH (the router audit, 2026-10-02): a committed list of
+// messages, each routed once and never acted on — see `canary-probes.mjs`.
+import {
+  readProbeBox, batchPath, readProbeBatch, assertProbeCall, guardFetch, probeFetchAllowed, readProbePages, routeProbes,
+  probesCost, probesReport, PROBE_COST_MAX, ROUTE_PATH,
+} from "./canary-probes.mjs";
 import { publishedVersion } from "./canary-watch.mjs";
 // TEST 6: the description in the site's settings, beside the one the head serves.
 import { readStoredHead, storedHeadSaid } from "./canary-watch.mjs";
@@ -182,6 +188,44 @@ if (EXPECT_ROWS.expect && (READ_JOB || RESTORE || UI)) {
 if (EXPECT_ROWS.expect) {
   console.log(`EXPECTED ROWS  ${expectRowsSaid(EXPECT_ROWS.expect)}  (read on the site's own read, whole, before any routing call)\n`);
 }
+// THE ROUTING-ONLY BATCH, from its own box (`canary-probes.mjs`). Read whole
+// before the sign-in, with the committed file it names, so a typo or a bad
+// file costs nothing. A RUN OF ITS OWN: beside any other mode or box it
+// refuses, because each of those would ask this run to do something this mode
+// is built never to do. AND IT NAMES ITS EXPECTED DEPLOY BEFORE IT MAY SPEND:
+// its own runtime check is what stands in for a separate free press (the
+// owner, 2026-10-02), so a paid batch with either box blank refuses here.
+const PROBES_ASK = readProbeBox(process.env.CANARY_PROBES);
+if (!PROBES_ASK.ok) {
+  console.error(`REFUSING THE ROUTING BATCH: ${PROBES_ASK.msg}`);
+  process.exit(2);
+}
+let PROBES = null;
+if (PROBES_ASK.name) {
+  // The instruction box is only looked at here, never defaulted: a filled one
+  // means this press was written for the paid edit, not for this batch.
+  const instructionGiven = typeof process.env.CANARY_INSTRUCTION === "string" && process.env.CANARY_INSTRUCTION.trim() !== "";
+  if (READ_JOB || RESTORE || UI || ALLOW_RAW || EXPECT_ROUTE.expect || EXPECT_ROWS.expect || instructionGiven) {
+    console.error("REFUSING: the routing-only batch is a run of its own; leave the job, version, scenario, approvals, expected-route, fixture and \"What to change\" boxes blank");
+    process.exit(2);
+  }
+  if (SPEND && (!EXPECT_DEPLOY || !EXPECT_IMAGE)) {
+    console.error("REFUSING THE ROUTING BATCH: a paid batch names the deploy it expects (both the deploy sha and the image boxes), because its own runtime check is the only one before it spends");
+    process.exit(2);
+  }
+  let text = null;
+  try { text = readFileSync(batchPath(PROBES_ASK.name), "utf8"); } catch { text = null; }
+  const read = text === null
+    ? { ok: false, msg: `there is no committed batch named ${PROBES_ASK.name} (${batchPath(PROBES_ASK.name)})` }
+    : readProbeBatch(text, PROBES_ASK.name);
+  if (!read.ok) {
+    console.error(`REFUSING THE ROUTING BATCH: ${read.msg}`);
+    process.exit(2);
+  }
+  PROBES = read;
+  console.log(`ROUTING-ONLY BATCH  ${read.batch.name}: ${read.batch.probes.length} probes, sha256 ${read.sha256}`);
+  console.log(`  each message is routed once and nothing is ever edited, added, built or published${SPEND ? "" : "; this run does not spend, so it checks, reads and stops"}\n`);
+}
 // THIS RUN'S OWN ID, which goes into the rules test's marker booking's name.
 const RUN_ID = runIdOf(process.env);
 
@@ -204,6 +248,11 @@ console.log(`signed in as ${(session.user || {}).email}  uid=${UID}\n`);
 
 /** `node:https` rather than fetch — undici gives up at 300s and the sync path can outlive that. */
 function call(method, path, { body, headers } = {}) {
+  // THE ROUTING-ONLY BATCH'S WALL (`canary-probes.mjs`): in that mode every
+  // request this run makes passes here first, and anything but the runtime
+  // reads, a page list and the routing call THROWS before it is made. Every
+  // other run is unchanged.
+  if (PROBES) assertProbeCall(method, path);
   return new Promise((resolve) => {
     const u = new URL(BASE + path);
     const t0 = Date.now();
@@ -234,6 +283,11 @@ function call(method, path, { body, headers } = {}) {
     req.end();
   });
 }
+
+// AND ITS FETCH WALL, raised the moment the session exists: in the
+// routing-only mode `fetch` allows the balance read alone and THROWS on
+// anything else before it is made. `call` carries its own wall, above.
+if (PROBES) globalThis.fetch = guardFetch(globalThis.fetch, (url, method) => probeFetchAllowed(url, method, SUPABASE_URL));
 
 let failed = 0;
 const check = (name, ok, detail) => {
@@ -356,6 +410,69 @@ if (EXPECT_IMAGE) {
 }
 
 console.log("");
+
+// ── THE ROUTING-ONLY BATCH: ROUTE EACH MESSAGE, ACT ON NONE, AND STOP ──────
+//
+// A MODE, LIKE THE READ: it EXITS, so nothing below it runs. It sits BELOW the
+// preflight, whose checks are this batch's runtime check (the Worker's commit
+// and the container's image against the boxes, which a paid batch must fill),
+// and ABOVE the free checks, because those post empty edits and this mode
+// posts no edit of any kind. Every request it makes goes through the walled
+// `call`; it is handed only a page-list read and the routing call.
+if (PROBES) {
+  const probes = PROBES.batch.probes;
+  if (failed) {
+    console.log("REFUSING TO ROUTE: a runtime check failed, so the platform is not the one this batch expects. Nothing was charged.");
+    process.exit(1);
+  }
+  const balBefore = await balanceNow();
+  console.log(`ROUTING-ONLY BATCH — ${probes.length} probes; balance ${balBefore < 0 ? "UNREADABLE" : balBefore}\n`);
+  const PG = await readProbePages({
+    probes,
+    readPages: async (slug) => {
+      const rr = await call("GET", `/api/site/routes?slug=${encodeURIComponent(slug)}`);
+      return readRoutes(rr.status, rr.json);
+    },
+  });
+  for (const [slug, pages] of Object.entries(PG.pages)) console.log(`  pages sent to the router for ${slug}: ${pages.join(", ")}`);
+  const record = (extra) => {
+    mkdirSync(EVID, { recursive: true });
+    writeFileSync(`${EVID}/routing-probes.json`, JSON.stringify({
+      batch: PROBES.batch.name, sha256: PROBES.sha256, deploy: hDeploy, image: hImage, spend: SPEND, pages: PG.pages, ...extra,
+    }, null, 2));
+  };
+  if (!PG.ok) {
+    record({ stopped: { at: null, why: PG.why }, records: [] });
+    console.error(`REFUSING TO ROUTE: ${PG.why}. Nothing was charged.`);
+    process.exit(1);
+  }
+  // A REHEARSAL STOPS HERE, having read and checked everything a paid press
+  // would, routed nothing and charged nothing.
+  const rehearsal = SPEND !== true;
+  if (rehearsal) {
+    record({ rehearsal: true, records: [] });
+    console.log("\nREHEARSAL — spend is not yes, so no message was routed. Nothing was charged.");
+    process.exit(0);
+  }
+  // A FLOOR, NOT A CAP: the batch's upper estimate must be on the balance
+  // before the first call, so a batch is never cut short by its own cost.
+  const floor = PROBE_COST_MAX * probes.length;
+  if (!(balBefore >= floor)) {
+    record({ stopped: { at: null, why: `balance ${balBefore} below the upper estimate ${floor}` }, records: [] });
+    console.error(`REFUSING TO ROUTE: the balance (${balBefore < 0 ? "unreadable" : balBefore}) is below the batch's upper estimate of ${floor} credits. Nothing was charged.`);
+    process.exit(1);
+  }
+  const RUN = await routeProbes({ probes, pages: PG.pages, postRoute: (body) => call("POST", ROUTE_PATH, { body }) });
+  const balAfter = await balanceNow();
+  const cost = probesCost(RUN.records);
+  const told = probesReport({ name: PROBES.batch.name, sha256: PROBES.sha256, records: RUN.records, stopped: RUN.stopped, cost });
+  record({ records: RUN.records, stopped: RUN.stopped, cost, balance: { before: balBefore, after: balAfter } });
+  mkdirSync(EVID, { recursive: true });
+  writeFileSync(`${EVID}/routing-probes.txt`, told + "\n");
+  console.log("\n" + told);
+  console.log(`\nbalance ${balBefore} -> ${balAfter < 0 ? "UNREADABLE" : balAfter}; written to ${EVID}/routing-probes.{json,txt}`);
+  process.exit(RUN.stopped ? 1 : 0);
+}
 
 // ── THE FOUR FREE CHECKS ───────────────────────────────────────────────────
 

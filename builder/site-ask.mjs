@@ -786,12 +786,26 @@ export function siteDigest(site) {
   if (name) bits.push("The site is called " + name + ".");
   const url = String(s.url || "").trim();
   if (url) bits.push("It is published at " + url + ".");
-  const pages = Array.isArray(s.pages) ? s.pages.filter((p) => typeof p === "string" && p.trim()).slice(0, 24) : [];
+  const { pages, tables } = digestLists(s);
   if (pages.length) bits.push("Its pages are: " + pages.join(", ") + ".");
-  const tables = Array.isArray(s.tables) ? s.tables.filter((t) => typeof t === "string" && t.trim()).slice(0, 24) : [];
   if (tables.length) bits.push("Its database tables are: " + tables.join(", ") + ".");
   if (!bits.length) return "They have not built anything yet — this is a brand new, empty project.";
   return bits.join(" ");
+}
+
+/**
+ * The page addresses and table names the router is shown, and whether that is
+ * fewer than were sent. ONE READER for both: the digest shows these, and the
+ * decision report (`ROUTE_REASONS`, `pages-cut` and `tables-cut`) says when
+ * they were cut, so the two cannot disagree about what the model saw.
+ */
+export function digestLists(site) {
+  const s = site || {};
+  const sentPages = Array.isArray(s.pages) ? s.pages : [];
+  const sentTables = Array.isArray(s.tables) ? s.tables : [];
+  const pages = sentPages.filter((p) => typeof p === "string" && p.trim()).slice(0, 24);
+  const tables = sentTables.filter((t) => typeof t === "string" && t.trim()).slice(0, 24);
+  return { pages, tables, pagesCut: pages.length < sentPages.length, tablesCut: tables.length < sentTables.length };
 }
 
 const SYSTEM =
@@ -896,6 +910,156 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
   };
 }
 
+// ── WHERE A ROUTING ANSWER CAME FROM (the router audit, 2026-10-02) ─────────
+//
+// THE ROUTE'S ANSWER AND THE MODEL'S ANSWER ARE NOT THE SAME THING, and the
+// reply could not say which it was. Several unusable answers become `addon`
+// on a live site, fields the model filled are dropped or rewritten, and two
+// rules decide without asking the model at all, and each of them left the
+// reply looking exactly like a model that chose it. Test 11's run 88 is the
+// case that made it matter: the route answered `addon`, the saved row was
+// exactly right, and nothing on the wire could show whether the model had
+// chosen it (the audit's R3).
+//
+// SO EVERY BRANCH THAT DECIDES WITHOUT THE MODEL, REPLACES ITS ANSWER, OR
+// CHANGES A PART OF IT, NAMES ITSELF, from this one fixed list. `kind` sorts
+// them:
+//   rule      no model was asked; the answer is the rule's
+//   fallback  the call failed, or the model's answer could not be used, and
+//             the fallback answer was given instead
+//   changed   the model's answer was used, with a part dropped or rewritten
+//   context   what the model was shown was cut or filled in; its answer is
+//             its own
+// A reply's `source` follows from its codes: any `rule` makes it "rule", else
+// any `fallback` makes it "fallback", else it is "model".
+//
+// REPORTING ONLY. Nothing here changes what any branch does: the readers
+// return exactly what they returned before, and record into a trace only when
+// a caller hands them one. And nothing of the customer's text or the model's
+// free text is ever in a decision: codes from this list, and the model's own
+// intent and layer read only from their own fixed lists.
+export const ROUTE_REASONS = Object.freeze({
+  "no-message": Object.freeze({ kind: "rule", what: "the message was empty, so no model was asked" }),
+  "no-credits": Object.freeze({ kind: "rule", what: "the balance read zero, so no model was asked" }),
+  "request-failed": Object.freeze({ kind: "fallback", what: "the routing request could not be built" }),
+  "send-failed": Object.freeze({ kind: "fallback", what: "the routing call failed" }),
+  "no-tool-call": Object.freeze({ kind: "fallback", what: "the model's reply held no routing answer" }),
+  "intent-unknown": Object.freeze({ kind: "fallback", what: "the answer named no intent, or one that is not among the five" }),
+  "clarify-closed": Object.freeze({ kind: "fallback", what: "a question back, when no question may be asked" }),
+  "clarify-unreadable": Object.freeze({ kind: "fallback", what: "a question back with no usable question" }),
+  "work-without-site": Object.freeze({ kind: "fallback", what: "an edit or an add-on, with no site to change" }),
+  "ask-empty": Object.freeze({ kind: "fallback", what: "a reply with nothing to say" }),
+  "ask-while-answering": Object.freeze({ kind: "fallback", what: "a reply to a message that answers our own question" }),
+  "ask-with-attachment": Object.freeze({ kind: "fallback", what: "a reply to a message that came with a file" }),
+  "layer-missing": Object.freeze({ kind: "fallback", what: "an edit naming no step" }),
+  "layer-unknown": Object.freeze({ kind: "fallback", what: "an edit naming a step that is not among the nine" }),
+  "page-missing": Object.freeze({ kind: "fallback", what: "a page edit naming no readable page" }),
+  "page-unknown": Object.freeze({ kind: "fallback", what: "a page edit naming a page the site was not said to have" }),
+  "page-normalized": Object.freeze({ kind: "changed", what: "the page was rewritten to its usual spelling" }),
+  "page-unreadable": Object.freeze({ kind: "changed", what: "a look edit's page could not be read as a path, so it was left out" }),
+  "page-unchecked": Object.freeze({ kind: "changed", what: "a page edit's page was not checked: no page list was sent" }),
+  "page-ignored": Object.freeze({ kind: "changed", what: "a page on a step that takes none, left out" }),
+  "remove-not-true": Object.freeze({ kind: "changed", what: "a removal flag that was not exactly true, left out" }),
+  "remove-ignored": Object.freeze({ kind: "changed", what: "a removal flag on a step with no removal of its own, left out" }),
+  "tab-not-true": Object.freeze({ kind: "changed", what: "a browser-tab flag that was not exactly true, left out" }),
+  "tab-ignored": Object.freeze({ kind: "changed", what: "a browser-tab flag on a step other than the logo, left out" }),
+  "rename-with-remove": Object.freeze({ kind: "changed", what: "a new address beside a removal, left out (the removal wins)" }),
+  "rename-not-path": Object.freeze({ kind: "changed", what: "a new address that is not a path, left out" }),
+  "rename-same-page": Object.freeze({ kind: "changed", what: "a new address that is the page's own, left out" }),
+  "rename-normalized": Object.freeze({ kind: "changed", what: "the new address was rewritten to its usual spelling" }),
+  "rename-ignored": Object.freeze({ kind: "changed", what: "a new address on a step other than the page step, left out" }),
+  "edit-fields-ignored": Object.freeze({ kind: "changed", what: "an edit's fields on an answer that is not an edit, left out" }),
+  "also-not-text": Object.freeze({ kind: "changed", what: "a held-back part that was not text, left out" }),
+  "also-too-long": Object.freeze({ kind: "changed", what: "a held-back part longer than any message, left out" }),
+  "also-ignored": Object.freeze({ kind: "changed", what: "a held-back part on an answer that carries none, left out" }),
+  "answer-ignored": Object.freeze({ kind: "changed", what: "reply text on an answer that is not a reply, left out" }),
+  "question-ignored": Object.freeze({ kind: "changed", what: "a question on an answer that is not a question back, left out" }),
+  "question-clipped": Object.freeze({ kind: "changed", what: "the question's text was shortened" }),
+  "options-changed": Object.freeze({ kind: "changed", what: "the question's options were shortened, deduplicated or cut" }),
+  "message-cut": Object.freeze({ kind: "context", what: "the router was shown only the message's first 2,000 characters" }),
+  "brief-cut": Object.freeze({ kind: "context", what: "the router was shown only the brief's first 2,000 characters" }),
+  "pages-cut": Object.freeze({ kind: "context", what: "the router was shown fewer page addresses than were sent" }),
+  "tables-cut": Object.freeze({ kind: "context", what: "the router was shown fewer table names than were sent" }),
+  "tables-filled": Object.freeze({ kind: "context", what: "the route filled in the site's own table names" }),
+});
+
+/** Where a routing answer came from; `routeDecision` derives it from the codes. */
+export const ROUTE_SOURCES = Object.freeze(["model", "fallback", "rule"]);
+
+/** The router's intents, read from its own tool so the two cannot drift. */
+const ROUTE_INTENTS = ASK_TOOL.input_schema.properties.intent.enum;
+
+/** A name the model gave, read only from its own fixed list: "none" when it gave none, "other" when it gave something else. */
+function rawName(v, list) {
+  if (v === undefined || v === null || v === "") return "none";
+  return typeof v === "string" && list.includes(v) ? v : "other";
+}
+
+/**
+ * The decision a route reports: its source, its reason codes in the order they
+ * applied, and, when a model answered at all, the intent and layer it named.
+ *
+ * A CODE NOT ON THE LIST IS DROPPED, so a caller cannot widen the list by
+ * passing one; a code named twice is kept once. `input` is the model's own
+ * routing answer (an empty object when its reply held none) or undefined when
+ * no model answered: a rule decided, or the call itself failed.
+ */
+export function routeDecision(reasons, input) {
+  const codes = [];
+  for (const c of Array.isArray(reasons) ? reasons : []) {
+    if (typeof c === "string" && Object.hasOwn(ROUTE_REASONS, c) && !codes.includes(c)) codes.push(c);
+  }
+  const has = (kind) => codes.some((c) => ROUTE_REASONS[c].kind === kind);
+  const decision = { source: has("rule") ? "rule" : has("fallback") ? "fallback" : "model", reasons: codes };
+  if (input !== undefined) {
+    const i = input && typeof input === "object" ? input : {};
+    decision.raw = { intent: rawName(i.intent, ROUTE_INTENTS), layer: rawName(i.layer, EDIT_LAYERS) };
+  }
+  return decision;
+}
+
+/** Records into a caller's trace; a no-op without one, so a reader's result never depends on it. */
+function noteTo(trace) {
+  return trace && Array.isArray(trace.reasons) ? (code) => { trace.reasons.push(code); } : () => {};
+}
+
+/** A field the model filled in: not absent, not null, not blank, not `false`. */
+function given(v) {
+  if (v === undefined || v === null || v === false) return false;
+  return !(typeof v === "string" && !v.trim());
+}
+
+/** The edit's own fields, which an answer that is not an edit carries none of. */
+const EDIT_FIELDS = ["layer", "page", "remove", "rename", "tab"];
+
+/**
+ * The parts of the model's answer that the kept answer does not carry, each
+ * named. `keeps` is what this answer carries: "answer", "question", "also",
+ * "edit". Only for an answer the model's own intent decided: a fallback
+ * replaces the whole answer, and its own code says so.
+ */
+function markLeftOut(input, keeps, mark) {
+  if (!keeps.includes("answer") && String(input.answer || "").trim()) mark("answer-ignored");
+  if (!keeps.includes("question") && given(input.question)) mark("question-ignored");
+  if (!keeps.includes("also") && given(input.alsoAsked)) mark("also-ignored");
+  if (!keeps.includes("edit") && EDIT_FIELDS.some((k) => given(input[k]))) mark("edit-fields-ignored");
+}
+
+/**
+ * Whether `readQuestion` shortened the question or changed its options,
+ * compared on the spelling it reads. Called only after `readQuestion` has
+ * read the same values, so the text's `String` cannot throw here when it did
+ * not there; an option is compared only as the string `readQuestion` keeps,
+ * and anything else counts as changed.
+ */
+function markQuestion(raw, q, mark) {
+  const flat = (v) => String(v == null ? "" : v).trim().replace(/\s+/g, " ");
+  if (q.text !== flat(raw && raw.text)) mark("question-clipped");
+  const options = raw && Array.isArray(raw.options) ? raw.options : [];
+  const same = (o, i) => typeof options[i] === "string" && o === flat(options[i]);
+  if (options.length !== q.options.length || !q.options.every(same)) mark("options-changed");
+}
+
 /**
  * WHEN THE ROUTER CANNOT DECIDE, BUILD.
  *
@@ -911,11 +1075,16 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
  * pipeline that already works, and it must never be the reason a build does not
  * happen.
  */
-export function readRouting(reply, { canClarify = false, answering = false, attached = false, hasSite = false, pages = [] } = {}) {
+export function readRouting(reply, { canClarify = false, answering = false, attached = false, hasSite = false, pages = [], trace = null } = {}) {
   const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
   const use = blocks.find((b) => b && b.type === "tool_use");
   const input = (use && use.input) || {};
   const answer = String(input.answer || "").trim();
+  // THE DECISION REPORT (`ROUTE_REASONS`): every branch below names itself into
+  // the caller's trace, when there is one, and returns exactly what it did.
+  const mark = noteTo(trace);
+  if (trace) trace.input = input;
+  if (!use) mark("no-tool-call");
   // The bottom of the ladder for this state. See FALLBACK_WITH_SITE: unclear
   // still resolves to WORK and never to a paragraph — what the site's existence
   // changes is which work, because on an existing site "build" is a ~25-credit
@@ -940,7 +1109,12 @@ export function readRouting(reply, { canClarify = false, answering = false, atta
     // A CLARIFY WITH NO USABLE QUESTION IS A BUILD, for exactly the reason an
     // answerless "ask" is: honouring it shows the customer an empty prompt and
     // builds nothing, which is indistinguishable from the builder being broken.
-    if (q) return { intent: "clarify", answer: "", question: q };
+    if (q) {
+      markQuestion(input.question, q, mark);
+      markLeftOut(input, ["question"], mark);
+      return { intent: "clarify", answer: "", question: q };
+    }
+    mark("clarify-unreadable");
     return work(fallback);
   }
 
@@ -959,19 +1133,42 @@ export function readRouting(reply, { canClarify = false, answering = false, atta
   // NOT ON `build`, which rewrites everything and folds a second ask in by
   // construction, and not on `ask` or `clarify`, where no work happened for a
   // leftover to sit beside.
-  const also = readAlso(input);
-  if (hasSite && input.intent === "addon") return { ...work("addon"), ...also };
-  if (hasSite && input.intent === "edit") return { ...readEdit(input, pages), ...also };
+  // READ ON THE TWO WORK RUNGS ONLY, where it is kept: on any other answer a
+  // held-back part is left out, and the report says so (`also-ignored`).
+  if (hasSite && input.intent === "addon") {
+    const out = { ...work("addon"), ...readAlso(input, trace) };
+    markLeftOut(input, ["also"], mark);
+    return out;
+  }
+  if (hasSite && input.intent === "edit") {
+    const out = { ...readEdit(input, pages, trace), ...readAlso(input, trace) };
+    markLeftOut(input, ["also", "edit"], mark);
+    return out;
+  }
   // "build" IS STILL HONOURED ON AN EXISTING SITE, deliberately and narrowly:
   // it is the only way to say "scrap this and make me a different site", which is
   // a thing people really do ask for. The tool description is what keeps it rare.
-  if (input.intent === "build") return work("build");
+  if (input.intent === "build") {
+    markLeftOut(input, [], mark);
+    return work("build");
+  }
 
   const intent = input.intent === "ask" ? "ask" : fallback;
+  // WHY THE MODEL'S OWN INTENT WAS NOT USED, when it was not: a question back
+  // where none may be asked, work with no site to do it on, or an intent that
+  // is not one of the five (a reply with no answer at all was named above).
+  if (intent !== "ask") {
+    if (input.intent === "clarify") mark("clarify-closed");
+    else if (input.intent === "edit" || input.intent === "addon") mark("work-without-site");
+    else if (use) mark("intent-unknown");
+  }
   // AN "ask" WITH NOTHING TO SAY IS A BUILD. The model chose the cheap branch and
   // then wrote no reply, so honouring it would show the customer an empty message
   // and do nothing — the one outcome worse than an unnecessary build.
-  if (intent === "ask" && !answer) return work(fallback);
+  if (intent === "ask" && !answer) {
+    mark("ask-empty");
+    return work(fallback);
+  }
   // AN "ask" IN REPLY TO OUR OWN QUESTION IS A DEAD END, and it shipped as one.
   //
   // Measured live 2026-08-09: brief "Book classes", two questions answered, and
@@ -1001,7 +1198,12 @@ export function readRouting(reply, { canClarify = false, answering = false, atta
   // Both bound `ask` and NEITHER bounds `clarify`, which is the whole point of
   // the change that added `attached`: an attachment used to skip this call
   // entirely, so a first build with a logo attached was never asked anything.
-  if (intent === "ask" && (answering || attached)) return work(fallback);
+  if (intent === "ask" && (answering || attached)) {
+    if (answering) mark("ask-while-answering");
+    if (attached) mark("ask-with-attachment");
+    return work(fallback);
+  }
+  if (intent === "ask") markLeftOut(input, ["answer"], mark);
   return { intent, answer: intent === "ask" ? answer : "" };
 }
 
@@ -1063,7 +1265,9 @@ export function normalizePagePath(raw) {
  * ABSENT MEANS ABSENT — an empty object, so a response that has no leftover is
  * byte-identical to what it was before this existed.
  */
-export function readAlso(input) {
+export function readAlso(input, trace = null) {
+  const mark = noteTo(trace);
+  if (input && given(input.alsoAsked) && typeof input.alsoAsked !== "string") mark("also-not-text");
   const raw = input && typeof input.alsoAsked === "string" ? input.alsoAsked.trim() : "";
   if (!raw) return {};
   // ⚠ NEVER CUT (2026-09-29). This was `raw.slice(0, MAX_ALSO_CHARS)`, harmless
@@ -1073,7 +1277,10 @@ export function readAlso(input) {
   // of the part promised for later would run this turn. The router is shown at
   // most `MAX_MESSAGE` characters, so a longer copy is not a copy of anything
   // they said: it is dropped, not cut, and nothing is held back.
-  if (raw.length > MAX_MESSAGE) return {};
+  if (raw.length > MAX_MESSAGE) {
+    mark("also-too-long");
+    return {};
+  }
   return { alsoAsked: raw };
 }
 
@@ -1194,9 +1401,13 @@ export function heldBack(message, later) {
   return { ok: true, run, held: text.slice(spans[0][0], spans[0][1]) };
 }
 
-export function readEdit(input, pages) {
+export function readEdit(input, pages, trace = null) {
+  const mark = noteTo(trace);
   const layer = EDIT_LAYERS.includes(input && input.layer) ? input.layer : null;
-  if (!layer) return { intent: FALLBACK_WITH_SITE, answer: "" };
+  if (!layer) {
+    mark(input && given(input.layer) ? "layer-unknown" : "layer-missing");
+    return { intent: FALLBACK_WITH_SITE, answer: "" };
+  }
   // `remove` IS READ FOR EVERY LAYER THAT HAS ONE, above the page branch.
   //
   // It used to be read only inside the page branch, below the early return —
@@ -1214,6 +1425,13 @@ export function readEdit(input, pages) {
   // away rather than adding something visible and undoable.
   const remove = input && input.remove === true;
   const removal = remove ? { remove: true } : {};
+  // THE TWO FLAGS' OWN REPORTS: a value that is not exactly `true` is left out
+  // wherever it is, and a `true` on a step that does not take it is left out
+  // too. Recorded, never acted on: what is returned below is unchanged.
+  if (given(input.remove) && input.remove !== true) mark("remove-not-true");
+  else if (remove && !REMOVABLE_LAYERS.includes(layer)) mark("remove-ignored");
+  if (given(input.tab) && layer !== "logo") mark("tab-ignored");
+  else if (given(input.tab) && input.tab !== true) mark("tab-not-true");
   // WHICH SLOT THE ARTWORK GOES IN, read only for the layer that has two.
   // Scoped the way `remove` is, and for the same reason: a flag carried by a
   // layer that cannot act on it is one nothing reads, which is how this repo's
@@ -1243,13 +1461,28 @@ export function readEdit(input, pages) {
   // nothing reads.
   if (layer === "look") {
     const named = normalizePagePath(input && input.page);
+    if (given(input.page) && !named) mark("page-unreadable");
+    else if (named && named !== input.page) mark("page-normalized");
+    if (given(input.rename)) mark("rename-ignored");
     return { intent: "edit", answer: "", layer, ...(named ? { page: named } : {}) };
   }
-  if (layer !== "page") return { intent: "edit", answer: "", layer, ...tab, ...(REMOVABLE_LAYERS.includes(layer) ? removal : {}) };
+  if (layer !== "page") {
+    if (given(input.page)) mark("page-ignored");
+    if (given(input.rename)) mark("rename-ignored");
+    return { intent: "edit", answer: "", layer, ...tab, ...(REMOVABLE_LAYERS.includes(layer) ? removal : {}) };
+  }
   const want = normalizePagePath(input.page);
-  if (!want) return { intent: FALLBACK_WITH_SITE, answer: "" };
+  if (!want) {
+    mark("page-missing");
+    return { intent: FALLBACK_WITH_SITE, answer: "" };
+  }
   const known = (Array.isArray(pages) ? pages : []).map(normalizePagePath).filter(Boolean);
-  if (known.length && !known.includes(want)) return { intent: FALLBACK_WITH_SITE, answer: "" };
+  if (known.length && !known.includes(want)) {
+    mark("page-unknown");
+    return { intent: FALLBACK_WITH_SITE, answer: "" };
+  }
+  if (!known.length) mark("page-unchecked");
+  if (want !== input.page) mark("page-normalized");
   // ── TAKING THE PAGE AWAY, DECIDED HERE AND NOWHERE ELSE ───────────────────
   //
   // MEASURED THREE TIMES: asked to delete a page, the page model rewrites the
@@ -1296,6 +1529,12 @@ export function readEdit(input, pages) {
   const raw = !remove && typeof input.rename === "string" ? input.rename.trim() : "";
   const rename = raw.startsWith("/") ? normalizePagePath(raw) : null;
   const moving = rename && rename !== want ? { rename } : {};
+  if (given(input.rename)) {
+    if (remove) mark("rename-with-remove");
+    else if (!rename) mark("rename-not-path");
+    else if (rename === want) mark("rename-same-page");
+    else if (rename !== raw) mark("rename-normalized");
+  }
   // `remove` is read once, at the top, so the logo layer gets the same field
   // this branch does — it was declared here and the early return above stripped
   // it from every other layer.
@@ -1520,12 +1759,12 @@ export function routeFailure(stage, e, { model, classify } = {}) {
  * for a call that failed — the same our-fault rule the build path follows. And
  * it says why, as `failure` (`routeFailure` above).
  */
-export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, attached = false, hasSite = false, model = ASK_MODEL } = {}) {
+export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, attached = false, hasSite = false, model = ASK_MODEL, tablesFilled = false } = {}) {
   const text = String(message || "").trim();
   // AN EMPTY MESSAGE NEVER REACHES THE MODEL. The composer will not send one, but
   // this is a paid call behind a public route and "the client wouldn't do that"
   // is not a gate.
-  if (!text) return { intent: "build", answer: "", usage: null };
+  if (!text) return { intent: "build", answer: "", usage: null, decision: routeDecision(["no-message"]) };
   // THE BUDGET IS SPENT HERE, in arithmetic, before the model is asked. Owner's
   // call is one question at a time on a first build; `MAX_CLARIFY` is what stops
   // "one at a time" becoming "one after another after another", and a cap the
@@ -1541,6 +1780,12 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
   // defaulting to false so any caller that has not been taught about it behaves
   // exactly as it did before these two rungs existed.
   const pages = (site && Array.isArray(site.pages)) ? site.pages : [];
+  // WHAT THE MODEL IS SHOWN, CUT OR FILLED IN: the decision's `context` codes
+  // (`ROUTE_REASONS`), which leave its source alone. Collected INSIDE the
+  // request's own catch below, because they read the same caller-supplied
+  // values the request does: a brief whose `toString` throws must still end as
+  // `request-failed`, exactly as it did before these were named.
+  const shown = [];
   // A THROW IS THE BOTTOM OF THE LADDER FOR THIS STATE, not unconditionally a
   // build. On an existing site an unreachable router used to mean the customer
   // paid ~25 credits and had every page rewritten because a Haiku call timed
@@ -1552,9 +1797,17 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
   const fail = (stage, e) => ({
     intent: !!hasSite ? FALLBACK_WITH_SITE : FALLBACK_NO_SITE, answer: "", usage: null, failed: true,
     failure: routeFailure(stage, e, { model, classify: deps && deps.classify }),
+    decision: routeDecision([...shown, stage === "request" ? "request-failed" : "send-failed"]),
   });
   let request;
   try {
+    if (text.length > MAX_MESSAGE) shown.push("message-cut");
+    if (canClarify && String(brief || "").trim().length > MAX_MESSAGE) shown.push("brief-cut");
+    const lists = digestLists(site);
+    if (lists.pagesCut) shown.push("pages-cut");
+    if (lists.tablesCut) shown.push("tables-cut");
+    // The route's own word that it filled the table names in (Lane 1d).
+    if (tablesFilled === true) shown.push("tables-filled");
     request = askRequest({ message: text, site, canClarify, brief, qa: asked, hasSite: !!hasSite, model });
   } catch (e) {
     return fail("request", e);
@@ -1565,8 +1818,9 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
   } catch (e) {
     return fail("send", e);
   }
+  const trace = { reasons: shown.slice(), input: undefined };
   const routed = readRouting(reply, {
-    canClarify, answering: !!answering, attached: !!attached, hasSite: !!hasSite, pages,
+    canClarify, answering: !!answering, attached: !!attached, hasSite: !!hasSite, pages, trace,
   });
-  return { ...routed, usage: askUsage(reply, model) };
+  return { ...routed, usage: askUsage(reply, model), decision: routeDecision(trace.reasons, trace.input) };
 }

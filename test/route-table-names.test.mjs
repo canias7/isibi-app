@@ -152,6 +152,10 @@ test("the owner's own site: its tables reach the router by name, and nothing els
     + "Its pages are: /, /prices, /gear. Its database tables are: bookings, lessons.");
   // The route says what it filled in, so the evidence of a run can show it.
   assert.deepEqual(r.body.tablesFilled, ["bookings", "lessons"]);
+  // AND THE DECISION SAYS SO (the router audit, 2026-10-02): a context code,
+  // which leaves the answer the model's own.
+  assert.ok(r.body.decision.reasons.includes("tables-filled"), "the fill is not in the decision");
+  assert.equal(r.body.decision.source, "model");
   assertReadOnly(r, "ready");
 });
 
@@ -168,6 +172,7 @@ test("another owner's slug: nothing of the database is read, and the router rout
   assert.equal(r.status, 200);
   assert.deepEqual(tablesTold(r), []);
   assert.equal(r.body.tablesFilled, undefined);
+  assert.ok(!r.body.decision.reasons.includes("tables-filled"), "a fill that did not happen is in the decision");
   assertNothingRead(r, "stranger");
   // The ownership read happened, and it was the only thing asked of the site.
   const rest = r.seen.rest.filter((u) => u.includes("site_backends"));

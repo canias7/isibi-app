@@ -156,6 +156,20 @@ on:
         description: 'Refuse to route or spend unless one table, read whole as the site serves it, is as named: JSON {"table":…,"baseline":<16+ hex: digest of the rows other than the target>,"target":{<fields of the one target row>}}. Blank = no check.'
         required: false
         default: ''
+      # THE ROUTING-ONLY BATCH (the router audit, 2026-10-02). A MODE, like
+      # read_job: filled in with the name of a committed probe list in
+      # scripts/router-probes, the script signs in, runs the preflight as this
+      # batch's runtime check, reads each site's page list, and routes each
+      # message once through the real router, posting nothing else. A wall in
+      # the script allows only those reads and the routing call and throws on
+      # anything else, so it cannot edit, add, build, publish or restore. With
+      # spend=yes it routes and must have expect_deploy and expect_image
+      # filled; otherwise it reads and stops. Beside any other mode or box it
+      # refuses.
+      route_probes:
+        description: 'ROUTING-ONLY BATCH: the name of a committed probe list in scripts/router-probes (e.g. router-audit-1). Each message is routed once; nothing is edited, added, built or published. With spend=yes it routes, and needs the deploy sha and image boxes; otherwise it checks and stops. Leave "What to change" and the other mode boxes blank.'
+        required: false
+        default: ''
 
 jobs:
   canary:
@@ -261,6 +275,10 @@ jobs:
           EXPECT_IMAGE: ${{ github.event.inputs.expect_image }}
           CANARY_EXPECT_ROUTE: ${{ github.event.inputs.expect_route }}
           CANARY_EXPECT_ROWS: ${{ github.event.inputs.expect_rows }}
+          # THE ROUTING-ONLY BATCH's name. Read whole by the script before it
+          # signs in, with the committed file it names; a bad name, a bad file
+          # or a filled box beside any other mode refuses at no cost.
+          CANARY_PROBES: ${{ github.event.inputs.route_probes }}
           CANARY_EVIDENCE_DIR: canary-evidence
         run: node scripts/edit-canary.mjs
       # THE RECORD SURVIVES THE RUN, and is uploaded even when the canary

@@ -410,29 +410,47 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## The router audit (2026-10-02; free analysis; its routing test waits for the owner's approval)
+## The router audit (2026-10-02; corrected after the owner's review; decision reporting and the routing-only batch built on the branch for review; nothing merged, deployed or spent)
 
 The owner's order, once Test 11's result was verified: audit the router
 before any broader test resumes. The audit is
 [`router-audit.md`](router-audit.md). It covers the actual decision flow,
-fourteen contradictions and gaps (R1–R14) with line references, and a
-proposed routing test. Nothing was spent.
+fourteen contradictions and gaps (R1–R14) with line references, and the
+routing test.
 
+- **Corrected to the owner's policy** (2026-10-02): *"all new additions belong
+  to the add-on path, including new menu links, footer links and header
+  buttons."*
+  - Every addition's intended outcome is the add-on path.
+  - The add-on step's missing capabilities are listed: a menu link, a footer
+    link or detail, the header button, and one line on a page.
+  - The test matrix separates intended behaviour, current implementation and
+    observed model behaviour, and every predicted downstream consequence is
+    marked unverified.
+  - Test 11 (run 88) keeps its saved-row outcome and is no longer read as
+    proof of the raw model's choice (the *Test 11* section below).
 - **The most serious findings**:
-  - R1: "add …" to the menu, the footer or the header button now has two
-    contradicting instructions, and the add-on step has no kind for those
-    things.
+  - R1: the router's `nav`, `picture` and `page` examples contradict the
+    policy, and the add-on step lacks those kinds;
   - R2: the router is told to decide by attachments it is never told about,
-    and only the logo step receives a file.
-  - R3: seven unusable answers silently become a paid add-on, and can't be
-    told apart from the model's own choice.
-- **The test**: 14 single-message probes, with 4 optional ones. The real
-  router routes each probe once, and nothing it answers is acted on.
-  - Cost: about 28–42 credits, or 36–54 with the optional four.
-  - It needs two things built first, both waiting for the owner's word:
-    - a route-only canary mode (scripts only);
-    - a field saying whether an answer is the model's own (a deploy with an
-      image roll).
+    and only the logo step receives a file;
+  - R3: seven unusable answers silently become a paid add-on.
+- **Built for review** (no merge, deploy or spend):
+  - **decision-source reporting**: the route's reply says `model`, `fallback`
+    or `rule`, with 42 fixed reason codes, one per fallback and normalization
+    branch;
+  - **the routing-only batch mode**: one box naming a committed probe list;
+    the batch's own runtime check before spending; a wall that makes an edit,
+    an add-on, a build, a publish or a restore impossible.
+  - **Checked**: 36 new tests (every code reached by its own branch; the
+    real canary script driven end to end under the in-process stub); the
+    red check (15 integration tests fail on the old Worker and canary, 35
+    module tests pass); a sweep of 84 mutants, 82 killed and the two misses
+    killed by two added cases, both controls surviving; the full suite
+    `8579 / 8579 / 0 / 0`. The record is
+    `docs/history/2026-10-02-route-decision.md`.
+- **The batch**: all 18 probes in one press (`router-audit-1`), about 36–54
+  credits. It needs the merge and deploy of the decision report first.
 - The broad plan below stays paused.
 
 ## Broad real-model batches — four chats through the normal app (proposed 2026-10-01 on the owner's word; paused by the owner the same day; nothing sent or spent)

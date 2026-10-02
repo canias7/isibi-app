@@ -1,0 +1,170 @@
+{
+  "batch": "router-audit-1",
+  "probes": [
+    {
+      "id": "P0",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Make the Country White £4.90.",
+      "intended": [{ "intent": "edit", "layer": "data", "alsoAsked": "none" }],
+      "basis": "router rule: a change to an entry the site stores (live: runs 71 and 77)",
+      "note": "Control: a known answer, read correctly by this mode."
+    },
+    {
+      "id": "A1",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Add our Instagram to the footer: @harbourloaf.",
+      "intended": [{ "intent": "addon", "alsoAsked": "none" }],
+      "basis": "owner policy (2026-10-02): every new addition belongs to the add-on path, footer links included",
+      "note": "Missing capability: the add-on step has no kind for a footer link. The router's nav clause gives this as its own example."
+    },
+    {
+      "id": "A2",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Add Order to the menu.",
+      "intended": [{ "intent": "addon", "alsoAsked": "none" }],
+      "basis": "owner policy (2026-10-02): every new addition belongs to the add-on path, menu links included",
+      "note": "Missing capability: the add-on step has no kind for a menu link. /order exists and is not in the menu."
+    },
+    {
+      "id": "A3",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Add a Call us button at the top that rings 0117 496 0000.",
+      "intended": [{ "intent": "addon", "alsoAsked": "none" }],
+      "basis": "owner policy (2026-10-02): every new addition belongs to the add-on path, header buttons included",
+      "note": "Missing capability: the add-on step has no kind for the header button."
+    },
+    {
+      "id": "A4",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "On the Visit page, add a line saying we're closed on bank holidays.",
+      "intended": [{ "intent": "addon", "alsoAsked": "none" }],
+      "basis": "owner policy (2026-10-02): every new addition belongs to the add-on path",
+      "note": "No add-on kind for one line on a page; the nearest is component, a whole section (unverified whether it can make one line)."
+    },
+    {
+      "id": "A5",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Add a photo of our sourdough to the Visit page.",
+      "intended": [{ "intent": "addon", "alsoAsked": "none" }],
+      "basis": "owner policy (2026-10-02): every new addition belongs to the add-on path",
+      "note": "The router's picture clause gives this as its own example. A lone photo kind is handed to the picture step."
+    },
+    {
+      "id": "B1",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "We've started baking a Seeded Spelt, £4.80. Put it on the list.",
+      "intended": [{ "intent": "addon", "alsoAsked": "none" }],
+      "basis": "owner policy: a new entry in a list the site keeps is an addition (Test 11), here without the word add"
+    },
+    {
+      "id": "B2",
+      "site": "fretwork-1",
+      "name": "Crookes Guitar School",
+      "message": "Put the Group of three back on the price list, at £18.",
+      "intended": [{ "intent": "addon", "alsoAsked": "none" }],
+      "basis": "owner policy: an entry no longer in the list is a new row when put back",
+      "note": "Run 80 deleted the Group of three. The data step's undo rows reach the data layer only."
+    },
+    {
+      "id": "B3",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Take the Walnut Levain off the list.",
+      "intended": [{ "intent": "edit", "layer": "data", "alsoAsked": "none" }],
+      "basis": "router rule: an entry the site stores, taken off (live: runs 77 and 80)",
+      "note": "Control for taking an entry off."
+    },
+    {
+      "id": "C1",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Make the Country White £4.90 and add a Seeded Spelt at £4.80.",
+      "intended": [
+        { "intent": "edit", "layer": "data", "alsoAsked": "some" },
+        { "intent": "addon", "alsoAsked": "some" }
+      ],
+      "basis": "owner policy for the addition, and the router's held-back rule: no one answer makes both, so one part is held back"
+    },
+    {
+      "id": "C2",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Make the headings dark green and add our Instagram to the footer.",
+      "intended": [
+        { "intent": "edit", "layer": "look", "alsoAsked": "some" },
+        { "intent": "addon", "alsoAsked": "some" }
+      ],
+      "basis": "owner policy: the footer addition is the add-on path's, never nav; the colour is look; one part is held back",
+      "note": "The look door has no footer lane."
+    },
+    {
+      "id": "D1",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Remove the blog page.",
+      "intended": [{ "intent": "ask" }],
+      "basis": "router rule: a removal is never an add-on; ask (there is no blog page) is my reading, for the owner's confirmation",
+      "note": "The site has no blog page. The code turns a page answer naming an unknown page into addon."
+    },
+    {
+      "id": "D2",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Make the Gallery page's background warmer and the Visit page's background cooler.",
+      "intended": [{ "intent": "edit", "layer": "look", "page": "none", "alsoAsked": "none" }],
+      "basis": "router rule: the whole-message rule by targets (owner-corrected 2026-09-29)"
+    },
+    {
+      "id": "E1",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Make it better.",
+      "intended": null,
+      "basis": "not set: the owner's decision"
+    },
+    {
+      "id": "E2",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Undo the last change.",
+      "intended": null,
+      "basis": "not set: the owner's decision",
+      "note": "No step can undo a change; the router is told every change can be undone by saying so."
+    },
+    {
+      "id": "F1",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Use this photo on the starter page instead of the current one.",
+      "attached": true,
+      "intended": [{ "intent": "edit", "layer": "picture", "alsoAsked": "none" }],
+      "basis": "router rule: swapping a photo the site has is a change, not an addition",
+      "note": "Sends the attached flag only, as the browser does to the route; the router is never told a file came with it."
+    },
+    {
+      "id": "G1",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Do the same on the Visit page.",
+      "intended": null,
+      "basis": "not set: the owner's decision",
+      "note": "Refers back to a message the router never sees."
+    },
+    {
+      "id": "G2",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Make that one £3.50 instead.",
+      "intended": null,
+      "basis": "not set: the owner's decision",
+      "note": "Refers back to a message the router never sees."
+    }
+  ]
+}

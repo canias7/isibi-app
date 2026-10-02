@@ -237,7 +237,7 @@ import { sweepAfterPublish, P_ORPHANS } from "./site-sweep.mjs";
 import { loadConfig, saveConfig, withConfig, LEGACY_KEYS, CONFIG_KEY } from "./site-config.mjs";
 import { takeOffline, putBackOnline } from "./site-live.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
-import { routeMessage, clarifiedBrief, siteDigest, DOOR_LAYERS, heldBack, ROUTE_ERROR_CLASSES } from "./builder/site-ask.mjs";
+import { routeMessage, routeDecision, clarifiedBrief, siteDigest, DOOR_LAYERS, heldBack, ROUTE_ERROR_CLASSES } from "./builder/site-ask.mjs";
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
@@ -19982,7 +19982,9 @@ async function handleRequest(request, env, ctx) {
         // its own gate and its own 402, with a message about the thing they were
         // actually trying to do. Falling through keeps one place that says
         // "you're out of credits" instead of two that can disagree.
-        return Response.json({ ok: true, intent: "build", cost: 0 });
+        // NO MODEL WAS ASKED, AND THE REPLY SAYS SO (the router audit,
+        // 2026-10-02): this `build` is the rule's, never a model's choice.
+        return Response.json({ ok: true, intent: "build", cost: 0, decision: routeDecision(["no-credits"]) });
       }
       // THE SITE'S OWN TABLE NAMES when the browser sent none (Lane 1d) —
       // ownership verified first, names only, bounded in time, and any
@@ -20043,6 +20045,9 @@ async function handleRequest(request, env, ctx) {
           // `.uid` off it is always undefined and the two new rungs would have
           // been silently unreachable for every customer.
           hasSite: rb.hasSite === true,
+          // WHETHER THE NAMES THE ROUTER IS SHOWN WERE FILLED IN HERE: named in
+          // the decision (`tables-filled`), never a change to what it is shown.
+          tablesFilled: !!rDigest.filled,
         },
       );
       // THE REASON IS LOGGED AS WELL AS ANSWERED, and it is the same allow-listed
@@ -20152,6 +20157,11 @@ async function handleRequest(request, env, ctx) {
         // evidence shows what the router was told. The caller's own site's
         // names, and only when the route filled them: absent otherwise.
         tablesFilled: rDigest.filled || undefined,
+        // WHERE THE ANSWER CAME FROM (the router audit, 2026-10-02): the
+        // model's own, a fallback, or a rule, with every code that applied,
+        // from `ROUTE_REASONS`' fixed list. The browser reads nothing here;
+        // it is the evidence that tells a model's choice from a conversion.
+        decision: routed.decision,
       });
     }
 

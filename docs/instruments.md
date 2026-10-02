@@ -142,6 +142,35 @@ in `docs/instruments.md`; each test's plan and evidence is in the checklist.
     `tables: []`, and signs in as the fixtures' owner, so its router is told
     those names: run 77's `routing.json` carries four. Batch 1's presses ran
     without them.
+- **The routing-only batch** (`route_probes`, 2026-10-02, the router audit;
+  `scripts/canary-probes.mjs`; on the branch for review, not merged): the
+  name of a committed probe list in `scripts/router-probes/` (the first is
+  `router-audit-1`, 18 probes). Each message is routed once through the real
+  `/api/site/route`, as the browser posts it, and nothing is acted on.
+  - It is read whole before the sign-in, with its file, whose sha256 the run
+    prints. A bad name or file, or a box beside any other mode, an expected
+    route, a fixture or an instruction, refuses with no network call.
+  - **Its runtime check is the preflight** (the owner, 2026-10-02: the batch's
+    own checks instead of a separate free press). A paid batch must fill
+    `expect_deploy` and `expect_image`, and any failed preflight check stops
+    it before the first routing call.
+  - **It cannot edit, add, build, publish or restore.** The canary's one
+    request helper asks `assertProbeCall` first, which allows the two runtime
+    reads, a page list and the routing call and throws on anything else
+    before it is made. `fetch` allows the balance read alone. The mode exits
+    above the free edit checks, so none of the code below it runs.
+  - It reads each site's page list once, before any routing call. With spend
+    `no` it stops there (a rehearsal). With spend `yes` it refuses below a
+    balance of 3 credits a probe (a floor so the batch is not cut short, not
+    a cap), then routes every probe.
+  - Each answer is set beside its intended outcome and its `decision` (the
+    route's decision report: `model`, `fallback` or `rule`, with fixed reason
+    codes). A match a fallback made reads "matches only through a fallback",
+    never as a match. A different answer is a finding; the batch stops only on
+    a 401, a non-200, or a reply with no readable decision (a Worker that does
+    not report it).
+  - Evidence: `routing-probes.json` (every answer whole, the decision, the
+    verdict, the balance before and after) and `routing-probes.txt`.
 - **Presses are the owner's.** A session's dispatch answers **403** (it lacks
   `actions: write`) even for a free read, so do not retry it: hand over the
   exact values and **name each box by its description**, because the form shows
