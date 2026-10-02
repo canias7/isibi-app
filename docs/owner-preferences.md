@@ -708,3 +708,19 @@
   finally writes and on the screen. What each executing step's model is
   actually handed is what gets checked, not only what the dispatcher saw,
   and a test asserts those requests directly.
+- **On a site that exists, the model may ask one targeted question instead
+  of guessing; the first build keeps its own interview** (2026-10-02):
+  *"Implement model-driven clarification for existing-site edit and add-on
+  requests only; preserve current first-build behavior. Let the router ask a
+  targeted question when missing information materially affects which path,
+  target, or operation to choose, instead of converting clarification into
+  add-on work … Clear requests should proceed directly, technical failures
+  should remain technical failures, and intent and questions must come from
+  the model without customer-keyword or site-specific hardcoding."* So a
+  question is never turned into paid work, and code never decides from the
+  customer's words whether to ask: the router or a step's model asks, code
+  keeps the question and checks an answer against it. An answer resumes the
+  original request with its files, scope, parts put off and completed work
+  kept, without repeating changes or charges; a cancel, a changed request and
+  a stale answer start nothing; a store or model failure is said as ours, not
+  dressed as a question.

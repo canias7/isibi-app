@@ -74,6 +74,28 @@ changed under *After your review*; the checks are §4.4, the limits N22–N27
 (§3.0), and the record is the history's §7. Nothing was spent, no model was
 called, nothing was changed on a site, and no container was built.
 
+**Questions back on a site that exists (later the same day, on the owner's
+word):** *"Implement model-driven clarification for existing-site edit and
+add-on requests only; preserve current first-build behavior. Let the router
+ask a targeted question when missing information materially affects which
+path, target, or operation to choose, instead of converting clarification
+into add-on work. Let edit and add-on steps request clarification too when
+they discover missing details after routing … preserve the original request,
+attachments, scope, deferred parts, and completed work across the answer and
+page refresh … support cancellation and a changed request, and prevent stale
+answers from triggering work … intent and questions must come from the model
+without customer-keyword or site-specific hardcoding … Keep deployment and
+paid testing pending so we can combine the approved changes."* **Done on the
+branch (`4d2f10ed`), for review, not merged or deployed** (W27): a live
+site's router may ask, and the question is kept as the site's one live
+question instead of being turned into paid add-on work; the edit and add-on
+steps may ask after routing; an answer resumes the waiting request with the
+answer in it, its question count and the parts it put off; a changed request,
+a cancel and a stale answer each start nothing. The contract is §3.13, the
+checks §4.5, the limits N28–N40 (§3.0), and the record
+`docs/history/2026-10-02-live-clarify.md`. Nothing was spent, no model was
+called, nothing was changed on a site, and no container was built.
+
 ## In short
 
 - **Where it stands after batch 1.** W1–W4 are fixed on the branch, with
@@ -248,7 +270,9 @@ called, nothing was changed on a site, and no container was built.
 - **The readers** (`readRouting` 1126–1256, `readEdit` 1452–1535,
   `readAlso` 1316): an answer that can't be used becomes the fallback —
   `addon` on a live site, `build` with no site. `clarify` is honoured only
-  on a first build; an `ask` while answering a question card or with a file
+  on a first build (on the branch since W27, a live site's router may ask
+  too, with its own budget and a kept question: §3.13); an `ask` while
+  answering a question card or with a file
   attached becomes the fallback (1250–1253). `remove` and `tab` are kept
   only on the steps that take them; a page is kept only on `look` and
   `page` (1510–1527); a `page` answer naming no page, or a page not in the
@@ -359,7 +383,7 @@ synchronous path the model call's debit stands and the reply says so (N9).
 | `chat.js` 10077–10100 | add-on hop to the menu editor; climb only on reconstruction | dispatch | legitimate |
 | `chat.js` 4565, 4792 | which pages the browser keeps and refreshes | state | **defect** (W6) |
 | `worker.js` 19980–19988 | zero balance → `build`, no model | money rule over intent | **defect** in its outcome (W22) |
-| `site-ask.mjs` 1155 | `clarify` only on a first build | permission | legitimate |
+| `site-ask.mjs` 1155 | `clarify` only on a first build | permission | legitimate then; **superseded on the branch** (W27, §3.13): a live site's router may ask, with its own budget and a kept question |
 | `site-ask.mjs` 1250–1253 | `ask` + answering a card, or + a file → fallback | **override** | answering a card: defensible (the message is an instruction); a file: **defect** (W17) |
 | `site-ask.mjs` 1455–1531 | unusable layer / no page / unknown page → `addon` | validation, converting to paid work | reported since 2178; **defect** in outcome (W5, R4) |
 | `site-ask.mjs` 1474–1527 | `remove`/`tab`/page kept only where a step takes them | validation | legitimate; drops a named page on `text` (W12) |
@@ -439,6 +463,7 @@ Three classes, so a confirmed defect is never read as a risk or a guess:
 | W24 | Confirmed code defect | the hand-over to the add-on carries no reason (code) | what the add-on then designs | **fixed on the branch** (batch 2, §3.9, §4.3), pending your review |
 | W25 | Confirmed code defect | the refusal names the entry only (code) | — | open |
 | W26 | Confirmed (no customer effect) | stale comments (code) | — | open |
+| W27 | Policy change (the owner's order) | on a live site the router's question became `addon` (`clarify-closed`), paid add-on work for a request it could not place, and no step could ask (free probe on `a8ed6b73`) | what a real router and real steps ask, and when (N28) | **done on the branch** (§3.13, §4.5), pending your review |
 
 **Risks the fixes left or the traces found (batch 1):**
 
@@ -482,6 +507,25 @@ record's §5):
 | N25 | Limit (by design) | a lane named with no valid scope counts as other work (it is withheld with its own sentence), so an addition beside it is put off rather than handed on whole, and with nothing else of the message left the whole message is refused | recorded |
 | N26 | Limit (by design), narrowing N17 | a followed build's final answer without `deferred` now names the 202's parts; a direct answer without one still names nothing | recorded |
 | N27 | Equivalent mutant, kept | `!op.invalid` beside `op.words` in `scopedOps` changes nothing today, because `readScopes` blanks an invalid scope's words (its own test pins that); the guard stays against that layer moving | recorded |
+
+**Limits the clarification round leaves** (W27; the history's §7; each
+deliberate unless marked):
+
+| # | Class | What | Where it stands |
+|---|---|---|---|
+| N28 | Untested model behaviour | whether a real router asks a good question when a detail matters, and acts directly when it doesn't; the same for each step | recorded; needs a real router and real steps |
+| N29 | Limit (by design) | any message that names no question closes the live one as replaced, including a side question asked in another tab | recorded; the router decides whether a reply that names it answers it |
+| N30 | Limit (by design) | the answer and the request it resumes share 2,000 characters; a longer pair is refused at no cost, with the question kept | recorded |
+| N31 | Limit (by design) | past two questions per request a question is shown as words with nothing waiting | recorded |
+| N32 | Decision (yours) | the answer's routing call is charged like any other routing call | recorded; it could be free with a rule for who pays when the router asks |
+| N33 | Limit (by design) | not every model call asks: the per-lane calls, the full page writer and the add-on's designers do not; the pickers and the text, data, rules, picture, menu and page steps do | recorded |
+| N34 | Limit (by design) | a step's question beside other work is kept only when what it leaves to do can be told apart from what ran (its own words, or the message less every other step's own words); when another step ran on the whole message, or on a fixed request, that part is left alone and said as not kept (*"…so I left that part alone. Send it again"*), never resumed with work that ran | recorded |
+| N35 | Limit (by design) | a request's files survive a reload in the same browser only (IndexedDB); another device or blocked storage is asked to attach them again | recorded |
+| N36 | Conditional risk | if a second router question cannot be kept after the first was answered, the call fails as ours and the answer is used up; the request must be sent again | recorded |
+| N37 | Cost | the question field adds 884 characters to every look-picker call | recorded; the picker's share of its file re-anchored from a tenth to an eighth |
+| N38 | Limit (pre-existing) | the add-on step is still never sent attachments | recorded (W16's shape) |
+| N39 | Display (yours) | the thread shows a reply's line breaks as spaces, so what ran and the question after it read as one paragraph | recorded; not restyled |
+| N40 | Instrument | the sweep's readers return the question a reply asks; no paid batch reads it yet | recorded |
 
 **Tracked for the following batches** (a proposed grouping, your call):
 lost and deferred parts W5, W7, W8, W15, W24 (**batch 2, fixed on the
@@ -1244,7 +1288,9 @@ free check).*
 - The browser and route: dispatch on the answer; one hop only, to a
   different step; `fromAddon` so the add-on and the menu editor never loop;
   the add-on's climb only for a missing source.
-- The readers: `clarify` only on a first build; `remove` and `tab` only
+- The readers: `clarify` only on a first build (superseded on the branch by
+  W27, §3.13: a live site has its own budget and a kept question); `remove`
+  and `tab` only
   where a step takes them; a held-back part must be the customer's own words
   (`heldBack`, `wordsIn`), never coerced; the decision report.
 - The steps: page removal never of the home page or a linked page; the menu
@@ -1280,6 +1326,56 @@ free check).*
 | R12 written vs stored price | Table names filled since Lane 1d; run 77 answered `data`; probe CF3 asks again |
 | R13 overlapping removal instructions | Stands; W1 shows a hand-over can turn one removal into another |
 | R14 stale comments | Two of the three stand, plus one more (W26) |
+
+### 3.13 Questions back on a site that exists (W27, 2026-10-02)
+
+**W27. A question the router wanted to ask on a live site became paid
+add-on work.** *A policy change on the owner's order; done on the branch.*
+- **Before**: the reader overruled a live site's `clarify` to its fallback
+  (`clarify-closed`), so a request the router could not place became an
+  add-on, and no step after routing could ask anything. Measured free on
+  `a8ed6b73` with a supplied router answer: `intent: "addon"`, decision
+  `fallback`, reason `clarify-closed`. On the branch: `intent: "clarify"`,
+  the model's own question, decision `model`.
+- **The contract** (`builder/clarify.mjs`): one live question per site in
+  R2 (`source/<slug>/question.json`, inside a job's wall), holding the owner,
+  the stage that asked, the question count, the request the answer resumes,
+  the parts put off before it, the files flag, the time and a status; it
+  closes once on its etag; it lives 24 hours; two questions per request.
+  The question is the model's (`QUESTION_FIELD` on every tool that may ask,
+  read by one reader); no customer word decides whether to ask.
+- **The route**: an answer names its question and is checked before any
+  model call (409 `stale-question`, at no cost: answered, cancelled,
+  replaced, expired, another owner's, another question, malformed, or on a
+  first build); the router is shown what waits and says in `answered`
+  whether the message answers it (a pressed answer always does); an answer
+  resumes the waiting request with the question and the answer added (422
+  `answer-too-long` past 2,000 characters, the question kept); a changed
+  request is routed on its own; a message naming no question replaces it; a
+  new question is kept only on the caller's own site; unusable questions and
+  store failures fail the call at no cost.
+- **The steps**: the look picker and door, the text, data, rules, picture,
+  menu and page steps and the add-on picker may ask; a step that asks writes
+  and charges nothing; the ending keeps the question with only what the
+  answer must still do (beside work that ran, the step's own words), the
+  parts put off before and by this message, and the files flag; past the
+  budget it is words; a question that cannot be kept is our failure
+  (`clarify-unkept`).
+- **The page**: the question card (numbered answers, Esc cancels), typed and
+  pressed answers, the request's files beside the question (memory and
+  IndexedDB, never localStorage), a browser without them asked to attach
+  again, the reload check, cancel, and the count and parts put off through
+  every post, hop, job record and resume.
+- **The first build is unchanged**: its tool, request and reader are
+  byte-identical to `a8ed6b73` (42 pinned hashes), and it never reads or
+  writes a site's question.
+- **Found while testing the page**: a second router question after an answer
+  was refused by the page's reader (it wanted an instruction the route never
+  sends with a question) and said as *"I couldn't work out what to do"*.
+  Fixed; the case fails with the fix reverted.
+- **What it does not cover**: N28–N40 (§3.0). W13 (a question beside a
+  change goes unanswered) and W17 (a question with a file becomes an add-on)
+  are about the customer's questions, not the router's, and stay open.
 
 ## 4. Free checks run this round
 
@@ -1540,6 +1636,27 @@ at inputs `c0ca5ff6e57434fe` (3,968 files, as many as batch 2's).
 the home page."*; now it asks for each part put off, and a give-up names
 them as left for later.
 
+### 4.5 The clarification round's checks (W27, 2026-10-02)
+
+- **61 new cases**: `test/live-clarify-contract.test.mjs` (17),
+  `test/live-clarify-route.test.mjs` (21, through the real routes,
+  synchronously and as queued jobs) and `test/live-clarify-browser.test.mjs`
+  (23, the page's real handlers). The history's §6.1 lists each.
+- **Red checks**: all three files fail to load on `a8ed6b73`; the free probe
+  above shows the live-site question becoming `addon` there; the
+  second-question fix's case fails with the fix reverted.
+- **21 existing files** re-anchored or widened, each with its reason in the
+  file (the history's §6.3).
+- **Mutation sweeps**: the server (`builder/clarify.mjs`,
+  `builder/site-ask.mjs`, `worker.js`) 40 of 40 killed, 3 comment-only
+  controls surviving; the page (`public/chat.js`) 37 of 37 after one new case
+  closed the one survivor (a malformed answer settlement), its control
+  surviving.
+- **Full suite** `8901 / 8901 / 0 / 0` at `4d2f10ed`; **unit CI**
+  `8901 / 8897 / 0 / 4` (run 37032417202); **site build** run 37032417218, all 8 jobs green, "404 checks in 27 sections across 4 shards, every job green";
+  the image predicted `a4409e55d3f3eb09` → `836ed46c411ade1f` (191 inputs)
+  and not built (the history's §9).
+
 ## 5. The validation matrix
 
 ### 5.1 The sites, as read on 2026-10-02
@@ -1739,5 +1856,9 @@ it is judged against is recorded, not assumed.
   cover is under its own finding and in N14–N21 (§3.0). **Your review's
   three gaps** are fixed the same way (§4.4), with what they leave in
   N22–N27.
+- **W27 (questions back on a site that exists): done on the branch, shown
+  only with supplied answers.** Its tests, red checks and sweeps are §4.5;
+  it is not merged, deployed or exercised by a real model, and what it does
+  not cover is N28–N40 (§3.0).
 - **W6, W9–W14, W16–W23, W25 and W26: proposals only.** Each will need its
   own red check, sweep, suite and review before any merge.

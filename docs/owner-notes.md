@@ -1,102 +1,106 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-02, 14:18 UTC)
+## Current handoff — read this first (2026-10-02, 16:22 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**State now: your three batch-2 gaps are fixed on the branch, for your
-review.** Not merged, not deployed, nothing spent, no model called, no site
-changed, no container built. Batches 1 and 2 wait on the same branch for the
-one combined deploy. Nothing is waiting on a press.
+**State now: questions back on a site that exists are built on the branch,
+for your review.** Not merged, not deployed, nothing spent, no model called,
+no site changed, no container built. Batches 1 and 2 and batch 2's review
+fixes (still waiting on your review too) are on the same branch for the one
+combined deploy. Nothing is waiting on a press.
 - **What changed**, in plain words:
-  - **A long rewrite remembers what it put off.** When the full rewrite
-    takes long enough to finish in the background, the first answer (the
-    "being written now" one) named the parts put off, but the answer you
-    finally saw, written minutes later from a stored record, didn't: the
-    record had no room for them. So the chat said *"✅ Updated the home
-    page."* and nothing more, and a give-up said nothing either. Now the
-    record keeps the parts, a retry keeps them, and every final answer
-    names them: a finished build, a failed one, a build lost after it
-    started, and the route's own answer when it can't read the build's.
-    The chat now ends *"I only did part of it this time. Say “add a page for
-    our cake orders”, then “add a map of the shop”, and I’ll do those next."*
-  - **Every addition is kept, not only the first.** *"Change the
-    description, add a QR code for our menu on the Visit page, and add one
-    for our opening hours on the home page"* used to make the description,
-    name the first code as left for later, and lose the second without a
-    word. Now both codes are named, in your order. Asked with nothing else,
-    two codes on two pages go to the add-on step without pretending they're
-    both on the first one's page.
-  - **Nothing put off reaches a step that runs.** The words put off were
-    taken out of the message the router sent on, but not out of the words
-    each step was given, nor out of the message the removal step falls back
-    to. So a photo removal beside a 3D scene put off was handed the scene's
-    words, and a description change whose words ran on into a QR code's was
-    handed the code's words too. Now, once every step is planned and before
-    any runs, each step loses every part put off, by position; a step left
-    with nothing of its own doesn't run.
-- **No rule reads your words**: a model still decides which words belong to
-  which change. The code only takes out, by position, words a model already
-  said belong to a part put off.
-- **Checks, all free**: 26 new cases, asserting what each model was actually
-  handed and that the parts are named at every step. 25 of them fail on the
-  code before this round, and the other needs the new helper. Four existing
-  cases changed, each with its reason. Mutation sweeps: 20 of 20 on the
-  rewrite and the chat, 23 of 24 on the look step (the survivor changes
-  nothing today and is kept as a safeguard). Full suite `8839 / 8839 / 0 /
-  0`.
-- **CI**: both required checks are green on `129a1757`: unit tests (8,839,
-  the same total; CI skips its usual four) and the site build (404 checks in
-  27 sections across 4 shards, every job green).
-- **What you'll see on screen**: two before-and-after pictures, rendered by
-  the chat's own code from the real chain's replies
-  (`docs/edits/router-batch-2-review-resume-*.png`).
-- **What it still doesn't do** (backlog N22–N27): a page reload stops the
-  chat following a long rewrite, and a later look names nothing once the
-  finished build's record is gone; the little words between two changes
-  ("… and") stay with the first; several different additions alone go to
-  the add-on step without naming one part of the site or one page, and
-  whether it makes every one isn't shown; a part of the site the picker
-  named with no words still counts as other work.
-- **Not shown yet**: what a real model answers. That is the grouped live
-  batch.
+  - **The router can ask you one question instead of guessing.** Before, on
+    a live site, when the router couldn't tell which page, thing or kind of
+    change you meant, its question was thrown away and your message went to
+    the add-on step as paid work (measured free on the code before this
+    round). Now it asks, in its own words, with up to four answers to press;
+    you can also just type. A clear request goes straight through as
+    before.
+  - **The steps can ask too.** After routing, the step doing the work (the
+    look, words, data, rules, photo, menu or page step, or the add-on step)
+    can stop and ask when it finds a detail missing. A step that asks
+    changes nothing and costs nothing for the edit.
+  - **Your answer finishes the original request.** The answer is added to
+    what you first asked (*"They were asked … They answered …"*), with the
+    files you sent, the page it was about and anything put off for later.
+    If part of the request already ran, only the part that asked is
+    resumed, so nothing is done or charged twice.
+  - **A reload keeps the question**, and the files in the same browser.
+    Another device, or a browser that blocks storage, asks you to attach the
+    file again rather than answering without it.
+  - **Cancel** (its button, or Esc) closes the question. A new request
+    instead of an answer closes it too and runs on its own words. An old or
+    already-answered answer starts nothing and says so.
+  - **One defect found and fixed while testing the chat**: a second question
+    after your answer was shown as *"I couldn't work out what to do with
+    that"*.
+- **No rule reads your words**: whether to ask, and what, is the model's.
+  The code keeps the question and checks an answer against it.
+- **First builds are unchanged**: their routing is byte-identical (42 pinned
+  cases measured on both trees).
+- **Checks, all free**: 61 new cases through the real routes (synchronously
+  and as queued jobs) and the chat's real code; the three new test files
+  don't even load on the code before this round; 21 existing test files
+  re-anchored, each with its reason. Mutation sweeps: 40 of 40 on the server, 37 of 37 on the chat (the
+  one survivor closed by a new case). Full suite `8901 / 8901 / 0 / 0`.
+- **CI**: unit tests on `4d2f10ed` `8901 / 8897 / 0 / 4` (run 37032417202;
+  CI skips its usual four). The site build: run 37032417218, all 8 jobs green, "404 checks in 27 sections across 4 shards, every job green".
+- **What you'll see on screen**: four screenshots in our chat, rendered in a
+  real Chromium from the app's own files with supplied answers: the
+  question card, the card after pressing an answer, a step's question after
+  another change already ran, and a cancel
+  (`docs/edits/live-clarify-*.png`). The cards use the existing option
+  buttons; no new styling.
+- **What it still doesn't do** (backlog N28–N40): nothing is shown with real
+  models yet; any message that names no question replaces the waiting one
+  (a side question in another tab included); the answer and the request
+  share 2,000 characters; past two questions per request a question is
+  just words; the per-lane calls, the full page writer and the add-on's
+  designers don't ask; files survive a reload in the same browser only; the
+  chat shows a reply's line breaks as spaces, so what ran and the question
+  read as one paragraph.
 - **The container**: a merge would roll the image `a4409e55d3f3eb09` →
-  `5fcfae2277e23544` (190 inputs, predicted on both ends), carrying batches
-  1 and 2 and these fixes. Nothing was built.
+  `836ed46c411ade1f` (191 inputs, predicted on both ends), carrying batches
+  1 and 2, batch 2's review fixes and this round. Nothing was built.
 
 **Decisions that are yours**
-- Your review of these fixes.
-- Then, on your word, one merge and deploy of batches 1 and 2, and the
-  grouped live batch (the audit's §5.4): the free runtime check, Group R,
-  D1–D3, and H1–H4. H4 is new: two QR codes beside a heading change on
-  `oak-and-ash`, checking both codes are named. About 35–59 credits against a
-  balance of 137 (read at 13:02 UTC; nothing spent since). Estimates, not
-  caps.
-- Carried: the browser-mode press for the add-on step's use of the
-  hand-over line (about 2–13 more), N11–N13, N12's rule, W9 and W23.
+- Your review of this round, and of batch 2's review fixes.
+- Whether the answer's routing call stays charged (1–2 credits, like any
+  routing call) or becomes free (N32).
+- Whether the chat should show a reply's line breaks (N39).
+- Then, on your word: one merge and deploy of everything on the branch, and
+  the grouped live batch (the audit's §5.4, about 35–59 credits before any
+  questions are added). Probes for questions back (an unclear request, its
+  answer, a clear control, a step's question) would be priced when you ask
+  for them.
 
 **Links**
-- The record: `docs/history/2026-10-02-router-batch-2.md` §7
-- The audit: `docs/investigations/whole-router-audit.md` (W7, W8 and W15:
-  *After your review*; §3.0: N22–N27; §4.4: the checks; §5.4: the live
-  batch with H4)
-- The commit: `129a1757`, with these records on top.
-- CI on `129a1757`: unit tests run 37017956143; site build run 37017956398.
+- The record: `docs/history/2026-10-02-live-clarify.md`
+- The audit: `docs/investigations/whole-router-audit.md` (W27, §3.13, §4.5,
+  N28–N40)
+- The commit: `4d2f10ed`, with these records on top.
+- CI on `4d2f10ed`: unit tests run 37032417202; site build run 37032417218.
 
 **From our chat**
-- The parts put off kept through the rewrite's stored record, its retries
-  and every final answer, so the chat still says them: done.
-- Every scoped addition kept, not only the first: done.
-- Nothing put off reaches a step that runs, overlapping words and the
-  removal step's fallback included: done.
-- Intent stays with the models; no word rules or site exceptions: kept.
-- Checks for 202 → finished build → the chat's reply, two additions on two
-  pages beside a supported edit, and a removal beside an addition put off,
-  each asserting what the models were handed: done.
-- Fast tests, unit CI and the site build, the audit and these notes:
-  done.
+- The router asks a targeted question on a live site instead of turning it
+  into add-on work: done.
+- The edit and add-on steps ask when they find a detail missing: done.
+- Existing site context used before asking (the router and each step see
+  the site's pages and their own inputs): kept.
+- Typed answers and optional choices: done.
+- The original request, attachments, scope, deferred parts and completed
+  work kept across the answer and a page refresh: done (files: same browser
+  only).
+- Resume with the answer, no repeated changes or charges: done.
+- Cancel, a changed request, stale answers starting nothing: done.
+- Clear requests direct; technical failures stay technical; questions from
+  the model, no keyword or site rules: kept.
+- First builds unchanged: done and pinned.
+- Tests for each named case, fast checks, required CI, the audit and these
+  notes: done (the site build stamped above).
 - Not done, on purpose: no deploy, paid run or container build; CLAUDE.md
   untouched.
 
@@ -104,8 +108,8 @@ one combined deploy. Nothing is waiting on a press.
 - None. Waiting on your review.
 
 **Exact next action**
-- Your review. Then, on your word: one merge and deploy of batches 1 and 2,
-  the free runtime check, and the grouped live batch.
+- Your review. Then, on your word: one merge and deploy of everything on the
+  branch, the free runtime check, and the grouped live batch.
 
 ---
 
@@ -165,6 +169,41 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-02 — Questions back on a site that exists, for your review (nothing spent, merged or deployed)
+
+- **Your words**: *"Implement model-driven clarification for existing-site
+  edit and add-on requests only; preserve current first-build behavior. Let
+  the router ask a targeted question when missing information materially
+  affects which path, target, or operation to choose, instead of converting
+  clarification into add-on work. Let edit and add-on steps request
+  clarification too … Keep deployment and paid testing pending so we can
+  combine the approved changes."*
+- **The router**: on a live site it may ask; the question is kept as the
+  site's one live question (in R2, closed once, 24 hours, two per request)
+  instead of being turned into an add-on; an answer is checked before any
+  model call, resumes the waiting request with the answer added, and
+  carries its count, files and parts put off; a changed request, a cancel
+  and a stale answer start nothing; failures are ours and free.
+- **The steps**: the look picker and door, the words, data, rules, photo,
+  menu and page steps and the add-on picker may ask; a step that asks
+  writes and charges nothing; beside work that ran, only its own part is
+  kept for the answer.
+- **The chat**: the question card (numbered answers, Esc cancels), typed or
+  pressed answers, files kept across a reload in the same browser, the
+  reload check, cancel; a second question after an answer, refused by the
+  chat's reader, fixed.
+- **Checks**: 61 new cases (their files don't load on the code before);
+  sweeps 40 of 40 and 37
+  of 37 (one survivor closed by a new case); full suite `8901 / 8901 / 0 /
+  0`; unit CI `8901 / 8897 / 0 / 4` on `4d2f10ed`.
+- **Not done, on purpose**: no merge, deploy, spend or container build;
+  CLAUDE.md untouched. A merge would roll the image to `836ed46c411ade1f`.
+- **Yours to decide**: whether the answer's routing call stays charged
+  (N32), and whether the chat shows a reply's line breaks (N39).
+- The record: `history/2026-10-02-live-clarify.md`, the audit (W27, §3.13,
+  §4.5, N28–N40), the checklist's item 14, `backlog.md` (N28–N40) and
+  `owner-preferences.md` (a new entry).
 
 ## 2026-10-02 — Your review of batch 2: the three gaps fixed on the branch (nothing spent, merged or deployed)
 

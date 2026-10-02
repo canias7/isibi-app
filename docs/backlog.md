@@ -323,11 +323,56 @@ here; take a closed one out of both.**
   with no valid scope counts as other work (N25); N17 narrowed: a followed
   build's final answer without `deferred` now names the 202's parts (N26);
   one equivalent mutant kept as a defence (N27).
+- **What the clarification round leaves** (2026-10-02, W27's N28–N40 in the
+  audit's §3.0): nothing shown with real models (N28); a side question
+  replaces the waiting one (N29); the answer and its request share 2,000
+  characters (N30); past two questions a question is words (N31); the
+  answer's routing call is charged, your decision (N32); the per-lane calls,
+  the full page writer and the add-on's designers do not ask (N33); a step's
+  question beside work it can't be told apart from is not kept (N34); files
+  survive a reload only in the same browser (N35); a second router question
+  that can't be kept uses the answer up (N36); the question field's 884
+  characters on every look-picker call (N37); the add-on step still gets no
+  attachments (N38); the thread shows a reply's line breaks as spaces (N39,
+  yours); the sweep readers return a question no batch reads yet (N40).
 
 ---
 
 ## Backlog
 
+- **WHAT THE CLARIFICATION ROUND LEAVES (N28–N40; found 2026-10-02 while
+  building questions back on a site that exists, W27; deliberate unless
+  marked, none changed).** Each is in the audit's §3.0 and in
+  `docs/history/2026-10-02-live-clarify.md` §7.
+  - **Nothing is shown with real models** (N28): whether a real router asks
+    a good question when a detail matters, and acts directly when it
+    doesn't, and the same for each step, is a live measurement.
+  - **A side question replaces the waiting one** (N29): any message that
+    names no question closes the live one, a side question in another tab
+    included.
+  - **The answer and the request share 2,000 characters** (N30); a longer
+    pair is refused at no cost, the question kept.
+  - **Past two questions per request a question is words** (N31), with
+    nothing waiting.
+  - **The answer's routing call is charged** (N32, the owner's decision):
+    1–2 credits, like any routing call.
+  - **Not every model call asks** (N33): the per-lane calls, the full page
+    writer and the add-on's designers do not.
+  - **A step's question beside other work is kept only when what it leaves
+    to do can be told apart** (N34); otherwise that part is left alone and
+    said as not kept.
+  - **Files survive a reload only in the same browser** (N35, IndexedDB);
+    another device or blocked storage is asked to attach them again.
+  - **A second router question that can't be kept after the first was
+    answered uses the answer up** (N36, a conditional risk): the call fails
+    as ours and the request must be sent again.
+  - **The question field adds 884 characters** to every look-picker call
+    (N37).
+  - **The add-on step is still never sent attachments** (N38, pre-existing).
+  - **The thread shows a reply's line breaks as spaces** (N39, the owner's
+    to decide): what ran and the question after it read as one paragraph.
+  - **The sweep readers return the question** a reply asks (N40); no paid
+    batch reads it yet.
 - **WHAT THE REVIEW'S GAP FIXES LEAVE (N22–N27; found 2026-10-02 while
   fixing the owner's three batch-2 gaps; deliberate unless marked, none
   changed).** Each is in the audit's §3.0 and in

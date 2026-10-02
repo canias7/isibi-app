@@ -470,6 +470,19 @@ the owner's free press, run 51, at 22:57 UTC):
     35–59 credits, with
     H4 (two codes beside a heading change on `oak-and-ash`). The history's
     §7 and the audit's §4.4.
+14. **Questions back on a site that exists** (2026-10-02, on the owner's
+    word, for review; free: nothing spent, merged or deployed; the audit's
+    W27): a live site's router may ask one targeted question instead of its
+    question being turned into paid add-on work, and the look, text, data,
+    rules, picture, menu and page steps and the add-on picker may ask after
+    routing. One live question per site, kept in R2 and closed once; an
+    answer resumes the original request with the answer in it, its files,
+    scope and parts put off, without redoing what ran; cancel, a changed
+    request and a stale answer start nothing; the first build is unchanged
+    (42 pinned cases). 61 new cases; sweeps 40 of 40 (server) and 37 of 37
+    (the page, after one new case closed a survivor); full suite `8901 /
+    8901 / 0 / 0`. Not shown with real models (N28). The record is
+    `docs/history/2026-10-02-live-clarify.md`; the audit's §3.13 and §4.5.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).
