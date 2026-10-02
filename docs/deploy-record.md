@@ -5,7 +5,7 @@
 > `docs/deploy.md`, where CLAUDE.md's **Deploy** section moved in the second
 > pass. This file keeps the measurements behind them: the
 > timing bands, every image-id prediction checked against a deploy's own log
-> (deploys 2137–2178), and the served-file check driven end to end on deploy
+> (deploys 2137–2179), and the served-file check driven end to end on deploy
 > 2139.
 >
 > **Add each new deploy here**, one paragraph per deploy, in the same shape:
@@ -920,6 +920,81 @@ checks replace a separate free press). The batch then routed its 18
 messages for 24 credits (96 → 72; no ledger row after 350, no job created;
 read in Supabase at 02:45 UTC). The readings are in
 `docs/investigations/router-audit.md` §5.
+
+**Deploy 2179 (2026-10-02) was predicted on both ends and built as
+predicted**: `origin/main` `706c9b66` answered `a412daac10dbc936` and the
+candidate `f9979497` **`a4409e55d3f3eb09`**, from the same 189 inputs (159
+distinct paths), eight of which differ: `worker.js`,
+`builder/component-api.mjs`, `builder/lovable/template` (the kit's header
+and frame), `builder/site-add.mjs`, `builder/site-addon.mjs`,
+`builder/site-ask.mjs`, `builder/site-images.mjs` and
+`builder/site-nav.mjs`. The push
+carried run 90's five additions, fixed (`202c554a`), their validation batch
+(`a5282a6f`), two reply corrections (`6c69d155`, `03e664aa`), the owner's
+review round (`f18af0df`, `dbc520f2`) and their records. **`public/` moved**:
+`chat.js` and `edit-poll.js`. **A fast-forward of 11 commits**, `706c9b66` →
+`f9979497` at 06:00:21Z, on the owner's word (*"The review of f9979497
+passes. Merge and deploy these fixes, reusing the passing CI where its inputs
+are unchanged."*). Checked first:
+- **the candidate**: `main` was still `706c9b66`, an ancestor of
+  `f9979497`, read again just before the push;
+- **nothing in flight**: no Actions run in progress or queued; no edit job
+  open in `edit_jobs` (only `done` and `failed` rows, and the two `lost`
+  jobs from 1 and 2 September; the newest row 2026-10-01 23:52 UTC);
+- **CI, reused, not repeated**: unit run 36970385602 on `f9979497` itself,
+  `8648 / 8644 / 0 / 4`; site build run 36969632759 on `dbc520f2`, 404
+  checks in 27 sections, every job green, at inputs `5e086e2167f6637e`, the
+  fingerprint `f9979497` prints too (3,967 files);
+- **the rollback**: reverting `706c9b66..f9979497` in a throwaway worktree
+  gives main's own tree (`991fe75d…`);
+- **the served files, read before the push** (05:59:10 UTC): `chat.js`
+  790,308 bytes `b294117a…` and `edit-poll.js` 30,203 bytes `930e7daa…`,
+  both main's own.
+
+**One deploy run**, 2179 (36971490099, `push` on `f9979497`), `completed` /
+`success`, the job **2m54s** (06:00:28–06:03:22):
+- **the gate** was set for `f9979497…` (taking over from `706c9b66…`), until
+  06:45:53; the drain answered `no live leases after 1s — deploying`
+  (masked `***s`);
+- **the image**: `built isibi-app-sitebuildcontainer:a4409e55d3f3eb09
+  (registry answered 404; 189 inputs off ./Dockerfile)` (masked `***89`).
+  0 `CACHED` lines, as always; 15 layers `Pushed` and 4 `Layer already
+  exists`; the digest `sha256:924…` (masked). Then Wrangler's container
+  step: `EDIT isibi-app-sitebuildcontainer`, `- "image":
+  …:a412daac10dbc936` (masked `a4***2daac***0dbc936`) / `+ "image":
+  …:a4409e55d3f3eb09`, `SUCCESS Modified application
+  isibi-app-sitebuildcontainer` at **06:03:16Z**;
+- **timings**: image step **2m06s** (06:00:53–06:02:59), in the ordinary
+  rebuild band (2m02s–2m36s on most earlier rebuilds here; 2178 took
+  3m05s). The apt layer took 20.9 s and the build was named
+  at 06:01:54. The push began at 06:01:55, and the last layer,
+  `560bfadc5f7e`, finished at 06:02:53. Wrangler 18 s
+  (06:03:00–06:03:18);
+- **Wrangler**: `DEPLOY_ID` `f99794979e2590937154d51d1d4f4a15c469d8ef`
+  (masked); `Read 99 files from the assets directory`, `Found 2 new or
+  modified static assets to upload`, `Uploaded 2 files (84 already
+  uploaded)`; `Uploaded isibi-app`, `Deployed isibi-app triggers`,
+  `Current Version ID: b869fc…-45ec-80b5-…` (masked in three places). The
+  `npm error npx canceled … wrangler` line is the action's check for an
+  installed Wrangler, as before.
+
+**The served files match the merged ones**: `chat.js` 792,850 bytes
+`accef38ab1e2efe2…` and `edit-poll.js` 30,805 bytes `f789912afdc01386…`,
+byte-identical to `f9979497`'s (`cmp`), `chat.js` first seen at 06:03:34Z,
+18 s after the roll.
+
+**The image rolled at 06:03:16Z**, so container work waits 15–20 minutes:
+press 1 (the routing-only controls, whose own preflight is this deploy's
+runtime check) from about 06:20 UTC, and press 2 (the additions, which run
+in the container) only after press 1 passes.
+
+**Deployed, not runtime-confirmed**: no dispatch was attempted (the known
+403 is not repeated). Both presses carry `expect_deploy` `f9979497…` and
+`expect_image` `a4409e55d3f3eb09`, and press 1's preflight reads both before
+any routing call. The money, read before the push at 05:59 UTC: balance 72,
+the ledger's last row 350, no job open. The bakery still serves
+`01790819484141-dgmag4` (read at 06:00 UTC: `/visit` shows its one
+photograph, `d5d59152….jpg`), F1's recorded starting condition.
 
 ## The served-file check, driven end to end on deploy 2139
 

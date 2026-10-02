@@ -1,6 +1,7 @@
 # The five additions: routed to the add-on step and delivered there (2026-10-02)
 
-*On the branch for review: nothing merged, deployed or spent. The code is
+*Passed by the owner, and merged and deployed in deploy 2179 (§10.6); nothing
+spent yet. The code is
 `202c554a` (the fix), `a5282a6f` (the validation batch), `6c69d155` and
 `03e664aa` (two reply sentences corrected before review, §3.4 and §3.5),
 and, after the owner's review, `f18af0df` and `dbc520f2` (§10), whose plan
@@ -548,3 +549,39 @@ scenario's cost comment now gives the same figure as §7.
   behaviour across different wording and kinds of site. Not started.
 - **Still kept for the next round**: undo, conversation context and
   attachments (§8), and `lostPhotosMsg` (§8).
+
+### 10.6 Merged and deployed: deploy 2179 (2026-10-02)
+
+- **The owner's word**: *"The review of f9979497 passes. Merge and deploy
+  these fixes, reusing the passing CI where its inputs are unchanged."*
+- **Checked before the push**: `main` still `706c9b66`, an ancestor of
+  `f9979497`; no Actions run in progress or queued; no edit job open
+  (`edit_jobs`: only `done` and `failed`, and the two `lost` jobs from
+  September; the newest row 2026-10-01 23:52 UTC); CI reused (unit tests run
+  36970385602 on `f9979497` itself, `8648 / 8644 / 0 / 4`; site build run
+  36969632759 on `dbc520f2`, whose inputs `5e086e2167f6637e` `f9979497`
+  prints too); the image predicted on both ends (`a412daac10dbc936` →
+  `a4409e55d3f3eb09`, 189 inputs, 159 paths); the rollback (reverting
+  `706c9b66..f9979497` in a throwaway worktree gives `main`'s own tree,
+  `991fe75d…`); and the served browser files read first (05:59 UTC:
+  `chat.js` 790,308 bytes and `edit-poll.js` 30,203 bytes, both `main`'s).
+- **A fast-forward of 11 commits**, `706c9b66` → `f9979497`, at 06:00:21
+  UTC.
+- **One deploy run**, 2179 (36971490099), `success`, the job 2m54s
+  (06:00:28–06:03:22). The image was **built as predicted**,
+  `a4409e55d3f3eb09` from 189 inputs (the registry answered 404); the
+  container rolled `a412daac10dbc936` → `a4409e55d3f3eb09` at 06:03:16 UTC.
+  Wrangler uploaded the 2 changed browser files and deployed the Worker
+  with `DEPLOY_ID` `f9979497…`. The readings are in `docs/deploy-record.md`,
+  *Deploy 2179*.
+- **The served files are the merged ones**: `chat.js` (792,850 bytes,
+  `accef38a…`) and `edit-poll.js` (30,805 bytes, `f789912a…`),
+  byte-identical, first seen at 06:03:34 UTC.
+- **Deployed, not runtime-confirmed**: the signed-in readers are the
+  canary's. Press 1's preflight is the check, and it must read
+  `f9979497` from both readers and `a4409e55d3f3eb09` from a cold
+  container before any routing call.
+- **The money and the bakery, read after the push**: balance 72, the
+  ledger's last row 350, no job open; the bakery at
+  `01790819484141-dgmag4`, `/visit` still showing its one photograph
+  (`d5d59152….jpg`), F1's starting condition.

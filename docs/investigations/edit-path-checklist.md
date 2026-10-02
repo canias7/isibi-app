@@ -361,7 +361,7 @@ the owner's free press, run 51, at 22:57 UTC):
     funding). Placing one of the site's own photographs is new on the branch
     (item 12).
 12. **New frame items, words and photographs through the add-on step**
-    (run 90's A1–A5): **fixed on the branch on 2026-10-02, not merged**. The
+    (run 90's A1–A5): **fixed on 2026-10-02, and merged and deployed in deploy 2179 the same day** (not yet run live). The
     router now sends them to the add-on step, which hands a frame item to the
     menu editor as an addition, places words and checks them on the page,
     and places one of the site's own photographs. Corrected after the
@@ -2015,7 +2015,7 @@ in the next data press.
 - **Then**: one merge, one free runtime check, and the lane 4 presses. Those
   on different sites can overlap a minute apart, as Batch 1's did.
 
-## Test 12 — run 90's five additions, routed to the add-on step and delivered there (prepared 2026-10-02 on the owner's word, with the fix, on the branch; corrected the same day after the owner's review: each page's own contact details kept, the batch's verdict made strict, and the plan cut to two paid presses with the routing controls first, no free rehearsal and no restore; not merged, deployed or run; nothing spent)
+## Test 12 — run 90's five additions, routed to the add-on step and delivered there (prepared 2026-10-02 on the owner's word, with the fix, on the branch; corrected the same day after the owner's review: each page's own contact details kept, the batch's verdict made strict, and the plan cut to two paid presses with the routing controls first, no free rehearsal and no restore; passed by the owner and merged and deployed in deploy 2179 (`f9979497`, image `a4409e55d3f3eb09`) the same day, deployed, not runtime-confirmed: press 1's own preflight is the runtime check; not run; nothing spent)
 
 **The owner**: *"Proceed with fixing A1–A5 together. … Make the router
 consistently treat new menu links, footer links, header buttons, page text and

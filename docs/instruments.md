@@ -142,8 +142,8 @@ in `docs/instruments.md`; each test's plan and evidence is in the checklist.
     `tables: []`, and signs in as the fixtures' owner, so its router is told
     those names: run 77's `routing.json` carries four. Batch 1's presses ran
     without them.
-- **The additions batch** (2026-10-02, on the branch; not merged or run;
-  corrected after the owner's review the same day):
+- **The additions batch** (2026-10-02; corrected after the owner's review the
+  same day; merged and deployed in deploy 2179; not yet run):
   - **`12-additions`**, a UI scenario on `fold-lane-bakery`: run 90's five
     additions word for word from one tab (`scripts/canary-ui.mjs`). It is the
     one scenario the add-on step is open to, for its own site; an edit that is
