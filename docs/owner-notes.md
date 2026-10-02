@@ -1,65 +1,74 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-02, 00:05 UTC)
+## Current handoff — read this first (2026-10-02, 00:16 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**State now: Test 11 passed (run 88), for your review; the router audit is
-next, as you ordered**
-- **Run 88, your paid retry** (23:51 UTC), the same sentence as run 86:
-  - **the real router answered `addon`**, nothing held back. Run 86, on the
-    old wording, answered `edit`/`data`;
-  - the add-on step (kind `row` only) saved **exactly one entry**: `loaves`
-    id 7, "Rye & Caraway", £5, "A light rye with toasted caraway.", no photo;
-  - the reply: *"✅ Done — added “Rye & Caraway” to loaves (entry 7)."*
-- **Checked independently afterwards**, free:
-  - the table read whole: 7 rows; the six existing ones unchanged, field for
-    field;
-  - `/order` in a browser: Rye & Caraway third (after £4.50 and £4.80), and
-    the order form offers it with its new id. No order placed;
-  - every page still on `dgmag4`, byte-identical apart from the render
-    stamps and the live hours badge: nothing published;
-  - the money: **101 → 96**. Routing 3 (no ledger row) and the add-on 2
-    (ledger row 350); the job done and billed; no job open.
-- **Cost: 5, one more than the 3–4 estimate**: routing cost 3 this time.
-- **Deploy 2177 is runtime-confirmed** (your free press, run 87).
-- **What it does not show**: other phrasings, other kinds of list, several
-  entries at once, mixed messages. One sample.
-- **Closing Test 11 is yours**, after your review.
+**State now: the router audit is done (free), and its routing test waits for
+your word. Test 11 (run 88) waits for your closure.**
+- **The audit** is [`investigations/router-audit.md`](investigations/router-audit.md).
+  It explains how a message is routed today, step by step with line
+  references, and lists fourteen contradictions and gaps (R1–R14). Nothing
+  was spent.
+- **The three most serious**:
+  - **"Add …" to the menu, the footer or the header button (R1).** Since
+    the Test 11 change, two instructions disagree here. The add-on step has
+    no kind for these things but must still name one. So a misroute would
+    design a section on a page instead of adding the link, charge for it,
+    and report it as done. Not yet measured with the real model.
+  - **Attachments (R2).** The router is told to decide by whether a file is
+    attached, but it is never told whether one is. Only the logo step
+    receives a file. So a photo sent with "use this on the starter page"
+    never reaches the photo step, which can only use a file already
+    uploaded or buy one. Nothing tells the customer.
+  - **Silent fallbacks (R3).** Seven kinds of unusable answer become a paid
+    add-on, and the reply can't tell them apart from the model's own
+    choice. That limits our own tests too.
+- **Also found**:
+  - removing a page the site doesn't have becomes an add-on (R4);
+  - vague requests, and messages that refer back, have no honest route, and
+    no earlier message reaches the router (R5, R7);
+  - undo is promised but can't be routed, and "put it back" now meets the
+    new-entry rule (R6);
+  - smaller gaps, R8–R14.
+- **The proposed test**: 14 single-message probes, with 4 optional ones.
+  The real router routes each probe once, and nothing it answers is acted on.
+  - Cost: about 28–42 credits, or 36–54 for all 18. The balance is 96.
+  - Two things to build first, both free:
+    - a route-only mode in the canary (scripts only, no deploy);
+    - a field saying whether an answer is the model's own (a merge and a
+      deploy with an image roll, then one free press).
+- **Test 11** passed as run 88. Closing it is yours.
 
-**Screenshot**: `/order` after run 88 (sent in chat).
+**What I need from you**
+1. Your word on the two things to build first, (a) and (b) in the audit's §5.
+2. Your approval of the probe batch (the 14, or all 18) and its cost.
+3. Your review of run 88 for Test 11's closure.
 
 **The order of work** (your word, 2026-10-01)
-1. Test 11's retry: **done** (run 88), for your review.
-2. **Now: the router audit**, free analysis only: the routing instructions,
-   the context the router is given, route selection, fallbacks, mixed
-   requests, page scope, follow-ups and attachments. It explains the actual
-   decision flow, names the contradictions and gaps, and proposes a focused
-   batch of real-model routing tests with a cost estimate, for your
-   approval. Nothing is spent on it before then.
-3. **The broad plan and the batch runner stay paused.**
+1. Test 11's retry: done (run 88), for your review.
+2. The router audit: **done**. Its routing test waits for your approval.
+3. The broad plan and the batch runner stay paused.
 
 **Links**
+- The audit: `docs/investigations/router-audit.md`; the checklist's *The
+  router audit*.
 - Run 88: https://github.com/canias7/isibi-app/actions/runs/36942972947
 - Run 87: https://github.com/canias7/isibi-app/actions/runs/36940738610
-- Deploy 2177: https://github.com/canias7/isibi-app/actions/runs/36937413961
-- Records: the checklist's *Test 11* (*Run 88*), `docs/addon-path.md` (the
-  `row` kind's live proof), `docs/history/2026-10-01-addon-row-routing.md`
-  §8–9, `docs/deploy-record.md`.
 
 **From our chat**
-- You set the order: Test 11's retry first; once its result was verified,
-  the router audit; the broad plan and the batch runner paused until then.
-  CLAUDE.md left alone.
+- You set the order: Test 11's retry first, then the router audit with its
+  own focused routing tests, before any broader test. CLAUDE.md is left
+  alone.
 
 **Blockers**
-- None for the audit (free). Your review of run 88 for Test 11's closure.
+- None. Every next step needs your word.
 
 **Exact next action**
-- I do the router audit now and bring you its findings with a proposed
-  routing-test batch and its cost.
+- On your word, I build what you approve on the branch, test it, and bring
+  it back for your review before any press.
 
 ---
 
@@ -119,6 +128,22 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-02 — The router audit: how a message is routed, fourteen gaps, and a proposed routing test (nothing spent)
+
+- **What I did**: read the router's instructions, what it's given, how its
+  answer is read, and what each step then receives. The write-up is
+  `investigations/router-audit.md`.
+- **What I found**: the three most serious are R1 (adding to the menu, the
+  footer or the header button), R2 (attachments) and R3 (silent fallbacks to
+  a paid add-on). Eleven more are listed with their lines.
+- **What I propose**: 14 single-message routing probes, with 4 optional ones.
+  The real router routes each probe once, and nothing it answers is acted on.
+  It costs about 28–42 credits (36–54 for all 18). It needs a route-only
+  canary mode and a field saying whether an answer is the model's own; both
+  wait for your word.
+- **Nothing was spent, merged or changed on any site.** The broad plan stays
+  paused.
 
 ## 2026-10-02 — Test 11 passed: the real router now sends a new loaf to the add-on step (run 88)
 

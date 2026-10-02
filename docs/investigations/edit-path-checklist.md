@@ -406,6 +406,31 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
+## The router audit (2026-10-02; free analysis; its routing test waits for the owner's approval)
+
+The owner's order, once Test 11's result was verified: audit the router
+before any broader test resumes. The audit is
+[`router-audit.md`](router-audit.md). It covers the actual decision flow,
+fourteen contradictions and gaps (R1–R14) with line references, and a
+proposed routing test. Nothing was spent.
+
+- **The most serious findings**:
+  - R1: "add …" to the menu, the footer or the header button now has two
+    contradicting instructions, and the add-on step has no kind for those
+    things.
+  - R2: the router is told to decide by attachments it is never told about,
+    and only the logo step receives a file.
+  - R3: seven unusable answers silently become a paid add-on, and can't be
+    told apart from the model's own choice.
+- **The test**: 14 single-message probes, with 4 optional ones. The real
+  router routes each probe once, and nothing it answers is acted on.
+  - Cost: about 28–42 credits, or 36–54 with the optional four.
+  - It needs two things built first, both waiting for the owner's word:
+    - a route-only canary mode (scripts only);
+    - a field saying whether an answer is the model's own (a deploy with an
+      image roll).
+- The broad plan below stays paused.
+
 ## Broad real-model batches — four chats through the normal app (proposed 2026-10-01 on the owner's word; paused by the owner the same day; nothing sent or spent)
 
 **Paused by the owner (2026-10-01)**: *"Pause the broad test plan and
