@@ -1,81 +1,105 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-02, 07:10 UTC)
+## Current handoff — read this first (2026-10-02, 08:15 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**State now: both presses passed, so live validation is done and ready for
-your review.** Run 92 sent the five additions from one tab. Each was routed
-to the add-on step by the model and delivered where asked, everything else
-on the site stayed as it was, and it cost 25 credits. Nothing is waiting on
-a press.
-- **Run 92** (06:36–06:52 UTC, from `main`): the preflight answered
-  `f9979497` and `a4409e55d3f3eb09` again. Then:
-  - **The Instagram link, "Order" in the menu and the "Call us" button**:
-    the add-on step handed each to the menu editor as an addition. Each
-    landed on all four pages with a frame, beside what was there.
-  - **The bank-holiday line and the sourdough photo**: the add-on step put
-    both on the Visit page itself. The photo is the bakery's own (the home
-    page's *"A sourdough boule cooling after the morning bake"*), so nothing
-    was bought.
-  - **Five publishes in order**, the last `01790923788063-bp9rcv`. The
-    canary's verdict passed every check, including that each page kept
-    everything else and that the line says "closed on bank holidays".
-- **I checked it myself afterwards**:
-  - **Supabase**: five charges (1, 1, 1, 7, 8), no refunds, nothing after
-    them, and nothing still running.
-  - **The stored pages** hold exactly the five additions.
-  - **The live pages** differ from the 06:33 reading only by the additions
-    and the rebuilt file names.
-  - **Screenshots**: I sent them in our chat. `/visit` shows all five. On
-    the home pair the middle is blank in both pictures, because those parts
-    fade in as you scroll and the capture doesn't scroll; the live page
-    code shows them unchanged.
-- **Cost: 25 credits** (the estimate was 19–41): routing 7, and 18 for the
-  work itself. Nothing at fal.
-- **The bakery keeps the additions**, as planned: it is live at `bp9rcv`.
-- **The balance isn't stated here**: updating the docs' balance lines was
-  stopped by this session's permission check, and waits on your choice.
+**State now: Test 12 is closed, and the whole-router audit is written, for
+your review.** Nothing was spent, merged or deployed, no container was
+built, and no site changed. Nothing is waiting on a press.
+- **The audit**: `docs/investigations/whole-router-audit.md`. It has the
+  plan in plain language, then follows a message from the browser through
+  the router, every smaller model call, the readers, the fallbacks and the
+  hand-overs, across builds, edits and add-ons. At each decision it says who
+  decides, the model or code, and whether code is checking, permitting or
+  dispatching, or deciding what you meant.
+- **Hard-coded intent**: no regex or word list on your message in the
+  browser, the router, its readers, the edit dispatch or the add-on route.
+  The exceptions, each a finding:
+  - the page writer's text guard decides from your verbs whether text loss
+    was asked for. The same removal publishes for "Remove …" and is refused
+    for "Get rid of …", "Drop …" or "Lose …" (a free check: 3 of 8 wordings
+    published). It runs after a model has already confirmed the request;
+  - a question sent with a file becomes a paid add-on;
+  - an edit converted to an add-on swaps the halves of a mixed message;
+  - a zero balance turns every message into a build attempt.
 
-**Three small things I noticed, kept separate** (backlog; nothing changed):
-- **The photo reply's capital letter**: *"…I can't confirm from here that A
-  visitor can see a photo…"*. The "I can't confirm" sentence is the reply's
-  deliberate design; only the capital "A" is wrong.
-- **Two 404 lines in the app tab**, from addresses the canary doesn't record
-  (all of its own requests answered fine). Not traced.
-- **The menu editor rewrote each page's menu list on one line.** The pages
-  look the same.
+  The prompts also carry wording from our test sites and test sentences.
+- **26 confirmed findings** (W1–W26), each with where it is, expected and
+  actual behaviour, evidence, impact and a proposed fix. The most serious:
+  - **W1**: a photo removal, handed on to the page step, can delete a page;
+  - **W2**: removing one language or one QR code removes all of them
+    (`fretwork-1` has French and Spanish, and two codes);
+  - **W3**: the full rewrite is told opposite things about pages it leaves
+    out, and drops them;
+  - **W4**: a menu edit writes one menu to every page, flattening menus that
+    differ per page (the bakery's and `repairbench-1`'s do today);
+  - **W5**: an edit converted to an add-on runs the part the add-on can't do
+    and holds back the part it can;
+  - **W7, W8, W15**: parts of a message lost without a word.
+- **Untested behaviour** is listed separately (§3.10), and each predicted
+  consequence is marked unverified.
+- **The free checks** re-run with one command:
+  `node docs/investigations/whole-router-checks.mjs`.
+- **The matrix (§5)**:
+  - **Group R**: 20 routing-only probes on seven sites (none on the bakery),
+    varied wording, none repeating a completed probe. Committed as
+    `whole-router-1` on the branch. **About 22–32 credits**; the press
+    refuses below a balance of 60 and checks the deploy itself.
+  - **Group D**: ten delivered checks, listed with estimates. The four that
+    would damage a site today wait for their fixes.
+- **Also updated**: the checklist's item 13, the backlog (index and item),
+  `instruments.md`, and a new preference for how an audit is done.
 
-**Next, once you've reviewed live validation**: the separate task you set,
-the whole-router audit. It covers the build, the edit, the add-on and the
-hand-overs between them, looking for intent decisions that are hard-coded
-and checking how routing behaves across different wordings and site types.
-It doesn't start until you accept this.
+**The press, only if you approve Group R's spend** (the edit canary's form):
+- "Use workflow from": the branch `claude/help-needed-ehlwlj` (the batch file
+  is not on `main`).
+- "Run the ONE paid edit as well (yes/no)":
+  ```text
+  yes
+  ```
+- "Refuse to spend unless the Worker reports this deploy sha (prefix, >=7 chars). Blank = read and print only.":
+  ```text
+  f9979497
+  ```
+- "Refuse to spend unless a cold container reports this image id (exact). Blank = read and print only.":
+  ```text
+  a4409e55d3f3eb09
+  ```
+- "ROUTING-ONLY BATCH: the name of a committed probe list in scripts/router-probes …":
+  ```text
+  whole-router-1
+  ```
+- Every other box as it is (blank, or its default).
 
-**Kept for the next round**: undo, conversation context, attachments, the
-older `lostPhotosMsg` sentence, and the menu editor's contact summary.
+**Decisions that are yours**
+- Whether to press Group R now, or fix first. I'd fix W1, W2 and W4 first
+  either way: they can damage a live site, and the code already shows them.
+- W9: keep the text guard's word list, or confirm a removal by what was
+  lost instead (it was built on purpose, so it's your call).
+- W23: replace the examples drawn from our test sites.
 
 **Links**
-- Run 92: https://github.com/canias7/isibi-app/actions/runs/36974345843
-- Run 91: https://github.com/canias7/isibi-app/actions/runs/36973396657
-- The record: `docs/history/2026-10-02-additions.md` (§11.1 run 91, §11.3
-  run 92); the checklist's *Test 12*; `docs/backlog.md`.
+- The audit: `docs/investigations/whole-router-audit.md`
+- The batch: `scripts/router-probes/whole-router-1.json`
+- Test 12's closure: the checklist and `history/2026-10-02-additions.md`
+  §11.4.
 
 **From our chat**
-- The controls first, then the additions after the controls passed: done in
-  that order.
-- Each paid run used its own preflight; no rehearsal and no restore.
-- The whole-router audit comes after live validation.
+- Test 12 closed for the verified outcomes of runs 91 and 92: done.
+- The audit is free checks only: no deployment, no container build, no
+  spend.
+- The completed batch isn't repeated.
 - CLAUDE.md is left alone.
 
 **Blockers**
 - None. Waiting on your review.
 
 **Exact next action**
-- Your review of runs 91 and 92. On your word, I start the whole-router
-  audit.
+- Your review of the audit. Then, on your word, either press Group R or have
+  me fix W1, W2 and W4 first.
 
 ---
 
@@ -135,6 +159,40 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-02 — The whole-router audit, for your review (nothing spent, merged or deployed)
+
+- **Your words**: *"start the separate whole-router audit … Keep this round
+  to the audit and focused free checks; no deployment or unnecessary
+  container build."*
+- **What I did**: followed a message through the whole product, from the
+  browser, through the router, every smaller model call, the readers, the
+  fallbacks and every hand-over, for builds, edits and add-ons. At each
+  decision I asked who makes it. Then I checked the confirmable parts for
+  free, by running our own code with supplied answers, and read the live
+  sites without changing them.
+- **What it found**: 26 confirmed findings, each with where it is, what
+  should happen, what does, the evidence, the impact and a proposed fix.
+  The four that can damage a live site:
+  - a photo removal handed on to the page step can delete a page;
+  - removing one language or one QR code removes all of them;
+  - the full rewrite is told opposite things about pages it leaves out, and
+    drops them;
+  - a menu edit writes one menu to every page.
+- **Hard-coded intent**: none in the router, its readers, the browser, the
+  edit dispatch or the add-on route. The exceptions are the page writer's
+  text guard, which reads your verbs, a question sent with a file becoming
+  a paid add-on, and two conversions. The prompts also carry wording from our
+  test sites.
+- **The matrix**: 20 routing-only probes on seven sites, none on the bakery,
+  in new wording. About 22–32 credits, for your approval. Ten delivered
+  checks are listed; the destructive ones wait for their fixes.
+- **Kept to the round**: nothing fixed, nothing spent, no site changed.
+  CLAUDE.md left alone.
+- The record: `investigations/whole-router-audit.md`, its free checks
+  (`investigations/whole-router-checks.mjs`), the batch
+  (`scripts/router-probes/whole-router-1.json`), the checklist's item 13
+  and `backlog.md`.
 
 ## 2026-10-02 — Test 12 closed: runs 91 and 92, on your word
 

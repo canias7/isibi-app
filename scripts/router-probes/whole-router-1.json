@@ -1,0 +1,217 @@
+{
+  "batch": "whole-router-1",
+  "probes": [
+    {
+      "id": "CT1",
+      "site": "fretwork-1",
+      "name": "Crookes Guitar School",
+      "message": "On the Gear Board page, change the heading to Our gear.",
+      "given": "/gear's heading reads \"Gear Board\" (served page read 2026-10-02 07:49 UTC).",
+      "intended": [{ "intent": "edit", "layer": "text", "alsoAsked": "none" }],
+      "basis": "router rule: words already on a page that change are text",
+      "note": "Control on a site other than the bakery: a known kind of answer, read correctly."
+    },
+    {
+      "id": "RM1",
+      "site": "fretwork-1",
+      "name": "Crookes Guitar School",
+      "message": "We've stopped teaching in Spanish, so take the Spanish version of the site down.",
+      "given": "The site's pages are in Welsh (lang cy) and every page offers French (/fr) and Spanish (/es) versions in its language switcher (served pages read 2026-10-02 07:49 UTC).",
+      "intended": [{ "intent": "edit", "layer": "look", "alsoAsked": "none" }],
+      "basis": "router rule: taking something off the site is look; the look door's language lane takes a language away",
+      "note": "Audit W2: from the code and a free check, the look door's removal empties the whole language list, so French would go too (unverified live)."
+    },
+    {
+      "id": "RM2",
+      "site": "fretwork-1",
+      "name": "Crookes Guitar School",
+      "message": "Take the Scan for prices QR code off the home page but keep the one for ringing us.",
+      "given": "The home page shows two QR codes, \"Scan for prices\" and \"Scan to ring and book\" (their image alt texts, served page read 2026-10-02 07:49 UTC).",
+      "intended": [{ "intent": "edit", "layer": "look", "alsoAsked": "none" }],
+      "basis": "router rule: taking something off the site is look; the look door's QR lane takes a code away",
+      "note": "Audit W2: from the code and a free check, the QR removal empties the whole list, so the code they asked to keep would go too (unverified live)."
+    },
+    {
+      "id": "RM3",
+      "site": "repairbench-1",
+      "name": "Hebden Bike Repair",
+      "message": "Nobody uses the Workshop Load page, please get rid of it.",
+      "given": "/workshop-load exists; the menus of /, /rates and /workshop-load link to it, those of /status and /booking-check do not (served menus read 2026-10-02 07:53 UTC).",
+      "intended": [{ "intent": "edit", "layer": "page", "page": "/workshop-load", "remove": true, "alsoAsked": "none" }],
+      "basis": "router rule: taking a whole page off the site is page with remove (live: runs 49 and 72, other wording, the bakery)",
+      "note": "Downstream, the page step refuses to remove a page another page links to (unverified for this site)."
+    },
+    {
+      "id": "RM4",
+      "site": "hearth-paper",
+      "name": "Hearth Paper",
+      "message": "Lose the bulk pricing bit, we only sell single packs now.",
+      "given": "The one page has a section headed \"Bulk pricing\" (served page read 2026-10-02 07:49 UTC).",
+      "intended": [{ "intent": "edit", "layer": "look", "alsoAsked": "none" }],
+      "basis": "router rule: a section taken off is look (a whole page is page, a stored row is data)",
+      "note": "Audit W9: if this reaches the page writer, its text guard withholds \"Lose …\" wording (free check), whatever the writer did."
+    },
+    {
+      "id": "MX1",
+      "site": "repairbench-1",
+      "name": "Hebden Bike Repair",
+      "message": "On the Rates page, change the heading to What we charge, and add a page about e-bike servicing.",
+      "given": "/rates' heading reads \"What a pound is worth\"; the site has no e-bike page (served page read 2026-10-02 07:20 UTC, sitemap 07:53 UTC).",
+      "intended": [
+        { "intent": "edit", "layer": "text", "alsoAsked": "some", "held": "add a page about e-bike servicing", "runs": "On the Rates page, change the heading to What we charge" },
+        { "intent": "addon", "alsoAsked": "some", "held": "On the Rates page, change the heading to What we charge", "runs": "add a page about e-bike servicing" }
+      ],
+      "basis": "owner policy: a new page is an addition; router rule: no one answer makes both, so one part is held back",
+      "note": "Audit W7: the held-back part is named in the reply only when the turn succeeds."
+    },
+    {
+      "id": "MX2",
+      "site": "hartleys-barbers",
+      "name": "Hartley's Barbers",
+      "message": "Give the site an older, more traditional typeface and put a Senior Cut, £20, in with the other cuts.",
+      "given": "The one page lists six cuts with prices under \"The cuts\", written in the page (the site has no database; served page read 2026-10-02 07:49 UTC).",
+      "intended": [
+        { "intent": "edit", "layer": "look", "alsoAsked": "some", "held": "put a Senior Cut, £20, in with the other cuts", "runs": "Give the site an older, more traditional typeface" },
+        { "intent": "addon", "alsoAsked": "some", "held": "Give the site an older, more traditional typeface", "runs": "put a Senior Cut, £20, in with the other cuts" }
+      ],
+      "basis": "owner policy: a new entry in a list is an addition; router rule: one part held back when no one answer makes both",
+      "note": "A new entry without the word add, in a list written in the page rather than stored."
+    },
+    {
+      "id": "MX3",
+      "site": "oak-and-ash",
+      "name": "Oak & Ash",
+      "message": "Take the old Commissions page down and add a page for our spoon-carving classes.",
+      "given": "The site has /, /make, /work and /workshop and no Commissions page (sitemap read 2026-10-02 07:53 UTC).",
+      "intended": null,
+      "basis": "no ruling: the page to remove does not exist, and the addition is the add-on's",
+      "note": "Audit W5: if the router answers page+remove for /commissions, the reader turns it into addon but keeps the held-back addition, so the add-on runs only the removal (free check). Recorded only."
+    },
+    {
+      "id": "PS1",
+      "site": "oak-and-ash",
+      "name": "Oak & Ash",
+      "message": "On the home page only, change the heading Ring the workshop to Call the workshop.",
+      "given": "\"Ring the workshop\" is a heading on / and also the header button on every page (served pages read 2026-10-02 07:49 UTC).",
+      "intended": [
+        { "intent": "edit", "layer": "text", "alsoAsked": "none" },
+        { "intent": "edit", "layer": "page", "page": "/", "alsoAsked": "none" }
+      ],
+      "basis": "router rule: words that change are text; one named page's edit may be page",
+      "note": "Audit W12: a text answer carries no page (the reader drops it), so keeping the header button unchanged rests on the text step (unverified)."
+    },
+    {
+      "id": "FU1",
+      "site": "ben-crowe-guitar",
+      "name": "Ben Crowe Guitar",
+      "message": "Same again for the Studio section, please.",
+      "given": "A one-page site; its menu's Studio item points at the enquiry section (served page read 2026-10-02 07:49 UTC). The router sees no earlier message.",
+      "intended": null,
+      "basis": "no ruling: a reference to an earlier message the router never sees (R7)",
+      "note": "Run 90's \"Do the same on the Visit page.\" went to page for /visit; this is the same question, other wording, a one-page site. Recorded only."
+    },
+    {
+      "id": "FU2",
+      "site": "hearth-paper",
+      "name": "Hearth Paper",
+      "message": "Actually, put it back how it was before.",
+      "given": "The router sees no earlier message; no step restores a saved version (R6).",
+      "intended": null,
+      "basis": "no ruling: undo by message has no step, though the router is told every change can be undone by saying so",
+      "note": "Run 90's \"Undo the last change.\" went to look. Recorded only."
+    },
+    {
+      "id": "AT1",
+      "site": "hartleys-barbers",
+      "name": "Hartley's Barbers",
+      "message": "Use the attached photo of the shop for the big picture at the top.",
+      "attached": true,
+      "given": "The hero at the top of / is an empty photo frame (described \"The empty chair at Hartley's Barbers, late afternoon light on the mirrors\"; no photograph on the page; served page read 2026-10-02 07:49 UTC).",
+      "intended": [{ "intent": "edit", "layer": "picture", "alsoAsked": "none" }],
+      "basis": "router rule: a photo for a frame the page has is picture; its logo clause pulls a file about the top of the site to logo",
+      "note": "Audit W16: the router is not told a file is attached, and from the code the picture step never receives it (unverified live)."
+    },
+    {
+      "id": "AT2",
+      "site": "hearth-paper",
+      "name": "Hearth Paper",
+      "message": "This is our new logo, can you swap it in?",
+      "attached": true,
+      "given": "The header shows the name beside a drawn mark (served page read 2026-10-02 07:49 UTC); a file is attached.",
+      "intended": [{ "intent": "edit", "layer": "logo", "alsoAsked": "none" }],
+      "basis": "router rule: the word logo with a file is the logo step, the one step that receives the file",
+      "note": "Control for attachments: the path that works."
+    },
+    {
+      "id": "AT3",
+      "site": "ben-crowe-guitar",
+      "name": "Ben Crowe Guitar",
+      "message": "Is this photo sharp enough to use on the site?",
+      "attached": true,
+      "given": "A file is attached; the site shows no photographs (served page read 2026-10-02 07:49 UTC).",
+      "intended": [{ "intent": "ask" }],
+      "basis": "router rule 1: a question that asks for no change is ask",
+      "note": "Audit W17: the reader turns an ask with a file attached into addon (ask-with-attachment), a paid add-on the model did not choose. The decision report shows which happened."
+    },
+    {
+      "id": "US1",
+      "site": "markbook-1",
+      "name": "Markbook",
+      "message": "Could you turn this into an app the teachers can download on their phones?",
+      "given": "A one-page mark sheet site (served page read 2026-10-02 07:49 UTC).",
+      "intended": [{ "intent": "ask" }],
+      "basis": "router system text: something not on the builder's list is said plainly to be something it does not do",
+      "note": "Audit W14: if this reaches the add-on step, its picker must name a kind and the refusal asks them to rephrase (from the code)."
+    },
+    {
+      "id": "US2",
+      "site": "repairbench-1",
+      "name": "Hebden Bike Repair",
+      "message": "Text me on my mobile whenever someone books a repair.",
+      "given": "The site takes repair bookings (its Booking Check page reads the stored bookings; served page read 2026-10-02 07:20 UTC).",
+      "intended": null,
+      "basis": "no ruling: e-mail notifications exist; a text message has no add-on kind",
+      "note": "Recorded only: where an unsupported ask goes, and whether anything tells them."
+    },
+    {
+      "id": "CF1",
+      "site": "hartleys-barbers",
+      "name": "Hartley's Barbers",
+      "message": "Could the site be in Polish as well? Lots of our regulars speak it.",
+      "given": "The site is offered in English only: lang en, no language switcher (served page read 2026-10-02 07:49 UTC).",
+      "intended": [{ "intent": "edit", "layer": "look", "alsoAsked": "none" }],
+      "basis": "capability: the look door's language lane offers the site in another language (live on fretwork-1: /fr, /es)",
+      "note": "Audit W10: the router's look clause still says translating the site is a rewrite that belongs further up; build would replace every page."
+    },
+    {
+      "id": "CF2",
+      "site": "hartleys-barbers",
+      "name": "Hartley's Barbers",
+      "message": "Forget a logo, just have Hartley's written nicely at the top.",
+      "given": "The header shows the business name as text and no logo image (served page read 2026-10-02 07:49 UTC).",
+      "intended": [{ "intent": "edit", "layer": "look", "alsoAsked": "none" }],
+      "basis": "router look clause: the name set as the logo, with no file, is look",
+      "note": "Audit W11: the logo clause sends \"just the name is fine\" to a logo removal, which changes nothing on a site with no logo."
+    },
+    {
+      "id": "CF3",
+      "site": "fretwork-1",
+      "name": "Crookes Guitar School",
+      "message": "What does an hour's lesson cost at the moment? Knock £2 off it.",
+      "given": "/prices lists a single 30-minute lesson, an hour and a block of five, from the lessons table (served page read 2026-10-02 07:49 UTC).",
+      "intended": [{ "intent": "edit", "layer": "data", "alsoAsked": "none" }],
+      "basis": "router rule 3: a message with a change in it is work; a stored price is data",
+      "note": "Audit W13: one answer per message, so the question part goes unanswered (from the code)."
+    },
+    {
+      "id": "LK1",
+      "site": "hearth-paper",
+      "name": "Hearth Paper",
+      "message": "Copy the delivery wording from our old site, https://hearthpaper.example/delivery, into the delivery section.",
+      "given": "The one page has a section headed \"Pack contents, delivery, how to order\" (served page read 2026-10-02 07:49 UTC).",
+      "intended": null,
+      "basis": "no ruling: the router is told the builder reads pasted links, which is true of builds only (R11)",
+      "note": "Recorded only: no edit step reads a link, so any step this reaches would have to invent the wording."
+    }
+  ]
+}

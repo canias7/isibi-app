@@ -250,11 +250,65 @@ here; take a closed one out of both.**
   lines; the canary records only the app's `/api/` calls.
 - The menu editor writes a page's whole `links` list on one line when it
   adds an item (run 92; no effect on the pages).
+- **The whole-router audit's findings** (2026-10-02, W1–W26; each in full in
+  `docs/investigations/whole-router-audit.md` §3; none changed):
+  - a photo removal handed on to the page step carries the router's
+    `remove`, so the page step can delete a page (W1);
+  - removing one language or one QR code on the look step removes all of
+    them (W2);
+  - the full rewrite is told both that a page it leaves out is kept and
+    that it is deleted; the code deletes it (W3);
+  - a menu edit writes one menu to every page, flattening menus that differ
+    per page (W4);
+  - an edit converted to an add-on keeps the held-back part, so a mixed
+    message's halves swap (W5);
+  - the browser keeps six page addresses after a reload and never refreshes
+    a stored list of two or more (W6);
+  - the held-back part is named only on success, and a climb to the full
+    rewrite runs it anyway (W7, W8);
+  - the page writer's text guard refuses a removal for its verb ("Get rid
+    of", "Drop", "Lose"), after a model confirmed it (W9);
+  - the router calls translation a rewrite though the look step translates;
+    other router instructions disagree (the name as a logo, undo, what the
+    builder can do, "when you cannot tell") (W10, W11);
+  - a `text` answer drops the page the customer named; a question beside a
+    change goes unanswered (W12, W13);
+  - an unsupported request ends in "say it differently" (W14); a question
+    with a file becomes a paid add-on (W17); files reach only the logo step
+    and builds, and nothing says so (W16);
+  - the look step's hand-over to the add-on drops its other lanes (W15); the
+    edit's hand-over to the add-on carries no reason (W24);
+  - replies offer follow-ups no route can serve as meant (W18);
+  - the behaviour lane charges with no visible change (W19); removing
+    custom styling explains instead (W20); a replacement with a straight
+    apostrophe is dropped and reported as not found (W21); a zero balance
+    turns every message on a live site into a build attempt (W22);
+  - the model prompts carry wording from the test sites and test sentences
+    (W23); a row refusal names only the row (W25); stale comments (W26).
 
 ---
 
 ## Backlog
 
+- **THE WHOLE-ROUTER AUDIT'S FINDINGS (found 2026-10-02; not changed).**
+  `docs/investigations/whole-router-audit.md` gives each one's code
+  location, expected and actual behaviour, evidence, impact and proposed
+  fix; `docs/investigations/whole-router-checks.mjs` re-runs the free
+  checks. The four that can damage a live site, most serious first: **W1** a
+  hop re-posts the router's first answer (`public/chat.js` 9723), so a photo
+  removal answered `needs-place` becomes a page removal the page step makes
+  with no model call (unless it is home or linked); **W2** the look door's
+  removal clears the whole `langs` or `qr` list (`worker.js` 23703,
+  `builder/site-edit.mjs` 641–649), live on `fretwork-1` (French and Spanish,
+  two QR codes); **W3** the shared page tool says an unreturned page is kept
+  while the rewrite's prompt says it is deleted, and the rewrite publishes
+  only what is returned (`builder/page-gen.mjs` 1750–1752 and 2878,
+  `builder/publish-pages.mjs` 1194); **W4** `applyNav` writes one list to
+  every page (`builder/site-nav.mjs` 1082–1113, 1514), and the bakery's and
+  `repairbench-1`'s menus differ per page today. The validation matrix
+  (`scripts/router-probes/whole-router-1.json`, routing only) is prepared,
+  not run. **Owner's call** on the order of fixes and on W9 (the text guard
+  is a deliberate grammar).
 - **A PHOTO ADDITION'S REPLY CAPITALISES MID-SENTENCE (found 2026-10-02 in
   run 92; not changed).** The add-on's cover note reads *"I've set that up,
   but I can't confirm from here that A visitor can see a photo of the

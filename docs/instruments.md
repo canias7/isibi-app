@@ -220,6 +220,12 @@ in `docs/instruments.md`; each test's plan and evidence is in the checklist.
     not report it).
   - Evidence: `routing-probes.json` (every answer whole, the decision, the
     verdict, the balance before and after) and `routing-probes.txt`.
+  - **`whole-router-1`** (prepared 2026-10-02 by the whole-router audit, not
+    run; on the branch only, so a press runs from the branch): 20 probes on
+    seven sites, none on the bakery, varied wording, none repeating a
+    completed probe; each records its starting condition. About 22–32
+    credits. The matrix and its inputs are
+    `docs/investigations/whole-router-audit.md` §5.
 - **Presses are the owner's.** A session's dispatch answers **403** (it lacks
   `actions: write`) even for a free read, so do not retry it: hand over the
   exact values and **name each box by its description**, because the form shows

@@ -620,3 +620,18 @@
   whole-router audit across build, edit, add-on and internal handoffs for
   hardcoded intent decisions and behavior across different wording and site
   types."* A separate task, not started before the fixes are verified.
+- **An audit says who decides, and labels every finding** (2026-10-02,
+  starting the whole-router audit): *"Find intent decisions made through
+  keywords, regexes, site-specific exceptions or overrides of the model's
+  answer; distinguish those from legitimate validation, permissions and
+  capability dispatch."* — *"For each finding, document the code location,
+  expected versus actual behavior, evidence, impact and proposed fix,
+  clearly separating confirmed defects from untested behavior."* — *"Use the
+  current site state and existing evidence; don't repeat the completed
+  batch."* — *"prepare one grouped real-model validation matrix using varied
+  wording and different site types, with a cost estimate before spending.
+  Keep this round to the audit and focused free checks; no deployment or
+  unnecessary container build."* So an audit round spends nothing and
+  changes no site; a finding is *confirmed* only by the code, a free check or
+  a past run; its probes start from a state read that day, use wording and
+  sites the completed batches didn't, and come with a cost before any press.

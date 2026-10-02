@@ -387,6 +387,18 @@ the owner's free press, run 51, at 22:57 UTC):
     owner's review the same day (each page's own contact details kept; the
     batch's verdict strict). The post-fix validation batch passed: run 91's
     eight routing controls and run 92's five additions (*Test 12*, below).
+13. **The whole-router audit** (2026-10-02, on the owner's word, for review;
+    free: nothing spent, merged or deployed):
+    `docs/investigations/whole-router-audit.md`. 26 confirmed findings
+    (W1–W26), the most serious: a photo removal handed on to the page step
+    can delete a page (W1); removing one language or one QR code removes all
+    of them (W2); the full rewrite is told opposite things about pages it
+    leaves out, and drops them (W3); a menu edit writes one menu to every
+    page (W4); an edit converted to an add-on swaps a mixed message's
+    halves (W5). The free checks are `docs/investigations/whole-router-checks.mjs`.
+    The routing-only matrix `whole-router-1` (20 probes on seven sites, none
+    on the bakery, about 22–32 credits) is prepared, not run; ten delivered
+    checks are listed, the destructive ones after their fixes.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).
