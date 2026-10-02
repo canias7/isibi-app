@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-02, 10:56 UTC)
+## Current handoff — read this first (2026-10-02, 11:10 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -37,7 +37,8 @@ Nothing is waiting on a press.
   code already kept, and two menu moves it happened to get right. Mutation
   sweeps on all three (W4 9 of 10, the tenth proven
   equivalent; W2 35 of 35; W3 8 of 8); full suite `8766 / 8766 / 0 / 0`.
-  Unit CI and the site build are read after this push.
+  Unit CI is green (8,766, the same total; CI skips its usual four), and so
+  is the site build (404 checks, every job green).
 - **What you'll see on screen**: four pictures, before and after, rendered
   by the chat's own code from the real route's replies
   (`docs/edits/router-batch-1-gaps-*.png`).
@@ -78,7 +79,7 @@ Nothing is waiting on a press.
 - W3, the "opposite" sentence removed, the prompts checked against each
   other: done.
 - Focused regressions with untouched neighbours, the checks, the audit and
-  these notes: done; unit CI after this push.
+  these notes: done; unit CI and the site build green.
 - Not done, on purpose: no deploy, paid run or container build; CLAUDE.md
   untouched.
 
@@ -172,7 +173,8 @@ since. Add new ones there.
 - **Checks**: 34 new cases (47 of the 53 new or rewritten fail on batch 1;
   the 6 that pass are a control, a rule the old code kept, and two moves it
   happened to get right), sweeps on all three, full suite `8766 / 8766 / 0 /
-  0`. Supplied answers only. (A first draft said 25 new cases; corrected.)
+  0`, unit CI and the site build green. Supplied answers only. (A first
+  draft said 25 new cases; corrected.)
 - **Not done, on purpose**: no merge, deploy, spend or container build;
   CLAUDE.md untouched.
 - The record: `history/2026-10-02-router-batch-1.md` §6, the audit (§4.2),

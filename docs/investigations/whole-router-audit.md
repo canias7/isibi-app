@@ -1176,6 +1176,13 @@ comment-only controls that survived):
 batch 1's `d4e3f1c7` had 8,732; this round adds 34 cases and rewrites the
 removal file's 19 to the new contract.
 
+**Required CI**, both green: unit tests, run 36998606299 on `a0057c71` (the
+same code as `1c2f2ab5`), `8766 / 8762 / 0 / 4` (the same total; CI skips
+four); site build, run 36998368346 on `1c2f2ab5`, *"ALL CHECKS: 404 checks
+in 27 sections across 4 shards, every job green"* at inputs
+`89971686f325b91a`, which `a0057c71` shares, and TAP 398 (batch 1's 397
+plus the agreement case). The history's §6.3 has every count.
+
 **How many fail on `d4e3f1c7`**: 47 of the 53 new or rewritten cases, and
 both re-anchored pins. The 6 that pass there: the removal file's failed-call
 control; `menuApply` never listing an address twice (its guard predates this

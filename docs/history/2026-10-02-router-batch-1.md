@@ -346,8 +346,26 @@ held the first nine W4 cases, and that every new case but the controls was
 red; both corrected before review.) Sweeps W4 10 mutants (9
 killed, 1 equivalent, measured over 494,721 page applications), W2 35 of 35,
 W3 8 of 8, every control surviving; full suite `8766 / 8766 / 0 / 0`
-locally. Unit CI and site build are read after the push, in the owner-notes
-handoff.
+locally.
+
+**Required CI**, both green, read from each job's own fields and each
+step's log:
+- unit tests, run 36998606299 on `a0057c71` (the records on top of
+  `1c2f2ab5`, the same code): `8766 / 8762 / 0 / 4`, the same total as
+  locally; CI skips its usual four. The run on `1c2f2ab5` (36998368342) was
+  cancelled by that push before it finished, as the workflow's concurrency
+  group does.
+- site build, run 36998368346 on `1c2f2ab5`: the gate printed *"ALL CHECKS:
+  404 checks in 27 sections across 4 shards, every job green"*, at inputs
+  `89971686f325b91a` (3,967 files). `a0057c71` has the same fingerprint
+  (computed locally), so the run covers it. The other counts: TAP **398**,
+  one more than batch 1's 397 (both measured locally, on `d4e3f1c7` and on
+  this tree: the new agreement case in `page-gen.test.mjs`), kit-typecheck
+  4, contrast-cases 16, theme-seam 11, theme-render 29, site-routing 14,
+  site-runtime 47; kit-render, kit-a11y, kit-effects and kit-paint all
+  passed. Its two `##[error]` annotations (`index.tsx(50,13) TS2322`,
+  `menu.tsx(27,17) TS2339`) come from the two sections that compile a broken
+  page on purpose, `type-error` (shard 3) and `salvage-stub` (shard 4).
 
 ### 6.4 The container
 
