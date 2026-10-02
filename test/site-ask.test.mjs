@@ -354,7 +354,9 @@ test("the composer asks before it builds: an empty project falls through to the 
   // customer cannot tell it from broken. Two fall-throughs, because the clarify
   // branch sits between them.
   assert.match(block, /if \(!r\.ok \|\| !d\) return go\(\)/, "a bad response on an empty project no longer builds");
-  assert.match(block, /if \(d\.intent !== 'ask' \|\| !d\.answer\) return go\(\)/,
+  // RE-ANCHORED 2026-10-02: the fall-through hands on what an answered
+  // question put off earlier (a live site's); an empty project's has none.
+  assert.match(block, /if \(d\.intent !== 'ask' \|\| !d\.answer\) return go\(d\.putOff \? \{ putOff: d\.putOff \} : undefined\)/,
     "the empty project's fall-through has been narrowed — some failure now stops its first build");
   // ON A LIVE SITE that same fall-through was the rewrite of every page, bought
   // by a dropped request or an unreadable answer. The check has to come BEFORE
@@ -380,8 +382,15 @@ test("the composer asks before it builds: an empty project falls through to the 
   // The raw question is read in exactly one place, and it is the reader.
   const reader = declBlock(src, "function routeQuestion(");
   assert.match(reader, /\.question\b/, "the reader no longer reads the question it answers for");
+  // RE-ANCHORED 2026-10-02: A LIVE SITE'S QUESTION HAS ITS OWN READER, and the
+  // same rule. The check and the live branch both ask `liveQuestion` — which
+  // alone reads the raw question, holding it to the id it was kept under — and
+  // `routeQuestion` stays the first build's, which the check never reaches.
+  assert.ok(code.includes("liveQuestion(d)"), "the live branch no longer draws from the live reader");
+  const live = declBlock(src, "function liveQuestion(");
+  assert.match(live, /\.question\b/, "the live reader no longer reads the question it answers for");
   const actionable = declBlock(src, "function routeActionable(");
-  assert.match(actionable, /routeQuestion\(d\)/, "the live site's check no longer asks the reader the branch draws from");
+  assert.match(actionable, /liveQuestion\(d\)/, "the live site's check no longer asks the reader the branch draws from");
 });
 
 test("an answer renders as an ordinary message, with no build attached", () => {
@@ -440,7 +449,9 @@ test("…and a file is still never answered with a paragraph", () => {
   // rather than by refusing to call it: `attached` closes off `ask`, so a
   // message carrying a file always gets work back. Answering it with prose
   // drops the file on the floor, which is the original failure.
-  assert.match(chat(), /attached:\s*!!\(imgs && imgs\.length\)/,
+  // RE-ANCHORED 2026-10-02: an answer also counts the files its question's
+  // request carried (`keptImgs`, none on a first build).
+  assert.match(chat(), /attached:\s*!!\(\(imgs && imgs\.length\) \|\| keptImgs\.length\)/,
     "siteRoute drops the attachment flag, so `ask` is no longer closed off for a message with a file");
 });
 
@@ -771,7 +782,9 @@ test("the route passes the round through, and requires a real boolean", () => {
   // repo's recurring source-guard bug and is how this one failed.
   const end = w.indexOf('url.pathname === "/api/site/react-build"', i);
   assert.ok(end > i, "could not find the end of the routing handler");
-  assert.match(w.slice(i, end), /question: routed\.intent === "clarify" \? routed\.question/);
+  // A SITE THAT EXISTS (2026-10-02) returns the question it kept, named by its
+  // id (`rQuestion`); a first build returns the reader's own, as before.
+  assert.match(w.slice(i, end), /question: routed\.intent === "clarify" \? \(rQuestion \|\| routed\.question\)/);
 });
 
 test("the BUILD route folds the answers in, and does it in one place", () => {
@@ -810,7 +823,11 @@ test("the composer keeps the ORIGINAL brief across the round", () => {
   assert.ok(block.length > 400, "siteRoute moved; this guard checks nothing");
   // The brief comes off the ROUND when there is one, and the build is sent that
   // — never `t`, which after a round is whichever button was clicked.
-  assert.match(block, /const brief = round \? round\.brief : t/);
+  // `let` SINCE 2026-10-02: on a live site an answered question runs its request
+  // instead of the typed words. A first build's brief is still the round's.
+  assert.match(block, /let brief = round \? round\.brief : t;/);
+  assert.match(block, /if \(!isBuild && d\.ask && d\.ask\.answered === true\) \{\s+if \(typeof d\.instruction === 'string'\) \{ run = d\.instruction; brief = run; \}/,
+    "the brief is replaced outside a live site's answered question");
   assert.match(block, /reactSend\(site, brief,/, "the build is sent the clicked answer instead of the brief");
   // The round ends when a build starts, or the next thing typed is read as an
   // answer to a question that is no longer on screen.
@@ -1218,8 +1235,9 @@ test("the composer routes a first build even with a file attached", () => {
     "an attachment skips the router again, so a first build with a file is never asked a question");
   // …and the flag is actually put on the wire, derived from the attachments
   // rather than taken as an argument nobody passes.
-  assert.match(c, /attached:\s*!!\(imgs && imgs\.length\)/,
+  assert.match(c, /attached:\s*!!\(\(imgs && imgs\.length\) \|\| keptImgs\.length\)/,
     "siteRoute drops the attachment flag before sending it");
+  assert.match(c, /const keptImgs = !isBuild && answer && /, "a first build could be sent a question's files");
   // The round keeps the files, or answering the question builds without them.
   const a = c.indexOf("function siteAnswer(");
   assert.match(c.slice(a, c.indexOf("\nfunction ", a + 10)), /site\.clarify\.imgs \|\| \[\]/,
@@ -2123,8 +2141,9 @@ test("the wire is not cut, at either end", () => {
   // ⚠ FROM THE ROUTE'S OWN ANSWER SINCE 2026-09-29 (run 52): each reply's tail
   // reads what that route HELD BACK (`e` / `a`, their `deferred`), never the
   // routing decision — which was said whatever the route then did.
-  assert.match(c, /finish\(editReply\(e\)[^;]*alsoTail\(e\)/, "the edit reply drops the leftover, or reads it off the routing decision");
-  assert.match(c, /finish\(addonReplyText\(a\)[^;]*alsoTail\(a\)/, "the addon reply drops the leftover, or reads it off the routing decision");
+  // RE-ANCHORED 2026-10-02: composed once (`doneText`), shown with or without a step's question.
+  assert.match(c, /const doneText = editReply\(e\)[^;]*alsoTail\(e\);\s*finish\(asked \? askReplyMsg\(doneText, [^;]*\) : doneText\);/, "the edit reply drops the leftover, or reads it off the routing decision");
+  assert.match(c, /const doneText = addonReplyText\(a\)[^;]*alsoTail\(a\);\s*finish\(asked \? askReplyMsg\(doneText, [^;]*\) : doneText\);/, "the addon reply drops the leftover, or reads it off the routing decision");
   assert.match(tail, /\.deferred\b/, "alsoTail no longer reads what the route held back");
   // AND THE TWO NEW HOPS: the browser posts what was held back on BOTH routes,
   // and BOTH routes take it out of the message before anything runs.
@@ -2144,8 +2163,10 @@ test("the wire is not cut, at either end", () => {
   assert.ok(bh > 0, "buildHeld's landmark is gone");
   assert.match(w.slice(bh, w.indexOf("\n}\n", bh)), /return heldParts\(/, "buildHeld does not take the parts out of the message");
   // The addon lane had no routing decision in scope at all until this landed.
-  assert.match(c, /function siteAddon\(site, instruction, origin, finish, fallback, d\)/);
-  assert.match(c, /siteAddon\(site, t, origin, finish, go, d\)/);
+  // AND THE MESSAGE'S FILES SINCE 2026-10-02 (`imgs`), kept beside a question the add-on asks.
+  assert.match(c, /function siteAddon\(site, instruction, origin, finish, fallback, d, imgs\)/);
+  // RE-ANCHORED 2026-10-02: an answered question runs its request (`run`), with its files.
+  assert.match(c, /siteAddon\(site, run, origin, finish, go, d, sendImgs\)/);
 });
 
 // ── WHICH LANES THE LIVE CHECK ACTUALLY DRIVES ──────────────────────────────

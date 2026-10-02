@@ -233,7 +233,7 @@ function assertDoorAsked(r, layer, ask, label) {
   const q = pickSent(r);
   const tool = q.tools.find((t) => t.name === PICK);
   assert.ok(tool, label + ": the picker was not given its tool");
-  assert.deepEqual(Object.keys(tool.input_schema.properties), ["routed", "additional", "removes", "scopes", "pageVerb", "pageName", "pageTo"], label + ": the door's tool");
+  assert.deepEqual(Object.keys(tool.input_schema.properties), ["routed", "additional", "removes", "scopes", "pageVerb", "pageName", "pageTo", "question"], label + ": the door's tool");
   assert.deepEqual(tool.input_schema.required, ["additional"], label + ": what the door's tool requires");
   const text = q.system.map((b) => b.text).join("\n");
   assert.match(text, /ALREADY been routed to one change/, label + ": the door's system text");
@@ -393,7 +393,7 @@ test("THE SELECTOR'S CONTRACT: on the door it is told what was routed and asked 
     // THE DOOR'S TOOL: two lists, `additional` the only one required, and no
     // `fields` at all — so an answer in the ordinary tool's shape names no work.
     assert.equal(tool.name, PICK);
-    assert.deepEqual(Object.keys(tool.input_schema.properties), ["routed", "additional", "removes", "scopes", "pageVerb", "pageName", "pageTo"], layer);
+    assert.deepEqual(Object.keys(tool.input_schema.properties), ["routed", "additional", "removes", "scopes", "pageVerb", "pageName", "pageTo", "question"], layer);
     assert.deepEqual(tool.input_schema.required, ["additional"], layer);
     for (const k of ["routed", "additional"]) {
       const list = tool.input_schema.properties[k];
@@ -429,7 +429,7 @@ test("THE SELECTOR'S CONTRACT: on the door it is told what was routed and asked 
   // EVERYWHERE ELSE THE QUESTION IS THE ORDINARY ONE, BYTE FOR BYTE: the look
   // door, a door layer the router did NOT mark as a removal, a layer that is
   // not a door, and anything unreadable.
-  assert.deepEqual(Object.keys(look.tools[0].input_schema.properties), ["fields", "removes", "scopes", "pageVerb", "pageName", "pageTo"]);
+  assert.deepEqual(Object.keys(look.tools[0].input_schema.properties), ["fields", "removes", "scopes", "pageVerb", "pageName", "pageTo", "question"]);
   // `scopes` IS REQUIRED SINCE 2026-09-29: each change's own page and words
   // (run 52). The door's `required` above is unchanged — its scopes cover only
   // the work asked beside the routed change, and that list is usually empty.
@@ -841,7 +841,7 @@ test("CONTROL: an ordinary look request still runs the lane the picker chose, an
   assert.equal(r.builds.length, 0);
   assert.deepEqual(doorMarks(r), []);
   const q = pickSent(r);
-  assert.deepEqual(Object.keys(q.tools[0].input_schema.properties), ["fields", "removes", "scopes", "pageVerb", "pageName", "pageTo"]);
+  assert.deepEqual(Object.keys(q.tools[0].input_schema.properties), ["fields", "removes", "scopes", "pageVerb", "pageName", "pageTo", "question"]);
   assert.ok(!q.messages[0].content.includes("ALREADY BEEN ROUTED"), "the look door was told something was routed");
   assert.ok(q.messages[0].content.endsWith("Their message:\n" + ask));
 });

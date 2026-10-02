@@ -646,6 +646,11 @@ export function photoLines(reply) {
  * is `{ok: false, why}` and says so in the log — and the per-field breakdown
  * below still prints, which is what makes this additive.
  */
+// THE QUESTION BLOCK BOTH READERS REACH (2026-10-02): the reader of a question,
+// the message it is drawn under, and its keeping on the site with its files.
+const ASK_READER_FNS = Object.freeze([
+  "clarifyOf", "askReplyMsg", "askFromReply", "siteAskKeep", "askFilesDb", "askFilesStore", "askFilesDrop",
+]);
 export const BROWSER_FNS = Object.freeze([
   // ⚠ `listPhotoNote` IS HERE BECAUSE ITS ABSENCE THREW (2026-09-19). This list
   // is the whole of what the cut source has in scope, so a sentence added to
@@ -671,12 +676,18 @@ export const BROWSER_FNS = Object.freeze([
   // `readRouteReply`, the one the edit's reader shares (2026-09-24).
   "readRouteReply", "readAddonReply",
   "addonReplyText", "renderTail", "alsoTail", "applyAddonResult", "addonAnswer",
+  // A QUESTION BACK (2026-10-02): the add-on's picker may ask one thing instead
+  // of acting. `readRouteReply` reads it with `clarifyOf`, and the reader draws
+  // it through `askReplyMsg` and keeps it through `askFromReply` — whose keeping
+  // (`siteAskKeep` and the files beside it) stops at `siteById`, a stub here.
+  ...ASK_READER_FNS,
 ]);
 
 // THE TOP-LEVEL LINES THE CUT FUNCTIONS READ, each one line of chat.js named by
 // its opening. A function reading one of these with the line missing is the
 // same `ReferenceError` as a missing function, and it answers `{ok: false}`.
-export const BROWSER_LINES = Object.freeze(["const ROUTE_EDIT_LAYERS ="]);
+// AND THE QUESTION BLOCK'S THREE (2026-10-02): the files kept beside a question.
+export const BROWSER_LINES = Object.freeze(["const ROUTE_EDIT_LAYERS =", "const askFilesMem =", "const ASK_FILES_DB =", "const ASK_FILES_TTL ="]);
 
 /**
  * `Response.ok`, and `null` FOR A STATUS NOBODY RECORDED.
@@ -740,6 +751,7 @@ export function browserReply(reply, httpOk) {
       () => { actions.push("write the browser's own stored site list"); },
     );
     let text = null;
+    let asked = null;
     // `null` IS WHAT THE BROWSER'S OWN READER HANDS IN — `r.json().catch(() =>
     // null)` at the call site — so a body that would not parse takes the branch
     // it really takes. ⚠ AND IT IS MEASURED INERT TODAY, declared rather than
@@ -757,13 +769,16 @@ export function browserReply(reply, httpOk) {
       origin: "",
       slug: "",
       instruction: "the ask this run posted",
-      finish: (t) => { text = String(t); },
+      // A QUESTION BACK IS A MESSAGE WITH ITS CARD (2026-10-02, `askReplyMsg`):
+      // its words are the screen's, and the question it asks is kept beside.
+      finish: (t) => { text = t && typeof t === "object" && typeof t.t === "string" ? t.t : String(t); if (t && typeof t === "object" && t.q) asked = { id: t.ask || null, text: t.q, options: Array.isArray(t.opts) ? t.opts.slice() : [] }; },
       fallback: () => { actions.push("start the FULL ~25-credit rewrite (the browser's `fallback`)"); },
     });
     return {
       ok: true,
       text: typeof text === "string" ? text : "",
       shown: typeof text === "string",
+      asked,
       actions,
       why: "",
     };
@@ -827,6 +842,10 @@ export const EDIT_BROWSER_FNS = Object.freeze([
   // reachable from `editAnswer`'s own calls, so the census cannot see it; a
   // reply whose composer throws is what reaches it, and the guard drives one.
   "editShownMsg",
+  // A QUESTION BACK (2026-10-02): a step that asked is said by its question,
+  // not as a part that failed (`partialShown`), and drawn and kept as the
+  // add-on reader draws and keeps it.
+  "partialShown", ...ASK_READER_FNS,
 ]);
 
 /**
@@ -918,16 +937,19 @@ export function editBrowserReply(reply, httpOk, d) {
       () => { actions.push("write the browser's own stored site list"); },
     );
     let text = null;
+    let asked = null;
     answer(httpOk, (reply && typeof reply === "object") ? reply : null, {
       site: null,
       d: (d && typeof d === "object") ? d : undefined,
       origin: "",
       slug: "",
       instruction: "the ask this run posted",
-      finish: (t) => { text = String(t); },
+      // A QUESTION BACK IS A MESSAGE WITH ITS CARD (2026-10-02, `askReplyMsg`):
+      // its words are the screen's, and the question it asks is kept beside.
+      finish: (t) => { text = t && typeof t === "object" && typeof t.t === "string" ? t.t : String(t); if (t && typeof t === "object" && t.q) asked = { id: t.ask || null, text: t.q, options: Array.isArray(t.opts) ? t.opts.slice() : [] }; },
       fallback: () => { actions.push("start the FULL ~25-credit rewrite (the browser's `fallback`)"); },
     });
-    return { ok: true, text: typeof text === "string" ? text : "", shown: typeof text === "string", actions, why: "" };
+    return { ok: true, text: typeof text === "string" ? text : "", shown: typeof text === "string", asked, actions, why: "" };
   } catch (e) {
     return {
       ok: false, text: "", actions,

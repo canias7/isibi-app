@@ -388,6 +388,15 @@
         var also = heldList(x.also);
         if (also && also.length) rec.also = also;
       }
+      // A REQUEST RESUMED FROM A QUESTION (2026-10-02): the parts it put off
+      // before the question, stored like `also`, and its question count, so a
+      // watch resumed after a refresh names them and hops with them.
+      if (x && typeof x.putOff === "string" && x.putOff.trim() && x.putOff.length <= ASK_MAX) rec.putOff = x.putOff;
+      else if (x && Array.isArray(x.putOff)) {
+        var off = heldList(x.putOff);
+        if (off && off.length) rec.putOff = off;
+      }
+      if (x && askRoundOf(x.askRound)) rec.askRound = x.askRound;
       all[String(slug)] = rec;
       (store || localStorage).setItem(STORE_KEY, JSON.stringify(all));
     } catch (e) { /* a private window is not a reason to fail an edit */ }
@@ -430,6 +439,9 @@
       // A LIST THAT DOES NOT READ COMES BACK AS IT IS, never as none: a hop posts
       // it unchanged and the route refuses it, rather than running the parts.
       ...(Array.isArray(v.also) ? { also: heldList(v.also) || v.also } : {}),
+      ...(typeof v.putOff === "string" && v.putOff.trim() && v.putOff.length <= ASK_MAX ? { putOff: v.putOff } : {}),
+      ...(Array.isArray(v.putOff) ? { putOff: heldList(v.putOff) || v.putOff } : {}),
+      ...(askRoundOf(v.askRound) ? { askRound: v.askRound } : {}),
       job: v.job,
       ask: typeof v.ask === "string" && v.ask.trim() ? v.ask.slice(0, ASK_MAX) : "",
       op: typeof v.op === "string" && RESUME_OPS.indexOf(v.op) >= 0 ? v.op : "edit",
@@ -604,6 +616,12 @@
    * one of the right type.
    */
   var HAND_WORD_MAX = 64;
+  // HOW MANY QUESTIONS A REQUEST HAS ASKED: a small whole number, or nothing.
+  // The server holds it to its own budget; this only refuses to carry a value
+  // that is not a count.
+  function askRoundOf(v) {
+    return typeof v === "number" && isFinite(v) && Math.floor(v) === v && v > 0 && v <= 9;
+  }
   function handWord(v) {
     return typeof v === "string" && v.length > 0 && v.length <= HAND_WORD_MAX;
   }
@@ -626,6 +644,15 @@
     if (held !== undefined) out.alsoAsked = held;
     if (typeof from.cost === "number" && isFinite(from.cost)) out.cost = from.cost;
     if (t.fromAddon === true || from.fromAddon === true) out.fromAddon = true;
+    // A REQUEST RESUMED FROM A QUESTION (2026-10-02) keeps its two facts on
+    // every hop: the parts it put off BEFORE the question (`putOff`, not in its
+    // message, so never taken out or run — the reply's own list when it names
+    // one, as with `alsoAsked` above), and how many questions it has asked
+    // (`askRound`), so a step it reaches asks from what is left of the budget.
+    var earlier = heldList(reply.putOff);
+    var off = heldWire(earlier === null || earlier.length ? reply.putOff : from.putOff);
+    if (off !== undefined) out.putOff = off;
+    if (askRoundOf(from.askRound)) out.askRound = from.askRound;
     var ho = {};
     if (handWord(w.from)) ho.from = w.from;
     if (handWord(reply.reason)) ho.reason = reply.reason;

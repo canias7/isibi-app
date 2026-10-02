@@ -237,10 +237,11 @@ import { sweepAfterPublish, P_ORPHANS } from "./site-sweep.mjs";
 import { loadConfig, saveConfig, withConfig, LEGACY_KEYS, CONFIG_KEY } from "./site-config.mjs";
 import { takeOffline, putBackOnline } from "./site-live.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
-import { routeMessage, routeDecision, clarifiedBrief, siteDigest, DOOR_LAYERS, heldParts, heldList, wordsLess, ROUTE_ERROR_CLASSES } from "./builder/site-ask.mjs";
+import { routeMessage, routeDecision, routeFailure, clarifiedBrief, siteDigest, DOOR_LAYERS, heldParts, heldList, wordsLess, ROUTE_ERROR_CLASSES } from "./builder/site-ask.mjs";
 // THE HAND-OVER (2026-10-02, the whole-router audit's batch 2): what travels when
 // work moves from one step to another — the parts put off, the scope, and why.
 import { readHandOver, handOverLine, heldReport, deferredOf } from "./builder/hand-over.mjs";
+import { loadAsk, storeAsk, closeAsk, askLive, packAsk, newAskId, answeredRequest, askOf, readAsk, MAX_ASK_ROUNDS } from "./builder/clarify.mjs";
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
@@ -6000,6 +6001,132 @@ async function routeTableNames(env, uid, slug) {
  * filled in when it named none — for a site the caller says exists, under a
  * well-formed slug, within `ROUTE_TABLES_MS`. Otherwise exactly what arrived.
  */
+// ── A STEP'S QUESTION, KEPT BY THE ROUTE'S ONE ENDING (2026-10-02) ─────────
+//
+// Owner: *"Let edit and add-on steps request clarification too when they
+// discover missing details after routing … preserve the original request,
+// attachments, scope, deferred parts, and completed work across the answer …
+// Resume with the answer incorporated without repeating completed changes or
+// charges."* A step whose model asked (`builder/clarify.mjs`) writes nothing
+// and charges nothing for the edit; the route's one ending (`askReport`) keeps
+// the question as the site's live question, with what the answer must still do
+// (`askRemainder`), and names it by its id. Steps that ran beside it keep what
+// they did: their change is published and charged as before, and never in the
+// request the answer resumes.
+
+/** The customer's words a planned step runs on: its own, none (a fixed ask), or the whole turn. */
+function stepWords(step) {
+  const s = step && typeof step === "object" ? step : {};
+  if (typeof s.instruction === "string" && s.instruction.trim()) return { fixed: true, words: [] };
+  if (Array.isArray(s.words) && s.words.some((w) => typeof w === "string" && w.trim())) {
+    return { words: s.words.filter((w) => typeof w === "string" && w.trim()) };
+  }
+  if (s.opWords && typeof s.opWords === "object") {
+    const ws = Object.values(s.opWords).flat().filter((w) => typeof w === "string" && w.trim());
+    if (ws.length) return { words: ws };
+  }
+  if (typeof s.ask === "string" && s.ask.trim()) return { words: [s.ask.trim()] };
+  return { whole: true, words: [] };
+}
+
+/**
+ * WHAT A STEP'S QUESTION LEAVES TO DO: the request its answer resumes. The
+ * asking steps' own words when each has them; otherwise the turn's message
+ * with every other step's own words taken out by position (`wordsLess`), so a
+ * change already made is never in it. "" when that cannot be told apart — a
+ * fixed ask asked, or another step also ran on the whole message — and the
+ * question is then not kept (`askReport`).
+ */
+function askRemainder(asking, done, run) {
+  const mine = asking.map((d) => stepWords(d && d.step));
+  if (mine.every((m) => m.words.length)) return mine.flatMap((m) => m.words).join("\n");
+  if (mine.some((m) => m.fixed)) return "";
+  const others = done.filter((d) => !asking.includes(d)).map((d) => stepWords(d && d.step));
+  if (others.some((m) => m.whole)) return "";
+  const cut = others.flatMap((m) => m.words);
+  if (!cut.length) return String(run || "").trim();
+  return wordsLess(run, run, cut) || "";
+}
+
+/**
+ * THE ROUTE'S ONE ENDING KEEPS A STEP'S QUESTION. A JSON reply carrying one —
+ * its own (`ask`, a step that ran alone or the picker before anything ran) or
+ * one step's among several (`partial[].ask`) — has it stored as the site's live
+ * question and named by its id (`clarify`); the internal field never leaves.
+ * Past the request's questions (`MAX_ASK_ROUNDS`) it is shown as written with
+ * nothing waiting; one that cannot be kept (no request left to resume, or our
+ * store refused) is said as a failure of ours, never as a question nobody can
+ * answer. `ctx`: `{ slug, uid, round, held, request }`.
+ */
+async function askReport(env, res, ctx) {
+  if (!res || !res.headers || !String(res.headers.get("content-type") || "").includes("application/json")) return res;
+  let body;
+  try { body = await res.clone().json(); } catch { return res; }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return res;
+  const top = readAsk(body.ask);
+  const at = top ? -1 : (Array.isArray(body.partial) ? body.partial.findIndex((p) => p && readAsk(p.ask)) : -1);
+  const ask = top || (at >= 0 ? readAsk(body.partial[at].ask) : null);
+  if (!ask) return res;
+  const out = { ...body };
+  delete out.ask;
+  if (Array.isArray(out.partial)) out.partial = out.partial.map((p) => (p && Object.hasOwn(p, "ask") ? (({ ask: _, ...rest }) => rest)(p) : p));
+  const stage = top ? body.layer : body.partial[at].layer;
+  let status = res.status;
+  const c = ctx || {};
+  if (!(Number.isInteger(c.round) && c.round <= MAX_ASK_ROUNDS)) {
+    out.clarify = { text: ask.text, options: [] };
+  } else {
+    let kept = null;
+    const rec = c.request ? packAsk({
+      id: newAskId(), uid: c.uid, slug: c.slug, stage: typeof stage === "string" ? stage : "look",
+      round: c.round, question: ask, request: c.request, held: Array.isArray(c.held) ? c.held : [], at: Date.now(),
+      attached: c.attached === true,
+    }) : null;
+    if (rec && env.SITES_BUCKET) {
+      try { await storeAsk(env.SITES_BUCKET, rec); kept = rec; }
+      catch (e) { console.error("question store:", c.slug, errorClassForLog(e)); }
+    }
+    if (kept) out.clarify = { id: kept.id, text: kept.question.text, options: kept.question.options };
+    else {
+      const sorry = "I needed to ask you something about that, but couldn't keep track of the question just now, so I left that part alone. Send it again in a moment.";
+      if (top) { out.msg = sorry; out.error = "clarify-unkept"; out.ours = true; status = 503; }
+      else out.partial[at] = { ...out.partial[at], msg: sorry, error: "clarify-unkept" };
+    }
+  }
+  const headers = new Headers(res.headers);
+  headers.delete("content-length");
+  return new Response(JSON.stringify(out), { status, headers });
+}
+
+// ── THE SITE'S LIVE QUESTION, AROUND A ROUTING CALL (2026-10-02) ───────────
+//
+// Owner: *"Let the router ask a targeted question … support cancellation and a
+// changed request, and prevent stale answers from triggering work."* A message
+// that answers a question names it (`ask: { id, chosen }`), and the route reads
+// the site's one live question (`builder/clarify.mjs`) BEFORE any model call:
+// an answer to anything but this owner's pending question is refused here, at
+// no cost and with nothing run. A message that names no question closes the
+// live one, so an older tab can never answer it afterwards.
+const ASK_ID_RE = /^[0-9a-f]{32}$/;
+
+/** What an answer claims: `{ id, chosen }`; `null` for a claim that cannot be read; `undefined` for none. */
+function answerClaim(rb) {
+  const a = rb ? rb.ask : undefined;
+  if (a === undefined || a === null) return undefined;
+  if (typeof a !== "object" || Array.isArray(a) || typeof a.id !== "string" || !ASK_ID_RE.test(a.id)) return null;
+  return { id: a.id, chosen: a.chosen === true };
+}
+
+/** The reply to an answer whose question is not the live one: nothing asked of a model, nothing charged. */
+function staleAnswer(why) {
+  return Response.json({
+    ok: false, error: "stale-question", why: typeof why === "string" ? why : "closed", cost: 0,
+    msg: why === "expired"
+      ? "That question has expired, so I didn't act on your reply. Tell me what you'd like and I'll take it from there."
+      : "That question was already answered or set aside, so I didn't act on your reply. Tell me what you'd like and I'll take it from there.",
+  }, { status: 409 });
+}
+
 async function routeDigest(env, user, rb) {
   const site = rb && rb.site && typeof rb.site === "object" && !Array.isArray(rb.site) ? rb.site : null;
   if (!site || rb.hasSite !== true) return { site: rb && rb.site, filled: null };
@@ -20079,6 +20206,42 @@ async function handleRequest(request, env, ctx) {
       // ownership verified first, names only, bounded in time, and any
       // failure routes exactly as before (`routeDigest`).
       const rDigest = await routeDigest(env, ru, rb);
+      // ── THE SITE'S LIVE QUESTION, READ BEFORE THE MODEL (2026-10-02) ──────
+      //
+      // A site that exists keeps one live question (`builder/clarify.mjs`).
+      // An answer naming it is checked here, before anything is spent: not
+      // this owner's pending question → refused, at no cost. A message naming
+      // none closes it, so no other tab can answer it later. A question can be
+      // kept only where its record can be written — a slug and the bucket —
+      // and where it cannot, the router is told questions are closed.
+      const rSlug = typeof rb.slug === "string" && /^[a-z0-9][a-z0-9-]{0,80}$/.test(rb.slug) ? rb.slug : "";
+      const rLive = rb.hasSite === true && rb.firstBuild !== true && !!rSlug && !!env.SITES_BUCKET;
+      const rClaim = answerClaim(rb);
+      const rModel = modelsFor(rb && rb.picker).quick;
+      // OUR STORE FAILED AROUND A USABLE ANSWER: the routing call's own failure
+      // shape, so the browser holds the message for sending again, and nothing
+      // is charged for a call whose answer we could not keep.
+      const rStoreFailed = (decision) => Response.json({
+        ok: true, intent: rb.hasSite === true ? "addon" : "build", cost: 0, failed: true,
+        failure: routeFailure("store", null, { model: rModel }), decision,
+      });
+      let rWaiting = null;
+      if (rClaim !== undefined) {
+        if (!rLive || !rClaim) return staleAnswer("other");
+        let st = null;
+        try { st = await loadAsk(env.SITES_BUCKET, rSlug); } catch (e) { console.error("question read:", rSlug, errorClassForLog(e)); }
+        if (!st) return rStoreFailed(undefined);
+        const live = askLive(st.record, { id: rClaim.id, uid: ru.id, slug: rSlug });
+        if (!live.ok) return staleAnswer(live.why);
+        rWaiting = { ...st.record, chosen: rClaim.chosen };
+      } else if (rLive) {
+        try {
+          const st = await loadAsk(env.SITES_BUCKET, rSlug);
+          if (st.record && st.record.uid === ru.id && st.record.status === "pending") {
+            await closeAsk(env.SITES_BUCKET, { slug: rSlug, id: st.record.id, uid: ru.id, status: "superseded" });
+          }
+        } catch (e) { console.error("question close:", rSlug, errorClassForLog(e)); }
+      }
       const routed = await routeMessage(
         // `classify` IS THE BUILD PATH'S OWN READER of a provider's error body
         // (`upstreamKind`), so a failed route names the provider's token and
@@ -20137,11 +20300,73 @@ async function handleRequest(request, env, ctx) {
           // WHETHER THE NAMES THE ROUTER IS SHOWN WERE FILLED IN HERE: named in
           // the decision (`tables-filled`), never a change to what it is shown.
           tablesFilled: !!rDigest.filled,
+          // THE QUESTIONS THIS REQUEST HAS ASKED, and the one this message may
+          // answer (2026-10-02). Where no question can be kept, none may be asked.
+          askRound: !rLive ? MAX_ASK_ROUNDS : rWaiting ? rWaiting.round : 0,
+          pending: rWaiting ? { request: rWaiting.request, question: rWaiting.question, chosen: rWaiting.chosen } : null,
         },
       );
       // THE REASON IS LOGGED AS WELL AS ANSWERED, and it is the same allow-listed
       // object: our log is where an outage is diagnosed after the fact.
       if (routed.failed === true) console.error("route failed:", JSON.stringify(routed.failure || null));
+      // ── AND SETTLED AFTER IT, BEFORE ANYTHING IS CHARGED (2026-10-02) ─────
+      //
+      // The router said whether the message answers the waiting question
+      // (`answered`). An answer closes it ONCE (`closeAsk`: of two answers to
+      // one question only one can), and the request it resumes is the one that
+      // was waiting with the question and the answer added (`answeredRequest`),
+      // its earlier put-off parts and question count carried for the step that
+      // runs it. Anything else closes it as replaced and is routed on its own.
+      // A question the router asks is kept only once this owner's site is
+      // confirmed, then named by its id; one that cannot be kept fails the call.
+      let rAsk;
+      let rInstruction;
+      let rQuestion;
+      if (routed.failed !== true) {
+        if (rWaiting && routed.answered === true) {
+          rInstruction = answeredRequest(rWaiting.request, rWaiting.question.text, String(rb.message || ""));
+          if (!rInstruction) {
+            return Response.json({
+              ok: false, error: "answer-too-long", cost: 0,
+              msg: "I couldn't add that answer to your last request — together they're longer than I can take in one go. Send the whole request again with the detail in it.",
+            }, { status: 422 });
+          }
+          let closed = null;
+          try { closed = await closeAsk(env.SITES_BUCKET, { slug: rSlug, id: rWaiting.id, uid: ru.id, status: "answered" }); }
+          catch (e) { console.error("question answer:", rSlug, errorClassForLog(e)); }
+          if (!closed) return rStoreFailed(routed.decision);
+          if (!closed.ok) return staleAnswer(closed.why);
+          rAsk = { answered: true, round: rWaiting.round, putOff: rWaiting.held.length ? rWaiting.held : undefined };
+        } else if (rWaiting) {
+          try { await closeAsk(env.SITES_BUCKET, { slug: rSlug, id: rWaiting.id, uid: ru.id, status: "superseded" }); }
+          catch (e) { console.error("question close:", rSlug, errorClassForLog(e)); }
+          rAsk = { answered: false };
+        }
+        if (routed.intent === "clarify" && rLive) {
+          const resumed = !!(rAsk && rAsk.answered === true);
+          const rec = packAsk({
+            id: newAskId(), uid: ru.id, slug: rSlug, stage: "route",
+            round: resumed ? rWaiting.round + 1 : 1,
+            question: routed.question,
+            request: resumed ? rInstruction : String(rb.message || "").trim(),
+            held: resumed ? rWaiting.held : [],
+            at: Date.now(),
+            // WHETHER THE REQUEST CARRIED FILES, so a browser that no longer
+            // holds them asks for them again instead of answering without.
+            attached: rb.attached === true || !!(resumed && rWaiting.attached === true),
+          });
+          let owner;
+          try { owner = await siteOwnerBySlug(rSlug, env); } catch { owner = undefined; }
+          let kept = false;
+          if (rec && owner === ru.id) {
+            try { await storeAsk(env.SITES_BUCKET, rec); kept = true; }
+            catch (e) { console.error("question store:", rSlug, errorClassForLog(e)); }
+          }
+          if (!kept) return rStoreFailed(routed.decision);
+          rQuestion = { id: rec.id, text: rec.question.text, options: rec.question.options };
+          rInstruction = undefined;
+        }
+      }
       let rCost = 0;
       // Billed only when the model actually answered. `routeMessage` returns a
       // null usage on the failure path precisely so this reads the same way the
@@ -20230,7 +20455,13 @@ async function handleRequest(request, env, ctx) {
         // something renderable — two to four options, deduped, capped. The
         // client shows it verbatim rather than re-deciding anything, so there is
         // one place that judges whether a question is usable.
-        question: routed.intent === "clarify" ? routed.question : undefined,
+        question: routed.intent === "clarify" ? (rQuestion || routed.question) : undefined,
+        // AN ANSWER TO A WAITING QUESTION (2026-10-02): whether it answered it,
+        // and when it did, the request to run instead of the typed words — the
+        // waiting request with the question and answer added — with the
+        // question count and the parts put off earlier for the step that runs it.
+        ask: rAsk,
+        instruction: rInstruction,
         cost: rCost,
         usage: routed.usage || undefined,
         // WAS THIS A DECISION OR A FALLBACK? `routeMessage` computes failed:true
@@ -20829,6 +21060,9 @@ async function handleRequest(request, env, ctx) {
       // this repo's own "two lists of the same thing" with a live link preview
       // as the subject. See `site-head-edit.mjs` for why the title is read-only.
       const sq = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/seo$/i);
+      // THE SITE'S LIVE QUESTION (2026-10-02): read, so a reload can put a
+      // waiting question back on the screen, and cancelled.
+      const qu = url.pathname.match(/^\/api\/site\/([a-z0-9][a-z0-9-]{0,80})\/question$/i);
       // EVERY owner-scoped matcher above has to appear here, and `dm2` did not —
       // so `/api/site/<slug>/domains` was dispatched by nothing and fell through
       // to the 404 at the bottom of the router. Custom domains were unreachable
@@ -20840,10 +21074,10 @@ async function handleRequest(request, env, ctx) {
       // so from outside the two are indistinguishable — which is how this
       // survived a live probe until the dispatch was read.
       // `test/api-auth.test.mjs` holds the list against the matchers now.
-      if (om || im || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq) {
+      if (om || im || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || qu) {
         // THE SLUG IS RESOLVED FIRST, because the replay identity below is scoped
         // to it. Nothing about deriving it depends on who is asking.
-        const ownerSlug = (om || im || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq)[1].toLowerCase();
+        const ownerSlug = (om || im || mm || an || uf || xp || nt || lv || sk || dm2 || vr || tx || ed || ad || rb || jb || bk || er || sv || sh || sq || qu)[1].toLowerCase();
         // ── A QUEUED EDIT'S OWN REPLAY HAS NO BEARER TOKEN ──────────────────
         //
         // The consumer replays the customer's request minutes after they made
@@ -20998,8 +21232,15 @@ async function handleRequest(request, env, ctx) {
             // THE BODY IS NOT RE-INDENTED, as the build route's wrapper is not:
             // every exit is a `return` inside it, and its last statement is an
             // unconditional reply, so the wrapper always has one to report on.
-            const eHeldOut = { parts: [] };
-            return heldReport(await (async () => {
+            const eHeldOut = { parts: [], earlier: [] };
+            // ── AND A STEP'S QUESTION IS KEPT THERE TOO (2026-10-02) ───────
+            //
+            // A step that asked instead of acting (`stepAsk`) writes nothing;
+            // the ending (`askReport`) keeps its question as the site's live
+            // question, with what the answer must still do (`eAskOut.request`,
+            // set where the question is known) and the parts put off so far.
+            const eAskOut = { request: "", round: 1, attached: false };
+            return askReport(env, await heldReport(await (async () => {
             // ── THE EDIT LANE ─────────────────────────────────────────────
             //
             // Two layers live here and neither runs the page generator, which
@@ -21178,6 +21419,22 @@ async function handleRequest(request, env, ctx) {
             // `let` SINCE THE REVIEW OF BATCH 2 (2026-10-02): a part the look
             // door puts off is taken out of it too, before any step runs.
             let eRun = eHeld.ok ? eHeld.run : eMessage;
+            // ── A REQUEST RESUMED FROM A QUESTION (2026-10-02) ─────────────
+            //
+            // The answer to a question arrives as the request that was waiting
+            // with the question and answer added, so nothing of it is new here
+            // but two facts: how many questions it has asked (`askRound`, so a
+            // step's question counts against the same budget), and the parts it
+            // put off before the question (`putOff`) — not in this message, so
+            // never taken out of it or run, and named on every ending like this
+            // turn's own. Read the way a hand-over's parts are (`heldList`); a
+            // list that cannot be read names none of them.
+            eAskOut.round = (Number.isInteger(eb && eb.askRound) && eb.askRound > 0 ? Math.min(eb.askRound, MAX_ASK_ROUNDS) : 0) + 1;
+            // WHETHER THE MESSAGE CARRIED FILES, which the browser keeps and
+            // sends again with the answer — said by the browser, since only the
+            // logo step is sent the files themselves.
+            eAskOut.attached = !!(eb && eb.attached === true);
+            eHeldOut.earlier = heldList(eb && eb.putOff) || [];
             eHeldOut.parts = eHeld.held.slice();
             eInstruction = eRun;
             // EACH OWN LANE'S WORDS, for the one look step that runs them all —
@@ -21246,6 +21503,17 @@ async function handleRequest(request, env, ctx) {
             // were saved, a reply we could not read — is not known to be
             // nothing, and cannot-tell must never read as nothing-happened.
             const stepWroteNothing = (bd) => !!bd && (bd.unchanged === true || bd.error === "withheld" || bd.escalate === true);
+            // ── A STEP THAT ASKS INSTEAD OF ACTING (2026-10-02) ────────────
+            //
+            // Its model could not tell which thing is meant without a detail
+            // they left out, and asked (`builder/clarify.mjs`). Nothing is
+            // written and nothing charged for the edit (`unchanged`, `cost: 0`;
+            // the job path refunds a reply that is not ok). The ending
+            // (`askReport`) keeps the question and names it; `msg` is the
+            // question itself, for a reader that knows nothing of `clarify`.
+            const stepAsk = (layer, ask) => Response.json({
+              ok: false, error: "clarify", layer, cost: 0, unchanged: true, ask, msg: ask.text,
+            });
             if (!eInstruction) return escalate("empty");
             // NOTHING RUNS ON A MESSAGE THIS ROUTE COULD NOT SPLIT. At no cost
             // for the edit, before the source is read or any model is asked.
@@ -21912,6 +22180,13 @@ async function handleRequest(request, env, ctx) {
                 { fields: Array.isArray(picked.fields) ? picked.fields : [] });
               pickUsage = picked.usage;
               if (picked.failed) return modelDown(picked.error, "The editor is busy — try again in a moment.");
+              // ── THE PICKER ASKED (2026-10-02) ────────────────────────────
+              //
+              // It could not tell which part of the site is meant without a
+              // detail they left out. Asked before anything runs — no lane, and
+              // on the removal door not the router's own step either — so the
+              // answer resumes the whole of this turn and nothing is done twice.
+              if (picked.ask) { eAskOut.request = eRun; return stepAsk("look", picked.ask); }
               // ── ON THE ROUTER'S OWN REMOVAL DOOR, THE PICKER ADDS; IT NEVER REPLACES ──
               //
               // Run 47 (2026-09-27): "Take Gallery out of the menu." was routed
@@ -22056,7 +22331,7 @@ async function handleRequest(request, env, ctx) {
               // own words and of `eRun` before any step runs.
               const lookHeld = [];
               let lookHeldWhat = "";
-              const putOff = (f) => {
+              const deferLane = (f) => {
                 const ops = scopedOps(f);
                 if (!ops.length) return false;
                 if (!lookHeldWhat) lookHeldWhat = addWhat(f);
@@ -22160,7 +22435,7 @@ async function handleRequest(request, env, ctx) {
                       });
                     }
                     if (!picked.scoped) return explain("picker/addition-mixed", { what: addWhat(additions[0]) });
-                    pickedFields = pickedFields.filter((x) => !(additions.includes(x) && putOff(x)));
+                    pickedFields = pickedFields.filter((x) => !(additions.includes(x) && deferLane(x)));
                   }
                 }
               }
@@ -22413,7 +22688,7 @@ async function handleRequest(request, env, ctx) {
                   const rest = steps.filter((st) => cutStep(st, [...lookHeld, ...pageWords]));
                   if (!rest.length && !withheld.length) return escalate("addon", { field: "pages", verb: pv.verb, layer: "addon" });
                   if (!picked.scoped) return explain("picker/addition-mixed", { what: addWhat("pages") });
-                  if (!putOff("pages")) withhold("pages", "unscoped", "", () => explain("picker/scope-unread", { why: "unscoped" }));
+                  if (!deferLane("pages")) withhold("pages", "unscoped", "", () => explain("picker/scope-unread", { why: "unscoped" }));
                 } else {
                   // A PAGE THE SITE DOES NOT HAVE IS NOT AN EDIT OF IT. Checked
                   // against the real route list, the same way `readEdit` does one
@@ -22709,6 +22984,8 @@ async function handleRequest(request, env, ctx) {
                 // the request the lane already pays for, so asking costs
                 // nothing on a build that never mentions the order.
               }, { instruction: eInstruction, tables: dTables, recent: (eb && eb.recent) || null, pages: eSrc, model: eQuickModel });
+              // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
+              if (dOut.ask) return stepAsk("data", dOut.ask);
 
               if (!dOut.ok) {
                 // A model that read the rows and matched none does NOT escalate:
@@ -22964,6 +23241,8 @@ async function handleRequest(request, env, ctx) {
                 // there is no second write that could disagree with the DDL.
                 apply: async (spec) => { await applySiteSchema(rdb, normalizeSchema(spec)); return true; },
               }, { instruction: eInstruction, tables: rSpec.tables, model: eQuickModel });
+              // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
+              if (rOut.ask) return stepAsk("rules", rOut.ask);
 
               if (!rOut.ok) {
                 if (!rOut.escalate) {
@@ -23217,6 +23496,8 @@ async function handleRequest(request, env, ctx) {
               const nOut = await runNavEdit({
                 send: eQuick(),
               }, { instruction: eInstruction, pages: eSrc, routes: navRoutes, model: eQuickModel, addition: eb.addition === true });
+              // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
+              if (nOut.ask) return stepAsk("nav", nOut.ask);
 
               if (!nOut.ok) {
                 if (!nOut.escalate) {
@@ -23356,6 +23637,8 @@ async function handleRequest(request, env, ctx) {
                 // refused as `unchecked` rather than cut on a guess.
                 parser: tweakParser,
               }, { instruction: eInstruction, pages: picFiles, model: eQuickModel });
+              // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
+              if (pOut.ask) return stepAsk("picture", pOut.ask);
 
               if (!pOut.ok) {
                 if (!pOut.escalate) {
@@ -23605,6 +23888,8 @@ async function handleRequest(request, env, ctx) {
               const eFiles = editableFiles(eSrc, eParts);
               const out = await runTextEdit({ send: eQuick() },
                 { instruction: eInstruction, pages: eFiles, model: eQuickModel });
+              // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
+              if (out.ask) return stepAsk("text", out.ask);
               // `escalate` false with `ok` false is the one case that is NOT a
               // rung problem: the stored source moved under us, and the lane
               // above would be working from the same copy. Retrying fixes it.
@@ -24555,6 +24840,8 @@ async function handleRequest(request, env, ctx) {
                 inPart: !!partNameOf(target.path),
                 send: eQuick(),
               });
+              // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
+              if (tw.ask) return stepAsk("page", tw.ask);
               // THE PRESERVATION CHECK ON THE TWEAK'S ANSWER, when it ran.
               // Kept outside the block so a tweak whose compile then fails
               // hands its judge call's tokens on to the rewrite's bill, exactly
@@ -25544,6 +25831,15 @@ async function handleRequest(request, env, ctx) {
               // still right: the other steps are independent work.
             }
 
+            // ── A STEP THAT ASKED: WHAT ITS ANSWER MUST STILL DO (2026-10-02) ──
+            //
+            // Its own words, or the turn less every other step's own words — so
+            // a change that ran beside it is never in the request the answer
+            // resumes (`askRemainder`). The other steps carry on to the publish
+            // below exactly as they would beside any step that wrote nothing.
+            const eAsking = done.filter((d) => d.body && d.body.ok !== true && readAsk(d.body.ask));
+            if (eAsking.length) eAskOut.request = askRemainder(eAsking, done, eRun);
+
             // ── AND NOW THE ONE PUBLISH ───────────────────────────────────
             //
             // Every rung that wanted to publish handed its pages to the
@@ -26012,6 +26308,11 @@ async function handleRequest(request, env, ctx) {
                     // answered for its charge. Beside a change that shipped,
                     // nothing refunds it, so the customer is told.
                     cost: Number(bd.cost) > 0 ? Number(bd.cost) : undefined,
+                    // A QUESTION BACK (2026-10-02): this step's model asked the
+                    // customer one thing instead of acting. `askReport` lifts it
+                    // off this entry, keeps it as the site's live question and
+                    // puts it on the reply as `clarify`.
+                    ask: readAsk(bd.ask) || undefined,
                   };
                 })
                 : undefined,
@@ -26083,7 +26384,7 @@ async function handleRequest(request, env, ctx) {
               return Response.json(merged, { status: 422 });
             }
             return Response.json(merged);
-            })(), eHeldOut.parts);
+            })(), eHeldOut.parts, eHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: eAskOut.round, held: [...new Set([...eHeldOut.earlier, ...eHeldOut.parts])], request: eAskOut.request, attached: eAskOut.attached });
           }
 
           if (ad) {
@@ -26091,8 +26392,11 @@ async function handleRequest(request, env, ctx) {
             // — the edit route's wrapper, for the same reason: this route said
             // the held-back part on its successes only. The body is not
             // re-indented; every exit is a `return` inside it.
-            const aHeldOut = { parts: [] };
-            return heldReport(await (async () => {
+            const aHeldOut = { parts: [], earlier: [] };
+            // AND A QUESTION THE PICKER ASKED IS KEPT THERE TOO (2026-10-02,
+            // `askReport`, the edit route's own ending).
+            const aAskOut = { request: "", round: 1, attached: false };
+            return askReport(env, await heldReport(await (async () => {
             // ── THE ADDON LANE ────────────────────────────────────────────
             //
             // The rung between edit and build: add a page the site does not
@@ -26171,6 +26475,12 @@ async function handleRequest(request, env, ctx) {
             // router's part and any a step put off beside it.
             const aLater = heldParts(aAsked, ab && ab.alsoAsked);
             const aInstruction = aLater.ok ? aLater.run : aAsked;
+            // A REQUEST RESUMED FROM A QUESTION (2026-10-02) — the edit route's
+            // two facts: how many questions it has asked, and the parts it put
+            // off before the question, named on every ending and never run.
+            aAskOut.round = (Number.isInteger(ab && ab.askRound) && ab.askRound > 0 ? Math.min(ab.askRound, MAX_ASK_ROUNDS) : 0) + 1;
+            aAskOut.attached = !!(ab && ab.attached === true);
+            aHeldOut.earlier = heldList(ab && ab.putOff) || [];
             aHeldOut.parts = aLater.held.slice();
             // THE OWNER'S ZONE, for a job's clock time (2026-09-03): asked of
             // Intl, so an unknown name is nothing rather than a throw at the
@@ -26735,6 +27045,17 @@ async function handleRequest(request, env, ctx) {
             // together with the page call and the seed net below, one rounding.
             const aDesignUsage = aPicked.usage ? [aPicked.usage] : [];
             if (aPicked.failed) return aDown(aPicked.error, "The builder is busy — try again in a moment.");
+            // ── THE PICKER ASKED (2026-10-02) ────────────────────────────────
+            //
+            // It could not tell what is to be added without a detail they left
+            // out, and asked instead of naming "the single closest" kind on a
+            // guess. Nothing is designed, written or charged for the addition;
+            // the ending (`askReport`) keeps the question, and the answer
+            // resumes this whole request.
+            if (aPicked.ask) {
+              aAskOut.request = aInstruction;
+              return Response.json({ ok: false, error: "clarify", layer: "addon", cost: 0, unchanged: true, ask: aPicked.ask, msg: aPicked.ask.text });
+            }
             // An empty or invalid picker answer establishes no broader request.
             if (!aPicked.kinds.length) return aFailure("no-add");
             // ── ONE MORE ENTRY IN A LIST THE SITE ALREADY STORES (2026-10-01) ──
@@ -30094,7 +30415,7 @@ async function handleRequest(request, env, ctx) {
               } : undefined,
               cost: aCost,
             });
-            })(), aHeldOut.parts);
+            })(), aHeldOut.parts, aHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: aAskOut.round, held: [...new Set([...aHeldOut.earlier, ...aHeldOut.parts])], request: aAskOut.request, attached: aAskOut.attached });
           }
           if (tx) {
             // ── CHANGING THE WORDS, WITH NO MODEL CALL ────────────────────
@@ -30241,6 +30562,46 @@ async function handleRequest(request, env, ctx) {
                 ok: true, id: rb.id, files: rb.files, swept: rb.swept,
                 worker: wput ? wput.ok !== false : undefined,
                 url: "/s/" + ownerSlug + "/",
+              });
+            }
+            return Response.json({ ok: false, error: "method not allowed" }, { status: 405 });
+          }
+          if (qu) {
+            // ── THE SITE'S LIVE QUESTION (2026-10-02) ─────────────────────
+            //
+            // GET answers the question still waiting on this owner's site, or
+            // none — so a reload can put its card back, and a card whose
+            // question was answered or replaced elsewhere comes off. POST
+            // `{ id, cancel: true }` closes it as cancelled, once
+            // (`closeAsk`), so nothing can act on it afterwards. Free, and no
+            // model is asked anything.
+            if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "storage not configured" }, { status: 501 });
+            const qg = await assertOwner(ownerDeps, ownerSlug, ou.id);
+            if (qg.error) return Response.json(qg.error.body, { status: qg.error.status });
+            if (request.method === "GET") {
+              let st = null;
+              try { st = await loadAsk(env.SITES_BUCKET, ownerSlug); } catch (e) { console.error("question read:", ownerSlug, errorClassForLog(e)); }
+              if (!st) return Response.json({ ok: false, error: "unread" }, { status: 503 });
+              const r = st.record;
+              const live = !!r && askLive(r, { id: r.id, uid: ou.id, slug: ownerSlug }).ok;
+              return Response.json({ ok: true, question: live ? { id: r.id, text: r.question.text, options: r.question.options, attached: r.attached === true } : null });
+            }
+            if (request.method === "POST") {
+              let qb = null;
+              try { qb = await request.json(); } catch { qb = null; }
+              if (!qb || typeof qb !== "object" || qb.cancel !== true || typeof qb.id !== "string" || !ASK_ID_RE.test(qb.id)) {
+                return Response.json({ ok: false, error: "bad-request" }, { status: 400 });
+              }
+              let closed = null;
+              try { closed = await closeAsk(env.SITES_BUCKET, { slug: ownerSlug, id: qb.id, uid: ou.id, status: "cancelled" }); }
+              catch (e) { console.error("question cancel:", ownerSlug, errorClassForLog(e)); }
+              if (!closed) return Response.json({ ok: false, error: "unread" }, { status: 503 });
+              // ALREADY CLOSED IS STILL A QUESTION NOTHING CAN ACT ON, so the
+              // cancel is not refused; `cancelled` says whether this one closed it,
+              // and `putOff` names what its request had put off, for the reply.
+              return Response.json({
+                ok: true, cancelled: closed.ok === true, why: closed.ok ? undefined : closed.why,
+                putOff: closed.ok && closed.record.held.length ? closed.record.held : undefined,
               });
             }
             return Response.json({ ok: false, error: "method not allowed" }, { status: 405 });

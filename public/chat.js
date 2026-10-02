@@ -5357,7 +5357,7 @@ function renderSites() {
   // 2026-09-05): a refresh mid-edit used to lose sight of the job for good.
   // Idempotent — a job already watched is refused inside — so this is safe on
   // the render every reply triggers.
-  if (open) { resumeOpenSite(open); renderSiteWorkspace(view, open); return; }
+  if (open) { resumeOpenSite(open); siteAskCheck(open); renderSiteWorkspace(view, open); return; }
   // AN ID THAT NAMES NOTHING FALLS BACK TO THE LIST, AND THE URL STOPS LYING.
   // A pasted link to a deleted project, or one belonging to another account,
   // lands here. `replaceState` and not a push, and not `openProject` either:
@@ -8037,6 +8037,10 @@ function renderSiteWorkspace(view, site) {
     // per-node handler would be rebound constantly and lost on the next repaint.
     thread.onclick = (e) => {
       if (!e.target.closest) return;
+      const askAns = e.target.closest('[data-ask-ans]');
+      if (askAns && thread.contains(askAns)) { siteAskReply(askAns.getAttribute('data-ask-ans'), true); return; }
+      const askCancel = e.target.closest('[data-ask-cancel]');
+      if (askCancel && thread.contains(askCancel)) { siteAskCancel(); return; }
       const skip = e.target.closest('[data-skip]');
       if (skip && thread.contains(skip)) { siteAnswer('', true); return; }
       const ans = e.target.closest('[data-ans]');
@@ -8982,6 +8986,30 @@ function routeQuestion(d) {
   if (!q || !words(q.text) || !Array.isArray(q.options) || q.options.length < 2 || !q.options.every(words)) return null;
   return { text: q.text, options: q.options.slice(0, 4) };
 }
+// ── A QUESTION ON A SITE THAT EXISTS (2026-10-02) ──────────────────────────
+//
+// The router's, or a step's after routing: the model's own words, with the
+// answers it offered — none, or up to four — and the id the server kept it
+// under (`builder/clarify.mjs`). A typed answer is always taken, so a question
+// with no buttons is still a question. ONE READER, the screen draws what it
+// returns, and nothing is coerced: an id that is not 32 hex, words that are not
+// text, or an answer that is not, make it no question at all. `needId` false is
+// for a question past the request's budget, shown with nothing waiting.
+function clarifyOf(q, needId) {
+  const words = (v) => typeof v === 'string' && v.trim() !== '';
+  if (!q || typeof q !== 'object' || Array.isArray(q) || !words(q.text)) return null;
+  const hasId = typeof q.id === 'string' && /^[0-9a-f]{32}$/.test(q.id);
+  if (q.id !== undefined && !hasId) return null;
+  if (needId && !hasId) return null;
+  // THE FIRST FOUR, as `routeQuestion` draws them: the server keeps at most
+  // four, and a fifth is not a reason to lose the question.
+  const opts = q.options === undefined ? [] : q.options;
+  if (!Array.isArray(opts) || !opts.every(words)) return null;
+  return { id: hasId ? q.id : undefined, text: q.text, options: opts.slice(0, 4) };
+}
+function liveQuestion(d) {
+  return clarifyOf(d && d.question, true);
+}
 // CAN THIS ROUTING ANSWER BE ACTED ON AS IT STANDS? Asked on a live site before
 // anything is sent (owner, 2026-09-24: "validate the routing result before
 // dispatching any action"). Every field an action reads is checked with the
@@ -8997,6 +9025,17 @@ function routeActionable(d, site) {
   if (!d || d.ok !== true || d.failed === true) return false;
   const slug = typeof site.slug === 'string' && site.slug !== '';
   const absentOr = (v, type) => v == null || typeof v === type;
+  // AN ANSWER'S SETTLEMENT IS READ, OR THE DECISION IS NOT (2026-10-02): whether
+  // the message answered the waiting question, and when it did, the request to
+  // run instead of the typed words, the question count and the parts put off
+  // before it — each a field a dispatch below acts on.
+  // AN ANSWER THE ROUTER MET WITH ONE MORE QUESTION carries no request to run
+  // yet — the route keeps it on the new question — so only work needs one.
+  if (d.ask !== undefined) {
+    if (!d.ask || typeof d.ask !== 'object' || Array.isArray(d.ask) || typeof d.ask.answered !== 'boolean') return false;
+    if (d.ask.answered === true && (!(Number.isInteger(d.ask.round) && d.ask.round > 0) || EditPoll.heldList(d.ask.putOff) === null)) return false;
+    if (d.ask.answered === true && d.intent !== 'clarify' && (typeof d.instruction !== 'string' || !d.instruction.trim())) return false;
+  }
   if (d.intent === 'edit') {
     return slug && ROUTE_EDIT_LAYERS.includes(d.layer) && absentOr(d.page, 'string') &&
       absentOr(d.rename, 'string') && absentOr(d.remove, 'boolean') && absentOr(d.tab, 'boolean');
@@ -9004,7 +9043,8 @@ function routeActionable(d, site) {
   if (d.intent === 'addon') return slug;
   if (d.intent === 'build') return true;
   if (d.intent === 'ask') return typeof d.answer === 'string' && d.answer.trim() !== '';
-  if (d.intent === 'clarify') return !!routeQuestion(d);
+  // ON A SITE THAT EXISTS A QUESTION CARRIES THE ID IT WAS KEPT UNDER (2026-10-02).
+  if (d.intent === 'clarify') return !!liveQuestion(d);
   return false;
 }
 // Ask the router whether this is a question, then either answer it or build.
@@ -9028,14 +9068,20 @@ function routeActionable(d, site) {
 // sentence. An explicit `build` answer still starts the revise — it is how a
 // customer says "scrap this", and how the route's zero-balance answer lets the
 // revise's own gate speak.
-function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
+// `answer` IS A REPLY TO THE SITE'S WAITING QUESTION (2026-10-02): `{ id, chosen }`,
+// `chosen` when one of its answers was pressed. The route checks the question is
+// still the live one before anything is spent, and the router says whether the
+// message answers it.
+function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer) {
   // THE BRIEF THE BUILD RUNS ON, not the message that was just typed. After a
   // clarify round `t` is "Book a time slot" and the real brief — "a barber shop
   // in Leeds" — is three messages back. Losing it here would build a site about
   // booking a time slot and nothing else, which is the failure this whole path
   // has to be written around.
   const round = (isBuild && site.clarify) || null;
-  const brief = round ? round.brief : t;
+  // `let` SINCE 2026-10-02: an answered question runs the request it was asked
+  // about, with the answer added, in place of the typed words — on the rewrite too.
+  let brief = round ? round.brief : t;
   const qa = round ? round.qa.slice(0, 8) : [];
   // THE ANSWERS ARE FOLDED IN ON THE SERVER, by `clarifiedBrief` in
   // builder/site-ask.mjs. Composing them here would be a second implementation
@@ -9047,10 +9093,15 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
   // `ho` IS A CLIMB'S HAND-OVER (2026-10-02, the audit's W8/W24): the parts put
   // off, which the rewrite takes out before anything reads the message, and why
   // the step below handed it on. Absent for every other way here.
+  // THE FILES THAT GO WITH THE WORK (2026-10-02): this message's own, and, when
+  // it answers a question, the ones its request carried (`answer.files`) —
+  // joined once the route says it answered, never before.
+  let sendImgs = Array.isArray(imgs) ? imgs.slice(0, 3) : [];
+  const keptImgs = !isBuild && answer && Array.isArray(answer.files) ? answer.files.slice(0, 3) : [];
   const go = (ho) => {
     const s = siteById(origin);
     if (s && s.clarify) { s.clarify = null; sitesSave(); }
-    reactSend(site, brief, origin, isBuild ? 'build' : 'revise', imgs, finish, qa, ho);
+    reactSend(site, brief, origin, isBuild ? 'build' : 'revise', sendImgs, finish, qa, ho);
   };
   // THE LIVE SITE'S STOP. `finish` clears the busy flag and the rail and says
   // the sentence. It claims nothing about money: the routing call is billed on
@@ -9117,13 +9168,50 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
     // Pinned to the default, the router is that shape again with a different
     // provider in the seat, and a dead one sends every customer to the fallback
     // intent: a build on an empty project, an add-on on a live site.
-    body: JSON.stringify({ message: t, site: digest, picker: buildPicker, firstBuild: !!isBuild, brief: brief, qa: qa, answering: !!answering, attached: !!(imgs && imgs.length), slug: site.slug || '', hasSite: !!(site.slug && sitePages(site).length) }),
+    body: JSON.stringify({ message: t, site: digest, picker: buildPicker, firstBuild: !!isBuild, brief: brief, qa: qa, answering: !!answering, attached: !!((imgs && imgs.length) || keptImgs.length), slug: site.slug || '', hasSite: !!(site.slug && sitePages(site).length),
+      ask: !isBuild && answer && typeof answer.id === 'string' ? { id: answer.id, chosen: answer.chosen === true } : undefined }),
   }).then(async (r) => {
     const d = await r.json().catch(() => null);
+    // ── AN ANSWER THE ROUTE WOULD NOT ACT ON (2026-10-02) ─────────────────
+    // The question was already answered, cancelled, replaced or has expired —
+    // its card comes off and nothing is sent — or the answer would not fit
+    // beside the request, and the question stays for a shorter one. The
+    // route's own sentence, at no cost: no model was asked, or its answer
+    // was not charged.
+    if (!isBuild && d && d.ok === false && (d.error === 'stale-question' || d.error === 'answer-too-long') && typeof d.msg === 'string' && d.msg.trim()) {
+      if (d.error === 'stale-question') siteAskClear(origin);
+      finish('⚠️ ' + d.msg);
+      return;
+    }
     // CHECKED BEFORE ANYTHING IS SENT. Past this line a live site's answer is a
     // decision every branch below can act on as it stands.
     if (!isBuild && !(r.ok && routeActionable(d, site))) return lost(r);
     if (!r.ok || !d) return go();
+    // ── THE WAITING QUESTION IS SETTLED (2026-10-02) ───────────────────────
+    // Answered, or replaced by a message that asked for something else: the
+    // route has closed it either way, so its card comes off. An answer runs the
+    // request that was waiting with the question and answer added
+    // (`instruction`) instead of the typed words, carrying its question count
+    // and what it put off earlier to whichever step runs it; files go too.
+    if (!isBuild && d.ask) siteAskClear(origin);
+    let run = t;
+    if (!isBuild && d.ask && d.ask.answered === true) {
+      if (typeof d.instruction === 'string') { run = d.instruction; brief = run; }
+      d.askRound = d.ask.round;
+      d.putOff = d.ask.putOff;
+      sendImgs = sendImgs.concat(keptImgs).slice(0, 3);
+    }
+    // A QUESTION ON A SITE THAT EXISTS: the model's words and its answers on
+    // the thread, kept on the site with this message's files so a reload still
+    // shows it and the next message answers it. Nothing is built or charged
+    // beyond the routing call.
+    const asked = !isBuild && d.intent === 'clarify' ? liveQuestion(d) : null;
+    if (asked) {
+      siteBusy = false;
+      siteBuildStop();
+      siteAskSet(origin, asked, sendImgs);
+      return;
+    }
     // A QUESTION FOR THEM, before anything is built or charged. Rendered as an
     // ordinary assistant message carrying options; the round is remembered on
     // the site so the answer can be put back together with the brief. What is
@@ -9153,16 +9241,17 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
     // page that is not there, an ask nobody could place, a failure of ours)
     // bought ~25 credits of rewritten pages and the same unanswered request.
     // Those are said now, for nothing, and the rewrite runs where it can help.
-    if (d.intent === 'edit' && site.slug) return siteEdit(site, d, t, origin, finish, go, imgs);
+    if (d.intent === 'edit' && site.slug) return siteEdit(site, d, run, origin, finish, go, sendImgs);
     // THE MIDDLE RUNG. Adds a page or a table and keeps everything else; costs a
     // few credits where the revise below costs ~25 and rewrites pages that were
     // fine. Falls through to that revise only on the add-on route's own escalate
     // naming no layer; an answer it cannot read, or a refusal, is said instead,
     // as the edit's is (2026-09-24).
-    if (d.intent === 'addon' && site.slug) return siteAddon(site, t, origin, finish, go, d);
+    if (d.intent === 'addon' && site.slug) return siteAddon(site, run, origin, finish, go, d, sendImgs);
     // On a live site only an explicit `build` reaches this `go()`: the check
-    // above refused every answer it could not act on.
-    if (d.intent !== 'ask' || !d.answer) return go();
+    // above refused every answer it could not act on. What an answered
+    // question put off earlier rides with it, to be named when it ends.
+    if (d.intent !== 'ask' || !d.answer) return go(d.putOff ? { putOff: d.putOff } : undefined);
     // A QUESTION. Nothing is built, nothing on the site changes, and the reply
     // is an ordinary assistant message — no build steps, because there was no
     // build and a steps block over an answer would claim one.
@@ -9361,6 +9450,14 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
       // left, the escalate's reason and field, and the page. The route checks
       // each against its own fixed lists and records it.
       handOver: d.handOver && typeof d.handOver === 'object' && !Array.isArray(d.handOver) ? d.handOver : undefined,
+      // A REQUEST RESUMED FROM A QUESTION (2026-10-02): how many questions it
+      // has asked, so a step asks from what is left of the budget, and the
+      // parts it put off before the question, which the route names on every
+      // ending and never runs. And whether the message carried files, which
+      // this page keeps beside a question a step asks.
+      askRound: Number.isInteger(d.askRound) && d.askRound > 0 ? d.askRound : undefined,
+      putOff: EditPoll.heldWire(d.putOff),
+      attached: Array.isArray(imgs) && imgs.length ? true : undefined,
       picker: buildPicker,
       // THE UNDO. A deleted row is gone from the table, so the server cannot
       // show the model what "put it back" refers to — the client is the only
@@ -9411,7 +9508,7 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
       // a watch resumed after a refresh hops or falls to the revise exactly as
       // this one would, instead of answering that the message was lost. The
       // attachments are not kept: the logo lane's job is already filed.
-      EditPoll.rememberJob(slug, said.job, undefined, { ask: instruction, op: 'edit', layer: String(d.layer || ''), page: d.page ? String(d.page) : '', handedOff: !!handedOff, also: d.alsoAsked, fromAddon: d.fromAddon === true });
+      EditPoll.rememberJob(slug, said.job, undefined, { ask: instruction, op: 'edit', layer: String(d.layer || ''), page: d.page ? String(d.page) : '', handedOff: !!handedOff, also: d.alsoAsked, fromAddon: d.fromAddon === true, putOff: d.putOff, askRound: d.askRound });
       watchEditJob(site, d, said.job, origin, finish, fallback, instruction, imgs, undefined, handedOff);
       return;
     }
@@ -9568,13 +9665,21 @@ function editAnswer(httpOk, e, o) {
   // it itself (`deferred`, on every ending the route writes); one it cannot
   // read is said from what the post carried — the route takes those parts out
   // before anything runs, or refuses.
-  if (said.act === 'unknown' || said.act === 'receipt') { o.finish('⚠️ ' + unreadEditMsg() + alsoTail({ deferred: o.d && o.d.alsoAsked }, false)); return; }
+  if (said.act === 'unknown' || said.act === 'receipt') { o.finish('⚠️ ' + unreadEditMsg() + alsoTail({ deferred: o.d && o.d.alsoAsked, putOff: o.d && o.d.putOff }, false)); return; }
   // AN ESCALATE, AND ONLY A WELL-FORMED ONE, handed on with the fields the
   // reader checked — never the raw body — so nothing it did not look at can
   // reach a paid request. Where it goes is still `escalatedEdit`'s to decide.
   // THE READER'S OWN ANSWER (2026-10-02): where it goes, and why with what was
   // put off for the hand-over — every field one the reader checked.
   if (said.act === 'hop' || said.act === 'climb') return escalatedEdit(said, o);
+  // A QUESTION BACK AND NOTHING ELSE (2026-10-02): the step that asked was the
+  // only one, so its question is the reply — kept as the site's live question
+  // when it has an id, with the message's files, its card drawn under it.
+  // Nothing was changed or charged for the edit; what was put off is named.
+  if (said.act === 'clarify') {
+    o.finish(askReplyMsg(alsoTail(e, false), askFromReply(o.origin, said.ask, o.imgs)));
+    return;
+  }
   if (said.act === 'refusal') {
     // The server's own sentence when it has one. `buildDownMsg` already knows
     // to drop the "try again in a few seconds" advice on a failure that no
@@ -9588,7 +9693,13 @@ function editAnswer(httpOk, e, o) {
     // STEP'S — THEN WHAT THIS BRANCH ALONE CAN SAY: whether the site changed,
     // and what the edit and the routing call cost. No refusal sentence the
     // server writes states money (2026-09-25), so it is said once.
-    const told = (typeof e.msg === 'string' && e.msg.trim()) ? e.msg : partialSaid(e.partial);
+    const told = (typeof e.msg === 'string' && e.msg.trim()) ? e.msg : partialSaid(partialShown(e));
+    // AND A STEP THAT ASKED BESIDE THEM (2026-10-02): the others' sentences,
+    // then its question with its card.
+    if (said.ask) {
+      o.finish(askReplyMsg((told ? '⚠️ ' + told + wholeRequestNote(e, o.d) : '') + alsoTail(e, false), askFromReply(o.origin, said.ask, o.imgs)));
+      return;
+    }
     if (told) { o.finish('⚠️ ' + told + wholeRequestNote(e, o.d) + alsoTail(e, false)); return; }
     // ⚠ AND A REFUSAL NEVER BUYS THE REWRITE (2026-09-23). This fell to
     // `fallback` whenever the reply carried no sentence, and a message whose
@@ -9660,7 +9771,11 @@ function applyEditResult(e, o) {
       sitesSave();
     }
     scheduleCreditRefresh();
-    finish(editReply(e) + renderTail(e) + alsoTail(e));
+    // WHAT RAN, THEN A STEP'S QUESTION (2026-10-02): the parts that went through
+    // are said as ever, and the part that asked waits on the answer.
+    const asked = clarifyOf(e.clarify, false);
+    const doneText = editReply(e) + renderTail(e) + alsoTail(e);
+    finish(asked ? askReplyMsg(doneText, askFromReply(o.origin, asked, o.imgs)) : doneText);
   } catch (err) {
     if (told) return;
     // NOTHING ESCAPES FROM THE FINISH. A throw out of this sentence's own
@@ -9745,7 +9860,7 @@ function escalatedEdit(e, o) {
   // was handed this, and takes the parts out before anything runs.
   const why = { from: o.d && o.d.layer, reply: e };
   if (act === 'addon') {
-    return siteAddon(o.site, o.instruction, o.origin, o.finish, o.fallback, EditPoll.handOver(o.d, { layer: 'addon', page: e.page }, why));
+    return siteAddon(o.site, o.instruction, o.origin, o.finish, o.fallback, EditPoll.handOver(o.d, { layer: 'addon', page: e.page }, why), o.imgs);
   }
   if (act === 'hop') {
     // THE LATCH IS NOT CLEARED HERE. The hop is the same ask continuing, so
@@ -9974,7 +10089,8 @@ function resumeEditJob(site, origin, finish, fallback) {
   // watch re-posts it, so the part promised for later is not run by the hop.
   // AND WHETHER THE ADD-ON HANDED IT HERE (2026-10-02), so a watch resumed
   // after a refresh keeps the loop bound the live one had.
-  const d = { layer: rec.layer, page: rec.page, ...(rec.also ? { alsoAsked: rec.also } : {}), ...(rec.fromAddon ? { fromAddon: true } : {}) };
+  const d = { layer: rec.layer, page: rec.page, ...(rec.also ? { alsoAsked: rec.also } : {}), ...(rec.fromAddon ? { fromAddon: true } : {}),
+    ...(rec.putOff ? { putOff: rec.putOff } : {}), ...(rec.askRound ? { askRound: rec.askRound } : {}) };
   // THE READER THE ROUTE THAT FILED IT USES: an addon's stored reply is a
   // different object — kinds, added pages, tables — read by a different tail.
   const reader = rec.op === 'addon' ? addonAnswer : editAnswer;
@@ -10009,7 +10125,7 @@ function resumeOpenSite(site) {
     siteBuildStop();
     const s = siteById(origin);
     if (!s) return;
-    s.msgs.push({ r: 'a', t: reply });
+    s.msgs.push(siteReplyMsg(reply));
     s.updatedAt = Date.now();
     sitesSave();
     if (siteOpenId === origin) renderSites();
@@ -10043,7 +10159,9 @@ function resumeOpenSite(site) {
 // without one changes shape. AND `handOver` (2026-10-02, the audit's W24): why
 // the router or an edit step handed this here, and the page — the add-on's
 // picker is shown it.
-function siteAddon(site, instruction, origin, finish, fallback, d) {
+// `imgs` (2026-10-02) are the message's files: the add-on is never sent them,
+// and a question its step asks keeps them for the answer.
+function siteAddon(site, instruction, origin, finish, fallback, d, imgs) {
   const slug = String(site.slug || '');
   if (!slug) return fallback();
   // ONE KEY PER POST, minted where the POST is decided — `siteEdit`'s rule.
@@ -10065,7 +10183,11 @@ function siteAddon(site, instruction, origin, finish, fallback, d) {
     // (2026-09-29): the add-on route takes it out before anything runs.
     body: JSON.stringify({ instruction: instruction, picker: buildPicker, idem: idem, tz: browserTimeZone(),
       alsoAsked: EditPoll.heldWire(d && d.alsoAsked),
-      handOver: d && d.handOver && typeof d.handOver === 'object' && !Array.isArray(d.handOver) ? d.handOver : undefined }),
+      handOver: d && d.handOver && typeof d.handOver === 'object' && !Array.isArray(d.handOver) ? d.handOver : undefined,
+      // A REQUEST RESUMED FROM A QUESTION (2026-10-02) — `siteEdit`'s three.
+      askRound: d && Number.isInteger(d.askRound) && d.askRound > 0 ? d.askRound : undefined,
+      putOff: EditPoll.heldWire(d && d.putOff),
+      attached: Array.isArray(imgs) && imgs.length ? true : undefined }),
   }).then(async (r) => {
     const a = await r.json().catch(() => null);
     // SIGNED OUT DECIDES ALONE, and before the body: the route answers 401 above
@@ -10089,15 +10211,15 @@ function siteAddon(site, instruction, origin, finish, fallback, d) {
       // THE ASK RIDES THE RECORD with the route that filed it (stage 2b), so a
       // watch resumed after a refresh reads the reply with THIS route's reader
       // and can re-post the ask on a hop — `siteEdit`'s rule, one rung up.
-      EditPoll.rememberJob(slug, said.job, undefined, { ask: instruction, op: 'addon', layer: d && typeof d.layer === 'string' ? d.layer : '', page: d && d.page ? String(d.page) : '', also: d && d.alsoAsked });
-      watchEditJob(site, d, said.job, origin, tell, fallback, instruction, undefined, addonAnswer);
+      EditPoll.rememberJob(slug, said.job, undefined, { ask: instruction, op: 'addon', layer: d && typeof d.layer === 'string' ? d.layer : '', page: d && d.page ? String(d.page) : '', also: d && d.alsoAsked, putOff: d && d.putOff, askRound: d && d.askRound });
+      watchEditJob(site, d, said.job, origin, tell, fallback, instruction, imgs, addonAnswer);
       return;
     }
-    return addonAnswer(r && r.ok, a, { site, d, instruction, origin, finish: tell, fallback, slug });
+    return addonAnswer(r && r.ok, a, { site, d, instruction, origin, finish: tell, fallback, slug, imgs });
     // A DROPPED CONNECTION IS NOT KNOWING, the same as an unreadable body: the
     // addition may have been filed, and a rewrite on top of it would charge
     // twice for one ask. This was `.catch(fallback)` — the full rewrite.
-  }).catch(() => { if (!told) tell(addonOutcomeMsg('unknown') + alsoTail({ deferred: d && d.alsoAsked }, false)); });
+  }).catch(() => { if (!told) tell(addonOutcomeMsg('unknown') + alsoTail({ deferred: d && d.alsoAsked, putOff: d && d.putOff }, false)); });
 }
 
 /**
@@ -10127,7 +10249,7 @@ function addonAnswer(httpOk, a, o) {
   // before this is called, and a job's final reply is never a receipt.
   // EVERY ENDING NAMES WHAT WAS PUT OFF (2026-10-02, W7) — `editAnswer`'s rule:
   // the reply's own `deferred`, or what the post carried when it cannot be read.
-  if (said.act === 'unknown' || said.act === 'receipt') { o.finish(addonOutcomeMsg('unknown') + alsoTail({ deferred: o.d && o.d.alsoAsked }, false)); return; }
+  if (said.act === 'unknown' || said.act === 'receipt') { o.finish(addonOutcomeMsg('unknown') + alsoTail({ deferred: o.d && o.d.alsoAsked, putOff: o.d && o.d.putOff }, false)); return; }
   if (said.act === 'hop' || said.act === 'climb') {
     if (!canFall) { o.finish('⚠️ I couldn’t add that the cheap way, and I’ve lost the original message. Say it again and I’ll do the full rewrite.' + alsoTail(said, false)); return; }
     // ONE HOP SIDEWAYS, when the addon names a cheaper rung that does this:
@@ -10146,14 +10268,25 @@ function addonAnswer(httpOk, a, o) {
     // AND THE ONE HAND-OVER CONTRACT (2026-10-02): the parts put off, why, and
     // the page, from this reply.
     if (said.act === 'hop') {
-      return siteEdit(o.site, EditPoll.handOver(o.d, { layer: said.layer, page: said.page, fromAddon: true }, { from: 'addon', reply: said }), o.instruction, o.origin, o.finish, o.fallback, undefined, true);
+      return siteEdit(o.site, EditPoll.handOver(o.d, { layer: said.layer, page: said.page, fromAddon: true }, { from: 'addon', reply: said }), o.instruction, o.origin, o.finish, o.fallback, o.imgs, true);
     }
     // THE SERVER'S OWN CLIMB, and the one way left from here to the rewrite.
     // Which of the route's escalates really need it is a separate, server-side
     // step: they are not classified the way the edit route's are.
     return o.fallback(EditPoll.handOver(o.d, {}, { from: 'addon', reply: said }));
   }
+  // A QUESTION BACK (2026-10-02): the add-on's picker asked one thing before
+  // anything was added or charged — `editAnswer`'s rule.
+  if (said.act === 'clarify') {
+    o.finish(askReplyMsg(alsoTail(a, false), askFromReply(o.origin, said.ask, o.imgs)));
+    return;
+  }
   if (said.act === 'refusal') {
+    if (said.ask) {
+      const told = typeof a.msg === 'string' && a.msg.trim() ? '⚠️ ' + a.msg : '';
+      o.finish(askReplyMsg(told + alsoTail(a, false), askFromReply(o.origin, said.ask, o.imgs)));
+      return;
+    }
     // The route's own sentence, when it wrote one.
     if (typeof a.msg === 'string' && a.msg.trim()) { o.finish('⚠️ ' + a.msg + alsoTail(a, false)); return; }
     // ⚠ AND A REFUSAL WITH NO SENTENCE NEVER BUYS THE REWRITE (2026-09-24).
@@ -10229,6 +10362,14 @@ function readRouteReply(httpOk, a, hops) {
   // reply's last sentence names it — so a `deferred` that is neither absent, a
   // part, nor a list of parts makes the whole reply one this page cannot use.
   if (EditPoll.heldList(a.deferred) === null) return unknown;
+  // AND WHAT A QUESTION'S REQUEST PUT OFF BEFORE IT (2026-10-02, `putOff`),
+  // named on every ending the same way.
+  if (EditPoll.heldList(a.putOff) === null) return unknown;
+  // A QUESTION BACK (2026-10-02): a step's model asked one thing instead of
+  // acting. Read with the screen's own reader, or the reply is not — a card
+  // drawn from fields nobody checked could be answered into work.
+  const ask = a.clarify === undefined ? null : clarifyOf(a.clarify, false);
+  if (a.clarify !== undefined && !ask) return unknown;
   if (a.escalate === true) {
     if (httpOk !== true || a.ok !== false) return unknown;
     // WHY IT HANDS ON, CHECKED HERE AND CARRIED (2026-10-02, the audit's W24):
@@ -10242,9 +10383,12 @@ function readRouteReply(httpOk, a, hops) {
     if (!hops.includes(a.layer) || !absentOr(a.page, 'string')) return unknown;
     return { act: 'hop', layer: a.layer, page: a.page || '', ...why };
   }
-  if (a.ok === false) return { act: 'refusal' };
+  // THE STEP THAT ASKED WAS THE ONLY ONE (`error: "clarify"`): its question is
+  // the whole answer, and nothing was changed or charged for it.
+  if (a.ok === false && ask && a.error === 'clarify') return { act: 'clarify', ask };
+  if (a.ok === false) return { act: 'refusal', ask };
   if (httpOk !== true) return unknown;
-  if (a.job == null || EditPoll.isRecovered(a)) return { act: 'success' };
+  if (a.job == null || EditPoll.isRecovered(a)) return { act: 'success', ask };
   if (typeof a.job !== 'string' || a.job === '' || a.result != null) return unknown;
   return { act: 'receipt', job: a.job };
 }
@@ -10308,7 +10452,9 @@ function applyAddonResult(a, o) {
       sitesSave();
     }
     scheduleCreditRefresh();
-    finish(addonReplyText(a) + renderTail(a) + alsoTail(a));
+    const asked = clarifyOf(a.clarify, false);
+    const doneText = addonReplyText(a) + renderTail(a) + alsoTail(a);
+    finish(asked ? askReplyMsg(doneText, askFromReply(o.origin, asked, o.imgs)) : doneText);
   } catch (err) {
     if (told) return;
     const shown = addonOutcomeMsg('shown') + alsoTail(a);
@@ -10792,8 +10938,12 @@ function renderTail(d) {
 // ran. SEVERAL PARTS since the same day: a step may put some off as the
 // router's net, and each is named. A `deferred` that does not read names
 // nothing here — the reply reader refuses such a reply before this is reached.
+// AND WHAT A QUESTION'S REQUEST PUT OFF BEFORE IT (2026-10-02, `putOff`): those
+// parts were never in the message that ran, and are named in the same sentence.
 function alsoTail(r, done) {
-  const parts = (r && typeof r === 'object' ? EditPoll.heldList(r.deferred) : null) || [];
+  const now = (r && typeof r === 'object' ? EditPoll.heldList(r.deferred) : null) || [];
+  const earlier = (r && typeof r === 'object' ? EditPoll.heldList(r.putOff) : null) || [];
+  const parts = now.concat(earlier.filter((p) => now.indexOf(p) < 0));
   if (!parts.length) return '';
   const q = parts.map((p) => '“' + p.slice(0, 200) + '”');
   const one = q.length === 1;
@@ -10950,7 +11100,7 @@ function editOutcomes(e) {
   // green tick. Part of what was asked did not happen; a clause that reads
   // like the rest of the success line is the silent partial one sentence
   // longer.
-  const stopped = partialSaid(e.partial);
+  const stopped = partialSaid(partialShown(e));
   if (stopped) out += ' ⚠️ ' + stopped;
   // ⚠ AND WHAT THE PART THAT DID NOT GO THROUGH STILL COST (2026-09-25). A rung
   // that refuses after its model call answered bills that call, and beside a
@@ -10994,6 +11144,13 @@ function editOutcomes(e) {
  * such an entry — a step whose reply could not be read, or whose failure
  * carried no `msg` and did not escalate — so this is not only for old replies.
  */
+// THE STEP THAT ASKED IS SAID BY ITS QUESTION (2026-10-02), not as a part that
+// did not go through: its entry (`error: "clarify"`) is left out wherever the
+// reply carries the question to draw, and said as ever where it does not.
+function partialShown(e) {
+  const parts = e && Array.isArray(e.partial) ? e.partial : [];
+  return clarifyOf(e && e.clarify, false) ? parts.filter((p) => !(p && p.error === 'clarify')) : parts;
+}
 function partialSaid(parts) {
   const stopped = Array.isArray(parts) ? parts : [];
   const said = [];
@@ -11609,8 +11766,12 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho) {
     // final reply that carries none; with no final reply, the 202's account,
     // else what this post carried. A direct reply with no `deferred` still names
     // nothing: the route took nothing out.
-    const heldSaid = finalReply && Object.prototype.hasOwnProperty.call(finalReply, 'deferred') ? finalReply
+    const heldOwn = finalReply && Object.prototype.hasOwnProperty.call(finalReply, 'deferred') ? finalReply
       : { deferred: firedHeld !== undefined ? firedHeld : (finalReply ? undefined : h.alsoAsked) };
+    // AND WHAT AN ANSWERED QUESTION'S REQUEST PUT OFF BEFORE IT (2026-10-02,
+    // `putOff`): never in this message and never told to the rewrite, so this
+    // page names it from what the hand-over carried.
+    const heldSaid = { deferred: heldOwn.deferred, putOff: h.putOff };
     const end = (said) => finish(said + alsoTail(heldSaid, false));
     // WHAT IT COST GOES TO THE METER, NOT INTO THE SENTENCE (owner's call
     // 2026-08-08). The reply used to end "(✦21 used)" on every build.
@@ -11788,7 +11949,7 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho) {
   }).catch((e) => {
     // NO REPLY TO READ, so what was put off is said from the 202 when one came,
     // and otherwise from what this post carried.
-    const rest = alsoTail({ deferred: firedHeld !== undefined ? firedHeld : h.alsoAsked }, false);
+    const rest = alsoTail({ deferred: firedHeld !== undefined ? firedHeld : h.alsoAsked, putOff: h.putOff }, false);
     if (e && e.name === 'AbortError') { finish('■ Stopped. (A build already running may still finish server-side.)' + rest); return; }
     siteErr = { chatId: origin }; finish('⚠️ Lost the connection while building — check your internet and try again in a moment.' + rest);
   }).finally(() => { siteAbort = null; });
@@ -11812,6 +11973,7 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho) {
 // thread and loses its buttons. Leaving them clickable would offer a second
 // answer to something already built on the first.
 function siteAskHTML(m, site) {
+  if (m && m.ask) return siteLiveAskHTML(m, site);
   if (!m || !m.q || !Array.isArray(m.opts) || !m.opts.length) return '';
   if (!site || !site.clarify) return '';
   // The LAST question only. A round asks one at a time, so an earlier one still
@@ -11837,6 +11999,25 @@ function siteAskHTML(m, site) {
   '</div>';
 }
 
+// THE CARD OF A QUESTION ON A SITE THAT EXISTS (2026-10-02): drawn only under
+// the message of the site's live question, so an answered or replaced one keeps
+// its words and loses its buttons. Its answers, numbered for the keys below,
+// and always a way out — Cancel — even when it offers no answers: a typed reply
+// in the composer is the answer then.
+function siteLiveAskHTML(m, site) {
+  if (!site || !site.ask || site.ask.id !== m.ask) return '';
+  const opts = Array.isArray(m.opts) ? m.opts.slice(0, 4) : [];
+  return '<div class="st-opts">' +
+    opts.map((o, i) =>
+      '<button type="button" class="st-opt" data-ask-ans="' + esc(String(o)) + '">' +
+        '<kbd>' + (i + 1) + '</kbd><span>' + esc(String(o)) + '</span>' +
+      '</button>').join('') +
+    '<button type="button" class="st-opt st-opt-skip" data-ask-cancel="1">' +
+      '<kbd>esc</kbd><span>Cancel this request</span>' +
+    '</button>' +
+  '</div>';
+}
+
 // The keys behind the numbers.
 //
 // GUARDED ON WHERE THE FOCUS IS, which is the whole difficulty: the composer is
@@ -11853,6 +12034,17 @@ document.addEventListener('keydown', (e) => {
   const tag = el && el.tagName ? el.tagName.toLowerCase() : '';
   if (tag === 'input' || tag === 'textarea' || tag === 'select' || (el && el.isContentEditable)) return;
   const site = siteById(siteOpenId);
+  // THE LIVE QUESTION'S ANSWERS, and Esc cancels it — only while its card is
+  // on the thread, so a number and a click cannot disagree.
+  if (site && site.ask && !siteBusy && (site.msgs || []).some((x) => x && x.ask === site.ask.id)) {
+    if (e.key === 'Escape') { e.preventDefault(); siteAskCancel(); return; }
+    const lopts = Array.isArray(site.ask.options) ? site.ask.options.slice(0, 4) : [];
+    const ln = Number(e.key);
+    if (!(ln >= 1 && ln <= lopts.length)) return;
+    e.preventDefault();
+    siteAskReply(lopts[ln - 1], true);
+    return;
+  }
   if (!site || !site.clarify || siteBusy) return;
   if (e.key === 'Escape') { e.preventDefault(); siteAnswer('', true); return; }
   // The options of the LIVE question, read off the thread — the same one
@@ -11902,7 +12094,7 @@ function siteAnswer(label, skip) {
     siteBuildStop();
     const s = siteById(origin);
     if (!s) return;
-    s.msgs.push({ r: 'a', t: reply });
+    s.msgs.push(siteReplyMsg(reply));
     s.updatedAt = Date.now();
     sitesSave();
     if (siteOpenId === origin) renderSites();
@@ -11935,6 +12127,247 @@ function siteAnswer(label, skip) {
   siteRoute(site, said, origin, true, imgs, finish, true);
 }
 
+// ── A QUESTION ON A SITE THAT EXISTS (2026-10-02) ──────────────────────────
+//
+// Owner: *"Let the router ask a targeted question … Let edit and add-on steps
+// request clarification too … accept typed answers and useful optional
+// choices, and preserve the original request, attachments, scope, deferred
+// parts, and completed work across the answer and page refresh … support
+// cancellation and a changed request, and prevent stale answers from
+// triggering work."*
+//
+// THE SERVER KEEPS THE QUESTION AND THE REQUEST (`builder/clarify.mjs`): one
+// live question per site, its id, the request still to do, the parts put off
+// before it and how many questions it has asked. THIS PAGE KEEPS THREE THINGS:
+// the card's state on the site (`site.ask`: the id, the words, the answers
+// offered, and whether the message carried files), the thread message the card
+// is drawn under, and the files themselves — in memory, and in this browser's
+// IndexedDB so a reload keeps them. A file is never written to localStorage:
+// one picture can be larger than all of it (`siteHoldUnsent`, `siteDraft`).
+//
+// THE NEXT MESSAGE ANSWERS IT, typed or pressed, and the router decides whether
+// it does: a reply that asks for something else closes the question and is
+// routed as that new request. Cancel closes it. A reload asks the server which
+// question is live, putting a card back or taking off one that was answered or
+// replaced elsewhere. An answer to a question that is no longer the live one is
+// refused by the server before anything is spent.
+const askFilesMem = new Map();
+const ASK_FILES_DB = 'gf-ask-files';
+const ASK_FILES_TTL = 24 * 60 * 60 * 1000;
+// THE STORE, OR NOTHING: a private window, blocked storage or a browser without
+// IndexedDB keeps the files in memory alone, and a reload then asks for them.
+function askFilesDb() {
+  return new Promise((resolve) => {
+    try {
+      if (typeof indexedDB === 'undefined' || !indexedDB) { resolve(null); return; }
+      const rq = indexedDB.open(ASK_FILES_DB, 1);
+      rq.onupgradeneeded = () => { try { rq.result.createObjectStore('files'); } catch (e) { /* already there */ } };
+      rq.onsuccess = () => resolve(rq.result);
+      rq.onerror = () => resolve(null);
+      rq.onblocked = () => resolve(null);
+    } catch (e) { resolve(null); }
+  });
+}
+function askFilesStore(id, imgs) {
+  const list = Array.isArray(imgs) ? imgs.slice(0, 3) : [];
+  if (!id || !list.length) return;
+  askFilesMem.set(id, list);
+  askFilesDb().then((db) => {
+    if (!db) return;
+    try {
+      const st = db.transaction('files', 'readwrite').objectStore('files');
+      // A QUESTION LIVES A DAY, and so do its files: older entries go first.
+      const cur = st.openCursor();
+      cur.onsuccess = () => {
+        const c = cur.result;
+        if (!c) return;
+        if (!(c.value && Date.now() - c.value.at < ASK_FILES_TTL)) c.delete();
+        c.continue();
+      };
+      st.put({ at: Date.now(), imgs: list }, id);
+    } catch (e) { /* kept in memory */ }
+  });
+}
+function askFilesFor(id) {
+  if (!id) return Promise.resolve([]);
+  if (askFilesMem.has(id)) return Promise.resolve(askFilesMem.get(id).slice(0, 3));
+  return askFilesDb().then((db) => new Promise((resolve) => {
+    if (!db) { resolve([]); return; }
+    try {
+      const rq = db.transaction('files', 'readonly').objectStore('files').get(id);
+      rq.onsuccess = () => { const v = rq.result; resolve(v && Array.isArray(v.imgs) ? v.imgs.slice(0, 3) : []); };
+      rq.onerror = () => resolve([]);
+    } catch (e) { resolve([]); }
+  }));
+}
+function askFilesDrop(id) {
+  if (!id) return;
+  askFilesMem.delete(id);
+  askFilesDb().then((db) => {
+    if (!db) return;
+    try { db.transaction('files', 'readwrite').objectStore('files').delete(id); } catch (e) { /* expires */ }
+  });
+}
+// A REPLY ON THE THREAD: a sentence, or a sentence with the question card under
+// it — `{ t, q, opts, ask }` from `askReplyMsg`. Every `finish` that writes the
+// thread writes through this, so a reader can end its chain with a question.
+function siteReplyMsg(reply) {
+  if (reply && typeof reply === 'object' && typeof reply.t === 'string') {
+    return { r: 'a', t: reply.t, q: reply.q || undefined, opts: Array.isArray(reply.opts) ? reply.opts.slice(0, 4) : undefined, ask: reply.ask || undefined };
+  }
+  return { r: 'a', t: reply };
+}
+// THE MESSAGE A QUESTION IS DRAWN UNDER: what was said before it, then the
+// question in the model's own words, last, above its answers. A question with
+// no id — asked past the request's budget, so nothing waits on it — is words.
+function askReplyMsg(before, q) {
+  const lead = typeof before === 'string' ? before.replace(/\s+$/, '') : '';
+  const t = lead ? lead + '\n' + q.text : q.text;
+  if (!q.id) return t;
+  return { t: t, q: q.text, opts: q.options.slice(0, 4), ask: q.id };
+}
+// THE CARD'S STATE, ON THE SITE — what `sitesSave` keeps, files apart.
+function siteAskKeep(origin, q, imgs) {
+  const s = siteById(origin);
+  if (!s || !q || !q.id) return;
+  const files = Array.isArray(imgs) ? imgs.slice(0, 3) : [];
+  if (s.ask && s.ask.id !== q.id) askFilesDrop(s.ask.id);
+  s.ask = { id: q.id, text: q.text, options: q.options.slice(0, 4), attached: q.attached === true || files.length > 0 };
+  askFilesStore(q.id, files);
+}
+function siteAskClear(origin) {
+  const s = siteById(origin);
+  if (!s || !s.ask) return;
+  askFilesDrop(s.ask.id);
+  s.ask = null;
+  sitesSave();
+}
+// THE ROUTER'S QUESTION: the card, and nothing else said.
+function siteAskSet(origin, q, imgs) {
+  const s = siteById(origin);
+  if (!s || !q) return;
+  siteAskKeep(origin, q, imgs);
+  s.msgs.push(siteReplyMsg(askReplyMsg('', q)));
+  s.updatedAt = Date.now();
+  sitesSave();
+  if (siteOpenId === origin) renderSites();
+}
+// A STEP'S QUESTION, read off its reply (`readRouteReply`): kept as the live
+// one when it has an id, with the files the message carried.
+function askFromReply(origin, q, imgs) {
+  if (!q) return null;
+  if (q.id) siteAskKeep(origin, q, imgs);
+  return q;
+}
+// THE ANSWER. `chosen` is a pressed answer, which takes no files; a typed one
+// takes the composer's, as any message does (`leaveDraft` is the platform's own
+// words, which never take them). The files the question's message carried go
+// with it; when the question says it had files and this browser no longer
+// holds them, nothing is sent and they are asked for — answered without them,
+// the request would run on less than was asked.
+function siteAskReply(label, chosen, leaveDraft) {
+  const site = siteById(siteOpenId);
+  if (!site || siteBusy || !site.ask) return;
+  const said = String(label || '').trim().slice(0, 2000);
+  if (!said) return;
+  const asked = site.ask;
+  const origin = siteOpenId;
+  const draft = chosen || leaveDraft ? null : siteDraft(origin);
+  const own = draft ? draft.imgs.slice(0, 3) : [];
+  if (draft) { draft.imgs = []; paintAttachStrip(); }
+  site.msgs.push({ r: 'u', t: said });
+  siteBusy = true;
+  siteBuildStart(true);
+  sitesSave();
+  renderSites();
+  const finish = (reply) => {
+    siteBusy = false;
+    siteBuildStop();
+    const s = siteById(origin);
+    if (!s) return;
+    s.msgs.push(siteReplyMsg(reply));
+    s.updatedAt = Date.now();
+    sitesSave();
+    if (siteOpenId === origin) renderSites();
+  };
+  askFilesFor(asked.id).then((kept) => {
+    if (asked.attached && !kept.length && !own.length) {
+      siteHoldUnsent(origin, said, own);
+      finish('⚠️ That question is about the file you sent with your request, and this browser no longer has it. Attach it again and send your answer.');
+      return;
+    }
+    const s = siteById(origin);
+    if (!s) return;
+    siteWithPages(origin, s.slug, (s2) => siteRoute(s2, said, origin, false, own, finish, false,
+      { id: asked.id, chosen: chosen === true, files: kept }), finish);
+  });
+}
+// CANCEL: the server closes the question once, so nothing can act on it, and
+// names what its request had put off. Free — no model is asked anything.
+function siteAskCancel() {
+  const site = siteById(siteOpenId);
+  if (!site || siteBusy || !site.ask || !site.slug) return;
+  const asked = site.ask;
+  const origin = siteOpenId;
+  site.msgs.push({ r: 'u', t: 'Cancel this request' });
+  siteBusy = true;
+  sitesSave();
+  renderSites();
+  const say = (t) => {
+    siteBusy = false;
+    const s = siteById(origin);
+    if (!s) return;
+    s.msgs.push({ r: 'a', t: t });
+    s.updatedAt = Date.now();
+    sitesSave();
+    if (siteOpenId === origin) renderSites();
+  };
+  apiFetch('/api/site/' + encodeURIComponent(site.slug) + '/question', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: asked.id, cancel: true }),
+  }).then(async (r) => {
+    const c = await r.json().catch(() => null);
+    if (!r.ok || !c || c.ok !== true || typeof c.cancelled !== 'boolean') {
+      say('⚠️ I couldn’t cancel that just now, so the question is still open. Try again in a moment.');
+      return;
+    }
+    // CLOSED, by this press or before it: either way nothing can act on it.
+    siteAskClear(origin);
+    say('Cancelled — nothing more will be done for that request.' + (c.cancelled ? alsoTail({ deferred: c.putOff }, false) : ''));
+  }).catch(() => say('⚠️ I couldn’t cancel that just now, so the question is still open. Try again in a moment.'));
+}
+// THE RELOAD CHECK, once per site per page load: the server's live question
+// puts a missing card back (asked in another tab, or before this browser lost
+// its record) and takes off a card whose question was answered, cancelled,
+// replaced or has expired. Nothing changes when the answer cannot be read, or
+// when this page started something meanwhile — the card is then the route's to
+// settle.
+const siteAskChecked = new Set();
+function siteAskCheck(site) {
+  if (!site || !site.slug || siteBusy || siteAskChecked.has(site.id)) return;
+  siteAskChecked.add(site.id);
+  const origin = site.id;
+  const before = site.ask ? site.ask.id : null;
+  apiFetch('/api/site/' + encodeURIComponent(site.slug) + '/question', { method: 'GET' }).then(async (r) => {
+    const c = await r.json().catch(() => null);
+    if (!r.ok || !c || c.ok !== true || c.question === undefined) return;
+    const s = siteById(origin);
+    if (!s || siteBusy || (s.ask ? s.ask.id : null) !== before) return;
+    const q = c.question === null ? null : clarifyOf(c.question, true);
+    if (c.question !== null && !q) return;
+    if (!q) {
+      if (s.ask) { siteAskClear(origin); if (siteOpenId === origin) renderSites(); }
+      return;
+    }
+    if (s.ask && s.ask.id === q.id) return;
+    siteAskKeep(origin, { ...q, attached: c.question.attached === true }, []);
+    if (!s.msgs.some((m) => m && m.ask === q.id)) s.msgs.push(siteReplyMsg(askReplyMsg('', q)));
+    s.updatedAt = Date.now();
+    sitesSave();
+    if (siteOpenId === origin) renderSites();
+  }).catch(() => { /* not knowing changes nothing */ });
+}
+
 // `leaveDraft` is for words the platform wrote — the "Fix with AI" presses —
 // which are sent beside the composer rather than from it (see the take below).
 function siteSend(text, leaveDraft) {
@@ -11947,6 +12380,9 @@ function siteSend(text, leaveDraft) {
   // — and routing a typed reply down the ordinary path would start a fresh
   // build from those few words and lose the brief the round was about.
   if (site.clarify) { siteAnswer(t); return; }
+  // A QUESTION ON A SITE THAT EXISTS (2026-10-02): the message answers it, or —
+  // the router decides — asks for something else and replaces it.
+  if (site.ask) { siteAskReply(t, false, leaveDraft); return; }
   const isBuild = !sitePages(site).length;
   const active = siteActivePage(site);
   site.msgs.push({ r: 'u', t });
@@ -11969,7 +12405,7 @@ function siteSend(text, leaveDraft) {
     siteBuildStop();
     const s = siteById(origin);
     if (!s) return;
-    s.msgs.push({ r: 'a', t: reply });
+    s.msgs.push(siteReplyMsg(reply));
     s.updatedAt = Date.now();
     sitesSave();
     if (siteOpenId === origin) renderSites();

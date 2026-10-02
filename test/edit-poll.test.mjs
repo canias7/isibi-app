@@ -476,7 +476,8 @@ test("with no job in the reply the synchronous path runs exactly as before", () 
     "the job branch no longer asks the reader whether the reply is a receipt");
   const core = CHAT.slice(CHAT.indexOf("function readRouteReply("), CHAT.indexOf("function readAddonReply("));
   assert.ok(core.length > 200, "the shared reply reader is gone — this guard would pass over nothing");
-  assert.match(core, /if \(a\.job == null \|\| EditPoll\.isRecovered\(a\)\) return \{ act: 'success' \};/,
+  // RE-ANCHORED 2026-10-02: the success carries a step's question when one asked beside it.
+  assert.match(core, /if \(a\.job == null \|\| EditPoll\.isRecovered\(a\)\) return \{ act: 'success', ask \};/,
     "a reply with no job is not an outcome, so the flag-off path would not run as before");
   assert.match(core, /if \(typeof a\.job !== 'string' \|\| a\.job === '' \|\| a\.result != null\) return unknown;/,
     "the job branch is no longer gated on a job actually being present");
@@ -917,7 +918,8 @@ test("the resume is wired: on site selection, once per job, with the ask and the
   // every reply triggers, so it has to refuse a job already being watched.
   const rs = CHAT.slice(CHAT.indexOf("function renderSites()"), CHAT.indexOf("function renderSiteWorkspace("));
   assert.ok(rs.length > 200, "the renderSites window came out empty");
-  assert.match(rs, /if \(open\) \{ resumeOpenSite\(open\); renderSiteWorkspace\(view, open\); return; \}/,
+  // AND THE SITE'S LIVE QUESTION IS CHECKED THERE TOO (2026-10-02, `siteAskCheck`).
+  assert.match(rs, /if \(open\) \{ resumeOpenSite\(open\); siteAskCheck\(open\); renderSiteWorkspace\(view, open\); return; \}/,
     "the open site is not resumed before it is drawn");
   const re = CHAT.slice(CHAT.indexOf("function resumeEditJob("), CHAT.indexOf("function resumeOpenSite("));
   const ro = CHAT.slice(CHAT.indexOf("function resumeOpenSite("), CHAT.indexOf("function siteAddon("));
@@ -943,7 +945,9 @@ test("the resume is wired: on site selection, once per job, with the ask and the
   const rows = ro.indexOf("siteBuildStart(true);");
   assert.ok(started > 0 && busy > started && rows > busy, "busy is set before the watch is known to have started");
   // THE TAIL IS THE SEND PATH'S: the reply onto the thread, saved, re-drawn.
-  assert.match(ro, /s\.msgs\.push\(\{ r: 'a', t: reply \}\);/, "the resumed reply does not reach the thread");
+  // RE-ANCHORED 2026-10-02: through `siteReplyMsg`, every finish's one writer,
+  // so a resumed job's question reaches the thread with its card.
+  assert.match(ro, /s\.msgs\.push\(siteReplyMsg\(reply\)\);/, "the resumed reply does not reach the thread");
   assert.match(ro, /if \(siteOpenId === origin\) renderSites\(\);/, "the resumed reply does not re-draw the workspace");
   // BOTH ENQUEUE SITES WRITE THE ASK, each with its route.
   // RE-ANCHORED 2026-09-24: the edit's receipt is read by `readEditReply` too,
@@ -953,11 +957,14 @@ test("the resume is wired: on site selection, once per job, with the ask and the
   // (`also`), so a hop from a resumed watch holds back what the live one would.
   // RE-ANCHORED 2026-10-02: and whether the add-on handed the ask here
   // (`fromAddon`), so a resumed watch keeps the bound that stops it going back.
-  assert.match(CHAT, /EditPoll\.rememberJob\(slug, \w+\.job, undefined, \{ ask: instruction, op: 'edit', layer: String\(d\.layer \|\| ''\), page: d\.page \? String\(d\.page\) : '', handedOff: !!handedOff, also: d\.alsoAsked, fromAddon: d\.fromAddon === true \}\)/,
+  // AND A REQUEST RESUMED FROM A QUESTION KEEPS ITS TWO FACTS (2026-10-02):
+  // what it put off before the question, and how many questions it has asked.
+  assert.match(CHAT, /EditPoll\.rememberJob\(slug, \w+\.job, undefined, \{ ask: instruction, op: 'edit', layer: String\(d\.layer \|\| ''\), page: d\.page \? String\(d\.page\) : '', handedOff: !!handedOff, also: d\.alsoAsked, fromAddon: d\.fromAddon === true, putOff: d\.putOff, askRound: d\.askRound \}\)/,
     "the edit route no longer stores the ask");
-  assert.match(CHAT, /EditPoll\.rememberJob\(slug, \w+\.job, undefined, \{ ask: instruction, op: 'addon'[^\n]*, also: d && d\.alsoAsked \}\)/,
+  assert.match(CHAT, /EditPoll\.rememberJob\(slug, \w+\.job, undefined, \{ ask: instruction, op: 'addon'[^\n]*, also: d && d\.alsoAsked, putOff: d && d\.putOff, askRound: d && d\.askRound \}\)/,
     "the addon route does not store what was held back");
-  assert.match(re, /const d = \{ layer: rec\.layer, page: rec\.page, \.\.\.\(rec\.also \? \{ alsoAsked: rec\.also \} : \{\}\), \.\.\.\(rec\.fromAddon \? \{ fromAddon: true \} : \{\}\) \};/,
+  // AND A RESUMED QUESTION'S REQUEST KEEPS ITS TWO FACTS ON THE HOP (2026-10-02).
+  assert.match(re, /const d = \{ layer: rec\.layer, page: rec\.page, \.\.\.\(rec\.also \? \{ alsoAsked: rec\.also \} : \{\}\), \.\.\.\(rec\.fromAddon \? \{ fromAddon: true \} : \{\}\),\s+\.\.\.\(rec\.putOff \? \{ putOff: rec\.putOff \} : \{\}\), \.\.\.\(rec\.askRound \? \{ askRound: rec\.askRound \} : \{\}\) \};/,
     "a resumed watch does not hand its hop what was held back");
   // RE-ANCHORED 2026-09-24: the add-on's receipt is read by `readAddonReply`
   // now, and its job rides the reader's answer. The property is the ask and the

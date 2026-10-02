@@ -384,7 +384,11 @@ test("each probe is posted as the browser posts it, with the site's real page li
   const open = chat.indexOf("body: JSON.stringify({", at) + "body: JSON.stringify({".length;
   const line = chat.slice(open, chat.indexOf("}),", open));
   assert.ok(at > 0 && line.length > 20, "the browser's routing call moved — the observer is alive");
-  const fields = [...line.matchAll(/([a-zA-Z]+):/g)].map((m) => m[1]).filter((k) => k !== "picker");
+  // `ask` (2026-10-02) — `{ id, chosen }` — rides ONLY an answer to a site's
+  // live question, and is absent on a fresh message, which is what a probe is.
+  assert.match(line, /ask: !isBuild && answer && typeof answer\.id === 'string' \? \{ id: answer\.id, chosen: answer\.chosen === true \} : undefined/,
+    "the browser sends `ask` on a message that answers nothing");
+  const fields = [...line.replace(/ask: !isBuild && answer[^}]*\} : undefined/, "").matchAll(/([a-zA-Z]+):/g)].map((m) => m[1]).filter((k) => k !== "picker");
   assert.deepEqual(Object.keys(body).sort(), [...new Set(fields)].sort(), "the probe does not post the fields the browser posts");
 });
 

@@ -447,7 +447,10 @@ test("THE ROUTE IS REACHABLE AND THE CLIENT SENDS THE PICTURE", () => {
   // repo has recorded as the failure shape ten times over.
   assert.match(worker, /if \(eLayer === "logo"\)/, "the Worker has no logo branch");
   assert.match(chat, /images: d\.layer === 'logo'/, "the client never sends the attachment to the edit route");
-  assert.match(chat, /siteEdit\(site, d, t, origin, finish, go, imgs\)/, "siteEdit is not given the attachments");
+  // RE-ANCHORED 2026-10-02: the files that go with the work start as this
+  // message's own (`sendImgs`), and an answered question adds its request's.
+  assert.match(chat, /let sendImgs = Array\.isArray\(imgs\) \? imgs\.slice\(0, 3\) : \[\];/, "the work's files are not the message's own");
+  assert.match(chat, /siteEdit\(site, d, run, origin, finish, go, sendImgs\)/, "siteEdit is not given the attachments");
 });
 
 test("…and the router can name the layer", () => {

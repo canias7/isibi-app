@@ -30,6 +30,8 @@
 
 import { READ_LEVELS, WRITE_LEVELS, ACCESS_PRESETS, resolveAccess } from "../site-access.mjs";
 import { modelsFor } from "./build-models.mjs";
+// THE QUESTION BACK (2026-10-02), shared with every step (`builder/clarify.mjs`).
+import { QUESTION_FIELD, askOf } from "./clarify.mjs";
 
 /**
  * Haiku, deliberately, and the reason is the validation rather than the task
@@ -208,6 +210,8 @@ export const RULES_TOOL = {
           required: ["table"],
         },
       },
+      // A QUESTION BACK (2026-10-02, builder/clarify.mjs): asked instead of acting, with nothing changed.
+      question: QUESTION_FIELD,
     },
     required: ["tables"],
   },
@@ -525,6 +529,11 @@ export async function runRulesEdit(deps, { instruction, tables, model = RULES_MO
     return { ok: false, escalate: false, reason: "send", error: e, usage: null };
   }
   const usage = rulesUsage(reply, model);
+  // A QUESTION BACK (2026-10-02): the model could not tell which list or what
+  // rule is meant without a detail they left out. Nothing is applied; the
+  // route asks it.
+  const ask = askOf(reply);
+  if (ask) return { ok: false, escalate: false, reason: "ask", ask, usage };
   const { changes, refused } = readRules(reply, usable);
   // THE NO-MATCH REPLY IS COMPOSED HERE, not at the call site, and that is not
   // tidiness: a refusal carries the reason a rule could not be applied, and a

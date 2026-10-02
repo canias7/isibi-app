@@ -103,6 +103,9 @@ import { MAX_CSS } from "./site-freecss.mjs";
 // own sentence for that layer (`pickRequest`). `site-ask.mjs` imports nothing
 // but the model table, so this adds no cycle.
 import { DOOR_LAYERS, layerLine, wordsIn, normalizePagePath } from "./site-ask.mjs";
+// THE QUESTION BACK (2026-10-02): the one field every step's tool carries, and
+// its reader — `builder/clarify.mjs`, shared with every other step.
+import { QUESTION_FIELD, askOf } from "./clarify.mjs";
 // THE QR CODES AS A LIST, read the one way every other reader reads them, so
 // the `qr` lane names the codes a site has exactly as the route patches them,
 // and a name a model answers is read by the one rule every name is read by.
@@ -1334,6 +1337,7 @@ export function pickTool(fields = LANE_FIELDS, { routed = false } = {}) {
         removes: removesProp("fields"),
         scopes: scopesProp("fields"),
         ...pageProps("fields"),
+        question: QUESTION_FIELD,
       },
       required: ["fields", "scopes"],
     },
@@ -1546,6 +1550,7 @@ function doorPickTool(list, lines) {
         removes: removesProp("additional", "The already-routed change is taken off already; it never goes here.\n"),
         scopes: scopesProp("additional", "The already-routed change is being made already; it never goes here. "),
         ...pageProps("additional"),
+        question: QUESTION_FIELD,
       },
       required: ["additional"],
     },
@@ -1849,6 +1854,10 @@ function doorPicked(reply, door, fields, model, message) {
     // change is the router's step and keeps the router's page. `scoped` says
     // whether the answer carried scope metadata at all (`readScopes`).
     ...scopesOf(readScopes(reply, work, message)),
+    // A QUESTION BACK (2026-10-02): the picker could not tell what else is
+    // asked without a detail they left out. The caller asks it before
+    // anything runs, the router's own step included.
+    ask: askOf(reply) || undefined,
     usage: laneUsage(reply, model),
     failed: false,
   };
@@ -1963,6 +1972,11 @@ export async function pickLanes(deps, { message, fields = LANE_FIELDS, current =
     // shape: a caller that forgets to look at `removes` runs the lanes as
     // ordinary changes, which is the old behaviour and not a new failure.
     removes,
+    // A QUESTION BACK (2026-10-02): the picker could not tell which part of
+    // the site is meant without a detail they left out, so it asked instead
+    // of guessing. When it asks, nothing it named runs: the caller asks the
+    // question before any lane does (`builder/clarify.mjs`).
+    ask: askOf(reply) || undefined,
     usage: laneUsage(reply, model),
     failed: false,
   };

@@ -35,6 +35,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import vm from "node:vm";
 import { addonFailure } from "../builder/site-addon.mjs";
+import { ASK_FNS, ASK_LINES } from "./fixtures/browser-ask.mjs";
 
 const require = createRequire(import.meta.url);
 const P = require("../public/edit-poll.js");
@@ -80,6 +81,10 @@ const SRC = [
   cut("function siteAddon("),
   cut("function addonAnswer("),
   cut("function readRouteReply("),
+  // A QUESTION ON A SITE THAT EXISTS (2026-10-02): the block the cut functions
+  // now reach — its readers, the card's state and the files kept beside it.
+  ...ASK_FNS.map((n) => cut("function " + n + "(")),
+  ...ASK_LINES.map(cutLine),
   cut("function readAddonReply("),
   cut("function readEditReply("),
   cut("function applyAddonResult("),

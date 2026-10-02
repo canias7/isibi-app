@@ -124,6 +124,8 @@ import { extractText } from "./site-text.mjs";
 // the tweak rung, whose guards keep the words and the route; the render
 // check's own serious kinds; the language-prefix reading — and nothing else.
 import { runTweak } from "./site-tweak.mjs";
+// THE QUESTION BACK (2026-10-02), shared with every step (`builder/clarify.mjs`).
+import { QUESTION_FIELD, askOf } from "./clarify.mjs";
 // ONE NEW ROW'S VALUE RULE AND ITS INSERT, shared with the data step (2026-10-01).
 import { rowValues, insertStatement } from "./site-rows.mjs";
 import { SERIOUS } from "./site-render.mjs";
@@ -1402,6 +1404,9 @@ export function pickTool(kinds = ADD_KINDS) {
             "If you cannot tell which kind they mean, name the single closest one.\n\n" +
             "The kinds:\n" + lines.join("\n"),
         },
+        // A QUESTION BACK (2026-10-02, builder/clarify.mjs): asked instead of
+        // naming a kind on a guess, with nothing added until they reply.
+        question: QUESTION_FIELD,
       },
       required: ["kinds"],
     },
@@ -1519,7 +1524,9 @@ export async function pickAdds(deps, { message, kinds = ADD_KINDS, current = "",
   } catch (e) {
     return { kinds: [], usage: null, failed: true, error: e };
   }
-  return { kinds: readAdds(reply, kinds), usage: addUsage(reply, model), failed: false };
+  // A QUESTION BACK (2026-10-02): what is to be added cannot be told without a
+  // detail they left out. The caller asks it before anything runs.
+  return { kinds: readAdds(reply, kinds), ask: askOf(reply) || undefined, usage: addUsage(reply, model), failed: false };
 }
 
 /* --------------------------------------------------------------- the design */

@@ -510,7 +510,15 @@ test("the edit path is a fraction of the build path — measured, not claimed", 
   // The css lane is what customers reach for most, and it was paying for the
   // backend schema, the component manifest and the shape book on every colour
   // change. Both calls of the new path together, against the one old call.
-  assert.ok(pick + css < whole / 10,
+  //
+  // RE-ANCHORED 2026-10-02, ONE TENTH TO ONE EIGHTH, and the growth is named:
+  // the picker gained the optional `question` field (`QUESTION_FIELD` in
+  // builder/clarify.mjs, 884 characters), so a step that cannot tell which
+  // thing is meant asks instead of guessing. Measured: 10,567 against 97,142
+  // (1/9.2); the pair had been sitting 43 characters under the old line, at
+  // 9,671. The router alone keeps its tenth below (9,254 against 9,714), and
+  // the per-lane anchor is untouched: no lane's instructions moved into it.
+  assert.ok(pick + css < whole / 8,
     "the edit path is no longer materially smaller than the build tool (" + (pick + css) + " vs " + whole + ")");
   // And the router really is the small half — if it grew to carry each field's
   // full instructions it would cost more than the call it exists to shrink.

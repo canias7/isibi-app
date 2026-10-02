@@ -146,14 +146,27 @@ export function deferredOf(parts) {
  * anything else (a receipt before the message was read has nothing to add)
  * passes untouched, and so does a reply whose body cannot be read.
  */
-export async function heldReport(res, parts) {
+//
+// AND WHAT A QUESTION'S REQUEST PUT OFF BEFORE IT (2026-10-02, `earlier`): the
+// parts a request resumed from a question carried in, which are not in its
+// message, so they are never taken out of it or run. Named on every reply as
+// `putOff`, apart from `deferred` — a hop sends `deferred` on as the parts to
+// take out of its message, and these are not there to take out.
+export async function heldReport(res, parts, earlier) {
   const deferred = deferredOf(parts);
-  if (deferred === undefined || !res || !res.headers) return res;
+  const putOff = deferredOf(earlier);
+  if ((deferred === undefined && putOff === undefined) || !res || !res.headers) return res;
   if (!String(res.headers.get("content-type") || "").includes("application/json")) return res;
   let body;
   try { body = await res.clone().json(); } catch { return res; }
-  if (!body || typeof body !== "object" || Array.isArray(body) || Object.hasOwn(body, "deferred")) return res;
+  if (!body || typeof body !== "object" || Array.isArray(body)) return res;
+  const out = { ...body };
+  let added = false;
+  if (deferred !== undefined && !Object.hasOwn(body, "deferred")) { out.deferred = deferred; added = true; }
+  if (putOff !== undefined && !Object.hasOwn(body, "putOff")) { out.putOff = putOff; added = true; }
+  // NOTHING TO ADD IS THE REPLY AS IT CAME — the same object, never a copy.
+  if (!added) return res;
   const headers = new Headers(res.headers);
   headers.delete("content-length");
-  return new Response(JSON.stringify({ ...body, deferred }), { status: res.status, headers });
+  return new Response(JSON.stringify(out), { status: res.status, headers });
 }

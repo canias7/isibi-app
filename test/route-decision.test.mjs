@@ -53,7 +53,22 @@ const CASES = [
   }, "fallback"],
   ["no-tool-call", () => routed(null, {}, { content: [{ type: "text", text: "hello" }] }), "fallback"],
   ["intent-unknown", () => routed({ intent: "redesign" }), "fallback"],
-  ["clarify-closed", () => routed({ intent: "clarify", question: QUESTION }), "fallback"],
+  // A FIRST BUILD WHOSE QUESTIONS ARE SPENT: the question back is overruled to
+  // its fallback, as it always was. (A site that exists has its own budget and
+  // its own code since 2026-10-02: `clarify-spent`, below.)
+  ["clarify-closed", () => routed({ intent: "clarify", question: QUESTION }, {
+    firstBuild: true, hasSite: false, site: {},
+    qa: [{ q: "a?", a: "1" }, { q: "b?", a: "2" }, { q: "c?", a: "3" }],
+  }), "fallback"],
+  // A SITE THAT EXISTS (2026-10-02): a question past this request's questions is
+  // shown as written with nothing waiting — never turned into work; a reply to a
+  // waiting question that does not say whether it answers it fails the call;
+  // and the flag with no question waiting is left out.
+  ["clarify-spent", () => routed({ intent: "clarify", question: QUESTION }, { askRound: 2 }), "model"],
+  ["answered-unread", () => routed({ intent: "edit", layer: "look" }, {
+    pending: { request: "Change the photo.", question: { text: "Which photo?", options: [] } },
+  }), "fallback"],
+  ["answered-ignored", () => routed({ intent: "edit", layer: "look", answered: true }), "model"],
   ["clarify-unreadable", () => routed({ intent: "clarify", question: { text: "", options: [] } }, { firstBuild: true, hasSite: false, site: {} }), "fallback"],
   ["work-without-site", () => routed({ intent: "edit", layer: "look" }, { hasSite: false }), "fallback"],
   ["ask-empty", () => routed({ intent: "ask", answer: "  " }), "fallback"],

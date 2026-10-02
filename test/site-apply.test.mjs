@@ -873,7 +873,8 @@ test("an edit is dispatched, a classified climb falls back to the build, and not
     "an escalation is not handed to the escalation handler");
   const core = CHAT.slice(CHAT.indexOf("function readRouteReply("), CHAT.indexOf("function readAddonReply("));
   const escAt = core.indexOf("if (a.escalate === true) {");
-  const failAt = core.indexOf("if (a.ok === false) return { act: 'refusal' };");
+  // RE-ANCHORED 2026-10-02: a refusal carries a step's question when one asked beside it.
+  const failAt = core.indexOf("if (a.ok === false) return { act: 'refusal', ask };");
   assert.ok(escAt > 0 && failAt > 0, "the escalate check or the failure check is gone");
   assert.ok(escAt < failAt,
     "an escalation is not handled before the failure branch, so a 200 carrying escalate:true is shown as an error");
@@ -909,7 +910,8 @@ test("an edit is dispatched, a classified climb falls back to the build, and not
   assert.match(core, /if \(!a \|\| typeof a\.ok !== 'boolean'\) return unknown;/, "an unreadable body is no longer read as not knowing");
   // RE-ANCHORED 2026-10-02 (the audit's W7): and what was put off, from what
   // the post carried — never anything more that would start work.
-  assert.match(ans, /if \(said\.act === 'unknown' \|\| said\.act === 'receipt'\) \{ o\.finish\('⚠️ ' \+ unreadEditMsg\(\) \+ alsoTail\(\{ deferred: o\.d && o\.d\.alsoAsked \}, false\)\); return; \}/,
+  // AND WHAT A QUESTION'S REQUEST PUT OFF BEFORE IT (2026-10-02, `putOff`).
+  assert.match(ans, /if \(said\.act === 'unknown' \|\| said\.act === 'receipt'\) \{ o\.finish\('⚠️ ' \+ unreadEditMsg\(\) \+ alsoTail\(\{ deferred: o\.d && o\.d\.alsoAsked, putOff: o\.d && o\.d\.putOff \}, false\)\); return; \}/,
     "an unreadable body no longer says it cannot tell");
   assert.ok(!/said\.act === 'unknown'[^}]*fallback/.test(ans), "an unreadable body still reaches the rewrite");
   assert.match(b, /\}\)\.catch\(\(\) => \{ finish\('⚠️ ' \+ unreadEditMsg\(\) \+ alsoTail\(\{ deferred: d\.alsoAsked \}, false\)\); \}\)/,

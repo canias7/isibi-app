@@ -39,6 +39,8 @@
 
 import { routeOf } from "./site-addon.mjs";
 import { modelsFor } from "./build-models.mjs";
+// THE QUESTION BACK (2026-10-02), shared with every step (`builder/clarify.mjs`).
+import { QUESTION_FIELD, askOf } from "./clarify.mjs";
 
 /**
  * THE PICKED MODEL, NOT A HARDCODED ONE (owner, 2026-08-31).
@@ -665,6 +667,8 @@ export const NAV_TOOL = {
           },
         },
       },
+      // A QUESTION BACK (2026-10-02, builder/clarify.mjs): asked instead of acting, with nothing changed.
+      question: QUESTION_FIELD,
     },
   },
 };
@@ -1699,6 +1703,11 @@ export async function runNavEdit(deps, { instruction, pages, routes, model = NAV
   try { reply = await deps.send(navRequest({ instruction, slots, routes, actions, links, contacts, lists, layouts, seconds, addition: addition === true, model })); }
   catch (e) { return { ok: false, escalate: false, reason: "send", error: e, usage: null }; }
   const usage = navUsage(reply, model);
+  // A QUESTION BACK (2026-10-02): the model could not tell which link, button
+  // or detail is meant without a detail they left out. Nothing is changed; the
+  // route asks it.
+  const ask = askOf(reply);
+  if (ask) return { ok: false, escalate: false, reason: "ask", ask, usage };
 
   // A SECOND BUTTON NEEDS A FIRST: on a header with none, the button they
   // asked for IS the first one, whichever field the model put it in.

@@ -44,6 +44,8 @@ import { localParts } from "./site-files.mjs";
 // that makes the rung safe behind a caller remembering to pass it.
 import { lintPages } from "./page-gen.mjs";
 import { modelsFor } from "./build-models.mjs";
+// THE QUESTION BACK (2026-10-02), shared with every step (`builder/clarify.mjs`).
+import { QUESTION_FIELD, askOf } from "./clarify.mjs";
 
 /** A small call: editing a className is not a design task, and the saving IS the point. */
 /**
@@ -122,6 +124,8 @@ export const TWEAK_TOOL = {
           "in one short sentence. This is a perfectly good answer and costs nothing — a page that needs writing " +
           "is handed to the model that writes pages, so guessing here helps nobody.",
       },
+      // A QUESTION BACK (2026-10-02, builder/clarify.mjs): asked instead of acting, with nothing changed.
+      question: QUESTION_FIELD,
     },
   },
 };
@@ -742,6 +746,11 @@ export async function runTweak({ instruction, path, source, send, rules, heading
   // absence means. `parse` IS FORWARDED, not re-derived — dropping it here is
   // the wiring trap this repository records twelve times over, so the guard
   // drives the hop and a mutant cutting it dies.
+  // A QUESTION BACK (2026-10-02): the writer could not tell which part of the
+  // page is meant without a detail they left out. The page is not touched and
+  // the route asks it — read before the page, so a question never ships one.
+  const ask = askOf(reply);
+  if (ask) return { ok: false, reason: "ask", ask, usage: tweakUsage(reply, model) };
   const parse = await tweakParser();
   return { ...readTweak(reply, { source, inPart, parse }), usage: tweakUsage(reply, model) };
 }

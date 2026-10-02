@@ -135,7 +135,8 @@ test("the browser runs the addon route on that answer, with the same sentence", 
   // AND THE ESCALATE ITSELF RIDES AS `why` (2026-10-02, the audit's W24): its
   // reason, field and `deferred` reach the add-on as the hand-over.
   // AND THE ESCALATE'S PAGE, the addition's scope (the look step names it).
-  assert.match(fn.slice(addon, hop), /siteAddon\(o\.site, o\.instruction, o\.origin, o\.finish, o\.fallback, EditPoll\.handOver\(o\.d, \{ layer: 'addon', page: e\.page \}, why\)\)/, "the addon is not run with the customer's own sentence and fallback");
+  // AND THE MESSAGE'S FILES (2026-10-02), which a question the add-on asks keeps for the answer.
+  assert.match(fn.slice(addon, hop), /siteAddon\(o\.site, o\.instruction, o\.origin, o\.finish, o\.fallback, EditPoll\.handOver\(o\.d, \{ layer: 'addon', page: e\.page \}, why\), o\.imgs\)/, "the addon is not run with the customer's own sentence and fallback");
   assert.match(fn, /const why = \{ from: o\.d && o\.d\.layer, reply: e \};/, "the hand-over is not told which step it left and what that step answered");
   // The decision lives in the module a test can drive, not in chat.js — so it
   // is DRIVEN, not read (2026-10-02). It was pinned by its spelling, and the

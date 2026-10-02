@@ -39,6 +39,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import { ASK_FNS, ASK_LINES } from "./fixtures/browser-ask.mjs";
 
 const CHAT = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
 const POLL = readFileSync(new URL("../public/edit-poll.js", import.meta.url), "utf8");
@@ -87,6 +88,10 @@ const SRC = [
   cut("function siteAddon("),
   cut("function addonAnswer("),
   cut("function readRouteReply("),
+  // A QUESTION ON A SITE THAT EXISTS (2026-10-02): the block the cut functions
+  // now reach — its readers, the card's state and the files kept beside it.
+  ...ASK_FNS.map((n) => cut("function " + n + "(")),
+  ...ASK_LINES.map(cutLine),
   cut("function readAddonReply("),
   cut("function readEditReply("),
   cut("function applyAddonResult("),

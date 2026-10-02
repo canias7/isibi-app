@@ -48,6 +48,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { createRequire } from "node:module";
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
+import { ASK_FNS, ASK_LINES } from "./fixtures/browser-ask.mjs";
 // THE PAGE'S OWN POLLER UNDER THE STAND-IN (2026-10-02): the held-part helpers
 // the posts and the last sentence use (`heldWire`, `heldList`) are its real ones,
 // and only the key and the outcome wording are made deterministic here.
@@ -94,6 +95,10 @@ const SRC = [
   cut("function siteAddon("),
   cut("function addonAnswer("),
   cut("function readRouteReply("),
+  // A QUESTION ON A SITE THAT EXISTS (2026-10-02): the block the cut functions
+  // now reach — its readers, the card's state and the files kept beside it.
+  ...ASK_FNS.map((n) => cut("function " + n + "(")),
+  ...ASK_LINES.map(cutLine),
   cut("function readAddonReply("),
   cut("function readEditReply("),
   cut("function addonOutcomeMsg("),
@@ -181,6 +186,8 @@ async function drive({ site, message, route, follow, routes }) {
     // Pushed inside the context, so another realm's objects — copied out.
     said: msgs.slice(1),
     clarify: s.clarify == null ? null : JSON.parse(JSON.stringify(s.clarify)),
+    // A LIVE SITE'S QUESTION (2026-10-02): the card's state the site keeps.
+    ask: s.ask == null ? null : JSON.parse(JSON.stringify(s.ask)),
     // What the site keeps for its composer to hand back (`siteHoldUnsent`).
     asked: message,
     held: s.unsent == null ? null : JSON.parse(JSON.stringify(s.unsent)),
@@ -388,12 +395,22 @@ test("CONTROL: a question with an answer is said, and buys nothing", async () =>
   assert.equal(o.rail, "(stopped)");
 });
 
-test("CONTROL: a clarify round on a live site is drawn as it came, stores its round, and buys nothing", async () => {
-  const o = await drive({ site: LIVE, message: ASK, route: clarify({ text: "Which footer?", options: ["Main", "Shop"] }) });
+// ── A QUESTION ON A LIVE SITE (2026-10-02) ──────────────────────────────────
+// RE-ANCHORED, and the old pair named. These two drew a live site's question as
+// a FIRST BUILD's round — `site.clarify` holding the message as a brief, so the
+// answer would have gone on with `firstBuild` — a shape the route never sent
+// then (a live site's clarify was closed to an add-on). The route asks on a
+// live site now, and its question carries the id it was kept under
+// (`builder/clarify.mjs`): drawn with its answers, kept as the site's live
+// question, and never a first build's round.
+const QID = "a".repeat(32);
+test("CONTROL: a question on a live site is drawn with its answers, kept as the site's live question — never a first build's round — and buys nothing", async () => {
+  const o = await drive({ site: LIVE, message: ASK, route: clarify({ id: QID, text: "Which footer?", options: ["Main", "Shop"] }) });
   assert.deepEqual(o.posts, [], "a question sends nothing after the routing call");
-  assert.deepEqual(o.said, [{ r: "a", t: "Which footer?", q: "Which footer?", opts: ["Main", "Shop"] }],
-    "the question is drawn in its own words, with its two answers to press");
-  assert.deepEqual(o.clarify, { brief: ASK, qa: [], imgs: [] }, "the round is stored, so the answer is put back together with the brief");
+  assert.deepEqual(o.said, [{ r: "a", t: "Which footer?", q: "Which footer?", opts: ["Main", "Shop"], ask: QID }],
+    "the question is drawn in its own words, with its two answers to press, under its id");
+  assert.equal(o.clarify, null, "a live site is never given a first build's round");
+  assert.deepEqual(o.ask, { id: QID, text: "Which footer?", options: ["Main", "Shop"], attached: false }, "the site keeps the live question");
   assert.equal(o.busy, false);
   assert.equal(o.rail, "(stopped)");
   assert.equal(o.clock.started, 1);
@@ -401,13 +418,35 @@ test("CONTROL: a clarify round on a live site is drawn as it came, stores its ro
   assert.equal(o.ticker, null);
 });
 
-test("CONTROL: four answers, or more, draw the first four", async () => {
+test("CONTROL: four answers, or more, draw the first four; none is a question to answer in words", async () => {
   const four = ["Main", "Shop", "Blog", "Help"];
   for (const options of [four, [...four, "Other"]]) {
-    const o = await drive({ site: LIVE, message: ASK, route: clarify({ text: "Which footer?", options }) });
+    const o = await drive({ site: LIVE, message: ASK, route: clarify({ id: QID, text: "Which footer?", options }) });
     assert.deepEqual(o.posts, []);
-    assert.deepEqual(o.said, [{ r: "a", t: "Which footer?", q: "Which footer?", opts: four }], json(options));
-    assert.deepEqual(o.clarify, { brief: ASK, qa: [], imgs: [] });
+    assert.deepEqual(o.said, [{ r: "a", t: "Which footer?", q: "Which footer?", opts: four, ask: QID }], json(options));
+    assert.deepEqual(o.ask, { id: QID, text: "Which footer?", options: four, attached: false });
+    assert.equal(o.clarify, null);
+  }
+  const o = await drive({ site: LIVE, message: ASK, route: clarify({ id: QID, text: "Which footer?", options: [] }) });
+  assert.deepEqual(o.said, [{ r: "a", t: "Which footer?", q: "Which footer?", opts: [], ask: QID }]);
+  assert.deepEqual(o.ask, { id: QID, text: "Which footer?", options: [], attached: false });
+});
+
+test("A LIVE SITE'S QUESTION WITHOUT THE ID IT WAS KEPT UNDER, or with a malformed one, is not acted on: said, the message kept, nothing set", async () => {
+  for (const question of [
+    { text: "Which footer?", options: ["Main", "Shop"] },
+    { id: "nope", text: "Which footer?", options: ["Main", "Shop"] },
+    { id: QID, text: "", options: ["Main", "Shop"] },
+    { id: QID, text: "Which footer?", options: ["Main", 3] },
+    { id: QID, text: "Which footer?", options: "Main" },
+  ]) {
+    const o = await drive({ site: LIVE, message: ASK, route: clarify(question) });
+    assert.deepEqual(o.posts, [], json(question));
+    assert.equal(o.ask, null, json(question) + ": no question is kept");
+    assert.equal(o.clarify, null, json(question));
+    assert.equal(o.said.length, 1, json(question));
+    assert.match(o.said[0].t, /couldn’t work out what to do with that/, json(question));
+    assert.deepEqual(o.held, [{ t: ASK, imgs: [] }], json(question) + ": the message is kept for its composer");
   }
 });
 

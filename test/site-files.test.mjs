@@ -142,7 +142,10 @@ test("the text lane reads BOTH stores, and both halves are published", () => {
   const end = WORKER.indexOf('if (eLayer === "look"', at);
   assert.ok(end > at, "the lane after `text` moved — re-derive the closing landmark");
   const lane = WORKER.slice(at, end);
-  assert.ok(lane.length > 200 && lane.length < 8000, "re-derive this window");
+  // RE-DERIVED 2026-10-02, 8,000 to 9,000: the lane grew one line, the check
+  // that its model asked a question back (`stepAsk`), and measures 8,095. The
+  // ceiling is what proves the slice is the lane and not the rest of the file.
+  assert.ok(lane.length > 200 && lane.length < 9000, "re-derive this window");
   assert.match(lane, /editableFiles\(eSrc, eParts\)/, "the lane no longer shows the rung the site's components");
   // RE-ANCHORED 2026-09-20, and the move is the fix rather than a rename.
   // `loadSiteParts` COLLAPSES "this site has no components" and "the read

@@ -380,12 +380,15 @@ test("siteAddon mints one key per POST and watches a filed job with the addon's 
   // RE-ANCHORED 2026-09-24: both calls hand on the POST's own latched finish
   // rather than the bare one, so the POST's catch never speaks over a sentence
   // already out. The property is that it is ONE finish, whatever it is called.
-  const watched = fn.match(/watchEditJob\(site, d, \w+\.job, origin, (\w+), fallback, instruction, undefined, addonAnswer\);/);
+  // RE-ANCHORED 2026-10-02: the message's files ride the watch (`imgs`), so a
+  // question the queued add-on asks keeps them for the answer.
+  const watched = fn.match(/watchEditJob\(site, d, \w+\.job, origin, (\w+), fallback, instruction, imgs, addonAnswer\);/);
   assert.ok(watched, "a filed addon is not watched through the shared watcher with the addon reader");
   // …AND ONLY INSIDE THE BRANCH THE READER OPENED.
   assert.ok(fn.indexOf(watched[0]) > receipt, "a job is watched outside the receipt branch");
   // THE ONE READER, BOTH WAYS.
-  const read = fn.match(/return addonAnswer\(r && r\.ok, a, \{ site, d, instruction, origin, finish(?:: (\w+))?, fallback, slug \}\);/);
+  // AND THE MESSAGE'S FILES SINCE 2026-10-02 (`imgs`), kept beside a question the add-on asks.
+  const read = fn.match(/return addonAnswer\(r && r\.ok, a, \{ site, d, instruction, origin, finish(?:: (\w+))?, fallback, slug, imgs \}\);/);
   assert.ok(read, "the synchronous reply bypasses addonAnswer");
   assert.equal(read[1] || "finish", watched[1], "the queued and the synchronous reply are finished by different functions");
   // THE WORD, not the call: the watcher is handed the reader as a value, with

@@ -51,6 +51,8 @@
 import { extractText, applyEdits } from "./site-text.mjs";
 import { sortSlots, sortDigest, sortColumns, applySort, sortReply, sortRefusal, SORT_DIRS } from "./site-order.mjs";
 import { modelsFor } from "./build-models.mjs";
+// THE QUESTION BACK (2026-10-02), shared with every step (`builder/clarify.mjs`).
+import { QUESTION_FIELD, askOf } from "./clarify.mjs";
 // ONE NEW ROW, ADMITTED AND WRITTEN THE SAME WAY FROM EITHER DOOR (2026-10-01):
 // the value rule `readDataChanges` applies, and the INSERT the route writes.
 import { rowValues } from "./site-rows.mjs";
@@ -137,6 +139,7 @@ export const TEXT_TOOL = {
           required: ["id", "to"],
         },
       },
+      question: QUESTION_FIELD,
     },
     required: ["edits"],
   },
@@ -374,6 +377,10 @@ export async function runTextEdit(deps, { instruction, pages, model = TEXT_MODEL
     return { ok: false, escalate: false, reason: "send", error: e, usage: null };
   }
   const usage = textUsage(reply, model);
+  // A QUESTION BACK (2026-10-02): the model could not tell which wording is
+  // meant without a detail they left out. Nothing is changed; the route asks it.
+  const ask = askOf(reply);
+  if (ask) return { ok: false, escalate: false, reason: "ask", ask, usage };
   const edits = readTextEdits(reply, items);
   if (!edits.length) return { ok: false, escalate: true, reason: "no-match", usage };
   const ed = applyEdits(pages, edits);
@@ -513,6 +520,7 @@ export const DATA_TOOL = {
         },
         required: ["table", "column"],
       },
+      question: QUESTION_FIELD,
     },
     required: ["changes"],
   },
@@ -757,6 +765,10 @@ export async function runDataEdit(deps, { instruction, tables, recent, pages, mo
     return { ok: false, escalate: false, reason: "send", error: e, usage: null };
   }
   const usage = dataUsage(reply, model);
+  // A QUESTION BACK (2026-10-02): the model could not tell which entry is meant
+  // without a detail they left out. No row is written; the route asks it.
+  const ask = askOf(reply);
+  if (ask) return { ok: false, escalate: false, reason: "ask", ask, usage };
   const changes = readDataChanges(reply, usable);
 
   // ── WHAT ORDER A LIST COMES OUT IN ────────────────────────────────────────

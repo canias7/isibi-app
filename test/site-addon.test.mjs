@@ -464,7 +464,10 @@ test("the composer dispatches an addon, and only the route's own no-layer escala
   assert.ok(esc > 0, "the escalate branch is gone");
   const fail = b.indexOf("if (said.act === 'refusal') {", esc);
   assert.ok(fail > esc, "the failure check no longer follows the escalate branch");
-  const branch = b.slice(esc, fail);
+  // ENDED AT THE QUESTION'S BRANCH WHEN IT COMES FIRST (2026-10-02): a step
+  // that asked sits between the escalate and the refusal, and is not either.
+  const askAt = b.indexOf("if (said.act === 'clarify') {", esc);
+  const branch = b.slice(esc, askAt > esc && askAt < fail ? askAt : fail);
   // AN ESCALATE NAMING THE ADDON ITSELF NEVER HOPS. This pinned `layer !==
   // 'addon'`; the reader admits a hop only to a layer the edit route has, and
   // that list — the browser's copy of it — has no `addon`. Both halves read.
@@ -492,11 +495,13 @@ test("the composer dispatches an addon, and only the route's own no-layer escala
   // here.
   // RE-ANCHORED 2026-10-02 (the audit's W24/W8): both carry the one hand-over
   // — the parts put off, why, and the page — from the reader's own answer.
-  assert.match(branch, /return siteEdit\(o\.site, EditPoll\.handOver\(o\.d, \{ layer: said\.layer, page: said\.page, fromAddon: true \}, \{ from: 'addon', reply: said \}\), o\.instruction, o\.origin, o\.finish, o\.fallback, undefined, true\)/,
+  // AND THE MESSAGE'S FILES SINCE 2026-10-02 (`o.imgs`), kept beside a question the edit asks.
+  assert.match(branch, /return siteEdit\(o\.site, EditPoll\.handOver\(o\.d, \{ layer: said\.layer, page: said\.page, fromAddon: true \}, \{ from: 'addon', reply: said \}\), o\.instruction, o\.origin, o\.finish, o\.fallback, o\.imgs, true\)/,
     "the hop does not carry the customer's own sentence to the named layer as a handed-off edit");
   // RE-ANCHORED 2026-09-24: the climb calls the fallback itself — the `fall`
   // helper it used went, since nothing else reaches the rewrite from here.
-  assert.match(branch, /return o\.fallback\(EditPoll\.handOver\(o\.d, \{\}, \{ from: 'addon', reply: said \}\)\);\s*\}\s*$/, "an escalate that names no layer no longer falls to the revise");
+  // The window may end on the question branch's own comment (2026-10-02).
+  assert.match(branch, /return o\.fallback\(EditPoll\.handOver\(o\.d, \{\}, \{ from: 'addon', reply: said \}\)\);\s*\}\s*(?:\/\/[^\n]*\s*)*$/, "an escalate that names no layer no longer falls to the revise");
   // AND THE REVISE IS THE CUSTOMER'S OWN ASK, never a rewrite for a sentence
   // nobody re-typed: the climb is reached only when the ask is held.
   assert.match(b, /const canFall = typeof o\.fallback === 'function' && !!o\.instruction;/, "the fallback is not gated on holding the ask");
@@ -507,9 +512,10 @@ test("the composer dispatches an addon, and only the route's own no-layer escala
   // named. RE-ANCHORED 2026-09-24: both hand on the POST's own latched finish,
   // so its catch never speaks over a sentence already out — the property is
   // that it is the SAME one, whatever it is called.
-  const watch = b.match(/watchEditJob\(site, d, \w+\.job, origin, (\w+), fallback, instruction, undefined, addonAnswer\);/);
+  // RE-ANCHORED 2026-10-02: with the message's files (`imgs`), kept beside a question the queued add-on asks.
+  const watch = b.match(/watchEditJob\(site, d, \w+\.job, origin, (\w+), fallback, instruction, imgs, addonAnswer\);/);
   assert.ok(watch, "a queued addon is not watched with the addon reader");
-  const sync = b.match(/return addonAnswer\(r && r\.ok, a, \{ site, d, instruction, origin, finish(?:: (\w+))?, fallback, slug \}\);/);
+  const sync = b.match(/return addonAnswer\(r && r\.ok, a, \{ site, d, instruction, origin, finish(?:: (\w+))?, fallback, slug, imgs \}\);/);
   assert.ok(sync, "the synchronous reply is not read by addonAnswer");
   assert.equal(sync[1] || "finish", watch[1], "the queued and the synchronous reply are finished by different functions");
   // BOTH ANCHORS PROVED FIRST: `indexOf` answers -1 for a missing one, and
@@ -519,7 +525,8 @@ test("the composer dispatches an addon, and only the route's own no-layer escala
   // load-bearing there — an escalate is `ok: false` too, so a refusal check
   // asked first would read every escalate as a refusal.
   const escAt = reader.indexOf("if (a.escalate === true) {");
-  const failAt = reader.indexOf("if (a.ok === false) return { act: 'refusal' };");
+  // RE-ANCHORED 2026-10-02: a refusal carries a step's question when one asked beside it.
+  const failAt = reader.indexOf("if (a.ok === false) return { act: 'refusal', ask };");
   assert.ok(escAt > 0 && failAt > 0, "the escalate or the failure check is gone");
   assert.ok(escAt < failAt, "the escalation check must run before the failure check");
   // ⚠ RE-ANCHORED 2026-09-24 — THIS PINNED THE DEFECT. `.catch(fallback)` sent a

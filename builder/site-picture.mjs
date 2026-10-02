@@ -34,6 +34,8 @@ import { routeOf } from "./site-addon.mjs";
 // THE LEXER IS `site-files.mjs`' AND IS RE-EXPORTED BELOW — see `codeOnly`.
 import { codeOnly } from "./site-files.mjs";
 import { modelsFor } from "./build-models.mjs";
+// THE QUESTION BACK (2026-10-02), shared with every step (`builder/clarify.mjs`).
+import { QUESTION_FIELD, askOf } from "./clarify.mjs";
 
 /** A small call: matching a sentence to a list of sentences is not a design task. */
 /**
@@ -818,6 +820,8 @@ export const PICTURE_TOOL = {
           "to the step that can add one. LEAVE IT OUT when they meant a slot that IS listed and you simply could not " +
           "tell which: that is an honest no, and guessing here costs them a page rewrite they did not ask for.",
       },
+      // A QUESTION BACK (2026-10-02, builder/clarify.mjs): asked instead of acting, with nothing changed.
+      question: QUESTION_FIELD,
     },
     required: ["pictures"],
   },
@@ -1469,6 +1473,10 @@ export async function runPictureEdit(deps, { instruction, pages, model = PICTURE
   try { reply = await deps.send(pictureRequest({ instruction, slots, library, model })); }
   catch (e) { return { ok: false, escalate: false, reason: "send", error: e, usage: null }; }
   const usage = pictureUsage(reply, model);
+  // A QUESTION BACK (2026-10-02): the model could not tell which photograph is
+  // meant without a detail they left out. Nothing is changed; the route asks it.
+  const ask = askOf(reply);
+  if (ask) return { ok: false, escalate: false, reason: "ask", ask, usage };
 
   const all = readPictures(reply, slots, library);
   // ── A REMOVAL IS CHECKED AGAINST THE PAGE BEFORE ANYTHING IS WRITTEN ──────

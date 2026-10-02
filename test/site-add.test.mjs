@@ -503,7 +503,14 @@ test("the step imports nothing from worker.js and carries none of the build's to
     // the route must find that line on the page before it publishes; a second
     // reader here would be two ideas of what counts as words, deciding
     // different things about the same page. It carries no path's wording.
-    assert.ok(["./site-plan.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs", "./site-tweak.mjs", "./site-render.mjs", "./site-langs.mjs", "./site-requirements.mjs", "./site-files.mjs", "./site-images.mjs", "./site-rows.mjs", "./site-text.mjs", "../site-access.mjs", "../site-schema.mjs", "../site-apis.mjs", "../site-api-shape.mjs", "../site-rls.mjs"].includes(from),
+    // `./clarify.mjs` (2026-10-02) is the contract EVERY STEP shares for asking
+    // the customer one thing back instead of guessing — `QUESTION_FIELD`, the
+    // same optional field on the look picker, the text, data, rules, picture,
+    // menu and page steps and this step's picker, and `askOf`, its one reader.
+    // Its only import is `site-ask.mjs`, for the router's own question reader
+    // and the per-request budget, so the router and every step hold a question
+    // to one rule. It carries the question field's wording and no path's.
+    assert.ok(["./site-plan.mjs", "./clarify.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs", "./site-tweak.mjs", "./site-render.mjs", "./site-langs.mjs", "./site-requirements.mjs", "./site-files.mjs", "./site-images.mjs", "./site-rows.mjs", "./site-text.mjs", "../site-access.mjs", "../site-schema.mjs", "../site-apis.mjs", "../site-api-shape.mjs", "../site-rls.mjs"].includes(from),
       "the add step reaches into a module the two paths do not share: " + from);
     assert.notEqual(from, "./site-repair.mjs", "the add step imports the BUILD's repair — the addon path triggering the build path");
   }

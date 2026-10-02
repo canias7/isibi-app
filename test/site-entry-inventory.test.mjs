@@ -48,6 +48,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { createRequire } from "node:module";
+import { ASK_FNS, ASK_LINES } from "./fixtures/browser-ask.mjs";
 // THE PAGE'S OWN POLLER UNDER THE STAND-IN (2026-10-02): the held-part helpers
 // the posts and the last sentence use (`heldWire`, `heldList`) are its real ones,
 // and only the key and the outcome wording are made deterministic here.
@@ -105,6 +106,10 @@ const SRC = [
   cut("function siteAddon("),
   cut("function addonAnswer("),
   cut("function readRouteReply("),
+  // A QUESTION ON A SITE THAT EXISTS (2026-10-02): the block the cut functions
+  // now reach — its readers, the card's state and the files kept beside it.
+  ...ASK_FNS.map((n) => cut("function " + n + "(")),
+  ...ASK_LINES.map(cutLine),
   cut("function readAddonReply("),
   cut("function readEditReply("),
   cut("function reactSend("),
