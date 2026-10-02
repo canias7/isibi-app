@@ -301,8 +301,11 @@ test("the server's own message reaches the customer", () => {
   // went to `/api/site`, deleted 2026-07-27, so the branch could not reach a 503
   // or anything else. It is a plain "this project needs rebuilding" message now
   // and makes no request at all, so there is no second 503 to keep in step.
-  assert.equal((src.match(/finish\(buildDownMsg\(d\)\)/g) || []).length, 1,
+  // RE-ANCHORED 2026-10-02 (the audit's W7): through `end`, the rewrite's
+  // finish that adds what was put off.
+  assert.equal((src.match(/\b(?:finish|end)\(buildDownMsg\(d\)\)/g) || []).length, 1,
     "the React send path no longer cans its own 503 message");
+  assert.match(src, /const end = \(said\) => finish\(said \+ alsoTail\(heldSaid, false\)\);/, "the rewrite's failures no longer end through its own finish");
   // And the canned sentence is no longer written at a call site.
   const calls = src.split("function buildDownMsg(d)")[0] + src.split(/\n\}/).slice(-1)[0];
   assert.ok(!/builder’s busy right now/.test(src.replace(fn, "")),

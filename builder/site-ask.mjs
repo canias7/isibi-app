@@ -1020,6 +1020,7 @@ export const ROUTE_REASONS = Object.freeze({
   "also-not-text": Object.freeze({ kind: "changed", what: "a held-back part that was not text, left out" }),
   "also-too-long": Object.freeze({ kind: "changed", what: "a held-back part longer than any message, left out" }),
   "also-ignored": Object.freeze({ kind: "changed", what: "a held-back part on an answer that carries none, left out" }),
+  "also-dropped": Object.freeze({ kind: "changed", what: "a held-back part beside an edit answer that could not be used, left out: the step it falls to gets the whole message" }),
   "answer-ignored": Object.freeze({ kind: "changed", what: "reply text on an answer that is not a reply, left out" }),
   "question-ignored": Object.freeze({ kind: "changed", what: "a question on an answer that is not a question back, left out" }),
   "question-clipped": Object.freeze({ kind: "changed", what: "the question's text was shortened" }),
@@ -1189,7 +1190,24 @@ export function readRouting(reply, { canClarify = false, answering = false, atta
     return out;
   }
   if (hasSite && input.intent === "edit") {
-    const out = { ...readEdit(input, pages, trace), ...readAlso(input, trace) };
+    const { converted, ...edit } = readEdit(input, pages, trace);
+    // ── A CONVERTED EDIT IS A HAND-OVER, AND SAYS WHY (2026-10-02, W5) ───────
+    //
+    // The held-back part belongs to the decision it was made with. An edit of a
+    // page the site lacks is still that decision — the change, made as an
+    // addition on that page — so the part stays held back, and the add-on step
+    // is told the page and why it has the change. An answer the model did not
+    // decide (no step, an unknown one, a page edit naming no page) is not, and
+    // its held-back part goes with it: the step it falls to gets the whole
+    // message, told why, rather than the half the model meant for another step.
+    if (converted) {
+      const keeps = converted.reason === "page-unknown";
+      if (!keeps && given(input.alsoAsked)) mark("also-dropped");
+      const out = { ...edit, ...(keeps ? readAlso(input, trace) : {}), handOver: { from: "route", ...converted } };
+      markLeftOut(input, ["also", "edit"], mark);
+      return out;
+    }
+    const out = { ...edit, ...readAlso(input, trace) };
     markLeftOut(input, ["also", "edit"], mark);
     return out;
   }
@@ -1439,22 +1457,111 @@ export function wordsIn(message, words) {
 export function heldBack(message, later) {
   const text = typeof message === "string" ? message : "";
   if (typeof later !== "string" || !later.trim()) return { ok: true, run: text, held: "" };
-  const spans = wordSpans(text, later);
-  if (!spans.length) return { ok: false, run: text, held: "" };
+  const r = heldParts(text, later);
+  return { ok: r.ok, run: r.run, held: r.ok ? r.held[0] : "" };
+}
+
+/**
+ * The most parts one message may have put off. The router puts off at most
+ * one; a step acting as its net puts off what it cannot do beside the rest
+ * (`heldParts`), and a message asking for more than this many separate things
+ * is not one a hand-over can carry honestly.
+ */
+export const MAX_HELD = 4;
+
+/**
+ * THE PARTS PUT OFF, AS A LIST — what a hand-over's `alsoAsked` may be on the
+ * wire (2026-10-02, the whole-router audit's batch 2). A string is one part, a
+ * list is several; absent (`null` or missing), a blank string or an empty list
+ * is none. `null` when the value cannot be read: a list with an entry that is
+ * not text, a blank one, one longer than any message, or more entries than
+ * `MAX_HELD` — or a value that is neither text nor a list. A NON-STRING IS
+ * NEVER COERCED (`String(["a"])` is "a"), and a value that cannot be read is
+ * never read as none: the caller refuses, because running the message whole
+ * would run the parts meant for later.
+ */
+export function heldList(v) {
+  if (v == null) return [];
+  if (typeof v === "string") return v.trim() ? [v.trim()] : [];
+  if (!Array.isArray(v) || v.length > MAX_HELD) return null;
+  const out = [];
+  for (const p of v) {
+    if (typeof p !== "string" || !p.trim() || p.length > MAX_MESSAGE) return null;
+    if (!out.includes(p.trim())) out.push(p.trim());
+  }
+  return out;
+}
+
+/**
+ * A MESSAGE WITH EVERY PART PUT OFF TAKEN OUT (2026-10-02, batch 2) — the
+ * router's one part and any a step put off as its net, carried together by a
+ * hand-over.
+ *
+ *   { ok: true,  run, held: [..] } — `run` is what this turn does; `held` is
+ *                                   each part taken out, in the customer's own
+ *                                   spelling, `[]` when nothing was put off.
+ *   { ok: false, run, held: [] }   — a part is not in the message, the list
+ *                                   cannot be read, or nothing would be left.
+ *                                   The caller refuses rather than run the
+ *                                   message whole.
+ *
+ * EVERY OCCURRENCE OF EVERY PART GOES, and parts that overlap are taken out
+ * once, as one stretch of the message.
+ */
+export function heldParts(message, later) {
+  const text = typeof message === "string" ? message : "";
+  const parts = heldList(later);
+  if (parts === null) return { ok: false, run: text, held: [] };
+  if (!parts.length) return { ok: true, run: text, held: [] };
+  const each = [];
+  for (const p of parts) {
+    const spans = wordSpans(text, p);
+    if (!spans.length) return { ok: false, run: text, held: [] };
+    each.push(spans);
+  }
+  const all = each.flat();
+  // A PART INSIDE ANOTHER IS THAT PART, NOT A SECOND ONE: "a map" put off
+  // beside "add a map" is named once, as the longer stretch it lies in. Taken
+  // out either way; only the list the customer is read back is folded.
+  const inside = (a, b) => b[0] <= a[0] && a[1] <= b[1] && b[1] - b[0] > a[1] - a[0];
+  const held = [];
+  each.forEach((spans, i) => {
+    if (spans.every((sp) => each.some((other, j) => j !== i && other.some((o) => inside(sp, o))))) return;
+    held.push(text.slice(spans[0][0], spans[0][1]));
+  });
+  all.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   let run = "";
   let at = 0;
-  for (const [s, e] of spans) { run += text.slice(at, s); at = e; }
+  for (const [s, e] of all) {
+    if (e <= at) continue;
+    run += text.slice(at, Math.max(s, at));
+    at = e;
+  }
   run = (run + text.slice(at)).replace(/[ \t]{2,}/g, " ").trim();
-  if (!WORD_CHAR.test(run)) return { ok: false, run: text, held: "" };
-  return { ok: true, run, held: text.slice(spans[0][0], spans[0][1]) };
+  if (!WORD_CHAR.test(run)) return { ok: false, run: text, held: [] };
+  return { ok: true, run, held: [...new Set(held)] };
 }
+
+// ── A CONVERTED ANSWER SAYS WHY (2026-10-02, the whole-router audit's W5) ───
+//
+// Every way out of `readEdit` that does not use the model's edit answer carries
+// `converted`: `{ reason, page? }`, where `reason` is one of the hand-over's own
+// codes (`builder/hand-over.mjs`). `readRouting` turns it into the hand-over the
+// add-on step receives and decides what becomes of the held-back part — it is
+// taken off before anything is returned, so no caller ever sees the field.
+//
+//   page-unknown      a page edit naming a page the site was not said to have:
+//                     an addition, made by the add-on step, on that page
+//   route-unreadable  an edit naming no step, or one that is not among them, or
+//                     a page edit naming no page: the model did not decide
+const unreadEdit = () => ({ intent: FALLBACK_WITH_SITE, answer: "", converted: { reason: "route-unreadable" } });
 
 export function readEdit(input, pages, trace = null) {
   const mark = noteTo(trace);
   const layer = EDIT_LAYERS.includes(input && input.layer) ? input.layer : null;
   if (!layer) {
     mark(input && given(input.layer) ? "layer-unknown" : "layer-missing");
-    return { intent: FALLBACK_WITH_SITE, answer: "" };
+    return unreadEdit();
   }
   // `remove` IS READ FOR EVERY LAYER THAT HAS ONE, above the page branch.
   //
@@ -1522,12 +1629,28 @@ export function readEdit(input, pages, trace = null) {
   const want = normalizePagePath(input.page);
   if (!want) {
     mark("page-missing");
-    return { intent: FALLBACK_WITH_SITE, answer: "" };
+    return unreadEdit();
   }
   const known = (Array.isArray(pages) ? pages : []).map(normalizePagePath).filter(Boolean);
-  if (known.length && !known.includes(want)) {
+  // WHERE THE PAGE IS MOVING TO, read here because it decides the branch below;
+  // its own reasons are marked further down, where they always were.
+  const rawMove = !remove && typeof input.rename === "string" ? input.rename.trim() : "";
+  const movePath = rawMove.startsWith("/") ? normalizePagePath(rawMove) : null;
+  // ⚠ A REMOVAL OR A MOVE OF A PAGE THE SITE DOES NOT HAVE IS NOT AN ADDITION
+  // (2026-10-02, the whole-router audit's W5). It was turned into one with
+  // everything else that named an unknown page, and the part the router held
+  // back stayed held back — so "take the Events page off and add a page for
+  // our cake orders", on a site with no Events page, sent the add-on step "take
+  // the Events page off the site and ." and put the cake page off: the half it
+  // could not do run, the half it could held back. The model's own fields say
+  // what the change is: taking a page away or moving it, which no addition
+  // makes. So the answer stays an edit, and the page step answers it with the
+  // site's real pages at no cost for the edit (`page/no-page`), the held-back
+  // part named beside it. An edit of a page the site lacks is still an
+  // addition, on that page.
+  if (known.length && !known.includes(want) && !remove && !(movePath && movePath !== want)) {
     mark("page-unknown");
-    return { intent: FALLBACK_WITH_SITE, answer: "" };
+    return { intent: FALLBACK_WITH_SITE, answer: "", converted: { reason: "page-unknown", page: want } };
   }
   if (!known.length) mark("page-unchecked");
   if (want !== input.page) mark("page-normalized");
@@ -1574,8 +1697,8 @@ export function readEdit(input, pages, trace = null) {
   // to /services" from "call it Services". Without this, a heading normalises
   // into an address and the page silently moves; caught by its own test rather
   // than reasoned about, because the lenient helper looked safe to reuse.
-  const raw = !remove && typeof input.rename === "string" ? input.rename.trim() : "";
-  const rename = raw.startsWith("/") ? normalizePagePath(raw) : null;
+  const raw = rawMove;
+  const rename = movePath;
   const moving = rename && rename !== want ? { rename } : {};
   if (given(input.rename)) {
     if (remove) mark("rename-with-remove");

@@ -35,6 +35,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import { createRequire } from "node:module";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { installCompiler, dispatchEnv, isDispatchUpload, dispatchOk } from "./fixtures/cf-containers.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
@@ -46,6 +47,10 @@ import { failureMsg } from "../builder/edit-failure.mjs";
 // ⚠ `editBrowserReply`, NOT `browserReply` — the add composer answers a
 // plausible "✅ Done." for an edit body rather than throwing.
 import { editBrowserReply } from "../scripts/addon-sweep.mjs";
+// THE PAGE'S OWN POLLER UNDER THE STAND-IN (2026-10-02): the held-part helpers
+// the posts and the last sentence use (`heldWire`, `heldList`) are its real ones,
+// and only the key and the outcome wording are made deterministic here.
+const realEditPoll = createRequire(import.meta.url)("../public/edit-poll.js");
 
 const T = { route: ASK_TOOL.name, pick: pickTool().name, tweak: TWEAK_TOOL.name, pages: SITE_PAGES_TOOL.name };
 
@@ -172,7 +177,7 @@ function browserEditPost(site, d, instruction) {
   const ended = [];
   const ctx = vm.createContext({
     editBlocked: new Set(), editInFlight: new Map(), editIdem: new Map(),
-    EditPoll: { newIdemKey: () => "idem-page-target", outcomeMessage: (s) => "outcome:" + s },
+    EditPoll: { ...realEditPoll, newIdemKey: () => "idem-page-target", outcomeMessage: (s) => "outcome:" + s },
     buildPicker: "sonnet",
     apiFetch: (url, init) => { sent.push({ url, init }); return new Promise(() => {}); },
   });

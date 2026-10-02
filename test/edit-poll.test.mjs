@@ -878,11 +878,21 @@ test("the record carries the ask, the route and the hop's coordinates, bounded",
   P.rememberJob("a2", "ja2", store, { ask: "x", op: "edit", also: "y".repeat(P.ASK_MAX + 1) });
   assert.equal(Object.hasOwn(JSON.parse(store.getItem(P.STORE_KEY)).a2, "also"), false, "an over-long copy was stored");
   assert.equal(Object.hasOwn(P.resumableRecord("a2", Date.now(), store), "also"), false, "an over-long copy was read back");
+  // SEVERAL PARTS SINCE 2026-10-02 (a step that hands on carries what it put
+  // off as the router's net too): a list whose every entry reads is stored and
+  // read back as that list — not coerced into a string — and one that does not
+  // read is never stored.
   P.rememberJob("a3", "ja3", store, { ask: "x", op: "edit", also: ["y"] });
-  assert.deepEqual(P.resumableRecord("a3", Date.now(), store), { job: "ja3", ask: "x", op: "edit", layer: "", page: "" });
-  store.setItem(P.STORE_KEY, JSON.stringify({ h2: { job: "jh2", at: Date.now(), ask: "x", also: ["y"] }, h3: { job: "jh3", at: Date.now(), ask: "x", also: "z".repeat(P.ASK_MAX + 1) } }));
-  assert.equal(Object.hasOwn(P.resumableRecord("h2", Date.now(), store), "also"), false, "a typed-in non-string was read as held-back words");
+  assert.deepEqual(P.resumableRecord("a3", Date.now(), store), { job: "ja3", ask: "x", op: "edit", layer: "", page: "", also: ["y"] });
+  P.rememberJob("a4", "ja4", store, { ask: "x", op: "edit", also: ["y", 5] });
+  assert.equal(Object.hasOwn(JSON.parse(store.getItem(P.STORE_KEY)).a4, "also"), false, "a list that does not read was stored");
+  store.setItem(P.STORE_KEY, JSON.stringify({ h2: { job: "jh2", at: Date.now(), ask: "x", also: ["y"] }, h3: { job: "jh3", at: Date.now(), ask: "x", also: "z".repeat(P.ASK_MAX + 1) }, h4: { job: "jh4", at: Date.now(), ask: "x", also: ["y", 5] }, h5: { job: "jh5", at: Date.now(), ask: "x", also: 5 } }));
+  assert.deepEqual(P.resumableRecord("h2", Date.now(), store).also, ["y"], "a list of parts was not read back as one");
   assert.equal(Object.hasOwn(P.resumableRecord("h3", Date.now(), store), "also"), false, "a typed-in over-long copy was read back cut or whole");
+  // A TYPED-IN LIST THAT DOES NOT READ COMES BACK AS IT IS, never as none: a hop
+  // posts it unchanged and the route refuses it, rather than running the parts.
+  assert.deepEqual(P.resumableRecord("h4", Date.now(), store).also, ["y", 5], "a list that does not read was read as none");
+  assert.equal(Object.hasOwn(P.resumableRecord("h5", Date.now(), store), "also"), false, "a typed-in number was read as held-back words");
   // A hostile store still cannot fail an edit.
   const hostile = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } };
   assert.equal(P.resumableRecord("s1", Date.now(), hostile), null);
@@ -925,7 +935,9 @@ test("the resume is wired: on site selection, once per job, with the ask and the
   // THE OPEN SITE: busy again only once a watch really started, the revise as
   // the fallback on the ask the record kept, nothing while the site is busy.
   assert.match(ro, /if \(!site \|\| !site\.slug \|\| siteBusy\) return false;/, "a busy site is resumed over the edit it is running");
-  assert.match(ro, /reactSend\(site, rec \? rec\.ask : '', origin, 'revise', \[\], finish, \[\]\)/, "the resumed fallback is not the revise on the stored ask");
+  // RE-ANCHORED 2026-10-02: the revise takes a climb's hand-over (`ho`), the
+  // parts put off and why, as the live page's `go` does.
+  assert.match(ro, /const go = \(ho\) => reactSend\(site, rec \? rec\.ask : '', origin, 'revise', \[\], finish, \[\], ho\);/, "the resumed fallback is not the revise on the stored ask");
   const started = ro.indexOf("if (!resumeEditJob(site, origin, finish, go)) return false;");
   const busy = ro.indexOf("siteBusy = true;");
   const rows = ro.indexOf("siteBuildStart(true);");
@@ -941,9 +953,9 @@ test("the resume is wired: on site selection, once per job, with the ask and the
   // (`also`), so a hop from a resumed watch holds back what the live one would.
   // RE-ANCHORED 2026-10-02: and whether the add-on handed the ask here
   // (`fromAddon`), so a resumed watch keeps the bound that stops it going back.
-  assert.match(CHAT, /EditPoll\.rememberJob\(slug, \w+\.job, undefined, \{ ask: instruction, op: 'edit', layer: String\(d\.layer \|\| ''\), page: d\.page \? String\(d\.page\) : '', handedOff: !!handedOff, also: typeof d\.alsoAsked === 'string' \? d\.alsoAsked : '', fromAddon: d\.fromAddon === true \}\)/,
+  assert.match(CHAT, /EditPoll\.rememberJob\(slug, \w+\.job, undefined, \{ ask: instruction, op: 'edit', layer: String\(d\.layer \|\| ''\), page: d\.page \? String\(d\.page\) : '', handedOff: !!handedOff, also: d\.alsoAsked, fromAddon: d\.fromAddon === true \}\)/,
     "the edit route no longer stores the ask");
-  assert.match(CHAT, /EditPoll\.rememberJob\(slug, \w+\.job, undefined, \{ ask: instruction, op: 'addon'[^\n]*, also: d && typeof d\.alsoAsked === 'string' \? d\.alsoAsked : '' \}\)/,
+  assert.match(CHAT, /EditPoll\.rememberJob\(slug, \w+\.job, undefined, \{ ask: instruction, op: 'addon'[^\n]*, also: d && d\.alsoAsked \}\)/,
     "the addon route does not store what was held back");
   assert.match(re, /const d = \{ layer: rec\.layer, page: rec\.page, \.\.\.\(rec\.also \? \{ alsoAsked: rec\.also \} : \{\}\), \.\.\.\(rec\.fromAddon \? \{ fromAddon: true \} : \{\}\) \};/,
     "a resumed watch does not hand its hop what was held back");

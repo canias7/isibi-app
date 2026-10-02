@@ -9044,10 +9044,13 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering) {
   // THE ROUND ENDS THE MOMENT A BUILD STARTS, and it has to end here rather than
   // when the build returns: left set, the next thing they type would be read as
   // an answer to a question that is no longer on screen, forever.
-  const go = () => {
+  // `ho` IS A CLIMB'S HAND-OVER (2026-10-02, the audit's W8/W24): the parts put
+  // off, which the rewrite takes out before anything reads the message, and why
+  // the step below handed it on. Absent for every other way here.
+  const go = (ho) => {
     const s = siteById(origin);
     if (s && s.clarify) { s.clarify = null; sitesSave(); }
-    reactSend(site, brief, origin, isBuild ? 'build' : 'revise', imgs, finish, qa);
+    reactSend(site, brief, origin, isBuild ? 'build' : 'revise', imgs, finish, qa, ho);
   };
   // THE LIVE SITE'S STOP. `finish` clears the busy flag and the rail and says
   // the sentence. It claims nothing about money: the routing call is billed on
@@ -9342,7 +9345,9 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
       // WHAT THE ROUTER HELD BACK FOR A LATER TURN (2026-09-29). The route takes
       // it out of `instruction` before anything runs, so it is never both done
       // now and promised for later — run 52 did both. Absent when nothing was.
-      alsoAsked: typeof d.alsoAsked === 'string' && d.alsoAsked ? d.alsoAsked : undefined,
+      // SEVERAL PARTS SINCE 2026-10-02: a step that hands on passes what it put
+      // off as the router's net too (`EditPoll.heldWire`).
+      alsoAsked: EditPoll.heldWire(d.alsoAsked),
       // AN ADDITION THE ADD-ON STEP HANDED HERE (2026-10-02). A real boolean,
       // and it only ever narrows: the menu editor then adds without changing,
       // replacing or taking away anything the frame already has.
@@ -9352,6 +9357,10 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
       // ignores `remove`, `rename` and `tab` on it, so a hand-over can never
       // act on the first answer's operation even if one were sent.
       handedOff: handedOff === true ? true : undefined,
+      // WHY IT MOVED AND WHAT IT IS ABOUT (2026-10-02, audit W24): the step it
+      // left, the escalate's reason and field, and the page. The route checks
+      // each against its own fixed lists and records it.
+      handOver: d.handOver && typeof d.handOver === 'object' && !Array.isArray(d.handOver) ? d.handOver : undefined,
       picker: buildPicker,
       // THE UNDO. A deleted row is gone from the table, so the server cannot
       // show the model what "put it back" refers to — the client is the only
@@ -9402,7 +9411,7 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
       // a watch resumed after a refresh hops or falls to the revise exactly as
       // this one would, instead of answering that the message was lost. The
       // attachments are not kept: the logo lane's job is already filed.
-      EditPoll.rememberJob(slug, said.job, undefined, { ask: instruction, op: 'edit', layer: String(d.layer || ''), page: d.page ? String(d.page) : '', handedOff: !!handedOff, also: typeof d.alsoAsked === 'string' ? d.alsoAsked : '', fromAddon: d.fromAddon === true });
+      EditPoll.rememberJob(slug, said.job, undefined, { ask: instruction, op: 'edit', layer: String(d.layer || ''), page: d.page ? String(d.page) : '', handedOff: !!handedOff, also: d.alsoAsked, fromAddon: d.fromAddon === true });
       watchEditJob(site, d, said.job, origin, finish, fallback, instruction, imgs, undefined, handedOff);
       return;
     }
@@ -9410,7 +9419,9 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
     // A DROPPED CONNECTION IS NOT KNOWING, the same as an unreadable body: the
     // POST may have been filed, and a rewrite on top of it would charge twice
     // for one ask (2026-09-23). It fell to `fallback` — the full rewrite.
-  }).catch(() => { finish('⚠️ ' + unreadEditMsg()); });
+    // AND WHAT WAS PUT OFF IS STILL SAID (2026-10-02, W7), from what this post
+    // carried: the route takes those parts out before anything runs, or refuses.
+  }).catch(() => { finish('⚠️ ' + unreadEditMsg() + alsoTail({ deferred: d.alsoAsked }, false)); });
 }
 
 /**
@@ -9551,11 +9562,19 @@ function editAnswer(httpOk, e, o) {
   // body that cannot be TRUSTED with what it claims is the same case, and so
   // is a RECEIPT here: this reads an OUTCOME, the POST's own receipt is taken
   // before this is called, and a job's final reply is never a receipt.
-  if (said.act === 'unknown' || said.act === 'receipt') { o.finish('⚠️ ' + unreadEditMsg()); return; }
+  // ── EVERY ENDING NAMES WHAT WAS PUT OFF (2026-10-02, the audit's W7) ──────
+  // It was said on a success only, so a refusal, a failure or not knowing left
+  // the part held back for later unmentioned. A reply this page can read says
+  // it itself (`deferred`, on every ending the route writes); one it cannot
+  // read is said from what the post carried — the route takes those parts out
+  // before anything runs, or refuses.
+  if (said.act === 'unknown' || said.act === 'receipt') { o.finish('⚠️ ' + unreadEditMsg() + alsoTail({ deferred: o.d && o.d.alsoAsked }, false)); return; }
   // AN ESCALATE, AND ONLY A WELL-FORMED ONE, handed on with the fields the
   // reader checked — never the raw body — so nothing it did not look at can
   // reach a paid request. Where it goes is still `escalatedEdit`'s to decide.
-  if (said.act === 'hop' || said.act === 'climb') return escalatedEdit({ layer: said.layer, page: said.page }, o);
+  // THE READER'S OWN ANSWER (2026-10-02): where it goes, and why with what was
+  // put off for the hand-over — every field one the reader checked.
+  if (said.act === 'hop' || said.act === 'climb') return escalatedEdit(said, o);
   if (said.act === 'refusal') {
     // The server's own sentence when it has one. `buildDownMsg` already knows
     // to drop the "try again in a few seconds" advice on a failure that no
@@ -9564,20 +9583,20 @@ function editAnswer(httpOk, e, o) {
     // A SITE UNDER REVIEW TAKES NO MORE EDITS until somebody establishes
     // whether its last one shipped. The server refuses as well; this stops
     // the customer spending a round trip to find out.
-    if (e.error === 'needs-review') { editBlocked.add(o.slug); o.finish('⚠️ ' + EditPoll.outcomeMessage('needs_review')); return; }
+    if (e.error === 'needs-review') { editBlocked.add(o.slug); o.finish('⚠️ ' + EditPoll.outcomeMessage('needs_review') + alsoTail(e, false)); return; }
     // THE RUNG'S OWN SENTENCE — or, when several steps were all refused, EACH
     // STEP'S — THEN WHAT THIS BRANCH ALONE CAN SAY: whether the site changed,
     // and what the edit and the routing call cost. No refusal sentence the
     // server writes states money (2026-09-25), so it is said once.
     const told = (typeof e.msg === 'string' && e.msg.trim()) ? e.msg : partialSaid(e.partial);
-    if (told) { o.finish('⚠️ ' + told + wholeRequestNote(e, o.d)); return; }
+    if (told) { o.finish('⚠️ ' + told + wholeRequestNote(e, o.d) + alsoTail(e, false)); return; }
     // ⚠ AND A REFUSAL NEVER BUYS THE REWRITE (2026-09-23). This fell to
     // `fallback` whenever the reply carried no sentence, and a message whose
     // every step was refused carried none at the top — so the customer got a
     // ~25-credit rewrite of every page in answer to changes that had each been
     // refused for a reason. The rewrite is started by an ESCALATE the server
     // chose to send (`escalatedEdit`), and by nothing else.
-    o.finish('⚠️ ' + EditPoll.outcomeMessage('failed') + wholeRequestNote(e, o.d));
+    o.finish('⚠️ ' + EditPoll.outcomeMessage('failed') + wholeRequestNote(e, o.d) + alsoTail(e, false));
     return;
   }
   return applyEditResult(e, o);
@@ -9650,7 +9669,7 @@ function applyEditResult(e, o) {
     // event loop's, and a second sentence is the defect this function closes.
     // The sentence is composed OUTSIDE the guard, so a composer that is not
     // there still fails out loud rather than into silence.
-    const shown = editShownMsg();
+    const shown = editShownMsg() + alsoTail(e);
     try { finish(shown); } catch (again) { /* left standing */ }
   }
 }
@@ -9697,13 +9716,13 @@ function escalatedEdit(e, o) {
     hasAsk: !!o.instruction && typeof o.fallback === 'function',
   });
   if (act === 'lost') {
-    o.finish('⚠️ I couldn’t make that change the cheap way, and I’ve lost the original message. Say it again and I’ll do the full rewrite.');
+    o.finish('⚠️ I couldn’t make that change the cheap way, and I’ve lost the original message. Say it again and I’ll do the full rewrite.' + alsoTail(e, false));
     return;
   }
   // THE ADD-ON ALREADY HAD THIS ASK AND HANDED IT HERE (2026-10-02), so this
   // edit naming the add-on again ends the chain rather than going round.
   if (act === 'stop') {
-    o.finish('⚠️ I couldn’t add that, so nothing on your site changed. Try describing it a little differently.');
+    o.finish('⚠️ I couldn’t add that, so nothing on your site changed. Try describing it a little differently.' + alsoTail(e, false));
     return;
   }
   // THE MIDDLE RUNG, when the edit names it: the ask adds something the site
@@ -9719,8 +9738,14 @@ function escalatedEdit(e, o) {
   // THE ADD-ON IS HANDED THE ASK'S CONTEXT AND NONE OF THE EDIT'S VERBS
   // (2026-10-02, audit W1), so a link it hands on to the menu editor cannot
   // arrive there carrying this edit's `remove`.
+  //
+  // AND THE ONE HAND-OVER CONTRACT (2026-10-02, the audit's W24 and W15): what
+  // this step put off rides on, with the escalate's reason, the part of the
+  // site it could not do and the page — the add-on's picker is shown why it
+  // was handed this, and takes the parts out before anything runs.
+  const why = { from: o.d && o.d.layer, reply: e };
   if (act === 'addon') {
-    return siteAddon(o.site, o.instruction, o.origin, o.finish, o.fallback, EditPoll.handOver(o.d, { layer: 'addon' }));
+    return siteAddon(o.site, o.instruction, o.origin, o.finish, o.fallback, EditPoll.handOver(o.d, { layer: 'addon', page: e.page }, why));
   }
   if (act === 'hop') {
     // THE LATCH IS NOT CLEARED HERE. The hop is the same ask continuing, so
@@ -9734,10 +9759,13 @@ function escalatedEdit(e, o) {
     // (2026-10-02, audit W1): `EditPoll.handOver`. A photograph's removal
     // handed to the page step used to arrive as `remove: true` — which on that
     // step deletes the whole page.
-    return siteEdit(o.site, EditPoll.handOver(o.d, { layer: e.layer, page: e.page }),
+    return siteEdit(o.site, EditPoll.handOver(o.d, { layer: e.layer, page: e.page }, why),
       o.instruction, o.origin, o.finish, o.fallback, o.imgs, true);
   }
-  return o.fallback();
+  // THE CLIMB CARRIES THE SAME HAND-OVER (2026-10-02, the audit's W8): the full
+  // rewrite takes the parts put off out of the message before its writer reads
+  // it, where it used to rewrite every page with them in.
+  return o.fallback(EditPoll.handOver(o.d, {}, why));
 }
 
 /**
@@ -9854,7 +9882,7 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
       EditPoll.forgetJob(slug);
       release();
       w.stopped = 'gone';
-      finish('⚠️ I lost track of that edit. Your site is unchanged unless it had already published.');
+      finish('⚠️ I lost track of that edit. Your site is unchanged unless it had already published.' + alsoTail({ deferred: d && d.alsoAsked }, false));
       return;
     }
     if (read.act === 'wait') {
@@ -9883,7 +9911,9 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
     // that renders, so the choice is made here rather than trusted from there.
     // AND WHAT IT COST, from what the job's own row settled and the routing
     // reply this page holds (2026-09-25) — the sentence says neither.
-    finish('⚠️ ' + ((e && typeof e.msg === 'string' && e.msg) || EditPoll.outcomeMessage(read.kind)) + wholeRequestNote({ ok: false, cost: e && e.cost }, d));
+    // AND WHAT WAS PUT OFF (2026-10-02, W7), from what the post carried: a job
+    // that ended with no stored reply wrote nothing about it.
+    finish('⚠️ ' + ((e && typeof e.msg === 'string' && e.msg) || EditPoll.outcomeMessage(read.kind)) + wholeRequestNote({ ok: false, cost: e && e.cost }, d) + alsoTail({ deferred: d && d.alsoAsked }, false));
   };
   setTimeout(step, EditPoll.pollDelayMs(0));
 }
@@ -9985,7 +10015,7 @@ function resumeOpenSite(site) {
     if (siteOpenId === origin) renderSites();
   };
   const rec = EditPoll.resumableRecord(String(site.slug));
-  const go = () => reactSend(site, rec ? rec.ask : '', origin, 'revise', [], finish, []);
+  const go = (ho) => reactSend(site, rec ? rec.ask : '', origin, 'revise', [], finish, [], ho);
   if (!resumeEditJob(site, origin, finish, go)) return false;
   siteBusy = true;
   siteBuildStart(true);
@@ -10010,7 +10040,9 @@ function resumeOpenSite(site) {
 // `d` IS THE ROUTING DECISION, carried only for `alsoAsked` — the part of the
 // message the router held back for a later turn, posted with it so the route
 // takes it out before anything runs. It is optional so nothing that calls this
-// without one changes shape.
+// without one changes shape. AND `handOver` (2026-10-02, the audit's W24): why
+// the router or an edit step handed this here, and the page — the add-on's
+// picker is shown it.
 function siteAddon(site, instruction, origin, finish, fallback, d) {
   const slug = String(site.slug || '');
   if (!slug) return fallback();
@@ -10032,7 +10064,8 @@ function siteAddon(site, instruction, origin, finish, fallback, d) {
     // WHAT THE ROUTER HELD BACK rides with the message, as on the edit route
     // (2026-09-29): the add-on route takes it out before anything runs.
     body: JSON.stringify({ instruction: instruction, picker: buildPicker, idem: idem, tz: browserTimeZone(),
-      alsoAsked: d && typeof d.alsoAsked === 'string' && d.alsoAsked ? d.alsoAsked : undefined }),
+      alsoAsked: EditPoll.heldWire(d && d.alsoAsked),
+      handOver: d && d.handOver && typeof d.handOver === 'object' && !Array.isArray(d.handOver) ? d.handOver : undefined }),
   }).then(async (r) => {
     const a = await r.json().catch(() => null);
     // SIGNED OUT DECIDES ALONE, and before the body: the route answers 401 above
@@ -10056,7 +10089,7 @@ function siteAddon(site, instruction, origin, finish, fallback, d) {
       // THE ASK RIDES THE RECORD with the route that filed it (stage 2b), so a
       // watch resumed after a refresh reads the reply with THIS route's reader
       // and can re-post the ask on a hop — `siteEdit`'s rule, one rung up.
-      EditPoll.rememberJob(slug, said.job, undefined, { ask: instruction, op: 'addon', layer: d && typeof d.layer === 'string' ? d.layer : '', page: d && d.page ? String(d.page) : '', also: d && typeof d.alsoAsked === 'string' ? d.alsoAsked : '' });
+      EditPoll.rememberJob(slug, said.job, undefined, { ask: instruction, op: 'addon', layer: d && typeof d.layer === 'string' ? d.layer : '', page: d && d.page ? String(d.page) : '', also: d && d.alsoAsked });
       watchEditJob(site, d, said.job, origin, tell, fallback, instruction, undefined, addonAnswer);
       return;
     }
@@ -10064,7 +10097,7 @@ function siteAddon(site, instruction, origin, finish, fallback, d) {
     // A DROPPED CONNECTION IS NOT KNOWING, the same as an unreadable body: the
     // addition may have been filed, and a rewrite on top of it would charge
     // twice for one ask. This was `.catch(fallback)` — the full rewrite.
-  }).catch(() => { if (!told) tell(addonOutcomeMsg('unknown')); });
+  }).catch(() => { if (!told) tell(addonOutcomeMsg('unknown') + alsoTail({ deferred: d && d.alsoAsked }, false)); });
 }
 
 /**
@@ -10092,9 +10125,11 @@ function addonAnswer(httpOk, a, o) {
   // rewrite), or one that cannot be trusted with what it claims (below). A
   // RECEIPT is one too: this reads an OUTCOME, the POST's own receipt is taken
   // before this is called, and a job's final reply is never a receipt.
-  if (said.act === 'unknown' || said.act === 'receipt') { o.finish(addonOutcomeMsg('unknown')); return; }
+  // EVERY ENDING NAMES WHAT WAS PUT OFF (2026-10-02, W7) — `editAnswer`'s rule:
+  // the reply's own `deferred`, or what the post carried when it cannot be read.
+  if (said.act === 'unknown' || said.act === 'receipt') { o.finish(addonOutcomeMsg('unknown') + alsoTail({ deferred: o.d && o.d.alsoAsked }, false)); return; }
   if (said.act === 'hop' || said.act === 'climb') {
-    if (!canFall) { o.finish('⚠️ I couldn’t add that the cheap way, and I’ve lost the original message. Say it again and I’ll do the full rewrite.'); return; }
+    if (!canFall) { o.finish('⚠️ I couldn’t add that the cheap way, and I’ve lost the original message. Say it again and I’ll do the full rewrite.' + alsoTail(said, false)); return; }
     // ONE HOP SIDEWAYS, when the addon names a cheaper rung that does this:
     // a new menu link, button or footer item is the menu editor's, which
     // writes every page at once (2026-10-02; until then it was a photograph,
@@ -10108,22 +10143,24 @@ function addonAnswer(httpOk, a, o) {
     //
     // WHERE IT GOES AND THE ASK'S CONTEXT ONLY (2026-10-02, audit W1):
     // `EditPoll.handOver`, the edit's own hop rule.
+    // AND THE ONE HAND-OVER CONTRACT (2026-10-02): the parts put off, why, and
+    // the page, from this reply.
     if (said.act === 'hop') {
-      return siteEdit(o.site, EditPoll.handOver(o.d, { layer: said.layer, page: said.page, fromAddon: true }), o.instruction, o.origin, o.finish, o.fallback, undefined, true);
+      return siteEdit(o.site, EditPoll.handOver(o.d, { layer: said.layer, page: said.page, fromAddon: true }, { from: 'addon', reply: said }), o.instruction, o.origin, o.finish, o.fallback, undefined, true);
     }
     // THE SERVER'S OWN CLIMB, and the one way left from here to the rewrite.
     // Which of the route's escalates really need it is a separate, server-side
     // step: they are not classified the way the edit route's are.
-    return o.fallback();
+    return o.fallback(EditPoll.handOver(o.d, {}, { from: 'addon', reply: said }));
   }
   if (said.act === 'refusal') {
     // The route's own sentence, when it wrote one.
-    if (typeof a.msg === 'string' && a.msg.trim()) { o.finish('⚠️ ' + a.msg); return; }
+    if (typeof a.msg === 'string' && a.msg.trim()) { o.finish('⚠️ ' + a.msg + alsoTail(a, false)); return; }
     // ⚠ AND A REFUSAL WITH NO SENTENCE NEVER BUYS THE REWRITE (2026-09-24).
     // `ok: false` without a reason is still the route saying the addition did
     // not finish — never that nothing changed or nothing was charged, which an
     // error alone does not establish.
-    o.finish(addonOutcomeMsg('unsaid'));
+    o.finish(addonOutcomeMsg('unsaid') + alsoTail(a, false));
     return;
   }
   return applyAddonResult(a, o);
@@ -10187,11 +10224,23 @@ function readRouteReply(httpOk, a, hops) {
   if (!a || typeof a.ok !== 'boolean') return unknown;
   const absentOr = (v, type) => v == null || typeof v === type;
   if (!absentOr(a.escalate, 'boolean')) return unknown;
+  // WHAT WAS PUT OFF IS READ, OR THE REPLY IS NOT (2026-10-02, the audit's
+  // W7): a hop hands it on as the parts the next step must not run, and the
+  // reply's last sentence names it — so a `deferred` that is neither absent, a
+  // part, nor a list of parts makes the whole reply one this page cannot use.
+  if (EditPoll.heldList(a.deferred) === null) return unknown;
   if (a.escalate === true) {
     if (httpOk !== true || a.ok !== false) return unknown;
-    if (a.layer === undefined) return { act: 'climb' };
+    // WHY IT HANDS ON, CHECKED HERE AND CARRIED (2026-10-02, the audit's W24):
+    // the escalate's reason and the part of the site it could not do ride the
+    // hand-over to the step it reaches, with what was put off — so each is held
+    // to its type here like every field a paid step acts on, and the step it
+    // reaches checks them against its own fixed lists.
+    if (!absentOr(a.reason, 'string') || !absentOr(a.field, 'string')) return unknown;
+    const why = { reason: a.reason || '', field: a.field || '', deferred: EditPoll.heldList(a.deferred) };
+    if (a.layer === undefined) return { act: 'climb', ...why };
     if (!hops.includes(a.layer) || !absentOr(a.page, 'string')) return unknown;
-    return { act: 'hop', layer: a.layer, page: a.page || '' };
+    return { act: 'hop', layer: a.layer, page: a.page || '', ...why };
   }
   if (a.ok === false) return { act: 'refusal' };
   if (httpOk !== true) return unknown;
@@ -10262,7 +10311,7 @@ function applyAddonResult(a, o) {
     finish(addonReplyText(a) + renderTail(a) + alsoTail(a));
   } catch (err) {
     if (told) return;
-    const shown = addonOutcomeMsg('shown');
+    const shown = addonOutcomeMsg('shown') + alsoTail(a);
     try { finish(shown); } catch (again) { /* left standing */ }
   }
 }
@@ -10735,10 +10784,25 @@ function renderTail(d) {
 // later. The routes take that part out of the message before anything runs and
 // answer it back as `deferred`; this sentence is composed from that answer, so
 // it can only describe work that really was not done.
-function alsoTail(r) {
-  const also = r && typeof r.deferred === 'string' ? r.deferred.trim() : '';
-  if (!also) return '';
-  return '\nI only did one thing this time. Say “' + also.slice(0, 200) + '” and I\u2019ll do that next.';
+//
+// ⚠ AND ON EVERY ENDING, NOT ONLY A SUCCESS (2026-10-02, the audit's W7). A
+// refusal, a failure or not knowing said nothing about the part put off, so it
+// went unmentioned whenever the part that ran did not succeed. `done` is false
+// on those, and the sentence says the part was left, without claiming anything
+// ran. SEVERAL PARTS since the same day: a step may put some off as the
+// router's net, and each is named. A `deferred` that does not read names
+// nothing here — the reply reader refuses such a reply before this is reached.
+function alsoTail(r, done) {
+  const parts = (r && typeof r === 'object' ? EditPoll.heldList(r.deferred) : null) || [];
+  if (!parts.length) return '';
+  const q = parts.map((p) => '“' + p.slice(0, 200) + '”');
+  const one = q.length === 1;
+  if (done === false) {
+    const list = one ? q[0] : q.slice(0, -1).join(', ') + ' and ' + q[q.length - 1];
+    return '\nI left ' + list + ' for later, so ' + (one ? 'it wasn\u2019t' : 'they weren\u2019t') + ' tried. Send ' + (one ? 'that' : 'each') + ' on its own when you\u2019re ready.';
+  }
+  if (one) return '\nI only did one thing this time. Say ' + q[0] + ' and I\u2019ll do that next.';
+  return '\nI only did part of it this time. Say ' + q.join(', then ') + ', and I\u2019ll do those next.';
 }
 function problemNote(list) {
   const p = (Array.isArray(list) ? list : []).filter((x) => typeof x === 'string' && x.trim()).slice(0, 3);
@@ -11452,7 +11516,11 @@ async function followBuildJob(job, signal, origin) {
 // The React build/revise send path (cutover engine). Build = first message on a
 // project → /api/site/react-build; revise = any later message on a React site →
 // /api/site/react-revise (same slug/URL). Streams live steps; charge-after.
-function reactSend(site, t, origin, mode, imgs, finish, qa) {
+// `ho` IS A CLIMB'S HAND-OVER, on a revise only (2026-10-02, the audit's W8 and
+// W24): `alsoAsked`, the parts put off, which the route takes out of the
+// message before its writer reads it, and `handOver`, why the step below handed
+// it on. Every reply names the parts (`deferred`), and this names them back.
+function reactSend(site, t, origin, mode, imgs, finish, qa, ho) {
   // WE KNOW IT IS A BUILD NOW, so the steps may appear. Set here rather than in
   // `siteRoute` because an attachment skips the router and comes straight here —
   // one place, so neither entry can leave it stuck on `thinking`.
@@ -11488,9 +11556,14 @@ function reactSend(site, t, origin, mode, imgs, finish, qa) {
   // turning up on the start screen as a card of its own. Build ONLY: a revise
   // names its slug, which already says which site it is, and a revise sent
   // from a second chat must not re-bind the site away from the first.
+  const h = mode !== 'build' && ho && typeof ho === 'object' && !Array.isArray(ho) ? ho : {};
   const body = mode === 'build'
     ? { brief: t, images: imgs, picker: buildPicker, qa: qa || [], chat: origin }
-    : { slug: site.slug, instruction: t, images: imgs, picker: buildPicker };
+    : {
+      slug: site.slug, instruction: t, images: imgs, picker: buildPicker,
+      alsoAsked: EditPoll.heldWire(h.alsoAsked),
+      handOver: h.handOver && typeof h.handOver === 'object' && !Array.isArray(h.handOver) ? h.handOver : undefined,
+    };
   siteAbort = new AbortController();
   apiFetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: siteAbort.signal }).then(async (r) => {
     const ct = r.headers.get('content-type') || '';
@@ -11516,6 +11589,14 @@ function reactSend(site, t, origin, mode, imgs, finish, qa) {
       // against a name it already owns and gets a 409 it cannot explain.
       else firedJob = d.job;
     }
+    // ── EVERY ENDING NAMES WHAT WAS PUT OFF (2026-10-02, the audit's W7/W8) ──
+    // From the final reply's own `deferred`, which the route adds to every
+    // answer once it has taken the parts out; from what this post carried when
+    // there is no final reply to read — a build still running when we stopped
+    // following, or a body that would not parse.
+    const finalReply = !firedJob && d && typeof d === 'object' && !Array.isArray(d) && Object.keys(d).length ? d : null;
+    const heldSaid = finalReply || { deferred: h.alsoAsked };
+    const end = (said) => finish(said + alsoTail(heldSaid, false));
     // WHAT IT COST GOES TO THE METER, NOT INTO THE SENTENCE (owner's call
     // 2026-08-08). The reply used to end "(✦21 used)" on every build.
     //
@@ -11666,7 +11747,7 @@ function reactSend(site, t, origin, mode, imgs, finish, qa) {
       const reply = firedJob
         ? '⏳ ' + ((d && d.msg) || 'Your site is being written now — there’s a page at your address already; refresh it in a few minutes.')
         : (built ? '✅ ' : '⚠️ ') + (said || canned);
-      siteFinishBuild(origin, reply, build, note, buildWhy(d));
+      siteFinishBuild(origin, reply + alsoTail(heldSaid, !firedJob && built), build, note, buildWhy(d));
     } else if (r.status === 402 || (d && d.need === 'credits')) {
       // THE SERVER'S OWN SENTENCE WINS, because on the picker-floor refusal it
       // names the FREE way out and this one does not. `buildFloor` answers with
@@ -11675,23 +11756,25 @@ function reactSend(site, t, origin, mode, imgs, finish, qa) {
       // "is not the only way out and is the less useful one". That message was
       // composed and discarded here, so somebody on Opus with 30 credits was
       // sent to buy more instead of flipping a control back.
-      finish('⚡ ' + ((d && d.msg) || 'You don’t have enough credits to build this right now. Tap your ✦ balance up top to get more.'));
+      end('⚡ ' + ((d && d.msg) || 'You don’t have enough credits to build this right now. Tap your ✦ balance up top to get more.'));
     } else if (d && d.need === 'rebuild') {
-      finish('That older draft can’t be edited directly — say “rebuild it” and I’ll regenerate it as a React app.');
-    } else if (r.status === 429) { finish('⏳ You’ve hit today’s build limit — it resets within 24 hours.'); }
-    else if (r.status === 501) { finish('⚠️ The build engine isn’t switched on yet — check back soon.'); }
-    else if ((d && d.code === 429) || r.status === 503) { siteErr = null; finish(buildDownMsg(d)); }
+      end('That older draft can’t be edited directly — say “rebuild it” and I’ll regenerate it as a React app.');
+    } else if (r.status === 429) { end('⏳ You’ve hit today’s build limit — it resets within 24 hours.'); }
+    else if (r.status === 501) { end('⚠️ The build engine isn’t switched on yet — check back soon.'); }
+    else if ((d && d.code === 429) || r.status === 503) { siteErr = null; end(buildDownMsg(d)); }
     else {
       siteErr = buildErrOutcome(origin, d);
       // THE SERVER'S SENTENCE STILL WINS where it wrote one; the fallback no
       // longer asserts a charge it has not read. `buildCostWords` is appended
       // rather than baked in, so the one reading serves this and the card.
-      finish('⚠️ ' + ((d && d.msg) || ('That didn’t come together.' + buildCostWords(siteErr) + ' Try again in a moment.')));
+      end('⚠️ ' + ((d && d.msg) || ('That didn’t come together.' + buildCostWords(siteErr) + ' Try again in a moment.')));
     }
     if (typeof fetchCredits === 'function') fetchCredits();
   }).catch((e) => {
-    if (e && e.name === 'AbortError') { finish('■ Stopped. (A build already running may still finish server-side.)'); return; }
-    siteErr = { chatId: origin }; finish('⚠️ Lost the connection while building — check your internet and try again in a moment.');
+    // NO REPLY TO READ, so what was put off is said from what this post carried.
+    const rest = alsoTail({ deferred: h.alsoAsked }, false);
+    if (e && e.name === 'AbortError') { finish('■ Stopped. (A build already running may still finish server-side.)' + rest); return; }
+    siteErr = { chatId: origin }; finish('⚠️ Lost the connection while building — check your internet and try again in a moment.' + rest);
   }).finally(() => { siteAbort = null; });
 }
 // Answering the builder's own question, or refusing to.

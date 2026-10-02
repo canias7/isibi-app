@@ -126,6 +126,9 @@ import { extractText } from "./site-text.mjs";
 import { runTweak } from "./site-tweak.mjs";
 // ONE NEW ROW'S VALUE RULE AND ITS INSERT, shared with the data step (2026-10-01).
 import { rowValues, insertStatement } from "./site-rows.mjs";
+// THE PARTS A REPLY PUT OFF, READ AS THE ROUTES READ THEM (2026-10-02, batch 2):
+// one part a string, several a list. `site-ask.mjs` imports nothing of this file.
+import { heldList } from "./site-ask.mjs";
 import { SERIOUS } from "./site-render.mjs";
 import { stripLangPrefix } from "./site-langs.mjs";
 // THE QR LIST (2026-09-03): a site carries several, each named, so the `qr`
@@ -1443,7 +1446,10 @@ const PICK_SYSTEM =
   "PHOTOGRAPH on a page is `photo`.";
 
 /** The routing request. Shaped like `pickRequest` in site-lanes.mjs, for the same reasons. */
-export function pickRequest({ message, kinds = ADD_KINDS, current = "", model = ADD_MODEL }) {
+// `handOver` IS ONE LINE SAYING WHY ANOTHER STEP SENT THIS HERE (2026-10-02,
+// the whole-router audit's W24) — `handOverLine` in hand-over.mjs, composed only
+// from fixed lists — or "" when the message came straight from the router.
+export function pickRequest({ message, kinds = ADD_KINDS, current = "", model = ADD_MODEL, handOver = "" }) {
   const tool = pickTool(kinds);
   return {
     model,
@@ -1461,6 +1467,7 @@ export function pickRequest({ message, kinds = ADD_KINDS, current = "", model = 
     // be the second copy of a sentence this module owns.
     messages: [{ role: "user", content:
       (current ? "Their site as it stands:\n" + current + "\n\n" : "") +
+      (typeof handOver === "string" && handOver.trim() ? "How this reached the add-on step:\n" + handOver.trim() + "\n\n" : "") +
       "Their message:\n" + String(message || "").slice(0, MAX_MESSAGE) }],
   };
 }
@@ -1506,12 +1513,12 @@ export function addUsage(reply, model) {
  * A THROW IS NOT A FALLBACK TO EVERYTHING: if this call cannot be made the
  * honest answer is no kinds, and the caller reports the outage at no charge.
  */
-export async function pickAdds(deps, { message, kinds = ADD_KINDS, current = "", model = ADD_MODEL } = {}) {
+export async function pickAdds(deps, { message, kinds = ADD_KINDS, current = "", model = ADD_MODEL, handOver = "" } = {}) {
   const text = String(message || "").trim();
   if (!text) return { kinds: [], usage: null, failed: false };
   let reply;
   try {
-    reply = await deps.send(pickRequest({ message: text, kinds, current, model }));
+    reply = await deps.send(pickRequest({ message: text, kinds, current, model, handOver }));
   } catch (e) {
     return { kinds: [], usage: null, failed: true, error: e };
   }
@@ -2662,9 +2669,9 @@ export function keepsRowReply(row) {
  * stored shape (`{ status, type, body }`), or null for a verdict that stores
  * nothing. Kept: the entries the key recorded, with what the first reply set
  * aside (`deferred`, `notAdded`), at the job's own cost — the browser's
- * ordinary success. Refunded: the confirmation, and the amount that came back
- * — unless the stored reply is one of the step's own definite ones, which is
- * kept, since it says the same and says why.
+ * ordinary success. Refunded: the confirmation, the amount that came back and
+ * what the first reply put off — unless the stored reply is one of the step's
+ * own definite ones, which is kept, since it says the same and says why.
  */
 export function rowReviewReply(out, row, refunded = 0) {
   let asked = {};
@@ -2672,10 +2679,20 @@ export function rowReviewReply(out, row, refunded = 0) {
     const b = row && row.result && typeof row.result.body === "string" ? JSON.parse(row.result.body) : null;
     if (b && typeof b === "object" && !Array.isArray(b)) asked = b;
   } catch { asked = {}; }
+  // WHAT THE FIRST REPLY PUT OFF, SAID AGAIN BY THE ONE THAT REPLACES IT
+  // (2026-10-02, the whole-router audit's batch 2, W7). This reply is stored
+  // over the first, so it is what a returning customer reads — and it named a
+  // part put off only when it was a string: since a hand-over may put off
+  // several, a list was dropped for not being one, and the refund's sentence
+  // never named any. Read with the routes' own reader, in either shape, on both
+  // verdicts; a value that cannot be read names nothing rather than something
+  // wrong.
+  const held = heldList(asked.deferred) || [];
+  const deferred = held.length > 1 ? held : held[0];
   if (out && out.verdict === "kept" && Array.isArray(out.rows) && out.rows.length) {
     return { status: 200, type: "application/json", body: JSON.stringify({
       ok: true, kinds: ["row"], rows: out.rows, reconciled: out.kind,
-      deferred: typeof asked.deferred === "string" && asked.deferred ? asked.deferred : undefined,
+      deferred,
       notAdded: Array.isArray(asked.notAdded) && asked.notAdded.length ? asked.notAdded : undefined,
       added: [], changed: [], removed: [], moved: [],
       cost: Number(row && row.cost) || 0,
@@ -2686,6 +2703,7 @@ export function rowReviewReply(out, row, refunded = 0) {
     const back = Number(refunded) || 0;
     return { status: 409, type: "application/json", body: JSON.stringify({
       ok: false, error: "reconciled", kind: out.kind, refunded: back,
+      deferred,
       msg: "I've now confirmed that entry wasn't saved, so nothing was added" + (back > 0 ? ", and the credits held for it are back in your balance" : "") + ". You can ask for it again.",
     }) };
   }

@@ -1111,7 +1111,8 @@ test("the browser starts the rewrite from an escalate and from nothing else", ()
     return blank(src.slice(at, end));
   };
   assert.doesNotMatch(body("editAnswer"), /fallback\s*\(/, "editAnswer can start the rewrite without an escalate");
-  assert.match(body("escalatedEdit"), /o\.fallback\(\)/, "the escalate handler no longer reaches the rewrite at all");
+  // RE-ANCHORED 2026-10-02 (the audit's W8): with the one hand-over.
+  assert.match(body("escalatedEdit"), /o\.fallback\(EditPoll\.handOver\(/, "the escalate handler no longer reaches the rewrite at all");
   const edit = body("siteEdit");
   const catchAt = edit.lastIndexOf(".catch(");
   assert.ok(catchAt > 0, "siteEdit's catch is gone");

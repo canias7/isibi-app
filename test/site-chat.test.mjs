@@ -26,6 +26,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { cleanChatId, CHAT_COLUMN, CHAT_ID_RE } from "../builder/site-chat.mjs";
 // A UMD file: `default` under Node, the namespace otherwise. Read the way
@@ -139,8 +140,12 @@ test("DRIVEN: a build posts the chat it was asked in, and a revise does not", ()
   const send = fn("function reactSend(", bare(chat));
   const m = /const body = (mode === 'build'[\s\S]*?);\n/.exec(send);
   assert.ok(m, "reactSend no longer composes its body as one expression -- re-derive this window");
-  const make = new Function("mode", "t", "imgs", "buildPicker", "qa", "site", "origin",
+  // `h` IS A CLIMB'S HAND-OVER and `EditPoll` the page's own poller (2026-10-02,
+  // the audit's W8): the revise posts the parts put off and why it came.
+  const EditPoll = createRequire(import.meta.url)("../public/edit-poll.js");
+  const make0 = new Function("mode", "t", "imgs", "buildPicker", "qa", "site", "origin", "h", "EditPoll",
     "return (" + m[1] + ");");
+  const make = (mode, t, imgs, buildPicker, qa, site, origin, h = {}) => make0(mode, t, imgs, buildPicker, qa, site, origin, h, EditPoll);
 
   const built = make("build", "a barber shop", [], "grok", [], {}, "site_1757000000000_abcde");
   assert.equal(built.chat, "site_1757000000000_abcde",
@@ -153,6 +158,14 @@ test("DRIVEN: a build posts the chat it was asked in, and a revise does not", ()
   assert.equal(revised.chat, undefined,
     "a revise carries a chat -- a revise names its slug already, and one sent from a second workspace would re-bind the site away from the first");
   assert.equal(revised.slug, "fretwork-1", "the observer is alive: the revise branch still composes a body");
+  assert.equal(revised.alsoAsked, undefined, "a revise with nothing put off posts a part to hold back");
+  // A CLIMB'S HAND-OVER RIDES THE REVISE, and only the revise.
+  const ho = { alsoAsked: ["add a QR code", "add a map"], handOver: { from: "look", reason: "build" } };
+  const climbed = make("revise", "make it blue", [], "grok", [], { slug: "fretwork-1" }, "site_OTHER_chat", ho);
+  assert.deepEqual(climbed.alsoAsked, ["add a QR code", "add a map"], "the rewrite was not told what was put off");
+  assert.deepEqual(climbed.handOver, { from: "look", reason: "build" }, "the rewrite was not told why it was handed this");
+  const first = make("build", "a barber shop", [], "grok", [], {}, "site_1757000000000_abcde", {});
+  assert.equal(first.alsoAsked, undefined, "a first build posts a part to hold back");
 });
 
 // ── THE ROUTE ───────────────────────────────────────────────────────────────

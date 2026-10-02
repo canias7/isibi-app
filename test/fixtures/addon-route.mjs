@@ -676,7 +676,9 @@ export async function addon(slug, instruction, opts) {
       // that is more.
       // …AND WHAT THE ROUTER HELD BACK, when a case says so (2026-09-29): the
       // browser posts the routing reply's `alsoAsked` beside the message.
-      body: JSON.stringify({ instruction, ...(opts && opts.tz ? { tz: opts.tz } : {}), ...(opts && Object.hasOwn(opts, "alsoAsked") ? { alsoAsked: opts.alsoAsked } : {}) }),
+      // …AND WHY IT CAME HERE (2026-10-02, the audit's W24): the hand-over the
+      // browser posts when the router or an edit step hands the request on.
+      body: JSON.stringify({ instruction, ...(opts && opts.tz ? { tz: opts.tz } : {}), ...(opts && Object.hasOwn(opts, "alsoAsked") ? { alsoAsked: opts.alsoAsked } : {}), ...(opts && Object.hasOwn(opts, "handOver") ? { handOver: opts.handOver } : {}) }),
     });
     // THE SERVICE KEY IS PART OF THE ENVIRONMENT UNDER TEST: `persistSiteJobs`
     // returns at its first line without one, so a fixture that leaves it out

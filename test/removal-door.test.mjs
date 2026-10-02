@@ -209,9 +209,11 @@ test("a removal-opened door falls back to the router's own layer, never to the r
   const tail = block.slice(tailAt);
   assert.ok(tail.length > 100, "the no-steps branch is gone");
   assert.doesNotMatch(tail.slice(0, 400), /eRemovalDoor/, "the empty-plan branch still special-cases the door");
-  // THE CENSUS IS BY LANDMARK: every read must be one of the five named here —
+  // THE CENSUS IS BY LANDMARK: every read must be one of the six named here —
   // the declaration, the routed change handed to the picker, the record of its
-  // two lists, the empty-answer climb and the dispatch — and each must be
+  // two lists, the empty-answer climb, the dispatch, and (2026-10-02, the
+  // audit's W15) the addition wall, where the router's own step is always
+  // other work so the door never hands the whole message on — and each must be
   // there. A read nobody listed still fails. Comments are blanked above, or
   // this counts the paragraphs that explain it.
   const named = [
@@ -219,6 +221,7 @@ test("a removal-opened door falls back to the router's own layer, never to the r
     "routed: eRemovalDoor ? { layer: eLayer, remove: eRemove, page: ePage } : null,",
     "if (eRemovalDoor) editTrace.mark(\"door:answer\", \"ok\", { layer: eLayer, routed: picked.routed || [], additional: picked.fields });",
     "if (!picked.fields.length && !eRemovalDoor) return explain(\"picker/no-lane\")",
+    "if (!others.length && !eRemovalDoor) {",
     "const doorOwn = eRemovalDoor ? doorLane(eLayer) : null;",
   ];
   const spans = named.map((n) => {
@@ -228,10 +231,10 @@ test("a removal-opened door falls back to the router's own layer, never to the r
     return [i, i + n.length];
   });
   const reads = [...block.matchAll(/eRemovalDoor/g)].map((m) => m.index);
-  assert.equal(reads.length, named.length, "`eRemovalDoor` is read somewhere other than the five places named here");
+  assert.equal(reads.length, named.length, "`eRemovalDoor` is read somewhere other than the six places named here");
   for (const at of reads) {
     assert.ok(spans.some(([a, b]) => at >= a && at < b),
-      "`eRemovalDoor` is read at offset " + at + ", which is none of the five named reads");
+      "`eRemovalDoor` is read at offset " + at + ", which is none of the six named reads");
   }
   // THE ROUTED CHANGE IS HANDED TO THE PICKER, inside its own call — so what it
   // answers is the door's question — and its two lists are recorded after its

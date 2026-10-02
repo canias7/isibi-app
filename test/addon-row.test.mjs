@@ -25,6 +25,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import vm from "node:vm";
+import { createRequire } from "node:module";
 import { loadWorker, loadWorkerModule, makeCtx } from "./fixtures/worker-harness.mjs";
 import { isDispatchUpload, dispatchOk } from "./fixtures/cf-containers.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
@@ -35,6 +36,10 @@ import { rowsDb, BAKERY_LOAVES, LOAF_COLUMNS } from "./fixtures/rows-db.mjs";
 import { addon } from "./fixtures/addon-route.mjs";
 import { readDataChanges } from "../builder/site-apply.mjs";
 import { resolveAccess, ACCESS_PRESETS } from "../site-access.mjs";
+// THE PAGE'S OWN POLLER UNDER THE STAND-IN (2026-10-02): the held-part helpers
+// the posts and the last sentence use (`heldWire`, `heldList`) are its real ones,
+// and only the key and the outcome wording are made deterministic here.
+const realEditPoll = createRequire(import.meta.url)("../public/edit-poll.js");
 // THE NEW PIECES ARE IMPORTED WHERE THEY ARE USED, so this file loads on the
 // code before them too: the red check runs every route case against the old
 // route, and only the cases about the new pieces fail to find them.
@@ -434,7 +439,7 @@ const cut = (head) => {
 function browserAddonPost(site, d, instruction) {
   const sent = [];
   const ctx = vm.createContext({
-    EditPoll: { newIdemKey: () => "idem-addon-row-" + hex(8) },
+    EditPoll: { ...realEditPoll, newIdemKey: () => "idem-addon-row-" + hex(8) },
     buildPicker: "sonnet", browserTimeZone: () => "Europe/London",
     apiFetch: (url, init) => { sent.push({ url, init }); return new Promise(() => {}); },
   });
@@ -1191,8 +1196,10 @@ async function openSite({ db, mode = "job", answers = { pick_adds: PICK_ROW, add
     const body = JSON.parse(r.result.body);
     return { status: r.result.status, body, said: screen(r.result.status, body) };
   };
-  const send = async (instruction = ASK, idem = "idem-lost-" + hex(8)) => {
-    const res = await worker.fetch(post(slug, { instruction, picker: "sonnet", idem, tz: "Europe/London" }), env, makeCtx());
+  // `extra` (2026-10-02, batch 2): more of the browser's own body, as a hand-over
+  // posts it — the parts put off (`alsoAsked`). Absent, the body is as before.
+  const send = async (instruction = ASK, idem = "idem-lost-" + hex(8), extra = {}) => {
+    const res = await worker.fetch(post(slug, { instruction, picker: "sonnet", idem, tz: "Europe/London", ...extra }), env, makeCtx());
     const status = res.status;
     const body = await res.json().catch(() => null);
     if (mode !== "job" || status !== 202) return { status, body, said: screen(status, body) };
@@ -1914,6 +1921,55 @@ test("a write that never landed: the review closes the request's key before it r
     const next = await s.send();
     assert.equal(next.body.ok, true, JSON.stringify(next.body));
     assert.equal(db.rows("loaves").length, 7);
+  } finally { s.restore(); }
+});
+
+// ── WHAT WAS PUT OFF, SAID AGAIN WHEN THE REVIEW SETTLES (2026-10-02, the
+//    whole-router audit's batch 2, W7) ──────────────────────────────────────
+//
+// The review stores its own reply over the step's, so the settled reply is the
+// one a returning customer reads. It named a part put off only when it was a
+// string — since a hand-over may put off several, a list was dropped — and its
+// refund named none. The parts here are the browser's own `alsoAsked`, taken
+// out of the message by the route before anything ran.
+const LATER_TWO = ["make the header navy", "add a map of the shop"];
+
+test("a review that keeps the entry names again every part the first reply put off, in the browser's own words (job)", async () => {
+  const db = bakeryDb({ loseAnswer: 1, failKeyReads: 2 });
+  const s = await openSite({ db, mode: "job" });
+  try {
+    const first = await s.send(ASK + " Then make the header navy. And add a map of the shop.", undefined, { alsoAsked: LATER_TWO });
+    assert.equal(first.body.error, "row-uncertain", JSON.stringify(first.body));
+    assert.deepEqual(first.body.deferred, LATER_TWO, "the first reply did not name what was put off");
+    await s.mod.runReviewReconcile(s.env);
+    const now = s.stored(first.job);
+    assert.equal(now.body.ok, true, JSON.stringify(now.body));
+    assert.equal(now.body.reconciled, "saved");
+    assert.deepEqual(now.body.deferred, LATER_TWO, "the settled reply dropped what the first put off");
+    assert.match(now.said.text, /^✅ Done — added “Rye & Caraway” to loaves \(entry 12\)\./);
+    assert.match(now.said.text, /\nI only did part of it this time\. Say “make the header navy”, then “add a map of the shop”, and I’ll do those next\.$/);
+    // THE NEIGHBOURS: the six entries as they were, and the one entry once.
+    assert.equal(db.rows("loaves").length, 7);
+    unchangedSix(db);
+    assert.equal(writesOf(db).length, 1);
+  } finally { s.restore(); }
+});
+
+test("a review that refunds names again what the first reply put off — as left for later, nothing claimed done (job)", async () => {
+  const db = bakeryDb({ inFlight: 1 });
+  const s = await openSite({ db, mode: "job" });
+  try {
+    const first = await s.send(ASK + " Then make the header navy.", undefined, { alsoAsked: "make the header navy" });
+    const j = s.row(first.job);
+    assert.equal(j.billing, "refunded");
+    const now = s.stored(first.job);
+    assert.equal(now.body.error, "reconciled", JSON.stringify(now.body));
+    assert.equal(now.body.deferred, "make the header navy", "the refund's reply named nothing put off");
+    assert.match(now.said.text, /confirmed that entry wasn't saved/);
+    assert.match(now.said.text, /\nI left “make the header navy” for later, so it wasn’t tried\. Send that on its own when you’re ready\./);
+    assert.doesNotMatch(now.said.text, /I only did/);
+    assert.equal(db.rows("loaves").length, 6);
+    unchangedSix(db);
   } finally { s.restore(); }
 });
 

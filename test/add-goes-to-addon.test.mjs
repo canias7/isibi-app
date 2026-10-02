@@ -80,7 +80,15 @@ test("the wall sits at the picker, before any step is planned, and names the add
   })();
   assert.match(body, /pickedFields\.includes\(f\)/, "the wall is not keyed on the lane having been picked");
   assert.match(body, /!hasLookField\(wallLook, f\)/, "the wall is not keyed on the stored look lacking the field");
-  assert.match(body, /escalate\("addon", \{[^}]*layer: "addon"/, "the escalate does not name the addon layer, so the client falls to the revise");
+  // COLLECTED IN THE LOOP, HANDED ON AFTER IT (2026-10-02, the audit's W15):
+  // the escalate used to sit inside the loop and return at the first addition,
+  // before any other lane ran. The loop now collects the additions and the
+  // branch after it decides — alone, the add-on's own layer; beside other work,
+  // put off (driven in `handover-batch2.test.mjs`).
+  assert.match(body, /additions\.push\(f\)/, "the wall does not collect the additions it finds");
+  assert.doesNotMatch(body, /escalate\("addon"/, "the wall still hands on from inside its loop, before the other lanes are weighed");
+  const after = branch.slice(branch.indexOf(body) + body.length);
+  assert.match(after, /escalate\("addon", \{ field: additions\[0\], layer: "addon"/, "the escalate does not name the addon layer, so the client falls to the revise");
   // FAILS OPEN: a config that could not be read lets the lane run and say
   // `no-meta` itself, rather than refusing on a guess.
   const gate = branch.slice(branch.indexOf("let wallLook = null;"), wall);
@@ -120,7 +128,11 @@ test("the browser runs the addon route on that answer, with the same sentence", 
   // whole-router audit's W1): the add-on is handed `EditPoll.handOver`'s shape,
   // never the edit's answer whole. What that shape carries is driven in
   // `handover-operations.test.mjs`; this holds the sentence and the fallback.
-  assert.match(fn.slice(addon, hop), /siteAddon\(o\.site, o\.instruction, o\.origin, o\.finish, o\.fallback, EditPoll\.handOver\(o\.d, \{ layer: 'addon' \}\)\)/, "the addon is not run with the customer's own sentence and fallback");
+  // AND THE ESCALATE ITSELF RIDES AS `why` (2026-10-02, the audit's W24): its
+  // reason, field and `deferred` reach the add-on as the hand-over.
+  // AND THE ESCALATE'S PAGE, the addition's scope (the look step names it).
+  assert.match(fn.slice(addon, hop), /siteAddon\(o\.site, o\.instruction, o\.origin, o\.finish, o\.fallback, EditPoll\.handOver\(o\.d, \{ layer: 'addon', page: e\.page \}, why\)\)/, "the addon is not run with the customer's own sentence and fallback");
+  assert.match(fn, /const why = \{ from: o\.d && o\.d\.layer, reply: e \};/, "the hand-over is not told which step it left and what that step answered");
   // The decision lives in the module a test can drive, not in chat.js — so it
   // is DRIVEN, not read (2026-10-02). It was pinned by its spelling, and the
   // spelling moved when an edit the add-on step itself handed over gained its

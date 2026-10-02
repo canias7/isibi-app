@@ -34,6 +34,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import vm from "node:vm";
+import { addonFailure } from "../builder/site-addon.mjs";
 
 const require = createRequire(import.meta.url);
 const P = require("../public/edit-poll.js");
@@ -126,6 +127,8 @@ function page(answers) {
       // A REQUEST NO CASE ANSWERED IS REFUSED OUT LOUD, never held: every case
       // here runs to its end, and a request it did not expect fails it below.
       if (!next) return Promise.resolve(new Response(JSON.stringify({ ok: false, error: "unscripted" }), { status: 500, headers: { "content-type": "application/json" } }));
+      // A DROPPED CONNECTION (2026-10-02): the request never answered.
+      if (next.reject) return Promise.reject(next.reject);
       return Promise.resolve(new Response(next.body, { status: next.status, headers: { "content-type": "application/json", ...(next.headers || {}) } }));
     },
     setInterval: () => ({}), clearInterval: () => {},
@@ -196,8 +199,20 @@ test("handOver keeps where it goes and the ask's context, and drops every verb o
 });
 
 test("handOver coerces nothing: a field of the wrong type is left out", () => {
-  const out = P.handOver({ page: ["/gear"], alsoAsked: ["x"], cost: "2", fromAddon: "true", remove: "true" }, { layer: ["page"], page: 7, fromAddon: 1 });
+  const out = P.handOver({ page: ["/gear"], cost: "2", fromAddon: "true", remove: "true" }, { layer: ["page"], page: 7, fromAddon: 1 });
   assert.deepEqual(out, { layer: "" });
+  // THE PARTS PUT OFF ARE THE ONE EXCEPTION, AND IT IS NOT A COERCION
+  // (2026-10-02): a list of parts is their own shape now (one part goes in the
+  // wire's one-part shape, a string), and a value that does not read is passed
+  // on AS IT CAME — dropping it would read it as none, and the step reached
+  // would run the parts promised for later; passed on, its route refuses it.
+  assert.deepEqual(P.handOver({ alsoAsked: ["x"] }, { layer: "text" }), { layer: "text", alsoAsked: "x" });
+  assert.deepEqual(P.handOver({ alsoAsked: ["x", "y"] }, { layer: "text" }), { layer: "text", alsoAsked: ["x", "y"] });
+  assert.deepEqual(P.handOver({ alsoAsked: ["x", 5] }, { layer: "text" }), { layer: "text", alsoAsked: ["x", 5] });
+  assert.deepEqual(P.handOver({ alsoAsked: 5 }, { layer: "text" }), { layer: "text", alsoAsked: 5 });
+  // AND WHY IT MOVED: short strings only, never coerced.
+  assert.deepEqual(P.handOver({}, { layer: "text" }, { from: ["look"], reply: { reason: 7, field: { f: 1 } } }), { layer: "text" });
+  assert.deepEqual(P.handOver({}, { layer: "text" }, { from: "x".repeat(65), reply: { reason: "addon" } }), { layer: "text", handOver: { reason: "addon" } });
   assert.deepEqual(P.handOver(null, null), { layer: "" });
   assert.deepEqual(P.handOver([], []), { layer: "" });
   assert.deepEqual(P.handOver({ cost: Infinity }, { layer: "text" }), { layer: "text" });
@@ -280,4 +295,188 @@ test("CONTROL: a removal the router routed straight to the page step is still po
   assert.equal(edits[0].layer, "page");
   assert.equal(edits[0].remove, true, "the router's own page removal was dropped");
   assert.equal(edits[0].handedOff, undefined, "a first step was marked as a hand-over");
+});
+
+// ── BATCH 2: ONE HAND-OVER CONTRACT, AND EVERY ENDING NAMES WHAT WAS PUT OFF ──
+//
+// (2026-10-02, the whole-router audit's W7, W8 and W24, the browser's half.)
+// Wherever the request moves the browser posts the same three things: the
+// parts put off (`alsoAsked` — what the step it leaves said it put off, or what
+// was posted to it), and why and where (`handOver`: the step it left, the
+// escalate's reason and field, the page). The routes check every field; the
+// browser carries them and never decides. And the customer hears about the
+// parts put off however the turn ends: from the reply's own `deferred` when the
+// reply can be read, from what was posted when it cannot.
+const posts = (p, kind) => p.reqs.filter((r) => r.kind === kind).map((r) => r.body);
+const LATER = "add a booking form";
+const LEFT = (words) => "\nI left “" + words + "” for later, so it wasn’t tried. Send that on its own when you’re ready.";
+
+for (const queued of [false, true]) {
+  const how = queued ? "queued" : "direct";
+  test("W24 — the look step's hand-over reaches the add-on step with its reason, part, page and the part put off (" + how + ")", async () => {
+    const M = "Add a QR code for our menu on the Visit page, and " + LATER + ".";
+    const escalate = { ...TO_ADDON, page: "/visit", deferred: LATER };
+    const p = page({
+      route: [route({ intent: "edit", layer: "look", alsoAsked: LATER })],
+      edit: [queued ? receipt("job-q") : ok(escalate)],
+      ...(queued ? { poll: [stored(escalate)] } : {}),
+      addon: [ok({ ok: true, kinds: ["qr"], cost: 3, deferred: LATER })],
+    });
+    await p.send(M);
+    const adds = posts(p, "addon");
+    assert.equal(adds.length, 1, how + ": the add-on was not posted: " + JSON.stringify(p.kinds()));
+    assert.equal(adds[0].instruction, M, how);
+    assert.equal(adds[0].alsoAsked, LATER, how + ": the part put off did not ride the hand-over");
+    assert.deepEqual(adds[0].handOver, { from: "look", reason: "addon", field: "qr", page: "/visit" },
+      how + ": the add-on step was not told why it was handed the request");
+    assert.equal(p.said().length, 1, how);
+    assert.ok(p.said()[0].endsWith("\nI only did one thing this time. Say “" + LATER + "” and I’ll do that next."), how + ": " + p.said()[0]);
+    assert.equal(p.busy(), false, how);
+  });
+}
+
+test("W8/W24 — a climb hands the rewrite the parts put off and why; a refusal there still names them", async () => {
+  const M = "Make the whole site a shop instead, and " + LATER + ".";
+  const climb = { ok: false, escalate: true, reason: "build", field: "kind", cost: 0, deferred: LATER };
+  const p = page({
+    route: [route({ intent: "edit", layer: "look", alsoAsked: LATER })],
+    edit: [ok(climb)],
+    rewrite: [ok({ ok: false, need: "credits", msg: "You don’t have enough credits for that.", deferred: LATER }, 402)],
+  });
+  await p.send(M);
+  const rw = posts(p, "rewrite");
+  assert.equal(rw.length, 1, "the rewrite was not started: " + JSON.stringify(p.kinds()));
+  assert.equal(rw[0].instruction, M);
+  assert.equal(rw[0].alsoAsked, LATER, "the rewrite was not told what to take out — it would rewrite every page with it in");
+  assert.deepEqual(rw[0].handOver, { from: "look", reason: "build", field: "kind" }, "the rewrite was not told why it was handed this");
+  assert.deepEqual(p.said(), ["⚡ You don’t have enough credits for that." + LEFT(LATER)]);
+});
+
+test("W8 — the add-on step's own climb hands the rewrite the same contract", async () => {
+  const M = "Add a members area, and " + LATER + ".";
+  // THE REAL PRODUCER'S CLIMB: a verified reconstruction (`addonFailure`), with
+  // the `deferred` every ending of the route now carries.
+  const p = page({
+    route: [route({ intent: "addon", alsoAsked: LATER })],
+    addon: [ok({ ...addonFailure("no-source", { reconstruct: true }), deferred: LATER })],
+    rewrite: [ok({ ok: false, error: "x", msg: "That didn’t come together.", deferred: LATER }, 422)],
+  });
+  await p.send(M);
+  assert.equal(posts(p, "addon")[0].alsoAsked, LATER);
+  const rw = posts(p, "rewrite");
+  assert.equal(rw.length, 1, JSON.stringify(p.kinds()));
+  assert.equal(rw[0].alsoAsked, LATER);
+  assert.deepEqual(rw[0].handOver, { from: "addon", reason: "no-source" });
+  assert.deepEqual(p.said(), ["⚠️ That didn’t come together." + LEFT(LATER)]);
+});
+
+test("W7 — a dropped connection to the rewrite still names the part put off, from what was posted", async () => {
+  const M = "Make the whole site a shop instead, and " + LATER + ".";
+  const p = page({
+    route: [route({ intent: "edit", layer: "look", alsoAsked: LATER })],
+    edit: [ok({ ok: false, escalate: true, reason: "build", field: "kind", cost: 0, deferred: LATER })],
+    rewrite: [{ reject: new TypeError("Failed to fetch") }],
+  });
+  await p.send(M);
+  assert.equal(posts(p, "rewrite").length, 1);
+  assert.deepEqual(p.said(), ["⚠️ Lost the connection while building — check your internet and try again in a moment." + LEFT(LATER)]);
+});
+
+test("W7 — an edit refusal names the part put off, beside what it cost", async () => {
+  const M = "Change Rock School to Rock Club, and " + LATER + ".";
+  const p = page({ route: [route({ intent: "edit", layer: "text", alsoAsked: LATER })], edit: [ok({ ...TEXT_REFUSED, deferred: LATER }, 422)] });
+  await p.send(M);
+  assert.deepEqual(p.said(), ["⚠️ I couldn't find those words on your site. Nothing on your site changed, and this edit cost you nothing. Reading your message cost 2 credits." + LEFT(LATER)]);
+  assert.deepEqual(p.kinds(), ["route", "edit"], "a refusal started more work");
+});
+
+test("W7 — an edit answer that cannot be read names the part put off from what was posted, and starts nothing", async () => {
+  const M = "Change Rock School to Rock Club, and " + LATER + ".";
+  const p = page({ route: [route({ intent: "edit", layer: "text", alsoAsked: LATER })], edit: [{ status: 200, body: "<html>oops</html>" }] });
+  await p.send(M);
+  assert.deepEqual(p.said(), ["⚠️ I couldn’t read the answer to that change, so I can’t tell whether it went through. Asking for it again could make the change twice." + LEFT(LATER)]);
+  assert.deepEqual(p.kinds(), ["route", "edit"]);
+});
+
+test("W7 — several parts put off are each named: on a success, then each in turn; on a refusal, all of them", async () => {
+  const QR = "add a QR code for our menu";
+  const M = "Make the headings green, " + QR + ", and " + LATER + ".";
+  const done = page({ route: [route({ intent: "edit", layer: "look", alsoAsked: LATER })],
+    edit: [ok({ ok: true, layer: "look", cost: 1, deferred: [LATER, QR] })] });
+  await done.send(M);
+  assert.equal(done.said().length, 1);
+  assert.ok(done.said()[0].endsWith("\nI only did part of it this time. Say “" + LATER + "”, then “" + QR + "”, and I’ll do those next."), done.said()[0]);
+  const refused = page({ route: [route({ intent: "edit", layer: "look", alsoAsked: LATER })],
+    edit: [ok({ ok: false, error: "no-match", cost: 0, unchanged: true, msg: "I couldn't find that on your site.", deferred: [LATER, QR] }, 422)] });
+  await refused.send(M);
+  assert.ok(refused.said()[0].endsWith("\nI left “" + LATER + "” and “" + QR + "” for later, so they weren’t tried. Send each on its own when you’re ready."), refused.said()[0]);
+});
+
+test("W7 — a reply whose parts put off cannot be read is not trusted: no hand-over is posted, and the part posted is named", async () => {
+  const M = "Add a QR code for our menu, and " + LATER + ".";
+  const p = page({ route: [route({ intent: "edit", layer: "look", alsoAsked: LATER })], edit: [ok({ ...TO_ADDON, deferred: 7 })] });
+  await p.send(M);
+  assert.deepEqual(p.kinds(), ["route", "edit"], "a reply that could not be read handed the request on: " + JSON.stringify(p.kinds()));
+  assert.deepEqual(p.said(), ["⚠️ I couldn’t read the answer to that change, so I can’t tell whether it went through. Asking for it again could make the change twice." + LEFT(LATER)]);
+});
+
+test("W5/W24 — the router's own conversion reaches the add-on step with its reason and page, and the part it put off", async () => {
+  const M = "Put our cake order form on the Events page, and " + LATER + ".";
+  const p = page({
+    route: [route({ intent: "addon", alsoAsked: LATER, handOver: { from: "route", reason: "page-unknown", page: "/events" } })],
+    addon: [ok({ ok: true, kinds: ["page"], added: ["events.tsx"], cost: 4, deferred: LATER })],
+  });
+  await p.send(M);
+  const adds = posts(p, "addon");
+  assert.equal(adds.length, 1, JSON.stringify(p.kinds()));
+  assert.equal(adds[0].alsoAsked, LATER);
+  assert.deepEqual(adds[0].handOver, { from: "route", reason: "page-unknown", page: "/events" }, "the router's hand-over did not reach the add-on step");
+});
+
+test("W7 — a list of parts survives a refresh: stored as a list, read back as one, and posted by a resumed hop as one", () => {
+  const store = (() => { const m = new Map(); return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)) }; })();
+  P.rememberJob("fretwork-1", "job-r", store, { ask: "x", op: "edit", layer: "look", also: [LATER, "add a map"] });
+  const rec = P.resumableRecord("fretwork-1", Date.now(), store);
+  assert.deepEqual(rec.also, [LATER, "add a map"]);
+  // THE RESUMED WATCH'S HOP: `resumeEditJob` builds `d` with `alsoAsked: rec.also`.
+  const ho = P.handOver({ layer: rec.layer, alsoAsked: rec.also }, { layer: "page", page: "/gear" }, { from: rec.layer, reply: { reason: "needs-place", field: "", deferred: [] } });
+  assert.deepEqual(ho.alsoAsked, [LATER, "add a map"], "a resumed hop dropped the parts put off");
+  assert.deepEqual(ho.handOver, { from: "look", reason: "needs-place", page: "/gear" });
+});
+
+test("W24 — a sideways hop between edit steps posts the hand-over too: the step it left, the reason, the page", async () => {
+  const M = "Take the photo off the gear page.";
+  const p = page({ route: [route({ intent: "edit", layer: "picture", remove: true })], edit: [ok(NEEDS_PLACE), ok(PAGE_DONE)] });
+  await p.send(M);
+  const edits = p.edits();
+  assert.equal(edits.length, 2, JSON.stringify(p.kinds()));
+  assert.equal(edits[0].handOver, undefined, "the router's own step carried a hand-over");
+  assert.deepEqual(edits[1].handOver, { from: "picture", reason: "needs-place", page: "/gear" }, "the page step was not told why it was handed this");
+});
+
+test("W8 — what a step put off as the router's net rides the climb with the router's own part, both taken out by the rewrite", async () => {
+  // THE LOOK STEP PUT A QR CODE OFF beside the router's part, then climbed: its
+  // reply names both, and the rewrite must be told both — what was posted to the
+  // step is the router's part alone.
+  const QR = "add a QR code for our menu";
+  const M = "Make the whole site a shop instead, " + QR + ", and " + LATER + ".";
+  const p = page({
+    route: [route({ intent: "edit", layer: "look", alsoAsked: LATER })],
+    edit: [ok({ ok: false, escalate: true, reason: "build", field: "kind", cost: 0, deferred: [LATER, QR] })],
+    rewrite: [ok({ ok: false, error: "x", msg: "That didn’t come together.", deferred: [LATER, QR] }, 422)],
+  });
+  await p.send(M);
+  const rw = posts(p, "rewrite");
+  assert.equal(rw.length, 1, JSON.stringify(p.kinds()));
+  assert.deepEqual(rw[0].alsoAsked, [LATER, QR], "the rewrite was told only what was posted to the step, not what the step put off");
+});
+
+test("W24 — an escalate whose reason or field is not text is not trusted: nothing is handed on", async () => {
+  for (const bad of [{ reason: 7 }, { field: ["qr"] }]) {
+    const p = page({ route: [route({ intent: "edit", layer: "look" })], edit: [ok({ ...TO_ADDON, ...bad })] });
+    await p.send("Add a QR code for our menu.");
+    assert.deepEqual(p.kinds(), ["route", "edit"], JSON.stringify(bad) + ": a malformed escalate was handed on");
+    assert.equal(p.said().length, 1);
+    assert.match(p.said()[0], /^⚠️ I couldn’t read the answer to that change/, JSON.stringify(bad));
+  }
 });

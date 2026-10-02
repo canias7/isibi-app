@@ -639,7 +639,9 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   // THE NEEDS THEMSELVES STAY OFF THE MARK — they are the customer's own words.
   assert.doesNotMatch(markCall, /\baReq\b(?!, aReqSkipped)/, "a customer's words reached a telemetry row");
   // AND THE PICKER GETS THE SITE, not a digest of names.
-  assert.match(W, /\{ message: aInstruction, current: siteNote\(aSite\), model: aModels\.quick \}/,
+  // RE-ANCHORED 2026-10-02 (the audit's W24): and why the request was handed
+  // here, when it was (`handOverLine`).
+  assert.match(W, /\{ message: aInstruction, current: siteNote\(aSite\), model: aModels\.quick, handOver: handOverLine\(aHand\) \}/,
     "the picker is still shown a digest instead of the site");
   // ── THE ROUTE REALLY HANDS THE TABLE FACTS IN ────────────────────────────
   //

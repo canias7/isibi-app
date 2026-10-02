@@ -1503,9 +1503,16 @@ test("a removal is carried, and only when it is unmistakable", () => {
   assert.equal(ask({ layer: "page", page: "/book" }).remove, undefined);
   assert.equal(ask({ layer: "text", remove: true }).remove, undefined, "text has no page to remove");
 
-  // A page the site does not have is still an addon, removal or not — the same
-  // resolution that protects every other page edit.
-  assert.equal(ask({ layer: "page", page: "/nope", remove: true }).intent, "addon");
+  // A PAGE THE SITE DOES NOT HAVE, REMOVED, IS NOT AN ADDITION (2026-10-02, the
+  // audit's W5): it used to become the add-on step, which cannot take a page
+  // away, while the part held back for later waited. It stays the edit the
+  // router chose, and the page step answers it with the site's real pages at
+  // no cost before any removal can run — an exact match of a stored route
+  // (`page/no-page`; driven through the route in `handover-batch2.test.mjs`).
+  const gone = ask({ layer: "page", page: "/nope", remove: true });
+  assert.equal(gone.intent, "edit");
+  assert.equal(gone.page, "/nope");
+  assert.equal(gone.remove, true);
 });
 
 test("the router can express a removal at all, and says when not to", () => {
@@ -1575,9 +1582,14 @@ test("…and the conservatism below it is NOT loosened by that", () => {
     readEdit({ layer: "page", page: "/gallery", remove: "true" }, ["/gallery"]),
     { intent: "edit", answer: "", layer: "page", page: "/gallery" },
     "a truthy string took a page away");
-  assert.equal(
-    readEdit({ layer: "page", page: "/nope", remove: true }, ["/gallery"]).intent,
-    "addon", "a removal was honoured for a page the site does not have");
+  // RE-ANCHORED 2026-10-02 (the audit's W5): a removal of a page the site does
+  // not have stays the edit — its page names no stored route, so the page step
+  // refuses it before anything is removed (`page/no-page`) — where it used to
+  // become an add-on that could not remove it.
+  assert.deepEqual(
+    readEdit({ layer: "page", page: "/nope", remove: true }, ["/gallery"]),
+    { intent: "edit", answer: "", layer: "page", page: "/nope", remove: true },
+    "a removal of a page the site does not have was turned into something else");
   assert.equal(
     readEdit({ layer: "page", page: "/gallery", remove: true }, ["/gallery"]).remove, true);
 });
@@ -2091,7 +2103,11 @@ test("the wire is not cut, at either end", () => {
   const tailAt = c.indexOf("function alsoTail(");
   assert.ok(tailAt > 0, "alsoTail is gone");
   const tail = c.slice(tailAt, c.indexOf("\n}", tailAt));
-  assert.match(tail, /return[^;]*\balso\b/, "alsoTail never returns the leftover itself");
+  // RE-ANCHORED 2026-10-02: the parts, each quoted (`q`), several since a step
+  // may put some off as the router's net — and a sentence for an ending that
+  // did not succeed. What it says is driven in `handover-batch2.test.mjs`.
+  assert.match(tail, /return[^;]*\bq\[0\]/, "alsoTail never returns the leftover itself");
+  assert.match(tail, /I left /, "an ending that did not succeed says nothing about the part put off");
   assert.match(tail, /I only did one thing this time/, "the sentence that explains one change per turn is gone");
   assert.match(tail, /I\\u2019ll do that next/, "the sentence does not say what happens if they send it back");
   // THE PROPERTY, NOT THE SPELLING — the sibling guard on `renderTail` was
@@ -2115,10 +2131,13 @@ test("the wire is not cut, at either end", () => {
   const editBody = c.slice(c.indexOf("\nfunction siteEdit("), c.indexOf("\n}\n", c.indexOf("\nfunction siteEdit(")));
   const addBody = c.slice(c.indexOf("\nfunction siteAddon("), c.indexOf("\n}\n", c.indexOf("\nfunction siteAddon(")));
   assert.ok(editBody.length > 100 && addBody.length > 100, "siteEdit's or siteAddon's landmarks are gone");
-  assert.match(editBody, /alsoAsked: typeof d\.alsoAsked === 'string'/, "the edit POST does not carry what was held back");
-  assert.match(addBody, /alsoAsked: d && typeof d\.alsoAsked === 'string'/, "the add-on POST does not carry what was held back");
-  assert.match(w, /const eHeld = heldBack\(eMessage, eb && eb\.alsoAsked\)/, "the edit route does not take out what was held back");
-  assert.match(w, /const aLater = heldBack\(aAsked, ab && ab\.alsoAsked\)/, "the add-on route does not take out what was held back");
+  // RE-ANCHORED 2026-10-02: one part or several (`EditPoll.heldWire`, and
+  // `heldParts` on each route), and the rewrite as the third route.
+  assert.match(editBody, /alsoAsked: EditPoll\.heldWire\(d\.alsoAsked\)/, "the edit POST does not carry what was held back");
+  assert.match(addBody, /alsoAsked: EditPoll\.heldWire\(d && d\.alsoAsked\)/, "the add-on POST does not carry what was held back");
+  assert.match(w, /const eHeld = heldParts\(eMessage, eb && eb\.alsoAsked\)/, "the edit route does not take out what was held back");
+  assert.match(w, /const aLater = heldParts\(aAsked, ab && ab\.alsoAsked\)/, "the add-on route does not take out what was held back");
+  assert.match(w, /const bLater = heldParts\(/, "the rewrite does not take out what was held back");
   // The addon lane had no routing decision in scope at all until this landed.
   assert.match(c, /function siteAddon\(site, instruction, origin, finish, fallback, d\)/);
   assert.match(c, /siteAddon\(site, t, origin, finish, go, d\)/);

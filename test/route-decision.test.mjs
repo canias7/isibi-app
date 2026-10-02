@@ -62,7 +62,12 @@ const CASES = [
   ["layer-missing", () => routed({ intent: "edit" }), "fallback"],
   ["layer-unknown", () => routed({ intent: "edit", layer: "menu" }), "fallback"],
   ["page-missing", () => routed({ intent: "edit", layer: "page" }), "fallback"],
-  ["page-unknown", () => routed({ intent: "edit", layer: "page", page: "/blog", remove: true }), "fallback"],
+  // A PLAIN EDIT of a page the site was not said to have (2026-10-02, the
+  // audit's W5): a removal or a move of one stays the edit it is, below.
+  ["page-unknown", () => routed({ intent: "edit", layer: "page", page: "/blog" }), "fallback"],
+  // A CONVERSION THAT RUNS THE WHOLE MESSAGE DROPS THE HELD-BACK PART (W5): an
+  // answer naming no step split nothing anyone can trust.
+  ["also-dropped", () => routed({ intent: "edit", alsoAsked: "and a map" }), "fallback"],
   ["page-normalized", () => routed({ intent: "edit", layer: "page", page: "Book/" }), "model"],
   // The same code from the look layer's own branch, which keeps a page the
   // site does not list (the sweep found this branch unreached, 2026-10-02).
@@ -143,9 +148,24 @@ test("a model answer used exactly as given reports the model and no reasons", as
 });
 
 test("a fallback names itself and keeps the model's own answer, read only from the fixed lists", async () => {
-  const { r } = await routed({ intent: "edit", layer: "page", page: "/blog", remove: true });
+  const { r } = await routed({ intent: "edit", layer: "page", page: "/blog" });
   assert.equal(r.intent, "addon", "the conversion itself must not move: this is reporting only");
   assert.deepEqual(r.decision, { source: "fallback", reasons: ["page-unknown"], raw: { intent: "edit", layer: "page" } });
+  // AND SAYS WHY, TO THE STEP IT REACHES (2026-10-02, the audit's W5/W24).
+  assert.deepEqual(r.handOver, { from: "route", reason: "page-unknown", page: "/blog" });
+  // A REMOVAL OR A MOVE OF A PAGE THE SITE DOES NOT HAVE IS NOT AN ADDITION
+  // (W5): it stays the model's edit, and the page step answers it with the
+  // site's real pages at no cost — the add-on step was handed a removal it
+  // could not make while the addition beside it waited.
+  for (const extra of [{ remove: true }, { rename: "/journal" }]) {
+    const kept = await routed({ intent: "edit", layer: "page", page: "/blog", alsoAsked: "make it so", ...extra });
+    assert.equal(kept.r.intent, "edit", JSON.stringify(extra));
+    assert.equal(kept.r.layer, "page", JSON.stringify(extra));
+    assert.equal(kept.r.page, "/blog", JSON.stringify(extra));
+    assert.equal(kept.r.alsoAsked, "make it so", "the part held back was lost from an edit that stood: " + JSON.stringify(extra));
+    assert.equal(kept.r.handOver, undefined, JSON.stringify(extra));
+    assert.deepEqual(kept.r.decision.reasons, [], JSON.stringify(extra));
+  }
   // FREE TEXT NEVER RIDES: a layer or intent outside the lists is "other", absent is "none".
   const odd = await routed({ intent: "edit; DROP TABLE", layer: "nav and colours" });
   assert.deepEqual(odd.r.decision.raw, { intent: "other", layer: "other" });
@@ -292,6 +312,10 @@ test("the route's reply carries the decision: the model's own, a fallback, and t
   const converted = await route({ input: { intent: "edit", layer: "page", page: "/blog" } });
   assert.equal(converted.body.intent, "addon", "the route's answer moved: this change is reporting only");
   assert.deepEqual(converted.body.decision, { source: "fallback", reasons: ["page-unknown"], raw: { intent: "edit", layer: "page" } });
+  // THE HAND-OVER RIDES THE ROUTE'S REPLY (2026-10-02, the audit's W24), so the
+  // browser posts it to the add-on step: why it came, and the page.
+  assert.deepEqual(converted.body.handOver, { from: "route", reason: "page-unknown", page: "/blog" });
+  assert.equal(own.body.handOver, undefined, "a model's own add-on answer carried a hand-over");
 
   const broke = await route({ balance: 0, input: { intent: "addon" } });
   assert.equal(broke.body.intent, "build");

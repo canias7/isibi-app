@@ -490,15 +490,17 @@ test("the composer dispatches an addon, and only the route's own no-layer escala
   // editor. What the shape holds is driven in `handover-operations.test.mjs`;
   // the sentence, the layer, the add-on bound and the handed-off flag are read
   // here.
-  assert.match(branch, /return siteEdit\(o\.site, EditPoll\.handOver\(o\.d, \{ layer: said\.layer, page: said\.page, fromAddon: true \}\), o\.instruction, o\.origin, o\.finish, o\.fallback, undefined, true\)/,
+  // RE-ANCHORED 2026-10-02 (the audit's W24/W8): both carry the one hand-over
+  // — the parts put off, why, and the page — from the reader's own answer.
+  assert.match(branch, /return siteEdit\(o\.site, EditPoll\.handOver\(o\.d, \{ layer: said\.layer, page: said\.page, fromAddon: true \}, \{ from: 'addon', reply: said \}\), o\.instruction, o\.origin, o\.finish, o\.fallback, undefined, true\)/,
     "the hop does not carry the customer's own sentence to the named layer as a handed-off edit");
   // RE-ANCHORED 2026-09-24: the climb calls the fallback itself — the `fall`
   // helper it used went, since nothing else reaches the rewrite from here.
-  assert.match(branch, /return o\.fallback\(\);\s*\}\s*$/, "an escalate that names no layer no longer falls to the revise");
+  assert.match(branch, /return o\.fallback\(EditPoll\.handOver\(o\.d, \{\}, \{ from: 'addon', reply: said \}\)\);\s*\}\s*$/, "an escalate that names no layer no longer falls to the revise");
   // AND THE REVISE IS THE CUSTOMER'S OWN ASK, never a rewrite for a sentence
   // nobody re-typed: the climb is reached only when the ask is held.
   assert.match(b, /const canFall = typeof o\.fallback === 'function' && !!o\.instruction;/, "the fallback is not gated on holding the ask");
-  assert.ok(branch.indexOf("if (!canFall)") > 0 && branch.indexOf("if (!canFall)") < branch.indexOf("return o.fallback();"),
+  assert.ok(branch.indexOf("if (!canFall)") > 0 && branch.indexOf("if (!canFall)") < branch.indexOf("return o.fallback("),
     "the lost-ask case is not decided before the climb");
   // BOTH PATHS REACH THE ONE READER, AND WITH ONE `finish`: the synchronous
   // reply directly, the queued one through the shared watcher with this reader
@@ -531,10 +533,12 @@ test("the composer dispatches an addon, and only the route's own no-layer escala
   assert.ok(code.includes("return applyAddonResult(a, o);") && code.includes("if (!slug) return fallback();"),
     "the blanked window lost the code it is counting — the census would read nothing");
   assert.doesNotMatch(code, /\.catch\(fallback\)/, "a failed add-on POST still starts the rewrite");
-  const falls = [...code.matchAll(/\b(?:o\.)?fallback\(\)/g)].map((m) => code.slice(Math.max(0, m.index - 30), m.index + 14).replace(/\s+/g, " "));
+  // RE-ANCHORED 2026-10-02 (the audit's W8): the climb hands the rewrite the
+  // one hand-over, so a call is counted with its arguments.
+  const falls = [...code.matchAll(/\b(?:o\.)?fallback\(/g)].map((m) => code.slice(Math.max(0, m.index - 30), m.index + 40).replace(/\s+/g, " "));
   assert.equal(falls.length, 2, "the add-on path reaches the rewrite from " + falls.length + " places: " + JSON.stringify(falls));
   assert.match(falls[0], /if \(!slug\) return fallback\(\)/, falls[0]);
-  assert.match(falls[1], /return o\.fallback\(\)/, falls[1]);
+  assert.match(falls[1], /return o\.fallback\(EditPoll\.handOver\(/, falls[1]);
   // A NEW PAGE HAS TO REACH THE PICKER, or the customer is told it was added and
   // cannot open it.
   assert.match(b, /s\.pages\.push\(\{ path: p \}\)/);

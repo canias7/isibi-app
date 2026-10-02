@@ -47,6 +47,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import { createRequire } from "node:module";
+// THE PAGE'S OWN POLLER UNDER THE STAND-IN (2026-10-02): the held-part helpers
+// the posts and the last sentence use (`heldWire`, `heldList`) are its real ones,
+// and only the key and the outcome wording are made deterministic here.
+const realEditPoll = createRequire(import.meta.url)("../public/edit-poll.js");
 
 const CHAT = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
 
@@ -263,7 +268,7 @@ function workspace({ sites, open = "origin-1", routes = [], route = [] }) {
     renderSites: () => draw(),
     openProject: (id) => { ctx.siteOpenId = id || null; draw(); },
     editBlocked: new Set(), editInFlight: new Map(), editIdem: new Map(),
-    EditPoll: { newIdemKey: () => "idem-1", outcomeMessage: (k) => "outcome:" + k },
+    EditPoll: { ...realEditPoll, newIdemKey: () => "idem-1", outcomeMessage: (k) => "outcome:" + k },
     browserTimeZone: () => "Europe/London",
     paintReactLive: () => {},
     siteAbort: null, siteErr: null,

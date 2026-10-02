@@ -496,7 +496,8 @@ test("THE EDIT'S READER IS THE ADD-ON'S RULE, and the two differ only where an e
   }
   assert.ok(compared >= 30, "the comparison covered " + compared + " shapes");
   // THE ONE DIFFERENCE: the handoff is a hop for an edit and not knowing for an add-on.
-  assert.deepEqual(run("readEditReply", true, HANDOFF), { act: "hop", layer: "addon", page: "" });
+  // AND THE HAND-OVER'S WHY, checked and carried (2026-10-02, the audit's W24).
+  assert.deepEqual(run("readEditReply", true, HANDOFF), { act: "hop", layer: "addon", page: "", reason: "addon", field: "qr", deferred: [] });
   assert.deepEqual(run("readAddonReply", true, HANDOFF), { act: "unknown" });
 });
 
@@ -507,7 +508,11 @@ test("THE READING IS THE READER'S: `editAnswer` reads no action field itself, an
   for (const f of ["ok", "escalate", "layer", "page", "job"]) {
     assert.ok(!new RegExp("\\be\\." + f + "\\b").test(ans), "editAnswer reads e." + f + " itself: " + (ans.match(new RegExp(".*\\be\\." + f + "\\b.*")) || [""])[0]);
   }
-  assert.match(ans, /return escalatedEdit\(\{ layer: said\.layer, page: said\.page \}, o\);/, "the escalation handler is handed the raw reply");
+  // RE-ANCHORED 2026-10-02: the reader's own answer goes on whole — where it
+  // goes, and the hand-over's reason, field and parts put off, each checked by
+  // the reader (`readRouteReply`) — and still never the raw reply.
+  assert.match(ans, /return escalatedEdit\(said, o\);/, "the escalation handler is handed the raw reply");
+  assert.ok(!/escalatedEdit\([^)]*\be\b/.test(ans), "the escalation handler is handed the raw reply");
   const edit = blank(CHAT.slice(CHAT.indexOf("\nfunction siteEdit("), CHAT.indexOf("\nfunction unreadEditMsg(")));
   const receipt = edit.indexOf("if (said.act === 'receipt') {");
   assert.ok(receipt > 0 && edit.indexOf("const said = readEditReply(r.ok, e);") < receipt, "siteEdit's receipt is not the reader's");

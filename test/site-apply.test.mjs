@@ -879,7 +879,9 @@ test("an edit is dispatched, a classified climb falls back to the build, and not
     "an escalation is not handled before the failure branch, so a 200 carrying escalate:true is shown as an error");
   const esc = CHAT.slice(CHAT.indexOf("function escalatedEdit("), CHAT.indexOf("function watchEditJob("));
   assert.ok(esc.length > 200, "the escalation handler is gone — an escalation would be shown as an error");
-  assert.match(esc, /fallback\(\)/, "an escalation no longer reaches the build");
+  // RE-ANCHORED 2026-10-02 (the audit's W8): the climb hands the rewrite the
+  // one hand-over — the parts put off, which it takes out, and why.
+  assert.match(esc, /return o\.fallback\(EditPoll\.handOver\(o\.d, \{\}, why\)\);/, "an escalation no longer reaches the build");
   // A HANDOFF IS BOUNDED TO ONE HOP, and that bound lives on THIS side rather
   // than in the server's answer: without it, two lanes each naming the other
   // loop for ever on a customer's edit. The comparison itself now lives in
@@ -905,10 +907,12 @@ test("an edit is dispatched, a classified climb falls back to the build, and not
   // them call (test/edit-poll.test.mjs reads that shape; test/edit-lock.test.mjs
   // drives it). The property here is unchanged: the sentence, and no rewrite.
   assert.match(core, /if \(!a \|\| typeof a\.ok !== 'boolean'\) return unknown;/, "an unreadable body is no longer read as not knowing");
-  assert.match(ans, /if \(said\.act === 'unknown' \|\| said\.act === 'receipt'\) \{ o\.finish\('⚠️ ' \+ unreadEditMsg\(\)\); return; \}/,
+  // RE-ANCHORED 2026-10-02 (the audit's W7): and what was put off, from what
+  // the post carried — never anything more that would start work.
+  assert.match(ans, /if \(said\.act === 'unknown' \|\| said\.act === 'receipt'\) \{ o\.finish\('⚠️ ' \+ unreadEditMsg\(\) \+ alsoTail\(\{ deferred: o\.d && o\.d\.alsoAsked \}, false\)\); return; \}/,
     "an unreadable body no longer says it cannot tell");
   assert.ok(!/said\.act === 'unknown'[^}]*fallback/.test(ans), "an unreadable body still reaches the rewrite");
-  assert.match(b, /\}\)\.catch\(\(\) => \{ finish\('⚠️ ' \+ unreadEditMsg\(\)\); \}\)/,
+  assert.match(b, /\}\)\.catch\(\(\) => \{ finish\('⚠️ ' \+ unreadEditMsg\(\) \+ alsoTail\(\{ deferred: d\.alsoAsked \}, false\)\); \}\)/,
     "a network drop no longer says it cannot tell");
   assert.ok(!/\.catch\([^)]*\) => \{[^}]*fallback\(/.test(b), "a network drop still reaches the rewrite");
   // The escalate-before-failure ordering is asserted on `editAnswer` above,

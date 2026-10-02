@@ -310,6 +310,43 @@
   /** Which route filed the job — the resumed watch picks its reader by it. */
   var RESUME_OPS = ["edit", "addon"];
 
+  // ── THE PARTS PUT OFF, AS A LIST (2026-10-02, the whole-router audit's batch 2)
+  //
+  // `heldList` in builder/site-ask.mjs, which this file cannot import, read the
+  // same way: a string is one part, a list is several, absent is none — and
+  // `null` when the value cannot be read as either (a list with an entry that
+  // is not text, a blank one, one longer than any message, more than
+  // `MAX_HELD` entries, or a value of another type). A value that cannot be
+  // read is NEVER read as none: running the message whole would run the parts
+  // promised for later, so it is sent on as it came and the route refuses it.
+  var MAX_HELD = 4;
+  function heldList(v) {
+    if (v === null || v === undefined) return [];
+    if (typeof v === "string") return v.trim() ? [v.trim()] : [];
+    if (!Array.isArray(v) || v.length > MAX_HELD) return null;
+    var out = [];
+    for (var i = 0; i < v.length; i++) {
+      var p = v[i];
+      if (typeof p !== "string" || !p.trim() || p.length > ASK_MAX) return null;
+      if (out.indexOf(p.trim()) < 0) out.push(p.trim());
+    }
+    return out;
+  }
+
+  /**
+   * THE PARTS AS A POST CARRIES THEM (`alsoAsked`): nothing for none, the string
+   * for one — the shape every post has had since 2026-09-29 — and a list for
+   * several. A value that cannot be read goes AS IT CAME, so the route refuses
+   * it at no cost rather than run the message whole.
+   */
+  function heldWire(v) {
+    if (typeof v === "string") return v ? v : undefined;
+    var list = heldList(v);
+    if (list === null) return v;
+    if (!list.length) return undefined;
+    return list.length === 1 ? list[0] : list;
+  }
+
   function readStore(store) {
     try {
       var raw = (store || localStorage).getItem(STORE_KEY);
@@ -344,7 +381,13 @@
       // a resumed watch holds back the same words the live one would. NEVER
       // CUT: a cut copy is still found in the message and would hold back only
       // its start — so a copy longer than any ask is not stored at all.
+      // SEVERAL PARTS SINCE 2026-10-02 (a step may put some off as the router's
+      // net): a list is stored when every entry reads, and a string as before.
       if (x && typeof x.also === "string" && x.also.trim() && x.also.length <= ASK_MAX) rec.also = x.also;
+      else if (x && Array.isArray(x.also)) {
+        var also = heldList(x.also);
+        if (also && also.length) rec.also = also;
+      }
       all[String(slug)] = rec;
       (store || localStorage).setItem(STORE_KEY, JSON.stringify(all));
     } catch (e) { /* a private window is not a reason to fail an edit */ }
@@ -384,6 +427,9 @@
       ...(v.handedOff === true ? { handedOff: true } : {}),
       ...(v.fromAddon === true ? { fromAddon: true } : {}),
       ...(typeof v.also === "string" && v.also.trim() && v.also.length <= ASK_MAX ? { also: v.also } : {}),
+      // A LIST THAT DOES NOT READ COMES BACK AS IT IS, never as none: a hop posts
+      // it unchanged and the route refuses it, rather than running the parts.
+      ...(Array.isArray(v.also) ? { also: heldList(v.also) || v.also } : {}),
       job: v.job,
       ask: typeof v.ask === "string" && v.ask.trim() ? v.ask.slice(0, ASK_MAX) : "",
       op: typeof v.op === "string" && RESUME_OPS.indexOf(v.op) >= 0 ? v.op : "edit",
@@ -525,25 +571,67 @@
    *   layer      where it goes — the escalate's, which the caller has checked;
    *   page       the escalate's own, or the ask's when the escalate names none:
    *              a scope, which every step checks against the site's real pages;
-   *   alsoAsked  what the router held back for later, so the route takes it out
-   *              of the message again before anything runs;
+   *   alsoAsked  every part put off this turn, so the route reached takes them
+   *              out of the message again before anything runs (below);
+   *   handOver   why it moved and what it is about (below);
    *   cost       what reading the message cost, which a refusal's sentence states;
    *   fromAddon  the add-on has had this ask: the chain may not go back there,
    *              and the menu editor only adds.
    *
+   * ── ONE HAND-OVER CONTRACT (2026-10-02, the audit's W5/W7/W8/W15/W24) ─────
+   *
+   * `why` is `{ from, reply }`: the step the work leaves, and the escalate that
+   * step answered as the page's reply reader checked it (`readRouteReply` in
+   * chat.js: `reason` and `field` strings, `deferred` a list of parts) — read
+   * here for the same three things every hand-over in `builder/hand-over.mjs`
+   * carries:
+   *
+   *   held    `alsoAsked`: what the step it leaves SAID it put off — `deferred`
+   *           on its reply, the router's part and any it put off itself as the
+   *           router's net (a look change beside an addition hands on without
+   *           the addition) — or, when its reply names none, what was posted to
+   *           it. A string for one part, a list for several (`heldWire`).
+   *   scope   `handOver.page`, the page above, and `handOver.field`, the part
+   *           of the site the escalate says it could not do.
+   *   reason  `handOver.reason`, the escalate's own, and `handOver.from`.
+   *
+   * Each is a short string or absent. Nothing here decides whether a value is
+   * one the step reached knows: that route checks every field against its
+   * fixed lists and the site's real pages (`readHandOver`) and drops the rest,
+   * so a second copy of those lists here could only drift from the first.
+   *
    * NOTHING IS COERCED: a field of the wrong type is left out, never turned into
    * one of the right type.
    */
-  function handOver(d, to) {
+  var HAND_WORD_MAX = 64;
+  function handWord(v) {
+    return typeof v === "string" && v.length > 0 && v.length <= HAND_WORD_MAX;
+  }
+  function handOver(d, to, why) {
     var from = d && typeof d === "object" && !Array.isArray(d) ? d : {};
     var t = to && typeof to === "object" && !Array.isArray(to) ? to : {};
+    var w = why && typeof why === "object" && !Array.isArray(why) ? why : {};
+    var reply = w.reply && typeof w.reply === "object" && !Array.isArray(w.reply) ? w.reply : {};
     var out = { layer: typeof t.layer === "string" ? t.layer : "" };
     var page = typeof t.page === "string" && t.page ? t.page
       : (typeof from.page === "string" && from.page ? from.page : "");
     if (page) out.page = page;
-    if (typeof from.alsoAsked === "string" && from.alsoAsked) out.alsoAsked = from.alsoAsked;
+    // WHAT THE STEP SAID IT PUT OFF, over what it was sent: it holds back what
+    // it was sent or refuses, so its own list is the same or longer. A reply
+    // that names none (absent, or an empty list) never erases what was sent,
+    // and one that cannot be read is passed on as it came, for the route to
+    // refuse.
+    var said = heldList(reply.deferred);
+    var held = heldWire(said === null || said.length ? reply.deferred : from.alsoAsked);
+    if (held !== undefined) out.alsoAsked = held;
     if (typeof from.cost === "number" && isFinite(from.cost)) out.cost = from.cost;
     if (t.fromAddon === true || from.fromAddon === true) out.fromAddon = true;
+    var ho = {};
+    if (handWord(w.from)) ho.from = w.from;
+    if (handWord(reply.reason)) ho.reason = reply.reason;
+    if (handWord(reply.field)) ho.field = reply.field;
+    if (page) ho.page = page;
+    if (ho.from || ho.reason) out.handOver = ho;
     return out;
   }
 
@@ -621,6 +709,9 @@
     buildCode: buildCode,
     escalateAction: escalateAction,
     handOver: handOver,
+    heldList: heldList,
+    heldWire: heldWire,
+    MAX_HELD: MAX_HELD,
     newIdemKey: newIdemKey,
     pollDelayMs: pollDelayMs,
     pollBaseMs: pollBaseMs,

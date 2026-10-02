@@ -167,9 +167,11 @@ test("the addon body is read as text before the fork, stored verbatim, and parse
   assert.doesNotMatch(b, /request\.json\(\)/, "the addon block reads the body twice");
   // RE-ANCHORED 2026-09-29: the sentence is read off the one parsed object as
   // `aAsked`, and what this turn runs is that sentence less the part the router
-  // held back — read off the same object (`heldBack`).
+  // held back — read off the same object (`heldBack`). RE-ANCHORED 2026-10-02:
+  // `heldParts`, the same reading for one part or several (a hand-over carries
+  // what a step put off as the router's net too).
   assert.match(b, /const aAsked = String\(\(ab && ab\.instruction\) \|\| ""\)/, "the instruction is not read off the one parsed object");
-  assert.match(b, /const aLater = heldBack\(aAsked, ab && ab\.alsoAsked\);/, "what was held back is not read off the one parsed object");
+  assert.match(b, /const aLater = heldParts\(aAsked, ab && ab\.alsoAsked\);/, "what was held back is not read off the one parsed object");
   assert.match(b, /const aInstruction = aLater\.ok \? aLater\.run : aAsked;/, "the add-on does not run the sentence less what was held back");
 });
 

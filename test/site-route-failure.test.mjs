@@ -46,7 +46,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
+import { createRequire } from "node:module";
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
+// THE PAGE'S OWN POLLER UNDER THE STAND-IN (2026-10-02): the held-part helpers
+// the posts and the last sentence use (`heldWire`, `heldList`) are its real ones,
+// and only the key and the outcome wording are made deterministic here.
+const realEditPoll = createRequire(import.meta.url)("../public/edit-poll.js");
 
 const CHAT = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
 
@@ -92,6 +97,9 @@ const SRC = [
   cut("function readAddonReply("),
   cut("function readEditReply("),
   cut("function addonOutcomeMsg("),
+  // THE LAST SENTENCE ON EVERY ENDING (2026-10-02, the audit's W7): what was put
+  // off, said by the add-on's and the rewrite's endings alike.
+  cut("function alsoTail("),
   cut("function reactSend("),
   cut("function reactStageLabel("),
   cut("function buildCostWords("),
@@ -156,7 +164,7 @@ async function drive({ site, message, route, follow, routes }) {
     siteOpenId: "origin-1",
     renderSites: () => {},
     editBlocked: new Set(), editInFlight: new Map(), editIdem: new Map(),
-    EditPoll: { newIdemKey: () => "idem-1", outcomeMessage: (k) => "outcome:" + k },
+    EditPoll: { ...realEditPoll, newIdemKey: () => "idem-1", outcomeMessage: (k) => "outcome:" + k },
     browserTimeZone: () => "Europe/London",
     paintReactLive: () => {},
     siteAbort: null, siteErr: null,

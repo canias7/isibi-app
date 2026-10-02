@@ -237,7 +237,10 @@ import { sweepAfterPublish, P_ORPHANS } from "./site-sweep.mjs";
 import { loadConfig, saveConfig, withConfig, LEGACY_KEYS, CONFIG_KEY } from "./site-config.mjs";
 import { takeOffline, putBackOnline } from "./site-live.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
-import { routeMessage, routeDecision, clarifiedBrief, siteDigest, DOOR_LAYERS, heldBack, ROUTE_ERROR_CLASSES } from "./builder/site-ask.mjs";
+import { routeMessage, routeDecision, clarifiedBrief, siteDigest, DOOR_LAYERS, heldParts, ROUTE_ERROR_CLASSES } from "./builder/site-ask.mjs";
+// THE HAND-OVER (2026-10-02, the whole-router audit's batch 2): what travels when
+// work moves from one step to another — the parts put off, the scope, and why.
+import { readHandOver, handOverLine, heldReport } from "./builder/hand-over.mjs";
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
@@ -14659,7 +14662,21 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
  * passes, esbuild bundles and the whole suite stays green on: the `sourceStored`
  * class, which answered 500 to every build on `main` for an hour on 2026-08-21.
  */
+// THE PARTS A REWRITE TOOK OUT, FOR THE ONE ANSWER IT DOES NOT WRITE ITSELF
+// (2026-10-02, the audit's W7): the build route's own deadline answers while the
+// build is still running, outside `runSiteBuild`, and names them from here.
+// Keyed by the request's budget, which both hold and nothing else shares.
+const BUILD_HELD = new WeakMap();
+
 async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null, lease = null }) {
+      // ── EVERY ENDING NAMES WHAT WAS PUT OFF (2026-10-02, the audit's W7/W8) ──
+      // The edit and add-on routes' wrapper, for the climb that reaches here:
+      // the parts taken out of the instruction below are added to whatever
+      // this build answers (`heldReport`). The body is not re-indented; every
+      // exit is a `return` inside it and the last is an unconditional reply.
+      const bHeld = { parts: [] };
+      if (budget && typeof budget === "object") BUILD_HELD.set(budget, bHeld);
+      return heldReport(await (async () => {
       // `lease` (stage 2c): the queue consumer's own name on the build's row,
       // handed to the container at fire time. Null on the inline path and on
       // a build whose row could not be claimed, where nothing is handed off.
@@ -14887,6 +14904,29 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // the feature. Composed HERE and not in the composer, because the composer
       // cannot import the module and a second copy of a prompt fragment is two
       // things that can disagree about what the designer reads.
+      // ── A PART PUT OFF NEVER REACHES THE REWRITE (2026-10-02, the audit's W8) ──
+      //
+      // A cheaper step that cannot make a change climbs here, and the climb
+      // posted the whole message — the part the router had put off for a later
+      // turn included — so the costliest step, a writer that rewrites every
+      // page, did what the customer had been told would wait. The climb now
+      // posts the parts put off (`alsoAsked`, as the edit and add-on routes
+      // take them), and they are taken out of the instruction before anything
+      // reads it; one that cannot be found refuses, at no cost, rather than run
+      // the message whole. The parts taken out are what the reply names.
+      const bAsked = [body.brief, body.prompt, body.instruction].find((v) => typeof v === "string" && v.trim());
+      const bLater = heldParts(bAsked ? String(bAsked).trim().slice(0, 4000) : "", body.alsoAsked);
+      if (!bLater.ok) {
+        return Response.json({
+          ok: false, error: "held-unread", cost: 0,
+          msg: "I couldn't separate the part of your message I was leaving for later from the part to change now, so I haven't changed anything. Send the changes one at a time and I'll make each.",
+        }, { status: 422 });
+      }
+      bHeld.parts = bLater.held.slice();
+      // WHY IT CAME HERE, AND WHICH PAGE IT IS ABOUT (2026-10-02, W24): the
+      // step that climbed says so, from the hand-over's fixed lists, and the
+      // page writer is shown that one line beside the change (`buildArgs`).
+      const bHand = readHandOver(body.handOver);
       const brief = clarifiedBrief(
         // A NON-STRING IS NOT COERCED, matching the two readers beside it.
         // `cleanSlug` two screens up refuses one explicitly and `modelsFor`
@@ -14895,8 +14935,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // through a bare `String()`. An array of sentences became one
         // comma-joined line, an object became `[object Object]`, and either was
         // designed from and charged for.
-        [body.brief, body.prompt, body.instruction].find((v) => typeof v === "string" && v.trim()) ?
-          String([body.brief, body.prompt, body.instruction].find((v) => typeof v === "string" && v.trim())).trim().slice(0, 4000) : "",
+        bLater.run,
         body.qa,
       ).slice(0, 5000);
 
@@ -16335,7 +16374,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             // both model calls already take — so neither had to learn a new
             // shape. `briefForPages` composes the revise anchor first; the
             // context wraps whatever that produced.
-            brief: contextBrief(briefForPages({ brief, priorBrief }), {
+            brief: contextBrief(briefForPages({ brief: bHand ? brief + "\n\n" + handOverLine(bHand) : brief, priorBrief }), {
               pages: linked,
               facts: (researched && researched.facts) || "",
               sources: (researched && researched.sources) || [],
@@ -17150,6 +17189,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
         // which is which.
         models: { picker: models.picker, design: models.design, pages: models.pages },
       });
+      })(), bHeld.parts);
 }
 
 async function handleRequest(request, env, ctx) {
@@ -20140,6 +20180,13 @@ async function handleRequest(request, env, ctx) {
         // routes take it out before anything runs (`heldBack`); the reply's
         // last sentence is composed from what the route really held back.
         alsoAsked: typeof routed.alsoAsked === "string" && routed.alsoAsked ? routed.alsoAsked : undefined,
+        // AND, WHEN THE ANSWER WAS NOT THE MODEL'S EDIT AS GIVEN, WHY AND WHERE
+        // (2026-10-02, the whole-router audit's W5 and W24). The reader turned
+        // the edit into an add-on, and the add-on step is told so — the page
+        // the router named, and the reason — rather than starting again from
+        // the message alone. The fourteenth field of this shape, added with its
+        // wire: the browser posts it with the add-on request.
+        handOver: routed.intent === "addon" && routed.handOver ? routed.handOver : undefined,
         // The question to put in front of the build, already cleaned into
         // something renderable — two to four options, deduped, capped. The
         // client shows it verbatim rather than re-deciding anything, so there is
@@ -20590,7 +20637,9 @@ async function handleRequest(request, env, ctx) {
           const stage = budgetStage(snap && snap.steps);
           try { rec.step(snap, { stage: "deadline", at_deadline: stage }); } catch { /* never */ }
           console.error("build deadline:", stage, snap && snap.at, snap && snap.totalMs);
-          return Response.json({
+          // WHAT THE REWRITE PUT OFF (`BUILD_HELD`): taken out of the message
+          // as the build's first reading of it, minutes before any deadline.
+          return heldReport(Response.json({
             ok: false,
             stage: "deadline",
             // WHERE IT GOT TO, in the trace's own vocabulary, because the three
@@ -20601,7 +20650,7 @@ async function handleRequest(request, env, ctx) {
             error: "the build ran out of time",
             msg: budgetNote(stage),
             trace: snap,
-          }, { status: 503 });
+          }, { status: 503 }), (BUILD_HELD.get(budget) || { parts: [] }).parts);
         },
       });
     }
@@ -20887,6 +20936,23 @@ async function handleRequest(request, env, ctx) {
             return Response.json(rbOut, { status: 200 });
           }
           if (ed) {
+            // ── EVERY ENDING NAMES WHAT WAS PUT OFF (2026-10-02, the audit's W7)
+            //
+            // The route ends in a hundred places and said the held-back part on
+            // a success only, so a refusal, a failure of ours or an escalation
+            // left it unmentioned. Every ending of the block below now passes
+            // through `heldReport`, which adds `deferred` — the parts this
+            // request really took out of the message (`heldParts`) and any a
+            // step put off itself — to the reply it returns. `eHeldOut` is
+            // filled the moment the parts are taken out, so an ending before
+            // that (a refusal before the message was read, the queue's
+            // receipt) has nothing to add and passes untouched.
+            //
+            // THE BODY IS NOT RE-INDENTED, as the build route's wrapper is not:
+            // every exit is a `return` inside it, and its last statement is an
+            // unconditional reply, so the wrapper always has one to report on.
+            const eHeldOut = { parts: [] };
+            return heldReport(await (async () => {
             // ── THE EDIT LANE ─────────────────────────────────────────────
             //
             // Two layers live here and neither runs the page generator, which
@@ -21028,6 +21094,13 @@ async function handleRequest(request, env, ctx) {
             // page. The browser no longer sends them on a hand-over; this is
             // the route's own half, so a hand-over cannot act on one either way.
             const eHanded = !!(eb && eb.handedOff === true);
+            // WHY IT WAS HANDED HERE, AND FROM WHICH STEP (2026-10-02, the
+            // audit's W24): checked against the hand-over's fixed lists and
+            // recorded, so a run's evidence says what the step before this one
+            // could not do. The page a step acts on is still checked by that
+            // step against the site's real pages; this records, it never acts.
+            const eHand = eHanded ? readHandOver(eb && eb.handOver) : null;
+            if (eHand) editTrace.mark("handover", "ok", eHand);
             const eRemove = !eHanded && !!(eb && eb.remove === true);
             const eRename = !eHanded && typeof (eb && eb.rename) === "string" ? eb.rename.trim().toLowerCase() : "";
             // `let`, AND THE MESSAGE KEPT BESIDE IT: a step the look branch adds
@@ -21050,8 +21123,13 @@ async function handleRequest(request, env, ctx) {
             // records it. A held-back part that cannot be found in the message
             // is refused below rather than guessed at — running the whole
             // message would also run the part promised for later.
-            const eHeld = heldBack(eMessage, eb && eb.alsoAsked);
+            //
+            // A LIST SINCE 2026-10-02 (batch 2): a hand-over carries the router's
+            // part and any a step put off as its net, and every one is taken out
+            // here. The parts taken out are what every ending reports.
+            const eHeld = heldParts(eMessage, eb && eb.alsoAsked);
             const eRun = eHeld.ok ? eHeld.run : eMessage;
+            eHeldOut.parts = eHeld.held.slice();
             eInstruction = eRun;
             // EACH OWN LANE'S WORDS, for the one look step that runs them all —
             // set by the step loop from the step, like `eInstruction`.
@@ -21895,12 +21973,43 @@ async function handleRequest(request, env, ctx) {
               // the stored list too: which codes the page shows is a question
               // about the codes BY NAME, and the names are in the look.
               let wallLook = null;
+              // ── AN ADDITION BESIDE OTHER WORK IS PUT OFF, NEVER SWAPPED FOR IT ──
+              //
+              // (2026-10-02, the whole-router audit's W15.) The walls below sent
+              // the WHOLE message to the add-on step the moment the picker named
+              // an addition — before any other lane ran — so "make the header
+              // navy and add a QR code for our wifi" changed no colour: the
+              // add-on step designed the code and had no lane for the rest.
+              // Beside other work the addition is now put off exactly as the
+              // router puts a part off (`alsoAsked`): its own words, from the
+              // picker's scope for it, join the parts every ending reports and
+              // every later step takes out; the rest runs. Alone, it is the
+              // whole ask and is handed on as before, with its page.
+              //
+              // THE PICKER DECIDED IT IS AN ADDITION AND WHICH WORDS ASK FOR IT;
+              // code only checks the site has none and the words are the
+              // customer's own (`readScopes`). An addition with no readable
+              // words of its own stays a lane and the scope check withholds it,
+              // the convention for any scoped change it cannot place. An answer
+              // with no scopes at all cannot separate the words, so nothing
+              // runs and the customer is asked to send the addition alone.
+              const addWhat = (f) => (f === "three" ? "a 3D scene" : f === "pages" ? "a new page" : "a QR code");
+              const additionOp = (f) => (picked.scoped && Array.isArray(picked.scopes)
+                ? picked.scopes.find((op) => op && op.part === f && !op.invalid && op.words) : null) || null;
+              const putOff = (f) => {
+                const op = additionOp(f);
+                if (!op) return false;
+                if (!eHeldOut.parts.includes(op.words)) eHeldOut.parts.push(op.words);
+                editTrace.mark("handover:held", "ok", { field: f });
+                return true;
+              };
               if (pickedFields.some((f) => ADD_ONLY_FIELDS.includes(f))) {
                 try {
                   const c = await readSiteConfig(env, ownerSlug, null);
                   if (c.ok) wallLook = c.config.look;
                 } catch { wallLook = null; }
                 if (wallLook) {
+                  const additions = [];
                   for (const f of ADD_ONLY_FIELDS) {
                     // "EXISTS" IS A FACT ABOUT THE SITE, NOT ONLY ABOUT THE
                     // STORED LOOK. fretwork-1's 3D pick was drawn by the page
@@ -21928,7 +22037,19 @@ async function handleRequest(request, env, ctx) {
                       }
                       continue;
                     }
-                    if (pickedFields.includes(f) && !hasLookField(wallLook, f) && !onPage) return escalate("addon", { field: f, layer: "addon" });
+                    if (pickedFields.includes(f) && !hasLookField(wallLook, f) && !onPage) additions.push(f);
+                  }
+                  if (additions.length) {
+                    const others = pickedFields.filter((x) => !additions.includes(x));
+                    // THE ADDITION IS THE WHOLE ASK: handed on with its page. On
+                    // the router's removal door the router's own step is other
+                    // work, always (`doorDispatch`), so the door never hands on.
+                    if (!others.length && !eRemovalDoor) {
+                      const op = additionOp(additions[0]);
+                      return escalate("addon", { field: additions[0], layer: "addon", ...(op && op.page ? { page: op.page } : {}) });
+                    }
+                    if (!picked.scoped) return explain("picker/addition-mixed", { what: addWhat(additions[0]) });
+                    pickedFields = pickedFields.filter((x) => !(additions.includes(x) && putOff(x)));
                   }
                 }
               }
@@ -22160,31 +22281,41 @@ async function handleRequest(request, env, ctx) {
                 // publishes a site that exists rather than adding to it. Named
                 // rather than folded into a generic escalation, so the ladder
                 // climbs to the rung that really does it.
-                if (pv.layer === "addon") return escalate("addon", { field: "pages", verb: pv.verb, layer: "addon" });
-                // A PAGE THE SITE DOES NOT HAVE IS NOT AN EDIT OF IT. Checked
-                // against the real route list, the same way `readEdit` does one
-                // router up.
                 //
-                // ⚠ THIS SAID "a removal aimed at a page nobody has is an addon,
-                // correctly identified" AND ESCALATED WITH NO LAYER, which the
-                // browser reads as `up`: "take the menu page off" on a site with
-                // no menu page bought a rewrite of every page (reproduced
-                // 2026-09-23). Removal and move are the only verbs that reach
-                // here — adding went to the add-on route one line up — and for
-                // both the honest answer is a sentence: already true, or nothing
-                // to move.
-                const known = eSrc.map((pg) => routeOf(pg.path)).filter(Boolean);
-                if (pv.name && known.length && !known.includes(pv.name)) {
-                  return explain("pages/no-page", { page: pv.name, verb: pv.verb, routes: known });
+                // ⚠ AND BESIDE OTHER WORK IT IS PUT OFF, NOT SWAPPED FOR IT
+                // (2026-10-02, the audit's W15): this returned before any of the
+                // steps already built could run. The steps above are the other
+                // work; a withheld one counts too, so its own sentence is said.
+                if (pv.layer === "addon") {
+                  if (!steps.length && !withheld.length) return escalate("addon", { field: "pages", verb: pv.verb, layer: "addon" });
+                  if (!picked.scoped) return explain("picker/addition-mixed", { what: addWhat("pages") });
+                  if (!putOff("pages")) withhold("pages", "unscoped", "", () => explain("picker/scope-unread", { why: "unscoped" }));
+                } else {
+                  // A PAGE THE SITE DOES NOT HAVE IS NOT AN EDIT OF IT. Checked
+                  // against the real route list, the same way `readEdit` does one
+                  // router up.
+                  //
+                  // ⚠ THIS SAID "a removal aimed at a page nobody has is an addon,
+                  // correctly identified" AND ESCALATED WITH NO LAYER, which the
+                  // browser reads as `up`: "take the menu page off" on a site with
+                  // no menu page bought a rewrite of every page (reproduced
+                  // 2026-09-23). Removal and move are the only verbs that reach
+                  // here — adding went to the add-on route one line up — and for
+                  // both the honest answer is a sentence: already true, or nothing
+                  // to move.
+                  const known = eSrc.map((pg) => routeOf(pg.path)).filter(Boolean);
+                  if (pv.name && known.length && !known.includes(pv.name)) {
+                    return explain("pages/no-page", { page: pv.name, verb: pv.verb, routes: known });
+                  }
+                  // THE VERB RIDES ON ITS OWN STEP, beside the page it names. It
+                  // used to be written into the message-wide flags here, and every
+                  // other page step of the message then took the removal or the
+                  // move — see `eRemove` where it is declared.
+                  steps.push({
+                    layer: "page", page: pv.name || fallbackPage, fields: ["pages"],
+                    remove: pv.verb === "remove", rename: pv.verb === "move" ? pv.to : "",
+                  });
                 }
-                // THE VERB RIDES ON ITS OWN STEP, beside the page it names. It
-                // used to be written into the message-wide flags here, and every
-                // other page step of the message then took the removal or the
-                // move — see `eRemove` where it is declared.
-                steps.push({
-                  layer: "page", page: pv.name || fallbackPage, fields: ["pages"],
-                  remove: pv.verb === "remove", rename: pv.verb === "move" ? pv.to : "",
-                });
               }
 
               // A RUNG ABOVE THIS ROUTE DOES IT. `kind` is a rebuild — shopfront
@@ -25638,10 +25769,9 @@ async function handleRequest(request, env, ctx) {
               moved: flat("moved"),
               changed: flat("changed"),
               pageOps: pageOps.length ? pageOps : undefined,
-              // WHAT THIS TURN HELD BACK, in the customer's own words, so the
-              // reply's last sentence says what really happened rather than
-              // what the routing answer proposed (2026-09-29).
-              deferred: eHeld.held || undefined,
+              // WHAT THIS TURN HELD BACK is added by the route's one ending
+              // (`heldReport`, 2026-10-02), with any part a step put off itself
+              // — every reply carries it now, not this one alone.
               css: ranOk.some((d) => d.body.css) || undefined,
               renamed: ranOk.reduce((n, d) => n + (Number(d.body.renamed) || 0), 0) || undefined,
               // THE LAST PUBLISH'S FILES AND RENDER, because each step publishes
@@ -25792,9 +25922,16 @@ async function handleRequest(request, env, ctx) {
               return Response.json(merged, { status: 422 });
             }
             return Response.json(merged);
+            })(), eHeldOut.parts);
           }
 
           if (ad) {
+            // EVERY ENDING NAMES WHAT WAS PUT OFF (2026-10-02, the audit's W7)
+            // — the edit route's wrapper, for the same reason: this route said
+            // the held-back part on its successes only. The body is not
+            // re-indented; every exit is a `return` inside it.
+            const aHeldOut = { parts: [] };
+            return heldReport(await (async () => {
             // ── THE ADDON LANE ────────────────────────────────────────────
             //
             // The rung between edit and build: add a page the site does not
@@ -25868,8 +26005,12 @@ async function handleRequest(request, env, ctx) {
             // (2026-09-29) — the edit route's rule, for the same reason: a look
             // change put off beside an addition must not be designed into it.
             const aAsked = String((ab && ab.instruction) || "").trim().slice(0, 2000);
-            const aLater = heldBack(aAsked, ab && ab.alsoAsked);
+            //
+            // EVERY PART, AS A LIST (2026-10-02, batch 2): a hand-over carries the
+            // router's part and any a step put off beside it.
+            const aLater = heldParts(aAsked, ab && ab.alsoAsked);
             const aInstruction = aLater.ok ? aLater.run : aAsked;
+            aHeldOut.parts = aLater.held.slice();
             // THE OWNER'S ZONE, for a job's clock time (2026-09-03): asked of
             // Intl, so an unknown name is nothing rather than a throw at the
             // cron; nothing means UTC, which the runner reads absent as.
@@ -26264,7 +26405,6 @@ async function handleRequest(request, env, ctx) {
             // list as it stands, so the entry is on them already.
             const aRowsReply = (saved, { repeat = false, cost = 0, skipped = [] } = {}) => Response.json({
               ok: true,
-              deferred: aLater.held || undefined,
               kinds: ["row"],
               rows: saved,
               repeat: repeat || undefined,
@@ -26376,7 +26516,7 @@ async function handleRequest(request, env, ctx) {
             const aRowsUnknown = (why, skipped = []) => {
               const review = !!aJob;
               aMark("add:row", "fail", { uncertain: why, review: review ? 1 : 0 });
-              return Response.json(rowUncertainBody({ why, review, deferred: aLater.held, notAdded: skipped }), { status: review ? 409 : 502 });
+              return Response.json(rowUncertainBody({ why, review, notAdded: skipped }), { status: review ? 409 : 502 });
             };
             if (aRowKey) {
               let seen = null;
@@ -26405,6 +26545,17 @@ async function handleRequest(request, env, ctx) {
               }
             }
 
+            // ── WHY THIS ASK CAME HERE, WHEN ANOTHER STEP SENT IT (2026-10-02, W24)
+            //
+            // The edit route's hand-over named the part of the site it could
+            // not do and why, and the router's reader the page it named; this
+            // step started again from the message alone. The hand-over is
+            // checked against its fixed lists and the page against the site's
+            // own pages (`readHandOver`), recorded, and shown to the picker as
+            // one line from those lists — never the customer's words, which the
+            // picker already has. The picker still decides what the addition is.
+            const aHand = readHandOver(ab && ab.handOver, { pages: aSrc.map((p) => routeOf(p && p.path)).filter(Boolean) });
+            if (aHand) aMark("handover", "ok", aHand);
             aMark("pick_adds", "start");
             const aPicked = await pickAdds(
               { send: aQuick("pick_adds") },
@@ -26416,7 +26567,7 @@ async function handleRequest(request, env, ctx) {
               // second table and a feature with nothing behind it. The same
               // note the designers read, so both halves of the step see one
               // description of the site rather than two that can disagree.
-              { message: aInstruction, current: siteNote(aSite), model: aModels.quick },
+              { message: aInstruction, current: siteNote(aSite), model: aModels.quick, handOver: handOverLine(aHand) },
             );
             aMark("pick_adds", aPicked.failed ? "fail" : "ok", { kinds: aPicked.kinds });
             // EVERY USAGE ON ONE BILL: the picker's and each add's, priced
@@ -27788,7 +27939,6 @@ async function handleRequest(request, env, ctx) {
               const aCostNow = aFirstPlaced ? aFirst : await aCharge(pageCredits(...aDesignUsage, aSeedUsage));
               return Response.json({
                 ok: true,
-                deferred: aLater.held || undefined,
                 kinds: aAnswers.map((a) => a.kind), skipped: aSkipped,
                 notAdded: aNotAdded.length ? aNotAdded.slice(0, 6) : undefined,
                 // AN `ok: true` THAT STILL OWES SOMETHING SAYS SO. A job or an
@@ -29564,7 +29714,6 @@ async function handleRequest(request, env, ctx) {
             return Response.json({
               ok: true,
               // WHAT THIS TURN HELD BACK, for the reply's last sentence.
-              deferred: aLater.held || undefined,
               // What was added, by kind, and what was set aside for another
               // rung — so the reply can say "the photograph needs its own ask".
               kinds: aAnswers.map((a) => a.kind), skipped: aSkipped,
@@ -29784,6 +29933,7 @@ async function handleRequest(request, env, ctx) {
               } : undefined,
               cost: aCost,
             });
+            })(), aHeldOut.parts);
           }
           if (tx) {
             // ── CHANGING THE WORDS, WITH NO MODEL CALL ────────────────────

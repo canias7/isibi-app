@@ -69,6 +69,8 @@ export const EDIT_FAILURES = Object.freeze([
     why: "A removal of a 3D scene or QR code the site does not have. What was asked for is already true; nothing to do and nothing to buy." },
   { key: "picker/addon", reason: "addon", cls: "addon",
     why: "A code or a scene the site does not have yet is designed from nothing — the add-on step's job." },
+  { key: "picker/addition-mixed", reason: "addition-mixed", cls: "explain",
+    why: "An addition (a QR code, a 3D scene or a page the site does not have) asked beside other work, on a picker answer that gave no words for each change (2026-10-02, the audit's W15). Handing the message to the add-on step would drop the other work, and running the other work on the whole message would leave the addition with no words to put off — so nothing runs, nothing is charged for the edit, and the customer is asked to send the addition on its own." },
   { key: "picker/build", reason: "build", cls: "up",
     why: "`kind` (shopfront or tool) is a different site, not an edit of this one — the owner's own rule. The rewrite is the rung that rebuilds." },
   { key: "picker/unbuilt", reason: "unbuilt", cls: "explain",
@@ -217,6 +219,8 @@ export function failureMsg(key, facts = {}) {
       return "I couldn't tell which part of your site that's about. Say which page or section you mean and what should change, and I'll do it.";
     case "picker/nothing-to-remove":
       return "Your site doesn't have " + (f.what || "that") + " on it, so there was nothing to take off.";
+    case "picker/addition-mixed":
+      return "Adding " + (f.what || "that") + " is a step of its own, and I couldn't tell which of your words asked for it, so I haven't changed anything. Ask for " + (f.what || "it") + " on its own, then for the rest, and I'll make each.";
     case "picker/unbuilt":
       return "That part of your site can't be changed from here yet.";
     case "pages/page-verb":
