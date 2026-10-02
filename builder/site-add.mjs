@@ -115,7 +115,11 @@ import { accessLabel } from "../site-access.mjs";
 // tables, and `proposedSpec` runs the same one so the next designer's picture of
 // an extended table is the database that is coming rather than a second idea of
 // it. Two copies of those rules would drift; this repository has a name for it.
-import { routeOf, mergeAddonSchema } from "./site-addon.mjs";
+import { routeOf, mergeAddonSchema, ADD_HOPS } from "./site-addon.mjs";
+// THE ONE READER OF THE WORDS A PAGE SAYS (`wordsLanded`, 2026-10-02) — the
+// one `keptProse` already applies to every page this step changes, never a
+// second idea of what counts as words here.
+import { extractText } from "./site-text.mjs";
 // THE ADD STEP'S OWN REPAIR (below) shares the MECHANISM with the build's —
 // the tweak rung, whose guards keep the words and the route; the render
 // check's own serious kinds; the language-prefix reading — and nothing else.
@@ -145,7 +149,7 @@ import { PART_DIR, importsPart, partUses } from "./site-files.mjs";
 // `buySitePhotos` really enforce, so a constant typed here would be a ceiling
 // this tool promises and the spend path does not keep. `site-images.mjs`
 // imports one budget constant and nothing else, so this costs no dependency.
-import { IMAGE_CAP, MAX_PROMPT_CHARS, imageRefs, imageSources } from "./site-images.mjs";
+import { IMAGE_CAP, MAX_PROMPT_CHARS, imageRefs, imageSources, imageRefCounts, isPictureUrl, photoAlts } from "./site-images.mjs";
 // THE COVERAGE METADATA, ITS OWN MODULE (owner, 2026-09-13). Deliberately NOT
 // part of `TABLE_ITEM`: that item is bound by identity into `design_schema` too,
 // so anything added there enlarges the build's tool and becomes a promise the
@@ -242,7 +246,7 @@ export const ADD_DESIGN_RULE =
  * are generous. The rule per kind says "as many as they asked for, and not
  * one they did not", which is the ceiling that matters.
  */
-export const MAX_ADDS = 10;
+export const MAX_ADDS = 12;
 
 /** Pages one message may add — the page writer keeps six, so a seventh would be dropped there. */
 export const MAX_ADD_PAGES = 6;
@@ -344,7 +348,16 @@ export const MAX_SECTIONS = 12;
 export const MAX_ADD_SEED_ROWS = 12;
 
 /** The kinds whose answer is a LIST of additions rather than one. */
-export const LIST_ADDS = ["table", "row", "function", "api", "job", "page", "component", "photo"];
+export const LIST_ADDS = ["table", "row", "function", "api", "job", "page", "component", "words", "photo"];
+
+/** Lines of words one message may add, across its pages. */
+export const MAX_ADD_WORDS = 6;
+
+/** The longest line of words one entry may add — a short paragraph, not a page. */
+export const MAX_WORDS_CHARS = 600;
+
+/** How many of the site's own photographs the designers are shown. */
+export const MAX_OWN_PHOTOS = 12;
 
 /** The kinds that live in the site's DATABASE — the ones whose first addition makes one. */
 export const BACKEND_ADDS = ["table", "function", "api", "job"];
@@ -418,16 +431,21 @@ export function pageless(answers) {
 /**
  * WHERE A DISPATCHED ADD'S WORK REALLY HAPPENS.
  *
- * `photo` → `picture`: a photograph on a page that has none is the picture
- * rung's job — it already places one, prices it against the real balance and
- * refuses honestly when the image balance is empty — and this step never buys
- * a photograph (`images: 0` on its page call, the rule the edit path follows
- * too). The route answers an escalate naming that layer, and the browser hops
- * there with the same sentence, the way an edit hops sideways.
+ * `frame` → `nav` (2026-10-02): a new menu link, a button at the top or a
+ * footer detail is written on every page at once by the menu editor, which is
+ * the only code that does it. The route answers an escalate naming that layer,
+ * and the browser hops there with the same sentence, as an addition.
+ *
+ * `photo` → `picture` WAS HERE until the same day, and is not any more: that
+ * rung fills a slot that exists, so a photograph added beside the ones a page
+ * already shows could only be refused or swapped over one of them. It is
+ * placed by this step's page call now (`foldAdds`).
  *
  * KEYED BY GROUP NAME, exactly as `LANE_LAYER` is: `elsewhere` → the layer.
+ * `site-addon.mjs` holds the table (`ADD_HOPS`), because `addonFailure` is the
+ * one place a hop is allowed out of, and it must know them too.
  */
-export const ADD_LAYER = { picture: "picture" };
+export const ADD_LAYER = ADD_HOPS;
 
 /**
  * ── SIX THINGS A SITE CAN LACK, AND THE RULE FOR ADDING EACH ────────────────
@@ -895,6 +913,71 @@ const ADDS = {
         "If what they asked for is a whole page of its own, answer nothing here; that is a page, not a component.",
     },
   },
+  // ── WORDS ON A PAGE THE SITE ALREADY HAS (2026-10-02) ───────────────────
+  //
+  // Run 90's A4: "On the Visit page, add a line saying we're closed on bank
+  // holidays" came back `edit` + `text`, and the text rung only ever swaps
+  // words that are already there. A line that is not on the page yet is an
+  // addition (the owner's policy), and the nearest kind this step had was a
+  // whole `component`. This is the line itself, written into the page by the
+  // same page call every other addition rides and under the same walls: every
+  // sentence the page had must survive (`keptProse`), and the route checks the
+  // new words really landed (`wordsLanded`) before it publishes or charges.
+  words: {
+    hint: "NEW WORDS ON A PAGE THE SITE ALREADY HAS — a line, a sentence or a short paragraph that is not on the page yet: \"add a line saying we're closed on bank holidays\", \"put a note under the prices that they include VAT\". Changing words that are already there is an edit, not this; a whole new section with its own heading is a `component`.",
+    shape: {
+      type: "array",
+      maxItems: MAX_ADD_WORDS,
+      items: {
+        type: "object",
+        properties: {
+          page: {
+            type: "string",
+            description: "The page the words go on, as its route — \"/\" for the home page. One of the pages the site has.",
+          },
+          where: {
+            type: "string",
+            description: "Where on that page, by what is around it — \"under the opening hours\", \"after the first paragraph of the opening band\".",
+          },
+          words: {
+            type: "string",
+            description:
+              "THE WORDS THEMSELVES, exactly as a visitor will read them — written for this business, in its voice, " +
+              "and as short as what they asked for. The words, never a description of them: \"We're closed on bank " +
+              "holidays.\", not \"a note about bank holidays\".",
+          },
+        },
+        required: ["page", "words"],
+      },
+    },
+    add: {
+      is: "The words this change adds to pages the site already has — one entry per place: which page, where on it, and the words.",
+      yours:
+        "THE WORDS AND WHERE THEY GO. A line, a sentence or a short paragraph, written into the page beside what " +
+        "is around it, in the page's own style.",
+      wide:
+        "AS MANY LINES AS THEY ASKED FOR, AND NOT ONE MORE. \"Add a line saying we're closed on bank holidays\" " +
+        "is one line on one page — not a new section, not a heading over it, and not the same line on every page.",
+      keep:
+        "EVERY WORD THE PAGE ALREADY HAS stays exactly as it is — this adds, it never rewrites. Changing words " +
+        "that are already there is an edit and belongs on another rung; answer nothing for it here.",
+    },
+  },
+  // ── A NEW ITEM IN THE FRAME EVERY PAGE SHARES (2026-10-02) ──────────────
+  //
+  // Run 90's A1–A3: a footer link, a menu link and a header button, each asked
+  // for as an addition, came back `edit` + `nav`, and this step had no kind for
+  // any of them. The menu editor (`site-nav.mjs`) already writes every one on
+  // every page at once, for about a credit, and is the only code that can — so
+  // this kind designs nothing and hands the message to it (`ADD_HOPS`). The
+  // browser posts that hop as an addition, which the menu editor holds to
+  // add-only: nothing the frame has is changed, replaced or taken away
+  // (`additionOnly`), and a button asked for beside one that is there becomes
+  // a second button rather than a replacement.
+  frame: {
+    hint: "A NEW ITEM IN THE FRAME EVERY PAGE SHARES: a link in the menu to a page the site already has; a button at the top (the first one, or another beside the one there); or something at the bottom of every page — a social profile such as Instagram, a small-print link, a phone number, an email address, a postal address or the opening line. Not a page the site does not have yet: that is a `page`, which brings its own link.",
+    elsewhere: "frame",
+  },
   qr: {
     hint: "A QR CODE on the site — a square a visitor scans to join the wifi, ring the number, open the menu, find the place. Another beside the codes it has is fine: each has its own name and points somewhere none of the others do.",
     shape: {
@@ -1049,8 +1132,14 @@ const ADDS = {
   // the shot list crosses to the page writer through the build path's own
   // reader rather than a second shape beside it.
   photo: {
-    hint: "A PHOTOGRAPH on a page that has none, or one more where there are some — adding a picture. Swapping or reframing one the site has is an edit, not this.",
-    elsewhere: "picture",
+    hint: "A PHOTOGRAPH ADDED TO A PAGE — on a page that has none, or one more where there are some. Swapping, reframing or taking off one the site already shows is an edit, not this.",
+    // ⚠ NO LONGER HANDED TO THE PICTURE RUNG (2026-10-02). It was, alone, and
+    // that rung fills a slot that EXISTS: "add a photo of our sourdough to the
+    // Visit page", whose one slot holds the counter photograph, could only be
+    // refused or swapped over it. The add-on's page call places it, as it
+    // already did beside a page or a component — one of the site's own
+    // photographs when one shows what they asked for (`src`, free), or a new
+    // one made for it.
     shape: {
       type: "array",
       maxItems: IMAGE_CAP,
@@ -1069,7 +1158,23 @@ const ADDS = {
               "photographer. These exact words are the prompt an image model is PAID to draw, so write the " +
               "picture rather than the intention: \"a luthier's bench under a window, half-finished guitar " +
               "bodies clamped along it, warm afternoon light\", not \"a nice workshop photo\". " +
-              "No words on the image, no logos, no text of any kind — it is a photograph.",
+              "No words on the image, no logos, no text of any kind — it is a photograph. " +
+              "When it is one of the site's own photographs (`src`), say what that one shows: it becomes the " +
+              "picture's description for a screen reader.",
+          },
+          // ── ONE OF THE SITE'S OWN, BEFORE ANYTHING IS BOUGHT (2026-10-02) ──
+          //
+          // The picture rung's own rule, here: the owner's photograph beats a
+          // made-up one and costs nothing. The list is the photographs the
+          // site's pages already show (`ownPhotos`), and the cleaner refuses
+          // a `src` that is not on it, so nothing invented reaches a page.
+          src: {
+            type: "string",
+            description:
+              "ONE OF THIS SITE'S OWN PHOTOGRAPHS, copied EXACTLY from the list of them below, when one of them " +
+              "shows what they asked for. PREFER IT WHENEVER ONE FITS: it is their own picture, already on the " +
+              "site, and it costs them nothing. Leave it out only when none of them shows it — the picture is " +
+              "then made from `describe`, which costs them money.",
           },
           // ── THE ONE THING THAT TELLS TWO PICTURES APART (2026-09-19) ──────
           //
@@ -1097,11 +1202,12 @@ const ADDS = {
       },
     },
     add: {
-      is: "The photographs this change buys and puts on the pages — one entry per picture: which page it goes on, and what it shows.",
+      is: "The photographs this change puts on the pages — one entry per picture: which page it goes on, what it shows, and, when the site already has a photograph of it, which one.",
       yours:
-        "THE PICTURES THEMSELVES. Each one is really generated and really placed in this same change, on the " +
-        "page you name — including a page this change is adding, which does not exist yet and will by the " +
-        "time the picture lands.",
+        "THE PICTURES THEMSELVES. Each one is really placed in this same change, on the page you name — " +
+        "including a page this change is adding, which does not exist yet and will by the time the picture " +
+        "lands. One of the site's own photographs when one shows what they asked for; otherwise a new one is " +
+        "made for it.",
       wide:
         "AS MANY PHOTOGRAPHS AS THEY ASKED FOR, AND NOT ONE MORE. \"A photo of the workshop\" is ONE picture " +
         "on ONE page — not a set, not one per section, and not a hero for every page while you are there. " +
@@ -1150,23 +1256,21 @@ export const OWN_ADDS = ADD_KINDS.filter((k) => !ADDS[k].elsewhere);
  *
  * DERIVED FROM THE TABLE, never typed: a kind is here when it names a layer AND
  * carries a tool of its own, which is exactly "it can be answered here and it
- * has somewhere else to go". `photo` alone today.
+ * has somewhere else to go". EMPTY TODAY (2026-10-02): `photo`, the one kind
+ * that was here, is placed by this step's page call whatever company it keeps,
+ * and no longer names a layer.
  *
- * ⚠ `&& ADDS[k].shape` IS MEASURED INERT AND IS KEPT — DECLARED, because a
- * sweep cannot say so and the next session deletes what nothing appears to
- * need. `photo` is the only kind with an `elsewhere` today, so
- * `DISPATCHED_ADDS` is `[]` and both filters answer `["photo"]` with the clause
- * and without it. What makes it inert is a NEIGHBOUR'S state — which kinds the
- * table happens to hold — and not this expression, so it comes back the day a
- * kind dispatches with no tool of its own: that kind would otherwise join the
- * placing group, be asked for an answer it has no tool to give, and be dropped
- * in exactly the messages this group exists for. Its PAIR is the load-time
- * partition below (`DISPATCHED_ADDS` must carry no `requirements`, and a
- * placing kind must have a rule), which is what states the same division twice.
+ * ⚠ `&& ADDS[k].shape` CARRIES WEIGHT AGAIN, and it was declared for the day it
+ * would: `frame` dispatches with no tool of its own, and without the clause it
+ * would join this group and be asked for an answer it has no tool to give (the
+ * load-time partition below refuses exactly that, so the module would not
+ * load). Its PAIR is that partition (`DISPATCHED_ADDS` must carry no
+ * `requirements`, and a placing kind must have a rule), which states the same
+ * division twice.
  */
 export const PLACING_ADDS = ADD_KINDS.filter((k) => ADDS[k].elsewhere && ADDS[k].shape);
 
-/** The kinds whose work lives on an edit rung and NOWHERE here — no tool, nothing to clean. */
+/** The kinds whose work lives on an edit rung and NOWHERE here — no tool, nothing to clean. `frame` today. */
 export const DISPATCHED_ADDS = ADD_KINDS.filter((k) => ADDS[k].elsewhere && !ADDS[k].shape);
 
 /**
@@ -1227,15 +1331,12 @@ export function addLayer(kind) {
  * the platform did before this existed.
  *
  * ⚠ `placing` IS A PARAMETER, AND THAT IS THE RECORDED FIX FOR AN UNDRIVABLE
- * WALL — `cleanTools(v, catalog)`'s own reason, met again. `photo` is the only
- * kind on the platform that names a layer, so `DISPATCHED_ADDS` is `[]` and the
- * membership test cannot change an answer: MEASURED over every kind against
- * nine company shapes, 81 probes and ZERO differences with it and without it.
- * A wall nobody can drive is a wall nobody is guarding, and the rule it states
- * is real — a kind that dispatches with NO tool of its own has nothing to
- * answer here, whatever company it keeps, so it must keep its layer. The
- * default is the module's own group; the argument exists so that rule can be
- * driven in a two-kind world today rather than discovered in a live one later.
+ * WALL — `cleanTools(v, catalog)`'s own reason, met again. The rule it states
+ * is real and is now the live one: a kind that dispatches with NO tool of its
+ * own (`frame`) has nothing to answer here, whatever company it keeps, so it
+ * keeps its layer — beside a page it is set aside and named, never designed.
+ * With `PLACING_ADDS` empty (2026-10-02) the page-company branch is reached
+ * only through this argument, which is what lets a guard still drive it.
  */
 export function addLayerIn(kind, kinds, placing = PLACING_ADDS) {
   const layer = addLayer(kind);
@@ -1332,7 +1433,14 @@ const PICK_SYSTEM =
   // nearest kinds were `table` (whose seed never fills a list that has rows)
   // and `component` (a card drawn on the page while the list stays as it was).
   "One more ENTRY in a list it already stores — another loaf, dish, class, product or date for a table listed " +
-  "below — is a `row`: never a second `table`, and never a `component` or `page` drawn by hand to show it.";
+  "below — is a `row`: never a second `table`, and never a `component` or `page` drawn by hand to show it.\n\n" +
+  // THE FRAME, THE WORDS AND THE PHOTOGRAPH (2026-10-02), the three additions
+  // run 90 measured going to edits. Each has its own kind now, and the nearest
+  // wrong one for each is named, because it is the one a picker reaches for.
+  "A new item in the frame every page shares — a menu link to a page the site already has, a button at the top, " +
+  "or a link or detail at the bottom of every page — is `frame`, never a `component` drawn on one page. New WORDS " +
+  "on a page it has — a line, a sentence, a short paragraph — are `words`, never a whole `component`. A new " +
+  "PHOTOGRAPH on a page is `photo`.";
 
 /** The routing request. Shaped like `pickRequest` in site-lanes.mjs, for the same reasons. */
 export function pickRequest({ message, kinds = ADD_KINDS, current = "", model = ADD_MODEL }) {
@@ -1682,6 +1790,20 @@ export function siteNote(site) {
     lines.push(p + " is built from: " + (kit.length ? kit.join(", ") : "no kit components") +
       (parts.length ? "; and its own parts " + parts.join(", ") : "") +
       ". A second one of something it already has is built from the same component as the first.");
+  }
+  // ── THE PHOTOGRAPHS IT ALREADY SHOWS (2026-10-02) ───────────────────────
+  //
+  // Each by its exact address and the description its page gives it, so a
+  // photograph to add can be one of the owner's own rather than one bought:
+  // the `photo` designer's `src` is copied from here, and the cleaner refuses
+  // one that is not on this list.
+  const photos = (Array.isArray(s.photos) ? s.photos : [])
+    .filter((p) => p && typeof p.src === "string" && p.src).slice(0, MAX_OWN_PHOTOS);
+  if (photos.length) {
+    lines.push("Its own photographs, already on its pages — a photograph to add may be one of these, copied by its src exactly:");
+    for (const p of photos) {
+      lines.push("  " + p.src + " — \"" + String(p.alt || "").replace(/"/g, "'").slice(0, 120) + "\"" + (p.page ? " (on " + p.page + ")" : ""));
+    }
   }
   // ITS ADDRESS, so its own pages are real destinations (run 26, 2026-09-03).
   // The QR kind's rule forbids inventing a destination, and without this line
@@ -2771,6 +2893,20 @@ export function cleanAdd(kind, value, site) {
         if (!components.length && !tsx.length) return { ok: false, why: "no-component" };
         return { ok: true, value: { page, where: str(v.where, 200), does, components, tsx } };
       }
+      // ── WORDS ON A PAGE (2026-10-02) ────────────────────────────────────
+      //
+      // The page is REQUIRED and resolved by the same reader as a component's,
+      // so a line on a page nobody has is refused by name and never moved to
+      // the home page. The words are REFUSED rather than sliced when too long:
+      // a sliced sentence is not the sentence anybody asked for, and the route
+      // checks the page for exactly these words before it publishes.
+      case "words": {
+        const at = onPage(v.page);
+        if (at.bad || !at.page) return { ok: false, why: "no-page" };
+        const words = str(v.words, MAX_WORDS_CHARS + 1);
+        if (!words || words.length > MAX_WORDS_CHARS) return { ok: false, why: "no-words" };
+        return { ok: true, value: { page: at.page, where: str(v.where, 200), words } };
+      }
       // ── A PHOTOGRAPH, WHEN THIS CHANGE IS MAKING THE PLACE FOR IT ─────────
       //
       // `onPage` is the SAME destination reader every other placing kind uses,
@@ -2815,8 +2951,21 @@ export function cleanAdd(kind, value, site) {
         // resolves to whichever the reader met first — which is the route
         // collapse this name exists to end, one field over.
         if (ctx.photos.includes(name)) return { ok: false, why: "no-photo-name" };
+        // ── ONE OF THE SITE'S OWN, BY ITS EXACT ADDRESS (2026-10-02) ───────
+        //
+        // Absent is a picture to make; present must be one of the photographs
+        // the site's pages already show, character for character. Anything
+        // else — an altered address, a guessed one, a non-string — refuses the
+        // entry: a `src` the site does not own would publish a broken image,
+        // or be emptied to a placeholder the customer was told was a photo.
+        let src = "";
+        if (v.src !== undefined && v.src !== null && v.src !== "") {
+          const own = (Array.isArray(s.photos) ? s.photos : []).map((p) => p && p.src).filter((u) => typeof u === "string" && u);
+          src = typeof v.src === "string" ? v.src.trim() : "";
+          if (!src || !own.includes(src)) return { ok: false, why: "not-ours" };
+        }
         ctx.photos.push(name);
-        return { ok: true, value: { page, describe, name } };
+        return { ok: true, value: { page, describe, name, ...(src ? { src } : {}) } };
       }
       case "table": {
         const t = v.table && typeof v.table === "object" && !Array.isArray(v.table) ? v.table : null;
@@ -3306,6 +3455,8 @@ export function addRefusal(why, kind) {
     // prompt an image model is paid to draw, so an empty one is refused rather
     // than sent — and the sentence asks for the one thing that unblocks it.
     case "no-photo": return "I couldn't tell what the photograph should show — say what's in it, like \"the workshop bench under the window\", and I'll make it.";
+    case "not-ours": return "I couldn't find that photograph among the ones on your site — say what it shows and I'll place the right one.";
+    case "no-words": return "I couldn't tell what the new words should say — give me the line itself, and the page it goes on.";
     // THE CUSTOMER'S WORDS FOR A LABEL THEY NEVER SEE. It is bookkeeping and
     // saying so would be no use to them, so this asks for the ONE thing that
     // fixes it from their side: say which pictures you want, separately.
@@ -3394,6 +3545,17 @@ export function addDirective(kind, value, site) {
       out.push("- Return that ONE page with the component added between what it has; every other component and every sentence byte-identical. No new page file.");
       break;
     }
+    // THE WORDS, EXACTLY (2026-10-02). Said as the words themselves between
+    // marks the writer is told to leave off, because the route then looks for
+    // exactly these words on that page (`wordsLanded`) before it publishes.
+    case "words": {
+      out.push("## The words you are adding");
+      out.push("- On " + at(v.page) + ", " + (v.where || "where they belong in the page's order") + ".");
+      out.push("- Add these words, exactly as written between the quotation marks (without the marks): \"" + v.words + "\"");
+      out.push("- As ordinary text in the page's own style, beside what is around it: a line, a sentence or a short paragraph — not a new section, heading or component.");
+      out.push("- Return that ONE page with these words added; every other component and every sentence byte-identical. No new page file.");
+      break;
+    }
     case "table": {
       const t = v.table || {};
       out.push("## The table this change " + (v.exists ? "changes" : "adds"));
@@ -3458,8 +3620,23 @@ export function addDirective(kind, value, site) {
     // two, and the words inside a token are the prompt an image model is paid to
     // draw. Explicit rather than a fall-through to `default`, so it reads as a
     // decision somebody made.
-    case "photo":
+    case "photo": {
+      // ── EXCEPT ONE OF THE SITE'S OWN (2026-10-02) ───────────────────────
+      //
+      // A bought picture is a token, and the image directive carries it. A
+      // photograph the site already has is not bought and has no token: it is
+      // its own address, written into the page here, exactly — the address the
+      // cleaner checked against the site's photographs, and the one the route
+      // looks for on that page (`photosLanded`) before it publishes.
+      if (typeof v.src !== "string" || !v.src) break;
+      const alt = String(v.describe || "").replace(/["{}<>\\]/g, "").replace(/\s+/g, " ").trim();
+      out.push("## A photograph of this site's own, added to a page");
+      out.push("- On " + at(v.page) + ", show this photograph where the page's arrangement calls for one: <SafeImage src=\"" + v.src + "\" alt=\"" + alt + "\" /> — the src copied EXACTLY, never altered.");
+      out.push("- It is one of the site's own photographs: not a token, and nothing is made or bought for it.");
+      out.push("- Every picture already on that page stays exactly as it is, where it is.");
+      out.push("- Return that ONE page with the photograph added; every other component and every sentence byte-identical. No new page file.");
       break;
+    }
     default:
       return "";
   }
@@ -3511,6 +3688,10 @@ export function foldAdds(answers, priorLook, site) {
   // this straight to the page call through the build path's reader rather than
   // a second shape beside it.
   const photos = [];
+  // WHAT THE ROUTE CHECKS LANDED (2026-10-02): every line of words, and every
+  // photograph of the site's own, each with the page it was asked for on.
+  const words = [];
+  const reuse = [];
   // THE UNIVERSAL RULE HEADS THE DIRECTIVE, once, before any addition — the
   // second of its two hops (the first is `ADD_SYSTEM`, to the designers).
   // Only when something is being added: an empty fold is an empty directive.
@@ -3541,10 +3722,17 @@ export function foldAdds(answers, priorLook, site) {
     // to the name: the cleaner already refuses two pictures sharing a name
     // within one answer, so the two rules cover different things — that one
     // stops an ambiguous REFERENCE, this one stops a second PURCHASE.
-    if (a.kind === "photo" && v.page && v.describe &&
+    // A PHOTOGRAPH OF THE SITE'S OWN IS NEVER BOUGHT, so it stays off the
+    // shot list and rides its own: its address is already the picture.
+    if (a.kind === "photo" && v.page && v.describe && !v.src &&
         !photos.some((p) => p.page === v.page && p.describe === v.describe)) {
       photos.push({ page: v.page, describe: v.describe, name: String(v.name || "") });
     }
+    if (a.kind === "photo" && v.page && typeof v.src === "string" && v.src &&
+        !reuse.some((p) => p.page === v.page && p.src === v.src)) {
+      reuse.push({ page: v.page, src: v.src, describe: String(v.describe || ""), name: String(v.name || "") });
+    }
+    if (a.kind === "words" && v.page && v.words) words.push({ page: v.page, words: v.words, where: String(v.where || "") });
     if (a.kind === "table" && v.table) {
       tables.push(v.table);
       if (Array.isArray(v.seed) && v.seed.length) seed[v.table.name] = v.seed;
@@ -3621,7 +3809,136 @@ export function foldAdds(answers, priorLook, site) {
   // what it is building before it reads what the change still owes.
   const pageBrief = requirementBrief(requirements, "page");
   if (pageBrief) blocks.push(pageBrief);
-  return { designed, components, directive: blocks.filter(Boolean).join("\n\n"), files, requirements, photos };
+  return { designed, components, directive: blocks.filter(Boolean).join("\n\n"), files, requirements, photos, words, reuse };
+}
+
+// ── WHAT AN ADDITION SAID IT WOULD ADD, FOUND WHERE IT SAID (2026-10-02) ──
+//
+// `keptProse` is the wall that says nothing was LOST; these say the thing
+// asked for ARRIVED, on the page it was asked for on, before the route
+// publishes or charges. A page writer that returns the page without the line,
+// or puts the photograph somewhere else, is a refusal — never a published page
+// and a reply claiming the change was made.
+
+/**
+ * THE PHOTOGRAPHS A SITE'S PAGES ALREADY SHOW — each by its exact address, its
+ * page and the description it carries there.
+ *
+ * WHAT MAY BE COPIED INTO A `src` IS `shownPhotos`' OWN DEFINITION: an image
+ * reference of this site's (`imageRefs`, so a linked download is not one) to a
+ * file that is a picture (`isPictureUrl`). The description comes from the
+ * picture rung's slot reader (`photoAlts`) where the same address sits in a
+ * slot with a literal alt, and is blank otherwise — a photograph without one
+ * is still the owner's and still listed.
+ *
+ * HANDED THE PAGES AND THE COMPONENTS (`photoInventory`), because a hero's
+ * photograph lives in `-parts/` since the band split; one shown only there is
+ * listed with no page rather than under a route no visitor can open.
+ */
+export function ownPhotos(pages, slug) {
+  if (!Array.isArray(pages) || typeof slug !== "string" || !slug) return [];
+  const alts = photoAlts(pages);
+  const seen = new Set();
+  const out = [];
+  for (const p of pages) {
+    if (!p || typeof p.path !== "string") continue;
+    for (const src of [...imageRefs(p.source, slug)].sort()) {
+      if (!isPictureUrl(src) || seen.has(src)) continue;
+      seen.add(src);
+      out.push({ page: p.path.includes(PART_DIR) ? "" : routeOf(p.path) || "", alt: alts.get(src) || "", src });
+      if (out.length >= MAX_OWN_PHOTOS) return out;
+    }
+  }
+  return out;
+}
+
+/**
+ * Words as a visitor reads them: the entities JSX text is written with read as
+ * the characters they show, then case, curly quotes and punctuation set aside —
+ * in any script, so a line in Greek or Arabic is compared rather than erased.
+ */
+const NAMED = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", rsquo: "'", lsquo: "'", rdquo: '"', ldquo: '"', ndash: "-", mdash: "-", hellip: "..." };
+function plainWords(t) {
+  return String(t == null ? "" : t)
+    .replace(/&#x([0-9a-f]{1,6});/gi, (m, h) => { const n = parseInt(h, 16); return n <= 0x10ffff ? String.fromCodePoint(n) : " "; })
+    .replace(/&#([0-9]{1,7});/g, (m, d) => { const n = Number(d); return n <= 0x10ffff ? String.fromCodePoint(n) : " "; })
+    .replace(/&([a-z]+);/gi, (m, w) => (Object.hasOwn(NAMED, w.toLowerCase()) ? NAMED[w.toLowerCase()] : m))
+    .toLowerCase()
+    .replace(/[\u2018\u2019\u02bc`]/g, "'")
+    .replace(/[^\p{L}\p{N}£$€%'\s]+/gu, " ").replace(/\s+/g, " ").trim();
+}
+
+/** How many times `needle` occurs in `hay`, without overlaps. */
+function occurrences(hay, needle) {
+  if (!needle) return 0;
+  let n = 0;
+  for (let i = hay.indexOf(needle); i >= 0; i = hay.indexOf(needle, i + needle.length)) n++;
+  return n;
+}
+
+/** Each page's source by its file path. */
+function sourcesByPath(pages) {
+  return new Map((Array.isArray(pages) ? pages : []).filter((p) => p && typeof p.path === "string").map((p) => [p.path, String(p.source || "")]));
+}
+
+/**
+ * EVERY LINE OF WORDS THIS CHANGE ADDED, ON ITS PAGE — read with the text
+ * rung's own reader (`extractText`), which is what a visitor reads, and
+ * counted, so words a page already said once do not pass for the new line.
+ */
+export function wordsLanded(before, after, items) {
+  const was = sourcesByPath(before), now = sourcesByPath(after);
+  // IN THE PAGE'S OWN ORDER, so a line the writer split across a tag (`Open
+  // <strong>daily</strong>`) reads back as the one line it is.
+  const said = (source) => " " + plainWords(extractText(source).sort((a, b) => a.at - b.at).map((w) => w.text).join(" ")) + " ";
+  const missing = [];
+  for (const it of Array.isArray(items) ? items : []) {
+    const file = fileOfRoute(it && it.page);
+    const want = plainWords(it && it.words);
+    if (!file || !want) { missing.push({ page: it && it.page, words: it && it.words }); continue; }
+    const had = occurrences(said(was.get(file) || ""), " " + want + " ");
+    const has = occurrences(said(now.get(file) || ""), " " + want + " ");
+    if (has <= had) missing.push({ page: it.page, words: it.words });
+  }
+  return { ok: missing.length === 0, missing };
+}
+
+/**
+ * EVERY PHOTOGRAPH OF THE SITE'S OWN THIS CHANGE PLACED, ON ITS PAGE: its
+ * exact address is drawn there (`imageRefCounts`, `imageRefs`' grammar, so a
+ * link to the file does not count) more times than it was before.
+ */
+export function photosLanded(before, after, items, slug) {
+  const was = sourcesByPath(before), now = sourcesByPath(after);
+  const missing = [];
+  for (const it of Array.isArray(items) ? items : []) {
+    const file = fileOfRoute(it && it.page);
+    const url = it && typeof it.src === "string" ? it.src : "";
+    if (!file || !url) { missing.push({ page: it && it.page, src: url }); continue; }
+    const had = imageRefCounts(was.get(file) || "", slug).get(url) || 0;
+    const has = imageRefCounts(now.get(file) || "", slug).get(url) || 0;
+    if (has <= had) missing.push({ page: it.page, src: url });
+  }
+  return { ok: missing.length === 0, missing };
+}
+
+/** The sentence for an addition that did not arrive where it was asked for. */
+export function notLandedMsg({ words = [], photos = [] } = {}) {
+  const what = [];
+  if (words.length) what.push(words.length === 1 ? "the new words" : "the new lines");
+  if (photos.length) what.push(photos.length === 1 ? "the photograph" : "the photographs");
+  const one = words.length + photos.length === 1;
+  return "I couldn't add " + (what.join(" or ") || "that") + " — the page came back without " + (one ? "it" : "them") +
+    ", so nothing on your site changed. Try again in a moment.";
+}
+
+/**
+ * The sentence for a photograph-only addition that got no photograph: none of
+ * the site's own was chosen and none could be made. It promises nothing about
+ * an upload, because handing an attached picture to this step is not shown.
+ */
+export function noPhotoMsg() {
+  return "I couldn't get a photograph to put there just now, so nothing on your site changed and nothing was charged.";
 }
 
 /**

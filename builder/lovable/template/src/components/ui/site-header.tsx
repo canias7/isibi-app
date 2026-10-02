@@ -151,12 +151,25 @@ export function SiteHeader({
   brand,
   links = [],
   action,
+  secondAction,
   layout,
   className,
 }: {
   brand: string;
   links?: NavLink[];
   action?: { label: string; href?: string; onClick?: () => void };
+  /**
+   * A SECOND BUTTON BESIDE `action`, drawn quieter than it (2026-10-02).
+   *
+   * "Add a Call us button at the top" on a header that already had one could
+   * only REPLACE it: this component drew one button, so adding meant losing
+   * the conversion button the site already had. Optional and absent on every
+   * site until somebody asks for one, so no existing header changes.
+   *
+   * ON A PHONE IT MOVES INTO THE MENU SHEET, so the bar keeps its one button
+   * and the menu button and nothing crowds the brand off the screen.
+   */
+  secondAction?: { label: string; href?: string; onClick?: () => void };
   layout?: SiteLayout;
   className?: string;
 }) {
@@ -221,11 +234,26 @@ export function SiteHeader({
               existing header changes. */}
           <LangSwitch />
         </nav>
-        {action && (
+        {action && !secondAction && (
           <div className={cn(!centred && "ms-auto md:ms-0")}>
             <Button size="sm" asChild={!!action.href} onClick={action.onClick}>
               {action.href ? <SiteLink href={action.href}>{action.label}</SiteLink> : <span>{action.label}</span>}
             </Button>
+          </div>
+        )}
+        {/* TWO BUTTONS SHARE ONE BOX, so they sit together where the one sat.
+            A separate block — the one above, unchanged — keeps every header
+            that has only `action` byte-identical to what it rendered before. */}
+        {secondAction && (
+          <div className={cn("flex items-center gap-2", !centred && "ms-auto md:ms-0")}>
+            <Button size="sm" variant="outline" className="hidden md:inline-flex" asChild={!!secondAction.href} onClick={secondAction.onClick}>
+              {secondAction.href ? <SiteLink href={secondAction.href}>{secondAction.label}</SiteLink> : <span>{secondAction.label}</span>}
+            </Button>
+            {action && (
+              <Button size="sm" asChild={!!action.href} onClick={action.onClick}>
+                {action.href ? <SiteLink href={action.href}>{action.label}</SiteLink> : <span>{action.label}</span>}
+              </Button>
+            )}
           </div>
         )}
         {/* THE SHEET IS THE ONLY PLACE THE SWITCHER EXISTS ON A PHONE, because
@@ -234,7 +262,7 @@ export function SiteHeader({
             other language on the device most of these visitors use.
             `SITE_LANGS` is a build-time constant, so on a site with one language
             this condition is exactly what it was. */}
-        {(links.length > 0 || SITE_LANGS.length > 1) && (
+        {(links.length > 0 || SITE_LANGS.length > 1 || !!secondAction) && (
           <Sheet>
             <SheetTrigger asChild>
               <Button size="icon" variant="ghost" className="md:hidden" aria-label="Menu">
@@ -249,6 +277,14 @@ export function SiteHeader({
                     {l.label}
                   </SiteLink>
                 ))}
+                {/* THE SECOND BUTTON'S PLACE ON A PHONE: the bar hides it below
+                    `md`, so without this it would not exist on the device most
+                    of these visitors use. */}
+                {secondAction && (
+                  <Button size="sm" variant="outline" className="mt-2 self-start" asChild={!!secondAction.href} onClick={secondAction.onClick}>
+                    {secondAction.href ? <SiteLink href={secondAction.href}>{secondAction.label}</SiteLink> : <span>{secondAction.label}</span>}
+                  </Button>
+                )}
                 {/* AND IN THE SHEET, because the desktop nav is `hidden md:flex`
                     — without this the switcher is invisible on a phone, which is
                     where most visitors to these sites are. */}

@@ -39,7 +39,7 @@ on:
         required: true
         default: ''
       harness:
-        description: 'lane (one ask per design field) | gap (the rungs no lane reaches: text,logo,cancel,move,move-back,remove,data,rules,backend) | addon (the ADD step, one ask per kind: component,page,table,function,api,job,qr,three,photo,row — row runs only when typed by name, never under all: it writes a real entry to the site list)'
+        description: 'lane (one ask per design field) | gap (the rungs no lane reaches: text,logo,cancel,move,move-back,remove,data,rules,backend) | addon (the ADD step, one ask per kind: component,page,table,function,api,job,qr,three,photo,words,frame,row — row runs only when typed by name, never under all: it writes a real entry to the site list)'
         required: false
         default: 'lane'
       lanes:

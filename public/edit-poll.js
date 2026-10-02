@@ -337,6 +337,9 @@
       if (x && typeof x.layer === "string" && x.layer) rec.layer = x.layer.slice(0, 64);
       if (x && typeof x.page === "string" && x.page) rec.page = x.page.slice(0, 200);
       if (x && x.handedOff === true) rec.handedOff = true;
+      // AN EDIT THE ADD-ON HANDED ITS ASK TO (2026-10-02), so a resumed watch
+      // keeps the bound that stops it going back there.
+      if (x && x.fromAddon === true) rec.fromAddon = true;
       // WHAT THE ROUTER HELD BACK FOR A LATER TURN (2026-09-29), so a hop from
       // a resumed watch holds back the same words the live one would. NEVER
       // CUT: a cut copy is still found in the message and would hold back only
@@ -379,6 +382,7 @@
     if (age > 3600000 || age < 0) return null;
     return {
       ...(v.handedOff === true ? { handedOff: true } : {}),
+      ...(v.fromAddon === true ? { fromAddon: true } : {}),
       ...(typeof v.also === "string" && v.also.trim() && v.also.length <= ASK_MAX ? { also: v.also } : {}),
       job: v.job,
       ask: typeof v.ask === "string" && v.ask.trim() ? v.ask.slice(0, ASK_MAX) : "",
@@ -488,9 +492,14 @@
     // always go in addon") — a page, a code, a scene. Before this, every
     // escalate that was not a sideways hop fell to `up`, the full revise:
     // ~25 credits and every page rewritten, for a request the middle rung
-    // answers for a few. Decided before the hop bound, because the addon
-    // route never escalates back to an edit, so it cannot loop.
-    if (named === "addon") return "addon";
+    // answers for a few. Decided before the hop bound.
+    //
+    // ⚠ EXCEPT FOR AN EDIT THE ADD-ON HANDED ITS ASK TO (2026-10-02). This
+    // used to read "the addon route never escalates back to an edit, so it
+    // cannot loop" — and since `frame` it does (a new menu link goes to the
+    // menu editor). Sending that edit's ask back to the add-on would ask it
+    // the question it just answered with the hop, so the chain stops instead.
+    if (named === "addon") return opt.fromAddon === true ? "stop" : "addon";
     if (opt.handedOff) return "up";
     var ours = typeof opt.layer === "string" ? opt.layer : "";
     if (named && named !== ours) return "hop";

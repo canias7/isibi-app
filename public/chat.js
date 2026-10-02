@@ -9343,6 +9343,10 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
       // it out of `instruction` before anything runs, so it is never both done
       // now and promised for later — run 52 did both. Absent when nothing was.
       alsoAsked: typeof d.alsoAsked === 'string' && d.alsoAsked ? d.alsoAsked : undefined,
+      // AN ADDITION THE ADD-ON STEP HANDED HERE (2026-10-02). A real boolean,
+      // and it only ever narrows: the menu editor then adds without changing,
+      // replacing or taking away anything the frame already has.
+      addition: d.fromAddon === true ? true : undefined,
       picker: buildPicker,
       // THE UNDO. A deleted row is gone from the table, so the server cannot
       // show the model what "put it back" refers to — the client is the only
@@ -9393,7 +9397,7 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
       // a watch resumed after a refresh hops or falls to the revise exactly as
       // this one would, instead of answering that the message was lost. The
       // attachments are not kept: the logo lane's job is already filed.
-      EditPoll.rememberJob(slug, said.job, undefined, { ask: instruction, op: 'edit', layer: String(d.layer || ''), page: d.page ? String(d.page) : '', handedOff: !!handedOff, also: typeof d.alsoAsked === 'string' ? d.alsoAsked : '' });
+      EditPoll.rememberJob(slug, said.job, undefined, { ask: instruction, op: 'edit', layer: String(d.layer || ''), page: d.page ? String(d.page) : '', handedOff: !!handedOff, also: typeof d.alsoAsked === 'string' ? d.alsoAsked : '', fromAddon: d.fromAddon === true });
       watchEditJob(site, d, said.job, origin, finish, fallback, instruction, imgs, undefined, handedOff);
       return;
     }
@@ -9680,6 +9684,8 @@ function escalatedEdit(e, o) {
   const act = EditPoll.escalateAction(e, {
     handedOff: !!o.handedOff,
     layer: o.d && o.d.layer,
+    // AN EDIT THE ADD-ON HANDED ITS ASK TO (2026-10-02) may not hand it back.
+    fromAddon: !!(o.d && o.d.fromAddon === true),
     // THE ASK ITSELF IS WHAT A HOP AND A FALLBACK BOTH NEED, and a watch
     // resumed after a refresh holds neither — only the job id survived in
     // storage.
@@ -9687,6 +9693,12 @@ function escalatedEdit(e, o) {
   });
   if (act === 'lost') {
     o.finish('⚠️ I couldn’t make that change the cheap way, and I’ve lost the original message. Say it again and I’ll do the full rewrite.');
+    return;
+  }
+  // THE ADD-ON ALREADY HAD THIS ASK AND HANDED IT HERE (2026-10-02), so this
+  // edit naming the add-on again ends the chain rather than going round.
+  if (act === 'stop') {
+    o.finish('⚠️ I couldn’t add that, so nothing on your site changed. Try describing it a little differently.');
     return;
   }
   // THE MIDDLE RUNG, when the edit names it: the ask adds something the site
@@ -9916,7 +9928,9 @@ function resumeEditJob(site, origin, finish, fallback) {
   if (editWatched.has(rec.job)) return false;
   // WHAT THE ROUTER HELD BACK RIDES THE RECORD (2026-09-29): a hop from this
   // watch re-posts it, so the part promised for later is not run by the hop.
-  const d = { layer: rec.layer, page: rec.page, ...(rec.also ? { alsoAsked: rec.also } : {}) };
+  // AND WHETHER THE ADD-ON HANDED IT HERE (2026-10-02), so a watch resumed
+  // after a refresh keeps the loop bound the live one had.
+  const d = { layer: rec.layer, page: rec.page, ...(rec.also ? { alsoAsked: rec.also } : {}), ...(rec.fromAddon ? { fromAddon: true } : {}) };
   // THE READER THE ROUTE THAT FILED IT USES: an addon's stored reply is a
   // different object — kinds, added pages, tables — read by a different tail.
   const reader = rec.op === 'addon' ? addonAnswer : editAnswer;
@@ -10067,14 +10081,18 @@ function addonAnswer(httpOk, a, o) {
   if (said.act === 'unknown' || said.act === 'receipt') { o.finish(addonOutcomeMsg('unknown')); return; }
   if (said.act === 'hop' || said.act === 'climb') {
     if (!canFall) { o.finish('⚠️ I couldn’t add that the cheap way, and I’ve lost the original message. Say it again and I’ll do the full rewrite.'); return; }
-    // ONE HOP SIDEWAYS, when the addon names a cheaper rung that does this
-    // (2026-09-02): "add a photograph" is the picture rung's job, and the
-    // add step says so with the layer's name. Same sentence, same picker,
-    // handed to the edit route with the hop already spent — the addon route
-    // never escalates back here, so this cannot loop. A layer the edit route
-    // does not have — the addon's own name included — is not a hop at all.
+    // ONE HOP SIDEWAYS, when the addon names a cheaper rung that does this:
+    // a new menu link, button or footer item is the menu editor's, which
+    // writes every page at once (2026-10-02; until then it was a photograph,
+    // for the picture rung). Same sentence, same picker, handed to the edit
+    // route with the hop already spent. A layer the edit route does not have —
+    // the addon's own name included — is not a hop at all.
+    //
+    // `fromAddon` IS WHAT KEEPS IT FROM LOOPING, now that the add-on hands its
+    // ask to an edit: that edit may not hand it back (`escalateAction`), and
+    // it posts as an ADDITION, which the menu editor holds to add-only.
     if (said.act === 'hop') {
-      return siteEdit(o.site, { ...(o.d || {}), layer: said.layer, page: said.page || (o.d && o.d.page) }, o.instruction, o.origin, o.finish, o.fallback, undefined, true);
+      return siteEdit(o.site, { ...(o.d || {}), layer: said.layer, page: said.page || (o.d && o.d.page), fromAddon: true }, o.instruction, o.origin, o.finish, o.fallback, undefined, true);
     }
     // THE SERVER'S OWN CLIMB, and the one way left from here to the rewrite.
     // Which of the route's escalates really need it is a separate, server-side
@@ -10171,7 +10189,8 @@ function readAddonReply(httpOk, a) {
 }
 // AN EDIT HOPS TO THOSE AND TO THE ADD-ON ROUTE — its handoff, `escalate("addon",
 // { layer: "addon" })`, which `EditPoll.escalateAction` sends there. The add-on
-// route never hands back, so that hop cannot loop.
+// hands back only to the menu editor, and an edit it handed its ask to may not
+// send it there again (`fromAddon`), so neither hop can loop.
 function readEditReply(httpOk, e) {
   return readRouteReply(httpOk, e, ROUTE_EDIT_LAYERS.concat('addon'));
 }
@@ -10535,6 +10554,15 @@ function addonReplyText(a) {
       (Number.isSafeInteger(r.id) ? ' (entry ' + r.id + ')' : ''));
   }
   if (rowsAdded.length > 6) bits.push('and ' + (rowsAdded.length - 6) + ' more');
+  // NEW WORDS, AND A PHOTOGRAPH OF THE SITE'S OWN PUT ON A PAGE (2026-10-02),
+  // said from what the server found on the page before it published — each
+  // one checked there — never from the request's wording.
+  const routeName = (r) => (typeof r === 'string' && r.charAt(0) === '/' ? r : '');
+  for (const w of (Array.isArray(a.words) ? a.words : []).slice(0, 3)) {
+    if (w && typeof w.words === 'string' && w.words && routeName(w.page)) bits.push('added “' + w.words.slice(0, 140) + '” to ' + routeName(w.page));
+  }
+  const placed = (Array.isArray(a.ownPhotos) ? a.ownPhotos : []).map((p) => routeName(p && p.page)).filter(Boolean);
+  if (placed.length) bits.push('put ' + (placed.length === 1 ? 'one of your own photographs' : placed.length + ' of your own photographs') + ' on ' + [...new Set(placed)].join(', '));
   let out = bits.length ? '✅ Done — ' + bits.join(', ') + '.' : '✅ Done.';
   // WHAT A ONE-TIME JOB DOES NEXT, said right after the schedule it belongs to
   // and before anything about the database or the pictures.
@@ -10590,6 +10618,12 @@ function addonReplyText(a) {
   // prints what it was told.
   if (Array.isArray(a.skipped) && a.skipped.indexOf('photo') >= 0) {
     out += ' The photograph is a separate step — ask for it on its own and I’ll place it.';
+  }
+  // A NEW MENU LINK, BUTTON OR FOOTER ITEM BESIDE ANOTHER ADDITION (2026-10-02)
+  // is the menu editor's, which writes every page at once, so it did not ride
+  // this change. The server names it in `skipped`; this only prints that.
+  if (Array.isArray(a.skipped) && a.skipped.indexOf('frame') >= 0) {
+    out += ' The new link, button or footer item is a separate step — ask for it on its own and I’ll add it to every page.';
   }
   // AN ENTRY LEFT OUT OF A LIST IS SAID, with the server's own reason: a
   // message may add several pages or components at once, and one refused

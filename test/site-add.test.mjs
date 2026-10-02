@@ -81,75 +81,63 @@ test("the kinds are two disjoint groups that cover the list, and a dispatched ki
   // it is that every kind is answered in exactly one place, so none can be
   // designed-and-dispatched or neither. `PLACING_ADDS` is the third: a kind
   // that names a layer AND carries a tool, because where its work happens
-  // depends on the company it keeps — a photograph alone is the picture rung's
-  // and one beside a page is this step's, since this step is what makes the
-  // slot. Adding it to `DISPATCHED_ADDS` would have been the appeasement, and
-  // it would have asserted the old defect as correct.
+  // depends on the company it keeps.
   assert.deepEqual([...OWN_ADDS, ...PLACING_ADDS, ...DISPATCHED_ADDS].sort(), [...ADD_KINDS].sort(), "a kind is in no group or in more than one");
   for (const k of OWN_ADDS) { assert.ok(!DISPATCHED_ADDS.includes(k) && !PLACING_ADDS.includes(k)); assert.equal(addLayer(k), null, `${k} acts here and dispatches`); }
+  // ── RE-ANCHORED 2026-10-02: THE DISPATCHED GROUP IS THE LIVE ONE ─────────
+  //
+  // `photo` left the placing group (the add-on's page call places it, beside
+  // a page or alone) and `frame` joined the dispatched one (a new menu link,
+  // footer link or header button is the menu editor's). So this loop, which
+  // scanned an empty list for a year, now carries the layer check — and it
+  // proves its observer is alive before it is believed.
+  assert.ok(DISPATCHED_ADDS.length >= 1, "no kind dispatches — the loop below scans nothing");
+  assert.deepEqual(DISPATCHED_ADDS, ["frame"]);
+  assert.deepEqual(PLACING_ADDS, [], "a kind is placing again — re-read `addLayerIn` and the route's hop before changing this");
   for (const k of DISPATCHED_ADDS) {
     assert.ok(!PLACING_ADDS.includes(k), `${k} is in both dispatched groups`);
     const layer = addLayer(k);
     assert.ok(EDIT_LAYERS.includes(layer), `${k} dispatches to "${layer}", which is not an edit layer the route has`);
-  }
-  // ── AND THE PLACING GROUP IS PROVED ALIVE IN BOTH DIRECTIONS ─────────────
-  //
-  // `DISPATCHED_ADDS` IS EMPTY TODAY, so the loop above asserts nothing at all
-  // — a negative assertion with a dead observer, which this repository has
-  // recorded against it. That is exactly why this block exists: the layer
-  // vocabulary and the tool check have to be driven somewhere, and the kinds
-  // that carry both are here.
-  assert.ok(PLACING_ADDS.length >= 1, "no kind designs-here-or-dispatches — this block scans nothing");
-  for (const k of PLACING_ADDS) {
-    const layer = addLayer(k);
-    assert.ok(EDIT_LAYERS.includes(layer), `${k} dispatches to "${layer}", which is not an edit layer the route has`);
-    assert.doesNotThrow(() => addTool(k), `${k} names a layer and has no tool to be designed in`);
-    // THE TWO ANSWERS, AND WHICH COMPANY DECIDES THEM. Alone it is the layer;
-    // beside a kind that writes page source it is ours. `MAKES_PAGES` is the
-    // list, and a kind that is NOT on it leaves the dispatch alone — a table
-    // reaching the page call is no reason to place a photograph.
-    assert.equal(addLayerIn(k, [k]), layer, `${k} alone must still go to its own rung`);
-    for (const m of MAKES_PAGES) assert.equal(addLayerIn(k, [m, k]), null, `${k} beside ${m} must be designed here`);
-    for (const m of ADD_KINDS.filter((x) => x !== k && !MAKES_PAGES.includes(x))) {
-      assert.equal(addLayerIn(k, [m, k]), layer, `${k} beside ${m} must still dispatch — ${m} writes no page source`);
-    }
-    // FAIL-CLOSED ON A MALFORMED LIST: nothing that is not an array of strings
-    // carries a page-writing kind, so the answer is the dispatch, which is what
-    // the platform did before this group existed.
+    // NO TOOL OF ITS OWN: it designs nothing here, so there is no answer to ask
+    // the model for and nothing for the cleaner to read.
+    assert.throws(() => addTool(k), `${k} dispatches and still has a tool to be designed in`);
+    // AND ITS LAYER WHATEVER COMPANY IT KEEPS: beside a page it is set aside and
+    // named, never designed, because it has no tool to answer with.
+    assert.equal(addLayerIn(k, [k]), layer, `${k} alone must go to its own rung`);
+    for (const m of ADD_KINDS.filter((x) => x !== k)) assert.equal(addLayerIn(k, [m, k]), layer, `${k} beside ${m} must keep its layer`);
     for (const junk of [null, undefined, "page", 3, {}, [null], [["page"]]]) {
       assert.equal(addLayerIn(k, junk), layer, `${k} with a malformed kind list must dispatch`);
     }
   }
   // AND AN OWN KIND IS UNTOUCHED BY THE COMPANY IT KEEPS: it names no layer, so
   // there is nothing for the company to change and the answer is this module in
-  // every case. (The control that stops "beside a page it is null" being
-  // satisfied by a reader answering null for everything is above — a placing
-  // kind ALONE, and beside every kind that writes no page source, answers its
-  // layer.)
-  for (const k of OWN_ADDS) for (const m of MAKES_PAGES) assert.equal(addLayerIn(k, [m, k]), null);
-  // ⚠ AND THE GROUP ITSELF IS A WALL, DRIVEN IN A TWO-KIND WORLD (2026-09-17).
-  // `DISPATCHED_ADDS` is empty on the real platform, so the membership test in
-  // `addLayerIn` cannot change an answer here — MEASURED: 81 probes over every
-  // kind and nine company shapes, zero differences with it and without it. A
-  // wall nobody can drive is a wall nobody is guarding, so the group is a
-  // PARAMETER (`cleanTools(v, catalog)`'s own reason) and the rule is driven
-  // against a world where a kind dispatches and is NOT placed here: it keeps
-  // its layer whatever company it keeps, because it has no tool to answer with.
-  for (const k of PLACING_ADDS) {
+  // every case — `photo` among them now, alone and beside a page alike.
+  for (const k of OWN_ADDS) {
+    assert.equal(addLayerIn(k, [k]), null, `${k} alone must be designed here`);
+    for (const m of MAKES_PAGES) assert.equal(addLayerIn(k, [m, k]), null);
+  }
+  assert.ok(OWN_ADDS.includes("photo") && OWN_ADDS.includes("words"), "the photograph and the words are designed here");
+  // ⚠ AND THE PLACING RULE ITSELF STAYS A WALL, DRIVEN THROUGH ITS PARAMETER.
+  // With `PLACING_ADDS` empty no real kind reaches the page-company branch, so
+  // it is driven the way `cleanTools(v, catalog)` is: a dispatched kind treated
+  // as placing is designed beside a page and keeps its layer beside anything
+  // else — and NOT treated as placing, it keeps its layer beside a page too.
+  for (const k of DISPATCHED_ADDS) {
     const layer = addLayer(k);
-    assert.equal(addLayerIn(k, ["page", k], []), layer,
-      `${k} was designed here although nothing says it can be — a kind with no tool of its own would be asked for an answer and dropped`);
-    assert.equal(addLayerIn(k, ["page", k], [k]), null,
-      `${k} is in the placing group and was dispatched anyway — the observer is dead and the line above proves nothing`);
+    assert.equal(addLayerIn(k, ["page", k], [k]), null, `${k} as a placing kind beside a page must be designed here — the observer is dead`);
+    assert.equal(addLayerIn(k, ["table", k], [k]), layer, `${k} as a placing kind beside a table must still dispatch`);
+    assert.equal(addLayerIn(k, ["page", k], []), layer, `${k} was designed here although nothing says it can be`);
   }
   // The intent router promises these by name; a section, a form and a map
   // are components (owner, 2026-09-02: "section is just adding a new
   // component, so its a tsx step that adds components").
-  for (const k of ["page", "table", "component", "qr", "three", "photo"]) assert.ok(ADD_KINDS.includes(k), "no kind for " + k);
+  for (const k of ["page", "table", "component", "qr", "three", "photo", "words", "frame"]) assert.ok(ADD_KINDS.includes(k), "no kind for " + k);
   assert.ok(!ADD_KINDS.includes("section"), "a section is a component, not a kind of its own");
   // `Object.hasOwn`, never truthiness — the Stripe plan lookup's bug.
   assert.equal(addLayer("constructor"), null);
   assert.equal(addLayer(["photo"]), null);
+  assert.equal(addLayer("frame"), "nav");
+  assert.equal(addLayer("photo"), null, "the photograph is handed to the picture rung again — it cannot add one beside a page's own");
 });
 
 test("the photograph kind designs a shot list the picture pipeline can take, and refuses what it cannot", () => {
@@ -168,7 +156,11 @@ test("the photograph kind designs a shot list the picture pipeline can take, and
   const props = addTool("photo").input_schema.properties.photo;
   assert.equal(props.type, "array");
   assert.deepEqual([...props.items.required].sort(), ["describe", "name", "page"]);
-  assert.deepEqual(Object.keys(props.items.properties).sort(), ["describe", "name", "page"]);
+  // `src` JOINED 2026-10-02, OPTIONAL: one of the site's own photographs, by
+  // its exact address, placed rather than bought. Absent, the entry is the
+  // shot list it always was.
+  assert.deepEqual(Object.keys(props.items.properties).sort(), ["describe", "name", "page", "src"]);
+  assert.match(props.items.properties.src.description, /EXACTLY/);
   // THE WORDS ARE THE PROMPT SOMEBODY PAYS FOR, and the description says so —
   // this is the one field in the whole add step whose contents are billed.
   assert.match(props.items.properties.describe.description, /PAID to draw/);
@@ -252,6 +244,53 @@ test("the photograph kind designs a shot list the picture pipeline can take, and
   // other words is how one picture becomes two.
   assert.equal(addDirective("photo", { page: "/gallery", describe: "the bench", name: "bench" }, SITE_P), "");
   assert.doesNotMatch(many.directive, /the bench/, "the fold describes the picture twice");
+
+  // ── ONE OF THE SITE'S OWN PHOTOGRAPHS IS PLACED, NEVER BOUGHT (2026-10-02) ─
+  //
+  // Only an address on the site's own list (`s.photos`, what `ownPhotos`
+  // read off its pages) is accepted; anything else is refused by name, so a
+  // made-up or altered address never reaches a page. Accepted, it leaves the
+  // shot list (nothing is bought) and rides `reuse`, and the directive writes
+  // it into the page exactly — the address the route then looks for.
+  const OWN = "/u/fretwork-1/a1b2c3.jpg";
+  const SITE_O = { ...SITE_P, photos: [{ page: "/", alt: "The bench under the window", src: OWN }] };
+  const reused = cleanAdd("photo", [{ page: "/gallery", describe: "the bench", name: "bench", src: OWN }], SITE_O);
+  assert.deepEqual(reused.value, [{ page: "/gallery", describe: "the bench", name: "bench", src: OWN }]);
+  for (const bad of ["/u/fretwork-1/other.jpg", OWN + "?v=2", "https://example.com/a.jpg", "/u/other-site/a1b2c3.jpg", 7, ["x"], "  "]) {
+    const r = cleanAdd("photo", [{ page: "/gallery", describe: "the bench", name: "bench", src: bad }], SITE_O);
+    assert.equal(r.why, "not-ours", "an address that is not one of the site's own was accepted: " + JSON.stringify(bad));
+  }
+  assert.equal(cleanAdd("photo", [{ page: "/gallery", describe: "the bench", name: "bench", src: OWN }], SITE_P).why, "not-ours",
+    "a site with no photographs listed accepted an address");
+  assert.match(addRefusal("not-ours"), /among the ones on your site/);
+  const folded = foldAdds([{ kind: "photo", value: reused.value }], {}, SITE_O);
+  assert.deepEqual(folded.photos, [], "a photograph the site already has was put on the shot list — it would be bought");
+  assert.deepEqual(folded.reuse, [{ page: "/gallery", src: OWN, describe: "the bench", name: "bench" }]);
+  const dir = addDirective("photo", reused.value[0], SITE_O);
+  assert.ok(dir.includes('src="' + OWN + '"'), "the directive does not write the address exactly");
+  assert.match(dir, /not a token/);
+  assert.ok(folded.directive.includes(OWN), "the fold's directive does not carry the photograph");
+  // THE SITE'S OWN LIST REACHES THE DESIGNER, by exact address and description.
+  const note = siteNote(SITE_O);
+  assert.ok(note.includes(OWN) && note.includes("The bench under the window"), "the designer is not told the site's own photographs");
+  assert.ok(!siteNote(SITE_P).includes("Its own photographs"), "a site with none is told it has some");
+});
+
+// THE WORDS ARE REFUSED, NEVER TRIMMED TO FIT (2026-10-02, the sweep's A-4):
+// the route looks for exactly these words on their page before it publishes,
+// so a line it could not place whole must not reach the page writer at all.
+test("the words kind takes one line for a page the site has, and refuses empty or overlong words by name", async () => {
+  const { MAX_WORDS_CHARS } = await import("../builder/site-add.mjs");
+  const SITE_W = { ...SITE, pages: ["/", "/visit"] };
+  const ok = cleanAdd("words", [{ page: "/visit", words: "We're closed on bank holidays." }], SITE_W);
+  assert.equal(ok.ok, true, JSON.stringify(ok));
+  assert.deepEqual(ok.value.map((v) => [v.page, v.words]), [["/visit", "We're closed on bank holidays."]]);
+  const long = "x".repeat(MAX_WORDS_CHARS + 1);
+  for (const bad of ["", "   ", long, 42, null]) {
+    assert.equal(cleanAdd("words", [{ page: "/visit", words: bad }], SITE_W).why, "no-words", "words that cannot be placed whole were accepted: " + JSON.stringify(bad).slice(0, 40));
+  }
+  assert.equal(cleanAdd("words", [{ page: "/visit", words: "x".repeat(MAX_WORDS_CHARS) }], SITE_W).ok, true, "the longest allowed line was refused");
+  assert.match(addRefusal("no-words"), /the line itself, and the page it goes on/);
 });
 
 test("every field the edit path refuses to create has a kind here, and the route refuses a second one by name", () => {
@@ -432,7 +471,15 @@ test("the step imports nothing from worker.js and carries none of the build's to
     // carries no path's wording, which is the property this test is really
     // about — and the edit path's own module, `site-apply.mjs`, stays off
     // this list.
-    assert.ok(["./site-plan.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs", "./site-tweak.mjs", "./site-render.mjs", "./site-langs.mjs", "./site-requirements.mjs", "./site-files.mjs", "./site-images.mjs", "./site-rows.mjs", "../site-access.mjs", "../site-schema.mjs", "../site-apis.mjs", "../site-api-shape.mjs", "../site-rls.mjs"].includes(from),
+    // `./site-text.mjs` (2026-10-02) is a LEAF with no imports of its own and
+    // is the platform's single answer to "what words does a page say to a
+    // visitor" — `extractText`, which the tweak rung's `keptProse` already
+    // applies to every page this step changes, and the build path's
+    // translation step reads too. The `words` kind adds a line to a page, and
+    // the route must find that line on the page before it publishes; a second
+    // reader here would be two ideas of what counts as words, deciding
+    // different things about the same page. It carries no path's wording.
+    assert.ok(["./site-plan.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs", "./site-tweak.mjs", "./site-render.mjs", "./site-langs.mjs", "./site-requirements.mjs", "./site-files.mjs", "./site-images.mjs", "./site-rows.mjs", "./site-text.mjs", "../site-access.mjs", "../site-schema.mjs", "../site-apis.mjs", "../site-api-shape.mjs", "../site-rls.mjs"].includes(from),
       "the add step reaches into a module the two paths do not share: " + from);
     assert.notEqual(from, "./site-repair.mjs", "the add step imports the BUILD's repair — the addon path triggering the build path");
   }
@@ -467,7 +514,7 @@ test("a message may name every kind, and the kinds that come in numbers answer l
   // answer is a list like every other kind that comes in numbers. `row`
   // JOINED 2026-10-01 for the same reason: "add a rye and a spelt" is two
   // entries in one list.
-  assert.deepEqual([...LIST_ADDS].sort(), ["api", "component", "function", "job", "page", "photo", "row", "table"]);
+  assert.deepEqual([...LIST_ADDS].sort(), ["api", "component", "function", "job", "page", "photo", "row", "table", "words"]);
   for (const k of LIST_ADDS) {
     const p = addTool(k).input_schema.properties[k];
     assert.equal(p.type, "array", k + " answers one thing, not a list");
@@ -1078,7 +1125,11 @@ test("foldAdds appends the parts by name over the stored ones, folds the tables 
   // something was designed makes "nothing was asked for" and "the reader never
   // ran" the same `undefined` at the route, and the route's own shot list is
   // what decides whether the page writer is given tokens at all.
-  assert.deepEqual(foldAdds([], null, null), { designed: {}, components: [], directive: "", files: [], requirements: [], photos: [] });
+  // `words` AND `reuse` JOINED IT (2026-10-02) on the same terms: the route
+  // checks each one arrived on its page before it publishes, and a key that
+  // appeared only when something was designed would make "nothing to check"
+  // and "the reader never ran" the same `undefined` there.
+  assert.deepEqual(foldAdds([], null, null), { designed: {}, components: [], directive: "", files: [], requirements: [], photos: [], words: [], reuse: [] });
 });
 
 test("every refusal token has a sentence of its own, and the already-reply names the door that changes it", () => {
@@ -2388,7 +2439,11 @@ test("the drop report's single-path belt is dead by the LIST partition, and that
   // inside a LIST kind, so THAT is what is pinned. The day a single kind gains
   // a droppable field the line stops being documentation, and this goes red so
   // somebody looks rather than deleting it.
-  const single = ADD_KINDS.filter((k) => !LIST_ADDS.includes(k));
+  // A DISPATCHED KIND NEVER REACHES THE CLEANER (2026-10-02): `frame` has no
+  // tool, and the route skips every kind `addLayerIn` names a layer for
+  // before a designer runs — so it is on neither path, and is left out here.
+  assert.ok(DISPATCHED_ADDS.includes("frame"), "the dispatched group moved — re-read this filter");
+  const single = ADD_KINDS.filter((k) => !LIST_ADDS.includes(k) && !DISPATCHED_ADDS.includes(k));
   assert.deepEqual(single, ["qr", "three"],
     "a kind moved between the list and single paths — re-read `cleanAdd`'s single-path drop belt: " + JSON.stringify(single));
   // AND THE THREE THAT REALLY DROP ARE ALL LISTS. Derived from the product's

@@ -9,6 +9,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 
 const read = (p) => readFileSync(new URL(p, import.meta.url), "utf8");
 
@@ -116,11 +117,16 @@ test("the browser runs the addon route on that answer, with the same sentence", 
   const hop = fn.indexOf("if (act === 'hop') {");
   assert.ok(addon > 0 && hop > addon, "the addon answer is not handled before the hop");
   assert.match(fn.slice(addon, hop), /siteAddon\(o\.site, o\.instruction, o\.origin, o\.finish, o\.fallback, o\.d\)/, "the addon is not run with the customer's own sentence and fallback");
-  // The decision lives in the module a test can drive, not in chat.js.
-  const poll = blankComments(read("../public/edit-poll.js"));
-  const dec = poll.slice(at(poll, "function escalateAction(e, o) {", "decision"), at(poll, "var api = {", "api"));
-  assert.match(dec, /if \(named === "addon"\) return "addon";/, "the poll module does not answer addon for a server-named addon layer");
-  assert.ok(dec.indexOf('return "lost"') < dec.indexOf('return "addon"'), "a lost ask must be decided before the addon hop");
+  // The decision lives in the module a test can drive, not in chat.js — so it
+  // is DRIVEN, not read (2026-10-02). It was pinned by its spelling, and the
+  // spelling moved when an edit the add-on step itself handed over gained its
+  // bound (`fromAddon` answers "stop", `edit-poll.test.mjs`); the property is
+  // unchanged: a server-named addon layer is the addon hop, and a lost ask is
+  // decided before it.
+  const P = createRequire(import.meta.url)("../public/edit-poll.js");
+  assert.equal(P.escalateAction({ escalate: true, layer: "addon" }, { layer: "text", hasAsk: true }), "addon", "the poll module does not answer addon for a server-named addon layer");
+  assert.equal(P.escalateAction({ escalate: true, layer: "addon" }, { layer: "text", hasAsk: true, handedOff: true }), "addon", "a handed-off edit does not reach the addon hop");
+  assert.equal(P.escalateAction({ escalate: true, layer: "addon" }, { layer: "text", hasAsk: false }), "lost", "a lost ask must be decided before the addon hop");
 });
 
 // ── 3. THE ADDON STEP KEEPS WHAT IT DESIGNS ─────────────────────────────────

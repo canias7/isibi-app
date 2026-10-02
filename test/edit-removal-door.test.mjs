@@ -50,7 +50,7 @@ import { packEditJob, EDIT_JOB_PREFIX, EDIT_JOB_KIND } from "../builder/edit-job
 import { pickTool, pickRequest, pickLanes, doorLane, doorDispatch, LANE_FIELDS, laneLayer } from "../builder/site-lanes.mjs";
 import { DOOR_LAYERS, layerLine } from "../builder/site-ask.mjs";
 import { PICTURE_TOOL } from "../builder/site-picture.mjs";
-import { navSlots } from "../builder/site-nav.mjs";
+import { navSlots, actionSlots, chromeListSlots, chromeObjectSlots, contactSlots, linkSlots } from "../builder/site-nav.mjs";
 import { editBrowserReply } from "../scripts/addon-sweep.mjs";
 
 const SLUG = "fold-lane-bakery";
@@ -1268,5 +1268,169 @@ for (const mode of ["sync", "job"]) {
     assert.ok(page(r, "index.tsx").includes('action={{ label: "Order a loaf", href: "/order" }}'), label + ": the band's button was changed");
     assertOthersKept(r, label);
     assertCharged(r, mode, [3], label);
+  });
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ADDITIONS HANDED TO THE MENU EDITOR (2026-10-02)
+
+   Run 90's A1–A3 asked for a footer link, a menu link and a header button as
+   additions. The add-on step hands each to this rung (its `frame` kind), and
+   the browser posts that hop with `addition: true`. The rung is then held to
+   adding: nothing the frame already has is changed, replaced, reordered or
+   taken away (`additionOnly`), and a button asked for beside the one there
+   becomes a second button. Driven through the real edit route with the menu
+   editor's answer supplied, sync and queued — each beside the SAME answer
+   without the flag, which is the edit this rung always made.
+   ═════════════════════════════════════════════════════════════════════════ */
+const ADD_ORDER = "Add Order to the menu.";
+const ADD_CALL = "Add a Call us button at the top that rings 0117 496 0000.";
+const ADD_INSTA = "Add our Instagram to the footer: @harbourloaf.";
+const CHROME_PAGES = ["index.tsx", "order.tsx", "visit.tsx", "gallery.tsx"];
+const ORDER_LINK = { label: "Order", href: "/order" };
+const CALL = { label: "Call us", href: "tel:01174960000" };
+const BEFORE_MENU = navSlots([PAGES[0]])[0].items.map(({ label, href }) => ({ label, href }));
+/** Each page's OWN menu before — they differ: the order and visit pages carry no Gallery. */
+const OWN_MENU = Object.fromEntries(CHROME_PAGES.map((f) => [f, navSlots([{ path: f, source: ORIG[f] }])[0].items.map(({ label, href }) => ({ label, href }))]));
+const menuOn = (r, path) => {
+  const sl = navSlots([{ path, source: page(r, path) }])[0];
+  return sl ? sl.items.map(({ label, href }) => ({ label, href })) : null;
+};
+const buttonOn = (r, path, prop = "action") => (actionSlots([{ path, source: page(r, path) }], prop)[0] || {}).action || null;
+/** Everything on a page except one span is what it was. */
+function onlySpanMoved(was, now, span) {
+  const a = span(was), b = span(now);
+  assert.ok(a && b, "the span to compare around was not found");
+  return now.slice(0, b.at) + was.slice(a.at, a.to) + now.slice(b.to) === was;
+}
+
+test("FRAME ADDITION, the control: the observers read the bakery's frame as it is", () => {
+  assert.deepEqual(BEFORE_MENU.map((l) => l.label), ["Today's bake", "The starter", "Visit", "Gallery"]);
+  // THE MENUS DIFFER FROM PAGE TO PAGE, which is what makes an addition worth
+  // driving here: one list written everywhere would give two pages a Gallery
+  // link nobody asked for.
+  assert.deepEqual(OWN_MENU["order.tsx"].map((l) => l.label), ["Today's bake", "The starter", "Visit"]);
+  assert.deepEqual(OWN_MENU["visit.tsx"].map((l) => l.label), ["Today's bake", "The starter", "Visit"]);
+  for (const f of CHROME_PAGES) {
+    const one = [{ path: f, source: ORIG[f] }];
+    assert.deepEqual((actionSlots(one)[0] || {}).action, { label: "Order a loaf", href: "/order" }, f + ": no button read");
+    assert.equal((actionSlots(one, "secondAction")[0] || {}).action, null, f + ": a second button already read");
+    assert.equal((chromeListSlots(one, "social")[0] || {}).items, null, f + ": a social list already read");
+  }
+  assert.equal(navSlots([{ path: "starter.tsx", source: ORIG["starter.tsx"] }]).length, 0, "the starter page carries a frame after all");
+});
+
+for (const mode of ["sync", "job"]) {
+  test(`FRAME ADDITION (${mode}): a new menu link is added after the items the menu has, and nothing else moves`, async () => {
+    const r = await drive({ mode, ask: ADD_ORDER, routed: { layer: "nav", addition: true },
+      answers: { write_nav: { links: [ORDER_LINK] } } });
+    assert.equal(r.reply && r.reply.ok, true, JSON.stringify(r.reply));
+    for (const f of CHROME_PAGES) {
+      assert.deepEqual(menuOn(r, f), [...OWN_MENU[f], ORDER_LINK], f + ": the menu is not this page's own with Order added at the end");
+      assert.deepEqual(buttonOn(r, f), { label: "Order a loaf", href: "/order" }, f + ": the button moved");
+      assert.ok(onlySpanMoved(ORIG[f], page(r, f), (src) => { const sl = navSlots([{ path: f, source: src }])[0]; return sl && { at: sl.at, to: sl.to }; }),
+        f + ": something beside the menu changed");
+    }
+    assert.equal(page(r, "starter.tsx"), ORIG["starter.tsx"]);
+    assert.match(r.reply.msg, /Added “Order” to the menu on 4 pages, beside the items it had/);
+  });
+
+  test(`FRAME ADDITION (${mode}): an answer restating the home page's whole menu gives no page an item it did not have`, async () => {
+    // THE DEFECT THIS CLOSES, measured on this fixture before it was fixed: the
+    // menu editor writes ONE list to every page, so an addition answered as
+    // "the menu, plus Order" gave the order and visit pages a Gallery link —
+    // something nobody asked for, on two pages that did not carry it.
+    const r = await drive({ mode, ask: ADD_ORDER, routed: { layer: "nav", addition: true },
+      answers: { write_nav: { links: [...BEFORE_MENU, ORDER_LINK] } } });
+    assert.equal(r.reply && r.reply.ok, true, JSON.stringify(r.reply));
+    for (const f of CHROME_PAGES) assert.deepEqual(menuOn(r, f), [...OWN_MENU[f], ORDER_LINK], f + ": the menu gained more than Order");
+    assert.ok(!menuOn(r, "order.tsx").some((l) => l.href === "/gallery"), "the order page was given a Gallery link");
+  });
+
+  test(`FRAME ADDITION (${mode}), the control: the same answer WITHOUT the flag is the menu edit it always was`, async () => {
+    const r = await drive({ mode, ask: ADD_ORDER, routed: { layer: "nav" },
+      answers: { write_nav: { links: [ORDER_LINK] } } });
+    assert.equal(r.reply && r.reply.ok, true, JSON.stringify(r.reply));
+    assert.deepEqual(menuOn(r, "index.tsx"), [ORDER_LINK], "an ordinary menu edit no longer writes the menu it is given");
+  });
+
+  test(`FRAME ADDITION (${mode}): a button asked for beside the one there becomes a second button, and the first stays`, async () => {
+    const r = await drive({ mode, ask: ADD_CALL, routed: { layer: "nav", addition: true },
+      answers: { write_nav: { action: CALL } } });
+    assert.equal(r.reply && r.reply.ok, true, JSON.stringify(r.reply));
+    const inserted = " secondAction: " + '{ label: "Call us", href: "tel:01174960000" }' + ",";
+    for (const f of CHROME_PAGES) {
+      assert.deepEqual(buttonOn(r, f), { label: "Order a loaf", href: "/order" }, f + ": the button the site had was replaced");
+      assert.deepEqual(buttonOn(r, f, "secondAction"), CALL, f + ": no second button");
+      assert.equal(page(r, f).replace(inserted, ""), ORIG[f], f + ": more changed than the second button");
+    }
+    assert.equal(page(r, "starter.tsx"), ORIG["starter.tsx"]);
+    assert.match(r.reply.msg, /second button, “Call us”/);
+    assert.match(r.reply.msg, /the button you had stays as it is/);
+    assert.deepEqual(r.reply.secondAction, CALL);
+    assert.equal(r.reply.action, undefined, "the reply says the main button changed");
+  });
+
+  test(`FRAME ADDITION (${mode}), the control: the same button answer WITHOUT the flag replaces the button, as an edit does`, async () => {
+    const r = await drive({ mode, ask: ADD_CALL, routed: { layer: "nav" }, answers: { write_nav: { action: CALL } } });
+    assert.equal(r.reply && r.reply.ok, true, JSON.stringify(r.reply));
+    assert.deepEqual(buttonOn(r, "index.tsx"), CALL, "an ordinary button edit no longer changes the button");
+    assert.equal(buttonOn(r, "index.tsx", "secondAction"), null);
+  });
+
+  test(`FRAME ADDITION (${mode}): a social link is added to the footer of every page, and nothing else moves`, async () => {
+    const insta = { network: "instagram", href: "https://instagram.com/harbourloaf" };
+    const r = await drive({ mode, ask: ADD_INSTA, routed: { layer: "nav", addition: true },
+      answers: { write_nav: { social: [insta] } } });
+    assert.equal(r.reply && r.reply.ok, true, JSON.stringify(r.reply));
+    for (const f of CHROME_PAGES) {
+      const one = [{ path: f, source: page(r, f) }];
+      assert.deepEqual(chromeListSlots(one, "social")[0].items, [insta], f + ": the footer has no Instagram link");
+      assert.deepEqual(menuOn(r, f), OWN_MENU[f], f + ": the menu moved");
+      assert.deepEqual(buttonOn(r, f), { label: "Order a loaf", href: "/order" }, f + ": the button moved");
+      assert.deepEqual((contactSlots(one)[0] || {}).contact, (contactSlots([{ path: f, source: ORIG[f] }])[0] || {}).contact, f + ": the footer's details moved");
+    }
+    assert.equal(page(r, "starter.tsx"), ORIG["starter.tsx"]);
+    assert.match(r.reply.msg, /Added 1 social link to the footer, beside what it had/);
+  });
+
+  test(`FRAME ADDITION (${mode}): an addition's answer that would take or change something is held to adding`, async () => {
+    // EVERY WAY AN ANSWER CAN TAKE AWAY, at once: a menu missing three items,
+    // the button removed, the frame's arrangement changed, a footer detail
+    // rewritten and one cleared, and a link written into a page repointed
+    // (the sweep's N-2, 2026-10-02). Added: one menu item and one new detail.
+    const answer = {
+      links: [{ label: "Today's bake", href: "/" }, ORDER_LINK],
+      removeAction: true, layout: { brand: "centre" },
+      contact: { hours: "Every day 7–7", address: "", phone: "0117 496 0000" },
+      pageLinks: [{ label: "Back to the home page", from: "/", to: "/order" }],
+    };
+    const r = await drive({ mode, ask: ADD_ORDER, routed: { layer: "nav", addition: true }, answers: { write_nav: answer } });
+    assert.equal(r.reply && r.reply.ok, true, JSON.stringify(r.reply));
+    for (const f of CHROME_PAGES) {
+      const one = [{ path: f, source: page(r, f) }];
+      assert.deepEqual(menuOn(r, f), [OWN_MENU[f][0], ORDER_LINK, ...OWN_MENU[f].slice(1)], f + ": the menu lost an item, or Order is not where the answer put it");
+      assert.deepEqual(buttonOn(r, f), { label: "Order a loaf", href: "/order" }, f + ": the button was taken off");
+      assert.equal((chromeObjectSlots(one, "layout")[0] || {}).fields || null, (chromeObjectSlots([{ path: f, source: ORIG[f] }], "layout")[0] || {}).fields || null, f + ": the frame's arrangement changed");
+      const c = (contactSlots(one)[0] || {}).contact || {};
+      assert.equal(c.hours, "Wed–Sat 8–2, Sun 9–1", f + ": a detail the footer had was rewritten");
+      assert.equal(c.address, "Bristol", f + ": a detail the footer had was cleared");
+      assert.equal(c.phone, "0117 496 0000", f + ": the new detail was not added");
+    }
+    // THE LINK IN THE PAGE STILL GOES WHERE IT WENT: an addition repoints
+    // nothing. The starter page's is the one link in the copy the menu
+    // editor's own reader finds on this site.
+    const back = (src) => linkSlots([{ path: "starter.tsx", source: src }]).map((l) => [l.label, l.href]);
+    assert.deepEqual(back(ORIG["starter.tsx"]), [["Back to the home page", "/"]], "the observer is alive: the starter page links home");
+    assert.deepEqual(back(page(r, "starter.tsx")), [["Back to the home page", "/"]], "an addition repointed a link written into a page");
+  });
+
+  test(`FRAME ADDITION (${mode}), the control: the same taking answer WITHOUT the flag takes, as an edit may`, async () => {
+    const answer = { links: [{ label: "Today's bake", href: "/" }, ORDER_LINK], removeAction: true };
+    const r = await drive({ mode, ask: ADD_ORDER, routed: { layer: "nav" }, answers: { write_nav: answer } });
+    assert.equal(r.reply && r.reply.ok, true, JSON.stringify(r.reply));
+    assert.deepEqual(menuOn(r, "index.tsx"), [{ label: "Today's bake", href: "/" }, ORDER_LINK]);
+    assert.equal(buttonOn(r, "index.tsx"), null, "an ordinary edit can no longer take the button off");
   });
 }

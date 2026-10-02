@@ -236,9 +236,28 @@ export const ASK_TOOL = {
           // the page's own code always exists, so changing a component is an
           // edit ("tsx does exist, it is literally everything on the page").
           "\"addon\" — ADDING SOMETHING THE SITE DOES NOT HAVE YET. A page it has no page for, a table it needs to STORE " +
-          "something it has no table for, or a section, a QR code, a 3D scene, a form, a map or a photograph on a page " +
-          "that does not have one. The page existing does not make it an edit: \"Add a testimonials section to the home " +
-          "page\" is an addon, because the section does not exist yet.\n" +
+          "something it has no table for, or a section, a QR code, a 3D scene, a form or a map on a page. The page " +
+          "existing does not make it an edit: \"Add a testimonials section to the home page\" is an addon, because the " +
+          "section does not exist yet.\n" +
+          // ── THE FRAME, A LINE OF WORDS AND A PHOTOGRAPH ARE ADDITIONS TOO (2026-10-02) ──
+          //
+          // Run 90 (A1–A5): a footer link, a menu link, a header button, a line
+          // on a page and a photograph on a page, each asked for as an
+          // addition, all came back `edit` — because the `nav`, `picture` and
+          // `page` clauses below gave additions as their own examples, against
+          // this clause and the tie-break. The owner: *"Make the router
+          // consistently treat new menu links, footer links, header buttons,
+          // page text and photos as additions."* The add-on step now delivers
+          // each one (`frame`, `words`, `photo` in `site-add.mjs`), so it is
+          // said here, at the tie-break, under `edit`, and in each layer that
+          // used to claim it — the four places a model reading downwards meets.
+          "A NEW ITEM IN THE FRAME EVERY PAGE SHARES IS AN ADDITION TOO, and so are NEW WORDS and a NEW PHOTOGRAPH on a " +
+          "page: a link added to the menu, a social or small-print link added to the footer, a contact detail added at " +
+          "the bottom, a button added at the top, a line or a sentence added to a page, and a photograph added to a page " +
+          "— even one that shows some already — are all \"addon\". \"Put Gallery in the menu\", \"add our Facebook " +
+          "at the bottom\", \"add a Book now button at the top\", \"add a line about parking to the contact page\" " +
+          "and \"put a photo of the team on the about page\" are each an addon: the menu, the footer, the header and " +
+          "the page exist, and the link, the button, the line and the photograph do not.\n" +
           // ── A NEW ENTRY IN A LIST THE SITE ALREADY KEEPS IS AN ADDITION (owner, 2026-10-01) ──
           //
           // Run 86 (Test 11): a new entry for a list the site stores came back
@@ -266,14 +285,18 @@ export const ASK_TOOL = {
           "(a database function), something read live from an outside service — an exchange rate, a courier's " +
           "slots, the weather — or something that happens ON A TIMER with nobody there: a reminder the day before, " +
           "a weekly digest, clearing out old records. A site with no database gets one the first time any of these is added.\n" +
-          "\"edit\" is for what the site ALREADY HAS, changed: its words, colours, stylesheet, button, menu, pictures, " +
-          "languages, what a control does — and its own code. Changing a component is an edit, because the page's code " +
-          "always exists.\n\n" +
+          "\"edit\" is for what the site ALREADY HAS, changed, moved or taken away: its words, colours, stylesheet, the " +
+          "button and the menu items it has, the pictures it shows, languages, what a control does — and its own code. " +
+          "Changing a component is an edit, because the page's code always exists. A NEW link, button, line or " +
+          "photograph put beside the ones it has is not an edit.\n\n" +
           "THE QUESTION THAT SEPARATES EDIT FROM ADDON: does the thing they name exist on the site now? It does — " +
           "\"edit\". It does not — \"addon\". ASK IT OF THE THING ITSELF, NEVER OF WHAT IT GOES INTO: a new entry in a " +
           "list the site already keeps does not exist yet, so it is \"addon\" however long the list has been there, " +
-          "just as a new section on an existing page is. Changing an entry that is already there, or taking one off, " +
-          "is \"edit\". A page the site does not have, or a table it does not have, is always " +
+          "just as a new section on an existing page is — and so is a new link in the menu or the footer, a new button " +
+          "at the top, a new line of words and a new photograph on a page, whatever each one goes into. Changing an " +
+          "entry that is already there, or taking one off, is \"edit\". So is changing or taking off a link, a " +
+          "button, the words or a photograph the site already has. A page the site does not have, or a table it does " +
+          "not have, is always " +
           "\"addon\". The pages and tables it has are listed above.\n" +
           // THE TIE-BREAK HAD ONE FALSE CLAUSE IN IT, and it cost the deletion
           // twice. Measured live: with "taking a page off is an edit" added
@@ -314,7 +337,9 @@ export const ASK_TOOL = {
           // LOOK'S REACH IS WHAT THE CLOSING RULE OF `layer` READS, so it names
           // no row: the look door has no lane that deletes one (2026-09-30).
           "band on any page, a photograph, the menu and the button, what the site enforces, its web address, " +
-          "taking something off (but not a row the site stores: that is \"data\"). So \"change our description, and " +
+          "taking something off (but not a row the site stores: that is \"data\"). Each as the site already has it: " +
+          "a NEW menu link, button, line of words or photograph is an addition, which \"look\" does not make. So " +
+          "\"change our description, and " +
           "on the visit page move the order band up\" is " +
           "ONE \"look\" answer with nothing here, and so is \"make the headings green and swap the two sections on " +
           "the gallery page\".\n" +
@@ -400,6 +425,8 @@ export const ASK_TOOL = {
           "\"text\" — ONLY the words change and nothing else: a heading, a sentence, a button label, a phone number, an " +
           "address, a price written on the page. Nothing moves and nothing changes colour. This is the cheapest thing the " +
           "builder can do, so prefer it whenever it is honestly true.\n" +
+          "WORDS THAT ARE NOT ON THE PAGE YET ARE NOT THIS LAYER: a line, a sentence or a paragraph ADDED to a page is " +
+          "intent \"addon\". This layer rewords what is already there.\n" +
           "\"look\" — colour, theme, fonts, how round the corners are, the TAB ICON (the favicon — \"make the tab " +
           "icon a scissors\" is this layer; the designer redraws the mark, no page changes), the LOGO when no file is " +
           "attached (\"draw us a logo\", \"just use our name as the logo\" — the designer draws or sets text; a logo they " +
@@ -482,10 +509,14 @@ export const ASK_TOOL = {
           "many are taken\", \"show the count as a bar\". Nothing about what the site ACCEPTS changes; a section on " +
           "a page does its arithmetic differently. That is a file a page writer edits, and it is NOT this layer " +
           "however much the sentence sounds like a rule.\n" +
-          "\"picture\" — A PHOTOGRAPH ON A PAGE: swapping one for another, putting one in a space that has none, " +
-          "taking one off, or CHANGING WHICH PART OF IT YOU SEE. \"Use my own photo of the shop instead\", \"the " +
-          "picture of the chairs is wrong\", \"add a photo to the about page\". This is about the IMAGE ITSELF and " +
-          "never about the words beside it or where it sits on the page.\n" +
+          "\"picture\" — A PHOTOGRAPH A PAGE ALREADY SHOWS, or an empty picture frame it already has: swapping one for " +
+          "another, filling the empty frame, taking one off, or CHANGING WHICH PART OF IT YOU SEE. \"Use my own photo " +
+          "of the shop instead\", \"the picture of the chairs is wrong\", \"put a real photo in the empty frame on the " +
+          "about page\". This is about the IMAGE ITSELF and never about the words beside it or where it sits on the " +
+          "page.\n" +
+          "A PHOTOGRAPH ADDED TO A PAGE IS NOT THIS LAYER — \"put a photo of the team on the about page\", \"add " +
+          "another picture of the shop to the home page\": a new photograph is intent \"addon\", even on a page that " +
+          "shows some already.\n" +
           "A PICTURE THAT IS CUT OFF IS THIS LAYER, AND IT COSTS NOTHING — \"his head is chopped off\", \"you " +
           "can't see the sign\", \"it's cropping the top\", \"show more of the left\". It moves the crop of the " +
           "photograph that is already there rather than buying a new one, so it is free and it is nearly always " +
@@ -499,23 +530,31 @@ export const ASK_TOOL = {
           "\"nav\" — THE SAME-ON-EVERY-PAGE FRAME: the menu, the one button beside it, and the contact details at " +
           "the BOTTOM of every page.\n" +
           "THE FOOTER'S DETAILS — the phone number, email address, postal address and opening line a visitor " +
-          "scrolls to the bottom for. \"Put our number in the footer\", \"the address is wrong, we've moved\", " +
-          "\"add our opening hours at the bottom\", \"show our email\", \"take the opening times off\". It is the " +
-          "same block on every page, so it changes everywhere at once and costs almost nothing.\n" +
+          "scrolls to the bottom for. \"Our number at the bottom is wrong\", \"the address is wrong, we've moved\", " +
+          "\"the opening hours have changed\", \"take the opening times off\". It is the same block on every page, so " +
+          "it changes everywhere at once and costs almost nothing.\n" +
           "A FULL DAY-BY-DAY TIMETABLE IS NOT THIS — that is rows the site stores, so it is \"data\". This is the " +
           "one line at the bottom (\"Tue–Sun 12–10\").\n" +
-          "THE SOCIAL ICONS AND THE SMALL PRINT are here too — \"add our Instagram\", \"put a link to our Facebook " +
-          "at the bottom\", \"add a Privacy link in the small print\", \"take the Twitter icon off\". Same block, " +
-          "same page-wide change, same near-zero cost.\n" +
+          "THE SOCIAL ICONS AND THE SMALL PRINT are here too — \"our Instagram link goes to the old account\", \"the " +
+          "Privacy link in the small print is broken\", \"take the Twitter icon off\". Same block, same page-wide " +
+          "change, same near-zero cost.\n" +
           "AND HOW THE FRAME ITSELF SITS — \"centre our logo\", \"put the name in the middle\", \"run the header " +
           "right across the screen\", \"the top bar shouldn't follow me as I scroll\". That is WHERE the bar's " +
           "parts go and how wide it runs; its COLOURS, corners and typefaces are \"look\", not this.\n" +
-          "THE MENU — which items are in it, what order they come in, taking one out. \"Put Book first\", \"add " +
-          "Contact to the menu\", \"take Pricing out of the nav\", \"the menu should be Home, Services, Contact\".\n" +
+          "THE MENU — which items are in it, what order they come in, taking one out. \"Put Book first\", \"rename " +
+          "Pricing to Prices in the menu\", \"take Pricing out of the nav\", \"the menu should be Home, Services, " +
+          "Contact\".\n" +
           "THE BUTTON — what it says AND where it goes. \"Change the Book button to Get a quote\", \"make the button " +
-          "call us instead\", \"point the button at the contact page\", \"add a Call now button at the top\", \"drop " +
-          "the button\". A phone number belongs here: for a trade whose customers ring rather than book, that button " +
-          "IS the site's whole purpose.\n" +
+          "call us instead\", \"point the button at the contact page\", \"drop the button\". " +
+          "A phone number belongs here: for a trade whose customers ring rather than book, that button IS the site's " +
+          "whole purpose.\n" +
+          // ADDING TO THE FRAME IS THE ADD-ON'S (2026-10-02), whose `frame` kind
+          // hands it straight back here as an addition, so the menu editor still
+          // does it — held to adding, which a plain edit of this layer is not.
+          "ADDING TO THE FRAME IS NOT AN EDIT: a NEW menu link, a NEW social or small-print link, a NEW contact detail " +
+          "or a NEW button is intent \"addon\" — it is added here, on every page, by the add-on step, without changing " +
+          "anything the frame already has. A menu they want REWRITTEN as a whole list, in the order they give, is " +
+          "still this layer.\n" +
           "LINKS WRITTEN INTO THE PAGES belong here too — \"the Send an enquiry link should go to the contact " +
           "page\", \"make Read more point at the blog\". Every link on the site with those words moves at once, on " +
           "every page carrying one, which is the part no other lane can do.\n" +
@@ -524,8 +563,9 @@ export const ASK_TOOL = {
           "IT ONLY EVER POINTS AT PAGES THE SITE ALREADY HAS. \"Add a gallery to the menu\" when there is no gallery " +
           "page is an \"addon\" — the page has to exist before anything can link to it. The pages it has are listed " +
           "above.\n" +
-          "\"page\" — the arrangement of ONE existing page: move a section, take one out, lay a list out differently, " +
-          "add a block built from parts the page already has. Name it in `page`.\n" +
+          "\"page\" — the arrangement of ONE existing page: move a section, take one out, lay a list out differently. " +
+          "Name it in `page`. Something NEW on the page — a section, a line of words, a photograph — is intent " +
+          "\"addon\", not this layer.\n" +
           // ── A LIST'S ORDER ON ONE NAMED PAGE IS THIS LAYER (2026-09-30, decision 2b) ──
           //
           // The other half of the sort sentence under `data`, said here too for
@@ -564,7 +604,9 @@ export const ASK_TOOL = {
           // scoped page steps, deploy 2166). It now points at the rule that
           // closes this field, which asks which answer can make the change on
           // every page it lands on.
-          "ONE PAGE, AND ONLY ONE. If the change is meant to land on several — \"put the phone number in the footer " +
+          // THE EXAMPLE IS A CHANGE (2026-10-02): "put the phone number in the
+          // footer" reads as adding one, which is the add-on's now.
+          "ONE PAGE, AND ONLY ONE. If the change is meant to land on several — \"change the phone number in the footer " +
           "of every page\" — this is NOT the layer for it: it edits the single page you name and leaves the rest " +
           "exactly as they are, so the site would end up disagreeing with itself. The answer for those is whichever " +
           "can make the change on every page it lands on, as the last paragraph of this field says.\n" +
@@ -576,7 +618,11 @@ export const ASK_TOOL = {
           // `nav` layer there it is a ~27-credit page-generation call to move one
           // word, and the example has to point at the cheap lane or the layer is
           // reachable by nothing.
-          "A MENU CHANGE IS \"nav\", NOT THIS AND NOT \"addon\". It lands on every page and costs almost nothing.\n" +
+          // ⚠ AND "NOT addon" WENT (2026-10-02): a NEW menu link is the add-on
+          // step's now, which hands it back to `nav` held to adding. What stays
+          // true is that a change to the menu it has is never this layer.
+          "A CHANGE TO THE MENU IT HAS IS \"nav\", NOT THIS. It lands on every page and costs almost nothing; a new " +
+          "item in it is an addition.\n" +
           "\"rename\" — THE SITE'S WEB ADDRESS, and nothing else: the word in <name>.gofarther.app. Pick it when " +
           "they ask to rename the site, move it, or have it at a different address. NOT for changing the business's " +
           "NAME as it reads in the header — that is the name on the page and it is a look change; a site can be " +
@@ -848,7 +894,9 @@ const SYSTEM =
   "credits, a rebuild costs about twenty-five and replaces every page they have. Somebody who asked for a different " +
   "shade of blue must never be given a new site. COST NEVER MAKES A NEW ENTRY AN EDIT: a new product, service or " +
   "team member in one of their lists is an \"addon\" even though the list already exists, because for a list an " +
-  "edit only changes or takes away the entries that are already there.\n\n" +
+  "edit only changes or takes away the entries that are already there. Nor does it make the other additions edits: " +
+  "a new menu link, footer link or button, a new line of words or a new photograph on a page is an \"addon\" even " +
+  "though the menu, the footer and the page already exist.\n\n" +
   "WHAT THE THREE COST, because it is the whole reason they are separate. Changing words: no model writes anything, " +
   "the words are lifted out of the page and put back. Changing the look: the design is adjusted and the site is " +
   "recompiled, and not one page is rewritten. Adding a page: one page is written. Rebuilding: every page is written " +

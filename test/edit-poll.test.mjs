@@ -939,11 +939,13 @@ test("the resume is wired: on site selection, once per job, with the ask and the
   //
   // RE-ANCHORED 2026-09-29: the record also carries what the router held back
   // (`also`), so a hop from a resumed watch holds back what the live one would.
-  assert.match(CHAT, /EditPoll\.rememberJob\(slug, \w+\.job, undefined, \{ ask: instruction, op: 'edit', layer: String\(d\.layer \|\| ''\), page: d\.page \? String\(d\.page\) : '', handedOff: !!handedOff, also: typeof d\.alsoAsked === 'string' \? d\.alsoAsked : '' \}\)/,
+  // RE-ANCHORED 2026-10-02: and whether the add-on handed the ask here
+  // (`fromAddon`), so a resumed watch keeps the bound that stops it going back.
+  assert.match(CHAT, /EditPoll\.rememberJob\(slug, \w+\.job, undefined, \{ ask: instruction, op: 'edit', layer: String\(d\.layer \|\| ''\), page: d\.page \? String\(d\.page\) : '', handedOff: !!handedOff, also: typeof d\.alsoAsked === 'string' \? d\.alsoAsked : '', fromAddon: d\.fromAddon === true \}\)/,
     "the edit route no longer stores the ask");
   assert.match(CHAT, /EditPoll\.rememberJob\(slug, \w+\.job, undefined, \{ ask: instruction, op: 'addon'[^\n]*, also: d && typeof d\.alsoAsked === 'string' \? d\.alsoAsked : '' \}\)/,
     "the addon route does not store what was held back");
-  assert.match(re, /const d = \{ layer: rec\.layer, page: rec\.page, \.\.\.\(rec\.also \? \{ alsoAsked: rec\.also \} : \{\}\) \};/,
+  assert.match(re, /const d = \{ layer: rec\.layer, page: rec\.page, \.\.\.\(rec\.also \? \{ alsoAsked: rec\.also \} : \{\}\), \.\.\.\(rec\.fromAddon \? \{ fromAddon: true \} : \{\}\) \};/,
     "a resumed watch does not hand its hop what was held back");
   // RE-ANCHORED 2026-09-24: the add-on's receipt is read by `readAddonReply`
   // now, and its job rides the reader's answer. The property is the ask and the
@@ -957,4 +959,40 @@ test("the resume is wired: on site selection, once per job, with the ask and the
   assert.equal((w.match(/release\(\);/g) || []).length, 3, "the latch is not released on exactly the three ends: gone, reply, ended");
   const gaveUp = w.split("\n").find((l) => l.includes("w.stopped = 'gave-up'"));
   assert.ok(gaveUp && !/release\(/.test(gaveUp), "a job the page gave up on is released, so the next render restarts it");
+});
+
+// ── AN EDIT THE ADD-ON HANDED ITS ASK TO MAY NOT HAND IT BACK (2026-10-02) ──
+//
+// The add-on now escalates to an edit (a new menu link, button or footer item
+// goes to the menu editor), so "the add-on never escalates back to an edit"
+// no longer keeps the two from going round. `fromAddon` is the bound, it is a
+// real boolean, and it survives a refresh in the stored record.
+test("escalateAction: an edit the add-on handed its ask to stops rather than going back to the add-on", () => {
+  const back = { escalate: true, layer: "addon" };
+  assert.equal(P.escalateAction(back, { layer: "nav", hasAsk: true, handedOff: true, fromAddon: true }), "stop");
+  assert.equal(P.escalateAction(back, { layer: "nav", hasAsk: true, fromAddon: true }), "stop");
+  // THE CONTROL: any other edit's hand-off to the add-on is unchanged.
+  assert.equal(P.escalateAction(back, { layer: "look", hasAsk: true }), "addon");
+  assert.equal(P.escalateAction(back, { layer: "look", hasAsk: true, handedOff: true }), "addon");
+  // A REAL BOOLEAN: a string is not the bound.
+  assert.equal(P.escalateAction(back, { layer: "nav", hasAsk: true, fromAddon: "true" }), "addon");
+  // AND ONLY THE HAND-BACK STOPS: another escalation from that edit is the
+  // ladder it always was (a hop already spent goes up).
+  assert.equal(P.escalateAction({ escalate: true, layer: "page" }, { layer: "nav", hasAsk: true, handedOff: true, fromAddon: true }), "up");
+  // Lost still wins over everything: no ask, nothing to re-post.
+  assert.equal(P.escalateAction(back, { layer: "nav", hasAsk: false, fromAddon: true }), "lost");
+});
+
+test("the stored record keeps fromAddon as a real boolean, so a resumed watch keeps the bound", () => {
+  const mem = new Map();
+  const store = { getItem: (k) => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v)) };
+  P.rememberJob("s1", "job-1", store, { ask: "add Order to the menu", op: "edit", layer: "nav", handedOff: true, fromAddon: true });
+  assert.equal(P.resumableRecord("s1", Date.now(), store).fromAddon, true);
+  P.rememberJob("s2", "job-2", store, { ask: "x", op: "edit", layer: "nav", fromAddon: "true" });
+  assert.equal(P.resumableRecord("s2", Date.now(), store).fromAddon, undefined, "a string was stored as the bound");
+  P.rememberJob("s3", "job-3", store, { ask: "x", op: "edit", layer: "look" });
+  assert.equal(P.resumableRecord("s3", Date.now(), store).fromAddon, undefined);
+  // AND A HAND-TYPED STORE IS READ BACK THE WAY IT WAS WRITTEN.
+  mem.set(P.STORE_KEY, JSON.stringify({ s4: { job: "job-4", at: Date.now(), fromAddon: "yes" } }));
+  assert.equal(P.resumableRecord("s4", Date.now(), store).fromAddon, undefined);
 });

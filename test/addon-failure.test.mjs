@@ -601,9 +601,16 @@ async function browserReply(r, expected = "stop") {
       assert.deepEqual(o.trail, before);
       assert.equal(o.busy, false);
     } else {
-      assert.deepEqual(o.trail, [...before, "POST " + (expected === "photo" ? EDIT : REWRITE)]);
+      assert.deepEqual(o.trail, [...before, "POST " + (expected === "frame" ? EDIT : REWRITE)]);
       assert.equal(o.after.at(-1).body.instruction, ASK);
-      if (expected === "photo") assert.equal(o.after.at(-1).body.layer, "picture");
+      // THE ADD-ON'S ONE HAND-OFF SINCE 2026-10-02: a new menu link, button or
+      // footer item goes to the menu editor, posted as an ADDITION.
+      if (expected === "frame") {
+        assert.equal(o.after.at(-1).body.layer, "nav");
+        assert.equal(o.after.at(-1).body.addition, true, "the hand-off was not posted as an addition");
+      } else {
+        assert.equal(o.after.at(-1).body.addition, undefined, "a rewrite was told it is an addition");
+      }
     }
   }
 }
@@ -669,9 +676,20 @@ for (const missing of ["source", "design"]) test(`REAL reconstruction: readable 
   assert.equal(r.body.reason, missing === "source" ? "no-source" : "no-meta");
   await browserReply(r, "rewrite");
 });
-test("REAL photo handoff survives direct and queued handling", async () => {
+// RE-ANCHORED 2026-10-02: the photograph is designed here now and is never
+// handed off; the one hand-off left is the frame's, to the menu editor.
+test("REAL frame handoff survives direct and queued handling", async () => {
+  const r = await addon("bounded-frame", ASK, {kinds:["frame"],answers:{}});
+  assert.equal(r.body.escalate, true, json(r.body));
+  assert.equal(r.body.layer, "nav");
+  assert.equal(r.body.kind, "frame");
+  assert.equal(r.body.cost, 0);
+  await browserReply(r, "frame");
+});
+test("REAL photograph alone is designed here: a declined design stops, nothing is handed off", async () => {
   const r = await addon("bounded-photo", ASK, {kinds:["photo"],answers:{}});
-  await browserReply(r, "photo");
+  assert.notEqual(r.body.escalate, true, json(r.body));
+  await browserReply(r, "stop");
 });
 for (const control of ["addition", "legacy", "empty-schema", "recovery"]) test(`REAL successful ${control}: direct and queued`, async () => {
   const opts = {...componentCase, publishes:true, written:[addedTo("/", "<p>Parking behind the shop.</p>")]};
@@ -683,4 +701,62 @@ for (const control of ["addition", "legacy", "empty-schema", "recovery"]) test(`
   if (control === "recovery") opts.setup = combine(recoveryPointer, (e,b,s) => b.store.set(`builds/${s}/${version}/state/pages.json`, json([storedPage("/")])));
   const r = await addon("bounded-success-" + control, ASK, opts);
   await browserReply(r, "success");
+});
+
+// ── THE ADD-ON'S HAND-OFF TO AN EDIT, AND THE LOOP IT MUST NOT START (2026-10-02) ──
+//
+// Since `frame`, the add-on hands an ask to an edit (the menu editor), so the
+// old reason the edit's hand-off to the add-on could not loop — "the add-on
+// never escalates back to an edit" — is gone. The bound is `fromAddon`: the
+// edit the add-on handed its ask to may not hand it back. Driven through the
+// real send handler, direct and queued, beside a control where an ordinary
+// edit's hand-off still reaches the add-on.
+const FRAME_HOP = { ok: false, escalate: true, reason: "layer", cost: 0, layer: "nav", kind: "frame" };
+const STOP = "⚠️ I couldn’t add that, so nothing on your site changed. Try describing it a little differently.";
+test("the frame hand-off posts the menu editor as an addition, and an edit handing it back to the add-on stops", async () => {
+  for (const queued of [false, true]) {
+    const editAnswers = queued ? { edit: [EDIT_RECEIPT], poll: [stored(HANDOFF)] } : { edit: [ok(HANDOFF)] };
+    const o = await drive({ answers: { route: [ROUTE_ADDON], addon: [ok(FRAME_HOP)], ...editAnswers } });
+    const trail = ["POST " + ADD, "POST " + EDIT, ...(queued ? ["GET /api/site/edit/job-e"] : [])];
+    assert.deepEqual(o.trail, trail, (queued ? "queued" : "direct") + ": the add-on was asked again, or something else was posted");
+    assert.equal(o.after[1].body.layer, "nav");
+    assert.equal(o.after[1].body.addition, true, "the hand-off was not posted as an addition");
+    assert.deepEqual(o.said, [STOP]);
+    assert.equal(o.busy, false, "the page was left busy");
+  }
+  // THE CONTROL: an ordinary edit's hand-off still reaches the add-on, and is
+  // posted without the addition flag.
+  const plain = await drive({ answers: { route: [ROUTE_EDIT], edit: [ok(HANDOFF)], addon: [ok(SUCCESS)] } });
+  assert.deepEqual(plain.trail, ["POST " + EDIT, "POST " + ADD], "an ordinary edit's hand-off no longer reaches the add-on");
+  assert.equal(plain.after[0].body.addition, undefined, "an ordinary edit was posted as an addition");
+});
+
+test("the add-on's reply says the words and the photograph from what landed, and names a set-aside frame item", async () => {
+  const body = { ok: true, cost: 4, kinds: ["words", "photo"], skipped: ["frame"], added: [], changed: ["visit.tsx"],
+    words: [{ page: "/visit", words: "We're closed on bank holidays." }], ownPhotos: [{ page: "/visit" }] };
+  const o = await drive({ answers: { route: [ROUTE_ADDON], addon: [ok(body)] } });
+  assert.equal(o.said.length, 1);
+  assert.match(o.said[0], /added “We're closed on bank holidays\.” to \/visit/);
+  assert.match(o.said[0], /put one of your own photographs on \/visit/);
+  assert.match(o.said[0], /The new link, button or footer item is a separate step/);
+  // THE CONTROL: a reply without those fields reads as it did.
+  const plain = await drive({ answers: { route: [ROUTE_ADDON], addon: [ok(SUCCESS)] } });
+  assert.doesNotMatch(plain.said[0], /own photographs|separate step|added “/);
+  // AND A FIELD THAT IS NOT WHAT IT SAYS IS NOT PRINTED.
+  const odd = await drive({ answers: { route: [ROUTE_ADDON], addon: [ok({ ...SUCCESS, words: [{ page: "visit", words: "x" }, { page: "/visit", words: 7 }], ownPhotos: [{ page: 3 }] })] } });
+  assert.doesNotMatch(odd.said[0], /added “|own photographs/);
+});
+
+// THE ONE HAND-OVER, AND ONLY TO ITS OWN LAYER (2026-10-02, the sweep's A-7).
+// A frame item goes to the menu editor; the same item named with any other
+// layer, and every other kind named with any layer, is no hand-over at all —
+// a refusal at no cost, never a hop somewhere the item cannot be made.
+test("the add-on hands a frame item to the menu editor alone, and hands nothing else anywhere", () => {
+  assert.deepEqual(addonFailure("layer", { layer: "nav", kind: "frame" }), { ok: false, reason: "layer", cost: 0, escalate: true, layer: "nav", kind: "frame" });
+  for (const [layer, kind] of [["page", "frame"], ["picture", "frame"], ["", "frame"], [undefined, "frame"], ["picture", "photo"], ["nav", "words"], ["nav", "page"], ["nav", "toString"]]) {
+    const r = addonFailure("layer", { layer, kind });
+    assert.notEqual(r.escalate, true, `${kind} named with ${layer} was handed over`);
+    assert.equal(r.cost, 0);
+    assert.equal(typeof r.msg, "string");
+  }
 });

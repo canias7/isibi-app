@@ -2059,7 +2059,11 @@ test("the answer is chosen over the whole message, and only what no one answer c
   assert.match(d, /\("data"\)/);
   assert.match(d, /\("text"\)/);
   // A menu change on its own still goes to its own cheap layer.
-  assert.match(l, /A MENU CHANGE IS "nav"/);
+  // RE-ANCHORED 2026-10-02: a change to the menu the site HAS — a new item in
+  // it is an addition now, which the add-on step hands back to `nav` held to
+  // adding (run 90's A2), so the sentence no longer says "not addon".
+  assert.match(l, /A CHANGE TO THE MENU IT HAS IS "nav"/);
+  assert.doesNotMatch(l, /NOT THIS AND NOT "addon"/, "a new menu item is still kept from the add-on step");
 });
 
 test("the wire is not cut, at either end", () => {

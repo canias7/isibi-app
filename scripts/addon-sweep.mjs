@@ -1565,12 +1565,42 @@ export const CASES = [
     ask: "Add a 3D model of a guitar you can spin round with the mouse",
     mayRefuse: ["already"],
     check: (b, a, r) => eitherWay(b, a, r, /<canvas\b/g, "a scene") },
-  { name: "photo", kinds: ["photo"], hop: "picture",
+  // A PHOTOGRAPH IS PLACED BY THIS STEP (2026-10-02), never handed to the
+  // picture rung, which fills a slot that exists. With the image balance
+  // empty the honest outcomes are two: one of the site's own photographs
+  // drawn on the page once more than before, on a moved build — or a refusal
+  // that leaves the build where it was.
+  // NOT a `mayRefuse` case: that list is the single fields, whose refusal is
+  // honest because the site already has one. This refusal is honest for a
+  // different reason — nothing real to place — and only by its own token.
+  { name: "photo", kinds: ["photo"],
     ask: "Add a photograph of the teaching room to the home page",
-    // The add step hands a photograph to the picture rung. The hop itself is
-    // the claim under test; what that rung then does (the image balance is
-    // empty, so a placeholder or an honest "couldn't be made") is noted.
-    check: (b, a, r, x) => ({ ok: x.hopped === "picture", note: `hopped to ${x.hopped || "nowhere"}; the picture rung answered ${x.hopNote || "(nothing)"}` }) },
+    check: (b, a, r) => {
+      const own = (html) => [...String(html || "").matchAll(/["'](\/u\/fretwork-1\/[^"']+\.(?:jpe?g|png|webp|gif|avif))["']/gi)].length;
+      const before = own(b.html), after = own(a.html), moved = a.build !== b.build;
+      if (r && r.ok === true) return { ok: after > before && moved, note: `the site's own photographs drawn ${before} times before, ${after} after; build ${moved ? "moved" : "unmoved"}` };
+      const honest = !!(r && r.error === "no-photo");
+      return { ok: honest && !moved, note: `refused (${(r && r.error) || "?"})${honest ? ", nothing real to place" : " — NOT the no-photo refusal"}; build ${moved ? "MOVED on a refusal" : "unmoved"}` };
+    } },
+  // NEW WORDS ON A PAGE THE SITE HAS (2026-10-02): the line itself, on that
+  // page, and every sentence the page already had still on it.
+  { name: "words", kinds: ["words"],
+    ask: "Add a line to the home page saying we're closed on bank holidays",
+    check: (b, a, r) => {
+      const moved = a.build !== b.build;
+      if (!(r && r.ok === true)) return { ok: false, note: `refused (${(r && r.error) || "?"}) — the line was not added; build ${moved ? "MOVED on a refusal" : "unmoved"}` };
+      const said = /bank holiday/i.test(a.text) && !/bank holiday/i.test(b.text);
+      const lost = lostSentences(b.text, a.text);
+      return { ok: said && moved && !lost.length,
+               note: `${said ? "the line is on the page" : "NO new line about bank holidays"}; build ${moved ? "moved" : "unmoved"}` +
+                     (lost.length ? `; LOST: ${lost.slice(0, 2).map((x) => JSON.stringify(x)).join(", ")}` : "; everything it said is still there") };
+    } },
+  // A NEW ITEM IN THE FRAME (2026-10-02) is the menu editor's: the add step
+  // hands it there as an addition. The hop is the claim under test; what the
+  // menu editor then wrote is noted.
+  { name: "frame", kinds: ["frame"], hop: "nav",
+    ask: "Add our Instagram, instagram.com/fretworklessons, to the footer",
+    check: (b, a, r, x) => ({ ok: x.hopped === "nav", note: `hopped to ${x.hopped || "nowhere"}; the menu editor answered ${x.hopNote || "(nothing)"}` }) },
   // ONE MORE ENTRY IN A LIST THE SITE ALREADY STORES (2026-10-01). A row
   // leaves no mark on the page a mirror can read — the list is drawn from the
   // table at runtime — so, like the backend tiers, it is judged on the reply's
@@ -2068,14 +2098,16 @@ async function main() {
     const extra = { status: p && p.status };
     // ── THE HOP ───────────────────────────────────────────────────────────
     //
-    // A photograph is the picture rung's: the add step escalates naming that
-    // layer, and the browser hands the same sentence to the edit route as a
-    // handed-off edit. The runner does the same, once, only for the case that
-    // says so, and polls the queued job the way the lane sweep does.
+    // A new menu link, button or footer item is the menu editor's (2026-10-02;
+    // until then the hop was a photograph's, to the picture rung): the add
+    // step escalates naming that layer, and the browser hands the same
+    // sentence to the edit route as a handed-off edit, POSTED AS AN ADDITION.
+    // The runner does the same, once, only for the case that says so, and
+    // polls the queued job the way the lane sweep does.
     if (c.hop && body.escalate === true && body.layer === c.hop) {
       extra.hopped = body.layer;
       const e = await call("POST", `/api/site/${encodeURIComponent(SLUG)}/edit`,
-        { token: TOKEN, body: { instruction: c.ask, layer: c.hop, page: "", remove: false, rename: "", tab: false, picker: PICKER, idem: hex32() } });
+        { token: TOKEN, body: { instruction: c.ask, layer: c.hop, page: "", remove: false, rename: "", tab: false, addition: true, picker: PICKER, idem: hex32() } });
       let reply = e;
       if (e.status === 202 && e.json && e.json.job) {
         console.log(`   hopped to ${c.hop}; queued ${e.json.job}`);

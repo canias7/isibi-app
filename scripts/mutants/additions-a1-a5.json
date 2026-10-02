@@ -1,0 +1,300 @@
+[
+  {
+    "label": "CONTROL: the object-form comment's header changes nothing",
+    "control": true,
+    "files": [
+      "builder/site-nav.mjs"
+    ],
+    "from": "// ⚠ THE OBJECT FORM TAKES ITS COMMA WITH IT (2026-10-02). The slot ends",
+    "to": "// ⚠ THE OBJECT FORM TAKES ITS COMMA WITH IT (2026-10-02, control). The slot ends"
+  },
+  {
+    "label": "CONTROL: the photograph comment in the add-on route changes nothing",
+    "control": true,
+    "files": [
+      "worker.js"
+    ],
+    "from": "// A PHOTOGRAPH IS NO LONGER HANDED ANYWHERE (2026-10-02): the",
+    "to": "// A PHOTOGRAPH IS NO LONGER HANDED ANYWHERE (2026-10-02, control): the"
+  },
+  {
+    "label": "W-1: new words that did not land no longer refuse the publish",
+    "files": [
+      "worker.js"
+    ],
+    "from": "if (!aWordsAt.ok || !aPhotosAt.ok) {",
+    "to": "if (!aPhotosAt.ok) {"
+  },
+  {
+    "label": "W-2: an own photograph that did not land no longer refuses the publish",
+    "files": [
+      "worker.js"
+    ],
+    "from": "if (!aWordsAt.ok || !aPhotosAt.ok) {",
+    "to": "if (!aWordsAt.ok) {"
+  },
+  {
+    "label": "W-3: a photograph alone with nothing real is sent to the page writer",
+    "files": [
+      "worker.js"
+    ],
+    "from": "if (aPhotoOnly && !aFold.reuse.length && !aShots.length) {",
+    "to": "if (false) {"
+  },
+  {
+    "label": "W-4: a photograph alone whose purchase failed ships its empty frame",
+    "files": [
+      "worker.js"
+    ],
+    "from": "if (aPhotoOnly && !aFold.reuse.length && !aPhotoBill && !aStored) return aNoPhoto();",
+    "to": ""
+  },
+  {
+    "label": "W-5: the menu editor is never told it is adding",
+    "files": [
+      "worker.js"
+    ],
+    "from": "addition: eb.addition === true });",
+    "to": "addition: false });"
+  },
+  {
+    "label": "W-6: the add-on designers are told none of the site's own photographs",
+    "files": [
+      "worker.js"
+    ],
+    "from": "photos: ownPhotos(photoInventory(aSrc, aStoredParts, aPartsRead.ok) || aSrc || [], ownerSlug),",
+    "to": "photos: [],"
+  },
+  {
+    "label": "P-1: an edit the add-on handed over goes back to the add-on (the loop)",
+    "files": [
+      "public/edit-poll.js"
+    ],
+    "from": "if (named === \"addon\") return opt.fromAddon === true ? \"stop\" : \"addon\";",
+    "to": "if (named === \"addon\") return \"addon\";"
+  },
+  {
+    "label": "P-2: the stored job record forgets the bound",
+    "files": [
+      "public/edit-poll.js"
+    ],
+    "from": "if (x && x.fromAddon === true) rec.fromAddon = true;",
+    "to": ""
+  },
+  {
+    "label": "C-1: the edit POST never says it is an addition",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "addition: d.fromAddon === true ? true : undefined,",
+    "to": "addition: undefined,"
+  },
+  {
+    "label": "C-2: the add-on's hop is posted without the bound",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "page: said.page || (o.d && o.d.page), fromAddon: true }, o.instruction",
+    "to": "page: said.page || (o.d && o.d.page) }, o.instruction"
+  },
+  {
+    "label": "C-3: a resumed watch forgets the bound",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": ", ...(rec.fromAddon ? { fromAddon: true } : {}) };",
+    "to": " };"
+  },
+  {
+    "label": "N-1: an addition may take the button off",
+    "files": [
+      "builder/site-nav.mjs"
+    ],
+    "from": "  out.removeAction = false;\n",
+    "to": ""
+  },
+  {
+    "label": "N-2: an addition may repoint the links in the pages",
+    "files": [
+      "builder/site-nav.mjs"
+    ],
+    "from": "  out.pageLinks = [];\n",
+    "to": ""
+  },
+  {
+    "label": "N-3: an addition may move the frame's arrangement",
+    "files": [
+      "builder/site-nav.mjs"
+    ],
+    "from": "  out.layout = null;\n",
+    "to": ""
+  },
+  {
+    "label": "N-4: a new button replaces the one there instead of joining it",
+    "files": [
+      "builder/site-nav.mjs"
+    ],
+    "from": "{ out.secondAction = out.action; out.action = undefined; }",
+    "to": "{ }"
+  },
+  {
+    "label": "N-5: an addition overwrites a footer detail the site has",
+    "files": [
+      "builder/site-nav.mjs"
+    ],
+    "from": "if (typeof was[f] === \"string\" && was[f] !== \"\") continue;",
+    "to": ""
+  },
+  {
+    "label": "N-6: an item the site already has is counted as new",
+    "files": [
+      "builder/site-nav.mjs"
+    ],
+    "from": "if (has.has(it.href)) { prev = it.href; continue; }",
+    "to": "if (false) { prev = it.href; continue; }"
+  },
+  {
+    "label": "N-7: a new item goes to the end, not after its anchor",
+    "files": [
+      "builder/site-nav.mjs"
+    ],
+    "from": "else out.splice(at + 1, 0, { ...a.item });",
+    "to": "else out.push({ ...a.item });"
+  },
+  {
+    "label": "N-8: the object form's removal leaves its comma behind",
+    "files": [
+      "builder/site-nav.mjs"
+    ],
+    "from": "if (s.kind === \"obj\") {\n          if (src[to] === \",\") to += 1;",
+    "to": "if (s.kind === \"obj\") {\n          if (false) to += 1;"
+  },
+  {
+    "label": "N-9: a second button on a header with none is not made the first",
+    "files": [
+      "builder/site-nav.mjs"
+    ],
+    "from": "if (!read || typeof read !== \"object\" || hasButton || read.action || !read.secondAction) return read;",
+    "to": "return read;"
+  },
+  {
+    "label": "A-1: words a page already said once pass for the new line",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "if (has <= had) missing.push({ page: it.page, words: it.words });",
+    "to": "if (has < had) missing.push({ page: it.page, words: it.words });"
+  },
+  {
+    "label": "A-2: an own photograph that was not placed passes as placed",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "if (has <= had) missing.push({ page: it.page, src: url });",
+    "to": "if (has < had) missing.push({ page: it.page, src: url });"
+  },
+  {
+    "label": "A-3: a photograph address the site does not own is accepted",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "if (!src || !own.includes(src)) return { ok: false, why: \"not-ours\" };",
+    "to": "if (!src) return { ok: false, why: \"not-ours\" };"
+  },
+  {
+    "label": "A-4: empty or overlong words are accepted",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "if (!words || words.length > MAX_WORDS_CHARS) return { ok: false, why: \"no-words\" };",
+    "to": "if (false) return { ok: false, why: \"no-words\" };"
+  },
+  {
+    "label": "A-5: the designers are not shown the site's own photographs",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "if (photos.length) {\n    lines.push(\"Its own photographs",
+    "to": "if (false) {\n    lines.push(\"Its own photographs"
+  },
+  {
+    "label": "A-6: the frame kind hops nowhere",
+    "files": [
+      "builder/site-addon.mjs"
+    ],
+    "from": "export const ADD_HOPS = Object.freeze({ frame: \"nav\" });",
+    "to": "export const ADD_HOPS = Object.freeze({});"
+  },
+  {
+    "label": "A-7: a frame item hops to whatever layer the answer names",
+    "files": [
+      "builder/site-addon.mjs"
+    ],
+    "from": "ADD_HOPS[kind] === layer",
+    "to": "ADD_HOPS[kind] !== undefined"
+  },
+  {
+    "label": "R-1: the addon clause no longer claims the frame, words and photographs",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "\"A NEW ITEM IN THE FRAME EVERY PAGE SHARES IS AN ADDITION TOO, and so are NEW WORDS and a NEW PHOTOGRAPH on a \" +\n          \"page: a link added to the menu, a social or small-print link added to the footer, a contact detail added at \" +\n          \"the bottom, a button added at the top, a line or a sentence added to a page, and a photograph added to a page \" +\n          \"— even one that shows some already — are all \\\"addon\\\". \\\"Put Gallery in the menu\\\", \\\"add our Facebook \" +\n          \"at the bottom\\\", \\\"add a Book now button at the top\\\", \\\"add a line about parking to the contact page\\\" \" +\n          \"and \\\"put a photo of the team on the about page\\\" are each an addon: the menu, the footer, the header and \" +\n          \"the page exist, and the link, the button, the line and the photograph do not.\\n\" +\n",
+    "to": ""
+  },
+  {
+    "label": "R-2: the edit sentence no longer keeps a new item out",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": " A NEW link, button, line or \" +\n          \"photograph put beside the ones it has is not an edit.",
+    "to": ""
+  },
+  {
+    "label": "R-3: the tie-break no longer names the frame and page additions",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": " — and so is a new link in the menu or the footer, a new button \" +\n          \"at the top, a new line of words and a new photograph on a page, whatever each one goes into",
+    "to": ""
+  },
+  {
+    "label": "R-4: the text layer claims added words again",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "\"WORDS THAT ARE NOT ON THE PAGE YET ARE NOT THIS LAYER: a line, a sentence or a paragraph ADDED to a page is \" +\n          \"intent \\\"addon\\\". This layer rewords what is already there.\\n\" +\n",
+    "to": ""
+  },
+  {
+    "label": "R-5: the picture layer claims an added photograph again",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "\"A PHOTOGRAPH ADDED TO A PAGE IS NOT THIS LAYER — \\\"put a photo of the team on the about page\\\", \\\"add \" +\n          \"another picture of the shop to the home page\\\": a new photograph is intent \\\"addon\\\", even on a page that \" +\n          \"shows some already.\\n\" +\n",
+    "to": ""
+  },
+  {
+    "label": "R-6: the nav layer no longer sends additions to the add-on",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "\"ADDING TO THE FRAME IS NOT AN EDIT: a NEW menu link, a NEW social or small-print link, a NEW contact detail \" +\n          \"or a NEW button is intent \\\"addon\\\" — it is added here, on every page, by the add-on step, without changing \" +\n          \"anything the frame already has. A menu they want REWRITTEN as a whole list, in the order they give, is \" +\n          \"still this layer.\\n\" +\n",
+    "to": ""
+  },
+  {
+    "label": "R-7: the nav layer's own example is an addition again",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": "\\\"rename \" +\n          \"Pricing to Prices in the menu\\\"",
+    "to": "\\\"add \" +\n          \"Contact to the menu\\\""
+  },
+  {
+    "label": "R-8: the system's cost rule no longer covers the other additions",
+    "files": [
+      "builder/site-ask.mjs"
+    ],
+    "from": " Nor does it make the other additions edits: \" +\n  \"a new menu link, footer link or button, a new line of words or a new photograph on a page is an \\\"addon\\\" even \" +\n  \"though the menu, the footer and the page already exist.",
+    "to": ""
+  }
+]

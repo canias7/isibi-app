@@ -977,17 +977,57 @@ test("a row asked beside a scheduled job: the job is added as before, the entry 
   assert.ok(aside && aside.why === "row-alone", "the entry was not said to be left out: " + JSON.stringify(r.body.notAdded));
 });
 
-test("a row asked beside a photograph is refused whole, rather than lost on the picture step's hop", async () => {
+// THE HOP MOVED (2026-10-02). A photograph used to be handed to the picture
+// step, so a row beside one would have vanished on that hop; a photograph is
+// designed here now, and the one kind that still leaves this step is a new item
+// in the site's frame (a menu link, a footer link, a header button), handed to
+// the menu editor when it is alone. The property is the hop's, so it is pinned
+// on the kind that hops.
+test("a row asked beside a new menu link is refused whole, rather than lost on the menu editor's hop", async () => {
   const { r, db } = await (async () => {
     const d = bakeryDb();
-    const x = await chain({ mode: "sync", db: d, answers: { pick_adds: { kinds: ["row", "photo"] } } });
+    const x = await chain({ mode: "sync", db: d, answers: { pick_adds: { kinds: ["row", "frame"] } } });
     return { r: x, db: d };
   })();
   assert.equal(r.status, 422, JSON.stringify(r.body));
   assert.equal(r.body.reason, "row-alone");
-  assert.equal(r.body.escalate, undefined, "the photograph's hop went ahead and the entry vanished");
+  assert.equal(r.body.escalate, undefined, "the menu editor's hop went ahead and the entry vanished");
   assert.deepEqual(writesOf(db), []);
   assert.equal(r.body.cost, 0);
+});
+
+// WHAT THE HAND-OVER COSTS, AND HOW ITS ROW SETTLES (2026-10-02). The
+// additions batch's money check (`moneyVerdict` in canary-ui.mjs) reads each
+// job's row: the add-on step's hand-over to the menu editor reserves nothing,
+// so its row must settle at nothing — `none` — with no ledger entry, beside the
+// menu editor's own job that does the work.
+test("a new menu link alone, queued: the add-on step hands it over without reserving anything, and its row settles at nothing", async () => {
+  const db = bakeryDb();
+  const r = await chain({ mode: "job", db, answers: { pick_adds: { kinds: ["frame"] } } });
+  assert.equal(r.body.escalate, true, JSON.stringify(r.body));
+  assert.equal(r.body.layer, "nav");
+  assert.equal(r.body.cost, 0);
+  assert.equal(r.seen.rpc.filter((x) => x.fn === "edit_reserve").length, 0, "the hand-over reserved credit");
+  assert.equal(r.seen.ledger.size, 0, "the hand-over wrote a ledger entry");
+  const rows = [...r.seen.rows.values()];
+  assert.equal(rows.length, 1, "not exactly one job was filed");
+  assert.equal(rows[0].billing, "none", "the hand-over's row did not settle at nothing");
+  assert.deepEqual(writesOf(db), []);
+});
+
+test("a row asked beside a photograph with nothing real to show: refused at no cost, and the entry is named too", async () => {
+  const db = bakeryDb();
+  const r = await addon("rows-photo-" + hex(3), "add a rye loaf and a photo of the bakery at dawn on the home page", {
+    kinds: ["row", "photo"], stored: SPEC, db, credits: 0,
+    answers: { photo: { photo: [{ page: "/", describe: "the bakery at dawn", name: "dawn" }] }, row: { row: [ENTRY] } },
+  });
+  assert.equal(r.status, 422, JSON.stringify(r.body));
+  assert.equal(r.body.error, "no-photo");
+  assert.equal(r.body.cost, 0);
+  const { addRefusal } = await add();
+  assert.ok(r.body.msg.includes(addRefusal("row-alone", "row")), "the entry left out was not said: " + r.body.msg);
+  assert.deepEqual(writesOf(db), [], "an entry was written beside a refused photograph");
+  assert.ok(!r.prompts.some((p) => p.kind === "row"), "the row designer ran beside another kind");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

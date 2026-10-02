@@ -47,6 +47,7 @@ export function SiteChrome({
   tagline,
   links = [],
   action,
+  secondAction,
   contact,
   legal = [],
   social = [],
@@ -62,6 +63,8 @@ export function SiteChrome({
   links?: NavLink[];
   /** The one thing you want them to do, as a button in the header. */
   action?: { label: string; href?: string; onClick?: () => void };
+  /** A second, quieter button beside `action` — only when the site has asked for one. */
+  secondAction?: { label: string; href?: string; onClick?: () => void };
   /** Phone, email, address, opening line — the footer's small print. */
   contact?: SiteContact;
   /** Privacy, Terms. Footer only, and separate from `links`, which is navigation. */
@@ -82,7 +85,7 @@ export function SiteChrome({
         Skip to content
       </a>
 
-      <SiteHeader brand={name} links={links} action={action} layout={layout} />
+      <SiteHeader brand={name} links={links} action={action} secondAction={secondAction} layout={layout} />
 
       {/* ONE <main> per page, and it is focusable so the skip link can land on
           it — a skip link pointing at something unfocusable moves the scroll and

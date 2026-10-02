@@ -484,7 +484,9 @@ test("THE `page` LAYER NO LONGER SENDS A MENU CHANGE TO THE ADDON LANE", () => {
   assert.ok(at > 0);
   const window = src.slice(at, at + 1400);
   assert.doesNotMatch(window, /add the gallery to the menu/);
-  assert.match(window, /A MENU CHANGE IS \\"nav\\"/);
+  // RE-ANCHORED 2026-10-02: a change to the menu the site HAS goes to `nav`;
+  // a NEW item in it is an addition, which the add-on step hands back here.
+  assert.match(window, /A CHANGE TO THE MENU IT HAS IS \\"nav\\"/);
 });
 
 test("the worker dispatches the nav layer and imports the module", () => {

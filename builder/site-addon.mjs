@@ -22,16 +22,33 @@
 /** A returned set larger than this is not an addon, it is a rewrite wearing one. */
 export const MAX_RETURNED = 6;
 
+/**
+ * WHERE AN ADD-ON KIND'S WORK IS AN EDIT RUNG'S, and the only rungs it may hand
+ * a message to (2026-10-02): the group name a kind's `elsewhere` carries in
+ * `site-add.mjs`, mapped to the layer that does it. ONE TABLE, read by both
+ * sides — `site-add.mjs` routes by it and `addonFailure` below refuses any hop
+ * it does not name — so the list of hops cannot be written twice.
+ *
+ * `frame` → `nav`: a new menu link, footer link or header button. The menu
+ * editor already writes every one of them on every page at once, for about a
+ * credit, and is the only code that can. (`photo` → `picture` was here until
+ * the same day: the picture rung fills a slot that EXISTS and cannot add a
+ * second photograph to a page, so a photograph is now placed by the add-on's
+ * own page call.)
+ */
+export const ADD_HOPS = Object.freeze({ frame: "nav" });
+
 /** A failure is not permission to rewrite. Only verified reconstruction and
- * the photo handoff may start another operation. Messages describe this step,
- * not the whole request's bill or side effects (routing/recovery may precede it).
+ * the add-on's own hand-offs (`ADD_HOPS`) may start another operation. Messages
+ * describe this step, not the whole request's bill or side effects
+ * (routing/recovery may precede it).
  */
 export function addonFailure(reason, { reconstruct = false, layer, kind, problems, recovery } = {}) {
   const base = { ok: false, reason, cost: 0 };
   if (reconstruct === true && (reason === "no-source" || reason === "no-meta")) {
     return { ...base, escalate: true };
   }
-  if (reason === "layer" && layer === "picture" && kind === "photo") {
+  if (reason === "layer" && typeof kind === "string" && Object.hasOwn(ADD_HOPS, kind) && ADD_HOPS[kind] === layer) {
     return { ...base, escalate: true, layer, kind };
   }
   const messages = {

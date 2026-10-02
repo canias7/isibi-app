@@ -306,10 +306,14 @@ test("the coverage list is a sibling of the kind and never a field inside TABLE_
   // of an entry the tool cannot express, so a coverage list would be a field
   // the row path never reads. Driven, as the note above asked: the tool
   // offers no `requirements`, and the loop below holds the rest to the flag.
+  // `words` (2026-10-02) is the second, for the row's reason: a line is
+  // either found on its page before the publish (`wordsLanded`) or the whole
+  // addition is refused, so no part of it is left for a coverage list to owe.
   const flagless = designing.filter((k) => !REQUIREMENT_ADDS.includes(k));
-  assert.deepEqual(flagless, ["row"],
+  assert.deepEqual(flagless, ["row", "words"],
     "a kind now has a tool and no coverage flag — this census's negative direction is live again, so drive it");
   assert.equal(addTool("row").input_schema.properties.requirements, undefined, "the row tool asks for a coverage list nothing reads");
+  assert.equal(addTool("words").input_schema.properties.requirements, undefined, "the words tool asks for a coverage list nothing reads");
   for (const k of designing) {
     const has = !!addTool(k).input_schema.properties.requirements;
     assert.equal(has, REQUIREMENT_ADDS.includes(k),

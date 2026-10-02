@@ -699,6 +699,37 @@ export function imageRefs(source, slug) {
 }
 
 /**
+ * WHAT EACH PICTURE ADDRESS IS DESCRIBED AS, where its page says (2026-10-02):
+ * `src → alt`, from the picture rung's own slot reader, so a description is
+ * read the one way a slot is. A literal address only — a computed one is a
+ * picture the site's data decides — and the first description wins.
+ */
+export function photoAlts(pages) {
+  const out = new Map();
+  for (const sl of imageSlots(pages)) {
+    const v = sl && !sl.expr && typeof sl.value === "string" ? sl.value.trim() : "";
+    if (v && !out.has(v)) out.set(v, String(sl.alt || ""));
+  }
+  return out;
+}
+
+/**
+ * HOW MANY TIMES EACH OF THIS SITE'S IMAGE REFERENCES APPEARS IN ONE FILE
+ * (2026-10-02) — `imageRefs`' own grammar, counted rather than collected, so a
+ * check that a photograph was ADDED to a page can tell a second copy of a
+ * picture the page already showed from no change at all.
+ */
+export function imageRefCounts(source, slug) {
+  const out = new Map();
+  if (typeof source !== "string" || !slug) return out;
+  const mark = sitePhotoUrl(slug);
+  for (const m of source.matchAll(imgRefRe())) {
+    if (m[4].toLowerCase().startsWith(mark)) out.set(m[4], (out.get(m[4]) || 0) + 1);
+  }
+  return out;
+}
+
+/**
  * `/u/<slug>/<file>` → the R2 key it is served from, or `null` when it is not a
  * url this platform could serve at all.
  *

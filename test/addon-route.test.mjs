@@ -4322,34 +4322,157 @@ test("more pictures than the platform will buy are refused at the cleaner, by th
   assert.deepEqual(c.skipped, [{ why: "over-cap", name: "shot" + IMAGE_CAP }], "the one left out was not named");
 });
 
-test("a photograph ALONE is still the picture rung's, and buys nothing here", async () => {
-  // THE PROPERTY THAT MUST NOT REGRESS. That rung fills a slot that EXISTS,
-  // prices one against the real balance and refuses honestly; this step is only
-  // right when it is the one MAKING the slot. A change that designed a picture
-  // for every `photo` ask would take that rung's work and its refusals with it.
-  const r = await addon("fw-photo-alone", "put a photo of the workshop on the home page", {
-    kinds: ["photo"], credits: 400,
-  });
-  assert.equal(r.body.ok, false);
-  assert.equal(r.body.escalate, true, JSON.stringify(r.body));
-  assert.equal(r.body.reason, "layer", "a photograph on its own no longer hops sideways");
-  assert.equal(r.body.layer, "picture", "a photograph on its own stopped naming the rung that places one");
-  assert.equal(r.body.kind, "photo");
-  assert.deepEqual(r.shots, [], "a photograph was bought on a request this step does not own");
-  assert.equal(r.compiles.length, 0, "a hand-off compiled a site");
-});
+// ── A PHOTOGRAPH IS DESIGNED HERE, ALONE OR BESIDE ANYTHING (2026-10-02) ───
+//
+// RE-ANCHORED, NOT APPEASED. These two cases asserted the old split — a
+// photograph alone handed to the picture rung, one beside a table set aside —
+// and run 90's A5 is why it went: that rung fills a slot that EXISTS, so "add
+// a photo of our sourdough to the Visit page" on a page whose one slot holds
+// another photograph could only be refused or swapped over it. The add-on's
+// page call places it now: one of the site's own photographs by its exact
+// address (nothing bought), found drawn on that page before the publish — or
+// a refusal that publishes nothing and charges nothing.
+const OWN_A = "/u/fw-photo/a1b2c3d4.jpg";
+const withOwnOn = (page, url) => ({ ...page, source: page.source.replace("</main>", '  <SafeImage src="' + url + '" alt="the workshop bench, again" />\n</main>') });
+const benchAnswer = { photo: { photo: [{ page: "/", describe: "the workshop bench", name: "bench", src: OWN_A }] } };
 
-test("a photograph beside a kind that writes no page is still set aside", async () => {
-  // `MAKES_PAGES` IS THE LINE AND THIS IS ITS OTHER SIDE. A table reaches the
-  // page call too, and it is no reason to put a PHOTOGRAPH on a page — so the
-  // hand-off survives for every kind that is not making the place for one.
-  const r = await addon("fw-photo-table", "add a bookings table and a photo of the workshop", {
-    kinds: ["table", "photo"], credits: 400, publishes: true,
-    answers: { table: { table: [{ table: { name: "bookings", columns: [{ name: "who", type: "text" }] } }] } },
+test("a photograph ALONE is designed here: one of the site's own is placed on its page, nothing bought", async () => {
+  const r = await addon("fw-photo", "put a photo of the workshop bench on the home page", {
+    kinds: ["photo"], credits: 400, publishes: true, storedPages: PHOTO_SITE,
+    answers: benchAnswer, written: [withOwnOn(PHOTO_SITE[0], OWN_A)],
   });
   assert.equal(r.body.ok, true, JSON.stringify(r.body));
-  assert.deepEqual(r.body.skipped, ["photo"], "a photograph beside a table was designed here");
-  assert.deepEqual(r.shots, [], "a photograph was bought beside a table");
+  assert.notEqual(r.body.escalate, true, "a photograph alone was handed off again");
+  assert.deepEqual(r.body.skipped, []);
+  assert.deepEqual(r.shots, [], "a photograph the site already has was bought");
+  assert.deepEqual(r.body.ownPhotos, [{ page: "/" }], "the reply does not say the photograph was placed");
+  const home = compiledPages(r).find((p) => /index\.tsx$/.test(p.path));
+  assert.equal(home.source.split('"' + OWN_A + '"').length - 1, 2, "the photograph is not drawn on the page once more than before");
+  // THE DESIGNER WAS SHOWN THE SITE'S OWN PHOTOGRAPHS, by exact address and
+  // description, and the writer was told to write that one address exactly.
+  const designer = promptFor(r, "photo");
+  assert.ok(designer && designer.text.includes(OWN_A) && designer.text.includes("the workshop bench"), "the designer was not shown the site's own photographs");
+  const writer = pagePrompt(r).text.replace(/\\"/g, '"');
+  assert.ok(writer.includes('src="' + OWN_A + '"'), "the writer was not told the exact address to place");
+  assert.match(writer, /not a token/);
+});
+
+test("a photograph alone whose page comes back without it is refused before the bill, and nothing ships", async () => {
+  const r = await addon("fw-photo", "put a photo of the workshop bench on the home page", {
+    kinds: ["photo"], credits: 400, publishes: true, storedPages: PHOTO_SITE, answers: benchAnswer,
+    written: [{ ...PHOTO_SITE[0], source: PHOTO_SITE[0].source.replace("<h1>Fretwork</h1>", "<h1>Fretwork</h1><p>Bench time.</p>") }],
+  });
+  assert.equal(r.status, 422, JSON.stringify(r.body));
+  assert.equal(r.body.error, "not-landed");
+  assert.equal(r.body.cost, 0);
+  assert.deepEqual(r.body.missing.photos, [{ page: "/", src: OWN_A }]);
+  assert.match(r.body.msg, /the photograph/);
+  assert.equal(r.compiles.length, 0, "a page without the photograph it promised was compiled");
+});
+
+test("a photograph alone with nothing real to place is refused before the page call, at no cost", async () => {
+  const r = await addon("fw-photo", "put a photo of the workshop at dusk on the home page", {
+    kinds: ["photo"], credits: 0, storedPages: PHOTO_SITE,
+    answers: { photo: { photo: [{ page: "/", describe: "the workshop at dusk", name: "dusk" }] } },
+  });
+  assert.equal(r.status, 422, JSON.stringify(r.body));
+  assert.equal(r.body.error, "no-photo");
+  assert.equal(r.body.cost, 0);
+  assert.equal(pagePrompt(r), undefined, "the page writer was paid to write an empty frame");
+  assert.equal(r.compiles.length, 0);
+  assert.deepEqual(r.shots, []);
+});
+
+test("a photograph alone whose purchase fails after the page was written is refused, and nothing ships", async () => {
+  const dusk = "the workshop at dusk";
+  const r = await addon("fw-photo", "put a photo of the workshop at dusk on the home page", {
+    kinds: ["photo"], credits: 400, publishes: true, storedPages: PHOTO_SITE, shotFail: true,
+    answers: { photo: { photo: [{ page: "/", describe: dusk, name: "dusk" }] } },
+    written: [{ ...PHOTO_SITE[0], source: PHOTO_SITE[0].source.replace("</main>", '  <SafeImage src="@@IMG:' + dusk + '@@" alt="the workshop at dusk" />\n</main>') }],
+  });
+  assert.equal(r.status, 422, JSON.stringify(r.body));
+  assert.equal(r.body.error, "no-photo");
+  assert.equal(r.body.cost, 0);
+  assert.equal(r.shots.length, 1, "the provider was never tried, so this case is not about it failing");
+  assert.equal(r.compiles.length, 0, "an empty frame was published for a photograph-only ask");
+});
+
+test("a photograph beside a kind that writes no page is designed here too — the hand-off is gone", async () => {
+  // `MAKES_PAGES` USED TO BE THE LINE: beside a table the photograph was set
+  // aside, because the picture rung was its home. It has no home but this
+  // step now, so it is designed whatever company it keeps.
+  const r = await addon("fw-photo", "add a bookings table and a photo of the workshop bench on the home page", {
+    kinds: ["table", "photo"], credits: 400, publishes: true, storedPages: PHOTO_SITE,
+    written: [withOwnOn(PHOTO_SITE[0], OWN_A)],
+    answers: { table: { table: [{ table: { name: "bookings", columns: [{ name: "who", type: "text" }] } }] }, ...benchAnswer },
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.skipped, [], "a photograph beside a table was set aside again");
+  assert.deepEqual(r.shots, [], "a photograph the site already has was bought beside a table");
+  assert.deepEqual(r.body.ownPhotos, [{ page: "/" }]);
+});
+
+// ── NEW WORDS ON A PAGE THE SITE ALREADY HAS (2026-10-02) ──────────────────
+//
+// Run 90's A4: "on the Visit page, add a line saying we're closed on bank
+// holidays" came back `edit` + `text`, which rewords what is there and cannot
+// add a line. The add-on's `words` kind writes it into the page through the
+// page call, and the route finds those words on that page — read the way the
+// text rung reads a page — before it publishes or charges.
+const LINE = "We're closed on bank holidays.";
+const wordsAnswer = (page = "/", words = LINE) => ({ words: { words: [{ page, where: "under the heading", words }] } });
+const withLine = (page, html) => ({ ...page, source: page.source.replace("</main>", "  " + html + "\n</main>") });
+
+test("new words are written onto their page, found there before the publish, and said in the reply", async () => {
+  const r = await addon("fw-photo", "add a line saying we're closed on bank holidays", {
+    kinds: ["words"], publishes: true, storedPages: PHOTO_SITE, answers: wordsAnswer(),
+    written: [withLine(PHOTO_SITE[0], "<p>We&apos;re closed on <strong>bank holidays</strong>.</p>")],
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.deepEqual(r.body.words, [{ page: "/", words: LINE }], "the reply does not say which words landed where");
+  const home = compiledPages(r).find((p) => /index\.tsx$/.test(p.path));
+  assert.match(home.source, /bank holidays/);
+  assert.deepEqual(r.shots, []);
+  // THE WRITER WAS GIVEN THE WORDS THEMSELVES, and told to add them as a line.
+  const writer = pagePrompt(r).text.replace(/\\"/g, '"');
+  assert.ok(writer.includes(LINE), "the writer was not given the exact words");
+  assert.match(writer, /not a new section, heading or component/);
+  // AND EVERYTHING THE PAGE SAID IS STILL THERE (the add-on's own wall, run as before).
+  assert.match(home.source, /the workshop bench/);
+});
+
+test("new words that do not arrive on their page are refused before the bill, and nothing ships", async () => {
+  const r = await addon("fw-photo", "add a line saying we're closed on bank holidays", {
+    kinds: ["words"], publishes: true, storedPages: PHOTO_SITE, answers: wordsAnswer(),
+    written: [withLine(PHOTO_SITE[0], "<p>Open every day.</p>")],
+  });
+  assert.equal(r.status, 422, JSON.stringify(r.body));
+  assert.equal(r.body.error, "not-landed");
+  assert.equal(r.body.cost, 0);
+  assert.deepEqual(r.body.missing.words, [{ page: "/", words: LINE }]);
+  assert.match(r.body.msg, /the new words/);
+  assert.equal(r.compiles.length, 0, "a page without the promised words was compiled");
+});
+
+test("words a page already said once do not pass for the new line", async () => {
+  const said = [withLine(PHOTO_SITE[0], "<p>" + LINE.replace("'", "&apos;") + "</p>")];
+  const r = await addon("fw-photo", "add a line saying we're closed on bank holidays", {
+    kinds: ["words"], publishes: true, storedPages: said, answers: wordsAnswer(),
+    written: [withLine(said[0], "<p>Open every day.</p>")],
+  });
+  assert.equal(r.status, 422, JSON.stringify(r.body));
+  assert.equal(r.body.error, "not-landed", "the line the page already had passed for the new one");
+  assert.equal(r.compiles.length, 0);
+});
+
+test("words for a page the site does not have are refused by name, never moved to the home page", async () => {
+  const r = await addon("fw-photo", "add a line about parking to the contact page", {
+    kinds: ["words"], publishes: true, storedPages: PHOTO_SITE, answers: wordsAnswer("/contact", "Park behind the shop."),
+  });
+  assert.equal(r.status, 422, JSON.stringify(r.body));
+  assert.equal(r.body.cost, 0);
+  assert.equal(pagePrompt(r), undefined, "the page writer was asked to write words onto a page nobody has");
+  assert.equal(r.compiles.length, 0);
 });
 
 test("a provider that refuses costs nothing, sweeps the token, and says so", async () => {

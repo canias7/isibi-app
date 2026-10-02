@@ -1,0 +1,151 @@
+// ── A NEW ITEM IN THE FRAME, ADDED AND NOTHING ELSE (2026-10-02) ───────────
+//
+// Run 90's A1–A3 — a footer link, a menu link and a header button, each asked
+// for as an addition — came back `edit` + `nav`, where the menu editor treats
+// every answer as the frame's new state: "add a Call us button" replaced the
+// button the site had. The add-on step now hands these to the menu editor as
+// ADDITIONS (`frame`, `addition: true`), and the menu editor holds the answer
+// to adding. These are the pure halves of that, driven directly; the route
+// halves are in `test/edit-removal-door.test.mjs` ("FRAME ADDITION"), and the
+// browser's hand-off and loop bound in `test/addon-failure.test.mjs`.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import {
+  additionOnly, firstButton, frameNow, withAdded, ADDITION_NOTE, ACTION_PROPS,
+  actionSlots, applyAction, navSlots, navRequest, navDigest, readNav, runNavEdit, navReply, NAV_TOOL, MAX_NAV_ITEMS,
+} from "../builder/site-nav.mjs";
+
+const HOME = `import { SiteChrome } from "@/components/ui/site-chrome";
+const CHROME = {
+  name: "Harbour Loaf",
+  links: [{ label: "Home", href: "/" }, { label: "Visit", href: "/visit" }],
+  action: { label: "Order a loaf", href: "/order" },
+  contact: { address: "Bristol", hours: "Wed–Sat 8–2" },
+};
+export default function P() { return <SiteChrome {...CHROME}><p>Bread.</p></SiteChrome>; }
+`;
+const VISIT = `import { SiteChrome } from "@/components/ui/site-chrome";
+export default function P() { return <SiteChrome name="Harbour Loaf" links={[{ label: "Home", href: "/" }, { label: "Visit", href: "/visit" }, { label: "Gallery", href: "/gallery" }]} action={{ label: "Order a loaf", href: "/order" }}><p>Come by.</p></SiteChrome>; }
+`;
+const PAGES = [{ path: "index.tsx", source: HOME }, { path: "visit.tsx", source: VISIT }];
+const ROUTES = ["/", "/visit", "/gallery", "/order", "/contact"];
+const now = () => frameNow({ slots: navSlots(PAGES), actions: actionSlots(PAGES), seconds: actionSlots(PAGES, "secondAction"), contacts: [], lists: [] });
+const read = (input) => readNav({ content: [{ type: "tool_use", name: NAV_TOOL.name, input }] }, ROUTES);
+const reply = (input) => ({ content: [{ type: "tool_use", name: NAV_TOOL.name, input }], usage: { input_tokens: 10, output_tokens: 5 } });
+
+test("the second button is the first button's shape, read and written by the same scan", () => {
+  assert.deepEqual(ACTION_PROPS, ["action", "secondAction"]);
+  assert.deepEqual(actionSlots(PAGES, "nonsense"), [], "a property that is not a button was scanned");
+  assert.equal(actionSlots(PAGES, "secondAction").every((s) => s.action === null), true, "a second button was read where there is none");
+  const out = applyAction(PAGES, { label: "Call us", href: "tel:01174960000" }, false, "secondAction");
+  assert.deepEqual(out.changed.sort(), ["index.tsx", "visit.tsx"]);
+  for (const p of out.pages) {
+    assert.deepEqual(actionSlots([p], "secondAction")[0].action, { label: "Call us", href: "tel:01174960000" }, p.path);
+    assert.deepEqual(actionSlots([p])[0].action, { label: "Order a loaf", href: "/order" }, p.path + ": the first button moved");
+  }
+  assert.ok(out.pages[0].source.includes(' secondAction: { label: "Call us", href: "tel:01174960000" },'), "the object form was not written");
+  assert.ok(out.pages[1].source.includes(' secondAction={{ label: "Call us", href: "tel:01174960000" }}'), "the attribute form was not written");
+  // AND TAKEN OFF BY ITS OWN FLAG, the first button untouched.
+  const off = applyAction(out.pages, null, true, "secondAction");
+  assert.equal(off.pages[0].source, HOME);
+  assert.equal(off.pages[1].source, VISIT);
+});
+
+test("the request tells the menu editor about an addition only when it is one, and shows the second button's slot", () => {
+  const base = { instruction: "Add a Call us button", slots: navSlots(PAGES), routes: ROUTES, actions: actionSlots(PAGES), seconds: actionSlots(PAGES, "secondAction") };
+  const plain = navRequest(base).messages[0].content;
+  const added = navRequest({ ...base, addition: true }).messages[0].content;
+  assert.ok(!plain.includes(ADDITION_NOTE), "an ordinary edit was told it is an addition");
+  assert.ok(added.includes(ADDITION_NOTE), "an addition was not told to keep what the frame has");
+  assert.ok(added.indexOf(ADDITION_NOTE) < added.indexOf("WHAT THEY ASKED FOR"), "the note comes after the request");
+  assert.equal(navRequest({ ...base, addition: "true" }).messages[0].content, plain, "a string reads as an addition");
+  assert.match(navDigest(base.slots, ROUTES, base.actions, [], [], [], [], base.seconds), /A SECOND BUTTON BESIDE IT:\n  \(none\)/);
+  // THE TOOL OFFERS BOTH, and says which is which.
+  assert.ok(NAV_TOOL.input_schema.properties.secondAction && NAV_TOOL.input_schema.properties.removeSecondAction);
+  assert.match(NAV_TOOL.input_schema.properties.action.description, /ASKED TO ADD A BUTTON WHEN THE HEADER ALREADY HAS ONE, LEAVE THIS OUT/);
+});
+
+test("withAdded places each new item after its anchor, at the start or at the end, and never moves or drops one", () => {
+  const items = [{ label: "Home", href: "/" }, { label: "Visit", href: "/visit" }];
+  assert.deepEqual(withAdded(items, [{ item: { label: "Order", href: "/order" }, after: "$end" }]).map((i) => i.href), ["/", "/visit", "/order"]);
+  assert.deepEqual(withAdded(items, [{ item: { label: "Order", href: "/order" }, after: "/" }]).map((i) => i.href), ["/", "/order", "/visit"]);
+  assert.deepEqual(withAdded(items, [{ item: { label: "Order", href: "/order" }, after: "$start" }]).map((i) => i.href), ["/order", "/", "/visit"]);
+  // An anchor this list does not have puts it at the end, and a chain keeps order.
+  assert.deepEqual(withAdded(items, [{ item: { label: "Order", href: "/order" }, after: "/gallery" }]).map((i) => i.href), ["/", "/visit", "/order"]);
+  assert.deepEqual(withAdded(items, [{ item: { label: "A", href: "/a" }, after: "/" }, { item: { label: "B", href: "/b" }, after: "/a" }]).map((i) => i.href), ["/", "/a", "/b", "/visit"]);
+  // An item the list already has is not added twice, and the input is not mutated.
+  assert.deepEqual(withAdded(items, [{ item: { label: "Visit again", href: "/visit" }, after: "$end" }]), items);
+  assert.equal(items.length, 2);
+});
+
+test("additionOnly: nothing taken, nothing repointed, the frame's arrangement left, a new button becomes the second", () => {
+  const n = now();
+  assert.equal(n.button, true);
+  assert.equal(n.menuMax, 3, "the longest menu is not the visit page's");
+  const held = additionOnly(read({
+    links: [{ label: "Home", href: "/" }, { label: "Contact", href: "/contact" }],
+    action: { label: "Call us", href: "tel:01174960000" },
+    removeAction: true, layout: { brand: "centre" },
+    linkChanges: [{ text: "Visit", href: "/order" }],
+  }), n);
+  assert.equal(held.removeAction, false);
+  assert.equal(held.removeSecondAction, false);
+  assert.equal(held.layout, null);
+  assert.deepEqual(held.pageLinks, []);
+  assert.equal(held.action, undefined, "the header's button was going to be replaced");
+  assert.deepEqual(held.secondAction, { label: "Call us", href: "tel:01174960000" });
+  assert.equal(held.links, null, "a whole menu is still going to be written");
+  assert.deepEqual(held.addLinks, [{ item: { label: "Contact", href: "/contact" }, after: "/" }]);
+  // THE SAME BUTTON RESTATED IS NO CHANGE, and a third is refused by name.
+  assert.equal(additionOnly(read({ action: { label: "Order a loaf", href: "/order" } }), n).action, undefined);
+  const full = additionOnly(read({ action: { label: "Call us", href: "tel:01174960000" } }), { ...n, second: true, secondNow: { label: "Menu", href: "/menu" } });
+  assert.equal(full.action, undefined);
+  assert.equal(full.secondAction, undefined);
+  assert.deepEqual(full.dropped.map((d) => d.why), ["kept"]);
+  assert.match(navReply({ dropped: full.dropped }), /already has two buttons, and I don't replace one when asked to add/);
+});
+
+test("additionOnly never rewrites or clears a footer detail, and adds only a new one", () => {
+  const n = { ...now(), contact: { address: "Bristol", hours: "Wed–Sat 8–2" } };
+  const held = additionOnly(read({ contact: { address: "", hours: "Every day", phone: "0117 496 0000" } }), n);
+  assert.deepEqual(held.contact, { phone: "0117 496 0000" });
+  assert.equal(additionOnly(read({ contact: { address: "Leeds" } }), n).contact, null, "a detail the footer had was going to be rewritten");
+});
+
+test("additionOnly leaves out what no menu has room for, named, and never an existing item", () => {
+  const big = { ...now(), menuMax: MAX_NAV_ITEMS - 1 };
+  const held = additionOnly(read({ links: [{ label: "Order", href: "/order" }, { label: "Contact", href: "/contact" }] }), big);
+  assert.deepEqual(held.addLinks.map((a) => a.item.href), ["/order"]);
+  assert.deepEqual(held.dropped.filter((d) => d.why === "full").map((d) => d.href), ["/contact"]);
+});
+
+test("firstButton: a second button on a header with none is its first", () => {
+  const r = { action: undefined, secondAction: { label: "Call us", href: "tel:1" }, dropped: [] };
+  assert.deepEqual(firstButton(r, false).action, { label: "Call us", href: "tel:1" });
+  assert.equal(firstButton(r, false).secondAction, undefined);
+  assert.equal(firstButton(r, true), r, "a header with a button lost its second");
+});
+
+test("runNavEdit: an addition adds to each page's own menu; the same answer as an edit writes the menu it is given", async () => {
+  const answer = { links: [{ label: "Contact", href: "/contact" }] };
+  const added = await runNavEdit({ send: async () => reply(answer) }, { instruction: "Add Contact to the menu", pages: PAGES, routes: ROUTES, addition: true });
+  assert.equal(added.ok, true, JSON.stringify(added));
+  const menus = added.pages.map((p) => navSlots([p])[0].items.map((i) => i.href));
+  assert.deepEqual(menus, [["/", "/visit", "/contact"], ["/", "/visit", "/gallery", "/contact"]], "a page's own menu was not kept");
+  assert.match(added.msg, /Added “Contact” to the menu on 2 pages, beside the items it had/);
+  const edited = await runNavEdit({ send: async () => reply(answer) }, { instruction: "the menu should be Contact", pages: PAGES, routes: ROUTES });
+  assert.deepEqual(edited.pages.map((p) => navSlots([p])[0].items.map((i) => i.href)), [["/contact"], ["/contact"]]);
+});
+
+test("taking a button off the shared object takes its line and comma, so the object still parses (the first button too)", () => {
+  // FOUND BY THE SECOND BUTTON: the removal ended at the property's closing
+  // brace and left `,\n ,` — an object literal that does not parse, so "drop
+  // the button" on a site written this way could only fail to compile.
+  const off = applyAction(PAGES, null, true);
+  assert.equal(off.pages[0].source, HOME.replace('  action: { label: "Order a loaf", href: "/order" },\n', ""), "the object form left more than nothing behind");
+  assert.equal(off.pages[1].source, VISIT.replace(' action={{ label: "Order a loaf", href: "/order" }}', ""), "the attribute form changed");
+  assert.doesNotMatch(off.pages[0].source, /,\s*,/, "a dangling comma was left");
+  // A button inserted on the brace's own line comes off to exactly what was there.
+  const on = applyAction(PAGES, { label: "Call us", href: "tel:1" }, false, "secondAction");
+  assert.deepEqual(applyAction(on.pages, null, true, "secondAction").pages.map((p) => p.source), [HOME, VISIT]);
+});

@@ -257,7 +257,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { requirementNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
@@ -22888,9 +22888,17 @@ async function handleRequest(request, env, ctx) {
               // The `text` layer cannot help either: it refuses `href` and `to`
               // by name, which is the rule that stops it rewriting a route id.
               const navRoutes = [...new Set(eSrc.map((p) => routeOf(p.path)).filter(Boolean))];
+              // ── AN ADDITION THE ADD-ON STEP HANDED HERE (2026-10-02) ──────
+              //
+              // A new menu link, footer link or header button is the add-on
+              // step's (`frame`, `site-add.mjs`), whose work is this rung; the
+              // browser posts that hop with `addition: true`. It only ever
+              // NARROWS what the rung may do — nothing the frame has is
+              // changed, replaced or taken away (`additionOnly`) — so a
+              // client that sends it can only make an edit more careful.
               const nOut = await runNavEdit({
                 send: eQuick(),
-              }, { instruction: eInstruction, pages: eSrc, routes: navRoutes, model: eQuickModel });
+              }, { instruction: eInstruction, pages: eSrc, routes: navRoutes, model: eQuickModel, addition: eb.addition === true });
 
               if (!nOut.ok) {
                 if (!nOut.escalate) {
@@ -22926,6 +22934,8 @@ async function handleRequest(request, env, ctx) {
                 // AND THE BUTTON, when this change touched it. Omitted when it
                 // did not, so a menu-only change's response is unchanged.
                 action: nOut.action || undefined, removedAction: nOut.removedAction || undefined,
+                // AND THE SECOND BUTTON, the same way.
+                secondAction: nOut.secondAction || undefined, removedSecondAction: nOut.removedSecondAction || undefined,
                 // AND THE LINKS IN THE COPY. `movedLinks` counts what really
                 // changed and `refusedLinks` carries the ones that could not —
                 // a link the model named and we would not repoint is a change
@@ -26022,6 +26032,13 @@ async function handleRequest(request, env, ctx) {
               // `cleanAdd` refuses a same-name or same-destination code
               // against this same list (2026-09-03).
               qr: qrList(aLook.qr),
+              // THE PHOTOGRAPHS IT ALREADY SHOWS, by exact address (2026-10-02),
+              // so a photograph to add can be one of the owner's own: the
+              // `photo` designer copies a `src` from here, and `cleanAdd`
+              // refuses one that is not on this same list. Pages and
+              // components, through the one inventory reader; pages alone
+              // when the components could not be read.
+              photos: ownPhotos(photoInventory(aSrc, aStoredParts, aPartsRead.ok) || aSrc || [], ownerSlug),
               three: aHas.three ? (typeof aLook.three === "string" && aLook.three ? aLook.three : "one on the page") : null,
               tsx: Array.isArray(aLook.tsx) ? aLook.tsx : [],
               // THE COMPONENTS THE SITE REALLY HAS, beside the declarations
@@ -26389,10 +26406,16 @@ async function handleRequest(request, env, ctx) {
             // the message runs exactly as it did before `row` existed.
             const aRowAside = aPicked.kinds.includes("row");
             const aKinds = aPicked.kinds.filter((k) => k !== "row");
-            // A PHOTOGRAPH ALONE IS THE PICTURE RUNG'S, one step sideways: it
-            // fills a slot, prices it against the real balance and refuses
-            // honestly. Named with that layer so the browser hops there with
-            // the same sentence rather than falling to the revise.
+            // A NEW ITEM IN THE FRAME, ALONE, IS THE MENU EDITOR'S (2026-10-02),
+            // one step sideways: it writes the link, the button or the footer
+            // detail on every page at once. Named with that layer so the
+            // browser hops there with the same sentence, as an addition.
+            // Beside other kinds it is set aside and named (`aSkipped`).
+            //
+            // A PHOTOGRAPH IS NO LONGER HANDED ANYWHERE (2026-10-02): the
+            // picture rung fills a slot that exists, so it could not add one
+            // beside the ones a page shows. The history below is why it was
+            // ours beside a page first.
             //
             // ── BESIDE A PAGE OR A COMPONENT IT IS OURS (2026-09-17) ───────
             //
@@ -27752,6 +27775,25 @@ async function handleRequest(request, env, ctx) {
               aBalance = await (aJob ? readCreditsFor(env, aJob.uid) : readCredits(aAuth)).catch(() => 0);
             }
             const aShots = aFold.photos.slice(0, imagesAffordable(aFold.photos.length, { balance: aBalance, usd: SITE_PHOTO_USD }));
+            // ── A PHOTOGRAPH, ALONE, WITH NOTHING REAL TO SHOW (2026-10-02) ──
+            //
+            // When the photograph is the whole message and it is neither one
+            // of the site's own (`aFold.reuse`) nor one the balance can buy,
+            // the page call could only write an empty frame — a placeholder
+            // published under a reply saying a photograph was added. Refused
+            // BEFORE that call, at no cost. Beside a page or a component the
+            // frame is part of a real change and is said as a placeholder, as
+            // it always was; the buy below asks the same question once more,
+            // for a purchase that fails after the page was written.
+            const aPhotoOnly = aKinds.length === 1 && aKinds[0] === "photo";
+            const aNoPhoto = () => Response.json({
+              ok: false, error: "no-photo", cost: 0,
+              msg: noPhotoMsg() + (aRowAside ? " " + addRefusal("row-alone", "row") : ""),
+            }, { status: 422 });
+            if (aPhotoOnly && !aFold.reuse.length && !aShots.length) {
+              aMark("photos", "skip", { planned: aFold.photos.length, offered: 0, reuse: 0 });
+              return aNoPhoto();
+            }
             // ── WHICH PAGES TO SHOW FIRST ON A SITE TOO LARGE TO SHOW WHOLE ──
             //
             // `priorPagesSent` fits what it can and NAMES the rest; `keep` is
@@ -28165,7 +28207,6 @@ async function handleRequest(request, env, ctx) {
             if (aLost.length) {
               return Response.json({ ok: false, error: "rewrote", cost: 0, lost: aLost, msg: rewroteMsg(aLost) }, { status: 422 });
             }
-
             // ── MAY THIS STILL PUBLISH? (async path) ──────────────────────
             //
             // The edit route's `eGate`, one rung over: cancel and budget,
@@ -28361,6 +28402,27 @@ async function handleRequest(request, env, ctx) {
                 // addition and the `three` kind never runs for one.
                 three: !!aMerged.three && !aLook.three,
               };
+            }
+
+            // ── AND WHAT WAS ASKED FOR IS THERE (2026-10-02) ───────────────
+            //
+            // `keptProse` says nothing was lost; this says the thing the
+            // designer promised ARRIVED, on the page it named, before the
+            // bill: a line of words read back with the text rung's own
+            // reader, a photograph of the site's own found drawn on that page
+            // once more than before. HERE, below the QR re-merge, because that
+            // can still take a page back out. A page that came back without it
+            // is refused — nothing published, nothing charged — never
+            // published under a reply saying it was added.
+            const aWordsAt = wordsLanded(aSrc, aMerge.pages, aFold.words);
+            const aPhotosAt = photosLanded(aSrc, aMerge.pages, aFold.reuse, ownerSlug);
+            aMark("landed", aWordsAt.ok && aPhotosAt.ok ? "ok" : "fail", { words: aFold.words.length, photos: aFold.reuse.length, missing: aWordsAt.missing.length + aPhotosAt.missing.length });
+            if (!aWordsAt.ok || !aPhotosAt.ok) {
+              return Response.json({
+                ok: false, error: "not-landed", cost: 0,
+                missing: { words: aWordsAt.missing.slice(0, 6), photos: aPhotosAt.missing.slice(0, 6) },
+                msg: notLandedMsg({ words: aWordsAt.missing, photos: aPhotosAt.missing }),
+              }, { status: 422 });
             }
 
             // ── THE BILL ON THE PAGE PATH ─────────────────────────────────
@@ -28708,6 +28770,15 @@ async function handleRequest(request, env, ctx) {
               // route with no job still bills once and rounds once, which is the
               // whole reason that line is a single `pageCredits(...)`.
               aPhotoBill = aPhotos && aPhotos.made ? { images: aPhotos.made } : null;
+              // THE SAME QUESTION AS BEFORE THE PAGE CALL, AFTER THE PURCHASE
+              // (2026-10-02): a photograph-only addition whose one photograph
+              // was not made has nothing real to publish, so it is refused and
+              // nothing is charged — a job's reserves are refunded on any reply
+              // that does not ship. `!aStored` because a photograph designs no
+              // look, so nothing is stored on this path; were that ever to
+              // change, the old behaviour (a placeholder, said) is kept rather
+              // than a refusal over a half-written site.
+              if (aPhotoOnly && !aFold.reuse.length && !aPhotoBill && !aStored) return aNoPhoto();
               if (aJob && aPhotoBill) {
                 aPhotoCharged = Number(await aCharge(pageCredits(aPhotoBill), 5)) || 0;
               }
@@ -29281,6 +29352,16 @@ async function handleRequest(request, env, ctx) {
                 // beats both.
                 if (at && at.size) lostAt.add(r);
               }
+              // A PHOTOGRAPH OF THE SITE'S OWN (2026-10-02) is answered the
+              // same way, by its own address on its own page: nothing was
+              // bought, so there is no token to join, and the address IS the
+              // request. `photosLanded` already refused a page without it, so
+              // this reads the publication rather than trusting that wall.
+              for (const s of (aFold && Array.isArray(aFold.reuse)) ? aFold.reuse : []) {
+                const r = rid(s && s.page);
+                const at = r ? urlsAt.get(r) : null;
+                if (at && typeof s.src === "string" && at.has(s.src)) landed.push({ name: String(s.name || ""), route: r });
+              }
               aPhotoShots = landed;
               aPhotoLost = [...lostAt];
               if (aPhotoLost.length) {
@@ -29363,6 +29444,13 @@ async function handleRequest(request, env, ctx) {
               ...aCoverage(),
               added: aMerge.added, changed: aMerge.changed, removed: aMerge.removed, kept: aMerge.kept,
               reverted: aMerge.reverted,
+              // THE NEW WORDS AND THE SITE'S OWN PHOTOGRAPHS PLACED (2026-10-02),
+              // each one found on its page by `wordsLanded` / `photosLanded`
+              // before the publish — so the reply can say what was added from
+              // what the page really holds. Absent when there were none, so
+              // every other addition's reply is byte-identical.
+              words: aFold.words.length ? aFold.words.slice(0, 6).map((w) => ({ page: w.page, words: w.words })) : undefined,
+              ownPhotos: aFold.reuse.length ? aFold.reuse.slice(0, 6).map((p) => ({ page: p.page })) : undefined,
               // The design fields this addon gave the site (a `qr`, a `three`),
               // in the look lane's own word for it, so a reader can tell "added
               // a page" from "added a code to a page".
