@@ -410,7 +410,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## The router audit (2026-10-02; corrected after the owner's review; decision reporting and the routing-only batch merged and deployed in deploy 2178; the batch not yet pressed; nothing spent)
+## The router audit (2026-10-02; corrected after the owner's review; decision reporting and the routing-only batch merged and deployed in deploy 2178; the batch ran as run 90)
 
 The owner's order, once Test 11's result was verified: audit the router
 before any broader test resumes. The audit is
@@ -484,6 +484,20 @@ routing test.
   check, not before 02:43 UTC. Before it: balance 96, ledger row 350, no
   job open; the bakery still at `dgmag4`, with `/visit`'s one photograph
   (02:30 UTC). `docs/deploy-record.md`.
+- **The batch ran as run 90** (the owner's press, 02:35–02:41 UTC, from
+  `main`). Its preflight passed, so it is deploy 2178's runtime check: both
+  readers `706c9b66dfce`, a cold container `a412daac10dbc936`.
+  - All 18 routed, every answer the model's own (`grok-4.6`; only
+    `tables-filled`).
+  - **9 match** (P0, B1, B2, B3, C1, C2, D1, D2, F1).
+  - **5 differ**: A1–A5, every frame and page addition, went to an edit
+    (`nav` ×3, `picture`, `text`), so R1 is confirmed.
+  - **4 recorded**: E1 `ask` with a question back, E2 `look`, G1 `page`
+    `/visit`, G2 `data`.
+  - **24 credits** (96 → 72); no ledger row, no job, both sites unchanged.
+  - The readings, and what they say about R1–R7, are in the audit's §5.
+    One answer each: a repeat of A1–A5 is proposed, not run. No fix starts
+    until the owner decides.
 - The broad plan below stays paused.
 
 ## Broad real-model batches — four chats through the normal app (proposed 2026-10-01 on the owner's word; paused by the owner the same day; nothing sent or spent)

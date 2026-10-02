@@ -1,71 +1,69 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-02, 02:31 UTC)
+## Current handoff — read this first (2026-10-02, 02:55 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**State now: merged and deployed (deploy 2178), not yet confirmed live. The
-routing-only batch is ready for you to press from 02:43 UTC. Test 11 (run
-88) still waits for your closure.**
-- **The merge**: on your word (*"merge and deploy and then i will run
-  it"*), `main` moved by fast-forward from `25faac78` to `706c9b66` (12
-  commits) at 02:18 UTC. It carries the decision report, the batch with
-  your two corrections, the audit and its records, and the paused broad
-  plan's documents.
-- **The deploy**: run 2178 went green on `706c9b66`. The container image
-  was rebuilt exactly as predicted, and the container moved from
-  `9a71a6384b4206a2` to `a412daac10dbc936` at 02:22 UTC. The site files
-  under `public/` didn't change.
-- **Checked before the merge**:
-  - nothing else was running and no edit job was open;
-  - CI was reused, not repeated: unit tests on `706c9b66` itself (run
-    36953951717, `8581 / 8577 / 0 / 4`), and the site build's run
-    36949313442, whose inputs haven't changed;
-  - undoing the merge in a scratch copy gives back `main`'s exact files.
-- **Nothing was spent.** The balance is 96, the newest ledger row is still
-  350 (run 88), and no job is open (read at 02:27 UTC). Run 89, your press
-  from `main` at 02:15, stopped within a second and charged nothing.
-- **F1's starting condition still holds**: the bakery is still at
-  `01790819484141-dgmag4`, and `/visit` still shows its one photograph
-  (read at 02:30 UTC).
+**State now: the routing batch ran (your run 90), and its readings are
+recorded for your review. Deploy 2178 is confirmed live by that run. No fix
+has started. Test 11 (run 88) still waits for your closure.**
+- **Deploy 2178 is confirmed live**: run 90's start-up check found the
+  Worker on `706c9b66` and a cold container on `a412daac10dbc936`.
+- **All 18 messages were routed**, and every answer was the router model's
+  own: no fallback or rule changed one.
+  - **9 got the intended answer**: a price change and a removal went to
+    the data step; a new loaf and a put-back went to the add-on step; both
+    mixed messages held back exactly the other part; "Remove the blog page."
+    got an honest reply that there's no blog page; two pages' backgrounds
+    went to the look step; the photo swap went to the picture step.
+  - **5 didn't, and they're the main finding**: every frame and page
+    addition went to an edit instead of the add-on path. The footer link,
+    the menu link and the header button went to the menu step, the new
+    photo to the picture step, and the new line on the Visit page to the
+    text step. The router follows its own examples over your add-on rule.
+  - **4 had no intended outcome yet** (yours to set):
+    - "Make it better." got a question back at no further cost;
+    - "Undo the last change." went to the look step, which can't undo;
+    - "Do the same on the Visit page." went to the full page writer;
+    - "Make that one £3.50 instead." went to the data step.
+- **Cost: 24 credits** (96 → 72), under the 36–54 estimate, because most
+  calls reused the router's cached instructions. Nothing else changed: no
+  job, no ledger row, and both sites are on the same versions.
+- **Each is one answer.** The audit says to repeat a difference before
+  building a fix on it.
 
 **What I need from you**
-1. **Press the batch at 02:43 UTC or later**, with the boxes below. The
-   press is your go-ahead for its spend: 18 probes, about 36–54 credits.
-   First it checks, at no cost, that the Worker answers with `706c9b66` and
-   a cold container with `a412daac10dbc936`. That check is this deploy's
-   runtime confirmation, so no separate free press is needed. If it
-   refuses because the container hasn't moved yet, nothing is charged; wait
-   a few minutes and press again.
-2. Your closure of Test 11 (run 88).
-
-**The batch's press** (edit canary, Run workflow, from `main`). Every other
-box stays blank, and the site and second-site boxes stay as they are:
-- *Run the ONE paid edit as well (yes/no)*: `yes`
-- *ROUTING-ONLY BATCH: the name of a committed probe list…*:
-  `router-audit-1`
-- *Refuse to spend unless the Worker reports this deploy sha (prefix, >=7
-  chars)…*: `706c9b66dfce513dcc3a8677acd8438454b02045`
-- *Refuse to spend unless a cold container reports this image id
-  (exact)…*: `a412daac10dbc936`
-
-If the bakery is published again before the press, I'll read the Visit
-page again first (free).
+1. **Your decisions on the findings** (the audit's §5, *After the
+   readings*):
+   - frame additions: align the router's examples with your policy, and
+     build the add-on kinds it lacks (menu link, footer link, header button,
+     perhaps one line on a page). The order matters, because sending them
+     to the add-on step before it can make them would fail customers;
+   - what a vague message or one that refers back should get (run 90's
+     "Make it better." already got a question back, but the two references
+     went to edits);
+   - undo: an honest reply, or a route that restores a saved version;
+   - attachments: tell the router a file is attached, tell the customer when
+     it can't be used, and let the picture step use it.
+2. **The intended outcomes for E1, E2, G1 and G2**, and whether D1's honest
+   `ask` is what you want.
+3. **Whether to repeat A1–A5** (twice more each, 10 calls, about 10–30
+   credits) before any fix is built on them. It's not built or run.
+4. Your closure of Test 11 (run 88).
 
 **The order of work** (your word)
 1. Test 11's retry: done (run 88), for your closure.
-2. The router audit: its decision report and batch are merged and
-   deployed. The batch is next, by your press.
+2. The router audit: the batch has run, and its readings wait for your
+   decisions. No fix starts until then.
 3. The broad plan and its batch runner stay paused.
 
 **Links**
-- Run workflow: https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml
-- Deploy 2178: https://github.com/canias7/isibi-app/actions/runs/36955027635
-- The audit: `docs/investigations/router-audit.md` (§5 is the test).
-- The record: `docs/history/2026-10-02-route-decision.md` (§8 is the merge).
-- The batch: `scripts/router-probes/router-audit-1.json`.
+- Run 90: https://github.com/canias7/isibi-app/actions/runs/36956314832
+- The audit: `docs/investigations/router-audit.md` (§5, *The readings: run
+  90*, and the matrix's Observed column).
+- The record: `docs/history/2026-10-02-route-decision.md` (§9 is the batch).
 
 **From our chat**
 - Every new addition goes to the add-on path; what it can't make is a
@@ -76,12 +74,12 @@ page again first (free).
 - CLAUDE.md is left alone.
 
 **Blockers**
-- None. The batch waits for your press, from 02:43 UTC.
+- None. Every next step needs your decision.
 
 **Exact next action**
-- After your press, I read every answer, its decision source and its
-  reasons, and fill in the audit's Observed column. No fix starts until you
-  decide.
+- On your decisions: build what you choose, with its tests, for your review,
+  or prepare the repeat of A1–A5 for your press. Nothing is merged,
+  deployed or spent without your word.
 
 ---
 
@@ -141,6 +139,26 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-02 — The routing batch ran (run 90): every frame addition went to an edit; deploy 2178 confirmed live
+
+- **Your press, run 90** (02:35 UTC, from `main`), passed its start-up
+  check, which confirms deploy 2178 live: the Worker on `706c9b66`, a cold
+  container on `a412daac10dbc936`.
+- **All 18 messages were routed**, every answer the router model's own.
+  - **9 matched** what we intended.
+  - **5 didn't**: every frame and page addition (footer link, menu link,
+    header button, new photo, new line) went to an edit, not the add-on
+    path. The router follows its own examples over your add-on rule.
+  - **4 had no intended outcome**: "Make it better." got a question back;
+    "Undo the last change." went to the look step; "Do the same on the
+    Visit page." went to the full page writer; "Make that one £3.50
+    instead." went to the data step.
+- **24 credits** (96 → 72). Nothing else changed.
+- **No fix has started.** The decisions are yours (the handoff above), and a
+  repeat of the five differences is proposed, not run.
+- The readings are in `investigations/router-audit.md` §5, and the record
+  is `history/2026-10-02-route-decision.md` §9.
 
 ## 2026-10-02 — Merged and deployed: deploy 2178 (the decision report and the routing-only batch); the batch is yours to press
 

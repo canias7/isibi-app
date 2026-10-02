@@ -1,9 +1,9 @@
 # 2026-10-02 — Where a routing answer came from, and a batch that only routes
 
 Built on the branch for the owner's review, then **merged and deployed in
-deploy 2178** (2026-10-02, §8) on the owner's word. **Not yet
-runtime-confirmed, and nothing spent**: the batch's own press is the runtime
-check. The audit this serves is
+deploy 2178** (2026-10-02, §8) on the owner's word, and **runtime-confirmed
+by the batch's own press, run 90** (§9), which routed all 18 messages for 24
+credits. The audit this serves is
 [`investigations/router-audit.md`](../investigations/router-audit.md); its §5
 holds the probe matrix and the press.
 
@@ -361,3 +361,28 @@ unchanged):
   job open (02:27 UTC). The bakery still serves `01790819484141-dgmag4`,
   and `/visit` still shows its one photograph (02:30 UTC), so F1's starting
   condition holds.
+
+## 9. The batch ran: run 90 (2026-10-02)
+
+- **The press**: run 90 (36956314832), the owner's, from `main` at
+  `706c9b66`, 02:35:12 UTC (12m49s after the roll), spend `yes`,
+  `router-audit-1`, with the deploy and image boxes filled.
+- **The preflight passed**, and was deploy 2178's runtime check: both
+  readers answered `706c9b66dfce`, a cold container `a412daac10dbc936`, and
+  async and the runner were on.
+- **All 18 routed**, nothing stopped, every answer the model's own
+  (`grok-4.6`). The only reason code was `tables-filled`.
+- **9 match**: P0, B1, B2, B3, C1, C2, D1, D2, F1. **5 differ**: A1–A5, every
+  frame and page addition went to an edit (`nav` three times, `picture`,
+  `text`). **4 recorded**: E1 `ask` with a question back, E2 `look`, G1
+  `page` for `/visit`, G2 `data`.
+- **24 credits** (96 → 72), under the 36–54 estimate, because 15 calls read
+  the prompt cache. No ledger row after 350, no job, both sites at their
+  versions (read at 02:45 UTC).
+- **What it shows** is in the audit's §5 (*The readings: run 90*) and in each
+  R section's reading. R1 is confirmed for all five additions; R4 wasn't
+  reached; R5's prediction didn't hold for "Make it better."; R6 and R7
+  hold; R2 stands.
+- **Not shown**: one answer per message; what any step then does; one model.
+  A repeat of A1–A5 (twice more each, about 10–30 credits) is proposed, not
+  built or run.

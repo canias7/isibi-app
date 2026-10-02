@@ -5,7 +5,8 @@ changed on any site. The code was read on `main` at `25faac78` (deploy 2177,
 runtime-confirmed by run 87), and every line reference below is to that
 code. Balance 96 after run 88. The decision report and the routing-only
 batch (§5) were built for review, then merged and deployed in deploy 2178
-(2026-10-02, `706c9b66`); the batch has not been pressed. The merged
+(2026-10-02, `706c9b66`). **The batch ran as run 90** (02:35–02:41 UTC, 24
+credits), and its readings are in §5 (*The readings: run 90*). The merged
 `site-ask.mjs` is unchanged up to line 788, so a reference past that line
 is to `25faac78`'s file, not the merged one.
 
@@ -40,6 +41,11 @@ Line numbers are for `builder/site-ask.mjs` unless another file is named.
 
 ## In short
 
+- **The readings (run 90, 2026-10-02)**: of 18 messages, 9 got the intended
+  answer, 5 differed and 4 had no intended outcome set. **All five frame and
+  page additions went to an edit instead of the add-on path** (R1). Every
+  answer was the model's own: no fallback or rule changed one. 24 credits.
+  Each is one answer, to be repeated before any fix is built on it (§5).
 - **One model call decides every message on a live site.** It answers `ask`,
   `edit` (naming one of nine steps), or `addon`, and it can hold back part of
   the message. It sees the message, the site's page addresses and its table
@@ -59,7 +65,10 @@ Line numbers are for `builder/site-ask.mjs` unless another file is named.
        capability.** It has no kind for a menu link, a footer link or detail,
        or the header button. Today the router's `nav` clause points such
        additions at an edit, which is not the correct answer under the policy.
-     - Which instruction the real model follows *needs a reading*.
+     - Which instruction the real model follows *needs a reading*. **Run
+       90: the router's own examples, for all five** (`nav` for the footer
+       link, the menu link and the header button; `picture` for a new
+       photo; `text` for a new line).
   2. **Attachments (R2).** The router is told to choose between the logo step
      and the photo step by whether a file is attached, but it is never told
      whether one is. After routing, only the logo step receives the file.
@@ -79,11 +88,15 @@ Line numbers are for `builder/site-ask.mjs` unless another file is named.
      site with no blog page is turned into `addon` by the code. That
      contradicts the instruction "A REMOVAL IS NEVER AN ADDON" (*needs a
      reading* for how often the model names a page the site doesn't have).
+     **Run 90's one reading**: the model answered `ask`, saying there is no
+     blog page, so the conversion wasn't reached.
   5. **Vague requests and references have nowhere honest to go (R5, R7).**
      A live site can't ask a question back, "when you cannot tell, answer
      addon" is the rule, and the router never sees the previous message.
      Where "make it better" or "do the same on the Visit page" end up *needs
-     a reading*, and what the add-on step then does is *unverified*.
+     a reading*, and what the add-on step then does is *unverified*. **Run
+     90**: "make it better" got `ask` with a question back (no add-on);
+     "do the same on the Visit page" went to the page writer for `/visit`.
   6. **Undo is promised but can't be routed (R6).** The router is told
      "every one can be undone by saying so", but no step undoes a change.
 - **Smaller gaps** (R8–R14):
@@ -291,7 +304,11 @@ frame additions to the add-on step before it can make them would send
 customers to a step that can't do the job.
 
 *Not measured: there has been no real-model reading of a frame addition since
-deploy 2177.*
+deploy 2177.* **Run 90's reading (one answer each)**: the footer link, the
+menu link and the header button went to `nav`, a new photo to `picture`, and
+a new line on the Visit page to `text`, all as the model's own answers. The
+router's own examples win over the add-on rule for every frame or page
+addition tried. What those steps then do is *unverified*.
 
 ### R2. Attachments (high; from the code)
 
@@ -324,6 +341,10 @@ deploy 2177.*
   in place of the Visit page's one photograph.
 - "Here's the new header", sent with a file but without the word "logo", is
   routed without knowing there is a file.
+- **Run 90's reading**: F1 (the Visit page's photo, with a file attached)
+  went to `picture`, as intended, with the router not told of the file. So
+  the route is right, and the file's fate is still the code's: from the code
+  the picture step never receives it (*unverified* live).
 
 ### R3. Silent conversions to a paid add-on (high, for customers and for our evidence; from the code)
 
@@ -379,6 +400,11 @@ BUILD" (899–913). On a live site the fallback is `addon` (117, 923).
   (from the code). What the add-on step does with it is *unverified*: its
   picker must name some kind.
 - The same happens to a page beyond the 24th address (R8).
+- **Run 90's reading (one answer)**: "Remove the blog page." got `ask`, the
+  model's own, with *"There's no blog page on the site to take off — just
+  home, order, starter, visit and gallery. If you meant one of those, say
+  which and I'll remove it."* The model didn't name the missing page, so the
+  conversion wasn't reached. How often it does name one isn't measured.
 
 ### R5. "When you cannot tell" (medium; needs a reading)
 
@@ -394,6 +420,14 @@ BUILD" (899–913). On a live site the fallback is `addon` (117, 923).
 - So a vague change ("make it better", "fix the prices") has no honest answer
   except `addon`. What the add-on step then makes, and charges, is
   *unverified*.
+- **Run 90's reading contradicts that (one answer)**: "Make it better." got
+  `ask`, the model's own, with a question back: *"Happy to — what would you
+  like better? The look, the wording, something added, or a specific page?
+  Tell me and I'll do it."* From the code, the browser shows an `ask`'s
+  answer and runs nothing else (`chat.js` 9162–9176), so it cost only the
+  routing. `ask` is meant for messages that don't describe a change (210),
+  so this is the model's own reading of the rule, not something the
+  instructions ask for.
 
 ### R6. Undo (medium; from the code)
 
@@ -411,6 +445,9 @@ BUILD" (899–913). On a live site the fallback is `addon` (117, 923).
   undo context never reaches the add-on step. Whether a put-back through the
   add-on step restores the entry's other fields (its description, say) is
   *unverified*.
+- **Run 90's reading (one answer)**: "Undo the last change." went to `look`,
+  the model's own. The look step can't restore a version. What it does with
+  the message, and what it charges, is *unverified*.
 
 ### R7. No conversation (medium; from the code)
 
@@ -425,6 +462,11 @@ BUILD" (899–913). On a live site the fallback is `addon` (117, 923).
   "the other one" means. What the steps then do with them is *unverified*.
 - Test 9 (closed) showed a self-contained second message after a failure.
   Nothing has tested a message that refers back.
+- **Run 90's reading (one answer each)**: "Do the same on the Visit page."
+  went to `page` for `/visit` (the full page writer, the costliest step: 6–22
+  credits measured), and "Make that one £3.50 instead." to `data`. Each was
+  routed with nothing to say what "the same" or "that one" is. What follows
+  is *unverified*.
 
 ### R8. Limits the router isn't told (low to medium; from the code)
 
@@ -658,6 +700,9 @@ BUILD" (899–913). On a live site the fallback is `addon` (117, 923).
   predicted and rolled to `a412daac10dbc936` at 02:22:23Z, so the batch is
   not pressed before 02:43 UTC. It is deployed, not runtime-confirmed: the
   batch's own press is the runtime check (`docs/deploy-record.md`).
+- **Runtime-confirmed by run 90** (pressed at 02:35 UTC, 13 minutes after
+  the roll): both readers answered `706c9b66dfce`, a cold container
+  `a412daac10dbc936`, and async and the runner were on.
 
 ### The test matrix
 
@@ -679,24 +724,86 @@ BUILD" (899–913). On a live site the fallback is `addon` (117, 923).
 
 | # | Message | Intended (basis) | Current implementation | Observed |
 |---|---|---|---|---|
-| P0 | `Make the Country White £4.90.` | `edit` · `data`, nothing held back (router rule: a change to a stored entry) | The data clause (341–344). Next: the data step changes one field (live: runs 71, 77) | — |
-| A1 | `Add our Instagram to the footer: @harbourloaf.` | `addon`, nothing held back (your policy). **The add-on step has no kind for a footer link: missing capability** | Conflict: a `nav` example (507) against the add-on rule and tie-break (238–241, 272–277). If `addon`: the picker must name a kind, most likely `component` (*unverified*) | — |
-| A2 | `Add Order to the menu.` | `addon`, nothing held back (your policy). **No add-on kind for a menu link: missing capability** | Conflict: "add Contact to the menu" (513–514) and "A MENU CHANGE IS nav" (579) against the add-on rule. If `addon`: the nearest kind is *unverified* | — |
-| A3 | `Add a Call us button at the top that rings 0117 496 0000.` | `addon`, nothing held back (your policy). **No add-on kind for the header button: missing capability** | Conflict: "add a Call now button at the top" (516) against the add-on rule | — |
-| A4 | `On the Visit page, add a line saying we're closed on bank holidays.` | `addon`, nothing held back (your policy). **No add-on kind for one line on a page**; `component` is a whole section (*unverified* whether it can make one line) | No clause names a small addition. `page` allows "add a block built from parts the page already has" (527–528); `text` changes existing words only (400–402) | — |
-| A5 | `Add a photo of our sourdough to the Visit page.` | `addon`, nothing held back (your policy) | Conflict: "add a photo to the about page" is a `picture` example (486–487). If `addon`: a lone `photo` is handed to the picture step (`site-addon.mjs` 34–35); buying is parked on fal funding | — |
-| B1 | `We've started baking a Seeded Spelt, £4.80. Put it on the list.` | `addon`, nothing held back (your policy) | The new-entry rule (257–260), without the word "add". If `addon`: the `row` kind (live once: run 88) | — |
-| B2 | `Put the Group of three back on the price list, at £18.` (`fretwork-1`) | `addon`, nothing held back (your policy: a re-added entry is a new row) | The new-entry rule. The data step's undo rows reach `data` only (`chat.js` 9347–9353) | — |
-| B3 | `Take the Walnut Levain off the list.` | `edit` · `data` (router rule; live: runs 77, 80) | Control | — |
-| C1 | `Make the Country White £4.90 and add a Seeded Spelt at £4.80.` | One answer, the other route's part held back: `edit` · `data` holding back "add a Seeded Spelt at £4.80", or `addon` holding back "Make the Country White £4.90" (your policy for the addition; the held-back rule, 321–325). The held-back part is judged with the route's own locator (§5) | `alsoAsked` allows either (321–325) | — |
-| C2 | `Make the headings dark green and add our Instagram to the footer.` | One answer, the other route's part held back: `edit` · `look` holding back "add our Instagram to the footer", or `addon` holding back "Make the headings dark green". Not `nav` (your policy). Judged as C1 is | The look door has no footer lane (`site-lanes.mjs` 475–803), and `alsoAsked`'s list omits the footer (316). The `nav` clause claims footer additions (507–508) | — |
-| D1 | `Remove the blog page.` (the site has none) | `ask`, saying there's no blog page; never `addon` (router rule, 288–290; `ask` is my reading, for your confirmation) | The `page` field sends an unknown page to `addon` (629–631), and the code converts `page` + an unknown page before reading `remove` (1249–1252) | — |
-| D2 | `Make the Gallery page's background warmer and the Visit page's background cooler.` | `edit` · `look`, no page, nothing held back (the whole-message rule by targets, 609–614) | Shown live only for Test 8's mix (run 66). Two pages of one kind not measured | — |
-| E1 | `Make it better.` | Not set: yours to decide | "When you cannot tell, answer addon" (287); no question back on a live site (221, 938) | — |
-| E2 | `Undo the last change.` | Not set: yours to decide | No step can undo; "every one can be undone by saying so" (216) | — |
-| F1 | `Use this photo on the Visit page instead of the current one.` (file attached). **Starting condition**: `/visit` shows exactly one photograph, the counter and morning board (`d5d59152….jpg`, the `SafeImage` in `visit.tsx`), at `01790819484141-dgmag4`: run 88's before-read and a fresh read on 2026-10-02. (It first targeted `/starter`, which shows none.) | `edit` · `picture` (router rule, 485–487: a swap of an existing photo is a change, not an addition) | The router isn't told a file is attached (R2). After routing, the picture step never receives it (from the code: `chat.js` 9354–9359) | — |
-| G1 | `Do the same on the Visit page.` | Not set: yours to decide (my suggestion: a question back) | No earlier message reaches the router (R7) | — |
-| G2 | `Make that one £3.50 instead.` | Not set: yours to decide | The same (R7) | — |
+| P0 | `Make the Country White £4.90.` | `edit` · `data`, nothing held back (router rule: a change to a stored entry) | The data clause (341–344). Next: the data step changes one field (live: runs 71, 77) | `edit` · `data` (model · `tables-filled`). **Matches**. Cost 3 |
+| A1 | `Add our Instagram to the footer: @harbourloaf.` | `addon`, nothing held back (your policy). **The add-on step has no kind for a footer link: missing capability** | Conflict: a `nav` example (507) against the add-on rule and tie-break (238–241, 272–277). If `addon`: the picker must name a kind, most likely `component` (*unverified*) | `edit` · `nav` (model · `tables-filled`). **Differs**: `edit`, intended `addon`. Cost 3 |
+| A2 | `Add Order to the menu.` | `addon`, nothing held back (your policy). **No add-on kind for a menu link: missing capability** | Conflict: "add Contact to the menu" (513–514) and "A MENU CHANGE IS nav" (579) against the add-on rule. If `addon`: the nearest kind is *unverified* | `edit` · `nav` (model · `tables-filled`). **Differs**. Cost 1 |
+| A3 | `Add a Call us button at the top that rings 0117 496 0000.` | `addon`, nothing held back (your policy). **No add-on kind for the header button: missing capability** | Conflict: "add a Call now button at the top" (516) against the add-on rule | `edit` · `nav` (model · `tables-filled`). **Differs**. Cost 1 |
+| A4 | `On the Visit page, add a line saying we're closed on bank holidays.` | `addon`, nothing held back (your policy). **No add-on kind for one line on a page**; `component` is a whole section (*unverified* whether it can make one line) | No clause names a small addition. `page` allows "add a block built from parts the page already has" (527–528); `text` changes existing words only (400–402) | `edit` · `text`, no page (model · `tables-filled`). **Differs**. Cost 1 |
+| A5 | `Add a photo of our sourdough to the Visit page.` | `addon`, nothing held back (your policy) | Conflict: "add a photo to the about page" is a `picture` example (486–487). If `addon`: a lone `photo` is handed to the picture step (`site-addon.mjs` 34–35); buying is parked on fal funding | `edit` · `picture`, no page (model · `tables-filled`). **Differs**. Cost 1 |
+| B1 | `We've started baking a Seeded Spelt, £4.80. Put it on the list.` | `addon`, nothing held back (your policy) | The new-entry rule (257–260), without the word "add". If `addon`: the `row` kind (live once: run 88) | `addon` (model · `tables-filled`). **Matches**. Cost 1 |
+| B2 | `Put the Group of three back on the price list, at £18.` (`fretwork-1`) | `addon`, nothing held back (your policy: a re-added entry is a new row) | The new-entry rule. The data step's undo rows reach `data` only (`chat.js` 9347–9353) | `addon` (model · `tables-filled`). **Matches**. Cost 3 |
+| B3 | `Take the Walnut Levain off the list.` | `edit` · `data` (router rule; live: runs 77, 80) | Control | `edit` · `data` (model · `tables-filled`). **Matches**. Cost 1 |
+| C1 | `Make the Country White £4.90 and add a Seeded Spelt at £4.80.` | One answer, the other route's part held back: `edit` · `data` holding back "add a Seeded Spelt at £4.80", or `addon` holding back "Make the Country White £4.90" (your policy for the addition; the held-back rule, 321–325). The held-back part is judged with the route's own locator (§5) | `alsoAsked` allows either (321–325) | `edit` · `data`, holding back "add a Seeded Spelt at £4.80" (model · `tables-filled`). **Matches** the first alternative. Cost 1 |
+| C2 | `Make the headings dark green and add our Instagram to the footer.` | One answer, the other route's part held back: `edit` · `look` holding back "add our Instagram to the footer", or `addon` holding back "Make the headings dark green". Not `nav` (your policy). Judged as C1 is | The look door has no footer lane (`site-lanes.mjs` 475–803), and `alsoAsked`'s list omits the footer (316). The `nav` clause claims footer additions (507–508) | `edit` · `look`, holding back "add our Instagram to the footer" (model · `tables-filled`). **Matches** the first alternative. Cost 1 |
+| D1 | `Remove the blog page.` (the site has none) | `ask`, saying there's no blog page; never `addon` (router rule, 288–290; `ask` is my reading, for your confirmation) | The `page` field sends an unknown page to `addon` (629–631), and the code converts `page` + an unknown page before reading `remove` (1249–1252) | `ask` (model · `tables-filled`): *"There's no blog page on the site to take off — just home, order, starter, visit and gallery. If you meant one of those, say which and I'll remove it."* **Matches**; the conversion (R4) wasn't reached. Cost 1 |
+| D2 | `Make the Gallery page's background warmer and the Visit page's background cooler.` | `edit` · `look`, no page, nothing held back (the whole-message rule by targets, 609–614) | Shown live only for Test 8's mix (run 66). Two pages of one kind not measured | `edit` · `look`, no page, nothing held back (model · `tables-filled`). **Matches**. Cost 1 |
+| E1 | `Make it better.` | Not set: yours to decide | "When you cannot tell, answer addon" (287); no question back on a live site (221, 938) | `ask` (model · `tables-filled`): *"Happy to — what would you like better? The look, the wording, something added, or a specific page? Tell me and I'll do it."* Recorded. Cost 1 |
+| E2 | `Undo the last change.` | Not set: yours to decide | No step can undo; "every one can be undone by saying so" (216) | `edit` · `look` (model · `tables-filled`). Recorded. Cost 1 |
+| F1 | `Use this photo on the Visit page instead of the current one.` (file attached). **Starting condition**: `/visit` shows exactly one photograph, the counter and morning board (`d5d59152….jpg`, the `SafeImage` in `visit.tsx`), at `01790819484141-dgmag4`: run 88's before-read and a fresh read on 2026-10-02. (It first targeted `/starter`, which shows none.) | `edit` · `picture` (router rule, 485–487: a swap of an existing photo is a change, not an addition) | The router isn't told a file is attached (R2). After routing, the picture step never receives it (from the code: `chat.js` 9354–9359) | `edit` · `picture`, no page (model · `tables-filled`). **Matches** the route; R2 stands. Cost 1 |
+| G1 | `Do the same on the Visit page.` | Not set: yours to decide (my suggestion: a question back) | No earlier message reaches the router (R7) | `edit` · `page` · `/visit` (model · `tables-filled`). Recorded. Cost 1 |
+| G2 | `Make that one £3.50 instead.` | Not set: yours to decide | The same (R7) | `edit` · `data` (model · `tables-filled`). Recorded. Cost 1 |
+
+### The readings: run 90 (2026-10-02)
+
+- **The press**: run 90 (36956314832), your press from `main` at
+  `706c9b66`, 02:35:12 UTC, spend `yes`, `router-audit-1` (sha256
+  `3296363a…`), with the deploy and image boxes filled.
+  - The preflight passed, and was deploy 2178's runtime check: both readers
+    answered `706c9b66dfce`, a cold container `a412daac10dbc936`, and async
+    and the runner were on.
+  - The pages sent: the bakery's `/`, `/order`, `/starter`, `/visit`,
+    `/gallery`; fretwork-1's `/`, `/prices`, `/gear`.
+- **All 18 routed**, and nothing stopped.
+  - Every answer was the model's own (`grok-4.6`, the default picker): no
+    fallback, no rule.
+  - The only reason code was `tables-filled`: the route supplied the site's
+    table names because the request carried none (the bakery's `loaves` and
+    `orders`; fretwork-1's `bookings`, `gear`, `lessons` and
+    `waiting_list`).
+- **9 match** the intended outcome (P0, B1, B2, B3, C1, C2, D1, D2, F1).
+  **5 differ** (A1–A5). **4 are recorded** with no intended outcome (E1,
+  E2, G1, G2).
+- **Cost: 24 credits** (96 → 72), under the 36–54 estimate.
+  - 15 calls read the prompt cache (8,320 tokens) and cost 1 each.
+  - The three without it cost 3: P0, A1, and B2 (the first on fretwork-1).
+  - The calls took 6.8–41.0 s each, and the batch 5m53s in all.
+- **Nothing else changed** (read at 02:45 UTC): no ledger row after 350, no
+  job created, and both sites still at their versions (the bakery
+  `dgmag4`, fretwork-1 `kk6qsh`).
+
+What the readings say (one answer each, so a difference is repeated before
+any fix is built on it):
+- **R1 is confirmed for all five frame and page additions.** The model
+  followed the router's own examples, not the add-on rule:
+  - the footer link, the menu link and the header button went to `nav`
+    (the examples at 507, 513–514 and 516);
+  - the new photo went to `picture` (486–487);
+  - the new line on the Visit page went to `text`, which changes existing
+    words (400–402);
+  - what those steps then do is *unverified*.
+- **A new entry, a put-back and both mixes follow the policy** (B1, B2, C1,
+  C2): `addon` without the word "add", the put-back as `addon`, and each mix
+  holding back exactly the other route's part.
+  - C2 held the footer addition back rather than sending it to `nav`.
+  - Sent again on its own, A1's reading suggests it would go to `nav` (an
+    inference from two readings, not measured).
+- **R4 wasn't reached**: for a page the site doesn't have, the model
+  answered `ask` with an honest reply naming the real pages.
+- **R5's prediction didn't hold here**: "Make it better." got `ask` with a
+  question back. From the code, nothing else runs, so it cost only the
+  routing. The audit expected `addon`.
+- **R6 holds**: "Undo the last change." went to `look`, which can't undo.
+- **R7 holds**: "Do the same on the Visit page." went to the full page
+  writer for `/visit`, and "Make that one £3.50 instead." to `data`, with
+  nothing to say what either refers to.
+- **R2 stands**: F1 went to `picture`, as intended, without the router being
+  told of the file. From the code, the picture step never receives it.
+- **D2** is the first reading of two pages of one kind: `look`, no page,
+  nothing held back, as the whole-message rule intends.
+
+**A repeat, proposed, not built or run**: A1–A5 twice more each (10 calls),
+about 10–30 credits, so the five differences rest on three answers each. E1,
+E2, G1 and G2 would join once you set their intended outcomes.
 
 ### Cost (estimates, not limits)
 
@@ -724,7 +831,8 @@ BUILD" (899–913). On a live site the fallback is `addon` (117, 923).
 ### After the readings: decisions that are yours
 
 These findings are recorded here. None is in the backlog yet, and none is
-being fixed. Which to pursue is your decision once the readings are in.
+being fixed. The readings are in (run 90, above), and which to pursue is
+your decision.
 - **Frame additions (R1).** Two separate changes:
   - align the router's `nav`, `picture` and `page` examples with your policy;
   - build the missing add-on kinds (menu link, footer link and detail, header

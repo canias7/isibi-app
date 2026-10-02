@@ -908,6 +908,19 @@ UTC: balance 96, the ledger's last row 350 (run 88), no job open. The bakery
 still serves `01790819484141-dgmag4` (read at 02:30 UTC: `/visit` shows its
 one photograph, `d5d59152….jpg`), F1's recorded starting condition.
 
+**Runtime-confirmed by the owner's paid batch press, run 90** (36956314832,
+2026-10-02 02:35:12–02:41:22 UTC, from `main` at `706c9b66`, spend `yes`,
+`router-audit-1`). It was pressed 12m49s after the roll, before the
+suggested 02:43, and the image check passed all the same: `build-health 200
+deploy=706c9b66dfce image=a412daac10dbc936` and `runtime 200
+deploy=706c9b66dfce async=true runner=true`. So both readers answered
+`706c9b66dfce`, and a cold container `a412daac10dbc936`. The batch mode
+exits above the free checks, so no zero-cost job ran (by design: its own
+checks replace a separate free press). The batch then routed its 18
+messages for 24 credits (96 → 72; no ledger row after 350, no job created;
+read in Supabase at 02:45 UTC). The readings are in
+`docs/investigations/router-audit.md` §5.
+
 ## The served-file check, driven end to end on deploy 2139
 
 **DRIVEN END TO END ON DEPLOY 2139 (2026-09-21), and it is stronger than the
