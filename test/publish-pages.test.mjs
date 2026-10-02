@@ -2790,7 +2790,9 @@ test("THE WIRING — the Worker really passes `keep`, and it does not write the 
   // it. Anchored on landmarks, never a byte window.
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   const from = w.indexOf("const out = await publishPages({");
-  const to = w.indexOf("}, { spec, slug, priorUsage, livePages });", from);
+  // THE REVISE'S STORED PAGES AND COMPONENTS RIDE IN THE SAME OPTIONS (2026-10-02,
+  // the whole-router audit's W3): a rewrite folds what it returns over them.
+  const to = w.indexOf("}, { spec, slug, priorUsage, livePages, priorPages, priorParts });", from);
   assert.ok(from > 0 && to > from, "the build's publishPages call site moved — this scan proves nothing");
   const site = w.slice(from, to);
   assert.match(site, /keep:\s*\(answer\)\s*=>\s*saveGenAnswer\(env, slug, answer\)/,

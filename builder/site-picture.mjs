@@ -1117,6 +1117,131 @@ export function photoRemoval(source, slot, parse) {
   return { ok: true, from: span.from, to: span.to, wrappers };
 }
 
+/**
+ * WHERE A REMOVED QR CODE'S FIGURE COMES OFF, read from the page's own syntax
+ * tree (2026-10-02, the whole-router audit's W2).
+ *
+ * A page shows a code through its binding — `SITE_QRS.<name>` (or
+ * `SITE_QRS["<name>"]`), and the list's FIRST code also through the older
+ * `SITE_QR` / `SITE_QR_LABEL` — which every publish writes from the stored
+ * list. A code taken off the list with its figure left on the page leaves the
+ * page reading a binding that is no longer there, and `SITE_QRS.prices.src`
+ * throws as the page renders. So the look step takes the code and its figure
+ * off together, or neither (`worker.js`).
+ *
+ * `gone` is what comes off: `{ names, first }` — the codes' names, and `first`
+ * when the list's first code is among them, so the old single bindings name it.
+ * A reference to any other code, and a code read by a computed key
+ * (`SITE_QRS[k]`, which reads whatever codes the list still has), STAYS.
+ *
+ * WHAT COMES OFF, and nothing else — `photoRemoval`'s rules for a binding:
+ *   * the element a reference to a code coming off is written on — reached
+ *     from the reference only through the binding's own member chain
+ *     (`.src`, `.label`), its braces and an attribute, or as an element's
+ *     child. A reference inside any other code — a condition, a map, a
+ *     template, a call — is `part`: changing that code is not this step's;
+ *   * then its parent, while that parent holds nothing but what is coming off
+ *     AND is either an element whose own attributes read a code coming off
+ *     (the `<Figure caption={SITE_QRS.x.label}>` a placement writes) or one of
+ *     `BARE_CONTAINERS` with no attributes at all. Any other wrapper is kept,
+ *     emptied, as a photograph's is;
+ *   * never an element that also shows a code that stays, or carries words of
+ *     its own between its tags: those are `part` — they are not the code's to
+ *     take, and taking them would take the customer's words.
+ *
+ * With no parser, or a page it cannot read cleanly, the answer is `unchecked`.
+ * A page that names no code binding at all is answered without one.
+ *
+ * Answers `{ ok: true, cuts: [{ from, to }] }` — spans in the ORIGINAL source,
+ * none inside another, empty when the page shows none of these codes — or
+ * `{ ok: false, reason }`. The caller applies the cuts back to front.
+ */
+export function codeFigureRemoval(source, gone, parse) {
+  const names = gone && Array.isArray(gone.names) ? gone.names.filter((n) => typeof n === "string" && n) : [];
+  const first = !!(gone && gone.first === true);
+  if (typeof source !== "string") return { ok: false, reason: "unchecked" };
+  if ((!names.length && !first) || !/\bSITE_QRS?(?:_LABEL)?\b/.test(source)) return { ok: true, cuts: [] };
+  if (typeof parse !== "function") return { ok: false, reason: "unchecked" };
+  let r;
+  try { r = parse(source); } catch { return { ok: false, reason: "unchecked" }; }
+  const file = r && r.file;
+  if (!file || (Array.isArray(file.parseDiagnostics) && file.parseDiagnostics.length)) return { ok: false, reason: "unchecked" };
+  // EVERY REFERENCE TO A CODE'S OWN BINDING, each marked coming off or staying.
+  // Imports bind the names and show nothing, so they are not walked.
+  const refs = [];
+  (function walk(n) {
+    const kind = r.k(n);
+    if (kind === "ImportDeclaration") return;
+    const viaQrs = (kind === "PropertyAccessExpression" || kind === "ElementAccessExpression")
+      && r.k(n.expression) === "Identifier" && n.expression.text === "SITE_QRS";
+    if (viaQrs) {
+      let key = null;
+      if (kind === "PropertyAccessExpression") key = n.name && typeof n.name.text === "string" ? n.name.text : null;
+      else if (n.argumentExpression && ["StringLiteral", "NoSubstitutionTemplateLiteral"].includes(r.k(n.argumentExpression))) key = n.argumentExpression.text;
+      refs.push({ node: n, gone: key !== null && names.includes(key) });
+      return;
+    }
+    if (kind === "Identifier" && (n.text === "SITE_QR" || n.text === "SITE_QR_LABEL")
+      && !(n.parent && r.k(n.parent) === "PropertyAccessExpression" && n.parent.name === n)) {
+      refs.push({ node: n, gone: first });
+      return;
+    }
+    n.forEachChild(walk);
+  })(file);
+  const goneRefs = refs.filter((x) => x.gone);
+  if (!goneRefs.length) return { ok: true, cuts: [] };
+  const keptRefs = refs.filter((x) => !x.gone);
+  const within = (outer, node) => node.getStart(file) >= outer.getStart(file) && node.end <= outer.end;
+  const ownWords = (el) => {
+    let words = false;
+    (function walk(n) {
+      if (words) return;
+      if (r.k(n) === "JsxText" && !n.containsOnlyTriviaWhiteSpaces && n.getText(file).trim()) { words = true; return; }
+      n.forEachChild(walk);
+    })(el);
+    return words;
+  };
+  const targets = [];
+  for (const ref of goneRefs) {
+    // UP THE BINDING'S OWN MEMBER CHAIN — `SITE_QRS.x` to `SITE_QRS.x.src` —
+    // and nowhere else: anything between the binding and its braces is code.
+    let n = ref.node;
+    while (n.parent && ["PropertyAccessExpression", "ElementAccessExpression"].includes(r.k(n.parent)) && n.parent.expression === n) n = n.parent;
+    const brace = n.parent;
+    if (!brace || r.k(brace) !== "JsxExpression") return { ok: false, reason: "part" };
+    let el = null;
+    const holder = brace.parent;
+    if (holder && r.k(holder) === "JsxAttribute") {
+      const open = holder.parent && holder.parent.parent;
+      el = open && r.k(open) === "JsxOpeningElement" ? open.parent : open;
+    } else if (holder && r.k(holder) === "JsxElement") {
+      el = holder;
+    }
+    if (!el || !["JsxElement", "JsxSelfClosingElement"].includes(r.k(el))) return { ok: false, reason: "part" };
+    let target = el;
+    for (;;) {
+      const w = target.parent;
+      if (!w || r.k(w) !== "JsxElement") break;
+      const attrs = r.attrsOf(r.openOf(w));
+      const readsGone = goneRefs.some((x) => attrs.some((a) => within(a, x.node)));
+      const bare = BARE_CONTAINERS.includes(r.tagOf(w)) && !attrs.length;
+      const inside = contentOf(r, w);
+      if (!(readsGone || bare) || inside.length !== 1 || inside[0] !== target) break;
+      target = w;
+    }
+    if (!isElementChild(r, target)) return { ok: false, reason: "part" };
+    if (keptRefs.some((x) => within(target, x.node)) || ownWords(target)) return { ok: false, reason: "part" };
+    if (!targets.includes(target)) targets.push(target);
+  }
+  // ONE CUT PER OUTERMOST TARGET: a figure's caption and its image are both
+  // references, and both climb to the same figure.
+  const outer = targets.filter((t) => !targets.some((o) => o !== t && within(o, t)));
+  const cuts = outer
+    .map((t) => ownLines(source, t.getStart(file), t.end))
+    .sort((a, b) => a.from - b.from);
+  return { ok: true, cuts };
+}
+
 /** A node written as a child of an element or fragment — not inside code, not an attribute value. */
 function isElementChild(r, n) {
   const p = n && n.parent;

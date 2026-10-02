@@ -635,3 +635,26 @@
   changes no site; a finding is *confirmed* only by the code, a free check or
   a past run; its probes start from a state read that day, use wording and
   sites the completed batches didn't, and come with a cost before any press.
+- **A fix batch is the findings you name, fixed together; the rest stay
+  tracked** (2026-10-02, the audit's batch 1): *"Fix W1–W4 together first
+  … Keep the other findings tracked for the following batches."* So a batch
+  fixes the findings named and nothing else on the list, and every other
+  finding keeps its place in the audit and the backlog. A defect found on
+  the way that shares a fix's root is folded in and said so; anything else
+  is recorded, not fixed.
+- **Three classes, never mixed** (the same order): *"update the audit to
+  distinguish confirmed code defects from conditional risks and untested
+  model behavior."* So every finding says which it is: a defect the code
+  shows for inputs the product meets today, a risk that needs a condition not
+  shown today, or an outcome that rests on what a model answers.
+- **A removal's regression check proves the removal and the neighbours**
+  (the same order): *"Add focused regression checks through the affected
+  execution paths, including successful intended removals and unchanged
+  neighboring content."* So a fix's tests go through the route that runs it,
+  show the intended thing gone, and hold what sits beside it byte for byte.
+- **A fix batch is held for review** (the same order): *"commit/push the
+  fixes and current owner-notes for review; leave CLAUDE.md alone. Hold paid
+  runs and deployment until this batch is reviewed, and avoid an unnecessary
+  container build."* So the batch is pushed with the handoff, nothing is
+  merged, deployed or spent before your review, and the image a merge would
+  roll is predicted, not built.

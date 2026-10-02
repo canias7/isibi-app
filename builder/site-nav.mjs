@@ -686,13 +686,9 @@ const NAV_SYSTEM =
  */
 export function navDigest(slots, routes, actions, links, contacts, lists, layouts, seconds) {
   const lines = [];
-  const seen = new Map();
-  for (const s of Array.isArray(slots) ? slots : []) {
-    for (const it of s.items || []) {
-      if (!it.href || seen.has(it.href)) continue;
-      seen.set(it.href, it.label);
-    }
-  }
+  // ONE READING OF THE UNION, shared with `menuChange`, which reads the answer
+  // against exactly the list printed here.
+  const seen = new Map(menuUnion(slots).map((it) => [it.href, it.label]));
   lines.push("THE MENU AS IT IS NOW:");
   if (!seen.size) lines.push("  (empty)");
   for (const [href, label] of seen) lines.push("  " + (label || "(no label)") + " -> " + href);
@@ -805,6 +801,166 @@ export function navDigest(slots, routes, actions, links, contacts, lists, layout
     lines.push("NOT IN THE MENU AT ALL: " + missing.join(", "));
   }
   return lines.join("\n");
+}
+
+/**
+ * THE MENU AS THE EDITOR IS SHOWN IT — every address once, in the order a
+ * visitor first meets them, with the first words seen for it. `navDigest`
+ * prints it; `menuChange` reads an answer against it.
+ */
+export function menuUnion(slots) {
+  const seen = new Map();
+  for (const s of Array.isArray(slots) ? slots : []) {
+    for (const it of (s && s.items) || []) {
+      if (!it || !it.href || seen.has(it.href)) continue;
+      seen.set(it.href, it.label);
+    }
+  }
+  return [...seen].map(([href, label]) => ({ href, label }));
+}
+
+/**
+ * WHAT AN ANSWER CHANGED IN THE MENU IT WAS SHOWN (2026-10-02, the
+ * whole-router audit's W4).
+ *
+ * The editor is shown ONE menu — the union of every page's (`menuUnion`) — and
+ * answers one whole list. That list was written into every page as it stood,
+ * so a page whose menu differed (a status page listing two of the site's four
+ * items) came out with all four, and every label flattened to one spelling: a
+ * rename of one item rewrote every menu on the site to the union. So the answer
+ * is read as the CHANGES it makes to the list it was shown, by address — the
+ * one identity an item has — and `menuApply` makes those changes, and only
+ * those, to each page's own items:
+ *
+ *   removed  an address shown and not answered;
+ *   swap     an address shown and gone, with a new one standing in for it —
+ *            the same words at a new address (a repoint: each page keeps its
+ *            own words), or failing that a new item between the same kept
+ *            neighbours (a replacement: it takes the new words);
+ *   renamed  an address kept with new words — the item renamed on every page
+ *            that lists it, whatever words that page had for it (the editor
+ *            is shown one spelling, and a rename that missed a page spelling
+ *            it another way would leave the old words there unsaid);
+ *   moved    the kept items the answer put in another order — the fewest
+ *            that explain it, so a page's own order is otherwise kept;
+ *   added    a new address nothing stood in for — put in every menu, after
+ *            the item the answer put before it.
+ *
+ * `order` is the answer itself, every address once, which every placement reads.
+ * Nothing here reads the customer's words: it is a comparison of two lists.
+ */
+export function menuChange(shown, answer) {
+  const was = (Array.isArray(shown) ? shown : []).filter((it) => it && typeof it.href === "string" && it.href);
+  const order = [];
+  const seenNow = new Set();
+  for (const it of Array.isArray(answer) ? answer : []) {
+    if (!it || typeof it.href !== "string" || !it.href || seenNow.has(it.href)) continue;
+    seenNow.add(it.href);
+    order.push(it);
+  }
+  const wasAt = new Map(was.map((it, k) => [it.href, k]));
+  const gone = was.filter((it) => !seenNow.has(it.href));
+  const fresh = order.filter((it) => !wasAt.has(it.href));
+  const swap = new Map();
+  const used = new Set();
+  // THE SAME WORDS AT A NEW ADDRESS: a repoint.
+  for (const f of fresh) {
+    const g = gone.find((x) => !swap.has(x.href) && x.label && x.label === f.label);
+    if (g) { swap.set(g.href, { item: f, keepWords: true }); used.add(f.href); }
+  }
+  // A NEW ITEM STANDING WHERE A GONE ONE STOOD — between the same kept
+  // neighbours, first with first: a replacement.
+  const gaps = (list, keep) => {
+    const out = new Map();
+    let anchor = "$start";
+    for (const it of list) {
+      if (wasAt.has(it.href) && seenNow.has(it.href)) { anchor = it.href; continue; }
+      if (!keep(it)) continue;
+      if (!out.has(anchor)) out.set(anchor, []);
+      out.get(anchor).push(it);
+    }
+    return out;
+  };
+  const goneGaps = gaps(was, (it) => !seenNow.has(it.href) && !swap.has(it.href));
+  const freshGaps = gaps(order, (it) => !wasAt.has(it.href) && !used.has(it.href));
+  for (const [anchor, olds] of goneGaps) {
+    const news = freshGaps.get(anchor) || [];
+    for (let j = 0; j < Math.min(olds.length, news.length); j++) {
+      swap.set(olds[j].href, { item: news[j], keepWords: false });
+      used.add(news[j].href);
+    }
+  }
+  const removed = new Set(gone.filter((it) => !swap.has(it.href)).map((it) => it.href));
+  const added = fresh.filter((it) => !used.has(it.href));
+  const renamed = new Map();
+  for (const it of order) {
+    if (!wasAt.has(it.href)) continue;
+    const before = was[wasAt.get(it.href)].label;
+    if (typeof it.label === "string" && it.label !== before) renamed.set(it.href, { from: before, to: it.label });
+  }
+  // THE FEWEST KEPT ITEMS THAT EXPLAIN THE NEW ORDER: everything outside one
+  // longest run that stayed in order. A tie keeps the earliest run.
+  const kept = order.filter((it) => wasAt.has(it.href));
+  const seq = kept.map((it) => wasAt.get(it.href));
+  const len = seq.map(() => 1), prev = seq.map(() => -1);
+  for (let i = 0; i < seq.length; i++) {
+    for (let j = 0; j < i; j++) if (seq[j] < seq[i] && len[j] + 1 > len[i]) { len[i] = len[j] + 1; prev[i] = j; }
+  }
+  let end = -1;
+  for (let i = 0; i < seq.length; i++) if (end < 0 || len[i] > len[end]) end = i;
+  const stay = new Set();
+  for (let i = end; i >= 0; i = prev[i]) stay.add(kept[i].href);
+  const moved = kept.filter((it) => !stay.has(it.href)).map((it) => it.href);
+  return { removed, swap, renamed, moved, added, order };
+}
+
+/**
+ * ONE PAGE'S MENU WITH THE CHANGES MADE (W4) — `menuChange`'s, and nothing
+ * else: an item the page did not list is not given to it, its words for an
+ * item the answer did not rename stay, its own order stays, and an item comes
+ * off only when the answer took it off.
+ */
+export function menuApply(items, change) {
+  const c = change && typeof change === "object" ? change : null;
+  const list = (Array.isArray(items) ? items : []).filter((it) => it && typeof it.href === "string");
+  if (!c) return list.map((it) => ({ ...it }));
+  const order = (c.order || []).map((it) => it.href);
+  let out = [];
+  for (const it of list) {
+    if (c.removed.has(it.href)) continue;
+    if (c.swap.has(it.href)) {
+      const s = c.swap.get(it.href);
+      out.push(s.keepWords ? { ...it, href: s.item.href } : { ...it, href: s.item.href, label: s.item.label });
+      continue;
+    }
+    const r = c.renamed.get(it.href);
+    out.push(r ? { ...it, label: r.to } : { ...it });
+  }
+  // PUT AFTER THE NEAREST ITEM THE ANSWER PUT BEFORE IT THAT THIS MENU HAS,
+  // else before the nearest one after it, else at the end.
+  const place = (item) => {
+    const k = order.indexOf(item.href);
+    for (let j = k - 1; j >= 0; j--) {
+      const at = out.findIndex((x) => x.href === order[j]);
+      if (at >= 0) { out.splice(at + 1, 0, item); return; }
+    }
+    for (let j = k + 1; j < order.length; j++) {
+      const at = out.findIndex((x) => x.href === order[j]);
+      if (at >= 0) { out.splice(at, 0, item); return; }
+    }
+    out.push(item);
+  };
+  for (const href of c.moved) {
+    const at = out.findIndex((x) => x.href === href);
+    if (at < 0) continue;
+    const [item] = out.splice(at, 1);
+    place(item);
+  }
+  for (const it of c.added) {
+    if (out.some((x) => x.href === it.href)) continue;
+    place({ ...it });
+  }
+  return out;
 }
 
 export function navRequest({ instruction, slots, routes, actions, links, contacts, lists, layouts, seconds, addition = false, model = NAV_MODEL }) {
@@ -1080,10 +1236,12 @@ function hrefProblem(href, known) {
  * into it. The same rule the free text editor's batch already follows.
  */
 export function applyNav(pages, links) {
-  // A FUNCTION OF EACH MENU'S OWN ITEMS (2026-10-02), for an addition: every
-  // menu keeps exactly what it has and gains only the new items, so a page
-  // whose menu differs from the home page's keeps its difference — where a
-  // list writes one menu everywhere, which is what an edit of the menu means.
+  // A FUNCTION OF EACH MENU'S OWN ITEMS (2026-10-02): an addition gains only
+  // the new items (`withAdded`), and since the same day an edit makes only the
+  // changes its answer made to the menu it was shown (`menuApply`, the
+  // whole-router audit's W4) — so a page whose menu differs from the home
+  // page's keeps its difference either way. A LIST is still read as one menu
+  // for every page, for a caller that means exactly that.
   const listOf = typeof links === "function" ? links : () => (Array.isArray(links) ? links : []);
   const slots = navSlots(pages);
   const byPage = new Map();
@@ -1103,13 +1261,46 @@ export function applyNav(pages, links) {
       // when it already had one. Every other page takes the list as it is.
       const list = listOf(s.items);
       const self = !home || s.items.some((it) => it.href === "/");
-      src = src.slice(0, s.at) + renderNav(self ? list : list.filter((it) => it.href !== "/")) + src.slice(s.to);
+      const items = self ? list : list.filter((it) => it.href !== "/");
+      // A MENU THE CHANGE LEAVES AS IT WAS IS LEFT AS IT IS WRITTEN (W4,
+      // 2026-10-02). Rewriting it puts the same items on one line where the
+      // page had one per line, so a page whose menu did not change still
+      // changed, was counted as updated, and had its file rewritten for
+      // nothing — invisible while every menu was given the same list, and
+      // the only change left on a page once each menu keeps its own items.
+      if (sameMenu(items, s.items)) continue;
+      src = src.slice(0, s.at) + renderNav(items) + src.slice(s.to);
     }
     if (src === p.source) return p;
     changed.push(p.path);
     return { ...p, source: src };
   });
   return { pages: next, changed };
+}
+
+/**
+ * THE MENUS ON THESE PAGES AS THEY NOW READ, one entry per distinct menu with
+ * how many pages carry it, in the order a visitor first meets them — what an
+ * edit's reply names (W4).
+ */
+function menusNow(pages, paths) {
+  const want = new Set(Array.isArray(paths) ? paths : []);
+  const groups = new Map();
+  for (const s of navSlots((Array.isArray(pages) ? pages : []).filter((p) => p && want.has(p.path)))) {
+    const k = JSON.stringify(s.items.map((it) => [it.label, it.href]));
+    if (!groups.has(k)) groups.set(k, { items: s.items, pages: new Set() });
+    groups.get(k).pages.add(s.page);
+  }
+  return {
+    pages: new Set([...groups.values()].flatMap((g) => [...g.pages])).size,
+    lists: [...groups.values()].map((g) => ({ items: g.items, pages: g.pages.size })),
+  };
+}
+
+/** The same items, words and addresses, in the same order. */
+function sameMenu(a, b) {
+  return Array.isArray(a) && Array.isArray(b) && a.length === b.length &&
+    a.every((it, k) => it && b[k] && it.label === b[k].label && it.href === b[k].href);
 }
 
 /**
@@ -1147,7 +1338,7 @@ function humanList(fields) {
 }
 
 /** What the customer is told, in their words rather than ours. */
-export function navReply({ links = [], dropped = [], changed = [], action = null, removedAction = false, secondAction = null, removedSecondAction = false, moved = 0, refused = [], contact = null, lists = null, layout = null, added = false } = {}) {
+export function navReply({ links = [], dropped = [], changed = [], action = null, removedAction = false, secondAction = null, removedSecondAction = false, moved = 0, refused = [], contact = null, lists = null, layout = null, added = false, menus = null } = {}) {
   const where = changed.length + (changed.length === 1 ? " page" : " pages");
   // EITHER BUTTON COUNTS as "the button was part of this", so a footer-only or
   // frame-only sentence below never reports a change that carried one.
@@ -1239,9 +1430,22 @@ export function navReply({ links = [], dropped = [], changed = [], action = null
   // for a full rewrite.
   // AN ADDITION NAMES WHAT IT ADDED (2026-10-02): `links` then holds only the
   // new items, and every item each menu had stays where it was.
+  //
+  // AN EDIT NAMES THE MENUS AS THEY NOW READ (W4, 2026-10-02), when it is
+  // handed them (`menus`, from `runNavEdit`): each page keeps its own items,
+  // so the answer's list is the menu only where every changed page reads the
+  // same, and where they differ each is named with how many pages carry it.
+  // The count is the pages whose MENU changed, not every page the change
+  // touched — a button on four pages is not a menu updated on four.
+  const menuLists = menus && Array.isArray(menus.lists) && menus.lists.length ? menus.lists : null;
+  const menuPages = menuLists ? menus.pages : changed.length;
+  const named = (items) => items.map((l) => l.label).join(" · ");
   let msg = added
     ? "✅ Added " + links.map((l) => "“" + l.label + "”").join(", ") + " to the menu on " + changed.length + (changed.length === 1 ? " page" : " pages") + ", beside the items it had."
-    : "✅ Updated the menu on " + changed.length + (changed.length === 1 ? " page" : " pages") + ": " + menu + ".";
+    : menuLists && menuLists.length > 1
+      ? "✅ Updated the menu on " + menuPages + " pages, each keeping its own items — " +
+        menuLists.map((m) => named(m.items) + " (" + m.pages + (m.pages === 1 ? " page" : " pages") + ")").join("; ") + "."
+      : "✅ Updated the menu on " + menuPages + (menuPages === 1 ? " page" : " pages") + ": " + (menuLists ? named(menuLists[0].items) : menu) + ".";
   // NAMED, NOT COUNTED. "1 item was dropped" tells them something went wrong and
   // not what, and the commonest reason by far is a page that does not exist —
   // which is a thing they can act on by asking for the page.
@@ -1511,7 +1715,19 @@ export async function runNavEdit(deps, { instruction, pages, routes, model = NAV
   }
 
   let out = { pages: Array.isArray(pages) ? pages : [], changed: [] };
-  if (wantsMenu) out = addLinks ? applyNav(out.pages, (items) => withAdded(items, addLinks)) : applyNav(out.pages, read.links);
+  // ⚠ EACH PAGE'S OWN MENU, CHANGED — NEVER THE ANSWER WRITTEN EVERYWHERE
+  // (2026-10-02, the whole-router audit's W4). The answer is one list read
+  // against the union the editor was shown (`menuChange`), and only what it
+  // changed is made to each menu (`menuApply`): a page that listed two of four
+  // items keeps two, its own words for an item the answer only restated stay,
+  // and its own order stays.
+  const menuMoves = !addLinks && read && Array.isArray(read.links) && read.links.length ? menuChange(menuUnion(slots), read.links) : null;
+  if (wantsMenu) out = addLinks ? applyNav(out.pages, (items) => withAdded(items, addLinks)) : applyNav(out.pages, (items) => menuApply(items, menuMoves));
+  // WHAT THE REPLY NAMES IS THE MENUS AS THEY NOW READ (W4): the answer is one
+  // list, and once each page keeps its own items it is no longer every
+  // page's menu. A menu answer that changed no menu is not reported as one.
+  const menuDone = wantsMenu && out.changed.length > 0;
+  const menus = menuDone && !addLinks ? menusNow(out.pages, out.changed) : null;
   let btn = { pages: out.pages, changed: [] };
   if (wantsButton) btn = applyAction(out.pages, read.action, read.removeAction);
   let sec = { pages: btn.pages, changed: [] };
@@ -1554,13 +1770,14 @@ export async function runNavEdit(deps, { instruction, pages, routes, model = NAV
     contact: wantsContact ? read.contact : null,
     lists: wantsLists.length ? (Object.keys(addLists).length ? Object.fromEntries(Object.entries(addLists).map(([k, v]) => [k, v.map((a) => a.item)])) : read.lists) : null,
     layout: wantsLayout ? read.layout : null,
-    links: wantsMenu ? (addLinks ? addLinks.map((a) => a.item) : read.links) : null,
+    links: menuDone ? (addLinks ? addLinks.map((a) => a.item) : read.links) : null,
     action: read.action || null, removedAction: !!read.removeAction,
     secondAction: read.secondAction || null, removedSecondAction: !!read.removeSecondAction,
     movedLinks: lnk.moved, refusedLinks: lnk.refused,
     dropped: read.dropped, usage,
     msg: navReply({
-      links: wantsMenu ? (addLinks ? addLinks.map((a) => a.item) : read.links) : [], action: read.action,
+      links: menuDone ? (addLinks ? addLinks.map((a) => a.item) : read.links) : [], action: read.action,
+      menus,
       added: addition === true,
       removedAction: !!read.removeAction, dropped: read.dropped, changed,
       secondAction: read.secondAction || null, removedSecondAction: !!read.removeSecondAction,

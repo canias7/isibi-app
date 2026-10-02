@@ -249,17 +249,20 @@ here; take a closed one out of both.**
 - Run 92's app tab logged two untraced "Failed to load resource … 404"
   lines; the canary records only the app's `/api/` calls.
 - The menu editor writes a page's whole `links` list on one line when it
-  adds an item (run 92; no effect on the pages).
+  adds an item (run 92; no effect on the pages). Since batch 1 (on the
+  branch) a menu a change leaves as it was is left as written; a changed
+  one is still written on one line.
 - **The whole-router audit's findings** (2026-10-02, W1–W26; each in full in
-  `docs/investigations/whole-router-audit.md` §3; none changed):
+  `docs/investigations/whole-router-audit.md` §3; **W1–W4 fixed on the
+  branch in batch 1, not merged or deployed**; W5–W26 open):
   - a photo removal handed on to the page step carries the router's
-    `remove`, so the page step can delete a page (W1);
+    `remove`, so the page step can delete a page (W1; fixed on the branch);
   - removing one language or one QR code on the look step removes all of
-    them (W2);
+    them (W2; fixed on the branch);
   - the full rewrite is told both that a page it leaves out is kept and
-    that it is deleted; the code deletes it (W3);
+    that it is deleted; the code deletes it (W3; fixed on the branch);
   - a menu edit writes one menu to every page, flattening menus that differ
-    per page (W4);
+    per page (W4; fixed on the branch);
   - an edit converted to an add-on keeps the held-back part, so a mixed
     message's halves swap (W5);
   - the browser keeps six page addresses after a reload and never refreshes
@@ -285,12 +288,29 @@ here; take a closed one out of both.**
     turns every message on a live site into a build attempt (W22);
   - the model prompts carry wording from the test sites and test sentences
     (W23); a row refusal names only the row (W25); stale comments (W26).
+- **What batch 1 left, and what the traces found** (2026-10-02, N1–N10 in
+  the audit's §3.0): a removal on a one-entry list still empties it for
+  nothing (N1); a QR removal with no parser is refused (N2); the footer's
+  two lists still write one list into every page (N4); a menu item for a
+  page the site lacks comes off every menu (N5); an empty band publishes
+  silently on the split path (N7); a failed translation publishes behind,
+  unsaid (N8); the synchronous edit path keeps a refusal's charge (N9); a
+  rewrite's writer could name a page in `remove` unasked (N10).
 
 ---
 
 ## Backlog
 
-- **THE WHOLE-ROUTER AUDIT'S FINDINGS (found 2026-10-02; not changed).**
+- **THE WHOLE-ROUTER AUDIT'S FINDINGS (found 2026-10-02; W1–W4 fixed on
+  the branch in batch 1, for review, not merged or deployed; W5–W26 open).**
+  **Batch 1** (`docs/history/2026-10-02-router-batch-1.md`): a hand-over
+  carries only what its destination can do (W1); one language or one QR
+  code comes off alone, and a removed code's figure comes off its pages
+  (W2); a full rewrite keeps every page it does not return, and a page comes
+  off only when the writer names it and nothing still needs it (W3); a menu
+  change is made to each page's own menu (W4). Shown with supplied answers
+  only; D1–D3 wait for the merge. What batch 1 left (N1–N10) is in the
+  audit's §3.0 and the index above. The original record follows.
   `docs/investigations/whole-router-audit.md` gives each one's code
   location, expected and actual behaviour, evidence, impact and proposed
   fix; `docs/investigations/whole-router-checks.mjs` re-runs the free

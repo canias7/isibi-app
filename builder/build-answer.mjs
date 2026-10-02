@@ -158,6 +158,11 @@ export function pageNotes(pages) {
   if (images) out.imagesNote = images;
   const render = renderNote(p.render);
   if (render) out.renderNote = render;
+  // A PAGE THE REWRITE ASKED TO TAKE OFF AND THE RULE KEPT (2026-10-02, the
+  // whole-router audit's W3): composed by `publishPages` from the refusal
+  // itself, so the customer hears which page stayed and why.
+  const kept = typeof p.keptNote === "string" && p.keptNote ? p.keptNote : "";
+  if (kept) out.keptNote = kept;
   return out;
 }
 
@@ -165,4 +170,4 @@ export function pageNotes(pages) {
  * The note fields this composes, named so a guard can compare both answers
  * without keeping its own list.
  */
-export const NOTE_FIELDS = ["salvageNote", "imagesNote", "renderNote"];
+export const NOTE_FIELDS = ["salvageNote", "imagesNote", "renderNote", "keptNote"];

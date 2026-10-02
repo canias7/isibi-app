@@ -202,7 +202,10 @@ test("the edit route folds the lane's patch over the stored list and refuses wit
   const generic = loop.indexOf("answers[field] = ran.value;");
   assert.ok(fold > 0 && generic > fold, "the qr fold is not inside the lane loop ahead of the generic store — the patch would be stored AS the list");
   const body = loop.slice(fold, generic);
-  assert.match(body, /const patched = patchQr\(\(priorLook \|\| \{\}\)\.qr, ran\.value\);/, "the patch is not folded over the stored list");
+  // WITH THE REMOVAL FLAG SINCE 2026-10-02 (the whole-router audit's W2): a code
+  // the picker asked off, on a site with several, comes off by the name the
+  // lane answered (driven in `partial-removal.test.mjs`).
+  assert.match(body, /const patched = patchQr\(\(priorLook \|\| \{\}\)\.qr, ran\.value, \{ remove: !!oneOff \}\);/, "the patch is not folded over the stored list");
   assert.match(body, /if \(!patched\.ok\) \{/, "a refused patch is not refused");
   assert.match(body, /msg: qrRefusal\(patched\.why, patched\.names, patched\.said\)/, "the refusal does not use the module's sentence");
   assert.match(body, /\{ status: 422 \}/, "the refusal is not a 422 the browser shows as a sentence");

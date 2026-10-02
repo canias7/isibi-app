@@ -244,7 +244,12 @@ function assertDoorAsked(r, layer, ask, label) {
   assert.ok(said.includes("taking something OFF the site, in its \"" + layer + "\" part — " + words), label + ": not in the router's own words");
   assert.ok(said.endsWith("Their message:\n" + ask), label + ": the customer's message is not what was sent");
 }
-const MENU_SAID = "✅ Updated the menu on 4 pages: Today's bake · The starter · Visit.";
+// TWO PAGES, NOT FOUR (2026-10-02, the whole-router audit's W4). Only the home
+// and gallery pages list Gallery; the order and visit pages' menus never had it.
+// Every menu used to be rewritten, so those two came out reformatted, item for
+// item the same, and were counted as updated. A menu the change leaves as it
+// was is now left as written, and the reply counts the menus that changed.
+const MENU_SAID = "✅ Updated the menu on 2 pages: Today's bake · The starter · Visit.";
 
 /**
  * THE ACCEPTANCE FOR THE MENU MESSAGE, shared by every shape that must reach the
@@ -263,7 +268,12 @@ function assertOnlyGalleryLeft(r, label) {
     assert.equal(outsideMenus(after), outsideMenus(p.source), label + ": " + p.path + " changed outside its menu");
     const want = menuOf(p.source).map((items) => items.filter((it) => it.href !== GALLERY.href));
     assert.deepEqual(menuOf(after), want, label + ": " + p.path + "'s menu is not its old menu less Gallery");
+    // A PAGE WHOSE MENU NEVER LISTED GALLERY IS NOT TOUCHED AT ALL, to the
+    // byte, its menu's own line breaks included (W4).
+    if (!menuOf(p.source).flat().some((it) => it.href === GALLERY.href)) assert.equal(after, p.source, label + ": " + p.path + " was rewritten, and its menu had no Gallery to take out");
   }
+  // THE OBSERVER IS ALIVE: two pages carry a menu without Gallery.
+  assert.equal(PAGES.filter((p) => menuOf(p.source).length && !menuOf(p.source).flat().some((it) => it.href === GALLERY.href)).length, 2, label + ": the fixture no longer has a menu without Gallery");
   // Nothing but the gallery page itself still names its address.
   const naming = r.pages.filter((p) => p.path !== "gallery.tsx" && p.source.includes('"/gallery"')).map((p) => p.path);
   assert.deepEqual(naming, [], label + ": a page still links to /gallery");

@@ -1631,7 +1631,10 @@ test("the look layer applies the rename and says how far it got", () => {
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(w, /import \{[^}]*renamePages[^}]*\} from "\.\/builder\/site-apply\.mjs"/,
     "renamePages is called and never imported — a ReferenceError on the live path");
-  assert.match(w, /renamePages\(eSrc, priorLook\.brand, merged\.brand\)/, "the look layer never renames the pages");
+  // `eSrcOut` SINCE 2026-10-02 (the whole-router audit's W2): the pages as the
+  // look step leaves them — with a removed QR code's figure already off — so a
+  // rename beside that removal renames the pages that will be published.
+  assert.match(w, /renamePages\(eSrcOut, priorLook\.brand, merged\.brand\)/, "the look layer never renames the pages");
   assert.match(w, /moved\.includes\("brand"\)/, "every look change would rewrite the pages");
   assert.match(w, /pages: eSrcOut/, "the renamed pages are computed and then not published");
   assert.match(w, /renamed, files: pub\.files/, "the client cannot tell a rename that landed from one that did not");

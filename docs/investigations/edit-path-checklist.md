@@ -399,6 +399,18 @@ the owner's free press, run 51, at 22:57 UTC):
     The routing-only matrix `whole-router-1` (20 probes on seven sites, none
     on the bakery, about 22–32 credits) is prepared, not run; ten delivered
     checks are listed, the destructive ones after their fixes.
+    **Batch 1 (later on 2026-10-02, on the owner's word): W1–W4 are fixed on
+    the branch, for review, not merged or deployed.** A hand-over carries no
+    verb of the step it left; one language or one QR code comes off alone,
+    with the code's figure; a full rewrite keeps every page it does not
+    return, and a page comes off only when named and allowed; a menu change
+    is made to each page's own menu. Shown with supplied answers only: 84
+    new cases (69 red on the unfixed code; the other 15 are controls and one
+    case the same either way), every sweep
+    survivor closed but one equivalent. Every finding is now classed
+    (confirmed defect, conditional risk, untested model behaviour), and the
+    eight replies left untraced are traced. D1–D3 wait for the merge;
+    `docs/history/2026-10-02-router-batch-1.md`.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

@@ -147,9 +147,10 @@ export function qrList(v) {
  *
  * Answers `{ ok, list, moved, name }` or `{ ok: false, why, names }`, and `why`
  * is one of `no-codes`, `which-code`, `no-such-code`, `bad-destination` — each
- * with a sentence in `qrRefusal`.
+ * with a sentence in `qrRefusal`. With `{ remove: true }` the named code comes
+ * off the list instead, and the answer carries `removed: [name]`.
  */
-export function patchQr(stored, patch) {
+export function patchQr(stored, patch, opts = {}) {
   const list = qrList(stored);
   const names = list.map((c) => c.name);
   if (!list.length) return { ok: false, why: "no-codes", names };
@@ -166,6 +167,15 @@ export function patchQr(stored, patch) {
     return { ok: false, why: "which-code", names };
   }
   const cur = list[i];
+  // A REMOVAL TAKES THAT ONE CODE OFF AND KEEPS EVERY OTHER (2026-10-02, the
+  // whole-router audit's W2). The removal itself is the picker's decision —
+  // the route passes `remove: true` only for a field the picker named as one —
+  // and the patch says only WHICH code, found exactly as a change finds it:
+  // by name, or the only one. What it would have re-pointed or reworded is
+  // not read.
+  if (opts && opts.remove === true) {
+    return { ok: true, list: list.filter((_, j) => j !== i), moved: true, name: cur.name, removed: [cur.name] };
+  }
   const points = typeof p.points === "string" && p.points.trim() ? p.points.trim() : cur.points;
   const label = typeof p.label === "string" && p.label.trim() ? p.label.trim().slice(0, 80) : cur.label;
   if (points !== cur.points && !readQrText(points).text) return { ok: false, why: "bad-destination", names, said: cur.name };
@@ -182,6 +192,11 @@ export function qrRefusal(why, names, said) {
     case "which-code": return "This site has " + have.length + " QR codes (" + listed + ") — say which one you mean.";
     case "no-such-code": return "This site has no QR code called " + (said ? "`" + String(said).slice(0, 40) + "`" : "that") + " — its codes are: " + listed + ".";
     case "bad-destination": return "A QR code can carry a link, a phone number, an email address, a wifi network or plain text — not that. Nothing was changed.";
+    // THE CODE'S FIGURE COULD NOT COME OFF WITH IT (2026-10-02, W2): the
+    // code stays on the list and on the page, rather than leaving a page that
+    // reads a code which is no longer there. `said` is the code's name.
+    case "figure-part": return "I couldn't take " + (said ? "the `" + String(said).slice(0, 40) + "` code" : "that code") + " off the page that shows it without changing more than the code itself, so nothing was changed.";
+    case "figure-unchecked": return "I couldn't check where " + (said ? "the `" + String(said).slice(0, 40) + "` code" : "that code") + " is shown on your pages, so nothing was changed — try again in a moment.";
     default: return "I couldn't change that QR code — say which code and what should be different about it.";
   }
 }

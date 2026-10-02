@@ -1,105 +1,83 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-02, 08:15 UTC)
+## Current handoff — read this first (2026-10-02, 09:52 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**State now: Test 12 is closed, and the whole-router audit is written, for
-your review.** Nothing was spent, merged or deployed, no container was
-built, and no site changed. Nothing is waiting on a press.
-- **The audit**: `docs/investigations/whole-router-audit.md`. It has the
-  plan in plain language, then follows a message from the browser through
-  the router, every smaller model call, the readers, the fallbacks and the
-  hand-overs, across builds, edits and add-ons. At each decision it says who
-  decides, the model or code, and whether code is checking, permitting or
-  dispatching, or deciding what you meant.
-- **Hard-coded intent**: no regex or word list on your message in the
-  browser, the router, its readers, the edit dispatch or the add-on route.
-  The exceptions, each a finding:
-  - the page writer's text guard decides from your verbs whether text loss
-    was asked for. The same removal publishes for "Remove …" and is refused
-    for "Get rid of …", "Drop …" or "Lose …" (a free check: 3 of 8 wordings
-    published). It runs after a model has already confirmed the request;
-  - a question sent with a file becomes a paid add-on;
-  - an edit converted to an add-on swaps the halves of a mixed message;
-  - a zero balance turns every message into a build attempt.
-
-  The prompts also carry wording from our test sites and test sentences.
-- **26 confirmed findings** (W1–W26), each with where it is, expected and
-  actual behaviour, evidence, impact and a proposed fix. The most serious:
-  - **W1**: a photo removal, handed on to the page step, can delete a page;
-  - **W2**: removing one language or one QR code removes all of them
-    (`fretwork-1` has French and Spanish, and two codes);
-  - **W3**: the full rewrite is told opposite things about pages it leaves
-    out, and drops them;
-  - **W4**: a menu edit writes one menu to every page, flattening menus that
-    differ per page (the bakery's and `repairbench-1`'s do today);
-  - **W5**: an edit converted to an add-on runs the part the add-on can't do
-    and holds back the part it can;
-  - **W7, W8, W15**: parts of a message lost without a word.
-- **Untested behaviour** is listed separately (§3.10), and each predicted
-  consequence is marked unverified.
-- **The free checks** re-run with one command:
-  `node docs/investigations/whole-router-checks.mjs`.
-- **The matrix (§5)**:
-  - **Group R**: 20 routing-only probes on seven sites (none on the bakery),
-    varied wording, none repeating a completed probe. Committed as
-    `whole-router-1` on the branch. **About 22–32 credits**; the press
-    refuses below a balance of 60 and checks the deploy itself.
-  - **Group D**: ten delivered checks, listed with estimates. The four that
-    would damage a site today wait for their fixes.
-- **Also updated**: the checklist's item 13, the backlog (index and item),
-  `instruments.md`, and a new preference for how an audit is done.
-
-**The press, only if you approve Group R's spend** (the edit canary's form):
-- "Use workflow from": the branch `claude/help-needed-ehlwlj` (the batch file
-  is not on `main`).
-- "Run the ONE paid edit as well (yes/no)":
-  ```text
-  yes
-  ```
-- "Refuse to spend unless the Worker reports this deploy sha (prefix, >=7 chars). Blank = read and print only.":
-  ```text
-  f9979497
-  ```
-- "Refuse to spend unless a cold container reports this image id (exact). Blank = read and print only.":
-  ```text
-  a4409e55d3f3eb09
-  ```
-- "ROUTING-ONLY BATCH: the name of a committed probe list in scripts/router-probes …":
-  ```text
-  whole-router-1
-  ```
-- Every other box as it is (blank, or its default).
+**State now: W1–W4 are fixed on the branch, for your review.** Not merged,
+not deployed, nothing spent, no model called, no site changed, no container
+built. Nothing is waiting on a press.
+- **What changed**, in plain words:
+  - **W1**: when one step hands your message to another, it no longer
+    carries the first step's "remove", "rename" or "use as the tab icon".
+    A photo removal handed to the page step can no longer delete the page.
+  - **W2**: taking one language or one QR code off keeps the others. A
+    removed code's picture comes off every page that shows it; if it can't
+    come off cleanly (inside a condition or a sentence), nothing is changed
+    or charged and the reply says why.
+  - **W3**: a full rewrite keeps every page it doesn't send back. A page
+    comes off only when the writer names it for removal and nothing still
+    needs it: never the home page, never a page another page links to. A
+    refused removal is said. The kept pages' own components go with them.
+  - **W4**: a menu change is made to each page's own menu. A page whose menu
+    is different keeps its own items, order and words; a menu the change
+    doesn't touch is left exactly as written. The reply names the menus as
+    they now read.
+- **No rule reads your words**: every decision is made on the step's own
+  answer, the site's own files or what the next step can do.
+- **The eight replies the audit left untraced are traced** (audit §1.6),
+  and every finding is now classed: confirmed defect, conditional risk, or
+  untested model behaviour (§3.0). The risks the fixes leave are N1–N10.
+- **Checks, all free**: 84 new cases through the real routes on both money
+  paths; 69 of them fail on the unfixed code, and the other 15 are controls
+  and one case that is the same either way. Mutation sweeps on all four,
+  every survivor closed but one that is equivalent (explained). Full suite
+  `8732 / 8732 / 0 / 0`. Unit CI is read after this push.
+- **What you'll see on screen**: two new sentences, rendered by the chat's
+  own code and sent as pictures (`docs/edits/router-batch-1-menu-reply.png`,
+  `router-batch-1-kept-note.png`).
+- **The container**: a merge would roll the image `a4409e55d3f3eb09` →
+  `088883cc39806bc6` (189 inputs, predicted on both ends). That build is
+  needed, because queued edits run in the container. Nothing was built.
 
 **Decisions that are yours**
-- Whether to press Group R now, or fix first. I'd fix W1, W2 and W4 first
-  either way: they can damage a live site, and the code already shows them.
-- W9: keep the text guard's word list, or confirm a removal by what was
-  lost instead (it was built on purpose, so it's your call).
-- W23: replace the examples drawn from our test sites.
+- Your review of batch 1. Then, on your word, merge and deploy it, and
+  then the live checks D1–D3 (fretwork-1's Spanish version and its prices
+  code, repairbench-1's menu rename): about 7–13 credits.
+- N1: a removal on a list that holds only one entry still empties it, as
+  before. Asking the lane there too would add a model call to each such
+  removal. Your call.
+- Group R (routing only, about 22–32 credits) is unchanged by this batch;
+  if you merge first, its two refuse boxes take the new deploy's commit and
+  image.
+- Carried from the audit: W9 (the text guard's word list) and W23 (wording
+  from our test sites in the prompts).
 
 **Links**
-- The audit: `docs/investigations/whole-router-audit.md`
-- The batch: `scripts/router-probes/whole-router-1.json`
-- Test 12's closure: the checklist and `history/2026-10-02-additions.md`
-  §11.4.
+- The batch: `docs/history/2026-10-02-router-batch-1.md`
+- The audit, updated: `docs/investigations/whole-router-audit.md` (§3.0 the
+  classes and N1–N10, §4.1 the checks, each finding's *Fixed on the branch*)
+- The free checks: `node docs/investigations/whole-router-checks.mjs`
 
 **From our chat**
-- Test 12 closed for the verified outcomes of runs 91 and 92: done.
-- The audit is free checks only: no deployment, no container build, no
-  spend.
-- The completed batch isn't repeated.
-- CLAUDE.md is left alone.
+- W1–W4 fixed together, W3's two contracts made one: done.
+- Universal only, no word lists, site exceptions or test patches: done.
+- Regression checks through the real routes, with the intended removals and
+  the untouched neighbours: done.
+- The eight untraced branches traced, the audit classed: done.
+- Other findings tracked for later batches: W5–W26 stay in the audit and
+  the backlog.
+- CLAUDE.md left alone; nothing paid, merged or deployed; no container
+  built.
 
 **Blockers**
 - None. Waiting on your review.
 
 **Exact next action**
-- Your review of the audit. Then, on your word, either press Group R or have
-  me fix W1, W2 and W4 first.
+- Your review of batch 1. Then, on your word: merge and deploy (then
+  D1–D3), or the next batch.
 
 ---
 
@@ -159,6 +137,35 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-02 — W1–W4 fixed on the branch (the audit's batch 1), for your review (nothing spent, merged or deployed)
+
+- **Your words**: *"Fix W1–W4 together first, including W3's conflicting
+  rewrite/deletion contract … Keep this universal … Add focused regression
+  checks through the affected execution paths … Finish the eight
+  response/fallback branches currently marked "not traced," and update the
+  audit … Hold paid runs and deployment until this batch is reviewed."*
+- **W1**: a hand-over between steps carries only what the next step can do;
+  the first step's remove, rename and tab-icon never travel. A photo
+  removal handed to the page step makes the change and deletes nothing.
+- **W2**: one language or one QR code comes off alone; the removed code's
+  picture comes off every page that shows it, or nothing changes and the
+  reply says why. This also fixes the only code's picture staying behind.
+- **W3**: the rewrite is told what its tool says (an unreturned page is
+  kept), and the publish keeps every page it isn't sent. A page comes off
+  only when named and allowed (never home, never linked); a refused one is
+  said. The kept pages' components now go with them.
+- **W4**: a menu change is made to each page's own menu; untouched menus
+  stay exactly as written, and the reply names the menus as they read.
+- **Checks**: 84 new cases through the real routes (69 fail on the unfixed
+  code), sweeps on all four, full suite `8732 / 8732 / 0 / 0`. Shown with
+  supplied answers only: no real model and no live run yet.
+- **Also**: the eight untraced replies traced, every finding classed, and
+  the risks left listed (N1–N10). Two new on-screen sentences, rendered.
+- **Not done, on purpose**: no merge, deploy, spend or container build;
+  CLAUDE.md untouched; W5–W26 left for the next batches.
+- The record: `history/2026-10-02-router-batch-1.md`, the audit, the
+  checklist's item 13, `backlog.md`, and four new preferences.
 
 ## 2026-10-02 — The whole-router audit, for your review (nothing spent, merged or deployed)
 

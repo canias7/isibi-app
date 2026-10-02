@@ -484,7 +484,13 @@ test("the composer dispatches an addon, and only the route's own no-layer escala
   assert.ok(list.includes("picture") && !list.includes("addon"), "an escalate naming the addon itself would hop into the edit route: " + layers[1]);
   // `[\s\S]*?` rather than `[^)]*`: the page argument holds an `&&` whose own
   // `)` is inside the object — a flat scan where depth matters.
-  assert.match(branch, /return siteEdit\(o\.site, \{ \.\.\.\(o\.d \|\| \{\}\), layer: said\.layer,[\s\S]*?\}, o\.instruction, o\.origin, o\.finish, o\.fallback, undefined, true\)/,
+  // RE-ANCHORED 2026-10-02 (the whole-router audit's W1): the hop is
+  // `EditPoll.handOver`'s shape — where it goes and the ask's context — never
+  // the first answer spread, which carried that answer's `remove` to the menu
+  // editor. What the shape holds is driven in `handover-operations.test.mjs`;
+  // the sentence, the layer, the add-on bound and the handed-off flag are read
+  // here.
+  assert.match(branch, /return siteEdit\(o\.site, EditPoll\.handOver\(o\.d, \{ layer: said\.layer, page: said\.page, fromAddon: true \}\), o\.instruction, o\.origin, o\.finish, o\.fallback, undefined, true\)/,
     "the hop does not carry the customer's own sentence to the named layer as a handed-off edit");
   // RE-ANCHORED 2026-09-24: the climb calls the fallback itself — the `fall`
   // helper it used went, since nothing else reaches the rewrite from here.

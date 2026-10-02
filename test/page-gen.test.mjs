@@ -2790,7 +2790,14 @@ test("the generator is shown the site as it stands, and told to edit it", async 
   assert.match(b, /BYTE-IDENTICAL/, "it must say what NOT to change, not merely show the pages");
   assert.match(b, /export const A = 1;/, "the actual source must be there");
   assert.match(b, /export const B = 2;/);
-  assert.match(b, /do not return it/i, "removing a page has to be expressible");
+  // REMOVING A PAGE HAS TO BE EXPRESSIBLE — through `remove`, the tool's own
+  // field, and never by leaving a page out (2026-10-02, the whole-router
+  // audit's W3): this block said "to DELETE a page, simply do not return it"
+  // while the tool said an unreturned page is KEPT, and the publish took only
+  // what came back. One contract now, the tool's.
+  assert.match(b, /A PAGE YOU DO NOT RETURN IS KEPT/, "the block does not say an unreturned page is kept");
+  assert.match(b, /To DELETE a page, put its file in\s+`remove`/, "removing a page is not expressible through `remove`");
+  assert.doesNotMatch(b, /simply do not return it/i, "the block still tells the writer to delete by leaving a page out");
 
   const req = pagesRequest({ brief: "x", spec: { tables: [] }, brand: "B", priorPages: pages });
   const text = typeof req.messages[0].content === "string"
@@ -2836,6 +2843,12 @@ test("a site too large to show degrades instead of blowing the prompt", async ()
   assert.ok(b.length < 1000, "it must not inline a 200k-character page");
   assert.match(b, /index\.tsx/, "…but it must still name the pages");
   assert.ok(!b.includes("x".repeat(1000)), "and it must not include the source");
+  // AND IT STILL SAYS THE TOOL'S ONE CONTRACT (2026-10-02, the whole-router
+  // audit's W3). A site too large to show is exactly the one whose writer is
+  // most likely to return a few pages, so this branch needs both halves the
+  // short branch has: an unreturned page is kept, and `remove` deletes one.
+  assert.match(b, /A page you do not return is kept exactly as it is/, "the long-site block does not say an unreturned page is kept");
+  assert.match(b, /to delete one, put its file in `remove`/, "the long-site block does not say how a page is deleted");
 });
 
 test("the source that produced a build is stored, and read back on a revise", () => {

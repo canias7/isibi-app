@@ -103,6 +103,10 @@ import { MAX_CSS } from "./site-freecss.mjs";
 // own sentence for that layer (`pickRequest`). `site-ask.mjs` imports nothing
 // but the model table, so this adds no cycle.
 import { DOOR_LAYERS, layerLine, wordsIn, normalizePagePath } from "./site-ask.mjs";
+// THE QR CODES AS A LIST, read the one way every other reader reads them, so
+// the `qr` lane counts the codes a site has exactly as the route patches them.
+// Dependency-free, and already in the container image beside worker.js.
+import { qrList } from "./site-qr-list.mjs";
 
 /** A small call: naming which part of a site a sentence is about is routing, not work. */
 /**
@@ -614,6 +618,15 @@ const LANES = {
   },
   langs: {
     remove: "stop offering the site in a language — the one they name, or every extra one",
+    // ONE OF SEVERAL TAKEN OFF (2026-10-02, the whole-router audit's W2). A
+    // removal used to empty the field, so "stop offering Spanish" took French
+    // away too. With more than one entry stored, the lane answers instead —
+    // shown the list and told this — and the field is emptied only when that
+    // answer is an empty list (`removalNote`).
+    removeOne:
+      "THEY ASKED FOR SOMETHING TO BE TAKEN OFF THIS LIST. Answer the whole list with what they named gone and " +
+      "every other entry exactly as it is. An empty list only when they asked for every one of them to go.",
+    entries: (v) => (Array.isArray(v) ? v.length : 0),
     hint: "The other languages the site is also offered in.",
     shape: { type: "array", items: { type: "string" }, maxItems: 12 },
     edit: {
@@ -655,6 +668,12 @@ const LANES = {
   // to reach the `page` rung as well. Named in CLAUDE.md's backlog.
   behavior: {
     remove: "stop a control on the page doing what it does, leaving the control itself where it is",
+    // ONE CONTROL OF SEVERAL (2026-10-02, W2): `langs`'s rule, for a list of
+    // controls — the others keep doing what they do.
+    removeOne:
+      "THEY ASKED FOR SOMETHING TO BE TAKEN OFF THIS LIST. Answer the whole list with what they named gone and " +
+      "every other entry exactly as it is. An empty list only when they asked for every one of them to go.",
+    entries: (v) => (Array.isArray(v) ? v.length : 0),
     hint: "What something on the page DOES when someone uses it — a button, a link, a form, a tab, a filter, a menu, a carousel. What it opens, what it changes, what you see happen. This is the lane for any 'when someone presses / clicks / submits X, then Y' — even about the header button or the menu; their WORDS, LINKS and items are `action`.",
     shape: { type: "array", items: BEHAVIOR_ITEM },
     edit: {
@@ -708,6 +727,14 @@ const LANES = {
   // the stored list where the lane's answer is read.
   qr: {
     remove: "take a QR code off the site — the one they name, or the only one when it has just one",
+    // ONE CODE OF SEVERAL (2026-10-02, W2). This lane answers a patch to one
+    // code, so on a removal it answers WHICH code goes, and the route takes
+    // that one off the list (`patchQr` with `remove`) and its figure off the
+    // pages — every other code, and every page showing it, stays as it is.
+    removeOne:
+      "THEY ASKED FOR ONE OF THESE CODES TO BE TAKEN OFF THE SITE. Answer `name` with the code that goes, by the " +
+      "name it has in the list you were shown, and leave `points` and `label` out.",
+    entries: (v) => qrList(v).length,
     hint: "A QR CODE the site has — where scanning it takes you, or what the words beside it say. Which one, when the site has several.",
     shape: {
       type: "object",
@@ -836,6 +863,32 @@ export const VERB_LANES = LANE_FIELDS.filter((f) => LANES[f].verbs);
  * That is this repository's own recorded trap, met while writing this line.
  */
 export const REMOVABLE_LANES = LANE_FIELDS.filter((f) => !!LANES[f].remove);
+
+/**
+ * A REMOVAL THAT TAKES ONE ENTRY OFF, NOT THE FIELD (2026-10-02, the
+ * whole-router audit's W2).
+ *
+ * A removal used to make no lane call at all — the field was emptied by name
+ * (`mergeLook`'s `clear`) — which is right for a value that is one thing (a
+ * stylesheet, a summary, a mark) and wrong for a list: "stop offering the site
+ * in Spanish" emptied `langs`, French with it, and "take the prices code off,
+ * keep the other" took both codes. So a lane that keeps a list carries
+ * `removeOne` (what it is told on a removal) and `entries` (how many its stored
+ * value holds), and when that is MORE THAN ONE its lane answers the removal —
+ * shown every entry and the customer's words, it names what goes and keeps the
+ * rest. A field holding one entry, or none, is still emptied for nothing, as
+ * before: that IS taking off "the only one".
+ *
+ * Answers the note to hand the lane, or null when the removal is the whole
+ * field. Asked of the lane table, never of a field's name, so a lane that gains
+ * a list gains this by gaining the two keys.
+ */
+export function removalNote(field, value) {
+  if (typeof field !== "string" || !Object.hasOwn(LANES, field)) return null;
+  const lane = LANES[field];
+  if (typeof lane.removeOne !== "string" || typeof lane.entries !== "function") return null;
+  return lane.entries(value) > 1 ? lane.removeOne : null;
+}
 
 /**
  * The lanes whose work is real, exists, and lives ABOVE this route.

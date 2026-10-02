@@ -1293,7 +1293,9 @@ test("the Worker tells publishPages which pages the site is already serving", ()
   const src = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(src, /const livePages = Array\.isArray\(priorPages\)/,
     "livePages is no longer derived from the site's stored source");
-  assert.match(src, /\{ spec, slug, priorUsage, livePages \}/,
+  // BESIDE IT, SINCE 2026-10-02, THE REVISE'S STORED PAGES AND COMPONENTS
+  // (the whole-router audit's W3) — the same options object, one call.
+  assert.match(src, /\{ spec, slug, priorUsage, livePages, priorPages, priorParts \}/,
     "livePages is computed and never handed to publishPages");
   // AND "WE COULD NOT TELL" IS NOT FLATTENED INTO "NOTHING IS LIVE".
   //

@@ -1596,7 +1596,11 @@ test("the deletion path reaches the route and calls no model", () => {
   // The `pages` lane's verb rides on its own step, and `runLayer` takes the
   // STEP's verb under this same name — so the branch below reads the removal of
   // the step it is running and nothing wider (`test/edit-page-verb.test.mjs`).
-  assert.match(w, /const eRemove = eb && eb\.remove === true;/,
+  // AND NOT ON A HAND-OVER (2026-10-02, the whole-router audit's W1): the
+  // removal is the router's word for the step it chose, so a request the
+  // browser marks `handedOff` never carries it to the step it was handed to
+  // (driven in `handover-route.test.mjs`).
+  assert.match(w, /const eRemove = !eHanded && !!\(eb && eb\.remove === true\);/,
     "the route no longer reads the removal off the body, or reads it loosely");
   assert.match(branch, /if \(eRemove\) \{/, "the page branch never reads the removal");
   assert.match(branch, /mergeAddonPages\(eSrc, \[\], \[target\.path\]\)/,

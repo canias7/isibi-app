@@ -11,7 +11,9 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { EDIT_BROWSER_FNS } from "../../scripts/addon-sweep.mjs";
 import { mergeLook } from "../../builder/site-edit.mjs";
-import { applyNav, navSlots } from "../../builder/site-nav.mjs";
+import { navSlots, runNavEdit, NAV_TOOL } from "../../builder/site-nav.mjs";
+import { removalNote } from "../../builder/site-lanes.mjs";
+import { patchQr } from "../../builder/site-qr-list.mjs";
 import { preservePageProse } from "../../builder/page-prose.mjs";
 import { readRouting, heldBack } from "../../builder/site-ask.mjs";
 import { readTextEdits } from "../../builder/site-apply.mjs";
@@ -52,22 +54,38 @@ const say = (s = "") => console.log(s);
 }
 
 // ── W2 and W20: the look door's removals ───────────────────────────────────
-// The look door makes no lane call for a removal (worker.js 23576) and hands
-// the field names to mergeLook (worker.js 23703). fretwork-1 today: Welsh
-// pages, French and Spanish versions, two QR codes.
+// On f9979497 the look door made no lane call for a removal and handed the
+// field names to mergeLook, which emptied the list. Since the branch's W2 fix
+// (2026-10-02) a list holding more than one entry is answered by its own lane
+// (`removalNote` says when), the lane's answer is merged, and only the fields
+// no lane answered are cleared; a code comes off by name (`patchQr` with
+// `remove`). The route itself is driven in test/partial-removal.test.mjs;
+// these are the pieces it calls. fretwork-1 today: Welsh pages, French and
+// Spanish versions, two QR codes.
 {
-  const prior = { theme: "slate", lang: "cy", langs: ["fr", "es"], qr: [{ to: "https://fretwork-1.gofarther.app/prices", label: "Scan for prices" }, { to: "tel:+441140000000", label: "Scan to ring and book" }] };
-  const merged = (clear) => mergeLook(prior, {}, {}, { instructed: true, asked: true, clear });
-  say("W2  'take the Spanish version down' (picker: removes langs): langs " + JSON.stringify(prior.langs) + " -> " + JSON.stringify(merged(["langs"]).langs));
-  say("W2  'take the Scan for prices code off, keep the other' (removes qr): " + prior.qr.length + " codes -> " + merged(["qr"]).qr.length);
-  const c = merged(["css"]);
-  say("W20 'remove the custom styling' (removes css): " + (Object.hasOwn(c, "css") ? "css cleared" : "css is not a look field mergeLook clears, so nothing moves"));
+  const prior = { theme: "slate", lang: "cy", langs: ["fr", "es"], qr: [{ name: "prices", points: "https://fretwork-1.gofarther.app/prices", label: "Scan for prices" }, { name: "ring", points: "tel:+441140000000", label: "Scan to ring and book" }] };
+  const merged = (designed, clear) => mergeLook(prior, designed, {}, { instructed: true, asked: true, clear });
+  say("W2  'take the Spanish version down' (picker: removes langs)");
+  say("    on f9979497 (no lane, the field cleared): langs " + JSON.stringify(prior.langs) + " -> " + JSON.stringify(merged({}, ["langs"]).langs));
+  say("    now: the lane is asked (" + (removalNote("langs", prior.langs) ? "told it is a removal" : "NOT asked") + "); answering [\"fr\"] gives langs " + JSON.stringify(merged({ langs: ["fr"] }, []).langs));
+  say("    one language stored: " + (removalNote("langs", ["es"]) ? "the lane is asked" : "still cleared for nothing, no lane call"));
+  const one = patchQr(prior.qr, { name: "prices" }, { remove: true });
+  say("W2  'take the Scan for prices code off, keep the other' (removes qr)");
+  say("    on f9979497: " + prior.qr.length + " codes -> " + merged({}, ["qr"]).qr.length);
+  say("    now: the lane names the code; " + prior.qr.length + " codes -> " + JSON.stringify(one.list.map((c) => c.name)) + " (removed " + JSON.stringify(one.removed) + "), and the figure comes off its pages (codeFigureRemoval)");
+  const c = merged({}, ["css"]);
+  say("W20 'remove the custom styling' (removes css): " + (Object.hasOwn(c, "css") ? "css cleared" : "css is not a look field mergeLook clears, so nothing moves") + " (not in this batch)");
   say();
 }
 
 // ── W4: a menu edit writes one menu to every page ──────────────────────────
 // Two pages whose menus differ, as the bakery's and repairbench-1's do today;
-// the menu editor answers with the menu it was shown, one label renamed.
+// the menu editor answers with the menu it was shown, one label renamed (and,
+// second, one item taken out). Driven through `runNavEdit`, the function the
+// edit route calls, with the editor's answer supplied. On f9979497 the answer
+// was written into every page as it stood, so `status.tsx` gained Workshop
+// Load and Rates; since the branch's W4 fix (2026-10-02) the answer is read
+// as the changes it makes and only those are made to each page's own menu.
 {
   const page = (path, labels) => ({ path, source: `import { SiteChrome } from "@/components/ui/site-chrome";\nexport default function P() {\n  return (\n    <SiteChrome name="Hebden Bike Repair" links={[${labels.map(([l, h]) => `{ label: "${l}", href: "${h}" }`).join(", ")}]}>\n      <h1>Hi</h1>\n    </SiteChrome>\n  );\n}\n` });
   const pages = [
@@ -75,10 +93,19 @@ const say = (s = "") => console.log(s);
     page("status.tsx", [["Repair Status", "/status"], ["Booking Check", "/booking-check"]]),
   ];
   const menus = (ps) => navSlots(ps).map((s) => `${s.page}: ${s.items.map((i) => i.label).join(" | ")}`);
-  const list = navSlots(pages)[0].items.map((i) => (i.label === "Booking Check" ? { ...i, label: "Check a booking" } : i));
+  const routes = ["/", "/status", "/booking-check", "/workshop-load", "/rates"];
+  const shown = navSlots(pages)[0].items;
+  const edit = async (links) => runNavEdit({ send: async () => ({ content: [{ type: "tool_use", name: NAV_TOOL.name, input: { links } }], usage: { input_tokens: 1, output_tokens: 1 } }) },
+    { instruction: "x", pages, routes });
   say("W4  'rename Booking Check to Check a booking in the menu'");
   for (const m of menus(pages)) say("    before " + m);
-  for (const m of menus(applyNav(pages, list).pages)) say("    after  " + m);
+  const renamed = await edit(shown.map((i) => (i.label === "Booking Check" ? { ...i, label: "Check a booking" } : i)));
+  for (const m of menus(renamed.pages)) say("    after  " + m);
+  say("    reply: " + renamed.msg);
+  say("W4  'take Workshop Load out of the menu'");
+  const taken = await edit(shown.filter((i) => i.label !== "Workshop Load"));
+  for (const m of menus(taken.pages)) say("    after  " + m);
+  say("    pages rewritten: " + JSON.stringify(taken.changed) + " (status.tsx never listed it, so it is not touched)");
   say();
 }
 

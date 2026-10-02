@@ -506,6 +506,47 @@
     return "up";
   }
 
+  /**
+   * WHAT A HAND-OVER CARRIES: WHERE IT GOES AND THE ASK'S CONTEXT, NEVER THE
+   * FIRST ANSWER'S OPERATIONS (2026-10-02, the whole-router audit's W1).
+   *
+   * `remove`, `rename` and `tab` are the router's verbs for the step IT chose,
+   * and one verb means a different thing on each step: `remove` on `picture`
+   * takes a photograph off, on `nav` takes an item out of the menu, and on
+   * `page` DELETES THE WHOLE PAGE. Every hop copied the first answer whole and
+   * replaced only its layer and page, so a photograph's removal the picture
+   * step handed to the page step (`needs-place`) arrived there as a request to
+   * delete the page; and an addition the add-on handed to the menu editor
+   * still carried an earlier edit's `remove`, which opens the removal door.
+   * The step a hand-over reaches reads the customer's words and decides its
+   * own operation, exactly as it does for an ask routed to it directly.
+   *
+   * KEPT, and nothing else:
+   *   layer      where it goes — the escalate's, which the caller has checked;
+   *   page       the escalate's own, or the ask's when the escalate names none:
+   *              a scope, which every step checks against the site's real pages;
+   *   alsoAsked  what the router held back for later, so the route takes it out
+   *              of the message again before anything runs;
+   *   cost       what reading the message cost, which a refusal's sentence states;
+   *   fromAddon  the add-on has had this ask: the chain may not go back there,
+   *              and the menu editor only adds.
+   *
+   * NOTHING IS COERCED: a field of the wrong type is left out, never turned into
+   * one of the right type.
+   */
+  function handOver(d, to) {
+    var from = d && typeof d === "object" && !Array.isArray(d) ? d : {};
+    var t = to && typeof to === "object" && !Array.isArray(to) ? to : {};
+    var out = { layer: typeof t.layer === "string" ? t.layer : "" };
+    var page = typeof t.page === "string" && t.page ? t.page
+      : (typeof from.page === "string" && from.page ? from.page : "");
+    if (page) out.page = page;
+    if (typeof from.alsoAsked === "string" && from.alsoAsked) out.alsoAsked = from.alsoAsked;
+    if (typeof from.cost === "number" && isFinite(from.cost)) out.cost = from.cost;
+    if (t.fromAddon === true || from.fromAddon === true) out.fromAddon = true;
+    return out;
+  }
+
   // ── WHICH PHASE A BUILD'S 202 SAYS IT IS IN ──────────────────────────────
   //
   // Lives here rather than in chat.js for the reason everything else here does:
@@ -579,6 +620,7 @@
     buildPhase: buildPhase,
     buildCode: buildCode,
     escalateAction: escalateAction,
+    handOver: handOver,
     newIdemKey: newIdemKey,
     pollDelayMs: pollDelayMs,
     pollBaseMs: pollBaseMs,

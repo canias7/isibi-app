@@ -25,8 +25,28 @@ don't repeat the completed batch."*
 The earlier router audit (`docs/investigations/router-audit.md`, R1–R14) is
 not repeated here; §3.12 says where each of its items stands now.
 
+**Batch 1 of the fixes (later on 2026-10-02, on the owner's word):** *"Fix
+W1–W4 together first, including W3's conflicting rewrite/deletion contract
+… Keep this universal: no customer-word regexes, keyword lists, site
+exceptions or test-specific patches … Finish the eight response/fallback
+branches currently marked "not traced," and update the audit to distinguish
+confirmed code defects from conditional risks and untested model behavior.
+Keep the other findings tracked for the following batches."* **W1–W4 are
+fixed on the branch `claude/help-needed-ehlwlj`, not merged and not
+deployed**; each finding below says what changed and what it does not cover.
+The eight replies §1.6 left untraced are traced there. Every finding is now
+classed (§3.0), and the risks the fixes left or uncovered are listed beside
+them. Nothing was spent, no model was called, nothing was changed on a site,
+and no container was built. Line numbers in the findings are still those of
+`f9979497` unless a finding says otherwise.
+
 ## In short
 
+- **Where it stands after batch 1.** W1–W4 are fixed on the branch, with
+  route-level tests, red checks on the unfixed code and mutation sweeps
+  (§4); not merged, not deployed, and no live check has run (Group D's
+  D1–D4 wait for your merge and deploy). W5–W26 stand, each classed in
+  §3.0, and stay tracked for the following batches.
 - **Who decides.** One model call (the router) decides every message on a
   live site, and smaller model calls then decide inside each step. Code
   around them mostly validates, checks permission or money, or sends work to
@@ -249,23 +269,25 @@ not repeated here; §3.12 says where each of its items stands now.
 | `edit_site` | `site-lanes.mjs` 1758 | each look lane | that lane's field | that lane changes nothing |
 | `write_text_edits` | `site-apply.mjs` 108 | text | which words, the new words | no usable edit → "I couldn't find that wording" (`text/no-match`) |
 | `write_row_changes` | `site-apply.mjs` 448 | data | which row, column, value | no matching row → refunded (run 77) |
-| `write_table_rules` | `site-rules.mjs` 86 | rules | a table's rules | not traced |
+| `write_table_rules` | `site-rules.mjs` 86 | rules | a table's rules | a failed call: "I couldn't reach the model that sets that rule", nothing charged; no usable rule (no tool call, an unknown table, a level not offered): `rules/no-match`, "Nothing there was a rule I could change." or "I couldn't make that change." with each refusal's reason; a schema write that fails: "That change couldn't be saved — try again." (traced in batch 1) |
 | `choose_pictures` | `site-picture.mjs` 732 | picture | which photo, which frame | no frame on the named page → hop to the page step (`needs-place`) |
-| `write_nav` | `site-nav.mjs` 414 | nav | the menu, the button, the footer | not traced |
+| `write_nav` | `site-nav.mjs` 414 | nav | the menu, the button, the footer | no menu, button or link on any page: `nav/no-nav`, explained before any call; a failed call: "I couldn't reach the model that sets the menu", nothing charged; nothing usable: "I couldn't work out what the menu should be…"; nothing changed: "That's already the menu — nothing to change."; an item for a page the site lacks is left out and named, the rest applies (traced in batch 1) |
 | `write_tweak` | `site-tweak.mjs` 104 | page; look's section and layout lanes | one page's new source | the keep check, then the text guard |
 | `keep_check` | `page-keep.mjs` 391 | the page writer's result | whether each lost item was asked for, with a quote | withheld |
-| `new_address` | `site-alias.mjs` 239 | rename | the new address | not traced |
-| `pick_adds` | `site-add.mjs` 1382 | add-on | which kinds (at least one) | not traced |
+| `new_address` | `site-alias.mjs` 239 | rename | the new address | a failed call: "The editor is busy", nothing charged; no name, or a malformed one: "Tell me what you would like the address to be…"; the current name, a reserved one, a taken one or a lookup that could not be made: refused, each with its own sentence (traced in batch 1) |
+| `pick_adds` | `site-add.mjs` 1382 | add-on | which kinds (at least one) | a failed call: "The builder is busy", nothing charged for the add-on; no kind it offers in the answer: `no-add`, "I couldn't determine a supported addition from that message…", the picker's own call not billed (routing was) (traced in batch 1) |
 | `add_to_site` | `site-add.mjs` 1565 | add-on, once per kind | the addition | every kind declined → a refusal, no charge for the add-on |
 | `write_rows` | `site-seed.mjs` 117 | builds; the add-on, for a new table | starter rows a table lacks | no rows (the list stays empty) |
-| `design_schema` | `worker.js` 2841 | build, rewrite | the design | not traced |
+| `design_schema` | `worker.js` 2841 | build, rewrite | the design | a failed, timed-out or truncated call: the deposit is reversed and the build stops with "The designer is busy", the timeout sentence, "temporarily unavailable" or "needs more room"; no tables where the build needs one: "That brief didn't describe anything to store…", deposit refunded (a first build and a rewrite may declare none) (traced in batch 1) |
 | `write_pages` | `page-gen.mjs` 1643 | build, rewrite, the add-on's page kind | pages | a page that doesn't compile is refused |
-| `write_band` / `write_part` | `page-bands.mjs` 286, 445 | build and rewrite (split, the building account) | page parts | not traced |
-| `write_translation` | `site-translate.mjs` 69 | publish | translated copy | not traced |
-| `web_search` | `worker.js` 4559 | build | current facts | not traced |
+| `write_band` / `write_part` | `page-bands.mjs` 286, 445 | build and rewrite (split, the building account) | page parts | every band empty: refused like an empty `write_pages`; **some** bands empty: each becomes an empty section and the page publishes without it, recorded on the trace (`wrote < bands`) and **not said** (N7); a part with no answer is a stub that renders nothing (traced in batch 1) |
+| `write_translation` | `site-translate.mjs` 69 | publish | translated copy | never throws: a failed call, a missing key or a wrong-length answer publishes the language with what is cached and the site's own words for anything new; traced (`translate:<tag>`), **not said** (N8) (traced in batch 1) |
+| `web_search` | `worker.js` 4559 | build | current facts | never throws: a failed or unreadable answer ends the search with what it found, possibly nothing; the build goes on without researched facts, the tokens and searches spent are billed, and nothing tells the customer research ran (traced in batch 1) |
 
-"Not traced" means this audit didn't follow that branch; none of them
-decides between steps.
+None of these replies decides between steps. Every edit step's refusal
+reports what it cost; on the queued path, the one the product uses, a reply
+that did not ship is refunded (`edit_refund`, `worker.js` ~13697); on the
+synchronous path the model call's debit stands and the reply says so (N9).
 
 ## 2. Who decides: every code decision about intent
 
@@ -314,6 +336,71 @@ evidence, the impact and a proposed fix. **Status** is one of: *confirmed
 (code)*, *confirmed (free check)*, *confirmed (run N)*, *untested*.
 Predicted consequences further down the pipeline are marked *unverified*.
 
+### 3.0 Each finding, classed (batch 1)
+
+Three classes, so a confirmed defect is never read as a risk or a guess:
+
+- **Confirmed code defect**: the code does the wrong thing for an input the
+  product meets today (an everyday message, a live site's shape), shown by a
+  free check, a past run, or code with no other path. No model has to answer
+  anything unusual for it to happen.
+- **Conditional risk**: the code is wrong only under a condition not shown
+  to occur today: a site shape no live site has, a failure (an unreadable
+  store, a provider error), a client the product doesn't have, or a path only
+  the building account takes.
+- **Untested model behaviour**: the outcome turns on what a model answers,
+  and no run has measured it. Where an instruction is confirmed wrong but its
+  effect needs a model, it is here, with the instruction named as confirmed.
+
+| # | Class | What is confirmed | What still rests on a model or a condition | Status |
+|---|---|---|---|---|
+| W1 | Confirmed code defect | a hand-over carried `remove`; the page step deleted with no model call (free check) | how often the photo step answers `needs-place` for a removal (U7) | **fixed on the branch** |
+| W2 | Confirmed code defect | one removal emptied the whole list (free check; `fretwork-1` has two of each) | — | **fixed on the branch** |
+| W3 | Confirmed code defect | two opposite rules in one request; the publish kept only returned pages | how often a writer leaves pages out (U6) — harmless after the fix | **fixed on the branch** |
+| W4 | Confirmed code defect | one menu written everywhere (free check on run 92's pages) | — | **fixed on the branch** |
+| W5 | Confirmed code defect | a converted answer swaps the halves (free check) | the trigger: a router answer naming a page the browser didn't send | open |
+| W6 | Conditional risk | six pages sent after a reload (code) | a site of seven or more pages; no live site has more than five | open |
+| W7 | Confirmed code defect | the held-back part is named on success only (code) | — | open |
+| W8 | Confirmed code defect | a climb runs the held-back part (code) | — | open |
+| W9 | Confirmed code defect | five of eight wordings withheld (free check) | — (built on purpose; your call) | open |
+| W10 | Untested model behaviour | the instruction calls translation a rewrite (code) | what the router answers (probe CF1) | open |
+| W11 | Untested model behaviour | five instructions disagree (code) | which answer the model picks (CF2, AT2) | open |
+| W12 | Untested model behaviour | a `text` answer drops the page (code) | whether the text step keeps to the page (PS1) | open |
+| W13 | Confirmed code defect | one intent per answer; `answer` shown for `ask` only (code) | — | open |
+| W14 | Confirmed code defect | the picker must name a kind; the refusal says "say it differently" (code) | whether an unsupported ask reaches the add-on (US1) | open |
+| W15 | Confirmed code defect | the look step hands over before any lane runs (code) | the trigger: a picker answer naming an addition beside look work | open |
+| W16 | Confirmed code defect | files reach the logo step and builds only (code) | what the photo step does without the file (D9) | open |
+| W17 | Confirmed code defect | `ask` with a file becomes `addon` in the reader (code) | — | open |
+| W18 | Confirmed code defect | the replies promise follow-ups (code) | what each follow-up then does (D7) | open |
+| W19 | Confirmed code defect | the behaviour lane changes nothing a visitor sees (its own comment) | — | open |
+| W20 | Confirmed code defect | a `css` removal changes nothing (free check) | — | open |
+| W21 | Confirmed code defect | a straight apostrophe is dropped (free check) | — | open |
+| W22 | Confirmed code defect | at a zero balance every message is a build (code) | — (a zero balance is a state customers reach) | open |
+| W23 | Untested model behaviour | test-site wording in the prompts (code) | how much it steers answers | open |
+| W24 | Confirmed code defect | the hand-over to the add-on carries no reason (code) | what the add-on then designs | open |
+| W25 | Confirmed code defect | the refusal names the entry only (code) | — | open |
+| W26 | Confirmed (no customer effect) | stale comments (code) | — | open |
+
+**Risks the fixes left or the traces found (batch 1):**
+
+| # | Class | What | Where it stands |
+|---|---|---|---|
+| N1 | Conditional risk | a removal the picker marks on a list holding **one** entry still empties it for nothing, even when the customer named an entry the site doesn't have (W2's free path asks no lane) | kept as before in this batch, for your review: asking the lane would add a model call to every such removal |
+| N2 | Conditional risk | with no TypeScript parser (an edit run inline in the Worker), a QR removal whose code a page shows is refused (`figure-unchecked`), never guessed | recorded; the container has the parser, as the photo removal already needs |
+| N3 | Limit (by design) | a figure whose caption is the page's own words keeps the caption: only the code's own element comes off | recorded |
+| N4 | Conditional risk | the footer's two lists (`social`, small print) on an ordinary edit still write one list into every page (`applyChromeList`), W4's shape one place over | tracked; per-page footer lists not measured on the live sites |
+| N5 | Conditional risk (pre-existing) | a menu item pointing at a page the site no longer has is dropped by the reader and so comes off every menu; the reply names it | recorded |
+| N6 | Limit (by design) | a hand-over without a page of its own falls back to the ask's page (a scope the destination checks, not an operation) | recorded |
+| N7 | Conditional risk | split page writing: a band that answered nothing publishes as an empty section; the trace says so, the reply doesn't (building account only) | tracked |
+| N8 | Conditional risk | a translation that fails publishes the language behind (new words in the site's own language); traced, not said | tracked |
+| N9 | Conditional risk | the edit route's synchronous path keeps a refusal's model charge; the queued path, the one in use, refunds it | recorded |
+| N10 | Untested model behaviour | after W3, a rewrite's writer could name in `remove` a page nobody asked to delete; the home page and linked pages are refused, an unlinked page so named goes | tracked; Group R/D can measure it on a rewrite |
+
+**Tracked for the following batches** (a proposed grouping, your call):
+lost and deferred parts W5, W7, W8, W15, W24; context and files W6, W12,
+W16, W17; instructions and wording W9, W10, W11, W23; the rest W13, W14,
+W18–W22, W25, W26, with N4, N7 and N8.
+
 ### 3.1 Removals
 
 **W1. A hand-over carries the router's "remove" to another step, so a photo
@@ -342,6 +429,20 @@ half); its reach is untested.*
   `tab`, `rename`); or mark a hand-over in the request (the server can't
   tell one today) and have the server ignore `remove` on it unless the
   escalation itself asked for a removal.
+- **Fixed on the branch (batch 1, not deployed)**: both halves. The browser
+  builds every hand-over from one helper, `EditPoll.handOver`: where it goes
+  (the destination's step and page, else the ask's own page), what the
+  router held back, what reading the message cost and the add-on bound —
+  never the first answer's `remove`, `rename` or `tab` — and marks the
+  request `handedOff: true` (the edit hop, the edit's hand-over to the
+  add-on, and the add-on's hand-back). The edit route reads none of the
+  three verbs on a request so marked, a mark that is only ever a real
+  boolean. Shown through the real send handler (both chains, direct and
+  queued) and through the real route on both money paths: the page step
+  makes the change on the page it was handed and deletes nothing, a handed
+  move moves nothing, a handed `tab` puts a logo in the header; the router's
+  own removal still removes, at no model call. *Not covered*: how often the
+  photo step answers `needs-place` for a removal (U7) — now harmless.
 
 **W2. Removing one language or one QR code removes all of them.**
 *Confirmed (code + free check).*
@@ -364,6 +465,22 @@ half); its reach is untested.*
 - **Fix**: run the lane for a partial removal (the `langs` lane's own
   contract already says "send the whole list"; `qr` already patches one
   code at a time) and clear the field only when they ask for all.
+- **Fixed on the branch (batch 1, not deployed)**: a removal on a list that
+  holds more than one entry (`langs`, `qr`, and the controls' `behavior`
+  list) is answered by that field's own lane, told it is a removal
+  (`removalNote`): the languages and controls lanes answer the list with the
+  named entry gone, the QR lane names the code, which comes off by name
+  (`patchQr` with `remove`). The field is emptied only by a lane answering
+  an empty list. **Every code that comes off takes its figure off every page
+  and component that shows it**, found in the file's own syntax tree
+  (`codeFigureRemoval`): the figure that reads the code, and a bare wrapper
+  holding only it; a figure inside a condition, inside a sentence, or beside
+  a code that stays is refused with nothing written, nothing published and
+  nothing charged; so is a component store that cannot be read. This also
+  closes a defect W2 hid: when the only code came off, its figure stayed,
+  reading a binding the publish no longer writes. A one-entry list is still
+  emptied for nothing, as before (N1). *Not covered*: what a real lane names;
+  N2 and N3.
 
 **W3. The full rewrite is told opposite things about pages it leaves out,
 and the code deletes them.** *Confirmed (code); how often a writer leaves
@@ -386,6 +503,25 @@ pages out is untested.*
 - **Fix**: on a rewrite, keep every stored page the writer did not return
   unless it is named in `remove`, and give the rewrite the same instruction
   as the tool.
+- **Fixed on the branch (batch 1, not deployed)**: one contract. The rewrite
+  is told what the tool says: *"A PAGE YOU DO NOT RETURN IS KEPT exactly as
+  it is published now. To DELETE a page, put its file in `remove`…"* (both
+  the full prompt and the one for long sites). The publish folds what the
+  writer returned over the stored site (`mergeRevisedPages`): a returned page
+  replaces or adds, every other page is kept byte for byte, and a page comes
+  off only when the writer named it in `remove` and the add-on's own rule
+  allows it (`takePagesAway`: never the home page, never a page another page
+  still links to). A refused removal is said (`keptNote`, shown with the
+  build's other notes); a removal-only rewrite is allowed. The returned pages
+  are checked as part of a site (their links to kept pages are not rewritten
+  away, and a home page left out is not reported missing). **Folded in, a
+  related defect**: the rewrite handed the container only the components the
+  writer wrote, so a kept page's components went missing; it now hands the
+  stored ones too, the rewritten one replacing its old source
+  (`mergeParts`), when the store was read. Shown through the real module and
+  the real `/api/site/react-revise` route. *Not covered*: how often a writer
+  returns a subset (U6, harmless now), and a writer naming a page in
+  `remove` unasked (N10).
 
 **W9 (removal wording) is in §3.8. W20 (removing custom styling) is in §3.9.**
 
@@ -481,6 +617,24 @@ check on run 92's stored pages).*
   edit. Restorable from Versions.
 - **Fix**: apply a rename, removal or reorder to each page's own items by
   identity, as additions are applied.
+- **Fixed on the branch (batch 1, not deployed)**: the editor's answer is
+  read as the changes it makes to the menu it was shown, by address
+  (`menuChange`): an item taken off, renamed, pointed somewhere else (each
+  page keeps its own words), replaced by a new item between the same
+  neighbours, moved (the fewest items that explain the new order), or added.
+  Only those changes are made to each page's own menu (`menuApply`): a page
+  never gains an item it did not list (an addition excepted), keeps its own
+  order and its own words for items the answer only restated; a rename
+  reaches the item on every page that lists it. A menu the change leaves as
+  it was is left as written, to the byte. **Folded in, two related
+  defects**: an unchanged menu was rewritten onto one line, so a page whose
+  menu did not change still changed and was counted ("Updated the menu on 4
+  pages" for a change two menus had); and the reply listed the answer's menu,
+  which after per-page edits may be no page's menu — it now names the menus
+  as they read, and how many pages carry each when they differ. Shown through
+  the real edit route on both money paths, on a site whose four menus all
+  differ. *Not covered*: the footer's two lists still write one list (N4);
+  N5.
 
 **W6. Pages the browser didn't keep are unknown to the router.** *Confirmed
 (code); corrects R8.*
@@ -785,8 +939,8 @@ free check).*
 | U3 | What the add-on does with removals, changes and unsupported asks converted to it (W5, W14, W17) | refusals or wrong additions | Group D: D8 |
 | U4 | Whether a put-back through the add-on restores the entry's other fields (W18) | a different entry comes back | Group D: D7 |
 | U5 | Whether the text step keeps to a page named in the message (W12) | the header changes too | Group R: PS1, then a delivered edit |
-| U6 | How often the rewrite's writer leaves pages out (W3) | pages lost | the rewrite path, after W3's fix |
-| U7 | Whether the photo step answers `needs-place` for a removal (W1) | a page deleted | after W1's fix, free |
+| U6 | How often the rewrite's writer leaves pages out (W3) | harmless since batch 1 (an unreturned page is kept); what matters now is N10, a page named in `remove` unasked | a delivered rewrite, after the merge |
+| U7 | Whether the photo step answers `needs-place` for a removal (W1) | harmless since batch 1 (a hand-over carries no removal) | nothing needed; covered free (§4) |
 | U8 | What the router answers for each Group R message | every downstream finding | Group R |
 | U9 | What a step does with a follow-up that refers to nothing (R7) | a paid rewrite of the wrong thing | Group R: FU1, then D6 |
 | U10 | What the photo step does without the attached file (W16) | a bought or wrong photo | Group D: D9 (fal has no credits today) |
@@ -841,12 +995,69 @@ with supplied inputs: no model, no network, no site, no money.
 
 | Check | What it drives | Result |
 |---|---|---|
-| W1 | the browser's `editAnswer` and `EditPoll` (cut from `chat.js` as `scripts/addon-sweep.mjs` cuts them) with a `needs-place` escalation | a routed photo removal re-posts `{"layer":"page","page":"/about","remove":true}`; the control posts no `remove` |
-| W2, W20 | `mergeLook` as the look door calls it for a removal | languages `["fr","es"]` → `[]`; two QR codes → none; `css` not cleared |
-| W4 | `applyNav` with an edited list, on two pages whose menus differ | the shorter menu gains every item of the longer one. On run 92's real stored bakery pages (scratch, not committed): one rename rewrote all four menus and added Gallery to `/order` and `/visit` |
+| W1 | the browser's `editAnswer` and `EditPoll` (cut from `chat.js` as `scripts/addon-sweep.mjs` cuts them) with a `needs-place` escalation | on `f9979497`: a routed photo removal re-posted `{"layer":"page","page":"/about","remove":true}`; on the branch since batch 1 it posts `{"layer":"page","page":"/about"}`, like the control |
+| W2, W20 | `mergeLook` as the look door called it for a removal; since batch 1 also `removalNote` and `patchQr`, as the route now calls them | on `f9979497`: languages `["fr","es"]` → `[]`; two QR codes → none. On the branch: the lane is asked, `["fr"]` kept; the prices code comes off by name, the other stays; one language stored is still emptied for nothing (N1); `css` not cleared (W20, open) |
+| W4 | on `f9979497`, `applyNav` with an edited list; since batch 1, `runNavEdit` (what the edit route calls) with the editor's answer supplied, on two pages whose menus differ | on `f9979497`: the shorter menu gained every item of the longer one (on run 92's stored bakery pages, one rename added Gallery to `/order` and `/visit`). On the branch: the rename reaches both menus and the shorter keeps its two items; taking Workshop Load out rewrites only the page that listed it |
 | W5 | `readRouting` and `heldBack` with a supplied router answer | with `/events` missing from the list: `addon`, `page-unknown`, and the add-on runs the removal and holds back the addition |
 | W9 | `preservePageProse` (with its real parser) on one page change, eight wordings | 3 published, 5 withheld |
 | W21 | `readTextEdits` with four replacements | the one with a straight apostrophe is dropped |
+
+### 4.1 Batch 1's checks (W1–W4, 2026-10-02)
+
+Every case drives the real code with every model answer supplied: no model,
+no network, no site, no money. Route cases go through the real
+`POST /api/site/<slug>/edit` (or `/api/site/react-revise`) on both money
+paths where the step has two, and judge the compile payload and the store
+page by page, the money, and the reply.
+
+| File | Cases | Red on the unfixed code (`5ce037a0`) | What it holds |
+|---|---|---|---|
+| `test/handover-operations.test.mjs` | 8 | 7 fail, the control passes | the real send handler: a photo removal handed to the page step and an addition handed to the menu editor post no verb, marked `handedOff`; the held-back part and the routing cost travel; the router's own removal is still posted |
+| `test/handover-route.test.mjs` | 12 | 6 fail, the 6 controls pass | the route: a handed `remove` keeps the page and makes the change, a handed `rename` moves nothing, a handed `tab` puts the logo in the header; a mark that is not a real boolean is not one; the router's own removal and tab still act |
+| `test/partial-removal.test.mjs` | 19 | 16 fail; 3 pass (the only-language controls and the all-languages case, the same either way) | one language off keeps the other; one code off keeps the other code and its figure and takes its own figure off; the only code comes off with its figure; a figure in a component, or shown twice, comes off; a guarded figure and an unreadable component store refuse, nothing written or charged; a code no page shows needs no placement step; one control of several |
+| `test/qr-figure-removal.test.mjs` | 11 | 10 fail (the function is new); the parser control passes | `codeFigureRemoval` on its own: what comes off, what stays, what is refused, and that cannot-tell is never nothing-to-cut |
+| `test/revise-keeps-pages.test.mjs` | 12 | 10 fail; the 2 controls pass | the fold, the removal rule, refusals said, components kept, an unread store, a first build unchanged, the chat's own note list showing a refused removal, and the real rewrite route keeping three pages and their components |
+| `test/menu-per-page.test.mjs` | 22 | 20 fail; the 2 controls pass | the comparison and the per-page apply on their own, and the real edit route on both money paths, on four differing menus: take out, rename, move, add, replace and repoint, each page's own items, order and words, the menus as they read in the reply, and an answer that changes nothing publishing nothing |
+
+**69 of the 84 new cases fail on the unfixed code; the 15 that pass are
+the controls** (and the all-languages case, the same either way). Each red
+check ran in a worktree at `5ce037a0` with the branch's test files copied
+in, a name the old module lacks read as `undefined` so its own cases fail
+rather than the whole file.
+
+**Existing tests changed** (each keeps its property; the reason is in a
+comment beside it): `edit-removal-door.test.mjs` (the reply counts the two
+menus that changed, not four, and a menu without Gallery is now held
+byte-identical: 17 of its 97 fail on the unfixed code); `page-gen.test.mjs`
+(the rewrite's new sentence, in both the full and the long-site block, and
+the old one is gone: 2 fail); `build-answer.test.mjs` (the kept note rides
+on the answer, and only as a string: 1 fails); eight source-reading pins
+re-anchored to the new call sites (`add-goes-to-addon`, `publish-pages`,
+`wiring`, `site-addon`, `site-apply`, `site-ask`, `site-logo`,
+`site-qr-list`).
+
+**Mutation sweeps** (`scripts/mutate.mjs`, each from a verified-green
+baseline, scoped to the files that guard it, with comment-only controls that
+all survived). Every survivor was closed by a new case and the survivors
+re-run, all killed:
+- **W1**: 14 mutants, 13 killed. The survivor, a truthy `handedOff` read as
+  a mark, is killed by a control that sends `"true"`, `1` and `{}`.
+- **W2**: 23 mutants, 22 killed. The survivor, a code's reference outside a
+  `{…}` read further up, is killed by a binding used as a tag name.
+- **W3**: 21 mutants, 16 killed. Four survivors are killed by new
+  assertions: the rewrite read as a whole site (a kept home page reported
+  missing), the long-site block dropping the keep rule, the build answer
+  dropping the kept note, and the chat not showing it. The fifth, the
+  rewrite folding an unreadable component store, is equivalent for the one
+  producer there is (`readSiteParts` answers an empty list on every
+  failure, and folding an empty list hands over what the writer wrote); the
+  test stays, with a comment saying why.
+- **W4**: 20 mutants, 20 killed, over the per-page apply, the change
+  reader, the comparison and the reply, against every test that runs the
+  menu editor (10 files).
+
+The re-run of `whole-router-checks.mjs` on the branch prints the batch-1
+behaviour beside `f9979497`'s (the W1, W2 and W4 rows of the table above).
 
 Also read, free and read-only: every candidate site's served pages and
 sitemap (07:20–07:53 UTC: page lists, menus per page, headings, photo
@@ -904,6 +1115,13 @@ what the code does with that answer. **Observed is empty: not run.**
 | CF3 | fretwork-1 | What does an hour's lesson cost at the moment? Knock £2 off it. | `edit` `data` | the question is dropped (W13) | — |
 | LK1 | hearth-paper | Copy the delivery wording from our old site, https://hearthpaper.example/delivery, into the delivery section. | (recorded) | no edit step reads a link (R11) | — |
 
+**The "Current implementation" column is `f9979497`'s, the code deployed
+today.** Batch 1 changes two of its rows on the branch, not deployed: RM1
+keeps French (W2), and RM2 takes only the prices code and its figure (W2).
+No other row's implementation moves. Group R measures only the router's
+answer, which batch 1 does not change: the router's instructions and readers
+are untouched.
+
 Each probe in the file also records its starting condition (`given`), read
 on 2026-10-02, and why its intended outcome is intended (`basis`). A
 different answer is a finding, not a failure; the press stops early only
@@ -914,7 +1132,9 @@ when it cannot read an answer honestly.
 press refuses before its first call when the balance is under 60 (3 a
 probe), and checks the deployed commit and image itself.
 
-**The press** (the edit canary's form):
+**The press** (the edit canary's form). The two refuse boxes name what is
+deployed today; if batch 1 is merged and deployed first, they take that
+deploy's commit and image instead:
 - "Use workflow from": the branch `claude/help-needed-ehlwlj` (the batch
   file is on the branch, not on `main`; the canary script is the same as
   `main`'s).
@@ -939,15 +1159,18 @@ probe), and checks the deployed commit and image itself.
 ### 5.3 Group D: delivered checks (listed, not prepared)
 
 Each is one message through the real app, judged on what it did to the
-site. **Not built or pressed.** The ones that would damage a live site today
-wait for their fix; the others can follow Group R once its answers are in.
+site. **Not built or pressed.** D1–D3 would damage a live site on the code
+deployed today; their fixes are on the branch (batch 1), so they wait for
+your merge and deploy, not for more code. D4 needs no live run: the free
+route tests cover it (§4.1). The others can follow Group R once its answers
+are in.
 
 | # | Message (site) | Measures | When | Estimate | Recovery |
 |---|---|---|---|---|---|
-| D1 | RM1 (fretwork-1) | only Spanish goes | after W2's fix | 2–4 | free restore |
-| D2 | RM2 (fretwork-1) | only the prices code goes | after W2's fix | 2–4 | free restore |
-| D3 | "Rename Booking Check to Check a booking in the menu." (repairbench-1) | each page keeps its own menu | after W4's fix | 3–5 | free restore |
-| D4 | a photo removal answered `needs-place` | no page is deleted | after W1's fix, as a free check first | 0 | — |
+| D1 | RM1 (fretwork-1) | only Spanish goes | after batch 1's merge and deploy (W2) | 2–4 | free restore |
+| D2 | RM2 (fretwork-1) | only the prices code and its figure go | after batch 1's merge and deploy (W2) | 2–4 | free restore |
+| D3 | "Rename Booking Check to Check a booking in the menu." (repairbench-1) | each page keeps its own menu | after batch 1's merge and deploy (W4) | 3–5 | free restore |
+| D4 | a photo removal answered `needs-place` | no page is deleted | done free: `handover-operations` and `handover-route` (§4.1); no live run | 0 | — |
 | D5 | RM4 (hearth-paper) | the wording refusal end to end (W9) | after Group R, if routed `look` | 1–3 if withheld; 7–25 if it publishes | free restore |
 | D6 | FU1 (ben-crowe-guitar) | what a step does with a reference to nothing | after Group R, only if routed to a step that acts | 2–22 | free restore |
 | D7 | "Bring back the Group of three lesson at £18, like before." (fretwork-1; run 80 deleted it) | whether the put-back restores the entry's other fields (U4) | after Group R; a row write needs your approval | 3–6 | your free Data panel delete |
@@ -955,8 +1178,8 @@ wait for their fix; the others can follow Group R once its answers are in.
 | D9 | AT1 (hartleys-barbers) | what the photo step does without the file (U10) | after a fal top-up | about 20–22 (a bought photo is about 19) | free restore |
 | D10 | CF1 (hartleys-barbers) | a language added through the look step | after W10's decision | 2–8 | free restore |
 
-**If all of D5–D8 ran after Group R: about 7–34 credits; D1–D3 after their
-fixes, about 7–13.** These are estimates, not caps: nothing enforces a
+**If all of D5–D8 ran after Group R: about 7–34 credits; D1–D3 after batch
+1's merge and deploy, about 7–13.** These are estimates, not caps: nothing enforces a
 per-request limit, and the balance is the only bound.
 
 ## 6. What this audit does not show
@@ -965,10 +1188,18 @@ per-request limit, and the balance is the only bound.
   until Group R runs, and Group R gives one answer per message, from one
   model.
 - How often W1's and W3's reach happens; W1 needs the photo step to answer
-  `needs-place` for a removal, W3 a writer that leaves pages out.
+  `needs-place` for a removal, W3 a writer that leaves pages out. Since batch
+  1 neither does harm when it happens (§3.10's U6 and U7), and N10 is what is
+  left of W3.
 - Anything about the customer's screen beyond the reply text the code
-  composes; no UI was rendered (no UI changed).
+  composes. Batch 1 changes two sentences the customer reads (the menu reply
+  and the kept-page note), shown as rendered by the chat in the batch's
+  record (`docs/history/2026-10-02-router-batch-1.md`).
 - The build path's own quality issues met on the way (link quotas, design
   checks): out of scope for an audit of who decides.
-- The fixes: proposed only. Each will need its own red check, sweep, suite
+- **W1–W4: fixed on the branch, shown only with supplied answers.** Each has
+  its own tests, red check and sweep (§4.1); none is merged, deployed or
+  exercised by a real model. What each fix does not cover is under its own
+  finding and in N1–N10 (§3.0).
+- **W5–W26: proposals only.** Each will need its own red check, sweep, suite
   and review before any merge.

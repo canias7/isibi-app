@@ -580,7 +580,9 @@ test("the whole tab-icon wire holds, end to end", () => {
   // 4. the client posts it back as a real boolean
   assert.match(c, /\n {6}tab: d\.tab === true,/);
   // 5. the worker hands it to the module
-  assert.match(w, /tab: eb && eb\.tab === true \}\);/);
+  //    — never on a hand-over (2026-10-02, the whole-router audit's W1; driven in
+  //    `handover-route.test.mjs`).
+  assert.match(w, /tab: !eHanded && !!\(eb && eb\.tab === true\) \}\);/);
 });
 
 test("the two slots are two _meta keys, and the icon reaches the container from BOTH publish paths", () => {

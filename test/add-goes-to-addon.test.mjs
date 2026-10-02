@@ -116,7 +116,11 @@ test("the browser runs the addon route on that answer, with the same sentence", 
   const addon = fn.indexOf("if (act === 'addon') {");
   const hop = fn.indexOf("if (act === 'hop') {");
   assert.ok(addon > 0 && hop > addon, "the addon answer is not handled before the hop");
-  assert.match(fn.slice(addon, hop), /siteAddon\(o\.site, o\.instruction, o\.origin, o\.finish, o\.fallback, o\.d\)/, "the addon is not run with the customer's own sentence and fallback");
+  // THE ASK'S CONTEXT AND NONE OF THE EDIT'S VERBS (2026-10-02, the
+  // whole-router audit's W1): the add-on is handed `EditPoll.handOver`'s shape,
+  // never the edit's answer whole. What that shape carries is driven in
+  // `handover-operations.test.mjs`; this holds the sentence and the fallback.
+  assert.match(fn.slice(addon, hop), /siteAddon\(o\.site, o\.instruction, o\.origin, o\.finish, o\.fallback, EditPoll\.handOver\(o\.d, \{ layer: 'addon' \}\)\)/, "the addon is not run with the customer's own sentence and fallback");
   // The decision lives in the module a test can drive, not in chat.js — so it
   // is DRIVEN, not read (2026-10-02). It was pinned by its spelling, and the
   // spelling moved when an edit the add-on step itself handed over gained its

@@ -9347,6 +9347,11 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
       // and it only ever narrows: the menu editor then adds without changing,
       // replacing or taking away anything the frame already has.
       addition: d.fromAddon === true ? true : undefined,
+      // A HAND-OVER, SAID SO (2026-10-02, audit W1). The router's verbs belong
+      // to the step the router chose, and this is another step: the route
+      // ignores `remove`, `rename` and `tab` on it, so a hand-over can never
+      // act on the first answer's operation even if one were sent.
+      handedOff: handedOff === true ? true : undefined,
       picker: buildPicker,
       // THE UNDO. A deleted row is gone from the table, so the server cannot
       // show the model what "put it back" refers to — the client is the only
@@ -9710,8 +9715,12 @@ function escalatedEdit(e, o) {
   // unlatched for the whole of the add-on the edit had just handed its ask to.
   // The add-on is handed the ask's wrapped `finish` and `fallback`, and its end
   // is what releases.
+  //
+  // THE ADD-ON IS HANDED THE ASK'S CONTEXT AND NONE OF THE EDIT'S VERBS
+  // (2026-10-02, audit W1), so a link it hands on to the menu editor cannot
+  // arrive there carrying this edit's `remove`.
   if (act === 'addon') {
-    return siteAddon(o.site, o.instruction, o.origin, o.finish, o.fallback, o.d);
+    return siteAddon(o.site, o.instruction, o.origin, o.finish, o.fallback, EditPoll.handOver(o.d, { layer: 'addon' }));
   }
   if (act === 'hop') {
     // THE LATCH IS NOT CLEARED HERE. The hop is the same ask continuing, so
@@ -9720,7 +9729,12 @@ function escalatedEdit(e, o) {
     // by the hop's own end, because the hop is handed the ask's wrapped
     // `finish` and `fallback` (2026-09-24: nothing ever released it before, so
     // every chain with a hop in it left the site latched for good).
-    return siteEdit(o.site, { ...(o.d || {}), layer: e.layer, page: e.page ? String(e.page) : (o.d && o.d.page) },
+    //
+    // AND IT CARRIES WHERE IT GOES, NEVER WHAT THE FIRST ANSWER WAS TO DO THERE
+    // (2026-10-02, audit W1): `EditPoll.handOver`. A photograph's removal
+    // handed to the page step used to arrive as `remove: true` — which on that
+    // step deletes the whole page.
+    return siteEdit(o.site, EditPoll.handOver(o.d, { layer: e.layer, page: e.page }),
       o.instruction, o.origin, o.finish, o.fallback, o.imgs, true);
   }
   return o.fallback();
@@ -10091,8 +10105,11 @@ function addonAnswer(httpOk, a, o) {
     // `fromAddon` IS WHAT KEEPS IT FROM LOOPING, now that the add-on hands its
     // ask to an edit: that edit may not hand it back (`escalateAction`), and
     // it posts as an ADDITION, which the menu editor holds to add-only.
+    //
+    // WHERE IT GOES AND THE ASK'S CONTEXT ONLY (2026-10-02, audit W1):
+    // `EditPoll.handOver`, the edit's own hop rule.
     if (said.act === 'hop') {
-      return siteEdit(o.site, { ...(o.d || {}), layer: said.layer, page: said.page || (o.d && o.d.page), fromAddon: true }, o.instruction, o.origin, o.finish, o.fallback, undefined, true);
+      return siteEdit(o.site, EditPoll.handOver(o.d, { layer: said.layer, page: said.page, fromAddon: true }), o.instruction, o.origin, o.finish, o.fallback, undefined, true);
     }
     // THE SERVER'S OWN CLIMB, and the one way left from here to the rewrite.
     // Which of the route's escalates really need it is a separate, server-side
@@ -11610,6 +11627,10 @@ function reactSend(site, t, origin, mode, imgs, finish, qa) {
         // only thing that names it. In the note block rather than glued to
         // `notes`, or it reads mid-paragraph the way contextNote once did.
         (d && typeof d.salvageNote === 'string') ? d.salvageNote.trim() : '',
+        // A PAGE A REWRITE ASKED TO TAKE OFF AND WAS NOT ALLOWED TO (2026-10-02,
+        // W3): the home page, or one another page still links to. It stays,
+        // and this says which and why.
+        (d && typeof d.keptNote === 'string') ? d.keptNote.trim() : '',
         // AND WHAT THE FINISHED PAGES ACTUALLY LOOK LIKE. The one check in the
         // whole build path that opens the site in a browser — every other one is
         // textual, so a page that renders blank, throws on load or paints text

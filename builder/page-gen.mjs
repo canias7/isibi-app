@@ -2849,11 +2849,11 @@ export function priorPagesBlock(pages, mode = "revise", target = "", { keep = []
       "IF THE THING THEY ASKED FOR BELONGS ON A PAGE THAT ALREADY EXISTS, return that page edited and add no new " +
       "file at all. A testimonials section on the home page is an edit to the home page, not a new route.\n\n" +
       // WITHOUT THIS SENTENCE THE DELETE VERB IS UNREACHABLE. The full-revise
-      // block one branch below says "to delete a page, simply do not return it",
-      // which is exactly true there and does NOTHING here — an unreturned page
-      // is KEPT. So a model working from that habit answers "remove the gallery"
-      // by returning nothing, the merge reports no change, and the request
-      // escalates to the ~25-credit revise this lane exists to avoid.
+      // block one branch below said "to delete a page, simply do not return it"
+      // until 2026-10-02 (W3), and a model working from that habit answers
+      // "remove the gallery" by returning nothing — the merge reports no change.
+      // Both blocks now say what the tool says: an unreturned page is KEPT, and
+      // `remove` is the only thing that deletes one.
       "ARE THEY ASKING FOR A PAGE TO GO AWAY? THEN `remove` IS THE ONLY THING THAT DOES IT. Put its file path in " +
       "`remove` — \"src/routes/gallery.tsx\". NOT returning it does NOTHING here: a page you do not return is " +
       "KEPT, which is the opposite of what it means on an ordinary rewrite, and answering a deletion by returning " +
@@ -2868,7 +2868,8 @@ export function priorPagesBlock(pages, mode = "revise", target = "", { keep = []
   if (total > MAX_PRIOR_CHARS) {
     return "\n\nTHE SITE AS IT STANDS\nIt has these pages: " + list.map((p) => p.path).join(", ") +
       ". They are too large to show here, so write them again in full \u2014 keep the same pages, the same " +
-      "sections and the same wording wherever the instruction does not ask for a change.";
+      "sections and the same wording wherever the instruction does not ask for a change. A page you do not " +
+      "return is kept exactly as it is; to delete one, put its file in `remove`.";
   }
   return "\n\nTHE SITE AS IT STANDS \u2014 THIS IS WHAT YOU ARE EDITING\n" +
     "Below is the CURRENT source of every page, exactly as it is published right now.\n\n" +
@@ -2876,7 +2877,15 @@ export function priorPagesBlock(pages, mode = "revise", target = "", { keep = []
     "everything else BYTE-IDENTICAL \u2014 the same headings, the same sentences, the same sections in the same " +
     "order, the same components. Do not reword, retitle, tidy or improve anything you were not asked about. " +
     "The customer wrote this site; a change they did not ask for reads to them as their site being replaced.\n\n" +
-    "To DELETE a page, simply do not return it. To ADD one, return it alongside the others.\n\n" +
+    // ONE CONTRACT WITH THE TOOL (2026-10-02, the whole-router audit's W3). This
+    // said "To DELETE a page, simply do not return it" while the tool's own
+    // `remove` field says an unreturned page is KEPT — and the publish took only
+    // what came back, so a writer that trusted the tool deleted every page it
+    // did not touch. The publish now keeps every page that is not returned
+    // (`mergeRevisedPages`), and this says so.
+    "A PAGE YOU DO NOT RETURN IS KEPT exactly as it is published now. To DELETE a page, put its file in " +
+    "`remove` — never the home page — and return every page that links to it with the link taken out; a " +
+    "deletion that leaves a link behind is refused and the page stays. To ADD one, return it alongside the others.\n\n" +
     list.map((p) => "--- " + p.path + " ---\n" + p.source).join("\n\n");
 }
 

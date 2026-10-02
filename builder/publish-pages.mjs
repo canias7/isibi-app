@@ -14,7 +14,10 @@
 // functions, so the real decision logic can be driven against fakes with no
 // model call, no container and no R2.
 
-import { validatePages, lintPages, repairImports } from "./page-gen.mjs";
+import { validatePages, lintPages, repairImports, mergeParts } from "./page-gen.mjs";
+// THE REWRITE'S PAGE MERGE AND ITS SENTENCE (2026-10-02, the whole-router
+// audit's W3). `site-addon.mjs` imports nothing, so this adds no cycle.
+import { mergeRevisedPages, keptReply, routeOf } from "./site-addon.mjs";
 import { repairPages } from "./site-repair.mjs";
 // The seed top-up's OWN model and OWN hard output cap, imported rather than
 // restated. `buildFloor` has to price that call (see `SEED_PROFILE`), and a
@@ -659,7 +662,7 @@ export function salvageNote(stubbed) {
  * mean a build that searched the web and then failed to publish took credits for
  * nothing, which is precisely the outcome this function was rewritten to stop.
  */
-export async function publishPages(deps, { spec, slug, priorUsage, livePages } = {}) {
+export async function publishPages(deps, { spec, slug, priorUsage, livePages, priorPages, priorParts } = {}) {
   const out = { page: "placeholder", files: [], notes: "", problems: [], cost: 0, buildMs: 0 };
   // THE COMPONENTS THE KIT DOES NOT HAVE, filled in when the tool answer is
   // validated below and read by `compile` above it. Declared HERE, at the top of
@@ -1090,11 +1093,56 @@ export async function publishPages(deps, { spec, slug, priorUsage, livePages } =
     return took > 0 ? (wrote ? PAID : PAID_NOTHING) : FREE;
   };
 
-  const v = validatePages(gen.input);
+  // ── A REWRITE KEEPS EVERY PAGE IT DID NOT RETURN (2026-10-02, W3) ─────────
+  //
+  // `priorPages` is the site as it stands (the source a revise was shown), and
+  // only a revise has one. Until now the page set published was the set the
+  // writer RETURNED, so a writer that trusted its own tool — "an unreturned
+  // page is KEPT" — and returned the pages it changed deleted every other page
+  // of the site. Now the returned pages are folded over the stored ones
+  // (`mergeRevisedPages`): unreturned pages stay byte for byte, and a page
+  // comes off only when the writer names it in `remove` and nothing refuses
+  // it. Read as a PARTIAL set against the site's real routes, so a link from a
+  // returned page to a kept one is not rewritten away as dangling, and a home
+  // page the writer left out is kept rather than reported missing.
+  const revising = Array.isArray(priorPages) && priorPages.some((p) => p && typeof p.path === "string" && typeof p.source === "string");
+  const v = validatePages(gen.input, revising
+    // `routeOf`, the reading `validatePages` judges every link with.
+    ? { partial: true, knownRoutes: priorPages.map((p) => p && typeof p.path === "string" ? routeOf(p.path) : "").filter(Boolean) }
+    : {});
   // BEFORE THE `!v.pages.length` REFUSAL BELOW, so a build that is about to fail
   // still carries what it wrote — the refusal returns, but `out.problems` is the
   // only record of a badly-named component and this keeps the two in one place.
   sitePartsForBuild = v.parts || [];
+  if (revising) {
+    const askedOff = gen && gen.input && Array.isArray(gen.input.remove) ? gen.input.remove : [];
+    const revised = mergeRevisedPages(priorPages, v.pages, askedOff);
+    // A REWRITE THAT WROTE NOTHING AND TOOK NOTHING OFF is still the empty
+    // answer the refusal below is for — kept pages alone are not a change.
+    if (v.pages.length || revised.removed.length) {
+      v.pages = revised.pages;
+      // AND THE COMPONENTS THE KEPT PAGES IMPORT. The container wipes the
+      // routes and writes what it is handed, so a kept page whose component was
+      // not handed over does not compile. Folded the way every other publish
+      // path folds them (`mergeParts`: a rewritten one replaces its old source,
+      // the rest stay) — only when the store was READ; one that could not be
+      // read hands over what the writer wrote, exactly as before.
+      //
+      // THE `ok` TEST IS BELT AND BRACES, and a sweep says so: `readSiteParts`
+      // answers `parts: []` with every failure, and folding an empty list hands
+      // over what the writer wrote, so dropping the test changes nothing for
+      // the one producer there is. It stays so a reader that one day returns
+      // a partial list on a failure cannot pass it off as the whole store.
+      if (priorParts && priorParts.ok === true && Array.isArray(priorParts.parts)) {
+        v.parts = mergeParts(priorParts.parts, v.parts || []);
+        sitePartsForBuild = v.parts;
+      }
+      if (revised.removed.length) out.removedPages = revised.removed;
+      // A REMOVAL THE WRITER ASKED FOR AND THE RULE REFUSED IS SAID, never
+      // dropped: the page stays, and the customer is told which and why.
+      if (revised.kept.length) out.keptNote = keptReply(revised.kept).trim();
+    }
+  }
   if (!v.pages.length) {
     // THE ONE BRANCH THAT THREW ITS REASONS AWAY. `validatePages` works out
     // exactly why each page was refused — a bad path, a duplicate, an empty

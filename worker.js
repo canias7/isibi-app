@@ -194,7 +194,7 @@ import { extractText, applyEdits, staleContactLinks } from "./builder/site-text.
 import { runTextEdit, runDataEdit, renamePages, renameRoute, MAX_DATA_ROWS } from "./builder/site-apply.mjs";
 import { insertStatement } from "./builder/site-rows.mjs";
 import { runRulesEdit } from "./builder/site-rules.mjs";
-import { runPictureEdit, newEmptySlots, newListFrames } from "./builder/site-picture.mjs";
+import { runPictureEdit, newEmptySlots, newListFrames, codeFigureRemoval } from "./builder/site-picture.mjs";
 import { runTweak, keptProse, tweakParser } from "./builder/site-tweak.mjs";
 import { keepCheck, keepWithheldMsg, KEEP_UNCHECKED_MSG, unsurePhrases } from "./builder/page-keep.mjs";
 import { preservePageProse, PROSE_WITHHELD } from "./builder/page-prose.mjs";
@@ -241,7 +241,7 @@ import { routeMessage, routeDecision, clarifiedBrief, siteDigest, DOOR_LAYERS, h
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
-import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage, themeNote, landmarkNote, verbLayer, REMOVABLE_LANES, mergePageSteps, pageStepDone, samePageOperation, doorLane, doorDispatch } from "./builder/site-lanes.mjs";
+import { pickLanes, runLane, laneLayer, laneUnbuilt, laneEscalate, OWN_LANES, LANE_MODEL, laneUsage, themeNote, landmarkNote, verbLayer, REMOVABLE_LANES, removalNote, mergePageSteps, pageStepDone, samePageOperation, doorLane, doorDispatch } from "./builder/site-lanes.mjs";
 // EVERY WAY THE EDIT ROUTE DECLINES, CLASSIFIED (2026-09-23): rewrite, add-on,
 // hop or explain, one table, and `test/edit-failure.test.mjs` holds the route to it.
 import { editFailure, failureMsg, stepMsg } from "./builder/edit-failure.mjs";
@@ -11249,7 +11249,7 @@ async function siteOgImage(env, slug, dist) {
 // on. `packResume` has stored the two side by side since the day it was written,
 // which is the tell: a bearer token has no `.id`, so anything that asks `auth`
 // for one gets `undefined` and never says so. See the band door below.
-async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid = "", siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null, resumeFanout = false, picker = null, models = null, billRef = null, jobId = null, assertLease = null }) {
+async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid = "", siteDescription, theme, css, plan, tsx, lang, langs, langStrings, mode, logo, icon, favicon, wordmark, gif, qr, three, verify, attachments, priorUsage, model, revise, changeNote, priorPages, priorParts = null, mark, budget = null, genPathOut = null, canFire = false, resumeCall = null, resumeFanout = false, picker = null, models = null, billRef = null, jobId = null, assertLease = null }) {
   // THE PICKER'S MODELS FOR THE TRANSLATION LOOP BELOW (run 38, 2026-09-04):
   // `models` when the caller resolved them, else resolved here from the
   // `picker` the build route stores beside `model` in the design — a job
@@ -12079,7 +12079,10 @@ async function buildAndPublishPages(env, { brief, spec, slug, brand, auth, uid =
     // What the web-research step already spent, so it is billed by the same rule
     // as generation: charged when a real app publishes, free when the customer
     // ends up with the placeholder.
-  }, { spec, slug, priorUsage, livePages });
+  // THE SITE AS IT STANDS, AND ITS COMPONENTS (2026-10-02, W3): a rewrite
+  // keeps every page it did not return and the components those pages import,
+  // and takes a page off only when it names it in `remove`.
+  }, { spec, slug, priorUsage, livePages, priorPages, priorParts });
   if (out.page !== "app" && out.error) console.error("site page build failed:", slug, out.stage, out.error);
   // AND WHETHER THE SITE IS SERVED BY ITS OWN SCRIPT.
   //
@@ -16376,6 +16379,13 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             // `undefined` rather than `[]`, so salvage refuses instead of
             // destroying.
             priorPages: existing ? await loadSiteSourceForEdit(env, slug) : null,
+            // AND ITS COMPONENTS (2026-10-02, the whole-router audit's W3). A
+            // page the rewrite does not return is kept, and the container
+            // writes only the components it is handed — so a kept page's own
+            // components go with it. The three-state read: one that could not
+            // be read (`ok: false`) hands over only what the writer wrote, as
+            // before.
+            priorParts: existing ? await readSiteParts(env, slug) : null,
             // WHAT THE CUSTOMER TYPED THIS TURN, for the Versions list alone.
             // The composed `brief` above is the anchor plus the change plus the
             // linked pages plus the researched facts — thousands of characters,
@@ -21008,8 +21018,18 @@ async function handleRequest(request, env, ctx) {
             // to the gallery's new address. `const` now, and `runLayer` takes the
             // STEP's verb under these two names, so no rung can read the
             // router's flags or another step's.
-            const eRemove = eb && eb.remove === true;
-            const eRename = typeof (eb && eb.rename) === "string" ? eb.rename.trim().toLowerCase() : "";
+            //
+            // ⚠ AND A HAND-OVER IS NOT THE ROUTER'S STEP (2026-10-02, the
+            // whole-router audit's W1). The browser posts `handedOff: true`
+            // when one step hands the ask to another (`EditPoll.handOver`), and
+            // the verbs the router chose for the first step mean something
+            // else here: a photograph's removal handed to the page step
+            // arrived as `remove: true`, which on this step deletes the whole
+            // page. The browser no longer sends them on a hand-over; this is
+            // the route's own half, so a hand-over cannot act on one either way.
+            const eHanded = !!(eb && eb.handedOff === true);
+            const eRemove = !eHanded && !!(eb && eb.remove === true);
+            const eRename = !eHanded && typeof (eb && eb.rename) === "string" ? eb.rename.trim().toLowerCase() : "";
             // `let`, AND THE MESSAGE KEPT BESIDE IT: a step the look branch adds
             // on its own (placing the QR the qr lane just made) runs the page
             // rung with an instruction of its own, and every rung reads
@@ -22110,7 +22130,13 @@ async function handleRequest(request, env, ctx) {
               // names come off the look read for the wall above; a read that
               // failed places nothing, because a step that cannot name the code
               // would have the rung guess one.
-              if (lookRuns.includes("qr") && fallbackPage) {
+              //
+              // ⚠ AND NEVER ON A REMOVAL (2026-10-02, W2). The codes named here
+              // are read from the look as it stood BEFORE this message, so a
+              // code being taken off that no page showed yet was asked to be
+              // PLACED by the step that followed — a figure reading a binding
+              // the same publish takes away. A removal places nothing.
+              if (lookRuns.includes("qr") && !eRemoves.remove.includes("qr") && fallbackPage) {
                 const unplaced = qrUnplaced(qrList(wallLook && wallLook.qr), eSrc);
                 if (unplaced.length) steps.push({ layer: "page", page: fallbackPage, fields: ["qr"], instruction: qrPlaceAsk(unplaced) });
               }
@@ -23207,7 +23233,7 @@ async function handleRequest(request, env, ctx) {
               // the router's own step (no lane dispatches here), so the two are
               // equal on every path that reaches this line today; the step's is
               // the one that stays right if a lane ever does.
-              }, { images: eImages, remove: eRemove, tab: eb && eb.tab === true });
+              }, { images: eImages, remove: eRemove, tab: !eHanded && !!(eb && eb.tab === true) });
 
               if (!lOut.ok) {
                 // NEVER ESCALATED. The rung above is a full revise, which cannot
@@ -23537,6 +23563,10 @@ async function handleRequest(request, env, ctx) {
               // moves none of them, so without this a two-lane edit and a
               // one-lane edit are the same response.
               let ranLanes = [];
+              // THE REMOVALS A LANE ANSWERED, rather than an empty field
+              // (`removalNote`, W2): kept out of the merge's `clear` below, so
+              // what the lane kept is what is stored.
+              const laneRemovals = new Set();
               {
                 // THE LANES WERE PICKED AT THE DOOR, not here. `pick_lanes` runs
                 // above the layer dispatch so that what it names can decide
@@ -23573,7 +23603,19 @@ async function handleRequest(request, env, ctx) {
                   // tokens, no seconds and no credits — it is the `logo` lane's
                   // shape, which is why `edit_exempt` already exists for a rung
                   // that publishes without reserving.
-                  if (eRemoves.remove.includes(field)) {
+                  //
+                  // ⚠ EXCEPT ONE ENTRY OF A LIST THAT HOLDS SEVERAL (2026-10-02,
+                  // the whole-router audit's W2). Emptied by name, "stop
+                  // offering Spanish" took French away too, and "take the prices
+                  // code off, keep the other" took both codes. When the stored
+                  // list holds more than one entry the lane answers instead,
+                  // told it is a removal (`removalNote`), and names what goes;
+                  // the field is emptied only by an answer that is empty.
+                  const oneOff = eRemoves.remove.includes(field)
+                    ? removalNote(field, field === "css" ? priorCss : (priorLook || {})[field])
+                    : null;
+                  if (oneOff) laneRemovals.add(field);
+                  if (eRemoves.remove.includes(field) && !oneOff) {
                     editTrace.mark("lane:" + field, "removed");
                     continue;
                   }
@@ -23606,9 +23648,10 @@ async function handleRequest(request, env, ctx) {
                       // job: the lane's first decision is WHICH element, and
                       // only then WHAT COLOUR. Both are context and neither is
                       // the value being edited.
-                      note: field === "css"
+                      // AND ON A REMOVAL OF ONE ENTRY, WHAT IT IS BEING ASKED.
+                      note: oneOff || (field === "css"
                         ? [landmarkNote(eMarks), themeNote(themeSheet)].filter(Boolean).join("\n\n")
-                        : "",
+                        : ""),
                       model: modelsFor(eb && eb.picker).design,
                     },
                   );
@@ -23642,7 +23685,7 @@ async function handleRequest(request, env, ctx) {
                   // stores the list as it was, which the no-change reply
                   // below reads as "already like that".
                   if (field === "qr") {
-                    const patched = patchQr((priorLook || {}).qr, ran.value);
+                    const patched = patchQr((priorLook || {}).qr, ran.value, { remove: !!oneOff });
                     if (!patched.ok) {
                       return Response.json({
                         ok: false, error: "qr", reason: patched.why, codes: patched.names, cost: 0,
@@ -23700,8 +23743,53 @@ async function handleRequest(request, env, ctx) {
               // left, since the next reader would otherwise inherit the wrong
               // reason for a behaviour that is right. `markRemove` is what the
               // removal leaves behind.
-              const merged = mergeLook(priorLook, designed, {}, { instructed: true, asked: true, clear: eRemoves.remove });
+              const merged = mergeLook(priorLook, designed, {}, { instructed: true, asked: true, clear: eRemoves.remove.filter((f) => !laneRemovals.has(f)) });
               const moved = movedFields(priorLook, merged);
+              // ── A CODE THAT COMES OFF TAKES ITS FIGURE WITH IT (2026-10-02, W2) ──
+              //
+              // The pages show a code through its binding (`SITE_QRS.<name>`,
+              // and the first code also `SITE_QR`), which the publish writes
+              // from the stored list. A code taken off the list with its figure
+              // left on a page leaves that page reading a binding that is no
+              // longer there, and it throws as it renders. So every code this
+              // step takes off — one of several, or the only one — has its
+              // figure taken off every page and component that shows it, found
+              // in the page's own syntax tree (`codeFigureRemoval`). A figure
+              // that cannot come off safely, or a store that cannot be read to
+              // look, stops the change here: nothing is written and nothing is
+              // charged, and the code stays where it is.
+              let qrCut = null;
+              {
+                const before = qrList(priorLook && priorLook.qr);
+                const after = new Set(qrList(merged.qr).map((c) => c.name));
+                const goneNames = before.map((c) => c.name).filter((n) => !after.has(n));
+                if (goneNames.length) {
+                  const gone = { names: goneNames, first: goneNames.includes(before[0].name) };
+                  const refuse = (why) => {
+                    editTrace.mark("qr:figure", "refused", { why, codes: goneNames.length });
+                    return Response.json({
+                      ok: false, error: "qr", reason: why, codes: before.map((c) => c.name), cost: 0, unchanged: true,
+                      msg: qrRefusal(why, before.map((c) => c.name), goneNames[0]),
+                    }, { status: 422 });
+                  };
+                  const qrParts = await editParts();
+                  if (!qrParts.ok) return refuse("figure-unchecked");
+                  const parse = await tweakParser();
+                  const files = editableFiles(eSrc, qrParts.parts);
+                  const out = [];
+                  const changed = [];
+                  for (const f of files) {
+                    const fr = codeFigureRemoval(f.source, gone, parse);
+                    if (!fr.ok) return refuse(fr.reason === "part" ? "figure-part" : "figure-unchecked");
+                    let src = f.source;
+                    for (const c of [...fr.cuts].reverse()) src = src.slice(0, c.from) + src.slice(c.to);
+                    if (src !== f.source) changed.push(f.path);
+                    out.push({ path: f.path, source: src });
+                  }
+                  qrCut = { ...splitEditable(out), changed, names: goneNames };
+                  editTrace.mark("qr:figure", "ok", { codes: goneNames.length, files: changed.length });
+                }
+              }
 
               // THE LOOK IS THE STYLESHEET, so there is nothing else to merge.
               //
@@ -23845,9 +23933,11 @@ async function handleRequest(request, env, ctx) {
               // call: `renamePages` reuses the free text editor's own extractor,
               // so it rewrites prose a visitor reads and never an import path,
               // a route id or a URL.
-              let eSrcOut = eSrc, renamed = 0;
+              // THE PAGES A REMOVED CODE'S FIGURE CAME OFF, when one did — the
+              // rename below then reads those.
+              let eSrcOut = qrCut ? qrCut.pages : eSrc, renamed = 0;
               if (moved.includes("brand") && priorLook && priorLook.brand && merged.brand) {
-                const rn = renamePages(eSrc, priorLook.brand, merged.brand);
+                const rn = renamePages(eSrcOut, priorLook.brand, merged.brand);
                 eSrcOut = rn.pages; renamed = rn.applied;
               }
               // THE PAGES OTHERWISE GO BACK UNTOUCHED. `recompileAndPublish`
@@ -23859,8 +23949,11 @@ async function handleRequest(request, env, ctx) {
               // already does exactly this for a revise; a second labeller here
               // would be a second thing that can disagree about what to call a
               // build.
+              // AND THE COMPONENTS, WHEN A FIGURE WAS LOOKED FOR IN THEM: both
+              // halves were read, so both go — the picture rung's rule.
               const pub = await publishStep(env, {
                 slug: ownerSlug, pages: eSrcOut,
+                ...(qrCut ? { parts: qrCut.parts } : {}),
                 label: versionLabel({ revise: true, changeNote: eRun }),
               });
               if (!pub.ok) {
@@ -23946,6 +24039,10 @@ async function handleRequest(request, env, ctx) {
                 // an edit that ran two lanes was, until now, indistinguishable
                 // from one that ran one.
                 lanes: ranLanes,
+                // THE CODES TAKEN OFF, AND WHERE THEIR FIGURES CAME OFF (W2), by
+                // name and file — never a destination or a caption.
+                qrRemoved: qrCut ? qrCut.names : undefined,
+                qrPages: qrCut && qrCut.changed.length ? qrCut.changed : undefined,
                 renamed, files: pub.files, render: pub.render, renderNote: pub.renderNote, cost: await eCharge(dUsage), usage: { langUsage: billParts(dUsage) },
               });
             }

@@ -192,6 +192,80 @@ export function mergeAddonSchema(prior, designed) {
 }
 
 /**
+ * TAKING PAGES AWAY — THE ONE RULE FOR EVERY WRITER THAT MAY (moved here out of
+ * `mergeAddonPages` on 2026-10-02, when the full rewrite started to need it
+ * too: the whole-router audit's W3).
+ *
+ * `byPath` is the merged page map, and the pages that come off are deleted from
+ * it; `remove` is the paths asked to go; `written` is the paths this same answer
+ * wrote, which are never removed in the same breath. Answers `{ gone, kept }`,
+ * `kept` naming each refused removal and why (`keptReply` words it).
+ */
+export function takePagesAway(byPath, remove, written) {
+  const gone = [];
+  const kept = [];
+  const wrote = Array.isArray(written) ? written : [];
+  for (const raw of Array.isArray(remove) ? remove : []) {
+    const path = typeof raw === "string" ? raw : "";
+    if (!byPath.has(path)) continue;                       // nothing to remove
+    if (wrote.includes(path)) continue;                    // written and removed in one breath
+    // THE HOME PAGE IS NEVER REMOVABLE. It is the one address a customer shares,
+    // and a site whose root renders nothing is worse than any page they wanted
+    // gone. Same rule the salvage already applies to a build with no index.
+    if (routeOf(path) === "/") { kept.push({ path, why: "home" }); continue; }
+    // A LINK POINTING AT A ROUTE THAT NO LONGER EXISTS DOES NOT COMPILE, so
+    // deleting a page nothing was told to unlink would fail the whole change and
+    // leave the site untouched — 20-40s of container time to achieve nothing,
+    // and a TypeScript error the owner cannot act on. Refused here instead, with
+    // the pages that still point at it named.
+    const route = routeOf(path);
+    const linkers = [...byPath.values()]
+      .filter((p) => p.path !== path && !gone.includes(p.path) && typeof p.source === "string" && p.source.includes('"' + route + '"'))
+      .map((p) => p.path);
+    if (linkers.length) { kept.push({ path, why: "linked", from: linkers.slice(0, 4) }); continue; }
+    byPath.delete(path);
+    gone.push(path);
+  }
+  return { gone, kept };
+}
+
+/**
+ * A FULL REWRITE'S PAGES, FOLDED OVER THE SITE IT REWROTE (2026-10-02, the
+ * whole-router audit's W3).
+ *
+ * The rewrite publishes the page set the container is handed, and it was handed
+ * only what the writer RETURNED — while the one tool every mode shares says
+ * "leaving a page out of `pages` does NOT delete it: an unreturned page is
+ * KEPT", and the rewrite's own prompt said the opposite ("to DELETE a page,
+ * simply do not return it"). A writer that trusted the tool and returned the
+ * pages it changed deleted every other page of the site, with nothing said.
+ *
+ * NOW THERE IS ONE CONTRACT, the tool's: a returned page replaces the stored
+ * one at that path, a page that was not there is added, a page nobody returned
+ * is KEPT exactly as it was, and a page comes off only when the writer names it
+ * in `remove` AND it passes `takePagesAway` — never the home page, never one a
+ * page that stays still links to, never one written in the same answer. The
+ * refused ones are named (`kept`), so the customer can be told.
+ *
+ * Unlike the add-on's merge this reverts nothing and caps nothing: rewriting
+ * every page is what a rewrite is for.
+ */
+export function mergeRevisedPages(prior, returned, remove) {
+  const usable = (p) => p && typeof p.path === "string" && typeof p.source === "string";
+  const base = (Array.isArray(prior) ? prior : []).filter(usable);
+  const got = (Array.isArray(returned) ? returned : []).filter((p) => usable(p) && p.source.trim());
+  const byPath = new Map(base.map((p) => [p.path, { path: p.path, source: p.source }]));
+  const written = [];
+  for (const p of got) {
+    byPath.set(p.path, { path: p.path, source: p.source });
+    written.push(p.path);
+  }
+  const { gone, kept } = takePagesAway(byPath, remove, written);
+  const untouched = base.map((p) => p.path).filter((path) => !written.includes(path) && !gone.includes(path));
+  return { pages: [...byPath.values()], written, removed: gone, kept, untouched };
+}
+
+/**
  * Fold what the model returned over what the site already has.
  *
  * THE MERGE IS THE WHOLE FEATURE, and it is deliberately dumb: a returned path
@@ -242,29 +316,7 @@ export function mergeAddonPages(prior, returned, remove, asked) {
   // Before this, "remove the gallery page" fell through the merge (which only
   // ever added), came back `no-change`, escalated, and cost a ~25-credit full
   // revise to do by omission — about twelve times what it should.
-  const gone = [];
-  const kept = [];
-  for (const raw of Array.isArray(remove) ? remove.slice(0, MAX_RETURNED) : []) {
-    const path = typeof raw === "string" ? raw : "";
-    if (!byPath.has(path)) continue;                       // nothing to remove
-    if (added.includes(path) || changed.includes(path)) continue; // written and removed in one breath
-    // THE HOME PAGE IS NEVER REMOVABLE. It is the one address a customer shares,
-    // and a site whose root renders nothing is worse than any page they wanted
-    // gone. Same rule the salvage already applies to a build with no index.
-    if (routeOf(path) === "/") { kept.push({ path, why: "home" }); continue; }
-    // A LINK POINTING AT A ROUTE THAT NO LONGER EXISTS DOES NOT COMPILE, so
-    // deleting a page nothing was told to unlink would fail the whole change and
-    // leave the site untouched — 20-40s of container time to achieve nothing,
-    // and a TypeScript error the owner cannot act on. Refused here instead, with
-    // the pages that still point at it named.
-    const route = routeOf(path);
-    const linkers = [...byPath.values()]
-      .filter((p) => p.path !== path && !gone.includes(p.path) && typeof p.source === "string" && p.source.includes('"' + route + '"'))
-      .map((p) => p.path);
-    if (linkers.length) { kept.push({ path, why: "linked", from: linkers.slice(0, 4) }); continue; }
-    byPath.delete(path);
-    gone.push(path);
-  }
+  const { gone, kept } = takePagesAway(byPath, Array.isArray(remove) ? remove.slice(0, MAX_RETURNED) : [], [...added, ...changed]);
 
   // ── AN ADDON MAY NOT REWRITE THE PAGES IT WAS NOT ASKED ABOUT ─────────────
   //
