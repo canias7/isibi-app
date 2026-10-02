@@ -61,7 +61,7 @@ and its next step is a CHANGE.
 | `qr` | 51 published `qr-gallery.svg` and **the served file re-encodes to `/gallery`** | nothing has ever scanned one |
 | `three` | **measured live today**: `fretwork-1` and `ashgrove-1` each serve a `@react-three/fiber` canvas | **which PATH made it** — `three` is a dispatched EDIT lane as well as an addon kind, so a probe of the document cannot say |
 | `photo` | **NONE.** Run 51 reached the provider and was **refused** | **the whole kind**, parked on fal funding |
-| `row` | **RUN 88 (Test 11, 2026-10-01)**: after the router fix (deploy 2177) the real router answered `addon` for *Add one loaf to today's loaves: …*, and the step (kinds exactly `row`) saved one entry, `loaves` id 7 "Rye & Caraway", read back whole: the six existing rows unchanged, no page published, cost 2 (routing 3) | several entries in one message, other lists and phrasings, an entry beside other kinds (set aside by design), a list whose page filters or caps what it shows |
+| `row` | **RUN 88 (Test 11, 2026-10-01)**: after the router fix (deploy 2177) the route answered `addon` for *Add one loaf to today's loaves: …* (the route's answer, not proof of the raw model's choice: its reply cannot show a conversion, `docs/investigations/router-audit.md` R3), and the step (kinds exactly `row`) saved one entry, `loaves` id 7 "Rye & Caraway", read back whole: the six existing rows unchanged, no page published, cost 2 (routing 3) | several entries in one message, other lists and phrasings, an entry beside other kinds (set aside by design), a list whose page filters or caps what it shows |
 
 **Eight of nine have landed their own work on a real site. The ninth has not,
 and its blocker is a balance rather than code.** The tenth, `row`, is new

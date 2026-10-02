@@ -116,10 +116,13 @@ pressed as run 86 and refused by the route check: the real router answered
 row; 2 credits, nothing added, not passed. The router's wording is corrected
 on the owner's word and merged and deployed in deploy 2177 (`25faac78`,
 image `9a71a6384b4206a2`, rolled at 23:05:58 UTC) and runtime-confirmed
-by run 87. **The paid retry passed as run 88**: the real router answered
+by run 87. **The paid retry passed as run 88**: the route answered
 `addon`, the `row` kind saved exactly one entry (id 7, "Rye & Caraway"),
 the six existing rows and every page unchanged, the reply true; 5 credits
-(routing 3, the add-on 2). For the owner's review and closure**
+(routing 3, the add-on 2). That proves the saved-row outcome, not the raw
+model's choice: the route's reply cannot show whether `addon` was the
+model's own answer or a conversion (the router audit's R3). For the owner's
+review and closure**
 (*Test 11*, below). Under the owner's rule (*"Add will always
 go in addon"*) the request reaches the add-on step, and **none of its nine
 kinds added a row to a table the site already has**: a table's seed fills
@@ -268,9 +271,10 @@ the owner's free press, run 51, at 22:57 UTC):
 - **One database row changed on a site whose database link is blank**
   (71, Batch 1's B1; the put-back is the owner's own write).
 - **One new entry added to a list the site already keeps** (88, Test 11):
-  routed `addon` by the real router after the router fix, written by the
-  add-on step's `row` kind, the six existing rows and every page unchanged.
-  For the owner's review.
+  routed `addon` after the router fix, written by the add-on step's `row`
+  kind, the six existing rows and every page unchanged. This is the saved-row
+  outcome; it is not proof of the raw model's choice, which the route's
+  reply cannot show (the router audit's R3). For the owner's review.
 - **One database row deleted by a normal AI request**, on a site whose
   database link is blank (80), after the row check read the table whole
   and as named, live and free (79). Closed by the owner.
@@ -2737,12 +2741,18 @@ it.
   passed again: both readers `25faac78e192`, a cold container
   `9a71a6384b4206a2`, ALL FREE CHECKS PASSED, the source read complete with
   the five pages at `dgmag4`, balance 101, the rows box *"as named"*.
-- **The real router answered `intent=addon`, with nothing held back**:
+- **The route answered `intent=addon`, with nothing held back**:
   `routed in 8.3s: intent=addon layer=- page=- cost=3`; *"the route matches
   the expectation (intent=addon alsoAsked=none); the answer is posted as it
   came"*. Run 86 sent the same sentence to the old wording and got
   `edit`/`data`. One sample: how often, and for other lists and wordings, is
-  not measured.
+  not measured. **Corrected 2026-10-02 (the owner's review of the router
+  audit)**: this is the route's answer, not proof of the raw model's choice.
+  The route turns several unusable answers into `addon` and its reply cannot
+  say which happened (the audit's R3). For this sentence the realistic
+  wrong answer (`edit`/`data`, run 86's) passes through unchanged and would
+  have shown, so `addon` was very likely the model's own; the decision
+  report, once deployed, is what can show it.
 - **The add-on step**: job `b83b059c…`, posted 23:51:56, settled after 20.2
   s with a stored reply: `{"ok":true,"kinds":["row"],"rows":[{"table":
   "loaves","id":7,"label":"Rye & Caraway","row":{"id":7,"name":"Rye &

@@ -204,15 +204,20 @@ new-entry sentence.
 - **Run 88** (23:51 UTC, the owner's paid press): the same sentence run 86
   sent, *Add one loaf to today's loaves: Rye & Caraway at £5.00, described
   as "A light rye with toasted caraway."*:
-  - **the real router answered `intent=addon`, nothing held back**
-    (grok-4.6's answer as the route returned it; cost 3, 8.3 s). Run 86, on
-    the old wording, answered `edit`/`data`;
+  - **the route answered `intent=addon`, nothing held back** (cost 3,
+    8.3 s). Run 86, on the old wording, answered `edit`/`data`;
   - the add-on step's `row` kind saved exactly one entry, `loaves` id 7, and
     the reply said so; the six existing rows and every page were unchanged;
   - 5 credits in all (routing 3, the add-on 2), against an estimate of 3–4.
-- **What this shows**: for this sentence, the corrected wording changed the
-  real router's answer from `edit` to `addon`. It is one sample: how often,
-  and for other lists, phrasings or mixed messages, is not measured. The
-  owner's next order is a router audit with its own focused real-model
-  routing tests (the checklist's *Test 11*, *Run 88*; the owner-notes
-  handoff).
+- **What this shows**: the saved-row outcome, through the add-on path,
+  exactly one correct entry. **It does not prove the raw model's choice**
+  (corrected 2026-10-02, after the owner's review of the router audit): the
+  route turns several unusable answers into `addon`, and its reply cannot
+  say which happened (`docs/investigations/router-audit.md` R3). For this
+  sentence the realistic wrong answer (`edit`/`data`, run 86's) passes
+  through unchanged and would have shown, so `addon` was very likely the
+  model's own; the decision report is what can show it. It is one sample:
+  how often, and for other lists, phrasings or mixed messages, is not
+  measured. The owner's next order is a router audit with its own focused
+  real-model routing tests (the checklist's *Test 11*, *Run 88*; the
+  owner-notes handoff).

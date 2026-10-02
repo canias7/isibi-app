@@ -540,3 +540,21 @@
   routing tests with a cost estimate. Keep the broad plan and batch-runner work
   paused."* So nothing broader is pressed until the audit is delivered and its
   test batch approved, and the audit itself spends nothing.
+- **Every new addition belongs to the add-on path; where it can't perform one,
+  that is a missing capability to document** (2026-10-02, reviewing the
+  router audit): *"all new additions belong to the add-on path, including new
+  menu links, footer links and header buttons. If add-on cannot perform them,
+  document the missing capability instead of treating edit as the correct
+  answer."* And for the audit's test matrix: *"Separate intended behavior,
+  current implementation and observed model behavior in the test matrix. Mark
+  predicted downstream consequences as unverified until measured. Keep Test
+  11's successful saved-row outcome, but distinguish it from proof of the raw
+  model's choice."* So an expected outcome never names an edit for an
+  addition; a prediction about a later step is labelled unverified until a
+  run measures it; and a route's answer is not proof of the model's own
+  choice while a fallback could have produced it.
+- **A batch's own runtime checks replace a separate free press** (2026-10-02):
+  *"Use the batch's own runtime checks before spending instead of requiring a
+  duplicate free press."* So a paid batch press checks the deployed commit and
+  image itself, before its first paid call, and stops there at no cost when
+  they don't match.

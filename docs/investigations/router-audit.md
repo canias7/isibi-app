@@ -5,6 +5,15 @@ changed on any site. The code was read on `main` at `25faac78` (deploy 2177,
 runtime-confirmed by run 87). The branch adds documents only, so its code is
 the same. Balance 96 after run 88.
 
+**Corrected the same day after the owner's review.**
+- The expected outcomes now follow the owner's standing policy (below).
+- The test matrix keeps intended behaviour, current implementation and
+  observed model behaviour in separate columns.
+- Every predicted downstream consequence is marked *unverified* until it is
+  measured.
+- Test 11's saved-row outcome is kept, and separated from proof of the raw
+  model's choice.
+
 **The owner's order (2026-10-01):** *"Once that result is verified, our next
 priority is a router audit before resuming any broader tests. Audit the
 routing instructions, supplied context, route selection, fallback behavior,
@@ -13,6 +22,15 @@ decision flow and identify contradictions or gaps, then propose a focused
 batch of real-model routing tests with a cost estimate. Keep the broad plan
 and batch-runner work paused."* Test 11's retry was verified as run 88 before
 this audit started.
+
+**The owner's policy, which every expected outcome here follows
+(2026-10-02):** *"all new additions belong to the add-on path, including new
+menu links, footer links and header buttons. If add-on cannot perform them,
+document the missing capability instead of treating edit as the correct
+answer."* It extends two earlier rulings:
+- *"add will always go in addon"* (2026-09-02);
+- *"Adding a NEW record to an existing table/list must select addon"*
+  (Test 11, 2026-10-01).
 
 Line numbers are for `builder/site-ask.mjs` unless another file is named.
 
@@ -23,40 +41,47 @@ Line numbers are for `builder/site-ask.mjs` unless another file is named.
   the message. It sees the message, the site's page addresses and its table
   names. It sees nothing else: no earlier message, no attachment, and nothing
   about what each page shows.
-- **Six problems a customer would notice**, most serious first. Each is shown
-  from the code. Items marked *needs a reading* depend on what the real model
-  answers, which the proposed batch measures.
-  1. **"Add …" to the menu, the footer or the header button.** Since the
-     add-on rule was strengthened for Test 11, two instructions contradict each
-     other here (*needs a reading*). The add-on step has no kind for these
-     things, and its picker must still name one. So a misroute would design a
-     new section on a page instead of adding the link, charge for it, and
-     report it as done.
-  2. **Attachments.** The router is told to choose between the logo step and
-     the photo step by whether a file is attached, but it is never told
-     whether one is. After routing, only the logo step receives the file. So
-     "use this photo on the starter page" reaches the photo step without the
-     photo. That step can only use a file already uploaded to the site, or buy
-     a generated photograph. Nothing tells the customer.
-  3. **Fallbacks are silent.** Seven kinds of unusable answer quietly become a
-     paid `addon`, and the route's reply cannot tell them apart from the
-     model's own choice. Our tests have the same blind spot: run 88's `addon`
-     was very likely the model's own answer, but the reply cannot prove it.
-  4. **A removal can become an add-on.** "Remove the blog page" on a site with
-     no blog page is turned into `addon` by the code. That contradicts the
-     instruction "A REMOVAL IS NEVER AN ADDON" (*needs a reading* for how
-     often the model names a page the site doesn't have).
-  5. **Vague requests and references have nowhere honest to go.** A live site
-     cannot ask a question back. The rule "when you cannot tell, answer addon:
-     it can do everything an edit can" is false. And the router never sees the
-     previous message. So "make it better", "do the same on the Visit page"
-     and "undo that" go to a paid step that must design something (*needs a
-     reading*).
-  6. **Undo is promised but can't be routed.** The router is told "every one
-     can be undone by saying so", but no step undoes a change. And "put it
-     back" after a deletion now meets the new-entry rule, which sends it to the
-     add-on step.
-- **Smaller gaps**:
+- **Six problems**, most serious first. Each is shown from the code. Items
+  marked *needs a reading* depend on what the real model answers, which the
+  proposed batch measures. Every consequence further down the pipeline is a
+  prediction, *unverified* until measured.
+  1. **The router's own instructions contradict the policy for frame
+     additions (R1).**
+     - Its add-on rule says new things go to `addon`, but its `nav`,
+       `picture` and `page` clauses use additions as their own examples ("add
+       our Instagram", "add Contact to the menu", "add a Call now button at the
+       top", "add a photo to the about page").
+     - **And the add-on step can't yet do most of these: a missing
+       capability.** It has no kind for a menu link, a footer link or detail,
+       or the header button. Today the router's `nav` clause points such
+       additions at an edit, which is not the correct answer under the policy.
+     - Which instruction the real model follows *needs a reading*.
+  2. **Attachments (R2).** The router is told to choose between the logo step
+     and the photo step by whether a file is attached, but it is never told
+     whether one is. After routing, only the logo step receives the file.
+     What happens to a photo attached to "use this on the starter page" is
+     *unverified*. The photo step can only use a file already uploaded or buy
+     one, and nothing tells the customer.
+  3. **Fallbacks are silent (R3).** Seven kinds of unusable answer quietly
+     become a paid `addon`, and the route's reply can't tell them apart from
+     the model's own choice.
+     - **Test 11 (run 88) proved the saved-row outcome**: exactly one correct
+       entry, through the add-on path, nothing else changed.
+     - **It did not prove the raw model's choice.** For that sentence the
+       realistic wrong answer would have shown, so `addon` was very likely the
+       model's own, but only a decision report can show it.
+  4. **A removal can become an add-on (R4).** "Remove the blog page" on a
+     site with no blog page is turned into `addon` by the code. That
+     contradicts the instruction "A REMOVAL IS NEVER AN ADDON" (*needs a
+     reading* for how often the model names a page the site doesn't have).
+  5. **Vague requests and references have nowhere honest to go (R5, R7).**
+     A live site can't ask a question back, "when you cannot tell, answer
+     addon" is the rule, and the router never sees the previous message.
+     Where "make it better" or "do the same on the Visit page" end up *needs
+     a reading*, and what the add-on step then does is *unverified*.
+  6. **Undo is promised but can't be routed (R6).** The router is told
+     "every one can be undone by saying so", but no step undoes a change.
+- **Smaller gaps** (R8–R14):
   - limits the router isn't told: four kinds of change per look message,
     24 pages and 24 tables, and a new entry must come in its own message;
   - which pages show what, which the router can't see;
@@ -64,16 +89,19 @@ Line numbers are for `builder/site-ask.mjs` unless another file is named.
     attempt;
   - a capability list that describes builds, not edits;
   - some stale comments.
-- **The proposal**: 14 single-message routing probes, with 4 optional ones.
-  The real router routes each probe once, and **nothing it answers is acted
-  on**.
-  - Cost: about 2–3 credits a probe, so **28–42 for the 14 and 36–54 for all
-    18**.
-  - It needs two things built first, both free to build and both waiting for
-    your word:
-    - a route-only mode in the canary (scripts only, no deploy);
-    - a field on the route's reply saying whether an answer is the model's
-      own (needs a merge and a deploy with an image roll).
+- **The test**: 18 single-message probes in **one batch, one press**.
+  - The real router routes each probe once, and nothing it answers is acted
+    on.
+  - **Cost: about 36–54 credits** (2–3 a probe).
+  - The press runs its own runtime checks before the first paid call, so it
+    needs no separate free press.
+  - Two things are being built on the branch for your review, with no merge,
+    deploy or spend:
+    - **decision-source reporting**: the route's reply says whether its
+      answer is the model's own, a fallback, or decided without the model,
+      with a fixed reason code for every fallback and normalization branch;
+    - **a routing-only batch mode** in the canary, which cannot post an edit,
+      an add-on, a build or a publish.
 
 ## 1. How a message is actually routed
 
@@ -191,42 +219,73 @@ Line numbers are for `builder/site-ask.mjs` unless another file is named.
 
 ## 3. Contradictions and gaps
 
-Each item gives what disagrees (with line numbers), what follows from it, how
-it is known (from the code, or needing a reading of the real model), and how
-much it matters.
+Each item gives:
+- what disagrees, with line numbers;
+- what follows from it, with consequences further down marked *unverified*
+  until measured;
+- how it is known: from the code, or needing a reading of the real model;
+- how much it matters.
 
-### R1. "Add …" to the menu, the footer, the header button and a page (high; needs a reading)
+### R1. Frame additions: the router contradicts the policy, and the add-on step lacks the capability (high; needs a reading)
 
-The add-on rule was strengthened for Test 11 (deploy 2177). Four sentences
-now point new things at `addon`:
-- "ADDING SOMETHING THE SITE DOES NOT HAVE YET … a section … on a page"
-  (238–241);
-- "A NEW ENTRY IN A LIST THE SITE ALREADY KEEPS IS AN ADDITION TOO"
-  (257–260);
-- "ASK IT OF THE THING ITSELF, NEVER OF WHAT IT GOES INTO" (272–277);
-- "COST NEVER MAKES A NEW ENTRY AN EDIT" (835–837).
+**Intended (your policy):** every new addition goes to the add-on path,
+menu links, footer links and header buttons included. Where the add-on step
+can't perform one, that is a missing capability, not a reason to call an
+edit correct.
 
-Against them, the layer clauses still use **additions** as their own
-examples:
-- `nav`: "add our opening hours at the bottom" (503), "add our Instagram",
-  "add a Privacy link in the small print" (507–508), "add Contact to the menu"
-  (513–514), "add a Call now button at the top" (516);
-- `picture`: "putting one in a space that has none … "add a photo to the about
-  page"" (485–487), while the add-on clause claims "a photograph on a page that
-  does not have one" (239–240);
-- `page`: "add a block built from parts the page already has" (527–528),
-  while the add-on clause claims a new section.
+**Current implementation: the router's instructions disagree with each
+other, and with the policy.**
+- Four sentences point new things at `addon`:
+  - "ADDING SOMETHING THE SITE DOES NOT HAVE YET … a section … on a page"
+    (238–241);
+  - "A NEW ENTRY IN A LIST THE SITE ALREADY KEEPS IS AN ADDITION TOO"
+    (257–260);
+  - "ASK IT OF THE THING ITSELF, NEVER OF WHAT IT GOES INTO" (272–277);
+  - "COST NEVER MAKES A NEW ENTRY AN EDIT" (835–837).
+- Three layer clauses use **additions** as examples of edits, against the
+  policy:
+  - `nav`: "add our opening hours at the bottom" (503), "add our Instagram",
+    "add a Privacy link in the small print" (507–508), "add Contact to the
+    menu" (513–514), "add a Call now button at the top" (516), and "A MENU
+    CHANGE IS "nav", NOT THIS AND NOT "addon"" (579);
+  - `picture`: "putting one in a space that has none … "add a photo to the
+    about page"" (485–487), while the add-on clause claims "a photograph on a
+    page that does not have one" (239–240);
+  - `page`: "add a block built from parts the page already has" (527–528),
+    while the add-on clause claims a new section.
+- Only "Add a gallery to the menu" for a page the site doesn't have is
+  already `addon` (524–526).
 
-**What follows if the model obeys the add-on rule over the examples.**
-- The add-on step has no kind for the menu, the footer or the header button.
-- Its picker can't answer "none": `minItems: 1`, and "name the single closest
-  one" (`site-add.mjs` 1288, 1301).
-- The closest kind is a `component`: a new section, designed and placed on a
-  page, charged (add-ons measured 2–13 credits), and reported as done.
+**Missing capabilities in the add-on step** (from its kinds,
+`builder/site-add.mjs` 454 onward):
 
-The photo case is absorbed further down: a `photo` on its own is handed to the
-picture step, which costs one extra picker call. *Not measured: there has been
-no real-model reading of a frame addition since deploy 2177.*
+| Addition | Add-on kind today | Status |
+|---|---|---|
+| A menu link to a page the site has | none | **missing capability** |
+| A footer link, social icon or footer detail (phone, email, opening line) | none | **missing capability** |
+| The header button | none | **missing capability** |
+| One line or sentence on an existing page | none; the nearest is `component`, a whole section | **missing as a small addition**; whether `component` can make one line is *unverified* |
+| A photograph on a page | `photo`; on its own it is handed to the picture step (`site-addon.mjs` 34–35) | exists; buying photographs is parked on fal funding |
+| A new entry in a stored list | `row` | exists; landed once (run 88) |
+| A section, a page, a table, a QR code, a 3D scene | `component`, `page`, `table`, `qr`, `three` | exist |
+
+**What follows (predicted, unverified):**
+- If the model follows the `nav` examples, frame additions are routed to an
+  edit, the opposite of the policy. The `nav` step's footer and menu editors
+  would make them; that isn't measured live for additions.
+- If the model follows the add-on rule, the request reaches a step that has
+  no kind for it. Its picker can't answer "none" (`minItems: 1`, and "name
+  the single closest one", `site-add.mjs` 1288, 1301). The nearest kind is
+  `component`: a section designed and placed on a page, charged (add-ons
+  measured 2–13 credits), and possibly reported as done.
+
+So aligning the router with the policy, and building the missing add-on
+kinds, are two separate changes for your decision. The order matters: routing
+frame additions to the add-on step before it can make them would send
+customers to a step that can't do the job.
+
+*Not measured: there has been no real-model reading of a frame addition since
+deploy 2177.*
 
 ### R2. Attachments (high; from the code)
 
@@ -237,25 +296,27 @@ no real-model reading of a frame addition since deploy 2177.*
   - `look` takes the logo "when no file is attached" (404–406).
   - "A message that ATTACHES a picture is never a removal" (661–662).
   - `picture` covers "Use my own photo of the shop instead" (486).
-- **It is never told whether a file is attached.** `askRequest` has no such
-  input, and its one user message holds only the digest and the text
-  (849–897, 895). The flag reaches only `readRouting`, after the model call,
-  where it is used to overrule an `ask` (1004).
-- **After routing, only the logo step receives the file** (`chat.js`
-  9354–9359).
+- **It is never told whether a file is attached** (from the code).
+  `askRequest` has no such input, and its one user message holds only the
+  digest and the text (849–897, 895). The flag reaches only `readRouting`,
+  after the model call, where it is used to overrule an `ask` (1004).
+- **After routing, only the logo step receives the file** (from the code:
+  `chat.js` 9354–9359).
   - The picture step chooses from the site's upload library, or buys a
     generated photograph (`worker.js` 22996–23012). Its code comment puts
     each bought photograph at about 19 credits (23002–23005).
   - The add-on request carries no file (10006–10007).
-- **Nothing tells the customer.** The browser's only mentions of a dropped
-  attachment are code comments (4342, 9354–9355, 11840, 11853, 11863).
+- **Nothing tells the customer** (from the code). The browser's only
+  mentions of a dropped attachment are code comments (4342, 9354–9355, 11840,
+  11853, 11863).
 - The system prompt says the builder "accepts attached images and PDFs as
   reference" (803–804). That is true of builds only.
 
-So "Use this photo on the starter page", sent with a photo attached, can end
-with a bought photograph or a different upload. And "here's the new header",
-sent with a file but without the word "logo", is routed without knowing there
-is a file.
+**What follows (predicted, unverified):**
+- "Use this photo on the starter page", sent with a photo attached, could
+  end with a bought photograph or a different upload.
+- "Here's the new header", sent with a file but without the word "logo", is
+  routed without knowing there is a file.
 
 ### R3. Silent conversions to a paid add-on (high, for customers and for our evidence; from the code)
 
@@ -272,24 +333,32 @@ as a paid add-on:
 | `clarify` on a live site | 938–945, then 970 |
 | any other intent, or no tool call at all | 970 |
 
-Nothing in the route's reply says a conversion happened (20059–20125).
-That has three consequences:
-- **A customer can pay for an add-on the model never chose**, and the add-on
-  step must then design something.
-- **A route check can't tell a conversion from a real answer.** The canary's
-  expected-route check passes either way. For Test 11's sentence, the
-  realistic wrong answer (`edit` · `data`, as in run 86) passes through
-  unchanged and would have shown. A conversion needs an unusual answer (no
-  layer, a `page` answer naming a missing page, a `clarify`). So run 88's
-  `addon` was very likely the model's own, but its reply alone can't prove
+Nothing in the route's reply says a conversion happened (20059–20125). Two
+consequences follow:
+- **A route check can't tell a conversion from a real answer** (from the
+  code). The canary's expected-route check passes either way.
+- **A customer can pay for an add-on the model never chose** (predicted,
+  unverified). The add-on step must then name some kind.
+
+**Test 11 (run 88): the outcome is proven, the model's choice is not.**
+- **Proven**: the saved-row outcome. Exactly one correct entry (`loaves`
+  id 7, "Rye & Caraway") was added through the add-on path, the six existing
+  rows and every page were unchanged, and the reply was true. That stays
+  credited.
+- **Not proven**: that the raw model answered `addon` itself. The route
+  answered `addon`, but its reply cannot show whether a conversion produced
   it.
-- **A routing test that expects `addon` is only sound once the reply says
-  which it was** (prerequisite (a), §5).
+  - For that sentence, the realistic wrong answer (`edit` · `data`, run 86's)
+    passes through unchanged and would have shown.
+  - A conversion would need an unusual answer (no layer, a `page` answer
+    naming a missing page, a `clarify`).
+  - So `addon` was very likely the model's own. Only the decision report can
+    show it.
 
 The comment above `readRouting` still says "WHEN THE ROUTER CANNOT DECIDE,
 BUILD" (899–913). On a live site the fallback is `addon` (117, 923).
 
-### R4. A removal can become an add-on (medium; needs a reading)
+### R4. A removal can become an add-on (medium; the conversion is from the code, how often it happens needs a reading)
 
 - The instructions say "A REMOVAL IS NEVER AN ADDON" (288–290) and "TAKING A
   WHOLE PAGE OFF THE SITE IS AN EDIT" (228–230).
@@ -299,9 +368,9 @@ BUILD" (899–913). On a live site the fallback is `addon` (117, 923).
   `remove`** (1249–1252). Its own comment says removal "only applies to a
   page that really exists, and everything else is an ordinary page edit"
   (1268–1269). The code makes it an add-on, not an ordinary edit.
-- So "remove the blog page" on a site without one reaches the add-on step,
-  which can't decline (R1). The right outcome is an honest "you don't have a
-  blog page" (`ask`), costing only the routing.
+- So "remove the blog page" on a site without one reaches the add-on step
+  (from the code). What the add-on step does with it is *unverified*: its
+  picker must name some kind.
 - The same happens to a page beyond the 24th address (R8).
 
 ### R5. "When you cannot tell" (medium; needs a reading)
@@ -316,7 +385,8 @@ BUILD" (899–913). On a live site the fallback is `addon` (117, 923).
   first build (938).
 - `ask` is for messages that don't describe a change (210).
 - So a vague change ("make it better", "fix the prices") has no honest answer
-  except `addon`, which must design something and charge for it.
+  except `addon`. What the add-on step then makes, and charges, is
+  *unverified*.
 
 ### R6. Undo (medium; from the code)
 
@@ -327,12 +397,13 @@ BUILD" (899–913). On a live site the fallback is `addon` (117, 923).
   saved version is a separate feature (`POST /api/site/<slug>/versions/restore`,
   which the free restores in our tests used), not something a chat message
   reaches.
-- "Put it back" after an entry was deleted now meets the new-entry rule: the
-  entry doesn't exist, so it is `addon` (257–260).
+- "Put it back" after an entry was deleted is a new row under your policy, so
+  it goes to `addon` (257–260).
 - The data step was given the deleted rows for exactly this case (`recent`,
-  `chat.js` 9347–9353), but only when the layer is `data`.
-- So the rule written for Test 11 and the data step's undo now point
-  different ways.
+  `chat.js` 9347–9353), but only when the layer is `data`. So that
+  undo context never reaches the add-on step. Whether a put-back through the
+  add-on step restores the entry's other fields (its description, say) is
+  *unverified*.
 
 ### R7. No conversation (medium; from the code)
 
@@ -343,8 +414,8 @@ BUILD" (899–913). On a live site the fallback is `addon` (117, 923).
   - a part held back (the customer sends it again);
   - the data step's last deleted rows.
 - So "make that one £3.50", "do the same on the Visit page" and "no, the
-  other one" are routed and acted on with nothing to say what "that one",
-  "the same" or "the other one" means.
+  other one" are routed with nothing to say what "that one", "the same" or
+  "the other one" means. What the steps then do with them is *unverified*.
 - Test 9 (closed) showed a self-contained second message after a failure.
   Nothing has tested a message that refers back.
 
@@ -356,7 +427,7 @@ BUILD" (899–913). On a live site the fallback is `addon` (117, 923).
   - The router is told `look` can make every change it lists (`alsoAsked`,
     312–320; the whole-message rule, 609–614).
   - I found no code that tells the customer a fifth kind of change was left
-    out. This isn't confirmed end to end.
+    out. This is *unverified* end to end.
 - **The footer isn't on the look door.**
   - The door's lanes are `css`, `theme`, `brand`, `description`, `wordmark`,
     `favicon`, `lang`, `langs`, `behavior`, `qr`, `components`, `shape`,
@@ -364,9 +435,8 @@ BUILD" (899–913). On a live site the fallback is `addon` (117, 923).
     `slug` (475–803).
   - The footer's details and links belong to the `nav` step.
   - `alsoAsked`'s list of what `look` reaches names "the menu and the
-    button" but not the footer (316). So a colour change plus a footer
-    change should be split between two answers. Whether the model does that
-    needs a reading (probe C2).
+    button" but not the footer (316). Whether the model splits a colour
+    change from a footer addition needs a reading (probe C2).
 - **24 pages and 24 tables.**
   - The browser sends at most 24 of each (`chat.js` 9077–9078), and the
     digest keeps 24 (789–792).
@@ -388,15 +458,15 @@ BUILD" (899–913). On a live site the fallback is `addon` (117, 923).
     (1244–1246; deploy 2166's `page/no-page`);
   - on `page`, it becomes an add-on (1252).
 
-### R10. A zero balance on a live site (low; from the code)
+### R10. A zero balance on a live site (low; the route's answer is from the code, what the customer sees is unverified)
 
 - A readable zero answers `build` without asking the model (`worker.js`
   19978–19985).
 - On a live site, the browser runs a whole-site rebuild for that answer
-  (9162 → 9047–9051), which the rebuild's own credit check then refuses.
-- So at zero, every message gets a refusal about rebuilding instead of an
-  answer about what was asked. That includes a question, and changes that
-  cost nothing (a page move, a logo removal).
+  (9162 → 9047–9051).
+- The rebuild's own credit check should then refuse it, so at zero a question
+  or a free change (a page move, a logo removal) would get a refusal about
+  rebuilding. That is *unverified*.
 
 ### R11. The capability list describes builds (low; from the code)
 
@@ -406,8 +476,8 @@ BUILD" (899–913). On a live site the fallback is `addon` (117, 923).
 - Links and web search are read only when a site is built (`worker.js` 14960
   and 15573, both in the build route). On edits, attachments reach only the
   logo step (R2).
-- So an `ask` answer can tell the owner of a live site that an edit can do
-  these things.
+- An `ask` answer could therefore tell a live site's owner that an edit can
+  do these things. That is *unverified*.
 
 ### R12. A written price and a stored price (low; already seen live)
 
@@ -440,7 +510,7 @@ BUILD" (899–913). On a live site the fallback is `addon` (117, 923).
 | A part held back, and the customer asked to send it next | 63 (old wording) |
 | A stored price changed → `data` | 71, 77 |
 | A stored entry taken off → `data` | 77 (routing), 80 (the deletion) |
-| A new entry → `addon` | 88 (Test 11) |
+| A new entry saved through the add-on path: exactly one correct row (the outcome; the route answered `addon`, and its reply cannot show whether that was the model's own) | 88 (Test 11) |
 | A whole page removed → `page` + `remove` | 49, 72 |
 | A wrong route refused by the canary before any edit | 74 |
 
@@ -450,114 +520,115 @@ BUILD" (899–913). On a live site the fallback is `addon` (117, 923).
 
 - Each probe is one message, routed once by the real router through the real
   `/api/site/route`, exactly as the browser posts it.
-- **Nothing is acted on**: no edit or add-on is posted, and no site or data
-  changes.
-- Each answer is saved and compared with its expected answer. A different
-  answer is a finding, not a failure of the batch.
+- **Nothing is acted on**: no edit, add-on, build or publish is posted, and no
+  site or data changes.
+- Each answer is saved with its decision source and reasons, and set beside
+  the intended outcome. A different answer is a finding, not a failure of the
+  batch.
 
-### Two things to build first (free to build; both need your word)
+### Two things being built first (on the branch, for review; no merge, deploy or spend)
 
-- **(a) The route's reply says whether its answer is the model's own.**
-  - One allow-listed field on the reply: `chosen: "model"`, or
-    `chosen: "fallback"` with a reason from a fixed list (the rows of R3's
-    table).
+- **(a) Decision-source reporting.**
+  - The route's reply gains a `decision`:
+    - whether the answer is the model's own (`model`), a fallback
+      (`fallback`), or decided without asking the model (`rule`);
+    - every reason code that applied, each from one fixed list that covers
+      every fallback and normalization branch;
+    - the model's own intent and layer, read only from the fixed lists.
   - It carries no message text, shows nothing to the customer, and changes
     nothing that runs.
-  - Without it, every `addon` reading might be a conversion (R3).
-  - `worker.js` and `builder/site-ask.mjs` are container-image inputs. So
-    this needs a merge and a deploy with an image roll, then one free
-    runtime press.
-- **(b) A route-only mode in the edit canary.**
-  - A new form box takes the list of probes.
-  - With the box filled, the canary signs in and routes each probe with the
-    site's real page list, the site's name as the browser sends it, and the
-    `attached` flag as given.
-  - It saves every answer (`routing-probes.json`) and prints a table against
-    the expectations.
-  - It **never posts an edit or an add-on**.
-  - Spend must be `yes`, because routing is charged.
-  - At most 20 probes per press.
-  - It changes only `scripts/` and the canary workflow, so it needs no deploy
-    and can be pressed from the branch once you've reviewed it.
-  - It is tested against the in-process stub, as before.
+  - `worker.js` and `builder/site-ask.mjs` are container-image inputs, so it
+    needs a merge and a deploy with an image roll before the batch can read
+    it.
+- **(b) A routing-only batch mode in the edit canary.**
+  - One new form box names a committed probe list.
+  - The press runs the canary's own runtime checks first: the Worker's
+    commit and the container's image against the expected ones, and the
+    balance. Only then does it route each probe, as the browser would.
+  - A network allow-list makes an edit, an add-on, a build, a publish or a
+    restore impossible from this mode.
+  - It needs no deploy (scripts and the workflow only).
 
-Without (b), each probe needs its own press, and a probe whose route matches
-its expectation goes on to post the paid edit.
+### The test matrix
 
-### The probes
-
-The probes run on two sites:
-- `fold-lane-bakery`, the bakery ("Harbour Loaf").
+- The probes run on `fold-lane-bakery` ("Harbour Loaf").
   - Pages: `/`, `/starter`, `/visit`, `/gallery`, `/order`.
   - Table: `loaves`.
   - The menu lists Today's bake, The starter, Visit and Gallery, but not
     Order.
-- `fretwork-1`, for one probe. Its table is `lessons`; run 80 deleted the
-  "Group of three" entry.
+- One probe runs on `fretwork-1` (table `lessons`; run 80 deleted the
+  "Group of three" entry).
+- What the columns mean:
+  - **Intended** is what should happen, and its basis: your policy, the
+    router's own rule, or not set (yours to decide).
+  - **Current implementation** is what the router's instructions and code
+    point to, with line numbers. Anything further down the pipeline is a
+    prediction, *unverified* unless a run is named.
+  - **Observed** is filled from the batch: the answer, its decision source
+    and its reasons.
 
-**Core (14)**
-
-| # | Site | Message | Expected | What it tells us |
+| # | Message | Intended (basis) | Current implementation | Observed |
 |---|---|---|---|---|
-| P0 | bakery | `Make the Country White £4.90.` | `edit` · `data` | Control: a known answer, read correctly by the new mode |
-| A1 | bakery | `Add our Instagram to the footer: @harbourloaf.` | `edit` · `nav` | R1: an addition to the footer |
-| A2 | bakery | `Add Order to the menu.` | `edit` · `nav` | R1: an addition to the menu (the page exists) |
-| A3 | bakery | `Add a Call us button at the top that rings 0117 496 0000.` | `edit` · `nav` | R1: the header button |
-| A4 | bakery | `On the Visit page, add a line saying we're closed on bank holidays.` | recorded; no clause decides it (`addon` would design a section; `page` · `/visit`; `text`) | A small addition to a page, which no clause names |
-| B1 | bakery | `We've started baking a Seeded Spelt, £4.80. Put it on the list.` | `addon`, nothing held back | The new-entry rule without the word "add" |
-| B2 | fretwork-1 | `Put the Group of three back on the price list, at £18.` | `addon`, by the instructions as written | R6: a put-back after a deletion |
-| C1 | bakery | `Make the Country White £4.90 and add a Seeded Spelt at £4.80.` | one answer, with the other part held back word for word: `edit` · `data` holding the addition, or `addon` holding the price change | A change plus an addition, which no single answer can make |
-| C2 | bakery | `Make the headings dark green and add our Instagram to the footer.` | one answer, with the other part held back: `edit` · `look` holding the footer, or `edit` · `nav` holding the colour | R8: the footer isn't on the look door |
-| D1 | bakery | `Remove the blog page.` | `ask` (there is no blog page); never `addon` | R4 |
-| D2 | bakery | `Make the Gallery page's background warmer and the Visit page's background cooler.` | `edit` · `look`, no page named, nothing held back | The whole-message rule by targets: two pages, one kind |
-| E1 | bakery | `Make it better.` | recorded (the instructions say `addon`) | R5 |
-| E2 | bakery | `Undo the last change.` | recorded (no step can undo) | R6 |
-| G1 | bakery | `Do the same on the Visit page.` | recorded (ideally `ask`: there is nothing to refer to) | R7 |
-
-**Optional (4)**
-
-| # | Site | Message | Expected | What it tells us |
-|---|---|---|---|---|
-| A5 | bakery | `Add a photo of our sourdough to the Visit page.` | `edit` · `picture` or `addon` (the instructions allow both, and both end on the picture step) | R1's photo case |
-| F1 | bakery, file attached | `Use this photo on the starter page instead of the current one.` | `edit` · `picture` | R2: the route an attached photo takes (that the picture step never receives the file is already shown by the code) |
-| G2 | bakery | `Make that one £3.50 instead.` | recorded | R7: "that one" with nothing before it |
-| B3 | bakery | `Take the Walnut Levain off the list.` | `edit` · `data` | Control for taking an entry off |
+| P0 | `Make the Country White £4.90.` | `edit` · `data`, nothing held back (router rule: a change to a stored entry) | The data clause (341–344). Next: the data step changes one field (live: runs 71, 77) | — |
+| A1 | `Add our Instagram to the footer: @harbourloaf.` | `addon`, nothing held back (your policy). **The add-on step has no kind for a footer link: missing capability** | Conflict: a `nav` example (507) against the add-on rule and tie-break (238–241, 272–277). If `addon`: the picker must name a kind, most likely `component` (*unverified*) | — |
+| A2 | `Add Order to the menu.` | `addon`, nothing held back (your policy). **No add-on kind for a menu link: missing capability** | Conflict: "add Contact to the menu" (513–514) and "A MENU CHANGE IS nav" (579) against the add-on rule. If `addon`: the nearest kind is *unverified* | — |
+| A3 | `Add a Call us button at the top that rings 0117 496 0000.` | `addon`, nothing held back (your policy). **No add-on kind for the header button: missing capability** | Conflict: "add a Call now button at the top" (516) against the add-on rule | — |
+| A4 | `On the Visit page, add a line saying we're closed on bank holidays.` | `addon`, nothing held back (your policy). **No add-on kind for one line on a page**; `component` is a whole section (*unverified* whether it can make one line) | No clause names a small addition. `page` allows "add a block built from parts the page already has" (527–528); `text` changes existing words only (400–402) | — |
+| A5 | `Add a photo of our sourdough to the Visit page.` | `addon`, nothing held back (your policy) | Conflict: "add a photo to the about page" is a `picture` example (486–487). If `addon`: a lone `photo` is handed to the picture step (`site-addon.mjs` 34–35); buying is parked on fal funding | — |
+| B1 | `We've started baking a Seeded Spelt, £4.80. Put it on the list.` | `addon`, nothing held back (your policy) | The new-entry rule (257–260), without the word "add". If `addon`: the `row` kind (live once: run 88) | — |
+| B2 | `Put the Group of three back on the price list, at £18.` (`fretwork-1`) | `addon`, nothing held back (your policy: a re-added entry is a new row) | The new-entry rule. The data step's undo rows reach `data` only (`chat.js` 9347–9353) | — |
+| B3 | `Take the Walnut Levain off the list.` | `edit` · `data` (router rule; live: runs 77, 80) | Control | — |
+| C1 | `Make the Country White £4.90 and add a Seeded Spelt at £4.80.` | One answer, the other part held back: `edit` · `data` holding the addition, or `addon` holding the price change (your policy for the addition; the held-back rule, 321–325) | `alsoAsked` allows either (321–325) | — |
+| C2 | `Make the headings dark green and add our Instagram to the footer.` | One answer, the other part held back: `edit` · `look` holding the footer addition, or `addon` holding the colour change. Not `nav` (your policy) | The look door has no footer lane (`site-lanes.mjs` 475–803), and `alsoAsked`'s list omits the footer (316). The `nav` clause claims footer additions (507–508) | — |
+| D1 | `Remove the blog page.` (the site has none) | `ask`, saying there's no blog page; never `addon` (router rule, 288–290; `ask` is my reading, for your confirmation) | The `page` field sends an unknown page to `addon` (629–631), and the code converts `page` + an unknown page before reading `remove` (1249–1252) | — |
+| D2 | `Make the Gallery page's background warmer and the Visit page's background cooler.` | `edit` · `look`, no page, nothing held back (the whole-message rule by targets, 609–614) | Shown live only for Test 8's mix (run 66). Two pages of one kind not measured | — |
+| E1 | `Make it better.` | Not set: yours to decide | "When you cannot tell, answer addon" (287); no question back on a live site (221, 938) | — |
+| E2 | `Undo the last change.` | Not set: yours to decide | No step can undo; "every one can be undone by saying so" (216) | — |
+| F1 | `Use this photo on the starter page instead of the current one.` (file attached) | `edit` · `picture` (router rule, 485–487: a swap of an existing photo is a change, not an addition) | The router isn't told a file is attached (R2). After routing, the picture step never receives it (from the code: `chat.js` 9354–9359) | — |
+| G1 | `Do the same on the Visit page.` | Not set: yours to decide (my suggestion: a question back) | No earlier message reaches the router (R7) | — |
+| G2 | `Make that one £3.50 instead.` | Not set: yours to decide | The same (R7) | — |
 
 ### Cost (estimates, not limits)
 
 - Routing has cost 2–3 credits a message in recent runs (2 in most, 3 in
   run 88).
-- **The core 14: about 28–42. All 18: about 36–54.**
-- The balance is 96. Nothing else is charged, because no edit, add-on or
-  publish runs.
-- Building (a) and (b) costs nothing. The deploy for (a) is free, and so is
-  its one runtime press.
+- **All 18 in one batch: about 36–54.**
+- The balance is 96. Nothing else is charged, because no edit, add-on, build
+  or publish runs.
+- The batch's own runtime checks run before the first paid call, and cost
+  nothing.
+- Building (a) and (b) costs nothing. So do the deploy for (a) and the
+  batch's runtime checks.
 
 ### What it won't show
 
 - **One answer per message.** The same message can be answered differently
-  on another call. A probe that disagrees with its expectation should be
+  on another call. A probe that disagrees with its intended outcome should be
   repeated before any fix is built on it. That would be a second, smaller
   round, estimated after the first.
-- **Routing only.** It doesn't show what each step then does, except where
-  the code already shows the consequence (R1–R4 say so).
+- **Routing only.** It doesn't show what each step then does. Every
+  consequence further down stays *unverified*, as marked.
 - **One model**: the default picker, as a customer with the default model
   gets. And two sites.
 
 ### After the readings: decisions that are yours
 
 These findings are recorded here. None is in the backlog yet, and none is
-being fixed. Which to pursue is your decision once the readings are in. The
-questions the readings will inform:
-- Should additions to the menu, the footer and the header button be stated to
-  go to `nav`, since the add-on step has no kind for them?
-- Where should a small addition to a page go (a sentence, a line)?
-- Should a put-back after a deletion use the data step's undo, or be treated
-  as a new entry?
-- Should a vague request, or one that refers back, on a live site get an
-  honest question back at no charge, instead of the add-on step?
-- Undo: an honest reply, or a route that restores a saved version?
-- Attachments:
+being fixed. Which to pursue is your decision once the readings are in.
+- **Frame additions (R1).** Two separate changes:
+  - align the router's `nav`, `picture` and `page` examples with your policy;
+  - build the missing add-on kinds (menu link, footer link and detail, header
+    button, and perhaps a single line on a page).
+
+  The order matters (R1).
+- **A small addition to a page** (a line or a sentence): what the add-on step
+  should make.
+- **A put-back after a deletion**: whether the add-on step should be given
+  the deleted entry's other fields.
+- **A vague request, or one that refers back**, on a live site: whether it
+  should get an honest question back at no charge, instead of the add-on step.
+- **Undo**: an honest reply, or a route that restores a saved version.
+- **Attachments**:
   - should the router be told a file is attached?
   - should the customer be told when an attachment can't be used?
   - should the picture step use an attached photo?
