@@ -589,3 +589,34 @@
 - **Findings outside the round are kept for the next one, not folded in**
   (2026-10-02): *"Keep undo, conversation context and attachment delivery
   recorded as separate findings for the next round."*
+- **A verdict passes only on what it really saw** (2026-10-02, reviewing the
+  additions round): *"require decision.source=model and
+  decision.raw.intent=addon, with no routing failure; a final addon intent
+  alone currently lets a fallback from raw edit pass."* — *"Strengthen the
+  stored and served text checks: "We're NOT closed on bank holidays"
+  currently passes the expected closure statement."* — *"Also preserve the
+  untouched frame fields, including the business name, legal links and
+  layout; blanking the entire CHROME object currently hides those
+  changes."* So a routing check needs the model's own answer (a fallback or a
+  failed call never counts, even when it lands on the expected route), a
+  words check needs the words stated (whole, and not denied in their
+  clause), and a preservation check takes out only the places the change was
+  allowed to touch, never a whole object.
+- **An addition fills only what each page lacks** (the same review):
+  *"preserve existing contact fields per page and test differing contacts
+  across pages."* So what one page shows is never read as every page's, and
+  an addition never writes over a page's own value; tests use pages that
+  differ.
+- **A validation batch: the paid press's own preflight, the routing controls
+  first, the demo changes kept** (the same review): *"Remove the separate
+  free rehearsal and restore from the validation plan: use the paid run's
+  built-in preflight, run routing controls before the additions, and leave
+  the demo changes in place. Update the cost estimate."* So the additions
+  batch is two paid presses, the controls first, each checking the deploy
+  before its first paid call; nothing is restored afterwards; and the cost
+  estimate is restated whenever the plan changes.
+- **After these fixes are verified: a whole-router audit** (the same
+  review): *"After these fixes are verified, our next separate task is a
+  whole-router audit across build, edit, add-on and internal handoffs for
+  hardcoded intent decisions and behavior across different wording and site
+  types."* A separate task, not started before the fixes are verified.

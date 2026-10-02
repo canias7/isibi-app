@@ -1,9 +1,10 @@
 # The five additions: routed to the add-on step and delivered there (2026-10-02)
 
 *On the branch for review: nothing merged, deployed or spent. The code is
-`202c554a` (the fix), `a5282a6f` (the validation batch), and `6c69d155` and
-`03e664aa` (two reply sentences corrected before review, §3.4 and §3.5);
-this record and the handoff follow them.*
+`202c554a` (the fix), `a5282a6f` (the validation batch), `6c69d155` and
+`03e664aa` (two reply sentences corrected before review, §3.4 and §3.5),
+and, after the owner's review, `f18af0df` and `dbc520f2` (§10), whose plan
+replaces §7's first one; this record and the handoff follow them.*
 
 ## 1. The owner's request
 
@@ -231,10 +232,12 @@ and keeps *"…without it…"* for one photograph.
     `03e664aa` superseded it.
 - **Image**: `a412daac10dbc936` on `main` and `efc04d8a` → `331bf9bf72e72309`
   on `202c554a` and `a5282a6f` (189 inputs, 159 paths; the kit's two files
-  and the builder modules moved) → **`b4f1e95939e15f16` on `03e664aa`**, the
-  candidate (`builder/site-add.mjs` is an input; `6c69d155` alone gave
-  `ca9575222c27821f`). So a merge rolls the container, and owes the usual
-  wait before container work.
+  and the builder modules moved) → `b4f1e95939e15f16` on `03e664aa`, the
+  first candidate (`builder/site-add.mjs` is an input; `6c69d155` alone gave
+  `ca9575222c27821f`) → **`a4409e55d3f3eb09` on `dbc520f2`**, the candidate
+  after the owner's review (§10; `builder/site-nav.mjs` is an input). So a
+  merge rolls the container, and owes the usual wait before container work.
+- The suite and CI for the candidate after the review are in §10.
 
 ## 6. What this does not show
 
@@ -251,43 +254,24 @@ and keeps *"…without it…"* for one photograph.
 
 ## 7. The post-fix validation batch (prepared, not run)
 
-Four presses of the edit canary, in this order, after the owner's merge and
-deploy; each is the owner's.
+*Rewritten after the owner's review (§10): two paid presses, the routing
+controls first; no separate free rehearsal and no restore. The first plan
+(four presses: a free rehearsal, the additions, a free restore to
+`01790819484141-dgmag4`, then the controls) is in git at `1e65c842`.*
 
-1. **Free: the runtime check and the batch's rehearsal.** `12-additions` with
-   spend `no`, and the deploy's sha and image: the free checks confirm the
-   Worker and a cold container, the before-read is taken, and the real app
-   opens signed in, opens the bakery and types message 1 — sending nothing.
-2. **Paid: the five additions, delivered** (`12-additions`, spend `yes`).
-   Run 90's five messages, word for word, from one tab:
-   - A1 "Add our Instagram to the footer: @harbourloaf."
-   - A2 "Add Order to the menu."
-   - A3 "Add a Call us button at the top that rings 0117 496 0000."
-   - A4 "On the Visit page, add a line saying we're closed on bank holidays."
-   - A5 "Add a photo of our sourdough to the Visit page."
+Two presses of the edit canary, in this order, after the owner's merge and
+deploy and the usual 15–20 minutes for the container to roll. Each press is
+the owner's, and each fills the deploy's sha and image boxes, so **its own
+preflight is the runtime check**: both readers must answer the expected
+commit, a cold container the expected image, and queued jobs and the runner
+must be on, or it stops before its first paid call.
 
-   **It passes only on what landed** (`additionsVerdict`): each message
-   routed `addon` with its own words, one add-on request, and — for A1–A3 —
-   one menu-editor edit carrying the addition flag, with no edit at all for
-   A4 and A5; each job's stored reply the hand-over and the menu editor's
-   success, or the add-on's own success, shown as a success; five publishes
-   in order, the after-read at the last; in the stored source, every page's
-   menu gains "Order" → `/order` and keeps every item, every footer gains the
-   Instagram link to `instagram.com/harbourloaf`, every header keeps "Order a
-   loaf" and gains "Call us" ringing 01174960000 beside it, the footer's
-   details unchanged, every page but `/visit` byte for byte as it was outside
-   its frame, and `/visit` keeps every word and photograph it had and gains
-   one line saying "closed on bank holidays" and one photograph described as
-   sourdough; the same five on the published pages a visitor is served; and
-   the money closes (routing plus each job's row and ledger, the hand-overs
-   at nothing).
-   **The wall**: the add-on step is open to this scenario's own site alone;
-   an edit that is not the add-on's hand-over is stopped in the browser, and
-   A4 and A5 may make no edit at all. A message the router sends to an edit
-   costs its routing call and changes nothing.
-3. **Free: the restore** to `01790819484141-dgmag4`, the version the
-   before-read saw (read live at 04:02 UTC today).
-4. **Paid, routing only: the controls** (`addition-fix-1`, eight probes):
+1. **Paid, routing only: the controls first** (`addition-fix-1`, eight
+   probes). Nothing is acted on, so the bakery is unchanged for press 2, and a
+   router that now mistakes an edit for an addition is seen before anything
+   changes on the site. A paid batch refuses without both deploy boxes and
+   below 24 on the balance (3 a probe), so **this press's preflight is the
+   enforced runtime check**, at no cost when it fails.
    - X1 the "Order a loaf" button changed → `edit`/`nav`;
    - X2 "The starter" taken out of the menu → `edit`/`nav`;
    - X3 the footer's opening hours changed → `edit`/`nav`;
@@ -297,23 +281,83 @@ deploy; each is the owner's.
    - C2 a colour change and a new footer link → each answer holding back the
      other's part;
    - D2 two pages' backgrounds → one `look`, page none.
+2. **Paid: the five additions, delivered** (`12-additions`, spend `yes`).
+   Its preflight checks the same boxes again, its free checks and before-read
+   run in the same press, and the app is not opened if any of them failed.
+   Run 90's five messages, word for word, from one tab:
+   - A1 "Add our Instagram to the footer: @harbourloaf."
+   - A2 "Add Order to the menu."
+   - A3 "Add a Call us button at the top that rings 0117 496 0000."
+   - A4 "On the Visit page, add a line saying we're closed on bank holidays."
+   - A5 "Add a photo of our sourdough to the Visit page."
 
-**Cost (estimates, not limits; the balance is the only bound).** Routing
-1.3–3 a call (run 90 averaged 1.33); a menu edit 2 (runs 49 and 63); a line
-or a photograph through the add-on's page call about 3–8 each.
-- Press 2: about 19–37 credits; about 19 more (and $0.15 at fal) if the
-  add-on buys the photograph instead of placing the site's own. The
-  scenario's budget (45) is checked before each message.
-- Press 4: about 10–24 credits; it needs a balance of 24 to start (3 a
-  probe).
-- Presses 1 and 3: free.
-- In all: about 29–61, or up to about 80 with a bought photograph, against a
-  balance of 72 (run 90's reading). If press 2 runs high, press 4 can wait
-  for a top-up.
+   **It passes only on what landed** (`additionsVerdict`):
+   - each message routed `addon` **by the model itself** (`decision.source`
+     `model` and the model's own answer, `decision.raw.intent`, `addon`, with
+     no `failed` or `failure`: a fallback that lands on `addon` fails), with
+     its own words; one add-on request; for A1–A3 one menu-editor edit
+     carrying the addition flag, and no edit at all for A4 and A5;
+   - each job's stored reply: the hand-over and the menu editor's success, or
+     the add-on's own success, shown as a success;
+   - five publishes in order, the after-read at the last;
+   - in the stored source: every page's menu gains "Order" → `/order` and
+     keeps every item; every footer gains the Instagram link to
+     `instagram.com/harbourloaf`; every header keeps "Order a loaf" and gains
+     "Call us" ringing 01174960000 beside it;
+   - **every page's frame keeps everything else it had, byte for byte**: the
+     name, the tagline, the first button, the footer's details and
+     small-print links, the arrangement (`frameText`, with only the
+     additions' own places taken out, by the menu editor's own writers:
+     `withoutAdditions`); every page but `/visit` is byte for byte as it was
+     apart from those places;
+   - `/visit` keeps every word and photograph it had and gains one photograph
+     described as sourdough and one line that **states** "closed on bank
+     holidays": the words whole, with nothing before them in their clause
+     that denies them (`states`; "We're NOT closed on bank holidays" fails),
+     both in the page's text and in the visible text of what the page gained;
+   - the same on the published pages a visitor is served, the line held to
+     the same rule;
+   - the money closes (routing plus each job's row and ledger, the
+     hand-overs at nothing).
 
-**What a pass shows**: one real routing of each addition after the fix, and
-each delivered exactly as asked, with nothing else moved. **Not**: how often
-the router chooses it, other phrasings or sites, or a bought photograph.
+   **The wall**: the add-on step is open to this scenario's own site alone;
+   an edit that is not the add-on's hand-over is stopped in the browser, and
+   A4 and A5 may make no edit at all. A message the router sends to an edit
+   costs its routing call and changes nothing.
+
+   **The additions stay** (the owner, 2026-10-02): the bakery is not put back.
+   The press's after-read records the version it leaves, and that version,
+   not `dgmag4`, is the bakery's state for whatever comes next.
+
+**Cost (estimates, not limits; the balance is the only bound).**
+- Routing 1.3–3 a call (run 90: 24 credits for 18 calls, 1.33 each).
+- A menu edit about 2 (runs 49 and 63). The add-on's own picker is not
+  billed when it hands a frame item over: the hand-over answers before any
+  bill (`aFailure("layer")`), and its job settles at `none`.
+- The line and the photograph: one add-on bill each (its picker, designer
+  and page call priced together), about 3–10 (add-ons measured 2–13, runs
+  47–52).
+- **Press 1, the controls**: about 10–24; it needs 24 on the balance to
+  start.
+- **Press 2, the additions**: about 19–41 (routing 7–15, the three menu
+  edits 6, the line and the photograph 6–20). About 19 more, and $0.15 at
+  fal, if the add-on buys the photograph rather than placing one of the
+  site's own; it asks for one only when the balance at that moment covers it
+  (`imagesAffordable`). The scenario's budget (45) is checked before each
+  message.
+- **In all**: about 29–65, or up to about 84 with a bought photograph,
+  against a balance of 72 (read at 05:28 UTC). After press 1, 48–62 would
+  remain, which covers press 2 without a purchase.
+- **No free press.** The first plan's estimate (press 2 about 19–37, in all
+  29–61) put the page calls at 3–8; the scenario's own comment said 3–10 and
+  "about 22–41". They now give one figure, 3–10, which the measured add-ons
+  support.
+
+**What a pass shows**: one real routing of each addition after the fix,
+chosen by the model rather than reached by a fallback, and each delivered
+exactly as asked with nothing else moved, in the stored source and on the
+served pages. **Not**: how often the router chooses it, other phrasings or
+sites, or a bought photograph.
 
 ## 8. Separate findings for the next round (not fixed here)
 
@@ -339,8 +383,168 @@ photographs off is refused) says *"Nothing was published and nothing was
 charged"*, although the routing call was charged first. It predates this
 round (it is in `efc04d8a`).
 
+Found in the owner's review round and left as it was: **`navDigest`** in
+`builder/site-nav.mjs` tells the menu editor's model *"THE FOOTER'S CONTACT
+DETAILS, on every page:"* and lists the first page's that has any. When
+pages differ (§10.1's case), the model is told something that is not so. The
+writing side no longer relies on it for an addition (each page keeps its
+own); for an ordinary edit it is unchanged, as before this round.
+
 ## 9. Test 11
 
 **Closed by the owner (2026-10-02) for its verified saved-row outcome** (run
 88): *"Mark Test 11 closed for its verified saved-row outcome."* Not to be
 repeated. The checklist's *Test 11* carries the closure.
+
+## 10. The owner's review of the candidate, and its fixes (2026-10-02)
+
+> *"Before merging, fix these review findings together: in site-nav.mjs,
+> frameNow takes only the first nonempty contact object, so additionOnly can
+> accept a phone number that applyContact then overwrites on another
+> page—preserve existing contact fields per page and test differing contacts
+> across pages. In canary-additions.mjs, require decision.source=model and
+> decision.raw.intent=addon, with no routing failure; a final addon intent
+> alone currently lets a fallback from raw edit pass. Strengthen the stored
+> and served text checks: "We're NOT closed on bank holidays" currently
+> passes the expected closure statement. Also preserve the untouched frame
+> fields, including the business name, legal links and layout; blanking the
+> entire CHROME object currently hides those changes. Add focused regression
+> coverage for these reproductions. Remove the separate free rehearsal and
+> restore from the validation plan: use the paid run's built-in preflight,
+> run routing controls before the additions, and leave the demo changes in
+> place. Update the cost estimate and docs/owner-notes.md, then commit/push
+> for review before merge, deployment or spending. After these fixes are
+> verified, our next separate task is a whole-router audit across build,
+> edit, add-on and internal handoffs for hardcoded intent decisions and
+> behavior across different wording and site types. Don't edit CLAUDE.md."*
+
+### 10.1 Each page keeps its own contact details (`f18af0df`, `builder/site-nav.mjs`)
+
+- **Reproduced through the real `runNavEdit`**: a home page whose footer
+  shows an address and opening hours, a Visit page whose own footer shows the
+  phone 0117 000 1111, and an addition answering
+  `contact: { phone: "0117 496 0000" }`. On `1e65c842` the addition was
+  accepted, because the first page had no phone, and both pages changed: the
+  Visit page's own number became 0117 496 0000. On the fix only the home
+  page changes, and the Visit page keeps 0117 000 1111.
+- **The fix**:
+  - `frameNow` reads every page's contact details (`contacts`, one entry per
+    frame, `null` for a frame with none) instead of the first one found;
+  - `additionOnly` keeps a detail while some page's footer lacks it, and
+    drops one that every footer already shows;
+  - `applyChromeObject` takes `keep`, which fills only the fields a frame
+    lacks; `runNavEdit` passes it for an addition, so each page gains only
+    what it is missing. An ordinary edit writes every page as before.
+- **Tests** (`test/frame-addition.test.mjs`), on three pages with different
+  footers (home: address and hours; Visit: its own phone and address; Order:
+  none):
+  - `frameNow` reads each page's own details, not the first page's;
+  - an added phone and email fill only what each footer lacks, and the Visit
+    page keeps its own number;
+  - a phone alone changes only the home and Order pages, and the Visit
+    page's source is untouched;
+  - the control: the same answer as an ordinary edit writes the phone on
+    every page.
+- **Red check**: on `1e65c842`'s menu editor, 3 of the file's 11 tests fail
+  (the existing addition test, now given each page's details, and the two
+  new ones); all 11 pass on the fix.
+- **Not changed**: the request's digest still describes the first page's
+  contact details as the frame's (`navDigest`). It tells the model what is
+  there; the writing side no longer trusts it.
+
+### 10.2 The batch's verdict, made strict (`dbc520f2`, `scripts/canary-additions.mjs`)
+
+- **A route counts only as the model's own answer.** On a site the route
+  falls back to `addon` (`FALLBACK_WITH_SITE`), so a record whose final
+  intent was `addon` passed when the model had answered an edit and a
+  fallback replaced it, or when the call failed. Each message now needs
+  `decision.source` `model`, the model's own answer (`decision.raw.intent`)
+  `addon`, and no `failed` or `failure`; a reply with no decision, or a
+  decision with no raw answer, fails. Tested with nine records, each failing
+  for a frame item and for the words: a fallback from an edit naming no step,
+  a fallback from an unknown step, a fallback whose raw answer was an add-on,
+  a failed call, a model source whose raw intent is an edit, a model add-on
+  answer marked failed, one carrying a failure, no decision, and a decision
+  with no raw answer.
+- **A line must state its words.** "We're NOT closed on bank holidays"
+  contains "closed on bank holidays". `states` requires the words whole, on
+  word boundaries, with nothing before them in their own clause (back to the
+  last `.` `!` `?` `;` or `:`) that denies them (`not`, `never`, `no`, `nor`,
+  `without`, or a word ending in `n't`); a later occurrence still counts when
+  an earlier one is denied. The text rung's reader skips a lone lowercase
+  word, so `<strong>not</strong>` vanished from the page's text; the stored
+  check therefore also reads the visible text of the span the page gained
+  (between the parts it shares with the page before). The served check uses
+  the same rule. Tested stored (NOT, `<strong>not</strong>`, aren't, never,
+  no longer) and served (NOT, `<strong>not</strong>`, an escaped aren't),
+  with a negation after the words that must still pass.
+- **The frame's other fields are compared, not blanked.** The old check
+  blanked the whole `const CHROME = {…}` object, so a changed business name,
+  tagline, small-print link or arrangement passed. `withoutAdditions` now
+  takes out only the additions' own places, with the menu editor's own
+  writers (the menus' items, `applyNav(pages, [])`; the second button,
+  `applyAction(…, "secondAction")`; the social links,
+  `applyChromeList(pages, "social", [])`). Every page, the Visit page
+  included, must keep the rest of its frame byte for byte (`frameText`: the
+  frame object and the header and frame tags), and every page but the Visit
+  page must match entirely. Tested with six changes, each failing: the name
+  on the gallery page, the tagline on the home page, small-print links added
+  on the order page, the arrangement changed everywhere, the name on the
+  Visit page and the first button's words on the Visit page; the delivery
+  alone passes.
+- **Red check**: with the new helpers first added carrying the old logic (so
+  the file loads), the four behaviour tests fail: the routing decision, the
+  stored denial, the served denial and the frame fields.
+
+### 10.3 The plan: the paid preflight, the controls first, nothing put back
+
+§7 is rewritten: two paid presses, the routing controls first and then the
+additions, each checking the deploy itself before its first paid call; no
+free rehearsal and no restore, so the additions stay on the bakery. The
+scenario's comment and the workflow's description say so
+(`scripts/canary-ui.mjs`, `.github/workflows/edit-canary.yml`), and the
+scenario's cost comment now gives the same figure as §7.
+
+### 10.4 Verification
+
+- **Sweeps**, each from a verified-green tree with comment-only controls:
+  - `scripts/mutants/review-findings.json`, 13 mutants over the fixes, run
+    with `test/frame-addition`, `test/canary-additions` and
+    `test/site-contact`: 13 of 13 killed (F-1 the first page's details only,
+    F-2 any one page showing a detail drops it, F-3 `keep` ignored, F-4 an
+    addition written as an edit; C-1 a failure marked only by its reason,
+    C-2 nothing a denial, C-3 no word boundaries, C-4 a denial anywhere
+    before the words, C-5 the gained span unread, C-6 the frame not
+    compared, C-7 everything taken out, C-8 the served words as a substring,
+    C-9 the second button left in); both controls survived; the files were
+    restored byte for byte.
+  - `scripts/mutants/additions-batch.json`, re-anchored to the new verdict
+    (the old route check is implied by the new ones, so it was replaced by
+    one mutant on each new condition, with an isolating case): 20 of 20
+    killed, both controls survived.
+- **Full suite**: `8648 / 8648 / 0 / 0` locally on the candidate's code
+  (seven tests more than `03e664aa`).
+- **Unit tests, run 36969632740 on `dbc520f2`**: `8648 / 8644 / 0 / 4`, the
+  same total (CI skips its usual four).
+- **Image**: `a412daac10dbc936` on `main` → **`a4409e55d3f3eb09`** on
+  `dbc520f2` (189 inputs, 159 paths; it was `b4f1e95939e15f16` on
+  `03e664aa`). A merge rolls the container.
+- **Site build, run 36969632759 on `dbc520f2`**: the gate printed *"ALL
+  CHECKS: 404 checks in 27 sections across 4 shards, every job green"*, at
+  inputs `5e086e2167f6637e` (3,967 files; `6a20f165b967aa9f` at `1e65c842`,
+  because `builder/site-nav.mjs` is one). The other counts, from each step's
+  log: TAP 397, kit-typecheck 4, contrast-cases 16, theme-seam 11,
+  theme-render 29, site-routing 14, site-runtime 47; kit-render, kit-a11y,
+  kit-effects and kit-paint all passed.
+
+### 10.5 What comes next
+
+- **These fixes**: the owner's review, then the owner's word to merge and
+  deploy, then the two presses of §7. Nothing is merged, deployed or spent
+  without it.
+- **Then, as a separate task, once these fixes are verified**: a
+  whole-router audit across the build, the edit, the add-on and the internal
+  hand-overs, for intent decided in code rather than by the model and for
+  behaviour across different wording and kinds of site. Not started.
+- **Still kept for the next round**: undo, conversation context and
+  attachments (§8), and `lostPhotosMsg` (§8).

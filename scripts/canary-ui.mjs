@@ -293,11 +293,12 @@ export const UI_SCENARIOS = Object.freeze({
   // image before anything is sent, and the routing controls run first.
   "12-additions": Object.freeze({
     site: "fold-lane-bakery",
-    // Routing 1-3 for each message; each frame item about 2 at the menu
-    // editor; the line and the photograph about 3-10 each through the add-on's
-    // page call: about 22-41 in all. Checked before each message, so the last
-    // one can take the total past it: about 19 more if the add-on buys the
-    // photograph rather than placing the site's own.
+    // Routing 1.3-3 for each message; each frame item about 2 at the menu
+    // editor (the add-on's own picker is not billed when it hands one over);
+    // the line and the photograph about 3-10 each, one add-on bill apiece:
+    // about 19-41 in all. Checked before each message, so the last one can
+    // take the total past it: about 19 more if the add-on buys the photograph
+    // rather than placing the site's own.
     budget: 45,
     adds: true,
     layers: Object.freeze(["nav"]),

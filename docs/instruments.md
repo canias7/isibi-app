@@ -142,7 +142,8 @@ in `docs/instruments.md`; each test's plan and evidence is in the checklist.
     `tables: []`, and signs in as the fixtures' owner, so its router is told
     those names: run 77's `routing.json` carries four. Batch 1's presses ran
     without them.
-- **The additions batch** (2026-10-02, on the branch; not merged or run):
+- **The additions batch** (2026-10-02, on the branch; not merged or run;
+  corrected after the owner's review the same day):
   - **`12-additions`**, a UI scenario on `fold-lane-bakery`: run 90's five
     additions word for word from one tab (`scripts/canary-ui.mjs`). It is the
     one scenario the add-on step is open to, for its own site; an edit that is
@@ -155,11 +156,28 @@ in `docs/instruments.md`; each test's plan and evidence is in the checklist.
     editor's, the text rung's and the image readers (each addition exactly
     once where it was asked for, and nothing else moved), the published pages
     a visitor is served, and the money.
+  - **A route counts only as the model's own answer** (the owner's review):
+    `decision.source` `model`, `decision.raw.intent` `addon`, and no `failed`
+    or `failure`. The route falls back to `addon` on a site, so a final
+    `addon` alone could be a fallback from an edit; that fails.
+  - **A line must state its words** (`states`): whole words on word
+    boundaries, with nothing before them in their own clause that denies them
+    ("We're NOT closed on bank holidays" fails), read in the page's text and
+    in the visible text of the span the page gained, and on the served page.
+  - **The frame is compared, not blanked**: `withoutAdditions` takes out only
+    the additions' own places with the menu editor's writers, and every
+    page's frame (`frameText`: the frame object and the header and frame
+    tags) must keep its name, tagline, first button, footer details,
+    small-print links and arrangement byte for byte.
   - **The money check accepts `none`**: a job that never reserved anything
     (the add-on's hand-over to the menu editor) is settled at nothing, with an
     empty ledger, like an exempt one (`moneyVerdict`).
   - **`addition-fix-1`**, eight routing-only controls for what the fix must
     leave as it was (`scripts/router-probes/addition-fix-1.json`).
+  - **Two paid presses, the controls first** (the owner, 2026-10-02): no
+    separate free rehearsal, because each paid press's own preflight checks
+    the deploy before its first paid call (the routing batch requires both
+    deploy boxes), and no restore: the additions stay on the bakery.
   - The presses, pass list and cost are the checklist's *Test 12* and
     `docs/history/2026-10-02-additions.md` §7.
 - **The routing-only batch** (`route_probes`, 2026-10-02, the router audit;
