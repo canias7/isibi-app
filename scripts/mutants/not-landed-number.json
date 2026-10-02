@@ -1,0 +1,33 @@
+[
+  {
+    "label": "CONTROL: the pronoun comment changes nothing",
+    "control": true,
+    "files": ["builder/site-add.mjs"],
+    "from": "  // \"The new words\" are always \"them\"; only a single photograph is \"it\".",
+    "to": "  // \"The new words\" are always \"them\"; only a single photograph is \"it\" (control)."
+  },
+  {
+    "label": "N-1: one line of words is \"it\" again",
+    "files": ["builder/site-add.mjs"],
+    "from": "const one = words.length === 0 && photos.length === 1;",
+    "to": "const one = words.length + photos.length === 1;"
+  },
+  {
+    "label": "N-2: one photograph beside words is \"it\"",
+    "files": ["builder/site-add.mjs"],
+    "from": "const one = words.length === 0 && photos.length === 1;",
+    "to": "const one = photos.length === 1;"
+  },
+  {
+    "label": "N-3: any single item is \"it\"",
+    "files": ["builder/site-add.mjs"],
+    "from": "const one = words.length === 0 && photos.length === 1;",
+    "to": "const one = words.length <= 1 && photos.length <= 1;"
+  },
+  {
+    "label": "N-4: the pronouns are swapped",
+    "files": ["builder/site-add.mjs"],
+    "from": "the page came back without \" + (one ? \"it\" : \"them\") +",
+    "to": "the page came back without \" + (one ? \"them\" : \"it\") +"
+  }
+]

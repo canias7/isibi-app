@@ -293,6 +293,30 @@ test("the words kind takes one line for a page the site has, and refuses empty o
   assert.match(addRefusal("no-words"), /the line itself, and the page it goes on/);
 });
 
+// THE SENTENCE FOR AN ADDITION THAT DID NOT LAND names what is missing and
+// refers back to it in the same number: "the new words" are always "them",
+// one photograph is "it". The customer reads it as it is (the browser adds
+// nothing), so "the new words — the page came back without it" would be the
+// screen's own words.
+test("the not-landed sentence refers back to what is missing in the same number", async () => {
+  const { notLandedMsg } = await import("../builder/site-add.mjs");
+  const line = { page: "/visit", words: "We're closed on bank holidays." };
+  const shot = { page: "/visit", src: "/u/x/a1b2.jpg" };
+  const cases = [
+    [{ words: [line] }, "the new words", "them"],
+    [{ words: [line, line] }, "the new lines", "them"],
+    [{ photos: [shot] }, "the photograph", "it"],
+    [{ photos: [shot, shot] }, "the photographs", "them"],
+    [{ words: [line], photos: [shot] }, "the new words or the photograph", "them"],
+  ];
+  for (const [missing, names, pronoun] of cases) {
+    const said = notLandedMsg(missing);
+    assert.ok(said.includes("I couldn't add " + names + " — "), "the sentence does not name " + names + ": " + said);
+    assert.ok(said.includes("came back without " + pronoun + ","), names + " is not referred to as “" + pronoun + "”: " + said);
+    assert.match(said, /nothing on your site changed/);
+  }
+});
+
 test("every field the edit path refuses to create has a kind here, and the route refuses a second one by name", () => {
   const W = blankComments(read("../worker.js"));
   const decl = W.slice(at(W, "const ADD_ONLY_FIELDS = [", "list"), W.indexOf("];", at(W, "const ADD_ONLY_FIELDS = [", "list")));

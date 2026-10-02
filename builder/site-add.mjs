@@ -3927,7 +3927,8 @@ export function notLandedMsg({ words = [], photos = [] } = {}) {
   const what = [];
   if (words.length) what.push(words.length === 1 ? "the new words" : "the new lines");
   if (photos.length) what.push(photos.length === 1 ? "the photograph" : "the photographs");
-  const one = words.length + photos.length === 1;
+  // "The new words" are always "them"; only a single photograph is "it".
+  const one = words.length === 0 && photos.length === 1;
   return "I couldn't add " + (what.join(" or ") || "that") + " — the page came back without " + (one ? "it" : "them") +
     ", so nothing on your site changed. Try again in a moment.";
 }
