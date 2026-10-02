@@ -424,7 +424,32 @@ the owner's free press, run 51, at 22:57 UTC):
     two moves it happened to get right); sweeps
     W4 9 of 10 (one equivalent, measured), W2 35 of 35, W3 8 of 8; full
     suite 8,766. Found and kept apart: N11–N13. The history's §6 and the
-    audit's §4.2.
+    audit's §4.2. **The owner passed those gaps' review (same day); their
+    live-model confirmation stays pending for one grouped live batch.**
+    **Batch 2 (same day, on the owner's word): W5, W7, W8, W15 and W24 are
+    fixed on the branch, for review, not merged or deployed**, through one
+    hand-over contract (`builder/hand-over.mjs`). The parts put off, the
+    scope and the reason travel together wherever work moves, with models
+    deciding and code checking only the fixed lists, the site's pages and
+    the message's own words.
+    - A missing page's removal stays an edit and is refused with the real
+      pages (W5).
+    - Every ending names the parts put off, on the server and on screen
+      (W7).
+    - The full rewrite takes them out before any model reads the message,
+      and its page writer is told why it was handed the work (W8).
+    - An addition beside look work is put off and the look change runs
+      (W15).
+    - The add-on step is shown the hand-over's reason, part and page (W24).
+    - The row review's settled reply names several parts, and its refund
+      names them too.
+
+    47 new cases (35 red on `ef158022`, 7 needing the new module, 5
+    controls); sweeps 43 of 43 and 7 of 7; full suite `8813 / 8813 / 0 /
+    0`; unit CI `8813 / 8809 / 0 / 4` on `28690c06`, after a first push the
+    add step's import guard refused. The grouped live-validation batch for
+    both batches, about 33–54 credits, is the audit's §5.4;
+    `docs/history/2026-10-02-router-batch-2.md`.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

@@ -254,7 +254,8 @@ here; take a closed one out of both.**
   one is still written on one line.
 - **The whole-router audit's findings** (2026-10-02, W1–W26; each in full in
   `docs/investigations/whole-router-audit.md` §3; **W1–W4 fixed on the
-  branch in batch 1, not merged or deployed**; W5–W26 open):
+  branch in batch 1, and W5, W7, W8, W15 and W24 in batch 2, not merged or
+  deployed**; the rest open):
   - a photo removal handed on to the page step carries the router's
     `remove`, so the page step can delete a page (W1; fixed on the branch);
   - removing one language or one QR code on the look step removes all of
@@ -264,11 +265,11 @@ here; take a closed one out of both.**
   - a menu edit writes one menu to every page, flattening menus that differ
     per page (W4; fixed on the branch);
   - an edit converted to an add-on keeps the held-back part, so a mixed
-    message's halves swap (W5);
+    message's halves swap (W5; fixed on the branch);
   - the browser keeps six page addresses after a reload and never refreshes
     a stored list of two or more (W6);
   - the held-back part is named only on success, and a climb to the full
-    rewrite runs it anyway (W7, W8);
+    rewrite runs it anyway (W7, W8; fixed on the branch);
   - the page writer's text guard refuses a removal for its verb ("Get rid
     of", "Drop", "Lose"), after a model confirmed it (W9);
   - the router calls translation a rewrite though the look step translates;
@@ -280,7 +281,8 @@ here; take a closed one out of both.**
     with a file becomes a paid add-on (W17); files reach only the logo step
     and builds, and nothing says so (W16);
   - the look step's hand-over to the add-on drops its other lanes (W15); the
-    edit's hand-over to the add-on carries no reason (W24);
+    edit's hand-over to the add-on carries no reason (W24); both fixed on
+    the branch;
   - replies offer follow-ups no route can serve as meant (W18);
   - the behaviour lane charges with no visible change (W19); removing
     custom styling explains instead (W20); a replacement with a straight
@@ -303,13 +305,51 @@ here; take a closed one out of both.**
   every page again in full without seeing them (N12); the look reply names
   a list field by its key ("— langs", "— qr") and never says which codes
   came off (N13).
+- **What batch 2 leaves** (2026-10-02, N14–N21 in the audit's §3.0): an edit
+  step handed work by another is not shown the reason (N14); the rewrite's
+  designer is not shown the hand-over line (N15); a signed-out reply or a
+  watch that gives up adds no held sentence (N16); a readable reply without
+  `deferred` names nothing (N17); an addition beside other work with no words
+  for each change refuses the whole message (N18); more than four parts are
+  refused (N19); a queued add-on swept before its first reply has no parts for
+  the review to name (N20); an unreadable router answer drops its held part
+  (N21).
 
 ---
 
 ## Backlog
 
+- **WHAT BATCH 2 LEAVES (N14–N21; found 2026-10-02 while fixing W5, W7, W8,
+  W15 and W24; deliberate unless marked, none changed).** Each is in the
+  audit's §3.0 with where it stands, and in
+  `docs/history/2026-10-02-router-batch-2.md` §5.
+  - **The hand-over line has two readers.** An edit step handed work by
+    another edit step records the reason on its trace, but its picker is not
+    shown it (N14). The rewrite's designer is not shown the line, because its
+    description becomes the site's (N15).
+  - **Some endings name nothing put off.** A signed-out reply (401) and a
+    watch that gives up add no held sentence (N16, a conditional risk). A
+    readable reply without `deferred` names nothing: the browser trusts the
+    server's own account (N17). A queued add-on swept before its first reply
+    leaves no stored parts for the review to name (N20, a conditional risk).
+  - **Some messages are refused or run whole rather than guessed.** An
+    addition beside other work, on a picker answer with no words for each
+    change, refuses the whole message (N18). More than four parts are refused
+    as unreadable (N19, a conditional risk). An unreadable router answer
+    drops its held part, so the add-on step gets the whole message and its
+    picker decides (N21).
 - **THE WHOLE-ROUTER AUDIT'S FINDINGS (found 2026-10-02; W1–W4 fixed on
-  the branch in batch 1, for review, not merged or deployed; W5–W26 open).**
+  the branch in batch 1, and W5, W7, W8, W15 and W24 in batch 2, for review,
+  not merged or deployed; the rest open).** **Batch 2**
+  (`docs/history/2026-10-02-router-batch-2.md`): one hand-over contract
+  carries the parts put off, the scope and the reason wherever work moves.
+  - A missing page's removal stays an edit (W5).
+  - Every ending names what was put off (W7).
+  - The full rewrite never runs it, and its page writer is told why (W8).
+  - An addition beside look work is put off and the look change runs (W15).
+  - The add-on step is told the hand-over's reason, part and page (W24).
+
+  The grouped live-validation batch for both batches is the audit's §5.4.
   **Batch 1** (`docs/history/2026-10-02-router-batch-1.md`): a hand-over
   carries only what its destination can do (W1); one language or one QR
   code comes off alone, and a removed code's figure comes off its pages
