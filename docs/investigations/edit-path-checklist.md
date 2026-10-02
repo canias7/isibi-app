@@ -410,7 +410,7 @@ stylesheet scope and rule keys (deploy 2161).
 Deferred by the owner: hydration (#418), translation, model-written replies,
 and drafts surviving a refresh.
 
-## The router audit (2026-10-02; corrected after the owner's review; decision reporting and the routing-only batch built on the branch for review; nothing merged, deployed or spent)
+## The router audit (2026-10-02; corrected after the owner's review; decision reporting and the routing-only batch merged and deployed in deploy 2178; the batch not yet pressed; nothing spent)
 
 The owner's order, once Test 11's result was verified: audit the router
 before any broader test resumes. The audit is
@@ -453,7 +453,8 @@ routing test.
     `a412daac10dbc936` (predicted). The record is
     `docs/history/2026-10-02-route-decision.md`.
 - **The batch**: all 18 probes in one press (`router-audit-1`), about 36–54
-  credits. It needs the merge and deploy of the decision report first.
+  credits. It needed the merge and deploy of the decision report first,
+  which is done (deploy 2178, below).
 - **Your review of the batch** (2026-10-02): the decision report passed. Two
   batch defects were corrected before any merge, deploy or spend:
   - **C1 and C2's held-back part.** It used to match any nonempty text, so
@@ -473,6 +474,16 @@ routing test.
     36953647381 `8581 / 8577 / 0 / 4`, and the site build reused (same
     inputs fingerprint). The record is
     `docs/history/2026-10-02-route-decision.md` §7.
+- **Merged and deployed in deploy 2178** (2026-10-02, on the owner's word
+  *"merge and deploy and then i will run it"*): a fast-forward of 12
+  commits, `25faac78` → `706c9b66`, at 02:18:36Z, with CI reused (unit
+  36953951717 on `706c9b66`, `8581 / 8577 / 0 / 4`; the site build's
+  inputs unchanged since run 36949313442). The image was built as predicted
+  and rolled `9a71a6384b4206a2` → `a412daac10dbc936` at 02:22:23Z.
+  **Deployed, not runtime-confirmed**: the batch's own press is the runtime
+  check, not before 02:43 UTC. Before it: balance 96, ledger row 350, no
+  job open; the bakery still at `dgmag4`, with `/visit`'s one photograph
+  (02:30 UTC). `docs/deploy-record.md`.
 - The broad plan below stays paused.
 
 ## Broad real-model batches — four chats through the normal app (proposed 2026-10-01 on the owner's word; paused by the owner the same day; nothing sent or spent)

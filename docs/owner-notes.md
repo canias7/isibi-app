@@ -1,83 +1,71 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-02, 02:04 UTC)
+## Current handoff — read this first (2026-10-02, 02:31 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**State now: your two batch corrections are made, for your review. Nothing
-is merged, deployed or spent. Test 11 (run 88) still waits for your
-closure.**
-- **The decision report passed your review** and is unchanged (`1a8290e7`).
-- **C1 and C2's held-back part** (`4866b15b`):
-  - It used to match any text, so `addon` holding back the addition
-    matched, and so did text that isn't in the message.
-  - Each intended answer now names the part it must hold back and the part
-    it must make. The batch reads the router's held-back text the way the
-    route does, over the probe's own message.
-  - The wrong part, text that isn't in the message, half a part, more than
-    the other part, or the whole message is a difference, never a match.
-  - The test that accepted the wrong part is corrected, with focused cases
-    for both of your findings.
-- **F1**:
-  - It now asks "Use this photo on the Visit page instead of the current
-    one."
-  - The Visit page shows exactly one photograph, the counter and morning
-    board, at the bakery's current version. I checked it in run 88's
-    evidence (the page and its stored source) and again today on the live
-    site.
-  - The probe records that starting condition, and the report prints it.
-    `/starter` shows no photo; `/gallery` and `/order` show only the logo.
-- **Unchanged**: 18 probes, about 36–54 credits (the balance is 96); the
-  batch's walls, so it still can't edit, add, build, publish or restore; and
-  its own runtime check before it spends.
-- **Checked**:
-  - 24 batch tests;
-  - the red check: the old code fails 7 of them, and the old rule alone
-    exactly 4;
-  - a sweep of 26 deliberate faults, all caught once 4 test gaps were
-    closed;
-  - the full suite: 8,581 tests, all passing;
-  - CI on `4866b15b`: unit tests green (run 36953647381, `8581 / 8577 /
-    0 / 4`); the site build reused, because nothing it reads changed (the
-    same inputs fingerprint as run 36949313442).
+**State now: merged and deployed (deploy 2178), not yet confirmed live. The
+routing-only batch is ready for you to press from 02:43 UTC. Test 11 (run
+88) still waits for your closure.**
+- **The merge**: on your word (*"merge and deploy and then i will run
+  it"*), `main` moved by fast-forward from `25faac78` to `706c9b66` (12
+  commits) at 02:18 UTC. It carries the decision report, the batch with
+  your two corrections, the audit and its records, and the paused broad
+  plan's documents.
+- **The deploy**: run 2178 went green on `706c9b66`. The container image
+  was rebuilt exactly as predicted, and the container moved from
+  `9a71a6384b4206a2` to `a412daac10dbc936` at 02:22 UTC. The site files
+  under `public/` didn't change.
+- **Checked before the merge**:
+  - nothing else was running and no edit job was open;
+  - CI was reused, not repeated: unit tests on `706c9b66` itself (run
+    36953951717, `8581 / 8577 / 0 / 4`), and the site build's run
+    36949313442, whose inputs haven't changed;
+  - undoing the merge in a scratch copy gives back `main`'s exact files.
+- **Nothing was spent.** The balance is 96, the newest ledger row is still
+  350 (run 88), and no job is open (read at 02:27 UTC). Run 89, your press
+  from `main` at 02:15, stopped within a second and charged nothing.
+- **F1's starting condition still holds**: the bakery is still at
+  `01790819484141-dgmag4`, and `/visit` still shows its one photograph
+  (read at 02:30 UTC).
 
 **What I need from you**
-1. Your review of the corrections (`4866b15b`).
-2. Your word to merge and deploy. The container image would roll from
-   `9a71a6384b4206a2` to `a412daac10dbc936` (predicted, unchanged by this
-   round), so the batch waits 15–20 minutes after the deploy.
-3. Your approval of the batch: all 18 probes, about 36–54 credits.
-4. Your closure of Test 11 (run 88).
+1. **Press the batch at 02:43 UTC or later**, with the boxes below. The
+   press is your go-ahead for its spend: 18 probes, about 36–54 credits.
+   First it checks, at no cost, that the Worker answers with `706c9b66` and
+   a cold container with `a412daac10dbc936`. That check is this deploy's
+   runtime confirmation, so no separate free press is needed. If it
+   refuses because the container hasn't moved yet, nothing is charged; wait
+   a few minutes and press again.
+2. Your closure of Test 11 (run 88).
 
-**The batch's press, once merged and deployed** (edit canary, Run workflow,
-from `main`). Every other box stays blank, and the site and second-site
-boxes stay as they are:
-- *Run the ONE paid edit as well (yes/no)*: `yes`;
+**The batch's press** (edit canary, Run workflow, from `main`). Every other
+box stays blank, and the site and second-site boxes stay as they are:
+- *Run the ONE paid edit as well (yes/no)*: `yes`
 - *ROUTING-ONLY BATCH: the name of a committed probe list…*:
-  `router-audit-1`;
-- *Refuse to spend unless the Worker reports this deploy sha…*: `main`'s
-  commit after the merge, which I'll confirm from the deploy;
-- *Refuse to spend unless a cold container reports this image id…*:
-  `a412daac10dbc936`, once the deploy's log confirms it.
+  `router-audit-1`
+- *Refuse to spend unless the Worker reports this deploy sha (prefix, >=7
+  chars)…*: `706c9b66dfce513dcc3a8677acd8438454b02045`
+- *Refuse to spend unless a cold container reports this image id
+  (exact)…*: `a412daac10dbc936`
 
-F1 depends on the bakery still being at `01790819484141-dgmag4`. If it is
-published again before the press, I'll read the Visit page again first
-(free).
+If the bakery is published again before the press, I'll read the Visit
+page again first (free).
 
 **The order of work** (your word)
 1. Test 11's retry: done (run 88), for your closure.
-2. The router audit: done. Its decision report passed review, and the
-   batch's two corrections are made, for your review. The batch waits for
-   the merge, the deploy and your approval.
+2. The router audit: its decision report and batch are merged and
+   deployed. The batch is next, by your press.
 3. The broad plan and its batch runner stay paused.
 
 **Links**
+- Run workflow: https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml
+- Deploy 2178: https://github.com/canias7/isibi-app/actions/runs/36955027635
 - The audit: `docs/investigations/router-audit.md` (§5 is the test).
-- The record: `docs/history/2026-10-02-route-decision.md` (§7 is this round).
+- The record: `docs/history/2026-10-02-route-decision.md` (§8 is the merge).
 - The batch: `scripts/router-probes/router-audit-1.json`.
-- Run 88: https://github.com/canias7/isibi-app/actions/runs/36942972947
 
 **From our chat**
 - Every new addition goes to the add-on path; what it can't make is a
@@ -88,12 +76,12 @@ published again before the press, I'll read the Visit page again first
 - CLAUDE.md is left alone.
 
 **Blockers**
-- None. Every next step needs your word.
+- None. The batch waits for your press, from 02:43 UTC.
 
 **Exact next action**
-- On your word, I merge and deploy, read the deploy, and hand you the press
-  with the deployed commit. After the batch, I read every answer and fill in
-  the audit's Observed column. No fix starts until you decide.
+- After your press, I read every answer, its decision source and its
+  reasons, and fill in the audit's Observed column. No fix starts until you
+  decide.
 
 ---
 
@@ -153,6 +141,28 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-02 — Merged and deployed: deploy 2178 (the decision report and the routing-only batch); the batch is yours to press
+
+- **On your word** (*"merge and deploy and then i will run it"*), `main`
+  moved by fast-forward from `25faac78` to `706c9b66` at 02:18 UTC: 12
+  commits, with the decision report you passed, the batch with your two
+  corrections, the audit, and the paused broad plan's documents.
+- **Checked first**: nothing else running and no edit job open; CI reused
+  (unit tests on `706c9b66` itself, `8581 / 8577 / 0 / 4`; the site build
+  unchanged since run 36949313442); undoing it in a scratch copy gives back
+  `main`'s exact files.
+- **Deploy 2178** went green. The container image was rebuilt exactly as
+  predicted, and the container moved to `a412daac10dbc936` at 02:22 UTC.
+  The image step took about 3 minutes this time, not 15.
+- **Deployed, not confirmed live yet.** The batch's press checks the
+  Worker's commit and a cold container's image before it routes anything,
+  so it is the runtime check. Press it from 02:43 UTC; the boxes are in the
+  handoff above.
+- **Nothing spent**: balance 96, newest ledger row 350, no job open. The
+  bakery is still at `dgmag4`, so F1's starting condition holds.
+- The readings are in `deploy-record.md`, and the record is
+  `history/2026-10-02-route-decision.md` §8.
 
 ## 2026-10-02 — Your review of the batch: a held-back part is now judged by what it holds back, and F1 tests a real replacement (nothing merged, deployed or spent)
 

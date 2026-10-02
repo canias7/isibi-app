@@ -5,7 +5,7 @@
 > `docs/deploy.md`, where CLAUDE.md's **Deploy** section moved in the second
 > pass. This file keeps the measurements behind them: the
 > timing bands, every image-id prediction checked against a deploy's own log
-> (deploys 2137–2177), and the served-file check driven end to end on deploy
+> (deploys 2137–2178), and the served-file check driven end to end on deploy
 > 2139.
 >
 > **Add each new deploy here**, one paragraph per deploy, in the same shape:
@@ -843,6 +843,70 @@ confirmations passed (the free jobs `52ab9449…` and `c47d529b…` settled
 `empty` at cost 0, billing `none`); ALL FREE CHECKS PASSED. The balance read
 101 and nothing was charged (read again in Supabase: the ledger's last row
 still 349, no job open).
+
+**Deploy 2178 (2026-10-02) was predicted on both ends and built as
+predicted**: `origin/main` `25faac78` answered `9a71a6384b4206a2` and the
+candidate `706c9b66` **`a412daac10dbc936`**, from the same 189 inputs (159
+distinct paths), two of which differ: `worker.js` and
+`builder/site-ask.mjs`. The push carried the router audit's decision report
+and the canary's routing-only batch (`1a8290e7`, corrected after the
+owner's review at `4866b15b`), the audit and its records, and the paused
+broad plan (`72c1c90c`, `f7b57ae9`: documents, and five fixture files under
+`docs/test-fixtures/broad-batches/` that no code reads). Nothing under
+`public/` moved. **A fast-forward of 12 commits**, `25faac78` → `706c9b66`
+at 02:18:36Z, on the owner's word (*"merge and deploy and then i will run
+it"*). Checked first:
+- **the candidate**: `main` was still `25faac78`, an ancestor of
+  `706c9b66`, read again just before the push;
+- **nothing in flight**: no Actions run in progress (run 89, the owner's
+  press from `main` at 02:15, had already ended: its canary step failed
+  after about a second, and it charged nothing); no edit job open in
+  `edit_jobs` (the only rows not `done` or `failed` are the two `lost` jobs
+  from 1 and 2 September, refunded);
+- **CI, reused, not repeated**: unit run 36953951717 on `706c9b66` itself,
+  `8581 / 8577 / 0 / 4`; site build run 36949313442 on `1a8290e7`, 404
+  checks in 27 sections, every job green, at inputs `7c819874b50c4249`, the
+  fingerprint `706c9b66` prints too (3,967 files);
+- **the rollback**: reverting `25faac78..706c9b66` in a throwaway worktree
+  gives main's own tree (`f45fb56e…`);
+- **no served-file reading**: nothing under `public/` changed.
+
+**One deploy run**, 2178 (36955027635, `push` on `706c9b66`), `completed` /
+`success`, the job **3m48s** (02:18:41–02:22:29):
+- **the gate** was set for `706c9b66…` (taking over from `25faac78…`); the
+  drain answered `no live leases after 1s — deploying` (masked `***s`), and
+  the gate was `left to expire` for the new sha;
+- **the image**: `built isibi-app-sitebuildcontainer:a412daac10dbc936
+  (registry answered 404; 189 inputs off ./Dockerfile)` (masked
+  `a4***2daac***0dbc936`, `***89`). 0 `CACHED` lines, as always; 15 layers
+  `Pushed` and 4 `Layer already exists`; the digest `sha256:7ea…` (masked).
+  Then Wrangler's container step: `EDIT isibi-app-sitebuildcontainer`, `-
+  "image": …:9a71a6384b4206a2` / `+ "image": …:a412daac10dbc936`, `SUCCESS
+  Modified application isibi-app-sitebuildcontainer` at **02:22:23Z**;
+- **timings**: image step **3m05s** (02:19:03–02:22:08), back near the
+  ordinary rebuild band after 2177's 15m07s. The apt layer took 20.0 s and
+  the build was named at 02:20:00. The push began at 02:20:04, every layer
+  but one was up by 02:20:38, and the last, `4a8d6864dcf4`, finished at
+  02:22:00 (about 1m56s for that layer). Wrangler 16 s (02:22:09–02:22:25);
+- **Wrangler**: `DEPLOY_ID` `706c9b66dfce513dcc3a8677acd8438454b02045`
+  (masked); `No updated asset files to upload`; `Uploaded isibi-app`,
+  `Deployed isibi-app triggers`, `Current Version ID:
+  02a5a267-c560-410c-8a33-8e10e46b9a4a` (masked `4***0c` and
+  `8e***0e46b9a4a`; the group lengths fix each run at one `1`). The `npm
+  error npx canceled … wrangler` line is the action's check for an
+  installed Wrangler, as before.
+
+**The image rolled at 02:22:23Z**, so container work waits 15–20 minutes:
+the routing-only batch, whose own preflight is this deploy's runtime check,
+is not to be pressed before 02:43 UTC.
+
+**Deployed, not runtime-confirmed**: no dispatch was attempted (the known
+403 is not repeated). The batch's press carries `expect_deploy` `706c9b66…`
+and `expect_image` `a412daac10dbc936`, and its runtime check reads both
+before any routing call. The money, read after the push and again at 02:27
+UTC: balance 96, the ledger's last row 350 (run 88), no job open. The bakery
+still serves `01790819484141-dgmag4` (read at 02:30 UTC: `/visit` shows its
+one photograph, `d5d59152….jpg`), F1's recorded starting condition.
 
 ## The served-file check, driven end to end on deploy 2139
 

@@ -143,7 +143,7 @@ in `docs/instruments.md`; each test's plan and evidence is in the checklist.
     those names: run 77's `routing.json` carries four. Batch 1's presses ran
     without them.
 - **The routing-only batch** (`route_probes`, 2026-10-02, the router audit;
-  `scripts/canary-probes.mjs`; on the branch for review, not merged): the
+  `scripts/canary-probes.mjs`; merged and deployed in deploy 2178): the
   name of a committed probe list in `scripts/router-probes/` (the first is
   `router-audit-1`, 18 probes). Each message is routed once through the real
   `/api/site/route`, as the browser posts it, and nothing is acted on.

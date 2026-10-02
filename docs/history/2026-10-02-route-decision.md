@@ -1,7 +1,9 @@
 # 2026-10-02 — Where a routing answer came from, and a batch that only routes
 
-On the branch for the owner's review. **Not merged, not deployed, nothing
-spent.** The audit this serves is
+Built on the branch for the owner's review, then **merged and deployed in
+deploy 2178** (2026-10-02, §8) on the owner's word. **Not yet
+runtime-confirmed, and nothing spent**: the batch's own press is the runtime
+check. The audit this serves is
 [`investigations/router-audit.md`](../investigations/router-audit.md); its §5
 holds the probe matrix and the press.
 
@@ -335,3 +337,27 @@ unchanged):
     carry over.
   - The image is unchanged: 189 inputs, none differing from `1a8290e7`, so
     `a412daac10dbc936` is still the prediction.
+
+## 8. Merged and deployed: deploy 2178 (2026-10-02)
+
+> *"merge and deploy and then i will run it"*
+
+- **The merge**: a fast-forward of 12 commits, `25faac78` → `706c9b66`, at
+  02:18:36Z. Checked first: `main` was still `25faac78` and an ancestor; no
+  Actions run in progress and no edit job open; CI reused (unit run
+  36953951717 on `706c9b66`, `8581 / 8577 / 0 / 4`; site build run
+  36949313442, whose inputs fingerprint `7c819874b50c4249` is
+  `706c9b66`'s); the rollback in a throwaway worktree gives main's own tree
+  (`f45fb56e…`). Nothing under `public/` changed.
+- **The deploy**: run 2178 (36955027635), green on `706c9b66`. The image
+  was built as predicted (`a412daac10dbc936`, 189 inputs; `worker.js` and
+  `site-ask.mjs` changed), and the container rolled `9a71a6384b4206a2` →
+  `a412daac10dbc936` at 02:22:23Z. The readings are in
+  `docs/deploy-record.md`.
+- **Deployed, not runtime-confirmed.** The batch's press reads the Worker's
+  commit and a cold container's image before any routing call, so it is the
+  runtime check. It is not to be pressed before 02:43 UTC.
+- **Before the press**: balance 96, the ledger's last row 350 (run 88), no
+  job open (02:27 UTC). The bakery still serves `01790819484141-dgmag4`,
+  and `/visit` still shows its one photograph (02:30 UTC), so F1's starting
+  condition holds.

@@ -3,10 +3,11 @@
 **Free analysis only.** Nothing was spent, sent to a model, merged, or
 changed on any site. The code was read on `main` at `25faac78` (deploy 2177,
 runtime-confirmed by run 87), and every line reference below is to that
-code. Balance 96 after run 88. The branch now also carries the decision
-report and the routing-only batch (§5), built for review and not merged.
-Its `site-ask.mjs` is unchanged up to line 788, so a reference past that
-line is to `main`'s file, not the branch's.
+code. Balance 96 after run 88. The decision report and the routing-only
+batch (§5) were built for review, then merged and deployed in deploy 2178
+(2026-10-02, `706c9b66`); the batch has not been pressed. The merged
+`site-ask.mjs` is unchanged up to line 788, so a reference past that line
+is to `25faac78`'s file, not the merged one.
 
 **Corrected the same day after the owner's review.**
 - The expected outcomes now follow the owner's standing policy (below).
@@ -652,6 +653,11 @@ BUILD" (899–913). On a live site the fallback is `addon` (117, 923).
   `a412daac10dbc936` (predicted over both ends, 189 inputs; `worker.js` and
   `site-ask.mjs` differ). The batch's own runtime check reads the new image,
   so it waits 15–20 minutes after the deploy.
+- **Merged and deployed in deploy 2178** (2026-10-02, on the owner's word):
+  a fast-forward to `706c9b66` at 02:18:36Z. The image was built as
+  predicted and rolled to `a412daac10dbc936` at 02:22:23Z, so the batch is
+  not pressed before 02:43 UTC. It is deployed, not runtime-confirmed: the
+  batch's own press is the runtime check (`docs/deploy-record.md`).
 
 ### The test matrix
 
