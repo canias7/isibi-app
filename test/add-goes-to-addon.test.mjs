@@ -88,7 +88,11 @@ test("the wall sits at the picker, before any step is planned, and names the add
   assert.match(body, /additions\.push\(f\)/, "the wall does not collect the additions it finds");
   assert.doesNotMatch(body, /escalate\("addon"/, "the wall still hands on from inside its loop, before the other lanes are weighed");
   const after = branch.slice(branch.indexOf(body) + body.length);
-  assert.match(after, /escalate\("addon", \{ field: additions\[0\], layer: "addon"/, "the escalate does not name the addon layer, so the client falls to the revise");
+  // RE-ANCHORED 2026-10-02 (the review of batch 2): the part of the site is
+  // named only when every addition is one kind, and the page only when every
+  // addition is on one (driven in `edit-op-scope.test.mjs`'s REVIEW cases);
+  // the add-on's own layer is named always, which is this case's property.
+  assert.match(after, /escalate\("addon", \{[^;]*\blayer: "addon"/, "the escalate does not name the addon layer, so the client falls to the revise");
   // FAILS OPEN: a config that could not be read lets the lane run and say
   // `no-meta` itself, rather than refusing on a guess.
   const gate = branch.slice(branch.indexOf("let wallLook = null;"), wall);

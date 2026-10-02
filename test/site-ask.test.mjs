@@ -2137,7 +2137,12 @@ test("the wire is not cut, at either end", () => {
   assert.match(addBody, /alsoAsked: EditPoll\.heldWire\(d && d\.alsoAsked\)/, "the add-on POST does not carry what was held back");
   assert.match(w, /const eHeld = heldParts\(eMessage, eb && eb\.alsoAsked\)/, "the edit route does not take out what was held back");
   assert.match(w, /const aLater = heldParts\(aAsked, ab && ab\.alsoAsked\)/, "the add-on route does not take out what was held back");
-  assert.match(w, /const bLater = heldParts\(/, "the rewrite does not take out what was held back");
+  // RE-ANCHORED 2026-10-02 (the review of batch 2): the rewrite reads its parts
+  // through `buildHeld`, the one reading the queued route's own answer shares.
+  assert.match(w, /const bLater = buildHeld\(body\)/, "the rewrite does not take out what was held back");
+  const bh = w.indexOf("\nfunction buildHeld(");
+  assert.ok(bh > 0, "buildHeld's landmark is gone");
+  assert.match(w.slice(bh, w.indexOf("\n}\n", bh)), /return heldParts\(/, "buildHeld does not take the parts out of the message");
   // The addon lane had no routing decision in scope at all until this landed.
   assert.match(c, /function siteAddon\(site, instruction, origin, finish, fallback, d\)/);
   assert.match(c, /siteAddon\(site, t, origin, finish, go, d\)/);

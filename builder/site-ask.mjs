@@ -1542,6 +1542,51 @@ export function heldParts(message, later) {
   return { ok: true, run, held: [...new Set(held)] };
 }
 
+/**
+ * ONE CHANGE'S OWN WORDS, LESS EVERY PART PUT OFF (2026-10-02, the owner's
+ * review of batch 2: *"ensure newly deferred instructions are excluded from
+ * every executing step's model input, including overlapping scope words"*).
+ *
+ * `words` is one change's text as it stands in `message` — a picker's scope for
+ * it, which `readScopes` has already found there — and `later` the parts put
+ * off this turn (one string or a list, as `heldParts` reads them), each also
+ * found in `message`. Every stretch of the change's
+ * text that lies inside a part put off is taken out: a part wholly inside its
+ * words, and a part that only overlaps their edge ("…and add a page" running
+ * into "add a page for our cake orders"). Positions are the message's own, so
+ * the words a change shares with a part put off are the part's, wherever in the
+ * message each was copied from.
+ *
+ *   — the change's own text, untouched, when no part put off reaches it;
+ *   — what is left of it, when one does;
+ *   — `""` when no word of its own is left (the change WAS the part put off),
+ *     and when `words` is not in the message at all.
+ *
+ * WHAT A CHANGE IS, AND WHICH WORDS ASK FOR IT, IS THE PICKER'S DECISION. This
+ * only takes out, by position, words a model already said belong to a part put
+ * off. A non-string is nothing, never coerced.
+ */
+export function wordsLess(message, words, later) {
+  const text = typeof message === "string" ? message : "";
+  const own = wordSpans(text, words)[0];
+  if (!own) return "";
+  const parts = (Array.isArray(later) ? later : typeof later === "string" ? [later] : []).filter((p) => typeof p === "string" && p.trim());
+  const cuts = parts.flatMap((p) => wordSpans(text, p))
+    .filter(([s, e]) => s < own[1] && e > own[0])
+    .map(([s, e]) => [Math.max(s, own[0]), Math.min(e, own[1])])
+    .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (!cuts.length) return text.slice(own[0], own[1]);
+  let out = "";
+  let at = own[0];
+  for (const [s, e] of cuts) {
+    if (e <= at) continue;
+    out += text.slice(at, Math.max(s, at));
+    at = e;
+  }
+  out = (out + text.slice(at, own[1])).replace(/[ \t]{2,}/g, " ").trim();
+  return WORD_CHAR.test(out) ? out : "";
+}
+
 // ── A CONVERTED ANSWER SAYS WHY (2026-10-02, the whole-router audit's W5) ───
 //
 // Every way out of `readEdit` that does not use the model's edit answer carries

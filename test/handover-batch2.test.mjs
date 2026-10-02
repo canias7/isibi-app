@@ -35,7 +35,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { HAND_FROM, HAND_REASONS, readHandOver, handOverLine, deferredOf, heldReport } from "../builder/hand-over.mjs";
-import { heldList, heldParts, MAX_HELD, MAX_MESSAGE, EDIT_LAYERS } from "../builder/site-ask.mjs";
+import { heldList, heldParts, wordsLess, MAX_HELD, MAX_MESSAGE, EDIT_LAYERS } from "../builder/site-ask.mjs";
 import { addonFailure } from "../builder/site-addon.mjs";
 import { rowReviewReply } from "../builder/site-add.mjs";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
@@ -165,6 +165,38 @@ test("heldParts takes out every part, names a part inside another once, and refu
   for (const none of [undefined, null, "", "   ", []]) {
     assert.deepEqual(heldParts("Make it blue.", none), { ok: true, run: "Make it blue.", held: [] }, JSON.stringify(none));
   }
+});
+
+// ── ONE CHANGE'S OWN WORDS, LESS WHAT WAS PUT OFF (2026-10-02, the review) ──
+//
+// What a look-door step is asked when the picker's scope for one change runs
+// into a part put off this turn: the part's words are taken out by position,
+// and a change that WAS the part is left with nothing to ask.
+
+test("wordsLess takes every part put off out of one change's words, by position, and leaves nothing when nothing of its own is left", () => {
+  const M = "Make it blue, add a map.";
+  // UNTOUCHED when no part reaches it — in the message's own spelling.
+  assert.equal(wordsLess(M, "Make it blue", ["add a map"]), "Make it blue");
+  assert.equal(wordsLess("Make it blue.", "make IT blue", []), "Make it blue");
+  // A PART AT ITS EDGE, or inside it, is taken out; every occurrence of it.
+  assert.equal(wordsLess(M, "Make it blue, add a map", ["add a map"]), "Make it blue,");
+  assert.equal(wordsLess("Add a map and make it blue, add a map.", "Add a map and make it blue, add a map", ["add a map"]), "and make it blue,");
+  // TWO PARTS THAT OVERLAP EACH OTHER are one stretch taken out, and so is a part inside another.
+  assert.equal(wordsLess("Make it blue and add a map of the shop.", "Make it blue and add a map of the shop", ["add a map", "a map of the shop"]), "Make it blue and");
+  assert.equal(wordsLess("Make it blue and add a map of the shop.", "Make it blue and add a map of the shop", ["add a map of the shop", "a map"]), "Make it blue and");
+  // WHAT A CUT LEAVES is read as words: one space where two met, and punctuation alone is nothing.
+  assert.equal(wordsLess("Make it blue and add a map and make it big.", "Make it blue and add a map and make it big", ["add a map"]), "Make it blue and and make it big");
+  assert.equal(wordsLess("Make it blue, add a map, and more.", "add a map,", ["add a map"]), "");
+  // ONE PART AS A STRING reads as `heldParts` reads it.
+  assert.equal(wordsLess(M, "Make it blue, add a map", "add a map"), "Make it blue,");
+  // NOTHING OF ITS OWN LEFT — the change was the part — and words not in the message: nothing.
+  assert.equal(wordsLess(M, "a map", ["add a map"]), "");
+  assert.equal(wordsLess(M, "add a map", ["add a map"]), "");
+  assert.equal(wordsLess("Make it blue.", "add a map", []), "");
+  // A VALUE THAT DOES NOT READ is nothing, never coerced; junk among the parts is skipped.
+  for (const bad of [5, null, undefined, ["Make it blue"], {}]) assert.equal(wordsLess(M, bad, []), "", JSON.stringify(bad));
+  assert.equal(wordsLess(M, "Make it blue, add a map", [5, "", null, "  ", "add a map"]), "Make it blue,");
+  for (const none of [undefined, null, [], 5, {}]) assert.equal(wordsLess(M, "Make it blue, add a map", none), "Make it blue, add a map", JSON.stringify(none));
 });
 
 // ── THE BROWSER'S COPY READS EVERY VALUE AS THE MODULE DOES ─────────────────

@@ -292,5 +292,11 @@ test("a step's own ask replaces the customer's sentence for that step only", () 
   assert.ok(set > 0 && run > set && restore > run, "the step's ask must be set before the rung runs and restored after");
   assert.match(CODE, /let eInstruction = String\(\(eb && eb\.instruction\)/, "eInstruction must be assignable");
   assert.match(CODE, /const eMessage = eInstruction;/, "the customer's sentence is not kept");
-  assert.match(CODE, /const eRun = eHeld\.ok \? eHeld\.run : eMessage;/, "this turn's sentence is not the message less what was held back");
+  // `let` SINCE 2026-10-02 (the review of batch 2): the look door takes out the
+  // additions it puts off too, so this turn's sentence is the message less every
+  // part put off — by the router, then by the picker — and that is its one
+  // other assignment.
+  assert.match(CODE, /let eRun = eHeld\.ok \? eHeld\.run : eMessage;/, "this turn's sentence is not the message less what was held back");
+  assert.deepEqual([...CODE.matchAll(/\beRun = /g)].length, 2, "this turn's sentence is reassigned somewhere other than the look door's take-out");
+  assert.match(CODE, /const left = heldParts\(eRun, lookHeld\);[\s\S]{0,400}eRun = left\.run;/, "the look door's take-out does not narrow this turn's sentence");
 });

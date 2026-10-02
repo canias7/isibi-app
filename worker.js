@@ -237,10 +237,10 @@ import { sweepAfterPublish, P_ORPHANS } from "./site-sweep.mjs";
 import { loadConfig, saveConfig, withConfig, LEGACY_KEYS, CONFIG_KEY } from "./site-config.mjs";
 import { takeOffline, putBackOnline } from "./site-live.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
-import { routeMessage, routeDecision, clarifiedBrief, siteDigest, DOOR_LAYERS, heldParts, heldList, ROUTE_ERROR_CLASSES } from "./builder/site-ask.mjs";
+import { routeMessage, routeDecision, clarifiedBrief, siteDigest, DOOR_LAYERS, heldParts, heldList, wordsLess, ROUTE_ERROR_CLASSES } from "./builder/site-ask.mjs";
 // THE HAND-OVER (2026-10-02, the whole-router audit's batch 2): what travels when
 // work moves from one step to another — the parts put off, the scope, and why.
-import { readHandOver, handOverLine, heldReport } from "./builder/hand-over.mjs";
+import { readHandOver, handOverLine, heldReport, deferredOf } from "./builder/hand-over.mjs";
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
@@ -12595,7 +12595,17 @@ async function enqueueSiteBuild(request, env, { auth }) {
   // one would additionally have to be given a `budgetStage` for a deadline it
   // cannot reach. The build's real trace is the consumer's, written under the
   // slug, exactly as before.
-  return { res: await awaitJobResult(env, id, bu.id) };
+  //
+  // AND THIS WAIT'S OWN ANSWERS NAME WHAT WAS PUT OFF (2026-10-02, the review of
+  // batch 2). The consumer's answer already says it (the build's own wrapper);
+  // the three this wait writes itself — an answer that would not read, a row
+  // that says the consumer is gone, a build still running at the bound — said
+  // nothing, and each is the last reply the customer gets. The parts are read
+  // exactly as the build reads them (`buildHeld`); parts the build would refuse
+  // to find are not named, because nothing took them out. `heldReport` never
+  // overwrites a reply that already says it.
+  const held = buildHeld(rb.body);
+  return { res: await heldReport(await awaitJobResult(env, id, bu.id), held.ok ? held.held : []) };
 }
 
 /**
@@ -14510,6 +14520,10 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
         // field's PRESENCE is the alarm — the convention `prerenderUnprivileged`
         // and `sourceStored` already follow on the inline reply.
         ...(rShort ? { refundShort: true } : {}),
+        // WHAT THE FIRST INVOCATION PUT OFF, from the record it left
+        // (2026-10-02, the review of batch 2): this is the answer the customer
+        // reads after a 202, and it names the parts as the inline reply would.
+        ...resumeHeld(claimed),
       }),
       uid: claimed.uid,
     });
@@ -14588,6 +14602,8 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
         upstream: (e && e.status) || null,
         upstreamType: rk.type,
         ...(rk.billing ? { billing: true } : {}),
+        // AND ON A FAILURE TOO: the parts were put off, and nothing tried them.
+        ...resumeHeld(claimed),
       }),
     });
   } finally {
@@ -14669,6 +14685,24 @@ async function runResumedSiteBuild(env, ctx, id, { tries = 0 } = {}) {
 // build is still running, outside `runSiteBuild`, and names them from here.
 // Keyed by the request's budget, which both hold and nothing else shares.
 const BUILD_HELD = new WeakMap();
+
+// WHAT A RESUME RECORD SAYS WAS PUT OFF, as a reply carries it: `{ deferred }`
+// when it names any, nothing otherwise — so a record written before the field
+// existed leaves the answer exactly as it was.
+function resumeHeld(record) {
+  const d = deferredOf(record && record.deferred);
+  return d === undefined ? {} : { deferred: d };
+}
+
+// THE PARTS A REWRITE TAKES OUT OF ITS MESSAGE — one reading, for the build
+// itself and for the queued route's own answers (2026-10-02, the owner's review
+// of batch 2). The climb posts them (`alsoAsked`); they are taken out of the
+// brief, prompt or instruction the build reads, every occurrence, or the whole
+// is refused (`heldParts`, `ok: false`).
+function buildHeld(body) {
+  const asked = [body && body.brief, body && body.prompt, body && body.instruction].find((v) => typeof v === "string" && v.trim());
+  return heldParts(asked ? String(asked).trim().slice(0, 4000) : "", body && body.alsoAsked);
+}
 
 async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null, lease = null }) {
       // ── EVERY ENDING NAMES WHAT WAS PUT OFF (2026-10-02, the audit's W7/W8) ──
@@ -14916,8 +14950,7 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
       // take them), and they are taken out of the instruction before anything
       // reads it; one that cannot be found refuses, at no cost, rather than run
       // the message whole. The parts taken out are what the reply names.
-      const bAsked = [body.brief, body.prompt, body.instruction].find((v) => typeof v === "string" && v.trim());
-      const bLater = heldParts(bAsked ? String(bAsked).trim().slice(0, 4000) : "", body.alsoAsked);
+      const bLater = buildHeld(body);
       if (!bLater.ok) {
         return Response.json({
           ok: false, error: "held-unread", cost: 0,
@@ -16642,6 +16675,10 @@ async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null,
             // this snapshot is what the build had done when it decided to fire.
             steps: (() => { try { return tr.done().steps; } catch { return []; } })(),
             design: { ...design, attachments: [] },
+            // WHAT THIS REWRITE TOOK OUT OF THE MESSAGE (2026-10-02, the review
+            // of batch 2). The answer the customer finally reads is written by
+            // a later invocation, which has only this record to say it from.
+            deferred: bHeld.parts.slice(),
           })));
           stored = true;
         } catch (e) {
@@ -20390,11 +20427,16 @@ async function handleRequest(request, env, ctx) {
         // on the job id alone, which a stranger could guess at and which is the
         // shape every owner route on the platform refuses.
         let mine = false;
+        // WHAT THE BUILD PUT OFF, off its own record and only for its owner
+        // (2026-10-02, the review of batch 2): a build whose chain ended with no
+        // answer object is answered from its row below, and that answer is a
+        // final one — it names the parts the 202 named.
+        let recHeld = {};
         try {
           const rObj = await env.SITES_BUCKET.get(resumeKey(jid));
           if (rObj) {
             const rec = readResume(JSON.parse(await rObj.text()));
-            if (rec && rec.uid && rec.uid === bu.id) { mine = true; flight = flightOf(rec, Date.now()); }
+            if (rec && rec.uid && rec.uid === bu.id) { mine = true; flight = flightOf(rec, Date.now()); recHeld = resumeHeld(rec); }
           }
         } catch { /* the flight is a courtesy; `pending` is the answer */ }
         // ── THE CODE AS IT IS BEING WRITTEN (2026-09-07) ───────────────────
@@ -20437,7 +20479,10 @@ async function handleRequest(request, env, ctx) {
         // absence reaches here — so a row that reads `done` is one whose
         // answer was already collected, never one still being written.
         const rs = await buildRowStatus(env, jid, bu.id);
-        if (rs && rs.verdict) return Response.json(rs.verdict.body, { status: rs.verdict.status });
+        if (rs && rs.verdict) {
+          const vb = rs.verdict.body;
+          return Response.json(vb && typeof vb === "object" && !Object.hasOwn(vb, "deferred") ? { ...vb, ...recHeld } : vb, { status: rs.verdict.status });
+        }
         const pend = { ok: false, pending: true, job: jid };
         if (rs && rs.state) pend.state = rs.state;
         if (flight) pend.flight = flight;
@@ -21130,7 +21175,9 @@ async function handleRequest(request, env, ctx) {
             // part and any a step put off as its net, and every one is taken out
             // here. The parts taken out are what every ending reports.
             const eHeld = heldParts(eMessage, eb && eb.alsoAsked);
-            const eRun = eHeld.ok ? eHeld.run : eMessage;
+            // `let` SINCE THE REVIEW OF BATCH 2 (2026-10-02): a part the look
+            // door puts off is taken out of it too, before any step runs.
+            let eRun = eHeld.ok ? eHeld.run : eMessage;
             eHeldOut.parts = eHeld.held.slice();
             eInstruction = eRun;
             // EACH OWN LANE'S WORDS, for the one look step that runs them all —
@@ -21996,14 +22043,66 @@ async function handleRequest(request, env, ctx) {
               // with no scopes at all cannot separate the words, so nothing
               // runs and the customer is asked to send the addition alone.
               const addWhat = (f) => (f === "three" ? "a 3D scene" : f === "pages" ? "a new page" : "a QR code");
-              const additionOp = (f) => (picked.scoped && Array.isArray(picked.scopes)
-                ? picked.scopes.find((op) => op && op.part === f && !op.invalid && op.words) : null) || null;
+              // EVERY SCOPED ADDITION IN A LANE, NOT THE FIRST (2026-10-02, the
+              // owner's review of batch 2: *"replace additionOp's first-match
+              // handling so multiple scoped additions in the same lane are all
+              // preserved"*). Two QR codes on two pages are two scopes in one
+              // lane; `find` kept the first, and the second was neither put off
+              // nor named — nor made. Every op that passed `readScopes`.
+              const scopedOps = (f) => (picked.scoped && Array.isArray(picked.scopes)
+                ? picked.scopes.filter((op) => op && op.part === f && !op.invalid && op.words) : []);
+              // WHAT THE LOOK STEP ITSELF PUT OFF THIS TURN, for the cut at the
+              // end of this door: every part here is taken out of every step's
+              // own words and of `eRun` before any step runs.
+              const lookHeld = [];
+              let lookHeldWhat = "";
               const putOff = (f) => {
-                const op = additionOp(f);
-                if (!op) return false;
-                if (!eHeldOut.parts.includes(op.words)) eHeldOut.parts.push(op.words);
-                editTrace.mark("handover:held", "ok", { field: f });
+                const ops = scopedOps(f);
+                if (!ops.length) return false;
+                if (!lookHeldWhat) lookHeldWhat = addWhat(f);
+                for (const op of ops) {
+                  if (!eHeldOut.parts.includes(op.words)) eHeldOut.parts.push(op.words);
+                  if (!lookHeld.includes(op.words)) lookHeld.push(op.words);
+                }
+                editTrace.mark("handover:held", "ok", { field: f, parts: ops.length });
                 return true;
+              };
+              // OTHER WORK IS A CHANGE WITH WORDS OF ITS OWN once the given parts
+              // are out. A change whose every word lies inside an addition's is
+              // that addition described, not a second change ("…a QR code in the
+              // brand colours" is not also a colour change). A scoped lane with
+              // no valid scope is withheld with its own sentence, so it counts;
+              // on a legacy answer every lane runs on the whole message and
+              // counts. The PICKER decided which words are whose; this compares
+              // positions in the message it was shown.
+              const ownWork = (f, without) => {
+                if (!picked.scoped) return true;
+                const mine = scopedOps(f);
+                return !mine.length || mine.some((op) => wordsLess(eRun, op.words, without));
+              };
+              // ONE STEP, LESS EVERY PART PUT OFF: its own words with the parts
+              // taken out (`wordsLess`), or null when none of its own are left —
+              // its change WAS the part put off. A step with no words of its own
+              // (a legacy step, the router's own step on the removal door) runs
+              // on `eRun`, which is cut the same way; a step with a fixed ask
+              // (the QR placement) carries no customer words at all.
+              const cutStep = (s, parts) => {
+                if (!s || !parts.length) return s;
+                if (Array.isArray(s.words)) {
+                  const ws = s.words.map((w) => wordsLess(eRun, w, parts)).filter(Boolean);
+                  return ws.length ? { ...s, words: ws, ask: ws.join("\n") } : null;
+                }
+                if (s.opWords && typeof s.opWords === "object") {
+                  const asks = {};
+                  const opWords = {};
+                  for (const f of s.fields) {
+                    const ws = (Array.isArray(s.opWords[f]) ? s.opWords[f] : []).map((w) => wordsLess(eRun, w, parts)).filter(Boolean);
+                    if (ws.length) { asks[f] = ws.join("\n"); opWords[f] = ws; }
+                  }
+                  const fields = s.fields.filter((f) => Object.hasOwn(asks, f));
+                  return fields.length ? { ...s, fields, asks, opWords } : null;
+                }
+                return s;
               };
               if (pickedFields.some((f) => ADD_ONLY_FIELDS.includes(f))) {
                 try {
@@ -22042,13 +22141,23 @@ async function handleRequest(request, env, ctx) {
                     if (pickedFields.includes(f) && !hasLookField(wallLook, f) && !onPage) additions.push(f);
                   }
                   if (additions.length) {
-                    const others = pickedFields.filter((x) => !additions.includes(x));
-                    // THE ADDITION IS THE WHOLE ASK: handed on with its page. On
-                    // the router's removal door the router's own step is other
+                    const addOps = additions.flatMap(scopedOps);
+                    const addWords = addOps.map((op) => op.words);
+                    const others = pickedFields.filter((x) => !additions.includes(x) && ownWork(x, addWords));
+                    // THE ADDITIONS ARE THE WHOLE ASK — every one the picker
+                    // scoped, and nothing beside them with words of its own:
+                    // handed on whole. The add-on step reads the whole message;
+                    // the hand-over names the part of the site and the page only
+                    // when every addition shares them, because one page named for
+                    // additions on two would scope it to half of what was asked.
+                    // On the router's removal door the router's own step is other
                     // work, always (`doorDispatch`), so the door never hands on.
                     if (!others.length && !eRemovalDoor) {
-                      const op = additionOp(additions[0]);
-                      return escalate("addon", { field: additions[0], layer: "addon", ...(op && op.page ? { page: op.page } : {}) });
+                      const onPages = [...new Set(addOps.map((op) => op.page || ""))];
+                      return escalate("addon", {
+                        ...(additions.length === 1 ? { field: additions[0] } : {}), layer: "addon",
+                        ...(onPages.length === 1 && onPages[0] ? { page: onPages[0] } : {}),
+                      });
                     }
                     if (!picked.scoped) return explain("picker/addition-mixed", { what: addWhat(additions[0]) });
                     pickedFields = pickedFields.filter((x) => !(additions.includes(x) && putOff(x)));
@@ -22160,13 +22269,16 @@ async function handleRequest(request, env, ctx) {
               if (acting.length && !eScoped) steps.push({ layer: "look", page: ePage, fields: acting });
               else if (acting.length) {
                 const asks = {};
+                // EACH LANE'S OWN WORDS, AS A LIST, so the cut at the end of this
+                // door can take out a part put off by position (`cutStep`).
+                const opWords = {};
                 lookRuns = [];
                 for (const f of acting) {
                   const mine = opsOf(f);
-                  if (mine.length) { asks[f] = mine.map((op) => op.words).join("\n"); lookRuns.push(f); }
+                  if (mine.length) { opWords[f] = mine.map((op) => op.words); asks[f] = opWords[f].join("\n"); lookRuns.push(f); }
                   else if (unscoped(f)) withhold(f, "unscoped", "", () => explain("picker/scope-unread", { why: "unscoped" }));
                 }
-                if (lookRuns.length) steps.push({ layer: "look", page: ePage, fields: lookRuns, asks });
+                if (lookRuns.length) steps.push({ layer: "look", page: ePage, fields: lookRuns, asks, opWords });
               }
               // ── ONE PAGE OPERATION PER PAGE, WHERE PAGE LANES SIT TOGETHER ──
               //
@@ -22222,13 +22334,17 @@ async function handleRequest(request, env, ctx) {
                   if (unscoped(f)) withhold(f, "unscoped", "", () => explain("picker/scope-unread", { why: "unscoped" }));
                   continue;
                 }
+                // `words` IS THE ASK AS A LIST — the same words, kept apart so a
+                // part put off can be taken out of each by position (`cutStep`).
                 if (to === "page") {
                   for (const pg of [...new Set(mine.map((op) => op.page || fallbackPage))]) {
-                    dispatched.push({ layer: "page", page: pg, fields: [f], ask: mine.filter((op) => (op.page || fallbackPage) === pg).map((op) => op.words).join("\n") });
+                    const words = mine.filter((op) => (op.page || fallbackPage) === pg).map((op) => op.words);
+                    dispatched.push({ layer: "page", page: pg, fields: [f], ask: words.join("\n"), words });
                   }
                   continue;
                 }
-                dispatched.push({ layer: to, page: ePage, fields: [f], ask: mine.map((op) => op.words).join("\n") });
+                const words = mine.map((op) => op.words);
+                dispatched.push({ layer: to, page: ePage, fields: [f], ask: words.join("\n"), words });
               }
               steps.push(...mergePageSteps(dispatched));
               // ── THE QR IS PLACED, NOT ONLY MADE ───────────────────────────
@@ -22289,7 +22405,13 @@ async function handleRequest(request, env, ctx) {
                 // steps already built could run. The steps above are the other
                 // work; a withheld one counts too, so its own sentence is said.
                 if (pv.layer === "addon") {
-                  if (!steps.length && !withheld.length) return escalate("addon", { field: "pages", verb: pv.verb, layer: "addon" });
+                  // THE OTHER WORK IS WHAT KEEPS WORDS OF ITS OWN once every part
+                  // put off is out, this page's included (2026-10-02, the review
+                  // of batch 2): a step whose every word was the page addition's
+                  // is that addition, not work beside it.
+                  const pageWords = scopedOps("pages").map((op) => op.words);
+                  const rest = steps.filter((st) => cutStep(st, [...lookHeld, ...pageWords]));
+                  if (!rest.length && !withheld.length) return escalate("addon", { field: "pages", verb: pv.verb, layer: "addon" });
                   if (!picked.scoped) return explain("picker/addition-mixed", { what: addWhat("pages") });
                   if (!putOff("pages")) withhold("pages", "unscoped", "", () => explain("picker/scope-unread", { why: "unscoped" }));
                 } else {
@@ -22347,6 +22469,43 @@ async function handleRequest(request, env, ctx) {
               // A door the router opened never reaches this empty: its own step
               // was put in where the lanes became steps (`doorDispatch`).
               //
+              // ── A PART THE LOOK STEP PUT OFF REACHES NO STEP THAT RUNS ─────
+              //
+              // (2026-10-02, the owner's review of batch 2: *"ensure newly
+              // deferred instructions are excluded from every executing step's
+              // model input, including overlapping scope words and removal-door
+              // steps that fall back to eRun."*) `eRun` was cut before this door
+              // put anything off, so the router's own step on the removal door —
+              // which has no scope words and runs on `eRun` — was handed the
+              // addition promised for later, and a step whose scope words ran on
+              // into an addition's was handed those words with its own. Every
+              // part put off here is now taken out of every step's own words and
+              // of `eRun` itself before any step runs: the last moment a step's
+              // input is decided, with every put-off known (the page addition is
+              // decided just above). A step left with no words of its own was
+              // the part put off and does not run; it is named with the parts.
+              if (lookHeld.length) {
+                for (let i = steps.length - 1; i >= 0; i--) {
+                  const cut = cutStep(steps[i], lookHeld);
+                  if (cut) steps[i] = cut;
+                  else steps.splice(i, 1);
+                }
+                // `eRun` LESS THE SAME PARTS. Nothing of the message left to run
+                // (the parts put off covered every word) cannot be told apart
+                // from the parts, so nothing runs — and nothing is said to wait,
+                // since nothing was done around it. On the removal door this is
+                // a removal whose words the picker gave wholly to an addition:
+                // the router's own step runs on `eRun`, and none of it is left.
+                const left = heldParts(eRun, lookHeld);
+                if (!left.ok) {
+                  eHeldOut.parts = eHeldOut.parts.filter((p) => !lookHeld.includes(p));
+                  return explain("picker/addition-mixed", { what: lookHeldWhat });
+                }
+                eRun = left.run;
+                eInstruction = eRun;
+                editTrace.mark("handover:cut", "ok", { parts: lookHeld.length, steps: steps.length });
+              }
+
               // A MESSAGE WHOSE EVERY SCOPED CHANGE WAS WITHHELD is not one
               // nobody could place (2026-09-29): each withheld step says its
               // own doubt, which "I couldn't tell which part of your site

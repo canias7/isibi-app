@@ -1067,6 +1067,227 @@ test("W15 — a page the site does not have, beside a move on another page: the 
   assert.ok(r.said.text.endsWith(tail(CAKES)), why(r));
 });
 
+// ── THE REVIEW OF BATCH 2: EVERY ADDITION KEPT, AND NONE REACHES A STEP THAT RUNS ──
+//
+// (2026-10-02, the owner's review of batch 2.) *"replace additionOp's
+// first-match handling so multiple scoped additions in the same lane are all
+// preserved; and ensure newly deferred instructions are excluded from every
+// executing step's model input, including overlapping scope words …"*
+//
+// REPRODUCED FIRST on 03189a0d through this chain: with two QR codes scoped to
+// two pages, only the first was put off — the second was neither named nor
+// made — and a lane whose scope words ran on into an addition's was handed the
+// addition's words. The picker still decides every part (which words are an
+// addition, and which page each is on); the route only takes out what it put
+// off, wherever those words stand, before any step that runs is called.
+const QR_HOME = "add a QR code for our opening hours on the home page";
+const TWO_QR = DESC_SAY + ", " + QR_WORDS + ", and " + QR_HOME + ".";
+const TWO_QR_PICK = { fields: ["description", "qr"], scopes: [
+  { part: "description", words: DESC_SAY },
+  { part: "qr", page: "/visit", words: QR_WORDS },
+  { part: "qr", page: "/", words: QR_HOME },
+] };
+/** No model call after the picker carried any part put off — read off every request each one received. */
+function assertNoneReached(r, parts, label) {
+  for (const l of r.seen.lanes) for (const p of parts) assert.ok(!String(l.asked).includes(p), label + ": the " + l.field + " lane was handed “" + p + "”" + why(r));
+  for (const w of r.seen.writers) for (const p of parts) assert.ok(!String(w.instruction).includes(p), label + ": the writer of " + w.path + " was handed “" + p + "”" + why(r));
+  for (const a of r.seen.adds) for (const p of parts) assert.ok(!String(a).includes(p), label + ": the add-on picker was handed “" + p + "”" + why(r));
+}
+
+for (const mode of ["sync", "job"]) {
+  test("REVIEW — two QR codes on two different pages beside a description change: the description ships, BOTH codes are put off and named, and no step that runs is handed either (" + mode + ")", async () => {
+    const r = await throughTheChain({ mode, message: TWO_QR, routed: { intent: "edit", layer: "look" },
+      answers: { [T.pick]: TWO_QR_PICK, "lane:description": NEW_DESC } });
+    assert.deepEqual(r.seen.calls, [T.route, T.pick, T.lane], why(r));
+    // THE MODEL INPUT: the description's lane was handed its own words, and nothing of either code.
+    assert.deepEqual(r.seen.lanes, [{ field: "description", asked: DESC_SAY }], why(r));
+    assert.deepEqual(r.seen.writers, [], why(r));
+    assertNoneReached(r, [QR_WORDS, QR_HOME], "two codes (" + mode + ")");
+    assert.equal(r.status, 200, why(r));
+    assert.equal(r.body.ok, true, why(r));
+    assert.equal(storedLook(r.store, r.slug).description, NEW_DESC, why(r));
+    assert.ok(storedLook(r.store, r.slug).qr == null, "a code was made on the edit path" + why(r));
+    assertPagesKept(r, "two codes (" + mode + ")");
+    // BOTH CODES ARE NAMED, in the order the customer asked, and the screen asks for each in turn.
+    assert.deepEqual(r.body.deferred, [QR_WORDS, QR_HOME], "a scoped addition was dropped — only the first in its lane was kept" + why(r));
+    assert.equal(r.body.partial, undefined, why(r));
+    assert.ok(r.said.text.endsWith("\nI only did part of it this time. Say “" + QR_WORDS + "”, then “" + QR_HOME + "”, and I’ll do those next."),
+      "the screen does not ask for both codes" + why(r));
+    assert.deepEqual(r.said.actions.filter((a) => /PAID|rewrite/.test(a)), [], "the browser started paid work" + why(r));
+  });
+
+  test("REVIEW — a look lane whose scope words run on into an addition's: the lane is handed its own words only, and the code is put off (" + mode + ")", async () => {
+    const message = DESC_SAY + " and " + QR_WORDS + ".";
+    // THE PICKER'S WORDS FOR THE DESCRIPTION SWALLOW THE CODE'S — a sloppy but
+    // readable answer: both copies are in the message, so both pass `readScopes`.
+    const r = await throughTheChain({ mode, message, routed: { intent: "edit", layer: "look" },
+      answers: { [T.pick]: { fields: ["description", "qr"], scopes: [
+        { part: "description", words: DESC_SAY + " and " + QR_WORDS },
+        { part: "qr", page: "/visit", words: QR_WORDS },
+      ] }, "lane:description": NEW_DESC } });
+    assert.deepEqual(r.seen.calls, [T.route, T.pick, T.lane], why(r));
+    assert.deepEqual(r.seen.lanes, [{ field: "description", asked: DESC_SAY + " and" }], "the lane was handed the code's words with its own" + why(r));
+    assertNoneReached(r, [QR_WORDS], "overlap, look lane (" + mode + ")");
+    assert.equal(storedLook(r.store, r.slug).description, NEW_DESC, why(r));
+    assert.ok(storedLook(r.store, r.slug).qr == null, why(r));
+    assertPagesKept(r, "overlap, look lane (" + mode + ")");
+    assert.equal(r.body.deferred, QR_WORDS, why(r));
+    assert.ok(r.said.text.endsWith(tail(QR_WORDS)), why(r));
+  });
+}
+
+test("REVIEW — a move whose scope words reach part-way into a page addition's: the writer is handed the move alone, and the page is put off", async () => {
+  const CAKES = "add a page for our cake orders";
+  const message = VISIT_MOVE + ", and " + CAKES + ".";
+  // THE MOVE'S WORDS END INSIDE THE ADDITION'S ("… and add a page"): the two
+  // only partly overlap, so the stretch they share is the addition's and is
+  // never the writer's.
+  const r = await throughTheChain({ message, routed: { intent: "edit", layer: "look" },
+    answers: { [T.pick]: { fields: ["shape", "pages"], pageVerb: "add", pageName: "/cakes",
+      scopes: [{ part: "shape", page: "/visit", words: VISIT_MOVE + ", and add a page" }, { part: "pages", words: CAKES }] } } });
+  assert.deepEqual(r.seen.writers.map((w) => [w.path, w.instruction]), [["visit.tsx", VISIT_MOVE + ", and"]], "the writer was handed part of the page addition" + why(r));
+  assertNoneReached(r, [CAKES, "add a page"], "partial overlap");
+  assert.equal(r.body.ok, true, why(r));
+  assert.equal(storedPage(r.store, r.slug, "visit.tsx"), bandsSwapped(VISIT), why(r));
+  assert.equal(storedPage(r.store, r.slug, "index.tsx"), HOME, why(r));
+  assert.equal(storedPage(r.store, r.slug, "gallery.tsx"), GALLERY, why(r));
+  assert.equal(r.body.deferred, CAKES, why(r));
+  assert.ok(r.said.text.endsWith(tail(CAKES)), why(r));
+});
+
+test("REVIEW — two QR codes on two pages and nothing else: the whole ask goes to the add-on step, which is told the part of the site and no single page", async () => {
+  const ask = "Add a QR code for our menu on the Visit page and a QR code for our opening hours on the home page.";
+  const r = await throughTheChain({ message: ask, routed: { intent: "edit", layer: "look" },
+    answers: { [T.pick]: { fields: ["qr"], scopes: [
+      { part: "qr", page: "/visit", words: "Add a QR code for our menu on the Visit page" },
+      { part: "qr", page: "/", words: "a QR code for our opening hours on the home page" },
+    ] } } });
+  assert.deepEqual(r.seen.calls, [T.route, T.pick], why(r));
+  // NOT THE FIRST CODE'S PAGE: the add-on step reads the whole message, and a
+  // hand-over naming one page would scope it to half of what was asked.
+  assert.deepEqual(r.body, { ok: false, escalate: true, reason: "addon", cost: 0, field: "qr", layer: "addon" }, why(r));
+  assertPagesKept(r, "two codes alone");
+  assert.equal(r.compiles, 0, why(r));
+});
+
+test("REVIEW — a change whose every word lies inside an addition's is that addition, not other work: the addition is handed on whole", async () => {
+  const ask = "Add a QR code for our menu on the Visit page in the brand colours.";
+  // THE PICKER ALSO NAMED `css` FOR "in the brand colours" — words that are
+  // part of the code's description. Nothing of the colour change is left once
+  // the code's words are out, so there is no other work to run beside it.
+  const r = await throughTheChain({ message: ask, routed: { intent: "edit", layer: "look" },
+    answers: { [T.pick]: { fields: ["css", "qr"], scopes: [
+      { part: "css", words: "in the brand colours" },
+      { part: "qr", page: "/visit", words: "Add a QR code for our menu on the Visit page in the brand colours" },
+    ] } } });
+  assert.deepEqual(r.seen.calls, [T.route, T.pick], "a lane ran on words that were the addition's" + why(r));
+  assert.deepEqual(r.body, { ok: false, escalate: true, reason: "addon", cost: 0, field: "qr", layer: "addon", page: "/visit" }, why(r));
+  assertPagesKept(r, "inside the addition");
+});
+
+test("REVIEW — a QR code and a 3D scene on one page and nothing else: handed on whole, the page named, no one part of the site", async () => {
+  const QR_PART = "Add a QR code for our menu on the Visit page";
+  const SCENE = "a 3D scene of a loaf turning on the Visit page";
+  const r = await throughTheChain({ message: QR_PART + " and " + SCENE + ".", routed: { intent: "edit", layer: "look" },
+    answers: { [T.pick]: { fields: ["qr", "three"], scopes: [
+      { part: "qr", page: "/visit", words: QR_PART }, { part: "three", page: "/visit", words: SCENE },
+    ] } } });
+  assert.deepEqual(r.seen.calls, [T.route, T.pick], why(r));
+  // TWO KINDS OF ADDITION: naming either would scope the add-on step to half of
+  // what was asked; the one page they share is named.
+  assert.deepEqual(r.body, { ok: false, escalate: true, reason: "addon", cost: 0, layer: "addon", page: "/visit" }, why(r));
+  assertPagesKept(r, "two kinds alone");
+  assert.equal(r.compiles, 0, why(r));
+});
+
+test("REVIEW — a change whose every word lies inside a page addition's is that addition: the whole ask goes to the add-on step", async () => {
+  const CAKES_TOP = "add a page for our cake orders with the opening hours at the top";
+  // THE PICKER ALSO SCOPED A MOVE TO "with the opening hours at the top" —
+  // words that describe the new page. Nothing of the move is left once the
+  // page's words are out, so there is no other work beside the addition.
+  const r = await throughTheChain({ message: CAKES_TOP + ".", routed: { intent: "edit", layer: "look" },
+    answers: { [T.pick]: { fields: ["shape", "pages"], pageVerb: "add", pageName: "/cakes", scopes: [
+      { part: "shape", page: "/", words: "with the opening hours at the top" }, { part: "pages", words: CAKES_TOP },
+    ] } } });
+  assert.deepEqual(r.seen.calls, [T.route, T.pick], "a step ran on words that were the page addition's" + why(r));
+  assert.deepEqual(r.seen.writers, [], why(r));
+  assert.deepEqual(r.body, { ok: false, escalate: true, reason: "addon", cost: 0, field: "pages", verb: "add", layer: "addon" }, why(r));
+  assertPagesKept(r, "inside the page addition");
+});
+
+test("REVIEW — REFUSED: an addition whose words are the whole message beside a lane with no words of its own — nothing runs, nothing is named as put off", async () => {
+  const ask = "Add a QR code for our menu on the Visit page in the brand colours.";
+  const whole = ask.slice(0, -1);
+  // `css` WAS NAMED WITH NO SCOPE: on a scoped answer it is withheld, and once
+  // the code's words are out nothing of the message is left to run.
+  const r = await throughTheChain({ message: ask, routed: { intent: "edit", layer: "look" },
+    answers: { [T.pick]: { fields: ["css", "qr"], scopes: [{ part: "qr", page: "/visit", words: whole }] } } });
+  assert.deepEqual(r.seen.calls, [T.route, T.pick], "a step ran" + why(r));
+  assert.equal(r.status, 422, why(r));
+  // A REFUSAL OF THE WHOLE MESSAGE PUTS NOTHING OFF: no `deferred` beside its
+  // own sentence, which asks for the code on its own.
+  assert.deepEqual(r.body, { ok: false, error: "addition-mixed", cost: 0, unchanged: true,
+    msg: "Adding a QR code is a step of its own, and I couldn't tell which of your words asked for it, so I haven't changed anything. Ask for a QR code on its own, then for the rest, and I'll make each." },
+  "a refusal named the addition as put off for later, or said something else" + why(r));
+  assert.ok(r.said.text.includes("Adding a QR code is a step of its own"), why(r));
+  assert.ok(!r.said.text.includes("next"), "the screen promises the addition next" + why(r));
+  assertPagesKept(r, "refused");
+  assert.equal(r.compiles, 0, why(r));
+});
+
+test("REVIEW — two changes on one page joined into one step beside an addition put off: the writer is handed both changes' words, and none of the addition's", async () => {
+  const TABLE = "On the Visit page, show our opening hours as a table";
+  const message = VISIT_MOVE + ". " + TABLE + ", and " + QR_WORDS + ".";
+  const r = await throughTheChain({ message, routed: { intent: "edit", layer: "look" },
+    answers: { [T.pick]: { fields: ["shape", "components", "qr"], scopes: [
+      { part: "shape", page: "/visit", words: VISIT_MOVE },
+      // THE SECOND CHANGE'S WORDS RUN ON INTO THE CODE'S.
+      { part: "components", page: "/visit", words: TABLE + ", and " + QR_WORDS },
+      { part: "qr", page: "/visit", words: QR_WORDS },
+    ] } } });
+  // ONE WRITER, ONE PAGE, BOTH SETS OF WORDS — the code's taken out of the
+  // second — in the order the steps were dispatched, which is not this case's
+  // question.
+  assert.deepEqual(r.seen.writers.map((w) => w.path), ["visit.tsx"], why(r));
+  assert.deepEqual(r.seen.writers[0].instruction.split("\n").sort(), [TABLE + ", and", VISIT_MOVE].sort(),
+    "the joined step lost a change's words, or carried the code's" + why(r));
+  assertNoneReached(r, [QR_WORDS], "two changes on one page");
+  assert.equal(r.body.ok, true, why(r));
+  assert.equal(storedPage(r.store, r.slug, "visit.tsx"), bandsSwapped(VISIT), why(r));
+  assert.equal(storedPage(r.store, r.slug, "index.tsx"), HOME, why(r));
+  assert.equal(storedPage(r.store, r.slug, "gallery.tsx"), GALLERY, why(r));
+  assert.equal(r.body.deferred, QR_WORDS, why(r));
+  assert.ok(r.said.text.endsWith(tail(QR_WORDS)), why(r));
+});
+
+for (const mode of ["sync", "job"]) {
+  test("REVIEW — changes whose every word lies inside an addition, beside a change of their own: they never run, the change ships, the addition is put off (" + mode + ")", async () => {
+    const QR_LONG = "add a QR code for our menu in the brand colours at the top of the Visit page";
+    const message = DESC_SAY + ", and " + QR_LONG + ".";
+    // THE PICKER ALSO SCOPED A COLOUR CHANGE AND A MOVE to words that describe
+    // the code. Once the code's words are out neither has a word of its own:
+    // the look lane is dropped from its step, and the page step does not run —
+    // neither on nothing, nor on what is left of the message.
+    const r = await throughTheChain({ mode, message, routed: { intent: "edit", layer: "look" },
+      answers: { [T.pick]: { fields: ["description", "css", "shape", "qr"], scopes: [
+        { part: "description", words: DESC_SAY },
+        { part: "css", words: "in the brand colours" },
+        { part: "shape", page: "/visit", words: "at the top of the Visit page" },
+        { part: "qr", page: "/visit", words: QR_LONG },
+      ] }, "lane:description": NEW_DESC } });
+    assert.deepEqual(r.seen.calls, [T.route, T.pick, T.lane], "a step whose words were the addition's ran" + why(r));
+    assert.deepEqual(r.seen.lanes, [{ field: "description", asked: DESC_SAY }], why(r));
+    assert.deepEqual(r.seen.writers, [], "a page writer ran on words that were the addition's" + why(r));
+    assertNoneReached(r, [QR_LONG], "inside, beside work (" + mode + ")");
+    assert.equal(r.body.ok, true, why(r));
+    assert.equal(storedLook(r.store, r.slug).description, NEW_DESC, why(r));
+    assert.ok(storedLook(r.store, r.slug).qr == null, why(r));
+    assertPagesKept(r, "inside, beside work (" + mode + ")");
+    assert.equal(r.body.deferred, QR_LONG, why(r));
+    assert.ok(r.said.text.endsWith(tail(QR_LONG)), why(r));
+  });
+}
+
 // ── AND THE ADD-ON STEP IS TOLD WHY IT WAS HANDED THE REQUEST (W24) ─────────
 //
 // The look step's hand-over above names its reason, the part of the site and

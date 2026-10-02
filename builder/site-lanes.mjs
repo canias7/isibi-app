@@ -1180,6 +1180,13 @@ export function mergePageSteps(steps) {
     if (sentencePageStep(prev) && sentencePageStep(s) && prev.page === s.page && !!prev.ask === !!s.ask) {
       const merged = { ...prev, fields: [...prev.fields, ...s.fields.filter((f) => !prev.fields.includes(f))] };
       if (prev.ask) merged.ask = joinAsks(prev.ask, s.ask);
+      // AND THE SAME WORDS AS A LIST (2026-10-02, the review of batch 2): the
+      // route takes a part put off out of each by position before the step
+      // runs, so a joined step carries both lists, each once, in order.
+      if (Array.isArray(prev.words) || Array.isArray(s.words)) {
+        const a = Array.isArray(prev.words) ? prev.words : [];
+        merged.words = [...a, ...(Array.isArray(s.words) ? s.words : []).filter((w) => !a.includes(w))];
+      }
       out[out.length - 1] = merged;
     } else {
       out.push(s);

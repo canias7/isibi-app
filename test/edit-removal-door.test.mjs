@@ -1444,3 +1444,67 @@ for (const mode of ["sync", "job"]) {
     assert.equal(buttonOn(r, "index.tsx"), null, "an ordinary edit can no longer take the button off");
   });
 }
+
+// ── THE REVIEW OF BATCH 2: A REMOVAL AND AN ADDITION PUT OFF BESIDE IT ───────
+//
+// (2026-10-02, the owner's review of batch 2.) *"ensure newly deferred
+// instructions are excluded from every executing step's model input, including
+// … removal-door steps that fall back to eRun."*
+//
+// On this door the router's own step is the removal, and it carries no scope
+// words of its own: it runs on what the turn does (`eRun`). When the picker
+// names an addition beside it, the look step puts the addition off by its own
+// words — and REPRODUCED FIRST on 03189a0d, the picture rung's model was then
+// handed the whole message, the code promised for later included, because
+// `eRun` was cut before anything was put off. Now every part the look step puts
+// off is taken out of `eRun` and of every step's own words before any step
+// runs. The picker decided which words are the addition; nothing here reads
+// the customer's words to decide it.
+const SCENE_DOOR = "add a 3D scene of a loaf turning on the Visit page";
+const PHOTO_SCENE_ASK = "Take the photo of the cooling loaf off the home page, and " + SCENE_DOOR + ".";
+const DOOR_SCENE_PICK = { routed: ["images"], additional: ["three"], scopes: [{ part: "three", page: "/visit", words: SCENE_DOOR }] };
+/** Everything one request carried, as the model stub received it: its system text and its messages. */
+const sentText = (q) => JSON.stringify((q && q.args && q.args.system) || "") + JSON.stringify((q && q.args && q.args.messages) || []);
+
+for (const mode of ["sync", "job"]) {
+  test(`REVIEW (${mode}): a photo removal and a 3D scene put off beside it — the picture rung's model never sees the scene, the photo comes off, and the scene is named`, async () => {
+    const r = await drive({ mode, routed: { layer: "picture", remove: true }, ask: PHOTO_SCENE_ASK,
+      answers: { [PICK]: DOOR_SCENE_PICK, [PICTURE_TOOL.name]: REMOVE_BOULE } });
+    const label = "photo + scene put off (" + mode + ")";
+    assert.equal(r.status, 200, label + ": " + JSON.stringify(r.reply));
+    assert.equal(r.reply && r.reply.ok, true, label + ": " + JSON.stringify(r.reply));
+    // THE PICKER SAW THE WHOLE MESSAGE — it is the one that decides — and the
+    // removal's own rung ran once, on the router's verb.
+    assert.deepEqual(r.models, [PICK, PICTURE_TOOL.name], label + ": the rungs called " + JSON.stringify(r.models) + " " + JSON.stringify(r.reply));
+    assert.ok(sentText(r.sent.find((q) => q.tool === PICK)).includes(SCENE_DOOR), label + ": the picker was not shown the message it decides on");
+    // THE MODEL INPUT: the picture rung was handed the removal, and nothing of the scene.
+    const pic = sentText(r.sent.find((q) => q.tool === PICTURE_TOOL.name));
+    assert.ok(pic.includes("Take the photo of the cooling loaf off the home page"), label + ": the picture rung was not handed the removal");
+    assert.ok(!pic.includes(SCENE_DOOR) && !pic.includes("3D scene"), label + ": the picture rung was handed the scene put off for later");
+    // WHAT RAN: exactly that photograph off the home page; every other page as it was; no scene made.
+    assert.deepEqual(r.reply.layers, ["picture"], label + ": layers");
+    assert.equal(page(r, "index.tsx"), ORIG["index.tsx"].replace(BOULE_LINES, ""), label + ": the home page is not the removal alone");
+    for (const p of PAGES) if (p.path !== "index.tsx") assert.equal(page(r, p.path), p.source, label + ": " + p.path + " changed");
+    assertOthersKept(r, label);
+    assert.ok(JSON.parse(r.site.b.store.get(CONFIG_KEY(SLUG))).look.three == null, label + ": a scene was made on the edit path");
+    for (const p of PAGES) assert.ok(!/<Canvas\b|@react-three/.test(page(r, p.path)), label + ": a scene was written into " + p.path);
+    // AND THE SCENE IS NAMED, on the reply and on the screen.
+    assert.equal(r.reply.deferred, SCENE_DOOR, label + ": the reply does not name the scene put off");
+    assert.ok(r.said.text.endsWith("\nI only did one thing this time. Say “" + SCENE_DOOR + "” and I’ll do that next."), label + ": the screen: " + r.said.text);
+  });
+}
+
+test("REVIEW: a removal whose words the picker gave wholly to an addition is refused before anything runs — no removal is run on words promised for later", async () => {
+  // THE PICKER'S WORDS FOR THE SCENE COVER THE WHOLE MESSAGE, removal included:
+  // nothing of the router's removal is left once the scene's words are out, so
+  // the removal cannot be told apart from the part put off. Nothing runs and
+  // nothing is put off; the customer is asked to send the addition alone.
+  const r = await drive({ routed: { layer: "picture", remove: true }, ask: PHOTO_SCENE_ASK,
+    answers: { [PICK]: { routed: ["images"], additional: ["three"], scopes: [{ part: "three", page: "/visit", words: PHOTO_SCENE_ASK }] }, [PICTURE_TOOL.name]: REMOVE_BOULE } });
+  assert.deepEqual(r.models, [PICK], "a rung ran on words that were the addition's");
+  assert.equal(r.reply && r.reply.ok, false, JSON.stringify(r.reply));
+  assert.equal(r.reply.error, "addition-mixed", JSON.stringify(r.reply));
+  assert.equal(Object.hasOwn(r.reply, "deferred"), false, "a part was named as put off on a message that ran nothing");
+  for (const p of PAGES) assert.equal(page(r, p.path), p.source, p.path + " changed");
+  assert.equal(r.builds.length, 0);
+});

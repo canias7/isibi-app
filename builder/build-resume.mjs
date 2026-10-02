@@ -50,6 +50,13 @@ export const RESUME_VERSION = 1;
 // because the marks nearest the failure are the ones anybody is reading for.
 export const MAX_RESUME_STEPS = 40;
 
+// HOW MANY PARTS PUT OFF A RECORD MAY NAME, and how long each may be: the
+// hand-over's own bounds (`MAX_HELD` and `MAX_MESSAGE` in site-ask.mjs, held
+// equal to these by test/handover-resume.test.mjs). Not imported: this module
+// is the resume's envelope and carries no router.
+export const MAX_RESUME_DEFERRED = 4;
+export const MAX_RESUME_DEFERRED_CHARS = 2000;
+
 // CLOUDFLARE'S OWN CEILING ON A DELAYED MESSAGE — 24 hours, for `send()` and
 // `msg.retry()` alike (verified against their documentation rather than
 // assumed). A value past it is not a slower resume, it is a call the platform
@@ -424,7 +431,7 @@ export function readGenReport(raw) {
  * shape that already has one, and the day they disagree the resume refuses a
  * design that is perfectly good.
  */
-export function packResume({ id, auth, uid, slug, lane, genId, report, firedAt, charged, looks, refires, steps, design }) {
+export function packResume({ id, auth, uid, slug, lane, genId, report, firedAt, charged, looks, refires, steps, design, deferred }) {
   return {
     v: RESUME_VERSION,
     kind: RESUME_KIND,
@@ -464,7 +471,35 @@ export function packResume({ id, auth, uid, slug, lane, genId, report, firedAt, 
     // did, with a short trace rather than no build.
     steps: normalizeSteps(steps),
     design: design && typeof design === "object" && !Array.isArray(design) ? design : null,
+    // WHAT THE REWRITE PUT OFF (2026-10-02, the owner's review of batch 2:
+    // *"persist every deferred part through background rewrite storage, resume,
+    // retries, and final success/failure replies so the browser still reports
+    // it"*). The first invocation took these out of the message before any
+    // model read it and answered 202; the answer the customer finally reads is
+    // written by a LATER invocation, which has only this record. Without them
+    // here the collected reply named nothing, and the browser trusts a final
+    // reply's own account. Carried through every claim and refire (each one
+    // re-packs the record it read), and OPTIONAL: a record written before this
+    // has none and resumes exactly as it did.
+    deferred: normalizeDeferred(deferred),
   };
+}
+
+/**
+ * THE PARTS PUT OFF, AS THE RECORD KEEPS THEM: a list of distinct non-blank
+ * strings, at most `MAX_RESUME_DEFERRED`. ALL OR NOTHING — a list with an entry
+ * that is not text, or too many entries, keeps none: a record this module did
+ * not write names nothing rather than half of something. The Worker writes it
+ * from the parts the build really took out (`heldParts`), already read.
+ */
+function normalizeDeferred(list) {
+  if (!Array.isArray(list) || list.length > MAX_RESUME_DEFERRED) return [];
+  const out = [];
+  for (const p of list) {
+    if (typeof p !== "string" || !p.trim() || p.length > MAX_RESUME_DEFERRED_CHARS) return [];
+    if (!out.includes(p)) out.push(p);
+  }
+  return out;
 }
 
 /** The same bar a live mark clears: a name, and numbers that are numbers. */
@@ -547,6 +582,9 @@ export function readResume(raw) {
     // above. One reading, both directions.
     steps: normalizeSteps(raw.steps),
     design: raw.design,
+    // NARROWED ON THE WAY OUT TOO, and absent reads as none: a record written
+    // before the field existed resumes and names nothing, as it always did.
+    deferred: normalizeDeferred(raw.deferred),
   };
 }
 

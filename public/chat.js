@@ -11565,6 +11565,15 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho) {
       handOver: h.handOver && typeof h.handOver === 'object' && !Array.isArray(h.handOver) ? h.handOver : undefined,
     };
   siteAbort = new AbortController();
+  // WHAT A 202 SAID WAS PUT OFF (2026-10-02, the owner's review of batch 2). A
+  // rewrite that answers 202 has already taken the parts out, and its 202 says
+  // which; the answer that ends the follow is written by a later invocation.
+  // The server now names them there too, from the record the 202 left — and
+  // where a final answer still carries no `deferred` of its own (a row's
+  // verdict for a build whose record is gone), the 202's account is the
+  // server's, so it is the one named. Declared out here so a connection lost
+  // mid-follow can say it as well.
+  let firedHeld;
   apiFetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: siteAbort.signal }).then(async (r) => {
     const ct = r.headers.get('content-type') || '';
     let d = (r.ok && ct.indexOf('ndjson') >= 0) ? await readReactStream(r, origin) : await r.json().catch(() => ({}));
@@ -11580,6 +11589,7 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho) {
     // change that is three lines of behaviour.
     let firedJob = '';
     if (r.status === 202 && d && d.stage === 'resuming' && d.job) {
+      if (Object.prototype.hasOwnProperty.call(d, 'deferred')) firedHeld = d.deferred;
       const done = await followBuildJob(d.job, siteAbort ? siteAbort.signal : undefined, origin);
       if (done) { r = done.r; d = done.d; }
       // STILL RUNNING WHEN WE STOPPED WATCHING. Not a failure and not a build:
@@ -11595,7 +11605,12 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho) {
     // there is no final reply to read — a build still running when we stopped
     // following, or a body that would not parse.
     const finalReply = !firedJob && d && typeof d === 'object' && !Array.isArray(d) && Object.keys(d).length ? d : null;
-    const heldSaid = finalReply || { deferred: h.alsoAsked };
+    // A FINAL REPLY'S OWN `deferred` WINS; a followed build's 202 speaks for a
+    // final reply that carries none; with no final reply, the 202's account,
+    // else what this post carried. A direct reply with no `deferred` still names
+    // nothing: the route took nothing out.
+    const heldSaid = finalReply && Object.prototype.hasOwnProperty.call(finalReply, 'deferred') ? finalReply
+      : { deferred: firedHeld !== undefined ? firedHeld : (finalReply ? undefined : h.alsoAsked) };
     const end = (said) => finish(said + alsoTail(heldSaid, false));
     // WHAT IT COST GOES TO THE METER, NOT INTO THE SENTENCE (owner's call
     // 2026-08-08). The reply used to end "(✦21 used)" on every build.
@@ -11771,8 +11786,9 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho) {
     }
     if (typeof fetchCredits === 'function') fetchCredits();
   }).catch((e) => {
-    // NO REPLY TO READ, so what was put off is said from what this post carried.
-    const rest = alsoTail({ deferred: h.alsoAsked }, false);
+    // NO REPLY TO READ, so what was put off is said from the 202 when one came,
+    // and otherwise from what this post carried.
+    const rest = alsoTail({ deferred: firedHeld !== undefined ? firedHeld : h.alsoAsked }, false);
     if (e && e.name === 'AbortError') { finish('■ Stopped. (A build already running may still finish server-side.)' + rest); return; }
     siteErr = { chatId: origin }; finish('⚠️ Lost the connection while building — check your internet and try again in a moment.' + rest);
   }).finally(() => { siteAbort = null; });
