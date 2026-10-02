@@ -278,6 +278,42 @@ export const UI_SCENARIOS = Object.freeze({
       }),
     ]),
   }),
+  // THE ADDITIONS BATCH (2026-10-02) — run 90's five additions, word for word,
+  // through the real app in one tab, once the fix sends them to the add-on
+  // step and has it deliver each one. `adds` opens the one door every other
+  // scenario keeps shut — the add-on step, for this site alone — and the wall
+  // still refuses everything else: a build, a rewrite, any edit that is not an
+  // addition the add-on step handed over (`addition: true`, which only that
+  // hand-over sets), and for the line and the photograph any edit at all. So a
+  // message the router sends to an edit costs its routing call and changes
+  // nothing. Each message is judged on what landed (`additionsVerdict`, in
+  // canary-additions.mjs), and the bakery goes back afterwards by the free
+  // restore press, to the version the before-read saw.
+  "12-additions": Object.freeze({
+    site: "fold-lane-bakery",
+    // Routing 1-3 for each message; each frame item about 2 at the menu
+    // editor; the line and the photograph about 3-10 each through the add-on's
+    // page call: about 22-41 in all. Checked before each message, so the last
+    // one can take the total past it: about 19 more if the add-on buys the
+    // photograph rather than placing the site's own.
+    budget: 45,
+    adds: true,
+    layers: Object.freeze(["nav"]),
+    additions: Object.freeze({
+      social: Object.freeze({ network: "instagram", host: "instagram.com", path: "/harbourloaf" }),
+      menu: Object.freeze({ label: "Order", href: "/order" }),
+      button: Object.freeze({ label: "Call us", tel: "01174960000" }),
+      words: Object.freeze({ page: "visit.tsx", route: "/visit", says: "closed on bank holidays" }),
+      photo: Object.freeze({ page: "visit.tsx", route: "/visit", about: "sourdough" }),
+    }),
+    steps: Object.freeze([
+      Object.freeze({ say: "Add our Instagram to the footer: @harbourloaf.", layers: Object.freeze(["nav"]), hop: "nav" }),
+      Object.freeze({ say: "Add Order to the menu.", layers: Object.freeze(["nav"]), hop: "nav" }),
+      Object.freeze({ say: "Add a Call us button at the top that rings 0117 496 0000.", layers: Object.freeze(["nav"]), hop: "nav" }),
+      Object.freeze({ say: "On the Visit page, add a line saying we're closed on bank holidays.", layers: Object.freeze([]) }),
+      Object.freeze({ say: "Add a photo of our sourdough to the Visit page.", layers: Object.freeze([]) }),
+    ]),
+  }),
 });
 
 // Bounds. A step is one message: its routing call, its job and its publish.
@@ -366,9 +402,12 @@ export function recordableRequest(raw) {
  * and recorded. What the page then says is the harness's doing, and the record
  * says so.
  */
-export function blocksPost(method, pathname) {
+export function blocksPost(method, pathname, scenario) {
   if (method !== "POST") return false;
   if (pathname === "/api/site/react-build" || pathname === "/api/site/build" || pathname === "/api/site/react-revise") return true;
+  // THE ADDITIONS BATCH ASKS FOR THE ADD-ON STEP (2026-10-02), and for its own
+  // site's alone: every other scenario, and every other site, stays shut.
+  if (scenario && scenario.adds === true && typeof scenario.site === "string" && pathname === `/api/site/${encodeURIComponent(scenario.site)}/addon`) return false;
   return /^\/api\/site\/[^/]+\/addon$/.test(pathname);
 }
 
@@ -387,24 +426,35 @@ export function blocksPost(method, pathname) {
  * list stands.
  */
 export function wallRefusal({ method, pathname, body, scenario, step } = {}) {
-  if (blocksPost(method, pathname)) return "work this scenario never asks for";
+  if (blocksPost(method, pathname, scenario)) return "work this scenario never asks for";
   const layers = step && Array.isArray(step.layers) ? step.layers
     : scenario && Array.isArray(scenario.layers) ? scenario.layers : null;
   if (!layers) return "";
   if (method === "GET" || method === "HEAD") return "";
-  if (method === "POST" && pathname === "/api/site/route") return layers.length ? "" : "a message this scenario never sends";
+  // AN ADDITION IS ROUTED LIKE ANY MESSAGE, and a line or a photograph makes
+  // no edit at all, so its empty list walls the edits and not the routing call.
+  const adds = !!(scenario && scenario.adds === true);
+  if (method === "POST" && pathname === "/api/site/route") return layers.length || adds ? "" : "a message this scenario never sends";
+  // The add-on request, which `blocksPost` let through for this site alone.
+  if (adds && method === "POST" && pathname === `/api/site/${encodeURIComponent(scenario.site)}/addon`) return "";
   const m = /^\/api\/site\/([^/]+)\/edit$/.exec(String(pathname || ""));
   if (method === "POST" && m) {
     let slug = "";
     try { slug = decodeURIComponent(m[1]); } catch { slug = ""; }
     if (slug !== scenario.site) return `an edit of ${slug || "another site"}, which is not this scenario's site`;
     let layer = null;
+    let addition = false;
     try {
       const b = JSON.parse(String(body || ""));
       layer = b && typeof b.layer === "string" ? b.layer : null;
+      addition = !!(b && b.addition === true);
     } catch { layer = null; }
     if (layer === null) return "an edit whose layer cannot be read";
-    return layers.includes(layer) ? "" : `an edit at the ${layer || "(blank)"} layer, which this scenario does not allow`;
+    if (!layers.includes(layer)) return `an edit at the ${layer || "(blank)"} layer, which this scenario does not allow`;
+    // IN THE ADDITIONS BATCH AN EDIT IS ONLY EVER THE ADD-ON STEP'S HAND-OVER,
+    // which carries the addition flag; a message the router sent straight to
+    // the menu editor does not, and would be free to change what is there.
+    return adds && !addition ? "an edit that is not an addition the add-on step handed over" : "";
   }
   return `a ${method} this scenario never makes`;
 }
@@ -476,9 +526,10 @@ export function routeCostsOf(steps) {
  * balance at the end must be exactly the routing calls' own costs plus each
  * job's charge — and each job's charge must be what its own row says AND what
  * the ledger took under it, with nothing refunded. An exempt job takes no
- * ledger row. A refunded job charged nothing: whatever its reserve took, the
- * ledger gave back, so its rows net to nothing. Anything that cannot be read
- * is a refusal, never a zero.
+ * ledger row, and neither does one that never reached a paid step (`none`).
+ * A refunded job charged nothing: whatever its reserve took, the ledger gave
+ * back, so its rows net to nothing. Anything that cannot be read is a
+ * refusal, never a zero.
  */
 export function moneyVerdict({ start, end, routeCosts, jobs } = {}) {
   const bad = (why, extra = {}) => ({ ok: false, why, ...extra });
@@ -501,8 +552,12 @@ export function moneyVerdict({ start, end, routeCosts, jobs } = {}) {
       if (!(Number.isSafeInteger(j.row.cost) && j.row.cost >= 0)) return bad(`job ${id}'s cost is not a whole number`);
       if (debits !== j.row.cost || refunds !== 0) return bad(`job ${id}: its row says ${j.row.cost}; the ledger took ${debits} and returned ${refunds}`);
       edits += j.row.cost;
-    } else if (j.row.billing === "exempt") {
-      if (j.ledger.length) return bad(`job ${id} is exempt and the ledger names it`);
+    } else if (j.row.billing === "exempt" || j.row.billing === "none") {
+      // `none` IS A JOB THAT NEVER REACHED A PAID STEP (2026-10-02): the
+      // add-on step's hand-over to the menu editor reserves nothing, and its
+      // row stays `none`. Settled at nothing, like an exempt job — and, like
+      // one, refused if the ledger names it.
+      if (j.ledger.length) return bad(`job ${id} is ${j.row.billing} and the ledger names it`);
     } else if (j.row.billing === "refunded") {
       if (debits !== refunds) return bad(`job ${id} is refunded; the ledger took ${debits} and returned ${refunds}`);
     } else {

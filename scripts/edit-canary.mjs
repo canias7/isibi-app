@@ -57,6 +57,8 @@ import { failureVerdict, refundedVerdict, sameTab } from "./canary-ui.mjs";
 // TEST 5: a page removal is judged by what its operations did, never by how
 // many replies came back.
 import { removalVerdict } from "./canary-remove.mjs";
+// THE ADDITIONS BATCH (2026-10-02): judged on what landed, by the product's own readers.
+import { additionsVerdict } from "./canary-additions.mjs";
 import { OWNER_ROWS_LIMIT } from "./canary-rows.mjs";
 // BATCH 1: the route a paid press expects, read from its own box and compared
 // with the router's answer before the edit is posted.
@@ -1055,6 +1057,7 @@ if (UI_ASK) {
   }
   let chain = null;
   let removal = null;
+  let additions = null;
   if (SPEND && ui.sent) {
     // THE OLDER LAYOUT (a site published before the versioned builds) serves no
     // version header, so there is no version to wait for and no chain to walk:
@@ -1148,6 +1151,29 @@ if (UI_ASK) {
       console.log("");
       for (const c of removal.checks) check(c.name, c.ok, c.why);
     }
+    // THE ADDITIONS BATCH PASSES ON WHAT LANDED (2026-10-02): each message's
+    // requests and stored replies, the chain of publishes, the stored source
+    // read by the product's own readers, and the pages a visitor is served,
+    // as the after-read fetched them. Taken whether or not every message was
+    // sent, so a stopped run records why it did not pass; and its money must
+    // close like any other run's.
+    if (UI_ASK.scenario.adds) {
+      const served = {};
+      for (const r of Object.keys(after && after.render ? after.render : {})) {
+        const file = (r === "/" ? "_home" : r.replace(/[^a-z0-9]+/gi, "_"));
+        try { served[r] = readFileSync(`${EVID}/after/route${file}.html`, "utf8"); } catch { served[r] = ""; }
+      }
+      additions = additionsVerdict({
+        spec: UI_ASK.scenario, steps: ui.steps, chain,
+        before: { ...BEFORE.source, complete: BEFORE.readsComplete === true },
+        after: after ? { ...after.source, complete: after.readsComplete === true } : null,
+        served, slug: CANARY,
+      });
+      console.log("");
+      for (const c of additions.checks) check(c.name, c.ok, c.why);
+      const money = moneyVerdict({ start: ui.balance.start, end: ui.balance.end, routeCosts: routeCostsOf(ui.steps), jobs: jobRecords });
+      check(`the money closes: routing ${money.routing ?? "?"} + jobs ${money.edits ?? "?"} = the balance's move of ${money.spent ?? "?"}`, money.ok, money.why || `${ui.balance.start} -> ${ui.balance.end}`);
+    }
     if (UI_ASK.scenario.publishes === 0) {
       const each = ui.steps.filter((s) => s.sent);
       check(each.length > 1 ? "each message filed exactly one job" : "the message filed exactly one job",
@@ -1182,9 +1208,10 @@ if (UI_ASK) {
   mkdirSync(EVID, { recursive: true });
   // THE RULES RECORD IS WRITTEN WITH ROW IDS AND NEVER ROW CONTENTS: a
   // booking table's rows are its visitors' names and numbers.
-  writeFileSync(`${EVID}/ui.json`, JSON.stringify({ scenario: UI_ASK.name, spend: SPEND, ui: ui.rules ? { ...ui, rules: rulesRecordable(ui.rules) } : ui, chain, removal }, null, 2));
+  writeFileSync(`${EVID}/ui.json`, JSON.stringify({ scenario: UI_ASK.name, spend: SPEND, ui: ui.rules ? { ...ui, rules: rulesRecordable(ui.rules) } : ui, chain, removal, additions }, null, 2));
   writeFileSync(`${EVID}/ui.txt`, told + (chain ? `\n  chain ${chain.verified ? "VERIFIED" : "UNVERIFIED (" + chain.why + ")"}\n` : "\n")
-    + (removal ? `  page removal ${removal.ok ? "HAPPENED" : "DID NOT HAPPEN"}\n${removal.checks.map((c) => `    ${c.ok ? "ok  " : "FAIL"}  ${c.name}${c.ok ? "" : " — " + c.why}`).join("\n")}\n` : ""));
+    + (removal ? `  page removal ${removal.ok ? "HAPPENED" : "DID NOT HAPPEN"}\n${removal.checks.map((c) => `    ${c.ok ? "ok  " : "FAIL"}  ${c.name}${c.ok ? "" : " — " + c.why}`).join("\n")}\n` : "")
+    + (additions ? `  additions ${additions.ok ? "ALL LANDED" : "NOT ALL LANDED"}\n${additions.checks.map((c) => `    ${c.ok ? "ok  " : "FAIL"}  ${c.name}${c.ok ? "" : " — " + c.why}`).join("\n")}\n` : ""));
   console.log(`\n${failed ? "UI MODE FAILED" : "UI MODE PASSED"}: ${ui.sent} message${ui.sent === 1 ? "" : "s"} sent${ui.stopped ? `; stopped at ${ui.stopped.at}` : ""}`);
   process.exit(failed ? 1 : 0);
 }

@@ -1,0 +1,164 @@
+[
+  {
+    "label": "CONTROL: the additions module's opening line changes nothing",
+    "control": true,
+    "files": [
+      "scripts/canary-additions.mjs"
+    ],
+    "from": "// ── THE ADDITIONS BATCH: EACH NEW THING, JUDGED BY WHAT LANDED ──────────────",
+    "to": "// ── THE ADDITIONS BATCH: EACH NEW THING, JUDGED BY WHAT LANDED (control) ────"
+  },
+  {
+    "label": "CONTROL: the wall's add-on comment changes nothing",
+    "control": true,
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "// THE ADDITIONS BATCH ASKS FOR THE ADD-ON STEP (2026-10-02), and for its own",
+    "to": "// THE ADDITIONS BATCH ASKS FOR THE ADD-ON STEP (2026-10-02, control), and for its own"
+  },
+  {
+    "label": "H-1: the add-on step stays shut for the batch too",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "if (scenario && scenario.adds === true && typeof scenario.site === \"string\" && pathname === `/api/site/${encodeURIComponent(scenario.site)}/addon`) return false;",
+    "to": ""
+  },
+  {
+    "label": "H-2: an edit without the addition flag is let through",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "return adds && !addition ? \"an edit that is not an addition the add-on step handed over\" : \"\";",
+    "to": "return \"\";"
+  },
+  {
+    "label": "H-3: a line's routing call is stopped by its empty list",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "return layers.length || adds ? \"\" : \"a message this scenario never sends\";",
+    "to": "return layers.length ? \"\" : \"a message this scenario never sends\";"
+  },
+  {
+    "label": "H-4: the batch's add-on door opens to any site",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "pathname === `/api/site/${encodeURIComponent(scenario.site)}/addon`) return false;",
+    "to": "/\\/addon$/.test(pathname)) return false;"
+  },
+  {
+    "label": "V-1: a message routed to an edit passes",
+    "files": [
+      "scripts/canary-additions.mjs"
+    ],
+    "from": "out.routedIntent === \"addon\" && ",
+    "to": ""
+  },
+  {
+    "label": "V-2: a hand-over edit without the flag passes",
+    "files": [
+      "scripts/canary-additions.mjs"
+    ],
+    "from": " && out.editWords && out.editAddition\n",
+    "to": " && out.editWords\n"
+  },
+  {
+    "label": "V-3: an edit beside a line passes",
+    "files": [
+      "scripts/canary-additions.mjs"
+    ],
+    "from": "    : out.edits === 0;",
+    "to": "    : true;"
+  },
+  {
+    "label": "V-4: a failed menu-editor answer passes",
+    "files": [
+      "scripts/canary-additions.mjs"
+    ],
+    "from": "if (!(done.ok === true && done.layer === hop))",
+    "to": "if (false)"
+  },
+  {
+    "label": "V-5: a failure shown on screen passes",
+    "files": [
+      "scripts/canary-additions.mjs"
+    ],
+    "from": "if (!shown.startsWith(\"✅\")) return",
+    "to": "if (false) return"
+  },
+  {
+    "label": "V-6: a menu that gained the wrong item passes",
+    "files": [
+      "scripts/canary-additions.mjs"
+    ],
+    "from": "if (extra.length !== 1 || !ADDITION_KINDS.menu(extra[0], want.menu)) bad.push",
+    "to": "if (false) bad.push"
+  },
+  {
+    "label": "V-7: a replaced button passes",
+    "files": [
+      "scripts/canary-additions.mjs"
+    ],
+    "from": "if (JSON.stringify(now.action) !== JSON.stringify(was.action)) bad.push",
+    "to": "if (false) bad.push"
+  },
+  {
+    "label": "V-8: another page changed outside its frame passes",
+    "files": [
+      "scripts/canary-additions.mjs"
+    ],
+    "from": "const moved = [...b.keys()].filter((p) => !target.includes(p) && outsideChrome(a.get(p)) !== outsideChrome(b.get(p)));",
+    "to": "const moved = [];"
+  },
+  {
+    "label": "V-9: words the page lost pass",
+    "files": [
+      "scripts/canary-additions.mjs"
+    ],
+    "from": "add(`${p} still says everything it said`, !lost.length,",
+    "to": "add(`${p} still says everything it said`, true,"
+  },
+  {
+    "label": "V-10: the button 'Order a loaf' passes for the Order menu link",
+    "files": [
+      "scripts/canary-additions.mjs"
+    ],
+    "from": "x.href === want.menu.href && x.text === lower(want.menu.label)",
+    "to": "x.href === want.menu.href"
+  },
+  {
+    "label": "V-11: fewer publishes than messages pass",
+    "files": [
+      "scripts/canary-additions.mjs"
+    ],
+    "from": "!!(chain && chain.verified === true && chain.links === want.length)",
+    "to": "!!(chain && chain.verified === true)"
+  },
+  {
+    "label": "V-12: a +44 number is not the same number",
+    "files": [
+      "scripts/canary-additions.mjs"
+    ],
+    "from": "  if (d.startsWith(\"+44\")) d = \"0\" + d.slice(3);\n",
+    "to": ""
+  },
+  {
+    "label": "V-13: a second photograph's description is never read",
+    "files": [
+      "scripts/canary-additions.mjs"
+    ],
+    "from": "newPhotos.length === 1 && newAlts[0].includes(plain(want.photo.about))",
+    "to": "newPhotos.length === 1"
+  },
+  {
+    "label": "V-14: an Instagram link to another account passes",
+    "files": [
+      "scripts/canary-additions.mjs"
+    ],
+    "from": "return /^https?:$/.test(u.protocol) && host === want.host && lower(u.pathname.replace(/\\/$/, \"\")) === lower(want.path);",
+    "to": "return /^https?:$/.test(u.protocol) && host === want.host;"
+  }
+]

@@ -569,7 +569,10 @@ test("the money closes only when the balance's move is the routing costs plus wh
     [{ start: 59, end: 56, routeCosts: [2], jobs: [job({ row: { billing: "reserved" } })] }, /not settled/],
     // A REFUNDED JOB whose reserve never came back is refused as exactly that.
     [{ start: 59, end: 56, routeCosts: [2], jobs: [job({ row: { billing: "refunded" } })] }, /refunded; the ledger took 1 and returned 0/],
-    [{ start: 59, end: 56, routeCosts: [2], jobs: [job({ row: { billing: "none" } })] }, /not settled/],
+    // A JOB THAT NEVER REACHED A PAID STEP (`none`, 2026-10-02) takes no
+    // ledger row, and one that does is a finding — as for an exempt one.
+    [{ start: 59, end: 56, routeCosts: [2], jobs: [job({ row: { billing: "none" } })] }, /none and the ledger names it/],
+    [{ start: 59, end: 56, routeCosts: [2], jobs: [job({ row: { billing: "lost" } })] }, /not settled/],
     [{ start: 59, end: 56, routeCosts: [2], jobs: [job({ row: { cost: "1" } })] }, /whole number/],
     [{ start: 59, end: 56, routeCosts: [undefined], jobs: [job()] }, /not a number/],
     [{ start: -1, end: 56, routeCosts: [2], jobs: [job()] }, /could not be read/],
@@ -584,6 +587,10 @@ test("the money closes only when the balance's move is the routing costs plus wh
   }
   // An exempt job takes no ledger row, and one that does is a finding.
   assert.equal(moneyVerdict({ start: 59, end: 57, routeCosts: [2], jobs: [{ job: "e", row: { billing: "exempt", cost: 0 }, ledgerRead: { ok: true }, ledger: [] }] }).ok, true);
+  // So does the add-on's hand-over: no reserve, no row, nothing spent beside
+  // the menu editor's own job.
+  assert.deepEqual(moneyVerdict({ start: 59, end: 55, routeCosts: [2], jobs: [{ job: "h", row: { billing: "none", cost: 0 }, ledgerRead: { ok: true }, ledger: [] }, job({ row: { cost: 2 }, ledger: [{ delta: -2 }] })] }),
+    { ok: true, why: "", spent: 4, routing: 2, edits: 2 });
   // A REFUNDED JOB (a failed edit, Test 9) charged nothing: its reserve and
   // its refund net to nothing, and the edit adds nothing to the spend.
   const back = job({ row: { billing: "refunded", cost: 1 }, ledger: [{ delta: -1 }, { delta: 1 }] });
@@ -1799,7 +1806,9 @@ test("the canary judges Test 5 by its operations — each stored reply, the chai
   assert.match(block, /for \(const c of removal\.checks\) check\(c\.name, c\.ok, c\.why\)/, "a removal check does not fail the run");
   // KEPT: ui.json carries the verdict, and ui.txt says whether the removal happened.
   const write = win.slice(win.indexOf("writeFileSync(`${EVID}/ui.json`"));
-  assert.match(write, /chain, removal \}/, "ui.json does not carry the removal verdict");
+  // The additions batch's verdict rides beside it (2026-10-02), so the record
+  // is read for the removal's own key rather than for the object's last brace.
+  assert.match(write, /chain, removal(, additions)? \}/, "ui.json does not carry the removal verdict");
   assert.match(write, /page removal \$\{removal\.ok \? "HAPPENED" : "DID NOT HAPPEN"\}/, "ui.txt does not say whether the removal happened");
   assert.match(CANARY, /import \{ removalVerdict \} from "\.\/canary-remove\.mjs"/);
   // The evidence upload runs on a failed run too.

@@ -1,0 +1,79 @@
+{
+  "batch": "addition-fix-1",
+  "probes": [
+    {
+      "id": "X1",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Change the Order a loaf button at the top to say Order now.",
+      "intended": [{ "intent": "edit", "layer": "nav", "alsoAsked": "none" }],
+      "basis": "router rule: the button the site already has, changed, stays an edit at nav (2026-10-02 additions round)",
+      "note": "Control for the new wording: an existing header button must not be read as an addition. The header's button reads Order a loaf (read 2026-10-02)."
+    },
+    {
+      "id": "X2",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Take The starter out of the menu.",
+      "intended": [{ "intent": "edit", "layer": "nav", "alsoAsked": "none" }],
+      "basis": "router rule: taking an item the menu already has out is an edit at nav, never an addition",
+      "note": "Control for the new wording: a removal from the frame. Every page's menu has The starter (read 2026-10-02)."
+    },
+    {
+      "id": "X3",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Change the opening hours at the bottom of every page to Wed–Sat 8–3, Sun 9–1.",
+      "intended": [{ "intent": "edit", "layer": "nav", "alsoAsked": "none" }],
+      "basis": "router rule: a footer detail the site already has, changed, stays an edit at nav",
+      "note": "Control for the new wording: the footer's opening line reads Wed–Sat 8–2, Sun 9–1 (read 2026-10-02)."
+    },
+    {
+      "id": "X4",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "On the Visit page, change the heading Come to the bakery to Come and find us.",
+      "intended": [{ "intent": "edit", "layer": "text", "alsoAsked": "none" }],
+      "basis": "router rule: words the page already has, reworded, stay an edit at text",
+      "note": "Control for the new wording: /visit's first heading reads Come to the bakery (read 2026-10-02)."
+    },
+    {
+      "id": "F1",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Use this photo on the Visit page instead of the current one.",
+      "attached": true,
+      "given": "/visit shows exactly one photograph, /u/fold-lane-bakery/d5d591527a2bed3836f73b5e74e75565.jpg (\"The counter and morning board at Harbour Loaf\"), at 01790819484141-dgmag4: a fresh read of the served page on 2026-10-02 at 04:03 UTC.",
+      "intended": [{ "intent": "edit", "layer": "picture", "alsoAsked": "none" }],
+      "basis": "router rule: swapping a photo the site has is a change, not an addition",
+      "note": "Control for the new wording: a photo swap stays a change, not an addition. Sends the attached flag only, as the browser does to the route."
+    },
+    {
+      "id": "B1",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "We've started baking a Seeded Spelt, £4.80. Put it on the list.",
+      "intended": [{ "intent": "addon", "alsoAsked": "none" }],
+      "basis": "owner policy: a new entry in a list the site keeps is an addition (Test 11), here without the word add",
+      "note": "Control: a new entry in a list the site keeps stays an addition (run 90: addon)."
+    },
+    {
+      "id": "C2",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Make the headings dark green and add our Instagram to the footer.",
+      "intended": [{ "intent": "edit", "layer": "look", "alsoAsked": "some", "held": "add our Instagram to the footer", "runs": "Make the headings dark green" }, { "intent": "addon", "alsoAsked": "some", "held": "Make the headings dark green", "runs": "add our Instagram to the footer" }],
+      "basis": "owner policy: the footer addition is the add-on path's, never nav; the colour is look; one part is held back",
+      "note": "Control for mixed requests with a new frame item: each answer must hold back the other's part (run 90: look, holding back the footer addition)."
+    },
+    {
+      "id": "D2",
+      "site": "fold-lane-bakery",
+      "name": "Harbour Loaf",
+      "message": "Make the Gallery page's background warmer and the Visit page's background cooler.",
+      "intended": [{ "intent": "edit", "layer": "look", "page": "none", "alsoAsked": "none" }],
+      "basis": "router rule: the whole-message rule by targets (owner-corrected 2026-09-29)",
+      "note": "Control for page scope: one look answer for two pages (run 90: look, page none)."
+    }
+  ]
+}
