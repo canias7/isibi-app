@@ -1,8 +1,9 @@
 # The five additions: routed to the add-on step and delivered there (2026-10-02)
 
 *On the branch for review: nothing merged, deployed or spent. The code is
-`202c554a` (the fix) and `a5282a6f` (the validation batch); this record and
-the handoff follow them.*
+`202c554a` (the fix), `a5282a6f` (the validation batch), and `6c69d155` and
+`03e664aa` (two reply sentences corrected before review, §3.4 and §3.5);
+this record and the handoff follow them.*
 
 ## 1. The owner's request
 
@@ -121,6 +122,44 @@ its comma, and the whole line when the property is on a line of its own.
 This changes the existing edit's removal too (for the better); it is called
 out here so the review can weigh it separately.
 
+### 3.4 Corrected before review: the no-photo refusal claimed nothing was charged (`6c69d155`)
+
+Found while rendering this round's new reply lines for the owner: the no-photo
+refusal said *"…so nothing on your site changed and nothing was charged."* By
+then the routing call has been charged, and the browser prints the sentence as
+it is, so it called the whole request free. That is against the owner's rule
+after run 31 (*"Distinguish the edit's charge from routing … don't … claim the
+whole request was free"*). It now says only *"I couldn't get a photograph to
+put there just now, so nothing on your site changed."*, like this round's
+other refusals.
+- **Guard**: both of its paths through the real route (before the page call,
+  and after a purchase that failed), with an observer first shown to see the
+  claim it forbids (`addon-route.test.mjs`, *the no-photo refusal says the
+  site is unchanged, and never that nothing was charged*).
+- **Red check**: the guard fails on the old sentence, at the claim.
+- **Sweep** (`scripts/mutants/no-photo-money.json`): 5 of 5 killed — the claim
+  restored, reworded twice, the unchanged-site clause dropped, and the route
+  appending its own claim — and both comment-only controls survived.
+- **Older, and not this round's**: `lostPhotosMsg` (an addition that would
+  take a photograph off) still says *"Nothing was published and nothing was
+  charged"*. It predates this round, so it is left as it was and recorded in
+  §8.
+
+### 3.5 Corrected before review: "the new words … without it" (`03e664aa`)
+
+Seen in the same rendering: the sentence for words that did not land read
+*"I couldn't add the new words — the page came back without it"*. It chose
+"it" whenever one item was missing, but "the new words" are always plural;
+only a single photograph is "it". It now reads *"…without them…"* for words
+and keeps *"…without it…"* for one photograph.
+- **Guard** (`site-add.test.mjs`, *the not-landed sentence refers back to
+  what is missing in the same number*): one line, several lines, one
+  photograph, several, and words beside a photograph.
+- **Red check**: it fails on the old sentence, at the words case.
+- **Sweep** (`scripts/mutants/not-landed-number.json`): 4 of 4 killed (the
+  old rule, two near misses, the pronouns swapped); the comment-only control
+  survived.
+
 ## 4. What is preserved, and the cases that pin it
 
 - **Existing-item edits**: without the flag, the same menu answer is the menu
@@ -166,7 +205,9 @@ out here so the review can weigh it separately.
   reserve, no ledger entry, its row at `billing: none`. The canary's money
   check refused `none` as unsettled, so it now accepts it as "never reached a
   paid step", with an empty ledger, like an exempt job.
-- **Full suite**: `8639 / 8639 / 0 / 0` locally on `a5282a6f`'s tree.
+- **Full suite**: `8639 / 8639 / 0 / 0` locally on `a5282a6f`'s tree, and
+  `8641 / 8641 / 0 / 0` on `03e664aa`, the candidate (the two corrections'
+  guards added).
 - **Required CI on `a5282a6f`**, both green (one push carried both commits):
   - unit tests, run 36964844334: `8639 / 8635 / 0 / 4` (the same total; CI
     skips its usual four);
@@ -177,10 +218,23 @@ out here so the review can weigh it separately.
     from each step's log: TAP 397, kit-typecheck 4, contrast-cases 16,
     theme-seam 11, theme-render 29, site-routing 14, site-runtime 47;
     kit-render, kit-a11y, kit-effects and kit-paint all passed.
+- **Required CI on `03e664aa`, the candidate**:
+  - unit tests, run 36966422224: `8641 / 8637 / 0 / 4` (the same total);
+    the run on `6c69d155` (36966106348) was green too;
+  - site build, run 36966422193: the gate printed *"ALL CHECKS: 404 checks
+    in 27 sections across 4 shards, every job green"*, at inputs
+    `6a20f165b967aa9f` (3,967 files, the fingerprint computed locally); the
+    other counts from each step's log as on `a5282a6f` (TAP 397,
+    kit-typecheck 4, contrast-cases 16, theme-seam 11, theme-render 29,
+    site-routing 14, site-runtime 47; kit-render, kit-a11y, kit-effects and
+    kit-paint all passed). Its run on `6c69d155` was cancelled when
+    `03e664aa` superseded it.
 - **Image**: `a412daac10dbc936` on `main` and `efc04d8a` → `331bf9bf72e72309`
   on `202c554a` and `a5282a6f` (189 inputs, 159 paths; the kit's two files
-  and the builder modules moved). So a merge rolls the container, and owes
-  the usual wait before container work.
+  and the builder modules moved) → **`b4f1e95939e15f16` on `03e664aa`**, the
+  candidate (`builder/site-add.mjs` is an input; `6c69d155` alone gave
+  `ca9575222c27821f`). So a merge rolls the container, and owes the usual
+  wait before container work.
 
 ## 6. What this does not show
 
@@ -275,7 +329,15 @@ Recorded for the owner's next decisions, from the audit:
 
 Found in this round and handled: the shared frame object's button removal
 (§3.3, fixed, flagged); the canary's money check refusing a job that never
-reserved anything (§5, fixed in the harness).
+reserved anything (§5, fixed in the harness); the no-photo refusal's claim
+that nothing was charged and the not-landed sentence's "without it" (§3.4
+and §3.5, this round's own sentences, corrected).
+
+Found in this round and left as it was: **`lostPhotosMsg`** in
+`builder/site-add.mjs` (an addition that would take one of the site's
+photographs off is refused) says *"Nothing was published and nothing was
+charged"*, although the routing call was charged first. It predates this
+round (it is in `efc04d8a`).
 
 ## 9. Test 11
 

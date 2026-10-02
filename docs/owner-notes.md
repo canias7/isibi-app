@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-02, 04:40 UTC)
+## Current handoff — read this first (2026-10-02, 05:00 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -30,6 +30,13 @@ Nothing is merged, deployed or spent. Test 11 is closed, as you asked.**
 - **One older bug fixed on the way, flagged for you**: taking the button off
   a site whose header lives in one shared block left broken code, so that
   edit could only fail. It now removes cleanly.
+- **Two of my own mistakes, corrected before your review**, both found
+  while rendering the new replies for you (the screenshot is in our chat):
+  - the new "no photo" refusal said "nothing was charged", but by then the
+    routing call has been charged. It now says only that nothing on the
+    site changed, as your rule after run 31 asks;
+  - the "words didn't land" refusal said "the new words — the page came
+    back without it". It now says "without them".
 - **Kept as it was**: edits to what a site has, removals, new list entries,
   page scope and mixed messages. Tests check that the same answers behave
   as before.
@@ -38,20 +45,23 @@ Nothing is merged, deployed or spent. Test 11 is closed, as you asked.**
   - the red check: 46 of the new tests fail on the old code;
   - two mutation sweeps, of 35 and 18 deliberate faults: all caught once six
     test gaps were closed, and the comment-only controls survived;
-  - the full suite: 8,639 tests, all passing;
-  - CI on the branch, both green: unit tests 8,639 (the usual 4 skipped),
-    and the site build's 404 checks with its other counts as always.
+  - each correction: its test fails on the old sentence, and its sweep (5
+    and 4 faults) caught everything, with the controls surviving;
+  - the full suite: 8,641 tests, all passing;
+  - CI on the final commit (`03e664aa`): unit tests 8,641 (the usual 4
+    skipped), and the site build's 404 checks with its other counts as
+    always.
 - **A merge rolls the container**: the image moves from `a412daac10dbc936`
-  to `331bf9bf72e72309`. Allow 15–20 minutes after the deploy before
+  to `b4f1e95939e15f16`. Allow 15–20 minutes after the deploy before
   pressing.
 - **Not shown yet**: no real model has routed or designed these since the
   fix; the tests supply the answers. The batch is the first real reading.
 
 **What I need from you**
-1. **Your review** of the fix (`202c554a`) and the batch (`a5282a6f`),
-   especially the shared-header button fix, and the money check now
-   accepting a step that reserved nothing (that's how the hand-over to the
-   menu editor settles).
+1. **Your review** of the fix (`202c554a`), the batch (`a5282a6f`) and the
+   two corrections (`6c69d155`, `03e664aa`), especially the shared-header
+   button fix, and the money check now accepting a step that reserved
+   nothing (that's how the hand-over to the menu editor settles).
 2. **If you approve: your word to merge and deploy.**
 3. **Then the batch: four presses, once the container has rolled.** The
    boxes are below. Each paid press is your go-ahead for its spend.
@@ -66,7 +76,7 @@ blank or as it is)
    - *Refuse to spend unless the Worker reports this deploy sha…*: the
      merged commit (I'll give it to you after the merge)
    - *Refuse to spend unless a cold container reports this image id…*:
-     `331bf9bf72e72309`
+     `b4f1e95939e15f16`
 
    It checks the deploy, reads the bakery, opens the app signed in, opens
    the bakery and types the first message. It sends nothing.
@@ -108,8 +118,8 @@ attachments (the audit's R6, R7 and R2). Nothing changed there.
 - The record: `docs/history/2026-10-02-additions.md` (§7 is the batch).
 - The checklist: `docs/investigations/edit-path-checklist.md`, *Test 12*.
 - The audit: `docs/investigations/router-audit.md`, R1.
-- Unit tests: https://github.com/canias7/isibi-app/actions/runs/36964844334
-- Site build: https://github.com/canias7/isibi-app/actions/runs/36964844335
+- Unit tests: https://github.com/canias7/isibi-app/actions/runs/36966422224
+- Site build: https://github.com/canias7/isibi-app/actions/runs/36966422193
 - Run workflow: https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml
 
 **From our chat**
@@ -204,14 +214,19 @@ since. Add new ones there.
   again stops, and the customer is told nothing changed.
 - **Fixed on the way, flagged**: taking the button off a site whose header
   is one shared block left code that didn't compile.
+- **Corrected before review**: the new "no photo" refusal said "nothing was
+  charged", though the routing call is charged first. It now says only that
+  nothing on the site changed. An older add-on sentence with the same claim
+  (`lostPhotosMsg`) predates this round and is recorded, not changed.
 - **Kept**: edits to what a site has, removals, new list entries, page scope
   and mixed messages, each pinned by tests.
 - **Checked**: 896 focused tests and 87 for the batch; 46 new tests fail on
   the old code; sweeps of 35 and 18 faults all caught, with the controls
-  surviving; the full suite 8,639 of 8,639; CI green on `a5282a6f` (unit
-  tests, run 36964844334, `8639 / 8635 / 0 / 4`; site build, run
-  36964844335, 404 checks across 4 shards). A merge rolls the image
-  `a412daac10dbc936` → `331bf9bf72e72309`.
+  surviving, and the corrections' sweeps of 5 and 4; the full suite 8,641 of
+  8,641; CI on the final commit `03e664aa` (unit tests, run 36966422224,
+  `8641 / 8637 / 0 / 4`; site build, run 36966422193, 404 checks across 4
+  shards).
+  A merge rolls the image `a412daac10dbc936` → `b4f1e95939e15f16`.
 - **The batch, prepared and not run**: a free rehearsal, run 90's five
   messages through the real app judged on what landed (stored and served),
   the free restore to `dgmag4`, and eight routing-only controls. About

@@ -2030,7 +2030,9 @@ becomes the second button; each page's own menu and footer added to), places
 words exactly and finds them on the page before the bill, and places one of
 the site's own photographs by its exact address (or buys one), refusing at no
 cost when there is nothing real to show. An edit the add-on handed over cannot
-hand it back.
+hand it back. Two of its new reply sentences were corrected before review
+(`6c69d155`: the no-photo refusal no longer says nothing was charged;
+`03e664aa`: the not-landed refusal says "the new words … without them").
 
 **The batch** (`a5282a6f`), four presses of the edit canary after a merge and
 deploy, each the owner's:
