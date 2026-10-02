@@ -1322,7 +1322,12 @@ export function frameNow({ slots, actions, seconds, contacts, lists } = {}) {
   }
   const has = (arr) => (Array.isArray(arr) ? arr : []).some((a) => a && a.inner);
   const now = (arr) => (Array.isArray(arr) ? arr : []).map((a) => a && a.action).filter(Boolean)[0] || null;
-  const contact = (Array.isArray(contacts) ? contacts : []).map((c) => c && c.contact).find((c) => c && Object.keys(c).length) || {};
+  // EVERY PAGE'S OWN CONTACT DETAILS, NOT THE FIRST PAGE'S (review,
+  // 2026-10-02): footers can differ, and reading the first as the frame's let
+  // an addition accept a phone number one footer lacked and write it over
+  // another's. One entry per slot; `null` is a frame with none yet.
+  const contactsNow = (Array.isArray(contacts) ? contacts : []).filter(Boolean)
+    .map((c) => (c.contact && typeof c.contact === "object" ? c.contact : null));
   const listNow = {};
   const listMax = {};
   for (const prop of Object.keys(LIST_FIELDS)) {
@@ -1334,7 +1339,7 @@ export function frameNow({ slots, actions, seconds, contacts, lists } = {}) {
       for (const it of l.items) if (it && it.href && !listNow[prop].some((x) => x.href === it.href)) listNow[prop].push(it);
     }
   }
-  return { menu, menuMax, button: has(actions), buttonNow: now(actions), second: has(seconds), secondNow: now(seconds), contact, lists: listNow, listMax };
+  return { menu, menuMax, button: has(actions), buttonNow: now(actions), second: has(seconds), secondNow: now(seconds), contacts: contactsNow, lists: listNow, listMax };
 }
 
 /**
@@ -1424,11 +1429,15 @@ export function additionOnly(read, now) {
   }
   out.lists = {};
   if (out.contact && typeof out.contact === "object") {
-    const was = n.contact && typeof n.contact === "object" ? n.contact : {};
+    // A DETAIL IS NEW WHILE SOME PAGE'S FOOTER LACKS IT, and it is written only
+    // where it is missing (`applyContact` with `keep`), so a footer that
+    // already shows one keeps its own.
+    const pagesNow = Array.isArray(n.contacts) ? n.contacts : [];
+    const shows = (c, f) => !!(c && typeof c[f] === "string" && c[f] !== "");
     const kept = {};
     for (const [f, v] of Object.entries(out.contact)) {
       if (typeof v !== "string" || v === "") continue;
-      if (typeof was[f] === "string" && was[f] !== "") continue;
+      if (pagesNow.length && pagesNow.every((c) => shows(c, f))) continue;
       kept[f] = v;
     }
     out.contact = Object.keys(kept).length ? kept : null;
@@ -1510,7 +1519,7 @@ export async function runNavEdit(deps, { instruction, pages, routes, model = NAV
   let lnk = { pages: sec.pages, changed: [], moved: 0, refused: [] };
   if (wantsLinks) lnk = applyPageLinks(sec.pages, read.pageLinks, routes);
   let con = { pages: lnk.pages, changed: [] };
-  if (wantsContact) con = applyContact(lnk.pages, read.contact);
+  if (wantsContact) con = applyContact(lnk.pages, read.contact, { keep: addition === true });
   let lst = { pages: con.pages, changed: [] };
   for (const prop of wantsLists) {
     const r = Object.hasOwn(addLists, prop)
@@ -1846,7 +1855,7 @@ function validChromeValue(v, spec) {
  * the length of the source, so a forward pass lands every later offset in
  * whatever moved into it.
  */
-export function applyChromeObject(pages, prop, change) {
+export function applyChromeObject(pages, prop, change, { keep = false } = {}) {
   const spec = CHROME_OBJECTS[prop];
   const asked = spec
     ? Object.keys(spec).filter((f) => validChromeValue((change || {})[f], spec[f]))
@@ -1866,8 +1875,13 @@ export function applyChromeObject(pages, prop, change) {
     let src = p.source;
     for (const s of [...mine].sort((a, b) => (b.at ?? b.insertAt) - (a.at ?? a.insertAt))) {
       // ABSENT MEANS UNCHANGED, so the merge starts from what is already there.
+      // AN ADDITION KEEPS WHAT THIS SLOT HAS (`keep`, 2026-10-02): it fills
+      // only the fields the slot lacks, so one page's details never overwrite
+      // another's.
+      const take = keep ? asked.filter((f) => !s.fields || s.fields[f] === undefined || s.fields[f] === "") : asked;
+      if (!take.length) continue;
       const merged = { ...(s.fields || {}) };
-      for (const f of asked) merged[f] = change[f];
+      for (const f of take) merged[f] = change[f];
       const body = chromeObjectBody(merged, prop);
 
       // NOTHING TO DO IS NOT A CHANGE. The writer re-serialises the whole
@@ -1902,9 +1916,9 @@ export function applyChromeObject(pages, prop, change) {
   return { pages: next, changed };
 }
 
-/** Write the contact details into every page's chrome. */
-export function applyContact(pages, change) {
-  return applyChromeObject(pages, "contact", change);
+/** Write the contact details into every page's chrome (`keep`: only where a page has none of that field). */
+export function applyContact(pages, change, opts) {
+  return applyChromeObject(pages, "contact", change, opts);
 }
 
 /** Write the frame's arrangement into every page's chrome. */

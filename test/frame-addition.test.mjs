@@ -12,7 +12,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   additionOnly, firstButton, frameNow, withAdded, ADDITION_NOTE, ACTION_PROPS,
-  actionSlots, applyAction, navSlots, navRequest, navDigest, readNav, runNavEdit, navReply, NAV_TOOL, MAX_NAV_ITEMS,
+  actionSlots, applyAction, contactSlots, navSlots, navRequest, navDigest, readNav, runNavEdit, navReply, NAV_TOOL, MAX_NAV_ITEMS,
 } from "../builder/site-nav.mjs";
 
 const HOME = `import { SiteChrome } from "@/components/ui/site-chrome";
@@ -106,10 +106,61 @@ test("additionOnly: nothing taken, nothing repointed, the frame's arrangement le
 });
 
 test("additionOnly never rewrites or clears a footer detail, and adds only a new one", () => {
-  const n = { ...now(), contact: { address: "Bristol", hours: "Wed–Sat 8–2" } };
+  const n = { ...now(), contacts: [{ address: "Bristol", hours: "Wed–Sat 8–2" }] };
   const held = additionOnly(read({ contact: { address: "", hours: "Every day", phone: "0117 496 0000" } }), n);
   assert.deepEqual(held.contact, { phone: "0117 496 0000" });
   assert.equal(additionOnly(read({ contact: { address: "Leeds" } }), n).contact, null, "a detail the footer had was going to be rewritten");
+});
+
+// ── FOOTERS THAT DIFFER FROM PAGE TO PAGE (review, 2026-10-02) ─────────────
+//
+// `frameNow` read the first page's contact details as the frame's, so an
+// addition could accept a phone number the first footer lacked and
+// `applyContact` then wrote it over another page's own. Each page keeps what
+// it shows; a detail is added only where it is missing.
+const C_HOME = `import { SiteChrome } from "@/components/ui/site-chrome";
+const CHROME = {
+  name: "Harbour Loaf",
+  links: [{ label: "Home", href: "/" }, { label: "Visit", href: "/visit" }],
+  contact: { address: "Bristol", hours: "Wed–Sat 8–2" },
+};
+export default function P() { return <SiteChrome {...CHROME}><p>Bread.</p></SiteChrome>; }
+`;
+const C_VISIT = `import { SiteChrome } from "@/components/ui/site-chrome";
+export default function P() { return <SiteChrome name="Harbour Loaf" links={[{ label: "Home", href: "/" }, { label: "Visit", href: "/visit" }]} contact={{ phone: "0117 000 1111", address: "Bristol" }}><p>Come by.</p></SiteChrome>; }
+`;
+const C_ORDER = `import { SiteChrome } from "@/components/ui/site-chrome";
+export default function P() { return <SiteChrome name="Harbour Loaf" links={[{ label: "Home", href: "/" }, { label: "Visit", href: "/visit" }]}><p>Order.</p></SiteChrome>; }
+`;
+const C_PAGES = [{ path: "index.tsx", source: C_HOME }, { path: "visit.tsx", source: C_VISIT }, { path: "order.tsx", source: C_ORDER }];
+const contactsOf = (pages) => pages.map((p) => contactSlots([p]).map((s) => s.contact));
+
+test("frameNow reads every page's own contact details, not the first page's", () => {
+  const n = frameNow({ slots: navSlots(C_PAGES), actions: actionSlots(C_PAGES), seconds: actionSlots(C_PAGES, "secondAction"), contacts: contactSlots(C_PAGES), lists: [] });
+  assert.deepEqual(n.contacts, [{ address: "Bristol", hours: "Wed–Sat 8–2" }, { phone: "0117 000 1111", address: "Bristol" }, null]);
+  // A DETAIL IS NEW WHILE SOME PAGE LACKS IT, and one every page shows is not.
+  assert.deepEqual(additionOnly(read({ contact: { phone: "0117 496 0000" } }), n).contact, { phone: "0117 496 0000" });
+  assert.equal(additionOnly(read({ contact: { address: "Leeds" } }), { ...n, contacts: n.contacts.slice(0, 2) }).contact, null, "an address every footer shows was going to be rewritten");
+});
+
+test("runNavEdit: an added phone number fills only the footers that have none, and each page keeps its own", async () => {
+  const answer = { contact: { phone: "0117 496 0000", email: "hello@harbourloaf.co.uk" } };
+  const added = await runNavEdit({ send: async () => reply(answer) }, { instruction: "Add our phone number and email to the footer", pages: C_PAGES, routes: ROUTES, addition: true });
+  assert.equal(added.ok, true, JSON.stringify(added));
+  assert.deepEqual(contactsOf(added.pages), [
+    [{ phone: "0117 496 0000", email: "hello@harbourloaf.co.uk", address: "Bristol", hours: "Wed–Sat 8–2" }],
+    [{ phone: "0117 000 1111", email: "hello@harbourloaf.co.uk", address: "Bristol" }],
+    [{ phone: "0117 496 0000", email: "hello@harbourloaf.co.uk" }],
+  ], "a page's own phone number was overwritten, or a footer without one was not given it");
+  assert.deepEqual(added.changed.sort(), ["index.tsx", "order.tsx", "visit.tsx"]);
+  // ONLY THE PHONE, WHICH THE VISIT PAGE ALREADY SHOWS: the other two change, it does not.
+  const phone = await runNavEdit({ send: async () => reply({ contact: { phone: "0117 496 0000" } }) }, { instruction: "Add our phone number to the footer", pages: C_PAGES, routes: ROUTES, addition: true });
+  assert.equal(phone.ok, true, JSON.stringify(phone));
+  assert.deepEqual(phone.changed.sort(), ["index.tsx", "order.tsx"]);
+  assert.equal(phone.pages.find((p) => p.path === "visit.tsx").source, C_VISIT, "the visit page's footer was rewritten");
+  // THE CONTROL: the same answer as an ordinary edit writes the number on every page, as it always did.
+  const edited = await runNavEdit({ send: async () => reply({ contact: { phone: "0117 496 0000" } }) }, { instruction: "Change the phone number to 0117 496 0000", pages: C_PAGES, routes: ROUTES });
+  assert.deepEqual(contactsOf(edited.pages).map((c) => c[0].phone), ["0117 496 0000", "0117 496 0000", "0117 496 0000"]);
 });
 
 test("additionOnly leaves out what no menu has room for, named, and never an existing item", () => {
