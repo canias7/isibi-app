@@ -332,10 +332,18 @@ build yet."*
 
 ### 6.3 Checks
 
-The tables are in the audit's §4.2. In short: 25 new cases; every new case
-red on `d4e3f1c7` but its controls (5 of the menu file's 32, 33 of the
-removal file's 34, the new module file unable to load, 1 each in
-`page-gen` and `site-addon`, 2 in `site-qr-list`); sweeps W4 10 mutants (9
+The tables are in the audit's §4.2. In short: 34 new cases (8,732 on
+`d4e3f1c7`, 8,766 now), and the removal file's 19 rewritten to the new
+contract.
+On `d4e3f1c7`, 47 of the 53 new or rewritten cases fail, and both
+re-anchored pins (5 of the menu file's 32, 33 of the removal file's 34, the
+new module file unable to load, 1 each in `page-gen` and `site-addon`, 2 in
+`site-qr-list`). The 6 that pass there are the failed-call control, the
+never-twice contract (its guard predates this round), and two route moves
+in both money paths that the old placement happened to get right. (A first
+draft of these records said 25 new cases, counted from a total that already
+held the first nine W4 cases, and that every new case but the controls was
+red; both corrected before review.) Sweeps W4 10 mutants (9
 killed, 1 equivalent, measured over 494,721 page applications), W2 35 of 35,
 W3 8 of 8, every control surviving; full suite `8766 / 8766 / 0 / 0`
 locally. Unit CI and site build are read after the push, in the owner-notes

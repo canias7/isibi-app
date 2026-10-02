@@ -32,8 +32,10 @@ Nothing is waiting on a press.
   compares names with the site's own list.
 - **One cost change**: removing the only language or the only code used to
   be free and wrong-prone; it now makes one small model call.
-- **Checks, all free**: 25 new cases, every one red on batch 1 except its
-  controls; mutation sweeps on all three (W4 9 of 10, the tenth proven
+- **Checks, all free**: 34 new cases. On batch 1, 47 of the 53 new or
+  rewritten cases fail; the 6 that pass there are a control, a rule the old
+  code already kept, and two menu moves it happened to get right. Mutation
+  sweeps on all three (W4 9 of 10, the tenth proven
   equivalent; W2 35 of 35; W3 8 of 8); full suite `8766 / 8766 / 0 / 0`.
   Unit CI and the site build are read after this push.
 - **What you'll see on screen**: four pictures, before and after, rendered
@@ -167,8 +169,10 @@ since. Add new ones there.
   to one rule by one test.
 - **Also**: refusal sentences no longer say "Nothing was changed" twice
   (seen in the screenshots); three findings kept apart (N11–N13).
-- **Checks**: 25 new cases (all red on batch 1 except controls), sweeps on
-  all three, full suite `8766 / 8766 / 0 / 0`. Supplied answers only.
+- **Checks**: 34 new cases (47 of the 53 new or rewritten fail on batch 1;
+  the 6 that pass are a control, a rule the old code kept, and two moves it
+  happened to get right), sweeps on all three, full suite `8766 / 8766 / 0 /
+  0`. Supplied answers only. (A first draft said 25 new cases; corrected.)
 - **Not done, on purpose**: no merge, deploy, spend or container build;
   CLAUDE.md untouched.
 - The record: `history/2026-10-02-router-batch-1.md` §6, the audit (§4.2),

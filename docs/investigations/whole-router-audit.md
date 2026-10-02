@@ -1145,7 +1145,7 @@ copied in.
 
 | File | Cases | Red on `d4e3f1c7` | What it holds |
 |---|---|---|---|
-| `test/menu-per-page.test.mjs` | 32 (10 new) | 5 fail | your case through `runNavEdit` (Home, Menu, Visit us, Order, Status answered Order, Status, Home, Menu, Visit us); all 120 orders of five items through `runNavEdit` (119 changed, the restatement unchanged); every order over four menus that differ (items and words kept, unmoved items in the page's order, each moved item after its nearest earlier neighbour); `menuApply` never lists an address twice; through the real route on both money paths: Order and Status first, Order then Visit us first (the case red on the old code) and the whole menu reversed, each page keeping its own words |
+| `test/menu-per-page.test.mjs` | 32 (10 new) | 5 fail; 5 new cases pass there (the never-twice contract, and two route moves in both money paths that the old placement got right) | your case through `runNavEdit` (Home, Menu, Visit us, Order, Status answered Order, Status, Home, Menu, Visit us); all 120 orders of five items through `runNavEdit` (119 changed, the restatement unchanged); every order over four menus that differ (items and words kept, unmoved items in the page's order, each moved item after its nearest earlier neighbour); `menuApply` never lists an address twice; through the real route on both money paths: Order and Status first, Order then Visit us first (the case red on the old code) and the whole menu reversed, each page keeping its own words |
 | `test/partial-removal.test.mjs` | 34 (rewritten to the new contract) | 33 fail; the failed-call control passes | through the real route, sync and queued: one language of two; your two absent-entry cases (German on a French-only site, the wifi code on a prices-only site) take nothing off, with the call made and the list shown; an empty answer; the only language named comes off (asked, not assumed); one code of two, two of three and every code, each with its figures; a guarded figure and an unreadable answer refused; the same words with a different answer (the control); several of three languages; every language; a name present and one absent (the note, on the customer's screen too); a failed call; an empty list asks no one; two removals in one message each told only their own words; a control by number; a figure in a component, or shown twice; an unreadable component store; a code no page shows. Every case checks what the removal was shown, the stored look field by field, pages and components byte for byte, the reply and the money, with the removal call on the bill by its own usage |
 | `test/take-off.test.mjs` | 7 (new) | the file cannot load (the functions do not exist there) | which lanes take entries off by name; the tool answers a list of names only, forced; what the model is shown and the system rules; an answer read as names only, never coerced; each lane's matching rule and what stays; one call, an empty list asking no one, failed, cut-off and unreadable answers; the three refusal sentences and the note |
 | `test/page-gen.test.mjs` | +1 | 1 fails | every prompt the page writer can be given holds one contract (see W3) |
@@ -1172,8 +1172,17 @@ comment-only controls that survived):
   "kept") was closed by checking that no block says a page not returned
   goes.
 
-**Full unit suite** on the final tree: `8766 / 8766 / 0 / 0` locally (8741
-before this round, plus 25 new cases).
+**Full unit suite** on the final tree: `8766 / 8766 / 0 / 0` locally:
+batch 1's `d4e3f1c7` had 8,732; this round adds 34 cases and rewrites the
+removal file's 19 to the new contract.
+
+**How many fail on `d4e3f1c7`**: 47 of the 53 new or rewritten cases, and
+both re-anchored pins. The 6 that pass there: the removal file's failed-call
+control; `menuApply` never listing an address twice (its guard predates this
+round); and two route moves — Order and Status first, and the whole menu
+reversed — in both money paths, which the old placement happened to get
+right on that fixture. The case that is red, Order then Visit us first, is
+the one where a moved item's anchor was itself moving.
 
 **Screenshots** (the chat's own markup and stylesheet, the real route's
 replies on the old and the new code): `docs/edits/router-batch-1-gaps-*.png`
