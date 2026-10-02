@@ -43,7 +43,7 @@ not repeated here; §3.12 says where each of its items stands now.
     a paid add-on (W17);
   - **converters to a paid add-on**: an unusable or unplaceable edit answer
     becomes `addon` (R3, R4). Since deploy 2178 the reply says so, but the
-    conversion now also swaps the halves of a mixed message (W5);
+    conversion also swaps the halves of a mixed message (W5);
   - **one money rule**: at a zero balance every message on a live site is
     answered `build` without asking the model (W22).
 - **Site- and account-specific text and switches**: the model prompts carry
