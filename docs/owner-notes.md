@@ -1,121 +1,102 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-02, 13:04 UTC)
+## Current handoff — read this first (2026-10-02, 14:20 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**State now: batch 2 (W5, W7, W8, W15, W24) is fixed on the branch, for
-your review.** Every part of a mixed request is now kept when work moves
-between steps, fails, or climbs to the full rewrite. Not merged, not
-deployed, nothing spent, no model called, no site changed, no container
-built. Batch 1 and its three gaps passed your review earlier today, and
-wait on the same branch for the one combined deploy. Nothing is waiting on
-a press.
+**State now: your three batch-2 gaps are fixed on the branch, for your
+review.** Not merged, not deployed, nothing spent, no model called, no site
+changed, no container built. Batches 1 and 2 wait on the same branch for the
+one combined deploy. Nothing is waiting on a press.
 - **What changed**, in plain words:
-  - **One hand-over, everywhere.** Work moves in five places: the router's
-    reader turning an edit into an addition, one edit step handing on to
-    another, the edit handing on to the add-on step, the add-on handing on
-    to the menu editor, and the climb to the full rewrite. Each now carries
-    the same three things: the parts put off, in your words; the page and
-    the part of the site it is about; and why it moved, from a fixed list.
-  - **W5, the wrong half sent on**: *"Take the Events page off and add a
-    page for our cake orders"*, on a site with no Events page, used to send
-    the removal to the add-on step (which can't remove anything) and put
-    off the cake page (which it could make). Now a removal or a move of a
-    missing page stays an edit. It is refused at no cost for the edit, the
-    reply lists the site's real pages, and it names the cake page as left
-    for later.
-  - **W7, said on every outcome**: what was put off used to be mentioned
-    only when the edit succeeded. Now every reply from the edit, add-on and
-    rewrite steps names it, whether the step succeeded, refused or failed,
-    and the chat names it itself when no reply can be read. When nothing
-    ran, it doesn't pretend otherwise: *"I left “X” for later, so it wasn’t
-    tried. Send that on its own when you’re ready."*
-  - **W8, the full rewrite**: a step that climbed to the full rewrite used
-    to send the whole message, so the costliest step did what you'd been
-    told would wait. Now the parts put off come out before any model reads
-    the message, a part it can't find stops it at no cost, and its page
-    writer is told why it was reached.
-  - **W15, the look change kept**: *"Change the description and add a QR
-    code for our menu"* used to send everything to the add-on step and
-    change no description. Now the description changes, and the QR code is
-    put off by its own words and named in the reply. Asked alone, the QR
-    code goes to the add-on step as before, now with its page. When the
-    picker gives no words for each change, nothing runs and you're asked to
-    send the addition on its own.
-  - **W24, the destination told why**: the add-on step is now told which
-    step sent the work, why, the part of the site and the page. Its picker
-    sees one line built from fixed lists, never from your words.
-  - **Found while recording**: the row review (the second look at a new
-    entry whose save couldn't be confirmed) dropped several parts put off,
-    and named none when it refunded. Fixed on the same contract.
-- **No rule reads your words**: a model decides every part of what you
-  meant. The code checks only that a value is on its fixed list, that a page
-  is one the site has, and that a part put off is really in the message.
-- **Checks, all free**: 47 new cases. 35 of them fail on the code before
-  this batch, 7 need the new module, and 5 are controls. 22 existing cases
-  changed, each with its reason beside it. Mutation sweeps: 43 of 43 on the
-  contract and 7 of 7 on the row review, with the controls surviving. Full
-  suite `8813 / 8813 / 0 / 0`.
-- **CI**: the first push (`391b5bd8`) was red on one case: a guard that
-  keeps the add step from importing the router's module caught my first
-  row-review fix. The correction (`28690c06`) hands the reader in instead.
-  On it, unit CI is green (8,813, the same total; CI skips its usual four),
-  and so is the site build (404 checks, every job green).
-- **What you'll see on screen**: six pictures, rendered by the chat's own
-  code from the real routes' replies (`docs/edits/router-batch-2-*.png`).
-- **What it still doesn't do** (backlog N14–N21): only the add-on's picker
-  and the rewrite's page writer are told why work reached them (an edit step
-  handed work by another is not, nor is the rewrite's designer); a
-  signed-out reply, or a watch that gives up, adds no sentence about the
-  parts put off; more than four parts are refused; an addition beside other
-  work with no words for each change refuses the whole message rather than
-  guess; an unreadable router answer drops its held part, so the add-on step
-  gets the whole message and its picker decides.
-- **Not shown yet**: what a real model answers (how often the router puts a
-  part off, what a picker gives as an addition's words, how a real add-on
-  picker or page writer uses the line). That is the grouped live batch.
+  - **A long rewrite remembers what it put off.** When the full rewrite
+    takes long enough to finish in the background, the first answer (the
+    "being written now" one) named the parts put off, but the answer you
+    finally saw, written minutes later from a stored record, didn't: the
+    record had no room for them. So the chat said *"✅ Updated the home
+    page."* and nothing more, and a give-up said nothing either. Now the
+    record keeps the parts, a retry keeps them, and every final answer
+    names them: a finished build, a failed one, a build lost after it
+    started, and the route's own answer when it can't read the build's.
+    The chat now ends *"I only did part of it this time. Say “add a page for
+    our cake orders”, then “add a map of the shop”, and I’ll do those next."*
+  - **Every addition is kept, not only the first.** *"Change the
+    description, add a QR code for our menu on the Visit page, and add one
+    for our opening hours on the home page"* used to make the description,
+    name the first code as left for later, and lose the second without a
+    word. Now both codes are named, in your order. Asked with nothing else,
+    two codes on two pages go to the add-on step without pretending they're
+    both on the first one's page.
+  - **Nothing put off reaches a step that runs.** The words put off were
+    taken out of the message the router sent on, but not out of the words
+    each step was given, nor out of the message the removal step falls back
+    to. So a photo removal beside a 3D scene put off was handed the scene's
+    words, and a description change whose words ran on into a QR code's was
+    handed the code's words too. Now, once every step is planned and before
+    any runs, each step loses every part put off, by position; a step left
+    with nothing of its own doesn't run.
+- **No rule reads your words**: a model still decides which words belong to
+  which change. The code only takes out, by position, words a model already
+  said belong to a part put off.
+- **Checks, all free**: 26 new cases, asserting what each model was actually
+  handed and that the parts are named at every step. 25 of them fail on the
+  code before this round, and the other needs the new helper. Four existing
+  cases changed, each with its reason. Mutation sweeps: 20 of 20 on the
+  rewrite and the chat, 23 of 24 on the look step (the survivor changes
+  nothing today and is kept as a safeguard). Full suite `8839 / 8839 / 0 /
+  0`.
+- **CI**: unit tests green on `129a1757` (8,839, the same total; CI skips
+  its usual four). The site build was still running when this was written;
+  its result goes in on the next push.
+- **What you'll see on screen**: two before-and-after pictures, rendered by
+  the chat's own code from the real chain's replies
+  (`docs/edits/router-batch-2-review-resume-*.png`).
+- **What it still doesn't do** (backlog N22–N27): a page reload stops the
+  chat following a long rewrite, and a later look names nothing once the
+  finished build's record is gone; the little words between two changes
+  ("… and") stay with the first; several different additions alone go to
+  the add-on step without naming one part of the site or one page, and
+  whether it makes every one isn't shown; a part of the site the picker
+  named with no words still counts as other work.
+- **Not shown yet**: what a real model answers. That is the grouped live
+  batch.
 - **The container**: a merge would roll the image `a4409e55d3f3eb09` →
-  `4458b0613dcc79b6` (190 inputs, predicted on both ends), carrying batches
-  1 and 2 together. The build is needed: queued edits run in the container.
-  Nothing was built.
+  `5fcfae2277e23544` (190 inputs, predicted on both ends), carrying batches
+  1 and 2 and these fixes. Nothing was built.
 
 **Decisions that are yours**
-- Your review of batch 2.
+- Your review of these fixes.
 - Then, on your word, one merge and deploy of batches 1 and 2, and the
-  grouped live batch (the audit's §5.4): the free runtime check, Group R
-  (routing only), D1–D3 (batch 1's delivered checks) and H1–H3 (batch 2's
-  three), about 33–54 credits against a balance of 137 (read at 13:02 UTC;
-  last ledger row 355, no job open). Estimates, not caps.
-- Whether to add one browser-mode press for the add-on step's use of the
-  hand-over line, which the API press can't reach: about 2–13 more, and a
-  free restore. The climb to the full rewrite stays shown with supplied
-  answers only: no natural message we can choose triggers it.
-- Carried: N11–N13 for a next batch, N12's rule, W9 and W23.
+  grouped live batch (the audit's §5.4): the free runtime check, Group R,
+  D1–D3, and H1–H4. H4 is new: two QR codes beside a heading change on
+  `oak-and-ash`, checking both codes are named. About 35–59 credits against a
+  balance of 137 (read at 13:02 UTC; nothing spent since). Estimates, not
+  caps.
+- Carried: the browser-mode press for the add-on step's use of the
+  hand-over line (about 2–13 more), N11–N13, N12's rule, W9 and W23.
 
 **Links**
-- The record: `docs/history/2026-10-02-router-batch-2.md`
-- The audit: `docs/investigations/whole-router-audit.md` (§3.2 and §3.9:
-  each finding's *Fixed on the branch*; §3.0: N14–N21; §4.3: the checks;
-  §5.4: the live batch)
-- The commits: `391b5bd8` (the contract) and `28690c06` (the row review's
-  correction), with these records on top.
-- CI on `28690c06`: unit tests run 37008479007, site build run 37008478966.
+- The record: `docs/history/2026-10-02-router-batch-2.md` §7
+- The audit: `docs/investigations/whole-router-audit.md` (W7, W8 and W15:
+  *After your review*; §3.0: N22–N27; §4.4: the checks; §5.4: the live
+  batch with H4)
+- The commit: `129a1757`, with these records on top.
+- CI on `129a1757`: unit tests run 37017956143; site build run 37017956398.
 
 **From our chat**
-- Batch 1's review gaps passed, live confirmation pending: recorded.
-- W5, a conversion never sends the wrong half on: done.
-- W7, what was put off named on every final outcome: done.
-- W8, the rewrite never runs work that was put off: done.
-- W15, a look change not lost when an addition is handed off: done.
-- W24, the destination gets the scope and the reason: done.
-- One hand-over contract, models deciding and code checking, no word rules
-  or site exceptions: done.
-- Focused checks for delivery, refusal, failure and untouched neighbours;
-  unit CI, the audit and these notes: done.
-- The grouped live batch with its cost: prepared (§5.4), not pressed.
+- The parts put off kept through the rewrite's stored record, its retries
+  and every final answer, so the chat still says them: done.
+- Every scoped addition kept, not only the first: done.
+- Nothing put off reaches a step that runs, overlapping words and the
+  removal step's fallback included: done.
+- Intent stays with the models; no word rules or site exceptions: kept.
+- Checks for 202 → finished build → the chat's reply, two additions on two
+  pages beside a supported edit, and a removal beside an addition put off,
+  each asserting what the models were handed: done.
+- Fast tests and unit CI, the audit and these notes: done; the site build
+  is still running.
 - Not done, on purpose: no deploy, paid run or container build; CLAUDE.md
   untouched.
 
@@ -123,8 +104,8 @@ a press.
 - None. Waiting on your review.
 
 **Exact next action**
-- Your review of batch 2. Then, on your word: one merge and deploy of
-  batches 1 and 2, the free runtime check, and the grouped live batch.
+- Your review. Then, on your word: one merge and deploy of batches 1 and 2,
+  the free runtime check, and the grouped live batch.
 
 ---
 
@@ -184,6 +165,39 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-02 — Your review of batch 2: the three gaps fixed on the branch (nothing spent, merged or deployed)
+
+- **Your words**: *"Finish the batch 2 handoff fixes before deployment:
+  persist every deferred part through background rewrite storage, resume,
+  retries, and final success/failure replies so the browser still reports
+  it; replace additionOp's first-match handling so multiple scoped additions
+  in the same lane are all preserved; and ensure newly deferred instructions
+  are excluded from every executing step's model input … Keep deployment and
+  paid live testing pending so we can validate the reviewed batches
+  together."*
+- **The rewrite**: its stored record now keeps the parts put off, a retry
+  keeps them, and every final answer names them (finished, failed, lost, or
+  unreadable); the chat names the first answer's parts when the last answer
+  carries none.
+- **Several additions**: every addition the picker gave words to is put off
+  and named, in order; with nothing else asked, they go to the add-on step
+  naming a page or part of the site only when all share it.
+- **No step handed words put off**: after planning, each step's own words
+  and the message a step falls back to lose every part put off, by position;
+  a step with nothing of its own left doesn't run.
+- **Checks**: 26 new cases (25 fail on the code before; 1 needs the new
+  helper), asserting what each model was handed and the parts named at
+  every step; four existing cases changed with their reasons; sweeps 20 of
+  20 and 23 of 24 (one equivalent, kept as a safeguard); full suite `8839 /
+  8839 / 0 / 0`; unit CI green on `129a1757`.
+- **Not done, on purpose**: no merge, deploy, spend or container build;
+  CLAUDE.md untouched. A merge would roll the image to `5fcfae2277e23544`.
+- **The grouped live batch** (the audit's §5.4) now has H4 and is about
+  35–59 credits, on your approval.
+- The record: `history/2026-10-02-router-batch-2.md` §7, the audit (W7, W8,
+  W15, §3.0, §4.4, §5.4), the checklist's item 13, `backlog.md` (N22–N27),
+  `owner-preferences.md` (a new entry), and two pictures in `edits/`.
 
 ## 2026-10-02 — Batch 2: every part of a mixed request kept, for your review (nothing spent, merged or deployed)
 

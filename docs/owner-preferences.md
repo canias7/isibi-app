@@ -696,3 +696,15 @@
   the full rewrite) carries the same things: the part that runs now, the
   part put off, the scope, and why it moved. What was put off is said on
   every final outcome, never run by a later step, and never lost.
+- **A part put off survives background work, and no step that runs is
+  handed it** (2026-10-02, the review of batch 2): *"persist every deferred
+  part through background rewrite storage, resume, retries, and final
+  success/failure replies so the browser still reports it … ensure newly
+  deferred instructions are excluded from every executing step's model
+  input, including overlapping scope words and removal-door steps that fall
+  back to eRun … asserting both the actual model inputs and complete
+  deferred reporting."* So the parts put off live in every stored record a
+  later invocation finishes from, and are named on whatever answer it
+  finally writes and on the screen. What each executing step's model is
+  actually handed is what gets checked, not only what the dispatcher saw,
+  and a test asserts those requests directly.

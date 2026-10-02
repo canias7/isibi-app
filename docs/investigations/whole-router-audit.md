@@ -56,6 +56,24 @@ checks are §4.3, the grouped live plan with its cost is §5.4, and the record
 is `docs/history/2026-10-02-router-batch-2.md`. Nothing was spent, no model
 was called, nothing was changed on a site, and no container was built.
 
+**Your review of batch 2 (the same day):** *"Finish the batch 2 handoff fixes
+before deployment: persist every deferred part through background rewrite
+storage, resume, retries, and final success/failure replies so the browser
+still reports it; replace additionOp's first-match handling so multiple
+scoped additions in the same lane are all preserved; and ensure newly
+deferred instructions are excluded from every executing step's model input,
+including overlapping scope words and removal-door steps that fall back to
+eRun … Keep deployment and paid live testing pending so we can validate the
+reviewed batches together."* **The three gaps are fixed on the branch
+(`129a1757`), for review, not merged or deployed**: the parts put off ride
+the background rewrite's record to every final answer and the screen; every
+scoped addition in a lane is put off; and once the plan is built, every part
+put off is taken out of each step's own words and of the message a step
+falls back to, before any step runs. Each finding (W7, W8, W15) says what
+changed under *After your review*; the checks are §4.4, the limits N22–N27
+(§3.0), and the record is the history's §7. Nothing was spent, no model was
+called, nothing was changed on a site, and no container was built.
+
 ## In short
 
 - **Where it stands after batch 1.** W1–W4 are fixed on the branch, with
@@ -76,10 +94,15 @@ was called, nothing was changed on a site, and no container was built.
   carries the parts put off, the scope and the reason wherever work moves,
   and every ending names the parts put off, on the server and on screen
   (§3.2, §3.9, §4.3). Shown with supplied answers only: 47 new cases, 35 of
-  them red on `ef158022`. **The grouped live-validation batch** (§5.4), run
-  after one combined deploy of batches 1 and 2, is Group R, D1–D3 and three
-  batch-2 checks: about 33–54 credits against a balance of 137 (read at
-  12:53 and again at 13:02 UTC).
+  them red on `ef158022`. **Your review's three gaps are fixed too** (§4.4):
+  the background rewrite keeps and names the parts put off through its
+  record, retries and final answers; every scoped addition in a lane is
+  kept; and no step that runs is handed words put off, its own or the
+  message it falls back to. 26 more cases, 25 red on `03189a0d`.
+  **The grouped live-validation batch** (§5.4), run after one combined
+  deploy of batches 1 and 2, is Group R, D1–D3 and four batch-2 checks:
+  about 35–59 credits against a balance of 137 (read at 12:53 and again at
+  13:02 UTC).
 - **Who decides.** One model call (the router) decides every message on a
   live site, and smaller model calls then decide inside each step. Code
   around them mostly validates, checks permission or money, or sends work to
@@ -396,15 +419,15 @@ Three classes, so a confirmed defect is never read as a risk or a guess:
 | W4 | Confirmed code defect | one menu written everywhere (free check on run 92's pages) | — | **fixed on the branch**; multi-item moves fixed after your review (§3.3, §4.2), which that review passed (2026-10-02); live-model confirmation pending |
 | W5 | Confirmed code defect | a converted answer swaps the halves (free check) | the trigger: a router answer naming a page the browser didn't send | **fixed on the branch** (batch 2, §3.2, §4.3), pending your review |
 | W6 | Conditional risk | six pages sent after a reload (code) | a site of seven or more pages; no live site has more than five | open |
-| W7 | Confirmed code defect | the held-back part is named on success only (code) | — | **fixed on the branch** (batch 2, §3.2, §4.3), pending your review |
-| W8 | Confirmed code defect | a climb runs the held-back part (code) | — | **fixed on the branch** (batch 2, §3.2, §4.3), pending your review |
+| W7 | Confirmed code defect | the held-back part is named on success only (code) | — | **fixed on the branch** (batch 2, §3.2, §4.3); your review's gap (the background rewrite's final answers) fixed too (§4.4), pending your review |
+| W8 | Confirmed code defect | a climb runs the held-back part (code) | — | **fixed on the branch** (batch 2, §3.2, §4.3); your review's gap (the parts through the resume record and retries) fixed too (§4.4), pending your review |
 | W9 | Confirmed code defect | five of eight wordings withheld (free check) | — (built on purpose; your call) | open |
 | W10 | Untested model behaviour | the instruction calls translation a rewrite (code) | what the router answers (probe CF1) | open |
 | W11 | Untested model behaviour | five instructions disagree (code) | which answer the model picks (CF2, AT2) | open |
 | W12 | Untested model behaviour | a `text` answer drops the page (code) | whether the text step keeps to the page (PS1) | open |
 | W13 | Confirmed code defect | one intent per answer; `answer` shown for `ask` only (code) | — | open |
 | W14 | Confirmed code defect | the picker must name a kind; the refusal says "say it differently" (code) | whether an unsupported ask reaches the add-on (US1) | open |
-| W15 | Confirmed code defect | the look step hands over before any lane runs (code) | the trigger: a picker answer naming an addition beside look work | **fixed on the branch** (batch 2, §3.2, §4.3), pending your review |
+| W15 | Confirmed code defect | the look step hands over before any lane runs (code) | the trigger: a picker answer naming an addition beside look work | **fixed on the branch** (batch 2, §3.2, §4.3); your review's gaps (every scoped addition kept; put-off words reaching no step that runs) fixed too (§4.4), pending your review |
 | W16 | Confirmed code defect | files reach the logo step and builds only (code) | what the photo step does without the file (D9) | open |
 | W17 | Confirmed code defect | `ask` with a file becomes `addon` in the reader (code) | — | open |
 | W18 | Confirmed code defect | the replies promise follow-ups (code) | what each follow-up then does (D7) | open |
@@ -448,6 +471,17 @@ record's §5):
 | N19 | Conditional risk | more than four parts put off (`MAX_HELD`) are refused as unreadable | recorded; the router puts off one part, and a step's net adds one per addition |
 | N20 | Conditional risk | a queued add-on swept before its first reply has no stored reply, so the review's settled reply has no parts to name | recorded; the browser names the parts it posted while it watches |
 | N21 | Limit (by design) | when the router's answer is unreadable, its held part is dropped (`also-dropped`) and the step it falls to gets the whole message, held part included: the model did not decide, so the add-on's picker does | recorded |
+
+**Risks and limits your review's fixes leave** (the history's §7.5):
+
+| # | Class | What | Where it stands |
+|---|---|---|---|
+| N22 | Conditional risk | a reload loses the browser's follow of a 202; the poll route names the parts only while the resume record exists (a finished build deletes it, and its stored answer, which names them, is read once), so a later poll's row verdict names nothing | recorded; the follow is the normal path, and the stored answer it reads names them |
+| N23 | Limit (by design) | the words between a change and an addition go with the change, so its step can be handed *"Change the description to … and"* | recorded; the words are the customer's own, and none of the addition's |
+| N24 | Untested model behaviour | several different additions with nothing else are handed on without a part of the site, and additions on different pages without a page: the add-on step reads the whole message, and whether it makes every one is not shown | recorded; needs a real add-on picker |
+| N25 | Limit (by design) | a lane named with no valid scope counts as other work (it is withheld with its own sentence), so an addition beside it is put off rather than handed on whole, and with nothing else of the message left the whole message is refused | recorded |
+| N26 | Limit (by design), narrowing N17 | a followed build's final answer without `deferred` now names the 202's parts; a direct answer without one still names nothing | recorded |
+| N27 | Equivalent mutant, kept | `!op.invalid` beside `op.words` in `scopedOps` changes nothing today, because `readScopes` blanks an invalid scope's words (its own test pins that); the guard stays against that layer moving | recorded |
 
 **Tracked for the following batches** (a proposed grouping, your call):
 lost and deferred parts W5, W7, W8, W15, W24 (**batch 2, fixed on the
@@ -699,6 +733,18 @@ the halves swap.** *Confirmed (code + free check).*
   rewrite, the add-on's refusal and both review verdicts
   (`handover-route`, `handover-operations`, `edit-op-scope`, `addon-row`,
   `handover-batch2`). *Not covered*: N16 and N17 (§3.0).
+- **After your review (2026-10-02, `129a1757`)**: a rewrite long enough to
+  run in the background answers 202 and is finished later by another
+  invocation, from a stored record that had no field for the parts. So its
+  final answer, the poll route's replay of it and the screen named nothing,
+  after a 202 that had named them. Now the record carries them (all or
+  nothing, within the hand-over's own bounds) and every final answer names
+  them: the collector's success and failure, the poll route's own verdict
+  for a build lost after its fire (its owner only), and the queued route's
+  own answer. The browser keeps the 202's account for a final answer with
+  none of its own. Shown through the real queued route, the fire, the
+  resume message, the collector, the poll route and the browser's own
+  follow (`handover-resume`). *Not covered*: N22 and N26.
 
 **W8. A climb to the full rewrite runs the held-back part too.** *Confirmed
 (code).*
@@ -727,6 +773,13 @@ the halves swap.** *Confirmed (code + free check).*
   for byte, and the reply named the part (`handover-batch2`). The browser's
   climbs post it (`handover-operations`), including a 402 refusal naming the
   part. *Not covered*: what a real page writer does with the line.
+- **After your review (2026-10-02, `129a1757`)**: the parts ride the
+  rewrite's resume record, so a retry (the generation lost and fired again)
+  keeps them, and no page-writer job the container is handed carries them.
+  Shown on a finish, a retry and a give-up, asserting the designer's request
+  and each job the container was handed (`handover-resume`). *Not covered*:
+  no natural message we choose reaches the full rewrite, so this stays shown
+  with supplied answers only.
 
 **W13. A question beside a change goes unanswered.** *Confirmed (code).*
 - **Where**: the system text's ordered rules (857–903); one intent per
@@ -777,6 +830,24 @@ untested.*
   description changed, no code made, every page byte for byte, the code named
   as left for later, no paid follow-up (`edit-op-scope`). *Not covered*:
   what a real picker gives as the addition's words.
+- **After your review (2026-10-02, `129a1757`)**:
+  - **Every scoped addition is kept.** The look step took the first scope
+    the picker gave a lane (`additionOp`), so a second QR code was neither
+    made nor named; alone, two codes were handed on with the first one's
+    page. Now every valid scope is put off, in order (`scopedOps`), and
+    additions alone name the part of the site and the page only when they
+    share them.
+  - **No step that runs is handed words put off.** Each planned step now
+    carries its own words. Once the plan is built, every part put off is
+    taken out of each step's words by position (`wordsLess`) and out of the
+    message a step falls back to (`eRun`), which the removal door's own step
+    runs on. A step left with no words of its own does not run, a change
+    wholly inside an addition is that addition, and when nothing of the
+    message is left nothing runs and nothing is named as put off.
+
+  Shown through the whole chain and the removal door, asserting each lane's,
+  writer's and picture step's actual request (`edit-op-scope`,
+  `edit-removal-door`, `handover-batch2`). *Not covered*: N23–N25 and N27.
 
 ### 3.3 Page scope and missing context
 
@@ -1423,6 +1494,46 @@ They show:
 
 The record's §3 quotes each.
 
+### 4.4 Your review's gap fixes for batch 2 (2026-10-02)
+
+Every model answer supplied, as in §4.3. The red check ran in a worktree at
+`03189a0d` (batch 2 with its records) with the new and changed test files
+copied in.
+
+| File | New cases | On `03189a0d` | What it holds |
+|---|---|---|---|
+| `test/handover-resume.test.mjs` | 9 (new file) | all 9 fail | the record (all or nothing; an older record names none; the bounds are the hand-over's); the real queued rewrite on a finish, a retry and a give-up, through the fire, the resume message, the collector and the poll route, asserting the designer's request and each page-writer job the container was handed, the record before and after the retry, the final answer, the poll, the stored pages and the browser's own last sentence; the poll route's verdict for a lost build (owner only); the queued route's own answer; the browser's precedence (the final answer's own, the 202's, a direct answer with none, a dropped follow, a Stop press, a lost POST) |
+| `test/edit-op-scope.test.mjs` | 13 (52 in all) | all 13 fail | the whole chain: two codes on two pages beside a description (sync and queued); a lane's words running on into a code's (sync and queued); a move reaching part-way into a page addition; two codes alone; a change inside an addition; a code and a scene alone on one page; a change inside a page addition; the refusal when nothing is left; two changes joined on one page beside a code; changes wholly inside an addition beside a change of their own (sync and queued) |
+| `test/edit-removal-door.test.mjs` | 3 (100 in all) | all 3 fail | a photo removal beside a 3D scene put off (sync and queued): the picture step's request carries the removal and none of the scene, the photo alone comes off, the scene is named; a removal whose words the picker gave wholly to the scene is refused before anything runs |
+| `test/handover-batch2.test.mjs` | 1 (13 in all) | cannot load (`wordsLess` is new); its 12 other cases pass there in their base version | `wordsLess`, at its boundaries |
+
+**25 of the 26 fail on `03189a0d`, and the other needs the new export**,
+each on its own property. **Four existing cases changed**, each keeping its
+property: `site-ask` (the rewrite's take-out, now through `buildHeld`),
+`build-jobs` (the poll route's verdict, now two lines), `add-goes-to-addon`
+(the escalate's layer) and `edit-parts` (`eRun`, now a `let` with one other
+assignment).
+
+**Mutation sweeps** (verified-green baseline, comment-only controls
+surviving):
+- **The rewrite chain and the browser**: 20 mutants over `build-resume.mjs`,
+  `worker.js` and `chat.js`, all killed.
+- **The look step**: 25 mutants over `worker.js`, `site-lanes.mjs` and
+  `site-ask.mjs`; 23 killed and 2 survived, both equivalent. The removal
+  door's own refusal duplicated the take-out's, so it was removed. An
+  invalid scope's words are already blank, so `!op.invalid` changes nothing
+  today and is kept as a defence (N27). On the final code: 24 mutants, 23
+  killed, the same one surviving.
+
+**Full suite, locally: `8839 / 8839 / 0 / 0`** on `129a1757`. The base is
+8,813, and the 26 new cases account for the difference.
+
+**Screenshots** (the chat's own markup, the real chain's bodies):
+`docs/edits/router-batch-2-review-resume-finish.png` and
+`…-giveup.png`. Before, the final reply after a 202 said only *"✅ Updated
+the home page."*; now it asks for each part put off, and a give-up names
+them as left for later.
+
 ## 5. The validation matrix
 
 ### 5.1 The sites, as read on 2026-10-02
@@ -1566,14 +1677,15 @@ before steps 2–7, which run in the container.
 
 | Step | What | Site | Measures | Estimate | Recovery |
 |---|---|---|---|---|---|
-| 0 | the free runtime check (spend `no`) | — | both readers on the new commit, a cold container on `4458b0613dcc79b6` | 0 | — |
+| 0 | the free runtime check (spend `no`) | — | both readers on the new commit, a cold container on `5fcfae2277e23544` (predicted for `129a1757`) | 0 | — |
 | 1 | Group R (§5.2), one routing-only press | seven sites | the router's 20 answers, read by batch 2's reader (MX3 now reads `edit`, §5.2) | about 22–32; the press refuses under 60 | none: nothing is edited |
 | 2–4 | D1, D2 and D3 (§5.3), batch 1's delivered checks | `fretwork-1` (×2), `repairbench-1` | only Spanish goes; only the prices code and its figure go; each page keeps its own menu | about 7–13 | a free restore after each |
 | 5 | **H1** (W5, W7): *"Take the old Commissions page down and add a page for our spoon-carving classes."* (MX3's message) | `oak-and-ash`, which serves `/`, `/make`, `/work` and `/workshop` | expected route `intent=edit layer=page page=/commissions remove=true`; any other answer stops the press after routing. If it runs: refused at no cost for the edit, the real pages named, the addition named as left for later, nothing stored or published | 1–2 (routing only; the refusal is free) | none |
 | 6 | **H2** (W15, W7): *"Make the headings dark green and add a QR code that opens our booking page."* | `hartleys-barbers`, which has no QR code | expected route `intent=edit layer=look`. The headings change, no code is made, and the reply names the QR words as left for later, whether the router held them back or the look step put them off. Every page otherwise byte for byte | 2–5 | a free restore |
 | 7 | **H3** (W15 alone; W24's edit half): *"Put a QR code on the home page that opens our booking page."* | `hartleys-barbers` | expected route `intent=edit layer=look`: the look step hands the code to the add-on step with its reason, part and page (`escalate`, `field qr`, `page /`, cost 0). The API press stops at the hand-over, so nothing is added | 1–2 | none |
+| 8 | **H4** (your review: several additions kept): *"Make the headings dark green, put a QR code on the home page that opens our workshop page, and put another one on the Make page that opens our work page."* | `oak-and-ash`, whose four served pages carry no QR code (read free at 14:07 UTC) | expected route `intent=edit layer=look`. The headings change, no code is made, and the reply names **both** codes as left for later, in order, whether the router held them back or the look step put them off (the trace's `handover:held` says which). Every page otherwise byte for byte | 2–5 | a free restore |
 
-**About 33–54 credits in all.** These are estimates, not caps: nothing
+**About 35–59 credits in all.** These are estimates, not caps: nothing
 enforces a per-request limit, and the balance is the only bound. Each
 delivered step's site is read free before its press, so the starting state
 it is judged against is recorded, not assumed.
@@ -1584,8 +1696,13 @@ it is judged against is recorded, not assumed.
   press in the canary's browser mode could, for about 2–13 more and a free
   restore after.
 - **The climb to the full rewrite with a part put off** (W8) is not
-  triggered by any natural message we can choose. It stays shown with
-  supplied answers only.
+  triggered by any natural message we can choose, and with it the
+  background rewrite's 202 → resume → final answer (your review's first
+  gap). Both stay shown with supplied answers only.
+- **What each step's model was handed**: a press reads the reply, the
+  stored pages, the publish and the trace. Which words each lane, writer or
+  picture step was given (your review's third gap) is shown with supplied
+  answers only.
 - **How often each answer happens**: one sample per message, from one model.
 
 ## 6. What this audit does not show
@@ -1613,6 +1730,8 @@ it is judged against is recorded, not assumed.
 - **W5, W7, W8, W15 and W24: fixed on the branch (batch 2), shown only with
   supplied answers.** Each has its tests, red check and sweep (§4.3), none
   is merged, deployed or exercised by a real model, and what each does not
-  cover is under its own finding and in N14–N21 (§3.0).
+  cover is under its own finding and in N14–N21 (§3.0). **Your review's
+  three gaps** are fixed the same way (§4.4), with what they leave in
+  N22–N27.
 - **W6, W9–W14, W16–W23, W25 and W26: proposals only.** Each will need its
   own red check, sweep, suite and review before any merge.

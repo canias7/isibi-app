@@ -314,11 +314,45 @@ here; take a closed one out of both.**
   refused (N19); a queued add-on swept before its first reply has no parts for
   the review to name (N20); an unreadable router answer drops its held part
   (N21).
+- **What the review's gap fixes leave** (2026-10-02, N22–N27 in the audit's
+  §3.0): a reload loses the browser's follow of a 202, and a later poll names
+  nothing once the finished build's record is gone (N22); the words between a
+  change and an addition go with the change (N23); several different
+  additions alone are handed on without a part of the site or a page, and
+  whether the add-on step makes every one is not shown (N24); a lane named
+  with no valid scope counts as other work (N25); N17 narrowed: a followed
+  build's final answer without `deferred` now names the 202's parts (N26);
+  one equivalent mutant kept as a defence (N27).
 
 ---
 
 ## Backlog
 
+- **WHAT THE REVIEW'S GAP FIXES LEAVE (N22–N27; found 2026-10-02 while
+  fixing the owner's three batch-2 gaps; deliberate unless marked, none
+  changed).** Each is in the audit's §3.0 and in
+  `docs/history/2026-10-02-router-batch-2.md` §7.5.
+  - **A followed rewrite is followed by the open page only.** A reload loses
+    the browser's follow of a 202. The poll route names the parts only while
+    the resume record exists; a finished build deletes it, and its stored
+    answer (which names them) is read once, so a later poll's row verdict
+    names nothing (N22, a conditional risk).
+  - **The cut is by position, so connective words stay** with the change:
+    *"Change the description to … and"* (N23).
+  - **Several different additions alone** are handed on without a part of
+    the site, and additions on different pages without a page; the add-on
+    step reads the whole message, and whether it makes every one is not
+    shown (N24, untested model behaviour).
+  - **A lane named with no valid scope counts as other work** (it is
+    withheld with its own sentence), so an addition beside it is put off
+    rather than handed on whole, and with nothing else left the whole message
+    is refused (N25).
+  - **N17 narrowed**: a followed build's final answer without `deferred` now
+    names the 202's parts; a direct answer without one still names nothing
+    (N26).
+  - **One equivalent mutant kept**: `!op.invalid` beside `op.words` in
+    `scopedOps`, true today only because `readScopes` blanks an invalid
+    scope's words (N27).
 - **WHAT BATCH 2 LEAVES (N14–N21; found 2026-10-02 while fixing W5, W7, W8,
   W15 and W24; deliberate unless marked, none changed).** Each is in the
   audit's §3.0 with where it stands, and in

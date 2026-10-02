@@ -450,6 +450,24 @@ the owner's free press, run 51, at 22:57 UTC):
     add step's import guard refused. The grouped live-validation batch for
     both batches, about 33–54 credits, is the audit's §5.4;
     `docs/history/2026-10-02-router-batch-2.md`.
+    **The owner's review of batch 2 (same day): three gaps fixed on the
+    branch (`129a1757`), for review, not merged or deployed.**
+    - A rewrite finished in the background after a 202 now names the parts
+      put off on every final answer and on screen: the resume record carries
+      them through retries, and the collector, the poll route's verdict and
+      the queued route's own answer name them.
+    - Every scoped addition in a lane is put off, not only the first.
+    - No step that runs is handed words put off: after planning, each step's
+      own words and the message a step falls back to (the removal door's own
+      step among them) lose every part put off, by position; a step left
+      with no words of its own does not run.
+
+    26 new cases (25 red on `03189a0d`, 1 needing the new export), asserting
+    the actual model inputs and the parts named at every hop; sweeps 20 of
+    20 and 23 of 24 (the survivor equivalent, kept as a defence); full suite
+    `8839 / 8839 / 0 / 0`. The live batch is now about 35–59 credits, with
+    H4 (two codes beside a heading change on `oak-and-ash`). The history's
+    §7 and the audit's §4.4.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

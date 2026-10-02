@@ -397,3 +397,228 @@ served by the Worker, not built into the image. Nothing was built.
 A merge would build `4458b0613dcc79b6`, carrying batch 1 and batch 2
 together. After it, the rollout wait applies before any container work that
 must run the new code.
+
+## 7. The owner's review, and the gap fixes (2026-10-02)
+
+**Still on the branch, for review. Not merged, not deployed, no live run;**
+nothing spent, no model called, nothing changed on a site, no container
+built. Every outcome below is shown with supplied model answers through the
+product's own code.
+
+**The owner's order:** *"Finish the batch 2 handoff fixes before deployment:
+persist every deferred part through background rewrite storage, resume,
+retries, and final success/failure replies so the browser still reports it;
+replace additionOp's first-match handling so multiple scoped additions in the
+same lane are all preserved; and ensure newly deferred instructions are
+excluded from every executing step's model input, including overlapping scope
+words and removal-door steps that fall back to eRun. Keep intent model-driven
+with no customer-keyword or site-specific hardcoding. Add focused regressions
+covering 202→resume→final browser reply, two additions on different pages
+alongside a supported edit, and a removal plus deferred addition, asserting
+both the actual model inputs and complete deferred reporting. Run the
+relevant fast tests and required CI, update the audit and docs/owner-notes.md
+with evidence and remaining limitations, then push. Keep deployment and paid
+live testing pending so we can validate the reviewed batches together."*
+
+The code is `129a1757`, on `03189a0d`.
+
+### 7.1 The three gaps, reproduced first on `03189a0d`
+
+1. **A rewrite long enough to run in the background forgot the parts put
+   off.** The rewrite's first invocation answers 202 when its page writer
+   runs in the container. That 202 named the parts (batch 2's wrapper adds
+   them to every answer the build writes). The answer the customer finally
+   reads is written minutes later, by another invocation, from the resume
+   record the first one left, and the record had no field for the parts.
+   The collector composed its answer without them; the poll route replayed
+   it byte for byte; the browser trusts a final answer's own account. So the
+   screen said *"✅ Updated the home page."* and nothing else, after a 202
+   that had named both parts. A give-up said nothing about them either.
+   Reproduced through the real queued route, consumer, fire, resume message,
+   collector and poll route.
+2. **Only the first scoped addition in a lane was put off.** The look step
+   found an addition's words with `additionOp`, which took the first scope
+   the picker gave that lane. Two QR codes scoped to two pages beside a
+   description change: the description ran, the first code was named as put
+   off, and the second was neither made nor named. Alone, the two codes were
+   handed to the add-on step with the first code's page, scoping it to half
+   of what was asked.
+3. **A step that runs could still be handed words put off.** The message a
+   step falls back to (`eRun`) was cut before the look step put anything
+   off, and the steps' own words were never cut at all. So:
+   - on the removal door, the router's own step (the photo removal, say),
+     which has no scope words and runs on `eRun`, was handed the 3D scene
+     promised for later, word for word;
+   - a lane whose scope words ran on into an addition's (*"Change the
+     description to … and add a QR code for our menu on the Visit page"*)
+     was handed the code's words with its own;
+   - a page step whose words reached part-way into a page addition's was
+     handed part of the addition;
+   - a change whose every word lay inside an addition's ("in the brand
+     colours", inside the code's own description) counted as other work, so
+     the code was put off and the colour lane ran on words that were the
+     code's.
+
+### 7.2 What changed
+
+1. **The parts put off ride the background rewrite** (`builder/build-resume.mjs`,
+   `worker.js`, `public/chat.js`):
+   - **The resume record carries them** (`packResume`, `readResume`). They
+     are kept all or nothing: a list of non-blank strings, at most four, each
+     at most 2,000 characters (the hand-over's own bounds, `MAX_HELD` and
+     `MAX_MESSAGE`, held equal by a test). A record written before the field
+     existed reads as naming none.
+   - **The fire writes them** (the parts the build really took out,
+     `heldParts`), and **a retry keeps them**: the refire re-packs the
+     claimed record, so the new record carries the same parts under the new
+     generation.
+   - **Every final answer names them**: the collector's success and its
+     failure (`resumeHeld`); the poll route's own verdict for a build lost
+     after its fire, read off the record, for the record's owner only; and
+     the queued route's own answer when the consumer's answer cannot be read,
+     through the same reading the build uses (`buildHeld`).
+   - **The browser** keeps the 202's account (`firedHeld`). A final answer's
+     own `deferred` wins; a followed build's final answer with none of its
+     own names the 202's parts; a direct answer with none still names
+     nothing (the route took nothing out). A Stop press or a dropped
+     connection after a 202 names the 202's parts, not what the post carried.
+2. **Every scoped addition is kept** (`worker.js`, the look step):
+   `scopedOps(f)` returns every valid scope the picker gave a lane, and
+   `putOff` puts each one off, in the picker's order. Additions with nothing
+   else are handed on whole, naming the part of the site only when they are
+   one kind and the page only when they share one.
+3. **Put-off words reach no step that runs** (`worker.js`,
+   `builder/site-ask.mjs`, `builder/site-lanes.mjs`):
+   - **Each planned step carries its own words**: a dispatched step its
+     list (`words`), the look step each lane's (`opWords`). `mergePageSteps`
+     joins two steps' lists when it joins their asks.
+   - **After the plan is built and before any step runs**, every part the
+     look step put off is taken out of each step's own words by position
+     (`wordsLess`), and out of `eRun` itself (`heldParts`), the input of a
+     step with no scope words of its own (on the removal door, the router's
+     own step). A step left with no words of its own was the part put off
+     and does not run; a look lane left with none is dropped from its step.
+   - **Other work is judged on what is left**: a change whose every word lies
+     inside an addition's is that addition, so an addition beside nothing
+     else of its own is handed on whole. The page addition's "alone" is
+     judged the same way.
+   - **Nothing of the message left to run** cannot be told apart from the
+     parts, so nothing runs and nothing is named as put off
+     (`picker/addition-mixed`, nothing charged for the edit). On the removal
+     door that is a removal whose words the picker gave wholly to an
+     addition.
+   - **What a change is, and which words ask for it, is still the picker's
+     decision.** The code only takes out, by position in the message the
+     picker was shown, words a model already said belong to a part put off.
+     No customer word is matched.
+
+### 7.3 What the customer reads
+
+Rendered by the chat's own markup and stylesheet, from the real chain's
+bodies (`docs/edits/router-batch-2-review-resume-finish.png` and
+`…-giveup.png`):
+
+- **A rewrite finished after a 202**, on `03189a0d`: *"✅ Updated the home
+  page."* Now: *"✅ Updated the home page. I only did part of it this time.
+  Say “add a page for our cake orders”, then “add a map of the shop”, and
+  I’ll do those next."*
+- **A rewrite that gave up after a 202**, on `03189a0d`: *"⚠️ That didn’t
+  come together. You weren’t charged. Try again in a moment."* Now the same,
+  then *"I left “add a page for our cake orders” and “add a map of the shop”
+  for later, so they weren’t tried. Send each on its own when you’re ready."*
+
+### 7.4 Checks
+
+**26 new cases**, every model answer supplied:
+
+| File | New cases | On `03189a0d` | What it holds |
+|---|---|---|---|
+| `test/handover-resume.test.mjs` | 9 (new file) | all 9 fail | the record (all or nothing; an older record names none; the bounds are the hand-over's); the real queued rewrite through the fire, the resume message, the collector and the poll route on a finish, a retry and a give-up, asserting the designer's request and each page-writer job the container was handed (the part to do in, both parts put off out, the hand-over line in the writer's and not the designer's), the record before and after the retry, the final answer, the poll, the stored pages (the change made and the neighbours kept; on the give-up, untouched and nothing published) and the browser's own last sentence; the poll route's verdict for a lost build (a stranger's record names nothing); the queued route's own answer (a part the build would not find is not named); the browser alone: a final answer's own parts win, the 202's speak for a final answer with none, a direct answer with none names nothing, and a dropped follow, a Stop press and a lost POST each name the right account |
+| `test/edit-op-scope.test.mjs` | 13 (52 in all) | all 13 fail | the whole chain (the routing route, the browser, the edit route; sync and queued where marked): two QR codes on two pages beside a description (both named, in order; the lane handed only the description's words; sync and queued); a lane whose words run on into the code's (sync and queued); a move reaching part-way into a page addition; two codes alone (no page named); a change inside an addition (handed on whole); a code and a scene alone on one page (the page named, no part of the site); a change inside a page addition (handed on whole); the refusal when nothing of the message is left (nothing run, nothing named as put off); two changes joined on one page beside a code (the writer handed both changes' words, none of the code's); changes wholly inside an addition beside a change of their own (they never run; sync and queued) |
+| `test/edit-removal-door.test.mjs` | 3 (100 in all) | all 3 fail | the removal door: a photo removal beside a 3D scene put off, sync and queued: the picker saw the scene, the picture step's request carries the removal and none of the scene, the photo comes off the home page alone, no scene is made, and the scene is named; a removal whose words the picker gave wholly to the scene is refused before anything runs |
+| `test/handover-batch2.test.mjs` | 1 (13 in all) | cannot load (`wordsLess` is new); the file's 12 other cases pass there in their base version | `wordsLess`: untouched words, a part at the edge and inside, every occurrence, overlapping and nested parts, one space where a cut met, punctuation alone is nothing, a string as one part, values that do not read |
+
+**25 of the 26 fail on `03189a0d`, and the other needs the new export.**
+Each fails on its own property: a second code dropped; the lane handed the
+code's words; the writer handed part of the page addition; the two codes
+handed on with the first one's page; a code and a scene handed on as
+`field: "qr"`; a step run on an addition's words; the record without the
+parts; the final answer, the poll and the screen naming nothing.
+
+**Existing tests changed**, each keeping its property:
+- `site-ask`: the rewrite reads its parts through `buildHeld`, which takes
+  them out with `heldParts`.
+- `build-jobs`: the poll route's verdict is still answered inside the
+  no-answer branch, after the flight and before the pending answer, with the
+  row's own status; it now spans two lines.
+- `add-goes-to-addon`: the escalate still names the add-on's own layer; the
+  part of the site is named only when the additions are one kind.
+- `edit-parts`: `eRun` is a `let`, with exactly one other assignment, the
+  look step's take-out.
+
+**Mutation sweeps** (from a verified-green baseline, comment-only controls
+surviving):
+- **The rewrite chain and the browser**: 20 mutants over `build-resume.mjs`,
+  `worker.js` and `chat.js` against `handover-resume`: all 20 killed, 3
+  controls surviving.
+- **The look step**: 25 mutants over `worker.js`, `site-lanes.mjs` and
+  `site-ask.mjs` against `edit-op-scope`, `edit-removal-door` and
+  `handover-batch2`: 23 killed, 2 survived. Both were questions about the
+  mutant:
+  - *the removal door's own refusal* duplicated the take-out's refusal,
+    which gives the same answer, so it was removed;
+  - *an invalid scope counted as an addition's words* changes nothing today,
+    because `readScopes` already blanks an invalid scope's words (its own
+    test pins that). The guard is kept against that layer moving.
+
+  On the final code, with `removal-door` added: 24 mutants, 23 killed, the
+  same equivalent one surviving, 3 controls surviving.
+
+**Full suite, locally: `8839 / 8839 / 0 / 0`** on `129a1757`'s tree. The
+base is 8,813, and the 26 new cases account for the difference.
+
+### 7.5 What this does not show, and the limits it leaves
+
+- **What a real model answers**: whether a real picker gives each addition
+  its own scope, and how often scope words overlap. Supplied answers only.
+- **The background rewrite's live path**: no natural message we choose
+  reaches the full rewrite (W8), so the 202 → resume → final chain stays
+  shown with supplied answers only.
+- **Limits** (each in the audit's §3.0 as N22–N27, and in the backlog):
+  1. **A reload loses the browser's follow** of a 202. The poll route names
+     the parts only while the resume record exists: a finished build
+     deletes it, and its stored answer (which names them) is read once.
+     After that, a row's verdict names nothing (N22).
+  2. **Connective words stay**: the words between a change and an addition
+     go with the change, so its step is handed *"Change the description to …
+     and"* (N23).
+  3. **Several different additions with nothing else** are handed on without
+     a part of the site, and additions on different pages without a page.
+     The add-on step reads the whole message; whether it makes every one is
+     not shown (N24).
+  4. **A lane named with no valid scope counts as other work**, since it is
+     withheld with its own sentence. So an addition beside it is put off,
+     not handed on whole, and when nothing else of the message is left the
+     whole message is refused (N25).
+  5. **N17 is narrowed**: a followed build's final answer without `deferred`
+     now names the 202's parts. A direct answer without one still names
+     nothing (N26).
+  6. **One equivalent mutant is kept as a defence**: `!op.invalid` beside
+     `op.words`, true today only because `readScopes` blanks an invalid
+     scope's words (N27).
+
+### 7.6 The container
+
+Four image inputs changed over batch 2: `worker.js`, `builder/site-ask.mjs`,
+`builder/site-lanes.mjs` and `builder/build-resume.mjs`. `public/chat.js` is
+served by the Worker, not built into the image. Predicted with
+`containerInputs` and `imageId`:
+
+| End | Commit | Image | Inputs (distinct paths) |
+|---|---|---|---|
+| `main` | `f9979497` | `a4409e55d3f3eb09` | 189 (159) |
+| batch 2 | `03189a0d` | `4458b0613dcc79b6` | 190 (160) |
+| this branch | `129a1757` | `5fcfae2277e23544` | 190 (160) |
+
+A merge would build `5fcfae2277e23544`, carrying batch 1, batch 2 and these
+fixes together. Nothing was built.
