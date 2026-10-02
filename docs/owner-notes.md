@@ -1,85 +1,131 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-02, 02:55 UTC)
+## Current handoff — read this first (2026-10-02, 04:40 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**State now: the routing batch ran (your run 90), and its readings are
-recorded for your review. Deploy 2178 is confirmed live by that run. No fix
-has started. Test 11 (run 88) still waits for your closure.**
-- **Deploy 2178 is confirmed live**: run 90's start-up check found the
-  Worker on `706c9b66` and a cold container on `a412daac10dbc936`.
-- **All 18 messages were routed**, and every answer was the router model's
-  own: no fallback or rule changed one.
-  - **9 got the intended answer**: a price change and a removal went to
-    the data step; a new loaf and a put-back went to the add-on step; both
-    mixed messages held back exactly the other part; "Remove the blog page."
-    got an honest reply that there's no blog page; two pages' backgrounds
-    went to the look step; the photo swap went to the picture step.
-  - **5 didn't, and they're the main finding**: every frame and page
-    addition went to an edit instead of the add-on path. The footer link,
-    the menu link and the header button went to the menu step, the new
-    photo to the picture step, and the new line on the Visit page to the
-    text step. The router follows its own examples over your add-on rule.
-  - **4 had no intended outcome yet** (yours to set):
-    - "Make it better." got a question back at no further cost;
-    - "Undo the last change." went to the look step, which can't undo;
-    - "Do the same on the Visit page." went to the full page writer;
-    - "Make that one £3.50 instead." went to the data step.
-- **Cost: 24 credits** (96 → 72), under the 36–54 estimate, because most
-  calls reused the router's cached instructions. Nothing else changed: no
-  job, no ledger row, and both sites are on the same versions.
-- **Each is one answer.** The audit says to repeat a difference before
-  building a fix on it.
+**State now: run 90's five additions are fixed on the branch, and a batch
+that checks them on the live site is ready. Both are for your review.
+Nothing is merged, deployed or spent. Test 11 is closed, as you asked.**
+- **The router now treats all five as additions.** Its examples no longer
+  call a new menu link, footer link, header button, line of words or photo
+  an edit, and every place it decides says the same. Changing or taking off
+  something the site already has is still an edit.
+- **The add-on step can now make each one**, with code that already does
+  the job:
+  - a new menu link, footer link or header button goes to the menu editor,
+    told that it is adding. It takes nothing off, repoints nothing, and
+    keeps your button: a new one sits beside it as a second button (the
+    screenshot I showed you). Each page keeps its own menu, so a page
+    without a Gallery link doesn't gain one;
+  - a new line on a page is placed word for word, and checked on the page
+    before anything is charged or published;
+  - a new photo is one of the site's own photos, placed by its exact
+    address, or a bought one as before. With nothing real to show, it's
+    refused at no cost instead of publishing an empty frame.
+- **No loops**: if the menu editor hands the request back to the add-on
+  step, it stops and tells the customer nothing changed.
+- **One older bug fixed on the way, flagged for you**: taking the button off
+  a site whose header lives in one shared block left broken code, so that
+  edit could only fail. It now removes cleanly.
+- **Kept as it was**: edits to what a site has, removals, new list entries,
+  page scope and mixed messages. Tests check that the same answers behave
+  as before.
+- **Checked**:
+  - 896 focused tests, plus 87 for the batch, all passing;
+  - the red check: 46 of the new tests fail on the old code;
+  - two mutation sweeps, of 35 and 18 deliberate faults: all caught once six
+    test gaps were closed, and the comment-only controls survived;
+  - the full suite: 8,639 tests, all passing;
+  - CI on the branch, both green: unit tests 8,639 (the usual 4 skipped),
+    and the site build's 404 checks with its other counts as always.
+- **A merge rolls the container**: the image moves from `a412daac10dbc936`
+  to `331bf9bf72e72309`. Allow 15–20 minutes after the deploy before
+  pressing.
+- **Not shown yet**: no real model has routed or designed these since the
+  fix; the tests supply the answers. The batch is the first real reading.
 
 **What I need from you**
-1. **Your decisions on the findings** (the audit's §5, *After the
-   readings*):
-   - frame additions: align the router's examples with your policy, and
-     build the add-on kinds it lacks (menu link, footer link, header button,
-     perhaps one line on a page). The order matters, because sending them
-     to the add-on step before it can make them would fail customers;
-   - what a vague message or one that refers back should get (run 90's
-     "Make it better." already got a question back, but the two references
-     went to edits);
-   - undo: an honest reply, or a route that restores a saved version;
-   - attachments: tell the router a file is attached, tell the customer when
-     it can't be used, and let the picture step use it.
-2. **The intended outcomes for E1, E2, G1 and G2**, and whether D1's honest
-   `ask` is what you want.
-3. **Whether to repeat A1–A5** (twice more each, 10 calls, about 10–30
-   credits) before any fix is built on them. It's not built or run.
-4. Your closure of Test 11 (run 88).
+1. **Your review** of the fix (`202c554a`) and the batch (`a5282a6f`),
+   especially the shared-header button fix, and the money check now
+   accepting a step that reserved nothing (that's how the hand-over to the
+   menu editor settles).
+2. **If you approve: your word to merge and deploy.**
+3. **Then the batch: four presses, once the container has rolled.** The
+   boxes are below. Each paid press is your go-ahead for its spend.
+
+**The batch** (edit canary, Run workflow, from `main`; every other box stays
+blank or as it is)
+1. **Free: the runtime check and a rehearsal.**
+   - *RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit…*:
+     `12-additions`
+   - *The site to edit…*: `fold-lane-bakery`
+   - *Run the ONE paid edit as well (yes/no)*: `no`
+   - *Refuse to spend unless the Worker reports this deploy sha…*: the
+     merged commit (I'll give it to you after the merge)
+   - *Refuse to spend unless a cold container reports this image id…*:
+     `331bf9bf72e72309`
+
+   It checks the deploy, reads the bakery, opens the app signed in, opens
+   the bakery and types the first message. It sends nothing.
+2. **Paid: the five additions, delivered.** The same boxes, with *Run the
+   ONE paid edit as well* set to `yes`. It sends run 90's five messages word
+   for word, from one tab. It passes only if each lands exactly where asked
+   with nothing else changed, on the stored pages and on the live site.
+   About 19–37 credits, or about 19 more (and $0.15 at fal) if the add-on
+   buys the sourdough photo instead of using the site's own.
+3. **Free: put the bakery back.**
+   - *PUT ONE SAVED VERSION BACK, THEN READ IT AND STOP…*:
+     `01790819484141-dgmag4`
+   - *The site to edit…*: `fold-lane-bakery`
+4. **Paid, routing only: the controls.** Eight messages that must stay
+   edits or behave as before: the "Order a loaf" button changed, a menu item
+   taken out, the footer's hours changed, a heading reworded, a photo swap,
+   a new loaf, a mixed message, and two pages' backgrounds. Nothing is acted
+   on.
+   - *ROUTING-ONLY BATCH: the name of a committed probe list…*:
+     `addition-fix-1`
+   - *Run the ONE paid edit as well (yes/no)*: `yes`
+   - the deploy sha and image boxes, as in press 1.
+
+   About 10–24 credits. It needs 24 on the balance to start.
+
+**Cost**: about 29–61 credits in all, or up to about 80 if a photo is
+bought, against the balance of 72 that run 90 left. If press 2 comes in
+high, press 4 can wait for a top-up. These are estimates, not limits.
+
+**Kept for the next round, as you asked**: undo, conversation context, and
+attachments (the audit's R6, R7 and R2). Nothing changed there.
 
 **The order of work** (your word)
-1. Test 11's retry: done (run 88), for your closure.
-2. The router audit: the batch has run, and its readings wait for your
-   decisions. No fix starts until then.
+1. Test 11: closed, on run 88's saved row.
+2. A1–A5: fixed on the branch, for your review. The batch follows a merge.
 3. The broad plan and its batch runner stay paused.
 
 **Links**
-- Run 90: https://github.com/canias7/isibi-app/actions/runs/36956314832
-- The audit: `docs/investigations/router-audit.md` (§5, *The readings: run
-  90*, and the matrix's Observed column).
-- The record: `docs/history/2026-10-02-route-decision.md` (§9 is the batch).
+- The record: `docs/history/2026-10-02-additions.md` (§7 is the batch).
+- The checklist: `docs/investigations/edit-path-checklist.md`, *Test 12*.
+- The audit: `docs/investigations/router-audit.md`, R1.
+- Unit tests: https://github.com/canias7/isibi-app/actions/runs/36964844334
+- Site build: https://github.com/canias7/isibi-app/actions/runs/36964844335
+- Run workflow: https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml
 
 **From our chat**
-- Every new addition goes to the add-on path; what it can't make is a
-  missing capability to document.
-- The batch's own runtime checks replace a separate free press.
-- A held-back part must be the other route's part, found in the message.
-- A probe that depends on the site's state records that state.
+- Every new addition goes to the add-on path, and the add-on path must be
+  able to make it before routing sends it there.
+- Reuse code that already works: no copied pipelines, no keyword rules.
+- Don't spend re-measuring what the code and run 90 already show.
+- Undo, conversation context and attachments wait for the next round.
 - CLAUDE.md is left alone.
 
 **Blockers**
-- None. Every next step needs your decision.
+- None. The next step is your review.
 
 **Exact next action**
-- On your decisions: build what you choose, with its tests, for your review,
-  or prepare the repeat of A1–A5 for your press. Nothing is merged,
-  deployed or spent without your word.
+- On your word: merge and deploy, then give you the merged sha for the four
+  presses. Nothing is merged, deployed or spent without it.
 
 ---
 
@@ -139,6 +185,41 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-02 — Run 90's five additions are fixed on the branch, with a batch to check them live, for your review (nothing merged, deployed or spent)
+
+- **On your word** (*"Proceed with fixing A1–A5 together…"*), without
+  repeating run 90's messages first.
+- **The router** now calls a new menu link, footer link, header button,
+  line of words or photo an addition, in every clause that decides.
+  Changing or taking off what a site has stays an edit.
+- **The add-on step makes all five**, reusing what already works:
+  - frame items go to the menu editor, told it is adding: nothing taken off
+    or repointed, your button kept and a new one placed beside it, each
+    page's own menu kept;
+  - a line is placed word for word and checked on the page before the bill;
+  - a photo is one of the site's own, or bought as before; with nothing
+    real to show, it's refused at no cost.
+- **A loop bound**: an edit the add-on handed over that names the add-on
+  again stops, and the customer is told nothing changed.
+- **Fixed on the way, flagged**: taking the button off a site whose header
+  is one shared block left code that didn't compile.
+- **Kept**: edits to what a site has, removals, new list entries, page scope
+  and mixed messages, each pinned by tests.
+- **Checked**: 896 focused tests and 87 for the batch; 46 new tests fail on
+  the old code; sweeps of 35 and 18 faults all caught, with the controls
+  surviving; the full suite 8,639 of 8,639; CI green on `a5282a6f` (unit
+  tests, run 36964844334, `8639 / 8635 / 0 / 4`; site build, run
+  36964844335, 404 checks across 4 shards). A merge rolls the image
+  `a412daac10dbc936` → `331bf9bf72e72309`.
+- **The batch, prepared and not run**: a free rehearsal, run 90's five
+  messages through the real app judged on what landed (stored and served),
+  the free restore to `dgmag4`, and eight routing-only controls. About
+  29–61 credits, or up to about 80 if a photo is bought.
+- **Test 11 is closed** on run 88's saved row, as you asked.
+- **Kept for the next round**: undo, conversation context, attachments.
+- The record is `history/2026-10-02-additions.md`; the checklist's
+  *Test 12* holds the batch.
 
 ## 2026-10-02 — The routing batch ran (run 90): every frame addition went to an edit; deploy 2178 confirmed live
 

@@ -314,6 +314,24 @@ many words, because the line sat at the page. Four hops, each guarded:
   keyword rule: the route passes the model's answer on as given.
   `test/router-row-add.test.mjs`; `docs/history/2026-10-01-addon-row-routing.md`.
 
+### THE MENU EDITOR'S ADDITION MODE, AND THE SECOND BUTTON (2026-10-02, on the branch; not merged)
+
+A new menu link, footer link or detail, or header button is an addition, and
+the add-on step hands it to the menu editor (`nav`) with the customer's
+sentence and `addition: true`. Told it is adding (`ADDITION_NOTE`), the menu
+editor's answer is held to adding (`additionOnly` in `builder/site-nav.mjs`):
+nothing taken off, nothing repointed (links in the copy included), the frame's
+arrangement left alone, a footer detail the site has never rewritten or
+cleared. A new button joins the one there as the **second button**
+(`secondAction`, an outline button in the kit's header and frame, hidden on a
+phone's header and shown in its menu sheet); a third is refused by name. The
+menu and the footer's lists gain only their new items, page by page
+(`newItems`, `withAdded`), so a page whose menu differs keeps its difference.
+An ordinary `nav` edit, without the flag, is unchanged: a list given is the
+menu, a button given replaces the button, a removal removes. And the shared
+frame object's button removal now takes its comma (it left an object that did
+not parse). The record is `docs/history/2026-10-02-additions.md`.
+
 ### WHAT THE EDIT'S PAGE RUNG PRESERVES (2026-09-20 → 09-21)
 
 Eleven defects, each reproduced through `POST /api/site/<slug>/edit` before it

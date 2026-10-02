@@ -19,7 +19,8 @@
 The full law is `docs/addon-path.md`. **"Add" always goes to the add-on step;
 an edit changes what already exists.** `builder/site-add.mjs` runs `pick_adds`,
 then one call per kind in run order — `table · row · function · api · job · page ·
-component · qr · three · photo` (`MAX_ADDS` 10; `row` on the branch, below) — then one publish; the first
+component · words · qr · three · photo` (`MAX_ADDS` 12; `words` on the branch,
+below), with `frame` handed to the menu editor — then one publish; the first
 backend kind on a site with none makes its database (`ensureSiteBackend`). An
 addition is always a new thing: every page it changed must still say every word
 it said (`keptProse`, else 422 `rewrote` at no cost), and a second one copies
@@ -61,6 +62,9 @@ and its next step is a CHANGE.
 | `qr` | 51 published `qr-gallery.svg` and **the served file re-encodes to `/gallery`** | nothing has ever scanned one |
 | `three` | **measured live today**: `fretwork-1` and `ashgrove-1` each serve a `@react-three/fiber` canvas | **which PATH made it** — `three` is a dispatched EDIT lane as well as an addon kind, so a probe of the document cannot say |
 | `photo` | **NONE.** Run 51 reached the provider and was **refused** | **the whole kind**, parked on fal funding |
+| `frame` (2026-10-02, on the branch) | **NONE** — supplied answers only | a real router and menu editor handing a new menu link, footer link or header button over as an addition (*Test 12*) |
+| `words` (2026-10-02, on the branch) | **NONE** — supplied answers only | a real page writer placing one line, found on its page before the bill (*Test 12*) |
+| `photo`, one of the site's own (2026-10-02, on the branch) | **NONE** — supplied answers only | a real designer choosing a photograph the site already shows, placed by its exact address (*Test 12*) |
 | `row` | **RUN 88 (Test 11, 2026-10-01)**: after the router fix (deploy 2177) the route answered `addon` for *Add one loaf to today's loaves: …* (the route's answer, not proof of the raw model's choice: its reply cannot show a conversion, `docs/investigations/router-audit.md` R3), and the step (kinds exactly `row`) saved one entry, `loaves` id 7 "Rye & Caraway", read back whole: the six existing rows unchanged, no page published, cost 2 (routing 3) | several entries in one message, other lists and phrasings, an entry beside other kinds (set aside by design), a list whose page filters or caps what it shows |
 
 **Eight of nine have landed their own work on a real site. The ninth has not,
@@ -248,6 +252,31 @@ add-on kind could add a row to a table the site already has (Test 11's trace,
 - **Not shown**: real routing and the real picker/designer (supplied answers
   only), and any live write. Its known limits are in `docs/backlog.md`
   (*THE ADD-ON `row` STEP'S KNOWN LIMITS*).
+
+### FRAME ITEMS, WORDS AND PHOTOGRAPHS (2026-10-02, on the branch; not merged)
+
+Run 90 routed a footer link, a menu link, a header button, a line on a page and
+a photograph on a page to edits, and four of them had no add-on kind. Fixed
+together on the owner's word (`docs/history/2026-10-02-additions.md`):
+- **`frame`** is dispatched, never designed here: asked alone it is handed to
+  the menu editor as an addition (`ADD_HOPS` in `builder/site-addon.mjs`, the
+  one list of hand-overs; the browser posts the edit with `addition: true`),
+  and beside other kinds it is set aside and named. The menu editor, told it
+  is adding, takes nothing away, repoints nothing, leaves the frame's
+  arrangement alone, keeps the button (a new one is the second button; a third
+  is refused), never rewrites or clears a footer detail, and adds to each
+  page's own menu and footer lists.
+- **`words`** is designed here: one line for a page the site has, placed
+  exactly or refused (`no-words`), and found on the page with the text rung's
+  reader before the bill, or 422 `not-landed` at cost 0.
+- **`photo`** is designed here whatever company it keeps (the hand-off to the
+  picture step is gone): one of the site's own photographs by its exact address
+  (`ownPhotos`; anything else is `not-ours`), or one bought. A placed one is
+  checked on its page before the bill; a photograph alone with nothing real to
+  show is refused at no cost (`no-photo`), before the page call or after a
+  failed purchase.
+- **The loop bound**: an edit the add-on handed over that names the add-on
+  again stops (`fromAddon`), with nothing changed.
 
 ### THE ADD STEP IS ITS OWN PATH TOO (2026-09-02)
 

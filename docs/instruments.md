@@ -142,6 +142,26 @@ in `docs/instruments.md`; each test's plan and evidence is in the checklist.
     `tables: []`, and signs in as the fixtures' owner, so its router is told
     those names: run 77's `routing.json` carries four. Batch 1's presses ran
     without them.
+- **The additions batch** (2026-10-02, on the branch; not merged or run):
+  - **`12-additions`**, a UI scenario on `fold-lane-bakery`: run 90's five
+    additions word for word from one tab (`scripts/canary-ui.mjs`). It is the
+    one scenario the add-on step is open to, for its own site; an edit that is
+    not the add-on's hand-over (`addition: true`) is stopped in the browser,
+    and the line and the photograph may make no edit at all. Budget 45,
+    checked before each message.
+  - **It passes only on what landed** (`additionsVerdict`,
+    `scripts/canary-additions.mjs`): each message's requests and stored
+    replies, five publishes in order, the stored source read with the menu
+    editor's, the text rung's and the image readers (each addition exactly
+    once where it was asked for, and nothing else moved), the published pages
+    a visitor is served, and the money.
+  - **The money check accepts `none`**: a job that never reserved anything
+    (the add-on's hand-over to the menu editor) is settled at nothing, with an
+    empty ledger, like an exempt one (`moneyVerdict`).
+  - **`addition-fix-1`**, eight routing-only controls for what the fix must
+    leave as it was (`scripts/router-probes/addition-fix-1.json`).
+  - The presses, pass list and cost are the checklist's *Test 12* and
+    `docs/history/2026-10-02-additions.md` §7.
 - **The routing-only batch** (`route_probes`, 2026-10-02, the router audit;
   `scripts/canary-probes.mjs`; merged and deployed in deploy 2178; first run: run 90, 18 routed for 24 credits): the
   name of a committed probe list in `scripts/router-probes/` (the first is

@@ -247,6 +247,15 @@ Each item gives:
 
 ### R1. Frame additions: the router contradicts the policy, and the add-on step lacks the capability (high; needs a reading)
 
+**Fixed on the branch (2026-10-02, on the owner's word; not merged or run
+live).** The router's clauses now agree that a new frame item, new words and
+a new photograph are additions, and the add-on step delivers each one:
+`frame` is handed to the menu editor as an addition, `words` are placed on
+their page and found there before the bill, and a photograph is one of the
+site's own (or bought) and checked on its page. The record is
+`docs/history/2026-10-02-additions.md`; the post-fix validation batch is its
+§7. What follows is the finding as it stood.
+
 **Intended (your policy):** every new addition goes to the add-on path,
 menu links, footer links and header buttons included. Where the add-on step
 can't perform one, that is a missing capability, not a reason to call an
@@ -830,17 +839,19 @@ E2, G1 and G2 would join once you set their intended outcomes.
 
 ### After the readings: decisions that are yours
 
-These findings are recorded here. None is in the backlog yet, and none is
-being fixed. The readings are in (run 90, above), and which to pursue is
-your decision.
-- **Frame additions (R1).** Two separate changes:
-  - align the router's `nav`, `picture` and `page` examples with your policy;
-  - build the missing add-on kinds (menu link, footer link and detail, header
-    button, and perhaps a single line on a page).
-
-  The order matters (R1).
-- **A small addition to a page** (a line or a sentence): what the add-on step
-  should make.
+These findings are recorded here. The readings are in (run 90, above), and
+which to pursue is your decision.
+- **Frame additions (R1) and a small addition to a page: decided and built
+  (2026-10-02, on the branch, for review).** *"Proceed with fixing A1–A5
+  together."* Both changes were made in one round, the add-on step's
+  capability alongside the router's wording, so neither reaches customers
+  without the other. A line on a page is the `words` kind. Not merged or run
+  live; the post-fix validation batch is `docs/history/2026-10-02-additions.md`
+  §7.
+- **Kept for the next round (the owner, 2026-10-02):** *"Keep undo,
+  conversation context and attachment delivery recorded as separate findings
+  for the next round"*: the undo, refers-back and attachment items below (R6,
+  R7 and R2) stay open and unchanged.
 - **A put-back after a deletion**: whether the add-on step should be given
   the deleted entry's other fields.
 - **A vague request, or one that refers back**, on a live site: whether it

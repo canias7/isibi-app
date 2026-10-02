@@ -274,7 +274,8 @@ the owner's free press, run 51, at 22:57 UTC):
   routed `addon` after the router fix, written by the add-on step's `row`
   kind, the six existing rows and every page unchanged. This is the saved-row
   outcome; it is not proof of the raw model's choice, which the route's
-  reply cannot show (the router audit's R3). For the owner's review.
+  reply cannot show (the router audit's R3). **Closed by the owner
+  (2026-10-02) for this verified saved-row outcome**, not to be repeated.
 - **One database row deleted by a normal AI request**, on a site whose
   database link is blank (80), after the row check read the table whole
   and as named, live and free (79). Closed by the owner.
@@ -356,7 +357,15 @@ the owner's free press, run 51, at 22:57 UTC):
     did not publish, the writer's prompt, and the judge's and the text guard's
     verdicts.
 11. **Outside the edit path, listed so they are not lost**: the add-on through
-    the browser since deploy 2154, and the photo add-on kind (fal funding).
+    the browser since deploy 2154, and the photo add-on kind's purchase (fal
+    funding). Placing one of the site's own photographs is new on the branch
+    (item 12).
+12. **New frame items, words and photographs through the add-on step**
+    (run 90's A1–A5): **fixed on the branch on 2026-10-02, not merged**. The
+    router now sends them to the add-on step, which hands a frame item to the
+    menu editor as an addition, places words and checks them on the page,
+    and places one of the site's own photographs. Shown only with supplied
+    answers; the post-fix validation batch is prepared (*Test 12*, below).
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).
@@ -2004,7 +2013,82 @@ in the next data press.
 - **Then**: one merge, one free runtime check, and the lane 4 presses. Those
   on different sites can overlap a minute apart, as Batch 1's did.
 
-## Test 11 — one item added to an existing list (prepared 2026-10-01 on the owner's word, after Test 10 was closed; free analysis only, nothing spent, no routing change; its capability — the add-on `row` kind — and the canary's add-on press built on the branch the same day on the owner's word, verified free, corrected in three rounds after the owner's reviews, and merged and deployed in deploy 2175 the same day (runtime check pending); real model routing unproven; the expectation corrected: the new entry's id is the database's, not necessarily 7)
+## Test 12 — run 90's five additions, routed to the add-on step and delivered there (prepared 2026-10-02 on the owner's word, with the fix, on the branch; not merged, deployed or run; nothing spent)
+
+**The owner**: *"Proceed with fixing A1–A5 together. … Make the router
+consistently treat new menu links, footer links, header buttons, page text and
+photos as additions, and ensure the add-on path can actually deliver them
+before changing live routing. … Add focused regression coverage and prepare
+one post-fix validation batch covering routing plus actual delivered results,
+with its cost estimate."*
+
+**The fix** (`202c554a`; the record is `docs/history/2026-10-02-additions.md`):
+the router's clauses agree that a new frame item, new words and a new
+photograph are additions; the add-on step hands a frame item to the menu
+editor as an addition (nothing taken, repointed or rearranged; a new button
+becomes the second button; each page's own menu and footer added to), places
+words exactly and finds them on the page before the bill, and places one of
+the site's own photographs by its exact address (or buys one), refusing at no
+cost when there is nothing real to show. An edit the add-on handed over cannot
+hand it back.
+
+**The batch** (`a5282a6f`), four presses of the edit canary after a merge and
+deploy, each the owner's:
+1. **Free**: `12-additions` with spend `no` and the deploy's sha and image —
+   the runtime check, the before-read, and the real app opening the bakery and
+   typing message 1, sending nothing.
+2. **Paid**: `12-additions` with spend `yes` — run 90's five messages word for
+   word from one tab on `fold-lane-bakery` (at `01790819484141-dgmag4`, read
+   live at 04:02 UTC):
+   - "Add our Instagram to the footer: @harbourloaf."
+   - "Add Order to the menu."
+   - "Add a Call us button at the top that rings 0117 496 0000."
+   - "On the Visit page, add a line saying we're closed on bank holidays."
+   - "Add a photo of our sourdough to the Visit page."
+3. **Free**: the restore to `01790819484141-dgmag4`.
+4. **Paid, routing only**: `addition-fix-1`, eight controls for what must stay
+   as it was — the "Order a loaf" button changed, "The starter" taken out of
+   the menu and the footer's opening hours changed (each `edit`/`nav`), the
+   Visit heading reworded (`edit`/`text`), the Visit photo swapped (`edit`/
+   `picture`, attached), a new loaf (`addon`), a colour change beside a new
+   footer link (each answer holding back the other's part), and two pages'
+   backgrounds (one `look`).
+
+**Press 2 passes only on what landed** (`additionsVerdict`, in
+`scripts/canary-additions.mjs`):
+- each message routed `addon` with its own words, one add-on request, and for
+  the three frame items one menu-editor edit carrying the addition flag; no
+  edit at all for the line and the photograph;
+- each job's stored reply: the hand-over and the menu editor's success, or the
+  add-on's own success, shown on screen as a success;
+- five publishes in order, the after-read at the last;
+- in the stored source: every page's menu gains "Order" → `/order` and keeps
+  every item it had; every footer gains the Instagram link to
+  `instagram.com/harbourloaf`; every header keeps "Order a loaf" and gains
+  "Call us" ringing 01174960000 beside it; the footer's details unchanged;
+  every page but `/visit` byte for byte as it was outside its frame; `/visit`
+  keeps every word and photograph it had and gains one line saying "closed on
+  bank holidays" and one photograph described as sourdough;
+- the same five on the published pages a visitor is served;
+- the money closes: routing plus each job's row and ledger, the hand-overs at
+  nothing.
+
+**The wall**: the add-on step is open to this scenario's own site alone; an
+edit that is not the add-on's hand-over is stopped in the browser; the line
+and the photograph may make no edit at all. A misrouted message costs its
+routing call and changes nothing.
+
+**Cost (estimates, not limits)**: press 2 about 19–37 credits, or about 19
+more ($0.15 at fal) if the add-on buys the photograph rather than placing the
+site's own; its budget (45) is checked before each message. Press 4 about
+10–24, needing 24 on the balance to start. Presses 1 and 3 free. In all about
+29–61, or up to about 80 with a bought photograph, against a balance of 72.
+
+**What a pass shows**: one real routing of each addition after the fix, and
+each delivered as asked with nothing else moved. **Not**: how often, other
+phrasings or sites, or a bought photograph.
+
+## Test 11 — one item added to an existing list (prepared 2026-10-01 on the owner's word, after Test 10 was closed; free analysis only, nothing spent, no routing change; its capability — the add-on `row` kind — and the canary's add-on press built on the branch the same day on the owner's word, verified free, corrected in three rounds after the owner's reviews, and merged and deployed in deploy 2175 the same day (runtime check pending); real model routing unproven; the expectation corrected: the new entry's id is the database's, not necessarily 7; run 88 passed every condition, and **closed by the owner on 2026-10-02 for its verified saved-row outcome**, not to be repeated)
 
 **The owner**: *"Next, prepare the remaining 'add one item to an existing
 list' test using free analysis only. Respect my existing rule: 'Add will
@@ -2866,6 +2950,11 @@ it.
   page changed, the reply true. What it does not show: other phrasings,
   other kinds of list, several entries in one message, or a mixed message.
   The demo data stays: the bakery now lists seven loaves.
+- **Closed by the owner (2026-10-02)** for its verified saved-row outcome:
+  *"Mark Test 11 closed for its verified saved-row outcome."* Not to be
+  repeated. The raw model's choice for run 88's own sentence stays unshown
+  (the route reported no decision then); run 90's B1, a different sentence,
+  was the model's own `addon`.
 
 ## Test 10 — a stored list re-sorted, with real models (prepared 2026-09-30 on the owner's word, after Test 9 was closed; free preparation only; the order traced on all three demo sites; rehearsed with supplied answers through the real lane and the real edit route; decision 2b taken by the owner the same day with a scope correction: a sort across the whole site goes to the data sorter, a sort limited to one named page to the page editor, and no "whatever page they saw it" rule; the rule implemented on the branch with committed route coverage, and its scope corrected on 2026-10-01 so that a selection of pages is never sent to the sorter; passed by the owner and merged and deployed in deploy 2174 (2026-10-01); the request revised to state its scope; the baseline read; the authorized free dispatch refused (403); the owner's free press, run 83, confirmed the runtime and rehearsed Test 10, passing every check; the paid press run as run 84, 3 credits, every acceptance item met; closed by the owner the same day for run 84's demonstrated request, the bakery left at `dgmag4`, not to be repeated)
 

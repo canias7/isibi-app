@@ -572,3 +572,20 @@
   probe's precondition is read from evidence (a run's before-read, a fresh
   read), written into the probe with the version it was read at, and read
   again if the site changes before the press.
+- **A fix whose cause the code and an existing reading already show is built
+  without re-measuring first, and it reuses what already works** (2026-10-02,
+  fixing run 90's five additions): *"Don't spend on repeating the unchanged
+  requests first: the conflicting instructions are visible in code and run 90
+  shows all five misroutes."* — *"ensure the add-on path can actually deliver
+  them before changing live routing. Trace and reuse suitable existing
+  execution code through shared helpers where practical; avoid duplicating
+  whole pipelines or adding keyword overrides."* — *"Preserve existing-item
+  edits, removals, row additions, page scope and correct mixed-request
+  handling."* So a routing change ships only with the capability that
+  serves it; new behaviour reaches existing executors through shared helpers
+  rather than copies; nothing keys on a message's wording; and the next
+  spend is one post-fix batch that shows routing and the delivered result
+  together.
+- **Findings outside the round are kept for the next one, not folded in**
+  (2026-10-02): *"Keep undo, conversation context and attachment delivery
+  recorded as separate findings for the next round."*
