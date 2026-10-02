@@ -66,7 +66,7 @@ other box as it is.
 | | Estimate | Notes |
 |---|---|---|
 | The 5 additions | about 19–41 credits | it won't send another message once 45 is spent |
-| If the photo is bought | about 19 more credits, and $0.15 at fal | only if the add-on picks a bought photo over one of the site's own, and the balance covers it at that moment |
+| If the photo is bought | can't happen now: fal has no credits (you, 2026-10-02) | the add-on is told to prefer the site's own photo, and the home page has one: *"A sourdough boule cooling after the morning bake"*. If it tried to buy anyway, the purchase would fail and the photo message would be refused at no cost for that step (routing only), with no empty frame published |
 
 **It passes only on what landed**: each message routed to the add-on step
 by the model itself; the menu link, footer link and header button through

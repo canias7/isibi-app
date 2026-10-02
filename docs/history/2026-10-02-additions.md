@@ -623,4 +623,21 @@ The owner's press (*"ran first one"*): edit canary run 91 (36973396657),
   still routes as before, by the model's own choice, once each. **Not**: how
   often, other phrasings, or anything delivered (nothing is acted on).
 
+### 11.2 Before press 2: fal has no credits
+
+- **The owner** (2026-10-02, after run 91): *"fal has no credits , just
+  letting you know"*. So no photograph can be bought.
+- **The bakery has its own sourdough photograph**: the home page shows
+  `8e6bd4818b03….jpg`, *"A sourdough boule cooling after the morning bake"*
+  (read from the served pages at 06:33 UTC; `/visit` shows the logo and its
+  one photograph, `d5d59152….jpg`). The add-on's photo designer is told to
+  use one of the site's own photographs whenever one shows what was asked
+  (`src`, "PREFER IT WHENEVER ONE FITS"), so A5 is expected to place that
+  one, with nothing bought.
+- **If it tried to buy anyway**, the purchase would fail; for a photograph
+  asked alone the add-on refuses after the page call with the no-photo
+  sentence, at no cost for the step (routing only), and publishes no empty
+  frame. A5 would then fail the batch's photo check, with the other four
+  additions unaffected.
+
 Press 2 (`12-additions`) is next, on the owner's press.
