@@ -417,6 +417,7 @@ the halves swap.** *Confirmed (code + free check).*
 - **Expected**: whatever happens to the part that ran, the customer is told
   what was put off.
 - **Actual**: a refusal, an explanation or a failure says nothing about it.
+- **Evidence**: the code: `alsoTail` has no other caller.
 - **Impact**: part of a request disappears without a word.
 - **Fix**: add the held-back sentence to every final outcome.
 
@@ -426,6 +427,7 @@ the halves swap.** *Confirmed (code + free check).*
   rewrite's body has no held-back part (11471–11472).
 - **Expected**: the rewrite does only what the edit was doing.
 - **Actual**: it gets the whole message, including what the router put off.
+- **Evidence**: the code.
 - **Impact**: the put-off part is done in the costliest step, by a writer
   that rewrites every page; the customer was told it would wait.
 - **Fix**: send the held-back text with the rewrite and take it out, as the
@@ -436,7 +438,10 @@ the halves swap.** *Confirmed (code + free check).*
   answer; `answer` is shown only for `ask`.
 - **Expected**: "What does an hour's lesson cost? Knock £2 off it." answers
   the question and makes the change, or says it can't do both.
-- **Actual**: the change runs; the question is dropped. Low impact.
+- **Actual**: the change runs; the question is dropped.
+- **Evidence**: the code.
+- **Impact**: low: the customer asks again, and the routing call is charged
+  again.
 - **Fix**: let a work answer carry a one-line reply, shown before the step's
   sentence.
 
@@ -448,6 +453,9 @@ untested.*
   and adds the code (or holds one part back, named).
 - **Actual**: no lane runs; the add-on gets the whole message and its
   designers decline the colour part (*unverified*).
+- **Evidence**: the code.
+- **Impact**: the look change is lost, and the reply speaks only of the
+  add-on's outcome (*unverified*).
 - **Fix**: run the other picked lanes first and hand only the addition on,
   as a held-back part. The router should have held it back; this is the net
   when it doesn't.
@@ -483,6 +491,7 @@ check on run 92's stored pages).*
 - **Actual**: after a reload, a site with seven or more pages sends six; a
   page added or removed on another device or by our canary is never
   learnt. A `page` answer for a page not sent becomes `addon` (W5, R4).
+- **Evidence**: the code; no 7-page site was reloaded live for this audit.
 - **Impact**: wrong routes on larger sites; the earlier audit's "24 pages"
   holds only until a reload.
 - **Fix**: fill the page list on the server from the stored source, as
@@ -497,6 +506,9 @@ check on run 92's stored pages).*
   workshop" changes the heading, not the header button on every page.
 - **Actual**: the text step gets no page; whether it keeps to the home page
   rests on its model reading the message (*unverified*).
+- **Evidence**: the code; probe PS1 measures the routing half.
+- **Impact**: wording the customer limited to one page can change on every
+  page (*unverified*).
 - **Fix**: carry the page to the text step and limit its items to that page
   when one is named.
 
@@ -512,27 +524,40 @@ translates.** *Confirmed (code).*
 - **Actual**: the router is told it is a rewrite. A `build` answer would
   rewrite every page (~25 credits). What the model answers is *unverified*
   (probe CF1).
+- **Evidence**: the code, and `fretwork-1`'s live `/fr` and `/es` versions
+  (read 07:49 UTC).
+- **Impact**: a cheap language change risks a rewrite of every page.
 - **Fix**: point translation at `look` (the languages the site is offered
   in), and keep "declared language" as the separate fact it is.
 
 **W11. Router instructions that disagree with each other or with the
 product.** *Confirmed (code).*
-- **The name instead of a logo**: `look` takes "just use our name as the
-  logo" (432); `logo` takes "just the name is fine" as a removal (527, 707).
-  The same wish, two steps, two results; on a site with no logo the removal
-  changes nothing (probe CF2).
-- **Undo**: "Every change is archived and every one can be undone by saying
-  so" (216), while "Rebuilding … whatever the owner had is gone" (903), and
-  no step undoes anything (R6).
-- **What the builder can do** (861–868): "its own Postgres database" (only
-  when tables are declared), "read a link", "search the web", "attached
-  images and PDFs as reference" — builds only (R11).
-- **"When you cannot tell, answer addon — it can do everything an edit can
-  except take something away"** (310): the add-on adds; it doesn't change
-  words, colours, menus or entries (R5).
-- **The tab icon**: `look` draws one ("make the tab icon a scissors", 430);
-  `logo` with `tab` takes an attached one (717–722) — the router is never
-  told whether a file is attached (W16).
+- **Where**, each in `site-ask.mjs`:
+  - **the name instead of a logo**: `look` takes "just use our name as the
+    logo" (432); `logo` takes "just the name is fine" as a removal (527,
+    707);
+  - **undo**: "Every change is archived and every one can be undone by
+    saying so" (216), beside "Rebuilding … whatever the owner had is gone"
+    (903);
+  - **what the builder can do** (861–868): "its own Postgres database", "read
+    a link", "search the web", "attached images and PDFs as reference";
+  - **"When you cannot tell, answer addon — it can do everything an edit can
+    except take something away"** (310);
+  - **the tab icon**: `look` draws one ("make the tab icon a scissors", 430);
+    `logo` with `tab` takes an attached one (717–722).
+- **Expected**: one instruction for each wish, and every claim true of the
+  product.
+- **Actual**: the same wish (show the name, not a logo) has two steps with
+  two results, and on a site with no logo the removal changes nothing; no
+  step undoes anything (R6); a database is made only when tables are
+  declared, and links, search and attachments are read on builds only
+  (R11); the add-on adds, and doesn't change words, colours, menus or
+  entries (R5); which tab-icon step is meant depends on a file the router is
+  never told about (W16).
+- **Evidence**: the code (each quote at its line).
+- **Impact**: the model is left to choose between two answers for one wish,
+  or answers a question with a capability an edit doesn't have; which it
+  does is *unverified* (probes CF2 and AT2 measure two of them).
 - **Fix**: one owner of each wish (the name lettering to `look`; a logo
   removal only when a logo exists), the capability list split into build
   and edit, the undo promise replaced by the restore that exists, and the
@@ -554,6 +579,9 @@ product.** *Confirmed (code).*
   the free, exact restore (Versions) for undo.
 - **Actual**: each phrase starts a route with no context; a put-back through
   the add-on may not restore the entry's other fields (*unverified*).
+- **Evidence**: the code; run 90's B2 routed a put-back to `addon`.
+- **Impact**: a customer who follows the reply's own advice gets a
+  different, possibly paid, result than it promised.
 - **Fix**: give the add-on the deleted rows for a put-back, point undo
   sentences at Versions, and drop the phrases no route can serve.
 
@@ -571,6 +599,10 @@ R6 (undo) and R7 (no conversation) stand (§3.12).
   is the photo used, or the customer is told it can't be.
 - **Actual**: the photo step chooses from the site's uploads or buys one
   (*unverified* which); the customer isn't told the file wasn't used.
+- **Evidence**: the code; run 90's F1 (a photo swap with a file) was routed
+  `picture` with the router not told of the file.
+- **Impact**: the customer's own photograph is not used, and they may pay
+  for one that was bought.
 - **Fix**: tell the router a file is attached, pass files to the photo step
   and the add-on's photo kind, and say plainly when a file wasn't used.
 
@@ -581,6 +613,8 @@ file couldn't be read.** *Confirmed (code).*
   unreadable is kept in the strip as a placeholder, so `attached` is true).
 - **Expected**: "Is this photo sharp enough to use?" gets an answer.
 - **Actual**: an add-on starts; its picker must name a kind (W14).
+- **Evidence**: the code; probe AT3 measures it.
+- **Impact**: a paid add-on the model did not choose, for a question.
 - **Fix**: keep `ask` with a file as `ask` (or answer that the file can't be
   judged here); count only files that were read.
 
@@ -596,6 +630,9 @@ can't do this".** *Confirmed (code); the outcome is untested.*
   answered as something the builder doesn't do.
 - **Actual**: if it reaches the add-on, the customer is told to say what
   they want and where. The routing call is charged.
+- **Evidence**: the code; probe US1 measures the routing half.
+- **Impact**: the customer is told to rephrase something nothing can do, and
+  pays for the routing call each time.
 - **Fix**: let the picker answer "nothing here", and show the unsupported
   note on a refusal.
 
@@ -606,6 +643,8 @@ a visitor sees.** *Confirmed (code; its own comment).*
 - **Expected**: "make the button open the booking form" changes what it
   does, or says it can't.
 - **Actual**: a stored record changes and the reply says it was updated.
+- **Evidence**: the code's own comment.
+- **Impact**: a charge and a success sentence for a change nobody can see.
 - **Fix**: send behaviour requests to the page writer, or refuse them by
   name, until something reads the field.
 
@@ -616,6 +655,9 @@ attempt.** *Confirmed (code); R10.*
 - **Expected**: a question is answered, and a change is refused with a
   balance message.
 - **Actual**: "what are my opening hours?" gets a sentence about a build.
+- **Evidence**: the code.
+- **Impact**: low (only at zero), but every message, a question included,
+  is answered with a sentence about a build.
 - **Fix**: at zero, answer `ask` with a balance message, no model call.
 
 ### 3.8 Keyword and site-specific decisions
@@ -638,6 +680,7 @@ attempt.** *Confirmed (code); R10.*
   nobody parks there." are withheld with *"Please identify the section by
   its unique heading or quote the exact text…"* (409, edit not charged,
   routing charged).
+- **Evidence**: free check W9 (§4): the real guard, with its real parser.
 - **Impact**: natural wording is refused after a model call; the router's
   own examples use the refused verbs ("drop the testimonials band", "get rid
   of the QR code", 460).
@@ -648,51 +691,90 @@ attempt.** *Confirmed (code); R10.*
 
 **W23. Wording from the test sites and test sentences sits in the model
 prompts.** *Confirmed (code).*
-- **The router**: "drop crookes-guitar" (632: `fretwork-1`'s old name);
-  "called "Sunset Shoes" and live at shoeroom-1" (629: `shoeroom-1` is
-  "Poulson's" today); "remove the chord diagrams" (460: `ben-crowe-guitar`'s
-  section); "Put Gallery in the menu" (257: the bakery's page).
-- **The add-on and the menu editor**: "add a line saying we're closed on
-  bank holidays" (`site-add.mjs` 927, 959: run 90's and 92's A4, almost word
-  for word); "add a Call us button too" (`site-nav.mjs` 522: A3); "add our
-  Instagram" (546: A1); "another loaf" (`site-add.mjs` 606, 1435); "a
-  luthier's bench … half-finished guitar bodies" (1159–1160: `fretwork-1`).
-- **What it means**: nothing in code branches on these, but a probe on these
-  sites, or with these sentences, partly tests the example rather than the
-  rule. Run 92's frame and words passes rest partly on wording the
-  downstream prompts contain; 17 of router-audit-1's 18 probes and all 8 of
-  addition-fix-1's were on the bakery.
-- **Fix**: replace examples drawn from the test sites and test sentences with
-  neutral ones, and test on other sites (Group R uses none of the bakery and
-  shares no run of five words with the router's prompt).
+- **Where**: the router: "drop crookes-guitar" (632: `fretwork-1`'s old
+  name); "called "Sunset Shoes" and live at shoeroom-1" (629); "remove the
+  chord diagrams" (460: `ben-crowe-guitar`'s section); "Put Gallery in the
+  menu" (257: the bakery's page). The add-on and the menu editor: "add a line
+  saying we're closed on bank holidays" (`site-add.mjs` 927, 959: run 90's
+  and 92's A4, almost word for word); "add a Call us button too"
+  (`site-nav.mjs` 522: A3); "add our Instagram" (546: A1); "another loaf"
+  (`site-add.mjs` 606, 1435); "a luthier's bench … half-finished guitar
+  bodies" (1159–1160: `fretwork-1`).
+- **Expected**: examples that teach a rule without naming our test sites or
+  repeating our test sentences.
+- **Actual**: they do both. Nothing in code branches on them, but a model is
+  shown them on every call.
+- **Evidence**: the code; `shoeroom-1` is "Poulson's" today (served page,
+  07:49 UTC), so the "Sunset Shoes" line describes a fixture's history.
+- **Impact**: a probe on these sites, or with these sentences, partly tests
+  the example rather than the rule. Run 92's frame and words passes rest
+  partly on wording the downstream prompts contain; 17 of router-audit-1's
+  18 probes and all 8 of addition-fix-1's were on the bakery.
+- **Fix**: replace them with neutral examples, and test on other sites
+  (Group R uses none of the bakery and shares no run of five words with the
+  router's prompt).
 
 ### 3.9 Smaller confirmed defects
 
-- **W20. Removing custom styling answers "I couldn't work out how to change
-  the site's look that way."** `css` is offered as removable
-  (`REMOVABLE_LANES`) but is not a field the merge can clear (`EDIT_FIELDS`,
-  `site-edit.mjs` 118), so nothing moves and the step explains
-  (`look/no-change`, `worker.js` 23755–23790). *Confirmed (code + free
-  check).* Fix: strip the rules the request names, or don't offer `css` as
+**W20. Removing custom styling explains instead of removing.** *Confirmed
+(code + free check).*
+- **Where**: `css` is offered as removable (`REMOVABLE_LANES`) but is not a
+  field the merge can clear (`EDIT_FIELDS`, `site-edit.mjs` 118);
+  `worker.js` 23755–23790.
+- **Expected**: "take off the custom styling" removes it, or says it can't.
+- **Actual**: nothing moves, and the step answers "I couldn't work out how to
+  change the site's look that way." (`look/no-change`).
+- **Evidence**: free check W2/W20 (§4).
+- **Impact**: low: nothing changes, and the routing call is charged.
+- **Fix**: strip the rules the request names, or stop offering `css` as
   removable.
-- **W21. A replacement with a straight apostrophe or quote is dropped, then
-  answered "I couldn't find that wording on your site."** `site-apply.mjs`
-  304 drops it silently; with no edit left the step answers `text/no-match`
-  (`edit-failure.mjs` 247). "We're open late on Fridays" is dropped; curly
-  quotes pass. *Confirmed (code + free check).* Fix: write the words as a
-  JSX expression or an escaped string (the step knows which context it is
-  in), and never report a refusal as "not found".
-- **W24. The edit's hand-over to the add-on carries no reason.** The edit's
-  escalation names the field and why (`worker.js` 21911 and others); the
-  add-on post carries neither (`chat.js` 10014–10021), so its picker starts
-  from the message alone. *Confirmed (code).*
-- **W25. A new entry beside a hand-over is refused naming only the entry**
-  (`worker.js` 26439–26441; `site-add.mjs` 3416), though its comment says
-  both halves are named. *Confirmed (code).*
-- **W26. Stale comments** (no effect on customers): two of R14's three
-  remain (`site-ask.mjs` 121 and 1112; the third is gone), and 1178 still
-  says the held-back part "does not change what gets DONE: it is a note",
-  untrue since 2026-09-29. *Confirmed (code).*
+
+**W21. A replacement with a straight apostrophe or quote is dropped, then
+answered "I couldn't find that wording on your site."** *Confirmed (code +
+free check).*
+- **Where**: `site-apply.mjs` 304 (dropped silently); `edit-failure.mjs` 247
+  (`text/no-match`, the sentence).
+- **Expected**: "Change it to We're open late on Fridays" changes the words.
+- **Actual**: the edit is dropped, and the customer is told the wording
+  wasn't found. Curly quotes pass.
+- **Evidence**: free check W21 (§4).
+- **Impact**: an everyday word ("we're", typed on a keyboard) fails with a
+  misleading sentence; the routing call is charged.
+- **Fix**: write the words as an escaped string or a JSX expression (the
+  step knows which context it writes into), and never report a refusal as
+  "not found".
+
+**W24. The edit's hand-over to the add-on carries no reason.** *Confirmed
+(code).*
+- **Where**: the edit's escalation names the field and why (`worker.js`
+  21911 and others); the add-on post carries neither (`chat.js`
+  10014–10021).
+- **Expected**: the add-on knows what the edit couldn't do.
+- **Actual**: its picker starts again from the message alone.
+- **Evidence**: the code.
+- **Impact**: the add-on may design something other than what the edit
+  handed on (*unverified*).
+- **Fix**: post the escalation's field and reason with the hand-over.
+
+**W25. A new entry beside a hand-over is refused naming only the entry.**
+*Confirmed (code).*
+- **Where**: `worker.js` 26439–26441; `site-add.mjs` 3416.
+- **Expected**: both halves named, as the code's own comment says.
+- **Actual**: only the entry is named.
+- **Evidence**: the code.
+- **Impact**: low: the other half goes unmentioned.
+- **Fix**: name both halves in the refusal.
+
+**W26. Stale comments.** *Confirmed (code).*
+- **Where**: two of R14's three remain (`site-ask.mjs` 121 and 1112; the
+  third is gone), and 1178 still says the held-back part "does not change
+  what gets DONE: it is a note".
+- **Expected**: comments that say what the code does.
+- **Actual**: the held-back part has changed what gets done since
+  2026-09-29.
+- **Evidence**: the code.
+- **Impact**: none on customers; a reader is misled.
+- **Fix**: correct the comments.
 
 ### 3.10 Untested behaviour (needs a run)
 
