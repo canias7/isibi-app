@@ -31,6 +31,21 @@ const CANARY_SRC = readFileSync(path.join(REPO, "scripts/edit-canary.mjs"), "utf
 const FLOW = readFileSync(path.join(REPO, ".github/workflows/edit-canary.yml"), "utf8");
 const OWN = (intent, layer) => ({ source: "model", reasons: [], raw: { intent, layer: layer || "none" } });
 
+// THE TWO MIXED PROBES' INTENDED OUTCOMES, written out here so the verdict's
+// cases do not lean on the batch reader; a test below holds the committed
+// batch to exactly these. Whichever answer is taken, it holds back the OTHER
+// route's part, named in the message's own words.
+const C1_MESSAGE = "Make the Country White £4.90 and add a Seeded Spelt at £4.80.";
+const C1_INTENDED = [
+  { intent: "edit", layer: "data", alsoAsked: "some", held: "add a Seeded Spelt at £4.80", runs: "Make the Country White £4.90" },
+  { intent: "addon", alsoAsked: "some", held: "Make the Country White £4.90", runs: "add a Seeded Spelt at £4.80" },
+];
+const C2_MESSAGE = "Make the headings dark green and add our Instagram to the footer.";
+const C2_INTENDED = [
+  { intent: "edit", layer: "look", alsoAsked: "some", held: "add our Instagram to the footer", runs: "Make the headings dark green" },
+  { intent: "addon", alsoAsked: "some", held: "Make the headings dark green", runs: "add our Instagram to the footer" },
+];
+
 // ── THE BOX AND THE BATCH ──────────────────────────────────────────────────
 
 test("the box takes a committed batch's name and nothing that could name another path", () => {
@@ -74,6 +89,36 @@ test("the batch follows the owner's policy: an addition's intended answer is the
   }
   for (const p of batch.probes) for (const alt of p.intended || []) assert.notEqual(alt.layer, "nav", `${p.id} expects nav`);
   for (const id of ["E1", "E2", "G1", "G2"]) assert.equal(batch.probes.find((x) => x.id === id).intended, null, `${id} has an outcome the owner has not set`);
+  // A HELD-BACK PART IS NAMED (the owner's review, 2026-10-02): in the two
+  // mixed probes the addition goes to the add-on path whichever answer is
+  // taken, held back from the edit or made by the add-on step itself, and the
+  // committed batch says exactly that.
+  const mixed = [["C1", C1_MESSAGE, C1_INTENDED, "add a Seeded Spelt at £4.80"], ["C2", C2_MESSAGE, C2_INTENDED, "add our Instagram to the footer"]];
+  for (const [id, message, intended, addition] of mixed) {
+    const p = batch.probes.find((x) => x.id === id);
+    assert.equal(p.message, message, `${id}'s message moved`);
+    assert.deepEqual(p.intended, intended, `${id}'s intended answers do not name the parts held back`);
+    for (const alt of p.intended) assert.equal(alt.intent === "addon" ? alt.runs : alt.held, addition, `${id}: ${JSON.stringify(alt)} does not leave the addition to the add-on path`);
+  }
+  for (const p of batch.probes) for (const alt of p.intended || []) {
+    if (alt.alsoAsked === "some") assert.ok(alt.held && alt.runs, `${p.id} holds a part back without naming it`);
+  }
+});
+
+test("F1 asks to replace a photograph its page really shows, and records that starting condition", () => {
+  const { batch } = readProbeBatch(BATCH_TEXT, BATCH);
+  const f1 = batch.probes.find((p) => p.id === "F1");
+  assert.equal(f1.message, "Use this photo on the Visit page instead of the current one.");
+  assert.equal(f1.attached, true);
+  assert.deepEqual(f1.intended, [{ intent: "edit", layer: "picture", alsoAsked: "none" }]);
+  // RUN 88'S BEFORE-READ, AND A FRESH READ: /visit shows one photograph (the
+  // logo aside), /starter shows none, so "instead of the current one" has a
+  // current one only on the Visit page.
+  for (const s of ["/visit shows exactly one photograph", "d5d591527a2bed3836f73b5e74e75565.jpg", "01790819484141-dgmag4", "run 88"]) {
+    assert.ok(f1.given.includes(s), `F1's starting condition does not record ${s}`);
+  }
+  assert.ok(!/starter/i.test(f1.message), "F1 asks to replace a photo on a page that shows none");
+  assert.deepEqual(batch.probes.filter((p) => p.given).map((p) => p.id), ["F1"], "a starting condition was recorded for a probe that has none checked");
 });
 
 test("a batch that is not exactly right refuses, whole", () => {
@@ -104,7 +149,33 @@ test("a batch that is not exactly right refuses, whole", () => {
     "remove as text": (j) => { j.probes[0].intended = [{ intent: "edit", layer: "page", remove: "true" }]; },
     "held back as a word": (j) => { j.probes[0].intended = [{ intent: "addon", alsoAsked: "yes" }]; },
     "an answer naming nothing": (j) => { j.probes[0].intended = [{}]; },
+    // A HELD-BACK PART, NAMED AND FOUND (2026-10-02). Probe 10 is C1.
+    "a part held back, not named": (j) => { j.probes[9].intended = [{ intent: "addon", alsoAsked: "some" }]; },
+    "a part held back, only half named": (j) => { delete j.probes[9].intended[1].runs; },
+    "a held part as a list": (j) => { j.probes[9].intended[1].held = ["Make the Country White £4.90"]; },
+    "a held part blank": (j) => { j.probes[9].intended[1].held = "  "; },
+    "a held part not in the message": (j) => { j.probes[9].intended[1].held = "Make the Country White £3.90"; },
+    "a part to run not in the message": (j) => { j.probes[9].intended[1].runs = "add a Rye at £4.80"; },
+    "held and runs the same part": (j) => { j.probes[9].intended[1].runs = "Make the Country White £4.90"; },
+    "a part to run inside the held one": (j) => { j.probes[9].intended[1] = { intent: "addon", alsoAsked: "some", held: "Make the Country White £4.90 and add a Seeded Spelt", runs: "add a Seeded Spelt" }; },
+    "a named part on an answer holding nothing back": (j) => { j.probes[0].intended = [{ intent: "edit", layer: "data", alsoAsked: "none", held: "Make the Country White £4.90" }]; },
+    "a named part with no hold at all": (j) => { j.probes[0].intended = [{ intent: "edit", layer: "data", runs: "Make the Country White £4.90" }]; },
+    // A STARTING CONDITION, AS TEXT.
+    "a given that is not text": (j) => { j.probes[15].given = true; },
+    "a blank given": (j) => { j.probes[15].given = " "; },
+    "a given too long": (j) => { j.probes[15].given = "x".repeat(401); },
   };
+  assert.equal(base.probes[9].id, "C1", "the cases above aim at C1, which moved");
+  assert.equal(base.probes[15].id, "F1", "the cases above aim at F1, which moved");
+  // AND FOR THE RIGHT REASON: a part that is not text is unnamed, one that is
+  // text is looked for in the message, each said as itself (the sweep found
+  // that one check could stand in for the other, 2026-10-02).
+  for (const [what, said] of [
+    ["a held part as a list", /names it/], ["a held part blank", /names it/], ["a part held back, not named", /names it/],
+    ["a held part not in the message", /"held" is not in the probe's message/],
+    ["a part to run not in the message", /"runs" is not in the probe's message/],
+    ["held and runs the same part", /must leave "runs" to run/],
+  ]) assert.match(bad(cases[what]).msg, said, what);
   for (const [what, mut] of Object.entries(cases)) assert.equal(bad(mut).ok, false, `${what} was accepted`);
 });
 
@@ -217,16 +288,87 @@ test("an answer is matched, differs, or is only recorded — and a match a fallb
   assert.deepEqual(nav.diffs, [{ key: "intent", want: "addon", got: "edit" }]);
   assert.deepEqual(probeVerdict(null, { intent: "edit", layer: "nav" }), { kind: "recorded" });
   assert.deepEqual(probeVerdict(addon, { intent: "addon", failed: true }), { kind: "failed" }, "a failed call's fallback was judged");
-  const held = [{ intent: "edit", layer: "data", alsoAsked: "some" }, { intent: "addon", alsoAsked: "some" }];
-  assert.equal(probeVerdict(held, { intent: "addon", alsoAsked: "add a Seeded Spelt at £4.80", decision: OWN("addon") }).alt, 1);
-  assert.equal(probeVerdict(held, { intent: "addon", decision: OWN("addon") }).kind, "differs", "nothing held back read as held back");
-  assert.equal(probeVerdict(held, { intent: "addon", alsoAsked: "  ", decision: OWN("addon") }).kind, "differs", "a blank part read as held back");
+  // CORRECTED (the owner's review, 2026-10-02): this once matched `addon`
+  // holding back the addition, the add-on route's own part, which leaves the
+  // price edit to run on the add-on path. `addon` holds back the price change.
+  assert.deepEqual(probeVerdict(C1_INTENDED, { intent: "addon", alsoAsked: "Make the Country White £4.90", decision: OWN("addon") }, C1_MESSAGE), { kind: "matches", alt: 1 });
+  assert.equal(probeVerdict(C1_INTENDED, { intent: "addon", alsoAsked: "add a Seeded Spelt at £4.80", decision: OWN("addon") }, C1_MESSAGE).kind, "differs", "addon holding back its own part matched");
+  assert.equal(probeVerdict(C1_INTENDED, { intent: "addon", decision: OWN("addon") }, C1_MESSAGE).kind, "differs", "nothing held back read as held back");
+  assert.equal(probeVerdict(C1_INTENDED, { intent: "addon", alsoAsked: "  ", decision: OWN("addon") }, C1_MESSAGE).kind, "differs", "a blank part read as held back");
   // CANNOT-TELL MATCHES NOTHING: a field that is not the shape it should be.
   assert.equal(probeVerdict([{ intent: "edit", layer: "data" }], { intent: "edit", layer: ["data"], decision: OWN("edit", "data") }).diffs[0].got, "unreadable");
   assert.equal(probeVerdict([{ intent: "edit", layer: "page", remove: true }], { intent: "edit", layer: "page", remove: "true", decision: OWN("edit", "page") }).kind, "differs");
   assert.equal(probeVerdict([{ intent: "edit", layer: "look", page: "none" }], { intent: "edit", layer: "look", decision: OWN("edit", "look") }).kind, "matches");
   assert.equal(probeVerdict([{ intent: "edit", layer: "look", page: "none" }], { intent: "edit", layer: "look", page: "/visit", decision: OWN("edit", "look") }).kind, "differs");
   assert.equal(probeVerdict([{ intent: "edit", layer: "page", remove: false }], { intent: "edit", layer: "page", decision: OWN("edit", "page") }).kind, "matches", "an absent removal is not a removal");
+});
+
+test("a held-back part matches only when it is the other route's part, found in the message: never the wrong clause or unrelated text", () => {
+  const v = (intended, message, body) => probeVerdict(intended, { ...body, decision: OWN(body.intent, body.layer) }, message);
+  // THE RIGHT PART, EACH WAY ROUND, as the router may copy it: its case, a
+  // closing full stop, or the "and" in front.
+  assert.deepEqual(v(C1_INTENDED, C1_MESSAGE, { intent: "addon", alsoAsked: "Make the Country White £4.90" }), { kind: "matches", alt: 1 });
+  assert.deepEqual(v(C1_INTENDED, C1_MESSAGE, { intent: "edit", layer: "data", alsoAsked: "add a Seeded Spelt at £4.80" }), { kind: "matches", alt: 0 });
+  assert.equal(v(C1_INTENDED, C1_MESSAGE, { intent: "addon", alsoAsked: "make the country white £4.90." }).kind, "matches");
+  assert.equal(v(C1_INTENDED, C1_MESSAGE, { intent: "edit", layer: "data", alsoAsked: "and add a Seeded Spelt at £4.80." }).kind, "matches");
+  assert.deepEqual(v(C2_INTENDED, C2_MESSAGE, { intent: "edit", layer: "look", alsoAsked: "add our Instagram to the footer" }), { kind: "matches", alt: 0 });
+  assert.deepEqual(v(C2_INTENDED, C2_MESSAGE, { intent: "addon", alsoAsked: "Make the headings dark green" }), { kind: "matches", alt: 1 });
+
+  // THE OWNER'S FIRST REPRODUCTION: `addon` holding back the addition, its
+  // own part, which leaves the price edit to run on the add-on path. And the
+  // same swap for every other answer of both probes.
+  const own = v(C1_INTENDED, C1_MESSAGE, { intent: "addon", alsoAsked: "add a Seeded Spelt at £4.80" });
+  assert.equal(own.kind, "differs");
+  assert.equal(own.alt, 1, "the nearest answer is the add-on one, whose held-back part is wrong");
+  assert.deepEqual(own.diffs.map((d) => d.key), ["alsoAsked"]);
+  assert.equal(own.diffs[0].got, 'holds back "add a Seeded Spelt at £4.80"');
+  assert.equal(own.diffs[0].want, 'holds back "Make the Country White £4.90" and runs "add a Seeded Spelt at £4.80"');
+  for (const [intended, message, body] of [
+    [C1_INTENDED, C1_MESSAGE, { intent: "edit", layer: "data", alsoAsked: "Make the Country White £4.90" }],
+    [C2_INTENDED, C2_MESSAGE, { intent: "addon", alsoAsked: "add our Instagram to the footer" }],
+    [C2_INTENDED, C2_MESSAGE, { intent: "edit", layer: "look", alsoAsked: "Make the headings dark green" }],
+  ]) assert.equal(v(intended, message, body).kind, "differs", `${JSON.stringify(body)} held back its own route's part and matched`);
+
+  // THE OWNER'S SECOND REPRODUCTION: text the message does not contain, which
+  // the route itself refuses (`held-unread`), matches nothing.
+  for (const [intended, message, body] of [
+    [C1_INTENDED, C1_MESSAGE, { intent: "addon", alsoAsked: "add a gallery page" }],
+    [C1_INTENDED, C1_MESSAGE, { intent: "edit", layer: "data", alsoAsked: "the new loaf" }],
+    [C1_INTENDED, C1_MESSAGE, { intent: "addon", alsoAsked: "Make the Country White cheaper" }],
+    [C2_INTENDED, C2_MESSAGE, { intent: "edit", layer: "look", alsoAsked: "the rest" }],
+    [C2_INTENDED, C2_MESSAGE, { intent: "addon", alsoAsked: "Make the headings green" }],
+  ]) {
+    const r = v(intended, message, body);
+    assert.equal(r.kind, "differs", `${JSON.stringify(body.alsoAsked)} is not in the message and matched`);
+    assert.match(r.diffs.find((d) => d.key === "alsoAsked").got, /not in the message \(the route refuses it\)/);
+  }
+
+  // PART OF THE CLAUSE, MORE THAN THE OTHER PART, OR THE WHOLE MESSAGE.
+  assert.equal(v(C1_INTENDED, C1_MESSAGE, { intent: "edit", layer: "data", alsoAsked: "add a Seeded Spelt" }).kind, "differs", "half the addition held back matched");
+  const over = v(C1_INTENDED, C1_MESSAGE, { intent: "edit", layer: "data", alsoAsked: "£4.90 and add a Seeded Spelt at £4.80" });
+  assert.equal(over.kind, "differs", "a hold that takes the price with it matched");
+  assert.match(over.diffs[0].got, /takes part of "Make the Country White £4\.90" too/);
+  const whole = v(C1_INTENDED, C1_MESSAGE, { intent: "addon", alsoAsked: C1_MESSAGE });
+  assert.equal(whole.kind, "differs");
+  assert.match(whole.diffs[0].got, /the whole message, so nothing would run/);
+
+  // NOTHING, BLANK, NOT TEXT, OR NO MESSAGE TO READ IT AGAINST: cannot tell, no match.
+  for (const later of [undefined, null, "", "   "]) {
+    assert.equal(v(C1_INTENDED, C1_MESSAGE, { intent: "addon", alsoAsked: later }).diffs[0].got, "nothing held back", JSON.stringify(later));
+  }
+  assert.equal(v(C1_INTENDED, C1_MESSAGE, { intent: "addon", alsoAsked: ["Make the Country White £4.90"] }).diffs[0].got, "unreadable");
+  const blind = probeVerdict(C1_INTENDED, { intent: "addon", alsoAsked: "Make the Country White £4.90", decision: OWN("addon") });
+  assert.equal(blind.kind, "differs", "a hold was matched with no message to find it in");
+  assert.equal(blind.diffs[0].got, "unreadable", "with no message, a hold was judged instead of read as cannot-tell");
+  // A CLAUSE SAID TWICE: one copy held back while the other still runs is the
+  // part to hold back running all the same.
+  const twice = "Add a Seeded Spelt. Make the Country White £4.90 and add a Seeded Spelt at £4.80.";
+  const hold = [{ intent: "edit", layer: "data", alsoAsked: "some", held: "add a Seeded Spelt", runs: "Make the Country White £4.90" }];
+  const again = v(hold, twice, { intent: "edit", layer: "data", alsoAsked: "add a Seeded Spelt at £4.80" });
+  assert.equal(again.kind, "differs", "a copy of the held-back part still runs and the hold matched");
+  assert.equal(v(hold, twice, { intent: "edit", layer: "data", alsoAsked: "add a Seeded Spelt" }).kind, "matches", "every copy held back did not match");
+  // A FALLBACK STILL NEVER COUNTS, even with the right part held back.
+  assert.equal(probeVerdict(C1_INTENDED, { intent: "addon", alsoAsked: "Make the Country White £4.90", decision: { source: "fallback", reasons: ["layer-missing"], raw: { intent: "edit", layer: "none" } } }, C1_MESSAGE).kind, "matches-not-model");
 });
 
 test("each probe is posted as the browser posts it, with the site's real page list", () => {
@@ -294,12 +436,18 @@ test("the report names each probe's answer, decision and verdict, and sums what 
     { id: "A1", message: "m", attached: false, intended: [{ intent: "addon" }], basis: "b", body: { intent: "addon", cost: 2, decision: OWN("addon") }, verdict: { kind: "matches", alt: 0 } },
     { id: "B1", message: "m", attached: false, intended: [{ intent: "addon" }], basis: "b", body: { intent: "addon", cost: "3", decision: { source: "fallback", reasons: ["page-unknown"], raw: { intent: "edit", layer: "page" } } }, verdict: { kind: "matches-not-model", alt: 0 } },
     { id: "E1", message: "m", attached: true, intended: null, basis: "not set", body: { intent: "edit", layer: "nav", alsoAsked: "the rest", cost: 2, decision: OWN("edit", "nav") }, verdict: { kind: "recorded" } },
+    { id: "F1", message: "m", attached: true, given: "/visit shows exactly one photograph", intended: [{ intent: "edit", layer: "picture" }], basis: "b", body: { intent: "edit", layer: "picture", cost: 2, decision: OWN("edit", "picture") }, verdict: { kind: "matches", alt: 0 } },
+    { id: "C1", message: C1_MESSAGE, attached: false, intended: C1_INTENDED, basis: "b", body: { intent: "addon", alsoAsked: "add a Seeded Spelt at £4.80", cost: 2, decision: OWN("addon") }, verdict: probeVerdict(C1_INTENDED, { intent: "addon", alsoAsked: "add a Seeded Spelt at £4.80", decision: OWN("addon") }, C1_MESSAGE) },
   ];
-  assert.equal(probesCost(records), 4, "a cost that is not a number was summed");
-  const text = probesReport({ name: BATCH, sha256: "ab".repeat(32), records, stopped: null, cost: 4 });
-  for (const s of ["A1", "B1", "E1", "fallback: page-unknown", "the model said intent=edit layer=page", "1 match (the model's own), 1 match only through a fallback or rule", "1 recorded only", "(file attached)"]) {
+  assert.equal(probesCost(records), 8, "a cost that is not a number was summed");
+  const text = probesReport({ name: BATCH, sha256: "ab".repeat(32), records, stopped: null, cost: 8 });
+  for (const s of ["A1", "B1", "E1", "fallback: page-unknown", "the model said intent=edit layer=page", "2 match (the model's own), 1 match only through a fallback or rule", "1 differ", "1 recorded only", "(file attached)",
+    "given    /visit shows exactly one photograph",
+    'verdict  differs from the intended outcome: alsoAsked holds back "add a Seeded Spelt at £4.80", intended holds back "Make the Country White £4.90" and runs "add a Seeded Spelt at £4.80"',
+    'held="Make the Country White £4.90" runs="add a Seeded Spelt at £4.80"']) {
     assert.ok(text.includes(s), `the report does not say ${s}`);
   }
+  assert.equal(text.split("\n").filter((l) => l.includes("given ")).length, 1, "a probe with no starting condition printed one");
   assert.equal(answerSaid({ intent: "edit", layer: "page", page: "/blog", remove: true }), "edit · page · /blog · remove");
 });
 
@@ -423,6 +571,11 @@ test("END TO END: different answers are recorded as findings, and the batch goes
   const routes = answers(18, { ok: true, intent: "edit", layer: "nav", cost: 2, decision: OWN("edit", "nav") });
   routes[6] = { ok: true, intent: "addon", cost: 3, decision: { source: "fallback", reasons: ["page-unknown"], raw: { intent: "edit", layer: "page" } } };
   routes[7] = { status: 200, ok: true, intent: "addon", failed: true, failure: { kind: "provider" }, cost: 0, decision: { source: "fallback", reasons: ["send-failed"] } };
+  // THE HELD-BACK PART THROUGH THE REAL SCRIPT, so the message reaches the
+  // verdict: C1 holding back the add-on route's own part differs, C2 holding
+  // back the other route's part matches.
+  routes[9] = { ok: true, intent: "addon", alsoAsked: "add a Seeded Spelt at £4.80", cost: 2, decision: OWN("addon") };
+  routes[10] = { ok: true, intent: "edit", layer: "look", alsoAsked: "add our Instagram to the footer", cost: 2, decision: OWN("edit", "look") };
   const r = await runCanary("findings", { routes });
   assert.equal(r.code, 0, "a finding stopped the batch");
   assert.equal(r.routed, 18);
@@ -431,5 +584,9 @@ test("END TO END: different answers are recorded as findings, and the batch goes
   assert.equal(kinds.B1, "matches-not-model", "a fallback's addon was counted as the model's");
   assert.equal(kinds.B2, "failed");
   assert.equal(kinds.E1, "recorded");
+  assert.equal(kinds.C1, "differs", "the real script matched addon holding back its own part");
+  assert.equal(r.evidence.records.find((x) => x.id === "C1").verdict.diffs[0].got, 'holds back "add a Seeded Spelt at £4.80"');
+  assert.equal(kinds.C2, "matches", "the real script did not read C2's held-back part against its message");
+  assert.match(r.out, /given {4}\/visit shows exactly one photograph/, "the report does not carry F1's starting condition");
   assertRoutedOnly(r, "the findings batch");
 });

@@ -37,8 +37,20 @@
 // route that does not answer 200, or a reply with no readable decision (a
 // Worker that does not report where its answers come from, whose `addon`
 // could be a conversion).
+//
+// ── A HELD-BACK PART IS JUDGED BY WHAT IT HOLDS BACK, NEVER BY BEING THERE ─
+//
+// An intended answer that holds a part back names that part (`held`) and the
+// part its own route must make (`runs`), both in the probe's own words. The
+// answer's `alsoAsked` is then read with the product's own locator
+// (`heldBack`, the one the route uses) over the probe's message: what the
+// route would really take out, and what it would really run. Text the
+// message does not contain, the wrong clause, part of a clause, or more than
+// the other part is a difference, never a match (the owner's review,
+// 2026-10-02: C1 had matched for `addon` holding back the addition, which
+// leaves the price edit to run on the add-on path).
 import { createHash } from "node:crypto";
-import { ASK_TOOL, EDIT_LAYERS, MAX_MESSAGE, ROUTE_REASONS, ROUTE_SOURCES } from "../builder/site-ask.mjs";
+import { ASK_TOOL, EDIT_LAYERS, MAX_MESSAGE, ROUTE_REASONS, ROUTE_SOURCES, heldBack, wordsIn } from "../builder/site-ask.mjs";
 
 /** Where committed batches live, relative to the repository's root. */
 export const PROBE_DIR = "scripts/router-probes";
@@ -51,8 +63,10 @@ const INTENTS = ASK_TOOL.input_schema.properties.intent.enum;
 const SLUG = /^[a-z0-9][a-z0-9-]{0,80}$/;
 const BATCH_NAME = /^[a-z0-9][a-z0-9-]{0,40}$/;
 const PROBE_ID = /^[A-Z][A-Z0-9-]{0,11}$/;
-const PROBE_KEYS = ["id", "site", "name", "message", "attached", "intended", "basis", "note"];
-const ALT_KEYS = ["intent", "layer", "page", "remove", "alsoAsked"];
+const PROBE_KEYS = ["id", "site", "name", "message", "attached", "given", "intended", "basis", "note"];
+const ALT_KEYS = ["intent", "layer", "page", "remove", "alsoAsked", "held", "runs"];
+/** The answer's own fields an alternative is matched on; `held` and `runs` say what `alsoAsked: "some"` must be. */
+const FIELD_KEYS = ["intent", "layer", "page", "remove", "alsoAsked"];
 
 /**
  * The form's box, read whole. Blank is no batch; anything else must be a
@@ -88,6 +102,27 @@ function readAlt(alt, where) {
   if (Object.hasOwn(alt, "page") && !(alt.page === "none" || (typeof alt.page === "string" && alt.page.startsWith("/")))) return `${where}: page is a path or "none"`;
   if (Object.hasOwn(alt, "remove") && typeof alt.remove !== "boolean") return `${where}: remove is true or false`;
   if (Object.hasOwn(alt, "alsoAsked") && alt.alsoAsked !== "none" && alt.alsoAsked !== "some") return `${where}: alsoAsked is "none" or "some"`;
+  // "SOME" NAMES ITS PART: nonempty text alone proves nothing about which part.
+  const naming = Object.hasOwn(alt, "held") || Object.hasOwn(alt, "runs");
+  if (alt.alsoAsked === "some") {
+    for (const k of ["held", "runs"]) {
+      if (typeof alt[k] !== "string" || !alt[k].trim() || alt[k].length > MAX_MESSAGE) return `${where}: an answer that holds a part back names it — "held", the part held back, and "runs", the part its own route makes, each in the message's own words`;
+    }
+  } else if (naming) return `${where}: "held" and "runs" belong to an answer that holds a part back (alsoAsked "some")`;
+  return "";
+}
+
+/**
+ * The two parts an alternative names, checked against the probe's own message
+ * with the product's locator: each is there, and holding back `held` leaves
+ * `runs` to run and nothing of `held`. An expectation the route itself could
+ * never meet is refused with the batch.
+ */
+function groundAlt(alt, message, where) {
+  if (alt.alsoAsked !== "some") return "";
+  for (const k of ["held", "runs"]) if (!wordsIn(message, alt[k])) return `${where}: "${k}" is not in the probe's message`;
+  const cut = heldBack(message, alt.held);
+  if (!cut.ok || !wordsIn(cut.run, alt.runs) || wordsIn(cut.run, alt.held)) return `${where}: holding back "held" must leave "runs" to run, and nothing of "held"`;
   return "";
 }
 
@@ -121,14 +156,15 @@ export function readProbeBatch(text, name) {
     if (p.attached !== undefined && typeof p.attached !== "boolean") return { ok: false, msg: `${p.id}: attached is true or false` };
     if (typeof p.basis !== "string" || !p.basis.trim() || p.basis.length > 200) return { ok: false, msg: `${p.id}: the basis says, in up to 200 characters, why the intended outcome is intended` };
     if (p.note !== undefined && (typeof p.note !== "string" || p.note.length > 400)) return { ok: false, msg: `${p.id}: the note is text, up to 400 characters` };
+    if (p.given !== undefined && (typeof p.given !== "string" || !p.given.trim() || p.given.length > 400)) return { ok: false, msg: `${p.id}: given is the starting condition the probe depends on, as verified, in up to 400 characters` };
     if (p.intended !== null) {
       if (!Array.isArray(p.intended) || !p.intended.length || p.intended.length > 4) return { ok: false, msg: `${p.id}: intended is null (not set) or a list of one to four acceptable answers` };
       for (const [k, alt] of p.intended.entries()) {
-        const bad = readAlt(alt, `${p.id}'s answer ${k + 1}`);
+        const bad = readAlt(alt, `${p.id}'s answer ${k + 1}`) || groundAlt(alt, p.message, `${p.id}'s answer ${k + 1}`);
         if (bad) return { ok: false, msg: bad };
       }
     }
-    probes.push({ id: p.id, site: p.site, name: p.name || "", message: p.message, attached: p.attached === true, intended: p.intended, basis: p.basis, note: p.note || "" });
+    probes.push({ id: p.id, site: p.site, name: p.name || "", message: p.message, attached: p.attached === true, given: p.given || "", intended: p.intended, basis: p.basis, note: p.note || "" });
   }
   return { ok: true, batch: { name, probes }, sha256: createHash("sha256").update(text).digest("hex") };
 }
@@ -217,20 +253,54 @@ function answered(a, key) {
 }
 
 /**
+ * Whether the answer holds back exactly the part an alternative names and
+ * leaves its own part to run, read with the product's own locator over the
+ * probe's message: null when it does, one difference when it does not.
+ *
+ * WHAT THE ROUTE WOULD REALLY DO decides it. `heldBack` is what the route
+ * runs on the answer, so the part it finds is the part taken out and the rest
+ * is what runs this turn. Text the message does not contain is refused there
+ * (the route answers `held-unread`), so it can match nothing here; and with no
+ * message to read it against, cannot-tell matches nothing either.
+ */
+function heldDiff(alt, a, message) {
+  const want = `holds back ${JSON.stringify(alt.held)} and runs ${JSON.stringify(alt.runs)}`;
+  const later = Object.hasOwn(a, "alsoAsked") ? a.alsoAsked : undefined;
+  if (later === undefined || later === null || (typeof later === "string" && !later.trim())) return { key: "alsoAsked", want, got: "nothing held back" };
+  if (typeof later !== "string" || typeof message !== "string") return { key: "alsoAsked", want, got: "unreadable" };
+  const cut = heldBack(message, later);
+  if (!cut.ok) {
+    return { key: "alsoAsked", want, got: wordsIn(message, later)
+      ? `${JSON.stringify(later)}, the whole message, so nothing would run`
+      : `${JSON.stringify(later)}, which is not in the message (the route refuses it)` };
+  }
+  if (!wordsIn(cut.held, alt.held) || wordsIn(cut.run, alt.held)) return { key: "alsoAsked", want, got: `holds back ${JSON.stringify(cut.held)}` };
+  if (!wordsIn(cut.run, alt.runs)) return { key: "alsoAsked", want, got: `holds back ${JSON.stringify(cut.held)}, which takes part of ${JSON.stringify(alt.runs)} too` };
+  return null;
+}
+
+/**
  * The route's answer set beside a probe's intended outcomes. `intended` null
  * is "not set": the answer is recorded, never judged. Otherwise the answer
  * matches when one alternative's every field matches; a field that cannot be
- * read matches nothing. A match the decision did not attribute to the model
- * (a fallback or a rule produced it) is reported as such, never as a match.
+ * read matches nothing, and a part held back must be the one the alternative
+ * names, found in `message` (`heldDiff`). A match the decision did not
+ * attribute to the model (a fallback or a rule produced it) is reported as
+ * such, never as a match.
  */
-export function probeVerdict(intended, body) {
+export function probeVerdict(intended, body, message) {
   const a = body && typeof body === "object" && !Array.isArray(body) ? body : {};
   if (a.failed === true) return { kind: "failed" };
   if (intended === null || intended === undefined) return { kind: "recorded" };
   let nearest = null;
   for (const [i, alt] of intended.entries()) {
     const diffs = [];
-    for (const key of Object.keys(alt)) {
+    for (const key of Object.keys(alt).filter((k) => FIELD_KEYS.includes(k))) {
+      if (key === "alsoAsked" && alt.alsoAsked === "some") {
+        const d = heldDiff(alt, a, message);
+        if (d) diffs.push(d);
+        continue;
+      }
       const got = answered(a, key);
       if (got === undefined) diffs.push({ key, want: alt[key], got: "unreadable" });
       else if (got !== alt[key]) diffs.push({ key, want: alt[key], got });
@@ -281,14 +351,14 @@ export async function routeProbes({ probes, pages, postRoute }) {
   for (const p of probes) {
     const res = (await postRoute(probeBody(p, pages[p.site]))) || {};
     const body = res.json && typeof res.json === "object" && !Array.isArray(res.json) ? res.json : null;
-    const rec = { id: p.id, site: p.site, message: p.message, attached: p.attached, intended: p.intended, basis: p.basis, status: res.status, ms: res.ms, body };
+    const rec = { id: p.id, site: p.site, message: p.message, attached: p.attached, given: p.given || "", intended: p.intended, basis: p.basis, status: res.status, ms: res.ms, body };
     const stop = (why) => { records.push({ ...rec, verdict: { kind: "stopped" } }); return { records, stopped: { at: p.id, why } }; };
     if (res.status === 401) return stop("signed out (401)");
     if (res.status !== 200 || !body || body.ok !== true) return stop(`the route answered ${res.status}${body ? "" : " with no readable body"}`);
     if (!decisionReadable(body.decision)) {
       return stop("the route's reply carries no readable decision, so the Worker answering is not one that reports where its answers come from; an `addon` from it could be a conversion");
     }
-    records.push({ ...rec, verdict: probeVerdict(p.intended, body) });
+    records.push({ ...rec, verdict: probeVerdict(p.intended, body, p.message) });
   }
   return { records, stopped: null };
 }
@@ -325,12 +395,13 @@ export function probesReport({ name, sha256, records, stopped, cost }) {
   for (const r of records) {
     const d = r.body && decisionReadable(r.body.decision) ? r.body.decision : null;
     lines.push(`  ${r.id}  ${JSON.stringify(r.message)}${r.attached ? "  (file attached)" : ""}`);
+    if (r.given) lines.push(`      given    ${r.given}`);
     lines.push(`      answer   ${r.body ? answerSaid(r.body) : "(none)"}   cost ${r.body && Number.isFinite(r.body.cost) ? r.body.cost : "?"}`);
     lines.push(`      decision ${d ? `${d.source}${d.reasons.length ? ": " + d.reasons.join(", ") : ""}${d.raw ? `  (the model said intent=${d.raw.intent} layer=${d.raw.layer})` : ""}` : "(unreadable)"}`);
     const v = r.verdict || {};
     const diff = v.kind === "differs" ? `: ${v.diffs.map((x) => `${x.key} ${x.got}, intended ${x.want}`).join("; ")}` : "";
     lines.push(`      verdict  ${VERDICT_SAID[v.kind] || v.kind}${diff}`);
-    lines.push(`      intended ${r.intended ? r.intended.map((alt) => Object.entries(alt).map(([k, x]) => `${k}=${x}`).join(" ")).join("  OR  ") : "not set"}  (${r.basis})`);
+    lines.push(`      intended ${r.intended ? r.intended.map((alt) => Object.entries(alt).map(([k, x]) => `${k}=${k === "held" || k === "runs" ? JSON.stringify(x) : x}`).join(" ")).join("  OR  ") : "not set"}  (${r.basis})`);
   }
   const count = (k) => records.filter((r) => r.verdict && r.verdict.kind === k).length;
   lines.push("");

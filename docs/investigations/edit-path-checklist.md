@@ -454,6 +454,23 @@ routing test.
     `docs/history/2026-10-02-route-decision.md`.
 - **The batch**: all 18 probes in one press (`router-audit-1`), about 36–54
   credits. It needs the merge and deploy of the decision report first.
+- **Your review of the batch** (2026-10-02): the decision report passed. Two
+  batch defects were corrected before any merge, deploy or spend:
+  - **C1 and C2's held-back part.** It used to match any nonempty text, so
+    `addon` holding back the addition matched, and so did unrelated text.
+    Each intended hold now names the part held back and the part its own
+    route makes. The answer is read with the route's own locator
+    (`heldBack`) over the probe's message, so the wrong clause, text not in
+    the message, part of a clause, more than the other part, or the whole
+    message differs;
+  - **F1 is on the Visit page**, which shows one photograph (`d5d59152….jpg`)
+    at `dgmag4`, from run 88's before-read and a fresh read. `/starter`
+    shows none. The probe records this starting condition (`given`);
+  - still 18 probes (sha256 `3296363a…d9d8c53b`). Checked: 24 batch tests;
+    the red check (7 fail on the committed code, 4 with the old rule alone);
+    a sweep of 26 mutants, with its 4 gaps closed; the full suite
+    `8581 / 8581 / 0 / 0` locally (8,579 and the two new tests); CI in the next commit. The record is
+    `docs/history/2026-10-02-route-decision.md` §7.
 - The broad plan below stays paused.
 
 ## Broad real-model batches — four chats through the normal app (proposed 2026-10-01 on the owner's word; paused by the owner the same day; nothing sent or spent)

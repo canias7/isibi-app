@@ -212,3 +212,118 @@ same reply.
   consequence in the audit stays *unverified*.
 - The batch reads one answer per message, from one model (the default
   picker), on two sites.
+
+## 7. The owner's review of the batch: the held-back check and F1 (2026-10-02)
+
+> *"The decision-reporting code passed review, but correct two batch-test
+> defects before merge, deployment or spending. First, C1 and C2 must verify
+> that alsoAsked contains the correct complementary request for the selected
+> route, grounded in the original message. Nonempty text alone is
+> insufficient. I reproduced C1 reporting matches for intent=addon while
+> holding back "add a Seeded Spelt at £4.80", leaving the price edit to run;
+> unrelated held-back text also passes. Add focused regression cases for both
+> errors and correct the existing test that accepts the wrong held-back
+> clause. Second, F1 targets /starter, which had zero photos in run 88. Use a
+> page with a verified existing photo and record that starting condition so
+> it actually tests replacement. Keep the batch at 18 probes and preserve the
+> routing-only safeguards and decision reporting."*
+
+**Reproduced on `80d987ab`.** The old verdict read `alsoAsked: "some"` as
+nonempty text. Five wrong answers matched:
+- C1 `addon` holding back "add a Seeded Spelt at £4.80";
+- C1 `addon` holding back "add a gallery page";
+- C1 `edit` · `data` holding back "Make the Country White £4.90";
+- C2 `addon` holding back "add our Instagram to the footer";
+- C2 `edit` · `look` holding back "the rest".
+
+The product's own `heldBack` shows what the first would do: the route takes
+out the addition and runs "Make the Country White £4.90 and ." on the add-on
+step. Unrelated text, and the whole message, fail the product's locator
+(`ok: false`), so the route would refuse them (`held-unread`).
+
+**The correction** (`scripts/canary-probes.mjs` only; the decision report,
+`worker.js`, `builder/site-ask.mjs`, the walls and the workflow are
+unchanged):
+- **An intended hold names both parts.** An alternative with
+  `alsoAsked: "some"` must carry `held`, the part held back, and `runs`, the
+  part its own route makes, both in the probe's own words. The reader
+  refuses the batch when either is missing or not text, when either is not
+  found in the message by the product's `wordsIn`, or when holding back
+  `held` with `heldBack` would not leave `runs` to run, or would leave any of
+  `held` running. A named part on an answer that holds nothing back is
+  refused too.
+- **The verdict reads the answer the way the route does.** `heldDiff` runs
+  the product's `heldBack` over the probe's message with the answer's
+  `alsoAsked`. It differs, with its own reason, when:
+  - nothing is held back;
+  - the text is not in the message ("the route refuses it");
+  - the text is the whole message ("nothing would run");
+  - the part taken out doesn't cover `held`, or a copy of `held` still runs
+    (the wrong clause, part of the clause, or a clause said twice);
+  - what runs no longer contains `runs` (more than the other part).
+  With no message, it cannot tell, so it reports `unreadable`. A fallback or
+  a rule still never counts as a match. `probeVerdict` now takes the
+  message; `routeProbes` passes each probe's own.
+- **C1 and C2 name their parts.** For C1, `edit` · `data` holds back "add a
+  Seeded Spelt at £4.80" and runs "Make the Country White £4.90", and
+  `addon` the reverse. For C2, `edit` · `look` holds back "add our Instagram
+  to the footer" and runs "Make the headings dark green", and `addon` the
+  reverse. Whichever answer is taken, the addition stays on the add-on path.
+- **F1 moves to the Visit page**: "Use this photo on the Visit page instead
+  of the current one."
+  - Run 88's before-read counted `/starter` at 0 photos. The canary's count
+    also includes the header logo (`2cc633d7….png`), so `/gallery` and
+    `/order` (count 1) show no photograph either. `/visit` (count 2) shows
+    the logo and one photograph, `d5d59152….jpg`, "The counter and morning
+    board at Harbour Loaf", the one `SafeImage` in the stored `visit.tsx`.
+    `/` shows two.
+  - A fresh read on 2026-10-02 at 01:49 UTC (the public pages, read-only)
+    found every page still at `01790819484141-dgmag4`, and the same
+    photographs.
+  - The probe records this as its starting condition, in a new `given`
+    field (up to 400 characters), which the report prints with its answer.
+    It was verified at that version: if the bakery is published again
+    before the press, the condition must be read again (free).
+- **Still 18 probes.** The batch's sha256 is now
+  `3296363a66a70463eef8f9583ed89a7dd18329a401d1e73b470351f1d9d8c53b`.
+
+**Verification.**
+- **Tests** (`test/canary-probes.test.mjs`, 22 → 24):
+  - the existing verdict case that matched `addon` holding back the
+    addition is corrected: it now expects that answer to differ, and `addon`
+    holding back the price change to match;
+  - a new focused test: the right part each way round, as the router may
+    copy it (case, a closing stop, a leading "and"); your first reproduction
+    and the same swap for every other answer; your second (five texts not in
+    the messages); part of a clause, more than the other part, the whole
+    message, a clause said twice; nothing, blank or not text; no message;
+    and a fallback with the right part;
+  - a new F1 test: the Visit page, the photograph, the version and run 88
+    in its condition, no `/starter`, and no other probe with a condition;
+  - the policy test holds C1 and C2 to exactly these parts, and every
+    `some` in the batch to a named pair;
+  - thirteen new refusal cases, the right reason checked for six of them;
+  - the report prints F1's condition and the held-back difference;
+  - through the real script under the stub, C1 holding back its own part
+    differs and C2 holding back the other part matches, so the message
+    reaches the verdict.
+- **The red check.**
+  - The committed module and batch fail 7 of the 24 tests: the policy, F1,
+    the refusals, the corrected case, the new focused test, the report, and
+    the real-script run, where C1 gives `matches`.
+  - With only the old rule restored inside the new module ("some" is any
+    nonempty text), exactly 4 fail: the corrected case and the focused test
+    (`differs` expected, `matches` given), the report, and the real-script
+    run.
+- **The mutation sweep**: 26 mutants over the module and the batch file.
+  - 22 were killed at first.
+  - The 4 that survived were test gaps:
+    - two reader checks that another check also refuses, so only the
+      reason differed: the refusal tests now check the reason;
+    - the no-message case read as "not in the message", not `unreadable`;
+    - a clause said twice, one copy held back while the other runs.
+  - Re-run alone after the added checks, all 4 are killed and the control
+    survives. The comment-only control survived the full sweep too, and both
+    files hashed as before afterwards.
+- **The full suite**: `8581 / 8581 / 0 / 0` locally (8,579 and the two new tests).
+- **CI, reused where its inputs are unchanged**: recorded in the next commit, after the push.

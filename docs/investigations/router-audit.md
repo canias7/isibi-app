@@ -62,8 +62,8 @@ Line numbers are for `builder/site-ask.mjs` unless another file is named.
   2. **Attachments (R2).** The router is told to choose between the logo step
      and the photo step by whether a file is attached, but it is never told
      whether one is. After routing, only the logo step receives the file.
-     What happens to a photo attached to "use this on the starter page" is
-     *unverified*. The photo step can only use a file already uploaded or buy
+     What happens to a photo attached to "use this on the Visit page instead
+     of the current one" is *unverified*. The photo step can only use a file already uploaded or buy
      one, and nothing tells the customer.
   3. **Fallbacks are silent (R3).** Seven kinds of unusable answer quietly
      become a paid `addon`, and the route's reply can't tell them apart from
@@ -318,8 +318,9 @@ deploy 2177.*
   reference" (803–804). That is true of builds only.
 
 **What follows (predicted, unverified):**
-- "Use this photo on the starter page", sent with a photo attached, could
-  end with a bought photograph or a different upload.
+- "Use this photo on the Visit page instead of the current one", sent with
+  a photo attached, could end with a bought photograph or a different upload
+  in place of the Visit page's one photograph.
 - "Here's the new header", sent with a file but without the word "logo", is
   routed without knowing there is a file.
 
@@ -592,6 +593,17 @@ BUILD" (899–913). On a live site the fallback is `addon` (117, 923).
 - It stops early only on a 401, a non-200, or a reply with no readable
   decision (a Worker that does not report it, whose answers it could not
   attribute). That costs at most one routing call.
+- **A held-back part is judged by what it holds back** (your review,
+  2026-10-02). An intended answer that holds a part back names it (`held`)
+  and the part its own route makes (`runs`), both in the probe's own words,
+  and the batch refuses an expectation the route could not meet. The
+  answer's `alsoAsked` is read with the route's own locator (`heldBack`)
+  over the probe's message, so the verdict judges what the route would
+  really take out and run. Text the message doesn't contain, the wrong
+  clause, part of a clause, more than the other part, or the whole message
+  is a difference, never a match.
+- **A probe can record its starting condition** (`given`), printed with its
+  answer. F1's is the Visit page's one photograph.
 - It needs no deploy (scripts and the workflow only).
 
 **Checked on the branch** (the record is
@@ -621,6 +633,18 @@ BUILD" (899–913). On a live site the fallback is `addon` (117, 923).
 - **Required CI on `1a8290e7`**, green: unit tests (run 36949313322)
   `8579 / 8575 / 0 / 4`; site build (run 36949313442), 404 checks in 27
   sections, every job green.
+- **After your review of the batch** (the history record's §7):
+  - the held-back check now judges the part held back, with the route's
+    own locator over the probe's message; C1 and C2 name their parts; F1
+    is on the Visit page, with its starting condition recorded;
+  - 24 tests in `test/canary-probes.test.mjs`, including your two
+    reproductions and the corrected case;
+  - the red check: the committed batch code fails 7 of them, and the old
+    held-back rule alone fails exactly 4;
+  - a sweep of 26 mutants: 22 killed at first, and the 4 test gaps it found
+    closed (all killed on a re-run), the control surviving;
+  - the full suite: `8581 / 8581 / 0 / 0` locally (8,579 and the two new tests);
+  - CI: the unit tests run on this push and are recorded in the next commit; the site build is not started by these paths, and its earlier run is reused where its inputs are unchanged (the next commit).
 - **The image**: a merge would roll it from `9a71a6384b4206a2` to
   `a412daac10dbc936` (predicted over both ends, 189 inputs; `worker.js` and
   `site-ask.mjs` differ). The batch's own runtime check reads the new image,
@@ -655,13 +679,13 @@ BUILD" (899–913). On a live site the fallback is `addon` (117, 923).
 | B1 | `We've started baking a Seeded Spelt, £4.80. Put it on the list.` | `addon`, nothing held back (your policy) | The new-entry rule (257–260), without the word "add". If `addon`: the `row` kind (live once: run 88) | — |
 | B2 | `Put the Group of three back on the price list, at £18.` (`fretwork-1`) | `addon`, nothing held back (your policy: a re-added entry is a new row) | The new-entry rule. The data step's undo rows reach `data` only (`chat.js` 9347–9353) | — |
 | B3 | `Take the Walnut Levain off the list.` | `edit` · `data` (router rule; live: runs 77, 80) | Control | — |
-| C1 | `Make the Country White £4.90 and add a Seeded Spelt at £4.80.` | One answer, the other part held back: `edit` · `data` holding the addition, or `addon` holding the price change (your policy for the addition; the held-back rule, 321–325) | `alsoAsked` allows either (321–325) | — |
-| C2 | `Make the headings dark green and add our Instagram to the footer.` | One answer, the other part held back: `edit` · `look` holding the footer addition, or `addon` holding the colour change. Not `nav` (your policy) | The look door has no footer lane (`site-lanes.mjs` 475–803), and `alsoAsked`'s list omits the footer (316). The `nav` clause claims footer additions (507–508) | — |
+| C1 | `Make the Country White £4.90 and add a Seeded Spelt at £4.80.` | One answer, the other route's part held back: `edit` · `data` holding back "add a Seeded Spelt at £4.80", or `addon` holding back "Make the Country White £4.90" (your policy for the addition; the held-back rule, 321–325). The held-back part is judged with the route's own locator (§5) | `alsoAsked` allows either (321–325) | — |
+| C2 | `Make the headings dark green and add our Instagram to the footer.` | One answer, the other route's part held back: `edit` · `look` holding back "add our Instagram to the footer", or `addon` holding back "Make the headings dark green". Not `nav` (your policy). Judged as C1 is | The look door has no footer lane (`site-lanes.mjs` 475–803), and `alsoAsked`'s list omits the footer (316). The `nav` clause claims footer additions (507–508) | — |
 | D1 | `Remove the blog page.` (the site has none) | `ask`, saying there's no blog page; never `addon` (router rule, 288–290; `ask` is my reading, for your confirmation) | The `page` field sends an unknown page to `addon` (629–631), and the code converts `page` + an unknown page before reading `remove` (1249–1252) | — |
 | D2 | `Make the Gallery page's background warmer and the Visit page's background cooler.` | `edit` · `look`, no page, nothing held back (the whole-message rule by targets, 609–614) | Shown live only for Test 8's mix (run 66). Two pages of one kind not measured | — |
 | E1 | `Make it better.` | Not set: yours to decide | "When you cannot tell, answer addon" (287); no question back on a live site (221, 938) | — |
 | E2 | `Undo the last change.` | Not set: yours to decide | No step can undo; "every one can be undone by saying so" (216) | — |
-| F1 | `Use this photo on the starter page instead of the current one.` (file attached) | `edit` · `picture` (router rule, 485–487: a swap of an existing photo is a change, not an addition) | The router isn't told a file is attached (R2). After routing, the picture step never receives it (from the code: `chat.js` 9354–9359) | — |
+| F1 | `Use this photo on the Visit page instead of the current one.` (file attached). **Starting condition**: `/visit` shows exactly one photograph, the counter and morning board (`d5d59152….jpg`, the `SafeImage` in `visit.tsx`), at `01790819484141-dgmag4`: run 88's before-read and a fresh read on 2026-10-02. (It first targeted `/starter`, which shows none.) | `edit` · `picture` (router rule, 485–487: a swap of an existing photo is a change, not an addition) | The router isn't told a file is attached (R2). After routing, the picture step never receives it (from the code: `chat.js` 9354–9359) | — |
 | G1 | `Do the same on the Visit page.` | Not set: yours to decide (my suggestion: a question back) | No earlier message reaches the router (R7) | — |
 | G2 | `Make that one £3.50 instead.` | Not set: yours to decide | The same (R7) | — |
 

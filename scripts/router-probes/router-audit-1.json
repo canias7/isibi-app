@@ -87,10 +87,11 @@
       "name": "Harbour Loaf",
       "message": "Make the Country White £4.90 and add a Seeded Spelt at £4.80.",
       "intended": [
-        { "intent": "edit", "layer": "data", "alsoAsked": "some" },
-        { "intent": "addon", "alsoAsked": "some" }
+        { "intent": "edit", "layer": "data", "alsoAsked": "some", "held": "add a Seeded Spelt at £4.80", "runs": "Make the Country White £4.90" },
+        { "intent": "addon", "alsoAsked": "some", "held": "Make the Country White £4.90", "runs": "add a Seeded Spelt at £4.80" }
       ],
-      "basis": "owner policy for the addition, and the router's held-back rule: no one answer makes both, so one part is held back"
+      "basis": "owner policy for the addition, and the router's held-back rule: no one answer makes both, so one part is held back",
+      "note": "Each answer must hold back the other's part: the data step holds back the addition, the add-on step holds back the price change."
     },
     {
       "id": "C2",
@@ -98,11 +99,11 @@
       "name": "Harbour Loaf",
       "message": "Make the headings dark green and add our Instagram to the footer.",
       "intended": [
-        { "intent": "edit", "layer": "look", "alsoAsked": "some" },
-        { "intent": "addon", "alsoAsked": "some" }
+        { "intent": "edit", "layer": "look", "alsoAsked": "some", "held": "add our Instagram to the footer", "runs": "Make the headings dark green" },
+        { "intent": "addon", "alsoAsked": "some", "held": "Make the headings dark green", "runs": "add our Instagram to the footer" }
       ],
       "basis": "owner policy: the footer addition is the add-on path's, never nav; the colour is look; one part is held back",
-      "note": "The look door has no footer lane."
+      "note": "The look door has no footer lane. Each answer must hold back the other's part: look holds back the footer addition, the add-on step holds back the colour change."
     },
     {
       "id": "D1",
@@ -142,11 +143,12 @@
       "id": "F1",
       "site": "fold-lane-bakery",
       "name": "Harbour Loaf",
-      "message": "Use this photo on the starter page instead of the current one.",
+      "message": "Use this photo on the Visit page instead of the current one.",
       "attached": true,
+      "given": "/visit shows exactly one photograph, /u/fold-lane-bakery/d5d591527a2bed3836f73b5e74e75565.jpg (\"The counter and morning board at Harbour Loaf\", the SafeImage in visit.tsx), at 01790819484141-dgmag4: run 88's before-read (served page and stored source) and a fresh read on 2026-10-02 at 01:49 UTC.",
       "intended": [{ "intent": "edit", "layer": "picture", "alsoAsked": "none" }],
       "basis": "router rule: swapping a photo the site has is a change, not an addition",
-      "note": "Sends the attached flag only, as the browser does to the route; the router is never told a file came with it."
+      "note": "Sends the attached flag only, as the browser does to the route; the router is never told a file came with it. Moved from /starter, which shows no photograph."
     },
     {
       "id": "G1",

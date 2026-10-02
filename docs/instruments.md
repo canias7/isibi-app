@@ -166,7 +166,15 @@ in `docs/instruments.md`; each test's plan and evidence is in the checklist.
   - Each answer is set beside its intended outcome and its `decision` (the
     route's decision report: `model`, `fallback` or `rule`, with fixed reason
     codes). A match a fallback made reads "matches only through a fallback",
-    never as a match. A different answer is a finding; the batch stops only on
+    never as a match.
+  - **A held-back part is judged by what it holds back** (the owner's
+    review, 2026-10-02). An intended hold names the part held back (`held`)
+    and the part its own route makes (`runs`), both found in the probe's
+    message, or the batch refuses. The answer's `alsoAsked` is read with the
+    route's own `heldBack` over that message: the wrong clause, text not in
+    the message, part of a clause, more than the other part, or the whole
+    message differs. A probe can record the starting condition it depends
+    on (`given`), which the report prints. A different answer is a finding; the batch stops only on
     a 401, a non-200, or a reply with no readable decision (a Worker that does
     not report it).
   - Evidence: `routing-probes.json` (every answer whole, the decision, the
