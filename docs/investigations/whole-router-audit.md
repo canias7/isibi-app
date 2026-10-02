@@ -173,7 +173,7 @@ not repeated here; §3.12 says where each of its items stands now.
   attached becomes the fallback (1250–1253). `remove` and `tab` are kept
   only on the steps that take them; a page is kept only on `look` and
   `page` (1510–1527); a `page` answer naming no page, or a page not in the
-  list sent, becomes `addon` **before `remove` is read** (1524–1531). The
+  list sent, becomes `addon`, **whatever `remove` says** (1524–1531). The
   route's reply carries a decision report (deploy 2178): `model`,
   `fallback` or `rule`, with fixed reason codes.
 
@@ -339,8 +339,9 @@ half); its reach is untested.*
   `needs-place` for a removal is *unverified*.
 - **Fix**: build a hop's request from the escalation's own fields (step,
   page) and the message, never from the first answer's verbs (`remove`,
-  `tab`, `rename`); or have the server ignore `remove` on a request that is
-  a hand-over unless the escalation itself asked for a removal.
+  `tab`, `rename`); or mark a hand-over in the request (the server can't
+  tell one today) and have the server ignore `remove` on it unless the
+  escalation itself asked for a removal.
 
 **W2. Removing one language or one QR code removes all of them.**
 *Confirmed (code + free check).*
@@ -576,7 +577,7 @@ R6 (undo) and R7 (no conversation) stand (§3.12).
 **W17. A question sent with a file becomes a paid add-on, even when the
 file couldn't be read.** *Confirmed (code).*
 - **Where**: `site-ask.mjs` 1250–1253 (`ask` + `attached` → fallback, which is
-  `addon` on a live site); `chat.js` 4421–4449 (a file too large or
+  `addon` on a live site); `chat.js` 4421–4465 (a file too large or
   unreadable is kept in the strip as a placeholder, so `attached` is true).
 - **Expected**: "Is this photo sharp enough to use?" gets an answer.
 - **Actual**: an add-on starts; its picker must name a kind (W14).
