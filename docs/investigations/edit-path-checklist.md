@@ -469,7 +469,9 @@ routing test.
   - still 18 probes (sha256 `3296363a…d9d8c53b`). Checked: 24 batch tests;
     the red check (7 fail on the committed code, 4 with the old rule alone);
     a sweep of 26 mutants, with its 4 gaps closed; the full suite
-    `8581 / 8581 / 0 / 0` locally (8,579 and the two new tests); CI in the next commit. The record is
+    `8581 / 8581 / 0 / 0` locally (8,579 and the two new tests); unit CI
+    36953647381 `8581 / 8577 / 0 / 4`, and the site build reused (same
+    inputs fingerprint). The record is
     `docs/history/2026-10-02-route-decision.md` §7.
 - The broad plan below stays paused.
 

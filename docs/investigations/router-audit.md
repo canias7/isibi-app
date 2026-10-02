@@ -644,7 +644,10 @@ BUILD" (899–913). On a live site the fallback is `addon` (117, 923).
   - a sweep of 26 mutants: 22 killed at first, and the 4 test gaps it found
     closed (all killed on a re-run), the control surviving;
   - the full suite: `8581 / 8581 / 0 / 0` locally (8,579 and the two new tests);
-  - CI: the unit tests run on this push and are recorded in the next commit; the site build is not started by these paths, and its earlier run is reused where its inputs are unchanged (the next commit).
+  - CI on `4866b15b`: unit tests (run 36953647381) `8581 / 8577 / 0 / 4`;
+    the site build not re-run, because its inputs fingerprint is the same
+    `7c819874b50c4249` as run 36949313442's; the image prediction is
+    unchanged.
 - **The image**: a merge would roll it from `9a71a6384b4206a2` to
   `a412daac10dbc936` (predicted over both ends, 189 inputs; `worker.js` and
   `site-ask.mjs` differ). The batch's own runtime check reads the new image,

@@ -326,4 +326,12 @@ unchanged):
     survives. The comment-only control survived the full sweep too, and both
     files hashed as before afterwards.
 - **The full suite**: `8581 / 8581 / 0 / 0` locally (8,579 and the two new tests).
-- **CI, reused where its inputs are unchanged**: recorded in the next commit, after the push.
+- **CI, reused where its inputs are unchanged.**
+  - Unit tests on `4866b15b`, run 36953647381: `8581 / 8577 / 0 / 4`, the
+    same total, with CI's usual four skipped.
+  - The site build did not run. None of its trigger paths changed, and its
+    inputs fingerprint at `4866b15b` is `7c819874b50c4249` (3,967 files),
+    the same as run 36949313442's on `1a8290e7`, so that run's 404 checks
+    carry over.
+  - The image is unchanged: 189 inputs, none differing from `1a8290e7`, so
+    `a412daac10dbc936` is still the prediction.

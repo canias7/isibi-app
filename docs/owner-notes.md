@@ -1,59 +1,53 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-02, 01:14 UTC)
+## Current handoff — read this first (2026-10-02, 02:04 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**State now: the route's decision report and the routing-only batch are
-built on the branch, for your review. Nothing is merged, deployed or spent.
-Test 11 (run 88) still waits for your closure.**
-- **The audit follows your policy** (`b7b0e998`).
-  - Every new addition's intended route is the add-on step.
-  - Where that step can't make one (a menu link, a footer link or detail,
-    the header button, one line on a page), it is listed as a missing
-    capability.
-  - The test table keeps what should happen, what the code does now and
-    what the model does in separate columns.
-  - Later steps are marked *unverified* until a run measures them.
-- **Test 11** keeps its saved row, and is no longer read as proof that the
-  model itself chose the add-on step.
-- **The decision report** (`1a8290e7`): the route's reply now says where its
-  answer came from:
-  - `model`: the model's own answer was used;
-  - `fallback`: the call failed, or the answer couldn't be used;
-  - `rule`: no model was asked (an empty message, or a zero balance).
-
-  Each fallback, and each change made to the answer, has a fixed code: 42 in
-  all. Nothing the route answers changed, and the browser doesn't read it.
-- **The routing-only batch** (one new box in the canary): each message is
-  routed once and saved with its decision.
-  - It can't edit, add, build, publish or restore. Every request is checked
-    against a short allow-list before it is sent, and anything else stops
-    the run.
-  - Before it spends, it checks the deployed commit and image itself, so no
-    separate free press is needed.
-  - All 18 probes are one committed list, `router-audit-1`: about 36–54
-    credits. The balance is 96.
-  - It is the audit's own tool, as you asked. The broad plan's batch runner
-    stays paused.
+**State now: your two batch corrections are made, for your review. Nothing
+is merged, deployed or spent. Test 11 (run 88) still waits for your
+closure.**
+- **The decision report passed your review** and is unchanged (`1a8290e7`).
+- **C1 and C2's held-back part** (`4866b15b`):
+  - It used to match any text, so `addon` holding back the addition
+    matched, and so did text that isn't in the message.
+  - Each intended answer now names the part it must hold back and the part
+    it must make. The batch reads the router's held-back text the way the
+    route does, over the probe's own message.
+  - The wrong part, text that isn't in the message, half a part, more than
+    the other part, or the whole message is a difference, never a match.
+  - The test that accepted the wrong part is corrected, with focused cases
+    for both of your findings.
+- **F1**:
+  - It now asks "Use this photo on the Visit page instead of the current
+    one."
+  - The Visit page shows exactly one photograph, the counter and morning
+    board, at the bakery's current version. I checked it in run 88's
+    evidence (the page and its stored source) and again today on the live
+    site.
+  - The probe records that starting condition, and the report prints it.
+    `/starter` shows no photo; `/gallery` and `/order` show only the logo.
+- **Unchanged**: 18 probes, about 36–54 credits (the balance is 96); the
+  batch's walls, so it still can't edit, add, build, publish or restore; and
+  its own runtime check before it spends.
 - **Checked**:
-  - 36 new tests;
-  - the red check;
-  - a sweep of 84 deliberate faults, all caught once two test cases were
-    added for the two it first missed;
-  - the full suite: 8,579 tests, all passing;
-  - CI green on `1a8290e7`: unit tests (run 36949313322) `8579 / 8575 /
-    0 / 4`, the same total with CI's usual four skipped; site build (run
-    36949313442) "404 checks in 27 sections across 4 shards, every job
-    green".
+  - 24 batch tests;
+  - the red check: the old code fails 7 of them, and the old rule alone
+    exactly 4;
+  - a sweep of 26 deliberate faults, all caught once 4 test gaps were
+    closed;
+  - the full suite: 8,581 tests, all passing;
+  - CI on `4866b15b`: unit tests green (run 36953647381, `8581 / 8577 /
+    0 / 4`); the site build reused, because nothing it reads changed (the
+    same inputs fingerprint as run 36949313442).
 
 **What I need from you**
-1. Your review of the branch (the code is `1a8290e7`).
-2. Your word to merge and deploy it. The container image would roll from
-   `9a71a6384b4206a2` to `a412daac10dbc936` (predicted), so the batch waits
-   15–20 minutes after the deploy.
+1. Your review of the corrections (`4866b15b`).
+2. Your word to merge and deploy. The container image would roll from
+   `9a71a6384b4206a2` to `a412daac10dbc936` (predicted, unchanged by this
+   round), so the batch waits 15–20 minutes after the deploy.
 3. Your approval of the batch: all 18 probes, about 36–54 credits.
 4. Your closure of Test 11 (run 88).
 
@@ -68,23 +62,29 @@ boxes stay as they are:
 - *Refuse to spend unless a cold container reports this image id…*:
   `a412daac10dbc936`, once the deploy's log confirms it.
 
+F1 depends on the bakery still being at `01790819484141-dgmag4`. If it is
+published again before the press, I'll read the Visit page again first
+(free).
+
 **The order of work** (your word)
 1. Test 11's retry: done (run 88), for your closure.
-2. The router audit: done, and corrected to your policy. Its two tools are
-   built for your review, and the batch waits for the merge, the deploy and
-   your approval.
+2. The router audit: done. Its decision report passed review, and the
+   batch's two corrections are made, for your review. The batch waits for
+   the merge, the deploy and your approval.
 3. The broad plan and its batch runner stay paused.
 
 **Links**
 - The audit: `docs/investigations/router-audit.md` (§5 is the test).
-- The record: `docs/history/2026-10-02-route-decision.md`.
+- The record: `docs/history/2026-10-02-route-decision.md` (§7 is this round).
 - The batch: `scripts/router-probes/router-audit-1.json`.
 - Run 88: https://github.com/canias7/isibi-app/actions/runs/36942972947
 
 **From our chat**
-- You set the policy: every new addition goes to the add-on path, and what
-  it can't make is a missing capability to document.
+- Every new addition goes to the add-on path; what it can't make is a
+  missing capability to document.
 - The batch's own runtime checks replace a separate free press.
+- A held-back part must be the other route's part, found in the message.
+- A probe that depends on the site's state records that state.
 - CLAUDE.md is left alone.
 
 **Blockers**
@@ -153,6 +153,40 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-02 — Your review of the batch: a held-back part is now judged by what it holds back, and F1 tests a real replacement (nothing merged, deployed or spent)
+
+- **What you found**:
+  - C1 matched `addon` holding back "add a Seeded Spelt at £4.80", which
+    would leave the price change running on the add-on step;
+  - unrelated held-back text matched too;
+  - F1 asked to replace the photo on `/starter`, which has none.
+- **What I changed**, in the batch only. The decision report you passed,
+  the batch's walls and the Worker are untouched.
+  - **C1 and C2** now name the part each answer must hold back and the part
+    it must make. The batch reads the router's held-back text the same way
+    the route does, over the probe's own message. The wrong part, text that
+    isn't in the message, half a part, more than the other part, or the
+    whole message is a difference, never a match.
+  - **The test that accepted the wrong part is corrected**, and there are
+    focused cases for both of your findings.
+  - **F1** now asks about the Visit page, which shows exactly one
+    photograph, the counter and morning board. I checked it in run 88's
+    evidence (the page and its stored source) and again today on the live
+    site. The probe records that starting condition, and the report prints
+    it. `/gallery` and `/order` show only the logo.
+  - Still 18 probes.
+- **Checked**:
+  - 24 batch tests;
+  - the red check: the old code fails 7 of them, and the old rule alone
+    exactly 4;
+  - a sweep of 26 deliberate faults, all caught once 4 test gaps were
+    closed;
+  - the full suite: 8,581 tests, all passing;
+  - unit CI on the commit; the site build reused, because nothing it reads
+    changed (recorded in the handoff above).
+- **Nothing was merged, deployed or spent.** The broad plan stays paused.
+  The record is `history/2026-10-02-route-decision.md` §7.
 
 ## 2026-10-02 — The route now says where its answer came from, and a routing-only batch is ready, for your review (nothing merged, deployed or spent)
 

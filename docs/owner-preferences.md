@@ -486,7 +486,8 @@
   current code: both commits have input fingerprint 1d31ea591baf27b1. Don't
   repeat the full suite for unchanged inputs."* So a `site build` run counts
   for every commit with the same inputs fingerprint; read the fingerprint on
-  both commits before relying on it.
+  both commits before relying on it. Restated on 2026-10-02 (the batch
+  corrections): *"Reuse passing CI wherever its inputs remain unchanged."*
 - **One runtime check, for the deployed commit; the 403 dispatch is not
   tried again** (2026-10-01, deploy 2176): *"provide the exact inputs for ONE
   free runtime check using the newly deployed commit. Don't request a
@@ -558,3 +559,16 @@
   duplicate free press."* So a paid batch press checks the deployed commit and
   image itself, before its first paid call, and stops there at no cost when
   they don't match.
+- **A held-back part is checked against the message, never just for being
+  there** (2026-10-02, reviewing the routing-only batch): *"C1 and C2 must
+  verify that alsoAsked contains the correct complementary request for the
+  selected route, grounded in the original message. Nonempty text alone is
+  insufficient."* So an expected hold names the part held back and the part
+  the route makes, and an answer is judged by what the route would really
+  take out and run.
+- **A probe that depends on the site's state uses a verified state and
+  records it** (2026-10-02): *"Use a page with a verified existing photo and
+  record that starting condition so it actually tests replacement."* So a
+  probe's precondition is read from evidence (a run's before-read, a fresh
+  read), written into the probe with the version it was read at, and read
+  again if the site changes before the press.
