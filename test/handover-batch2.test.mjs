@@ -104,8 +104,12 @@ test("the row review's settled reply names what the first reply put off, in eith
     cost: 2,
     result: { body: JSON.stringify({ ok: false, error: "row-uncertain", ...(deferred === undefined ? {} : { deferred }) }) },
   });
-  const said = (out, deferred) => JSON.parse(rowReviewReply(out, rowWith(deferred), 2).body).deferred;
+  // THE ROUTES' OWN READER, handed in as the reconcile in worker.js hands it in:
+  // the add step imports nothing of the router's module (test/site-add.test.mjs).
+  const said = (out, deferred, opts = { held: heldList }) => JSON.parse(rowReviewReply(out, rowWith(deferred), 2, opts).body).deferred;
   for (const out of [kept, refunded]) {
+    // WITHOUT THE READER NOTHING IS NAMED — never a value read some other way.
+    assert.equal(said(out, "add a map", {}), undefined, out.verdict + ": no reader handed in");
     assert.equal(said(out, "add a map"), "add a map", out.verdict + ": one part");
     assert.deepEqual(said(out, ["add a map", "make the header navy"]), ["add a map", "make the header navy"], out.verdict + ": several parts");
     assert.equal(said(out, undefined), undefined, out.verdict + ": nothing put off");

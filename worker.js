@@ -237,7 +237,7 @@ import { sweepAfterPublish, P_ORPHANS } from "./site-sweep.mjs";
 import { loadConfig, saveConfig, withConfig, LEGACY_KEYS, CONFIG_KEY } from "./site-config.mjs";
 import { takeOffline, putBackOnline } from "./site-live.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
-import { routeMessage, routeDecision, clarifiedBrief, siteDigest, DOOR_LAYERS, heldParts, ROUTE_ERROR_CLASSES } from "./builder/site-ask.mjs";
+import { routeMessage, routeDecision, clarifiedBrief, siteDigest, DOOR_LAYERS, heldParts, heldList, ROUTE_ERROR_CLASSES } from "./builder/site-ask.mjs";
 // THE HAND-OVER (2026-10-02, the whole-router audit's batch 2): what travels when
 // work moves from one step to another — the parts put off, the scope, and why.
 import { readHandOver, handOverLine, heldReport } from "./builder/hand-over.mjs";
@@ -13322,7 +13322,9 @@ export async function reconcileEditJob(env, id, hint = null) {
   if (rowKey) {
     const rf = await rowReviewFacts(env, row, rowKey, { close: true });
     const out = rowReviewVerdict(rf);
-    const applied = await applyReconcile(env, row, { ...out, compose: (refunded) => rowReviewReply(out, row, refunded) });
+    // THE ROUTES' OWN READER OF THE PARTS PUT OFF (2026-10-02, batch 2), handed
+    // in so the settled reply names what the first one put off, in either shape.
+    const applied = await applyReconcile(env, row, { ...out, compose: (refunded) => rowReviewReply(out, row, refunded, { held: heldList }) });
     return { ...applied, job: String(row.id), facts: { row: rowReviewPublic(rf, rowKey) } };
   }
   const facts = await reconcileFacts(env, row);

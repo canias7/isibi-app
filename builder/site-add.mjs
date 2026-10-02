@@ -126,9 +126,6 @@ import { extractText } from "./site-text.mjs";
 import { runTweak } from "./site-tweak.mjs";
 // ONE NEW ROW'S VALUE RULE AND ITS INSERT, shared with the data step (2026-10-01).
 import { rowValues, insertStatement } from "./site-rows.mjs";
-// THE PARTS A REPLY PUT OFF, READ AS THE ROUTES READ THEM (2026-10-02, batch 2):
-// one part a string, several a list. `site-ask.mjs` imports nothing of this file.
-import { heldList } from "./site-ask.mjs";
 import { SERIOUS } from "./site-render.mjs";
 import { stripLangPrefix } from "./site-langs.mjs";
 // THE QR LIST (2026-09-03): a site carries several, each named, so the `qr`
@@ -2672,8 +2669,11 @@ export function keepsRowReply(row) {
  * ordinary success. Refunded: the confirmation, the amount that came back and
  * what the first reply put off — unless the stored reply is one of the step's
  * own definite ones, which is kept, since it says the same and says why.
+ *
+ * `held` is the routes' own reader of the parts put off (`heldList`), handed
+ * in by the reconcile that calls this (2026-10-02, batch 2).
  */
-export function rowReviewReply(out, row, refunded = 0) {
+export function rowReviewReply(out, row, refunded = 0, { held = null } = {}) {
   let asked = {};
   try {
     const b = row && row.result && typeof row.result.body === "string" ? JSON.parse(row.result.body) : null;
@@ -2684,11 +2684,14 @@ export function rowReviewReply(out, row, refunded = 0) {
   // over the first, so it is what a returning customer reads — and it named a
   // part put off only when it was a string: since a hand-over may put off
   // several, a list was dropped for not being one, and the refund's sentence
-  // never named any. Read with the routes' own reader, in either shape, on both
-  // verdicts; a value that cannot be read names nothing rather than something
-  // wrong.
-  const held = heldList(asked.deferred) || [];
-  const deferred = held.length > 1 ? held : held[0];
+  // never named any. Read in either shape, on both verdicts, with the routes'
+  // own reader, which the reconcile hands in: this step imports nothing of the
+  // router's module (the two paths' separation, test/site-add.test.mjs), and a
+  // second reader here would be two ideas of what a part put off is. Without
+  // the reader, or for a value it cannot read, nothing is named rather than
+  // something wrong.
+  const parts = (typeof held === "function" && held(asked.deferred)) || [];
+  const deferred = parts.length > 1 ? parts : parts[0];
   if (out && out.verdict === "kept" && Array.isArray(out.rows) && out.rows.length) {
     return { status: 200, type: "application/json", body: JSON.stringify({
       ok: true, kinds: ["row"], rows: out.rows, reconciled: out.kind,
