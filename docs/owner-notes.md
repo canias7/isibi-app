@@ -1,69 +1,40 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-02, 06:06 UTC)
+## Current handoff — read this first (2026-10-02, 06:31 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**State now: the additions fixes are merged and deployed (deploy 2179, `main`
-at `f9979497`). The validation batch is ready for your two paid presses, the
-routing controls first. Nothing has been spent.**
-- **Merged on your word** (*"The review of f9979497 passes. Merge and
-  deploy these fixes…"*): a fast-forward of 11 commits, `706c9b66` →
-  `f9979497`, at 06:00 UTC. Checked first: nothing running in Actions, no
-  edit job open, the rollback gives back the old `main` exactly.
-- **CI reused, not repeated**: unit tests on `f9979497` itself (8,648 tests,
-  the usual 4 skipped), and the site build on `dbc520f2`, whose inputs are
-  the same (`5e086e2167f6637e`).
-- **The deploy succeeded**: one run (2179), green in 2m54s. The
-  container image was built as predicted (`a412daac10dbc936` →
-  `a4409e55d3f3eb09`) and rolled at 06:03 UTC; the Worker carries
-  `f9979497`; and the two browser files the app serves (`chat.js`,
-  `edit-poll.js`) are byte-identical to the merged ones.
-- **What you can't see yet**: the deploy isn't confirmed from the live server
-  by a signed-in read. Press 1's own preflight does that before it spends:
-  both readers must answer `f9979497`, and a cold container
-  `a4409e55d3f3eb09`. If either is wrong, it stops at no cost.
-- **The bakery** is still at `01790819484141-dgmag4` (read at 06:00 UTC), and
-  the Visit page still shows its one photo, which the photo-swap control
-  needs.
+**State now: press 1 passed. Run 91 routed all eight controls exactly as
+intended, each by the model's own answer, for 10 credits, and its preflight
+confirmed deploy 2179 live. Press 2, the five additions, is ready for your
+press.**
+- **Run 91** (06:24–06:27 UTC, from `main`): both readers answered
+  `f9979497`, and a cold container `a4409e55d3f3eb09`. Then each control
+  went where it should:
+  - the "Order a loaf" button changed, "The starter" taken out of the menu,
+    and the footer's opening hours changed: edits at the menu editor;
+  - the Visit heading reworded: an edit at the text step;
+  - the Visit photo swapped: an edit at the picture step;
+  - a new loaf: the add-on step;
+  - a colour change with a new footer link: the colour at the look step,
+    holding back exactly "add our Instagram to the footer";
+  - two pages' backgrounds: one look change.
+- **Nothing fell back, differed or failed.** Nothing on the site changed and
+  no job was created: routing only, 10 credits (the estimate was 10–24).
+- **The bakery** is still at `01790819484141-dgmag4` (read at 06:29 UTC), so
+  press 2 starts from the recorded state.
+- **The balance isn't stated here**: updating the docs' balance lines was
+  stopped by this session's permission check, and waits on your choice.
 
-**Your presses, in this order** (edit canary, Run workflow, from `main`;
-every box not named stays as it is)
+**Press 2, paid: the five additions.** You can press it now: the container
+rolled at 06:03 UTC, well past the 15–20 minute wait. It sends run 90's five
+messages word for word, from one tab, on the bakery. The additions stay on
+the site.
 
-**Press 1, paid, routing only: the eight controls.** From 06:20
-UTC. Nothing on the site changes. It checks that the fix didn't turn edits
-into additions: the "Order a loaf" button changed, "The starter" taken out
-of the menu, the footer's hours changed, the Visit heading reworded, a photo
-swap, a new loaf (an addition), a colour change beside a new footer link,
-and two pages' backgrounds.
-
-*ROUTING-ONLY BATCH: the name of a committed probe list in
-scripts/router-probes…*
-```
-addition-fix-1
-```
-*Run the ONE paid edit as well (yes/no)*
-```
-yes
-```
-*Refuse to spend unless the Worker reports this deploy sha (prefix, >=7
-chars)…*
-```
-f99794979e2590937154d51d1d4f4a15c469d8ef
-```
-*Refuse to spend unless a cold container reports this image id (exact)…*
-```
-a4409e55d3f3eb09
-```
-
-Leave *What to change*, the scenario box and the other boxes blank, and *The
-site to edit* as it is: the batch names its own site.
-
-**Press 2, paid: the five additions.** Only after I've read press 1 and its
-controls pass. Run 90's five messages, word for word, from one tab on the
-bakery. The additions stay on the site.
+Edit canary, Run workflow, from `main`
+(https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml):
 
 *RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit…*
 ```
@@ -87,53 +58,52 @@ f99794979e2590937154d51d1d4f4a15c469d8ef
 a4409e55d3f3eb09
 ```
 
-Leave *What to change* and the routing-only batch box blank.
+Leave *What to change* and the *ROUTING-ONLY BATCH* box blank, and every
+other box as it is.
 
-**Cost** (estimates, not limits; the balance is the only bound)
+**Cost of press 2** (estimates, not limits)
 
-| | What it is | Estimate | Notes |
-|---|---|---|---|
-| Press 1 | 8 routing-only controls | about 10–24 credits | needs 24 on the balance to start |
-| Press 2 | the 5 additions | about 19–41 credits | the scenario stops before a message once 45 is spent |
-| Press 2, if the photo is bought | the add-on buys a sourdough photo instead of using one of the site's own | about 19 more credits, and $0.15 at fal | bought only if the balance covers it at that moment |
-| Both | | about 29–65 credits; up to about 84 with a bought photo | balance 72 (read at 05:59 UTC) |
+| | Estimate | Notes |
+|---|---|---|
+| The 5 additions | about 19–41 credits | it won't send another message once 45 is spent |
+| If the photo is bought | about 19 more credits, and $0.15 at fal | only if the add-on picks a bought photo over one of the site's own, and the balance covers it at that moment |
 
-After press 1, 48–62 credits would be left: enough for press 2 without a
-purchase.
+**It passes only on what landed**: each message routed to the add-on step
+by the model itself; the menu link, footer link and header button through
+the menu editor, the line and the photo through the add-on step; every
+page keeping everything else it had; the new line stating "closed on bank
+holidays" (not denying it); the same on the live pages; and the money
+closing.
 
-**After live validation, the next separate task**: the whole-router audit
-you asked for, across the build, the edit, the add-on and the hand-overs
-between them, looking for intent decided in code instead of by the model,
-and for how it behaves with different wording and kinds of site. Not
-started.
+**After press 2**: I read it against that list. After live validation, the
+next separate task is the whole-router audit, across the build, the edit,
+the add-on and the hand-overs between them.
 
 **Kept for the next round**: undo, conversation context, attachments, the
 older `lostPhotosMsg` sentence, and the menu editor's contact summary.
 
 **Links**
+- Run 91: https://github.com/canias7/isibi-app/actions/runs/36973396657
 - Deploy run: https://github.com/canias7/isibi-app/actions/runs/36971490099
-- Unit tests on `f9979497`: https://github.com/canias7/isibi-app/actions/runs/36970385602
-- Site build on `dbc520f2`: https://github.com/canias7/isibi-app/actions/runs/36969632759
 - Run workflow: https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml
-- The record: `docs/history/2026-10-02-additions.md` (§7 the batch, §10 the
-  review, §10.6 the deploy); the checklist's *Test 12*;
-  `docs/deploy-record.md`, *Deploy 2179*.
+- The record: `docs/history/2026-10-02-additions.md` (§7 the batch, §11.1
+  run 91); the checklist's *Test 12*; `docs/deploy-record.md`, *Deploy
+  2179*.
 
 **From our chat**
-- Merge and deploy, reusing passing CI where its inputs are unchanged.
-- The controls first, then the additions after the controls pass.
+- The controls first, then the additions after the controls pass: done in
+  that order.
 - Each paid run uses its own preflight; no rehearsal and no restore.
 - Paid runs wait for your presses.
 - The whole-router audit comes after live validation.
 - CLAUDE.md is left alone.
 
 **Blockers**
-- None. The next step is your press 1.
+- None for press 2.
 
 **Exact next action**
-- When you've pressed press 1, I read it: the preflight, the eight answers
-  against their expected routes, and the money. Press 2 waits until those
-  pass.
+- When you've pressed press 2, I read it: the routing of each message, each
+  job's result, the stored pages, the live pages and the money.
 
 ---
 
@@ -193,6 +163,22 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-02 — Press 1 passed (run 91): all eight controls routed as intended; deploy 2179 confirmed live
+
+- **Your press** (*"ran first one"*): run 91, 06:24–06:27 UTC, from `main`.
+- **The preflight confirmed deploy 2179 live**: both readers answered
+  `f9979497`, and a cold container `a4409e55d3f3eb09`.
+- **All eight controls matched, each the model's own answer**: the button
+  change, a menu item taken out and the footer's hours (menu editor edits),
+  the Visit heading (text), the photo swap (picture), a new loaf (add-on), a
+  colour change beside a new footer link (look, holding back exactly the
+  footer link), and two pages' backgrounds (one look change).
+- **Cost: 10 credits** of routing. No job was created and nothing on the
+  site changed.
+- **Next**: press 2, the five additions; its boxes are in the handoff.
+- The record: `history/2026-10-02-additions.md` §11.1, the checklist's
+  *Test 12*, and `deploy-record.md`.
 
 ## 2026-10-02 — Merged and deployed: deploy 2179 (the additions fixes); the two presses are yours
 

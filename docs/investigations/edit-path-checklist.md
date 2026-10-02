@@ -2015,7 +2015,7 @@ in the next data press.
 - **Then**: one merge, one free runtime check, and the lane 4 presses. Those
   on different sites can overlap a minute apart, as Batch 1's did.
 
-## Test 12 — run 90's five additions, routed to the add-on step and delivered there (prepared 2026-10-02 on the owner's word, with the fix, on the branch; corrected the same day after the owner's review: each page's own contact details kept, the batch's verdict made strict, and the plan cut to two paid presses with the routing controls first, no free rehearsal and no restore; passed by the owner and merged and deployed in deploy 2179 (`f9979497`, image `a4409e55d3f3eb09`) the same day, deployed, not runtime-confirmed: press 1's own preflight is the runtime check; not run; nothing spent)
+## Test 12 — run 90's five additions, routed to the add-on step and delivered there (prepared 2026-10-02 on the owner's word, with the fix, on the branch; corrected the same day after the owner's review: each page's own contact details kept, the batch's verdict made strict, and the plan cut to two paid presses with the routing controls first, no free rehearsal and no restore; passed by the owner and merged and deployed in deploy 2179 (`f9979497`, image `a4409e55d3f3eb09`) the same day; press 1 passed as run 91 the same day, all eight controls the model's own intended answers, for 10 credits, and its preflight runtime-confirmed deploy 2179; press 2 pending)
 
 **The owner**: *"Proceed with fixing A1–A5 together. … Make the router
 consistently treat new menu links, footer links, header buttons, page text and
@@ -2125,6 +2125,23 @@ replaced; the record's §7 gives the reasons.
 **What a pass shows**: one real routing of each addition after the fix,
 chosen by the model, and each delivered as asked with nothing else moved.
 **Not**: how often, other phrasings or sites, or a bought photograph.
+
+**Run 91 (press 1, passed)**: edit canary run 91 (36973396657),
+2026-10-02 06:24:29–06:26:53 UTC, from `main` at `f9979497`, spend `yes`,
+`addition-fix-1`.
+- The preflight passed: both readers answered `f99794979e25`, a cold
+  container `a4409e55d3f3eb09`, queued jobs and the runner on. Deploy 2179
+  is runtime-confirmed.
+- All eight controls matched, each the model's own answer (`decision
+  model`): X1, X2 and X3 `edit` · `nav` (X2 with `remove`), X4 `edit` ·
+  `text`, F1 `edit` · `picture`, B1 `addon`, C2 `edit` · `look` holding back
+  exactly "add our Instagram to the footer", D2 `edit` · `look`, page none.
+  *"8 match (the model's own), 0 match only through a fallback or rule, 0
+  differ, 0 recorded only, 0 failed; reported cost 10 credits"*.
+- 10 credits of routing; no ledger row after 350, no job created, nothing
+  open (Supabase, 06:29 UTC). The bakery is unchanged at `dgmag4`.
+- The record is `docs/history/2026-10-02-additions.md` §11.1. Press 2 is
+  next, on the owner's press.
 
 ## Test 11 — one item added to an existing list (prepared 2026-10-01 on the owner's word, after Test 10 was closed; free analysis only, nothing spent, no routing change; its capability — the add-on `row` kind — and the canary's add-on press built on the branch the same day on the owner's word, verified free, corrected in three rounds after the owner's reviews, and merged and deployed in deploy 2175 the same day (runtime check pending); real model routing unproven; the expectation corrected: the new entry's id is the database's, not necessarily 7; run 88 passed every condition, and **closed by the owner on 2026-10-02 for its verified saved-row outcome**, not to be repeated)
 

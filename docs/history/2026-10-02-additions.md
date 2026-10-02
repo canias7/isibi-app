@@ -1,7 +1,7 @@
 # The five additions: routed to the add-on step and delivered there (2026-10-02)
 
-*Passed by the owner, and merged and deployed in deploy 2179 (§10.6); nothing
-spent yet. The code is
+*Passed by the owner, and merged and deployed in deploy 2179 (§10.6); press 1
+of the validation batch passed as run 91 (§11.1), press 2 pending. The code is
 `202c554a` (the fix), `a5282a6f` (the validation batch), `6c69d155` and
 `03e664aa` (two reply sentences corrected before review, §3.4 and §3.5),
 and, after the owner's review, `f18af0df` and `dbc520f2` (§10), whose plan
@@ -585,3 +585,42 @@ scenario's cost comment now gives the same figure as §7.
   ledger's last row 350, no job open; the bakery at
   `01790819484141-dgmag4`, `/visit` still showing its one photograph
   (`d5d59152….jpg`), F1's starting condition.
+
+## 11. The validation batch, as pressed (2026-10-02)
+
+### 11.1 Press 1: the routing controls, run 91 (passed)
+
+The owner's press (*"ran first one"*): edit canary run 91 (36973396657),
+06:24:29–06:26:53 UTC, from `main` at `f9979497`, spend `yes`,
+`addition-fix-1`, with the deploy boxes filled.
+- **The preflight, which is deploy 2179's runtime check, passed**:
+  `build-health 200 deploy=f99794979e25 image=a4409e55d3f3eb09` and
+  `runtime 200 deploy=f99794979e25 async=true runner=true`, so both readers
+  answered `f9979497` and a cold container `a4409e55d3f3eb09`; the
+  expected-build and expected-image checks both `ok`.
+- **All eight controls matched their intended outcome, each the model's own
+  answer** (`decision model`, reason `tables-filled`; no fallback, no rule):
+  - X1, the "Order a loaf" button changed: `edit` · `nav`;
+  - X2, "The starter" taken out of the menu: `edit` · `nav` · `remove`;
+  - X3, the footer's opening hours changed: `edit` · `nav`;
+  - X4, the Visit heading reworded: `edit` · `text`;
+  - F1, the Visit photo swapped (attached; `/visit` showed exactly one
+    photograph, as recorded): `edit` · `picture`;
+  - B1, a new loaf without the word "add": `addon`;
+  - C2, a colour change and a new footer link: `edit` · `look`, holding back
+    exactly *"add our Instagram to the footer"*, one of the two answers the
+    probe allows;
+  - D2, two pages' backgrounds: `edit` · `look`, page none.
+- **The summary line**: *"8 match (the model's own), 0 match only through a
+  fallback or rule, 0 differ, 0 recorded only, 0 failed; reported cost 10
+  credits"*.
+- **The money**: 10 credits of routing (X1 3, the rest 1 each), as the
+  canary read it before and after; read again in Supabase at 06:29 UTC: no
+  ledger row after 350 and no job created, nothing open.
+- **The bakery** is unchanged: `01790819484141-dgmag4` at 06:29 UTC.
+- **What it shows**: after the fix, each of these existing-item edits, the
+  photo swap, the new list entry, the mixed message and the two-page change
+  still routes as before, by the model's own choice, once each. **Not**: how
+  often, other phrasings, or anything delivered (nothing is acted on).
+
+Press 2 (`12-additions`) is next, on the owner's press.

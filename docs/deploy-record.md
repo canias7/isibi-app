@@ -996,6 +996,18 @@ the ledger's last row 350, no job open. The bakery still serves
 `01790819484141-dgmag4` (read at 06:00 UTC: `/visit` shows its one
 photograph, `d5d59152….jpg`), F1's recorded starting condition.
 
+**Runtime-confirmed by the owner's paid controls press, run 91**
+(36973396657, 2026-10-02 06:24:29–06:26:53 UTC, from `main` at `f9979497`,
+spend `yes`, `addition-fix-1`), pressed 21 minutes after the roll:
+`build-health 200 deploy=f99794979e25 image=a4409e55d3f3eb09` and `runtime
+200 deploy=f99794979e25 async=true runner=true`, so both readers answered
+`f99794979e25`, and a cold container `a4409e55d3f3eb09`; the expected-build
+and expected-image checks both `ok`. The batch mode exits above the free
+checks, so no zero-cost job ran (by design). It then routed its 8 messages
+for 10 credits, every answer the model's own and as intended (no ledger row
+after 350, no job created; read in Supabase at 06:29 UTC). The readings are
+in `docs/history/2026-10-02-additions.md` §11.1.
+
 ## The served-file check, driven end to end on deploy 2139
 
 **DRIVEN END TO END ON DEPLOY 2139 (2026-09-21), and it is stronger than the
