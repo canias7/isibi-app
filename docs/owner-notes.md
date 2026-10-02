@@ -1,74 +1,99 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-02, 00:16 UTC)
+## Current handoff — read this first (2026-10-02, 01:14 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**State now: the router audit is done (free), and its routing test waits for
-your word. Test 11 (run 88) waits for your closure.**
-- **The audit** is [`investigations/router-audit.md`](investigations/router-audit.md).
-  It explains how a message is routed today, step by step with line
-  references, and lists fourteen contradictions and gaps (R1–R14). Nothing
-  was spent.
-- **The three most serious**:
-  - **"Add …" to the menu, the footer or the header button (R1).** Since
-    the Test 11 change, two instructions disagree here. The add-on step has
-    no kind for these things but must still name one. So a misroute would
-    design a section on a page instead of adding the link, charge for it,
-    and report it as done. Not yet measured with the real model.
-  - **Attachments (R2).** The router is told to decide by whether a file is
-    attached, but it is never told whether one is. Only the logo step
-    receives a file. So a photo sent with "use this on the starter page"
-    never reaches the photo step, which can only use a file already
-    uploaded or buy one. Nothing tells the customer.
-  - **Silent fallbacks (R3).** Seven kinds of unusable answer become a paid
-    add-on, and the reply can't tell them apart from the model's own
-    choice. That limits our own tests too.
-- **Also found**:
-  - removing a page the site doesn't have becomes an add-on (R4);
-  - vague requests, and messages that refer back, have no honest route, and
-    no earlier message reaches the router (R5, R7);
-  - undo is promised but can't be routed, and "put it back" now meets the
-    new-entry rule (R6);
-  - smaller gaps, R8–R14.
-- **The proposed test**: 14 single-message probes, with 4 optional ones.
-  The real router routes each probe once, and nothing it answers is acted on.
-  - Cost: about 28–42 credits, or 36–54 for all 18. The balance is 96.
-  - Two things to build first, both free:
-    - a route-only mode in the canary (scripts only, no deploy);
-    - a field saying whether an answer is the model's own (a merge and a
-      deploy with an image roll, then one free press).
-- **Test 11** passed as run 88. Closing it is yours.
+**State now: the route's decision report and the routing-only batch are
+built on the branch, for your review. Nothing is merged, deployed or spent.
+Test 11 (run 88) still waits for your closure.**
+- **The audit follows your policy** (`b7b0e998`).
+  - Every new addition's intended route is the add-on step.
+  - Where that step can't make one (a menu link, a footer link or detail,
+    the header button, one line on a page), it is listed as a missing
+    capability.
+  - The test table keeps what should happen, what the code does now and
+    what the model does in separate columns.
+  - Later steps are marked *unverified* until a run measures them.
+- **Test 11** keeps its saved row, and is no longer read as proof that the
+  model itself chose the add-on step.
+- **The decision report** (`1a8290e7`): the route's reply now says where its
+  answer came from:
+  - `model`: the model's own answer was used;
+  - `fallback`: the call failed, or the answer couldn't be used;
+  - `rule`: no model was asked (an empty message, or a zero balance).
+
+  Each fallback, and each change made to the answer, has a fixed code: 42 in
+  all. Nothing the route answers changed, and the browser doesn't read it.
+- **The routing-only batch** (one new box in the canary): each message is
+  routed once and saved with its decision.
+  - It can't edit, add, build, publish or restore. Every request is checked
+    against a short allow-list before it is sent, and anything else stops
+    the run.
+  - Before it spends, it checks the deployed commit and image itself, so no
+    separate free press is needed.
+  - All 18 probes are one committed list, `router-audit-1`: about 36–54
+    credits. The balance is 96.
+  - It is the audit's own tool, as you asked. The broad plan's batch runner
+    stays paused.
+- **Checked**:
+  - 36 new tests;
+  - the red check;
+  - a sweep of 84 deliberate faults, all caught once two test cases were
+    added for the two it first missed;
+  - the full suite: 8,579 tests, all passing;
+  - CI green on `1a8290e7`: unit tests (run 36949313322) `8579 / 8575 /
+    0 / 4`, the same total with CI's usual four skipped; site build (run
+    36949313442) "404 checks in 27 sections across 4 shards, every job
+    green".
 
 **What I need from you**
-1. Your word on the two things to build first, (a) and (b) in the audit's §5.
-2. Your approval of the probe batch (the 14, or all 18) and its cost.
-3. Your review of run 88 for Test 11's closure.
+1. Your review of the branch (the code is `1a8290e7`).
+2. Your word to merge and deploy it. The container image would roll from
+   `9a71a6384b4206a2` to `a412daac10dbc936` (predicted), so the batch waits
+   15–20 minutes after the deploy.
+3. Your approval of the batch: all 18 probes, about 36–54 credits.
+4. Your closure of Test 11 (run 88).
 
-**The order of work** (your word, 2026-10-01)
-1. Test 11's retry: done (run 88), for your review.
-2. The router audit: **done**. Its routing test waits for your approval.
-3. The broad plan and the batch runner stay paused.
+**The batch's press, once merged and deployed** (edit canary, Run workflow,
+from `main`). Every other box stays blank, and the site and second-site
+boxes stay as they are:
+- *Run the ONE paid edit as well (yes/no)*: `yes`;
+- *ROUTING-ONLY BATCH: the name of a committed probe list…*:
+  `router-audit-1`;
+- *Refuse to spend unless the Worker reports this deploy sha…*: `main`'s
+  commit after the merge, which I'll confirm from the deploy;
+- *Refuse to spend unless a cold container reports this image id…*:
+  `a412daac10dbc936`, once the deploy's log confirms it.
+
+**The order of work** (your word)
+1. Test 11's retry: done (run 88), for your closure.
+2. The router audit: done, and corrected to your policy. Its two tools are
+   built for your review, and the batch waits for the merge, the deploy and
+   your approval.
+3. The broad plan and its batch runner stay paused.
 
 **Links**
-- The audit: `docs/investigations/router-audit.md`; the checklist's *The
-  router audit*.
+- The audit: `docs/investigations/router-audit.md` (§5 is the test).
+- The record: `docs/history/2026-10-02-route-decision.md`.
+- The batch: `scripts/router-probes/router-audit-1.json`.
 - Run 88: https://github.com/canias7/isibi-app/actions/runs/36942972947
-- Run 87: https://github.com/canias7/isibi-app/actions/runs/36940738610
 
 **From our chat**
-- You set the order: Test 11's retry first, then the router audit with its
-  own focused routing tests, before any broader test. CLAUDE.md is left
-  alone.
+- You set the policy: every new addition goes to the add-on path, and what
+  it can't make is a missing capability to document.
+- The batch's own runtime checks replace a separate free press.
+- CLAUDE.md is left alone.
 
 **Blockers**
 - None. Every next step needs your word.
 
 **Exact next action**
-- On your word, I build what you approve on the branch, test it, and bring
-  it back for your review before any press.
+- On your word, I merge and deploy, read the deploy, and hand you the press
+  with the deployed commit. After the batch, I read every answer and fill in
+  the audit's Observed column. No fix starts until you decide.
 
 ---
 
@@ -129,6 +154,41 @@ since. Add new ones there.
 
 ---
 
+## 2026-10-02 — The route now says where its answer came from, and a routing-only batch is ready, for your review (nothing merged, deployed or spent)
+
+- **What you asked**: correct the audit to your policy, then build the
+  decision report and the routing-only batch for review, with no merge,
+  deploy or spend.
+- **The audit's correction** (`b7b0e998`):
+  - every new addition's intended route is the add-on step;
+  - what that step can't make yet is listed as a missing capability;
+  - the test table keeps what should happen, what the code does now and
+    what the model does in separate columns;
+  - predictions about later steps are marked unverified until a run
+    measures them.
+- **Test 11** keeps its saved row. The run 88 entry below said "the real
+  router answered `addon`". More exactly: the route answered `addon`, and its
+  reply couldn't show whether that was the model's own answer or a fallback.
+- **The decision report** (`1a8290e7`): the route's reply now says whether
+  its answer is the model's own, a fallback, or decided without the model.
+  It gives a fixed code for each fallback and each change made to the answer
+  (42 in all). Nothing the route answers changed, and the browser doesn't
+  read it.
+- **The routing-only batch**: one new box in the canary names a committed
+  list of messages, and each is routed once and saved with its decision.
+  - It can't edit, add, build, publish or restore.
+  - It checks the deployed commit and image itself before it spends.
+  - All 18 probes are in one list, `router-audit-1`: about 36–54 credits.
+- **Checked**:
+  - 36 new tests;
+  - the red check;
+  - a sweep of 84 deliberate faults, all caught once two missing test cases
+    were added;
+  - the full suite: 8,579 tests, all passing;
+  - CI green on `1a8290e7` (unit tests and site build).
+- **Nothing was merged, deployed or spent.** The broad plan stays paused.
+  The record is `history/2026-10-02-route-decision.md`.
+
 ## 2026-10-02 — The router audit: how a message is routed, fourteen gaps, and a proposed routing test (nothing spent)
 
 - **What I did**: read the router's instructions, what it's given, how its
@@ -150,7 +210,9 @@ since. Add new ones there.
 - **What happened**: your free check (run 87) confirmed deploy 2177, and
   your paid retry (run 88) sent run 86's sentence again. The real router
   answered `addon` this time, and exactly one loaf was added: "Rye &
-  Caraway", entry 7.
+  Caraway", entry 7. (*Corrected 2026-10-02*: that was the route's answer.
+  Its reply couldn't show whether the model itself chose it; the router
+  audit's R3.)
 - **What I checked myself**: the whole table (seven rows, the six old ones
   unchanged), the order page in a browser (the new loaf third, orderable),
   every page unchanged, and the money (101 → 96: routing 3, the add-on 2).

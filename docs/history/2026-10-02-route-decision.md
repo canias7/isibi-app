@@ -190,6 +190,19 @@ same reply.
     their pre-sweep readings afterwards.
 - **The full suite**: `8579 / 8579 / 0 / 0` locally (tests, pass, fail,
   skipped), 36 more than `25faac78`'s 8,543, in 132 s.
+- **Required CI on `1a8290e7`**, both green:
+  - unit tests, run 36949313322: `8579 / 8575 / 0 / 4` (the same total; CI
+    skips its usual four);
+  - site build, run 36949313442: the gate printed *"ALL CHECKS: 404 checks
+    in 27 sections across 4 shards, every job green"*, at inputs
+    `7c819874b50c4249` (3,967 files).
+- **The image, predicted** (`containerInputs` and `imageId` over both ends):
+  189 inputs (159 distinct) on each. `main` (`25faac78`) gives
+  `9a71a6384b4206a2`, the image deploy 2177 built. `1a8290e7` gives
+  `a412daac10dbc936`. The two inputs that differ are `worker.js` and
+  `builder/site-ask.mjs`; the scripts, the tests and the workflow are not
+  inputs. A merge would roll the image, so container work waits 15–20
+  minutes after it.
 
 ## 6. What this does not show
 

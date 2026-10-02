@@ -447,7 +447,10 @@ routing test.
     red check (15 integration tests fail on the old Worker and canary, 35
     module tests pass); a sweep of 84 mutants, 82 killed and the two misses
     killed by two added cases, both controls surviving; the full suite
-    `8579 / 8579 / 0 / 0`. The record is
+    `8579 / 8579 / 0 / 0`; required CI green on `1a8290e7` (unit
+    36949313322 `8579 / 8575 / 0 / 4`; site build 36949313442, 404 checks
+    in 27 sections). A merge would roll the image `9a71a6384b4206a2` →
+    `a412daac10dbc936` (predicted). The record is
     `docs/history/2026-10-02-route-decision.md`.
 - **The batch**: all 18 probes in one press (`router-audit-1`), about 36–54
   credits. It needs the merge and deploy of the decision report first.

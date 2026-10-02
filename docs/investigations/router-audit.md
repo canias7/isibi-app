@@ -618,6 +618,13 @@ BUILD" (899–913). On a live site the fallback is `addon` (117, 923).
   - Both comment-only controls survived.
 - **The full suite**: `8579 / 8579 / 0 / 0` locally, 36 more than
   `25faac78`'s 8,543.
+- **Required CI on `1a8290e7`**, green: unit tests (run 36949313322)
+  `8579 / 8575 / 0 / 4`; site build (run 36949313442), 404 checks in 27
+  sections, every job green.
+- **The image**: a merge would roll it from `9a71a6384b4206a2` to
+  `a412daac10dbc936` (predicted over both ends, 189 inputs; `worker.js` and
+  `site-ask.mjs` differ). The batch's own runtime check reads the new image,
+  so it waits 15–20 minutes after the deploy.
 
 ### The test matrix
 
