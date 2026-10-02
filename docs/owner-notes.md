@@ -1,15 +1,19 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-02, 11:10 UTC)
+## Current handoff — read this first (2026-10-02, 11:24 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**State now: batch 1 and the three gaps from your review are fixed on the
-branch, for your review.** The merge is held, as you asked. Not deployed,
+**State now: batch 1 and the three gaps from your review passed your
+review** (2026-10-02); their live-model confirmation stays pending.
+**Batch 2 (W5, W7, W8, W15, W24: every part of a mixed request kept
+across conversions, failures, hand-overs and the climb to a full
+rewrite) is in progress on the branch.** Not merged, not deployed,
 nothing spent, no model called, no site changed, no container built.
-Nothing is waiting on a press.
+Nothing is waiting on a press. The rest of this handoff describes the
+batch-1 gap round and is rewritten when batch 2 is pushed for review.
 - **What changed since your review**, in plain words:
   - **W4, moving several menu items**: your exact case (Home, Menu, Visit
     us, Order, Status, answered Order, Status, Home, Menu, Visit us) now
@@ -148,6 +152,23 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-02 — Batch 1's review gaps passed your review; batch 2 started (nothing spent or deployed)
+
+- **Your words**: *"Batch 1's review gaps pass review; keep its live-model
+  confirmation pending. Start the next grouped fix for W5, W7, W8, W15 and
+  W24 … Keep deployment and paid runs pending so we can combine the
+  deployment and prepare one grouped live-validation batch with a cost
+  estimate."*
+- **Recorded**: W1–W4 and the three gaps (W2, W3, W4) pass your review on
+  the code and the free checks (`d4e5992a`). Nothing about them is proven
+  live: what a real model names as entries to take off, or answers as a
+  menu order, waits for the grouped live batch after one combined deploy.
+- **Started**: batch 2, the lost and deferred parts of a mixed request (W5,
+  W7, W8, W15, W24), under one hand-over contract. Two preferences added
+  (`owner-preferences.md`): reviewed batches deploy together and one
+  grouped live batch validates them; one hand-over contract wherever work
+  moves between steps.
 
 ## 2026-10-02 — Your review of batch 1: the three gaps fixed on the branch (merge held; nothing spent or deployed)
 

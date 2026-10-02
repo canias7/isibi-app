@@ -678,3 +678,21 @@
   you send back stays unmerged until each gap you name is reproduced, fixed,
   checked against your exact case and the neighbours it must leave alone,
   and pushed for your review again.
+- **Reviewed batches wait to deploy together, and one grouped live batch
+  validates them** (2026-10-02, passing batch 1's review gaps): *"keep its
+  live-model confirmation pending … Keep deployment and paid runs pending so
+  we can combine the deployment and prepare one grouped live-validation
+  batch with a cost estimate."* So a batch that passes review is not merged
+  or deployed on its own: passing review is not live confirmation, the next
+  batch builds on the same branch, and one deploy then carries them all,
+  followed by one grouped live batch, priced before any press.
+- **One hand-over contract wherever work moves between steps** (the same
+  order, starting batch 2): *"preserve every part of a mixed request across
+  routing conversions, failures, edit/add-on handoffs and escalation to a
+  full rewrite … Use a consistent handoff contract across these paths, with
+  models deciding intent and code validating and dispatching—no keyword
+  rules or site-specific exceptions."* So every place a request moves (a
+  reader converting an answer, a step handing on, a failure, a climb to
+  the full rewrite) carries the same things: the part that runs now, the
+  part put off, the scope, and why it moved. What was put off is said on
+  every final outcome, never run by a later step, and never lost.

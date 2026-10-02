@@ -51,7 +51,9 @@ and no container was built. Line numbers in the findings are still those of
   items (W4), removals that name their entries, checked by code, with no
   one-entry shortcut (W2, N1 resolved), and the last "opposite" sentence in
   the page writer's prompts (W3); three findings from that work are
-  recorded apart (N11–N13).
+  recorded apart (N11–N13). **Those fixes passed your review**
+  (2026-10-02); their live-model confirmation stays pending, for one
+  grouped live batch after a combined deploy.
 - **Who decides.** One model call (the router) decides every message on a
   live site, and smaller model calls then decide inside each step. Code
   around them mostly validates, checks permission or money, or sends work to
@@ -360,9 +362,9 @@ Three classes, so a confirmed defect is never read as a risk or a guess:
 | # | Class | What is confirmed | What still rests on a model or a condition | Status |
 |---|---|---|---|---|
 | W1 | Confirmed code defect | a hand-over carried `remove`; the page step deleted with no model call (free check) | how often the photo step answers `needs-place` for a removal (U7) | **fixed on the branch** |
-| W2 | Confirmed code defect | one removal emptied the whole list (free check; `fretwork-1` has two of each) | what a real model names as the entries to take off (Group D) | **fixed on the branch**; your review's gaps fixed too (§3.1, §4.2) |
-| W3 | Confirmed code defect | two opposite rules in one request; the publish kept only returned pages | how often a writer leaves pages out (U6) — harmless after the fix | **fixed on the branch**; the last "opposite" sentence removed after your review (§3.1, §4.2) |
-| W4 | Confirmed code defect | one menu written everywhere (free check on run 92's pages) | — | **fixed on the branch**; multi-item moves fixed after your review (§3.3, §4.2) |
+| W2 | Confirmed code defect | one removal emptied the whole list (free check; `fretwork-1` has two of each) | what a real model names as the entries to take off (Group D) | **fixed on the branch**; your review's gaps fixed too (§3.1, §4.2) and passed your review (2026-10-02); live-model confirmation pending |
+| W3 | Confirmed code defect | two opposite rules in one request; the publish kept only returned pages | how often a writer leaves pages out (U6) — harmless after the fix | **fixed on the branch**; the last "opposite" sentence removed after your review (§3.1, §4.2), which that review passed (2026-10-02); live-model confirmation pending |
+| W4 | Confirmed code defect | one menu written everywhere (free check on run 92's pages) | — | **fixed on the branch**; multi-item moves fixed after your review (§3.3, §4.2), which that review passed (2026-10-02); live-model confirmation pending |
 | W5 | Confirmed code defect | a converted answer swaps the halves (free check) | the trigger: a router answer naming a page the browser didn't send | open |
 | W6 | Conditional risk | six pages sent after a reload (code) | a site of seven or more pages; no live site has more than five | open |
 | W7 | Confirmed code defect | the held-back part is named on success only (code) | — | open |
