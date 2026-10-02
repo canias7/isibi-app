@@ -724,3 +724,22 @@
   kept, without repeating changes or charges; a cancel, a changed request and
   a stale answer start nothing; a store or model failure is said as ours, not
   dressed as a question.
+- **Never show a question its answer cannot resume, and never ask the same
+  thing twice** (2026-10-02, the review of that round): *"Remove the
+  two-question dead end: never display a question whose answer cannot resume
+  the original request; retain an answerable continuation, with protection
+  against repeating the same unanswered question. Make request replacement
+  and question transitions reliable: do not continue with a replacement when
+  closing the old question fails or loses a race, and preserve recoverable
+  state if storing the next question fails."* So there is no question
+  budget: a question is shown only with something waiting for its answer,
+  and a question the request already asked, or one no answer could fit
+  beside, ends the request with a plain sentence instead. A new message never
+  goes on while the old question is still open, and an answer is never used
+  up by a write that failed. Every model that decides a change may ask
+  (*"Extend clarification into the edit models and add-on designers"*), and
+  a prompt never tells a model to guess beside a field that tells it to ask
+  (*"Reconcile contradictory prompts, including the add-on picker's
+  instruction to choose the closest kind"*). What a resumed request's models
+  are actually sent is what gets checked (*"verify actual resumed model
+  inputs and that completed changes and charges never repeat"*).

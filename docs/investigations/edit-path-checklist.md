@@ -483,6 +483,17 @@ the owner's free press, run 51, at 22:57 UTC):
     (the page, after one new case closed a survivor); full suite `8901 /
     8901 / 0 / 0`. Not shown with real models (N28). The record is
     `docs/history/2026-10-02-live-clarify.md`; the audit's §3.13 and §4.5.
+    **Then the owner's review** (`2965e405`, for review; free): overlapping
+    scopes never resume a change that ran; a resumed request's answers reach
+    every scoped step; the look lanes, the removal picker, the page rung's
+    full writer and the add-on designers ask; no question budget, a repeat
+    or a request too long ends the request, said; a replacement that cannot
+    close the waiting question goes no further, and an answer met with the
+    next question is one write; the contradictory prompts reconciled. 32 new
+    cases, 12 re-anchored; sweeps 45 of 45; full suite `8933 / 8933 / 0 /
+    0`; unit CI `8933 / 8929 / 0 / 4` and the site build (404 checks, every
+    job green) on `2965e405`. The record is `docs/history/2026-10-02-live-clarify-review.md`; the
+    audit's §3.13 (its last part), §4.6 and N41–N47.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

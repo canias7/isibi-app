@@ -96,6 +96,21 @@ checks §4.5, the limits N28–N40 (§3.0), and the record
 `docs/history/2026-10-02-live-clarify.md`. Nothing was spent, no model was
 called, nothing was changed on a site, and no container was built.
 
+**Then the owner's review of that round** (2026-10-02): *"Finish the
+edit/add-on clarification feature before deployment … Keep deployment and
+paid live testing pending."* **Done on the branch (`2965e405`), for review,
+not merged or deployed**: a step's question never resumes a change made
+beside it, however the scopes overlap; a resumed request's answers reach
+every scoped step; the look lanes, the removal picker, the page rung's full
+writer and the add-on designers can ask; there is no question budget, and no
+question is shown that its answer cannot resume (a repeat or a request too
+long ends the request, said); a replacement that cannot close the waiting
+question goes no further; an answer met with the next question is one write.
+The changes are §3.13's last part, the checks §4.6, the limits N41–N47
+(§3.0), and the record `docs/history/2026-10-02-live-clarify-review.md`.
+Nothing was spent, no model was called, nothing was changed on a site, and
+no container was built.
+
 ## In short
 
 - **Where it stands after batch 1.** W1–W4 are fixed on the branch, with
@@ -516,16 +531,29 @@ deliberate unless marked):
 | N28 | Untested model behaviour | whether a real router asks a good question when a detail matters, and acts directly when it doesn't; the same for each step | recorded; needs a real router and real steps |
 | N29 | Limit (by design) | any message that names no question closes the live one as replaced, including a side question asked in another tab | recorded; the router decides whether a reply that names it answers it |
 | N30 | Limit (by design) | the answer and the request it resumes share 2,000 characters; a longer pair is refused at no cost, with the question kept | recorded |
-| N31 | Limit (by design) | past two questions per request a question is shown as words with nothing waiting | recorded |
+| N31 | Limit (by design) | past two questions per request a question is shown as words with nothing waiting | **superseded by the review** (`2965e405`): no count; a question is kept whenever its answer can resume the request, and N47 says how a request ends instead |
 | N32 | Decision (yours) | the answer's routing call is charged like any other routing call | recorded; it could be free with a rule for who pays when the router asks |
-| N33 | Limit (by design) | not every model call asks: the per-lane calls, the full page writer and the add-on's designers do not; the pickers and the text, data, rules, picture, menu and page steps do | recorded |
-| N34 | Limit (by design) | a step's question beside other work is kept only when what it leaves to do can be told apart from what ran (its own words, or the message less every other step's own words); when another step ran on the whole message, or on a fixed request, that part is left alone and said as not kept (*"…so I left that part alone. Send it again"*), never resumed with work that ran | recorded |
+| N33 | Limit (by design) | not every model call asks: the per-lane calls, the full page writer and the add-on's designers do not; the pickers and the text, data, rules, picture, menu and page steps do | **narrowed by the review**: the look lanes, the removal picker, the one-page full writer and the add-on designers ask; what still does not is N44 |
+| N34 | Limit (by design) | a step's question beside other work is kept only when what it leaves to do can be told apart from what ran (its own words, or the message less every other step's own words); when another step ran on the whole message, or on a fixed request, that part is left alone and said as not kept (*"…so I left that part alone. Send it again"*), never resumed with work that ran | **extended by the review**: every other step's words are cut from the asking step's own words too, so overlapping scopes cannot put a change that ran back in; the answers rule is N41 |
 | N35 | Limit (by design) | a request's files survive a reload in the same browser only (IndexedDB); another device or blocked storage is asked to attach them again | recorded |
-| N36 | Conditional risk | if a second router question cannot be kept after the first was answered, the call fails as ours and the answer is used up; the request must be sent again | recorded |
+| N36 | Conditional risk | if a second router question cannot be kept after the first was answered, the call fails as ours and the answer is used up; the request must be sent again | **fixed by the review**: the next question is written over the answered one in one conditional write (`replaceAsk`); a failed write leaves the answered question waiting, and the same answer goes through again (tested) |
 | N37 | Cost | the question field adds 884 characters to every look-picker call | recorded; the picker's share of its file re-anchored from a tenth to an eighth |
 | N38 | Limit (pre-existing) | the add-on step is still never sent attachments | recorded (W16's shape) |
 | N39 | Display (yours) | the thread shows a reply's line breaks as spaces, so what ran and the question after it read as one paragraph | recorded; not restyled |
 | N40 | Instrument | the sweep's readers return the question a reply asks; no paid batch reads it yet | recorded |
+
+**Limits the owner's review of that round leaves** (`2965e405`; the review
+history's §4):
+
+| # | Class | What | Where it stands |
+|---|---|---|---|
+| N41 | Limit (by design) | beside a change that was made, a step's question resumes without the request's earlier answers (which change an answer was about cannot be told, and one about the change made would have it made again), and records as asked only what its request still answers, so the remaining part may be asked again what the request had answered | recorded; the trade is yours to confirm |
+| N42 | Limit (by design) | a step's question our store refuses twice is not kept: its sentence names the question, and what was left goes back to the message box with the message's files | recorded |
+| N43 | Cost | the question field now rides every lane call (`edit_site`), the removal picker (`take_off`) and every designer call (`add_to_site`); the page rung's full writer has its own tool (`SITE_PAGES_TOOL_ASK`), so its cached prompt prefix is separate from the build's and is written once after a deploy | recorded |
+| N44 | Limit (by design) | the add-on's page writer (the designers ask first, and it builds what they designed), the build's writers (the first build is unchanged) and the stylesheet correction round (it re-aims a change already made, nobody's request) do not ask | recorded |
+| N45 | Found, kept separate | a few fixed refusals end *"Say which one"* (`takeOffRefusal`'s unread case, lines in `builder/edit-failure.mjs`), so they read as a question no answer resumes: an answer typed to one starts a fresh request | backlog |
+| N46 | Untested model behaviour | whether the real lanes, removal picker, page writer and designers ask only when a detail matters (N28's extension) | recorded; needs real models |
+| N47 | Limit (by design) | a question asked again ends the request (`question-ended` / `clarify-repeat`), and so does a request too long to carry an answer (`clarify-no-room`, the request back in the box); the customer sends it again with the detail | recorded |
 
 **Tracked for the following batches** (a proposed grouping, your call):
 lost and deferred parts W5, W7, W8, W15, W24 (**batch 2, fixed on the
@@ -1377,6 +1405,39 @@ add-on work.** *A policy change on the owner's order; done on the branch.*
   change goes unanswered) and W17 (a question with a file becomes an add-on)
   are about the customer's questions, not the router's, and stay open.
 
+**The owner's review of W27** (`2965e405`, for review; the record is
+`docs/history/2026-10-02-live-clarify-review.md`):
+- **Overlapping scopes**: what a step's question leaves to do takes every
+  other step's own words out of the asking step's own words as well as out
+  of the turn, so a change that ran is never in the request its answer
+  resumes. Found while verifying the resumed model inputs: a scoped step was
+  resumed without the answer it asked for (the answers are the request's
+  last lines, in no change's words); every scoped step and lane is now
+  handed them. While nothing was made beside a question, the request's
+  earlier answers stay with what is left; beside a change that was made
+  they stay out, and only the questions the request still answers are
+  recorded as asked (N41).
+- **Every model that decides a change can ask**: the look lanes (one asking
+  makes the look step ask, and nothing of it is applied), the removal
+  picker, the page rung's full writer (page mode only; the build's and
+  revise's writers byte-identical) and the add-on designers (a designer's
+  question holds the whole addition, nothing applied, registered or
+  charged).
+- **No dead end**: no budget; a question is kept with its id whenever its
+  answer can resume the request; a repeat (`askRepeat`) or a request too
+  long for an answer (`askRoom`) ends the request, said, uncharged, an
+  answered question closed; a store refusing a step's question twice gives
+  what was left back to the box (`resume`); the router is told the
+  questions asked, not a count.
+- **Reliable transitions**: a new message (or a request read as new) whose
+  waiting question cannot be read or closed stops as ours, and one beaten by
+  another writer stops as `409 question-busy`, nothing routed or charged; an
+  answer met with the next question is one conditional write (`replaceAsk`).
+- **Prompts reconciled**: the add-on picker's *"choose the closest one"* and
+  `minItems`, the live router's addon tie-break, the look picker's
+  `minItems`, and the removal, page-verb and picture wording now say to ask
+  instead of guessing; the first build's router is unchanged.
+
 ## 4. Free checks run this round
 
 All in `docs/investigations/whole-router-checks.mjs` (`node
@@ -1656,6 +1717,30 @@ them as left for later.
   `8901 / 8897 / 0 / 4` (run 37032417202); **site build** run 37032417218, all 8 jobs green, "404 checks in 27 sections across 4 shards, every job green";
   the image predicted `a4409e55d3f3eb09` → `836ed46c411ade1f` (191 inputs)
   and not built (the history's §9).
+
+### 4.6 The review's fixes for W27 (2026-10-02)
+
+- **32 new cases** (`8901` → `8933`): `test/live-clarify-continue.test.mjs`
+  (19, through the real routes, synchronously and as queued jobs, each
+  reading what the models were really sent), the contract file (9), the page
+  (3) and `test/route-decision.test.mjs` (1). The regressions the owner
+  named: overlapping scopes (sync and job), a downstream designer asking
+  after an earlier one completed, a third necessary question, failed and
+  raced replacement (a new message and a request read as new, each throwing
+  and beaten), and recovery after a failed question transition. The review
+  history's §3 lists each.
+- **Existing cases**: the route file's two-question case is now the third
+  question kept; 12 cases in 10 other files that pinned the shapes this
+  round changed (the question field, no `minItems`, the step loop's answers,
+  the job record's `asked`) re-anchored, each with its reason.
+- **Red check by mutation**, each fix undone alone: 37 server and 8 page
+  mutants; 6 survived the first pass, each a gap closed by a new case, then
+  killed. **45 of 45 killed**, 4 comment-only controls surviving.
+- **Full suite** `8933 / 8933 / 0 / 0` on the tree committed as `2965e405`;
+  the image predicted `a4409e55d3f3eb09` → `7b863327f98367c9` (191 inputs)
+  and not built. **Unit CI** `8933 / 8929 / 0 / 4` (run 37077217887);
+  **site build** run 37077217768, all 8 jobs green, "404 checks in 27
+  sections across 4 shards, every job green".
 
 ## 5. The validation matrix
 

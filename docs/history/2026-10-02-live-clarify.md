@@ -254,6 +254,10 @@ In §9, stamped after each run.
 
 ## 7. What this does not show, and the limits it leaves
 
+**The owner's review of this round changed four of these** (N31
+superseded, N33 narrowed, N34 extended, N36 fixed) and added N41–N47:
+`docs/history/2026-10-02-live-clarify-review.md`.
+
 N28–N40 in the audit's §3.0 and in `docs/backlog.md`:
 - **Nothing is shown with real models** (N28): whether a real router asks
   a good question when it should, and acts when it can, is a live

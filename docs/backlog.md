@@ -335,11 +335,50 @@ here; take a closed one out of both.**
   characters on every look-picker call (N37); the add-on step still gets no
   attachments (N38); the thread shows a reply's line breaks as spaces (N39,
   yours); the sweep readers return a question no batch reads yet (N40).
+  **After the owner's review** (`2965e405`): N31 superseded, N33 narrowed,
+  N34 extended, N36 fixed.
+- **What the review of the clarification round leaves** (2026-10-02, N41–N47
+  in the audit's §3.0): beside a change that was made, earlier answers stay
+  out of what is left (N41, the trade yours to confirm); a step's question
+  the store refuses twice goes back to the box (N42); the question field on
+  more calls, and the full page writer's own cache (N43); the add-on page
+  writer, the build's writers and the stylesheet correction do not ask
+  (N44); fixed refusals ending *"Say which one"* (N45, found); the real
+  models' asking is unmeasured (N46); a repeat or a request too long ends
+  the request, said (N47).
 
 ---
 
 ## Backlog
 
+- **WHAT THE REVIEW OF THE CLARIFICATION ROUND LEAVES (N41–N47; found
+  2026-10-02 while finishing questions back on the owner's review;
+  deliberate unless marked).** Each is in the audit's §3.0 and in
+  `docs/history/2026-10-02-live-clarify-review.md` §4.
+  - **Beside a change that was made, earlier answers stay out of what is
+    left** (N41): which change an earlier answer was about cannot be told,
+    and one about the change made would have the resumed picker make it
+    again. The question records as asked only what its request still
+    answers, so the remaining part may be asked again what the request had
+    answered. The trade is the owner's to confirm.
+  - **A step's question our store refuses twice is not kept** (N42): its
+    sentence names the question, and what was left goes back to the message
+    box with the message's files, to be sent again.
+  - **The question field rides more calls** (N43): every lane call, the
+    removal picker and every designer call; the page rung's full writer has
+    its own tool, so its cached prompt prefix is separate from the build's.
+  - **Some writers do not ask** (N44, by design): the add-on's page writer,
+    the build's writers and the stylesheet correction round.
+  - **Fixed refusals that end "Say which one"** (N45, found, kept
+    separate): `takeOffRefusal`'s unread case and lines in
+    `builder/edit-failure.mjs` read as a question no answer resumes; an
+    answer typed to one starts a fresh request. A rewording, or making them
+    real questions, is a separate change.
+  - **The real models' asking is unmeasured** (N46): whether the lanes, the
+    removal picker, the page writer and the designers ask only when a detail
+    matters.
+  - **A repeat or a request too long ends the request** (N47): said and
+    uncharged; the customer sends it again with the detail.
 - **WHAT THE CLARIFICATION ROUND LEAVES (N28–N40; found 2026-10-02 while
   building questions back on a site that exists, W27; deliberate unless
   marked, none changed).** Each is in the audit's §3.0 and in
@@ -353,19 +392,23 @@ here; take a closed one out of both.**
   - **The answer and the request share 2,000 characters** (N30); a longer
     pair is refused at no cost, the question kept.
   - **Past two questions per request a question is words** (N31), with
-    nothing waiting.
+    nothing waiting. **Superseded by the review** (`2965e405`): no count; a
+    question is kept whenever its answer can resume the request (N47).
   - **The answer's routing call is charged** (N32, the owner's decision):
     1–2 credits, like any routing call.
   - **Not every model call asks** (N33): the per-lane calls, the full page
-    writer and the add-on's designers do not.
+    writer and the add-on's designers do not. **Narrowed by the review**:
+    they ask now; what still does not is N44.
   - **A step's question beside other work is kept only when what it leaves
     to do can be told apart** (N34); otherwise that part is left alone and
-    said as not kept.
+    said as not kept. **Extended by the review**: overlapping scopes are
+    cut from the asking step's own words too; the answers rule is N41.
   - **Files survive a reload only in the same browser** (N35, IndexedDB);
     another device or blocked storage is asked to attach them again.
   - **A second router question that can't be kept after the first was
     answered uses the answer up** (N36, a conditional risk): the call fails
-    as ours and the request must be sent again.
+    as ours and the request must be sent again. **Fixed by the review**: one
+    conditional write; the answered question waits for the answer again.
   - **The question field adds 884 characters** to every look-picker call
     (N37).
   - **The add-on step is still never sent attachments** (N38, pre-existing).
