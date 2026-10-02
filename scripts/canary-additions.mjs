@@ -11,7 +11,10 @@
 //
 // A REPLY IS NOT AN ADDITION (run 47's lesson, and Test 5's rule). Each message
 // passes on what its operations did, each read from its own record:
-//   * what left the page: one routing call with the words, answered `addon`;
+//   * what left the page: one routing call with the words, answered `addon`
+//     by the router model itself (the decision it reports: the model's own
+//     answer, its raw intent `addon`, no failure — the route falls back to
+//     `addon` on a site, so the final intent alone cannot tell);
 //     one add-on request with the words; and for an item in the frame, one
 //     edit at the menu editor carrying the words and the addition flag, which
 //     only the add-on step's hand-over sets — and no edit at all otherwise;
@@ -27,7 +30,7 @@
 //   * what a visitor is served: the same five things in the published pages.
 //
 // Everything here is pure: the canary reads, this module decides.
-import { navSlots, actionSlots, chromeListSlots, contactSlots } from "../builder/site-nav.mjs";
+import { navSlots, actionSlots, chromeListSlots, contactSlots, applyNav, applyAction, applyChromeList } from "../builder/site-nav.mjs";
 import { extractText } from "../builder/site-text.mjs";
 import { imageRefCounts, photoAlts } from "../builder/site-images.mjs";
 
@@ -67,10 +70,18 @@ export const ADDITION_KINDS = Object.freeze({
 
 /**
  * WHAT LEFT THE PAGE FOR ONE MESSAGE, from the page's own record: one routing
- * call carrying the words exactly and answered `addon`, one add-on request of
- * this site carrying them, and — for an item in the frame — exactly one edit
- * at the layer the add-on step hands it to, carrying the same words and the
- * addition flag. A message that is not a frame item makes no edit at all.
+ * call carrying the words exactly and answered `addon` by the router model
+ * itself, one add-on request of this site carrying them, and — for an item in
+ * the frame — exactly one edit at the layer the add-on step hands it to,
+ * carrying the same words and the addition flag. A message that is not a
+ * frame item makes no edit at all.
+ *
+ * THE MODEL'S OWN CHOICE, NOT A FALLBACK (review, 2026-10-02). On a site the
+ * route's fallback is `addon` (`FALLBACK_WITH_SITE`): an edit naming no step,
+ * an unreadable answer and a failed call all come back `intent: "addon"`. So
+ * the decision the route reports must say the model answered (`source:
+ * "model"`), that the model's own intent was `addon` (`raw.intent`), and no
+ * failure may be marked. A response with no decision cannot tell, and fails.
  */
 export function additionRequestVerdict(step, site, expect) {
   const net = Array.isArray(step && step.network) ? step.network : [];
@@ -86,6 +97,9 @@ export function additionRequestVerdict(step, site, expect) {
     routedIntent: typeof res.intent === "string" ? res.intent : "",
     routedLayer: typeof res.layer === "string" ? res.layer : "",
     routeCost: Number.isFinite(res.cost) ? res.cost : null,
+    decisionSource: res.decision && typeof res.decision === "object" && typeof res.decision.source === "string" ? res.decision.source : "",
+    rawIntent: res.decision && typeof res.decision === "object" && res.decision.raw && typeof res.decision.raw === "object" && typeof res.decision.raw.intent === "string" ? res.decision.raw.intent : "",
+    routeFailed: res.failed !== undefined || res.failure !== undefined,
     adds: adds.length,
     addWords: adds.length > 0 && adds.every((e) => e.req && e.req.instruction === said),
     edits: edits.length,
@@ -96,7 +110,9 @@ export function additionRequestVerdict(step, site, expect) {
   const editsOk = hop
     ? out.edits === 1 && out.editLayers[0] === hop && out.editWords && out.editAddition
     : out.edits === 0;
-  out.ok = out.routes === 1 && out.routedWords && out.routedIntent === "addon" && out.adds === 1 && out.addWords && editsOk;
+  out.ok = out.routes === 1 && out.routedWords && out.routedIntent === "addon" &&
+    out.decisionSource === "model" && out.rawIntent === "addon" && !out.routeFailed &&
+    out.adds === 1 && out.addWords && editsOk;
   return out;
 }
 
@@ -139,16 +155,8 @@ export function frameOf(pages) {
   return out;
 }
 
-/**
- * The page's source with the shared frame object's body blanked: what an
- * addition to the frame must leave byte for byte as it was. A page with no
- * such object is returned whole.
- */
-export function outsideChrome(src) {
-  const s = String(src || "");
-  const m = /const CHROME\s*=\s*\{/.exec(s);
-  if (!m) return s;
-  const open = m.index + m[0].length - 1;
+/** The index of the brace, bracket or `>` that closes what opens at `open`, skipping strings; -1 when it never closes. */
+function closeOf(s, open, opens, closes) {
   let depth = 0;
   let quote = "";
   for (let i = open; i < s.length; i++) {
@@ -159,20 +167,103 @@ export function outsideChrome(src) {
       continue;
     }
     if (c === '"' || c === "'" || c === "`") { quote = c; continue; }
-    if (c === "{") depth++;
-    else if (c === "}" && --depth === 0) return s.slice(0, open + 1) + "<chrome>" + s.slice(i);
+    if (opens.includes(c)) depth++;
+    else if (closes.includes(c) && --depth === 0) return i;
   }
-  return s;
+  return -1;
 }
 
-/** The words a page shows outside its frame, as a multiset of plain lines. */
+/**
+ * THE PAGE WITH ONLY WHAT THESE ADDITIONS MAY CHANGE TAKEN OUT (review,
+ * 2026-10-02): the menus' items, the second button and the footer's social
+ * links — each by the menu editor's own writers, and each only when the batch
+ * adds one — so the business name, the tagline, the first button, the
+ * footer's details and small-print links, the frame's arrangement and the
+ * rest of the page are compared byte for byte. Blanking the whole frame
+ * object hid a change to any of them. What is taken out is what the
+ * additions' own checks judge.
+ */
+export function withoutAdditions(path, src, want = {}) {
+  let pages = [{ path, source: String(src == null ? "" : src) }];
+  if (want && want.menu) pages = applyNav(pages, []).pages;
+  if (want && want.button) pages = applyAction(pages, null, true, "secondAction").pages;
+  if (want && want.social) pages = applyChromeList(pages, "social", []).pages;
+  return pages[0].source;
+}
+
+/**
+ * THE FRAME AS WRITTEN: the shared `const CHROME = { … }` object and every
+ * `<SiteChrome …>` / `<SiteHeader …>` opening tag, in order — "" for a page
+ * with no frame. Compared on every page, the one the line and the photograph
+ * go on included.
+ */
+export function frameText(src) {
+  const s = String(src == null ? "" : src);
+  const parts = [];
+  const m = /const CHROME\s*=\s*\{/.exec(s);
+  if (m) {
+    const open = m.index + m[0].length - 1;
+    const close = closeOf(s, open, "{", "}");
+    if (close > 0) parts.push(s.slice(m.index, close + 1));
+  }
+  for (const t of s.matchAll(/<Site(?:Chrome|Header)\b/g)) {
+    // The tag runs to the first `>` outside braces and strings.
+    let depth = 0, quote = "", end = -1;
+    for (let i = t.index; i < s.length; i++) {
+      const c = s[i];
+      if (quote) { if (c === "\\") { i++; continue; } if (c === quote) quote = ""; continue; }
+      if (c === '"' || c === "'" || c === "`") { quote = c; continue; }
+      if (c === "{") depth++;
+      else if (c === "}") depth--;
+      else if (c === ">" && depth === 0) { end = i; break; }
+    }
+    if (end > 0) parts.push(s.slice(t.index, end + 1));
+  }
+  return parts.join("\n");
+}
+
+/** A word that denies what follows it in its clause: "not", "never", "no", "nor", "without", or a contraction ending in n't. */
+const DENIES = /(?:^|[^a-z'])(?:not|never|no|nor|without)(?![a-z'])|n't(?![a-z])/;
+
+/**
+ * WHETHER `text` STATES `says` (review, 2026-10-02): the words whole, on word
+ * boundaries, with nothing before them in their own clause that denies them.
+ * "We're NOT closed on bank holidays" contains "closed on bank holidays" and
+ * says the opposite. A clause runs back to the last `.`, `!`, `?`, `;` or `:`;
+ * any one occurrence that is stated is enough.
+ */
+export function states(text, says) {
+  const t = plain(text), w = plain(says);
+  if (!t || !w) return false;
+  for (let at = t.indexOf(w); at >= 0; at = t.indexOf(w, at + 1)) {
+    const okBefore = at === 0 || !/[a-z0-9]/.test(t[at - 1]);
+    const okAfter = !/[a-z0-9]/.test(t[at + w.length] || "");
+    if (!okBefore || !okAfter) continue;
+    const before = t.slice(0, at);
+    const clause = before.slice(Math.max(...[".", "!", "?", ";", ":"].map((c) => before.lastIndexOf(c))) + 1);
+    if (!DENIES.test(clause)) return true;
+  }
+  return false;
+}
+
+/** The words a page's source shows (the additions' own places already taken out), as a multiset of plain lines. */
 function wordsOf(src) {
   const bag = new Map();
-  for (const w of extractText(outsideChrome(src))) {
+  for (const w of extractText(src)) {
     const t = plain(w.text);
     if (t) bag.set(t, (bag.get(t) || 0) + 1);
   }
   return bag;
+}
+
+/** What `after` holds that `before` does not, as one span: everything between their common start and their common end. */
+function changedSpan(before, after) {
+  const x = String(before == null ? "" : before), y = String(after == null ? "" : after);
+  let i = 0;
+  while (i < x.length && i < y.length && x[i] === y[i]) i++;
+  let j = 0;
+  while (j < x.length - i && j < y.length - i && x[x.length - 1 - j] === y[y.length - 1 - j]) j++;
+  return y.slice(i, y.length - j);
 }
 
 /** `a` less `b`, as multisets. */
@@ -252,19 +343,25 @@ export function storedAdditionsVerdict({ spec, before, after, slug }) {
     add("every page's footer details are what they were", complete && !bad.length, bad.map((p) => `${p}'s details changed`).join("; "));
   }
 
-  // THE PAGES: outside the frame every page is byte for byte as it was, but
-  // the one page the words and the photograph were asked for.
+  // THE PAGES, WITH ONLY THE ADDITIONS' OWN PLACES TAKEN OUT (`withoutAdditions`,
+  // review 2026-10-02): every page but the one the words and the photograph
+  // were asked for is byte for byte what it was — the frame's other fields
+  // included — and every page's frame keeps everything else it had.
+  const rest = (p, src) => withoutAdditions(p, src, want);
   const target = [...new Set([want.words && want.words.page, want.photo && want.photo.page].filter(Boolean))];
-  const moved = [...b.keys()].filter((p) => !target.includes(p) && outsideChrome(a.get(p)) !== outsideChrome(b.get(p)));
-  add(`every page but ${target.join(", ") || "none"} is byte for byte as it was outside its frame`, complete && !moved.length, moved.map((p) => `${p} changed outside its frame`).join("; "));
+  const moved = [...b.keys()].filter((p) => !target.includes(p) && rest(p, a.get(p)) !== rest(p, b.get(p)));
+  add(`every page but ${target.join(", ") || "none"} is byte for byte as it was, apart from the additions' own places`, complete && !moved.length, moved.map((p) => `${p} changed beyond the additions`).join("; "));
+  const reframed = [...b.keys()].filter((p) => a.has(p) && frameText(rest(p, a.get(p))) !== frameText(rest(p, b.get(p))));
+  add("every page's frame keeps everything else it had: the name, the tagline, the first button, the footer's details and small-print links, the arrangement",
+    complete && framed.length > 0 && !reframed.length, reframed.map((p) => `${p}'s frame changed beyond the additions`).join("; ") || "no frame was read");
 
   for (const p of target) {
     const was = b.get(p), now = a.get(p);
     if (was === undefined || now === undefined) { add(`${p} was read before and after`, false, `${p} is missing from a read`); continue; }
-    if (outsideChrome(now) === outsideChrome(was)) { add(`${p} changed`, false, `${p} is byte for byte as it was`); continue; }
+    if (rest(p, now) === rest(p, was)) { add(`${p} changed`, false, `${p} is byte for byte as it was`); continue; }
     // NOTHING THE PAGE SAID IS GONE, and what is new is the line and the
     // photograph's own description, nothing more.
-    const wb = wordsOf(was), wa = wordsOf(now);
+    const wb = wordsOf(rest(p, was)), wa = wordsOf(rest(p, now));
     const lost = less(wb, wa);
     add(`${p} still says everything it said`, !lost.length, `lost: ${JSON.stringify(lost.slice(0, 6))}`);
     const pb = photosOf(was, slug), pa = photosOf(now, slug);
@@ -286,9 +383,15 @@ export function storedAdditionsVerdict({ spec, before, after, slug }) {
     if (want.words && want.words.page === p) {
       const line = extra.join(" ");
       const says = plain(want.words.says);
+      // STATED, NOT DENIED (`states`, review 2026-10-02): "we're NOT closed
+      // on bank holidays" contains the words and says the opposite.
+      // AND READ AS A VISITOR WOULD, off the span the page gained: the text
+      // rung's reader skips a lone lowercase word, so "we're <strong>not</strong>
+      // closed…" reached `line` without its "not".
+      const gained = visible(changedSpan(rest(p, was), rest(p, now)));
       add(`${p} gained one line saying "${want.words.says}", and no other words`,
-        line.includes(says) && !plain([...wb.keys()].join(" ")).includes(says) && line.length <= says.length + 160,
-        `new words: ${JSON.stringify(extra.slice(0, 6))}`);
+        states(line, says) && states(gained, says) && !plain([...wb.keys()].join(" ")).includes(says) && line.length <= says.length + 160,
+        `new words: ${JSON.stringify(extra.slice(0, 6))}; read off the change: ${JSON.stringify(gained.slice(0, 160))}`);
     } else {
       add(`${p} gained no words`, !extra.length, `new words: ${JSON.stringify(extra.slice(0, 6))}`);
     }
@@ -331,7 +434,7 @@ export function servedAdditionsVerdict({ spec, served }) {
   if (want.words) {
     const route = want.words.route;
     const h = served && served[route];
-    add(`the published ${route} says "${want.words.says}"`, typeof h === "string" && visible(region(h, "main") || h).includes(plain(want.words.says)), typeof h === "string" ? "the words are not on the page" : `${route} was not read`);
+    add(`the published ${route} says "${want.words.says}"`, typeof h === "string" && states(visible(region(h, "main") || h), want.words.says), typeof h === "string" ? "the words are not on the page, or are denied there" : `${route} was not read`);
   }
   if (want.photo) {
     const route = want.photo.route;

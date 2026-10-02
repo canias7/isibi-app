@@ -50,12 +50,28 @@
     "to": "/\\/addon$/.test(pathname)) return false;"
   },
   {
-    "label": "V-1: a message routed to an edit passes",
+    "label": "V-1: a routing answer that is not the model's own (a fallback) passes",
     "files": [
       "scripts/canary-additions.mjs"
     ],
-    "from": "out.routedIntent === \"addon\" && ",
+    "from": "out.decisionSource === \"model\" && ",
     "to": ""
+  },
+  {
+    "label": "V-1b: a routing answer whose raw intent is not an add-on passes",
+    "files": [
+      "scripts/canary-additions.mjs"
+    ],
+    "from": "out.rawIntent === \"addon\" && ",
+    "to": ""
+  },
+  {
+    "label": "V-1c: a routing answer marked failed passes",
+    "files": [
+      "scripts/canary-additions.mjs"
+    ],
+    "from": "!out.routeFailed &&",
+    "to": "true &&"
   },
   {
     "label": "V-2: a hand-over edit without the flag passes",
@@ -106,11 +122,11 @@
     "to": "if (false) bad.push"
   },
   {
-    "label": "V-8: another page changed outside its frame passes",
+    "label": "V-8: another page changed beyond the additions passes",
     "files": [
       "scripts/canary-additions.mjs"
     ],
-    "from": "const moved = [...b.keys()].filter((p) => !target.includes(p) && outsideChrome(a.get(p)) !== outsideChrome(b.get(p)));",
+    "from": "const moved = [...b.keys()].filter((p) => !target.includes(p) && rest(p, a.get(p)) !== rest(p, b.get(p)));",
     "to": "const moved = [];"
   },
   {

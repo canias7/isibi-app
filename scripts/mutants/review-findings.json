@@ -1,0 +1,94 @@
+[
+  {
+    "label": "CONTROL: the per-page contacts comment changes nothing",
+    "control": true,
+    "files": ["builder/site-nav.mjs"],
+    "from": "  // another's. One entry per slot; `null` is a frame with none yet.",
+    "to": "  // another's. One entry per slot; `null` is a frame with none yet (control)."
+  },
+  {
+    "label": "CONTROL: the frame-text comment changes nothing",
+    "control": true,
+    "files": ["scripts/canary-additions.mjs"],
+    "from": " * go on included.",
+    "to": " * go on included (control)."
+  },
+  {
+    "label": "F-1: frameNow keeps only the first page's contact details",
+    "files": ["builder/site-nav.mjs"],
+    "from": "  const contactsNow = (Array.isArray(contacts) ? contacts : []).filter(Boolean)\n",
+    "to": "  const contactsNow = (Array.isArray(contacts) ? contacts : []).filter(Boolean).slice(0, 1)\n"
+  },
+  {
+    "label": "F-2: a detail any one page shows is dropped from the addition",
+    "files": ["builder/site-nav.mjs"],
+    "from": "if (pagesNow.length && pagesNow.every((c) => shows(c, f))) continue;",
+    "to": "if (pagesNow.length && pagesNow.some((c) => shows(c, f))) continue;"
+  },
+  {
+    "label": "F-3: keep is ignored and every asked field overwrites the page's own",
+    "files": ["builder/site-nav.mjs"],
+    "from": "const take = keep ? asked.filter((f) => !s.fields || s.fields[f] === undefined || s.fields[f] === \"\") : asked;",
+    "to": "const take = asked;"
+  },
+  {
+    "label": "F-4: an addition's contact is written as an edit",
+    "files": ["builder/site-nav.mjs"],
+    "from": "applyContact(lnk.pages, read.contact, { keep: addition === true });",
+    "to": "applyContact(lnk.pages, read.contact, { keep: false });"
+  },
+  {
+    "label": "C-1: a failure marked only by its reason passes",
+    "files": ["scripts/canary-additions.mjs"],
+    "from": "routeFailed: res.failed !== undefined || res.failure !== undefined,",
+    "to": "routeFailed: res.failed === true,"
+  },
+  {
+    "label": "C-2: nothing counts as a denial",
+    "files": ["scripts/canary-additions.mjs"],
+    "from": "const DENIES = /(?:^|[^a-z'])(?:not|never|no|nor|without)(?![a-z'])|n't(?![a-z])/;",
+    "to": "const DENIES = /$^/;"
+  },
+  {
+    "label": "C-3: the words need not stand on word boundaries",
+    "files": ["scripts/canary-additions.mjs"],
+    "from": "    if (!okBefore || !okAfter) continue;\n",
+    "to": ""
+  },
+  {
+    "label": "C-4: a denial anywhere before the words counts, not just in their clause",
+    "files": ["scripts/canary-additions.mjs"],
+    "from": "const clause = before.slice(Math.max(...[\".\", \"!\", \"?\", \";\", \":\"].map((c) => before.lastIndexOf(c))) + 1);",
+    "to": "const clause = before;"
+  },
+  {
+    "label": "C-5: the span the page gained is not read",
+    "files": ["scripts/canary-additions.mjs"],
+    "from": "states(line, says) && states(gained, says) && ",
+    "to": "states(line, says) && "
+  },
+  {
+    "label": "C-6: the frame's other fields are not compared",
+    "files": ["scripts/canary-additions.mjs"],
+    "from": "const reframed = [...b.keys()].filter((p) => a.has(p) && frameText(rest(p, a.get(p))) !== frameText(rest(p, b.get(p))));",
+    "to": "const reframed = [];"
+  },
+  {
+    "label": "C-7: everything is taken out before the comparison",
+    "files": ["scripts/canary-additions.mjs"],
+    "from": "  return pages[0].source;\n}\n\n/**\n * THE FRAME AS WRITTEN",
+    "to": "  return \"\";\n}\n\n/**\n * THE FRAME AS WRITTEN"
+  },
+  {
+    "label": "C-8: the served words are matched as a substring again",
+    "files": ["scripts/canary-additions.mjs"],
+    "from": "states(visible(region(h, \"main\") || h), want.words.says)",
+    "to": "visible(region(h, \"main\") || h).includes(plain(want.words.says))"
+  },
+  {
+    "label": "C-9: the second button is not taken out before the comparison",
+    "files": ["scripts/canary-additions.mjs"],
+    "from": "  if (want && want.button) pages = applyAction(pages, null, true, \"secondAction\").pages;\n",
+    "to": ""
+  }
+]

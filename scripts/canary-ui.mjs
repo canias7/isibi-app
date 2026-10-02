@@ -287,8 +287,10 @@ export const UI_SCENARIOS = Object.freeze({
   // hand-over sets), and for the line and the photograph any edit at all. So a
   // message the router sends to an edit costs its routing call and changes
   // nothing. Each message is judged on what landed (`additionsVerdict`, in
-  // canary-additions.mjs), and the bakery goes back afterwards by the free
-  // restore press, to the version the before-read saw.
+  // canary-additions.mjs). The additions stay on the bakery afterwards (the
+  // owner's decision, 2026-10-02): no restore, and no separate free
+  // rehearsal — the paid press's own preflight checks the deploy and the
+  // image before anything is sent, and the routing controls run first.
   "12-additions": Object.freeze({
     site: "fold-lane-bakery",
     // Routing 1-3 for each message; each frame item about 2 at the menu

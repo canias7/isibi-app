@@ -13,9 +13,9 @@ import fs from "node:fs";
 import { UI_SCENARIOS, wallRefusal, blocksPost, readUiScenario } from "../scripts/canary-ui.mjs";
 import {
   additionRequestVerdict, additionReplyVerdict, storedAdditionsVerdict, servedAdditionsVerdict, additionsVerdict,
-  telNumber, profileMatches, outsideChrome,
+  telNumber, profileMatches, withoutAdditions, frameText, states,
 } from "../scripts/canary-additions.mjs";
-import { applyNav, applyChromeList, applyAction, withAdded } from "../builder/site-nav.mjs";
+import { applyNav, applyChromeList, applyAction, applyLayout, withAdded } from "../builder/site-nav.mjs";
 
 const SPEC = UI_SCENARIOS["12-additions"];
 const SLUG = "fold-lane-bakery";
@@ -100,7 +100,9 @@ test("the wall opens the add-on step for this site alone, and holds every edit t
 /** One message's record, as the driver keeps it: the page's own requests and answers. */
 function stepRecord(step, o = {}) {
   const job = (n) => String(n).repeat(32);
-  const net = [{ method: "POST", path: "/api/site/route", req: { message: o.routedWords || step.say }, res: { ok: true, intent: o.intent || "addon", cost: 2 } }];
+  // THE ROUTE'S OWN ANSWER, as it reports it: the model's choice, its raw intent, no failure.
+  const decision = { source: "model", reasons: [], raw: { intent: o.intent || "addon", layer: "none" } };
+  const net = [{ method: "POST", path: "/api/site/route", req: { message: o.routedWords || step.say }, res: o.routeRes || { ok: true, intent: o.intent || "addon", cost: 2, decision } }];
   if (o.intent && o.intent !== "addon") return { n: 1, say: step.say, sent: true, network: net, replies: ["⚠️ x"], reply: "⚠️ x" };
   net.push({ method: "POST", path: `/api/site/${SLUG}/addon`, req: { instruction: step.say }, res: { ok: true, job: job(1) } });
   if (step.hop) {
@@ -137,6 +139,35 @@ test("what left the page: the words routed to the add-on step, and only the add-
   for (const [why, v] of Object.entries(bad)) assert.equal(v.ok, false, `${why} passed: ${JSON.stringify(v)}`);
 });
 
+// ── ONLY THE ROUTER MODEL'S OWN ADD-ON ANSWER (review, 2026-10-02) ─────────
+//
+// The route falls back to `addon` on a site (`FALLBACK_WITH_SITE`): an edit
+// naming no step, an unreadable answer and a failed call all come back as
+// `intent: "addon"`. A final `addon` alone let those pass for the router's
+// choice; the decision the route reports says which it was.
+test("routing passes only on the model's own add-on answer: a fallback from an edit, a failed call or no decision fails", () => {
+  const [frame, , , words] = SPEC.steps;
+  const withRoute = (step, res) => additionRequestVerdict(stepRecord(step, { routeRes: res }), SLUG, step);
+  const ok = withRoute(words, { ok: true, intent: "addon", cost: 2, decision: { source: "model", reasons: ["tables-filled"], raw: { intent: "addon", layer: "none" } } });
+  assert.equal(ok.ok, true, "the observer is alive: a model answer with a context code passes " + JSON.stringify(ok));
+  assert.equal(ok.decisionSource, "model");
+  assert.equal(ok.rawIntent, "addon");
+  const bad = {
+    "a fallback from an edit naming no step": { ok: true, intent: "addon", cost: 2, decision: { source: "fallback", reasons: ["layer-missing"], raw: { intent: "edit", layer: "none" } } },
+    "a fallback from an unknown step": { ok: true, intent: "addon", cost: 2, decision: { source: "fallback", reasons: ["layer-unknown"], raw: { intent: "edit", layer: "other" } } },
+    "a fallback whose raw answer was an add-on": { ok: true, intent: "addon", cost: 2, decision: { source: "fallback", reasons: ["intent-unknown"], raw: { intent: "addon", layer: "none" } } },
+    "a failed routing call": { ok: true, intent: "addon", cost: 0, failed: true, failure: { stage: "send", provider: "xai" }, decision: { source: "fallback", reasons: ["send-failed"] } },
+    "a model source whose raw intent is an edit": { ok: true, intent: "addon", cost: 2, decision: { source: "model", reasons: [], raw: { intent: "edit", layer: "nav" } } },
+    "a model add-on answer marked failed": { ok: true, intent: "addon", cost: 2, failed: true, decision: { source: "model", reasons: [], raw: { intent: "addon", layer: "none" } } },
+    "a model add-on answer carrying a failure": { ok: true, intent: "addon", cost: 2, failure: { stage: "send" }, decision: { source: "model", reasons: [], raw: { intent: "addon", layer: "none" } } },
+    "no decision reported": { ok: true, intent: "addon", cost: 2 },
+    "a decision with no raw answer": { ok: true, intent: "addon", cost: 2, decision: { source: "model", reasons: [] } },
+  };
+  for (const [why, res] of Object.entries(bad)) {
+    for (const step of [frame, words]) assert.equal(withRoute(step, res).ok, false, `${why} passed for "${step.say}"`);
+  }
+});
+
 test("what each job stored: the hand-over and the menu editor's success, or the add-on's own success, shown as a success", () => {
   const [frame, , , words] = SPEC.steps;
   assert.equal(additionReplyVerdict(stepRecord(frame), frame).ok, true);
@@ -153,9 +184,17 @@ test("the five additions, written by the builder's own writers, pass every store
   const v = stored(delivered(PAGES));
   assert.deepEqual(failing(v), [], JSON.stringify(v.checks.filter((c) => !c.ok)));
   assert.ok(v.checks.length >= 12, "a check went missing");
-  // The frame object is what is blanked, and only it.
-  assert.ok(outsideChrome(PAGES[0].source).includes("const CHROME = {<chrome>}"), "the observer is not alive: no frame object was found");
-  assert.equal(outsideChrome(PAGES[2].source), PAGES[2].source, "a page with no frame object is not returned whole");
+  // ONLY THE ADDITIONS' OWN PLACES ARE TAKEN OUT, by the menu editor's writers:
+  // the delivered home page reads back as the original one does, and the
+  // frame's other fields are still in the text compared.
+  const [home] = delivered(PAGES);
+  assert.notEqual(home.source, PAGES[0].source, "the observer is not alive: nothing was delivered");
+  assert.equal(withoutAdditions("index.tsx", home.source, SPEC.additions), withoutAdditions("index.tsx", PAGES[0].source, SPEC.additions));
+  const frame = frameText(withoutAdditions("index.tsx", PAGES[0].source, SPEC.additions));
+  for (const kept of ['name: "Harbour Loaf"', "tagline:", 'action: { label: "Order a loaf"', "contact:", "<SiteChrome {...CHROME}>"]) {
+    assert.ok(frame.includes(kept), `the frame compared has lost ${kept}: ${frame}`);
+  }
+  assert.equal(frameText(PAGES[2].source), "", "a page with no frame has frame text");
 });
 
 test("each way a delivery can go wrong fails its own stored check", () => {
@@ -166,7 +205,7 @@ test("each way a delivery can go wrong fails its own stored check", () => {
     "the Instagram link to another account": [delivered(PAGES, { instagram: "https://instagram.com/someoneelse" }), /instagram link/],
     "no line": [delivered(PAGES, { words: false }), /gained one line/],
     "no photograph": [delivered(PAGES, { photo: false }), /one more photograph/],
-    "the line and photograph on the home page": [delivered(PAGES, { on: "index.tsx" }), /byte for byte as it was outside its frame/],
+    "the line and photograph on the home page": [delivered(PAGES, { on: "index.tsx" }), /byte for byte as it was/],
     "a line the Visit page loses": [delivered(PAGES).map((p) => (p.path === "visit.tsx" ? { ...p, source: p.source.replace("Come to the bakery", "Come along") } : p)), /still says everything/],
     // The second button right and the first one changed beside it.
     "the first button changed beside a right second one": [delivered(applyAction(PAGES, { label: "Order now", href: "/order" }, false, "action").pages), /kept its button/],
@@ -182,6 +221,77 @@ test("each way a delivery can go wrong fails its own stored check", () => {
   assert.ok(failing(half).includes("both source reads are complete"));
 });
 
+// ── A LINE THAT SAYS THE OPPOSITE (review, 2026-10-02) ─────────────────────
+//
+// "We're NOT closed on bank holidays" contains "closed on bank holidays". The
+// words must be stated, not denied: nothing before them in their own clause
+// may negate them, on the stored page and on the served one.
+const lineSaying = (words) => delivered(PAGES, { words: false }).map((p) => (p.path !== "visit.tsx" ? p
+  : { ...p, source: p.source.replace(PHOTO, `      <p className="mx-auto max-w-3xl px-6">${words}</p>\n` + PHOTO) }));
+const wordsCheck = (after) => stored(after).checks.find((c) => /gained one line saying/.test(c.name));
+
+test("the stored line must state the closure, not deny it", () => {
+  assert.equal(wordsCheck(lineSaying("We’re closed on bank holidays.")).ok, true, "the observer is alive: the line itself passes");
+  assert.equal(wordsCheck(lineSaying("Please note: we’re closed on bank holidays, not Sundays.")).ok, true, "a negation after the words was read as denying them");
+  for (const denial of [
+    "We’re NOT closed on bank holidays.",
+    "We’re <strong>not</strong> closed on bank holidays.",
+    "We aren’t closed on bank holidays.",
+    "We are never closed on bank holidays.",
+    "We are no longer closed on bank holidays.",
+  ]) {
+    const c = wordsCheck(lineSaying(denial));
+    assert.ok(c, "the words check went missing");
+    assert.equal(c.ok, false, `"${denial}" passed for "closed on bank holidays"`);
+  }
+});
+
+test("the served line must state the closure, not deny it", () => {
+  const all = (said) => ({ "/": page(), "/visit": page({ line: true, photo: true, said }), "/order": page(), "/gallery": page() });
+  const check = (said) => servedAdditionsVerdict({ spec: SPEC, served: all(said) }).checks.find((c) => /says "closed on bank holidays"/.test(c.name));
+  assert.equal(check("We’re closed on bank holidays.").ok, true, "the observer is alive");
+  for (const denial of ["We’re NOT closed on bank holidays.", "We’re <strong>not</strong> closed on bank holidays.", "We aren&#x27;t closed on bank holidays."]) {
+    assert.equal(check(denial).ok, false, `served "${denial}" passed`);
+  }
+});
+
+test("states: the words whole, on word boundaries, and not negated in their own clause", () => {
+  assert.equal(states("We’re closed on bank holidays.", "closed on bank holidays"), true);
+  assert.equal(states("Open daily. Not on Mondays; we’re closed on bank holidays", "closed on bank holidays"), true, "a negation in an earlier clause was read into this one");
+  assert.equal(states("we're unclosed on bank holidays", "closed on bank holidays"), false, "a word that only ends with the phrase matched");
+  assert.equal(states("closed on bank holidaysx", "closed on bank holidays"), false);
+  assert.equal(states("We’re not closed on bank holidays", "closed on bank holidays"), false);
+  assert.equal(states("We won’t be closed on bank holidays", "closed on bank holidays"), false);
+  assert.equal(states("", "closed on bank holidays"), false);
+  assert.equal(states("closed on bank holidays", ""), false, "an empty phrase was stated");
+  // A LATER OCCURRENCE STILL COUNTS when an earlier one is denied.
+  assert.equal(states("We’re not closed on Sundays. We’re closed on bank holidays.", "closed on bank holidays"), true);
+});
+
+// ── THE FRAME'S OTHER FIELDS (review, 2026-10-02) ──────────────────────────
+//
+// Blanking the whole frame object hid any change to the business name, the
+// tagline, the small-print links or the arrangement. Only the additions' own
+// places are taken out now, so each of those fails a check, on every page,
+// the Visit page included.
+test("a change to the frame's other fields fails, on any page, the Visit page included", () => {
+  const swap = (pages, path, from, to) => pages.map((p) => (p.path === path ? { ...p, source: p.source.replace(from, to) } : p));
+  const cases = {
+    "the business name on the gallery page": swap(delivered(PAGES), "gallery.tsx", 'name: "Harbour Loaf"', 'name: "Harbour Loaves"'),
+    "the tagline on the home page": swap(delivered(PAGES), "index.tsx", "A neighbourhood sourdough bakery in Bristol.", "Bristol's best bakery."),
+    "small-print links added on the order page": delivered(PAGES).map((p) => (p.path === "order.tsx" ? applyChromeList([p], "legal", [{ label: "Privacy", href: "/privacy" }]).pages[0] : p)),
+    "the arrangement changed everywhere": applyLayout(delivered(PAGES), { brand: "centre" }).pages,
+    "the business name on the Visit page": swap(delivered(PAGES), "visit.tsx", 'name: "Harbour Loaf"', 'name: "Harbour Loaves"'),
+    "the first button's words on the Visit page": swap(delivered(PAGES), "visit.tsx", 'label: "Order a loaf"', 'label: "Order now"'),
+  };
+  for (const [why, after] of Object.entries(cases)) {
+    assert.notDeepEqual(after.map((p) => p.source), delivered(PAGES).map((p) => p.source), `${why}: the case changed nothing`);
+    const names = failing(stored(after));
+    assert.ok(names.some((n) => /frame keeps everything else|byte for byte as it was/.test(n)), `${why}: no check failed for it (${JSON.stringify(names)})`);
+  }
+  assert.deepEqual(failing(stored(delivered(PAGES))), [], "the control: the delivery alone passes");
+});
+
 test("a telephone link is read by its number, and a profile by its host and path", () => {
   assert.equal(telNumber("tel:01174960000"), "01174960000");
   assert.equal(telNumber("tel:+44 117 496 0000"), "01174960000");
@@ -195,10 +305,10 @@ test("a telephone link is read by its number, and a profile by its host and path
 
 // ── WHAT A VISITOR IS SERVED ────────────────────────────────────────────────
 
-const page = ({ menu = true, call = true, insta = true, line = false, photo = false } = {}) =>
+const page = ({ menu = true, call = true, insta = true, line = false, photo = false, said = "We’re closed on bank holidays." } = {}) =>
   "<html><body><header><nav><a href=\"/\">Today&#x27;s bake</a><a href=\"/visit\">Visit</a>" + (menu ? "<a href=\"/order\">Order</a>" : "") + "</nav>" +
   "<a href=\"/order\">Order a loaf</a>" + (call ? "<a href=\"tel:01174960000\"><span>Call us</span></a>" : "") + "</header>" +
-  "<main><h1>Come to the bakery</h1>" + (line ? "<p>We’re closed on bank holidays.</p>" : "") + (photo ? `<img src="${OWN_SOURDOUGH}" alt="A sourdough boule cooling after the morning bake">` : "") + "</main>" +
+  "<main><h1>Come to the bakery</h1>" + (line ? "<p>" + said + "</p>" : "") + (photo ? `<img src="${OWN_SOURDOUGH}" alt="A sourdough boule cooling after the morning bake">` : "") + "</main>" +
   "<footer><a href=\"/\">Today&#x27;s bake</a>" + (insta ? "<a href=\"https://instagram.com/harbourloaf\" aria-label=\"instagram\"></a>" : "") + "</footer></body></html>";
 
 test("the published pages show the five to a visitor, and each missing one fails its own check", () => {
