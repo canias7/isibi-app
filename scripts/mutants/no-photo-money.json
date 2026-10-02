@@ -1,0 +1,46 @@
+[
+  {
+    "label": "CONTROL: the no-photo sentence's comment changes nothing",
+    "control": true,
+    "files": ["builder/site-add.mjs"],
+    "from": " * And nothing about money: the routing call was charged before this step ran,",
+    "to": " * And nothing about money (control): the routing call was charged before this step ran,"
+  },
+  {
+    "label": "CONTROL: the photograph-alone comment in the add-on route changes nothing",
+    "control": true,
+    "files": ["worker.js"],
+    "from": "// ── A PHOTOGRAPH, ALONE, WITH NOTHING REAL TO SHOW (2026-10-02) ──",
+    "to": "// ── A PHOTOGRAPH, ALONE, WITH NOTHING REAL TO SHOW (2026-10-02, control) ──"
+  },
+  {
+    "label": "M-1: the sentence claims nothing was charged again",
+    "files": ["builder/site-add.mjs"],
+    "from": "so nothing on your site changed.\";",
+    "to": "so nothing on your site changed and nothing was charged.\";"
+  },
+  {
+    "label": "M-2: the sentence calls the request free in other words",
+    "files": ["builder/site-add.mjs"],
+    "from": "so nothing on your site changed.\";",
+    "to": "so nothing on your site changed, and this cost you nothing.\";"
+  },
+  {
+    "label": "M-3: the sentence says the customer wasn't charged",
+    "files": ["builder/site-add.mjs"],
+    "from": "so nothing on your site changed.\";",
+    "to": "so nothing on your site changed — you weren't charged.\";"
+  },
+  {
+    "label": "M-4: the sentence no longer says the site is unchanged",
+    "files": ["builder/site-add.mjs"],
+    "from": "so nothing on your site changed.\";",
+    "to": "so I left it.\";"
+  },
+  {
+    "label": "M-5: the route appends its own no-charge claim",
+    "files": ["worker.js"],
+    "from": "msg: noPhotoMsg() + (aRowAside ?",
+    "to": "msg: noPhotoMsg() + \" Nothing was charged.\" + (aRowAside ?"
+  }
+]

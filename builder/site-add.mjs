@@ -3936,9 +3936,12 @@ export function notLandedMsg({ words = [], photos = [] } = {}) {
  * The sentence for a photograph-only addition that got no photograph: none of
  * the site's own was chosen and none could be made. It promises nothing about
  * an upload, because handing an attached picture to this step is not shown.
+ * And nothing about money: the routing call was charged before this step ran,
+ * and the browser prints this sentence as it is (owner, after run 31: never
+ * claim the whole request was free).
  */
 export function noPhotoMsg() {
-  return "I couldn't get a photograph to put there just now, so nothing on your site changed and nothing was charged.";
+  return "I couldn't get a photograph to put there just now, so nothing on your site changed.";
 }
 
 /**

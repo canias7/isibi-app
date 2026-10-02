@@ -4397,6 +4397,32 @@ test("a photograph alone whose purchase fails after the page was written is refu
   assert.equal(r.compiles.length, 0, "an empty frame was published for a photograph-only ask");
 });
 
+// THE REFUSAL NEVER CALLS THE REQUEST FREE (owner, after run 31: "Distinguish
+// the edit's charge from routing … don't … claim the whole request was
+// free"). The routing call was charged before this step ran, and the browser
+// prints this sentence verbatim with nothing about money after it, so it says
+// what happened to the site and nothing about the bill. Both of its paths:
+// before the page call, and after a purchase that failed.
+test("the no-photo refusal says the site is unchanged, and never that nothing was charged", async () => {
+  const CLAIMS_FREE = /\b(charged?|charging|free|cost (you )?nothing)\b/i;
+  assert.match("so nothing on your site changed and nothing was charged", CLAIMS_FREE, "the observer cannot see the claim it forbids");
+  const dusk = { photo: { photo: [{ page: "/", describe: "the workshop at dusk", name: "dusk" }] } };
+  const before = await addon("fw-photo", "put a photo of the workshop at dusk on the home page", {
+    kinds: ["photo"], credits: 0, storedPages: PHOTO_SITE, answers: dusk,
+  });
+  const after = await addon("fw-photo", "put a photo of the workshop at dusk on the home page", {
+    kinds: ["photo"], credits: 400, publishes: true, storedPages: PHOTO_SITE, shotFail: true, answers: dusk,
+    written: [{ ...PHOTO_SITE[0], source: PHOTO_SITE[0].source.replace("</main>", '  <SafeImage src="@@IMG:the workshop at dusk@@" alt="the workshop at dusk" />\n</main>') }],
+  });
+  for (const [path, r] of [["before the page call", before], ["after the failed purchase", after]]) {
+    assert.equal(r.body.error, "no-photo", path + ": " + JSON.stringify(r.body));
+    assert.equal(typeof r.body.msg, "string", path + ": no sentence to read");
+    assert.match(r.body.msg, /photograph/, path + ": the observer read no sentence");
+    assert.match(r.body.msg, /nothing on your site changed/, path);
+    assert.doesNotMatch(r.body.msg, CLAIMS_FREE, path + ": " + r.body.msg);
+  }
+});
+
 test("a photograph beside a kind that writes no page is designed here too — the hand-off is gone", async () => {
   // `MAKES_PAGES` USED TO BE THE LINE: beside a table the photograph was set
   // aside, because the picture rung was its home. It has no home but this
