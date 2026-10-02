@@ -1,7 +1,8 @@
 # The five additions: routed to the add-on step and delivered there (2026-10-02)
 
-*Passed by the owner, and merged and deployed in deploy 2179 (§10.6); press 1
-of the validation batch passed as run 91 (§11.1), press 2 pending. The code is
+*Passed by the owner, and merged and deployed in deploy 2179 (§10.6). Both
+presses of the validation batch passed: press 1 as run 91 (§11.1) and press 2
+as run 92 (§11.3). The batch is complete and awaits the owner's review. The code is
 `202c554a` (the fix), `a5282a6f` (the validation batch), `6c69d155` and
 `03e664aa` (two reply sentences corrected before review, §3.4 and §3.5),
 and, after the owner's review, `f18af0df` and `dbc520f2` (§10), whose plan
@@ -640,4 +641,139 @@ The owner's press (*"ran first one"*): edit canary run 91 (36973396657),
   frame. A5 would then fail the batch's photo check, with the other four
   additions unaffected.
 
-Press 2 (`12-additions`) is next, on the owner's press.
+Press 2 (`12-additions`) was next, on the owner's press (§11.3).
+
+### 11.3 Press 2: the five additions, run 92 (passed)
+
+The owner's press (*"ran"*): edit canary run 92 (36974345843),
+06:36:14–06:52:00 UTC, from `main` at `f9979497`, spend `yes`, the UI
+scenario `12-additions` on `fold-lane-bakery`, with the deploy boxes filled.
+- **The preflight passed again**: `build-health 200 deploy=f99794979e25
+  image=a4409e55d3f3eb09`, `runtime 200 … async=true runner=true`, and every
+  free check passed.
+- **The five messages** were typed into the app's own composer, all in one
+  tab that was never reloaded. **Each was routed `addon` by the model.** In
+  every routing reply `decision.source` was `model`, the raw intent `addon`
+  and the layer `none`, with the reason `tables-filled`.
+  1. *"Add our Instagram to the footer: @harbourloaf."*
+     - The add-on job `fbfac970…` handed it over (`reason layer`,
+       `escalate`, `layer nav`, `kind frame`; cost 0, no billing).
+     - The menu editor's job `29d8062b…` changed `index`, `order`, `visit`
+       and `gallery` (cost 1).
+     - On screen: *"✅ Added 1 social link to the footer, beside what it had
+       — on 4 pages."*
+     - Cost: routing 3 + 1 = 4.
+  2. *"Add Order to the menu."*
+     - Hand-over `1e1aacf8…`, then the menu editor `1cd85759…`.
+     - On screen: *"✅ Added “Order” to the menu on 4 pages, beside the items
+       it had."*
+     - Cost: 1 + 1 = 2.
+  3. *"Add a Call us button at the top that rings 0117 496 0000."*
+     - Hand-over `131ef0da…`, then the menu editor `a735a941…`.
+     - On screen: *"✅ Added a second button, “Call us”, going to tel:0117 496
+       0000 — the button you had stays as it is — on 4 pages."*
+     - Cost: 1 + 1 = 2.
+  4. *"On the Visit page, add a line saying we're closed on bank holidays."*
+     - The add-on job `94066f0c…` (kinds `words`) changed `visit.tsx`.
+     - On screen: *"✅ Done — updated /visit, added “We're closed on bank
+       holidays.” to /visit."*
+     - Cost: 1 + 7 = 8.
+  5. *"Add a photo of our sourdough to the Visit page."*
+     - The add-on job `b4ae9ffe…` (kinds `photo`; `ownPhotos` on `/visit`,
+       `photos 0`) bought nothing.
+     - On screen: *"✅ Done — updated /visit, put one of your own photographs
+       on /visit. I've set that up, but I can't confirm from here that A
+       visitor can see a photo of the sourdough on the Visit page — have a
+       look and tell me if it isn't right."*
+     - Cost: 1 + 8 = 9.
+- **Five publishes, in order, each built from the one before**: `9zslbu`
+  (from `dgmag4`), `jdsbhx`, `eksk9o`, `yt8tva`, `bp9rcv`. The chain read
+  VERIFIED. A watcher on the live pages saw each version arrive, at 06:40:26,
+  06:42:53, 06:45:42, 06:48:29 and 06:51:37 UTC.
+- **The verdict: `UI MODE PASSED`**, with every check `ok`:
+  - **Routing and hand-over.** Each message arrived word for word and the
+    model routed it to the add-on step. The three frame items were handed to
+    the menu editor as additions, and the hand-over and the editor's success
+    were stored and shown as a success. The line and the photo were made by
+    the add-on step itself, with no edit.
+  - **Files.** The same five page files exist before and after. The stored
+    components are unchanged byte for byte. The frame was read on every page
+    that has one.
+  - **The frame.**
+    - Every page's menu gained "Order" → `/order` and kept every item it
+      had.
+    - Every footer gained the Instagram link and kept every link it had.
+    - Every header kept its button and gained "Call us", ringing
+      01174960000, beside it.
+    - The footer details are unchanged.
+    - Every page but `visit.tsx` is byte for byte as it was, apart from the
+      additions' own places.
+    - Every frame keeps its name, tagline, first button, footer details,
+      small-print links and arrangement.
+  - **`visit.tsx`.** It still says everything it said and shows every
+    photograph it showed. It shows exactly one more photograph, described as
+    sourdough. It gained one line saying "closed on bank holidays" and no
+    other words.
+  - **The published pages** show the same: Order → `/order`, the Instagram
+    link, Call us, the line and the photograph.
+  - **The money closes**: routing 7 + jobs 18 = the balance's move of 25.
+- **Read independently afterwards** (06:53–07:00 UTC):
+  - **Supabase.**
+    - Ledger rows 351–355 are all `edit reserve`: −1 under each of the three
+      menu-editor jobs, −7 under `94066f0c…` and −8 under `b4ae9ffe…`. There
+      is no refund and no row after 355.
+    - The three hand-over jobs are `failed`, with no billing and cost 0.
+      That is how a hand-over is recorded; it is not a failure.
+    - The five working jobs are `done` and `finalized`, costing 1, 1, 1, 7
+      and 8.
+    - No job is queued or running.
+  - **The stored source** (the evidence's before and after reads).
+    - In each of the four pages with a frame, `CHROME` gained
+      `secondAction: { label: "Call us", href: "tel:0117 496 0000" }`,
+      `social: [{ network: "instagram", href:
+      "https://instagram.com/harbourloaf" }]`, and `{ label: "Order", href:
+      "/order" }` at the end of `links`.
+    - `starter.tsx`, which has no frame, is identical.
+    - `visit.tsx` also gained the `<p>` line under the opening hours, and a
+      `SafeImage` under the shop's photograph. Its source is
+      `/u/fold-lane-bakery/8e6bd4818b03….jpg`, *"A sourdough boule cooling
+      after the morning bake"*, the home page's own photograph.
+  - **The served pages.** All five were read at `bp9rcv` and compared with
+    the 06:33 UTC reading at `dgmag4`.
+    - The only differences are the additions and the rebuilt asset names.
+      On `/starter` only the asset names and the render time differ.
+    - The photograph answers 200 (1,777,447 bytes), and the home page still
+      shows it.
+  - **Screenshots** of `/visit` and `/`, before and after, were sent to the
+    owner.
+    - `/visit` shows all five additions.
+    - The home pair shows the menu, button and footer additions. Its middle
+      sections are blank in both captures, because they fade in on scroll
+      and the capture does not scroll; the served HTML shows them unchanged.
+- **The money: 25 credits, inside the estimate of about 19–41.** Routing
+  was 7 (3, then 1 each). The jobs were 18: the three menu edits 1 each,
+  the line 7 and the photo 8. Nothing was bought at fal (`photos 0`), as
+  §11.2 expected.
+- **Observations, kept separate** (backlog; nothing changed):
+  - **The photo reply's capital letter.** It splices the requirement into
+    its sentence with its capital: *"…confirm from here that A visitor can
+    see…"*. The clause itself is the documented design: in
+    `builder/site-requirements.mjs` every covered claim reads back with it,
+    because nothing on this path exercises behaviour. Only the capital is a
+    defect.
+  - **Two 404 lines.** The app tab logged two *"Failed to load resource …
+    404"* lines. The canary records only the app's `/api/` calls, all 200 or
+    202, so the address is not known and has not been traced.
+  - **Source layout.** The menu editor wrote each page's `links` list on
+    one line and put the two new fields on `CHROME`'s first line. Both are
+    inside the additions' own places and make no difference to the pages.
+- **What it shows**: one wording of each of the five additions, on one site,
+  each routed `addon` by the model once, delivered where asked, with
+  everything else kept, published, and charged as recorded. **Not**: how
+  often, other phrasings, other site types, or undo, conversation context
+  and attachments (kept separate, §8).
+
+The bakery stays at `01790923788063-bp9rcv`, because the plan keeps the demo
+changes and makes no restore. **Both presses passed, so the validation
+batch is complete.** The owner's review is next. After it comes the owner's
+next separate task, the whole-router audit.

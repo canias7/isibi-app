@@ -244,10 +244,45 @@ here; take a closed one out of both.**
   whenever an unpaid balance is 1 to 20, covers the page, and still speaks of
   the deleted media side (found 2026-09-30 by Test 9's local proof; the
   canary now marks it seen; the product is not changed).
+- A photo addition's reply splices its requirement in with the capital
+  letter: "…confirm from here that A visitor can see…" (run 92).
+- Run 92's app tab logged two untraced "Failed to load resource … 404"
+  lines; the canary records only the app's `/api/` calls.
+- The menu editor writes a page's whole `links` list on one line when it
+  adds an item (run 92; no effect on the pages).
 
 ---
 
 ## Backlog
+
+- **A PHOTO ADDITION'S REPLY CAPITALISES MID-SENTENCE (found 2026-10-02 in
+  run 92; not changed).** The add-on's cover note reads *"I've set that up,
+  but I can't confirm from here that A visitor can see a photo of the
+  sourdough on the Visit page — have a look and tell me if it isn't
+  right."*
+  - `coverNote` (`builder/site-requirements.mjs`, the honest clause) joins
+    each requirement's `need` after "that", and `need` is written as a
+    sentence with a capital letter.
+  - The clause itself is the documented design: nothing on this path
+    exercises behaviour, so every covered claim reads back with it.
+  - Only the capital is wrong. Cosmetic, and kept for model-written
+    replies.
+- **TWO UNTRACED 404 LINES IN RUN 92'S APP TAB (found 2026-10-02; not
+  traced).** The UI record holds two *"Failed to load resource: the server
+  responded with a status of 404 ()"* console lines.
+  - The canary's network record lists only the app's `/api/` calls (151 of
+    them, every one 200 or 202), so neither address is known.
+  - Not the photo itself: its address answers 200 on the app and on the
+    site.
+  - Tracing it needs the browser's own request log (a free local reading).
+- **THE MENU EDITOR REFORMATS THE LIST IT ADDS TO (found 2026-10-02 in run
+  92; not changed).**
+  - Adding "Order", it wrote each page's `links` list, which was one item
+    per line, on a single line.
+  - It put the two new fields (`secondAction`, `social`) on the
+    `const CHROME = {` line.
+  - The change sits inside the additions' own places, and the pages render
+    the same. A source-layout difference only.
 
 - **THE ADD-ON STEP CANNOT ADD A ROW TO A TABLE THE SITE ALREADY HAS (found
   2026-10-01 preparing Test 11; not changed).**

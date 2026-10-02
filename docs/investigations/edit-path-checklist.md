@@ -361,13 +361,13 @@ the owner's free press, run 51, at 22:57 UTC):
     funding). Placing one of the site's own photographs is new on the branch
     (item 12).
 12. **New frame items, words and photographs through the add-on step**
-    (run 90's A1–A5): **fixed on 2026-10-02, and merged and deployed in deploy 2179 the same day** (not yet run live). The
+    (run 90's A1–A5): **fixed on 2026-10-02, and merged and deployed in deploy 2179 the same day; shown live by run 92 the same day** (each routed `addon` by the model and delivered, for the owner's review). The
     router now sends them to the add-on step, which hands a frame item to the
     menu editor as an addition, places words and checks them on the page,
     and places one of the site's own photographs. Corrected after the
     owner's review the same day (each page's own contact details kept; the
-    batch's verdict strict). Shown only with supplied answers; the post-fix
-    validation batch is prepared (*Test 12*, below).
+    batch's verdict strict). The post-fix validation batch passed: run 91's
+    eight routing controls and run 92's five additions (*Test 12*, below).
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).
@@ -2015,7 +2015,7 @@ in the next data press.
 - **Then**: one merge, one free runtime check, and the lane 4 presses. Those
   on different sites can overlap a minute apart, as Batch 1's did.
 
-## Test 12 — run 90's five additions, routed to the add-on step and delivered there (prepared 2026-10-02 on the owner's word, with the fix, on the branch; corrected the same day after the owner's review: each page's own contact details kept, the batch's verdict made strict, and the plan cut to two paid presses with the routing controls first, no free rehearsal and no restore; passed by the owner and merged and deployed in deploy 2179 (`f9979497`, image `a4409e55d3f3eb09`) the same day; press 1 passed as run 91 the same day, all eight controls the model's own intended answers, for 10 credits, and its preflight runtime-confirmed deploy 2179; press 2 pending)
+## Test 12 — run 90's five additions, routed to the add-on step and delivered there (prepared 2026-10-02 on the owner's word, with the fix, on the branch; corrected the same day after the owner's review: each page's own contact details kept, the batch's verdict made strict, and the plan cut to two paid presses with the routing controls first, no free rehearsal and no restore; passed by the owner and merged and deployed in deploy 2179 (`f9979497`, image `a4409e55d3f3eb09`) the same day; press 1 passed as run 91 the same day, all eight controls the model's own intended answers, for 10 credits, and its preflight runtime-confirmed deploy 2179; press 2 passed as run 92 the same day, all five additions routed `addon` by the model and delivered where asked with everything else kept, for 25 credits; the batch is complete, for the owner's review)
 
 **The owner**: *"Proceed with fixing A1–A5 together. … Make the router
 consistently treat new menu links, footer links, header buttons, page text and
@@ -2142,6 +2142,44 @@ chosen by the model, and each delivered as asked with nothing else moved.
   open (Supabase, 06:29 UTC). The bakery is unchanged at `dgmag4`.
 - The record is `docs/history/2026-10-02-additions.md` §11.1. Press 2 is
   next, on the owner's press.
+
+**Run 92 (press 2, passed)**: edit canary run 92 (36974345843),
+2026-10-02 06:36:14–06:52:00 UTC, from `main` at `f9979497`, spend `yes`,
+`12-additions`, in the app's own composer in one tab, never reloaded.
+- **The preflight passed again**, at the same sha and image.
+- **Each of the five messages was routed `addon` by the model** (in every
+  routing reply: `decision.source` `model`, raw intent `addon`).
+  - The Instagram link, "Order" in the menu and the "Call us" button were
+    each handed by the add-on step to the menu editor as an addition. Each
+    landed on the four pages with a frame (`index`, `order`, `visit`,
+    `gallery`), beside what was there.
+  - The bank-holiday line and the sourdough photograph were made by the
+    add-on step on `/visit`. The photograph is the bakery's own (the home
+    page's *"A sourdough boule cooling after the morning bake"*); nothing
+    was bought.
+- **Five publishes in order**, `9zslbu` → `bp9rcv` from `dgmag4`, with the
+  chain VERIFIED. **`UI MODE PASSED`**, with every check `ok`:
+  - each page kept everything else (the frame's name, tagline, first
+    button, footer details, small-print links and arrangement; every other
+    page byte for byte outside the additions' places);
+  - `visit.tsx` gained exactly the one line and the one photograph;
+  - the same holds on the published pages.
+- **Read independently.**
+  - **Supabase**: ledger rows 351–355 (−1 ×3, −7, −8), with no refund and
+    nothing after. The hand-over jobs are `failed` at cost 0, the
+    hand-over's recorded shape. Nothing is queued or running.
+  - **The stored source** shows the three `CHROME` fields and the
+    `visit.tsx` line and `SafeImage`; `starter.tsx` is identical.
+  - **The served pages** differ from the 06:33 reading only by the
+    additions and the asset names.
+  - **Screenshots** sent.
+- **25 credits**, inside the estimate of about 19–41: routing 7 (3, then 1
+  each) and jobs 18 (1, 1, 1, 7, 8).
+- **Kept separate** (backlog): the photo reply's *"that A visitor"*
+  capital; two untraced 404 lines in the app tab; the menu editor writing
+  `links` on one line.
+- The record is `docs/history/2026-10-02-additions.md` §11.3. **The batch
+  is complete**; the owner's review is next, then the whole-router audit.
 
 ## Test 11 — one item added to an existing list (prepared 2026-10-01 on the owner's word, after Test 10 was closed; free analysis only, nothing spent, no routing change; its capability — the add-on `row` kind — and the canary's add-on press built on the branch the same day on the owner's word, verified free, corrected in three rounds after the owner's reviews, and merged and deployed in deploy 2175 the same day (runtime check pending); real model routing unproven; the expectation corrected: the new entry's id is the database's, not necessarily 7; run 88 passed every condition, and **closed by the owner on 2026-10-02 for its verified saved-row outcome**, not to be repeated)
 

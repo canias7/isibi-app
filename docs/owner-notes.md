@@ -1,109 +1,81 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-02, 06:31 UTC)
+## Current handoff — read this first (2026-10-02, 07:10 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**State now: press 1 passed. Run 91 routed all eight controls exactly as
-intended, each by the model's own answer, for 10 credits, and its preflight
-confirmed deploy 2179 live. Press 2, the five additions, is ready for your
-press.**
-- **Run 91** (06:24–06:27 UTC, from `main`): both readers answered
-  `f9979497`, and a cold container `a4409e55d3f3eb09`. Then each control
-  went where it should:
-  - the "Order a loaf" button changed, "The starter" taken out of the menu,
-    and the footer's opening hours changed: edits at the menu editor;
-  - the Visit heading reworded: an edit at the text step;
-  - the Visit photo swapped: an edit at the picture step;
-  - a new loaf: the add-on step;
-  - a colour change with a new footer link: the colour at the look step,
-    holding back exactly "add our Instagram to the footer";
-  - two pages' backgrounds: one look change.
-- **Nothing fell back, differed or failed.** Nothing on the site changed and
-  no job was created: routing only, 10 credits (the estimate was 10–24).
-- **The bakery** is still at `01790819484141-dgmag4` (read at 06:29 UTC), so
-  press 2 starts from the recorded state.
+**State now: both presses passed, so live validation is done and ready for
+your review.** Run 92 sent the five additions from one tab. Each was routed
+to the add-on step by the model and delivered where asked, everything else
+on the site stayed as it was, and it cost 25 credits. Nothing is waiting on
+a press.
+- **Run 92** (06:36–06:52 UTC, from `main`): the preflight answered
+  `f9979497` and `a4409e55d3f3eb09` again. Then:
+  - **The Instagram link, "Order" in the menu and the "Call us" button**:
+    the add-on step handed each to the menu editor as an addition. Each
+    landed on all four pages with a frame, beside what was there.
+  - **The bank-holiday line and the sourdough photo**: the add-on step put
+    both on the Visit page itself. The photo is the bakery's own (the home
+    page's *"A sourdough boule cooling after the morning bake"*), so nothing
+    was bought.
+  - **Five publishes in order**, the last `01790923788063-bp9rcv`. The
+    canary's verdict passed every check, including that each page kept
+    everything else and that the line says "closed on bank holidays".
+- **I checked it myself afterwards**:
+  - **Supabase**: five charges (1, 1, 1, 7, 8), no refunds, nothing after
+    them, and nothing still running.
+  - **The stored pages** hold exactly the five additions.
+  - **The live pages** differ from the 06:33 reading only by the additions
+    and the rebuilt file names.
+  - **Screenshots**: I sent them in our chat. `/visit` shows all five. On
+    the home pair the middle is blank in both pictures, because those parts
+    fade in as you scroll and the capture doesn't scroll; the live page
+    code shows them unchanged.
+- **Cost: 25 credits** (the estimate was 19–41): routing 7, and 18 for the
+  work itself. Nothing at fal.
+- **The bakery keeps the additions**, as planned: it is live at `bp9rcv`.
 - **The balance isn't stated here**: updating the docs' balance lines was
   stopped by this session's permission check, and waits on your choice.
 
-**Press 2, paid: the five additions.** You can press it now: the container
-rolled at 06:03 UTC, well past the 15–20 minute wait. It sends run 90's five
-messages word for word, from one tab, on the bakery. The additions stay on
-the site.
+**Three small things I noticed, kept separate** (backlog; nothing changed):
+- **The photo reply's capital letter**: *"…I can't confirm from here that A
+  visitor can see a photo…"*. The "I can't confirm" sentence is the reply's
+  deliberate design; only the capital "A" is wrong.
+- **Two 404 lines in the app tab**, from addresses the canary doesn't record
+  (all of its own requests answered fine). Not traced.
+- **The menu editor rewrote each page's menu list on one line.** The pages
+  look the same.
 
-Edit canary, Run workflow, from `main`
-(https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml):
-
-*RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit…*
-```
-12-additions
-```
-*The site to edit…*
-```
-fold-lane-bakery
-```
-*Run the ONE paid edit as well (yes/no)*
-```
-yes
-```
-*Refuse to spend unless the Worker reports this deploy sha (prefix, >=7
-chars)…*
-```
-f99794979e2590937154d51d1d4f4a15c469d8ef
-```
-*Refuse to spend unless a cold container reports this image id (exact)…*
-```
-a4409e55d3f3eb09
-```
-
-Leave *What to change* and the *ROUTING-ONLY BATCH* box blank, and every
-other box as it is.
-
-**Cost of press 2** (estimates, not limits)
-
-| | Estimate | Notes |
-|---|---|---|
-| The 5 additions | about 19–41 credits | it won't send another message once 45 is spent |
-| If the photo is bought | can't happen now: fal has no credits (you, 2026-10-02) | the add-on is told to prefer the site's own photo, and the home page has one: *"A sourdough boule cooling after the morning bake"*. If it tried to buy anyway, the purchase would fail and the photo message would be refused at no cost for that step (routing only), with no empty frame published |
-
-**It passes only on what landed**: each message routed to the add-on step
-by the model itself; the menu link, footer link and header button through
-the menu editor, the line and the photo through the add-on step; every
-page keeping everything else it had; the new line stating "closed on bank
-holidays" (not denying it); the same on the live pages; and the money
-closing.
-
-**After press 2**: I read it against that list. After live validation, the
-next separate task is the whole-router audit, across the build, the edit,
-the add-on and the hand-overs between them.
+**Next, once you've reviewed live validation**: the separate task you set,
+the whole-router audit. It covers the build, the edit, the add-on and the
+hand-overs between them, looking for intent decisions that are hard-coded
+and checking how routing behaves across different wordings and site types.
+It doesn't start until you accept this.
 
 **Kept for the next round**: undo, conversation context, attachments, the
 older `lostPhotosMsg` sentence, and the menu editor's contact summary.
 
 **Links**
+- Run 92: https://github.com/canias7/isibi-app/actions/runs/36974345843
 - Run 91: https://github.com/canias7/isibi-app/actions/runs/36973396657
-- Deploy run: https://github.com/canias7/isibi-app/actions/runs/36971490099
-- Run workflow: https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml
-- The record: `docs/history/2026-10-02-additions.md` (§7 the batch, §11.1
-  run 91); the checklist's *Test 12*; `docs/deploy-record.md`, *Deploy
-  2179*.
+- The record: `docs/history/2026-10-02-additions.md` (§11.1 run 91, §11.3
+  run 92); the checklist's *Test 12*; `docs/backlog.md`.
 
 **From our chat**
-- The controls first, then the additions after the controls pass: done in
+- The controls first, then the additions after the controls passed: done in
   that order.
-- Each paid run uses its own preflight; no rehearsal and no restore.
-- Paid runs wait for your presses.
+- Each paid run used its own preflight; no rehearsal and no restore.
 - The whole-router audit comes after live validation.
 - CLAUDE.md is left alone.
 
 **Blockers**
-- None for press 2.
+- None. Waiting on your review.
 
 **Exact next action**
-- When you've pressed press 2, I read it: the routing of each message, each
-  job's result, the stored pages, the live pages and the money.
+- Your review of runs 91 and 92. On your word, I start the whole-router
+  audit.
 
 ---
 
@@ -163,6 +135,27 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-02 — Press 2 passed (run 92): all five additions routed to the add-on step and delivered; live validation done
+
+- **Your press** (*"ran"*): run 92, 06:36–06:52 UTC, from `main`, typed
+  into the app's own chat in one tab.
+- **Each of the five was routed to the add-on step by the model.** The
+  Instagram link, "Order" and "Call us" went on through the menu editor to
+  all four pages with a frame, beside what was there. The bank-holiday line
+  and the bakery's own sourdough photo went on the Visit page.
+- **Everything else stayed as it was**, on the stored pages and the live
+  ones. There were five publishes in order, the last `bp9rcv`, and the
+  canary's verdict passed every check.
+- **Cost: 25 credits** (estimate 19–41): routing 7 and the work 18. Nothing
+  was bought. I read it again in Supabase: five charges, no refunds, nothing
+  still running.
+- **Kept separate**: the photo reply's capital "A" mid-sentence, two
+  untraced 404 lines in the app tab, and the menu list rewritten on one
+  line.
+- **Next**: your review; then, on your word, the whole-router audit.
+- The record: `history/2026-10-02-additions.md` §11.3, the checklist's
+  *Test 12*, and `backlog.md`.
 
 ## 2026-10-02 — Press 1 passed (run 91): all eight controls routed as intended; deploy 2179 confirmed live
 

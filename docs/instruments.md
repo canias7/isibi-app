@@ -143,7 +143,10 @@ in `docs/instruments.md`; each test's plan and evidence is in the checklist.
     those names: run 77's `routing.json` carries four. Batch 1's presses ran
     without them.
 - **The additions batch** (2026-10-02; corrected after the owner's review the
-  same day; merged and deployed in deploy 2179; not yet run):
+  same day; merged and deployed in deploy 2179; both presses passed the same
+  day: `addition-fix-1` as run 91, eight controls the model's own intended
+  answers for 10 credits, and `12-additions` as run 92, five additions
+  delivered for 25 credits):
   - **`12-additions`**, a UI scenario on `fold-lane-bakery`: run 90's five
     additions word for word from one tab (`scripts/canary-ui.mjs`). It is the
     one scenario the add-on step is open to, for its own site; an edit that is
@@ -179,7 +182,7 @@ in `docs/instruments.md`; each test's plan and evidence is in the checklist.
     the deploy before its first paid call (the routing batch requires both
     deploy boxes), and no restore: the additions stay on the bakery.
   - The presses, pass list and cost are the checklist's *Test 12* and
-    `docs/history/2026-10-02-additions.md` §7.
+    `docs/history/2026-10-02-additions.md` §7; the runs are §11.
 - **The routing-only batch** (`route_probes`, 2026-10-02, the router audit;
   `scripts/canary-probes.mjs`; merged and deployed in deploy 2178; first run: run 90, 18 routed for 24 credits): the
   name of a committed probe list in `scripts/router-probes/` (the first is
