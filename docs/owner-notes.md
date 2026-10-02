@@ -30,9 +30,9 @@ built. Nothing is waiting on a press.
 - **The eight replies the audit left untraced are traced** (audit §1.6),
   and every finding is now classed: confirmed defect, conditional risk, or
   untested model behaviour (§3.0). The risks the fixes leave are N1–N10.
-- **Checks, all free**: 84 new cases through the real routes on both money
-  paths; 69 of them fail on the unfixed code, and the other 15 are controls
-  and one case that is the same either way. Mutation sweeps on all four,
+- **Checks, all free**: 84 new cases, the route cases through the real
+  routes on both money paths; 69 of them fail on the unfixed code, and the
+  other 15 are 14 controls and one case that is the same either way. Mutation sweeps on all four,
   every survivor closed but one that is equivalent (explained). Full suite
   `8732 / 8732 / 0 / 0`. Unit CI is read after this push.
 - **What you'll see on screen**: two new sentences, rendered by the chat's
@@ -157,8 +157,8 @@ since. Add new ones there.
   said. The kept pages' components now go with them.
 - **W4**: a menu change is made to each page's own menu; untouched menus
   stay exactly as written, and the reply names the menus as they read.
-- **Checks**: 84 new cases through the real routes (69 fail on the unfixed
-  code), sweeps on all four, full suite `8732 / 8732 / 0 / 0`. Shown with
+- **Checks**: 84 new cases, the route cases through the real routes (69
+  fail on the unfixed code), sweeps on all four, full suite `8732 / 8732 / 0 / 0`. Shown with
   supplied answers only: no real model and no live run yet.
 - **Also**: the eight untraced replies traced, every finding classed, and
   the risks left listed (N1–N10). Two new on-screen sentences, rendered.

@@ -156,7 +156,7 @@ reply composer and note list, the chat's own thread markup and stylesheet
 
 All free: no model, no network, no site, no money.
 
-### 3.1 New tests (84 cases), each red on the unfixed code
+### 3.1 New tests (84 cases), and how many fail on the unfixed code
 
 | File | Cases | Red on `5ce037a0` |
 |---|---|---|
@@ -174,8 +174,8 @@ reply. **Successful intended removals are held as closely as the neighbours
 they must leave alone**: the Spanish version goes and French stays; the
 prices code and its figure go and the ring code and its figure stay; an
 unlinked page named in `remove` goes and every other page stays byte for
-byte; Workshop Load comes off the one menu that listed it and the other
-pages are byte-identical.
+byte; Order comes off the three menus that list it, and the page whose menu
+never listed it stays byte-identical.
 
 The red checks ran in a worktree at `5ce037a0` with the branch's test files
 copied in; a name the old module lacks reads `undefined`, so its own cases

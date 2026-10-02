@@ -1020,7 +1020,7 @@ page by page, the money, and the reply.
 | `test/menu-per-page.test.mjs` | 22 | 20 fail; the 2 controls pass | the comparison and the per-page apply on their own, and the real edit route on both money paths, on four differing menus: take out, rename, move, add, replace and repoint, each page's own items, order and words, the menus as they read in the reply, and an answer that changes nothing publishing nothing |
 
 **69 of the 84 new cases fail on the unfixed code; the 15 that pass are
-the controls** (and the all-languages case, the same either way). Each red
+the 14 controls and the all-languages case, the same either way.** Each red
 check ran in a worktree at `5ce037a0` with the branch's test files copied
 in, a name the old module lacks read as `undefined` so its own cases fail
 rather than the whole file.
