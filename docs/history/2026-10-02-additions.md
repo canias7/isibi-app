@@ -2,7 +2,8 @@
 
 *Passed by the owner, and merged and deployed in deploy 2179 (§10.6). Both
 presses of the validation batch passed: press 1 as run 91 (§11.1) and press 2
-as run 92 (§11.3). The batch is complete and awaits the owner's review. The code is
+as run 92 (§11.3), and **the owner closed Test 12 on 2026-10-02 for the
+verified outcomes of runs 91 and 92** (§11.4). The code is
 `202c554a` (the fix), `a5282a6f` (the validation batch), `6c69d155` and
 `03e664aa` (two reply sentences corrected before review, §3.4 and §3.5),
 and, after the owner's review, `f18af0df` and `dbc520f2` (§10), whose plan
@@ -777,3 +778,15 @@ The bakery stays at `01790923788063-bp9rcv`, because the plan keeps the demo
 changes and makes no restore. **Both presses passed, so the validation
 batch is complete.** The owner's review is next. After it comes the owner's
 next separate task, the whole-router audit.
+
+### 11.4 Closed by the owner (2026-10-02)
+
+> *"Close Test 12 for the verified outcomes of runs 91 and 92, then start the
+> separate whole-router audit."*
+
+Test 12 is closed for exactly what the two runs showed: run 91's eight
+routing controls, each the model's own intended answer, and run 92's five
+additions, each routed `addon` by the model and delivered where asked with
+everything else kept. One wording of each, once each, on one site. It is not
+to be repeated. The three observations stay in the backlog. The audit is
+`docs/investigations/whole-router-audit.md`.

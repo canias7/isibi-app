@@ -107,6 +107,25 @@ request.**
 - The bakery stays at version `dgmag4`. A sort limited to a selection of
   pages stays unproven with real models. Not to be repeated.
 
+**Closed by the owner (2026-10-02): Test 12, for the verified outcomes of
+runs 91 and 92.**
+- **Run 91**, routing only: all eight controls (a button change, a menu
+  item taken out, the footer's hours, a heading reworded, a photo swapped, a
+  new loaf, a colour change beside a new footer link, two pages'
+  backgrounds) routed as intended, each the model's own answer; nothing
+  acted on; 10 credits; its preflight runtime-confirmed deploy 2179.
+- **Run 92**, five messages from one tab of the real app on
+  `fold-lane-bakery`: each routed `addon` by the model. The Instagram link,
+  "Order" and "Call us" were handed to the menu editor as additions on the
+  four pages with a frame. The bank-holiday line and the bakery's own
+  sourdough photograph were placed on `/visit` by the add-on step. Everything
+  else was kept, stored and published (`9zslbu` → `bp9rcv`); 25 credits
+  (ledger rows 351–355).
+- The bakery keeps the additions at `bp9rcv` (no restore, by plan). One
+  wording of each, once each, on one site; not to be repeated. Kept
+  separate (backlog): the photo reply's mid-sentence capital, two untraced
+  404 lines in the app tab, and the menu list rewritten on one line.
+
 **Test 11, one item added to an existing list: prepared, then its
 capability built (2026-10-01, on the owner's word), corrected in three
 rounds and merged and deployed in deploy 2175 the same day, its code
@@ -361,7 +380,7 @@ the owner's free press, run 51, at 22:57 UTC):
     funding). Placing one of the site's own photographs is new on the branch
     (item 12).
 12. **New frame items, words and photographs through the add-on step**
-    (run 90's A1–A5): **fixed on 2026-10-02, and merged and deployed in deploy 2179 the same day; shown live by run 92 the same day** (each routed `addon` by the model and delivered, for the owner's review). The
+    (run 90's A1–A5): **fixed on 2026-10-02, merged and deployed in deploy 2179, shown live by runs 91 and 92, and closed by the owner the same day** (Test 12). The
     router now sends them to the add-on step, which hands a frame item to the
     menu editor as an addition, places words and checks them on the page,
     and places one of the site's own photographs. Corrected after the
@@ -2015,7 +2034,7 @@ in the next data press.
 - **Then**: one merge, one free runtime check, and the lane 4 presses. Those
   on different sites can overlap a minute apart, as Batch 1's did.
 
-## Test 12 — run 90's five additions, routed to the add-on step and delivered there (prepared 2026-10-02 on the owner's word, with the fix, on the branch; corrected the same day after the owner's review: each page's own contact details kept, the batch's verdict made strict, and the plan cut to two paid presses with the routing controls first, no free rehearsal and no restore; passed by the owner and merged and deployed in deploy 2179 (`f9979497`, image `a4409e55d3f3eb09`) the same day; press 1 passed as run 91 the same day, all eight controls the model's own intended answers, for 10 credits, and its preflight runtime-confirmed deploy 2179; press 2 passed as run 92 the same day, all five additions routed `addon` by the model and delivered where asked with everything else kept, for 25 credits; the batch is complete, for the owner's review)
+## Test 12 — run 90's five additions, routed to the add-on step and delivered there (prepared 2026-10-02 on the owner's word, with the fix, on the branch; corrected the same day after the owner's review: each page's own contact details kept, the batch's verdict made strict, and the plan cut to two paid presses with the routing controls first, no free rehearsal and no restore; passed by the owner and merged and deployed in deploy 2179 (`f9979497`, image `a4409e55d3f3eb09`) the same day; press 1 passed as run 91 the same day, all eight controls the model's own intended answers, for 10 credits, and its preflight runtime-confirmed deploy 2179; press 2 passed as run 92 the same day, all five additions routed `addon` by the model and delivered where asked with everything else kept, for 25 credits; **closed by the owner on 2026-10-02 for the verified outcomes of runs 91 and 92**, not to be repeated)
 
 **The owner**: *"Proceed with fixing A1–A5 together. … Make the router
 consistently treat new menu links, footer links, header buttons, page text and
@@ -2178,8 +2197,9 @@ chosen by the model, and each delivered as asked with nothing else moved.
 - **Kept separate** (backlog): the photo reply's *"that A visitor"*
   capital; two untraced 404 lines in the app tab; the menu editor writing
   `links` on one line.
-- The record is `docs/history/2026-10-02-additions.md` §11.3. **The batch
-  is complete**; the owner's review is next, then the whole-router audit.
+- The record is `docs/history/2026-10-02-additions.md` §11.3. **Closed by
+  the owner (2026-10-02)** for the verified outcomes of runs 91 and 92; the
+  whole-router audit follows (`docs/investigations/whole-router-audit.md`).
 
 ## Test 11 — one item added to an existing list (prepared 2026-10-01 on the owner's word, after Test 10 was closed; free analysis only, nothing spent, no routing change; its capability — the add-on `row` kind — and the canary's add-on press built on the branch the same day on the owner's word, verified free, corrected in three rounds after the owner's reviews, and merged and deployed in deploy 2175 the same day (runtime check pending); real model routing unproven; the expectation corrected: the new entry's id is the database's, not necessarily 7; run 88 passed every condition, and **closed by the owner on 2026-10-02 for its verified saved-row outcome**, not to be repeated)
 

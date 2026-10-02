@@ -146,7 +146,7 @@ in `docs/instruments.md`; each test's plan and evidence is in the checklist.
   same day; merged and deployed in deploy 2179; both presses passed the same
   day: `addition-fix-1` as run 91, eight controls the model's own intended
   answers for 10 credits, and `12-additions` as run 92, five additions
-  delivered for 25 credits):
+  delivered for 25 credits; Test 12 closed by the owner for those outcomes):
   - **`12-additions`**, a UI scenario on `fold-lane-bakery`: run 90's five
     additions word for word from one tab (`scripts/canary-ui.mjs`). It is the
     one scenario the add-on step is open to, for its own site; an edit that is

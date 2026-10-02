@@ -136,6 +136,21 @@ since. Add new ones there.
 
 ---
 
+## 2026-10-02 — Test 12 closed: runs 91 and 92, on your word
+
+- **Your words**: *"Close Test 12 for the verified outcomes of runs 91 and
+  92, then start the separate whole-router audit."*
+- **Closed for exactly what the two runs showed**: run 91's eight routing
+  controls, each the model's own intended answer, and run 92's five
+  additions, each routed to the add-on step by the model and delivered where
+  asked, with everything else kept. One wording of each, once each, on one
+  site. Not to be repeated.
+- **The bakery keeps the additions** at `bp9rcv`. The three small
+  observations (the photo reply's capital letter, two untraced 404 lines,
+  the menu list written on one line) stay in the backlog.
+- The record: the checklist's closures and *Test 12*, and
+  `history/2026-10-02-additions.md` §11.4.
+
 ## 2026-10-02 — Press 2 passed (run 92): all five additions routed to the add-on step and delivered; live validation done
 
 - **Your press** (*"ran"*): run 92, 06:36–06:52 UTC, from `main`, typed
