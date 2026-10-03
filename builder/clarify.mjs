@@ -28,31 +28,63 @@
 // WHAT THE RECORD HOLDS is what the answer must resume: the request still to
 // do (the whole message for a question asked before anything ran; only the part
 // that asked when other parts already ran, so those are never done again), the
-// parts put off earlier (named on every outcome until done), and every question
-// this request has asked (`asked`, so none is asked twice). Attachments stay
-// with the browser, which keeps them beside the question and sends them again
-// with the answer.
+// parts put off earlier (named on every outcome until done), and what they
+// already told us (`context`: each question this request asked before this
+// one, with its answer). Attachments stay with the browser, which keeps them
+// beside the question and sends them again with the answer.
 //
-// NO QUESTION IS SHOWN THAT ITS ANSWER CANNOT RESUME (2026-10-02, the owner's
-// review: *"never display a question whose answer cannot resume the original
-// request; retain an answerable continuation, with protection against
-// repeating the same unanswered question"*). There is no count of questions
-// past which one is shown with nothing waiting: every question kept is
-// answerable, a question this request has already asked is never asked again
-// (`askRepeat`), and one whose answer could not fit beside the request it
-// resumes is never asked at all (`askRoom`). Replacing the question an answer
-// was given to is one conditional write (`replaceAsk`), so a failed write
-// leaves that question waiting to be answered again.
+// THE ANSWERS RIDE BESIDE THE REQUEST, NEVER IN IT (2026-10-02, the owner's
+// second review: *"keep clarification context separate from executable
+// instructions, with the model identifying its relevant scope rather than
+// customer-keyword rules"*). The request is the customer's own words still to
+// do and nothing else: no answer is ever appended to it, so it never grows and
+// never runs out of room. Every model that decides a change is shown the
+// answers in a section of their own, labelled as details of the request and
+// never a change of their own (`contextBlock`, `clarifyTransport`); the lane
+// picker names which answers each change needs, so when a change is made
+// beside a question its answers go with it (`handled`), and the changes still
+// to do keep theirs.
+//
+// NO QUESTION IS SHOWN THAT ITS ANSWER CANNOT RESUME, AND NONE IS ASKED AS IF
+// NEW WHEN ITS ANSWER EXISTS (2026-10-02, the owner's two reviews: *"never
+// display a question whose answer cannot resume the original request"*; *"when
+// an answer did not resolve the ambiguity, retain the pending request and let
+// the model ask a more specific follow-up; when the answer already exists,
+// reuse it instead of asking again. Prevent repeated-question loops without
+// discarding the request or requiring the user to retype it."*). A model that
+// asks what was already answered is asked once more with that answer in front
+// of it (`clarifyTransport`, and the router's own call), to act on it or ask a
+// more specific follow-up. One that still asks the same thing is kept with a
+// note naming the answer that did not settle it (`againNote`), and the request
+// waits for a better answer; asked a third time, it is sent once more with no
+// question offered and acts on what it was told (`MAX_SAME_ASK`). Past
+// `MAX_ASKED` answers no question is offered at all. Replacing the question an
+// answer was given to is one conditional write (`replaceAsk`), so a failed
+// write leaves that question waiting to be answered again.
 //
 // DEPENDENCY-LIGHT: the router's own readers, nothing else, so the Worker and
 // the job child import it alike (it is in the Dockerfile's worker line).
 
-import { MAX_MESSAGE, MAX_OPTIONS, MAX_QUESTION_CHARS, readAsk, heldList, EDIT_LAYERS } from "./site-ask.mjs";
+import {
+  MAX_MESSAGE, MAX_OPTIONS, readAsk, heldList, EDIT_LAYERS,
+  MAX_ASKED, MAX_SAME_ASK, MAX_ANSWER_CHARS, MAX_NOTE_CHARS, CONTEXT_HEADING,
+  readContext, shownContext, repeatOf, contextBlock, withContext, reuseNote, withReuse, againNote,
+} from "./site-ask.mjs";
 
 // The question's reader is the router's own, so the router and every step hold
 // a question to one rule (`readAsk` in site-ask.mjs). Re-exported for the
 // steps, which import this module.
 export { readAsk };
+
+// AND SO ARE WHAT THEY ALREADY TOLD US AND ITS READERS (2026-10-02): the
+// router shows a waiting request's answers and sends a repeated question back
+// with its answer, exactly as a step's transport does (`clarifyTransport`
+// below), so both live beside `readAsk` and hold the answers to one rule. The
+// router cannot import this module: this one imports it.
+export {
+  MAX_ASKED, MAX_SAME_ASK, MAX_ANSWER_CHARS, MAX_NOTE_CHARS, CONTEXT_HEADING,
+  readContext, shownContext, repeatOf, contextBlock, withContext, reuseNote, withReuse, againNote,
+};
 
 /** How long a question stays answerable. A day: an answer the next morning still counts. */
 export const ASK_TTL_MS = 24 * 60 * 60 * 1000;
@@ -79,8 +111,8 @@ export const QUESTION_FIELD = Object.freeze({
     "which of several things they mean, or what should happen to it. Then ask them that one thing here and " +
     "leave the rest of your answer empty: nothing is changed until they reply. Never ask to check that they " +
     "meant it, never for something you can see, never for a choice you can make sensibly yourself, and never " +
-    "what they were already asked: each question they answered is in their message, with their answer. When " +
-    "you can act, act and leave this out.",
+    "what they already answered (WHAT THEY ALREADY TOLD YOU); if that left it open, ask a more specific " +
+    "question naming what is open. When you can act, act and leave this out.",
   properties: {
     text: { type: "string", description: "The question, in one or two short, plain sentences, written to them." },
     options: {
@@ -111,36 +143,12 @@ export function askOf(reply) {
   return input ? readAsk(input.question) : null;
 }
 
-/**
- * THE REQUEST THE ANSWER RESUMES: what was still to do, then the question and
- * the answer as plain lines — the shape `clarifiedBrief` gives a first build,
- * so the step that reads it sees the customer's own words and never a
- * paraphrase. `null` when it would not fit one message: every step reads at
- * most `MAX_MESSAGE` characters, and a request cut short would lose the answer.
- */
-export function answeredRequest(request, question, answer) {
-  const r = typeof request === "string" ? request.trim() : "";
-  const q = typeof question === "string" ? question.trim() : "";
-  const a = typeof answer === "string" ? answer.trim() : "";
-  if (!r || !q || !a) return null;
-  const out = r + "\n\nThey were asked: " + q + "\nThey answered: " + a;
-  return out.length <= MAX_MESSAGE ? out : null;
-}
-
 /** A fresh id: 32 hex from the platform's CSPRNG. */
 export function newAskId() {
   const b = new Uint8Array(16);
   crypto.getRandomValues(b);
   return [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
 }
-
-/**
- * HOW MANY QUESTIONS ONE REQUEST'S RECORD NAMES — a bound on the record's size,
- * never a budget of questions. Each round adds its question and answer to the
- * request it resumes, which is one message long (`answeredRequest`), so a
- * request runs out of room long before this.
- */
-export const MAX_ASKED = 64;
 
 const ID_RE = /^[0-9a-f]{32}$/;
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,80}$/;
@@ -157,11 +165,13 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,80}$/;
 // reload that lost them, or another device knows to ask for them again rather
 // than answer without them.
 //
-// `asked` IS EVERY QUESTION THIS REQUEST HAS ASKED, this one last — absent, it
-// is this one alone. `round` is how many that is; there is no ceiling on it,
-// because every question kept is one its answer can resume (`askRoom`), and a
-// request asks again only what it has not asked before (`askRepeat`).
-export function packAsk({ id, uid, slug, stage, round, question, request, held = [], at, status = "pending", attached = false, asked } = {}) {
+// `context` IS WHAT THEY ALREADY TOLD US: each question this request asked
+// before this one, with its answer, in order (`readContext`) — beside the
+// request, never in it, and fewer than `MAX_ASKED` of them, so the answer to
+// this one still fits the list. `round` is how many questions the request has
+// asked, this one included. `note` is the line a question asked once more is
+// shown under (`againNote`), naming the answer that did not settle it.
+export function packAsk({ id, uid, slug, stage, round, question, request, held = [], at, status = "pending", attached = false, context = [], note } = {}) {
   const q = readAsk(question);
   const parts = heldList(held);
   const req = typeof request === "string" ? request.trim() : "";
@@ -176,94 +186,99 @@ export function packAsk({ id, uid, slug, stage, round, question, request, held =
   if (!Number.isFinite(at)) return null;
   if (!ASK_STATUSES.includes(status)) return null;
   if (typeof attached !== "boolean") return null;
-  // THE QUESTIONS ASKED SO FAR, EACH ONE A QUESTION'S OWN WORDS, THIS ONE LAST:
-  // a list that is anything else makes the record unusable, never a shorter list.
-  const list = asked === undefined ? [q.text] : asked;
-  if (!Array.isArray(list) || !list.length || list.length > MAX_ASKED) return null;
-  if (!list.every((t) => typeof t === "string" && t.trim() && t.length <= MAX_QUESTION_CHARS)) return null;
-  if (list[list.length - 1] !== q.text) return null;
-  return { v: 1, id, uid, slug, stage, round, question: q, request: req, held: parts, at, status, attached, asked: list.slice() };
+  // WHAT THEY TOLD US SO FAR: a list that is anything else makes the record
+  // unusable, never a shorter list.
+  const told = readContext(context);
+  if (told === null || told.length >= MAX_ASKED) return null;
+  if (note !== undefined && (typeof note !== "string" || !note.trim() || note.trim().length > MAX_NOTE_CHARS)) return null;
+  return {
+    v: 2, id, uid, slug, stage, round, question: q, request: req, held: parts, at, status, attached, context: told,
+    ...(note === undefined ? {} : { note: note.trim() }),
+  };
 }
 
 /**
- * THE QUESTIONS A REQUEST HAS ASKED, as a hand-over carries them (`asked`, from
- * the routing answer to the step that runs the request): a list of question
- * texts, or none. Anything else is none — it only ever protects against a
- * repeat, so a list that cannot be read protects against nothing rather than
- * refusing the work.
+ * A REQUEST WITH NO QUESTION OFFERED: the question field taken off every tool
+ * that has one — for a request already carrying `MAX_ASKED` answers, and for a
+ * question asked `MAX_SAME_ASK` times. Its model acts on what it was told.
  */
-export function askedList(v) {
-  if (!Array.isArray(v) || v.length > MAX_ASKED) return [];
-  return v.every((t) => typeof t === "string" && t.trim() && t.length <= MAX_QUESTION_CHARS) ? v.slice() : [];
+export function stripQuestion(request) {
+  if (!request || typeof request !== "object" || !Array.isArray(request.tools)) return request;
+  let changed = false;
+  const tools = request.tools.map((t) => {
+    const schema = t && t.input_schema;
+    const props = schema && schema.properties;
+    if (!props || !Object.hasOwn(props, "question")) return t;
+    changed = true;
+    const { question: _drop, ...rest } = props;
+    return { ...t, input_schema: { ...schema, properties: rest } };
+  });
+  return changed ? { ...request, tools } : request;
 }
 
-/** A question's words as they are compared: case, accents, spacing and punctuation set aside. */
-function askKey(text) {
-  return String(text || "").normalize("NFKD").replace(/\p{M}+/gu, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
-}
-
-/**
- * HAS THIS REQUEST ALREADY ASKED THIS? A question whose words, set side by side
- * with one already asked (`askKey`), are the same. Such a question is never
- * asked again: its answer was given, and asking it once more is a loop, not a
- * question (owner: *"protection against repeating the same unanswered
- * question"*).
- */
-export function askRepeat(asked, question) {
-  const k = askKey(question && question.text);
-  return !!k && askedList(asked).some((t) => askKey(t) === k);
-}
-
-/**
- * THE ANSWERS A RESUMED REQUEST CARRIES (2026-10-02, the owner's review:
- * *"verify actual resumed model inputs"*): its lines from the one that asked
- * this request's first question to its end. `answeredRequest` only ever
- * appends, so they are its last lines — and in no change's own words, however
- * narrowly the picker scoped each change. "" on a fresh request, or when those
- * lines are not there.
- */
-export function answerLines(text, asked) {
-  const list = askedList(asked);
-  if (typeof text !== "string" || !list.length) return "";
-  const at = text.indexOf("\n\nThey were asked: " + list[0].trim() + "\nThey answered: ");
-  return at < 0 ? "" : text.slice(at + 2).trim();
+/** A reply to a request that offered no question: any question in it is not one, and is taken out. */
+function dropQuestion(reply) {
+  const blocks = reply && Array.isArray(reply.content) ? reply.content : null;
+  const asks = (b) => !!b && b.type === "tool_use" && !!b.input && typeof b.input === "object" && Object.hasOwn(b.input, "question");
+  if (!blocks || !blocks.some(asks)) return reply;
+  return {
+    ...reply,
+    content: blocks.map((b) => {
+      if (!asks(b)) return b;
+      const { question: _drop, ...rest } = b.input;
+      return { ...b, input: rest };
+    }),
+  };
 }
 
 /**
- * THE QUESTIONS WHOSE ANSWERS A REQUEST STILL CARRIES: those of `asked` it
- * holds the lines for. A question kept with a request records only these as
- * asked, so it never forbids asking again what the request no longer answers.
+ * EVERY MODEL CALL A STEP MAKES, WITH WHAT THEY ALREADY TOLD US (2026-10-02,
+ * the owner's second review). `send` is the step's own transport; this wraps
+ * it, so no step's request builder changes and no step can forget:
+ *
+ *   * each request is shown the answers this step needs (`shown`), in their
+ *     own section after everything else it holds (`withContext`);
+ *   * a reply that asks what this request already asked (`all`: every answer
+ *     it carries, shown to this step or not) is not put to the customer — the
+ *     model is sent the request again with that answer in front of it
+ *     (`withReuse`), to act on it or ask a more specific question, and only
+ *     that second reply is returned: the first call is ours and its usage is
+ *     never billed;
+ *   * a question already put to the customer `MAX_SAME_ASK` times is sent
+ *     again with no question offered, and once the request carries
+ *     `MAX_ASKED` answers no call is offered one (`stripQuestion`): a question
+ *     in such a reply is taken out, never read.
+ *
+ * `onReuse(hit, closed)` hears each time a model was sent again, for the trace.
  */
-export function askedIn(request, asked) {
-  const r = typeof request === "string" ? request : "";
-  return askedList(asked).filter((q) => r.includes("They were asked: " + q.trim() + "\nThey answered: "));
+export function clarifyTransport(send, { shown = () => [], all = () => [], onReuse = null } = {}) {
+  return async (request) => {
+    const every = readContext(all()) || [];
+    const closed = every.length >= MAX_ASKED;
+    let req = withContext(request, shown());
+    if (closed) req = stripQuestion(req);
+    const reply = await send(req);
+    if (closed) return dropQuestion(reply);
+    const ask = askOf(reply);
+    const hit = ask ? repeatOf(every, ask) : [];
+    if (!hit.length) return reply;
+    const last = hit.length >= MAX_SAME_ASK;
+    if (typeof onReuse === "function") { try { onReuse(hit, last); } catch { /* the trace never costs the call */ } }
+    const second = await send(withReuse(last ? stripQuestion(req) : req, hit));
+    return last ? dropQuestion(second) : second;
+  };
 }
 
-/**
- * THE ROOM AN ANSWER NEEDS: the longest answer the question offers, and never
- * less than a short typed one — a question whose offered answers fit and whose
- * typed answers could not is still one the screen must not show.
- */
-export const ASK_ANSWER_ROOM = 40;
-
-/**
- * CAN AN ANSWER TO THIS QUESTION RESUME THIS REQUEST? The request, the question
- * and an answer as long as its longest option (or `ASK_ANSWER_ROOM`) must fit
- * one message (`answeredRequest`). When they cannot, every answer would be
- * refused as too long, so the question is never shown.
- */
-export function askRoom(request, question) {
-  const q = readAsk(question);
-  if (!q) return false;
-  const room = Math.max(ASK_ANSWER_ROOM, ...q.options.map((o) => o.length));
-  return answeredRequest(request, q.text, "x".repeat(room)) !== null;
+/** The same, for a call shaped `(keys, request, budget)` — the page writer's. */
+export function clarifyCall(call, opts) {
+  return (keys, req, budget) => clarifyTransport((r) => call(keys, r, budget), opts)(req);
 }
 
 /** A stored question read back, with the same checks it was written under. */
 export function readAskRecord(raw) {
   let v = raw;
   if (typeof raw === "string") { try { v = JSON.parse(raw); } catch { return null; } }
-  if (!v || typeof v !== "object" || Array.isArray(v) || v.v !== 1) return null;
+  if (!v || typeof v !== "object" || Array.isArray(v) || v.v !== 2) return null;
   return packAsk(v);
 }
 

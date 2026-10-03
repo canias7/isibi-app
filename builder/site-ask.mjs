@@ -997,13 +997,14 @@ const SYSTEM =
 // ── WHAT A SITE THAT EXISTS IS TOLD ABOUT QUESTIONS (2026-10-02) ───────────
 //
 // Two facts, each said outright rather than left to be inferred: whether a
-// question may be asked for this request (wherever one can be kept — there is
-// no count of them), with the questions it has already asked, never to be
-// asked again; and, when the message may be the answer to one already asked,
-// the request that is waiting, the question and the answers offered. The
-// router then says whether the message answers it (`answered`); nothing in
-// code reads the customer's words to decide that.
-function liveBlock({ canAsk = false, pending = null, asked = [] } = {}) {
+// question may be asked for this request (wherever one can be kept, until the
+// request carries `MAX_ASKED` answers); and, when the message may be the
+// answer to one already asked, the request that is waiting, what they already
+// told us about it (`contextBlock`: its earlier answers, as details of that
+// request and never a change of their own), the question and the answers
+// offered. The router then says whether the message answers it (`answered`);
+// nothing in code reads the customer's words to decide that.
+function liveBlock({ canAsk = false, pending = null, context = [] } = {}) {
   const p = pending && typeof pending === "object" ? pending : null;
   const q = p && p.question && typeof p.question === "object" ? p.question : null;
   const opts = q && Array.isArray(q.options) ? q.options.filter((o) => typeof o === "string" && o) : [];
@@ -1013,26 +1014,25 @@ function liveBlock({ canAsk = false, pending = null, asked = [] } = {}) {
       (opts.length ? "\nThe answers they were offered: " + opts.slice(0, MAX_OPTIONS).join(" / ") : "") +
       (p.chosen === true ? "\nThey picked one of those answers: it is their message below." : "") +
       "\nTheir message below answers that question, or asks for something else instead: say which in `answered`. " +
-      "With true, decide everything for their last request with the answer taken into account, and copy any part you " +
-      "hold back from their last request. With false, decide everything for the new message alone."
+      "With true, decide everything for their last request with the answer taken into account — when it does not " +
+      "settle what you asked, ask them a more specific question that names exactly what it left open — and copy any " +
+      "part you hold back from their last request. With false, decide everything for the new message alone."
     : "";
-  // THE QUESTIONS THIS REQUEST HAS ASKED, each its own line: never asked
-  // again, and a repeat is refused in code as well (`askRepeat`).
-  const before = (Array.isArray(asked) ? asked : []).filter((t) => typeof t === "string" && t.trim())
-    .map((t) => "- " + t.trim().slice(0, MAX_QUESTION_CHARS));
+  // WHAT THEY ALREADY TOLD US ABOUT THE WAITING REQUEST, in its own section
+  // under it: the details of that request, never asked again. Only beside a
+  // waiting request — a new message carries no answers of its own.
+  const told = waiting ? contextBlock(context) : "";
   const asking = canAsk
     ? "\n\nA QUESTION MAY BE ASKED\nBefore answering with work you may ask them one question instead (\"clarify\"), when " +
       "a detail they left out decides your answer — whether it is a change or an addition, which page or part of the " +
       "site, or what should happen — and neither their message nor the site above settles it. When the message is " +
       "clear, answer with the work." +
-      (before.length
-        ? "\nWHAT THIS REQUEST HAS ALREADY ASKED THEM — never ask any of these again; their answers are in the request:\n" + before.join("\n")
-        : "")
+      (told ? " Never ask what they already answered under " + CONTEXT_HEADING + "." : "")
     : "\n\nQUESTIONS\nQuestions are closed for this message — never answer \"clarify\".";
-  return waiting + asking;
+  return waiting + (told ? "\n" + told : "") + asking;
 }
 
-export function askRequest({ message, site, canClarify = false, brief = "", qa = [], hasSite = false, model = ASK_MODEL, live = false, canAsk = false, pending = null, asked = [] } = {}) {
+export function askRequest({ message, site, canClarify = false, brief = "", qa = [], hasSite = false, model = ASK_MODEL, live = false, canAsk = false, pending = null, context = [] } = {}) {
   const text = String(message || "").trim().slice(0, MAX_MESSAGE);
   // WHICH ANSWERS ARE EVEN AVAILABLE, said outright rather than left to be
   // inferred from whether the digest happens to list any pages. The digest is a
@@ -1071,7 +1071,7 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
     // A SITE THAT EXISTS (2026-10-02) is told its own two facts instead
     // (`liveBlock`); everything else in this request is what it was.
     : live
-      ? liveBlock({ canAsk, pending, asked })
+      ? liveBlock({ canAsk, pending, context })
       : "\n\nQUESTIONS\nQuestions are closed for this message — never answer \"clarify\".";
   return {
     model,
@@ -1129,12 +1129,15 @@ export const ROUTE_REASONS = Object.freeze({
   // fails the call — never shown with nothing waiting for an answer; a reply
   // to a waiting question that did not say whether it answers it is a failure
   // of the answer, never read either way; and the flag on a message with no
-  // question waiting is left out. A question this request already asked, or
-  // one whose answer could not fit beside the request it resumes, is never
-  // asked (the route's own two checks, `askRepeat` and `askRoom`).
+  // question waiting is left out. A question the request already asked is
+  // never put to the customer as if new: the model is asked again with its
+  // answer in front of it (`clarify-reused`), and one that still asks it is
+  // kept with a note naming the answer that did not settle it
+  // (`clarify-again`) — the owner's second review, replacing the two endings
+  // that stopped the request there.
   "clarify-unkeepable": Object.freeze({ kind: "fallback", what: "a question back where no question can be kept, a failure of the answer" }),
-  "clarify-repeat": Object.freeze({ kind: "fallback", what: "a question back this request had already asked, never asked again" }),
-  "clarify-no-room": Object.freeze({ kind: "fallback", what: "a question back whose answer could not fit beside the request it resumes, never asked" }),
+  "clarify-reused": Object.freeze({ kind: "context", what: "a question back the request had already asked, so the model was asked again with that answer in front of it" }),
+  "clarify-again": Object.freeze({ kind: "changed", what: "the model asked again what it had been answered, shown the answer: kept with a note naming the answer that did not settle it" }),
   "answered-unread": Object.freeze({ kind: "fallback", what: "a reply to a waiting question that did not say whether it answers it" }),
   "answered-ignored": Object.freeze({ kind: "changed", what: "an answer flag on a message with no question waiting, left out" }),
   "work-without-site": Object.freeze({ kind: "fallback", what: "an edit or an add-on, with no site to change" }),
@@ -1207,17 +1210,6 @@ export function routeDecision(reasons, input) {
     decision.raw = { intent: rawName(i.intent, ROUTE_INTENTS), layer: rawName(i.layer, EDIT_LAYERS) };
   }
   return decision;
-}
-
-/**
- * A decision with one more code from the list, its source derived again — for
- * the route's own checks after the model answered (`clarify-repeat`,
- * `clarify-no-room`). A code not on the list leaves the decision as it was.
- */
-export function addReason(decision, code) {
-  const d = decision && typeof decision === "object" ? decision : routeDecision([]);
-  const next = routeDecision([...(Array.isArray(d.reasons) ? d.reasons : []), code]);
-  return d.raw ? { ...next, raw: d.raw } : next;
 }
 
 /** Records into a caller's trace; a no-op without one, so a reader's result never depends on it. */
@@ -2079,6 +2071,158 @@ export function readAsk(raw) {
   return { text, options: options.length >= MIN_OPTIONS ? options : [] };
 }
 
+// ── WHAT THEY ALREADY TOLD US, ON A SITE THAT EXISTS (2026-10-02) ───────
+//
+// The answers to a request's questions, kept beside it and never in it. Here,
+// beside `readAsk`, because the router reads them as every step does — and
+// `clarify.mjs`, which the steps import, re-exports them from here.
+
+/**
+ * HOW MANY ANSWERS ONE REQUEST CARRIES, AT MOST — a loop guard, never a budget
+ * a request is expected to meet (2026-10-02, the owner's second review:
+ * *"Prevent repeated-question loops without discarding the request or
+ * requiring the user to retype it"*). A question is kept only while the
+ * request carries fewer answers than this (`packAsk`); once it carries this
+ * many, no model is offered a question (`clarifyTransport`, the router's
+ * `canAsk`) and they act on what they were told. Nothing is discarded.
+ */
+export const MAX_ASKED = 12;
+
+/**
+ * HOW MANY TIMES ONE QUESTION IS PUT TO THE CUSTOMER: the first time, and once
+ * more with a note naming the answer that did not settle it (`againNote`). A
+ * model that asks it again after that, shown every answer to it, is sent once
+ * more with no question offered, and acts on what it was told.
+ */
+export const MAX_SAME_ASK = 2;
+
+/** The longest answer kept beside a request: a reply to one question, never a new request. */
+export const MAX_ANSWER_CHARS = 500;
+
+/** The longest note a question asked once more is shown under (`againNote`). */
+export const MAX_NOTE_CHARS = 300;
+
+/**
+ * WHAT THEY ALREADY TOLD US (2026-10-02, the owner's second review): each
+ * question this request asked, with the answer given, in order — `{ q, a }`,
+ * and `handled: true` on an answer about a part this request no longer holds
+ * (made, refused or put off beside the question that came after it). Carried
+ * BESIDE the request by every hop — the stored question, the routing answer,
+ * the browser's posts, a queued job, a hand-over — and never folded into it.
+ * `[]` for none; `null` for a value that is not such a list, which no caller
+ * reads as none.
+ */
+export function readContext(v) {
+  if (v === undefined || v === null) return [];
+  if (!Array.isArray(v) || v.length > MAX_ASKED) return null;
+  const out = [];
+  for (const p of v) {
+    if (!p || typeof p !== "object" || Array.isArray(p) || typeof p.q !== "string" || typeof p.a !== "string") return null;
+    if (p.handled !== undefined && p.handled !== true) return null;
+    const q = p.q.trim();
+    const a = p.a.trim();
+    if (!q || !a || q.length > MAX_QUESTION_CHARS || a.length > MAX_ANSWER_CHARS) return null;
+    out.push(p.handled === true ? { q, a, handled: true } : { q, a });
+  }
+  return out;
+}
+
+/** The answers a model is shown: every one about a part this request still holds. */
+export function shownContext(context) {
+  return (readContext(context) || []).filter((p) => p.handled !== true);
+}
+
+/** A question's words as they are compared: case, accents, spacing and punctuation set aside. */
+function askKey(text) {
+  return String(text || "").normalize("NFKD").replace(/\p{M}+/gu, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+
+/**
+ * HAS THIS REQUEST ALREADY ASKED THIS? Every answered pair — shown or handled
+ * — whose question, set side by side with this one (`askKey`), is the same;
+ * `[]` when none is. Such a question is never put to the customer as if it
+ * were new: its answer exists, and the model is shown it (`clarifyTransport`).
+ */
+export function repeatOf(context, question) {
+  const k = askKey(question && question.text);
+  if (!k) return [];
+  return (readContext(context) || []).filter((p) => askKey(p.q) === k);
+}
+
+/** The section the answers are shown under, by its first words. */
+export const CONTEXT_HEADING = "WHAT THEY ALREADY TOLD YOU";
+
+/**
+ * THE ANSWERS, AS A MODEL IS SHOWN THEM: a numbered section of their own, after
+ * everything else it is sent, labelled as what they are — details of the
+ * request above, never a change of their own. The lane picker names these
+ * numbers for each change it scopes (`answers` on a scope); "" when there are
+ * none to show.
+ */
+export function contextBlock(context) {
+  const list = shownContext(context);
+  if (!list.length) return "";
+  return CONTEXT_HEADING + " — their answers to questions asked about the request above. Use them to settle " +
+    "its details. They are never a change of their own: do only what the request asks.\n" +
+    list.map((p, i) => (i + 1) + ". Asked: “" + p.q + "”\n   They answered: “" + p.a + "”").join("\n");
+}
+
+/** The same model request with `text` after its last user message's own words. */
+function afterLastUser(request, text) {
+  if (!text || !request || typeof request !== "object" || !Array.isArray(request.messages)) return request;
+  for (let i = request.messages.length - 1; i >= 0; i--) {
+    const m = request.messages[i];
+    if (!m || m.role !== "user") continue;
+    let content;
+    if (typeof m.content === "string") content = m.content + "\n\n" + text;
+    else if (Array.isArray(m.content)) content = [...m.content, { type: "text", text }];
+    else return request;
+    const messages = request.messages.slice();
+    messages[i] = { ...m, content };
+    return { ...request, messages };
+  }
+  return request;
+}
+
+/** A model request with the answers in their own section; the request itself when there are none to show. */
+export function withContext(request, context) {
+  return afterLastUser(request, contextBlock(context));
+}
+
+/**
+ * THE NOTE A MODEL IS SENT AGAIN WITH, when it asked what was already
+ * answered: every answer to that question, and the two things it may do with
+ * them — act, or ask a more specific question naming what they left open.
+ */
+export function reuseNote(hit) {
+  const list = readContext(hit) || [];
+  return "YOU ASKED THEM THIS ALREADY, and they answered:\n" +
+    list.map((p) => "Asked: “" + p.q + "” — they answered: “" + p.a + "”").join("\n") +
+    "\nNever ask it again. If their answer settles it, act on it now. If it does not, ask them a MORE SPECIFIC " +
+    "question that names exactly what their answer left open.";
+}
+
+/** A model request sent again with the note above, after everything else it holds. */
+export function withReuse(request, hit) {
+  return afterLastUser(request, reuseNote(hit));
+}
+
+/**
+ * THE LINE A QUESTION ASKED ONCE MORE IS SHOWN UNDER: the answer that did not
+ * settle it, in the customer's own words (cut to fit), so the same question is
+ * never put to them as if it were new.
+ */
+export function againNote(hit) {
+  const list = readContext(hit) || [];
+  const last = list.length ? list[list.length - 1].a : "";
+  const said = last.length > 160 ? last.slice(0, 157).trimEnd() + "…" : last;
+  const note = said
+    ? "Your answer — “" + said + "” — didn’t settle this, so I need to ask once more."
+    : "Your answer didn’t settle this, so I need to ask once more.";
+  return note.slice(0, MAX_NOTE_CHARS);
+}
+
+
 /**
  * The brief the build actually runs on, once the questions have been answered.
  *
@@ -2218,7 +2362,7 @@ export function routeFailure(stage, e, { model, classify } = {}) {
  * for a call that failed — the same our-fault rule the build path follows. And
  * it says why, as `failure` (`routeFailure` above).
  */
-export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, attached = false, hasSite = false, model = ASK_MODEL, tablesFilled = false, canAsk: askable = false, asked = [], pending = null } = {}) {
+export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, attached = false, hasSite = false, model = ASK_MODEL, tablesFilled = false, canAsk: askable = false, context = [], pending = null } = {}) {
   const text = String(message || "").trim();
   // AN EMPTY MESSAGE NEVER REACHES THE MODEL. The composer will not send one, but
   // this is a paid call behind a public route and "the client wouldn't do that"
@@ -2231,14 +2375,16 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
   const questions = (Array.isArray(qa) ? qa : []).filter((p) => p && p.q && p.a);
   const canClarify = !!firstBuild && questions.length < MAX_CLARIFY;
   // A SITE THAT EXISTS ASKS WHEREVER A QUESTION CAN BE KEPT (2026-10-02):
-  // `canAsk` is the route's word that it can keep one, and nothing counts them
-  // — every question kept is one its answer resumes. `asked` is what this
-  // request has already asked, shown so it is never asked again (and refused
-  // in the route if it is). A caller that lies about either gets fewer
-  // questions or more of its own routing calls, never anybody else's.
+  // `canAsk` is the route's word that it can keep one. `context` is what they
+  // already told us about the waiting request (its earlier answers, read with
+  // the steps' own reader), shown beside it and never asked again; once this
+  // answer would bring it to `MAX_ASKED`, no question is offered at all and
+  // the router acts on what it was told. A caller that lies about either gets
+  // fewer questions or more of its own routing calls, never anybody else's.
   const live = !!hasSite && !firstBuild;
-  const canAsk = live && askable === true;
   const waiting = live && pending && typeof pending === "object" ? pending : null;
+  const told = waiting ? (readContext(context) || []) : [];
+  const canAsk = live && askable === true && told.length + (waiting ? 1 : 0) < MAX_ASKED;
   // `hasSite` IS NOT `!firstBuild`, and collapsing them is the tempting mistake.
   // `firstBuild` is the composer's belief about a project in localStorage;
   // `hasSite` is the server's knowledge that this slug has a published site it
@@ -2276,7 +2422,7 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
     if (lists.tablesCut) shown.push("tables-cut");
     // The route's own word that it filled the table names in (Lane 1d).
     if (tablesFilled === true) shown.push("tables-filled");
-    request = askRequest({ message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live, canAsk, pending: waiting, asked: live ? asked : [] });
+    request = askRequest({ message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live, canAsk, pending: waiting, context: told });
   } catch (e) {
     return fail("request", e);
   }
@@ -2286,11 +2432,52 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
   } catch (e) {
     return fail("send", e);
   }
-  const trace = { reasons: shown.slice(), input: undefined };
-  const routed = readRouting(reply, {
-    canClarify, answering: !!answering, attached: !!attached, hasSite: !!hasSite, pages, trace,
-    live, canAsk, pending: !!waiting, chosen: !!(waiting && waiting.chosen === true),
+  const readAs = (r, open, tr) => readRouting(r, {
+    canClarify, answering: !!answering, attached: !!attached, hasSite: !!hasSite, pages, trace: tr,
+    live, canAsk: open, pending: !!waiting, chosen: !!(waiting && waiting.chosen === true),
   });
+  let trace = { reasons: shown.slice(), input: undefined };
+  let routed = readAs(reply, canAsk, trace);
+  // ── A QUESTION IT WAS ALREADY ANSWERED (2026-10-02, the owner's second review:
+  //    *"when an answer did not resolve the ambiguity, retain the pending
+  //    request and let the model ask a more specific follow-up; when the
+  //    answer already exists, reuse it instead of asking again"*) ──────────
+  //
+  // Only for a reply that answers the waiting question: every answer the
+  // request now carries is this one and those before it. A question back that
+  // is one of theirs again (`repeatOf`) is never put to the customer as if new:
+  // the router is sent the same request once more with those answers in front
+  // of it (`withReuse`), to act on them or ask a more specific question
+  // (`clarify-reused`); a router that still asks it is kept with a note naming
+  // the answer that did not settle it (`clarify-again`, `againNote`). Asked a
+  // question already put to the customer `MAX_SAME_ASK` times, it is sent with
+  // no question offered and must act. Only the reply that is used is billed:
+  // the call asked again is ours.
+  if (waiting && routed.unusable !== true && routed.intent === "clarify" && routed.answered === true) {
+    const all = [...told, { q: String(waiting.question && waiting.question.text || "").trim(), a: text.slice(0, MAX_ANSWER_CHARS) }];
+    const hit = repeatOf(all, routed.question);
+    if (hit.length) {
+      const open = hit.length >= MAX_SAME_ASK ? false : canAsk;
+      let again;
+      try {
+        again = withReuse(askRequest({ message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live, canAsk: open, pending: waiting, context: told }), hit);
+      } catch (e) {
+        return fail("request", e);
+      }
+      try {
+        reply = await deps.send(again);
+      } catch (e) {
+        return fail("send", e);
+      }
+      trace = { reasons: [...shown, "clarify-reused"], input: undefined };
+      routed = readAs(reply, open, trace);
+      const still = routed.unusable !== true && routed.intent === "clarify" ? repeatOf(all, routed.question) : [];
+      if (still.length) {
+        trace.reasons.push("clarify-again");
+        routed = { ...routed, again: true, note: againNote(still) };
+      }
+    }
+  }
   // AN ANSWER THAT CANNOT BE USED, ON A SITE THAT EXISTS, IS A FAILURE OF THE
   // CALL (2026-10-02): a question that cannot be shown, or a reply to a waiting
   // question that does not say whether it answers it. Never work in its place,

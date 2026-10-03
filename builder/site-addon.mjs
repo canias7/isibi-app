@@ -65,6 +65,9 @@ export function addonFailure(reason, { reconstruct = false, layer, kind, problem
     // THE ROUTER HELD PART OF THE MESSAGE BACK AND IT IS NOT IN THE MESSAGE
     // (2026-09-29): the edit route's `route/held-unread`, in this route's shape.
     "held-unread": "I couldn't separate the part of your message I was leaving for later from the part to do now, so I haven't added anything — this is on us. Send the changes one at a time and I'll make each.",
+    // THE ANSWERS A RESUMED REQUEST CAME WITH CANNOT BE READ (2026-10-02): the
+    // edit route's `route/context-unread`, in this route's shape.
+    "context-unread": "I couldn't read the answers you'd already given me for that request, so I haven't added anything — this is on us. Send the request again with the details in it and I'll make it.",
   };
   const msg = Object.hasOwn(messages, reason) ? messages[reason]
     : "I couldn't complete this addition, so I've stopped instead of starting another operation.";

@@ -397,9 +397,13 @@
         if (off && off.length) rec.putOff = off;
       }
       if (x && askRoundOf(x.askRound)) rec.askRound = x.askRound;
-      // AND THE QUESTIONS IT HAS ASKED, so a hop from a resumed watch never asks one again.
-      var askedList = x ? askedOf(x.asked) : null;
-      if (askedList && askedList.length) rec.asked = askedList;
+      // AND WHAT THEY ALREADY TOLD US (`context`), so a hop from a resumed watch
+      // carries the answers beside the request. A list that does not read is
+      // stored as it came, never as none: the route refuses it, rather than
+      // running the request as if nothing had been answered.
+      var told = x ? contextOf(x.context) : [];
+      if (told === null) rec.context = x.context;
+      else if (told.length) rec.context = told;
       all[String(slug)] = rec;
       (store || localStorage).setItem(STORE_KEY, JSON.stringify(all));
     } catch (e) { /* a private window is not a reason to fail an edit */ }
@@ -445,7 +449,7 @@
       ...(typeof v.putOff === "string" && v.putOff.trim() && v.putOff.length <= ASK_MAX ? { putOff: v.putOff } : {}),
       ...(Array.isArray(v.putOff) ? { putOff: heldList(v.putOff) || v.putOff } : {}),
       ...(askRoundOf(v.askRound) ? { askRound: v.askRound } : {}),
-      ...(askedOf(v.asked) && askedOf(v.asked).length ? { asked: askedOf(v.asked) } : {}),
+      ...(v.context !== undefined && (contextOf(v.context) === null || contextOf(v.context).length) ? { context: contextOf(v.context) || v.context } : {}),
       job: v.job,
       ask: typeof v.ask === "string" && v.ask.trim() ? v.ask.slice(0, ASK_MAX) : "",
       op: typeof v.op === "string" && RESUME_OPS.indexOf(v.op) >= 0 ? v.op : "edit",
@@ -620,30 +624,41 @@
    * one of the right type.
    */
   var HAND_WORD_MAX = 64;
-  // HOW MANY QUESTIONS A REQUEST HAS ASKED: a whole number, or nothing. There is
-  // no budget of them (2026-10-02); this only refuses to carry a value that is
-  // not a count, bounded as the server bounds the questions one record names.
+  // HOW MANY QUESTIONS A REQUEST HAS ASKED: a whole number, or nothing. This
+  // only refuses to carry a value that is not a count.
   var ASKED_MAX = 64;
+  // WHAT THEY ALREADY TOLD US (2026-10-02, the owner's second review: `context`):
+  // each question the request asked with its answer, `{ q, a }`, and `handled`
+  // on an answer about a part already made — carried BESIDE the request, never
+  // in it, bounded as `readContext` in builder/site-ask.mjs bounds it.
+  var CONTEXT_MAX = 12;
   var QUESTION_MAX = 240;
+  var ANSWER_MAX = 500;
   function askRoundOf(v) {
     return typeof v === "number" && isFinite(v) && Math.floor(v) === v && v > 0 && v <= ASKED_MAX;
   }
-  // THE QUESTIONS A REQUEST HAS ASKED (2026-10-02, `asked`): each a question's
-  // own words, so a step it reaches never asks one of them again. `[]` for
-  // none; `null` for a value that is not such a list, which is then carried
-  // nowhere — it only ever protects against a repeat.
-  function askedOf(v) {
+  // `[]` for none; `null` for a value that is not such a list — which no reader
+  // here turns into none: it is carried as it came, for the route to refuse.
+  function contextOf(v) {
     if (v === null || v === undefined) return [];
-    if (!Array.isArray(v) || v.length > ASKED_MAX) return null;
+    if (!Array.isArray(v) || v.length > CONTEXT_MAX) return null;
+    var out = [];
     for (var i = 0; i < v.length; i++) {
-      if (typeof v[i] !== "string" || !v[i].trim() || v[i].length > QUESTION_MAX) return null;
+      var p = v[i];
+      if (!p || typeof p !== "object" || Array.isArray(p) || typeof p.q !== "string" || typeof p.a !== "string") return null;
+      if (p.handled !== undefined && p.handled !== true) return null;
+      var q = p.q.trim();
+      var a = p.a.trim();
+      if (!q || !a || q.length > QUESTION_MAX || a.length > ANSWER_MAX) return null;
+      out.push(p.handled === true ? { q: q, a: a, handled: true } : { q: q, a: a });
     }
-    return v.slice();
+    return out;
   }
-  /** As a post carries them: the list, or nothing. */
-  function askedWire(v) {
-    var list = askedOf(v);
-    return list && list.length ? list : undefined;
+  /** As a post carries them: the list, nothing for none, or what came when it does not read. */
+  function contextWire(v) {
+    var list = contextOf(v);
+    if (list === null) return v;
+    return list.length ? list : undefined;
   }
   function handWord(v) {
     return typeof v === "string" && v.length > 0 && v.length <= HAND_WORD_MAX;
@@ -676,10 +691,10 @@
     var off = heldWire(earlier === null || earlier.length ? reply.putOff : from.putOff);
     if (off !== undefined) out.putOff = off;
     if (askRoundOf(from.askRound)) out.askRound = from.askRound;
-    // AND THE QUESTIONS IT HAS ASKED (2026-10-02), so the step it reaches never
-    // asks one of them again.
-    var askedBefore = askedOf(from.asked);
-    if (askedBefore && askedBefore.length) out.asked = askedBefore;
+    // AND WHAT THEY ALREADY TOLD US (2026-10-02), so the step it reaches is
+    // shown the answers and never asks one of them again.
+    var told = contextWire(from.context);
+    if (told !== undefined) out.context = told;
     var ho = {};
     if (handWord(w.from)) ho.from = w.from;
     if (handWord(reply.reason)) ho.reason = reply.reason;
@@ -765,8 +780,8 @@
     handOver: handOver,
     heldList: heldList,
     heldWire: heldWire,
-    askedOf: askedOf,
-    askedWire: askedWire,
+    contextOf: contextOf,
+    contextWire: contextWire,
     MAX_HELD: MAX_HELD,
     newIdemKey: newIdemKey,
     pollDelayMs: pollDelayMs,

@@ -1198,6 +1198,14 @@ export function mergePageSteps(steps) {
         const a = Array.isArray(prev.words) ? prev.words : [];
         merged.words = [...a, ...(Array.isArray(s.words) ? s.words : []).filter((w) => !a.includes(w))];
       }
+      // AND THE ANSWERS EACH WAS SHOWN (`told`, 2026-10-02): the joined writer
+      // makes both changes, so it is shown what either needed — and every
+      // answer when either was to be shown every one.
+      if (Object.hasOwn(prev, "told") || Object.hasOwn(s, "told")) {
+        merged.told = Array.isArray(prev.told) && Array.isArray(s.told)
+          ? [...new Set([...prev.told, ...s.told])].sort((x, y) => x - y)
+          : null;
+      }
       out[out.length - 1] = merged;
     } else {
       out.push(s);
@@ -1444,6 +1452,17 @@ function scopesProp(name, extra = "") {
           type: "string",
           description: "Only for a change on ONE page: its path from the list of pages (\"/\" is home). Leave it out for a " +
             "change to the whole site, or when no page was said.",
+        },
+        // WHICH ANSWERS THIS CHANGE NEEDS (2026-10-02, the owner's second
+        // review: *"with the model identifying its relevant scope rather than
+        // customer-keyword rules"*). The numbers of the section the route adds
+        // after the message (`contextBlock`), read in `readScopes`; the editor
+        // for this change is shown those answers, and the ones no change named.
+        answers: {
+          type: "array",
+          items: { type: "integer" },
+          description: "Numbers from WHAT THEY ALREADY TOLD YOU that this change needs ([] for none); `words` " +
+            "still comes from the request.",
         },
       },
       required: ["part", "words"],
@@ -1776,7 +1795,17 @@ export function readRemoves(reply, picked = []) {
  * request, the description change included. The route now withholds an
  * invalid op and says so.
  */
-export function readScopes(reply, picked = [], message = "") {
+// `count` IS HOW MANY ANSWERS THE PICKER WAS SHOWN, NUMBERED (2026-10-02). A
+// change's `answers` is kept only as a list of those numbers, each once and in
+// order; anything else is no reading at all, and the change is shown every
+// answer — never fewer than it may need. Absent, likewise.
+function answerNumbers(v, count) {
+  if (!Array.isArray(v) || !Number.isInteger(count) || count < 0) return null;
+  if (!v.every((n) => Number.isInteger(n) && n >= 1 && n <= count)) return null;
+  return [...new Set(v)].sort((a, b) => a - b);
+}
+
+export function readScopes(reply, picked = [], message = "", count = 0) {
   const chosen = (Array.isArray(picked) ? picked : []).filter((f) => typeof f === "string" && f);
   const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
   const use = blocks.find((b) => b && b.type === "tool_use");
@@ -1792,7 +1821,8 @@ export function readScopes(reply, picked = [], message = "") {
     const page = pageGiven && typeof sc.page === "string" ? normalizePagePath(sc.page) : "";
     const words = typeof sc.words === "string" ? wordsIn(message, sc.words) : "";
     const invalid = pageGiven && !page ? "page" : !words ? "words" : "";
-    ops.push({ part: sc.part, page, words: invalid ? "" : words, ...(invalid ? { invalid } : {}) });
+    const answers = answerNumbers(sc.answers, count);
+    ops.push({ part: sc.part, page, words: invalid ? "" : words, ...(invalid ? { invalid } : {}), ...(answers ? { answers } : {}) });
   }
   return { scoped: true, ops };
 }
@@ -1855,7 +1885,7 @@ export function doorLane(layer) {
  * change, so a second request put there does not run. Every model answer that
  * proves this is supplied; which lists a real picker fills is not measured.
  */
-function doorPicked(reply, door, fields, model, message) {
+function doorPicked(reply, door, fields, model, message, answers = 0) {
   const offered = (Array.isArray(fields) ? fields : []).filter((f) => typeof f === "string" && f);
   const additional = laneList(reply, "additional", offered);
   const named = laneList(reply, "routed", offered);
@@ -1868,7 +1898,7 @@ function doorPicked(reply, door, fields, model, message) {
     // THE WORK'S OWN PAGES AND WORDS, read against the work alone: the routed
     // change is the router's step and keeps the router's page. `scoped` says
     // whether the answer carried scope metadata at all (`readScopes`).
-    ...scopesOf(readScopes(reply, work, message)),
+    ...scopesOf(readScopes(reply, work, message, answers)),
     // A QUESTION BACK (2026-10-02): the picker could not tell what else is
     // asked without a detail they left out. The caller asks it before
     // anything runs, the router's own step included.
@@ -1947,7 +1977,7 @@ export function laneUsage(reply, model) {
  * falling back to the whole list would answer "we could not tell" by buying
  * seventeen edits, which is the most expensive possible reading of it.
  */
-export async function pickLanes(deps, { message, fields = LANE_FIELDS, current = "", model = LANE_MODEL, routed = null } = {}) {
+export async function pickLanes(deps, { message, fields = LANE_FIELDS, current = "", model = LANE_MODEL, routed = null, answers = 0 } = {}) {
   // THE ROUTER'S REMOVAL DOOR, when the caller says what was routed there.
   // Everything else is the ordinary question, byte for byte.
   const door = routedDoor(routed);
@@ -1964,7 +1994,7 @@ export async function pickLanes(deps, { message, fields = LANE_FIELDS, current =
     return { fields: [], scopes: [], scoped: false, usage: null, failed: true, error: e };
   }
   // ON THE DOOR THE ANSWER IS TWO LISTS, read by their names (`doorPicked`).
-  if (door) return doorPicked(reply, door, fields, model, text);
+  if (door) return doorPicked(reply, door, fields, model, text, answers);
   // THE MODEL THAT WAS ACTUALLY SENT, not the module default. This stamped
   // `LANE_MODEL` while the request carried the caller's `model`, so a customer
   // on Sonnet had their routing call PRICED as the default picker's — the rate
@@ -1980,7 +2010,7 @@ export async function pickLanes(deps, { message, fields = LANE_FIELDS, current =
     // EACH CHANGE'S OWN PAGE AND WORDS, checked against the picked lanes and
     // the message the picker was shown (`readScopes`), and whether the answer
     // carried any scope metadata at all (`scoped`).
-    ...scopesOf(readScopes(reply, picked, text)),
+    ...scopesOf(readScopes(reply, picked, text, answers)),
     page: readPageVerb(reply),
     // THE REMOVAL RIDES THE SAME ANSWER AS THE LANES, rather than being read
     // again by the caller off a reply it would have to keep. One read, one

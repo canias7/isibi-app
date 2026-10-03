@@ -23,7 +23,7 @@ import assert from "node:assert/strict";
 import { loadWorker } from "./fixtures/worker-harness.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { ASK_TOOL, LIVE_ASK_TOOL } from "../builder/site-ask.mjs";
-import { QUESTION_KEY, packAsk, newAskId, ASK_TTL_MS } from "../builder/clarify.mjs";
+import { QUESTION_KEY, packAsk, newAskId, ASK_TTL_MS, contextBlock, MAX_ANSWER_CHARS } from "../builder/clarify.mjs";
 import { editBrowserReply } from "../scripts/addon-sweep.mjs";
 import {
   T, USER, OTHER, HOME, VISIT, NEW_DESC, Q, freshSlug, bucket, question, seedQuestion, withWire, envFor,
@@ -195,7 +195,7 @@ test("A QUESTION THAT CANNOT BE USED OR KEPT IS A TECHNICAL FAILURE: said as one
 // 3. THE ANSWER: resumed, a changed request, and the stale ones
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("A TYPED ANSWER RESUMES THE WAITING REQUEST with the question and answer added; the question closes once; the routing call is charged as any", async () => {
+test("A TYPED ANSWER RESUMES THE WAITING REQUEST WORD FOR WORD, with the answer beside it; the question closes once; the routing call is charged as any", async () => {
   const slug = freshSlug("answer");
   const store = bucket(slug);
   const q = seedQuestion(store, slug, { held: ["add a gallery page"] });
@@ -204,9 +204,9 @@ test("A TYPED ANSWER RESUMES THE WAITING REQUEST with the question and answer ad
     const r = await routeCall(worker, envFor(store), { slug, message: "Visit", ask: { id: q.id } });
     assert.equal(r.status, 200);
     assert.equal(r.body.intent, "edit");
-    assert.equal(r.body.instruction, q.request + "\n\nThey were asked: " + Q.text + "\nThey answered: Visit",
-      "the request the answer resumes is not the waiting one with the answer added");
-    assert.deepEqual(r.body.ask, { answered: true, round: 1, putOff: ["add a gallery page"], asked: [Q.text] });
+    assert.equal(r.body.instruction, q.request, "the request the answer resumes is not the waiting one, word for word");
+    assert.deepEqual(r.body.ask, { answered: true, round: 1, putOff: ["add a gallery page"], context: [{ q: Q.text, a: "Visit" }] },
+      "the answer does not ride beside the request");
     assert.ok(r.body.cost > 0, "the answer's routing call was not charged");
     const told = String(seen.routerAsked[0].messages[0].content);
     assert.match(told, /THEIR LAST REQUEST IS WAITING ON AN ANSWER/);
@@ -303,22 +303,31 @@ test("A STALE ANSWER TRIGGERS NOTHING: answered twice, cancelled, expired, anoth
   });
 });
 
-test("AN ANSWER TOO LONG TO ADD TO ITS REQUEST IS REFUSED AT NO COST, and the question stays open for a shorter one", async () => {
+test("HOWEVER LONG THE REQUEST, AN ANSWER BESIDE IT FITS — the request never grows; ONLY AN ANSWER LONGER THAN A REPLY TO ONE QUESTION IS REFUSED, at no cost, with the question still waiting", async () => {
   const slug = freshSlug("toolong");
   const store = bucket(slug);
   const q = seedQuestion(store, slug, { request: "x".repeat(1900) });
   const worker = await loadWorker();
   await withWire({ route: { intent: "edit", layer: "look", answered: true } }, async (seen) => {
-    const r = await routeCall(worker, envFor(store), { slug, message: "y".repeat(300), ask: { id: q.id } });
+    const r = await routeCall(worker, envFor(store), { slug, message: "y".repeat(MAX_ANSWER_CHARS + 1), ask: { id: q.id } });
     assert.equal(r.status, 422);
     assert.equal(r.body.error, "answer-too-long");
+    assert.match(r.body.msg, /Your request is still waiting/, "the refusal does not say the request is kept");
     assert.equal(r.body.cost, 0);
     assert.deepEqual(seen.debits, []);
     assert.equal(question(store, slug).status, "pending", "a refused answer closed the question");
   });
+  // THE SAME LONG REQUEST, ANSWERED IN 300 CHARACTERS: an answer that the old rule refused for want of room is kept.
+  await withWire({ route: { intent: "edit", layer: "look", answered: true } }, async () => {
+    const r = await routeCall(worker, envFor(store), { slug, message: "y".repeat(300), ask: { id: q.id } });
+    assert.equal(r.status, 200, JSON.stringify(r.body).slice(0, 300));
+    assert.equal(r.body.instruction, "x".repeat(1900), "the request grew, or was cut");
+    assert.deepEqual(r.body.ask.context, [{ q: Q.text, a: "y".repeat(300) }]);
+    assert.equal(question(store, slug).status, "answered");
+  });
 });
 
-test("A RESUMED REQUEST MAY ASK ANOTHER QUESTION, keeping what it put off — and the router is told every question it has already asked, never that questions are closed", async () => {
+test("A RESUMED REQUEST MAY ASK ANOTHER QUESTION, keeping what it put off and the same request — and the router is shown every answer so far, never that questions are closed", async () => {
   const slug = freshSlug("round2");
   const store = bucket(slug);
   const q = seedQuestion(store, slug, { held: ["add a gallery page"], attached: true });
@@ -329,18 +338,17 @@ test("A RESUMED REQUEST MAY ASK ANOTHER QUESTION, keeping what it put off — an
     assert.equal(r.body.intent, "clarify");
     // THE ANSWER WAS TAKEN, AND THE REQUEST WAITS ON THE NEW QUESTION: no
     // request to run yet, so none is sent — the browser's reader must accept that.
-    assert.deepEqual(r.body.ask, { answered: true, round: 1, putOff: ["add a gallery page"], asked: [Q.text] });
+    assert.deepEqual(r.body.ask, { answered: true, round: 1, putOff: ["add a gallery page"], context: [{ q: Q.text, a: "Visit" }] });
     assert.equal(r.body.instruction, undefined, "a request to run rode the second question");
     const told = String(seen.routerAsked[0].messages[0].content);
     assert.match(told, /A QUESTION MAY BE ASKED/);
-    assert.match(told, /WHAT THIS REQUEST HAS ALREADY ASKED THEM/);
-    assert.ok(told.includes("- " + Q.text), "the router was not told the question it already asked");
+    assert.ok(told.includes("They were asked: " + Q.text), "the router was not shown the question it asked");
     assert.doesNotMatch(told, /more questions? about this request/, "the router was told a count of questions");
     const q2 = question(store, slug);
     assert.equal(q2.id, r.body.question.id);
     assert.equal(q2.round, 2);
-    assert.deepEqual(q2.asked, [Q.text, Q2.text], "the second question does not carry the first");
-    assert.equal(q2.request, q.request + "\n\nThey were asked: " + Q.text + "\nThey answered: Visit", "the second question does not resume the first answer");
+    assert.deepEqual(q2.context, [{ q: Q.text, a: "Visit" }], "the second question does not carry the first answer");
+    assert.equal(q2.request, q.request, "the request grew, or changed, at the second question");
     assert.deepEqual(q2.held, ["add a gallery page"], "what the request put off was lost at the second question");
     assert.equal(q2.attached, true, "the request's files were forgotten at the second question, though the answer carried none");
   });
@@ -348,8 +356,11 @@ test("A RESUMED REQUEST MAY ASK ANOTHER QUESTION, keeping what it put off — an
   await withWire({ route: { intent: "edit", layer: "look", answered: true } }, async (seen) => {
     const r = await routeCall(worker, envFor(store), { slug, message: "Above Come to the bakery", ask: { id: q2.id } });
     assert.equal(r.body.ask.round, 2);
-    assert.deepEqual(r.body.ask.asked, [Q.text, Q2.text], "the step would not know what this request has asked");
+    assert.deepEqual(r.body.ask.context, [{ q: Q.text, a: "Visit" }, { q: Q2.text, a: "Above Come to the bakery" }], "the step would not be shown both answers");
+    assert.equal(r.body.instruction, q.request, "the request the second answer resumes is not the first, word for word");
     const told = String(seen.routerAsked[0].messages[0].content);
+    assert.ok(told.includes(contextBlock([{ q: Q.text, a: "Visit" }])), "the router was not shown the first answer under the waiting request");
+    assert.ok(told.includes("They were asked: " + Q2.text));
     assert.doesNotMatch(told, /Questions are closed for this message/, "a second answer closed questions: the next one would be words nobody can answer");
     assert.match(told, /A QUESTION MAY BE ASKED/);
   });
@@ -491,20 +502,24 @@ test("A MIXED REQUEST: the part that can run runs and is published; the step tha
   } finally { compiler.uninstall(); }
 });
 
-test("A STEP'S THIRD QUESTION IS KEPT AND ANSWERABLE: no count turns it into words nobody can answer", async () => {
+test("A STEP'S THIRD QUESTION IS KEPT AND ANSWERABLE, WITH BOTH EARLIER ANSWERS BESIDE THE SAME REQUEST: no count turns it into words nobody can answer", async () => {
   const slug = freshSlug("third-step");
   const store = bucket(slug);
   const worker = await loadWorker();
+  const earlier = [{ q: "Which band?", a: "The order band" }, { q: "Above which heading?", a: "The first one" }];
   await withWire({ [T.pick]: { fields: ["shape"], question: Q } }, async (seen) => {
-    const post = browserPost(SITE(slug), { intent: "edit", layer: "look", askRound: 2, asked: ["Which band?", "Above which heading?"] }, "Move the band\n\nThey were asked: Which band?\nThey answered: The order band\n\nThey were asked: Above which heading?\nThey answered: The first one");
+    const post = browserPost(SITE(slug), { intent: "edit", layer: "look", askRound: 2, context: earlier }, "Move the band");
     assert.equal(post.body.askRound, 2, "the browser did not post the question count");
-    assert.deepEqual(post.body.asked, ["Which band?", "Above which heading?"], "the browser did not post what the request has asked");
+    assert.deepEqual(post.body.context, earlier, "the browser did not post what they already told us");
+    assert.equal(post.body.instruction, "Move the band", "the browser folded an answer into the request");
     const r = await postRoute(worker, envFor(store), store, seen, slug, post, "sync");
     assert.match(r.body.clarify.id, /^[0-9a-f]{32}$/, "a third question was shown with nothing waiting: " + JSON.stringify(r.body.clarify));
+    assert.ok(seen.inputs[T.pick][0].endsWith(contextBlock(earlier)), "the picker was not shown what they already told us");
     const q = question(store, slug);
     assert.equal(q.id, r.body.clarify.id);
     assert.equal(q.round, 3);
-    assert.deepEqual(q.asked, ["Which band?", "Above which heading?", Q.text]);
+    assert.deepEqual(q.context, earlier, "the third question does not carry both earlier answers");
+    assert.equal(q.request, "Move the band", "the request grew at the third question");
     const said = editBrowserReply(r.body, true, {});
     assert.equal(said.text, Q.text);
     assert.equal(said.asked.id, q.id, "the third question was drawn without its card");
@@ -547,7 +562,7 @@ test("WHAT A RESUMED REQUEST PUT OFF BEFORE ITS QUESTION IS NAMED ON EVERY ENDIN
   } finally { compiler.uninstall(); }
 });
 
-test("A RESUMED REQUEST RUNS WITH THE ANSWER IN IT — the step that acts is handed the question and the answer, end to end from the routing route (sync and queued)", async () => {
+test("A RESUMED REQUEST RUNS WITH ITS ANSWER BESIDE IT — the step that acts is shown the question and the answer in their own section after its words, end to end from the routing route (sync and queued)", async () => {
   const compiler = installCompiler();
   try {
   for (const mode of ["sync", "job"]) {
@@ -558,13 +573,15 @@ test("A RESUMED REQUEST RUNS WITH THE ANSWER IN IT — the step that acts is han
     await withWire({ route: { intent: "edit", layer: "look", answered: true }, [T.pick]: { fields: ["description"] }, "lane:description": NEW_DESC }, async (seen) => {
       const d = (await routeCall(worker, envFor(store), { slug, message: NEW_DESC, ask: { id: q.id } })).body;
       assert.equal(d.ask.answered, true);
-      // What the browser does with an answered question (`siteRoute`): the request it resumes, its count.
-      const post = browserPost(SITE(slug), { ...d, askRound: d.ask.round, putOff: d.ask.putOff }, d.instruction);
+      // What the browser does with an answered question (`siteRoute`): the request it resumes, its count, its answers.
+      const post = browserPost(SITE(slug), { ...d, askRound: d.ask.round, putOff: d.ask.putOff, context: d.ask.context }, d.instruction);
+      assert.equal(post.body.instruction, "Change the site's search description", mode + ": the request posted is not the waiting one, word for word");
       const r = await postRoute(worker, envFor(store), store, seen, slug, post, mode);
       assert.equal(r.body.ok, true, mode + ": " + JSON.stringify(r.body).slice(0, 300));
       assert.equal(storedLook(store, slug).description, NEW_DESC, mode);
       const handed = seen.lanes.find((l) => l.field === "description").asked;
-      assert.ok(handed.includes("They were asked: What should it say?") && handed.includes("They answered: " + NEW_DESC), mode + ": the lane was not handed the answer: " + handed);
+      assert.equal(handed, "Change the site's search description\n\n" + contextBlock([{ q: "What should it say?", a: NEW_DESC }]),
+        mode + ": the lane was not shown its request, then the answer in its own section: " + handed);
       assert.equal(question(store, slug).status, "answered", mode);
     }, { slug });
   }

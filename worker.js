@@ -237,11 +237,11 @@ import { sweepAfterPublish, P_ORPHANS } from "./site-sweep.mjs";
 import { loadConfig, saveConfig, withConfig, LEGACY_KEYS, CONFIG_KEY } from "./site-config.mjs";
 import { takeOffline, putBackOnline } from "./site-live.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
-import { routeMessage, routeDecision, routeFailure, clarifiedBrief, siteDigest, DOOR_LAYERS, heldParts, heldList, wordsLess, ROUTE_ERROR_CLASSES, addReason } from "./builder/site-ask.mjs";
+import { routeMessage, routeDecision, routeFailure, clarifiedBrief, siteDigest, DOOR_LAYERS, heldParts, heldList, wordsLess, ROUTE_ERROR_CLASSES } from "./builder/site-ask.mjs";
 // THE HAND-OVER (2026-10-02, the whole-router audit's batch 2): what travels when
 // work moves from one step to another — the parts put off, the scope, and why.
 import { readHandOver, handOverLine, heldReport, deferredOf } from "./builder/hand-over.mjs";
-import { loadAsk, storeAsk, closeAsk, replaceAsk, askLive, packAsk, newAskId, answeredRequest, askOf, readAsk, askRepeat, askRoom, askedList, answerLines, askedIn } from "./builder/clarify.mjs";
+import { loadAsk, storeAsk, closeAsk, replaceAsk, askLive, packAsk, newAskId, askOf, readAsk, readContext, shownContext, repeatOf, againNote, clarifyTransport, clarifyCall, MAX_ASKED } from "./builder/clarify.mjs";
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
@@ -6032,7 +6032,8 @@ function stepWords(step) {
 }
 
 /**
- * WHAT A STEP'S QUESTION LEAVES TO DO: the request its answer resumes.
+ * WHAT A STEP'S QUESTION LEAVES TO DO: the request its answer resumes, and
+ * what they already told us that goes with it — `{ request, context }`.
  *
  * Each asking step's own part — the fixed request a branch gave it (our own
  * words, holding none of the customer's), its own words, or the turn — with
@@ -6048,8 +6049,19 @@ function stepWords(step) {
  * word of the asking part is another step's too. The question is then not
  * kept (`askReport`), and that part is said as left alone — never resumed with
  * work that ran.
+ *
+ * THE ANSWERS STILL FOR IT GO WITH IT (2026-10-02, the owner's second review:
+ * *"Preserve the answers relevant to unfinished operations while excluding
+ * completed operations from execution"*). Every answer a step still asking was
+ * shown rides on, to be shown again: the picker named it for that step's
+ * change, or named it for no change at all (`told` on a step, the indices of
+ * what it was shown; absent, every answer). An answer it named only for steps
+ * that ran, failed or were withheld is `handled`: never shown to a model
+ * again, and kept only so a model that asks it once more is answered from it
+ * (`clarifyTransport`). Which answer belongs to which change is the picker's
+ * decision; nothing here reads the customer's words.
  */
-function askRemainder(asking, done, run, answers) {
+function askRemainder(asking, done, run, context) {
   const others = done.filter((d) => !asking.includes(d));
   const marks = others.map((d) => stepWords(d && d.step));
   const cut = marks.flatMap((m) => m.words);
@@ -6059,22 +6071,22 @@ function askRemainder(asking, done, run, answers) {
     const s = d && d.step;
     const m = stepWords(s);
     if (m.fixed) { parts.push(s.instruction.trim()); continue; }
-    if (wholeRan) return "";
+    if (wholeRan) return { request: "", context: readContext(context) || [] };
     for (const w of m.whole ? [String(run || "")] : m.words) {
       const left = wordsLess(run, w, cut);
       if (left) parts.push(left);
     }
   }
-  const left = [...new Set(parts)].join("\n");
-  // AND THE ANSWERS THIS REQUEST ALREADY CARRIES (`answerLines`), while nothing
-  // was made beside the question: they are in no step's own words, and a part
-  // resumed without them would be asked for them again. Beside a change that
-  // was made they stay out — which change an earlier answer was about cannot
-  // be told, and one about the change made would have the resumed picker make
-  // it again. The question kept then records as asked only what the request
-  // still answers (`askedIn`), so it may be asked again and answered.
-  if (!left || !answers || left.includes(answers) || others.some((d) => !d.failed)) return left;
-  return left + "\n\n" + answers;
+  const told = readContext(context) || [];
+  const keep = new Set();
+  for (const d of asking) {
+    const idx = d && d.step && Array.isArray(d.step.told) ? d.step.told : null;
+    told.forEach((p, j) => { if (!p.handled && (idx === null || idx.includes(j))) keep.add(j); });
+  }
+  return {
+    request: [...new Set(parts)].join("\n"),
+    context: told.map((p, j) => (p.handled || keep.has(j) ? p : { ...p, handled: true })),
+  };
 }
 
 /** One more try at a write that failed: the store's own blips are not a lost question. */
@@ -6092,15 +6104,22 @@ async function storeAskTwice(bucket, rec) {
  * question and named by its id (`clarify`); the internal field never leaves.
  *
  * NO QUESTION IS SHOWN THAT ITS ANSWER CANNOT RESUME (2026-10-02, the owner's
- * review). There is no count past which a question is shown with nothing
- * waiting. One is not kept, and is said instead, when this request has asked
- * it already (`askRepeat` — asking it again would be a loop), when nothing of
- * the request is left that its answer could resume without work that ran
- * (`askRemainder`), when no answer could fit beside that request (`askRoom`),
- * or when our store refused it twice. Where an answer would have had something
- * to resume, `resume` carries what was left, so the browser puts it back in
- * the message box: nothing done is in it, and nothing done is done again.
- * `ctx`: `{ slug, uid, round, held, request, attached, asked }`.
+ * review). One is not kept, and is said instead, when nothing of the request is
+ * left that its answer could resume without work that ran (`askRemainder`), or
+ * when our store refused it twice; where an answer would have had something to
+ * resume, `resume` carries what was left, so the browser puts it back in the
+ * message box: nothing done is in it, and nothing done is done again.
+ *
+ * A QUESTION ALREADY ANSWERED IS KEPT WITH ITS NOTE, NEVER AN ENDING (2026-10-02,
+ * the owner's second review: *"replace the terminal clarify-repeat/question-
+ * ended behavior … retain the pending request"*). The step's transport already
+ * sent its model the answer once (`clarifyTransport`); a model that still asks
+ * it is kept like any question, under a line naming the answer that did not
+ * settle it (`againNote`), and the request waits for a better one. Answers
+ * travel beside the request (`context`), so no question is refused for want of
+ * room. Only a request already carrying `MAX_ASKED` answers keeps no more —
+ * its models are offered none, so this is a model asking past that.
+ * `ctx`: `{ slug, uid, round, held, request, attached, context }`.
  */
 async function askReport(env, res, ctx) {
   if (!res || !res.headers || !String(res.headers.get("content-type") || "").includes("application/json")) return res;
@@ -6117,7 +6136,7 @@ async function askReport(env, res, ctx) {
   const stage = top ? body.layer : body.partial[at].layer;
   let status = res.status;
   const c = ctx || {};
-  const asked = askedList(c.asked);
+  const told = readContext(c.context) || [];
   const request = typeof c.request === "string" ? c.request.trim() : "";
   const notKept = (why, msg, resume) => {
     if (top) {
@@ -6126,21 +6145,20 @@ async function askReport(env, res, ctx) {
     } else out.partial[at] = { ...out.partial[at], msg, error: why };
     if (resume) out.resume = resume;
   };
-  if (askRepeat(asked, ask)) {
-    notKept("clarify-repeat", "That part still needed the detail I'd already asked you about, and I won't ask the same thing twice, so I left it alone. Send it again with that detail spelled out, and I'll make it.");
-  } else if (!request) {
+  if (!request) {
     notKept("clarify-mixed", "One part of that needed a detail before I could make it, but it was mixed in with a change I'd just made, so I left it alone rather than risk doing anything twice. Send that part again on its own, with the detail, and I'll make it.");
-  } else if (!askRoom(request, ask)) {
-    notKept("clarify-no-room", "I needed to ask you something about that part, but your request is already too long to carry the answer, so I left it alone. What was left of it is back in your message box — shorten it, add the detail and send it.", request);
+  } else if (told.length >= MAX_ASKED) {
+    notKept("clarify-closed", "I needed one more detail for that part, but I've already asked you about this request as many times as I will, so I left that part alone. What was left of it is back in your message box: add the detail and send it, and I'll make it.", request);
   } else {
     const round = (Number.isInteger(c.round) && c.round > 0 ? c.round : 1);
+    const hit = repeatOf(told, ask);
     const rec = packAsk({
       id: newAskId(), uid: c.uid, slug: c.slug, stage: typeof stage === "string" ? stage : "look",
       round, question: ask, request, held: Array.isArray(c.held) ? c.held : [], at: Date.now(),
-      attached: c.attached === true, asked: [...askedIn(request, asked), ask.text],
+      attached: c.attached === true, context: told, note: hit.length ? againNote(hit) : undefined,
     });
     const kept = !!rec && !!env.SITES_BUCKET && await storeAskTwice(env.SITES_BUCKET, rec);
-    if (kept) out.clarify = { id: rec.id, text: rec.question.text, options: rec.question.options };
+    if (kept) out.clarify = { id: rec.id, text: rec.question.text, options: rec.question.options, ...(rec.note ? { note: rec.note } : {}) };
     else notKept("clarify-unkept", "I needed to ask you something about that part — " + ask.text + " — but couldn't keep track of the question just now, so I left it alone. What was left of your request is back in your message box: add the detail and send it, and I'll make it.", request);
   }
   const headers = new Headers(res.headers);
@@ -20370,11 +20388,11 @@ async function handleRequest(request, env, ctx) {
           // WHETHER THE NAMES THE ROUTER IS SHOWN WERE FILLED IN HERE: named in
           // the decision (`tables-filled`), never a change to what it is shown.
           tablesFilled: !!rDigest.filled,
-          // WHETHER A QUESTION CAN BE KEPT, THE QUESTIONS THIS REQUEST HAS
-          // ASKED, and the one this message may answer (2026-10-02). Where no
-          // question can be kept, none may be asked; nothing counts them.
+          // WHETHER A QUESTION CAN BE KEPT, WHAT THEY ALREADY TOLD US about
+          // the waiting request, and the question this message may answer
+          // (2026-10-02). Where no question can be kept, none may be asked.
           canAsk: rLive,
-          asked: rWaiting ? rWaiting.asked : [],
+          context: rWaiting ? rWaiting.context : [],
           pending: rWaiting ? { request: rWaiting.request, question: rWaiting.question, chosen: rWaiting.chosen } : null,
         },
       );
@@ -20385,26 +20403,34 @@ async function handleRequest(request, env, ctx) {
       //
       // The router said whether the message answers the waiting question
       // (`answered`). An answer closes it ONCE (`closeAsk`: of two answers to
-      // one question only one can), and the request it resumes is the one that
-      // was waiting with the question and the answer added (`answeredRequest`),
-      // its earlier put-off parts and question count carried for the step that
-      // runs it. Anything else closes it as replaced and is routed on its own.
-      // A question the router asks is kept only once this owner's site is
-      // confirmed, then named by its id; one that cannot be kept fails the call.
+      // one question only one can). The request it resumes is the one that was
+      // waiting, word for word, and the answer joins what they already told us
+      // BESIDE it (`context`, the owner's second review: *"keep clarification
+      // context separate from executable instructions"*), with its earlier
+      // put-off parts and question count, for the step that runs it. Anything
+      // else closes it as replaced and is routed on its own. A question the
+      // router asks is kept only once this owner's site is confirmed, then
+      // named by its id; one that cannot be kept fails the call.
       let rAsk;
       let rInstruction;
       let rQuestion;
       if (routed.failed !== true) {
         const resumed = !!(rWaiting && routed.answered === true);
         const asking = routed.intent === "clarify" && rLive;
+        let rContext = [];
         if (resumed) {
-          rInstruction = answeredRequest(rWaiting.request, rWaiting.question.text, String(rb.message || ""));
-          if (!rInstruction) {
+          // THE ANSWER IS KEPT AS THEY GAVE IT, OR NOT AT ALL: a reply to one
+          // question, never a second request. One too long to keep leaves the
+          // question waiting, untouched, for a shorter answer — nothing is
+          // closed, nothing charged, and the request is not lost.
+          rContext = readContext([...rWaiting.context, { q: rWaiting.question.text, a: String(rb.message || "").trim() }]);
+          if (!rContext) {
             return Response.json({
               ok: false, error: "answer-too-long", cost: 0,
-              msg: "I couldn't add that answer to your last request — together they're longer than I can take in one go. Send the whole request again with the detail in it.",
+              msg: "That answer is longer than I can keep beside your request. Your request is still waiting — answer the question in a sentence or two and I'll carry on with it.",
             }, { status: 422 });
           }
+          rInstruction = rWaiting.request;
         }
         // THE ANSWER CLOSES ITS QUESTION — unless the router asks the next
         // one, which is written over it in one write below (`replaceAsk`).
@@ -20419,9 +20445,9 @@ async function handleRequest(request, env, ctx) {
         if (resumed && !asking) {
           const stop = await closeAnswered();
           if (stop) return stop;
-          // THE QUESTIONS IT HAS ASKED ride the request to the step that runs
-          // it, so a step never asks one of them again (`askRepeat`).
-          rAsk = { answered: true, round: rWaiting.round, putOff: rWaiting.held.length ? rWaiting.held : undefined, asked: rWaiting.asked };
+          // WHAT THEY TOLD US rides beside the request to the step that runs
+          // it, so every model there is shown it and none asks it again.
+          rAsk = { answered: true, round: rWaiting.round, putOff: rWaiting.held.length ? rWaiting.held : undefined, context: rContext };
         } else if (rWaiting && !resumed) {
           let closed = null;
           try { closed = await closeAsk(env.SITES_BUCKET, { slug: rSlug, id: rWaiting.id, uid: ru.id, status: "superseded" }); }
@@ -20432,26 +20458,16 @@ async function handleRequest(request, env, ctx) {
         }
         if (asking) {
           const request = resumed ? rInstruction : String(rb.message || "").trim();
-          // ── A QUESTION NEVER SHOWN WITH NOTHING ITS ANSWER CAN DO (2026-10-02) ──
+          // ── THE NEXT QUESTION KEEPS THE REQUEST WAITING (2026-10-02, the owner's
+          //    second review: *"when an answer did not resolve the ambiguity,
+          //    retain the pending request and let the model ask a more specific
+          //    follow-up"*) ─────────────────────────────────────────────────────
           //
-          // Asked again after its answer, it is a loop, not a question; and
-          // one whose answer could not fit beside the request it resumes has
-          // no answer the route would take. Neither is shown: the request ends
-          // there, said, at no cost for the call (a model's answer we will not
-          // use), and an answered question is closed.
-          const ended = (why) => Response.json({
-            ok: false, error: "question-ended", why, cost: 0,
-            msg: why === "repeat"
-              ? "Your answer didn't settle what I asked, and I won't ask you the same thing twice — so I've stopped there and nothing more was changed. Send the change again with that detail spelled out, and I'll make it."
-              : "That request has grown too long for me to ask about it and still take your answer, so I've stopped there and nothing more was changed. Send it again a little shorter, with the details in it.",
-            resume: why === "room" && !resumed ? request : undefined,
-            decision: addReason(routed.decision, why === "repeat" ? "clarify-repeat" : "clarify-no-room"),
-          }, { status: 422 });
-          const repeat = resumed && askRepeat(rWaiting.asked, routed.question);
-          if (repeat || !askRoom(request, routed.question)) {
-            if (resumed) { const stop = await closeAnswered(); if (stop) return stop; }
-            return ended(repeat ? "repeat" : "room");
-          }
+          // A follow-up to an answer is kept with the same request and every
+          // answer so far. One the router asked again, shown the answer it
+          // already had (`routeMessage`'s `again`), is kept under a note naming
+          // the answer that did not settle it — never an ending, and never put
+          // to the customer as if new.
           const rec = packAsk({
             id: newAskId(), uid: ru.id, slug: rSlug, stage: "route",
             round: resumed ? rWaiting.round + 1 : 1,
@@ -20462,7 +20478,8 @@ async function handleRequest(request, env, ctx) {
             // WHETHER THE REQUEST CARRIED FILES, so a browser that no longer
             // holds them asks for them again instead of answering without.
             attached: rb.attached === true || !!(resumed && rWaiting.attached === true),
-            asked: [...(resumed ? rWaiting.asked : []), routed.question.text],
+            context: resumed ? rContext : [],
+            note: routed.again === true && typeof routed.note === "string" ? routed.note : undefined,
           });
           let owner;
           try { owner = await siteOwnerBySlug(rSlug, env); } catch { owner = undefined; }
@@ -20477,14 +20494,14 @@ async function handleRequest(request, env, ctx) {
             catch (e) { console.error("question store:", rSlug, errorClassForLog(e)); }
             if (!replaced) return rStoreFailed(routed.decision);
             if (!replaced.ok) return staleAnswer(replaced.why === "raced" ? "closed" : replaced.why);
-            rAsk = { answered: true, round: rWaiting.round, putOff: rWaiting.held.length ? rWaiting.held : undefined, asked: rWaiting.asked };
+            rAsk = { answered: true, round: rWaiting.round, putOff: rWaiting.held.length ? rWaiting.held : undefined, context: rContext };
           } else {
             let kept = false;
             try { await storeAsk(env.SITES_BUCKET, rec); kept = true; }
             catch (e) { console.error("question store:", rSlug, errorClassForLog(e)); }
             if (!kept) return rStoreFailed(routed.decision);
           }
-          rQuestion = { id: rec.id, text: rec.question.text, options: rec.question.options };
+          rQuestion = { id: rec.id, text: rec.question.text, options: rec.question.options, ...(rec.note ? { note: rec.note } : {}) };
           rInstruction = undefined;
         }
       }
@@ -20579,8 +20596,9 @@ async function handleRequest(request, env, ctx) {
         question: routed.intent === "clarify" ? (rQuestion || routed.question) : undefined,
         // AN ANSWER TO A WAITING QUESTION (2026-10-02): whether it answered it,
         // and when it did, the request to run instead of the typed words — the
-        // waiting request with the question and answer added — with the
-        // question count and the parts put off earlier for the step that runs it.
+        // waiting request, word for word — with what they told us beside it
+        // (`ask.context`), the question count and the parts put off earlier for
+        // the step that runs it.
         ask: rAsk,
         instruction: rInstruction,
         cost: rCost,
@@ -21359,8 +21377,9 @@ async function handleRequest(request, env, ctx) {
             // A step that asked instead of acting (`stepAsk`) writes nothing;
             // the ending (`askReport`) keeps its question as the site's live
             // question, with what the answer must still do (`eAskOut.request`,
-            // set where the question is known) and the parts put off so far.
-            const eAskOut = { request: "", round: 1, attached: false, asked: [] };
+            // set where the question is known), what they already told us that
+            // goes with it (`eAskOut.context`) and the parts put off so far.
+            const eAskOut = { request: "", round: 1, attached: false, context: [] };
             return askReport(env, await heldReport(await (async () => {
             // ── THE EDIT LANE ─────────────────────────────────────────────
             //
@@ -21452,11 +21471,38 @@ async function handleRequest(request, env, ctx) {
                 url: url.toString(), body: ebRaw, idem: eb && eb.idem,
               }));
             }
+            // ── WHAT THEY ALREADY TOLD US (2026-10-02, the owner's second review:
+            //    *"keep clarification context separate from executable
+            //    instructions, with the model identifying its relevant scope"*) ──
+            //
+            // A request resumed from a question carries its answers BESIDE its
+            // words (`context`), never in them, so no step's words and no cut
+            // below ever holds one. `eShown` is every answer still for this
+            // request (`handled` ones went with a change made earlier); `eCtx`
+            // is the ones the model being called right now is shown — the
+            // picker all of them, each step and each lane the ones the picker
+            // named for its change and the ones it named for none (`told`, set
+            // where each runs). `null` when the list cannot be read: refused
+            // below, before anything runs.
+            const eCtxAll = readContext(eb && eb.context);
+            const eShownIdx = (eCtxAll || []).map((p, j) => (p.handled ? -1 : j)).filter((j) => j >= 0);
+            const eShown = eShownIdx.map((j) => eCtxAll[j]);
+            let eCtx = eShown;
+            // The answers a step or lane is shown, by the indices it was given.
+            const eCtxOf = (told) => (Array.isArray(told) ? eShownIdx.filter((j) => told.includes(j)).map((j) => eCtxAll[j]) : eShown);
             // EVERY MODEL CALL ON THIS ROUTE GOES THROUGH ONE WRAPPER, so the
             // job's clock reaches all ten of them without ten chances to forget
             // one. `eJob` is null on the synchronous path and `quickSend` then
-            // falls back to its flat ceiling, exactly as before.
-            const eQuick = (what = "") => quickSend(env, what, eJob && eJob.budget);
+            // falls back to its flat ceiling, exactly as before. AND SO DO THE
+            // ANSWERS (`clarifyTransport`): each call is shown `eCtx` in its own
+            // section, a question one of them already answered is sent back with
+            // its answer rather than put to the customer, and past `MAX_ASKED`
+            // answers no call is offered a question.
+            const eQuick = (what = "") => clarifyTransport(quickSend(env, what, eJob && eJob.budget), {
+              shown: () => eCtx,
+              all: () => eCtxAll || [],
+              onReuse: (hit, closed) => { try { if (editTrace) editTrace.mark("clarify:reuse", closed ? "closed" : "ok", { what, answers: hit.length }); } catch { /* the record never costs the job */ } },
+            });
             // THE BLACK BOX STARTS HERE — see `editTrace` where it is declared.
             // From this point every phase marks itself, and the marks are
             // in-memory pushes: no awaits, no subrequests, nothing that can
@@ -21542,17 +21588,19 @@ async function handleRequest(request, env, ctx) {
             let eRun = eHeld.ok ? eHeld.run : eMessage;
             // ── A REQUEST RESUMED FROM A QUESTION (2026-10-02) ─────────────
             //
-            // The answer to a question arrives as the request that was waiting
-            // with the question and answer added, so nothing of it is new here
-            // but two facts: how many questions it has asked (`askRound`, so a
-            // step's question counts against the same budget), and the parts it
-            // put off before the question (`putOff`) — not in this message, so
-            // never taken out of it or run, and named on every ending like this
-            // turn's own. Read the way a hand-over's parts are (`heldList`); a
-            // list that cannot be read names none of them.
+            // The answer to a question arrives as the request that was waiting,
+            // word for word, with what they told us beside it (`context`, read
+            // above), so nothing of its words is new here but two facts: how
+            // many questions it has asked (`askRound`), and the parts it put off
+            // before the question (`putOff`) — not in this message, so never
+            // taken out of it or run, and named on every ending like this turn's
+            // own. Read the way a hand-over's parts are (`heldList`); a list
+            // that cannot be read names none of them.
             eAskOut.round = (Number.isInteger(eb && eb.askRound) && eb.askRound > 0 ? eb.askRound : 0) + 1;
-            // AND THE QUESTIONS IT HAS ASKED, so a step never asks one again.
-            eAskOut.asked = askedList(eb && eb.asked);
+            // AND WHAT THEY TOLD US SO FAR, which a question asked before
+            // anything runs keeps whole (the picker's); a step's keeps what is
+            // still for it (`askRemainder`).
+            eAskOut.context = eCtxAll || [];
             // WHETHER THE MESSAGE CARRIED FILES, which the browser keeps and
             // sends again with the answer — said by the browser, since only the
             // logo step is sent the files themselves.
@@ -21563,6 +21611,8 @@ async function handleRequest(request, env, ctx) {
             // EACH OWN LANE'S WORDS, for the one look step that runs them all —
             // set by the step loop from the step, like `eInstruction`.
             let eAsks = null;
+            // AND EACH OWN LANE'S ANSWERS (`toldBy`, 2026-10-02), set beside it.
+            let eToldBy = null;
             const eAuth = request.headers.get("Authorization") || "";
             // ONE shape for every "I cannot do this, try the rung above".
             const escalate = (reason, extra) =>
@@ -21641,6 +21691,9 @@ async function handleRequest(request, env, ctx) {
             // NOTHING RUNS ON A MESSAGE THIS ROUTE COULD NOT SPLIT. At no cost
             // for the edit, before the source is read or any model is asked.
             if (!eHeld.ok) return explain("route/held-unread");
+            // NOR ON ANSWERS THIS ROUTE CANNOT READ (2026-10-02): run without
+            // them, a step would ask again what the customer already told us.
+            if (!eCtxAll) return explain("route/context-unread");
             // THE PICKED MODEL'S KEY, not Anthropic's — see `modelKeyMissing`.
             // EXPLAINED, NOT ESCALATED (2026-09-23): the rewrite runs on the same
             // picker and would meet the same missing key.
@@ -22297,6 +22350,9 @@ async function handleRequest(request, env, ctx) {
                   // already has and which are work asked beside it. `null`
                   // everywhere else: the look door asks what it always asked.
                   routed: eRemovalDoor ? { layer: eLayer, remove: eRemove, page: ePage } : null,
+                  // HOW MANY ANSWERS IT IS SHOWN, NUMBERED (2026-10-02): it names
+                  // those each change needs (`answers` on a scope), checked here.
+                  answers: eShown.length,
                 },
               );
               editTrace.mark("pick_lanes", picked.failed ? "fail" : "ok",
@@ -22656,6 +22712,24 @@ async function handleRequest(request, env, ctx) {
               // WHAT EACH LANE MAY RUN ON: its ops that passed every check.
               const eRunnable = eOps.filter((op) => !op.invalid && !strayPage(op));
               const opsOf = (f) => eRunnable.filter((op) => op.part === f);
+              // ── AND THE ANSWERS EACH CHANGE NEEDS (2026-10-02, the owner's
+              //    second review: *"with the model identifying its relevant
+              //    scope rather than customer-keyword rules"*) ────────────────
+              //
+              // The picker named, for each change, the answers it needs
+              // (`answers` on a scope: numbers into `eShown`, checked in
+              // `readScopes`). Each step is handed those — and every answer no
+              // change named, which could be anybody's — as `told`, the indices
+              // into `eCtxAll` it is shown (`eCtxOf`). A change the picker gave
+              // no reading for is shown every answer: never fewer than it may
+              // need. When a step asks beside others, the answers only finished
+              // changes needed go no further (`askRemainder`).
+              const eNamed = new Set(eOps.flatMap((op) => (Array.isArray(op.answers) ? op.answers : [])));
+              const eUnnamed = eShownIdx.filter((_, i) => !eNamed.has(i + 1));
+              const toldOf = (ops) => (ops.length && ops.every((op) => Array.isArray(op.answers))
+                ? [...new Set([...ops.flatMap((op) => op.answers.map((n) => eShownIdx[n - 1])), ...eUnnamed])].sort((a, b) => a - b)
+                : null);
+              const toldAll = (lists) => (lists.every(Array.isArray) ? [...new Set(lists.flat())].sort((a, b) => a - b) : null);
               // A PICKED LANE A SCOPED ANSWER NEVER MENTIONED is not legacy:
               // the answer said where each change goes, and said nothing of
               // this one. Withheld, never run on the whole message.
@@ -22670,13 +22744,16 @@ async function handleRequest(request, env, ctx) {
                 // EACH LANE'S OWN WORDS, AS A LIST, so the cut at the end of this
                 // door can take out a part put off by position (`cutStep`).
                 const opWords = {};
+                // AND EACH LANE'S OWN ANSWERS (`toldBy`), and the step's, all of
+                // them together (`told`) — what its question would keep.
+                const laneTold = {};
                 lookRuns = [];
                 for (const f of acting) {
                   const mine = opsOf(f);
-                  if (mine.length) { opWords[f] = mine.map((op) => op.words); asks[f] = opWords[f].join("\n"); lookRuns.push(f); }
+                  if (mine.length) { opWords[f] = mine.map((op) => op.words); asks[f] = opWords[f].join("\n"); laneTold[f] = toldOf(mine); lookRuns.push(f); }
                   else if (unscoped(f)) withhold(f, "unscoped", "", () => explain("picker/scope-unread", { why: "unscoped" }));
                 }
-                if (lookRuns.length) steps.push({ layer: "look", page: ePage, fields: lookRuns, asks, opWords });
+                if (lookRuns.length) steps.push({ layer: "look", page: ePage, fields: lookRuns, asks, opWords, toldBy: laneTold, told: toldAll(lookRuns.map((f) => laneTold[f])) });
               }
               // ── ONE PAGE OPERATION PER PAGE, WHERE PAGE LANES SIT TOGETHER ──
               //
@@ -22736,13 +22813,14 @@ async function handleRequest(request, env, ctx) {
                 // part put off can be taken out of each by position (`cutStep`).
                 if (to === "page") {
                   for (const pg of [...new Set(mine.map((op) => op.page || fallbackPage))]) {
-                    const words = mine.filter((op) => (op.page || fallbackPage) === pg).map((op) => op.words);
-                    dispatched.push({ layer: "page", page: pg, fields: [f], ask: words.join("\n"), words });
+                    const here = mine.filter((op) => (op.page || fallbackPage) === pg);
+                    const words = here.map((op) => op.words);
+                    dispatched.push({ layer: "page", page: pg, fields: [f], ask: words.join("\n"), words, told: toldOf(here) });
                   }
                   continue;
                 }
                 const words = mine.map((op) => op.words);
-                dispatched.push({ layer: to, page: ePage, fields: [f], ask: words.join("\n"), words });
+                dispatched.push({ layer: to, page: ePage, fields: [f], ask: words.join("\n"), words, told: toldOf(mine) });
               }
               steps.push(...mergePageSteps(dispatched));
               // ── THE QR IS PLACED, NOT ONLY MADE ───────────────────────────
@@ -24299,7 +24377,11 @@ async function handleRequest(request, env, ctx) {
                 // value and answers only its own field — so this is a loop
                 // rather than a pipeline, and one publish covers all of them.
                 const answers = {};
+                // EACH LANE IS SHOWN THE ANSWERS ITS OWN CHANGE NEEDS (2026-10-02,
+                // `toldBy`), the step's own between lanes and after the last.
+                const eLookCtx = eCtx;
                 for (const field of pickedFields) {
+                  eCtx = eToldBy && Object.hasOwn(eToldBy, field) ? eCtxOf(eToldBy[field]) : eLookCtx;
                   // ── A REMOVAL FROM A LIST NAMES WHAT GOES (2026-10-02, W2) ──
                   //
                   // Emptied by name, "stop offering Spanish" took French away
@@ -24439,6 +24521,7 @@ async function handleRequest(request, env, ctx) {
                   }
                   answers[field] = ran.value;
                 }
+                eCtx = eLookCtx;
                 // NULL WHEN NOTHING ANSWERED, not `{}` — `hasValue` below reads
                 // an empty object as "the model named nothing", which is the
                 // `no-change` escalation, and that is exactly what happened.
@@ -25394,7 +25477,11 @@ async function handleRequest(request, env, ctx) {
                   // restates its rules inline, where editing the stylesheet
                   // can no longer reach them.
                   theme: eLook2.theme, css: eCss2,
-                }), eSpec, eLook2.brand || ownerSlug, [], eModels.pages, eSrc, "page", target.path);
+                }), eSpec, eLook2.brand || ownerSlug, [], eModels.pages, eSrc, "page", target.path,
+                // NO CLOCK OF ITS OWN, exactly as before; AND THE ANSWERS this
+                // step was given (2026-10-02), through the same transport every
+                // other call on this route goes through (`clarifyTransport`).
+                null, clarifyCall(pagesCall(env), { shown: () => eCtx, all: () => eCtxAll || [] }));
               } catch (e) {
                 console.error("page edit generate failed:", ownerSlug, e && e.message);
                 const pKind = upstreamKind(e && e.detail, e && e.status);
@@ -25899,19 +25986,17 @@ async function handleRequest(request, env, ctx) {
             // recompile from the design the customer just asked for, rather than
             // from the one it is replacing.
             const done = [];
-            // ── EVERY STEP OF A RESUMED REQUEST IS HANDED ITS ANSWERS ────────
+            // ── EVERY STEP OF A RESUMED REQUEST IS SHOWN ITS ANSWERS ─────────
             //
-            // 2026-10-02, the owner's review: *"verify actual resumed model
-            // inputs"*. A step the picker scoped runs on its change's own
-            // words, and the answers are the request's last lines, in no
-            // change's words — so the step that asked was resumed without the
-            // answer it asked for. Each scoped step and each lane is handed
-            // them after its own words (`answerLines`), as a step on the whole
-            // turn always was. Where they sit in the message is untouched:
-            // every cut (`wordsLess`, `askRemainder`) still reads the words the
-            // picker gave.
-            const eAnswers = answerLines(eRun, eAskOut.asked);
-            const withAnswers = (w) => (eAnswers && typeof w === "string" && !w.includes(eAnswers) ? w + "\n\n" + eAnswers : w);
+            // 2026-10-02, the owner's reviews: *"verify actual resumed model
+            // inputs"*, then *"keep clarification context separate from
+            // executable instructions"*. A step runs on its own words alone;
+            // the answers it was given (`told`) ride beside them, shown to every
+            // model call it makes in a section of their own (`eCtx`, which the
+            // transport reads). A step the picker did not scope is shown every
+            // answer, as a step on the whole turn always was. No answer is ever
+            // in a step's words, so no cut (`wordsLess`, `askRemainder`) and no
+            // check that reads them can mistake one for a change asked for.
             for (const step of steps) {
               // ── A PAGE OPERATION THAT ALREADY SUCCEEDED IS NOT RUN AGAIN ──
               //
@@ -25940,10 +26025,13 @@ async function handleRequest(request, env, ctx) {
               }
               // A STEP THE BRANCH ADDED CARRIES ITS OWN ASK; a step the picker
               // scoped runs on that change's own words (`ask`, and `asks` for the
-              // look step's lanes) and the request's answers; every other step
-              // runs on what this turn does, `eRun`. Restored below the loop.
-              eInstruction = step.instruction || (step.ask ? withAnswers(step.ask) : eRun);
-              eAsks = step.asks ? Object.fromEntries(Object.entries(step.asks).map(([f, w]) => [f, withAnswers(w)])) : null;
+              // look step's lanes), shown the answers it was given (`told`, and
+              // `toldBy` for the lanes); every other step runs on what this turn
+              // does, `eRun`, shown every answer. Restored below.
+              eInstruction = step.instruction || step.ask || eRun;
+              eAsks = step.asks || null;
+              eToldBy = step.toldBy || null;
+              eCtx = eCtxOf(step.told);
               // A WITHHELD STEP RUNS NOTHING (2026-09-29): its answer is its own
               // sentence, at no cost, and it reaches the reply through `partial`
               // exactly as a rung's refusal does.
@@ -25952,6 +26040,8 @@ async function handleRequest(request, env, ctx) {
                 : await runLayer(step.layer, step.page, step.fields, step.remove === true, typeof step.rename === "string" ? step.rename : "");
               eInstruction = eRun;
               eAsks = null;
+              eToldBy = null;
+              eCtx = eShown;
               const body = await res.clone().json().catch(() => null);
               const failed = !body || body.ok !== true;
               // AND WHEN THAT LATER STEP DID IT, THE EARLIER REFUSAL IS OVER.
@@ -25988,8 +26078,14 @@ async function handleRequest(request, env, ctx) {
             // a change that ran beside it is never in the request the answer
             // resumes (`askRemainder`). The other steps carry on to the publish
             // below exactly as they would beside any step that wrote nothing.
+            // AND THE ANSWERS STILL FOR IT GO WITH IT: those the asking step was
+            // shown stay shown; those only finished steps needed are `handled`.
             const eAsking = done.filter((d) => d.body && d.body.ok !== true && readAsk(d.body.ask));
-            if (eAsking.length) eAskOut.request = askRemainder(eAsking, done, eRun, eAnswers);
+            if (eAsking.length) {
+              const left = askRemainder(eAsking, done, eRun, eCtxAll);
+              eAskOut.request = left.request;
+              eAskOut.context = left.context;
+            }
 
             // ── AND NOW THE ONE PUBLISH ───────────────────────────────────
             //
@@ -26538,7 +26634,7 @@ async function handleRequest(request, env, ctx) {
               return Response.json(merged, { status: 422 });
             }
             return Response.json(merged);
-            })(), eHeldOut.parts, eHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: eAskOut.round, held: [...new Set([...eHeldOut.earlier, ...eHeldOut.parts])], request: eAskOut.request, attached: eAskOut.attached, asked: eAskOut.asked });
+            })(), eHeldOut.parts, eHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: eAskOut.round, held: [...new Set([...eHeldOut.earlier, ...eHeldOut.parts])], request: eAskOut.request, attached: eAskOut.attached, context: eAskOut.context });
           }
 
           if (ad) {
@@ -26548,8 +26644,10 @@ async function handleRequest(request, env, ctx) {
             // re-indented; every exit is a `return` inside it.
             const aHeldOut = { parts: [], earlier: [] };
             // AND A QUESTION THE PICKER ASKED IS KEPT THERE TOO (2026-10-02,
-            // `askReport`, the edit route's own ending).
-            const aAskOut = { request: "", round: 1, attached: false, asked: [] };
+            // `askReport`, the edit route's own ending), with every answer the
+            // request carries: nothing of an addition is applied before a
+            // designer asks, so nothing it was told goes with a finished change.
+            const aAskOut = { request: "", round: 1, attached: false, context: [] };
             return askReport(env, await heldReport(await (async () => {
             // ── THE ADDON LANE ────────────────────────────────────────────
             //
@@ -26607,12 +26705,24 @@ async function handleRequest(request, env, ctx) {
                 url: url.toString(), body: abRaw, idem: ab && ab.idem,
               }));
             }
+            // WHAT THEY ALREADY TOLD US (2026-10-02, the owner's second review),
+            // beside the request and never in it — the edit route's rule. Every
+            // call here is shown all of it: the picker names kinds, not changes,
+            // so there is no narrower reading to give a designer. `null` when the
+            // list cannot be read: refused below, before anything runs.
+            const aCtxAll = readContext(ab && ab.context);
+            const aCtxShown = shownContext(aCtxAll || []);
             // EVERY MODEL CALL ON THIS ROUTE GOES THROUGH ONE WRAPPER, so the
             // job's clock reaches all of them — the picker, one designer per
             // kind, the seed net — without one chance per call to forget it.
             // `aJob` is null on the synchronous path and `quickSend` keeps its
-            // flat ceiling, exactly as before.
-            const aQuick = (what = "") => quickSend(env, what, aJob && aJob.budget);
+            // flat ceiling, exactly as before. AND SO DO THE ANSWERS
+            // (`clarifyTransport`), as on the edit route.
+            const aQuick = (what = "") => clarifyTransport(quickSend(env, what, aJob && aJob.budget), {
+              shown: () => aCtxShown,
+              all: () => aCtxAll || [],
+              onReuse: (hit, closed) => { try { if (editTrace) editTrace.mark("clarify:reuse", closed ? "closed" : "ok", { what, answers: hit.length }); } catch { /* the record never costs the job */ } },
+            });
             // THE BLACK BOX, the edit route's own: every phase marks itself,
             // the marks are in-memory pushes, and the `finally` below the
             // routes flushes them and writes the durations to the job row.
@@ -26633,7 +26743,7 @@ async function handleRequest(request, env, ctx) {
             // two facts: how many questions it has asked, and the parts it put
             // off before the question, named on every ending and never run.
             aAskOut.round = (Number.isInteger(ab && ab.askRound) && ab.askRound > 0 ? ab.askRound : 0) + 1;
-            aAskOut.asked = askedList(ab && ab.asked);
+            aAskOut.context = aCtxAll || [];
             aAskOut.attached = !!(ab && ab.attached === true);
             aHeldOut.earlier = heldList(ab && ab.putOff) || [];
             aHeldOut.parts = aLater.held.slice();
@@ -26661,6 +26771,8 @@ async function handleRequest(request, env, ctx) {
             const aFailure = (reason, extra) => Response.json(addonFailure(reason, extra));
             if (!aInstruction) return aFailure("empty");
             if (!aLater.ok) return aFailure("held-unread");
+            // NOR ON ANSWERS IT CANNOT READ (2026-10-02), the edit route's rule.
+            if (!aCtxAll) return aFailure("context-unread");
             // The add step designs on `.quick` — the picker's own model, the
             // rule every small call follows — and asking about the one this
             // rung sends is what keeps that a fact rather than a coincidence.
@@ -28934,7 +29046,9 @@ async function handleRequest(request, env, ctx) {
                 theme: aMerged.theme || aLook.theme, css: aNextCss,
               // THE JOB'S CLOCK RIDES THE PAGE CALL TOO — the one call on this
               // route that does not go through `aQuick`, and the longest.
-              }), aSpec, aMerged.brand || aLook.brand || ownerSlug, [], aModels.pages, aSrc, "addon", undefined, aJob && aJob.budget, undefined, "", aKeepPages);
+              }), aSpec, aMerged.brand || aLook.brand || ownerSlug, [], aModels.pages, aSrc, "addon", undefined, aJob && aJob.budget,
+              // THE ANSWERS, through the transport every other call here uses.
+              clarifyCall(pagesCall(env), { shown: () => aCtxShown, all: () => aCtxAll || [] }), "", aKeepPages);
               aPagesMs = Date.now() - aPagesT0;
               aPagesWrote = aGen && aGen.input && Array.isArray(aGen.input.pages) ? aGen.input.pages.length : 0;
               aMark("pages", "ok", { files: aPagesWrote, ms: aPagesMs });
@@ -30588,7 +30702,7 @@ async function handleRequest(request, env, ctx) {
               } : undefined,
               cost: aCost,
             });
-            })(), aHeldOut.parts, aHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: aAskOut.round, held: [...new Set([...aHeldOut.earlier, ...aHeldOut.parts])], request: aAskOut.request, attached: aAskOut.attached, asked: aAskOut.asked });
+            })(), aHeldOut.parts, aHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: aAskOut.round, held: [...new Set([...aHeldOut.earlier, ...aHeldOut.parts])], request: aAskOut.request, attached: aAskOut.attached, context: aAskOut.context });
           }
           if (tx) {
             // ── CHANGING THE WORDS, WITH NO MODEL CALL ────────────────────
@@ -30757,7 +30871,9 @@ async function handleRequest(request, env, ctx) {
               if (!st) return Response.json({ ok: false, error: "unread" }, { status: 503 });
               const r = st.record;
               const live = !!r && askLive(r, { id: r.id, uid: ou.id, slug: ownerSlug }).ok;
-              return Response.json({ ok: true, question: live ? { id: r.id, text: r.question.text, options: r.question.options, attached: r.attached === true } : null });
+              // AND THE NOTE A QUESTION ASKED ONCE MORE WAS KEPT UNDER, so a card
+              // rebuilt after a reload names the answer that did not settle it.
+              return Response.json({ ok: true, question: live ? { id: r.id, text: r.question.text, options: r.question.options, attached: r.attached === true, ...(r.note ? { note: r.note } : {}) } : null });
             }
             if (request.method === "POST") {
               let qb = null;

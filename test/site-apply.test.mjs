@@ -504,7 +504,11 @@ test("the edit handler CANNOT reach the schema, the seeder or the page generator
   // AND THE GENERATION IT DOES DO IS BOUNDED. Without the mode and the target it
   // is an ordinary revise wearing an edit's name — every page re-emitted, at the
   // price the lane exists to avoid.
-  assert.match(b, /generateSitePages\([^;]*"page", target\.path\)/s,
+  // RE-ANCHORED 2026-10-02 (the owner's second review): the call's argument
+  // list grew a tail — no clock of its own (`null`) and the transport that
+  // shows the step its answers — so the target is no longer the last argument.
+  // The property is the mode and the one named file.
+  assert.match(b, /generateSitePages\([^;]*"page", target\.path[,)]/s,
     "the page layer must generate in page mode against one named file");
   assert.equal((b.match(/generateSitePages\(/g) || []).length, 1,
     "the edit lane must make at most one generation call");

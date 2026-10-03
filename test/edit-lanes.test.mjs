@@ -526,6 +526,15 @@ test("the edit path is a fraction of the build path — measured, not claimed", 
   // (1/9.2); the pair had been sitting 43 characters under the old line, at
   // 9,671. The router alone keeps its tenth below (9,254 against 9,714), and
   // the per-lane anchor is untouched: no lane's instructions moved into it.
+  //
+  // AND 2026-10-02 (the owner's second review, clarification continuity): the
+  // question field names the answers' own section (WHAT THEY ALREADY TOLD
+  // YOU) and asks a more specific question when an answer left it open (+31
+  // in each of the two tools), and each scope may name the answers its change
+  // needs (`answers`, +186 with its key). Measured: 12,035 against 97,142
+  // (1/8.07), from 11,787; the router alone 9,691 against its tenth of 9,714,
+  // from 9,474 — both under their lines, by trimming the wording rather than
+  // moving either line.
   assert.ok(pick + css < whole / 8,
     "the edit path is no longer materially smaller than the build tool (" + (pick + css) + " vs " + whole + ")");
   // And the router really is the small half — if it grew to carry each field's

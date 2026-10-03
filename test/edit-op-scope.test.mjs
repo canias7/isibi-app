@@ -882,7 +882,13 @@ test("the picker's tools ask for each change's scope — required on the ordinar
   assert.deepEqual(plain.required, ["fields", "scopes"]);
   const item = plain.properties.scopes.items;
   assert.deepEqual(item.required, ["part", "words"]);
-  assert.deepEqual(Object.keys(item.properties).sort(), ["page", "part", "words"]);
+  // RE-ANCHORED 2026-10-02 (the owner's second review): a scope may also name
+  // the numbered answers its change needs (`answers`) — optional, so a picker
+  // shown no answers answers exactly as before, and never a source of `words`.
+  assert.deepEqual(Object.keys(item.properties).sort(), ["answers", "page", "part", "words"]);
+  assert.deepEqual(item.properties.answers.items, { type: "integer" });
+  assert.match(item.properties.answers.description, /WHAT THEY ALREADY TOLD YOU/);
+  assert.match(item.properties.answers.description, /`words` still comes from the request/);
   assert.equal(plain.properties.scopes.maxItems, MAX_LANES);
   assert.match(plain.properties.scopes.description, /ONE ENTRY PER SEPARATE CHANGE/);
   assert.match(item.properties.words.description, /copied EXACTLY from the message/);
@@ -890,6 +896,19 @@ test("the picker's tools ask for each change's scope — required on the ordinar
   assert.ok(Object.hasOwn(door.properties, "scopes"), "the door's tool has no scopes");
   assert.deepEqual(door.required, ["additional"], "the door's answer may still name nothing");
   assert.match(door.properties.scopes.description, /already-routed change is being made already; it never goes here/);
+});
+
+test("ONE PAGE OPERATION IS SHOWN WHAT EITHER JOINED CHANGE NEEDS (2026-10-02, the owner's second review): the answers each was given are joined, each once and in order; one to be shown every answer keeps every answer; neither given any keeps none", () => {
+  const a = { layer: "page", page: "/visit", fields: ["shape"], ask: "move the band up", told: [2, 0] };
+  const b = { layer: "page", page: "/visit", fields: ["components"], ask: "swap the photo for a map", told: [1, 0] };
+  assert.deepEqual(mergePageSteps([a, b])[0].told, [0, 1, 2], "the joined writer was not shown what both changes needed");
+  assert.equal(mergePageSteps([a, { ...b, told: null }])[0].told, null, "a change to be shown every answer was narrowed by joining");
+  const { told: _a, ...plainA } = a;
+  const { told: _b, ...plainB } = b;
+  assert.equal(mergePageSteps([plainA, b])[0].told, null, "a change the picker gave no reading for was narrowed by joining");
+  assert.equal(Object.hasOwn(mergePageSteps([plainA, plainB])[0], "told"), false, "steps given no answers gained some");
+  // ANOTHER PAGE IS ANOTHER OPERATION, each with its own.
+  assert.deepEqual(mergePageSteps([a, { ...b, page: "/" }]).map((x) => x.told), [[2, 0], [1, 0]]);
 });
 
 test("one page operation per page: scoped words on one page join, and different words are different operations", () => {

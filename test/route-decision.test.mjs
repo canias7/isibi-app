@@ -20,7 +20,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   ROUTE_REASONS, ROUTE_SOURCES, routeDecision, readRouting, readEdit, readAlso, routeMessage, digestLists,
-  siteDigest, EDIT_LAYERS, MAX_MESSAGE, MAX_CLARIFY, addReason,
+  siteDigest, EDIT_LAYERS, MAX_MESSAGE, MAX_CLARIFY,
 } from "../builder/site-ask.mjs";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 
@@ -115,6 +115,17 @@ const CASES = [
   ["pages-cut", () => routed({ intent: "edit", layer: "look" }, { site: { ...SITE, pages: Array.from({ length: 30 }, (_, i) => "/p" + i) } }), "model"],
   ["tables-cut", () => routed({ intent: "edit", layer: "look" }, { site: { ...SITE, tables: ["services", 7] } }), "model"],
   ["tables-filled", () => routed({ intent: "edit", layer: "data" }, { tablesFilled: true }), "model"],
+  // A SITE THAT EXISTS (2026-10-02, the owner's second review): a question back
+  // the waiting request already asked is sent its answer once — the router's
+  // answer then is its own (`clarify-reused`, context) — and one still asked is
+  // kept with a note (`clarify-again`, changed). Neither is a fallback.
+  ["clarify-reused", async () => {
+    const replies = [toolReply({ intent: "clarify", question: QUESTION, answered: true }), toolReply({ intent: "edit", layer: "look", answered: true })];
+    const r = await routeMessage({ send: async () => replies.shift() },
+      { message: "the first one", site: SITE, hasSite: true, canAsk: true, pending: { request: "Book me in", question: QUESTION } });
+    return { r, sent: [] };
+  }, "model"],
+  ["clarify-again", () => routed({ intent: "clarify", question: QUESTION, answered: true }, { canAsk: true, pending: { request: "Book me in", question: QUESTION } }), "model"],
 ];
 
 test("every reason code is reached by the branch that names it, and gives the source it should", async () => {
@@ -127,12 +138,12 @@ test("every reason code is reached by the branch that names it, and gives the so
 });
 
 // DECIDED IN THE WORKER, NOT IN THE ROUTER MODULE: the zero-balance rule. Its
-// case is the real route's, below ("…and the zero-balance rule"). AND THE
-// ROUTE'S TWO QUESTION CHECKS (2026-10-02), after the model answered: a
-// question this request already asked, and one whose answer could not fit
-// beside its request — each driven through the real route in
-// `test/live-clarify-continue.test.mjs`, and their composition below.
-const ROUTE_ONLY = ["no-credits", "clarify-repeat", "clarify-no-room"];
+// case is the real route's, below ("…and the zero-balance rule"). (The route's
+// two question checks that stopped a request — `clarify-repeat` and
+// `clarify-no-room` — are gone since the owner's second review, 2026-10-02: a
+// question already answered is the router's own `clarify-reused` and
+// `clarify-again`, in the table above, and no request runs out of room.)
+const ROUTE_ONLY = ["no-credits"];
 
 test("every declared code has a case, and no case names a code that is not declared", () => {
   const covered = new Set([...CASES.map(([code]) => code), ...ROUTE_ONLY]);
@@ -360,14 +371,4 @@ test("the route names the table names it filled in, through the decision", async
   const r = await route({ input: { intent: "edit", layer: "data" }, body: { site: { name: "x", pages: ["/"], tables: [] } } });
   assert.equal(r.body.tablesFilled, undefined);
   assert.ok(!r.body.decision.reasons.includes("tables-filled"), "a fill that did not happen was reported");
-});
-
-test("THE ROUTE'S OWN QUESTION CHECKS ADD THEIR CODE TO THE MODEL'S DECISION: the source is derived again, the model's own answer kept, and a code off the list changes nothing", () => {
-  const model = routeDecision([], { intent: "clarify" });
-  const repeat = addReason(model, "clarify-repeat");
-  assert.deepEqual(repeat, { source: "fallback", reasons: ["clarify-repeat"], raw: { intent: "clarify", layer: "none" } });
-  assert.deepEqual(addReason(model, "clarify-no-room").reasons, ["clarify-no-room"]);
-  assert.deepEqual(addReason(repeat, "clarify-repeat").reasons, ["clarify-repeat"], "a code was named twice");
-  assert.deepEqual(addReason(model, "made-up"), model, "a code off the list widened the decision");
-  assert.deepEqual(addReason(undefined, "clarify-repeat"), { source: "fallback", reasons: ["clarify-repeat"] });
 });

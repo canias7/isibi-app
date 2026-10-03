@@ -287,13 +287,20 @@ test("a step's own ask replaces the customer's sentence for that step only", () 
   // words (`step.ask`). The property is the one this case always held: the
   // step's words are set before the rung runs, and this turn's sentence after.
   //
-  // RE-ANCHORED 2026-10-02 (the owner's review: *"verify actual resumed model
-  // inputs"*): a scoped step's own words carry the resumed request's answers
-  // (`withAnswers`), which are in no change's words. The property is unchanged.
-  const set = loop.indexOf("eInstruction = step.instruction || (step.ask ? withAnswers(step.ask) : eRun);");
+  // RE-ANCHORED 2026-10-02, TWICE. The owner's review (*"verify actual resumed
+  // model inputs"*) had a scoped step's own words carry the resumed request's
+  // answers (`withAnswers`); the owner's second review (*"keep clarification
+  // context separate from executable instructions"*) moved them BESIDE the
+  // words: the step's words are its own again, and the answers it is shown
+  // (`eCtx`, by the picker's numbers in `step.told`) are set and put back
+  // around the rung exactly as its words are.
+  const set = loop.indexOf("eInstruction = step.instruction || step.ask || eRun;");
   const run = loop.indexOf("await runLayer(step.layer, step.page, step.fields");
   const restore = loop.indexOf("eInstruction = eRun;");
   assert.ok(set > 0 && run > set && restore > run, "the step's ask must be set before the rung runs and restored after");
+  const told = loop.indexOf("eCtx = eCtxOf(step.told);");
+  const untold = loop.indexOf("eCtx = eShown;");
+  assert.ok(told > 0 && run > told && untold > run, "the step's answers must be set before the rung runs and restored after");
   assert.match(CODE, /let eInstruction = String\(\(eb && eb\.instruction\)/, "eInstruction must be assignable");
   assert.match(CODE, /const eMessage = eInstruction;/, "the customer's sentence is not kept");
   // `let` SINCE 2026-10-02 (the review of batch 2): the look door takes out the

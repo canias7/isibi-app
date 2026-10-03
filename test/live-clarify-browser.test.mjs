@@ -205,7 +205,9 @@ const QID = "a".repeat(32);
 const QID2 = "b".repeat(32);
 const Q = { id: QID, text: "Which page should the band move on — Home or Visit?", options: ["Home", "Visit"] };
 const REQ = "Move the order band up";
-const RESUMED = REQ + "\n\nThey were asked: " + Q.text + "\nThey answered: Visit";
+// THE ROUTE HANDS BACK THE WAITING REQUEST WORD FOR WORD, and the answer beside it (2026-10-02).
+const RESUMED = REQ;
+const TOLD = [{ q: Q.text, a: "Visit" }];
 const IMG = "data:image/png;base64,iVBORw0KGgo=";
 const LIVE = { id: "origin-1", slug: SLUG, react: true, name: "Harbour Loaf", url: "https://" + SLUG + ".gofarther.app/", pages: [{ path: "/" }, { path: "/visit" }], msgs: [] };
 const qMsg = (q) => ({ r: "a", t: q.text, q: q.text, opts: q.options, ask: q.id });
@@ -262,9 +264,9 @@ test("THE MESSAGE'S FILES ARE KEPT WITH ITS QUESTION, so the answer can carry th
 // 2. THE ANSWER — typed, pressed, by its key
 // ─────────────────────────────────────────────────────────────────────────────
 
-const RESUME_ANSWER = { ok: true, intent: "edit", layer: "look", instruction: RESUMED, ask: { answered: true, round: 1, putOff: ["add a gallery page"] }, cost: 2 };
+const RESUME_ANSWER = { ok: true, intent: "edit", layer: "look", instruction: RESUMED, ask: { answered: true, round: 1, putOff: ["add a gallery page"], context: TOLD }, cost: 2 };
 
-test("A TYPED ANSWER RESUMES THE WAITING REQUEST: the route is told which question it answers, the card comes off, and the step is posted the request with the answer, its count and what it put off", async () => {
+test("A TYPED ANSWER RESUMES THE WAITING REQUEST: the route is told which question it answers, the card comes off, and the step is posted the request word for word, the answer beside it, its count and what it put off", async () => {
   const p = page({ site: asking(), answer: (url) => (url === ROUTE ? { body: RESUME_ANSWER } : null) });
   p.ctx.siteSend("Visit");
   await settle();
@@ -276,6 +278,7 @@ test("A TYPED ANSWER RESUMES THE WAITING REQUEST: the route is told which questi
   const [e] = posted(p, EDIT);
   assert.ok(e, "the answered request was not posted to its step");
   assert.equal(e.body.instruction, RESUMED, "the step was posted the typed answer, not the request it answers");
+  assert.deepEqual(e.body.context, TOLD, "the answer did not ride beside the request to the step");
   assert.equal(e.body.askRound, 1);
   assert.equal(e.body.putOff, "add a gallery page");
   assert.equal(e.body.layer, "look");
@@ -350,7 +353,8 @@ test("THE ROUTER ASKS AGAIN AFTER THE ANSWER: the old card comes off, the new on
 // ─────────────────────────────────────────────────────────────────────────────
 
 const LOGO_Q = { id: QID, text: "Should this picture go in the header or the browser tab?", options: ["Header", "Browser tab"] };
-const LOGO_RESUMED = "Use this picture\n\nThey were asked: " + LOGO_Q.text + "\nThey answered: Browser tab";
+const LOGO_RESUMED = "Use this picture";
+const LOGO_TOLD = [{ q: LOGO_Q.text, a: "Browser tab" }];
 
 test("AFTER A RELOAD IN THE SAME BROWSER, THE ANSWER STILL CARRIES THE REQUEST'S FILES to the step that uses them", async () => {
   const idb = fakeIndexedDB();
@@ -361,7 +365,7 @@ test("AFTER A RELOAD IN THE SAME BROWSER, THE ANSWER STILL CARRIES THE REQUEST'S
   // THE RELOAD: the record as it was saved, and a page that has never held the files in memory.
   const saved = copy(first.s);
   delete saved.draft;
-  const second = page({ site: saved, idb, answer: (url) => (url === ROUTE ? { body: { ok: true, intent: "edit", layer: "logo", tab: true, instruction: LOGO_RESUMED, ask: { answered: true, round: 1 }, cost: 2 } } : null) });
+  const second = page({ site: saved, idb, answer: (url) => (url === ROUTE ? { body: { ok: true, intent: "edit", layer: "logo", tab: true, instruction: LOGO_RESUMED, ask: { answered: true, round: 1, context: LOGO_TOLD }, cost: 2 } } : null) });
   second.click("data-ask-ans", "Browser tab");
   await settle();
   assert.equal(second.calls[0].body.attached, true, "the route was not told the request carried files");
@@ -370,6 +374,7 @@ test("AFTER A RELOAD IN THE SAME BROWSER, THE ANSWER STILL CARRIES THE REQUEST'S
   assert.deepEqual(e.body.images, [IMG], "the request's picture did not reach the step after a reload");
   assert.equal(e.body.tab, true);
   assert.equal(e.body.instruction, LOGO_RESUMED);
+  assert.deepEqual(e.body.context, LOGO_TOLD, "after a reload the answer did not ride beside the request");
   assert.equal(idb.data.has(QID), false, "an answered question's files were left in the store");
 });
 
@@ -414,14 +419,15 @@ test("A STALE ANSWER STARTS NOTHING: the card comes off and the route's own sent
   assert.equal(p.busy(), false);
 });
 
-test("AN ANSWER TOO LONG FOR ITS REQUEST STARTS NOTHING, and the question stays for a shorter one", async () => {
-  const msg = "I couldn't add that answer to your last request — together they're longer than I can take in one go. Send the whole request again with the detail in it.";
+test("AN ANSWER LONGER THAN A REPLY TO ONE QUESTION STARTS NOTHING: the question stays, and the answer comes back to the box to send shorter — nothing to type again", async () => {
+  const msg = "That answer is longer than I can keep beside your request. Your request is still waiting — answer the question in a sentence or two and I'll carry on with it.";
   const p = page({ site: asking(), answer: (url) => (url === ROUTE ? { status: 422, body: { ok: false, error: "answer-too-long", cost: 0, msg } } : null) });
-  p.ctx.siteSend("y".repeat(300));
+  p.ctx.siteSend("y".repeat(600));
   await settle();
   assert.equal(p.calls.length, 1);
   assert.equal(p.ask().id, QID, "a question still open lost its card");
   assert.deepEqual(p.last(), { r: "a", t: "⚠️ " + msg });
+  assert.deepEqual(copy(p.s.unsent), [{ t: "y".repeat(600), imgs: [] }], "the answer was not put back to shorten");
 });
 
 test("A ROUTE THAT FAILS ON AN ANSWER IS A FAILURE, SAID: the answer is held to send again and the question stays", async () => {
@@ -526,6 +532,16 @@ test("A RELOAD ASKS THE SERVER WHICH QUESTION IS LIVE: a card answered elsewhere
     assert.equal(p.ask().id, QID2);
     assert.deepEqual(p.last(), qMsg(Q2));
     assert.deepEqual(await p.files(QID), [], "the replaced question's files were kept");
+  }
+  // (d) A QUESTION ASKED ONCE MORE, after a reload: its note comes back with it, above the question.
+  {
+    const note = "Your answer \u2014 \u201cthe big one\u201d \u2014 didn\u2019t settle this, so I need to ask once more.";
+    const live = { id: QID2, text: Q.text, options: Q.options, attached: false, note };
+    const p = page({ site: { ...LIVE, msgs: [{ r: "u", t: REQ }] }, answer: (url, method) => (url === QUESTION && method === "GET" ? { body: { ok: true, question: live } } : null) });
+    p.ctx.siteAskCheck(p.s);
+    await settle();
+    assert.deepEqual(p.ask(), { id: QID2, text: Q.text, options: Q.options, attached: false, note }, "the reloaded card lost its note");
+    assert.equal(p.last().t, note + "\n" + Q.text, "the reloaded question was drawn without its note");
   }
 });
 
@@ -645,7 +661,7 @@ test("A STEP'S QUESTION THAT COULD NOT BE KEPT PUTS WHAT IT LEFT TO DO BACK IN T
   }
 });
 
-test("A REPLACEMENT THAT LOST A RACE STARTS NOTHING AND COMES BACK TO THE BOX; A QUESTION THE ROUTER WOULD HAVE ASKED AGAIN ENDS THE REQUEST, SAID, WITH ITS CARD OFF", async () => {
+test("A REPLACEMENT THAT LOST A RACE STARTS NOTHING AND COMES BACK TO THE BOX; A QUESTION ASKED ONCE MORE IS NEVER AN ENDING — it is the live card, drawn under the note naming the answer that did not settle it", async () => {
   {
     const msg = "Your last question was being answered somewhere else at the same moment, so I didn't act on this message. Send it again and I'll take it from there.";
     const p = page({ site: asking(), answer: (url) => (url === ROUTE ? { status: 409, body: { ok: false, error: "question-busy", cost: 0, msg } } : null) });
@@ -657,34 +673,31 @@ test("A REPLACEMENT THAT LOST A RACE STARTS NOTHING AND COMES BACK TO THE BOX; A
     assert.equal(p.ask(), null, "the card of a question closed elsewhere stayed up");
   }
   {
-    const msg = "Your answer didn't settle what I asked, and I won't ask you the same thing twice — so I've stopped there and nothing more was changed. Send the change again with that detail spelled out, and I'll make it.";
-    const p = page({ site: asking(), answer: (url) => (url === ROUTE ? { status: 422, body: { ok: false, error: "question-ended", why: "repeat", cost: 0, msg } } : null) });
+    const note = "Your answer \u2014 \u201cthe big one\u201d \u2014 didn\u2019t settle this, so I need to ask once more.";
+    const again = { id: QID2, text: Q.text, options: Q.options, note };
+    const p = page({ site: asking(), answer: (url) => (url === ROUTE ? { body: { ok: true, intent: "clarify", question: again, ask: { answered: true, round: 1, context: [{ q: Q.text, a: "the big one" }] }, cost: 2 } } : null) });
     p.ctx.siteSend("the big one");
     await settle();
-    assert.equal(p.calls.length, 1);
-    assert.deepEqual(p.last(), { r: "a", t: "⚠️ " + msg });
-    assert.equal(p.ask(), null, "a request that ended kept its card");
-    assert.equal(p.s.unsent, undefined, "an answer to a request that ended came back to the box as if to send again");
-  }
-  {
-    const msg = "That request has grown too long for me to ask about it and still take your answer, so I've stopped there and nothing more was changed. Send it again a little shorter, with the details in it.";
-    const long = "Move the band ".repeat(10).trim();
-    const p = page({ site: LIVE, answer: (url) => (url === ROUTE ? { status: 422, body: { ok: false, error: "question-ended", why: "room", cost: 0, msg, resume: long } } : null) });
-    p.ctx.siteSend(long);
-    await settle();
-    assert.deepEqual(copy(p.s.unsent), [{ t: long, imgs: [] }], "a request too long to ask about was not put back to shorten");
+    assert.equal(p.calls.length, 1, "work was sent while the request still waits on its question");
+    assert.deepEqual(p.ask(), { id: QID2, text: Q.text, options: Q.options, attached: false, note }, "the question asked again is not the live card, with its note");
+    assert.deepEqual(p.last(), { r: "a", t: note + "\n" + Q.text, q: Q.text, opts: Q.options, ask: QID2 }, "the note is not drawn above the question");
+    assert.equal(p.s.unsent, undefined, "the answer came back to the box as if the request had ended");
+    assert.match(p.ctx.siteAskHTML(p.last(), p.s), /data-ask-ans="Home"[^]*data-ask-cancel="1"/, "the card asked again has no answers or no way out");
+    // A NOTE THAT IS NOT ONE SHORT LINE MAKES IT NO QUESTION: nothing drawn as one.
+    for (const bad of [3, "", "x".repeat(301)]) assert.equal(p.ctx.clarifyOf({ ...again, note: bad }), null, JSON.stringify(bad));
   }
 });
 
-test("AN ANSWERED QUESTION'S EARLIER QUESTIONS RIDE TO THE STEP, so it never asks one again", async () => {
-  const asked = [Q.text];
-  const p = page({ site: asking(), answer: (url) => (url === ROUTE ? { body: { ...RESUME_ANSWER, ask: { ...RESUME_ANSWER.ask, asked } } } : null) });
+test("AN ANSWERED QUESTION'S ANSWERS — EVERY ONE SO FAR, HANDLED ONES TOO — RIDE BESIDE THE REQUEST TO THE STEP, and a list nobody can read is never acted on", async () => {
+  const told = [{ q: "Which band?", a: "The order band", handled: true }, ...TOLD];
+  const p = page({ site: asking(), answer: (url) => (url === ROUTE ? { body: { ...RESUME_ANSWER, ask: { ...RESUME_ANSWER.ask, context: told } } } : null) });
   p.ctx.siteSend("Visit");
   await settle();
   const [e] = posted(p, EDIT);
-  assert.deepEqual(e.body.asked, asked, "the step was not told what the request has asked");
+  assert.deepEqual(e.body.context, told, "the step was not posted what they already told us");
+  assert.equal(e.body.instruction, REQ, "an answer was folded into the request the step runs");
   // A LIST THAT CANNOT BE READ IS NOT ACTED ON: held to send again, the question kept.
-  const bad = page({ site: asking(), answer: (url) => (url === ROUTE ? { body: { ...RESUME_ANSWER, ask: { ...RESUME_ANSWER.ask, asked: [3] } } } : null) });
+  const bad = page({ site: asking(), answer: (url) => (url === ROUTE ? { body: { ...RESUME_ANSWER, ask: { ...RESUME_ANSWER.ask, context: [3] } } } : null) });
   bad.ctx.siteSend("Visit");
   await settle();
   assert.equal(posted(bad, EDIT).length, 0, "work was sent on an answer whose question list nobody can read");

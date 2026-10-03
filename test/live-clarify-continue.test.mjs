@@ -24,7 +24,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { loadWorker } from "./fixtures/worker-harness.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
-import { answeredRequest, QUESTION_KEY, readAskRecord } from "../builder/clarify.mjs";
+import { QUESTION_KEY, readAskRecord, contextBlock } from "../builder/clarify.mjs";
 import { MAX_MESSAGE } from "../builder/site-ask.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
 import { editBrowserReply } from "../scripts/addon-sweep.mjs";
@@ -77,6 +77,7 @@ for (const mode of ["sync", "job"]) {
         assert.ok(!q.request.includes(NEW_DESC) && !/description/i.test(q.request),
           "the completed change is in the request the answer resumes: " + JSON.stringify(q.request));
         assert.ok(q.request.includes(MOVE_WORDS), "the asking step's own part was lost: " + JSON.stringify(q.request));
+        assert.deepEqual(q.context, [], "a first question carries answers");
         // THE ANSWER, THROUGH THE ROUTING ROUTE: the router is shown what waits, without the completed change.
         const m1 = marks(seen);
         const d = (await routeCall(worker, envFor(store), { slug, message: "Yes", ask: { id: q.id } })).body;
@@ -88,12 +89,13 @@ for (const mode of ["sync", "job"]) {
         assert.equal(charged(seen, m1), 1, "the answer's routing call was not charged as any other");
         // THE RESUMED REQUEST: only the page step runs; the description lane is never called again.
         const m2 = marks(seen);
-        const post = browserPost(SITE(slug), { ...d, askRound: d.ask.round, putOff: d.ask.putOff, asked: d.ask.asked }, d.instruction);
+        const post = browserPost(SITE(slug), { ...d, askRound: d.ask.round, putOff: d.ask.putOff, context: d.ask.context }, d.instruction);
         const r2 = await postRoute(worker, envFor(store), store, seen, slug, post, mode);
         assert.equal(r2.body.ok, true, "the resumed request did not run: " + JSON.stringify(r2.body).slice(0, 400));
         assert.ok(!String(seen.picks[1]).includes(NEW_DESC), "the resumed picker was shown the completed change: " + seen.picks[1]);
-        assert.ok(!String(seen.writers[1].instruction).includes(NEW_DESC), "the resumed page writer was handed the completed change: " + seen.writers[1].instruction);
-        assert.ok(String(seen.writers[1].instruction).includes("They answered: Yes"), "the page step was not handed the answer");
+        assert.ok(!seen.inputs[T.tweak][1].includes(NEW_DESC), "the resumed page writer was handed the completed change");
+        assert.equal(String(seen.writers[1].instruction), MOVE_WORDS, "the resumed page writer's words are not its own part alone");
+        assert.ok(seen.inputs[T.tweak][1].endsWith(contextBlock([{ q: Q2.text, a: "Yes" }])), "the page step was not shown the answer, in its own section");
         assert.equal(seen.lanes.filter((l) => l.field === "description").length, 1, "the completed change was made again on the answer");
         assert.ok(bandFirst(storedPage(store, slug, "visit.tsx")), "the part that waited on the answer was not made");
         assert.equal(storedLook(store, slug).description, NEW_DESC);
@@ -133,7 +135,7 @@ test("WHEN NOTHING OF THE ASKING PART CAN BE TOLD APART FROM WHAT RAN — the sa
   } finally { compiler.uninstall(); }
 });
 
-test("A RESUMED REQUEST'S ANSWERS REACH EVERY STEP, HOWEVER NARROWLY SCOPED — and stay with what is left: the router's answer is handed to the one scoped step, and when that step asks too, with nothing made beside it, the next question resumes the request with both answers", async () => {
+test("A RESUMED REQUEST'S ANSWERS REACH EVERY STEP, HOWEVER NARROWLY SCOPED — and stay with what is left: the router's answer is shown to the one scoped step, and when that step asks too, with nothing made beside it, the next question keeps the request with both answers beside it", async () => {
   const slug = freshSlug("answers-kept");
   const store = bucket(slug);
   const worker = await loadWorker();
@@ -148,26 +150,28 @@ test("A RESUMED REQUEST'S ANSWERS REACH EVERY STEP, HOWEVER NARROWLY SCOPED — 
     }, async (seen) => {
       const a = (await routeCall(worker, envFor(store), { slug, message: MOVE_WORDS })).body;
       const b = (await routeCall(worker, envFor(store), { slug, message: "Visit", ask: { id: a.question.id } })).body;
-      assert.deepEqual(b.ask.asked, [Q1.text]);
-      const r = await postRoute(worker, envFor(store), store, seen, slug, browserPost(SITE(slug), { ...b, askRound: b.ask.round, asked: b.ask.asked }, b.instruction), "sync");
+      assert.deepEqual(b.ask.context, [{ q: Q1.text, a: "Visit" }]);
+      assert.equal(b.instruction, MOVE_WORDS, "the request grew with its answer");
+      const r = await postRoute(worker, envFor(store), store, seen, slug, browserPost(SITE(slug), { ...b, askRound: b.ask.round, context: b.ask.context }, b.instruction), "sync");
       assert.match(r.body.clarify && r.body.clarify.id || "", /^[0-9a-f]{32}$/, JSON.stringify(r.body).slice(0, 300));
-      // THE SCOPED STEP WAS GIVEN ITS OWN WORDS — AND THE ANSWER, which is in no change's words.
-      assert.ok(String(seen.writers[0].instruction).startsWith(MOVE_WORDS), seen.writers[0].instruction);
-      assert.ok(String(seen.writers[0].instruction).includes("They were asked: " + Q1.text + "\nThey answered: Visit"), "the scoped step was resumed without the answer: " + seen.writers[0].instruction);
+      // THE SCOPED STEP WAS GIVEN ITS OWN WORDS — AND SHOWN THE ANSWER, which is in no change's words.
+      assert.equal(String(seen.writers[0].instruction), MOVE_WORDS, seen.writers[0].instruction);
+      assert.ok(seen.inputs[T.tweak][0].endsWith(contextBlock([{ q: Q1.text, a: "Visit" }])), "the scoped step was resumed without the answer");
       const q2 = question(store, slug);
-      assert.equal(q2.request, MOVE_WORDS + "\n\nThey were asked: " + Q1.text + "\nThey answered: Visit", "what is left lost the answer it already carried");
-      assert.deepEqual(q2.asked, [Q1.text, Q2.text]);
+      assert.equal(q2.request, MOVE_WORDS, "what is left grew, or lost its words");
+      assert.deepEqual(q2.context, [{ q: Q1.text, a: "Visit" }], "what is left lost the answer it already carried");
       const c = (await routeCall(worker, envFor(store), { slug, message: "Yes", ask: { id: q2.id } })).body;
-      const r2 = await postRoute(worker, envFor(store), store, seen, slug, browserPost(SITE(slug), { ...c, askRound: c.ask.round, asked: c.ask.asked }, c.instruction), "sync");
+      assert.deepEqual(c.ask.context, [{ q: Q1.text, a: "Visit" }, { q: Q2.text, a: "Yes" }]);
+      const r2 = await postRoute(worker, envFor(store), store, seen, slug, browserPost(SITE(slug), { ...c, askRound: c.ask.round, context: c.ask.context }, c.instruction), "sync");
       assert.equal(r2.body.ok, true, JSON.stringify(r2.body).slice(0, 300));
-      const handed = String(seen.writers[1].instruction);
-      assert.ok(handed.includes("They answered: Visit") && handed.includes("They were asked: " + Q2.text + "\nThey answered: Yes"), "the step was not handed both answers: " + handed);
+      assert.ok(seen.inputs[T.tweak][1].endsWith(contextBlock([{ q: Q1.text, a: "Visit" }, { q: Q2.text, a: "Yes" }])), "the step was not shown both answers");
+      assert.equal(String(seen.writers[1].instruction), MOVE_WORDS);
       assert.ok(bandFirst(storedPage(store, slug, "visit.tsx")));
     }, { slug });
   } finally { compiler.uninstall(); }
 });
 
-test("BESIDE A CHANGE THAT WAS MADE, AN EARLIER ANSWER STAYS OUT OF WHAT IS LEFT: the description lane is handed the router's answer and makes the change; the page step's question resumes only the page step, records only itself as asked, and no model the answer reaches sees the made change's answer", async () => {
+test("BESIDE A CHANGE THAT WAS MADE, AN ANSWER THE PICKER NAMED ONLY FOR THAT CHANGE GOES WITH IT: the description lane is shown the router's answer and makes the change; the page step, named none of it, is shown none; its question keeps only the page step, the made change's answer is kept handled, and no model the answer reaches sees it", async () => {
   const slug = freshSlug("answers-beside");
   const store = bucket(slug);
   const worker = await loadWorker();
@@ -179,7 +183,8 @@ test("BESIDE A CHANGE THAT WAS MADE, AN EARLIER ANSWER STAYS OUT OF WHAT IS LEFT
     await withWire({
       route: [{ intent: "clarify", question: Q1 }, { intent: "edit", layer: "look", answered: true }, { intent: "edit", layer: "look", answered: true }],
       [T.pick]: [
-        { fields: ["description", "shape"], scopes: [{ part: "description", words: DESC_ASK }, { part: "shape", page: "/visit", words: MOVE_WORDS }] },
+        // THE PICKER SAYS WHICH ANSWER EACH CHANGE NEEDS: the router's, for the description alone.
+        { fields: ["description", "shape"], scopes: [{ part: "description", words: DESC_ASK, answers: [1] }, { part: "shape", page: "/visit", words: MOVE_WORDS, answers: [] }] },
         { fields: ["shape"], scopes: [{ part: "shape", page: "/visit", words: MOVE_WORDS }] },
       ],
       "lane:description": NEW_DESC,
@@ -188,28 +193,31 @@ test("BESIDE A CHANGE THAT WAS MADE, AN EARLIER ANSWER STAYS OUT OF WHAT IS LEFT
       const a = (await routeCall(worker, envFor(store), { slug, message })).body;
       const b = (await routeCall(worker, envFor(store), { slug, message: NEW_DESC, ask: { id: a.question.id } })).body;
       const m0 = marks(seen);
-      const r = await postRoute(worker, envFor(store), store, seen, slug, browserPost(SITE(slug), { ...b, askRound: b.ask.round, asked: b.ask.asked }, b.instruction), "sync");
+      const r = await postRoute(worker, envFor(store), store, seen, slug, browserPost(SITE(slug), { ...b, askRound: b.ask.round, context: b.ask.context }, b.instruction), "sync");
       assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 300));
+      assert.ok(seen.inputs[T.pick][0].endsWith(contextBlock([{ q: Q1.text, a: NEW_DESC }])), "the picker was not shown the answers it names");
       // THE LANE NEEDED THE ANSWER TO KNOW WHAT TO SET, and its scope held none of it.
       const lane = seen.lanes.filter((l) => l.field === "description");
       assert.equal(lane.length, 1);
-      assert.ok(lane[0].asked.startsWith(DESC_ASK) && lane[0].asked.includes("They answered: " + NEW_DESC), "the description lane was not handed the answer: " + lane[0].asked);
+      assert.equal(lane[0].asked, DESC_ASK + "\n\n" + contextBlock([{ q: Q1.text, a: NEW_DESC }]), "the description lane was not shown its answer after its own words");
+      assert.ok(!seen.inputs[T.tweak][0].includes(NEW_DESC) && !seen.inputs[T.tweak][0].includes(Q1.text), "the page step was shown an answer the picker named for another change");
       assert.equal(storedLook(store, slug).description, NEW_DESC);
       assert.equal(charged(seen, m0), 1);
       const q2 = question(store, slug);
-      assert.equal(q2.request, MOVE_WORDS, "what is left carries the made change's answer: " + JSON.stringify(q2.request));
-      assert.deepEqual(q2.asked, [Q2.text], "a question was recorded as asked whose answer the request no longer carries");
+      assert.equal(q2.request, MOVE_WORDS, "what is left carries the made change: " + JSON.stringify(q2.request));
+      assert.deepEqual(q2.context, [{ q: Q1.text, a: NEW_DESC, handled: true }], "the made change's answer was not kept handled — or was kept for the step still to do");
       const m1 = marks(seen);
       const c = (await routeCall(worker, envFor(store), { slug, message: "Yes", ask: { id: q2.id } })).body;
       const routerTold = String(seen.routerAsked[seen.routerAsked.length - 1].messages[0].content);
       assert.ok(!routerTold.includes(NEW_DESC) && !routerTold.includes(Q1.text), "the router answering the question was shown the made change's answer");
       assert.ok(!c.instruction.includes(NEW_DESC), c.instruction);
-      assert.deepEqual(c.ask.asked, [Q2.text]);
-      const r2 = await postRoute(worker, envFor(store), store, seen, slug, browserPost(SITE(slug), { ...c, askRound: c.ask.round, asked: c.ask.asked }, c.instruction), "sync");
+      assert.deepEqual(c.ask.context, [{ q: Q1.text, a: NEW_DESC, handled: true }, { q: Q2.text, a: "Yes" }]);
+      const r2 = await postRoute(worker, envFor(store), store, seen, slug, browserPost(SITE(slug), { ...c, askRound: c.ask.round, context: c.ask.context }, c.instruction), "sync");
       assert.equal(r2.body.ok, true, JSON.stringify(r2.body).slice(0, 300));
-      assert.ok(!String(seen.picks[seen.picks.length - 1]).includes(NEW_DESC), "the resumed picker was shown the made change's answer");
+      assert.ok(!seen.inputs[T.pick].at(-1).includes(NEW_DESC), "the resumed picker was shown the made change's answer");
+      assert.ok(seen.inputs[T.pick].at(-1).endsWith(contextBlock([{ q: Q2.text, a: "Yes" }])), "the resumed picker was not shown the answer still for it");
       assert.equal(seen.lanes.filter((l) => l.field === "description").length, 1, "the made change was made again");
-      assert.ok(String(seen.writers[1].instruction).includes("They answered: Yes"));
+      assert.ok(seen.inputs[T.tweak][1].endsWith(contextBlock([{ q: Q2.text, a: "Yes" }])) && !seen.inputs[T.tweak][1].includes(NEW_DESC), "the page step was not shown only the answer still for it");
       assert.ok(bandFirst(storedPage(store, slug, "visit.tsx")));
       assert.equal(charged(seen, m1), 2, "the answer's routing call and the one step that was left, and nothing more");
     }, { slug });
@@ -252,13 +260,13 @@ test("A LANE ASKS AFTER ANOTHER LANE ANSWERED, BESIDE A PAGE CHANGE THAT RUNS: t
       assert.ok(!q.request.includes(MOVE_WORDS), "the page change that ran is in what the answer resumes: " + q.request);
       const d = (await routeCall(worker, envFor(store), { slug, message: "Yes", ask: { id: q.id } })).body;
       const writersBefore = seen.writers.length;
-      const r2 = await postRoute(worker, envFor(store), store, seen, slug, browserPost(SITE(slug), { ...d, askRound: d.ask.round, asked: d.ask.asked }, d.instruction), "sync");
+      const r2 = await postRoute(worker, envFor(store), store, seen, slug, browserPost(SITE(slug), { ...d, askRound: d.ask.round, context: d.ask.context }, d.instruction), "sync");
       assert.equal(r2.body.ok, true, JSON.stringify(r2.body).slice(0, 400));
       assert.equal(seen.writers.length, writersBefore, "the page change that ran was made again on the answer");
       assert.equal(storedLook(store, slug).brand, "Harbour Loaf & Co");
       assert.equal(storedLook(store, slug).description, NEW_DESC);
       const handed = seen.lanes.filter((l) => l.field === "description")[1].asked;
-      assert.ok(handed.includes("They were asked: " + Q3.text) && handed.includes("They answered: Yes"), "the lane was not handed the answer: " + handed);
+      assert.equal(handed, DESC_WORDS + "\n\n" + contextBlock([{ q: Q3.text, a: "Yes" }]), "the lane was not shown its words, then the answer: " + handed);
       assert.ok(!handed.includes(MOVE_WORDS), "the lane on the answer was shown the page change that ran");
     }, { slug });
   } finally { compiler.uninstall(); }
@@ -310,14 +318,15 @@ test("A DOWNSTREAM DESIGNER ASKS AFTER AN EARLIER DESIGNER COMPLETED: nothing of
   assert.ok(rec, "the designer's question was not kept");
   assert.equal(rec.stage, "addon");
   assert.equal(rec.request, ASK, "the addition's question does not resume the whole addition");
-  assert.deepEqual(rec.asked, [QJ.text]);
+  assert.deepEqual(rec.context, []);
   assert.match(first.body.clarify.id, /^[0-9a-f]{32}$/);
-  // THE ANSWER RESUMES THE WHOLE ADDITION (the routing route composes it so).
-  const resumed = answeredRequest(rec.request, QJ.text, "9am");
-  const again = await addon(slug, resumed, { kinds: ["function", "job"], answers: { function: { function: [FN] }, job: { job: [JOB] } } });
+  // THE ANSWER RESUMES THE WHOLE ADDITION, word for word, with the answer beside it (as the routing route hands it on).
+  const told = [{ q: QJ.text, a: "9am" }];
+  const again = await addon(slug, rec.request, { kinds: ["function", "job"], answers: { function: { function: [FN] }, job: { job: [JOB] } }, context: told });
   assert.equal(again.body.ok, true, JSON.stringify(again.body).slice(0, 300));
+  const shownAs = JSON.stringify(contextBlock(told)).slice(1, -1);
   for (const kind of ["function", "job"]) {
-    assert.ok(promptFor(again, kind).text.includes("They answered: 9am"), kind + "'s designer was not handed the answer");
+    assert.ok(promptFor(again, kind).text.includes(shownAs), kind + "'s designer was not shown the answer");
   }
   assert.equal(again.sql.filter((q) => /create\s+(or\s+replace\s+)?function/i.test(q)).length >= 1, true, "the function was not created on the answer");
   assert.equal(again.registered.length, 1, "the job was not registered exactly once");
@@ -328,7 +337,7 @@ test("A DOWNSTREAM DESIGNER ASKS AFTER AN EARLIER DESIGNER COMPLETED: nothing of
 // 3. A THIRD NECESSARY QUESTION, AND THE SAME QUESTION NEVER TWICE
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("A THIRD NECESSARY QUESTION IS ANSWERABLE: the router asks twice and a step a third time; each is kept with its id, and the last answer resumes the original request with all three answers in it", async () => {
+test("A THIRD NECESSARY QUESTION IS ANSWERABLE: the router asks twice and a step a third time; each is kept with its id, and the last answer resumes the original request, word for word, with all three answers beside it", async () => {
   const slug = freshSlug("third");
   const store = bucket(slug);
   const worker = await loadWorker();
@@ -352,73 +361,91 @@ test("A THIRD NECESSARY QUESTION IS ANSWERABLE: the router asks twice and a step
       const b = (await routeCall(worker, envFor(store), { slug, message: "Search", ask: { id: a.question.id } })).body;
       assert.match(b.question.id, /^[0-9a-f]{32}$/, "the second question was not kept");
       const c = (await routeCall(worker, envFor(store), { slug, message: "Overnight sourdough", ask: { id: b.question.id } })).body;
-      assert.deepEqual(c.ask.asked, [Q1.text, QB.text]);
-      const r = await postRoute(worker, envFor(store), store, seen, slug, browserPost(SITE(slug), { ...c, askRound: c.ask.round, asked: c.ask.asked }, c.instruction), "sync");
+      const two = [{ q: Q1.text, a: "Search" }, { q: QB.text, a: "Overnight sourdough" }];
+      assert.deepEqual(c.ask.context, two);
+      assert.equal(c.instruction, R, "the request grew with its answers");
+      const r = await postRoute(worker, envFor(store), store, seen, slug, browserPost(SITE(slug), { ...c, askRound: c.ask.round, context: c.ask.context }, c.instruction), "sync");
       assert.match(r.body.clarify && r.body.clarify.id || "", /^[0-9a-f]{32}$/, "the third question has nothing waiting on it: " + JSON.stringify(r.body.clarify));
+      assert.ok(seen.inputs[T.pick][0].endsWith(contextBlock(two)), "the picker that asked third was not shown both answers");
       const q3 = question(store, slug);
       assert.equal(q3.round, 3);
-      assert.deepEqual(q3.asked, [Q1.text, QB.text, QC.text]);
+      assert.deepEqual(q3.context, two);
+      assert.equal(q3.request, R);
       const d = (await routeCall(worker, envFor(store), { slug, message: "Yes", ask: { id: q3.id } })).body;
-      for (const line of ["They were asked: " + Q1.text, "They answered: Search", "They were asked: " + QB.text, "They answered: Overnight sourdough", "They were asked: " + QC.text, "They answered: Yes"]) {
-        assert.ok(d.instruction.includes(line), "the resumed request lost: " + line);
-      }
-      assert.ok(d.instruction.startsWith(R), "the original request is not what the answers resume");
-      const r2 = await postRoute(worker, envFor(store), store, seen, slug, browserPost(SITE(slug), { ...d, askRound: d.ask.round, asked: d.ask.asked }, d.instruction), "sync");
+      const three = [...two, { q: QC.text, a: "Yes" }];
+      assert.deepEqual(d.ask.context, three, "the resumed request lost an answer");
+      assert.equal(d.instruction, R, "the original request is not what the answers resume, word for word");
+      const r2 = await postRoute(worker, envFor(store), store, seen, slug, browserPost(SITE(slug), { ...d, askRound: d.ask.round, context: d.ask.context }, d.instruction), "sync");
       assert.equal(r2.body.ok, true, JSON.stringify(r2.body).slice(0, 300));
       assert.equal(storedLook(store, slug).description, NEW_DESC);
-      assert.ok(seen.lanes[0].asked.includes("They answered: Yes"), "the lane was not handed the last answer");
+      assert.equal(seen.lanes[0].asked, R + "\n\n" + contextBlock(three), "the lane was not shown all three answers after the request");
     }, { slug });
   } finally { compiler.uninstall(); }
 });
 
-test("THE SAME QUESTION IS NEVER ASKED TWICE: the router asking again what it asked ends the request, said, uncharged and with nothing kept; a step asking again what the request asked is left alone, said", async () => {
+test("A QUESTION ALREADY ANSWERED IS NEVER AN ENDING (the owner's second review): the router that asks again what it asked is sent its answer back once; still asking, its question is kept with a note naming the answer that did not settle it — the request waits, nothing discarded, one call billed", async () => {
   const worker = await loadWorker();
   {
     const slug = freshSlug("repeat-route");
     const store = bucket(slug);
     const q = seedQuestion(store, slug);
-    await withWire({ route: { intent: "clarify", question: { text: Q.text.toUpperCase().replace("—", "-"), options: Q.options }, answered: true } }, async (seen) => {
+    const again = { intent: "clarify", question: { text: Q.text.toUpperCase().replace("—", "-"), options: Q.options }, answered: true };
+    await withWire({ route: [again, again] }, async (seen) => {
       const r = await routeCall(worker, envFor(store), { slug, message: "the bigger one", ask: { id: q.id } });
-      assert.equal(r.status, 422);
-      assert.equal(r.body.error, "question-ended");
-      assert.equal(r.body.why, "repeat");
-      assert.equal(r.body.cost, 0);
-      assert.equal(r.body.question, undefined, "the same question was asked again");
-      assert.ok(r.body.decision.reasons.includes("clarify-repeat"), JSON.stringify(r.body.decision));
-      assert.deepEqual(seen.debits, [], "a repeated question was charged");
-      const after = question(store, slug);
-      assert.equal(after.id, q.id, "a repeated question was kept as a new one");
-      assert.equal(after.status, "answered", "the request did not end: the loop could go on");
+      assert.equal(r.status, 200, JSON.stringify(r.body).slice(0, 300));
+      assert.equal(r.body.intent, "clarify");
+      assert.equal(r.body.error, undefined, "a repeated question ended the request");
+      assert.equal(seen.routerAsked.length, 2, "the router was not sent its answer back before the question was kept");
+      assert.match(String(seen.routerAsked[1].messages[0].content), /YOU ASKED THEM THIS ALREADY, and they answered:\nAsked: “Which page should the band move on — Home or Visit\?” — they answered: “the bigger one”/);
+      assert.deepEqual(r.body.decision.reasons, ["clarify-reused", "clarify-again"], JSON.stringify(r.body.decision));
+      assert.match(r.body.question.note, /Your answer — “the bigger one” — didn’t settle this/, "the question asked again carries no note");
+      assert.equal(r.body.usage.in, 10, "both routing calls were billed, not the one whose answer was used");
+      assert.equal(seen.debits.length, 1, "the routing call was not charged once, as any");
+      const kept = question(store, slug);
+      assert.equal(kept.id, r.body.question.id, "the question asked again was not kept as the live one");
+      assert.equal(kept.status, "pending");
+      assert.equal(kept.request, q.request, "the request was discarded or changed");
+      assert.deepEqual(kept.context, [{ q: Q.text, a: "the bigger one" }], "the answer that did not settle it was lost");
+      assert.equal(kept.note, r.body.question.note);
+      assert.equal(kept.round, 2);
     });
   }
   {
     const slug = freshSlug("repeat-step");
     const store = bucket(slug);
-    await withWire({ [T.pick]: { fields: ["shape"], question: Q } }, async (seen) => {
-      const post = browserPost(SITE(slug), { intent: "edit", layer: "look", askRound: 1, asked: [Q.text] }, "Move the band\n\nThey were asked: " + Q.text + "\nThey answered: the big one");
+    // THE STEP'S TRANSPORT SENDS THE PICKER ITS ANSWER BACK; IT ASKS THE SAME AGAIN; KEPT WITH THE NOTE.
+    await withWire({ [T.pick]: [{ fields: ["shape"], question: Q }, { fields: ["shape"], question: Q }] }, async (seen) => {
+      const post = browserPost(SITE(slug), { intent: "edit", layer: "look", askRound: 1, context: [{ q: Q.text, a: "the big one" }] }, "Move the band");
       const r = await postRoute(worker, envFor(store), store, seen, slug, post, "sync");
-      assert.equal(r.body.error, "clarify-repeat", JSON.stringify(r.body).slice(0, 300));
-      assert.equal(r.body.clarify, undefined, "a repeated question was offered");
-      assert.deepEqual(store.questionWrites, [], "a repeated question was kept");
+      assert.equal(r.body.error, "clarify", JSON.stringify(r.body).slice(0, 300));
+      assert.equal(seen.inputs[T.pick].length, 2, "the picker was not sent its answer back");
+      assert.ok(seen.inputs[T.pick][1].endsWith("Never ask it again. If their answer settles it, act on it now. If it does not, ask them a MORE SPECIFIC question that names exactly what their answer left open."));
+      assert.match(r.body.clarify.id, /^[0-9a-f]{32}$/, "a question asked again was not kept");
+      assert.match(r.body.clarify.note, /Your answer — “the big one” — didn’t settle this/);
+      const kept = question(store, slug);
+      assert.equal(kept.request, "Move the band");
+      assert.deepEqual(kept.context, [{ q: Q.text, a: "the big one" }]);
+      assert.equal(kept.note, r.body.clarify.note);
       assert.equal(storedPage(store, slug, "visit.tsx"), VISIT);
+      // THE BROWSER'S OWN READER AND DRAWER: the note above the question, the card on its id.
+      const said = editBrowserReply(r.body, true, {});
+      assert.equal(said.text, kept.note + "\n" + Q.text, "the browser did not draw the note above the question: " + said.text);
+      assert.equal(said.asked && said.asked.id, kept.id, "the question asked again was drawn without its card");
     }, { slug });
   }
 });
 
-test("A QUESTION NO ANSWER COULD RESUME IS NEVER ASKED: a request too long to carry another answer ends there, said and uncharged — fresh, it comes back to the box to send shorter", async () => {
+test("NO REQUEST IS TOO LONG TO BE ASKED ABOUT: the answers ride beside it, so a long request's question is kept — fresh, and resumed — and its request is never cut or grown", async () => {
   const worker = await loadWorker();
   {
     const slug = freshSlug("room-fresh");
     const store = bucket(slug);
     const long = ("Move the order band above the bakery band on the Visit page, please. ").repeat(40).slice(0, MAX_MESSAGE - 5).trim();
-    await withWire({ route: { intent: "clarify", question: Q } }, async (seen) => {
+    await withWire({ route: { intent: "clarify", question: Q } }, async () => {
       const r = await routeCall(worker, envFor(store), { slug, message: long });
-      assert.equal(r.body.error, "question-ended", JSON.stringify(r.body).slice(0, 300));
-      assert.equal(r.body.why, "room");
-      assert.equal(r.body.resume, long, "the request did not come back to be sent shorter");
-      assert.deepEqual(store.questionWrites, [], "a question no answer could resume was kept");
-      assert.deepEqual(seen.debits, []);
-      assert.ok(r.body.decision.reasons.includes("clarify-no-room"));
+      assert.equal(r.body.error, undefined, JSON.stringify(r.body).slice(0, 300));
+      assert.match(r.body.question.id, /^[0-9a-f]{32}$/, "a long request's question was not kept");
+      assert.equal(question(store, slug).request, long, "the request was cut");
     });
   }
   {
@@ -426,20 +453,13 @@ test("A QUESTION NO ANSWER COULD RESUME IS NEVER ASKED: a request too long to ca
     const store = bucket(slug);
     const q = seedQuestion(store, slug, { request: "x".repeat(MAX_MESSAGE - 140) });
     await withWire({ route: { intent: "clarify", question: { text: "Above which heading, exactly?" }, answered: true } }, async () => {
-      const r = await routeCall(worker, envFor(store), { slug, message: "Visit" });
-      assert.equal(r.body.error, undefined, "the setup's answer was refused: " + JSON.stringify(r.body).slice(0, 200));
+      const r = await routeCall(worker, envFor(store), { slug, message: "Visit", ask: { id: q.id } });
+      assert.equal(r.body.error, undefined, JSON.stringify(r.body).slice(0, 300));
+      const next = question(store, slug);
+      assert.equal(next.id, r.body.question.id);
+      assert.equal(next.request, q.request, "the long request grew, or was cut");
+      assert.deepEqual(next.context, [{ q: Q.text, a: "Visit" }]);
     });
-    await withWire({ route: { intent: "clarify", question: { text: "Above which heading, exactly?" }, answered: true } }, async () => {
-      const s2 = freshSlug("room-resumed-2");
-      const st2 = bucket(s2);
-      const q2 = seedQuestion(st2, s2, { request: "x".repeat(MAX_MESSAGE - 140) });
-      const r = await routeCall(worker, envFor(st2), { slug: s2, message: "Visit", ask: { id: q2.id } });
-      assert.equal(r.body.error, "question-ended", JSON.stringify(r.body).slice(0, 300));
-      assert.equal(r.body.why, "room");
-      assert.equal(r.body.resume, undefined, "a resumed request's Q-and-A lines were put in the message box");
-      assert.equal(question(st2, s2).status, "answered", "the answered question was left waiting with no question that could follow it");
-    });
-    assert.ok(q, "seeded");
   }
 });
 
@@ -564,9 +584,9 @@ test("AN ANSWER MET WITH THE NEXT QUESTION, WHOSE WRITE FAILS: the answered ques
     assert.match(again.body.question.id, /^[0-9a-f]{32}$/);
     const next = question(store, slug);
     assert.equal(next.id, again.body.question.id);
-    assert.equal(next.request, q.request + "\n\nThey were asked: " + Q.text + "\nThey answered: Visit");
+    assert.equal(next.request, q.request, "the request grew at the next question");
     assert.deepEqual(next.held, ["add a gallery page"]);
-    assert.deepEqual(next.asked, [Q.text, NEXT.text]);
+    assert.deepEqual(next.context, [{ q: Q.text, a: "Visit" }]);
   });
   await withWire({ route: { intent: "edit", layer: "look", answered: true } }, async (seen) => {
     const stale = await routeCall(worker, envFor(store), { slug, message: "Visit", ask: { id: q.id } });
@@ -651,17 +671,17 @@ test("THE NEXT QUESTION'S WRITE LOSING TO ANOTHER WRITER: the answer is refused 
   });
 });
 
-test("A STEP'S QUESTION NO ANSWER COULD RESUME IS NEVER KEPT: on a request too long to carry another answer it ends there, said, and what was asked for comes back to the box", async () => {
+test("A STEP'S QUESTION ON A LONG REQUEST IS KEPT: nothing is refused for want of room, and the request is kept whole", async () => {
   const slug = freshSlug("step-room");
   const store = bucket(slug);
   const worker = await loadWorker();
   const long = ("Move the order band above the bakery band on the Visit page, please. ").repeat(40).slice(0, MAX_MESSAGE - 60).trim();
   await withWire({ [T.pick]: { fields: ["shape"], question: Q } }, async (seen) => {
     const r = await postRoute(worker, envFor(store), store, seen, slug, browserPost(SITE(slug), { intent: "edit", layer: "look" }, long), "sync");
-    assert.equal(r.body.error, "clarify-no-room", JSON.stringify(r.body).slice(0, 300));
-    assert.equal(r.body.clarify, undefined, "a question no answer could resume was offered");
-    assert.deepEqual(store.questionWrites, [], "a question no answer could resume was kept");
-    assert.equal(r.body.resume, long, "the request did not come back to the box");
+    assert.equal(r.body.error, "clarify", JSON.stringify(r.body).slice(0, 300));
+    assert.match(r.body.clarify.id, /^[0-9a-f]{32}$/, "a long request's question was not kept");
+    assert.equal(question(store, slug).request, long);
+    assert.equal(r.body.resume, undefined, "a kept question also sent the request back to the box");
     assert.equal(storedPage(store, slug, "visit.tsx"), VISIT);
   }, { slug });
 });

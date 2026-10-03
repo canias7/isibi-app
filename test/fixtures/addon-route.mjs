@@ -678,7 +678,9 @@ export async function addon(slug, instruction, opts) {
       // browser posts the routing reply's `alsoAsked` beside the message.
       // …AND WHY IT CAME HERE (2026-10-02, the audit's W24): the hand-over the
       // browser posts when the router or an edit step hands the request on.
-      body: JSON.stringify({ instruction, ...(opts && opts.tz ? { tz: opts.tz } : {}), ...(opts && Object.hasOwn(opts, "alsoAsked") ? { alsoAsked: opts.alsoAsked } : {}), ...(opts && Object.hasOwn(opts, "handOver") ? { handOver: opts.handOver } : {}) }),
+      // …AND WHAT THEY ALREADY TOLD US (2026-10-02): a request resumed from a
+      // question carries its answers beside it, as the browser posts them.
+      body: JSON.stringify({ instruction, ...(opts && opts.tz ? { tz: opts.tz } : {}), ...(opts && Object.hasOwn(opts, "alsoAsked") ? { alsoAsked: opts.alsoAsked } : {}), ...(opts && Object.hasOwn(opts, "handOver") ? { handOver: opts.handOver } : {}), ...(opts && Object.hasOwn(opts, "context") ? { context: opts.context } : {}) }),
     });
     // THE SERVICE KEY IS PART OF THE ENVIRONMENT UNDER TEST: `persistSiteJobs`
     // returns at its first line without one, so a fixture that leaves it out

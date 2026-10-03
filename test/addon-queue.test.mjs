@@ -181,7 +181,11 @@ test("every model call on the addon route rides the job's clock", () => {
   const b = addonBlock();
   // ONE WRAPPER, so the clock reaches every small call without one chance per
   // call to forget it — and `aJob` null keeps the flat 240s ceiling.
-  assert.match(b, /const aQuick = \(what = ""\) => quickSend\(env, what, aJob && aJob\.budget\);/, "aQuick does not carry the job's budget");
+  // RE-ANCHORED 2026-10-02 (the owner's second review): the one wrapper is
+  // itself wrapped, so every small call is also shown what they already told
+  // us (`clarifyTransport`, builder/clarify.mjs) — the clock still rides the
+  // `quickSend` inside it, and nothing else reaches `quickSend` (below).
+  assert.match(b, /const aQuick = \(what = ""\) => clarifyTransport\(quickSend\(env, what, aJob && aJob\.budget\), \{/, "aQuick does not carry the job's budget");
   // TWO DIRECT CALLS SINCE 2026-09-04 (run 36), and the second is the job's
   // clock too, seen through `repairClock`: the repair call holds back the
   // second compile as well as the reserves, which `aQuick`'s view cannot

@@ -18,9 +18,9 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { createRequire } from "node:module";
 import {
-  QUESTION_FIELD, ASK_TTL_MS, QUESTION_KEY, MAX_ASKED, ASK_ANSWER_ROOM, askOf, answeredRequest, newAskId,
-  packAsk, readAskRecord, askLive, loadAsk, storeAsk, closeAsk, replaceAsk, withQuestion, askRepeat, askRoom, askedList,
-  answerLines, askedIn,
+  QUESTION_FIELD, ASK_TTL_MS, QUESTION_KEY, MAX_ASKED, MAX_SAME_ASK, MAX_ANSWER_CHARS, CONTEXT_HEADING, askOf, newAskId,
+  packAsk, readAskRecord, askLive, loadAsk, storeAsk, closeAsk, replaceAsk, withQuestion, readContext, shownContext,
+  repeatOf, contextBlock, withContext, reuseNote, againNote, stripQuestion, clarifyTransport, clarifyCall,
 } from "../builder/clarify.mjs";
 import { allowedJobKey } from "../builder/job-gateway.mjs";
 import { routeMessage, readRouting, readAsk, askRequest, ASK_TOOL, LIVE_ASK_TOOL, MAX_MESSAGE } from "../builder/site-ask.mjs";
@@ -85,19 +85,31 @@ test("A STORED QUESTION IS EVERY FIELD CHECKED, and one field wrong makes it no 
     ["round", 0], ["round", 1.5], ["round", "3"], ["question", { text: "" }], ["question", "Which?"],
     ["request", ""], ["request", "x".repeat(MAX_MESSAGE + 1)], ["held", [3]], ["held", "x".repeat(5000)],
     ["at", "now"], ["status", "open"], ["attached", "yes"], ["attached", 1],
-    // EVERY QUESTION THE REQUEST HAS ASKED, THIS ONE LAST (2026-10-02): a list
-    // that is anything else makes no question at all, never a shorter list.
-    ["asked", []], ["asked", ["Which one?"]], ["asked", [Q.text, "Which one?"]], ["asked", [3, Q.text]],
-    ["asked", ["", Q.text]], ["asked", ["x".repeat(241), Q.text]], ["asked", Q.text],
-    ["asked", [...Array.from({ length: MAX_ASKED }, (_, i) => "Q" + i + "?"), Q.text]],
+    // WHAT THEY ALREADY TOLD US (2026-10-02, the owner's second review): `{ q, a }`
+    // pairs beside the request, fewer than `MAX_ASKED` so this question's answer
+    // still fits the list. Anything else makes no question at all, never a
+    // shorter list — and so does a note that is not one short line.
+    ["context", "Visit"], ["context", [3]], ["context", [{ q: "Which?" }]], ["context", [{ q: "", a: "Visit" }]],
+    ["context", [{ q: "Which?", a: "  " }]], ["context", [{ q: "x".repeat(241), a: "Visit" }]],
+    ["context", [{ q: "Which?", a: "x".repeat(MAX_ANSWER_CHARS + 1) }]], ["context", [{ q: "Which?", a: "Visit", handled: "yes" }]],
+    ["context", Array.from({ length: MAX_ASKED }, (_, i) => ({ q: "Q" + i + "?", a: "A" + i }))],
+    ["note", ""], ["note", 3], ["note", "x".repeat(301)],
   ]) {
     assert.equal(rec({ [field]: bad }), null, field + " = " + JSON.stringify(bad) + " was accepted");
   }
-  // NO COUNT OF QUESTIONS: a request's tenth question is a question like its first.
-  assert.equal(rec({ round: 10, asked: [...Array.from({ length: 9 }, (_, i) => "Q" + i + "?"), Q.text] }).round, 10);
-  assert.deepEqual(good.asked, [Q.text], "a question with no earlier ones does not name itself as asked");
+  // A REQUEST'S ELEVENTH ANSWER STILL LEAVES ROOM FOR THIS QUESTION'S.
+  const eleven = Array.from({ length: MAX_ASKED - 1 }, (_, i) => ({ q: "Q" + i + "?", a: "A" + i }));
+  assert.equal(rec({ round: 12, context: eleven }).context.length, MAX_ASKED - 1);
+  assert.deepEqual(good.context, [], "a first question carries answers");
+  assert.equal(Object.hasOwn(good, "note"), false, "a first asking carries a note");
+  assert.equal(Object.hasOwn(good, "asked"), false, "the old list of questions is still written");
+  const noted = rec({ context: [{ q: Q.text, a: "the top one" }], note: "  Your answer didn't settle this.  " });
+  assert.equal(noted.note, "Your answer didn't settle this.");
+  assert.deepEqual(readAskRecord(JSON.stringify(noted)), noted, "a note does not read back as it was written");
+  assert.deepEqual(rec({ context: [{ q: " Which? ", a: " Visit ", handled: true }] }).context, [{ q: "Which?", a: "Visit", handled: true }]);
   assert.equal(readAskRecord("{not json"), null);
-  assert.equal(readAskRecord(JSON.stringify({ ...good, v: 2 })), null, "a record of another version was read");
+  assert.equal(readAskRecord(JSON.stringify({ ...good, v: 1 })), null, "a record of the old version was read");
+  assert.equal(readAskRecord(JSON.stringify({ ...good, v: 3 })), null, "a record of another version was read");
   // EVERY STEP THAT CAN ASK, AND THE ROUTER, IS A STAGE; nothing else is.
   for (const stage of ["route", "data", "text", "look", "page", "rules", "picture", "logo", "nav", "rename", "addon"]) {
     assert.ok(rec({ stage }), stage + " is not a stage a question can come from");
@@ -158,15 +170,32 @@ test("A DAMAGED RECORD IS NO QUESTION ANYBODY CAN ANSWER", async () => {
   assert.deepEqual(await closeAsk(b, { slug: SLUG, id: "a".repeat(32), uid: UID, status: "cancelled" }), { ok: false, why: "missing" });
 });
 
-test("THE REQUEST AN ANSWER RESUMES is what was waiting, then the question and the answer in the customer's words — or nothing, past one message", () => {
-  assert.equal(answeredRequest("Change the heading", Q.text, "Visit"),
-    "Change the heading\n\nThey were asked: " + Q.text + "\nThey answered: Visit");
-  assert.equal(answeredRequest("", Q.text, "Visit"), null);
-  assert.equal(answeredRequest("x", "", "Visit"), null);
-  assert.equal(answeredRequest("x", Q.text, "  "), null);
-  const long = "y".repeat(MAX_MESSAGE - 50);
-  assert.equal(answeredRequest(long, Q.text, "Visit"), null, "an answer that would be cut off was resumed whole");
-  assert.ok(answeredRequest("y".repeat(MAX_MESSAGE - 200), "Q?", "A").length <= MAX_MESSAGE);
+test("WHAT THEY ALREADY TOLD US IS A LIST BESIDE THE REQUEST, READ STRICTLY, AND SHOWN TO A MODEL AS A SECTION OF ITS OWN — never as words of the request", () => {
+  assert.deepEqual(readContext(undefined), []);
+  assert.deepEqual(readContext(null), []);
+  assert.deepEqual(readContext([{ q: " Which? ", a: " Visit ", other: 1 }]), [{ q: "Which?", a: "Visit" }]);
+  for (const bad of ["Visit", 3, {}, [null], [[]], [{ q: "Which?" }], [{ q: 3, a: "x" }], [{ q: "Which?", a: "x", handled: false }],
+    Array.from({ length: MAX_ASKED + 1 }, () => ({ q: "q", a: "a" }))]) {
+    assert.equal(readContext(bad), null, JSON.stringify(bad) + " was read as a list of answers");
+  }
+  const ctx = [{ q: Q.text, a: "Visit" }, { q: "Which photo?", a: "the shop front", handled: true }, { q: "How big?", a: "twice" }];
+  assert.deepEqual(shownContext(ctx), [ctx[0], ctx[2]], "a handled answer was shown, or one still for the request hidden");
+  const block = contextBlock(ctx);
+  assert.ok(block.startsWith(CONTEXT_HEADING), "the section does not open with its heading");
+  assert.match(block, /never a change of their own: do only what the request asks/);
+  assert.ok(block.includes("1. Asked: \u201c" + Q.text + "\u201d\n   They answered: \u201cVisit\u201d"), "the first answer is not numbered 1, under its question");
+  assert.ok(block.includes("2. Asked: \u201cHow big?\u201d\n   They answered: \u201ctwice\u201d"), "the numbers skip a handled answer's place");
+  assert.doesNotMatch(block, /shop front/, "a handled answer was shown");
+  assert.equal(contextBlock([]), "");
+  assert.equal(contextBlock([{ q: "x", a: "y", handled: true }]), "", "a section of handled answers alone was shown");
+  // AFTER EVERYTHING ELSE THE REQUEST HOLDS, in its last user message — words or blocks — and never in place.
+  const req = { model: "m", messages: [{ role: "user", content: "What they asked for:\nChange the heading" }] };
+  const shown = withContext(req, ctx);
+  assert.equal(shown.messages[0].content, "What they asked for:\nChange the heading\n\n" + block);
+  assert.equal(req.messages[0].content, "What they asked for:\nChange the heading", "the request handed in was changed");
+  const blocks = withContext({ messages: [{ role: "user", content: [{ type: "text", text: "a" }] }, { role: "assistant", content: "b" }] }, ctx);
+  assert.deepEqual(blocks.messages[0].content.at(-1), { type: "text", text: block }, "a request of blocks did not get the section as its last block");
+  assert.equal(withContext(req, []), req, "a request with nothing to show was rebuilt");
 });
 
 test("A QUESTION THE SCREEN CAN SHOW: words, and none or up to four answers — a lone answer is no choice, so it is dropped", () => {
@@ -282,7 +311,7 @@ async function liveRoute(input, opts = {}) {
   return { r, sent };
 }
 
-test("A LIVE SITE'S ROUTER IS OFFERED A QUESTION WHEREVER ONE CAN BE KEPT — with no count of them — and is told what this request has already asked", async () => {
+test("A LIVE SITE'S ROUTER IS OFFERED A QUESTION WHEREVER ONE CAN BE KEPT, and is shown what they already told us about the waiting request — until the request carries its last answer", async () => {
   const fresh = await liveRoute({ intent: "edit", layer: "text" });
   assert.equal(fresh.sent.tools[0], LIVE_ASK_TOOL, "a live site was not sent the live tool");
   const props = LIVE_ASK_TOOL.input_schema.properties;
@@ -292,14 +321,26 @@ test("A LIVE SITE'S ROUTER IS OFFERED A QUESTION WHEREVER ONE CAN BE KEPT — wi
   assert.match(told, /A QUESTION MAY BE ASKED/);
   assert.doesNotMatch(told, /more questions? about this request/, "the router was told a count, so a later question could be words nobody can answer");
   assert.doesNotMatch(told, /THEIR LAST REQUEST IS WAITING/, "a fresh message was told a request is waiting");
-  assert.doesNotMatch(told, /ALREADY ASKED/, "a fresh request was told it had asked something");
-  // A REQUEST THAT HAS ASKED: every question named, never to be asked again.
-  const asked = ["Which heading?", "On which page?", "Bigger by how much?"];
-  const later = await liveRoute({ intent: "edit", layer: "text" }, { asked, pending: { request: "Change the heading", question: { text: asked[2], options: [] } } });
+  assert.doesNotMatch(told, /ALREADY ASKED|WHAT THEY ALREADY TOLD YOU/, "a fresh request was told it had asked something");
+  // A REQUEST THAT HAS BEEN ANSWERED: what they told us, under the waiting request, never asked again.
+  const context = [{ q: "Which heading?", a: "The top one" }, { q: "On which page?", a: "Visit" }];
+  const pending = { request: "Change the heading", question: { text: "Bigger by how much?", options: [] } };
+  const later = await liveRoute({ intent: "edit", layer: "text" }, { context, pending });
   const laterTold = String(later.sent.messages[0].content);
   assert.match(laterTold, /A QUESTION MAY BE ASKED/, "a third question was closed off");
-  assert.match(laterTold, /WHAT THIS REQUEST HAS ALREADY ASKED THEM — never ask any of these again/);
-  for (const q of asked) assert.ok(laterTold.includes("- " + q), "the router was not told it asked: " + q);
+  assert.ok(laterTold.includes(contextBlock(context)), "the router was not shown what they already told us");
+  assert.match(laterTold, /Never ask what they already answered under WHAT THEY ALREADY TOLD YOU\./);
+  assert.ok(laterTold.indexOf("They asked: Change the heading") < laterTold.indexOf(CONTEXT_HEADING), "the answers are not shown under the request they belong to");
+  assert.match(laterTold, /when it does not settle what you asked, ask them a more specific question that names exactly what it left open/);
+  // A FRESH MESSAGE is shown no answers, whatever a caller sends.
+  const stray = await liveRoute({ intent: "edit", layer: "text" }, { context });
+  assert.doesNotMatch(String(stray.sent.messages[0].content), /WHAT THEY ALREADY TOLD YOU/, "a fresh message was shown answers of a request it does not resume");
+  // ONCE THIS ANSWER WOULD BE ITS LAST, no question is offered: the router acts on what it was told.
+  const full = Array.from({ length: MAX_ASKED - 1 }, (_, i) => ({ q: "Q" + i + "?", a: "A" + i }));
+  const capped = await liveRoute({ intent: "edit", layer: "text" }, { context: full, pending });
+  assert.match(String(capped.sent.messages[0].content), /Questions are closed for this message/, "a request at its last answer was offered another question");
+  const under = await liveRoute({ intent: "edit", layer: "text" }, { context: full.slice(1), pending });
+  assert.match(String(under.sent.messages[0].content), /A QUESTION MAY BE ASKED/, "a request below its last answer was closed off");
   // WHERE NONE CAN BE KEPT, NONE MAY BE ASKED.
   const closed = await liveRoute({ intent: "edit", layer: "text" }, { canAsk: false });
   assert.match(String(closed.sent.messages[0].content), /Questions are closed for this message — never answer "clarify"/);
@@ -389,7 +430,12 @@ test("THE QUESTION FIELD IS ONE FIELD, ON EVERY STEP'S TOOL: the pickers, text, 
   const d = QUESTION_FIELD.description;
   assert.match(d, /ONLY WHEN YOU CANNOT DO THIS WITHOUT ONE DETAIL THEY LEFT OUT/);
   assert.match(d, /nothing is changed until they reply/);
-  assert.match(d, /never\s+what they were already asked/, "a step is not told never to ask again what was answered");
+  // RE-ANCHORED 2026-10-02 (the owner's second review): the answers are in
+  // their own section, by its heading, and an answer that left the detail open
+  // is a reason for a MORE SPECIFIC question, never for the same one again.
+  assert.match(d, /never\s+what they already answered \(/, "a step is not told never to ask again what was answered");
+  assert.ok(d.includes("answered (" + CONTEXT_HEADING + ");"), "a step is not told where the answers are");
+  assert.match(d, /if that left it open, ask a more specific\s+question naming what is open/, "a step is not told to ask a more specific question when an answer left the detail open");
   assert.doesNotMatch(d, /bakery|gallery|footer|heading|menu|photo/i, "the question field names a site's own things");
 });
 
@@ -479,67 +525,30 @@ test("A HAND-OVER CARRIES A RESUMED REQUEST'S TWO FACTS, AND A JOB RECORD KEEPS 
 // that told a model to guess beside a field that tells it to ask reconciled.
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("A QUESTION ALREADY ASKED IS RECOGNISED HOWEVER IT IS SPELLED — case, accents, spacing and punctuation set aside — and a different question is not", () => {
-  const asked = ["Which band — the one on Home, or on Visit?"];
-  for (const again of ["which band the one on home or on visit", "WHICH BAND — THE ONE ON HOME, OR ON VISIT ?", "Which  band, the one on Home or on Visit"]) {
-    assert.equal(askRepeat(asked, { text: again }), true, again + " was not read as the same question");
+test("A QUESTION ALREADY ANSWERED IS RECOGNISED HOWEVER IT IS SPELLED — case, accents, spacing and punctuation set aside — and every answer to it is found, handled ones too", () => {
+  const ctx = [{ q: "Which band — Visit or Order?", a: "Visit" }, { q: "Café hours?", a: "9 to 5", handled: true }, { q: "which band visit or order", a: "the top one" }];
+  for (const again of ["Which band — Visit or Order?", "which band visit or order", "  WHICH BAND, Visit or Order!!  "]) {
+    assert.deepEqual(repeatOf(ctx, { text: again }), [ctx[0], ctx[2]], again + " was not read as the same question");
   }
-  assert.equal(askRepeat(["Café hours?"], { text: "cafe hours" }), true, "an accent made a repeat a new question");
-  for (const other of ["Which band should move?", "Which page — Home or Visit?", "Which band — the one on Home, or on Order?"]) {
-    assert.equal(askRepeat(asked, { text: other }), false, other + " was read as the question already asked");
-  }
-  // AN UNREADABLE LIST PROTECTS AGAINST NOTHING, AND REFUSES NOTHING.
-  for (const bad of [null, undefined, "Which band?", [3], [""], Array.from({ length: MAX_ASKED + 1 }, () => "q")]) {
-    assert.deepEqual(askedList(bad), [], JSON.stringify(bad));
-    assert.equal(askRepeat(bad, { text: "Which band?" }), false, JSON.stringify(bad));
-  }
-  assert.equal(askRepeat(asked, { text: "" }), false, "an empty question was a repeat");
+  assert.deepEqual(repeatOf(ctx, { text: "cafe hours" }), [ctx[1]], "an accent made a repeat a new question, or a handled answer was not found");
+  for (const other of ["Which band — Order or Contact?", "Which photo?"]) assert.deepEqual(repeatOf(ctx, { text: other }), [], other + " was read as a question already answered");
+  for (const bad of [null, undefined, "Which band?", [3]]) assert.deepEqual(repeatOf(bad, { text: "Which band?" }), [], JSON.stringify(bad));
+  assert.deepEqual(repeatOf(ctx, { text: "" }), [], "an empty question was a repeat");
+  assert.deepEqual(repeatOf(ctx, null), []);
 });
 
-test("THE ANSWERS A RESUMED REQUEST CARRIES are read from the line that asked its first question to the end, exactly as `answeredRequest` composed them; the questions a request still answers are those it holds the lines for", () => {
-  const q1 = "Which band — the one on Home, or on Visit?";
-  const q2 = "Above which heading?";
-  const once = answeredRequest("Move the order band up", q1, "Visit");
-  const twice = answeredRequest(once, q2, "Come to the bakery");
-  assert.equal(answerLines(once, [q1]), "They were asked: " + q1 + "\nThey answered: Visit");
-  assert.equal(answerLines(twice, [q1, q2]), "They were asked: " + q1 + "\nThey answered: Visit\n\nThey were asked: " + q2 + "\nThey answered: Come to the bakery");
-  // A FRESH REQUEST CARRIES NONE; NOR ONE WHOSE LINES ARE NOT THERE; NOR AN UNREADABLE LIST.
-  assert.equal(answerLines("Move the order band up", []), "");
-  assert.equal(answerLines("Move the order band up", [q1]), "");
-  assert.equal(answerLines("They were asked: " + q1 + "\nThey answered: Visit", [q1]), "", "lines at the very start are the customer's own words, never our appended answers");
-  for (const bad of [null, "Which band?", [3]]) assert.equal(answerLines(once, bad), "", JSON.stringify(bad));
-  assert.equal(answerLines(null, [q1]), "");
-  // THE QUESTIONS IT STILL ANSWERS.
-  assert.deepEqual(askedIn(twice, [q1, q2]), [q1, q2]);
-  assert.deepEqual(askedIn("Move the order band up\n\nThey were asked: " + q2 + "\nThey answered: Come to the bakery", [q1, q2]), [q2]);
-  assert.deepEqual(askedIn("Move the order band up", [q1, q2]), []);
-  assert.deepEqual(askedIn("Asked " + q1 + " before", [q1]), [], "a question's words alone are not its answer");
-  assert.deepEqual(askedIn(twice, null), []);
-});
-
-test("A QUESTION IS ASKED ONLY WHERE AN ANSWER CAN STILL RESUME ITS REQUEST: the request, the question and an answer as long as its longest option (never under a short typed one) fit one message", () => {
-  const q = { text: "Which page?", options: ["Home", "Visit"] };
-  const fits = (n, question = q) => askRoom("x".repeat(n), question);
-  // THE BOUNDARY, measured with the request an answer would really resume.
-  const overhead = answeredRequest("x", q.text, "y".repeat(ASK_ANSWER_ROOM)).length - 1;
-  assert.equal(fits(MAX_MESSAGE - overhead), true, "a request with exactly room for an answer was refused");
-  assert.equal(fits(MAX_MESSAGE - overhead + 1), false, "a request with no room for an answer was asked about");
-  // A LONG OPTION NEEDS ITS OWN ROOM: offered, it must be an answer that fits.
-  // (As it is shown: an option is cut to a button's length first, `readAsk`.)
-  const long = { text: "Which?", options: ["o".repeat(60), "Visit"] };
-  const shown = readAsk(long).options[0];
-  assert.ok(shown.length > ASK_ANSWER_ROOM, "the case does not exercise an option longer than a short answer");
-  const longOverhead = answeredRequest("x", long.text, shown).length - 1;
-  assert.equal(askRoom("x".repeat(MAX_MESSAGE - longOverhead), long), true);
-  assert.equal(askRoom("x".repeat(MAX_MESSAGE - longOverhead + 1), long), false, "an offered answer that could not fit was offered");
-  assert.equal(askRoom("Move the band", { text: "" }), false, "an unreadable question had room");
+test("THE OLD READERS ARE GONE: no answer is ever folded into a request, so nothing measures one against it", async () => {
+  const mod = await import("../builder/clarify.mjs");
+  for (const name of ["answeredRequest", "askRepeat", "askRoom", "askedList", "answerLines", "askedIn", "ASK_ANSWER_ROOM"]) {
+    assert.equal(Object.hasOwn(mod, name), false, name + " is still exported");
+  }
 });
 
 test("THE NEXT QUESTION REPLACES THE ANSWERED ONE IN ONE WRITE: a write that fails or loses leaves the answered question waiting, and a closed one is never replaced", async () => {
   const b = bucket();
   const first = rec();
   await storeAsk(b, first);
-  const next = rec({ round: 2, question: { text: "Above which heading?" }, request: "Change the heading\n\nThey were asked: " + Q.text + "\nThey answered: Visit", asked: [Q.text, "Above which heading?"] });
+  const next = rec({ round: 2, question: { text: "Above which heading?" }, request: "Change the heading", context: [{ q: Q.text, a: "Visit" }] });
   // A WRITE THAT THROWS: the answered question is still the live one.
   const realPut = b.put.bind(b);
   b.put = async () => { throw new Error("r2 down"); };
@@ -565,7 +574,8 @@ test("THE NEXT QUESTION REPLACES THE ANSWERED ONE IN ONE WRITE: a write that fai
   assert.equal(won.record.id, fresh.id);
   st = await loadAsk(b, SLUG);
   assert.equal(st.record.id, next.id);
-  assert.deepEqual(st.record.asked, [Q.text, "Above which heading?"]);
+  assert.equal(st.record.request, "Change the heading", "the request grew when the next question replaced the answered one");
+  assert.deepEqual(st.record.context, [{ q: Q.text, a: "Visit" }]);
   // A NEXT QUESTION FOR ANOTHER OWNER, ANOTHER SITE, OR NOT PENDING IS REFUSED BEFORE ANY READ.
   for (const bad of [{ ...next, uid: OTHER }, { ...next, slug: "fretwork-1" }, { ...next, status: "answered" }, null]) {
     await assert.rejects(replaceAsk(b, { slug: SLUG, id: next.id, uid: UID, next: bad }), /not a next question/);
@@ -652,18 +662,116 @@ test("THE PICTURE STEP IS TOLD TO ASK WHICH, NOT TO RETURN NOTHING, when two slo
   assert.doesNotMatch(sys, /they will say which/, "the picture step still returns nothing for the customer to say which");
 });
 
-test("A HAND-OVER AND A JOB RECORD CARRY THE QUESTIONS A REQUEST HAS ASKED, and a count past nine is still a count", () => {
-  const asked = ["Which band?", "Above which heading?"];
-  const hop = EditPoll.handOver({ layer: "text", asked, askRound: 12 }, { layer: "nav" }, {});
-  assert.deepEqual(hop.asked, asked, "a hop forgot what the request has asked");
+test("A HAND-OVER AND A JOB RECORD CARRY WHAT THEY ALREADY TOLD US, as it came — a list that does not read is carried for the route to refuse, never turned into none", () => {
+  const context = [{ q: "Which band?", a: "Visit" }, { q: "Above which heading?", a: "Come to the bakery", handled: true }];
+  const hop = EditPoll.handOver({ layer: "text", context, askRound: 12 }, { layer: "nav" }, {});
+  assert.deepEqual(hop.context, context, "a hop forgot what they told us");
   assert.equal(hop.askRound, 12, "a request's twelfth question lost its count");
-  assert.equal(EditPoll.handOver({ layer: "text", asked: [3] }, { layer: "nav" }, {}).asked, undefined, "an unreadable list was carried");
-  assert.deepEqual(EditPoll.askedOf(undefined), []);
-  assert.equal(EditPoll.askedOf("Which band?"), null);
-  assert.equal(EditPoll.askedWire([]), undefined);
+  assert.equal(Object.hasOwn(EditPoll.handOver({ layer: "text" }, { layer: "nav" }, {}), "context"), false, "a hop with no answers named some");
+  assert.deepEqual(EditPoll.handOver({ layer: "text", context: [3] }, { layer: "nav" }, {}).context, [3], "an unreadable list was dropped, so the step would run as if nothing was answered");
+  assert.deepEqual(EditPoll.contextOf(undefined), []);
+  assert.equal(EditPoll.contextOf("Which band?"), null);
+  assert.equal(EditPoll.contextOf([{ q: "Which band?", a: "x".repeat(501) }]), null, "an answer longer than the server keeps was read");
+  assert.equal(EditPoll.contextOf(Array.from({ length: 13 }, () => ({ q: "q", a: "a" }))), null, "a list longer than the server keeps was read");
+  assert.equal(EditPoll.contextWire([]), undefined);
+  assert.deepEqual(EditPoll.contextWire([{ q: " q ", a: " a " }]), [{ q: "q", a: "a" }]);
   const store = { data: {}, getItem(k) { return this.data[k] || null; }, setItem(k, v) { this.data[k] = v; } };
-  EditPoll.rememberJob(SLUG, "job-3", store, { ask: "x", op: "edit", asked, askRound: 3 });
+  EditPoll.rememberJob(SLUG, "job-3", store, { ask: "x", op: "edit", context, askRound: 3 });
   const back = EditPoll.resumableRecord(SLUG, Date.now(), store);
-  assert.deepEqual(back.asked, asked, "a resumed watch forgot what the request has asked");
+  assert.deepEqual(back.context, context, "a resumed watch forgot what they told us");
   assert.equal(back.askRound, 3);
+  EditPoll.rememberJob(SLUG, "job-4", store, { ask: "x", op: "edit", context: "broken" });
+  assert.equal(EditPoll.resumableRecord(SLUG, Date.now(), store).context, "broken", "a broken list was dropped on the way through the store");
+  EditPoll.rememberJob(SLUG, "job-5", store, { ask: "x", op: "edit", context: [] });
+  assert.equal(Object.hasOwn(EditPoll.resumableRecord(SLUG, Date.now(), store), "context"), false, "an empty list was stored as answers");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONTINUITY (2026-10-02, the owner's second review): the answers ride beside
+// the request, every deciding model is shown the ones its change needs, and a
+// question already answered is sent back with its answer — never an ending.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const toolOf = () => withQuestion({ name: "t", input_schema: { type: "object", properties: { value: { type: "string" } } } });
+const asking = (text) => ({ content: [{ type: "tool_use", name: "t", input: { value: "guessed", question: { text } } }], usage: { input_tokens: 9, output_tokens: 1 } });
+const acting = (value = "x") => ({ content: [{ type: "tool_use", name: "t", input: { value } }], usage: { input_tokens: 5, output_tokens: 2 } });
+const stepReq = () => ({ tools: [toolOf()], messages: [{ role: "user", content: "What they asked for:\nChange the photo" }] });
+
+test("EVERY CALL A STEP MAKES IS SHOWN ITS ANSWERS; A QUESTION ALREADY ANSWERED IS SENT BACK WITH ITS ANSWER AND NEVER PUT TO THE CUSTOMER — and the call asked again is ours", async () => {
+  const ctx = [{ q: "Which photo?", a: "The one on the Contact page" }, { q: "Which heading?", a: "The top one", handled: true }];
+  const run = async (replies, shown, closed) => {
+    const sent = [];
+    const heard = [];
+    const send = clarifyTransport(async (r) => { sent.push(r); return replies.shift(); }, { shown: () => shown, all: () => ctx, onReuse: (h, c) => heard.push([h.length, c]) });
+    return { got: await send(stepReq()), sent, heard };
+  };
+  // A REPEAT OF AN ANSWER IT WAS SHOWN: sent once more with that answer in front of it.
+  const done = acting();
+  let r = await run([asking("Which photo?"), done], [ctx[0]]);
+  assert.equal(r.got, done, "the reply used is not the one given after the answer");
+  assert.equal(r.sent.length, 2);
+  assert.ok(r.sent[0].messages[0].content.endsWith(contextBlock([ctx[0]])), "the step was not shown its answer, after everything else");
+  assert.ok(r.sent[1].messages[0].content.endsWith(reuseNote([ctx[0]])), "the second call was not sent the answer to the question it asked");
+  assert.match(r.sent[1].messages[0].content, /ask them a MORE SPECIFIC question that names exactly what their answer left open/);
+  assert.ok(r.sent[1].tools[0].input_schema.properties.question, "a first repeat was sent back with no question offered");
+  assert.deepEqual(r.heard, [[1, false]]);
+  // A HANDLED ANSWER IS NEVER SHOWN, BUT IS STILL THE ANSWER TO ITS QUESTION.
+  r = await run([asking("which heading"), done], [ctx[0]]);
+  assert.doesNotMatch(r.sent[0].messages[0].content, /The top one/, "a handled answer was shown as context");
+  assert.match(r.sent[1].messages[0].content, /Asked: “Which heading\?” — they answered: “The top one”/, "a handled answer was not reused");
+  // A NEW QUESTION, OR NONE: one call, the reply as it came.
+  const fresh = asking("Is it the logo?");
+  r = await run([fresh], [ctx[0]]);
+  assert.equal(r.got, fresh);
+  assert.equal(r.sent.length, 1, "a new question was sent back");
+  r = await run([done], []);
+  assert.equal(r.sent.length, 1);
+  assert.equal(r.sent[0].messages[0].content, "What they asked for:\nChange the photo", "a step shown no answers was sent a section anyway");
+});
+
+test("A QUESTION PUT TO THE CUSTOMER TWICE IS SENT BACK WITH NO QUESTION OFFERED, AND ONCE A REQUEST CARRIES ITS LAST ANSWER NO CALL IS OFFERED ONE — a question in such a reply is never read", async () => {
+  const twice = [{ q: "Which photo?", a: "the nice one" }, { q: "which photo", a: "the big one" }];
+  assert.equal(MAX_SAME_ASK, 2);
+  const sent = [];
+  const replies = [asking("Which photo?"), asking("Which photo?")];
+  const send = clarifyTransport(async (r) => { sent.push(r); return replies.shift(); }, { shown: () => twice, all: () => twice });
+  const got = await send(stepReq());
+  assert.ok(sent[0].tools[0].input_schema.properties.question, "the first call was offered no question");
+  assert.equal(Object.hasOwn(sent[1].tools[0].input_schema.properties, "question"), false, "a third asking was offered the question again");
+  assert.match(sent[1].messages[0].content, /they answered: “the nice one”\nAsked: “which photo” — they answered: “the big one”/, "both answers were not sent back");
+  assert.equal(askOf(got), null, "a question in a reply that was offered none was read");
+  assert.equal(got.content[0].input.value, "guessed", "the rest of that reply was not kept");
+  // AT THE CAP.
+  const full = Array.from({ length: MAX_ASKED }, (_, i) => ({ q: "Q" + i + "?", a: "A" + i }));
+  const capSent = [];
+  const capped = clarifyTransport(async (r) => { capSent.push(r); return asking("Anything else?"); }, { shown: () => full, all: () => full });
+  const cappedGot = await capped(stepReq());
+  assert.equal(capSent.length, 1, "a request at its cap was sent twice");
+  assert.equal(Object.hasOwn(capSent[0].tools[0].input_schema.properties, "question"), false, "a request at its cap was offered a question");
+  assert.equal(askOf(cappedGot), null, "a question past the cap was read");
+  // stripQuestion leaves a tool with no question as it was, and the request whole when none has one.
+  const plain = { tools: [{ name: "p", input_schema: { type: "object", properties: { v: { type: "string" } } } }] };
+  assert.equal(stripQuestion(plain), plain);
+  assert.equal(stripQuestion(null), null);
+});
+
+test("THE PAGE WRITER'S CALL GOES THROUGH THE SAME TRANSPORT, with its keys and its clock passed through untouched", async () => {
+  const ctx = [{ q: "Which section?", a: "Our story" }];
+  const calls = [];
+  const call = clarifyCall(async (keys, req, budget) => { calls.push({ keys, req, budget }); return calls.length === 1 ? asking("Which section?") : acting(); }, { shown: () => ctx, all: () => ctx });
+  const keys = { k: 1 };
+  const budget = { b: 1 };
+  const got = await call(keys, stepReq(), budget);
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every((c) => c.keys === keys && c.budget === budget), "the keys or the clock were not passed through");
+  assert.ok(calls[0].req.messages[0].content.endsWith(contextBlock(ctx)));
+  assert.equal(askOf(got), null);
+});
+
+test("THE NOTE A QUESTION ASKED ONCE MORE IS SHOWN UNDER names the answer that did not settle it, in the customer's own words, cut to fit", () => {
+  assert.equal(againNote([{ q: "Which photo?", a: "the nice one" }]), "Your answer \u2014 \u201cthe nice one\u201d \u2014 didn\u2019t settle this, so I need to ask once more.");
+  assert.match(againNote([{ q: "q", a: "first" }, { q: "q", a: "second" }]), /second/, "the note named an earlier answer, not the last");
+  const long = againNote([{ q: "q", a: "word ".repeat(80).trim() }]);
+  assert.ok(long.length <= 300 && long.includes("\u2026"), "a long answer was not cut to fit");
+  assert.equal(againNote([]), "Your answer didn\u2019t settle this, so I need to ask once more.");
 });
