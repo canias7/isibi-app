@@ -579,9 +579,13 @@ the owner's free press, run 51, at 22:57 UTC):
     every character, token, count, list, history, time and retry limit from
     the composer to the page's display, traced producer to consumer, with
     nine free probes (supplied answers) and one read-only select of stored
-    reply lengths. **22 confirmed defects** (IL1–IL22: 7 by probe, 15 by
-    code) and **14 untested risks**; the safeguards kept, with their
-    evidence. Shown by probe: words cut at 2,000 without a word; a question
+    reply lengths. **21 defects** (7 by controlled reproduction — the real
+    code with supplied answers — and 14 read in the code), **2 optional
+    product capabilities** (O1: files used by an addition or a picture
+    step; O2: a Stop for a running edit, formerly IL20) and **15 untested
+    risks** (as corrected on the owner's review before batch 1, 2026-10-03;
+    the first count was 22 defects and 14 risks); the safeguards kept, with
+    their evidence. Shown by controlled reproduction: words cut at 2,000 without a word; a question
     cut at 240 and its options clipped; a side question dropping a waiting
     request; more than 4 parts across a question told as "just now"; a
     seventh page's edit routed as an addition after a reload; an
@@ -589,11 +593,42 @@ the owner's free press, run 51, at 22:57 UTC):
     a menu change beside a layout move missing from the reply facts
     (review #9's cause, not closed by the model replies). The automatic
     re-ask thresholds stop only our own retries; the 40-message history is
-    display only; the reply bounds fit every large outcome measured, but
-    its fallback still caps lists. The record, the grouped changes and the
+    display only; the facts of four large outcomes, measured without a
+    model, stay under the reply bounds — an estimate, not proof that real
+    replies fit (R15) — and the fallback still caps lists. **At 64 needed
+    answers the request is not dropped** (corrected): the next answer is
+    refused and the question, request and answers stay until Cancel or
+    expiry; going on means Cancel and retyping (IL8). The record, the grouped changes and the
     plan: `docs/investigations/information-limits-audit.md`. **Next,
     separately**: the real-model audit of route, operation, target and
     clarification (its §12), on the owner's approval and a cost estimate.
+17. **Information limits, batch 1: the words, questions, files and page
+    list whole** (2026-10-03, on the owner's word; for review: not merged
+    or deployed, no container built, no model called; `2a17e2cb`). One size
+    policy (`builder/input-budget.mjs`: 16,000 characters a message, 48,000
+    a request with what it carries), tied to the stored job answer's
+    200,000, the routing body's 2 MB and the models' windows; every hop
+    whole, and past the policy nothing cut — the page keeps the words and
+    says the number, the routes refuse at no cost before any model, a
+    waiting question untouched. Questions and their answers kept and drawn
+    whole, a pressed answer sent whole, an unusable one never cut. The
+    request's and the answer's files kept together, at most three, said
+    before anything runs; the logo step refusing more than one picture.
+    The page list from the site itself (owner-verified, bounded, failing
+    open to the browser's list marked unverified, never a missing page),
+    every digest naming every page. Build unchanged. **Tested only with
+    supplied model output**: 36 cases through the real routes, the queue
+    and the page, 8 on the policy's numbers and constraints, 1 on the logo
+    step; red check 34 of 36, 6 of 8 and 1 of 41 failing on `d805e903` (the
+    passes are controls); sweep 42 of 42 with 2 controls surviving; full
+    suite `9070 / 9070 / 0 / 0` (from `9025` at `d805e903`); unit CI `9070 /
+    9066 / 0 / 4` and the site build (404 checks, every job green) on
+    `2a17e2cb`. Screens before and after in the record.
+    The audit was corrected first (64 needed answers keeps the request;
+    four classes kept apart; reply sizes are estimates). The record is
+    `docs/history/2026-10-03-input-limits-batch1.md`. **Next**: batch 2
+    (the pending request), batch 3 (operations and results), batch 4 (the
+    reply), then the real-model audit on the owner's approval.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

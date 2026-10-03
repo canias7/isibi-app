@@ -385,38 +385,50 @@ here; take a closed one out of both.**
   (nothing cut)**: every fact now reaches the model whole; the routes' own
   answers still cap several lists before any reply sees them (MR9, found).
 - **Information limits on Edit and Add-on** (2026-10-03, the limits audit,
-  `docs/investigations/information-limits-audit.md`; nothing changed): 22
-  confirmed defects (IL1–IL22) and 14 untested risks (R1–R14). The worst:
-  words cut at 2,000 without a word (IL1); a side question drops a waiting
-  request (IL3); after a reload the router knows six pages, so a seventh
-  page's edit becomes an addition (IL9); a change made beside a look change
-  never reaches the reply (IL12, review #9's cause); steps drop work past
-  their caps silently (IL13, IL14); MR9 is IL11. The plan is the audit's §11.
+  `docs/investigations/information-limits-audit.md`, corrected on the
+  owner's review): 21 defects (IL1–IL19, IL21, IL22), 2 optional
+  capabilities (O1, O2) and 15 untested risks (R1–R15). **Batch 1 is
+  implemented, for review** (IL1, IL2, IL5, IL9 and R12:
+  `docs/history/2026-10-03-input-limits-batch1.md`; not merged or
+  deployed). Left, in the plan's order: batch 2, the pending request (IL3,
+  IL4, IL6, IL7, IL8, IL17); batch 3, operations and results (IL10–IL16,
+  IL18, IL19); batch 4, the reply (IL21, IL22); then the real-model audit.
 
 ---
 
 ## Backlog
 
-- **INFORMATION LIMITS ON EDIT AND ADD-ON (IL1–IL22 confirmed, R1–R14
-  untested; found 2026-10-03 by the limits audit on the owner's word;
-  nothing changed).** Each, with its lines, evidence, test coverage and
-  smallest change, is in `docs/investigations/information-limits-audit.md`
-  (§9 lists them; §10 groups the changes; §11 is the plan).
-  - **The words** (IL1, IL2, IL5): a message or answer past 2,000
-    characters is cut in the page and at three server hops, silently
-    (probe: 2,936 typed, 2,000 sent); a model's question is cut at 240 with
-    "…", an option at 48 unmarked (and sent clipped as the answer), a fifth
-    option dropped; an answer's files push out the original message's.
-  - **The pending request** (IL3, IL4, IL6, IL7, IL8, IL17): a side question
-    while a request waits drops it (`answered` is only yes or no); a
-    resumed request sent to the full rewrite loses its answers; more than
-    4 parts across a question is told as "just now"; expiry (24 hours)
-    drops the request unnamed and a reload clears the card silently; at 64
-    needed answers going on means retyping; three endings drop a step's
-    question and the other steps' refusals.
-  - **The page list** (IL9): the page stores six pages, so after a reload
-    the router can't see the rest and a seventh page's edit becomes an
-    addition (probe).
+- **INFORMATION LIMITS ON EDIT AND ADD-ON (21 defects, 2 optional
+  capabilities, 15 untested risks; found 2026-10-03 by the limits audit on
+  the owner's word and corrected on their review; batch 1 implemented for
+  review).** Each, with its lines, evidence, test coverage and smallest
+  change, is in `docs/investigations/information-limits-audit.md` (§9 lists
+  them; §10 groups the changes; §11 is the plan).
+  - **The words** (IL1, IL2, IL5) — **batch 1, implemented for review**
+    (`docs/history/2026-10-03-input-limits-batch1.md`): one size policy
+    (16,000 a message, 48,000 a request with what it carries), every hop
+    whole, refused past it with the draft and any waiting question kept;
+    questions and answers offered kept whole, an unusable one never cut;
+    the request's and the answer's files kept together, the logo step
+    refusing more than one picture. Was: a message or answer past 2,000
+    characters cut in the page and at three server hops, silently; a
+    model's question cut at 240, options clipped and a fifth dropped; an
+    answer's files pushing out the original message's.
+  - **The pending request** (IL3, IL4, IL6, IL7, IL8, IL17) — batch 2: a
+    side question while a request waits drops it (`answered` is only yes
+    or no); a resumed request sent to the full rewrite loses its answers;
+    more than 4 parts across a question is told as "just now"; expiry (24
+    hours) drops the request unnamed and a reload clears the card
+    silently; at 64 needed answers the next answer is refused and the
+    question, request and answers are kept as they were (the request is
+    not dropped), but going on means Cancel and retyping; three endings
+    drop a step's question and the other steps' refusals.
+  - **The page list** (IL9, R12) — **batch 1, implemented for review**: the
+    page keeps every page's address, the routing route reads the site's own
+    pages (owner-verified, bounded, failing open to the browser's list
+    marked unverified, never read as a missing page), and every digest
+    names every page. Was: six pages after a reload, a seventh page's edit
+    routed as an addition; no page past the 24th nameable.
   - **Lists cut before the reply** (IL11 = MR9, IL13, IL14): nine route
     lists capped with no count; a fifth look lane, the 21st row change, a
     fifth rules table, a ninth picture change, an eleventh menu link and a
@@ -428,15 +440,20 @@ here; take a closed one out of both.**
     /." — review #9's cause); a cut model answer is said as "busy" or "try
     again in a moment"; a replacement with a straight quote is dropped and
     told as wording not found; an unsettled cost is deleted, not said;
-    attached files never reach an addition or a picture step.
+    files attached to work that cannot use them are not named in the
+    outcome (IL19; using them is O1, an optional capability).
   - **The reply's own edges** (IL21, IL22): the page's fallback composer
     still caps its lists; a reply past 4,000 characters is not asked again
     and the model is not told the bound.
-  - **Also** (IL20): no Stop for a running edit (`cancelEditJob` has no
-    caller).
-  - **Untested** (R1–R14): reply coverage is self-reported (R1); cut
-    answers on steps that don't check `stop_reason` (R2); and twelve more,
-    listed in the audit's §9.
+  - **Optional capabilities** (O1, O2): an addition's page writer or a
+    picture step using attached files; a Stop for a running edit
+    (`cancelEditJob` has no caller; formerly IL20).
+  - **Untested** (R1–R16): reply coverage is self-reported (R1); cut
+    answers on steps that don't check `stop_reason` (R2); whether real
+    replies fit 4,000 characters (R15: the audit's figures are the facts'
+    size, measured without a model); the copy-back ceiling for a long
+    held-back part in a script near a character a token (R16, batch 1); and
+    twelve more, listed in the audit's §9.
 - **WHAT THE MODEL-WRITTEN REPLIES LEAVE (MR1–MR8; found 2026-10-03 while
   making edit and add-on replies model-written on the owner's word;
   deliberate unless marked).** Each is in

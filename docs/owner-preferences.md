@@ -845,3 +845,30 @@
   retries is never a limit on the customer going on; a safeguard is kept
   with its evidence and its outcome said; and a model's own claim that it
   covered everything is not proof that it did.
+- **One size policy from real constraints; past it, keep everything and
+  run nothing shortened** (2026-10-03, ordering batch 1 of the limits
+  plan): *"remove the arbitrary 2,000-character request and 500-character
+  clarification-answer restrictions throughout the affected browser,
+  server, model-input, persistence, queue, and resume paths; do not merely
+  replace silent clipping with rejection at those same numbers or raise one
+  constant while another hop still cuts the input. Use a consistent
+  technical size policy supported by actual request, storage, and
+  model-context constraints, and document its rationale. Within that
+  supported budget, preserve the complete input; beyond it, preserve the
+  draft and pending state, explain the real constraint, and never execute a
+  shortened request."* And for questions, files and pages in the same order:
+  never cut a question mid-sentence, discard an answer offered, or send a
+  shortened option as their answer; never silently choose which files to
+  discard, and report a genuine file limit before anything runs; route on
+  the site's own complete page list, never on a partial browser copy, and
+  never read an unreadable inventory as a missing page. So every hop reads
+  one budget (`builder/input-budget.mjs`), whose numbers are tied to the
+  constraint each comes from.
+- **Keep the classes of a finding apart, and an estimate is not proof**
+  (2026-10-03, correcting the limits audit): *"Keep confirmed code defects,
+  controlled reproductions, untested risks, and optional product
+  capabilities distinct, and do not call reply-size estimates proof that
+  real model replies fit."* So a record says which a finding is — read in
+  the code, driven with supplied answers, plausible but unshown, or
+  something the product does not do — and a measurement of inputs is never
+  written up as evidence about what a real model produces.

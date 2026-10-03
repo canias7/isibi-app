@@ -19,12 +19,45 @@
 > read"), and nine focused free probes (§13) with supplied model answers. Nothing implemented, merged or deployed; Build
 > untouched; no model called, no paid run, no container rebuilt; one
 > read-only select of stored reply lengths. Line numbers are at `88406d05`.
+>
+> **Corrected 2026-10-03, on your review before batch 1** (*"First correct
+> the audit's claims: reaching 64 needed answers currently refuses another
+> answer while preserving the waiting question; it does not immediately
+> delete the request. Keep confirmed code defects, controlled reproductions,
+> untested risks, and optional product capabilities distinct, and do not
+> call reply-size estimates proof that real model replies fit."*):
+>
+> 1. **64 needed answers does not drop the request.** The 65th answer is
+>    refused at no cost (`answers-full`, 422), and the waiting question, its
+>    request and every answer stay exactly as they were, still open for
+>    Cancel; the request goes only on Cancel or at the 24-hour expiry. The
+>    gap (IL8) is that no answer past that point can be added, so the only
+>    way forward is Cancel and retyping, which loses the answers. The
+>    earlier wording ("a full history abandons the request") was wrong and
+>    is replaced below.
+> 2. **Four classes, kept apart** (§1, §9): a *code defect* (read in the
+>    code, not driven), a *controlled reproduction* (the real code driven
+>    with supplied model answers — not a live run, and not proof of what a
+>    real model does), an *untested risk*, and an *optional product
+>    capability* (something the product does not do, which would be new
+>    behaviour rather than a repair). IL19's capability half and IL20 move to
+>    the last class (O1, O2); the defect count is restated.
+> 3. **The reply sizes are estimates.** P8 measured the facts a reply is
+>    written from, without a model; it does not show that real model replies
+>    fit 4,000 characters or 2,000 tokens. That is unmeasured (R15) until the
+>    real-model audit.
+>
+> **Batch 1 is implemented** (the words, questions, files and page list
+> whole): `docs/history/2026-10-03-input-limits-batch1.md`.
 
 ## In short
 
-- **22 confirmed defects** (IL1–IL22: 7 shown by a probe, 15 by the code),
-  **14 untested risks** (R1–R14), and the safeguards worth keeping, with
-  their evidence (§7).
+- **21 defects** (IL1–IL19 and IL21–IL22: 7 by a controlled reproduction —
+  the real code with supplied answers — and 14 read in the code), **2
+  optional product capabilities** (O1: files used by an addition or a
+  picture step, IL19's other half; O2: a Stop for a running edit, formerly
+  IL20), **15 untested risks** (R1–R15), and the safeguards worth keeping,
+  with their evidence (§7).
 - **The ones that lose meaning without a word:**
   1. **Your words are cut at 2,000 characters, silently** (IL1). The page
      cuts them before sending; the thread shows the cut copy; no step, model
@@ -53,17 +86,22 @@
      261 characters became 239 ending *"…open the…"*; a 66-character option
      became 42 with no mark, and choosing it sends the clipped words as the
      answer; a fifth option is dropped (probe).
-  8. **Expiry and a full history abandon the request** (IL7, IL8): after 24
-     hours the question and its request go, and a reload clears the card
-     with no word; at 64 needed answers, going on means retyping.
+  8. **Expiry abandons the request; a full history only stops it** (IL7,
+     IL8): after 24 hours the question and its request go, and a reload
+     clears the card with no word. At 64 needed answers the next answer is
+     refused and the question, the request and its answers stay as they
+     were — the request is not dropped — but nothing more can be added, so
+     going on means Cancel and retyping (corrected 2026-10-03).
 - **What already works as asked:** the automatic re-ask thresholds (2
   repeats, 12 answers) stop only our own second call, never the customer
   (§6); every answer a request carries reaches the router, the picker, the
   steps and the add-on whole (§5); the stored chat history (40 messages) is
   display only and holds nothing unfinished work needs (§3.7); every reply
   fact reaches the reply model whole since `ddfe44f8`.
-- **The reply bounds** (4,000 characters, 2,000 tokens) fit every large but
-  ordinary outcome measured (§8: 1,406–2,748 characters of facts). But a
+- **The reply bounds** (4,000 characters, 2,000 tokens) were not reached by
+  the facts of four large but ordinary outcomes, measured without a model
+  (§8: 1,406–2,748 characters of facts). That is an estimate of the input,
+  not proof that real model replies fit — unmeasured (R15). And a
   reply past 4,000 is not asked again, the model is not told the bound, and
   **the page's fallback composer still caps its lists**, so facts do not
   survive a fallback (IL21, IL22). `covers` is the model's own claim, and
@@ -92,10 +130,14 @@
 | SAFEGUARD | a resource bound whose reaching is reported |
 | DISPLAY | affects only what the page draws, not what any model or step gets |
 
-**Classes:** *Confirmed (probe)* — shown by a free run of the real code with
-supplied answers (§13). *Confirmed (code)* — read in the code, with the
-lines given; not driven. *Untested risk* — plausible from the code, not
-shown. *Deliberate* — a limit already recorded and left by you. Severity:
+**Classes** (kept apart since 2026-10-03): *Controlled reproduction* —
+shown by a free run of the real code with supplied model answers (§13); it
+shows what the code does with that answer, not what a real model answers
+(marked "probe" below). *Code defect* — read in the code, with the lines
+given; not driven (marked "code"). *Untested risk* — plausible from the
+code, not shown. *Optional product capability* — something the product does
+not do; adding it would be new behaviour, not a repair. *Deliberate* — a
+limit already recorded and left by you. Severity:
 **high** loses a request, completed work or a target without a word, or
 misroutes; **medium** misstates a cause or drops a part in a way the
 customer can see; **low** display, or not reachable through our own page.
@@ -200,9 +242,12 @@ customer can see; **low** display, or not reachable through our own page.
 - **Tests:** `live-clarify-history`, `live-clarify-limits`,
   `model-replies-routes`.
 - **Verdict:** deliberate (N59: 64 is ours, yours to move; reaching it takes
-  52 rounds past where our own re-asking stops). **The gap is the handover**:
-  going on means retyping the request and losing every answer — **IL8,
-  confirmed (code), medium.**
+  52 rounds past where our own re-asking stops). **The request is not
+  dropped there**: the 65th answer is refused, and the question, its request
+  and its answers stay as they were until Cancel or expiry. **The gap is the
+  handover**: nothing more can be added, so going on means Cancel and
+  retyping the request, losing every answer — **IL8, code defect, medium**
+  (corrected 2026-10-03).
 
 ### 3.5 The 12-answer threshold and the repeated-question threshold
 
@@ -320,7 +365,7 @@ sees the answer; none keeps a count of what it cut, except `keepRefusal`.
 | sites 20, messages 40, versions 8 (markup 400,000; a version's design 4,000 and pages 300,000) | `sitesSave` 4562–4576 | DISPLAY and restore only | keep |
 | an in-flight job remembered 1 hour | `edit-poll.js` 463 | after an hour the page forgets the job; its ending is never shown | R4 |
 | the poll gives up at 52.5 minutes | `edit-poll.js` `POLL_GIVE_UP_MS` 259 | jobs may run 50 minutes; a reload in the last 7.5 minutes still resumes | R4 |
-| no Stop for a queued edit | `cancelEditJob` (10105) has no caller | the customer cannot stop a running edit | **IL20**, code, low |
+| no Stop for a queued edit | `cancelEditJob` (10105) has no caller | the customer cannot stop a running edit | **O2** (optional capability; was IL20) |
 
 ### H2 The route reads the request
 
@@ -511,8 +556,10 @@ bound is dropped without a word.
 - **Measured** (probe P8, no model): large but ordinary outcomes give 14 to
   40 facts, 1,406 to 2,748 characters of facts, about 1,457 to 1,851 tokens
   in; listing every id in `covers` takes about 66 to 170 tokens. A reply
-  naming every fact in plain words runs about as long as the facts, so these
-  fit. Facts pass 4,000 characters only when lists are long — for example 20
+  naming every fact in plain words runs about as long as the facts, so we
+  estimate these would fit — an estimate from the facts' size, not a
+  measurement of any real reply (R15). Facts pass 4,000 characters only when
+  lists are long — for example 20
   rows taken off with six fields each, or the MR9 lists once lifted.
 - **At the bounds** (`readReply` 627–639, `writeReply` 658–690):
   - a reply over 4,000 characters is refused as unreadable and **not asked
@@ -534,7 +581,10 @@ bound is dropped without a word.
   Nothing checks that a listed fact is said, or said rightly. **R1**: only
   reading real replies against their facts can show it (§12).
 
-## 9. Confirmed defects and untested risks
+## 9. Defects, untested risks and optional capabilities
+
+"Evidence" says the class: P*n* is a controlled reproduction (§13: the real
+code, supplied model answers), "code" a code defect read in the lines given.
 
 | ID | What | Evidence | Severity |
 |---|---|---|---|
@@ -545,7 +595,7 @@ bound is dropped without a word.
 | IL5 | an answer's files push out the original message's files | code | medium |
 | IL6 | more than 4 parts across a question → *"couldn't keep track … just now"* | P2 | medium |
 | IL7 | expiry drops the request unnamed; a reload clears the card silently | code | high |
-| IL8 | at 64 needed answers, going on means retyping | code | medium |
+| IL8 | at 64 needed answers the next answer is refused and the question, request and answers are kept as they were; going on means Cancel and retyping, losing the answers | code | medium |
 | IL9 | after a reload the router knows six pages; a seventh page's edit becomes an addition | P6 | high |
 | IL10 | an addition's declined kinds vanish on a partial success | P4 | high |
 | IL11 | the routes cap nine lists before any reply sees them, with no count (MR9) | code | high |
@@ -556,8 +606,8 @@ bound is dropped without a word.
 | IL16 | a replacement with a straight quote or over 400 characters is dropped, and the customer is told the wording wasn't found | code | medium |
 | IL17 | a step's question and the other steps' refusals leave three endings | code | medium |
 | IL18 | an unsettled cost is deleted, not said | code | medium |
-| IL19 | attached files never reach an addition or a picture step, silently | code | high |
-| IL20 | no Stop for a running edit | code | low |
+| IL19 | files attached to work that cannot use them (an addition, a picture step) are not named in the outcome — they go nowhere, silently (the capability half is O1) | code | high |
+| ~~IL20~~ | moved to O2 (2026-10-03): a capability the product does not offer, not a defect | — | — |
 | IL21 | the page's fallback composer still caps its lists | code | medium |
 | IL22 | an over-long reply is not asked again, and the model is not told the bound | code | medium |
 
@@ -577,6 +627,12 @@ bound is dropped without a word.
 | R12 | the router cannot name pages past the 24th |
 | R13 | the first translation charge of a correction round missing from `cost` |
 | R14 | the text step climbs to a rewrite past 600 pieces of wording (designed; cost unmeasured) |
+| R15 | whether real model replies fit 4,000 characters and 2,000 tokens: §8's figures are the facts' size, measured without a model (added 2026-10-03) |
+
+| ID | Optional product capability (2026-10-03) |
+|---|---|
+| O1 | an addition's page writer or a picture step using the customer's attached files (the build's writer takes attachments; these do not) — formerly IL19's second half |
+| O2 | a Stop for a running edit (`cancelEditJob` has no caller) — formerly IL20 |
 
 ## 10. The smallest changes, grouped
 
@@ -674,7 +730,8 @@ for your review. No merge or deploy until you say; no model calls.
    page's composer. Tests: an over-long supplied reply gets one more call;
    the fallback draws every item of a long list.
 5. **Your decisions, before or beside step 1:** the message bound (2,000
-   or higher); whether a question keeps a longer expiry (seven days would
+   or higher — decided 2026-10-03: no arbitrary number; one size policy
+   from the real constraints, implemented in batch 1); whether a question keeps a longer expiry (seven days would
    match the job record); whether the router is told the previous turn's
    outcome (§5's last row — a design change, so only on your word).
 
