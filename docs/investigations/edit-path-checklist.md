@@ -769,6 +769,9 @@ the owner's free press, run 51, at 22:57 UTC):
       - sweeps 40 of 46, then 52 of 52 after the six gaps it showed were
         tested, 4 controls surviving each time;
       - full suite `9205 / 9205 / 0 / 0`;
+      - unit CI `9205 / 9201 / 0 / 4` on `9b348401` (run 37144978406), and
+        the site build there: 404 checks, every job green (run
+        37144978309);
       - screenshots of the request's card in the session.
     - **No real-model evidence.**
     - **Before the switch goes on**: the UI canary must learn a request the

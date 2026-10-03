@@ -84,6 +84,11 @@ is in git; the dated entries further down are the full story.*
   were gaps in the tests, not the code, and each now has a test. The second
   caught 52 of 52, and the comment-only controls survived both times.
 - **Full suite**: `9205 / 9205 / 0 / 0` locally (from `9126`).
+- **CI on the push, green**:
+  - unit tests `9205 / 9201 / 0 / 4` on `9b348401`, the code and its
+    records (run 37144978406); CI skips four, as always;
+  - the site build on the same commit: 404 checks in 27 sections, every job
+    green (run 37144978309).
 - **Screenshots** of the request's card (sent in our chat): accepted, done,
   asking, answered, stopped, needing the rewrite, and on another device.
 - **The image would roll on a merge**: main `8bfc67dc695e65cc`, this code

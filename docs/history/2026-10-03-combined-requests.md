@@ -201,6 +201,13 @@ and checked by hash:
 **Full suite**: `9200 / 9200 / 0 / 0` on `b1d96b3d`, and
 `9205 / 9205 / 0 / 0` on `b7564f82` (from `9126`).
 
+**CI on the push, green**:
+- unit tests `9205 / 9201 / 0 / 4` on `9b348401` (the code and these
+  records; run 37144978406). The total is the local one exactly, and CI
+  skips four, as always;
+- the site build on the same commit: 404 checks in 27 sections across 4
+  shards, every job green (run 37144978309).
+
 **The image would roll on a merge**: main `8bfc67dc695e65cc` (191 inputs),
 this code `1a5437e9464f41e2` (194 inputs). The new input is
 `builder/request.mjs`; the other two come from earlier rounds on this
