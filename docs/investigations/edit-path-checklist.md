@@ -542,6 +542,13 @@ the owner's free press, run 51, at 22:57 UTC):
     `8972 / 8968 / 0 / 4` and the site build (404 checks, every job green)
     on `5cbd5239`. Not shown with real models (N58). The record is `docs/history/2026-10-03-clarify-history.md`;
     the audit's §3.13, §4.9 and N59–N60.
+    **Merged and deployed together with router batches 1 and 2 in deploy
+    2180** (2026-10-03, `b8d12ff9`, image `8bfc67dc695e65cc`; deployed, not
+    runtime-confirmed: the free press is the owner's). None of it has run
+    with a real model. The consolidated live-test matrix that would show it
+    (questions-back rows Q1–Q7 beside the routing and delivered rows, about
+    71–129 credits, a proposed cap of 115) is
+    `docs/history/2026-10-03-live-matrix.md`: prepared, not pressed.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

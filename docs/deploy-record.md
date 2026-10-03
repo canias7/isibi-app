@@ -5,7 +5,7 @@
 > `docs/deploy.md`, where CLAUDE.md's **Deploy** section moved in the second
 > pass. This file keeps the measurements behind them: the
 > timing bands, every image-id prediction checked against a deploy's own log
-> (deploys 2137–2179), and the served-file check driven end to end on deploy
+> (deploys 2137–2180), and the served-file check driven end to end on deploy
 > 2139.
 >
 > **Add each new deploy here**, one paragraph per deploy, in the same shape:
@@ -1007,6 +1007,70 @@ checks, so no zero-cost job ran (by design). It then routed its 8 messages
 for 10 credits, every answer the model's own and as intended (no ledger row
 after 350, no job created; read in Supabase at 06:29 UTC). The readings are
 in `docs/history/2026-10-02-additions.md` §11.1.
+
+**Deploy 2180 (2026-10-03) was predicted on both ends and built as
+predicted**: `origin/main` `f9979497` answered `a4409e55d3f3eb09` and the
+candidate `b8d12ff9` **`8bfc67dc695e65cc`**, from 191 inputs (161 distinct
+paths). The push carried everything reviewed on the branch since deploy 2179,
+together, on the owner's word (*"Merge and deploy the reviewed branch once,
+carrying the approved router batches and clarification fixes together."*):
+the whole-router audit and router batches 1 and 2 with their review fixes
+(`22b0f93b` … `a8ed6b73`), questions back on a site that exists and the
+owner's four reviews of it (`4d2f10ed`, `2965e405`, `09029550`, `a38adac3`,
+`5cbd5239`), and their records. **`public/` moved**: `chat.js` and
+`edit-poll.js`. **A fast-forward of 32 commits**, `f9979497` → `b8d12ff9`.
+Checked first:
+- **the candidate**: `main` was still `f9979497`, an ancestor of `b8d12ff9`;
+- **nothing in flight**: no Actions run in progress or queued anywhere; no
+  edit job open (`edit_jobs` holds only `done` and `failed` rows, and the two
+  `lost` jobs from 1 and 2 September);
+- **required CI on the candidate's code**: unit tests run 37090241036 on
+  `5cbd5239`, `8972 / 8968 / 0 / 4`; site build run 37090241073 on
+  `5cbd5239`, all 8 jobs green (404 checks in 27 sections across 4 shards);
+  the two records commits on top are documents only, and unit tests ran green
+  on each (37090418289 on `94e79672`, 37090691422 on `b8d12ff9`);
+- **the rollback**: reverting `f9979497..b8d12ff9` in a throwaway worktree
+  gives main's own tree (`36200b65…`);
+- **the served files, read before the push** (02:55 UTC): `chat.js` 792,850
+  bytes and `edit-poll.js` 30,805 bytes, both `f9979497`'s own;
+- **the money**: balance 137 on the building account, the ledger's last row
+  355, no job open.
+
+**One deploy run**, 2180 (37091465975, `push` on `b8d12ff9`), `completed` /
+`success`, the job **2m43s** (02:55:30–02:58:13):
+- **the gate** was set at 02:55:49–02:55:50; the drain answered `no live
+  leases after 1s — deploying` (masked `***s`), and after Wrangler the gate
+  was `left to expire for b8d12ff9…`;
+- **the image**: `built isibi-app-sitebuildcontainer:8bfc67dc695e65cc
+  (registry answered 404; 191 inputs off ./Dockerfile)` (masked `***9***`).
+  15 layers `Pushed` and 4 `Layer already exists`. Then Wrangler's container
+  step: `EDIT isibi-app-sitebuildcontainer`, `- "image":
+  …:a4409e55d3f3eb09` / `+ "image": …:8bfc67dc695e65cc`, `SUCCESS Modified
+  application isibi-app-sitebuildcontainer` at **02:58:09Z**;
+- **timings**: image step **2m03s** (02:55:50–02:57:53), in the ordinary
+  rebuild band. The image was named at 02:56:41, the push began at 02:56:42,
+  and the last layer finished at 02:57:47. Wrangler 17 s (02:57:54–02:58:11);
+- **Wrangler**: `DEPLOY_ID` `b8d12ff9fe92a79a8ba6050428d9477b31677943`
+  (masked); `Read 99 files from the assets directory`, `Found 2 new or
+  modified static assets to upload` (`+ /edit-poll.js`, `+ /chat.js`),
+  `Uploaded 2 files (84 already uploaded)`; `Uploaded isibi-app`, `Deployed
+  isibi-app triggers`, `Current Version ID: 2729da48-4290-4437-ace3-…`
+  (masked).
+
+**The served files match the merged ones** (read at 02:59 UTC): `chat.js`
+829,182 bytes `d90a0553…` and `edit-poll.js` 42,187 bytes `638f832e…`,
+byte-identical to `b8d12ff9`'s (`cmp`).
+
+**The image rolled at 02:58:09Z**, so container work waited 15–20 minutes,
+to about 03:14 UTC.
+
+**Deployed, not runtime-confirmed**: the free runtime check is the owner's
+press (spend `no`, `expect_deploy` `b8d12ff9`, `expect_image`
+`8bfc67dc695e65cc`). The session made one dispatch at 03:14:13 UTC, after the
+wait; it answered `403 Resource not accessible by integration` and was not
+retried. The unauthenticated gates answered 401, 401, 401 and 404 at 03:14:23
+UTC (up, not a version reading). The press's exact boxes are in
+`docs/history/2026-10-03-live-matrix.md` §1.3.
 
 ## The served-file check, driven end to end on deploy 2139
 

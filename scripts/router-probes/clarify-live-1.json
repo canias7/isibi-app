@@ -1,0 +1,138 @@
+{
+  "batch": "clarify-live-1",
+  "probes": [
+    {
+      "id": "AMB1",
+      "site": "hartleys-barbers",
+      "name": "Hartley's Barbers",
+      "message": "Can you do something about the prices?",
+      "given": "/ lists six cuts with their prices written in the page (Gentleman's Cut £28, Skin Fade £32, Cut & Beard £40 …); the site has no database (served page read 2026-10-03 03:00 UTC).",
+      "intended": [
+        {
+          "intent": "clarify"
+        }
+      ],
+      "basis": "router rule: ask when what should happen is not settled; changing, taking off and adding prices are different answers",
+      "note": "A question back is intended. If answered clarify, the route keeps one pending question on this site until the next message to it (ADD1 here) replaces it."
+    },
+    {
+      "id": "AMB2",
+      "site": "oak-and-ash",
+      "name": "Oak & Ash",
+      "message": "The workshop page needs sorting out.",
+      "given": "/workshop is one of four pages (/, /make, /work, /workshop); its headings read 'Two brothers, thirty years between them', 'How the workshop works', 'Ring us' (served page read 2026-10-03 03:00 UTC).",
+      "intended": [
+        {
+          "intent": "clarify"
+        }
+      ],
+      "basis": "router rule: what should happen to the page is not said; its words, its look and its removal are different answers",
+      "note": "A question back is intended. If answered clarify, one pending question stays on this site until STEP1's message replaces it."
+    },
+    {
+      "id": "AMB3",
+      "site": "hearth-paper",
+      "name": "Hearth Paper",
+      "message": "The bulk pricing bit, can you deal with it?",
+      "given": "/ has a section headed 'Bulk pricing' between the opening and 'Pack contents, delivery, how to order' (served page read 2026-10-03 03:00 UTC).",
+      "intended": [
+        {
+          "intent": "clarify"
+        }
+      ],
+      "basis": "router rule: 'deal with it' does not say whether the section changes or goes, and those are different answers",
+      "note": "A question back is intended. If answered clarify, one pending question stays on this site until the next message to it, or expires after a day."
+    },
+    {
+      "id": "AMB4",
+      "site": "fretwork-1",
+      "name": "Crookes Guitar School",
+      "message": "Do the Spanish thing we talked about.",
+      "given": "/ offers Français and Español versions of the site; the probe carries no earlier conversation, as the route carries none (served page read 2026-10-03 03:00 UTC).",
+      "intended": [
+        {
+          "intent": "clarify"
+        }
+      ],
+      "basis": "router rule: the message points at a conversation the router is not shown, so what should happen is not settled",
+      "note": "A question back is intended. If answered clarify, one pending question stays on this site until STEP2's message replaces it."
+    },
+    {
+      "id": "STEP1",
+      "site": "oak-and-ash",
+      "name": "Oak & Ash",
+      "message": "Show more of the top of the photo on the Work page.",
+      "given": "/work holds two photographs: the oak kitchen in a stone cottage and the open-rise ash staircase (served page read 2026-10-03 03:00 UTC).",
+      "intended": [
+        {
+          "intent": "edit",
+          "layer": "look"
+        },
+        {
+          "intent": "edit",
+          "layer": "picture"
+        }
+      ],
+      "basis": "router rule: which photo is a detail inside a page, for the step that does the work; framing is the look step's picture lane",
+      "note": "A question back from the router is over-asking under its own rule. Delivered through the app, the step is expected to ask which photo; this probe reads only the router's answer."
+    },
+    {
+      "id": "STEP2",
+      "site": "fretwork-1",
+      "name": "Crookes Guitar School",
+      "message": "Take the QR code off the home page.",
+      "given": "/ carries two QR codes, captioned 'Scan for prices' and 'Scan to ring and book' (served page read 2026-10-03 03:00 UTC).",
+      "intended": [
+        {
+          "intent": "edit",
+          "layer": "look"
+        }
+      ],
+      "basis": "router rule: which of the two codes is a detail inside the page, for the step; a QR code taken off is look (RM2)",
+      "note": "Over-asking control. Delivered, the look step is expected to ask which code; this probe reads only the router's answer."
+    },
+    {
+      "id": "STEP3",
+      "site": "repairbench-1",
+      "name": "Hebden Bike Repair",
+      "message": "Change the heading 'What a pound is worth' to something friendlier.",
+      "given": "/rates's only heading reads 'What a pound is worth' (served page read 2026-10-03 03:00 UTC).",
+      "intended": [
+        {
+          "intent": "edit",
+          "layer": "text"
+        }
+      ],
+      "basis": "router rule: never ask for a choice the work can make sensibly on its own; new words for a heading are text",
+      "note": "Over-asking control: the friendlier words are the step's to write."
+    },
+    {
+      "id": "ADD1",
+      "site": "hartleys-barbers",
+      "name": "Hartley's Barbers",
+      "message": "Add a link to our Instagram in the footer.",
+      "given": "The footer links a map, the phone number and the email address; no Instagram link appears anywhere on / (served page read 2026-10-03 03:00 UTC).",
+      "intended": [
+        {
+          "intent": "addon"
+        }
+      ],
+      "basis": "router rule: a new link is an addition; the missing address is a detail inside the work, for the add-on step to ask about",
+      "note": "Delivered through the app, the add-on step is expected to ask for the address; this probe reads only the router's answer."
+    },
+    {
+      "id": "ADD2",
+      "site": "hartleys-barbers",
+      "name": "Hartley's Barbers",
+      "message": "Add a link to instagram.com/hartleysbarbers in the footer.",
+      "given": "The footer links a map, the phone number and the email address; no Instagram link appears anywhere on / (served page read 2026-10-03 03:00 UTC).",
+      "intended": [
+        {
+          "intent": "addon"
+        }
+      ],
+      "basis": "router rule: a new link with its address is an addition, and nothing is missing",
+      "note": "Clear control for ADD1. Routing only: nothing is added."
+    }
+  ]
+}

@@ -2136,6 +2136,8 @@ per-request limit, and the balance is the only bound.
 
 ### 5.4 The grouped live-validation batch (after one combined deploy)
 
+> **Folded into the consolidated live-test matrix (2026-10-03)**, after deploy 2180 merged batches 1 and 2 and questions back together: `docs/history/2026-10-03-live-matrix.md`. Its step 0, Group R, D1–D3 and H1–H4 are rows there, with their starting conditions re-read on 2026-10-03; the matrix adds a second routing press (`clarify-live-1`) and the questions-back rows (Q1–Q7). The table below is kept as it was prepared.
+
 **Prepared, not pressed.** Your word (2026-10-02): batches 1 and 2 deploy
 together, and one grouped live batch validates them. Nothing below runs
 until you approve it and press it. **The balance is 137** on the building

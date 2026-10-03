@@ -1,127 +1,114 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-03, 02:40 UTC)
+## Current handoff — read this first (2026-10-03, 03:20 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**State now: your fourth review of questions back — keeping every answer —
-is done on the branch, for your review.** Not merged, not deployed, nothing
-spent, no model called, no site changed, no container built. The earlier
-rounds (questions back, your first three reviews of it, batches 1 and 2 and
-batch 2's review fixes) are on the same branch for the one combined deploy.
-Nothing is waiting on a press.
-- **What was wrong**: the number 12 did two jobs. It was the point where the
-  builder stops re-asking a model on its own (your third review), and it was
-  also the most answers a request could keep at all. So a 13th answer pushed
-  one out — at worst the very first, even when the work still to do needed
-  it. In the test you asked for, that first answer is "the photo is the one
-  on the Contact page"; once it was pushed out, the photo step came back
-  asking you *"Which photo do you mean — one on Home or the one on
-  Contact?"* all over again. I reproduced that first, on the old code.
-- **What changed**, in plain words:
-  - **Every answer you give stays with your request** — however old it is,
-    and even if you answered the same question again later (each answer can
-    hold its own detail). It travels everywhere the request goes: the saved
-    question, a reload, a queued job, a hand-over to another step.
-  - **12 now only means "stop re-asking on our own"**, exactly as your third
-    review set it. It no longer limits what is kept.
-  - **Each part of the builder is shown the answers that matter for its own
-    job** — the picker names which answers each change needs — never "the
-    latest twelve".
-  - **There is still a ceiling, set high: 64 answers on one request.** At 64,
-    the only answers that can make room are ones about work that is already
-    finished. If all 64 are still needed, the builder doesn't forget one: it
-    says so, charges nothing, keeps the question waiting with its Cancel,
-    and puts what you typed back in the box. Reaching it would mean
-    answering 52 more questions by hand after the builder has already
-    stopped re-asking.
-- **Unchanged**: the question limits from your third review, first builds,
-  and the 500-character answer.
-- **Checks, all free**: 12 new cases (8,960 → 8,972), through the real
-  routes, synchronously and as queued jobs. The main one is the one you
-  asked for: 13 different answers with the oldest — the Contact photo —
-  still needed. It survives in the saved question, across a reload, in the
-  browser's saved job and its hand-over, and when the request resumes the
-  photo step gets it and makes the change; the heading that was already
-  done isn't redone or charged again, and nobody asks which photo again.
-  The others: each step is shown exactly its own answers past 12; an old
-  answer asked about again is recognised as yours; questions asked past 12
-  keep every answer; the 64-answer ceiling; the add-on side. Run against
-  the old code, 20 of the 91 cases fail, each because answers were pushed
-  out or couldn't be read past 12. Mutation sweep: 19 of 19 caught (two
-  gaps found and closed with new cases). Full suite `8972 / 8972 / 0 / 0`.
-- **CI on `5cbd5239`**: unit tests `8972 / 8968 / 0 / 4` (run 37090241036;
-  CI skips its usual four); site build run 37090241073: all 8 jobs green,
-  *"404 checks in 27 sections across 4 shards, every job green"*. The
-  records on top (`94e79672`) are green on unit tests too (run
-  37090418289).
-- **What you'll see on screen**: one screenshot, in our chat and in
-  `docs/edits/clarify-history-full.png`: the message when a request already
-  has 64 answers that are all still needed, with the question and its
-  Cancel still there and your typed answer back in the box. Rendered in a
-  real Chromium from the app's own files with supplied answers. No new
-  styling.
-- **What it still doesn't do** (backlog N57–N60, and the earlier ones that
-  remain): nothing is shown with real models yet, so whether a real picker
-  names an old answer for the change that needs it is a live measurement
-  (N58); the 64-answer ceiling (N59); a long history makes each call
-  longer, about 47,000 characters at its very longest (N60); a question
-  only ends with your answer, a new request, Cancel, or its expiry after a
-  day (N57).
-- **The container**: a merge would roll the image `a4409e55d3f3eb09` →
-  `8bfc67dc695e65cc` (191 inputs, predicted on both ends), carrying
-  everything on the branch. Nothing was built.
+**State now: deploy 2180 is live; its free runtime check waits on your
+press; the live-test matrix is prepared, not pressed; and your newest order
+(model-written replies) has started as a separate change on the branch.**
+Nothing spent, no model called, no site changed.
+
+- **Merged and deployed, once, on your word** (*"Merge and deploy the
+  reviewed branch once, carrying the approved router batches and
+  clarification fixes together."*):
+  - `main` went `f9979497` → `b8d12ff9`, a fast-forward of 32 commits. It
+    carries the whole-router audit, router batches 1 and 2 with your
+    reviews, and questions back with your four reviews.
+  - One deploy run, 2180, green (02:55–02:58 UTC).
+  - The container image was built as predicted on both ends:
+    `a4409e55d3f3eb09` → `8bfc67dc695e65cc`, from 191 inputs. It rolled at
+    02:58:09 UTC.
+  - The Worker carries `b8d12ff9` (its deploy id in the log).
+  - The served `chat.js` and `edit-poll.js` are the merged files, byte for
+    byte.
+- **Checked before the merge**:
+  - nothing running in Actions, and no edit job open;
+  - required CI green on the code: unit tests `8972 / 8968 / 0 / 4` and the
+    site build (all 8 jobs) on `5cbd5239`, and unit tests on both records
+    commits on top;
+  - the rollback gives back the old `main` exactly;
+  - the money: balance 137, the ledger's last row 355.
+- **Not yet confirmed from the live server.** My one dispatch (03:14 UTC,
+  after the 15–20 minute wait) answered 403 as always; I didn't retry. The
+  unauthenticated gates answer 401, 401, 401 and 404, so the Worker is up,
+  but that isn't a version reading.
+- **The live-test matrix** (`docs/history/2026-10-03-live-matrix.md`) covers
+  edit and add-on. Its rows:
+  - the free check;
+  - two routing-only presses: the audit's 20 messages, and a new list of 9
+    for questions back (`clarify-live-1`) — four ambiguous messages, three
+    where only the step should ask, and two add-on controls;
+  - seven one-message delivered rows: clear removals, menus, and mixed
+    requests;
+  - seven questions-back rows, in several turns: a router question, a
+    step's question beside work that ran, a reload, Cancel, a repeated
+    question, an answer kept across steps, and no repeated change or
+    charge.
+
+  How it runs:
+  - it reuses the demo sites, with no database writes and so no data to
+    restore;
+  - no row needs another's change undone;
+  - no deploy happens between rows.
+- **Cost**: about 71–129 credits, likely about 85–100. **Proposed cap: 115
+  of the balance of 137.** I read the ledger after every press, and stop
+  and come back to you before any press whose upper estimate would cross
+  the cap.
+- **Code-tested vs real models**: every questions-back behaviour, and every
+  batch 1 and 2 fix, is shown only with supplied model answers. None has run
+  with a real model. The matrix's §6 lists each behaviour and the row that
+  would show it.
+- **Now in progress: your order for model-written replies.** It is a
+  separate change on the branch: no deploy, no paid test, and the deploy
+  above is untouched. The handoff will be rewritten when it's ready for
+  your review.
 
 **Decisions that are yours**
-- Your review of this round (and of the earlier rounds on the branch).
-- The numbers: 12 (when re-asking stops), 64 (the history's ceiling), 500
-  characters per answer, the same question twice (N54, N59), and the
-  wording of the "as many answers as I can keep" message.
-- Still open: whether the answer's routing call stays charged (N32), and
-  whether the chat shows a reply's line breaks (N39).
-- Then, on your word: one merge and deploy of everything on the branch, the
-  free runtime check, and the grouped live batch (the audit's §5.4, about
-  35–59 credits before any questions are added). Probes for questions back
-  would be priced when you ask for them.
+- Press the free runtime check (the boxes are below).
+- The matrix's cap: 115, or another number.
+- How the questions-back rows run. Either you chat in the app and I check
+  every turn afterwards for free, or I extend the canary's browser mode so
+  it can answer a question card, reload and press Cancel. That extension is
+  free and needs no deploy, but it's a new harness, so it waits for your
+  word.
+- Whether the matrix runs on deploy 2180 before the reply change merges.
+  That's my recommendation: it keeps the two apart.
+
+**The free runtime check** (the edit canary's form, spend `no`):
+- "Use workflow from": `main`.
+- "Run the ONE paid edit as well (yes/no)":
+  ```text
+  no
+  ```
+- "Refuse to spend unless the Worker reports this deploy sha (prefix, >=7 chars). Blank = read and print only.":
+  ```text
+  b8d12ff9
+  ```
+- "Refuse to spend unless a cold container reports this image id (exact). Blank = read and print only.":
+  ```text
+  8bfc67dc695e65cc
+  ```
+- Every other box left as it is.
+
+It passes when the log shows `build-health 200 deploy=b8d12ff9fe92
+image=8bfc67dc695e65cc` and `runtime 200 deploy=b8d12ff9fe92`, with both
+checks `ok` and nothing charged.
 
 **Links**
-- The record: `docs/history/2026-10-03-clarify-history.md`, and the earlier
-  rounds' `docs/history/2026-10-03-clarify-limits.md`,
-  `docs/history/2026-10-02-clarify-continuity.md`,
-  `docs/history/2026-10-02-live-clarify-review.md` and
-  `docs/history/2026-10-02-live-clarify.md`
-- The audit: `docs/investigations/whole-router-audit.md` (§3.13's last part,
-  §4.9, N59–N60)
-- The commits: `5cbd5239` (code and tests), with these records on top.
-- CI on `5cbd5239`: unit tests run 37090241036; site build run
-  37090241073.
-
-**From our chat**
-- `appendAnswer` no longer lets go of an answer unfinished work needs just
-  because 12 already exist: done.
-- The stored history and what each model is shown are separate: every
-  answer is kept on every hop, and each model gets the answers for its own
-  job: done.
-- Nothing is judged irrelevant by its age, and a later answer to the same
-  question doesn't replace the earlier one: done.
-- The regression you named — 13 different answers, the oldest Contact-photo
-  answer still needed, through a reload and the resume, with no finished
-  work repeated and no question asked again: done
-  (`test/live-clarify-history.test.mjs`).
-- The question limits from your third review: kept.
-- Focused tests, required CI, the audit and this handoff, pushed: done (CI
-  stamped above).
-- Not done, on purpose: no deploy, paid run or container build; CLAUDE.md
-  untouched; nothing outside answer retention changed.
+- The deploy and the matrix: `docs/history/2026-10-03-live-matrix.md`, and
+  `docs/deploy-record.md` (*Deploy 2180*).
+- The new routing list: `scripts/router-probes/clarify-live-1.json`.
 
 **Blockers**
-- None. Waiting on your review.
+- None. The runtime check and every paid row wait on you.
 
 **Exact next action**
-- Your review. Then, on your word: one merge and deploy of everything on the
-  branch, the free runtime check, and the grouped live batch.
+- Yours: the free runtime check, and your answers on the cap and on how the
+  questions-back rows run.
+- Mine: the model-written replies, for your review.
 
 ---
 
@@ -181,6 +168,43 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-03 — Merged and deployed: deploy 2180 (router batches and questions back, together); the live-test matrix prepared
+
+- **On your word** (*"Merge and deploy the reviewed branch once, carrying
+  the approved router batches and clarification fixes together."*): a
+  fast-forward of 32 commits, `f9979497` → `b8d12ff9`.
+- **Checked first**:
+  - nothing running in Actions, and no edit job open;
+  - required CI green on the code (`5cbd5239`: unit tests `8972 / 8968 /
+    0 / 4`, the site build's 8 jobs), and unit tests on the two records
+    commits;
+  - the image predicted on both ends;
+  - the rollback gives back the old `main`;
+  - the served files read before the push;
+  - balance 137.
+- **The deploy**:
+  - one run, 2180, green in 2m43s;
+  - the image built as predicted (`a4409e55d3f3eb09` → `8bfc67dc695e65cc`,
+    191 inputs) and rolled at 02:58:09 UTC;
+  - the Worker carries `b8d12ff9`;
+  - the served `chat.js` and `edit-poll.js` are the merged files, byte for
+    byte.
+- **Not yet confirmed from the live server**: my one dispatch after the
+  wait answered 403. The free press is yours.
+- **The matrix** (`docs/history/2026-10-03-live-matrix.md`):
+  - the free check;
+  - two routing-only presses (`whole-router-1` and the new
+    `clarify-live-1`);
+  - seven one-message delivered rows;
+  - seven questions-back rows in several turns;
+  - about 71–129 credits, with a proposed cap of 115 of 137;
+  - no data restoration;
+  - each behaviour marked code-tested or real-model verified. Questions
+    back: none live yet.
+- **Nothing spent**: balance 137, the ledger's last row 355.
+- The record: `history/2026-10-03-live-matrix.md`, and `deploy-record.md`,
+  *Deploy 2180*.
 
 ## 2026-10-03 — Your fourth review of questions back: every answer kept, none pushed out (nothing spent, merged or deployed)
 

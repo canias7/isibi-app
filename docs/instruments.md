@@ -221,11 +221,21 @@ in `docs/instruments.md`; each test's plan and evidence is in the checklist.
   - Evidence: `routing-probes.json` (every answer whole, the decision, the
     verdict, the balance before and after) and `routing-probes.txt`.
   - **`whole-router-1`** (prepared 2026-10-02 by the whole-router audit, not
-    run; on the branch only, so a press runs from the branch): 20 probes on
+    run; on `main` since deploy 2180): 20 probes on
     seven sites, none on the bakery, varied wording, none repeating a
     completed probe; each records its starting condition. About 22–32
     credits. The matrix and its inputs are
     `docs/investigations/whole-router-audit.md` §5.
+  - **`clarify-live-1`** (prepared 2026-10-03 for the consolidated live
+    matrix, not run; on the branch only, so a press runs from the branch): 9
+    probes on five sites — four ambiguous messages whose intended answer is a
+    question back (`clarify`), three where a detail inside a page is the
+    step's to ask about, so the router must answer with work, and two add-on
+    controls. About 10–14 credits. **A `clarify` answer keeps one pending
+    question on that site** (the probe posts as its owner), which the next
+    message to the site replaces or which expires after a day; nothing on the
+    page or in the data changes. The matrix is
+    `docs/history/2026-10-03-live-matrix.md` §3.
 - **Presses are the owner's.** A session's dispatch answers **403** (it lacks
   `actions: write`) even for a free read, so do not retry it: hand over the
   exact values and **name each box by its description**, because the form shows
