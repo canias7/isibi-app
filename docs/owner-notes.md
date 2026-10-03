@@ -59,8 +59,11 @@ to the menu step on its own is fine.
   fail there, and the other 273 pass.
 - **Mutation sweep**: 10 of 10 caught, and 2 comment-only controls survived.
 - **The 23 menu-related test files**: 1,139 of 1,139.
-- **Full suite**: `9126 / 9126 / 0 / 0` locally (from `9115`). CI is read
-  after the push, in the record (§8).
+- **Full suite**: `9126 / 9126 / 0 / 0` locally (from `9115`).
+- **CI on the push, green**: unit tests `9126 / 9122 / 0 / 4` on the code
+  (`13c22ea3`, run 37128942687) and on the records (`eeb5990d`, run
+  37130927164); CI skips four, as always. The site build on `13c22ea3`:
+  404 checks, every job green (run 37128942679).
 - **Screenshots** (sent in our chat): the bakery's footer as a visitor sees
   it, built with the real build service, eight-and-eight before and
   nine-and-nine after; and the five replies, before and after.

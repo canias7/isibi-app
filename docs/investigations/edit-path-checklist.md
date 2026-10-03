@@ -712,6 +712,11 @@ the owner's free press, run 51, at 22:57 UTC):
       - red check 16 of 289 failing on `a66244e2`;
       - sweep 10 of 10, with 2 controls surviving;
       - the 23 menu-related files 1,139 of 1,139;
+      - full suite `9126 / 9126 / 0 / 0`;
+      - unit CI `9126 / 9122 / 0 / 4` on `13c22ea3` (run 37128942687) and
+        on `eeb5990d` (run 37130927164);
+      - the site build on `13c22ea3` (404 checks, every job green, run
+        37128942679);
       - the published footer built with the real kit, before and after, in
         the session.
     - **The plan, revised** (`docs/investigations/edit-addon-one-request-plan.md`):

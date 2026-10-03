@@ -238,3 +238,16 @@ the server. They are recorded in the backlog, not changed.
 - **Full suite**, on the final tree (`13c22ea3`'s code with these records):
   **`9126 / 9126 / 0 / 0`** locally, from `9115` at the mixed-work fixes.
 - **CI**: §8, read after the push.
+
+## 8. CI (read after the push)
+
+- **Unit tests on `13c22ea3`** (the code): run 37128942687, job `test`,
+  `success`. Its log reads `# tests 9126`, `# pass 9122`, `# fail 0`,
+  `# skipped 4`: **`9126 / 9122 / 0 / 4`**, the local total exactly (CI
+  skips four, as always).
+- **Unit tests on `eeb5990d`** (the code and these records): run
+  37130927164, job `test`, `success`, **`9126 / 9122 / 0 / 4`**.
+- **The site build on `13c22ea3`**: run 37128942679, all eight jobs
+  `success`. Its gate's own line: *"ALL CHECKS: 404 checks in 27 sections
+  across 4 shards, every job green"* (site build inputs `2a58dff130181503`,
+  3,971 files).
