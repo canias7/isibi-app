@@ -828,10 +828,25 @@ the owner's free press, run 51, at 22:57 UTC):
       word, then a request-mode UI canary press (backlog).
     - The record: `docs/history/2026-10-03-combined-requests.md`. How it
       works: `docs/request-flow.md`.
-    - **Next**: the owner's review of the recovery fixes; a merge on their
-      word (the image rolls, `8bfc67dc695e65cc` → `882477e1bbbe8cbe` on
-      `567409ce`, predicted, not built); a request-mode canary press; the
-      switch; a real-model batch on their approval.
+    - **The recovery fixes passed the owner's review** (2026-10-03), and the
+      implementation is frozen. **The rollout and real-model validation
+      plan is prepared, not executed** (`docs/investigations/request-flow-rollout.md`):
+      - the canary's instruments first (free);
+      - the merge on the owner's word (the image rolls, `8bfc67dc695e65cc`
+        → `882477e1bbbe8cbe`, predicted, not built) and the free runtime
+        press;
+      - routing controls (7 probes);
+      - `REQUEST_FLOW` on, then the request-mode canary press;
+      - five messages on `fold-lane-bakery` (R1–R5), covering Edit and
+        Add-on in both orders, several operations, a prerequisite named
+        later, a menu link set aside, a step's question and its answer, an
+        attachment, and a closed tab;
+      - about 43–101 credits, likely about 59, with a proposed cap of 100 of
+        137;
+      - the full-rewrite test (RW) kept separate: 12–50 if pressed, its own
+        cap of 50.
+    - **Next**: the owner's approval of that plan; nothing is pressed,
+      merged or built before it.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

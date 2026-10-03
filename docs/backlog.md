@@ -462,6 +462,14 @@ here; take a closed one out of both.**
   own part gets one more part and one more routing call before the chain
   ends. Found by the review fixes' sweep, 2026-10-03; it predates them. Not
   changed.
+- `REQUEST_FLOW` has no allowlist: on, it applies to every signed-in owner
+  whose edits are queued, at once (`requestFlowOn` reads one word). Today
+  every live site belongs to the building account. Found 2026-10-03 while
+  preparing the rollout plan (`docs/investigations/request-flow-rollout.md`);
+  not changed.
+- `/api/site/runtime` reports neither `REQUEST_FLOW` nor `MODEL_REPLIES`, so
+  no free read shows either switch; the rollout's request-mode canary press is
+  the reading. Found 2026-10-03 while preparing the rollout plan; not changed.
 - The test platform's `hang` on `edit_create` marks the job being filed as
   dead (`die(p_id)`), though it is the filer that died, so that job's
   heartbeats then fail in the case. The build treats its beat as an

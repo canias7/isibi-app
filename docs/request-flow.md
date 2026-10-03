@@ -428,10 +428,16 @@ a stand-in page only; no request-mode canary run has been pressed.
 on to their end either way.
 
 To turn it on:
-1. merge and deploy (the image rolls);
-2. a free canary press, then a paid UI canary press in request mode, on the
-   owner's word;
-3. set the secret to `on` and redeploy.
+1. merge and deploy, on the owner's word (the image rolls);
+2. the owner's free runtime press;
+3. set the secret to `on` and redeploy (the same commit: nothing rolls);
+4. a paid UI canary press in request mode, which is the only reading of the
+   switch (`/api/site/runtime` does not report it).
+
+The concrete rollout, with its validation batch, costs, cap and the way
+to stop new requests while accepted ones finish, is
+`docs/investigations/request-flow-rollout.md` (prepared 2026-10-03, not
+executed).
 
 ## Limits, as built
 

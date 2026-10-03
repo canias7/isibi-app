@@ -1040,3 +1040,17 @@
   it without another approval, resend or browser GET."* So the durable write
   comes first, and the rest is the server's own next step. A customer never
   has to press twice for work they already approved.
+- **A rollout is a concrete plan, approved before anything is executed**
+  (2026-10-03, after passing the recovery fixes): *"Freeze this
+  implementation and prepare the concrete rollout and real-model validation
+  batch without executing it yet … State the exact messages, expected site
+  changes and request statuses, how you will verify charges and natural
+  model-written replies, and the estimated total cost with a spending cap.
+  Include the deployment and REQUEST_FLOW activation steps, the request-mode
+  canary, and how to stop new requests while allowing accepted work to
+  finish. Keep any full-rewrite test separately identified with its cost …
+  No more unrelated implementation, merge, deployment, paid calls or
+  container rebuild until I approve that concrete plan."* So a validation
+  batch is written down to the exact words first, with its checks, its cost
+  and cap, its switch steps and its way back. Nothing of it, not even its
+  instruments, is built, merged or pressed before that plan is approved.

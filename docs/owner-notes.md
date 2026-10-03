@@ -1,129 +1,98 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-03, 22:46 UTC)
+## Current handoff — read this first (2026-10-03, 23:40 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **The two recovery gaps of your second review are closed on the branch**,
-  for your review.
-  - The code is `567409ce`. The record is
-    `docs/history/2026-10-03-recovery-gaps.md`, and how it works is
-    `docs/request-flow.md` (*The checkpoints*).
-- **The combined flow stays unmerged, undeployed and off** (`REQUEST_FLOW`).
-  With it off, nothing a customer or the canaries see changes.
-- **Nothing merged or deployed. No paid call, no model call, no live
-  migration, no container built. First Build unchanged.**
-- **All the evidence comes from supplied model answers.** No real model has
-  been asked any of these messages.
-- Deploy 2180 is still live and still waits on your free runtime press.
+- **You passed the two recovery fixes, and the implementation is frozen**
+  at the branch as it stands. The code is `567409ce`.
+- **The rollout and real-model validation plan is ready for your
+  approval**: `docs/investigations/request-flow-rollout.md`. Nothing in it
+  has been done.
+- **Nothing merged or deployed. No paid call, no model call, no press, no
+  live migration, no container built. First Build unchanged.**
+- **Read today, free**:
+  - the building account's balance is **137**, its last ledger row 355, and
+    no job is open;
+  - `fold-lane-bakery` is live at `01790923788063-bp9rcv`.
+- Deploy 2180's free runtime press was never made; the merge's press stands
+  for it.
 
-**What changed**
-- **A save that loses its answer no longer deletes your files.**
-  - Each attempt to take on a message keeps its own copies of the files,
-    and its record says which attempt wrote it.
-  - A save that errors deletes nothing; the record under the same request
-    key is read back. This attempt's: it carries on. Another attempt's (a
-    second tab, a retry): that one answers, and this attempt's own copies
-    go. Nothing there: saved again under the same key. Can't tell: kept,
-    and the two-minute timer finishes a record that did land.
-  - Copies go only when no record can name them.
-- **The go-ahead is written before anything depends on it.**
-  - The press stores the rebuild's job (with your session), then writes the
-    go-ahead, then the request's ordinary next step files and sends the
-    rebuild.
-  - A press cut off after the go-ahead is written is finished by the server:
-    the timer or the rebuild's own end. No second press, no resend, no page
-    open; one rebuild, one charge.
-  - A press that never wrote the go-ahead gave none; its stored job is let
-    go when the request ends.
-  - Stop and pressing twice behave as before. A Stop also ends a rebuild
-    whose cancel never reached its row.
+**The plan in brief**
+1. **Instruments, free, after your approval**:
+   - two new step options for the canary's request mode: a step that ends on
+     a waiting question, and one that closes the tab and reads only the
+     request list until the request ends;
+   - a guard that refuses any edit the page posts itself;
+   - checks for a page added, the description, a heading and the logo;
+   - the scenarios, the probe list, and a second logo picture;
+   - all scripts and test fixtures; no product change.
+2. **The merge, on your word "merge"**:
+   - it carries the replies, limits batch 1, the mixed-work fixes, the
+     footer lists and the request flow;
+   - the image rolls `8bfc67dc695e65cc` → `882477e1bbbe8cbe` (predicted);
+   - then your free runtime press.
+3. **The routing controls**: 7 messages, routed only, 7–11 credits.
+4. **`REQUEST_FLOW` on**: your GitHub secret, then *Run workflow* on the
+   deploy. Nothing rolls.
+5. **The request-mode canary**: one heading change, 2–5 credits.
+6. **The batch, five messages on the bakery**:
+   - R1: the description, a menu link to a page named later, and that page
+     (Edit first, a prerequisite named later);
+   - R2: a page with its menu link, then a price (Add-on first, the link set
+     aside);
+   - R3: a heading, and a Facebook link whose address the step must ask for
+     (a question, then your answer);
+   - R4: a heading and an attached logo, checked byte for byte;
+   - R5: a line and a heading, with the tab closed straight after sending.
+7. **The full-rewrite test RW, separately**: a change of the site's kind, in
+   your own chat. 12–50 credits if pressed, about 2 if it never reaches the
+   go-ahead.
 
-**How I checked it** (all free, supplied model answers)
-- **Tests**: J10–J16 for the files, each reading the exact bytes the logo
-  step was handed (a save that lands and loses its answer, two attempts at
-  once, the browser closed, a save that fails, copies cleared only once
-  nothing can name them); N5 (five crash points after the go-ahead is
-  written, each finished with no second press, resend or page look, and
-  checked as one rebuild under one id and one charge), N8 and N9; N2, N3
-  and N4(c) updated.
-- **Red check**: on the code you reviewed, exactly the changed and new cases
-  fail.
-- **Mutation sweep**: 27 of 27 defects caught (your finding put back among
-  them); the three comment-only controls survived.
-- **Full suite**: `9237 / 9237 / 0 / 0` locally (from `9228`: 9 new cases).
-- **CI on the push, green**:
-  - unit tests `9237 / 9233 / 0 / 4` on `41286bb3`, the code and its
-    records (run 37159581953); CI skips four, as always;
-  - the site build on the same commit: 404 checks in 27 sections, every job
-    green (run 37159581943).
+**Cost**
+- **43–101 credits** for everything but RW, likely about 59.
+- **Proposed cap: 100** of the 137. I read the ledger before every press and
+  stop if the next press's upper estimate would not fit.
+- **RW** has its own cap of 50, and runs only if 50 are left.
 
-**Limits, all written down** (`docs/request-flow.md`, *Limits*)
-- A press answered "couldn't confirm" may still have given the go-ahead
-  (its save landed and the answer was lost): the server runs it, and the
-  page shows it given on its next look.
-- A second press racing the rebuild can leave a copy of the job, with its
-  session, until the request ends.
-- A message sent twice to a rebuild the site is too busy for uses up its
-  waiting allowance twice as fast.
-- A rebuild already running when you press Stop runs to its end.
-- A set-aside addition needs the picker's words for it.
-- No request-mode canary press has been made.
+**Stopping new requests**: set `REQUEST_FLOW` to `off` and run the deploy.
+Accepted requests still finish: the switch is read only where a message is
+accepted, so job ends, the two-minute sweep, Stop and the go-ahead all keep
+working.
 
-**Still yours**
-- Review the two fixes, and say whether and when to merge. A merge also
-  rolls the container image: main `8bfc67dc695e65cc`, this code `882477e1bbbe8cbe` (predicted, nothing built).
-- After a merge: a request-mode canary press, then the switch.
-- Whether to approve a small real-model batch, paid, which I would prepare
-  with the exact messages and an estimate.
+**Found and kept separate** (backlog):
+- `REQUEST_FLOW` has no allowlist;
+- the runtime read can't show either new switch;
+- `docs/request-flow.md` listed the request-mode canary press before the
+  switch; corrected to the order the plan uses.
 
-**The free runtime check of deploy 2180** (unchanged; the edit canary's
-form, spend `no`):
-- "Use workflow from": `main`.
-- "Run the ONE paid edit as well (yes/no)":
-  ```text
-  no
-  ```
-- "Refuse to spend unless the Worker reports this deploy sha (prefix, >=7 chars). Blank = read and print only.":
-  ```text
-  b8d12ff9
-  ```
-- "Refuse to spend unless a cold container reports this image id (exact). Blank = read and print only.":
-  ```text
-  8bfc67dc695e65cc
-  ```
-- Every other box left as it is.
-
-It passes when the log shows `build-health 200 deploy=b8d12ff9fe92
-image=8bfc67dc695e65cc` and `runtime 200 deploy=b8d12ff9fe92`, with both
-checks `ok` and nothing charged.
+**Still yours** (the plan's §11)
+1. Approve the plan and its cap of 100, or change them.
+2. `MODEL_REPLIES` at the merge: its default, on, which I recommend; or off
+   until the switch.
+3. R3 and R5 by the canary's two new options (recommended), or by your own
+   chat.
+4. Whether to run RW, and whether to put the bakery back afterwards (free).
+5. Demo changes stay, by your rule, unless you say otherwise.
 
 **Links**
-- The record: `docs/history/2026-10-03-recovery-gaps.md`. How it works:
-  `docs/request-flow.md`. The checklist's item 21. The backlog's *The
-  combined request flow*.
-- The rounds before: `docs/history/2026-10-03-request-review-fixes.md`,
+- The plan: `docs/investigations/request-flow-rollout.md`.
+- How it works: `docs/request-flow.md`.
+- The checklist's item 21, and the backlog's *The combined request flow*.
+- The rounds before: `docs/history/2026-10-03-recovery-gaps.md`,
+  `docs/history/2026-10-03-request-review-fixes.md`,
   `docs/history/2026-10-03-combined-requests.md`.
-
-**Observations from your order**
-- A lost write's answer is an outcome not known: nothing is deleted, and
-  what it may have left is read back under the same key.
-- An approval, and what finishing its work needs, are written before
-  anything depends on them.
-- Those are two new entries in `owner-preferences.md`.
 
 **Blockers**
 - None.
 
 **Exact next action**
-- Yours: review the two fixes; say whether to merge; decide on a real-model
-  batch; press the free runtime check of deploy 2180 when you like.
-- Mine, on your word: after a merge and deploy, prepare the request-mode
-  canary press; then you set `REQUEST_FLOW` to `on` and redeploy.
-
+- Yours: review the plan and approve it, as it is or changed.
+- Mine, once you approve: Phase A (the instruments, free), proven and
+  pushed. Then I ask for your word to merge.
 ---
 
 2026-09-25: **Escalation correction CLOSED.** Independently reviewed (437 focused
@@ -182,6 +151,46 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-03 — The rollout and real-model validation plan, for your approval (nothing spent, merged or deployed)
+
+- **Your words**: *"The two recovery fixes pass this review. Freeze this
+  implementation and prepare the concrete rollout and real-model validation
+  batch without executing it yet … Save the plan and handoff in the repo and
+  push so it can be reviewed here. No more unrelated implementation, merge,
+  deployment, paid calls or container rebuild until I approve that concrete
+  plan."*
+- **Done, all free**:
+  - the implementation frozen;
+  - the plan written: `docs/investigations/request-flow-rollout.md`;
+  - today's state read: the balance 137, the last ledger row 355, no job
+    open, and the bakery's live version, pages, menu, footer, logo and
+    loaves;
+  - the routing-control list checked with the real batch reader (7 probes,
+    valid as printed);
+  - the second logo picture made, in my scratch space only.
+
+  No instrument or product code was written.
+- **The plan**:
+  - the canary's instruments first;
+  - the merge and its free runtime press;
+  - routing controls;
+  - the switch on;
+  - a request-mode canary press;
+  - five messages on the bakery;
+  - the full-rewrite test kept separate.
+
+  The exact messages, what each must leave on the site, the request
+  statuses, how charges and replies are verified, the cost (43–101, likely
+  about 59) and the proposed cap (100 of 137) are all in it. So is how to
+  stop new requests while accepted ones finish.
+- **Found and kept separate** (backlog):
+  - `REQUEST_FLOW` has no allowlist;
+  - `/api/site/runtime` reports neither new switch.
+
+  Corrected: `docs/request-flow.md` listed the request-mode canary press
+  before the switch, which cannot work.
+- **Nothing pressed, merged, deployed, spent or built.**
 
 ## 2026-10-03 — Your second review: the two recovery gaps closed (nothing spent, merged or deployed)
 
