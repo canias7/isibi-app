@@ -798,7 +798,9 @@ the owner's free press, run 51, at 22:57 UTC):
         2 decision cases; 7 canary cases), PAGE 5 and F3 rewritten; the red
         check fails them on `d5d383cc`'s code; sweep 41 of 41 after three
         test gaps were closed, 5 controls surviving; full suite
-        `9228 / 9228 / 0 / 0`; four screenshots in the session.
+        `9228 / 9228 / 0 / 0`; unit CI `9228 / 9224 / 0 / 4` on `0d764232`
+        (run 37150065928) and the site build there, 404 checks, every job
+        green (run 37150065918); four screenshots in the session.
       - Code: `4fd05e68`. The record:
         `docs/history/2026-10-03-request-review-fixes.md`.
     - **Before the switch goes on**: a merge and deploy on the owner's

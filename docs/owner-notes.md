@@ -66,6 +66,11 @@ is in git; the dated entries further down are the full story.*
   three it missed were gaps in the tests, each closed and then caught. The
   comment-only controls survived.
 - **Full suite**: `9228 / 9228 / 0 / 0` locally (from `9205`).
+- **CI on the push, green**:
+  - unit tests `9228 / 9224 / 0 / 4` on `0d764232`, the code and its
+    records (run 37150065928); CI skips four, as always;
+  - the site build on the same commit: 404 checks in 27 sections, every job
+    green (run 37150065918).
 - **Screenshots** (sent in our chat): the go-ahead waiting, given and done,
   and a part done only in part.
 

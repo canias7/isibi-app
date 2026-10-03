@@ -260,6 +260,10 @@ request mode. **No request-mode canary press has been made.**
   41 of 41, the controls 5 of 5, every file restored by hash.
 - **Full suite**: `9228 / 9228 / 0 / 0` locally (from `9205`: 23 new cases,
   14 flow, 2 decision and 7 canary; PAGE 5 and J5 rewritten in place).
+- **CI on the push, green**: unit tests `9228 / 9224 / 0 / 4` on `0d764232`
+  (the code and its records; run 37150065928), the local total exactly, CI
+  skipping four as always; the site build there, 404 checks in 27 sections
+  across 4 shards, every job green (run 37150065918).
 - **Screenshots**: the go-ahead waiting, given and done, and a part done in
   part, in Chromium, every API call answered by the real Worker on the test
   platform.
