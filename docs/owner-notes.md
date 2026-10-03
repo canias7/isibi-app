@@ -7,6 +7,13 @@ review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
+- **Implementation is paused, on your word (2026-10-03, after this
+  handoff):** *"Keep the current fixes on the branch and pause
+  implementation. Do not start the combined Edit/Add-on proposal yet."* You
+  asked instead for a plain-English account of what happens today when one
+  message asks for an edit and an addition, where work still depends on the
+  browser, and what the proposal would change. I gave that in our chat.
+  Nothing else was started.
 - **The footer case you reproduced is fixed on the branch, for your
   review.** So is the menu's count of ten.
 - **The plan for finishing Edit and Add-on in one request is rewritten
@@ -168,7 +175,8 @@ checks `ok` and nothing charged.
 - Yours: review the footer fix and the revised plan; decide the plan's
   questions; say whether to merge, and whether to run the real-model batch;
   press the free runtime check of deploy 2180 when you like.
-- Mine: nothing until your word.
+- Mine: nothing until your word. Implementation is paused, and the combined
+  proposal is not to be started.
 
 ---
 
