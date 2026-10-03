@@ -430,6 +430,18 @@ test("AN ANSWER LONGER THAN A REPLY TO ONE QUESTION STARTS NOTHING: the question
   assert.deepEqual(copy(p.s.unsent), [{ t: "y".repeat(600), imgs: [] }], "the answer was not put back to shorten");
 });
 
+test("AN ANSWER A FULL HISTORY CANNOT TAKE STARTS NOTHING (2026-10-03, the owner's fourth review): no answer they gave is forgotten to make room — the question stays with its Cancel, the route's own sentence is said, and what they typed comes back to the box", async () => {
+  const msg = "Your request already has as many answers beside it as I can keep, and every one is still needed, so I can't take another without forgetting one you gave. Nothing was changed or charged. Your request is still waiting — press Cancel on the question and send what's left of it as a new message.";
+  const p = page({ site: asking(), answer: (url) => (url === ROUTE ? { status: 422, body: { ok: false, error: "answers-full", cost: 0, msg } } : null) });
+  p.ctx.siteSend("Visit");
+  await settle();
+  assert.equal(p.calls.length, 1, "work was sent on an answer the route refused");
+  assert.equal(p.ask().id, QID, "a question still waiting lost its card");
+  assert.deepEqual(p.last(), { r: "a", t: "⚠️ " + msg });
+  assert.deepEqual(copy(p.s.unsent), [{ t: "Visit", imgs: [] }], "what they typed was lost");
+  assert.equal(p.busy(), false);
+});
+
 test("A ROUTE THAT FAILS ON AN ANSWER IS A FAILURE, SAID: the answer is held to send again and the question stays", async () => {
   const p = page({ site: asking(), answer: (url) => (url === ROUTE ? { body: { ok: true, intent: "addon", cost: 0, failed: true, failure: { kind: "store" } } } : null) });
   p.ctx.siteSend("Visit");

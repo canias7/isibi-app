@@ -27,7 +27,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { loadWorker } from "./fixtures/worker-harness.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
-import { QUESTION_KEY, contextBlock, MAX_ASKED, readAskRecord } from "../builder/clarify.mjs";
+import { QUESTION_KEY, contextBlock, MAX_HISTORY, readAskRecord } from "../builder/clarify.mjs";
 import { addon, writtenPage, promptFor, pagePrompt } from "./fixtures/addon-route.mjs";
 import { editBrowserReply } from "../scripts/addon-sweep.mjs";
 import { failureMsg } from "../builder/edit-failure.mjs";
@@ -392,10 +392,10 @@ test("ACROSS A REFRESH NOTHING IS LOST: the waiting question's record holds the 
 // question and the request instead: `live-clarify-limits.test.mjs` drives it now.)
 
 test("ANSWERS THAT CANNOT BE READ ARE REFUSED, NEVER READ AS NONE: an edit or an addition resumed with an answers list no reader keeps runs no model, changes nothing and charges nothing — inline and queued", async () => {
-  // ONE PAST `MAX_ASKED` is a list no reader keeps; the browser carries it as
+  // ONE PAST `MAX_HISTORY` is a list no reader keeps; the browser carries it as
   // it came (`contextWire`), so the route refuses it rather than running the
   // request as if nothing had been answered — or on a guess at the answers.
-  const broken = Array.from({ length: MAX_ASKED + 1 }, (_, i) => ({ q: "Question " + i + "?", a: "Answer " + i }));
+  const broken = Array.from({ length: MAX_HISTORY + 1 }, (_, i) => ({ q: "Question " + i + "?", a: "Answer " + i }));
   const worker = await loadWorker();
   for (const mode of ["sync", "job"]) {
     for (const intent of ["edit", "addon"]) {

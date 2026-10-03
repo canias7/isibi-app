@@ -9187,9 +9187,13 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer) {
     // its card comes off and nothing is sent — or the answer is longer than a
     // reply to one question is kept, and the question stays, waiting, with the
     // answer back in the box to send shorter: nothing of the request is lost
-    // and nothing has to be typed again. The route's own sentence, at no cost:
-    // no model was asked, or its answer was not charged.
-    if (!isBuild && d && d.ok === false && (d.error === 'stale-question' || d.error === 'answer-too-long') && typeof d.msg === 'string' && d.msg.trim()) {
+    // and nothing has to be typed again. So too when the request's history
+    // already holds as many answers as it can, every one still needed
+    // (`answers-full`, 2026-10-03, the owner's fourth review): no answer they
+    // gave is forgotten to make room, the question stays with Cancel on it,
+    // and what they typed comes back to the box. The route's own sentence, at
+    // no cost: no model was asked, or its answer was not charged.
+    if (!isBuild && d && d.ok === false && (d.error === 'stale-question' || d.error === 'answer-too-long' || d.error === 'answers-full') && typeof d.msg === 'string' && d.msg.trim()) {
       if (d.error === 'stale-question') siteAskClear(origin);
       else siteHoldUnsent(origin, t, imgs);
       finish('⚠️ ' + d.msg);

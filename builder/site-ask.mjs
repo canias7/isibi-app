@@ -2078,21 +2078,41 @@ export function readAsk(raw) {
 // `clarify.mjs`, which the steps import, re-exports them from here.
 
 /**
- * THE TOTAL-ANSWER LIMIT: how many answers one request keeps beside it, and
- * past which nothing is sent to a model again on our own. NEVER PERMISSION TO
- * ACT (2026-10-03, the owner's third review: *"Never treat a question limit or
- * repeated question as permission to act. If a model still needs
- * clarification, preserve the pending request, relevant answers, unfinished
- * operations, and attachments … Stop automatic retry loops while keeping a
- * user-driven way to clarify or cancel"*). A request carrying this many is
- * still offered its question: one a model asks is kept with everything the
- * request needs, and its answer joins the list in place of the one the
- * request needs least (`appendAnswer`). What stops at the limit is our own
- * re-asking — no model is sent the request again with an answer it asked for
- * (`clarifyTransport`, the router's re-ask) — so every further round is the
- * customer's: an answer, or Cancel.
+ * THE TOTAL-ANSWER LIMIT: once a request carries this many answers, nothing is
+ * sent to a model again on our own. NEVER PERMISSION TO ACT (2026-10-03, the
+ * owner's third review: *"Never treat a question limit or repeated question as
+ * permission to act. If a model still needs clarification, preserve the
+ * pending request, relevant answers, unfinished operations, and attachments …
+ * Stop automatic retry loops while keeping a user-driven way to clarify or
+ * cancel"*). A request carrying this many is still offered its question, and
+ * one a model asks is kept with everything the request needs. What stops at
+ * the limit is our own re-asking — no model is sent the request again with an
+ * answer it asked for (`clarifyTransport`, the router's re-ask) — so every
+ * further round is the customer's: an answer, or Cancel.
+ *
+ * IT BOUNDS NO STORAGE (2026-10-03, the owner's fourth review: *"appendAnswer
+ * must not discard an answer needed by unfinished work merely because 12
+ * answers already exist. Separate the stored clarification history from any
+ * bounded model-input window"*): every answer stays in the request's history
+ * (`MAX_HISTORY`, `appendAnswer`); this number only says when our re-asking
+ * stops.
  */
 export const MAX_ASKED = 12;
+
+/**
+ * HOW MANY ANSWERS ONE REQUEST'S HISTORY HOLDS — a size bound on what is
+ * stored and carried (the question record, the routing answer, the posts, a
+ * queued job, a hand-over), never a window (2026-10-03, the owner's fourth
+ * review). No answer still needed is ever let go to stay under it, and none is
+ * chosen by its age (`appendAnswer`). What a model is shown is retrieved from
+ * this history for its own operation — the answers the picker named for its
+ * change, or, for the router and the pickers that decide that, every answer
+ * still needed — never a slice of it (`shownContext`, the picker's `answers`).
+ * The browser carries the list to the same bound (`CONTEXT_MAX` in
+ * public/edit-poll.js), which is also its bound on a request's question count
+ * (`ASKED_MAX`).
+ */
+export const MAX_HISTORY = 64;
 
 /**
  * THE REPEATED-QUESTION THRESHOLD: how many times the customer answers one
@@ -2124,7 +2144,7 @@ export const MAX_NOTE_CHARS = 300;
  */
 export function readContext(v) {
   if (v === undefined || v === null) return [];
-  if (!Array.isArray(v) || v.length > MAX_ASKED) return null;
+  if (!Array.isArray(v) || v.length > MAX_HISTORY) return null;
   const out = [];
   for (const p of v) {
     if (!p || typeof p !== "object" || Array.isArray(p) || typeof p.q !== "string" || typeof p.a !== "string") return null;
@@ -2160,34 +2180,35 @@ export function repeatOf(context, question) {
 }
 
 /**
- * ONE MORE ANSWER BESIDE THE REQUEST, WITHIN THE TOTAL-ANSWER LIMIT (2026-10-03,
- * the owner's third review). A request already carrying `MAX_ASKED` answers
- * still takes the new one — the limit is never a reason to stop clarifying —
- * and room is made by letting go of the answer it needs least:
+ * ONE MORE ANSWER IN THE REQUEST'S HISTORY, AND NONE LET GO THAT IS STILL
+ * NEEDED (2026-10-03, the owner's fourth review: *"appendAnswer must not
+ * discard an answer needed by unfinished work merely because 12 answers
+ * already exist … Do not infer irrelevance from age or assume a later answer
+ * to the same question replaces all earlier details."*). The answer joins the
+ * end and every answer before it stays — however old, and whether or not its
+ * question was answered again since: each answer can carry a detail of its
+ * own. Past `MAX_ASKED` answers this only means our re-asking has stopped.
  *
- *   1. the oldest `handled` one, about a part this request no longer holds:
- *      never shown to a model again, kept only to answer a model that asks
- *      it once more;
- *   2. else the oldest answer to a question answered again since — the later
- *      answer is the one the question was settled on;
- *   3. else the oldest answer of all.
- *
- * The third can let go of an answer an unfinished part still needs, and is
- * said so in the record: a model that needs it again asks, and the customer
- * answers or cancels — nothing is acted on without it. The router reads the
- * list through this as the route stores it, so both see the same answers.
- * `null` when the list or the answer cannot be read (an answer longer than
- * `MAX_ANSWER_CHARS` included): a caller refuses it rather than keeping less.
+ * Only at the history's own size bound (`MAX_HISTORY`) is room made, and only
+ * by an answer no unfinished part needs: the first `handled` one, which the
+ * picker named only for work that ran, failed or was withheld — never shown to
+ * a model again, kept only to answer the same question if it comes back.
+ * When every answer is still needed, none is let go: `null`, and the routing
+ * route refuses the new answer with its question still waiting
+ * (`answers-full`). `null` too when the list or the answer cannot be read (an
+ * answer longer than `MAX_ANSWER_CHARS` included): a caller refuses it rather
+ * than keeping less. The router reads the list through this as the route
+ * stores it, so both see the same answers.
  */
 export function appendAnswer(context, pair) {
   const told = readContext(context);
   const one = readContext([pair]);
   if (told === null || one === null || one.length !== 1 || one[0].handled === true) return null;
   const list = [...told, one[0]];
-  while (list.length > MAX_ASKED) {
-    let at = list.findIndex((p) => p.handled === true);
-    if (at < 0) at = list.findIndex((p, i) => list.slice(i + 1).some((r) => askKey(r.q) === askKey(p.q)));
-    list.splice(at < 0 ? 0 : at, 1);
+  if (list.length > MAX_HISTORY) {
+    const at = list.findIndex((p) => p.handled === true);
+    if (at < 0) return null;
+    list.splice(at, 1);
   }
   return list;
 }

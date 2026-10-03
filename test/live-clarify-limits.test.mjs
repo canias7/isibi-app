@@ -24,9 +24,14 @@
 //
 // THE TWO LIMITS: `MAX_SAME_ASK` (the repeated-question threshold: a question
 // the customer has answered that many times) and `MAX_ASKED` (the total-answer
-// limit: answers one request keeps). Before this round, at either the model
-// was sent again with no question offered, or no call was offered one, and a
-// question in its reply was taken out while the change beside it was kept.
+// limit: once a request carries that many answers, nothing is sent to a model
+// again on our own). Before this round, at either the model was sent again
+// with no question offered, or no call was offered one, and a question in its
+// reply was taken out while the change beside it was kept. NEITHER BOUNDS WHAT
+// IS KEPT (2026-10-03, the owner's fourth review): every answer stays in the
+// request's history (`MAX_HISTORY`), so the cases past the limit here keep
+// every answer before it — `live-clarify-history.test.mjs` drives the oldest
+// one still needed.
 //
 // ⚠ SUPPLIED-MODEL PROOF ONLY: every model answer is supplied. Whether a real
 // model asks a better question, or acts when it can, is a live measurement.
@@ -34,7 +39,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { loadWorker } from "./fixtures/worker-harness.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
-import { QUESTION_KEY, contextBlock, MAX_ASKED, MAX_SAME_ASK, readAskRecord, againNote, appendAnswer } from "../builder/clarify.mjs";
+import { QUESTION_KEY, contextBlock, MAX_ASKED, MAX_HISTORY, MAX_SAME_ASK, readAskRecord, againNote, appendAnswer } from "../builder/clarify.mjs";
 import { addon, promptFor } from "./fixtures/addon-route.mjs";
 import {
   T, HOME, VISIT, VISIT_MOVED, Q, page, SOURCE_KEY, freshSlug, bucket, question, seedQuestion, withWire, envFor,
@@ -72,6 +77,7 @@ const offers = (args) => !!(args && Array.isArray(args.tools) && args.tools[0] &
 test("THE TWO LIMITS ARE THE ONES THIS FILE DRIVES", () => {
   assert.equal(MAX_SAME_ASK, 2, "the repeated-question threshold moved: these cases no longer sit on it");
   assert.equal(MAX_ASKED, 12, "the total-answer limit moved: these cases no longer sit on it");
+  assert.ok(MAX_HISTORY >= MAX_ASKED + 2, "the history no longer holds every answer these cases carry past the limit");
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -322,7 +328,7 @@ test("THE REPEATED-QUESTION THRESHOLD AT THE ADD-ON PICKER: asked again beside t
 // 2. THE TOTAL-ANSWER LIMIT
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("THE TOTAL-ANSWER LIMIT AT THE ROUTER: the twelfth answer is still met with a question — offered and kept beside a proposed layer; the thirteenth makes room by letting go of the answer the request needs least, and a question it already has an answer to is held, never sent again; a clear answer resumes the request word for word", async () => {
+test("THE TOTAL-ANSWER LIMIT AT THE ROUTER: the twelfth answer is still met with a question — offered and kept beside a proposed layer; the thirteenth joins every answer before it, none let go, and a question it already has an answer to is held, never sent again; a clear answer resumes the request word for word with every answer kept", async () => {
   const worker = await loadWorker();
   const slug = freshSlug("limit-route-total");
   const store = bucket(slug);
@@ -349,10 +355,11 @@ test("THE TOTAL-ANSWER LIMIT AT THE ROUTER: the twelfth answer is still met with
     assert.deepEqual(kept.held, ["add a gallery page"]);
     assert.equal(kept.attached, true);
   });
-  // THE THIRTEENTH: the handled answer is let go first; "Detail 4?" is answered already, so it is held.
+  // THE THIRTEENTH: it joins all twelve — the handled one too, kept below the
+  // history's bound; "Detail 4?" is answered already, so it is held.
   const k1 = question(store, slug);
   const thirteenth = { q: QN.text, a: "No photo" };
-  const twelve = [...eleven.filter((_, i) => i !== 1), twelfth, thirteenth];
+  const thirteen = [...eleven, twelfth, thirteenth];
   await withWire({ route: [{ intent: "clarify", question: { text: "Detail 4?" }, answered: true, layer: "look" }, { intent: "edit", layer: "look", answered: true }] }, async (seen) => {
     const r = await routeCall(worker, envFor(store), { slug, message: thirteenth.a, ask: { id: k1.id } });
     assert.equal(r.status, 200, JSON.stringify(r.body).slice(0, 300));
@@ -361,25 +368,26 @@ test("THE TOTAL-ANSWER LIMIT AT THE ROUTER: the twelfth answer is still met with
     assert.deepEqual(r.body.decision.reasons, ["edit-fields-ignored", "clarify-again"]);
     assert.equal(r.body.question.note, againNote([{ q: "Detail 4?", a: "Answer 4" }]));
     const kept = question(store, slug);
-    assert.equal(kept.context.length, MAX_ASKED);
-    assert.deepEqual(kept.context, twelve, "the answer let go was not the handled one");
+    assert.equal(kept.context.length, MAX_ASKED + 1, "an answer was let go because twelve already existed");
+    assert.deepEqual(kept.context, thirteen, "the thirteenth answer did not join every answer before it");
     assert.equal(kept.request, q.request);
     assert.deepEqual(kept.held, ["add a gallery page"]);
     assert.equal(kept.attached, true);
   });
-  // A CLEAR ANSWER: word for word; the earlier answer to the question answered again is let go.
+  // A CLEAR ANSWER: word for word, and the earlier answer to the question
+  // answered again stays beside it — the later one never replaces its details.
   const k2 = question(store, slug);
   const clear = { q: "Detail 4?", a: "Answer 4, as I said" };
   await withWire({ route: { intent: "edit", layer: "look", answered: true } }, async () => {
     const d = (await routeCall(worker, envFor(store), { slug, message: clear.a, ask: { id: k2.id } })).body;
     assert.equal(d.instruction, q.request, "the clear answer did not resume the request word for word");
-    assert.deepEqual(d.ask.context, [...twelve.filter((p) => p.q !== "Detail 4?"), clear], "the answer let go was not the earlier answer to the question answered again");
+    assert.deepEqual(d.ask.context, [...thirteen, clear], "an answer was let go — the earlier answer to the question answered again, or another");
     assert.deepEqual(d.ask.putOff, ["add a gallery page"]);
   });
 });
 
 for (const mode of ["sync", "job"]) {
-  test("THE TOTAL-ANSWER LIMIT AT AN EDIT STEP (" + mode + "): carrying twelve answers, the move's writer is still offered its question and asks one it has an answer to, beside the moved page — never sent again; the move is neither made, published nor charged while the heading is; the thirteenth answer lets go of the heading's, and resumes the move alone", async () => {
+  test("THE TOTAL-ANSWER LIMIT AT AN EDIT STEP (" + mode + "): carrying twelve answers, the move's writer is still offered its question and asks one it has an answer to, beside the moved page — never sent again; the move is neither made, published nor charged while the heading is; the thirteenth answer joins all twelve, the finished heading's kept handled and never shown, and resumes the move alone", async () => {
     const slug = freshSlug("limit-total-" + mode);
     const store = bucket(slug);
     const worker = await loadWorker();
@@ -432,7 +440,7 @@ for (const mode of ["sync", "job"]) {
         const m1 = marks(seen);
         const d = (await routeCall(worker, envFor(store), { slug, message: thirteenth.a, ask: { id: q1.id } })).body;
         assert.equal(d.instruction, MOVE, "the clear answer did not resume the unfinished move alone");
-        assert.deepEqual(d.ask.context, [...moves, thirteenth], "the thirteenth answer did not take the place of the finished heading's");
+        assert.deepEqual(d.ask.context, [...moves, { ...HOW_BIG, handled: true }, thirteenth], "the thirteenth answer cost an earlier one its place");
         const r2 = await postRoute(worker, envFor(store), store, seen, slug, browserPost(SITE(slug), { ...d, askRound: d.ask.round, context: d.ask.context }, d.instruction), mode);
         assert.equal(r2.body.ok, true, "the resumed move did not run: " + JSON.stringify(r2.body).slice(0, 400));
         assert.equal(seen.inputs[T.tweak].length, 1, "the heading that ran was written again");

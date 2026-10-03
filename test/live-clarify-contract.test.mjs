@@ -18,7 +18,7 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { createRequire } from "node:module";
 import {
-  QUESTION_FIELD, ASK_TTL_MS, QUESTION_KEY, MAX_ASKED, MAX_SAME_ASK, MAX_ANSWER_CHARS, CONTEXT_HEADING, askOf, newAskId,
+  QUESTION_FIELD, ASK_TTL_MS, QUESTION_KEY, MAX_ASKED, MAX_HISTORY, MAX_SAME_ASK, MAX_ANSWER_CHARS, CONTEXT_HEADING, askOf, newAskId,
   packAsk, readAskRecord, askLive, loadAsk, storeAsk, closeAsk, replaceAsk, withQuestion, readContext, shownContext,
   repeatOf, contextBlock, withContext, reuseNote, againNote, appendAnswer, clarifyTransport, clarifyCall,
 } from "../builder/clarify.mjs";
@@ -86,23 +86,28 @@ test("A STORED QUESTION IS EVERY FIELD CHECKED, and one field wrong makes it no 
     ["request", ""], ["request", "x".repeat(MAX_MESSAGE + 1)], ["held", [3]], ["held", "x".repeat(5000)],
     ["at", "now"], ["status", "open"], ["attached", "yes"], ["attached", 1],
     // WHAT THEY ALREADY TOLD US (2026-10-02, the owner's second review): `{ q, a }`
-    // pairs beside the request, up to `MAX_ASKED` of them — a full list still
-    // keeps its question (2026-10-03, the owner's third review). Anything else
-    // makes no question at all, never a shorter list — and so does a note that
-    // is not one short line.
+    // pairs beside the request, up to `MAX_HISTORY` of them — the request's
+    // whole history, never a window of its latest answers (2026-10-03, the
+    // owner's fourth review). Anything else makes no question at all, never a
+    // shorter list — and so does a note that is not one short line.
     ["context", "Visit"], ["context", [3]], ["context", [{ q: "Which?" }]], ["context", [{ q: "", a: "Visit" }]],
     ["context", [{ q: "Which?", a: "  " }]], ["context", [{ q: "x".repeat(241), a: "Visit" }]],
     ["context", [{ q: "Which?", a: "x".repeat(MAX_ANSWER_CHARS + 1) }]], ["context", [{ q: "Which?", a: "Visit", handled: "yes" }]],
-    ["context", Array.from({ length: MAX_ASKED + 1 }, (_, i) => ({ q: "Q" + i + "?", a: "A" + i }))],
+    ["context", Array.from({ length: MAX_HISTORY + 1 }, (_, i) => ({ q: "Q" + i + "?", a: "A" + i }))],
     ["note", ""], ["note", 3], ["note", "x".repeat(301)],
   ]) {
     assert.equal(rec({ [field]: bad }), null, field + " = " + JSON.stringify(bad) + " was accepted");
   }
-  // A REQUEST CARRYING ITS TWELFTH ANSWER STILL KEEPS ITS QUESTION (2026-10-03):
-  // the total-answer limit is never a reason to drop one — its answer takes the
-  // place of the one the request needs least (`appendAnswer`).
+  // A REQUEST CARRYING ITS TWELFTH ANSWER STILL KEEPS ITS QUESTION (2026-10-03),
+  // AND ONE PAST THE TOTAL-ANSWER LIMIT KEEPS EVERY ANSWER, up to the history's
+  // own bound (the owner's fourth review): the limit is never a reason to drop
+  // a question, nor an answer.
   const twelve = Array.from({ length: MAX_ASKED }, (_, i) => ({ q: "Q" + i + "?", a: "A" + i }));
   assert.equal(rec({ round: 13, context: twelve }).context.length, MAX_ASKED, "a question on a full list of answers was dropped");
+  const thirteen = [...twelve, { q: "Q12?", a: "A12" }];
+  assert.deepEqual(rec({ round: 14, context: thirteen }).context, thirteen, "a stored question kept twelve of thirteen answers");
+  const history = Array.from({ length: MAX_HISTORY }, (_, i) => ({ q: "Q" + i + "?", a: "A" + i }));
+  assert.deepEqual(rec({ round: MAX_HISTORY + 1, context: history }).context, history, "a stored question did not keep the whole history");
   assert.deepEqual(good.context, [], "a first question carries answers");
   assert.equal(Object.hasOwn(good, "note"), false, "a first asking carries a note");
   assert.equal(Object.hasOwn(good, "asked"), false, "the old list of questions is still written");
@@ -178,8 +183,14 @@ test("WHAT THEY ALREADY TOLD US IS A LIST BESIDE THE REQUEST, READ STRICTLY, AND
   assert.deepEqual(readContext(null), []);
   assert.deepEqual(readContext([{ q: " Which? ", a: " Visit ", other: 1 }]), [{ q: "Which?", a: "Visit" }]);
   for (const bad of ["Visit", 3, {}, [null], [[]], [{ q: "Which?" }], [{ q: 3, a: "x" }], [{ q: "Which?", a: "x", handled: false }],
-    Array.from({ length: MAX_ASKED + 1 }, () => ({ q: "q", a: "a" }))]) {
+    Array.from({ length: MAX_HISTORY + 1 }, () => ({ q: "q", a: "a" }))]) {
     assert.equal(readContext(bad), null, JSON.stringify(bad) + " was read as a list of answers");
+  }
+  // PAST THE TOTAL-ANSWER LIMIT THE LIST IS STILL READ WHOLE (2026-10-03, the
+  // owner's fourth review): that limit stops our re-asking, never the history.
+  for (const n of [MAX_ASKED + 1, MAX_HISTORY]) {
+    const long = Array.from({ length: n }, (_, i) => ({ q: "Q" + i + "?", a: "A" + i }));
+    assert.deepEqual(readContext(long), long, n + " answers were not read whole");
   }
   const ctx = [{ q: Q.text, a: "Visit" }, { q: "Which photo?", a: "the shop front", handled: true }, { q: "How big?", a: "twice" }];
   assert.deepEqual(shownContext(ctx), [ctx[0], ctx[2]], "a handled answer was shown, or one still for the request hidden");
@@ -677,7 +688,15 @@ test("A HAND-OVER AND A JOB RECORD CARRY WHAT THEY ALREADY TOLD US, as it came �
   assert.deepEqual(EditPoll.contextOf(undefined), []);
   assert.equal(EditPoll.contextOf("Which band?"), null);
   assert.equal(EditPoll.contextOf([{ q: "Which band?", a: "x".repeat(501) }]), null, "an answer longer than the server keeps was read");
-  assert.equal(EditPoll.contextOf(Array.from({ length: 13 }, () => ({ q: "q", a: "a" }))), null, "a list longer than the server keeps was read");
+  assert.equal(EditPoll.contextOf(Array.from({ length: MAX_HISTORY + 1 }, () => ({ q: "q", a: "a" }))), null, "a list longer than the server keeps was read");
+  // THE BROWSER CARRIES THE WHOLE HISTORY THE SERVER KEEPS (2026-10-03, the
+  // owner's fourth review): past the total-answer limit a reload, a resumed
+  // job and a hand-over still carry every answer.
+  for (const n of [MAX_ASKED + 1, MAX_HISTORY]) {
+    const long = Array.from({ length: n }, (_, i) => ({ q: "Q" + i + "?", a: "A" + i }));
+    assert.deepEqual(EditPoll.contextOf(long), long, "the browser did not read " + n + " answers whole");
+    assert.deepEqual(EditPoll.handOver({ layer: "text", context: long }, { layer: "nav" }, {}).context, long, "a hop did not carry " + n + " answers");
+  }
   assert.equal(EditPoll.contextWire([]), undefined);
   assert.deepEqual(EditPoll.contextWire([{ q: " q ", a: " a " }]), [{ q: "q", a: "a" }]);
   const store = { data: {}, getItem(k) { return this.data[k] || null; }, setItem(k, v) { this.data[k] = v; } };
@@ -798,35 +817,44 @@ test("PAST THE TOTAL-ANSWER LIMIT EVERY CALL IS STILL OFFERED ITS QUESTION, A NE
   assert.equal(r4.sent.length, 1);
 });
 
-test("ONE MORE ANSWER JOINS THE LIST WITHIN THE TOTAL-ANSWER LIMIT, letting go of the answer the request needs least: a handled one first, then the earlier answer to a question answered again, then the oldest — and never the new one", () => {
+test("ONE MORE ANSWER JOINS THE REQUEST'S HISTORY AND NONE STILL NEEDED IS LET GO — not for its age, not because its question was answered again; only at the history's own bound may a handled answer make room, and when every answer is still needed none is (2026-10-03, the owner's fourth review)", () => {
   const A = (i, extra = {}) => ({ q: "Q" + i + "?", a: "A" + i, ...extra });
-  // BELOW THE LIMIT, nothing is let go.
+  assert.ok(MAX_HISTORY > MAX_ASKED, "the history is no larger than the question limit — a window again");
   assert.deepEqual(appendAnswer([A(0)], A(1)), [A(0), A(1)]);
   assert.deepEqual(appendAnswer([], A(0)), [A(0)]);
-  // 1. THE OLDEST HANDLED ANSWER.
+  // PAST THE TOTAL-ANSWER LIMIT EVERY ANSWER STAYS, THE OLDEST INCLUDED.
+  const twelve = Array.from({ length: MAX_ASKED }, (_, i) => A(i));
+  assert.deepEqual(appendAnswer(twelve, A(99)), [...twelve, A(99)], "an answer was let go because twelve already existed");
+  // A QUESTION ANSWERED AGAIN KEEPS EVERY ANSWER TO IT, spelled however: the
+  // later one is never taken to replace the details of the earlier.
+  const repeated = Array.from({ length: MAX_ASKED }, (_, i) => (i === 9 ? { q: "q2", a: "and keep the awning" } : A(i)));
+  assert.deepEqual(appendAnswer(repeated, A(99)), [...repeated, A(99)], "the earlier answer to a question answered again was let go");
+  assert.deepEqual(appendAnswer(twelve, { q: "Q5?", a: "a good deal more" }), [...twelve, { q: "Q5?", a: "a good deal more" }], "an answer was let go because its own question was answered again");
+  // A HANDLED ANSWER STAYS TOO, below the history's bound: never shown again,
+  // but there to answer the same question if it comes back.
   const withHandled = Array.from({ length: MAX_ASKED }, (_, i) => A(i, i === 4 || i === 7 ? { handled: true } : {}));
-  const one = appendAnswer(withHandled, A(99));
-  assert.equal(one.length, MAX_ASKED);
-  assert.deepEqual(one, [...withHandled.filter((_, i) => i !== 4), A(99)], "the oldest handled answer was not the one let go");
-  // 2. THE EARLIER ANSWER TO A QUESTION ANSWERED AGAIN, spelled however.
-  const repeated = Array.from({ length: MAX_ASKED }, (_, i) => (i === 9 ? { q: "q2", a: "again" } : A(i)));
-  assert.deepEqual(appendAnswer(repeated, A(99)), [...repeated.filter((_, i) => i !== 2), A(99)], "the earlier answer to a question answered again was not let go");
-  // …including the new answer's own question.
-  const plain = Array.from({ length: MAX_ASKED }, (_, i) => A(i));
-  assert.deepEqual(appendAnswer(plain, { q: "Q5?", a: "now settled" }), [...plain.filter((_, i) => i !== 5), { q: "Q5?", a: "now settled" }]);
-  // 3. ELSE THE OLDEST.
-  assert.deepEqual(appendAnswer(plain, A(99)), [...plain.slice(1), A(99)]);
-  // NEVER LONGER THAN THE LIMIT, AND THE NEW ANSWER IS ALWAYS KEPT, LAST.
+  assert.deepEqual(appendAnswer(withHandled, A(99)), [...withHandled, A(99)], "a handled answer was let go below the history's bound");
+  // AT THE HISTORY'S OWN BOUND, THE FIRST HANDLED ANSWER — AND ONLY IT — MAKES ROOM.
+  const fullHandled = Array.from({ length: MAX_HISTORY }, (_, i) => A(i, i === 30 || i === 50 ? { handled: true } : {}));
+  const roomed = appendAnswer(fullHandled, A(999));
+  assert.equal(roomed.length, MAX_HISTORY);
+  assert.deepEqual(roomed, [...fullHandled.filter((_, i) => i !== 30), A(999)], "room was not made by the first handled answer alone");
+  // EVERY ANSWER STILL NEEDED: NONE IS LET GO, and the list given is untouched.
+  const fullNeeded = Array.from({ length: MAX_HISTORY }, (_, i) => A(i));
+  const before = JSON.stringify(fullNeeded);
+  assert.equal(appendAnswer(fullNeeded, A(999)), null, "an answer still needed was let go to make room");
+  assert.equal(JSON.stringify(fullNeeded), before, "the list given was changed");
+  // A LONG RUN OF ANSWERS, MANY TO THE SAME FEW QUESTIONS: each keeps every answer before it, to the bound.
   let list = [];
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < MAX_HISTORY; i++) {
+    const prev = list;
     list = appendAnswer(list, A(i % 7, { a: "answer " + i }));
-    assert.ok(list.length <= MAX_ASKED);
-    assert.deepEqual(list.at(-1), { q: "Q" + (i % 7) + "?", a: "answer " + i });
-    assert.ok(readContext(list), "the list stopped reading");
+    assert.deepEqual(list, [...prev, { q: "Q" + (i % 7) + "?", a: "answer " + i }], "answer " + i + " cost an earlier one its place");
   }
+  assert.equal(appendAnswer(list, A(1)), null);
   // CANNOT-TELL IS NULL, NEVER A SHORTER LIST.
   assert.equal(appendAnswer("nope", A(1)), null);
-  assert.equal(appendAnswer(Array.from({ length: MAX_ASKED + 1 }, (_, i) => A(i)), A(99)), null, "a list no reader keeps was made to fit");
+  assert.equal(appendAnswer(Array.from({ length: MAX_HISTORY + 1 }, (_, i) => A(i)), A(99)), null, "a list no reader keeps was made to fit");
   assert.equal(appendAnswer([A(0)], { q: "Q?", a: "x".repeat(MAX_ANSWER_CHARS + 1) }), null, "an answer too long to keep was kept");
   assert.equal(appendAnswer([A(0)], { q: "", a: "x" }), null);
   assert.equal(appendAnswer([A(0)], { q: "Q?", a: "x", handled: true }), null, "a new answer arrived already handled");

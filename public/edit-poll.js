@@ -630,8 +630,11 @@
   // WHAT THEY ALREADY TOLD US (2026-10-02, the owner's second review: `context`):
   // each question the request asked with its answer, `{ q, a }`, and `handled`
   // on an answer about a part already made — carried BESIDE the request, never
-  // in it, bounded as `readContext` in builder/site-ask.mjs bounds it.
-  var CONTEXT_MAX = 12;
+  // in it, bounded as `readContext` in builder/site-ask.mjs bounds it: the
+  // request's whole history (`MAX_HISTORY`), never a window of its latest
+  // answers (2026-10-03, the owner's fourth review). A reload, a resumed job
+  // and a hand-over carry every answer the route kept.
+  var CONTEXT_MAX = 64;
   var QUESTION_MAX = 240;
   var ANSWER_MAX = 500;
   function askRoundOf(v) {

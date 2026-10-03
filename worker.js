@@ -6126,7 +6126,8 @@ async function storeAskTwice(bucket, rec) {
  * the message box (`clarify-closed`) — its answers lost, its request to send
  * again. Now its question is kept like any other, with every answer, the
  * put-off parts and whether files came with it; the answer joins the list
- * within the limit at the routing route (`appendAnswer`).
+ * at the routing route (`appendAnswer`), and no answer still needed is let go
+ * to make room for it (2026-10-03, the owner's fourth review).
  * `ctx`: `{ slug, uid, round, held, request, attached, context }`.
  */
 async function askReport(env, res, ctx) {
@@ -20428,16 +20429,28 @@ async function handleRequest(request, env, ctx) {
           // THE ANSWER IS KEPT AS THEY GAVE IT, OR NOT AT ALL: a reply to one
           // question, never a second request. One too long to keep leaves the
           // question waiting, untouched, for a shorter answer — nothing is
-          // closed, nothing charged, and the request is not lost. IT JOINS THE
-          // LIST WITHIN THE TOTAL-ANSWER LIMIT (2026-10-03, the owner's third
-          // review): a request already carrying `MAX_ASKED` answers still takes
-          // it, in place of the answer it needs least (`appendAnswer`) — the
-          // same list the router's repeat check read.
-          rContext = appendAnswer(rWaiting.context, { q: rWaiting.question.text, a: String(rb.message || "").trim() });
-          if (!rContext) {
+          // closed, nothing charged, and the request is not lost. IT JOINS
+          // EVERY ANSWER BEFORE IT (2026-10-03, the owner's fourth review:
+          // *"appendAnswer must not discard an answer needed by unfinished
+          // work merely because 12 answers already exist"*): a request past
+          // `MAX_ASKED` answers still takes it, and none still needed is let
+          // go (`appendAnswer`) — the same list the router's repeat check
+          // read. Only a history already holding `MAX_HISTORY` answers, every
+          // one still needed, has no room: the answer is refused the same
+          // way, the question still waiting (`answers-full`), rather than
+          // kept by forgetting one they gave.
+          const rPair = { q: rWaiting.question.text, a: String(rb.message || "").trim() };
+          rContext = appendAnswer(rWaiting.context, rPair);
+          if (!rContext && readContext([rPair]) === null) {
             return Response.json({
               ok: false, error: "answer-too-long", cost: 0,
               msg: "That answer is longer than I can keep beside your request. Your request is still waiting — answer the question in a sentence or two and I'll carry on with it.",
+            }, { status: 422 });
+          }
+          if (!rContext) {
+            return Response.json({
+              ok: false, error: "answers-full", cost: 0,
+              msg: "Your request already has as many answers beside it as I can keep, and every one is still needed, so I can't take another without forgetting one you gave. Nothing was changed or charged. Your request is still waiting — press Cancel on the question and send what's left of it as a new message.",
             }, { status: 422 });
           }
           rInstruction = rWaiting.request;

@@ -76,15 +76,27 @@
 // threshold (`MAX_SAME_ASK`) and past the total-answer limit (`MAX_ASKED`),
 // what stops is our own re-asking: the question goes to the customer, under
 // a note, with the request, its answers, its put-off parts and whether it
-// carried files kept as they were; the answer joins the list within the limit
-// (`appendAnswer`), and Cancel is always on the card.
+// carried files kept as they were; the answer joins the list (`appendAnswer`),
+// and Cancel is always on the card.
+//
+// THE ANSWERS KEPT ARE A HISTORY, NOT A WINDOW (2026-10-03, the owner's fourth
+// review: *"appendAnswer must not discard an answer needed by unfinished work
+// merely because 12 answers already exist. Separate the stored clarification
+// history from any bounded model-input window; preserve relevant answers
+// durably and retrieve them for the operations that need them."*). The
+// thirteenth answer took the place of the oldest, so an answer an unfinished
+// part still needed was gone from the record, and the step that came back for
+// it asked the customer again. Now every answer stays in the history up to its
+// size bound (`MAX_HISTORY`), none let go for its age or because its question
+// was answered again; what a model is shown is retrieved for its own operation
+// (`shownContext`, the answers the picker names for a change).
 //
 // DEPENDENCY-LIGHT: the router's own readers, nothing else, so the Worker and
 // the job child import it alike (it is in the Dockerfile's worker line).
 
 import {
   MAX_MESSAGE, MAX_OPTIONS, readAsk, heldList, EDIT_LAYERS,
-  MAX_ASKED, MAX_SAME_ASK, MAX_ANSWER_CHARS, MAX_NOTE_CHARS, CONTEXT_HEADING,
+  MAX_ASKED, MAX_HISTORY, MAX_SAME_ASK, MAX_ANSWER_CHARS, MAX_NOTE_CHARS, CONTEXT_HEADING,
   readContext, shownContext, repeatOf, appendAnswer, contextBlock, withContext, reuseNote, withReuse, againNote,
 } from "./site-ask.mjs";
 
@@ -99,7 +111,7 @@ export { readAsk };
 // below), so both live beside `readAsk` and hold the answers to one rule. The
 // router cannot import this module: this one imports it.
 export {
-  MAX_ASKED, MAX_SAME_ASK, MAX_ANSWER_CHARS, MAX_NOTE_CHARS, CONTEXT_HEADING,
+  MAX_ASKED, MAX_HISTORY, MAX_SAME_ASK, MAX_ANSWER_CHARS, MAX_NOTE_CHARS, CONTEXT_HEADING,
   readContext, shownContext, repeatOf, appendAnswer, contextBlock, withContext, reuseNote, withReuse, againNote,
 };
 
@@ -184,9 +196,10 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,80}$/;
 //
 // `context` IS WHAT THEY ALREADY TOLD US: each question this request asked
 // before this one, with its answer, in order (`readContext`) — beside the
-// request, never in it, and up to `MAX_ASKED` of them: a request at the limit
-// still keeps its question, and the answer to it takes the place of the one
-// the request needs least (`appendAnswer`, 2026-10-03). `round` is how many
+// request, never in it, and up to `MAX_HISTORY` of them: a request past the
+// total-answer limit (`MAX_ASKED`) still keeps its question, and the answer to
+// it joins every answer before it — none still needed is ever let go
+// (`appendAnswer`, 2026-10-03, the owner's fourth review). `round` is how many
 // questions the request has asked, this one included. `note` is the line a
 // question asked once more is shown under (`againNote`), naming the answer
 // that did not settle it.
