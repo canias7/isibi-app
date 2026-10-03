@@ -55,7 +55,11 @@ is in git; the dated entries further down are the full story.*
 - **Mutation sweep**: 27 of 27 defects caught (your finding put back among
   them); the three comment-only controls survived.
 - **Full suite**: `9237 / 9237 / 0 / 0` locally (from `9228`: 9 new cases).
-- **CI on the push**: not yet read; stamped in the next commit once the runs end.
+- **CI on the push, green**:
+  - unit tests `9237 / 9233 / 0 / 4` on `41286bb3`, the code and its
+    records (run 37159581953); CI skips four, as always;
+  - the site build on the same commit: 404 checks in 27 sections, every job
+    green (run 37159581943).
 
 **Limits, all written down** (`docs/request-flow.md`, *Limits*)
 - A press answered "couldn't confirm" may still have given the go-ahead
@@ -231,7 +235,10 @@ since. Add new ones there.
     died"*);
   - mutation sweep: 27 of 27 defects caught, your finding put back among
     them; the three comment-only controls survived;
-  - full suite `9237 / 9237 / 0 / 0` locally (from `9228`); CI on the push is read after it ends.
+  - full suite `9237 / 9237 / 0 / 0` locally (from `9228`); CI on the
+    push green: unit tests `9237 / 9233 / 0 / 4` on `41286bb3` (run
+    37159581953), and the site build there, 404 checks, every job green
+    (run 37159581943).
 - **Limits, written down**: a press answered "couldn't confirm" may still
   have given the go-ahead (its save landed and its answer was lost): the
   server runs it and the page shows it given on its next look; a second

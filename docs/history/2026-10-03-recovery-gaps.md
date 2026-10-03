@@ -203,6 +203,10 @@ it lands) and `hangSend` (a send lands and its sender never hears).
   end, and the stop check and lease rule removed.
 - **Full suite**: `9237 / 9237 / 0 / 0` locally (from `9228`: J10–J16, N8
   and N9 new; N5 rewritten in place; N2, N3 and N4 changed in place).
+- **CI on the push, green**: unit tests `9237 / 9233 / 0 / 4` on `41286bb3`
+  (the code and its records; run 37159581953), the local total exactly, CI
+  skipping four as always; the site build there, 404 checks in 27 sections
+  across 4 shards, every job green (run 37159581943).
 
 ## 5. Remaining limits
 

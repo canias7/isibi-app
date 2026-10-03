@@ -819,7 +819,9 @@ the owner's free press, run 51, at 22:57 UTC):
         once, the browser closed), N5 (five crash points after the go-ahead,
         no press, resend or page look), N8, N9, and N2–N4 updated; red check
         14 of 67 on `caeb4414`; sweep 27 of 27, 3 controls surviving; full
-        suite `9237 / 9237 / 0 / 0`.
+        suite `9237 / 9237 / 0 / 0`; unit CI `9237 / 9233 / 0 / 4` on
+        `41286bb3` (run 37159581953) and the site build there, 404 checks,
+        every job green (run 37159581943).
       - Code: `567409ce`. The record:
         `docs/history/2026-10-03-recovery-gaps.md`.
     - **Before the switch goes on**: a merge and deploy on the owner's
