@@ -357,11 +357,35 @@ here; take a closed one out of both.**
   repeat costs one unbilled call (N53); 12, 500 and twice are our numbers
   (N54, yours); a step's question past 12 answers is a backstop refusal
   (N55).
+  **After the owner's third review** (`a38adac3`): N52 and N55 superseded, N53
+  narrowed, N54 restated.
+- **What the third review leaves** (2026-10-03, N56–N58 in the audit's
+  §3.0): past 12 answers a new answer takes the place of the one the request
+  needs least, at worst the oldest (N56); only the customer ends a question,
+  or its day-long expiry — no guess is ever made instead (N57); whether real
+  models ask better questions and leave proposed changes out when they ask
+  is unmeasured (N58).
 
 ---
 
 ## Backlog
 
+- **WHAT THE THIRD REVIEW OF THE CLARIFICATION ROUND LEAVES (N56–N58; found
+  2026-10-03 while fixing the question limits on the owner's third review;
+  deliberate unless marked).** Each is in the audit's §3.0 and in
+  `docs/history/2026-10-03-clarify-limits.md` §4.
+  - **Past 12 answers, one answer makes room for the next** (N56): a
+    `handled` answer goes first, then the earlier answer to a question
+    answered again, then the oldest — which an unfinished part may still
+    need. A model that needs it asks again, and the customer answers or
+    cancels; nothing is done without it.
+  - **Only the customer ends a question** (N57): an answer that settles it, a
+    new request, or Cancel — or its expiry after a day. A model that keeps
+    asking keeps the request waiting; no guess is ever made instead.
+  - **Whether real models ask better questions is unmeasured** (N58): shown
+    answers that did not settle a question, whether a real model asks a
+    better one rather than the same one, and whether real models leave
+    proposed changes out when they ask.
 - **WHAT THE SECOND REVIEW OF THE CLARIFICATION ROUND LEAVES (N48–N55; found
   2026-10-02 while finishing clarification continuity on the owner's second
   review; deliberate unless marked).** Each is in the audit's §3.0 and in
@@ -379,15 +403,24 @@ here; take a closed one out of both.**
   - **A reload in one narrow moment loses the request** (N51, pre-existing):
     between the routing answer (the question already closed) and the edit's
     post (no job yet).
-  - **11 answers close the router's questions for the next message** (N52),
-    even one that turns out to be a new request.
+  - ~~**11 answers close the router's questions for the next message** (N52),
+    even one that turns out to be a new request.~~ **Superseded by the third
+    review** (2026-10-03): the router is offered its question however many
+    answers the waiting request carries.
   - **A repeat costs one extra model call** (N53, cost): ours and unbilled;
     the question field's pointer adds 31 characters to every tool that can
-    ask, and the scope's `answers` 186 more to the picker.
+    ask, and the scope's `answers` 186 more to the picker. **Narrowed by the
+    third review**: at the threshold or past the limit a repeat is never sent
+    again, so it costs nothing extra.
   - **12 answers, 500 characters and twice are our numbers** (N54, the
-    owner's to move).
-  - **A step's question past 12 answers is refused** (N55, a backstop):
-    every call there is offered no question.
+    owner's to move). **Restated by the third review**: 12 is the
+    total-answer limit (answers kept; past it nothing is sent again on our
+    own) and twice the repeated-question threshold — neither is ever a
+    reason to act.
+  - ~~**A step's question past 12 answers is refused** (N55, a backstop):
+    every call there is offered no question.~~ **Superseded by the third
+    review** (2026-10-03): every call is offered its question, and a step's
+    question at 12 answers is kept with everything its request needs.
 - **WHAT THE REVIEW OF THE CLARIFICATION ROUND LEAVES (N41–N47; found
   2026-10-02 while finishing questions back on the owner's review;
   deliberate unless marked).** Each is in the audit's §3.0 and in

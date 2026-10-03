@@ -131,6 +131,24 @@ checks §4.7, the limits N48–N55 (§3.0), and the record
 `docs/history/2026-10-02-clarify-continuity.md`. Nothing was spent, no model
 was called, nothing was changed on a site, and no container was built.
 
+**Then the owner's third review** (2026-10-03): *"Fix the clarification
+limit behavior before deployment. clarifyTransport currently strips question
+fields at the limit and dropQuestion removes an unresolved question while
+retaining proposed edits. Never treat a question limit or repeated question
+as permission to act. … Apply the same rule to the router and downstream
+edit/add-on calls. … Keep deployment and paid testing pending."* **Done on
+the branch (`a38adac3`), for review, not merged or deployed**: at the
+repeated-question threshold and past the total-answer limit nothing is sent
+to a model again on our own and no question is taken away — every call is
+offered its question, a reply that asks comes back with it, and nothing
+proposed beside it is done; the router's question is held under a note the
+same way; a step's question at 12 answers is kept with everything its
+request needs, and a thirteenth answer takes the place of the one the
+request needs least (N52 and N55 superseded). The changes are §3.13's last
+part, the checks §4.8, the limits N56–N58 (§3.0), and the record
+`docs/history/2026-10-03-clarify-limits.md`. Nothing was spent, no model was
+called, nothing was changed on a site, and no container was built.
+
 ## In short
 
 - **Where it stands after batch 1.** W1–W4 are fixed on the branch, with
@@ -584,10 +602,19 @@ history's §4):
 | N49 | Limit (by design) | a repeat is recognised by the question's own words (case, accents, spacing and punctuation aside); the same thing asked in other words is not caught, though every answer is shown and the model told never to ask one again | recorded |
 | N50 | Limit (by design) | the picker's `words` must come from the request; words copied from the answers section are not in the message and are withheld (`picker/scope-unread`) | recorded |
 | N51 | Limit (pre-existing) | a reload between the routing answer and the edit's post loses the resumed request (the question is already closed and no job exists yet) | recorded |
-| N52 | Limit (by design) | once a waiting question carries 11 answers, the router offers no question for the next message, even one that turns out to be a new request | recorded |
-| N53 | Cost | a repeat costs one extra model call, ours and unbilled; the question field's pointer adds 31 characters to every tool that can ask, and the scope's `answers` 186 more to the picker (measured; both size bounds still hold) | recorded |
-| N54 | Decision (yours) | 12 answers per request, 500 characters per answer and the same question twice are our numbers | recorded |
-| N55 | Limit (by design) | a step's question past 12 answers is not kept (`clarify-closed`, the request back in the box); every call there is offered no question, so it is a backstop | recorded |
+| N52 | Limit (by design) | once a waiting question carries 11 answers, the router offers no question for the next message, even one that turns out to be a new request | **superseded by the third review** (`a38adac3`): the router is offered its question however many answers the waiting request carries |
+| N53 | Cost | a repeat costs one extra model call, ours and unbilled; the question field's pointer adds 31 characters to every tool that can ask, and the scope's `answers` 186 more to the picker (measured; both size bounds still hold) | recorded; **narrowed by the third review**: at the repeated-question threshold or past the total-answer limit a repeat is never sent again, so it costs no extra call |
+| N54 | Decision (yours) | 12 answers per request, 500 characters per answer and the same question twice are our numbers | recorded; **restated by the third review**: 12 is the total-answer limit (how many answers a request keeps, and past which nothing is sent again on our own), twice the repeated-question threshold; neither is ever a reason to act |
+| N55 | Limit (by design) | a step's question past 12 answers is not kept (`clarify-closed`, the request back in the box); every call there is offered no question, so it is a backstop | **superseded by the third review** (`a38adac3`): every call is offered its question, a step's question at 12 answers is kept with everything its request needs, and `clarify-closed` is gone |
+
+**Limits the owner's third review leaves** (`a38adac3`; the limits history's
+§4):
+
+| # | Class | What | Where it stands |
+|---|---|---|---|
+| N56 | Limit (by design) | past 12 answers a new answer takes the place of the one the request needs least: a `handled` one, else the earlier answer to a question answered again since, else the oldest — which an unfinished part may still need | recorded; a model that needs it asks again, and the customer answers or cancels |
+| N57 | Behaviour (by design) | nothing ends a question but the customer — an answer that settles it, a new request, Cancel — or its expiry after a day (`ASK_TTL_MS`); a model that keeps asking keeps the request waiting, and no guess is ever made instead | recorded |
+| N58 | Untested model behaviour | whether a real model, shown answers that did not settle its question, asks a better one rather than the same one, and leaves proposed changes out when it asks | recorded; needs real models |
 
 **Tracked for the following batches** (a proposed grouping, your call):
 lost and deferred parts W5, W7, W8, W15, W24 (**batch 2, fixed on the
@@ -1503,6 +1530,35 @@ add-on work.** *A policy change on the owner's order; done on the branch.*
   kept and the answer back in the box (N30 superseded).
 - **The first build is unchanged** (the 42 pinned cases).
 
+**The owner's third review of W27** (`a38adac3`, for review; the record is
+`docs/history/2026-10-03-clarify-limits.md`):
+- **No limit and no repeat is permission to act**: `stripQuestion` and
+  `dropQuestion` are gone. Every model call a step makes is offered its
+  question however many answers the request carries, and a reply that asks
+  comes back with its question, so the step asks it and does nothing it
+  proposed beside it (every step reads its question first, unchanged).
+- **Our own re-asking stops at the limits**: a model that asks what was
+  already answered is sent its answer back once only below the
+  repeated-question threshold (`MAX_SAME_ASK`, twice) and the total-answer
+  limit (`MAX_ASKED`, 12); at either, its question goes to the customer as it
+  came, under the note — the step's transport and the router alike
+  (`clarify-again` with no `clarify-reused`; work proposed beside the
+  router's question named and set aside, `edit-fields-ignored`). The router
+  is offered its question however many answers the waiting request carries
+  (N52 superseded).
+- **The question keeps everything**: the request (or its unfinished part),
+  its answers, its put-off parts and whether files came with it; a step's
+  question at 12 answers is kept (`clarify-closed` gone, N55 superseded).
+- **The total-answer limit is a window**: a thirteenth answer takes the place
+  of the one the request needs least (`appendAnswer`: a handled one, else the
+  earlier answer to a question answered again, else the oldest), read the
+  same way by the router's repeat check and the routing route's settlement.
+- **The note at the threshold** names the last two answers and both ways on
+  — answer once more, or cancel — and never says nothing changed. Cancel is
+  on every card, free.
+- **Unchanged**: the first build (the 42 pinned cases), the answers' retention
+  from the second review, the 500-character answer.
+
 ## 4. Free checks run this round
 
 All in `docs/investigations/whole-router-checks.mjs` (`node
@@ -1831,6 +1887,34 @@ them as left for later.
   the image predicted `a4409e55d3f3eb09` → `68e35e1debf88e38` (191 inputs)
   and not built. **Unit CI** `8949 / 8945 / 0 / 4` (run 37083988901);
   **site build** run 37083988895, all 8 jobs green, "404 checks in 27
+  sections across 4 shards, every job green".
+
+### 4.8 The third review's checks (W27 limits, 2026-10-03)
+
+- **Cases `8949` → `8960`**: `test/live-clarify-limits.test.mjs` (11, new,
+  through the real routes, sync and queued), every model asking and
+  proposing a change at once: the repeated-question threshold at an edit
+  step (beside a heading that runs), at the router, at the add-on's
+  designer and at its picker; the total-answer limit at the router, at an
+  edit step and at the add-on; and the router's one re-send below both
+  still offering its question. Each asserts no uncertain change stored or
+  published and no execution charge, the question kept with its request,
+  answers, put-off parts and files, and the clear answer resuming only the
+  unfinished work. The contract file (+3, −1): the transport at both limits,
+  `appendAnswer`'s tiers, the threshold note, a full list keeping its
+  question, the router offered a question at 11 and 12 answers. The
+  continuity file (−2): the two cases pinning the forced action.
+- **Red check**: the new file over `09029550`'s code fails 9 of its 11
+  cases, each for the forced-guess reason (the two that pass are the limits'
+  pin and the router's re-send below both limits, which both versions keep).
+- **Mutation sweep**, the old behaviours among the mutants: 25 mutants; 24
+  killed on the first pass, the survivor (the router's re-send below both
+  limits closing questions) a gap closed by a new case, then killed. **25 of
+  25 killed**, 2 comment-only controls surviving.
+- **Full suite** `8960 / 8960 / 0 / 0` on the tree committed as `a38adac3`;
+  the image predicted `a4409e55d3f3eb09` → `11d56d2824119c12` (191 inputs)
+  and not built. **Unit CI** `8960 / 8956 / 0 / 4` (run 37087266116);
+  **site build** run 37087266079, all 8 jobs green, "404 checks in 27
   sections across 4 shards, every job green".
 
 ## 5. The validation matrix

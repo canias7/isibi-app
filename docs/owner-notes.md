@@ -1,82 +1,83 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-03, 01:01 UTC)
+## Current handoff — read this first (2026-10-03, 01:53 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**State now: your second review of questions back is done on the branch, for
-your review.** Not merged, not deployed, nothing spent, no model called, no
-site changed, no container built. The earlier rounds (questions back, your
-first review of it, batches 1 and 2 and batch 2's review fixes) are on the
-same branch for the one combined deploy. Nothing is waiting on a press.
+**State now: your third review of questions back — the question limits — is
+done on the branch, for your review.** Not merged, not deployed, nothing
+spent, no model called, no site changed, no container built. The earlier
+rounds (questions back, your first and second reviews of it, batches 1 and 2
+and batch 2's review fixes) are on the same branch for the one combined
+deploy. Nothing is waiting on a press.
 - **What changed**, in plain words:
-  - **Your earlier answers stay with the work still to do.** Before, if one
-    part of a message was made and another part stopped to ask, the question
-    dropped everything you'd already answered. Now, say you asked to make
-    the home page heading bigger and show more of the top of the photo, and
-    you'd already said "Contact" when asked which photo: the heading is
-    made, and when the photo step asks its next question, "Contact" is
-    still with it. When you answer, the photo step is shown both answers,
-    and the heading isn't made or charged again.
-  - **Answers sit beside your request, not inside it.** Your request is
-    resumed exactly as you wrote it, and your answers travel next to it in a
-    list of their own. Every model sees them in a section labelled as your
-    answers, never as something extra to do.
-  - **The model decides which answer goes with which change.** The part
-    that splits your message names, for each change, which of your answers
-    it needs. Each piece of the work sees its own answers, plus any answer
-    that wasn't tied to one change. If two changes are still waiting with
-    different answers, each keeps its own. No rule reads your words for this.
-  - **No asking the same thing twice, and no dead end.** If a model asks
-    something you already answered, it's sent your answer and told to act
-    on it, or to ask a more specific question about what your answer left
-    open. If it still asks the same thing, the question is shown with a
-    short note (*"Your answer — “the nice one” — didn't settle this, so I
-    need to ask once more."*) and your request keeps waiting; you never
-    retype it. After the same question twice, the model has to go ahead with
-    what it has; after 12 answers on one request, nothing asks again.
-  - **The old endings are gone.** A repeated question or a long request no
-    longer ends the request. The only thing refused is an answer over 500
-    characters: your request keeps waiting, and the answer goes back in the
-    box to shorten.
-  - **Nothing is lost on a reload**: the waiting question, your request,
-    every answer and the note all come back.
-- **First builds are unchanged**: their router and page writers are
-  byte-identical.
-- **Checks, all free**: 16 new cases (8,933 → 8,949) through the real routes
-  and the chat's real code, including the three regressions you named (the
-  heading made while the photo keeps its Contact answer; several waiting
-  parts each with a different earlier answer; an unclear answer getting a
-  more specific follow-up). Each checks exactly what every model was sent,
-  a reload, and that nothing made is made or charged twice. Mutation sweeps:
-  64 of 64 caught; seven slipped through the first pass, each a missing
-  test, now written. Full suite `8949 / 8949 / 0 / 0`.
-- **CI on `09029550`**: unit tests `8949 / 8945 / 0 / 4` (run 37083988901;
-  CI skips its usual four); site build run 37083988895: all 8 jobs
-  green, *"404 checks in 27 sections across 4 shards, every job green"*.
-- **What you'll see on screen**: four screenshots in our chat
-  (`docs/edits/clarify-continuity-{again,reload,followup,toolong}.png`),
-  rendered in a real Chromium from the app's own files with supplied
-  answers. No new styling; the note and its question read as one paragraph
-  because the chat shows line breaks as spaces (N39, yours).
-- **What it still doesn't do** (backlog N48–N55, and the earlier ones that
+  - **A limit never makes the builder guess any more.** Before, when a
+    model asked the same question a third time, or a request had already
+    collected 12 answers, the builder sent the model back with the question
+    box taken away, so it had to go ahead with whatever it had. And if a
+    model asked a question *and* suggested a change in the same reply, the
+    question was thrown away and the change was kept. Now the question is
+    never taken away, and whatever a model suggests beside a question is
+    not made, not published and not charged.
+  - **No automatic retries at the limits.** Below them, a model that asks
+    something you already answered is still sent your answer once to try
+    again. At them, nothing is re-sent on its own: the question comes to
+    you.
+  - **When you've answered the same question twice**, the third asking
+    shows this note above it: *"I’ve asked this before, and your answers —
+    “the nice one”, then “the nicer one” — haven’t settled it. Answer once
+    more, or cancel this request and nothing more will be done for it."*
+    You can type an answer, pick a numbered one, or press **Cancel this
+    request** (free). Nothing needs retyping.
+  - **Everything waits with the question**: your request (or just the part
+    still to do, if other parts of the message were already made), your
+    earlier answers, anything put off, and whether you attached files.
+  - **The same rule everywhere**: the part that decides where a message
+    goes, every step of an edit, and every step of an addition. The part
+    that decides where a message goes used to stop asking once a request
+    had 11 answers; now it can always ask.
+  - **After 12 answers questions are still allowed**: a new answer takes the
+    place of the one least needed — first one about a part already
+    finished, then an older answer to a question you've since answered
+    again, and only then the oldest.
+- **Unchanged**: first builds (byte for byte), and the way your earlier
+  answers stay with the work still to do (your second review).
+- **Checks, all free**: 11 new cases (8,949 → 8,960) through the real
+  routes, synchronously and as queued jobs, where every model asks a
+  question *and* proposes a change at once: the repeated-question limit at
+  an edit step (beside a heading change that is made), at the routing step
+  and at the add-on; the 12-answer limit at the same three. Each checks
+  that nothing uncertain is stored, published or charged, that the question
+  keeps the request, the answers, the put-off parts and the files, and that
+  a later clear answer resumes only the unfinished work. Run against the
+  old code, 9 of the 11 fail, each for the forced guess. Mutation sweep: 25
+  of 25 caught (one gap found and closed with a new case). Full suite
+  `8960 / 8960 / 0 / 0`.
+- **CI on `a38adac3`**: unit tests `8960 / 8956 / 0 / 4` (run 37087266116;
+  CI skips its usual four); site build run 37087266079: all 8 jobs green,
+  *"404 checks in 27 sections across 4 shards, every job green"*.
+- **What you'll see on screen**: two screenshots in our chat
+  (`docs/edits/clarify-limits-threshold.png` and
+  `clarify-limits-cancelled.png`): the third asking under its note, with the
+  numbered answers and Cancel, and Cancel's free close. Rendered in a real
+  Chromium from the app's own files with supplied answers. No new styling.
+- **What it still doesn't do** (backlog N56–N58, and the earlier ones that
   remain): nothing is shown with real models yet, so whether a real model
-  names the right answers and reuses them is a live measurement; a repeat is
-  only caught when asked in the same words (the model is still shown every
-  answer and told never to ask one again); a reload in one split second
-  between the router's answer and the edit starting loses the request (as
-  before); 12 answers, 500 characters and "twice" are my numbers, yours to
-  change.
+  asks a better question rather than the same one, and leaves its suggested
+  changes out when it asks, is a live measurement; past 12 answers the one
+  let go can, at worst, be an older answer still needed, and then the
+  model asks again; a question only ends with your answer, a new request,
+  Cancel, or its expiry after a day.
 - **The container**: a merge would roll the image `a4409e55d3f3eb09` →
-  `68e35e1debf88e38` (191 inputs, predicted on both ends), carrying
+  `11d56d2824119c12` (191 inputs, predicted on both ends), carrying
   everything on the branch. Nothing was built.
 
 **Decisions that are yours**
 - Your review of this round (and of the earlier rounds on the branch).
 - The numbers: 12 answers per request, 500 characters per answer, the same
-  question twice (N54).
+  question twice (N54), and the threshold note's wording.
 - Still open: whether the answer's routing call stays charged (N32), and
   whether the chat shows a reply's line breaks (N39).
 - Then, on your word: one merge and deploy of everything on the branch, the
@@ -85,25 +86,30 @@ same branch for the one combined deploy. Nothing is waiting on a press.
   would be priced when you ask for them.
 
 **Links**
-- The record: `docs/history/2026-10-02-clarify-continuity.md`, and the
-  earlier rounds' `docs/history/2026-10-02-live-clarify-review.md` and
+- The record: `docs/history/2026-10-03-clarify-limits.md`, and the earlier
+  rounds' `docs/history/2026-10-02-clarify-continuity.md`,
+  `docs/history/2026-10-02-live-clarify-review.md` and
   `docs/history/2026-10-02-live-clarify.md`
 - The audit: `docs/investigations/whole-router-audit.md` (§3.13's last part,
-  §4.7, N48–N55)
-- The commits: `09029550` (code and tests), with these records on top.
-- CI on `09029550`: unit tests run 37083988901; site build run 37083988895.
+  §4.8, N56–N58)
+- The commits: `a38adac3` (code and tests), with these records on top.
+- CI on `a38adac3`: unit tests run 37087266116; site build run 37087266079.
 
 **From our chat**
-- Answers kept for unfinished work, completed work kept out of what runs:
-  done.
-- Clarification kept separate from the request, the model scoping it: done.
-- The repeat and question-ended endings replaced (a more specific
-  follow-up, the existing answer reused, no loop, nothing retyped): done.
-- The regressions you named: done (`test/live-clarify-continuity.test.mjs`).
-- The resumed models' actual inputs, a refresh, no repeated changes or
-  charges: checked in each.
-- First builds unchanged: kept.
-- Fast tests, required CI, the audit and these notes, pushed: done (CI
+- The transport no longer strips the question at the limit, and a reply's
+  question is never dropped while its proposed edits are kept: done.
+- No limit and no repeat is permission to act; the pending request, the
+  relevant answers, the unfinished work and the files are kept, and changes
+  beside an unresolved question are not made: done.
+- No automatic retries at the limits; answering or cancelling stays yours,
+  without retyping: done.
+- The same rule at the routing step, the edit steps and the add-on: done.
+- The regressions you named — the repeated-question limit and the 12-answer
+  limit, with a question plus proposed changes; no uncertain change,
+  publish or execution charge; a later clear answer resuming only the
+  unfinished work: done (`test/live-clarify-limits.test.mjs`).
+- Answer retention and first builds unchanged: kept.
+- Focused tests, required CI, the audit and these notes, pushed: done (CI
   stamped above).
 - Not done, on purpose: no deploy, paid run or container build; CLAUDE.md
   untouched.
@@ -173,6 +179,38 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-03 — Your third review of questions back: no limit or repeat is permission to act (nothing spent, merged or deployed)
+
+- **Your words**: *"Fix the clarification limit behavior before deployment.
+  clarifyTransport currently strips question fields at the limit and
+  dropQuestion removes an unresolved question while retaining proposed
+  edits. Never treat a question limit or repeated question as permission to
+  act. … Keep deployment and paid testing pending."*
+- **What was wrong**: at the "same question twice" limit and at 12 answers,
+  the builder took the question box away from the model and threw away any
+  question it asked anyway, keeping the change it had suggested beside it —
+  so it acted on a guess. The routing step was told questions were closed
+  at those points too, and a step's question at 12 answers was refused, its
+  part put back in your message box without your answers.
+- **What changed** (`a38adac3`): every model call keeps its question; a
+  reply that asks comes back with its question and nothing beside it is
+  done; at the limits nothing is re-sent on its own — the question comes to
+  you, under a note at the third asking, with your request, answers,
+  put-off parts and files kept; the routing step can always ask; a step's
+  question at 12 answers is kept; a 13th answer takes the place of the one
+  least needed. Answer, pick, or Cancel (free); nothing retyped.
+- **Checks**: 11 new cases through the real routes (sync and queued), every
+  model asking and proposing at once, at the routing step, the edit steps
+  and the add-on, for both limits; 9 of the 11 fail on the old code, each
+  for the forced guess; mutation sweep 25 of 25 after one gap was closed;
+  full suite `8960 / 8960 / 0 / 0`; CI on `a38adac3` (the handoff above).
+  Two screenshots of the third asking and of Cancel.
+- **Left open** (backlog N56–N58): real models' asking is unmeasured; past
+  12 answers the one let go can at worst be an older answer still needed;
+  only you (or a day's expiry) end a question.
+- **The record**: `docs/history/2026-10-03-clarify-limits.md`; the audit's
+  §3.13, §4.8 and N56–N58.
 
 ## 2026-10-02 — Your second review of questions back: answers kept for unfinished work, repeats reused, no endings (nothing spent, merged or deployed)
 

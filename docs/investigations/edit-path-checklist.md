@@ -509,6 +509,23 @@ the owner's free press, run 51, at 22:57 UTC):
     Not shown with real models (N48). The record is
     `docs/history/2026-10-02-clarify-continuity.md`; the audit's §3.13, §4.7
     and N48–N55.
+    **Then the owner's third review** (`a38adac3`, for review; free): no
+    question limit and no repeated question is permission to act. Every
+    model call is offered its question, a reply that asks comes back with
+    it, and nothing proposed beside it is done (`stripQuestion` and
+    `dropQuestion` gone); at the repeated-question threshold and past the
+    total-answer limit nothing is sent to a model again on our own — the
+    question goes to the customer under a note, with the request, its
+    answers, its put-off parts and its files kept, and they answer or cancel;
+    the router holds the same way and is offered its question however many
+    answers it carries (N52 superseded); a step's question at 12 answers is
+    kept and a thirteenth answer takes the place of the one the request
+    needs least (N55 superseded). 11 new cases (8,949 → 8,960; 11 in
+    `live-clarify-limits.test.mjs`); sweep 25 of 25; full suite `8960 /
+    8960 / 0 / 0`; unit CI `8960 / 8956 / 0 / 4` and the site build (404
+    checks, every job green) on `a38adac3`. Not shown with real models
+    (N58). The record is `docs/history/2026-10-03-clarify-limits.md`; the
+    audit's §3.13, §4.8 and N56–N58.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

@@ -765,4 +765,20 @@
   its model with the answer; one an answer did not settle is asked more
   specifically while the request waits; and a loop is stopped by offering
   the model no question, never by ending the request or making the customer
-  type it again.
+  type it again. (**The loop stop is superseded by the third review**,
+  below: offering no question made the model act on a guess.)
+- **No question limit and no repeated question is ever permission to act**
+  (2026-10-03, the owner's third review): *"Never treat a question limit or
+  repeated question as permission to act. If a model still needs
+  clarification, preserve the pending request, relevant answers, unfinished
+  operations, and attachments; suppress changes accompanying that
+  unresolved question. Stop automatic retry loops while keeping a
+  user-driven way to clarify or cancel, without requiring the original
+  request to be retyped. Apply the same rule to the router and downstream
+  edit/add-on calls."* So every model call is offered its question, a reply
+  that asks is never stripped of its question, and nothing it proposed
+  beside the question is made, published or charged; at a limit, what stops
+  is our own re-asking of the model — the question goes to the customer,
+  with everything the request needs kept, and only their answer or their
+  Cancel moves it on. The same holds at the router, every edit step and
+  every add-on call.
