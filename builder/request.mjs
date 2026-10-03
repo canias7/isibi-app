@@ -84,7 +84,21 @@ export const isRequestKey = (k) => typeof k === "string" && REQUEST_KEY_RE.test(
 export const isRequestSlug = (s) => typeof s === "string" && SLUG_RE.test(s);
 export const recordKey = (slug, key) => REQUEST_ROOT + slug + "/" + key + ".json";
 export const liveKey = (slug, key) => LIVE_ROOT + slug + "/" + key;
-export const fileKey = (slug, key, sha, ext) => REQUEST_ROOT + slug + "/" + key + "/files/" + sha + "." + ext;
+// ONE ACCEPTANCE'S OWN COPIES (2026-10-03, the owner's review): a message's
+// files are kept under the acceptance that wrote them (`attempt`: when it
+// began, in base 36, and a random tail), so a copy is named by exactly one
+// acceptance's record or by none. Two acceptances of one message never share
+// a copy; what a losing or failed acceptance wrote can be let go once no
+// record can name it, without touching another's.
+export const fileKey = (slug, key, attempt, sha, ext) => REQUEST_ROOT + slug + "/" + key + "/files/" + attempt + "/" + sha + "." + ext;
+export const filesPrefix = (slug, key) => REQUEST_ROOT + slug + "/" + key + "/files/";
+export const attemptId = (now, hex) => Math.max(0, Math.floor(Number(now) || 0)).toString(36) + "-" + String(hex || "").replace(/[^0-9a-f]/gi, "").slice(0, 16);
+/** When an acceptance began, from its own id or a file key under it; `NaN` when it cannot be read. */
+export function attemptAt(v) {
+  const s = String(v || "");
+  const m = /\/files\/([0-9a-z]+)-[0-9a-f]+\//.exec(s) || /^([0-9a-z]+)-[0-9a-f]+$/.exec(s);
+  return m ? parseInt(m[1], 36) : NaN;
+}
 export const requestReplyKey = (slug, key) => REQUEST_ROOT + slug + "/" + key + "/reply.json";
 /** Where the two-minute sweep stopped in the markers, so the next tick goes on from there. Never a slug's: slugs have no dot. */
 export const SWEEP_CURSOR_KEY = REQUEST_ROOT + "sweep-cursor.json";
@@ -183,7 +197,7 @@ const clone = (v) => JSON.parse(JSON.stringify(v));
  * the routing call's own answer, handed back whole to a retry of the same
  * message (the same key) so a lost response is never routed or charged twice.
  */
-export function newRequest({ key, uid, slug, message, picker = "", tz = "", digest = null, recent = null, files = [], attached = false, context = [], accepted = null, routedCost = null, parts = [], at = Date.now() } = {}) {
+export function newRequest({ key, uid, slug, message, picker = "", tz = "", digest = null, recent = null, files = [], attached = false, context = [], accepted = null, routedCost = null, parts = [], attempt = "", at = Date.now() } = {}) {
   if (!isRequestKey(key) || typeof uid !== "string" || !uid || !isRequestSlug(slug)) return null;
   const text = typeof message === "string" ? message.trim() : "";
   if (!text || text.length > MAX_INPUT_CHARS) return null;
@@ -201,6 +215,9 @@ export function newRequest({ key, uid, slug, message, picker = "", tz = "", dige
     context: told,
     accepted: plain(accepted) ? accepted : null,
     routedCost: Number.isInteger(routedCost) && routedCost >= 0 ? routedCost : null,
+    // WHICH ACCEPTANCE WROTE THIS RECORD: read back after a write whose answer
+    // was lost, to tell our own landed record from another acceptance's.
+    attempt: typeof attempt === "string" ? attempt : "",
     stop: false,
     parts: Array.isArray(parts) ? parts : [],
     state: "running", ended: false, endedAt: null,
@@ -1029,17 +1046,20 @@ export function cancelPart(record, n, questionId, now = Date.now()) {
 /**
  * THE CUSTOMER'S GO-AHEAD FOR A PART'S FULL REWRITE, RECORDED (2026-10-03):
  * the part runs the rewrite as its next job — `job` the build's id, derived
- * from the request (so a second press finds the same one), filed by the
- * press before this is written. `null` when the part is not waiting for a
- * go-ahead: given already (by another press, another device), stopped, or
- * past its day.
+ * from the request (so a second press finds the same one). Recorded before
+ * anything is filed, as a job not yet filed (the owner's second review: the
+ * go-ahead is durable once written): the next step files it (`nextStep`'s
+ * pending job), whoever takes that step — the press, the sweep, a job's end.
+ * The press stores the build's job first, so whatever files it has all it
+ * needs. `null` when the part is not waiting for a go-ahead: given already
+ * (by another press, another device), stopped, or past its day.
  */
 export function approvePart(record, n, { job, seq, now = Date.now() } = {}) {
   const rec = clone(record);
   const p = rec.parts[n];
   if (rec.stop || rec.ended || !p || p.status !== "approval" || typeof job !== "string" || !job || !Number.isInteger(seq) || seq <= (p.seq || 0)) return null;
   p.seq = seq;
-  p.jobs.push({ key: job, kind: "rewrite", op: "build", id: job, seq, end: null });
+  p.jobs.push({ key: job, kind: "rewrite", op: "build", id: null, seq, end: null });
   p.status = "queued"; p.phase = "rewrite"; p.why = null;
   p.approval = { at: now, job };
   rec.updatedAt = now;

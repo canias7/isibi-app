@@ -249,7 +249,7 @@ import {
   isRequestKey, requestFlowOn, recordKey as requestRecordKey, liveKey as requestLiveKey, fileKey as requestFileKey, requestReplyKey,
   parseLiveKey, LIVE_ROOT as REQUEST_LIVE_ROOT, REQUEST_ROOT, SWEEP_CURSOR_KEY as REQUEST_SWEEP_CURSOR_KEY, LIVE_AFTER_END_MS, ORPHAN_MARKER_MS, ROUTE_OP, readJobKey, newRequest, readRequest, planParts,
   nextStep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, requestView, liveJobIds, questionsToOffer, noteOffered,
-  approvePart, approvalSeq,
+  approvePart, approvalSeq, filesPrefix as requestFilesPrefix, attemptId, attemptAt,
 } from "./builder/request.mjs";
 // ONE SIZE POLICY FOR WHAT A CUSTOMER SAYS ON A SITE THAT EXISTS (2026-10-03).
 import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS, REWRITE_MAX_CHARS, carriedChars } from "./builder/input-budget.mjs";
@@ -14127,7 +14127,17 @@ async function settleRequestMarker(env, rec) {
   try {
     await env.SITES_BUCKET.put(requestLiveKey(rec.slug, rec.key), JSON.stringify({ at: rec.at, endedAt: rec.ended ? rec.endedAt : null }),
       { httpMetadata: { contentType: "application/json" } });
-    if (rec.ended) for (const f of rec.files || []) { try { await env.SITES_BUCKET.delete(f.key); } catch { /* the sweep is not this */ } }
+    if (rec.ended) {
+      for (const f of rec.files || []) { try { await env.SITES_BUCKET.delete(f.key); } catch { /* the sweep is not this */ } }
+      // …AND A GO-AHEAD'S STORED JOB that nothing will send now: one a press
+      // stored and never recorded, or a second press's copy written after the
+      // build had read the first. It holds a session.
+      for (const p of rec.parts) {
+        if (!Number.isFinite(p.approvalAt)) continue;
+        const id = p.approval && isJobId(p.approval.job) ? p.approval.job : await rewriteJobId(rec.key, p.n, approvalSeq(p));
+        try { await env.SITES_BUCKET.delete(jobKey(id)); } catch { /* as a file */ }
+      }
+    }
   } catch (e) { console.error("request marker:", rec.slug, errorClassForLog(e)); }
 }
 
@@ -14139,7 +14149,7 @@ async function settleRequestMarker(env, rec) {
  * URL is not a file this can keep, and is left out (the logo step says what it
  * did with the ones it got).
  */
-async function storeRequestFiles(env, slug, key, images) {
+async function storeRequestFiles(env, slug, key, images, attempt) {
   const out = [];
   for (const [i, a] of (Array.isArray(images) ? images : []).slice(0, MAX_ATTACHMENTS).entries()) {
     const data = typeof a === "string" ? a : a && typeof a.data === "string" ? a.data : "";
@@ -14150,12 +14160,36 @@ async function storeRequestFiles(env, slug, key, images) {
     const digest = await crypto.subtle.digest("SHA-256", bytes);
     const sha = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
     const ext = (m[1].split("/")[1] || "bin").replace(/[^a-z0-9]/gi, "").slice(0, 8) || "bin";
-    const k = requestFileKey(slug, key, sha, ext);
+    const k = requestFileKey(slug, key, attempt, sha, ext);
     await env.SITES_BUCKET.put(k, bytes, { httpMetadata: { contentType: m[1] } });
     const name = a && typeof a.name === "string" ? a.name.slice(0, 120) : "file-" + (i + 1);
     out.push({ key: k, sha, type: m[1], name, bytes: bytes.length });
   }
   return out;
+}
+
+/** A new acceptance's own id (`attemptId`): when it began, and a random tail. */
+function newAttempt() {
+  return attemptId(Date.now(), [...crypto.getRandomValues(new Uint8Array(6))].map((b) => b.toString(16).padStart(2, "0")).join(""));
+}
+
+/**
+ * LET GO OF A REQUEST'S COPIES THAT NO RECORD CAN NAME (2026-10-03): every key
+ * under the request's files that `drop(key)` accepts — one acceptance's own
+ * (`attempt`), or those older than any acceptance still writing. A listing or
+ * delete that fails leaves them for the next sweep; nothing here throws.
+ */
+async function dropRequestFiles(env, slug, key, drop) {
+  const prefix = requestFilesPrefix(slug, key);
+  let cursor;
+  try {
+    for (let page = 0; page < 20; page++) {
+      const listed = await env.SITES_BUCKET.list({ prefix, limit: 1000, ...(cursor ? { cursor } : {}) });
+      for (const o of (listed && listed.objects) || []) if (o && typeof o.key === "string" && drop(o.key)) await env.SITES_BUCKET.delete(o.key);
+      cursor = listed && listed.truncated === true && listed.cursor ? listed.cursor : undefined;
+      if (!cursor) break;
+    }
+  } catch (e) { console.error("request files:", slug, errorClassForLog(e)); }
 }
 
 /** The request's files back as the page sends them (`{ data, name }`); one that is gone is left out. */
@@ -14181,6 +14215,8 @@ async function requestFiles(env, rec) {
  * stored request never landed (its filer died between the two) gets it again.
  */
 async function fileRequestJob(env, rec, file) {
+  // AN APPROVED REWRITE, filed as the page's revise is: its job stored already.
+  if (file.kind === "rewrite") return fileRequestRewrite(env, rec, file);
   const files = file.kind === "run" ? await requestFiles(env, rec) : [];
   const { url, body } = jobBody(rec, file.n, file.kind, file.key, { files });
   const abs = "https://" + APP_ZONE + url;
@@ -14237,25 +14273,7 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
       const { rec, etag } = await loadRequest(env, slug, key);
       if (!rec || !etag) return null;
       if (rec.ended) { await settleRequestMarker(env, rec); return rec; }
-      // A GO-AHEAD WHOSE PRESS DIED AFTER FILING ITS REWRITE: the build's row
-      // is there under the id that press derived, and nothing recorded it.
-      // Recorded now, so the rewrite settles with no second press.
-      let base = rec;
-      for (const p of rec.parts) {
-        if (p.status !== "approval" || rec.stop) continue;
-        const seq = approvalSeq(p);
-        const id = await rewriteJobId(rec.key, p.n, seq);
-        const row = await editRpc(env, "edit_get", { p_id: id, p_uid: rec.uid });
-        if (!row || row.ok !== true) continue;
-        // A ROW STILL QUEUED WHOSE STORED JOB NEVER LANDED is a press that
-        // failed and was told so: the go-ahead is not given until one files it.
-        if (row.state === "queued") {
-          let there = true;
-          try { there = !!(await env.SITES_BUCKET.head(jobKey(id))); } catch { there = true; }
-          if (!there) continue;
-        }
-        base = approvePart(base, p.n, { job: id, seq }) || base;
-      }
+      const base = rec;
       const rewrites = new Set(base.parts.flatMap((p) => p.jobs.filter((j) => j.kind === "rewrite" && j.id).map((j) => j.id)));
       const rows = {};
       for (const id of liveJobIds(base)) {
@@ -14338,6 +14356,8 @@ async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, 
   const message = typeof instruction === "string" && instruction.trim() ? instruction : String(rb.message || "");
   const planned = planParts(message, out, { putOff: answered && ask.putOff ? ask.putOff : [] });
   if (!planned.ok) return null;
+  // THIS ACCEPTANCE'S OWN ID, on its copies and on its record (`attemptId`).
+  const attempt = newAttempt();
   const draft = newRequest({
     key, uid, slug, message,
     picker: typeof rb.picker === "string" ? rb.picker : "",
@@ -14350,37 +14370,64 @@ async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, 
     accepted: { ...out, request: { key } },
     routedCost: Number.isInteger(out.cost) ? out.cost : null,
     parts: planned.parts,
+    attempt,
   });
   if (!draft) return null;
-  let tag = null;
+  // THE MARKER BEFORE THE RECORD (2026-10-03, the owner's review): the sweep
+  // finds a request only by its marker, so a record written first and an
+  // invocation that died before its marker left a saved request nothing
+  // would ever move on without a resend. Written first, any record that
+  // exists has a marker; a marker whose record never landed is the sweep's
+  // to clear once it is old enough (`ORPHAN_MARKER_MS`). Create-only, so a
+  // marker already there — another tab's, or an ended request's — is left
+  // as it was. A marker that cannot be written stops the acceptance here,
+  // before anything is saved, and the message is held for sending again.
   try {
-    draft.files = await storeRequestFiles(env, slug, key, rb.images);
-    // THE MARKER BEFORE THE RECORD (2026-10-03, the owner's review): the sweep
-    // finds a request only by its marker, so a record written first and an
-    // invocation that died before its marker left a saved request nothing
-    // would ever move on without a resend. Written first, any record that
-    // exists has a marker; a marker whose record never landed is the sweep's
-    // to clear once it is old enough (`ORPHAN_MARKER_MS`). Create-only, so a
-    // marker already there — another tab's, or an ended request's — is left
-    // as it was. A marker that cannot be written stops the acceptance here,
-    // before anything is saved, and the message is held for sending again.
     await env.SITES_BUCKET.put(requestLiveKey(slug, key), JSON.stringify({ at: draft.at, endedAt: null }),
       { httpMetadata: { contentType: "application/json" }, onlyIf: { etagDoesNotMatch: "*" } });
-    tag = await createRequestRecord(env, draft);
   } catch (e) {
-    console.error("request store:", slug, errorClassForLog(e));
-    // NOTHING WAS SAVED, SO NOTHING IS LEFT: the files copied for it go too.
-    for (const f of draft.files || []) { try { await env.SITES_BUCKET.delete(f.key); } catch { /* deleted with the site */ } }
+    console.error("request store: marker", slug, errorClassForLog(e));
     return { failed: true };
   }
-  if (!tag) {
-    // THE SAME MESSAGE ACCEPTED FIRST BY ANOTHER CALL (a retry, another tab):
-    // that acceptance is the answer, and nothing runs twice.
+  // THE FILES, THEN THE RECORD THAT NAMES THEM.
+  let stored = false;
+  try { draft.files = await storeRequestFiles(env, slug, key, rb.images, attempt); stored = true; }
+  catch (e) { console.error("request store: files", slug, errorClassForLog(e)); }
+  // NO RECORD WAS WRITTEN WITH THEM, so no record can ever name this
+  // acceptance's copies: let go now (what a failed listing leaves, the sweep
+  // takes once it is old).
+  if (!stored) { await dropRequestFiles(env, slug, key, (k) => k.startsWith(requestFilesPrefix(slug, key) + attempt + "/")); return { failed: true }; }
+  let tag = null;
+  try { tag = await createRequestRecord(env, draft); }
+  catch (e) {
+    // A WRITE WHOSE ANSWER WAS LOST IS AN OUTCOME NOT KNOWN (2026-10-03, the
+    // owner's review): the record may have landed, naming these copies. So
+    // nothing is deleted here, and the record is read back below.
+    console.error("request store: record", slug, errorClassForLog(e));
+  }
+  // ── WHAT THE RECORD UNDER THIS KEY IS, read back after any write that did
+  // not say it was ours: our own landed (its answer lost), another
+  // acceptance's of the same message (create-only: ours can never replace
+  // it), or nothing there — asked once more, under the same key.
+  for (let round = 0; !tag && round < 3; round++) {
     let prior = null;
     try { prior = await loadRequest(env, slug, key); } catch { prior = null; }
-    if (prior && prior.rec && prior.rec.uid === uid && prior.rec.accepted) return { ...prior.rec.accepted, request: requestView(prior.rec), duplicate: true };
-    return { failed: true };
+    // NOT KNOWN: everything kept. A record that landed has its marker, and the
+    // sweep finishes it; copies no record names are cleared once none can.
+    if (!prior) return { failed: true };
+    if (prior.rec) {
+      if (prior.rec.uid !== uid || !prior.rec.accepted) return { failed: true };
+      if (prior.rec.attempt === attempt) { tag = prior.etag || "read-back"; break; }
+      // THE SAME MESSAGE ACCEPTED FIRST BY ANOTHER CALL (a retry, another tab):
+      // that acceptance is the answer, nothing runs twice, and this one's own
+      // copies — named by no record now or later — are let go.
+      await dropRequestFiles(env, slug, key, (k) => k.startsWith(requestFilesPrefix(slug, key) + attempt + "/"));
+      return { ...prior.rec.accepted, request: requestView(prior.rec), duplicate: true };
+    }
+    if (prior.etag || prior.answer) return { failed: true };
+    try { tag = await createRequestRecord(env, draft); } catch (e) { console.error("request store: record again", slug, errorClassForLog(e)); }
   }
+  if (!tag) return { failed: true };
   const moved = await advanceRequest(env, ctx, slug, key, "accepted");
   return { ...out, request: requestView(moved || draft) };
 }
@@ -14412,7 +14459,7 @@ async function resumeRequestPart(env, ctx, { uid, slug, key, out, waiting, ask, 
       if (!next) { gone = at.rec; break; }
       // AND THE ANSWER'S OWN FILES JOIN THE REQUEST'S, kept as its others are
       // (the route has already held the two together to one request's).
-      if (added === null) added = await storeRequestFiles(env, slug, rkey, images);
+      if (added === null) added = await storeRequestFiles(env, slug, rkey, images, newAttempt());
       for (const f of added) if (!next.files.some((g) => g.sha === f.sha)) next.files.push(f);
       const t = await saveRequestRecord(env, next, at.etag);
       if (t) rec = next;
@@ -14484,6 +14531,10 @@ export async function runRequestSweep(env, ctx) {
     let mark = null;
     try { const m = await env.SITES_BUCKET.get(o.key); mark = m ? JSON.parse(await m.text()) : null; } catch { mark = null; }
     if (mark && Number.isFinite(mark.endedAt) && now - mark.endedAt > LIVE_AFTER_END_MS) {
+      // A DAY PAST ITS END, every copy under it goes too — its record's own
+      // went when it ended; these are what an acceptance or an answer that
+      // never knew it lost left behind, long past any writer.
+      await dropRequestFiles(env, at.slug, at.key, () => true);
       try { await env.SITES_BUCKET.delete(o.key); } catch { /* next tick */ }
       continue;
     }
@@ -14498,7 +14549,18 @@ export async function runRequestSweep(env, ctx) {
     try { found = await loadRequest(env, at.slug, at.key); } catch { found = null; }
     if (found && !found.rec && !found.answer && !found.etag) {
       const since = mark && Number.isFinite(mark.at) ? mark.at : 0;
-      if (since && now - since > ORPHAN_MARKER_MS) { try { await env.SITES_BUCKET.delete(o.key); } catch { /* next tick */ } }
+      if (since && now - since > ORPHAN_MARKER_MS) {
+        // ITS COPIES, ONLY THOSE OLDER THAN ANY ACCEPTANCE STILL WRITING: no
+        // record names them now, and none written so long ago can land; an
+        // acceptance of the same message running now keeps its own.
+        await dropRequestFiles(env, at.slug, at.key, (k) => { const t = attemptAt(k); return Number.isFinite(t) && now - t > ORPHAN_MARKER_MS; });
+        try { await env.SITES_BUCKET.delete(o.key); } catch { /* next tick */ }
+        // AN ACCEPTANCE THAT LANDED ITS RECORD MEANWHILE gets its marker back,
+        // so a record never stands without one.
+        let again = null;
+        try { again = await loadRequest(env, at.slug, at.key); } catch { again = null; }
+        if (again && again.rec) await settleRequestMarker(env, again.rec);
+      }
     }
   }
 }
@@ -14516,10 +14578,11 @@ async function stopRequest(env, ctx, slug, key, uid) {
     if (rec.ended || rec.stop) break;
     const t = await saveRequestRecord(env, { ...rec, stop: true, updatedAt: Date.now() }, etag);
     if (t) {
-      // …AND A GO-AHEAD'S BUILD A PRESS MAY HAVE FILED AND NOT YET RECORDED
-      // (`rewriteJobId`), so it ends at its gate rather than after the stop.
+      // …AND A RECORDED GO-AHEAD'S BUILD A STEP MAY HAVE FILED AND DIED BEFORE
+      // RECORDING, under the id it is filed by (its key), so it ends at its
+      // gate rather than after the stop.
       const ids = liveJobIds(rec);
-      for (const p of rec.parts) if (p.status === "approval") ids.push(await rewriteJobId(rec.key, p.n, approvalSeq(p)));
+      for (const p of rec.parts) for (const j of p.jobs) if (j.kind === "rewrite" && !j.id && !j.end) ids.push(j.key);
       for (const id of ids) {
         try { await editRpc(env, "edit_cancel", { p_id: id, p_uid: uid }); } catch { /* the job's own end settles it */ }
       }
@@ -14534,13 +14597,23 @@ async function stopRequest(env, ctx, slug, key, uid) {
 // Owner: *"keep the full-rewrite approval attached to the original request …
 // record the approval durably, and use the existing rewrite executor without
 // changing first Build; settle its result back into the request and resume
-// eligible dependents."* The press files the rewrite exactly as the page's
-// own revise does (`enqueueSiteBuild`'s row, object and message: the same
-// queued build, consumer, pipeline, charging and publish), under an id derived
-// from the request — so every press of the same go-ahead names one build —
-// and with the customer's own session, which the build bills with. The
-// request reads the build's answer back (`settleRewrite`); nothing waits on
-// the press's own connection.
+// eligible dependents."* The rewrite is filed exactly as the page's own revise
+// is (`enqueueSiteBuild`'s row, object and message: the same queued build,
+// consumer, pipeline, charging and publish), under an id derived from the
+// request — so every press of the same go-ahead names one build — and with
+// the customer's own session, which the build bills with. The request reads
+// the build's answer back (`settleRewrite`); nothing waits on the press's own
+// connection.
+//
+// …AND KEPT FROM THE MOMENT IT IS WRITTEN (the owner's second review:
+// *"persist rewrite approval and the information required to finish filing
+// its job before depending on subsequent calls"*). The press stores the
+// build's job — the session, the one thing no later step can make again —
+// then records the go-ahead on the part as a job not yet filed, and only
+// then does anything else. The row and the message are the request's next
+// step, as every part's job is (`advanceRequest`): taken by the press, or by
+// the sweep or a job's end when the press died first, under the same id —
+// one rewrite, charged once, with no second press.
 
 /** The id a part's approved rewrite is filed under: derived from the request, its part and that job's number. */
 async function rewriteJobId(key, n, seq) {
@@ -14549,20 +14622,12 @@ async function rewriteJobId(key, n, seq) {
 }
 
 /**
- * FILE A PART'S REWRITE: the revise the page posts (`reactSend`), with the
- * part's words, the request's own files and the picked model, under `id` —
- * which is also its idempotency key, as every build's is, so each press of the
- * same go-ahead reaches the one row. A row still queued gets its stored job
- * and its message (again, if an earlier press died between the two): a second
- * delivery's claim is refused, and a request's rewrite never runs without its
- * row's lease (`runQueuedSiteBuild`), so it runs once. A row already claimed
- * or ended is this go-ahead's build, under way or done.
+ * A PART'S REWRITE AS THE BUILD CONSUMER READS IT (`packJob`): the revise the
+ * page posts (`reactSend`), with the part's words, the request's own files and
+ * the picked model, under the session that pressed.
  */
-async function fileRequestRewrite(env, rec, n, { id, auth }) {
+async function rewriteJob(env, rec, n, auth) {
   const p = rec.parts[n];
-  const made = await editRpc(env, "edit_create", { p_id: id, p_uid: rec.uid, p_slug: buildRowSlug(rec.slug, id), p_op: BUILD_OP, p_idem: id });
-  if (!made || made.ok !== true || made.job !== id) return { ok: false, error: String((made && made.error) || "rpc") };
-  if (made.state !== "queued") return { ok: true, state: made.state };
   const files = await requestFiles(env, rec);
   const body = JSON.stringify({
     slug: rec.slug, instruction: p.resume || p.words, picker: rec.picker || undefined,
@@ -14570,34 +14635,41 @@ async function fileRequestRewrite(env, rec, n, { id, auth }) {
     // WHICH REQUEST AND PART, for the consumer's stop check and its next step.
     request: { key: rec.key, part: n },
   });
-  // A FILING THAT FAILS LEAVES ITS ROW QUEUED, never closed: the next press
-  // files the same row again, and the next step does not count it given while
-  // it holds no stored job (`advanceRequest`).
-  try {
-    await env.SITES_BUCKET.put(jobKey(id), JSON.stringify(packJob({ url: "https://" + APP_ZONE + "/api/site/react-revise", auth, body, uid: rec.uid, at: Date.now() })));
-  } catch (e) {
-    console.error("request rewrite: could not store", id, errorClassForLog(e));
-    return { ok: false, error: "store" };
-  }
+  return JSON.stringify(packJob({ url: "https://" + APP_ZONE + "/api/site/react-revise", auth, body, uid: rec.uid, at: Date.now() }));
+}
+
+/**
+ * FILE A PART'S APPROVED REWRITE — the request's next step, its job stored by
+ * the press already — under its id, which is also its idempotency key, as
+ * every build's is: the row, then the message. A row already there is this
+ * go-ahead's, filed by a step that died before it recorded the id (the RPC
+ * cannot say so: the id it was asked for is the row's own). Claimed or ended,
+ * it is under way or done, and is recorded and read. Still queued, it gets its
+ * message — again, if that step died after sending it: a second delivery finds
+ * the job taken or its claim refused, and a request's rewrite never runs
+ * without its row's lease (`runQueuedSiteBuild`), so it runs once. The stored
+ * job is never taken back here: the go-ahead is recorded, and it is what
+ * finishes the filing.
+ */
+async function fileRequestRewrite(env, rec, file) {
+  const id = file.key;
+  const made = await editRpc(env, "edit_create", { p_id: id, p_uid: rec.uid, p_slug: buildRowSlug(rec.slug, id), p_op: BUILD_OP, p_idem: id });
+  if (!made || made.ok !== true || made.job !== id) return { ok: false, error: String((made && made.error) || "rpc") };
+  if (made.state !== "queued") return { ok: true, job: id, state: made.state, duplicate: true };
   try {
     await env.BUILD_QUEUE.send({ kind: JOB_KIND, id });
   } catch (e) {
     console.error("request rewrite: could not send", id, errorClassForLog(e));
-    // THE STORED JOB GOES WITH IT, as the page's own queued build tidies one:
-    // nobody was sent it, and it holds a session. Left behind, the stale sweep
-    // sends it later, and it runs once.
-    try { await env.SITES_BUCKET.delete(jobKey(id)); } catch { /* see above */ }
     return { ok: false, error: "send" };
   }
-  return { ok: true, state: "queued" };
+  return { ok: true, job: id, state: "queued", duplicate: false };
 }
 
 /**
- * THE GO-AHEAD, PRESSED: the rewrite filed first, then recorded on the part
- * (a press that dies between the two is found by the next step's probe). A
- * part no longer waiting — stopped, expired, given its go-ahead already — is
- * answered as it is; one stopped while this press filed has its build
- * cancelled at once, through its row, so it ends before it begins.
+ * THE PRESS: the build's job stored, then the go-ahead recorded on its etag,
+ * then the request moved on — which files the rewrite. `{ status, rec }`: 200
+ * once recorded (by this press or another of the same go-ahead), 409 when the
+ * part no longer waits for one, 503 when it could not be recorded here.
  */
 async function approveRequestPart(env, ctx, { slug, key, uid, n, auth }) {
   const at = await loadRequest(env, slug, key);
@@ -14606,25 +14678,40 @@ async function approveRequestPart(env, ctx, { slug, key, uid, n, auth }) {
   if (p0.status !== "approval" || at.rec.stop || at.rec.ended) return p0.approval ? { status: 200, rec: at.rec } : { status: 409, rec: at.rec };
   const seq = approvalSeq(p0);
   const id = await rewriteJobId(key, n, seq);
-  const filed = await fileRequestRewrite(env, at.rec, n, { id, auth });
-  if (!filed.ok) return { status: 503, rec: at.rec };
-  let recorded = false;
-  for (let k = 0; k < 6 && !recorded; k++) {
-    const cur = k === 0 ? at : await loadRequest(env, slug, key);
-    if (!cur.rec) break;
+  // WHAT FILING NEEDS, FIRST. A store that fails gives nothing: no go-ahead
+  // is recorded without it.
+  try {
+    await env.SITES_BUCKET.put(jobKey(id), await rewriteJob(env, at.rec, n, auth));
+  } catch (e) {
+    console.error("request rewrite: could not store", id, errorClassForLog(e));
+    return { status: 503, rec: at.rec };
+  }
+  // THE GO-AHEAD, ON THE RECORD'S ETAG. A write whose answer was lost is read
+  // back: the go-ahead found there is recorded, whoever wrote it.
+  let cur = at, kept = null, refused = false;
+  for (let k = 0; k < 6 && !kept && !refused; k++) {
+    if (k > 0) { try { cur = await loadRequest(env, slug, key); } catch { cur = null; } }
+    if (!cur || !cur.rec) break;
+    const p = cur.rec.parts[n];
+    if (p && p.approval && p.approval.job === id) { kept = cur.rec; break; }
     const next = approvePart(cur.rec, n, { job: id, seq });
-    if (!next) break;
-    if (await saveRequestRecord(env, next, cur.etag)) recorded = true;
+    if (!next) { refused = true; break; }
+    try { if (await saveRequestRecord(env, next, cur.etag)) kept = next; }
+    catch (e) { console.error("request approve: record", slug, errorClassForLog(e)); }
   }
-  if (!recorded) {
-    const now = await loadRequest(env, slug, key);
-    const p = now.rec && now.rec.parts[n];
-    if (!(p && p.approval && p.approval.job === id)) {
-      try { await editRpc(env, "edit_cancel", { p_id: id, p_uid: uid }); } catch { /* the consumer reads the request too */ }
-    }
+  if (refused) {
+    // STOPPED, ENDED OR PAST ITS DAY FIRST: no step will file it, so its
+    // stored job goes now — it holds a session.
+    try { await env.SITES_BUCKET.delete(jobKey(id)); } catch { /* the request's end lets it go (`settleRequestMarker`) */ }
+    return cur.rec.parts[n] && cur.rec.parts[n].approval ? { status: 200, rec: cur.rec } : { status: 409, rec: cur.rec };
   }
+  // NOT RECORDED HERE, AND NOT REFUSED: the writes failed, or what they left
+  // could not be read. Its stored job is kept — another press of this
+  // go-ahead may record it, and the request's end lets it go — and the
+  // customer is told to press again.
+  if (!kept) return { status: 503, rec: (cur && cur.rec) || at.rec };
   const moved = await advanceRequest(env, ctx, slug, key, "approved");
-  return { status: 200, rec: moved || at.rec };
+  return { status: 200, rec: moved || kept };
 }
 
 /** The request a rewrite was filed for (`request` on its body), or null: a first build or a page's own revise has none. */
@@ -14657,9 +14744,11 @@ async function requestRewriteStopped(env, ctx, id, job, mark, lease, { inContain
   // container job may call): a stop pressed after the go-ahead was recorded.
   const g = await editRpc(env, "edit_beat", { p_id: id, p_owner: lease, p_ttl: LEASE_TTL_S, p_phase: null });
   let stopped = !!(g && g.ok === true && g.cancel === true);
-  // AND ITS REQUEST, on the Worker before the fire: a part that no longer waits
-  // for this build — stopped, lapsed, or the request gone — while the press
-  // that filed it died before it could cancel it. A request that cannot be read
+  // AND ITS REQUEST, on the Worker before the fire: a request stopped — whose
+  // cancel never reached this row, filed after the stop by a step whose own
+  // cancel did not land — or one that never recorded this build as its part's
+  // go-ahead, or is gone. A go-ahead is recorded before its row is filed, so a
+  // build its part does not name is no part's. A request that cannot be read
   // is not a stop, as a row that cannot be read is not one on the edit path.
   if (!stopped && !inContainer) {
     let at = null;
@@ -14667,7 +14756,7 @@ async function requestRewriteStopped(env, ctx, id, job, mark, lease, { inContain
     if (at && !at.etag && !at.rec) stopped = true;
     else if (at && at.rec) {
       const p = at.rec.parts[mark.part];
-      stopped = at.rec.uid !== job.uid || !p || !((p.approval && p.approval.job === id) || (p.status === "approval" && !at.rec.stop && !at.rec.ended));
+      stopped = at.rec.uid !== job.uid || !p || at.rec.stop === true || !(p.approval && p.approval.job === id);
     }
   }
   if (!stopped) return false;

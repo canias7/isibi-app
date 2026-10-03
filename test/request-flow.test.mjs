@@ -355,10 +355,12 @@ const LOGO = "Use the attached picture as the logo";
 test("D1 — a message's file is kept on the server under its request, reaches the step that reads it whenever that step runs, and is let go when the request ends", async () => {
   await withPlatform({ slug: slugOf("d1"), answers: { route: [{ intent: "edit", layer: "logo", alsoAsked: [ADD] }, { intent: "addon" }], ...GALLERY } }, async (P) => {
     const r = await sendMessage(P, { message: LOGO + ", and " + ADD + ".", images: [{ name: "logo.png", data: PNG }] });
-    // KEPT BEFORE ANYTHING RAN: one durable copy, by content.
+    // KEPT BEFORE ANYTHING RAN: one durable copy, by content, under the
+    // acceptance that wrote it (2026-10-03: `<when>-<tail>/`).
     const rec0 = P.record(r.key);
     assert.equal(rec0.files.length, 1);
-    assert.match(rec0.files[0].key, new RegExp("^requests/" + P.slug + "/" + r.key + "/files/[0-9a-f]{64}\\.png$"));
+    assert.match(rec0.files[0].key, new RegExp("^requests/" + P.slug + "/" + r.key + "/files/" + rec0.attempt + "/[0-9a-f]{64}\\.png$"));
+    assert.match(rec0.attempt, /^[0-9a-z]+-[0-9a-f]{12}$/);
     assert.ok(P.objects.has(rec0.files[0].key));
     assert.equal(rec0.attached, true);
     const { rec } = await settle(P, r.key);
@@ -755,6 +757,29 @@ const builds = (P) => [...P.jobs.values()].filter((j) => j.op === "build");
 const designs = (P) => P.modelLog.filter((m) => m.tool === "design_schema").length;
 /** Ledger rows the build path wrote (its own refs), as numbers. */
 const buildRows = (P) => P.ledger.filter((e) => e.ref.startsWith("build:")).map((e) => e.delta);
+/** The request's record, where a press writes the go-ahead. */
+const recordOf = (P, key) => "requests/" + P.slug + "/" + key + ".json";
+/** The id part 0's go-ahead is filed under, as the server derives it (`rewriteJobId`). */
+async function nextRewriteId(P, key) {
+  const { createHash } = await import("node:crypto");
+  return createHash("sha256").update("request-rewrite:" + key + ":0:" + (P.record(key).parts[0].seq + 1)).digest("hex").slice(0, 32);
+}
+/**
+ * ONE REWRITE, CHARGED ONCE: one build row, under the go-ahead's id; one
+ * design; every build ledger row under that id, adding up to what the build
+ * said it cost; and one rewrite job on the part, settled at that cost.
+ */
+function oneRewrite(P, rec, id) {
+  assert.deepEqual(builds(P).map((b) => b.id), [id], "not one build, under the go-ahead's id");
+  assert.equal(designs(P), 1, "the rewrite did not run exactly once");
+  const rows = P.ledger.filter((e) => e.ref.startsWith("build:"));
+  assert.ok(rows.length > 0, "the rewrite charged nothing");
+  assert.ok(rows.every((e) => e.ref.startsWith("build:" + id + ":")), "a build charge under another id: " + rows.map((e) => e.ref).join(", "));
+  const cost = JSON.parse(JSON.parse(P.objects.get("jobs/" + id + ".result.json").body).body).cost;
+  assert.equal(-rows.reduce((n, e) => n + e.delta, 0), cost);
+  const rw = rec.parts[0].jobs.filter((j) => j.kind === "rewrite");
+  assert.deepEqual(rw.map((j) => [j.id, j.end && j.end.cost]), [[id, cost]]);
+}
 // PART 0 CLIMBS TO THE REWRITE (too much wording for the text step, no model
 // call); PART 1 NEEDS IT; PART 2 IS INDEPENDENT AND RUNS WHILE PART 0 WAITS.
 const WAITING_ROUTE = [
@@ -825,9 +850,9 @@ test("N2 — pressed twice, or from another device, or delivered again: one rewr
     buildable(P);
     const r = await sendMessage(P, { message: WAITING_MSG });
     await settle(P, r.key);
-    const first = await approve(P, r.key);
-    // ANOTHER DEVICE, ITS OWN SESSION: answered with the same go-ahead.
-    const second = await approve(P, r.key, 0, "Bearer another-device");
+    // TWO DEVICES AT ONCE, EACH ITS OWN SESSION: both answered with the one
+    // go-ahead; then a third press, after it is recorded.
+    const [first, second] = await Promise.all([approve(P, r.key), approve(P, r.key, 0, "Bearer another-device")]);
     const third = await approve(P, r.key);
     assert.deepEqual([first.status, second.status, third.status], [200, 200, 200]);
     assert.equal(second.body.request.parts[0].approved.at, first.body.request.parts[0].approved.at);
@@ -852,15 +877,19 @@ test("N2 — pressed twice, or from another device, or delivered again: one rewr
     await pump(P);
     assert.equal(designs(P), 1, "a stray delivery ran the rewrite again");
     assert.deepEqual(buildRows(P), spent, "a stray delivery charged again");
+    // A PRESS'S COPY OF THE JOB WRITTEN AFTER THE BUILD READ THE FIRST, with
+    // nothing left to send it: let go when the request is next read.
+    P.objects.set("jobs/" + id + ".json", { ...storedJob, etag: "late" });
     // A RELOAD READS IT GIVEN: the request as the server has it, and listed for another device.
     const v = await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key);
     assert.ok(v.body.request.parts[0].approved);
+    assert.equal(P.objects.has("jobs/" + id + ".json"), false, "a late copy of the job, with its session, outlived the request");
     const listed = await call(P, "GET", "/api/site/requests/" + P.slug);
     assert.ok(listed.body.requests.find((q) => q.key === r.key).parts[0].approved);
   });
 });
 
-test("N3 — a rewrite that fails is said so on its part: what needed it is not run, the site stays as it was, and its cost is the build's own; a press that could not file is answered 503 and the part still waits for a press that can", async () => {
+test("N3 — a rewrite that fails is said so on its part: what needed it is not run, the site stays as it was, and its cost is the build's own; a press whose job cannot be stored is answered 503 and the part still waits for a press that can", async () => {
   const slug = slugOf("n3");
   await withPlatform({ slug, pages: BIG, replies: true, answers: rewriteAnswers(slug, { route: WAITING_ROUTE, gallery: true, extra: DESCRIBE }) }, async (P) => {
     // NO COMPILE CONTAINER: the existing build designs, cannot write the pages,
@@ -868,15 +897,15 @@ test("N3 — a rewrite that fails is said so on its part: what needed it is not 
     P.env.NEON_API_KEY = "neon-test";
     const r = await sendMessage(P, { message: WAITING_MSG });
     await settle(P, r.key);
-    // THE PRESS CANNOT FILE (the queue refuses): 503, and nothing is given.
-    P.env.__dropSends = 1;
+    // THE PRESS CANNOT STORE THE BUILD'S JOB: 503, and no go-ahead is written.
+    P.failPut((k) => /^jobs\/[0-9a-f]{32}\.json$/.test(k));
     const refused = await approve(P, r.key);
     assert.equal(refused.status, 503, JSON.stringify(refused.body));
     assert.equal(refused.body.request.parts[0].status, "approval");
-    // THE NEXT LOOK DOES NOT COUNT IT GIVEN: its row holds no stored job yet.
     const look = await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key);
     assert.equal(look.body.request.parts[0].status, "approval");
-    // PRESSED AGAIN, IT FILES THE SAME ROW, AND RUNS.
+    assert.deepEqual(builds(P), []);
+    // PRESSED AGAIN, IT IS GIVEN, AND RUNS.
     const ok = await approve(P, r.key);
     assert.equal(ok.status, 200);
     assert.equal(builds(P).length, 1);
@@ -897,7 +926,7 @@ test("N3 — a rewrite that fails is said so on its part: what needed it is not 
   });
 });
 
-test("N4 — Stop: while it waits, the go-ahead is gone and a press is refused; after the press, the rewrite ends at its gate before it designs or spends", async () => {
+test("N4 — Stop: while it waits, the go-ahead is gone and a press is refused; after the press, the rewrite ends at its gate before it designs or spends; a press that read the request before the Stop is refused and takes its stored job back", async () => {
   const slug = slugOf("n4");
   // (a) STOPPED WHILE IT WAITS.
   await withPlatform({ slug, pages: BIG, answers: rewriteAnswers(slug, { route: WAITING_ROUTE, gallery: true, extra: DESCRIBE }) }, async (P) => {
@@ -932,96 +961,105 @@ test("N4 — Stop: while it waits, the go-ahead is gone and a press is refused; 
     assert.equal(rec.parts[0].jobs.find((j) => j.kind === "rewrite").end.cost, 0);
     assert.equal(P.page("index.tsx"), BIG[0].source);
   });
-  // (c) A PRESS THAT READ THE REQUEST BEFORE THE STOP AND FILED AFTER IT: the
-  // stop looked for its build before the row existed, so only the consumer's
-  // own read of the request can end it — and does, before it designs.
+  // (c) A PRESS THAT READ THE REQUEST BEFORE THE STOP: the Stop lands, and
+  // ends the request, before the press stores its job — so only the press
+  // itself can take that job back — and its go-ahead's write meets the Stop.
   const slug3 = slugOf("n4c");
   await withPlatform({ slug: slug3, pages: BIG, answers: rewriteAnswers(slug3, { route: WAITING_ROUTE, gallery: true, extra: DESCRIBE }) }, async (P) => {
     buildable(P);
     const r = await sendMessage(P, { message: WAITING_MSG });
     await settle(P, r.key);
-    const seq = P.record(r.key).parts[0].seq + 1;
-    assert.equal((await call(P, "DELETE", "/api/site/request/" + P.slug + "/" + r.key)).status, 200);
-    const { createHash } = await import("node:crypto");
-    const id = createHash("sha256").update("request-rewrite:" + r.key + ":0:" + seq).digest("hex").slice(0, 32);
-    const { packJob } = await import("../builder/build-job.mjs");
-    P.rpc("edit_create", { p_id: id, p_uid: USER.id, p_slug: P.slug, p_op: "build", p_idem: id });
-    P.objects.set("jobs/" + id + ".json", { body: JSON.stringify(packJob({ url: "https://gofarther.dev/api/site/react-revise", auth: "Bearer t", body: JSON.stringify({ slug: P.slug, instruction: REWORD, request: { key: r.key, part: 0 } }), uid: USER.id, at: Date.now() })), etag: "late", at: Date.now() });
-    P.queue.push({ body: { kind: "site-build", id }, delaySeconds: 0 });
-    await pump(P);
-    const row = P.jobs.get(id);
-    assert.equal(row.cancel_requested_at, null, "the stop reached the row after all, so this case does not isolate the request read");
-    assert.equal(row.state, "cancelled");
-    assert.equal(designs(P), 0, "a rewrite its request no longer waits for designed");
+    const id = await nextRewriteId(P, r.key);
+    P.beforePut((k) => k === "jobs/" + id + ".json", async () => {
+      assert.equal((await call(P, "DELETE", "/api/site/request/" + P.slug + "/" + r.key)).status, 200);
+      assert.equal(P.record(r.key).ended, true);
+    });
+    const late = await approve(P, r.key);
+    assert.equal(late.status, 409, JSON.stringify(late.body));
+    assert.equal(late.body.error, "not-waiting");
+    assert.equal(P.objects.has("jobs/" + id + ".json"), false, "a refused press left its job, with its session, behind");
+    const rec = P.record(r.key);
+    assert.deepEqual(statuses(rec), ["cancelled", "cancelled", "done"]);
+    assert.equal(rec.parts[0].approval, undefined);
+    assert.deepEqual(builds(P), []);
+    assert.equal(designs(P), 0);
     assert.deepEqual(buildRows(P), []);
     assert.equal(P.page("index.tsx"), BIG[0].source);
   });
 });
 
-test("N5 — a press that died part-way: before its stored job, the next press files the same row; after it, the next look records the go-ahead and the stale sweep sends it; a Stop before either look ends it at its gate", async () => {
-  // (a) DIED AFTER FILING THE ROW, BEFORE ITS STORED JOB: never counted given.
-  const s1 = slugOf("n5a");
-  await withPlatform({ slug: s1, pages: BIG, answers: rewriteAnswers(s1, { route: WAITING_ROUTE, gallery: true, extra: DESCRIBE }) }, async (P) => {
-    buildable(P);
-    const r = await sendMessage(P, { message: WAITING_MSG });
-    await settle(P, r.key);
-    P.hang("edit_create", (a) => a.p_op === "build");
-    const died = await approve(P, r.key);
-    assert.equal(died.status, 0, "the press answered");
-    P.recover();
-    assert.equal(builds(P).length, 1);
-    await tick(P);
-    assert.equal(P.record(r.key).parts[0].status, "approval", "a press that never stored its job was counted given");
-    assert.equal((await approve(P, r.key)).status, 200);
-    const { rec } = await settle(P, r.key);
-    assert.equal(builds(P).length, 1);
-    assert.equal(designs(P), 1);
-    assert.equal(rec.parts[0].status, "done");
-  });
-  // (b) DIED AFTER STORING ITS JOB, BEFORE SENDING IT OR RECORDING THE GO-AHEAD.
-  const s2 = slugOf("n5b");
-  await withPlatform({ slug: s2, pages: BIG, answers: rewriteAnswers(s2, { route: WAITING_ROUTE, gallery: true, extra: DESCRIBE }) }, async (P) => {
-    buildable(P);
-    const r = await sendMessage(P, { message: WAITING_MSG });
-    await settle(P, r.key);
-    P.hangPut((k) => /^jobs\/[0-9a-f]{32}\.json$/.test(k));
-    const died = await approve(P, r.key);
-    assert.equal(died.status, 0);
-    P.recover();
-    assert.equal(P.queue.length, 0, "the rewrite was sent");
-    // NO BROWSER: the sweep's own look records the go-ahead from the row it finds.
-    await tick(P);
-    const rec1 = P.record(r.key);
-    assert.equal(rec1.parts[0].status, "queued");
-    assert.equal(rec1.parts[0].approval.job, builds(P)[0].id);
-    // THE STALE SWEEP SENDS THE QUEUED ROW NOBODY SENT, AND IT RUNS ONCE.
-    P.advance(11 * 60 * 1000);
-    await tick(P);
-    const { rec } = await settle(P, r.key);
-    assert.equal(designs(P), 1);
-    assert.equal(rec.parts[0].status, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-    assert.equal(P.page("index.tsx"), WARM);
-  });
-  // (c) DIED AFTER SENDING, THEN STOP BEFORE ANYTHING LOOKED.
-  const s3 = slugOf("n5c");
-  await withPlatform({ slug: s3, pages: BIG, answers: rewriteAnswers(s3, { route: WAITING_ROUTE, gallery: true, extra: DESCRIBE }) }, async (P) => {
-    buildable(P);
-    const r = await sendMessage(P, { message: WAITING_MSG });
-    await settle(P, r.key);
-    P.failPut((k) => k === "requests/" + P.slug + "/" + r.key + ".json");
-    const failed = await approve(P, r.key);
-    assert.equal(failed.status, 503, "a press whose record write failed was not answered so");
-    assert.equal(P.queue.length, 1, "the rewrite was not sent");
-    const stop = await call(P, "DELETE", "/api/site/request/" + P.slug + "/" + r.key);
-    assert.equal(stop.status, 200);
-    // THE STOP REACHES THE GO-AHEAD'S BUILD THE PRESS NEVER RECORDED, by the id it is filed under.
-    assert.ok(builds(P)[0].cancel_requested_at, "the stop did not reach the unrecorded go-ahead's build");
-    const { rec } = await settle(P, r.key);
-    assert.equal(designs(P), 0, "a rewrite stopped before it began designed");
-    assert.deepEqual(buildRows(P), []);
-    assert.equal(rec.parts[0].status, "cancelled", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
-    assert.equal(P.page("index.tsx"), BIG[0].source);
-  });
+test("N5 — the go-ahead is kept from the moment it is written: a press cut off at any later step — before the row, after the row, after the message, or whose message the queue refused — is finished by the server alone, with no second press, no resend and no page open, as one rewrite charged once", async () => {
+  const cases = [
+    {
+      name: "the go-ahead written, the press gone before anything else",
+      cut: (P, key) => P.hangPut((k) => k === recordOf(P, key)),
+      left: (P) => assert.deepEqual(builds(P), [], "a row was filed before the press died"),
+    },
+    {
+      name: "the row filed, the press gone before its message",
+      cut: (P) => P.hang("edit_create", (a) => a.p_op === "build"),
+      left: (P, id) => { assert.deepEqual(builds(P).map((b) => [b.id, b.state]), [[id, "queued"]]); assert.equal(P.queue.length, 0, "the message was sent"); },
+    },
+    {
+      name: "the queue refused the message: the press is answered, the go-ahead kept",
+      cut: (P) => { P.env.__dropSends = 1; },
+      answered: 200,
+      left: (P, id) => { assert.deepEqual(builds(P).map((b) => [b.id, b.state]), [[id, "queued"]]); assert.equal(P.queue.length, 0, "the message was sent"); },
+    },
+    {
+      name: "the message sent, the press gone before it recorded the row",
+      cut: (P) => P.hangSend(),
+      left: (P, id, key) => {
+        assert.deepEqual(P.queue.map((m) => m.body), [{ kind: "site-build", id }]);
+        assert.equal(P.record(key).parts[0].jobs.find((j) => j.kind === "rewrite").id, null, "the row's id was recorded");
+      },
+    },
+    {
+      name: "the message sent, the press gone before it recorded the row, and the build ending before any sweep",
+      cut: (P) => P.hangSend(),
+      left: (P, id) => assert.deepEqual(P.queue.map((m) => m.body), [{ kind: "site-build", id }]),
+      // THE BUILD'S OWN END records its row and moves the request on: no sweep at all.
+      bare: true,
+    },
+  ];
+  for (const [i, c] of cases.entries()) {
+    const slug = slugOf("n5" + "abcde"[i]);
+    await withPlatform({ slug, pages: BIG, answers: rewriteAnswers(slug, { route: WAITING_ROUTE, gallery: true, extra: DESCRIBE }) }, async (P) => {
+      buildable(P);
+      const r = await sendMessage(P, { message: WAITING_MSG });
+      await settle(P, r.key);
+      const id = await nextRewriteId(P, r.key);
+      c.cut(P, r.key);
+      const press = await approve(P, r.key);
+      assert.equal(press.status, c.answered || 0, c.name + ": " + JSON.stringify(press.body));
+      P.recover();
+      // WHAT THE PRESS LEFT: the go-ahead on the record, the build's job stored.
+      assert.equal(P.record(r.key).parts[0].approval.job, id, c.name);
+      assert.ok(P.objects.has("jobs/" + id + ".json"), c.name + ": the go-ahead was written without its job");
+      c.left(P, id, r.key);
+      // FROM HERE NO PRESS, NO RESEND, NO PAGE: the two-minute sweep and the
+      // queue. The sweep's step files the go-ahead's one row and sends it —
+      // again, where the press had sent it already.
+      let rec;
+      if (c.bare) {
+        await pump(P);
+        rec = P.record(r.key);
+        assert.equal(rec.ended, true, c.name + ": the build's end did not finish the request");
+        assert.deepEqual(P.sent.filter((m) => m.body.kind === "site-build").map((m) => m.body.id), [id], c.name + ": sent again after it ran");
+      } else {
+        await tick(P);
+        assert.deepEqual(builds(P).map((b) => b.id), [id], c.name + ": not the go-ahead's one row");
+        assert.equal(P.record(r.key).parts[0].jobs.find((j) => j.kind === "rewrite").id, id, c.name);
+        assert.ok(P.queue.some((m) => m.body.kind === "site-build" && m.body.id === id), c.name + ": nothing sent to run it");
+        ({ rec } = await settle(P, r.key));
+      }
+      assert.deepEqual(statuses(rec), ["done", "done", "done"], c.name + ": " + JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+      assert.equal(P.page("index.tsx"), WARM, c.name);
+      assert.equal(P.look().description, NEW_DESC, c.name);
+      oneRewrite(P, rec, id);
+      assert.equal(P.objects.has("jobs/" + id + ".json"), false, c.name + ": the build's job outlived it");
+    });
+  }
 });
 
 test("N6 — a go-ahead nobody gives in a day lapses as a question does: what needed it is not run, the request ends and lets its files go, and the customer is told why", async () => {
@@ -1073,6 +1111,145 @@ test("N7 — a rewrite that ended where its request's step was lost moves the re
     assert.ok(P.record(r.key).parts[1].jobs[0].id, "the next part was not filed");
     const { rec } = await settle(P, r.key);
     assert.deepEqual(statuses(rec), ["done", "done", "done"]);
+  });
+});
+
+test("N8 — a press that wrote no go-ahead gave none, and the job it stored is let go when the request ends: one cut off after storing it (the part waits; a Stop), one whose write failed and could not be read back (503; the part waits; the go-ahead lapses); and a write that landed with its answer lost is an uncertain press the sweep finishes as one rewrite", async () => {
+  // (a) CUT OFF AFTER STORING THE BUILD'S JOB, BEFORE THE GO-AHEAD'S WRITE.
+  const s1 = slugOf("n8a");
+  await withPlatform({ slug: s1, pages: BIG, answers: rewriteAnswers(s1, { route: WAITING_ROUTE, gallery: true, extra: DESCRIBE }) }, async (P) => {
+    buildable(P);
+    const r = await sendMessage(P, { message: WAITING_MSG });
+    await settle(P, r.key);
+    const id = await nextRewriteId(P, r.key);
+    P.hangPut((k) => k === "jobs/" + id + ".json");
+    assert.equal((await approve(P, r.key)).status, 0);
+    P.recover();
+    assert.ok(P.objects.has("jobs/" + id + ".json"));
+    await tick(P);
+    assert.equal(P.record(r.key).parts[0].status, "approval", "a go-ahead never written was counted given");
+    assert.deepEqual(builds(P), []);
+    assert.equal((await call(P, "DELETE", "/api/site/request/" + P.slug + "/" + r.key)).status, 200);
+    const rec = P.record(r.key);
+    assert.deepEqual(statuses(rec), ["cancelled", "cancelled", "done"]);
+    assert.equal(P.objects.has("jobs/" + id + ".json"), false, "a stopped request kept a press's job, with its session");
+    assert.deepEqual(builds(P), []);
+    assert.deepEqual(buildRows(P), []);
+  });
+  // (b) THE GO-AHEAD'S WRITE FAILS, AND READING IT BACK FAILS TOO: 503, its
+  // job kept while another press of the same go-ahead might still write it.
+  const s2 = slugOf("n8b");
+  await withPlatform({ slug: s2, pages: BIG, answers: rewriteAnswers(s2, { route: WAITING_ROUTE, gallery: true, extra: DESCRIBE }) }, async (P) => {
+    buildable(P);
+    const r = await sendMessage(P, { message: WAITING_MSG });
+    await settle(P, r.key);
+    const id = await nextRewriteId(P, r.key);
+    P.beforePut((k) => k === recordOf(P, r.key), () => P.failGet((k) => k === recordOf(P, r.key)));
+    P.failPut((k) => k === recordOf(P, r.key));
+    const failed = await approve(P, r.key);
+    assert.equal(failed.status, 503, JSON.stringify(failed.body));
+    assert.equal(P.record(r.key).parts[0].status, "approval");
+    assert.ok(P.objects.has("jobs/" + id + ".json"), "the job was taken back while a press might still write its go-ahead");
+    await tick(P);
+    assert.equal(P.record(r.key).parts[0].status, "approval");
+    assert.deepEqual(builds(P), []);
+    P.advance(24 * 60 * 60 * 1000 + 1000);
+    await tick(P);
+    const rec = P.record(r.key);
+    assert.deepEqual(statuses(rec), ["expired", "not-run", "done"]);
+    assert.equal(P.objects.has("jobs/" + id + ".json"), false, "a lapsed go-ahead kept a press's job, with its session");
+    assert.deepEqual(builds(P), []);
+  });
+  // (c) THE GO-AHEAD'S WRITE LANDS, ITS ANSWER IS LOST, AND READING IT BACK
+  // FAILS: the press cannot tell, and says so; the go-ahead is written, so the
+  // sweep files it — no press, no page — and a press after is answered with it.
+  const s3 = slugOf("n8c");
+  await withPlatform({ slug: s3, pages: BIG, answers: rewriteAnswers(s3, { route: WAITING_ROUTE, gallery: true, extra: DESCRIBE }) }, async (P) => {
+    buildable(P);
+    const r = await sendMessage(P, { message: WAITING_MSG });
+    await settle(P, r.key);
+    const id = await nextRewriteId(P, r.key);
+    P.losePut((k) => k === recordOf(P, r.key), () => P.failGet((k) => k === recordOf(P, r.key)));
+    const unsure = await approve(P, r.key);
+    assert.equal(unsure.status, 503, JSON.stringify(unsure.body));
+    assert.equal(P.record(r.key).parts[0].approval.job, id);
+    assert.deepEqual(builds(P), []);
+    await tick(P);
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    oneRewrite(P, rec, id);
+    const after = await approve(P, r.key);
+    assert.equal(after.status, 200);
+    assert.ok(after.body.request.parts[0].approved);
+    assert.equal(builds(P).length, 1);
+  });
+});
+
+test("N9 — a Stop after the go-ahead was written ends its rewrite before it designs: through the build's own read of its request when no cancel reached the row; through the row, by the id it is filed under, when the step that filed it died before recording it; and a build no go-ahead recorded runs nothing", async () => {
+  // (a) THE PRESS CUT OFF AFTER THE GO-AHEAD; THE STOP'S CANCELS DO NOT LAND.
+  const s1 = slugOf("n9a");
+  await withPlatform({ slug: s1, pages: BIG, answers: rewriteAnswers(s1, { route: WAITING_ROUTE, gallery: true, extra: DESCRIBE }) }, async (P) => {
+    buildable(P);
+    const r = await sendMessage(P, { message: WAITING_MSG });
+    await settle(P, r.key);
+    const id = await nextRewriteId(P, r.key);
+    P.hangPut((k) => k === recordOf(P, r.key));
+    assert.equal((await approve(P, r.key)).status, 0);
+    P.recover();
+    // THE STOP'S OWN CANCEL, AND ITS STEP'S CANCEL OF THE ROW IT FILES.
+    P.failRpc("edit_cancel", (a) => a.p_id === id);
+    P.failRpc("edit_cancel", (a) => a.p_id === id);
+    assert.equal((await call(P, "DELETE", "/api/site/request/" + P.slug + "/" + r.key)).status, 200);
+    assert.deepEqual(builds(P).map((b) => [b.id, b.cancel_requested_at]), [[id, null]], "this case does not isolate the build's read of its request");
+    const { rec } = await settle(P, r.key);
+    assert.equal(designs(P), 0, "a stopped request's rewrite designed");
+    assert.deepEqual(buildRows(P), []);
+    assert.equal(builds(P)[0].state, "cancelled");
+    assert.deepEqual(statuses(rec), ["cancelled", "cancelled", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.equal(rec.parts[0].why, "stopped");
+    assert.equal(rec.parts[0].jobs.find((j) => j.kind === "rewrite").end.cost, 0);
+    assert.equal(P.page("index.tsx"), BIG[0].source);
+  });
+  // (b) A ROW, JOB AND MESSAGE UNDER THE ID THE NEXT GO-AHEAD WOULD TAKE, THAT
+  // NO GO-AHEAD RECORDED: the part does not name it, so it is no part's build.
+  const s2 = slugOf("n9b");
+  await withPlatform({ slug: s2, pages: BIG, answers: rewriteAnswers(s2, { route: WAITING_ROUTE, gallery: true, extra: DESCRIBE }) }, async (P) => {
+    buildable(P);
+    const r = await sendMessage(P, { message: WAITING_MSG });
+    await settle(P, r.key);
+    const id = await nextRewriteId(P, r.key);
+    const { packJob } = await import("../builder/build-job.mjs");
+    P.rpc("edit_create", { p_id: id, p_uid: USER.id, p_slug: P.slug, p_op: "build", p_idem: id });
+    P.objects.set("jobs/" + id + ".json", { body: JSON.stringify(packJob({ url: "https://gofarther.dev/api/site/react-revise", auth: "Bearer t", body: JSON.stringify({ slug: P.slug, instruction: REWORD, request: { key: r.key, part: 0 } }), uid: USER.id, at: Date.now() })), etag: "stray", at: Date.now() });
+    P.queue.push({ body: { kind: "site-build", id }, delaySeconds: 0 });
+    await pump(P);
+    assert.equal(P.jobs.get(id).state, "cancelled");
+    assert.equal(designs(P), 0, "a build no go-ahead recorded designed");
+    assert.deepEqual(buildRows(P), []);
+    assert.equal(P.record(r.key).parts[0].status, "approval");
+    assert.equal(P.page("index.tsx"), BIG[0].source);
+  });
+  // (c) THE ROW FILED AND SENT, THE PRESS GONE BEFORE IT RECORDED THE ROW, AND
+  // THE STOP'S OWN STEP UNABLE TO FILE IT AGAIN: the Stop reaches the row
+  // itself, by the id the go-ahead files it under.
+  const s3 = slugOf("n9c");
+  await withPlatform({ slug: s3, pages: BIG, answers: rewriteAnswers(s3, { route: WAITING_ROUTE, gallery: true, extra: DESCRIBE }) }, async (P) => {
+    buildable(P);
+    const r = await sendMessage(P, { message: WAITING_MSG });
+    await settle(P, r.key);
+    const id = await nextRewriteId(P, r.key);
+    P.hangSend();
+    assert.equal((await approve(P, r.key)).status, 0);
+    P.recover();
+    assert.equal(P.record(r.key).parts[0].jobs.find((j) => j.kind === "rewrite").id, null);
+    P.failRpc("edit_create", (a) => a.p_id === id);
+    assert.equal((await call(P, "DELETE", "/api/site/request/" + P.slug + "/" + r.key)).status, 200);
+    assert.ok(builds(P)[0].cancel_requested_at, "the Stop did not reach the row its go-ahead's step filed");
+    const { rec } = await settle(P, r.key);
+    assert.equal(designs(P), 0, "a stopped request's rewrite designed");
+    assert.deepEqual(buildRows(P), []);
+    assert.deepEqual(statuses(rec), ["cancelled", "cancelled", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.equal(rec.parts[0].jobs.find((j) => j.kind === "rewrite").end.cost, 0);
   });
 });
 
@@ -1501,6 +1678,194 @@ test("J9 — the marker write lands and the invocation dies before the record: n
     await tick(P);
     assert.ok(!P.objects.has(marker), "a marker whose record never landed is read on every tick for ever");
     assert.equal(P.jobsOf(key).length, 0);
+  });
+});
+
+// ── A WRITE WHOSE ANSWER IS LOST IS AN OUTCOME NOT KNOWN (2026-10-03, the
+// owner's review: *"Treat a lost write response as an uncertain outcome;
+// preserve files while acceptance or another concurrent acceptance may
+// reference them, recover using the same request key, and clean up only when
+// non-use is established."*). The step that reads the file is the logo step:
+// its job's stored request carries the bytes read back from the request's own
+// copy, and the site's logo is what it made of them.
+
+const LOGO_ROUTE = { intent: "edit", layer: "logo", alsoAsked: [ADD] };
+const filesOf = (P, key) => [...P.objects.keys()].filter((k) => k.startsWith("requests/" + P.slug + "/" + key + "/files/"));
+/** The logo step was sent the very bytes the message carried, and made the logo of them. */
+function logoGotTheFile(P, key) {
+  const logoJob = P.jobsOf(key).find((j) => j.op === "edit" && P.bodyOf(j.id) && P.bodyOf(j.id).body.layer === "logo");
+  assert.ok(logoJob, "no logo step ran");
+  assert.deepEqual(P.bodyOf(logoJob.id).body.images, [{ data: PNG, name: "logo.png" }], "the logo step was not sent the message's own bytes");
+  assert.notEqual((P.look().wordmark || {}).form, "text", "the logo did not reach the site");
+}
+
+test("J10 — the record write lands and its answer is lost: nothing is deleted, the acceptance reads the record back under the same key and goes on, and the logo step gets the file's bytes", async () => {
+  await withPlatform({ slug: slugOf("j10"), answers: { route: [LOGO_ROUTE, { intent: "addon" }], ...GALLERY } }, async (P) => {
+    const key = newKey();
+    const record = "requests/" + P.slug + "/" + key + ".json";
+    P.losePut((k) => k === record);
+    const r = await sendMessage(P, { message: LOGO + ", and " + ADD + ".", key, images: [{ name: "logo.png", data: PNG }] });
+    // TAKEN ON, AS IT WAS: the answer names the request the record holds.
+    assert.equal(r.status, 200);
+    assert.equal(r.body.request && r.body.request.key, key, JSON.stringify(r.body));
+    const rec0 = P.record(key);
+    assert.equal(rec0.files.length, 1);
+    assert.ok(P.objects.has(rec0.files[0].key), "the file the saved request names was deleted");
+    assert.deepEqual(filesOf(P, key), [rec0.files[0].key], "a copy no record names was left, or the named one went");
+    const { rec } = await settle(P, key);
+    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    logoGotTheFile(P, key);
+    assert.deepEqual(rows(P, "route"), [-1], "the message was routed and charged twice");
+    // LET GO ONLY ONCE THE REQUEST HAS ENDED.
+    assert.deepEqual(filesOf(P, key), []);
+  });
+});
+
+test("J11 — two acceptances of one message at once, the first's record write landing with its answer lost: one request, its copy of the file kept, the other's own copy let go, and the logo step gets the bytes", async () => {
+  await withPlatform({ slug: slugOf("j11"), answers: { route: (args, n) => (n < 2 ? LOGO_ROUTE : { intent: "addon" }), ...GALLERY } }, async (P) => {
+    const key = newKey();
+    const record = "requests/" + P.slug + "/" + key + ".json";
+    P.losePut((k) => k === record);
+    const msg = LOGO + ", and " + ADD + ".";
+    const img = [{ name: "logo.png", data: PNG }];
+    const [a, b] = await Promise.all([sendMessage(P, { message: msg, key, images: img }), sendMessage(P, { message: msg, key, images: img })]);
+    assert.equal(a.body.request && a.body.request.key, key, JSON.stringify(a.body));
+    assert.equal(b.body.request && b.body.request.key, key, JSON.stringify(b.body));
+    // BOTH REACHED THE FILE STORE: two copies were written, one is named.
+    const rec0 = P.record(key);
+    assert.equal(rec0.files.length, 1);
+    assert.ok(P.objects.has(rec0.files[0].key), "the file the saved request names was deleted");
+    assert.deepEqual(filesOf(P, key), [rec0.files[0].key], "the losing acceptance's own copy was left behind, or the named one went");
+    assert.deepEqual(rows(P, "route"), [-1]);
+    const { rec } = await settle(P, key);
+    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    logoGotTheFile(P, key);
+  });
+});
+
+test("J12 — the record write lands, its answer is lost and reading it back fails too: the acceptance keeps everything and says it could not, nobody sends again, and the sweep finishes the request with the file's bytes", async () => {
+  await withPlatform({ slug: slugOf("j12"), answers: { route: [LOGO_ROUTE, { intent: "addon" }], ...GALLERY } }, async (P) => {
+    const key = newKey();
+    const record = "requests/" + P.slug + "/" + key + ".json";
+    P.losePut((k) => k === record, () => P.failGet((k) => k === record));
+    const first = await sendMessage(P, { message: LOGO + ", and " + ADD + ".", key, images: [{ name: "logo.png", data: PNG }] });
+    // NOT KNOWN, SO NOT CLAIMED EITHER WAY: the page would hold the message.
+    assert.equal(first.body.failed, true, JSON.stringify(first.body));
+    const rec0 = P.record(key);
+    assert.ok(rec0, "the record did not land");
+    assert.ok(P.objects.has(rec0.files[0].key), "the file the saved request names was deleted");
+    assert.equal(P.jobsOf(key).length, 0);
+    // THE BROWSER IS CLOSED: no resend, no look. The two-minute sweep alone.
+    await tick(P);
+    const { rec } = await settle(P, key);
+    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    logoGotTheFile(P, key);
+    assert.deepEqual(rows(P, "route"), [-1]);
+  });
+});
+
+test("J13 — the record write fails outright: reading back finds nothing under the key, so it is written again under the same key, and the request goes on with its file", async () => {
+  await withPlatform({ slug: slugOf("j13"), answers: { route: [LOGO_ROUTE, { intent: "addon" }], ...GALLERY } }, async (P) => {
+    const key = newKey();
+    const record = "requests/" + P.slug + "/" + key + ".json";
+    P.failPut((k) => k === record);
+    const r = await sendMessage(P, { message: LOGO + ", and " + ADD + ".", key, images: [{ name: "logo.png", data: PNG }] });
+    assert.equal(r.body.request && r.body.request.key, key, JSON.stringify(r.body));
+    assert.equal(r.body.duplicate, undefined, "our own retried acceptance was called a duplicate");
+    const rec0 = P.record(key);
+    assert.deepEqual(filesOf(P, key), [rec0.files[0].key]);
+    const { rec } = await settle(P, key);
+    assert.deepEqual(statuses(rec), ["done", "done"]);
+    logoGotTheFile(P, key);
+    assert.deepEqual(rows(P, "route"), [-1]);
+  });
+});
+
+test("J14 — copies are let go only once no record can name them: an acceptance whose record never lands keeps its copy while one still might; the sweep clears it after; and a day after a request ends, whatever an acceptance that lost left goes too", async () => {
+  await withPlatform({ slug: slugOf("j14"), answers: { route: (args, n) => (n < 2 ? LOGO_ROUTE : { intent: "addon" }), ...GALLERY } }, async (P) => {
+    const key = newKey();
+    const record = "requests/" + P.slug + "/" + key + ".json";
+    for (let i = 0; i < 4; i++) P.failPut((k) => k === record);
+    const msg = LOGO + ", and " + ADD + ".";
+    const img = [{ name: "logo.png", data: PNG }];
+    const first = await sendMessage(P, { message: msg, key, images: img });
+    assert.equal(first.body.failed, true, JSON.stringify(first.body));
+    assert.equal(P.record(key), null);
+    const kept = filesOf(P, key);
+    assert.equal(kept.length, 1, "a copy was let go while a record might still have named it");
+    // INSIDE THE WINDOW AN ACCEPTANCE MIGHT STILL BE WRITING: kept.
+    await tick(P);
+    assert.deepEqual(filesOf(P, key), kept);
+    // PAST IT, AND NO RECORD: the marker and the copy go.
+    P.advance(16 * 60 * 1000);
+    await tick(P);
+    assert.deepEqual(filesOf(P, key), [], "a copy no record can name outlived the window");
+    assert.ok(!P.objects.has("requests-live/" + P.slug + "/" + key));
+    // SENT AGAIN UNDER THE SAME KEY: taken on, with its own copy, and it runs.
+    const again = await sendMessage(P, { message: msg, key, images: img });
+    assert.equal(again.body.request && again.body.request.key, key, JSON.stringify(again.body));
+    const { rec } = await settle(P, key);
+    assert.deepEqual(statuses(rec), ["done", "done"]);
+    logoGotTheFile(P, key);
+    // A COPY NO RECORD NAMES, left by an acceptance that never knew it lost,
+    // goes with the marker a day after the request ended — not before.
+    const stray = "requests/" + P.slug + "/" + key + "/files/" + "abc-0123456789ab/stray.png";
+    P.objects.set(stray, { body: "x", etag: "s", at: P.now() });
+    await tick(P);
+    assert.ok(P.objects.has(stray), "a copy went before the request's marker did");
+    P.advance(25 * 60 * 60 * 1000);
+    await tick(P);
+    assert.deepEqual(filesOf(P, key), []);
+  });
+});
+
+test("J15 — while the sweep clears a marker whose record never landed, a copy newer than the window — an acceptance of the same message still writing — is kept, and a record that lands as the marker goes gets its marker back and runs", async () => {
+  await withPlatform({ slug: slugOf("j15"), answers: { route: (args, n) => (n < 2 ? LOGO_ROUTE : { intent: "addon" }), ...GALLERY } }, async (P) => {
+    const key = newKey();
+    const record = "requests/" + P.slug + "/" + key + ".json";
+    const marker = "requests-live/" + P.slug + "/" + key;
+    for (let i = 0; i < 4; i++) P.failPut((k) => k === record);
+    const msg = LOGO + ", and " + ADD + ".";
+    const img = [{ name: "logo.png", data: PNG }];
+    assert.equal((await sendMessage(P, { message: msg, key, images: img })).body.failed, true);
+    const old = filesOf(P, key);
+    assert.equal(old.length, 1);
+    P.advance(16 * 60 * 1000);
+    // AN ACCEPTANCE STILL WRITING: its copy, under an id from now.
+    const { attemptId } = await import("../builder/request.mjs");
+    const fresh = "requests/" + P.slug + "/" + key + "/files/" + attemptId(P.now(), "0123456789ab") + "/" + "f".repeat(64) + ".png";
+    P.objects.set(fresh, { body: "x", etag: "w", at: P.now() });
+    // AND ONE THAT LANDS ITS RECORD JUST AS THE SWEEP TAKES THE MARKER AWAY.
+    P.beforeDelete((k) => k === marker, async () => {
+      const r = await sendMessage(P, { message: msg, key, images: img });
+      assert.equal(r.body.request && r.body.request.key, key, JSON.stringify(r.body));
+    });
+    await tick(P);
+    assert.ok(P.record(key), "the acceptance during the sweep did not land");
+    assert.ok(P.objects.has(marker), "a record was left with no marker");
+    assert.ok(!P.objects.has(old[0]), "the copy older than the window was kept");
+    assert.ok(P.objects.has(fresh), "a copy newer than the window was let go");
+    const { rec } = await settle(P, key);
+    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    logoGotTheFile(P, key);
+  });
+});
+
+test("J16 — copies whose store failed part-way are let go at once, since no record was written to name them, and the message is held for sending again", async () => {
+  await withPlatform({ slug: slugOf("j16"), answers: { route: (args, n) => (n < 2 ? LOGO_ROUTE : { intent: "addon" }), ...GALLERY } }, async (P) => {
+    const key = newKey();
+    let n = 0;
+    P.failPut((k) => k.includes("/" + key + "/files/") && ++n === 2);
+    const msg = LOGO + ", and " + ADD + ".";
+    const first = await sendMessage(P, { message: msg, key, images: [{ name: "logo.png", data: PNG }, { name: "two.png", data: "data:image/png;base64,AAECAw==" }] });
+    assert.equal(first.body.failed, true, JSON.stringify(first.body));
+    assert.equal(P.record(key), null);
+    assert.deepEqual(filesOf(P, key), [], "a copy no record will ever name was kept");
+    const again = await sendMessage(P, { message: msg, key, images: [{ name: "logo.png", data: PNG }] });
+    assert.equal(again.body.request && again.body.request.key, key, JSON.stringify(again.body));
+    const { rec } = await settle(P, key);
+    assert.deepEqual(statuses(rec), ["done", "done"]);
+    logoGotTheFile(P, key);
   });
 });
 

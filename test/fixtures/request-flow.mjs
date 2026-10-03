@@ -69,9 +69,18 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     arrayBuffer: async () => (o.body instanceof Uint8Array ? o.body : new TextEncoder().encode(o.body)).slice().buffer,
   });
   const bucket = {
-    async get(k) { const o = objects.get(k); return o ? asObj(k, o) : null; },
+    async get(k) {
+      // A READ THAT FAILS (`failGet`): the store down for that one call.
+      const g = getFaults.findIndex((x) => x.match(k));
+      if (g >= 0) { getFaults.splice(g, 1); throw new Error("r2 unavailable"); }
+      const o = objects.get(k); return o ? asObj(k, o) : null;
+    },
     async head(k) { const o = objects.get(k); return o ? { key: k, etag: o.etag } : null; },
     async put(k, v, opts = {}) {
+      // SOMETHING ELSE LANDS FIRST (`beforePut`): another tab's call between
+      // this writer's read and its write, which then meets what that left.
+      const bp = beforePuts.findIndex((x) => x.match(k));
+      if (bp >= 0) { const x = beforePuts.splice(bp, 1)[0]; await x.then(k); }
       const cur = objects.get(k);
       const c = opts.onlyIf || {};
       if (c.etagMatches != null && (!cur || cur.etag !== String(c.etagMatches))) return null;
@@ -83,6 +92,14 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       if (f >= 0) {
         const x = putFaults.splice(f, 1)[0];
         if (x.kind === "fail") throw new Error("r2 unavailable");
+        // A WRITE THAT LANDS AND WHOSE ANSWER IS LOST (`losePut`): committed,
+        // and the writer told it failed. `then` runs in between — another
+        // tab's call, say — before the writer hears.
+        if (x.kind === "lose") {
+          setObj(k, body);
+          if (typeof x.then === "function") await x.then(k);
+          throw new Error("r2 response lost");
+        }
         setObj(k, body);
         hung.what = "put:" + k;
         die(null);
@@ -95,7 +112,15 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       if (k.startsWith("jobs/edit/")) { try { filed.set(k.slice("jobs/edit/".length), JSON.parse(String(body))); } catch { /* not a job */ } }
       return { key: k, etag: objects.get(k).etag };
     },
-    async delete(k) { for (const x of Array.isArray(k) ? k : [k]) objects.delete(x); },
+    async delete(k) {
+      for (const x of Array.isArray(k) ? k : [k]) {
+        // SOMETHING ELSE LANDS FIRST (`beforeDelete`): another call between
+        // this caller's read and its delete.
+        const bd = beforeDeletes.findIndex((d) => d.match(x));
+        if (bd >= 0) { const d = beforeDeletes.splice(bd, 1)[0]; await d.then(x); }
+        objects.delete(x);
+      }
+    },
     // A PAGE AT A TIME, as R2 lists: `truncated` with a `cursor` while keys are
     // left, the cursor opaque to the caller (here, the last key it was given).
     async list({ prefix = "", limit = 1000, cursor } = {}) {
@@ -117,6 +142,11 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
   const nextN = (k) => { counts[k] = (counts[k] || 0) + 1; return counts[k] - 1; };
   const hangs = [];
   const putFaults = [];
+  const getFaults = [];
+  const beforePuts = [];
+  const beforeDeletes = [];
+  const rpcFaults = [];
+  let sendHangs = 0;
   const replyLog = [];
   const filed = new Map();
   const afters = [];
@@ -348,6 +378,9 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     const m = url.match(/\/rest\/v1\/rpc\/([a-z_]+)/);
     if (m) {
       const fn = m[1];
+      // A CALL THAT NEVER LANDS (`failRpc`): the database down for that one call.
+      const rf = rpcFaults.findIndex((x) => x.fn === fn && (x.when ? x.when(args) : true));
+      if (rf >= 0) { rpcFaults.splice(rf, 1); return new Response("unavailable", { status: 503 }); }
       let out;
       if (Object.hasOwn(rpc, fn)) out = rpc[fn](args);
       else if (fn === "credit_debit") {
@@ -414,6 +447,8 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
         if (env.__dropSends > 0) { env.__dropSends--; throw new Error("queue unavailable"); }
         const m = { body, delaySeconds: (opts && opts.delaySeconds) || 0 };
         queue.push(m); sent.push(m);
+        // A SEND THAT LANDS AND WHOSE SENDER NEVER HEARS (`hangSend`): evicted right after it.
+        if (sendHangs > 0) { sendHangs--; hung.what = "send"; die(null); hung.resolve("send"); return new Promise(() => {}); }
       },
     },
     ...dispatchEnv(),
@@ -461,6 +496,18 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     hangPut(match) { putFaults.push({ kind: "hang", match }); resetHung(); },
     /** The next write to a key `match(key, body)` accepts fails outright. */
     failPut(match) { putFaults.push({ kind: "fail", match }); },
+    /** The next write to a key `match(key, body)` accepts lands, runs `then(key)`, and throws: a committed write whose answer is lost. */
+    losePut(match, then) { putFaults.push({ kind: "lose", match, then }); },
+    /** The next read of a key `match(key)` accepts throws. */
+    failGet(match) { getFaults.push({ match }); },
+    /** Before the next write to a key `match(key)` accepts, run `then(key)`; the write then meets what it left. */
+    beforePut(match, then) { beforePuts.push({ match, then }); },
+    /** Before the next delete of a key `match(key)` accepts, run `then(key)`; the delete then goes ahead. */
+    beforeDelete(match, then) { beforeDeletes.push({ match, then }); },
+    /** The next call to `fn` (or the first whose `when(args)` holds) is refused before it lands. */
+    failRpc(fn, when) { rpcFaults.push({ fn, when }); },
+    /** The next queue send lands and its sender never hears. */
+    hangSend() { sendHangs++; resetHung(); },
     /** Clear a crash: the next deliveries run normally. */
     recover() { resetHung(); },
     /** The end of a case: no timer of a crashed or finished invocation outlives it, and the real wire is back. */
