@@ -403,7 +403,11 @@ here; take a closed one out of both.**
   without a word (MW2, a fifth lane; MW4, past a step's count; MW6, an
   addition's declined part), a second part the answer cannot make vanishing
   (MW3), and a job's interval raised unsaid (MW7). A real-model batch
-  (MX1–MX6) is prepared, not run.
+  (MX1–MX6) is prepared, not run. **All eight fixed on the branch on
+  2026-10-03, unmerged and undeployed** (`docs/history/2026-10-03-mixed-work-fixes.md`);
+  open: an edit and an addition finishing in one request (the plan,
+  `docs/investigations/edit-addon-one-request-plan.md`, three decisions the
+  owner's), and the real-model batch.
 
 ---
 
@@ -468,12 +472,15 @@ here; take a closed one out of both.**
     held-back part in a script near a character a token (R16, batch 1); and
     twelve more, listed in the audit's §9.
 - **MIXED WORK FROM ONE MESSAGE (MW1–MW8; found 2026-10-03 by the
-  mixed-work audit on the owner's word; audit and tests only, nothing
-  changed).** Each is a case in `test/mixed-work.test.mjs` that asserts the
-  behaviour as it happens, and each is in
-  `docs/investigations/mixed-work-audit.md` §6 with its place in the code;
-  the ranked fixes are its §9. Four are information-limits items shown in a
-  mix, and would be fixed once:
+  mixed-work audit on the owner's word; FIXED ON THE BRANCH THE SAME DAY, on
+  their word, unmerged and undeployed —
+  `docs/history/2026-10-03-mixed-work-fixes.md`).** Each case in
+  `test/mixed-work.test.mjs` now requires the fix (FIXED MWn), through the
+  real routes with supplied answers; `docs/investigations/mixed-work-audit.md`
+  §6 holds each finding beside its status. Shown with supplied answers only:
+  a real model's answers and a live site's delivery are unverified until the
+  real-model batch (MX1–MX6, prepared, not run). The findings as they stood
+  on `main` (deploy 2180), where they still hold:
   - **MW1** (= IL12, review #9): beside a look or page change, a photograph
     change and a menu change are made but told nowhere — the merged answer
     keeps one step's `msg`, and on a `look` answer both the page's composer
@@ -500,9 +507,21 @@ here; take a closed one out of both.**
   - **MW8** (new, low): the page's own reply for page steps alone names no
     page (*"Updated the look."*); a model reply's facts name both.
   - **Kept as decisions, not defects**: an edit and an addition never finish
-    together from one message; an addition is all or nothing on a failed
-    check; nothing runs concurrently. Whether to change any of the three is
-    the owner's (the report's §9, item 6).
+    together from one message (the plan for finishing both in one request is
+    `docs/investigations/edit-addon-one-request-plan.md`, not built: whether
+    later parts may spend without a second press, one reply per part or a
+    summary, and stop on failure are the owner's); an addition is all or
+    nothing on a failed check; nothing runs concurrently.
+  - **Left by the fixes, said** (2026-10-03): a part the picker names nowhere
+    (no lane, no `elsewhere`) is still neither made nor named — nothing reads
+    the customer's words for meaning, so only the real-model batch can say
+    how often a real picker does that; the per-kind addition ceilings and the
+    menu's ten items stay as limits, each item past them named; row changes,
+    rules tables and link changes past their old counts are shown at their
+    readers, not through the route; the page's fallback composer still shows
+    at most three of a page's lint problems and 200 characters of a part left
+    for later (display bounds, left for the paused information-limits
+    batches).
 - **WHAT THE MODEL-WRITTEN REPLIES LEAVE (MR1–MR8; found 2026-10-03 while
   making edit and add-on replies model-written on the owner's word;
   deliberate unless marked).** Each is in

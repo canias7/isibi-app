@@ -1,99 +1,103 @@
-# Many changes from one message, across Edit and Add-on (audit, 2026-10-03)
+# Many changes from one message, across Edit and Add-on (audit and fixes, 2026-10-03)
 
-> **The order** (owner, 2026-10-03, pausing the remaining information-limits
-> batches): *"Our next priority is whether the builder can complete many
-> different requested changes together across Edit and Add-on. Audit and test
+> **Two orders, one report.** The audit (owner, 2026-10-03): *"Audit and test
 > the existing implementation end to end, covering every supported edit
-> operation and add-on kind, using the actual registered capabilities rather
-> than assuming a list is complete … Distinguish clearly between several tasks
+> operation and add-on kind … Distinguish clearly between several tasks
 > completed from one user message, several model calls, and tasks actually
-> running concurrently. Build one consolidated capability matrix … Trace mixed
-> requests through the router, operation picker, scoped instructions,
-> Edit/Add-on handoffs, Worker/container execution, queue, publication,
-> billing and final reply … Separately prepare a compact real-model test
-> batch … do not run paid calls until approved … This round is audit and
-> testing only: do not implement new fixes, merge, deploy, or change first
-> Build. Finish with a plain-English answer to 'What different things can our
-> builder do together from one message today, and what specifically prevents
-> it from doing more?'"*
+> running concurrently … This round is audit and testing only."* Then the
+> fixes (owner, the same day): *"The mixed-work audit identifies the right
+> problems, but correct its capability claims before proceeding … Separate
+> what was actually changed and published from what was only designed,
+> stored, handed off, deferred or left unverified. Remove “at most” language
+> from cost estimates unless an enforced spending cap supports it. Keep the
+> general information-limits batches paused … First implement the closely
+> related mixed-work correctness fixes … Do not merge, deploy, rebuild
+> containers, spend credits or run the prepared real-model batch yet."*
 >
-> **What this is.** A read of the code at `c088fc52` (the branch
-> `claude/help-needed-ehlwlj`); **20 new scenario cases** in
-> `test/mixed-work.test.mjs`, each driving the real routes with supplied model
-> answers and comparing what was asked with what changed, what was published,
-> what was put off or failed, what was charged and what the customer is told;
-> and **nine existing suites re-run as evidence** (252 cases). Nothing was
-> implemented, merged or deployed; no model was called; nothing was spent;
-> Build was not touched. **Every case is a controlled reproduction**: the real
-> code with supplied answers. Whether a real router, picker or step gives
-> those answers is the real-model batch's to measure (§8).
+> **Where this stands.** The fixes are on `claude/help-needed-ehlwlj`,
+> **unmerged and undeployed**: `main` (deploy 2180) still behaves as the
+> audit found. No model was called, nothing was spent, no container was
+> rebuilt, first Build is unchanged. **Every result below is a controlled
+> reproduction** — the real routes, synchronously and as a queued job, with
+> **supplied** model answers — unless it says "live". A controlled
+> reproduction shows what the code does with an answer; it does not show that
+> a real router, picker, designer or page writer gives that answer, nor that
+> a live site receives the whole delivery. The real-model batch (§8) is what
+> would show that, and it has not been run. The cross-route plan the order
+> asked for is `docs/investigations/edit-addon-one-request-plan.md`.
 
-## The answer, in plain English
+## The answer, in plain English (corrected)
 
-**What it can do together from one message today.**
-- **Edits, up to four different kinds at once**, on as many pages as they
-  touch: the site's colours or fonts, its name or description, sections moved
-  or taken off on any page, a photograph swapped, reframed or taken off, the
-  menu and the header button, who may submit what, and the web address. Each
-  is made where it belongs, one after another, and the site is published once.
-- **The same kind of change on several pages** — two sections moved on two
-  pages, the wording changed on several pages, several photographs (up to
-  eight), the whole menu rewritten — in one message.
-- **Additions, many at once**: tables, the functions and outside services
-  that use them, scheduled jobs that run those functions, new pages and
-  sections, a line of words, a QR code, a 3D scene, photographs — all twelve
-  kinds, in one message. The builder designs them in a fixed order so that
-  each part can use the parts before it: a function can read a table added
-  in the same message, and a job can run that function. One publish, one
-  charge.
-- **One part failing doesn't stop the others** on the edit side, and the
-  failure is named. One part needing a question doesn't stop the others
-  either: the rest is done, only the unclear part waits, and answering it
-  never repeats or re-charges what was done.
+**What changes and publishes together from one message** (on this branch,
+shown with supplied answers):
+- **Edits of every kind the look door reaches, as many as the picker names**,
+  one after another, published once: the stylesheet, theme, name,
+  description, logo and tab icon, sections moved or taken off on any page, a
+  photograph swapped, reframed or taken off, the menu and the header button,
+  who may submit what, the web address. The four-kind limit is gone; five
+  different kinds ran together, stored and queued (FIXED MW2).
+- **The same kind of change on several pages or targets**: two sections on
+  two pages; the wording on several pages (one text step); nine photographs
+  (every one asked, FIXED MW4); row changes, rules for several tables and
+  link changes past their old counts (shown at each step's reader).
+- **Additions designed and applied together**: ten of the twelve registered
+  kinds — `table`, `function`, `api`, `job`, `page`, `component`, `words`,
+  `qr`, `three`, `photo` — in a fixed order, so a function can read a table
+  added in the same message and a job can run that function; one migration,
+  one page write, one publish, one charge. **`row` and `frame` are the
+  exceptions**: beside any other kind they are **set aside and named, not
+  made**; alone, a row is added by the add-on step and a menu link (`frame`)
+  is handed to the menu step.
 
-**What stops it doing more.**
-1. **The customer isn't told about some of what was done.** Beside a styling
-   or layout change, a photograph taken off and a menu change *are made* but
-   the reply mentions neither (MW1). A QR code or a 3D scene that was added is
-   never mentioned at all (MW5).
-2. **Big requests lose parts without a word.** A fifth different kind of edit
-   is simply not done and not mentioned (MW2); so is a ninth photograph, an
-   eleventh menu link, a twenty-first row change or a fifth table's rules
-   (MW4). Additions past their limits, by contrast, are named.
-3. **An edit and an addition never finish together.** One message gets one
-   route: an edit, or an addition. The other half is held back and the
-   customer is told to send it next. "Add a gallery page and put it in the
-   menu" is two messages. So is any change to stored entries, or to exact
-   wording, beside a different kind of change.
-4. **A second part the route can't make can vanish.** Only one part can be
-   held back. If a message holds an addition *and* a wording change beside a
-   styling change, the addition is held and named — and nothing guarantees
-   the wording change is either made or mentioned (MW3).
-5. **An addition is all-or-nothing when a part fails its checks**, and a part
-   whose designer gives up silently vanishes (MW6). A schedule faster than the
-   platform runs is quietly slowed to every fifteen minutes (MW7).
-6. **Nothing runs at the same time.** Several changes from one message are
-   several model calls run one after another — by your earlier decision, so
-   two steps never overwrite each other — and a site runs one job at a time.
-   That is safe, and it means a big message takes the sum of its steps'
-   time.
+**What is only stored, handed off or left for later, and now said as such**:
+- **A QR code or a 3D scene is stored configuration.** The add-on saves it
+  and hands it to the page writer; whether a page shows it is now read from
+  the published pages, and the reply says *shown on /x* only when a page
+  does, otherwise *saved, but no page shows it yet* (FIXED MW5). That a
+  **real** page writer places it on the page asked for is **unverified**.
+- **A part no single route can make with the rest is left for later and
+  named**, in the customer's words — now several parts, not one: the
+  router's held parts (a list on a site) and each part the picker names as
+  no lane's here (FIXED MW3). They are never run this turn.
+- **An addition whose designer declines** is named as not made beside the
+  ones that were (FIXED MW6); **a schedule faster than every 15 minutes**
+  runs every 15 and the reply says what was asked, what runs and why (FIXED
+  MW7).
+
+**What still stops more**:
+1. **An edit and an addition never finish together.** One message reaches
+   one route; the other half is left for later, named, and must be sent
+   again. The smallest change that would finish both halves in the same
+   request is proposed in the plan (not built; three decisions are yours).
+2. **The fixes depend on the models answering as told.** A picker that names
+   no lane and no `elsewhere` for a part leaves the code nothing to read, and
+   nothing here guesses at it (no keyword rules). Only the real-model batch
+   can measure how often that happens.
+3. **Genuine limits remain, each now named when it binds**: ten items per
+   menu and eight per footer list; per-kind addition ceilings (§2); one
+   answer per step, refused whole when it is cut off at its ceiling; what one
+   request can carry (48,000 characters); the information limits on what
+   each step is shown (60 rows, 60 photograph slots), which belong to the
+   paused information-limits batches.
+4. **Nothing runs at the same time**, by your decision: steps run in turn, a
+   site runs one job at a time, and a big message takes the sum of its
+   steps' time.
 
 ## 1. Three things that are easy to confuse
 
-| | What it means here | Today |
+| | What it means here | On this branch |
 |---|---|---|
-| **Several tasks from one message** | the customer asks for several changes in one message and the builder makes them all before answering | yes: up to four edit kinds (each on as many pages as it touches), or up to twelve addition kinds; never an edit and an addition together |
-| **Several model calls** | one task, or one message, uses more than one model call | always: the router (1), then for an edit the lane picker (1) and one call per lane or step (a page step may add a keep check, a full-writer fallback or a stylesheet correction); for an addition the add-on picker (1), one designer per kind and one page writer; and a reply writer once replies are model-written |
-| **Tasks running concurrently** | two of the customer's changes being made at the same moment | **never.** Lanes run in turn (your decision, "run both lanes in turn", written at `worker.js` 24748), steps run in turn ("RUN EVERY STEP IN TURN, AND ANSWER ONCE", 26341: two rungs at once "would race over the same config and the same page source"), designers run in turn (28346), and one job runs per site at a time (the site lock, `supabase/applied/20260905200655_site_serialization.sql`). Only infrastructure overlaps: store reads, an addition's photographs bought together, translations of one publish, and different sites |
+| **Several tasks from one message** | the customer asks for several changes in one message and the builder makes them all before answering | yes, within one route: every edit lane the picker names (each on as many pages as it touches), or up to the ten addition kinds that combine; never an edit and an addition together |
+| **Several model calls** | one task, or one message, uses more than one model call | always: the router (1), then for an edit the lane picker (1) and one call per lane or step (a page step may add a keep check, a full-writer fallback or a stylesheet correction); for an addition the add-on picker (1), one designer per kind and one page writer; and a reply writer when replies are model-written |
+| **Tasks running concurrently** | two of the customer's changes being made at the same moment | **never.** Lanes and steps run in turn ("RUN EVERY STEP IN TURN, AND ANSWER ONCE": two rungs at once would race over the same config and page source), designers run in turn, and one job runs per site (the site lock). Only infrastructure overlaps: store reads, an addition's photographs bought together, translations of one publish, different sites |
 
-## 2. What is registered (read from the code, pinned by the first case)
+## 2. What is registered, and the limits that remain
 
-**Edit layers** (`EDIT_LAYERS`, `site-ask.mjs` 159), one per message from the
-router: `data`, `text`, `look`, `page`, `rules`, `picture`, `logo`, `nav`,
-`rename`.
+**Edit layers** (`EDIT_LAYERS`), one per message from the router: `data`,
+`text`, `look`, `page`, `rules`, `picture`, `logo`, `nav`, `rename`.
 
-**Look lanes** (`LANE_FIELDS`, `site-lanes.mjs` 868): 21, of which **at most
-four run per message** (`MAX_LANES`, 251). Where each lane's work runs:
+**Look lanes** (`LANE_FIELDS`): 21, **every one the picker names runs**
+(the four-lane cap `MAX_LANES` is removed). Where each lane's work runs:
 
 | Runs as | Lanes |
 |---|---|
@@ -106,304 +110,209 @@ four run per message** (`MAX_LANES`, 251). Where each lane's work runs:
 | a verb (`add` → the add-on step; `remove`, `move` → the page step) | `pages` |
 | the full rewrite (Build's pipeline) | `kind` |
 
-**Add-on kinds** (`ADD_KINDS`, `site-add.mjs` 1257): `table`, `row`,
-`function`, `api`, `job`, `page`, `component`, `words`, `frame`, `qr`,
-`three`, `photo` — designed **in that order**, so each can use what the ones
-before it proposed. `frame` alone is handed to the menu step; `row` and
-`frame` beside other kinds are set aside and named.
+**Add-on kinds** (`ADD_KINDS`): `table`, `row`, `function`, `api`, `job`,
+`page`, `component`, `words`, `frame`, `qr`, `three`, `photo`, designed in
+that order. `frame` alone is handed to the menu step; `row` and `frame`
+beside other kinds are set aside and named.
 
-**Counts per message**: lanes 4; photographs changed 8 (`MAX_PICTURE_OPS`);
-menu links 10 (`MAX_NAV_ITEMS`); row changes 20 (`MAX_DATA_OPS`); rules
-tables 4 (`MAX_RULE_TABLES`); parts put off across a request's turns 4
-(`MAX_HELD`); additions: tables 6, functions 6, APIs 4, jobs 4, pages 6,
-components 12, rows 12, lines of words 6 (`MAX_ADD_*`); a job at least every
-15 minutes (`MIN_JOB_MINUTES`).
+**Counts removed** (each was a silent drop): lanes per message (4),
+photographs per picture step (8), row changes per data step (20), tables per
+rules step (4), link changes per menu step (12), parts put off per request (4,
+now bounded by what one request carries), and the schema `maxItems` on the
+nine list-kind addition tools (which told a model to leave entries out
+before the cleaner could name them).
 
-## 3. How a mixed message flows today
+**Limits kept, each named when it binds**:
 
-1. **The router gives one answer for the whole message** (`routeMessage`):
-   an intent (`edit`, `addon`, `build`, `ask`, `clarify`) and, for an edit,
-   one layer. Its own rule (the `layer` description's last paragraph): a
-   layer other than `look` when it alone can make every change; otherwise
-   `look` when it can make them all; and a part is held back (`alsoAsked`,
-   one passage copied from the message) only when no single answer can make
-   it with the rest. `look` reaches styling, the name and description,
-   sections on any page, photographs, the menu and button, what the site
-   enforces, the web address and taking things off. **It does not reach new
-   things (additions), stored entries (`data`) or exact wording (`text`)**,
-   so each of those beside another kind is held back for the next message.
-2. **On an edit**, the lane picker names up to four lanes and, for each
-   change, its own page and words (`scopes`). Lanes become steps (§2's
-   table): the look step's lanes run one after another and write the stored
-   look once; each page lane runs once per page it is scoped to, on only its
-   words; the picture, menu, rules and address steps run once each.
-   **Steps run in turn** (`worker.js` 26368): each later step works on the
-   pages the earlier ones produced (`publishStep` keeps them in memory) and
-   on the look they stored; nothing is published until the end.
-3. **One publish** for the whole message, only if something succeeded
-   (26469); a stylesheet that matches nothing gets one correction round.
-4. **Billing**: the picker's call once per message, then each step its own
-   charge (each rounded on its own); on the queue each is a sequenced
-   reserve, refunded when nothing ships. A step that fails after its model
-   answered keeps its charge beside work that shipped, and the reply says so.
-5. **An addition found on the edit side**: a page, QR code or 3D scene the
-   site lacks, *alone*, hands the whole message to the add-on step (the
-   browser hops, same message); *beside other edit work* it is put off and
-   named (W15). The add-on hands a lone menu link (`frame`) to the menu step.
-6. **On an addition**, the add-on picker names the kinds; one designer per
-   kind runs in `ADD_KINDS` order, each shown the site as the earlier
-   proposals left it (`aSite` is rebuilt after every kind, 28346–28420);
-   everything is validated before anything is applied — **one refusal
-   refuses the whole addition**; then one database migration (tables before
-   the functions that read them), the jobs registered, **one page writer
-   call** for all the page work, **one publish, one charge** (photographs
-   bought on top).
-7. **A question**: a step that asks beside steps that run lets them finish;
-   the question keeps only its own part, and the answer resumes only that
-   part, with nothing done twice and nothing charged twice
-   (`live-clarify-continue.test.mjs`). An add-on designer that asks makes
-   the whole addition wait — by design, since every part is designed before
-   any is applied.
-8. **The reply** is composed from the route's final answer: by the page on
-   main today (model replies are on the branch, unmerged), and from the same
-   answer's facts by a model once merged.
-
-## 4. The capability matrix
-
-"Together" = completed from one message. "In turn" = run one after another
-within that message (none run at the same time). "Next message" = held back
-and named, for the customer to send. Evidence: **MW** = this round's cases
-(`test/mixed-work.test.mjs`), **live** = a closed live test, otherwise the
-suite named.
-
-| Combination | From one message today | How it runs | Model calls (routing, then work) | Publishes · charges | What the customer is told | Evidence |
-|---|---|---|---|---|---|---|
-| The same layout change on two pages | **together** | two page steps, in turn, each on its own page and words | 1 + picker + 1 per page | 1 · one per page step | page's reply: *"Updated the look."* (no page named, MW8); facts name both | MW case 2 |
-| Wording on several pages | **together** | one text step | 1 + 1 | 1 · 1 | both changes quoted | MW case 3 |
-| Several photographs | **together, up to 8**; the 9th left unsaid | one picture step | 1 + 1 | 1 · 1 | the eight named, the ninth not (MW4) | MW case 13 |
-| Several menu changes | **together** (one rewrite); links past 10 dropped unsaid | one menu step | 1 + 1 | 1 · 1 | the menu named | code; IL14 |
-| Several row changes | **together, up to 20**; the 21st dropped unsaid | one data step | 1 + 1 | 1 · 1 | the table named | code; IL14 |
-| Different changes on one page (move, photo off, menu) | **together** | page, picture, menu steps in turn; the photo comes off the moved page | 1 + picker + 3 | 1 · 3 | **only "Updated /"**: photo and menu untold (MW1) | MW case 4 |
-| Different changes across pages, up to four kinds | **together** | look, page, picture, menu steps in turn | 1 + picker + 4 | 1 · 4 | **only the description and /visit**: photo and menu untold (MW1) | MW cases 5–6 (sync, queue) |
-| Two changes across pages (description + Visit move; photo off + home move; menu + Visit move) | **together** | as above | 1 + picker + 2 | 1 · 2 | named | live: Tests 6, 7, 8 (runs 57, 60, 66) |
-| A fifth kind of edit | **dropped**, unsaid | not run, not put off | — | — | nothing (MW2) | MW case 7 |
-| A page removed beside other edits | **together** (the router's removal door runs its own step plus the picker's) | removal step + others in turn | 1 + picker + n | 1 · per step (removal free) | named | `edit-removal-door.test.mjs`; live: Test 5 |
-| A rules change beside styling (site with no database) | **together** for the styling; the rule refused and said, free | look step; rules step refuses before its model | 1 + picker + 1 | 1 · 1 | the refusal said | MW case 10 |
-| A rules change beside styling (site with a database) | **expected together** | look step + rules step | — | — | — | **untested in a mix** (§7) |
-| The address changed beside styling | **expected together**; its refusal path shown | look step + address step | 1 + picker + 2 | 1 · 2 | the refusal said and billed | probe only; success path **untested** (§7) |
-| One edit step fails beside others | **the rest together**; the failure named | in turn, no stop | as asked | 1 · each step (the failed one too) | *"…That part still cost 1 credit."* | MW case 8 |
-| One edit step asks beside others | **the rest together**; one question kept | in turn | as asked | 1 · the steps that ran | the question shown under the rest | `live-clarify-continue.test.mjs` |
-| Its answer | **only the waiting part runs**, nothing repeated or re-charged | — | 1 + picker + the step | 1 · that step | — | same |
-| An edit and an addition | **next message** for one half (by design) | the router answers one, holds the other | 1 + the half run | 1 · that half | *"Say “…” and I'll do that next."* | MW cases 9, 11; W15 cases |
-| An edit and a data or wording change of another kind | **next message** for one half | the router holds it back | — | — | named | router instructions; W7 cases |
-| Two parts the answer cannot make (an addition **and** a wording change beside styling) | one held and named; **the other can vanish** | `alsoAsked` holds one passage | — | — | the held one only (MW3) | MW case 12 |
-| A page or QR or 3D addition alone, found by the look step | **together** (handed to the add-on step) | browser hops with the hand-over | +1 route | as the addition | named as an addition | `add-goes-to-addon`, W15 |
-| Several additions of different kinds (up to all twelve) | **together** | designers in order, one migration, one page write | 1 + picker + 1 per kind + 1 page writer | 1 · 1 | most named — **not a QR code or a 3D scene** (MW5) | MW cases 14–15 |
-| A table, then a function, an API and a job that use it | **together**; each part sees the earlier ones | in dependency order | 1 + picker + 4 + 1 | 1 · 1 | all four named | MW case 14 |
-| A new page, then things placed on it (component, QR, 3D, words) | **together**; each designer told the page is coming | in order, one page write | 1 + picker + 5 + 1 | 1 · 1 | the page and the words named; QR and 3D not (MW5) | MW case 15 |
-| A new page, then a menu link to it | **next message** for the link (set aside, named) | the link is the menu step's | — | — | *"…a separate step…"* | MW case 16 |
-| A new page and a new entry in a list | **next message** for the entry | set aside, named | — | — | *"I left out one row…"* | MW case 16 |
-| An addition and a styling change | **next message** for the styling | the router holds it | — | — | named at the end | MW case 11 |
-| One addition's designer declines | **the rest together**; the declined part **vanishes** | — | — | 1 · 1 | only what was added (MW6) | MW case 17 |
-| One addition fails its checks | **nothing** (all or nothing), the reason said | validation before any apply | — | 0 · 0 | the reason, "Nothing was changed" | MW case 18 |
-| One addition's designer asks | **the whole addition waits** (by design) | — | — | 0 · 0 | the question | `live-clarify-continue.test.mjs` |
-| More additions of one kind than allowed | **together up to the limit**; the rest named | — | — | 1 · 1 | *"I left out “…”"* | MW case 19 |
-| A schedule faster than every 15 minutes | **together**, slowed to 15 **without saying so** | — | — | 1 · 1 | *"(every 15 minutes)"* (MW7) | MW case 20 |
-| Two messages on one site at once | **one after the other** (the site lock) | the second waits and is re-sent | — | — | the poll says it is waiting | `site-busy.test.mjs` |
-
-## 5. Proven capabilities (controlled reproductions, plus live runs where named)
-
-- **A message's steps preserve each other's work.** The photograph taken off
-  the home page came off the version the move had already rewritten; two
-  look lanes in one message (stylesheet and description) are both stored;
-  each page writer is handed only its own page and words (MW cases 2, 4, 7).
-- **One publish per message** however many steps or kinds ran (every case);
-  on the queue, the same outcome with sequenced reserves (case 6).
-- **A new object is available to the steps after it in the same message** —
-  on the add-on side: the function designer is shown the new table, the job
-  designer the new function, every designer of a page's contents is told the
-  page is being added, and the database is changed in that order (cases 14,
-  15). The edit side creates no objects; its later steps see earlier pages
-  and stored look values.
-- **Independent edit steps survive a failed one**, and the failure is named
-  with its cost (case 8); a refused rules step beside styling costs nothing
-  (case 10).
-- **What waits is named**: a held-back addition or styling change (cases 9
-  and 11), a set-aside entry or menu link (case 16), additions past their
-  limits (case 19).
-- **Questions and their answers** (re-run, `live-clarify-continue`, 18
-  declarations): the rest finishes beside a step's question; the answer
-  resumes only that part; nothing completed is rerun or re-charged.
-- **No two writes race**: within a message by construction (in turn), across
-  messages by the site lock (`site-busy`, 19 declarations).
-- **Live, already closed** (no rerun needed): two changes from one message on
-  `fold-lane-bakery` — Test 6 (run 57: description and a Visit move), Test 7
-  (run 60: a photograph's element off `/visit` and a home move), Test 8 (run
-  66: a menu item out and a Visit move); five additions routed and delivered
-  (run 92, Test 12).
-
-## 6. Reproduced failures (each a case in `test/mixed-work.test.mjs`)
-
-| ID | What happens | Where | Severity |
+| Limit | Value | Why it stays | What the customer is told |
 |---|---|---|---|
-| **MW1** | Beside a look or page change, a **photograph change and a menu change are made but never told**. The merged answer flattens the steps into one object: `layers` lists every step (`["look", "picture", "nav"]`), but one `msg` survives (the picture's *"Took … off the page"*; the menu's own sentence is lost), and on a `look` answer both readers — the page's composer and `editReplyFacts` — read only the look's fields and the page operations, never `msg`, `photosTakenOff` or `links`. Same cause as review #9 / IL12, now shown for three- and four-step messages, on both paths. | the edit route's merge (`worker.js` after 26600); `editReply` in `chat.js`; `editReplyFacts` | high |
-| **MW2** | A **fifth lane is dropped**: not run, not put off, not in `partial`, not in the reply. Which one goes is decided by `LANE_FIELDS` order (the menu, last, went). IL13 in a mix. | `laneList` (`site-lanes.mjs` 1690–1711) | high |
-| **MW3** | **A second part the answer cannot make can vanish**: `alsoAsked` holds one passage, and nothing on the edit side checks that every part of the message went to a lane or was held. Shown with a picker that leaves a wording change unscoped; whether a real picker would hand it to a page lane is untested (real-model row MX5). | the router's `alsoAsked`; no coverage check after `pickLanes` | high (if a real picker leaves it) |
-| **MW4** | **More changes of one kind than a step takes** lose the rest without a word: the ninth photograph (shown); by the code, the eleventh menu link, the twenty-first row change, the fifth rules table. IL14 in a mix. | the steps' own caps | high |
-| **MW5** | **A QR code or a 3D scene that was added is never named** — alone (*"Done — updated /"*) or beside a page. The add-on's answer carries no field for either, so neither reader can say it. Nothing checks that the code was placed on a page either. | the add-on's answer; `addonReplyFacts`, `addonReplyText` | medium |
-| **MW6** | **An addition's declined part vanishes** beside a part that was added. IL10 in a mix. | `aDeclined` read only when every kind declined | high |
-| **MW7** | **A schedule faster than every 15 minutes is slowed without saying so**: the reply states fifteen as if asked. | two layers raise it, the add-on's cleaner (`everyAsked`, `site-add.mjs`) and `normalizeJob` (`site-jobs.mjs`); neither tells the reply | low |
-| **MW8** | **The page's own reply names no page** for page steps alone (*"Updated the look."*), though the answer carries them. Only main's composer; a model reply's facts name both. | `editReply` in `chat.js` | low |
+| Items in the site's menu | 10 (`MAX_NAV_ITEMS`); footer list 8 (`MAX_LIST_ITEMS`) | a design limit of the menu and footer | every item past it, by name, with the limit |
+| Additions of one kind per message | pages 6 (the page writer's own), components 12, tables 6, rows 12, functions 6, APIs 4, jobs 4 (the engine keeps 8 per site), lines of words 6, photographs 6 (`IMAGE_CAP`, the purchase ceiling) | ceilings a site can hold, set by the owner's "no low limits while testing" | every entry past it, by name (`over-cap`) |
+| One step's answer | its ceiling grows with what the step is shown, enforced at most 16,000 tokens (`LIST_ANSWER_MAX_TOKENS`, inside the call's time limit) | the time a call may take | an answer cut off at its ceiling is refused whole: *"The builder's answer for that part was cut off before it finished, so none of it was used and nothing there changed — this is on us."* |
+| Parts carried across turns | 48,000 characters together (`MAX_CARRIED_CHARS`), each part one message (16,000) | the size policy | a list past it is refused whole at no cost, never run whole |
+| A scheduled job's interval | at least every 15 minutes | the platform's own minimum | what was asked, what runs, and why |
+| Rows shown to the data step; photograph slots shown to the picture step | 60 each | information limits: the paused batches | unchanged by this round |
 
-## 7. Not tested, said plainly
+## 3. How a mixed message flows (on this branch)
 
-- **Real models.** Every case uses supplied answers. Whether the real router
-  keeps four changes in one `look` answer, whether the real picker names four
-  lanes with the right scopes, and what a real step does past its count, are
-  §8's to measure.
-- **A rules change beside other edits on a site with a database**, and **an
-  address change beside other edits that succeeds**: the steps run (the
-  probes show them reached and their refusals said), but their success in a
-  mix is not driven here — the harness answers every site lookup with one
-  owner, so the address step reads every name as taken.
-- **The data step beside nothing else at its count** is covered by its own
-  suites; beside other kinds the router holds it back, so it never meets
-  another step in one message.
-- **A logo beside other edits**: the router holds one back (a logo is its own
-  layer); not driven.
-- **Placement of a QR code by the real page writer**: with supplied pages the
-  code is stored but on no page, and nothing reports that.
-- **Wall-clock time of a four-step message on the queue**: unmeasured; the
+1. **The router gives one answer for the whole message**: an intent and, for
+   an edit, one layer. A part no single answer can make with the rest is held
+   back (`alsoAsked`: on a site, a list of passages, each copied from the
+   message; the first build's tool is unchanged and keeps its one string).
+2. **On an edit**, the picker names the lanes and, for each change, its own
+   page and words (`scopes`), and **each part of the message no lane here can
+   make** (`elsewhere`, copied exactly; a part the message does not hold
+   word for word is dropped and counted, never put off on a guess). Every
+   part put off — the router's, the picker's, an addition found by the look
+   door — is taken out of every step's words before anything runs.
+3. **Steps run in turn**; each later step works on the pages the earlier ones
+   produced. **Each step's own result is kept** (`steps` on the answer: its
+   layer, lanes, status — done, asked, failed or superseded — its target
+   (its words, and its page on the page rung), its own account and its cost),
+   through the merge, the queue's stored reply and the reply.
+4. **One publish** for the whole message, only if something succeeded.
+5. **Every part not done is named with its target** (`partial`: the step's
+   words or the part of the site its lanes are, the page on the page rung,
+   the builder's own reason, `truncated` when its answer was cut off, and
+   what it still cost); a change withheld for a page the site does not have
+   keeps the words it was for, so a question beside it can take them out of
+   what its answer resumes.
+6. **On an addition**, the add-on picker names the kinds; one designer per
+   kind runs in order, each shown what the ones before proposed; everything
+   is validated before anything is applied (one refusal refuses the whole
+   addition); then one migration, the jobs registered, one page write, one
+   publish, one charge. **The answer now keeps** each declined kind
+   (`declined`), each QR code with the page asked for and the pages that
+   really show it (`qrs[].on`, read from the publication), the scene likewise
+   (`scene.on`), each job's interval asked beside the one applied
+   (`askedEveryMinutes`), and every entry of every list (nothing cut at six).
+7. **The reply**: model-written from the answer's facts (`MODEL_REPLIES`), and
+   the page's own composer as the fallback; both read the same new fields
+   (screenshots: the round's history file).
+
+## 4. Outcomes, by what really happened
+
+The words used below, as the order asked:
+
+| Outcome | Means |
+|---|---|
+| **Changed and published** | the stored site changed (pages, look, database) and the one publish carried it — read back from the stored pages and the compiler's payload |
+| **Designed** | a designer proposed it; nothing is applied until every part passes validation |
+| **Stored** | saved in the site's configuration (a QR code, a scene's description) — not by itself on any page |
+| **Handed off** | passed to another step within the same message (the add-on's lone menu link to the menu step; a QR code's placement to a page step) |
+| **Left for later** | not run this turn; named, in the customer's words, for them to send |
+| **Unverified** | not shown by anything in this round: real-model answers, a real page writer's placement, live delivery |
+
+## 5. The capability matrix (this branch; controlled unless marked live)
+
+"In turn" = run one after another within one message; nothing runs at the
+same time. Evidence: **MW** = `test/mixed-work.test.mjs`; **live** = a closed
+live test.
+
+| Combination | Outcome | How it runs | Publishes · charges | What the customer is told | Evidence |
+|---|---|---|---|---|---|
+| The same layout change on two pages | changed and published | two page steps in turn, each on its own page and words | 1 · one per page step | *"Updated / and /visit."* (FIXED MW8) | MW |
+| Wording on several pages | changed and published | one text step | 1 · 1 | both changes quoted | MW |
+| Nine photographs off one page | changed and published, all nine | one picture step | 1 · 1 | every photograph named (FIXED MW4) | MW, sync and queued |
+| Menu items past ten | the first ten changed and published; the rest left out | one menu step | 1 · 1 | each item past ten named, with the limit | `site-nav` |
+| Row changes, rules tables, link changes past their old counts | read whole by each step's reader | one step each | — | — | `site-apply`, `site-rules`, `site-nav` (readers; not through the route here) |
+| Three kinds on one page (a move, a photo off, the menu) | changed and published | page, picture, menu steps in turn | 1 · 3 | the page, the photograph and the menu, each in its own words (FIXED MW1) | MW |
+| Four kinds across pages | changed and published | look, page, picture, menu steps in turn | 1 · 4 | all four (FIXED MW1) | MW, sync and queued |
+| Five kinds | changed and published | four steps (two lanes share the look step) | 1 · 4 | all five (FIXED MW2) | MW, sync and queued |
+| Two changes across pages (description + Visit move; photo off + home move; menu + Visit move) | changed and published | as above | 1 · 2 | named | **live**: Tests 6, 7, 8 (runs 57, 60, 66), on `main`'s code |
+| One step fails beside others | the rest changed and published; the failure named with its target and cost | in turn | 1 · each step that called its model | *"⚠️ “take Gallery out of the menu”: I couldn't work out what the menu should be. … That part still cost 1 credit."* | MW |
+| One step asks beside others | the rest changed and published; the question kept for that part only | in turn | 1 · the steps that ran | the question under the rest; each step's status kept | MW, sync and queued |
+| A step's answer cut off at its ceiling | that part not changed; the rest published | refused whole | 1 · the steps that ran | the cut part said as unchanged, ours | MW, sync and queued |
+| An edit and an addition | **the addition left for later** | the router answers the edit | 1 · the edit | *"Say “…” and I'll do that next."* | MW |
+| Two parts no single answer can make (an addition and a wording change) | both left for later, both named | the router holds one, the picker names the other | 1 · the rest | both named (FIXED MW3) | MW, sync and queued |
+| Every part named as another step's | nothing changed, nothing billed | — | 0 · 0 | each part named as left for later | MW, sync and queued |
+| A table, a function that reads it, an API and a job that runs it | designed, then changed and published | in dependency order | 1 · 1 | all four named | MW |
+| A new page, a component, words, a QR code and a scene on it | the page, component and words changed and published; **the QR code and scene stored**, on no written page | in order, one page write | 1 · 1 | the code and scene said as *saved, but no page shows it yet* (FIXED MW5) | MW |
+| The same, when the writer draws them | the QR code and scene changed and published, each on its page | as above | 1 · 1 | *"added a QR code captioned “Wholesale” on /, added a 3D scene on /wholesale"* | MW |
+| A new page and a menu link, or a new list entry | the page changed and published; **the link or entry set aside** | — | 1 · 1 | named as a separate step | MW |
+| One addition's designer declines | the rest changed and published; **the declined kind named as not made** | — | 1 · 1 | (FIXED MW6) | MW |
+| One addition fails its checks | nothing (all or nothing), the reason said | validation before any apply | 0 · 0 | the reason, "Nothing was changed" | MW |
+| More additions of one kind than allowed | up to the ceiling changed and published; every one past it named | — | 1 · 1 | *"I left out “…”"* | MW, `site-add` |
+| A schedule faster than every 15 minutes | changed, running every 15 | — | 1 · 1 | what was asked, what runs, why (FIXED MW7) | MW |
+| Two messages on one site at once | one after the other (the site lock) | the second waits | — | the poll says it is waiting | `site-busy` |
+
+## 6. The findings and what became of them
+
+| ID | What the audit found (on `main`) | On this branch | How it is shown |
+|---|---|---|---|
+| **MW1** | a photograph and a menu change made beside a look or page change, and told nowhere | every step's own result kept (`steps`) through the merge, the queue and both replies | MW three- and four-kind cases, sync and queued |
+| **MW2** | a fifth lane dropped without a word | no lane cap; every lane named runs | MW five-kind case, sync and queued; `edit-lanes` |
+| **MW3** | a second part the answer could not make vanished | several held parts (the router's list) and the picker's `elsewhere`, each checked against the message, taken out before anything runs, and named | MW cases, sync and queued; `edit-lanes`, `site-ask`, `route-decision`, `handover-*` |
+| **MW4** | a ninth photograph (and by the code an eleventh link, a twenty-first row, a fifth rules table) dropped without a word | no counts; each step's answer bounded by its ceiling and refused whole when cut | MW nine-photograph case, sync and queued; the four readers' tests |
+| **MW5** | a QR code or scene added and never named; placement never checked | placement read from the publication; *shown on* only when shown, *saved, not shown* otherwise | MW placed and unplaced cases |
+| **MW6** | a declined addition vanished beside one added | `declined` on the answer and in both replies | MW case |
+| **MW7** | a schedule slowed to 15 minutes without saying so | asked and applied both kept and explained | MW cases (adjusted and not) |
+| **MW8** | the page's own reply named no page | the look branch names its pages ("Updated / and /visit.") | MW case; the page-step suites |
+
+Also in this round: a part not done is led by its target (its words, the part
+of the site its lanes are, or its page) instead of a count, in the facts and
+on the page; a page is reported as a step's target only on the page rung (a
+photograph or the menu works across the site); and entries past an addition's
+ceiling are named by what they are (a line of words by its words, a
+photograph by what it shows).
+
+## 7. Unverified, said plainly
+
+- **Real models.** Every case uses supplied answers. Whether the real picker
+  uses `elsewhere`, names five lanes with the right scopes, or answers a
+  router list; whether the real designers chain dependent additions; whether
+  a real page writer places a QR code and a scene where asked — §8's to
+  measure.
+- **Live delivery.** Nothing of this round is deployed; no live site has
+  shown any of it.
+- **Through the route**: row changes, rules tables and link changes past
+  their old counts are shown at their readers only; a rules change and a
+  successful address change beside other edits are not driven in a mix (the
+  harness answers every site lookup with one owner).
+- **Wall-clock time** of a many-step message on the queue: unmeasured; the
   job's own budget (50 minutes in the container) bounds it.
 
 ## 8. The real-model batch (prepared, **not run**; needs your approval)
 
-**What it adds.** The live matrix of deploy 2180
-(`docs/history/2026-10-03-live-matrix.md`) already holds the edit-plus-
-addition rows (H1–H4) and a question inside a mixed request (Q2), and closed
-Tests 6–8 and 12 already hold two-change edits and single additions; none is
-repeated. These rows measure what only real models can show: whether the
-router keeps four kinds in one answer, which lanes and scopes the real picker
-names, whether the real designers chain a table into a function and a job,
-where the real page writer puts a QR code and a scene — and what the
-customer is told each time.
+**What it adds.** Closed Tests 6–8 and 12 and deploy 2180's live matrix
+(H1–H4, Q2) are not repeated. These rows measure what only real models can
+show, and what the customer is told.
 
-**The sites as they are now** (read 2026-10-03, free: public pages, and
-non-secret columns in Supabase):
-- **`fold-lane-bakery`** ("Harbour Loaf") is at `01790923788063-bp9rcv`,
-  Test 12's additions kept by your plan: its description *"Neighbourhood
-  sourdough in Bristol…"*; the home and gallery menus *Today's bake, The
-  starter, Visit, Gallery, Order* (the Visit and Order menus have no
-  Gallery); the home page's starter story above its order band and the
-  cooling-boule photograph; `/visit` with *"Come to the bakery"* above *"The
-  shutters and the street"* and the order band, and the boule photograph
-  added by Test 12. Its database link is set.
-- **`repairbench-1`** ("Hebden Bike Repair", the add-on bench): pages `/`,
-  `/status`, `/booking-check`, `/workshop-load`, `/rates`; its database link
-  is set and it already runs jobs. **`fretwork-1` is not used**: its
-  database link is blank, so an addition there would test the blank link
-  (Lane 2's open decision), not mixed work.
-- **Balance 137**, the ledger's last row 355, no job open (11:03 UTC).
+**Which code it runs.** The presses run the code deployed when they are
+pressed. On `main` today (deploy 2180) the audit's findings hold, so each
+row's reply prediction is the finding's; if this branch is merged and
+deployed first, the same rows check the fixes instead — noted per row. The
+sha and image boxes must be re-read at press time.
 
-**How each row is pressed**: the edit canary's one-message press, from
-`main` (deploy 2180), one message per press; you press each, in order, and I
-read each before the next. The boxes, by their descriptions:
-- "Run the ONE paid edit as well (yes/no)": `yes`
-- "What to change. REQUIRED when spend=1 …": the row's message, exactly
-- "The site to edit …": the row's site
-- "Refuse to spend unless the Worker reports this deploy sha …": `b8d12ff9`
-- "Refuse to spend unless a cold container reports this image id …":
-  `8bfc67dc695e65cc`
-- "Refuse to post the paid edit unless the router answers this …": the
-  row's route box (a different answer costs only its routing call)
-- every other box blank.
+**The sites** (read 2026-10-03, free): `fold-lane-bakery` at
+`01790923788063-bp9rcv` (Test 12's additions kept); `repairbench-1` (pages
+`/`, `/status`, `/booking-check`, `/workshop-load`, `/rates`; database set;
+runs jobs). `fretwork-1` is not used (its database link is blank). Balance
+137, ledger row 355, no job open (11:03 UTC).
 
-The presses run main's code, so the replies are main's own composer (model
-replies are on the branch, unmerged). Nothing is restored: each bakery row
-runs on what the one before left, and the changes stay, as Test 12's did; a
-free restore to `bp9rcv` is one press if you want it afterwards. No visitor
-write is made (MX3's form is read, not submitted).
+**How each row is pressed**: the edit canary's one-message press; you press
+each in order and I read each before the next. Boxes by description: "Run
+the ONE paid edit as well (yes/no)": `yes`; "What to change …": the row's
+message exactly; "The site to edit …": the row's site; the sha and image
+boxes: as deployed when pressed; "Refuse to post the paid edit unless the
+router answers this …": the row's route box; every other box blank.
 
-| Row | Site | Exact message | Route box | Passes when | Acceptable instead | Estimate |
-|---|---|---|---|---|---|---|
-| **MX1** four kinds across pages | `fold-lane-bakery` | Change our search description to "Overnight sourdough from a Bristol side street, ready to collect at the counter." Then take Gallery out of the menu, on the Visit page put the "Order a collection so we hold a loaf" band above "Come to the bakery", and take the photo of the cooling boule off the home page. | `intent=edit layer=look alsoAsked=none` | the description exact; Gallery out of the two menus that have it, the gallery page kept; the order band above *"Come to the bakery"* on `/visit`; the boule's element off the home page with no placeholder, **and its copy on `/visit` kept**; every other byte kept; one publish. The reply is recorded: MW1 predicts it names the description and `/visit`, not the photograph or the menu | a question, since every part names its page (a finding, recorded) | 7–12 (up to about 28 if the Visit move falls back to the full page writer) |
-| **MX2** a fifth kind (optional, **pressed instead of MX1**) | `fold-lane-bakery` | Make the page background a warm cream. Change our search description to "Overnight sourdough from a Bristol side street, ready to collect at the counter." Then take Gallery out of the menu, on the Visit page put the "Order a collection so we hold a loaf" band above "Come to the bakery", and take the photo of the cooling boule off the home page. | `intent=edit layer=look alsoAsked=none` | a measurement: which lanes the real picker names; every change made is exact with everything else kept; whether the fifth is made, put off or said (MW2 predicts dropped and unsaid) | none needed: it records | 8–13 (the same tail as MX1) |
-| **MX3** additions that depend on each other | `repairbench-1` | Add a callback request form to the Rates page asking for a name and a phone number, keep the requests in a list, and every morning at 7 mark any request older than a week as closed. | `intent=addon` | a table for the requests; a function that closes the week-old ones, reading that table; a daily job at 7 running that function; the form on `/rates` writing to the table; one migration, one publish, one charge; the reply names the table, the function, the job and the form. Read free afterwards: the table and function in the site's database, the job's registration, the `/rates` page | one question (what "closed" means, or what to collect); a refusal of the whole addition with its reason said is a finding (all or nothing), not a pass | 4–16 |
-| **MX4** a wording change beside styling and a move | `fold-lane-bakery` (after MX1 or MX2) | Change "Come to the bakery" on the Visit page to "Find the bakery", make the headings dark green, and on the home page put the order band above the starter story. | `intent=edit layer=look` (either way below) | the headings dark green and the home move made; the wording made on `/visit` by its page step **or** named as left for the next message | either of those; **never** the wording neither made nor named (MW3) | 5–9 (up to about 47 if both page steps fall back to the full writer) |
-| **MX5** a new page and its menu link (two presses) | `fold-lane-bakery` | 1. Add a page for our wholesale customers and put it in the menu. 2. (after reading 1) Put Wholesale in the menu. | 1. `intent=addon`; 2. `intent=addon` | 1: the page added and published, the menu link named as a separate step, nothing else changed; 2: the add-on hands the link to the menu step, and Wholesale is in every page's menu, nothing else changed | 1: one question about what the page should say | 11–19 for both |
-| **MX6** a page with a scene, and a QR code to it elsewhere | `fold-lane-bakery` | Add a page about our oven with a 3D model of a bread oven on it, and a QR code on the home page that opens it. | `intent=addon` | the page with the scene on it, and the code **placed on the home page** opening it (untested in a controlled run, §7); one publish, one charge. The reply is recorded: MW5 predicts it names neither the code nor the scene | one question about what the page should say | 8–17 |
+| Row | Site | Exact message | Route box | Passes when | On `main` the reply is predicted to | On this branch, merged and deployed, it is predicted to | Estimate |
+|---|---|---|---|---|---|---|---|
+| **MX1** four kinds | `fold-lane-bakery` | Change our search description to "Overnight sourdough from a Bristol side street, ready to collect at the counter." Then take Gallery out of the menu, on the Visit page put the "Order a collection so we hold a loaf" band above "Come to the bakery", and take the photo of the cooling boule off the home page. | `intent=edit layer=look alsoAsked=none` | the description exact; Gallery out of the menus that have it, the page kept; the band moved on `/visit`; the boule's element off the home page with no placeholder and its copy on `/visit` kept; every other byte kept; one publish | name the description and `/visit` only (MW1) | name all four | about 7–12; about 28 if the Visit move falls back to the full page writer |
+| **MX2** five kinds (instead of MX1) | `fold-lane-bakery` | Make the page background a warm cream. Change our search description to "Overnight sourdough from a Bristol side street, ready to collect at the counter." Then take Gallery out of the menu, on the Visit page put the "Order a collection so we hold a loaf" band above "Come to the bakery", and take the photo of the cooling boule off the home page. | `intent=edit layer=look alsoAsked=none` | a measurement: which lanes the real picker names; every change made exact, everything else kept | drop the fifth, unsaid (MW2) | run and name all five | about 8–13; the same full-writer case as MX1 |
+| **MX3** dependent additions | `repairbench-1` | Add a callback request form to the Rates page asking for a name and a phone number, keep the requests in a list, and every morning at 7 mark any request older than a week as closed. | `intent=addon` | a table; a function closing week-old requests, reading it; a daily job at 7 running it; the form on `/rates` writing to the table; one migration, one publish, one charge; all named | the same | the same | about 4–16 |
+| **MX4** wording beside styling and a move | `fold-lane-bakery` (after MX1 or MX2) | Change "Come to the bakery" on the Visit page to "Find the bakery", make the headings dark green, and on the home page put the order band above the starter story. | `intent=edit layer=look` | the headings and the home move made; the wording made on `/visit` **or** named as left for later; **never** neither | possibly neither made nor named (MW3) | made, or named as left for later (`elsewhere`) | about 5–9; about 47 if both page steps fall back to the full writer |
+| **MX5** a page and its menu link (two presses) | `fold-lane-bakery` | 1. Add a page for our wholesale customers and put it in the menu. 2. (after reading 1) Put Wholesale in the menu. | `intent=addon` both | 1: the page added, the link named as a separate step; 2: the link handed to the menu step and in every menu | the same | the same (the plan would make the second press unnecessary) | about 11–19 for both |
+| **MX6** a page with a scene, and a QR code to it | `fold-lane-bakery` | Add a page about our oven with a 3D model of a bread oven on it, and a QR code on the home page that opens it. | `intent=addon` | the page with the scene, and the code **shown on the home page** opening it; one publish, one charge | name neither (MW5) | say each as shown, or as saved and not shown, as the publication reads | about 8–17 |
 
 **Total: about 35–73 credits** if the page steps use the quick writer, as
-they did in runs 57, 60 and 66; **at most about 127** if every page step
-fell back to the full writer (each 6–22, runs 21–37) — under the balance of
-137, which is the only bound (estimates, not caps). MX2 instead of MX1 adds
-about 1. **Order**: MX3 any time (its own site); then MX1 or MX2, MX4, MX5's
-two presses, MX6. **For each press I record**: the route and any held part;
-the picker's lanes and scopes, or the add-on's kinds; each change against
-the before-read; the publishes; the ledger rows and the balance; and the
-customer-visible reply word for word. Nothing runs until you approve it.
+they did in runs 57, 60 and 66; **about 127** if every page step fell back to
+the full writer (each 6–22, runs 21–37). These are estimates, not caps:
+nothing enforces a per-request limit, and the balance of 137 is the only
+bound. MX2 instead of MX1 adds about 1. **Order**: MX3 any time; then MX1 or
+MX2, MX4, MX5's two presses, MX6. For each press I record the route and any
+held part, the picker's lanes, scopes and `elsewhere` (or the add-on's
+kinds), each change against the before-read, the publishes, the ledger rows
+and the balance, and the customer-visible reply word for word.
 
-## 9. The smallest grouped fixes, ranked by what they unlock
+## 9. What is left, and what is yours to decide
 
-Each is small, uses the existing contracts, adds no layer, no keyword rule
-and no fixed customer sentence, and keeps model-based routing.
-
-1. **Every step reports what it did, and the reply reads every report**
-   (MW1, MW5, MW6, MW8). The edit merge keeps each step's own account (a
-   list, one entry a step) and `editReplyFacts` reads every entry; the
-   add-on's answer names a QR code, a scene and every declined kind, and
-   `addonReplyFacts` reads them. **Unlocks**: every multi-step message that
-   already works becomes one the customer can trust — today three- and
-   four-kind edits silently under-report. The largest gain for the least
-   code.
-2. **Nothing past a count is dropped without a word** (MW2, MW4). A fifth
-   lane is put off through the existing held path (`deferred`), named for the
-   next message, instead of discarded; the picture, menu, data and rules
-   steps return what they left out, and the route lists it in `partial`.
-   **Unlocks**: large requests degrade honestly; the customer can send the
-   rest.
-3. **Every part of the message is accounted for on the edit side** (MW3).
-   The picker also lists the parts it could not place, in the customer's own
-   words (a model judgement, like its scopes — no keyword rule), and the route
-   puts them off or names them. **Unlocks**: wording, entries and additions
-   mixed into a styling message are never lost; it pairs with the real-model
-   row MX4.
-4. **More than one part can be held back** (MW3's other half; part of the
-   paused batch 2): `alsoAsked` as a list of passages, each checked against
-   the message as the one is today.
-5. **Say when a schedule is adjusted** (MW7): the job designer is told the
-   minimum, and the reply says the platform's shortest interval was used.
-6. **Your decisions, not fixes**:
-   - **an addition with one refused part**: keep all-or-nothing (safe, and
-     your 2026-09-13 rule: validate before anything is applied), or apply the
-     independent parts and name the refused one;
-   - **an edit and an addition in one message**: keep one route per message
-     (today's rule: the other half is sent next), or let a message run both
-     halves in turn — a second paid operation from one message, so only on
-     your word;
-   - **running steps at the same time**: keep "in turn" (your decision;
-     safe), or run independent steps on different pages together — a
-     redesign of the step loop and the publish, so only on your word.
-
-**Next, separately**: the real-model batch above, on your approval; the
-paused information-limits batches 2–4 (the pending request; operations and
-results; the reply) — fixes 1, 2 and 4 above overlap batch 3 and batch 2 and
-would be done once.
+- **Finishing both halves in one request** — the plan
+  (`docs/investigations/edit-addon-one-request-plan.md`): each part left for
+  later becomes a guarded continuation run through the existing routes, in
+  turn, with the latch held; one routing call and one publish per part; a
+  failure or a question stops the chain cleanly. **Your decisions first**:
+  whether later parts may spend without a second press; one reply per part
+  or a summary; stop on failure (proposed) or continue independent parts.
+- **An addition with one refused part**: keep all-or-nothing (your
+  2026-09-13 rule) or apply the independent parts and name the refused one.
+- **Running steps at the same time**: keep "in turn" (your decision), or a
+  redesign of the step loop and the publish, only on your word.
+- **The per-kind addition ceilings** (§2): kept and named; raising or
+  removing any is your call.
+- **The paused information-limits batches** stay paused.
 
 ## 10. Checks run (all free)
 
-- `test/mixed-work.test.mjs`: 20 cases, all passing as recorded (the
-  findings asserted as they happen).
-- Re-run as evidence: `live-clarify-continue`, `edit-removal-door`,
-  `edit-page-once`, `edit-op-scope`, `handover-batch2`, `handover-route`,
-  `site-busy`, `frame-addition`, `add-goes-to-addon` — 252 of 252.
-- Mutation sweep over the new cases: 13 of 13 mutants caught, both
-  comment-only controls left alone, every file restored by hash. Two of the
-  13 put a finding's fix in place (MW1's step sentence read, MW5's QR code
-  named), so each finding's case is shown to turn when its defect goes.
-- Full suite `9090 / 9090 / 0 / 0` locally (from `9070` at `c088fc52`: the
-  20 new cases exactly); unit CI `9090 / 9086 / 0 / 4` on `c5ecb081` (run
-  37118809585; CI skips four). The record:
-  `docs/history/2026-10-03-mixed-work-audit.md`.
-- No model call, no paid run, no container rebuilt, nothing merged or
-  deployed; Build untouched.
+Recorded in `docs/history/2026-10-03-mixed-work-fixes.md`, with the screenshots.

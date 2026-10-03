@@ -893,3 +893,43 @@
   answer is said to be supplied and never written up as a real model's
   choice; and a closed test or a live reading already taken is cited rather
   than repeated.
+- **Outcomes are classed by what really happened, and capability claims
+  name their exceptions** (2026-10-03, correcting the mixed-work audit):
+  *"twelve registered add-on kinds does not mean all twelve finish together,
+  since row and frame have exceptions; storing QR/3D configuration and
+  passing it to a writer does not prove placement on the requested page; and
+  controlled tests with supplied answers do not prove real-model routing or
+  complete delivery. Separate what was actually changed and published from
+  what was only designed, stored, handed off, deferred or left unverified."*
+  So a record classes every outcome as one of those six, a registered list
+  is never written up as one that works together without naming what does
+  not, configuration saved is never called delivered, and a supplied-answer
+  result is never called real-model proof.
+- **No "at most" on an estimate that nothing enforces** (2026-10-03):
+  *"Remove “at most” language from cost estimates unless an enforced
+  spending cap supports it."* So a cost is "about N", or "about N if …" for
+  a costlier path, and the balance is named as the only bound; "at most" and
+  "up to" are kept for limits the code really enforces.
+- **Every operation is reported with its target, and a limit never loses
+  one** (2026-10-03, ordering the mixed-work fixes): *"report every
+  completed, failed, declined and pending operation with its target; and stop
+  silently dropping operations at the four-lane or per-step count limits.
+  Remove arbitrary operation caps where the existing execution and resource
+  safeguards support processing the complete list; where a genuine limit must
+  remain, preserve and identify each unexecuted operation instead of losing
+  it or claiming success. Do not replace missing targets with a vague
+  count."* And: *"Report QR codes, scenes and other additions as delivered
+  only when the actual result supports that claim; distinguish configuration
+  saved from placement verified. Preserve requested versus applied schedule
+  values and explain any adjustment accurately. Keep normal replies
+  model-written and avoid adding another reporting framework."* So a count
+  that drops work is removed or turned into a named limit; a part not done is
+  named by its words, the part of the site or its page; and an addition is
+  said as shown only where the published pages show it.
+- **The other half of a request should not need resending; the change to
+  get there is planned before it is built** (2026-10-03): *"The goal is that
+  users do not have to resend the other half solely because it belongs to
+  another route. Do not implement that cross-route execution change yet,
+  introduce parallel writes, or redesign the architecture; finish with the
+  exact proposed change and its tradeoffs for review."* The plan is
+  `docs/investigations/edit-addon-one-request-plan.md`.

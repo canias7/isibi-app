@@ -656,6 +656,33 @@ the owner's free press, run 51, at 22:57 UTC):
     `docs/investigations/mixed-work-audit.md`; the record:
     `docs/history/2026-10-03-mixed-work-audit.md`. **Next, separately**: the
     real-model batch MX1–MX6 (the report's §8), on the owner's approval.
+19. **The mixed-work fixes** (2026-10-03, on the owner's word; for review:
+    not merged or deployed, no container built, no model called, nothing
+    spent, Build unchanged; `460ab6e5`). Every executed step's own result
+    kept through the merge, the queued reply and both replies (`steps`), and
+    each part not done named by its target, never counted (MW1, MW8). The
+    four-lane cap and the per-step counts removed (photographs 8, rows 20,
+    rules tables 4, link changes 12, parts put off 4), each step's answer
+    bounded by its ceiling and refused whole when cut off (MW2, MW4); menu
+    items past ten and additions past their ceilings named. Several parts
+    left for later: the router's list on a site (the first build's tool
+    byte-identical) and the picker's `elsewhere`, each checked against the
+    message and taken out before anything runs (MW3). The add-on keeps a
+    declined kind (MW6), says a QR code or scene is shown only where the
+    publication renders it, otherwise saved and not shown (MW5), and keeps
+    the asked interval beside the applied one (MW7). **Tested only with
+    supplied model output**: 38 mixed-work cases through the real routes,
+    sync and queued, and the readers' cut-answer cases; red check 142 of
+    1,471 failing on `5b94a39e` (every converted or new mixed-work case;
+    the controls pass); sweep 35 of 35 with 3 controls surviving; full
+    suite `9115 / 9115 / 0 / 0` (from `9090`). Screens before and after in
+    the session. The report's capability claims and cost wording corrected
+    (ten addition kinds combine, `row` and `frame` set aside; stored is not
+    placed; supplied answers are not real-model proof; no "at most"). The
+    record: `docs/history/2026-10-03-mixed-work-fixes.md`. **Next**: the
+    owner's three decisions on the plan for finishing Edit and Add-on in one
+    request (`docs/investigations/edit-addon-one-request-plan.md`, not
+    built), and the real-model batch on their approval.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

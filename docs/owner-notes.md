@@ -1,144 +1,109 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-03, 11:40 UTC)
+## Current handoff — read this first (2026-10-03, 13:40 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**State now: the mixed-work audit is done, for your review — an audit and
-tests only: nothing implemented, merged or deployed; no container built; no
-model called; nothing spent; Build untouched.** The information-limits
-batches 2–4 are paused, as you asked. Batch 1, the reply fix and the
-model-written replies are still on the branch, not merged. Deploy 2180 is
-still live and still waits on your free runtime press.
+**State now: the mixed-work fixes are done on the branch, for your review,
+with the audit's claims corrected and the plan for finishing Edit and Add-on
+in one request written (not built).** Nothing merged or deployed; no
+container built; no model called; nothing spent; first Build unchanged. The
+information-limits batches stay paused. Batch 1, the reply fix and the
+model-written replies are still on the branch too. Deploy 2180 is still live
+and still waits on your free runtime press.
 
-**Your question, answered in plain English: what can the builder do
-together from one message today, and what stops it doing more?**
-- **What it does together today**:
-  - **edits, up to four different kinds at once**, on as many pages as they
-    touch — colours or fonts, the name or description, sections moved or
-    taken off, a photograph swapped, reframed or taken off, the menu and its
-    button, who may submit what, the web address. They are made one after
-    another, each on the result of the one before (a photo taken off a page
-    the move had already rewritten), and published once;
-  - **the same kind of change on several pages**: two sections moved on two
-    pages, wording changed on several pages, up to eight photographs, a
-    whole menu;
-  - **many additions at once, up to all twelve kinds**: a table, a function
-    that reads it, an outside service, a scheduled job that runs the
-    function, new pages and what goes on them, a line of words, a QR code, a
-    3D scene, photographs. They are designed in a fixed order so that each
-    part can use the ones before it, then published once and charged once;
-  - **one part failing or asking doesn't stop the rest**: the failure is
-    named, a question waits for only its own part, and answering it never
-    repeats or re-charges what was done.
-- **What stops it doing more**:
-  1. **the customer isn't told about some of what was done**: beside a
-     styling or layout change, a photo taken off and a menu change are made
-     but not mentioned (MW1); an added QR code or 3D scene is never
-     mentioned (MW5);
-  2. **big requests lose parts without a word**: a fifth kind of edit
-     (MW2); a ninth photo, an eleventh menu link, a 21st entry change or a
-     fifth table's rules (MW4); an addition whose designer gave up (MW6).
-     Additions past their limits, by contrast, are named;
-  3. **an edit and an addition never finish together**: one message gets
-     one route, and the other half is named for the next message. "Add a
-     gallery page and put it in the menu" is two messages, and so is any
-     entry or exact-wording change beside a different kind of change;
-  4. **a second part the route can't make can vanish**: only one part can
-     be held back (MW3);
-  5. **an addition is all or nothing when a part fails its checks**, and a
-     schedule faster than every 15 minutes is slowed without saying so
-     (MW7);
-  6. **nothing runs at the same time**: several changes from one message
-     are several model calls made one after another (your decision, so no
-     two steps overwrite each other), and a site runs one job at a time.
-     Safe, but a big message takes the sum of its steps' time.
-- **What I did**:
-  - read the registered capabilities from the code (9 edit layers, 21
-    lanes of which 4 run per message, 12 addition kinds, every per-message
-    count) and pinned them in a test, so the matrix can't drift from the
-    code;
-  - traced a mixed message from the router through the lane picker, the
-    scoped instructions, the steps, the hand-overs between Edit and Add-on,
-    the queue, the publish and the billing to the reply;
-  - wrote **20 cases through the real routes with supplied model answers**
-    (`test/mixed-work.test.mjs`), on the bakery's own stored pages and the
-    add-on's harness. Each compares what was asked with what changed, was
-    published, waited, failed, was charged and was told — never just a 200
-    or a chosen lane;
-  - re-ran nine existing suites as evidence (252 of 252) rather than
-    repeating them, and cited the closed live tests (6, 7, 8 and 12);
-  - wrote the report with the capability matrix (one message, several
-    model calls and concurrency kept apart), the eight findings, what's
-    untested, the real-model batch and the fixes ranked by what they
-    unlock: `docs/investigations/mixed-work-audit.md`.
-- **The smallest fixes, ranked** (none made; the report's §9):
-  1. every step reports what it did and the reply reads every report
-     (MW1, MW5, MW6, MW8) — the largest gain for the least code;
-  2. nothing past a count dropped without a word: put off and named, or
-     listed as left out (MW2, MW4);
-  3. every part of a message accounted for on the edit side, by the
-     picker's own judgement — no keyword rule (MW3);
-  4. more than one part can be held back (`alsoAsked` as a list; this was
-     part of the paused batch 2);
-  5. say when a schedule is adjusted (MW7);
-  6. three decisions that are yours, below.
-- **Checks run** (all free):
-  - the 20 cases pass as recorded (a finding's case asserts the defect as it
-    happens, so it will turn red when the defect is fixed);
-  - mutation sweep: 13 of 13 caught, both comment-only controls left alone.
-    The first sweep left three alive, and each was answered: a gap in a case
-    (now closed), a schedule limit enforced at two layers (now both mutated
-    together), and a mutant on a line removals never reach (re-aimed);
-  - full suite `9090 / 9090 / 0 / 0`, from `9070` measured at `c088fc52`
-    the same way: the 20 new cases exactly;
-  - the image can't move (nothing under `test/` or `docs/` goes into it):
-    the branch still predicts `2635a0a1fb74f8c3`, main `8bfc67dc695e65cc`;
-  - unit CI on the push, green: `9090 / 9086 / 0 / 4` on `c5ecb081` (run
-    37118809585; CI skips four, as always).
+**What the builder now does together from one message** (on this branch,
+shown through the real routes with supplied model answers — not yet with
+real models, and not yet live):
+- **Changed and published**: every edit the look door reaches, as many as
+  the picker names (five different kinds ran together; the four-kind limit is
+  gone), each on the result of the one before, published once; the same kind
+  of change on several targets (nine photographs, every one asked); ten of the
+  twelve addition kinds together, in dependency order, published and charged
+  once. **`row` and `frame` are the exceptions**: beside other kinds they are
+  set aside and named, not made.
+- **Stored, handed off or left for later — and now said as such**: a QR code
+  or 3D scene is saved configuration, and the reply says *shown on /x* only
+  when a published page shows it, otherwise *saved, but no page shows it
+  yet*; parts no single route can make with the rest are left for later and
+  each named (several now, not one); a declined addition is named as not
+  made; a schedule faster than every 15 minutes says what was asked, what
+  runs and why.
+- **Every part not done is named by what it was** (its words, the part of
+  the site, its page), never as "one part of that message".
+- **What still stops more**: an edit and an addition still never finish in
+  the same request (the plan, below); the fixes rely on the models naming
+  each part (no keyword rules, so a part a real picker names nowhere is still
+  missed — only the real-model batch can say how often); genuine limits stay
+  and are named when they bind (ten menu items, per-kind addition ceilings,
+  one answer per step refused whole if cut off, what one request carries);
+  nothing runs at the same time, by your decision.
 
-**The real-model batch, prepared and not run (needs your approval)**. Six
-rows, one message per press of the edit canary, from `main`. Before writing
-it I read the sites as they are now, free: the bakery is at `bp9rcv` with
-Test 12's additions kept; `fretwork-1`'s database link is blank, so I moved
-the additions row to `repairbench-1`; the balance is **137**, the ledger's
-last row 355, no job open.
-- **MX1** (bakery, four kinds across pages): the description, Gallery out
-  of the menu, the Visit band move and the home boule photo off, in one
-  message — about 7–12.
-- **MX2** (optional, pressed *instead of* MX1): the same with a fifth kind —
-  about 8–13.
-- **MX3** (`repairbench-1`, additions that depend on each other): a
-  callback form on the Rates page, the list behind it, and a daily 7 a.m.
-  job closing week-old requests — about 4–16.
-- **MX4** (bakery): a wording change beside styling and a home move — about
-  5–9.
-- **MX5** (bakery, two presses): a wholesale page and its menu link, then
-  the link — about 11–19.
-- **MX6** (bakery): an oven page with a 3D scene, and a QR code on the home
-  page that opens it — about 8–17.
-- **Total: about 35–73**, and at most about 127 if every page step fell back
-  to the full writer — under the balance, which is the only bound. Nothing
-  is restored; the changes stay, as Test 12's did. The exact messages, each
-  press's boxes by their descriptions, what passes and what's acceptable
-  instead are in the report's §8.
+**What I changed** (`460ab6e5`; the record is
+`docs/history/2026-10-03-mixed-work-fixes.md`):
+- every step's own result kept through the merge, the queued job and both
+  replies (MW1, MW8);
+- the four-lane cap and the per-step counts removed — photographs 8, entry
+  changes 20, rules tables 4, link changes 12, parts put off 4 — with each
+  step's answer bounded instead, and refused whole and said if it's cut off
+  (MW2, MW4); menu items past ten and additions past their ceilings named one
+  by one;
+- several parts left for later: the router can hold a list on a site (the
+  first build's request is unchanged byte for byte), and the picker names
+  each part no lane can make, checked against your words and taken out
+  before anything runs (MW3);
+- the add-on keeps declined kinds (MW6), checks where codes and scenes are
+  really shown (MW5), and keeps the asked interval beside the applied one
+  (MW7); no list on its reply is cut at six any more.
+
+**How I checked it** (all free):
+- the audit's defect tests now require the fixes: 38 mixed-work cases through
+  the real routes, synchronously and queued, plus the readers' tests;
+- run against the code before this round, 142 of 1,471 of these tests fail
+  there — every converted or new mixed-work case — and the controls pass;
+- mutation sweep: 35 of 35 caught, 3 comment-only controls left alone. The
+  first run left two alive, both gaps in my tests (seven lines of words; a
+  step whose words overlapped a part put off); I added both cases;
+- full suite `9115 / 9115 / 0 / 0` (from `9090`);
+- screenshots of the page's own replies, before and after, in the real app
+  (sent in our chat);
+- the image would roll on a merge: main `8bfc67dc695e65cc`, this code
+  `e60719bec1c5e023` (predicted, nothing built);
+- unit CI on the push: recorded after it finishes.
+
+**The audit, corrected** (`docs/investigations/mixed-work-audit.md`): ten
+addition kinds combine and `row`/`frame` are set aside beside others; storing
+a code or scene isn't placing it; supplied answers aren't real-model proof;
+every outcome is classed as changed and published, designed, stored, handed
+off, left for later or unverified; no "at most" or "up to" on any estimate.
+
+**The plan for finishing both halves in one request** (not built;
+`docs/investigations/edit-addon-one-request-plan.md`): each part left for
+later becomes a guarded continuation that the page runs next through the
+existing routes, one after another, with the site locked to it; one routing
+call and one publish per part; a question or a failure stops the chain with
+every remaining part named; a stored record keeps any part from running or
+being charged twice. **Three decisions are yours before it's built**: may
+later parts spend without a second press (and with a stop button?); one
+reply per part, or a summary; stop on a failure (proposed) or let clearly
+independent parts carry on.
+
+**The real-model batch** (unchanged, not run; the report's §8): six rows,
+**about 35–73 credits**, about 127 if every page step fell back to the full
+writer — estimates, not caps; the balance (137) is the only bound. If this
+branch is merged and deployed first, the same rows check the fixes rather
+than the findings.
 
 **Decisions that are yours**
-- Whether to approve the real-model batch, and with MX1 or MX2.
-- The three the report leaves to you (§9, item 6): keep an addition all or
-  nothing on a failed check, or apply the independent parts and name the
-  refused one; keep one route per message, or let a message run an edit and
-  an addition in turn (a second paid operation from one message); keep steps
-  in turn, or run independent steps on different pages at once (a redesign
-  of the step loop and the publish).
-- Which of the ranked fixes to order, and when the paused limits batches
-  resume (fixes 1, 2 and 4 overlap them and would be done once).
-- Still open from before: when to merge batch 1 and the replies (and the
-  image roll that comes with it); the 16,000 / 48,000 sizes; charging for
-  the reply call; model replies on by default when merged; the free runtime
-  check of deploy 2180; the live matrix's cap (115).
+- Review the fixes; whether and when to merge them (with batch 1 and the
+  replies already on the branch, and the image roll that comes with them).
+- The plan's three decisions.
+- Whether to run the real-model batch (MX1 or MX2), before or after a merge.
+- Still open: an addition all or nothing on a failed check; steps in turn;
+  the per-kind addition ceilings; the paused limits batches; the free
+  runtime check of deploy 2180.
 
 **The free runtime check of deploy 2180** (unchanged; the edit canary's
 form, spend `no`):
@@ -162,29 +127,30 @@ image=8bfc67dc695e65cc` and `runtime 200 deploy=b8d12ff9fe92`, with both
 checks `ok` and nothing charged.
 
 **Links**
-- The report: `docs/investigations/mixed-work-audit.md` (the answer, the
-  matrix §4, the findings §6, untested §7, the batch §8, the fixes §9).
-- The record: `docs/history/2026-10-03-mixed-work-audit.md`; the
-  checklist's item 18; the backlog's *Mixed work from one message*.
-- Before it: batch 1 (`2a17e2cb`) and its records (`c088fc52`).
+- The report: `docs/investigations/mixed-work-audit.md`; the plan:
+  `docs/investigations/edit-addon-one-request-plan.md`.
+- The record: `docs/history/2026-10-03-mixed-work-fixes.md`; the checklist's
+  item 19; the backlog's *Mixed work from one message*.
+- Before it: the audit (`e25a8270`, `c5ecb081`).
 
 **Observations from our chat**
-- You asked to keep three things apart — several tasks from one message,
-  several model calls, and tasks running at the same moment — and to judge
-  every scenario by what really changed, was published, waited, failed and
-  was told, never by a status or a chosen lane; to keep model-based routing
-  and wording, with no keyword rules or forced routes passed off as a real
-  model's choice; to reuse evidence already taken and not restore demo
-  data; and to keep threshold findings inside this scope. That is now one
-  entry in `owner-preferences.md`.
+- You asked that every outcome be classed by what really happened (changed
+  and published, designed, stored, handed off, left for later, unverified),
+  that a registered list never be written up as working together without its
+  exceptions, and that supplied answers never be called real-model proof; no
+  "at most" on an estimate nothing enforces; every operation reported with
+  its target, a limit never losing one, an addition said as delivered only
+  when the result shows it; and the other half of a request not needing to
+  be resent, planned before it is built. Those are four entries in
+  `owner-preferences.md`.
 
 **Blockers**
 - None.
 
 **Exact next action**
-- Yours: review the audit; say whether to run the real-model batch (and
-  which of MX1 or MX2), which fixes to order, and when the limits batches
-  resume; press the free runtime check of deploy 2180 when you like.
+- Yours: review the fixes, the corrected report and the plan; decide the
+  plan's three questions; say whether to merge, and whether to run the
+  real-model batch; press the free runtime check of deploy 2180 when you like.
 - Mine: nothing until your word.
 
 ---
@@ -246,6 +212,50 @@ since. Add new ones there.
 
 ---
 
+## 2026-10-03 — The mixed-work fixes, for your review (nothing spent, merged or deployed)
+
+You agreed the audit found the right problems, asked me to correct its claims
+first, and then to fix the closely related problems so that one message's
+several changes are all done and all reported accurately, across Edit and
+Add-on. You also asked for a plan, not yet built, for finishing an edit and
+an addition in the same request.
+
+**The claims I corrected.** Twelve addition kinds are registered, but only
+ten combine: a new list entry (`row`) and a menu link (`frame`) are set aside
+beside other kinds. A QR code or 3D scene being saved and handed to the page
+writer doesn't prove it's on the page you asked for. Tests with supplied
+model answers don't prove what real models do or that a live site gets
+everything. The report now classes every outcome — changed and published,
+designed, stored, handed off, left for later, or unverified — and its cost
+estimates no longer say "at most" or "up to", because nothing enforces a
+per-request cap.
+
+**What I fixed, on the branch.** Each step's own result is kept and reported,
+so a photo taken off and a menu changed beside a layout change are now told,
+and the page's own reply names the pages it changed. The four-kind limit and
+the per-step counts (8 photographs, 20 entry changes, 4 rules tables, 12 link
+changes, 4 parts put off) are gone; what bounds a step now is its own answer,
+and if that is ever cut off, none of it is used and the customer is told.
+Menu items past ten and additions past their ceilings are each named. The
+router can hold back several parts, and the picker names each part it can't
+place, in your own words, so nothing is quietly lost. An addition whose
+designer gave up is named; a QR code or scene is said to be shown only where
+a published page shows it; a schedule that runs slower than asked says so
+and why.
+
+**How I checked it.** 38 scenario tests through the real routes (both
+straight back and queued), the old defect tests converted to require the
+fixes, a check that they fail on the old code (142 failures there), a
+mutation sweep (35 of 35 caught), the full suite (9,115 passing), and
+screenshots of the replies before and after. Nothing was spent or deployed.
+
+**The plan** for finishing both halves in one request is written for your
+review: each part left for later would run next, automatically, through the
+same routes, one after another, with checks so nothing runs or is charged
+twice. Three decisions are yours first: whether later parts may spend
+without you pressing again, one reply per part or a summary, and whether a
+failure stops the rest.
+
 ## 2026-10-03 — Many changes from one message: the mixed-work audit, for your review (nothing spent, merged or deployed)
 
 - **Your words**: *"Pause the remaining information-limits batches. Our
@@ -287,8 +297,10 @@ since. Add new ones there.
   answered; full suite `9090 / 9090 / 0 / 0` from `9070` at `c088fc52`;
   unit CI `9090 / 9086 / 0 / 4` on `c5ecb081`; the image unmoved
   (`2635a0a1fb74f8c3` on the branch).
-- **The real-model batch** (MX1–MX6, about 35–73 credits, at most about 127
-  in the worst case, against a balance of 137) is prepared and not run. The
+- **The real-model batch** (MX1–MX6, about 35–73 credits, about 127 if every
+  page step fell back to the full writer — an estimate, not a cap; the
+  balance of 137 is the only bound; "at most" corrected on your word the same
+  day) is prepared and not run. The
   sites were read first, free: the bakery is at `bp9rcv` with Test 12's
   additions, and the additions row moved from `fretwork-1`, whose database
   link is blank, to `repairbench-1`.
