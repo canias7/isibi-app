@@ -933,3 +933,42 @@
   introduce parallel writes, or redesign the architecture; finish with the
   exact proposed change and its tradeoffs for review."* The plan is
   `docs/investigations/edit-addon-one-request-plan.md`.
+- **A count is not a constraint until it is proven one; every requested
+  entry is applied or named with its reason** (2026-10-03, on the mixed-work
+  fixes' review): *"Do not treat “a footer should have eight items” or “a
+  menu should have ten” as a proven technical constraint; remove those
+  arbitrary counts where existing resource safeguards support the complete
+  list, or clearly document a genuine constraint."* And: *"every requested
+  entry must either be applied or retain its identity and an accurate reason
+  it was not applied."* And the checks: *"checking the final page and
+  customer-visible outcome rather than only the reader."* So a design number
+  that drops entries is removed. A limit that stays is written down with why
+  it is real. A refused entry keeps its words and its own reason, on the
+  answer and in the reply. A test reads the stored pages and the reply, not
+  just the reader.
+- **Unfinished work belongs to the server, not to an open tab** (2026-10-03,
+  on the first one-request plan): *"Reuse the existing server job runner,
+  leases and idempotency mechanisms wherever possible so an accepted request
+  can progress without an open browser; the browser should display progress
+  and supply clarification, not be the only trigger for unfinished work."*
+  So a design that relies on the page to continue accepted work is not
+  proposed. Each step is a job the runner claims, leases and recovers, and
+  the page follows it and answers its questions.
+- **Order is the model's judgement; state is code's** (2026-10-03): *"let
+  the model identify those relationships, with code enforcing execution
+  state, rather than assuming textual order or inventing keyword rules."* So
+  which part needs which comes from a model's structured answer. Code checks
+  it, refuses cycles and decides what may run. Where a part sits in the
+  sentence is never taken as a dependency.
+- **Queued is said as queued; done, failed, waiting and unverified are kept
+  apart** (2026-10-03): *"Report queued work as queued until it actually
+  starts, and distinguish completed work from failed, waiting and
+  unverified work throughout."* So nothing is described as being done, or
+  done, before its own record says so. A publish that could not be
+  confirmed is said as unverified, never as done.
+- **Checkpoints and recovery are specified one by one** (2026-10-03):
+  *"Specify routing, execution, publication and charge checkpoints
+  separately, including recovery after a lost response, a crash before or
+  after a publish, and duplicate requests from another tab."* So a plan for
+  work that spans jobs states, for each checkpoint, what happens on each
+  failure, what is charged and what the customer reads.

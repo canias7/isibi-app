@@ -1,109 +1,119 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-03, 13:40 UTC)
+## Current handoff — read this first (2026-10-03, 15:00 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**State now: the mixed-work fixes are done on the branch, for your review,
-with the audit's claims corrected and the plan for finishing Edit and Add-on
-in one request written (not built).** Nothing merged or deployed; no
-container built; no model called; nothing spent; first Build unchanged. The
-information-limits batches stay paused. Batch 1, the reply fix and the
-model-written replies are still on the branch too. Deploy 2180 is still live
-and still waits on your free runtime press.
+**State now**
+- **The footer case you reproduced is fixed on the branch, for your
+  review.** So is the menu's count of ten.
+- **The plan for finishing Edit and Add-on in one request is rewritten
+  around the server's job runner.** It is not built.
+- Nothing merged or deployed; no container built; no model called; nothing
+  spent; first Build unchanged.
+- The information-limits campaign stays paused.
+- The mixed-work fixes, batch 1, the reply fix and the model-written replies
+  are still on the branch too.
+- Deploy 2180 is still live and still waits on your free runtime press.
 
-**What the builder now does together from one message** (on this branch,
-shown through the real routes with supplied model answers — not yet with
-real models, and not yet live):
-- **Changed and published**: every edit the look door reaches, as many as
-  the picker names (five different kinds ran together; the four-kind limit is
-  gone), each on the result of the one before, published once; the same kind
-  of change on several targets (nine photographs, every one asked); ten of the
-  twelve addition kinds together, in dependency order, published and charged
-  once. **`row` and `frame` are the exceptions**: beside other kinds they are
-  set aside and named, not made.
-- **Stored, handed off or left for later — and now said as such**: a QR code
-  or 3D scene is saved configuration, and the reply says *shown on /x* only
-  when a published page shows it, otherwise *saved, but no page shows it
-  yet*; parts no single route can make with the rest are left for later and
-  each named (several now, not one); a declined addition is named as not
-  made; a schedule faster than every 15 minutes says what was asked, what
-  runs and why.
-- **Every part not done is named by what it was** (its words, the part of
-  the site, its page), never as "one part of that message".
-- **What still stops more**: an edit and an addition still never finish in
-  the same request (the plan, below); the fixes rely on the models naming
-  each part (no keyword rules, so a part a real picker names nowhere is still
-  missed — only the real-model batch can say how often); genuine limits stay
-  and are named when they bind (ten menu items, per-kind addition ceilings,
-  one answer per step refused whole if cut off, what one request carries);
-  nothing runs at the same time, by your decision.
+**What was wrong.** `readNav` cut each footer list at eight before it
+looked at a single entry, so a ninth link vanished and `dropped` said `[]`.
+Measured on the old code, through the real edit route with supplied answers:
+- nine small-print and nine social links kept eight of each (Modern slavery
+  and mastodon gone), and the reply said *"8 social links, and 8
+  small-print links"*;
+- with three invalid entries mixed in, only six valid links were kept, and
+  four entries were cut with nothing said;
+- the add-on's hand-off of six new links beside three added five;
+- of two refused links in the copy, only the first was said;
+- a twelve-item menu stopped at ten.
 
-**What I changed** (`460ab6e5`; the record is
-`docs/history/2026-10-03-mixed-work-fixes.md`):
-- every step's own result kept through the merge, the queued job and both
-  replies (MW1, MW8);
-- the four-lane cap and the per-step counts removed — photographs 8, entry
-  changes 20, rules tables 4, link changes 12, parts put off 4 — with each
-  step's answer bounded instead, and refused whole and said if it's cut off
-  (MW2, MW4); menu items past ten and additions past their ceilings named one
-  by one;
-- several parts left for later: the router can hold a list on a site (the
-  first build's request is unchanged byte for byte), and the picker names
-  each part no lane can make, checked against your words and taken out
-  before anything runs (MW3);
-- the add-on keeps declined kinds (MW6), checks where codes and scenes are
-  really shown (MW5), and keeps the asked interval beside the applied one
-  (MW7); no list on its reply is cut at six any more.
+**What I changed** (`13c22ea3`; the record is
+`docs/history/2026-10-03-footer-lists.md`):
+- the menu's ten and each footer list's eight are gone, from the reader and
+  from the add-on's frame hand-off. Neither was a real constraint: the site's
+  header and footer draw every item;
+- every entry is read. Each one left out keeps its words and its own reason,
+  on the answer and in the reply, for example *"“Old terms” (a link here
+  goes to a page of this site or a full https:// address)"*;
+- the reply names each list's entries instead of counting them;
+- every refused link in the page copy is named;
+- what still bounds a list is real: the step's own answer (refused whole
+  if it were ever cut off), each label's 40 characters, and each link's own
+  checks.
 
-**How I checked it** (all free):
-- the audit's defect tests now require the fixes: 38 mixed-work cases through
-  the real routes, synchronously and queued, plus the readers' tests;
-- run against the code before this round, 142 of 1,471 of these tests fail
-  there — every converted or new mixed-work case — and the controls pass;
-- mutation sweep: 35 of 35 caught, 3 comment-only controls left alone. The
-  first run left two alive, both gaps in my tests (seven lines of words; a
-  step whose words overlapped a part put off); I added both cases;
-- full suite `9115 / 9115 / 0 / 0` (from `9090`);
-- screenshots of the page's own replies, before and after, in the real app
-  (sent in our chat);
-- the image would roll on a merge: main `8bfc67dc695e65cc`, this code
-  `e60719bec1c5e023` (predicted, nothing built);
-- CI on the push, green: unit tests `9115 / 9111 / 0 / 4` on `f26e00e2`
-  (run 37125497316; CI skips four, as always — the run on `ddbde31a` was
-  cancelled by that one-file follow-up push), and the site build on
-  `ddbde31a`, 404 checks, every job green (run 37125423087).
+**One gap I found and did not change** (in the backlog). When the add-on
+sets a menu link or a new list entry aside beside other additions, it names
+the kind, not the words, because its picker answers kinds only. A link handed
+to the menu step on its own is fine.
 
-**The audit, corrected** (`docs/investigations/mixed-work-audit.md`): ten
-addition kinds combine and `row`/`frame` are set aside beside others; storing
-a code or scene isn't placing it; supplied answers aren't real-model proof;
-every outcome is classed as changed and published, designed, stored, handed
-off, left for later or unverified; no "at most" or "up to" on any estimate.
+**How I checked it** (all free)
+- **New tests**: 10 cases through the real routes, straight back and queued.
+  They cover nine-and-nine links, invalid entries among valid ones, the
+  hand-off beside links the footer has, refused links in the copy, and a
+  twelve-item menu. Each reads the stored pages and the reply, not just the
+  reader. There are also two new reader cases and four converted ones.
+- **Red check**: run against the code before the fix, 16 of these 289 tests
+  fail there, and the other 273 pass.
+- **Mutation sweep**: 10 of 10 caught, and 2 comment-only controls survived.
+- **The 23 menu-related test files**: 1,139 of 1,139.
+- **Full suite**: `9126 / 9126 / 0 / 0` locally (from `9115`). CI is read
+  after the push, in the record (§8).
+- **Screenshots** (sent in our chat): the bakery's footer as a visitor sees
+  it, built with the real build service, eight-and-eight before and
+  nine-and-nine after; and the five replies, before and after.
+- **The image** would roll on a merge: main `8bfc67dc695e65cc`, this code
+  `0fdaaed0307d812a` (predicted, nothing built).
 
-**The plan for finishing both halves in one request** (not built;
-`docs/investigations/edit-addon-one-request-plan.md`): each part left for
-later becomes a guarded continuation that the page runs next through the
-existing routes, one after another, with the site locked to it; one routing
-call and one publish per part; a question or a failure stops the chain with
-every remaining part named; a stored record keeps any part from running or
-being charged twice. **Three decisions are yours before it's built**: may
-later parts spend without a second press (and with a stop button?); one
-reply per part, or a summary; stop on a failure (proposed) or let clearly
-independent parts carry on.
+**The plan, rewritten** (not built;
+`docs/investigations/edit-addon-one-request-plan.md`). You were right on
+both counts. The page drove the old chain, so a closed tab stopped it. And
+its "running" mark had no lease and no recovery. Now:
+- an accepted message is one **request** on the server, holding:
+  - your whole message;
+  - lasting copies of its files;
+  - the answers you gave;
+  - its parts, each with its own words, its page and target, and which
+    other parts it needs;
+- **each part runs as ordinary queued jobs**, filed under names derived
+  from the request, so asking twice finds the same job. The job runner's
+  claim, lease, site lock, charges, publishing marks, refunds, sweeps and
+  reconcile do the rest;
+- **a small driver starts the next part** when a job ends. The two-minute
+  cron is the guarantee, so nothing waits for an open tab. The page only
+  shows progress and carries your answers;
+- **the model says which part needs which**, even when the prerequisite
+  comes later in the sentence. Code enforces the order and refuses a
+  cycle. Where a part sits in the sentence is only a tie-break;
+- the plan states, separately for routing, running, publishing and
+  charging, what happens on a lost response, a crash before, during or
+  after a publish, and a second tab;
+- it states what happens when a later part asks, fails, leaves work for
+  later, renames the site, needs the full rewrite, or is stopped;
+- **"queued" is said until a part really starts**. Done, failed, waiting
+  and unverified are never mixed up;
+- it ends with the exact files, grouped tests and nine decisions.
 
-**The real-model batch** (unchanged, not run; the report's §8): six rows,
-**about 35–73 credits**, about 127 if every page step fell back to the full
-writer — estimates, not caps; the balance (137) is the only bound. If this
-branch is merged and deployed first, the same rows check the fixes rather
-than the findings.
+**Found while revising it** (in the backlog). Today the page itself makes
+the three existing hand-overs: an edit passing to the add-on, a sideways
+hop, and the add-on passing a menu link to the menu step. So closing the tab
+between the two jobs loses the second half. The plan moves those to the
+server too.
 
 **Decisions that are yours**
-- Review the fixes; whether and when to merge them (with batch 1 and the
-  replies already on the branch, and the image roll that comes with them).
-- The plan's three decisions.
-- Whether to run the real-model batch (MX1 or MX2), before or after a merge.
+- Review the footer fix and the revised plan; whether and when to merge (the
+  branch also carries the mixed-work fixes, batch 1 and the replies, and the
+  image roll).
+- **The plan's nine decisions** (§17). The first three:
+  - may later parts spend without a second press (each later part's routing
+    is 1–2 credits, measured, plus its own steps' costs);
+  - the failure policy: B (proposed) stops only what depends on a failure,
+    and A stops everything;
+  - one reply per part, or a summary.
+- Whether to run the real-model batch (MX1–MX6, about 35–73 credits;
+  estimates, not caps), before or after a merge.
 - Still open: an addition all or nothing on a failed check; steps in turn;
   the per-kind addition ceilings; the paused limits batches; the free
   runtime check of deploy 2180.
@@ -130,30 +140,31 @@ image=8bfc67dc695e65cc` and `runtime 200 deploy=b8d12ff9fe92`, with both
 checks `ok` and nothing charged.
 
 **Links**
-- The report: `docs/investigations/mixed-work-audit.md`; the plan:
-  `docs/investigations/edit-addon-one-request-plan.md`.
-- The record: `docs/history/2026-10-03-mixed-work-fixes.md`; the checklist's
-  item 19; the backlog's *Mixed work from one message*.
-- Before it: the audit (`e25a8270`, `c5ecb081`).
+- The record: `docs/history/2026-10-03-footer-lists.md`; the checklist's
+  item 20; the backlog's *Mixed work from one message*.
+- The plan: `docs/investigations/edit-addon-one-request-plan.md`; the report:
+  `docs/investigations/mixed-work-audit.md` (its kept limits corrected).
+- Before it: the mixed-work fixes (`460ab6e5`, `ddbde31a`, `f26e00e2`).
 
 **Observations from our chat**
-- You asked that every outcome be classed by what really happened (changed
-  and published, designed, stored, handed off, left for later, unverified),
-  that a registered list never be written up as working together without its
-  exceptions, and that supplied answers never be called real-model proof; no
-  "at most" on an estimate nothing enforces; every operation reported with
-  its target, a limit never losing one, an addition said as delivered only
-  when the result shows it; and the other half of a request not needing to
-  be resent, planned before it is built. Those are four entries in
-  `owner-preferences.md`.
+- You asked that a count never be treated as a constraint until it is
+  proven one, and that every requested entry be applied or named with an
+  accurate reason, checked on the final page and the reply.
+- That unfinished work belong to the server's job runner, not an open tab.
+- That order come from the model's judgement with code enforcing state,
+  never from where words sit or from keywords.
+- That queued work be said as queued, with done, failed, waiting and
+  unverified kept apart.
+- That checkpoints and recovery be specified one by one.
+- Those are five new entries in `owner-preferences.md`.
 
 **Blockers**
 - None.
 
 **Exact next action**
-- Yours: review the fixes, the corrected report and the plan; decide the
-  plan's three questions; say whether to merge, and whether to run the
-  real-model batch; press the free runtime check of deploy 2180 when you like.
+- Yours: review the footer fix and the revised plan; decide the plan's
+  questions; say whether to merge, and whether to run the real-model batch;
+  press the free runtime check of deploy 2180 when you like.
 - Mine: nothing until your word.
 
 ---
@@ -214,6 +225,58 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-03 — The footer's missed case fixed, and the one-request plan rewritten around the job runner (nothing spent, merged or deployed)
+
+You found a footer case the mixed-work fixes missed. Given nine valid
+small-print links, the menu step kept eight and reported nothing left out.
+The cut happened before any entry was read. You asked me to fix both footer
+lists through to the page and the reply. You also asked me to stop treating
+"eight in a footer" or "ten in a menu" as real limits unless they are, and to
+rewrite the plan for finishing an edit and an addition in one request so
+that it runs on the server's own job machinery instead of an open browser
+tab.
+
+**What I fixed, on the branch.**
+- Both counts are gone. The site's header and footer draw every item, so
+  neither number was a constraint.
+- Every entry is read now. Each one left out is named with its own reason,
+  in the reply and on the answer the page reads. The reply names each list's
+  links instead of counting them, and every refused link in the page copy is
+  named, not just the first.
+- What still bounds a list is real and stated: the step's own answer, each
+  label's 40 characters, and each link's own checks.
+
+**How I checked it.**
+- Ten new tests through the real routes read the stored pages and the reply:
+  nine-and-nine links, invalid entries mixed in, links added beside ones
+  already there, refused links, and a twelve-item menu.
+- Run against the old code, 16 of the 289 tests fail there.
+- A mutation sweep caught all 10 defects I put back.
+- The 23 menu-related test files pass (1,139).
+- Screenshots of the real footer built with the site kit show eight-and-eight
+  before and nine-and-nine after.
+
+**One gap I left and recorded.** A menu link or list entry that the add-on
+sets aside beside other additions is named by its kind, not its words. Its
+picker answers kinds only.
+
+**The plan, rewritten, not built.**
+- A message you send becomes one request on the server. Each of its parts
+  runs as ordinary queued jobs under names derived from the request, so
+  nothing runs or is charged twice, and a crash is recovered by the
+  machinery that already recovers jobs.
+- A small driver starts the next part whenever a job ends, and the
+  two-minute timer guarantees it even if every tab is closed.
+- The model says which part needs which, and the code holds the order.
+- Queued work is said as queued until it starts.
+- Nine decisions are yours, starting with whether later parts may spend
+  without a second press and whether a failure stops everything or only
+  what depends on it.
+
+While writing it I found that today's existing hand-overs between steps are
+also made by the page, so they stall when the tab closes. That is recorded
+in the backlog.
 
 ## 2026-10-03 — The mixed-work fixes, for your review (nothing spent, merged or deployed)
 

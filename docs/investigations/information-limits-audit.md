@@ -49,6 +49,23 @@
 >
 > **Batch 1 is implemented** (the words, questions, files and page list
 > whole): `docs/history/2026-10-03-input-limits-batch1.md`.
+>
+> **Status since, on the branch, unmerged.** Batches 2–4 stay paused.
+> - **The mixed-work round** (`docs/history/2026-10-03-mixed-work-fixes.md`)
+>   fixed IL10, IL12, IL13, and IL14's lane, data-change, rules-table,
+>   picture-change and link-change counts.
+> - **The owner's review of that round**
+>   (`docs/history/2026-10-03-footer-lists.md`) removed the rest of IL14's
+>   nav row: the eleventh menu link and the ninth footer entry are applied,
+>   and every refused entry is named with its reason.
+> - **IL11 is only partly fixed.** The mixed-work round uncut `notAdded`,
+>   `keptParts` and `unseenParts`. `problems` (4), `changed` (8), `reordered`
+>   and `ignored` (4), `staleTel` and `dead` (4) and `contentBlocked` (6) are
+>   still cut in `worker.js`.
+> - **Still in force, for the paused batches**: rows past 60, photographs
+>   past 60, labels past 40 characters and contact fields past 160.
+>
+> The table below is as audited at `88406d05`.
 
 ## In short
 

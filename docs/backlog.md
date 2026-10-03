@@ -404,10 +404,19 @@ here; take a closed one out of both.**
   addition's declined part), a second part the answer cannot make vanishing
   (MW3), and a job's interval raised unsaid (MW7). A real-model batch
   (MX1–MX6) is prepared, not run. **All eight fixed on the branch on
-  2026-10-03, unmerged and undeployed** (`docs/history/2026-10-03-mixed-work-fixes.md`);
-  open: an edit and an addition finishing in one request (the plan,
-  `docs/investigations/edit-addon-one-request-plan.md`, three decisions the
+  2026-10-03, unmerged and undeployed** (`docs/history/2026-10-03-mixed-work-fixes.md`).
+  **The footer's eighth-entry cut the owner reproduced on the review, and
+  the menu's count of ten, removed the same day**
+  (`docs/history/2026-10-03-footer-lists.md`). Open: an edit and an addition
+  finishing in one request (the plan, revised around the server's job runner,
+  `docs/investigations/edit-addon-one-request-plan.md`, nine decisions the
   owner's), and the real-model batch.
+- The page itself makes the three existing hand-overs (edit → add-on, a
+  sideways hop, add-on → menu step), so closing the tab between the two jobs
+  loses the second half (found 2026-10-03; the plan would move them to the
+  server).
+- A list entry or a menu link the add-on sets aside beside other kinds is
+  named by its kind, not its words (the add-on picker answers kinds only).
 
 ---
 
@@ -450,6 +459,10 @@ here; take a closed one out of both.**
     lists capped with no count; a fifth look lane, the 21st row change, a
     fifth rules table, a ninth picture change, an eleventh menu link and a
     ninth footer item dropped without a word; rows past 60 can't be named.
+    (The lane, row, rules-table, picture and link-change counts went with the
+    mixed-work fixes; the menu's ten and the footer's eight on the owner's
+    review of them, 2026-10-03, `docs/history/2026-10-03-footer-lists.md`.
+    Rows past 60 remain, for the paused batches.)
   - **What is reported** (IL10, IL12, IL15, IL16, IL18, IL19): an
     addition's declined kinds vanish on a partial success (probe); a menu,
     picture, rules, text or rename step beside a look change never reaches
@@ -507,16 +520,41 @@ here; take a closed one out of both.**
   - **MW8** (new, low): the page's own reply for page steps alone names no
     page (*"Updated the look."*); a model reply's facts name both.
   - **Kept as decisions, not defects**: an edit and an addition never finish
-    together from one message (the plan for finishing both in one request is
-    `docs/investigations/edit-addon-one-request-plan.md`, not built: whether
-    later parts may spend without a second press, one reply per part or a
-    summary, and stop on failure are the owner's); an addition is all or
-    nothing on a failed check; nothing runs concurrently.
+    together from one message; an addition is all or nothing on a failed
+    check; nothing runs concurrently. The plan for finishing both in one
+    request is `docs/investigations/edit-addon-one-request-plan.md`, revised
+    2026-10-03 around the server's job runner, and not built: a request row,
+    each part run as ordinary jobs under derived keys, a driver backed by the
+    cron, and relations named by the model. Its decisions D1–D9 are the
+    owner's.
+  - **A new list entry or a menu or footer link that the add-on sets aside
+    beside other kinds is named by its kind, not by its words** (found again
+    2026-10-03 while examining the footer's frame hand-offs; not changed).
+    The add-on picker answers kinds only, so the route never learns which
+    entry or which link was asked for. It says *"A new entry for one of the
+    site's lists is a step of its own …"* (`row-alone`) or names the menu
+    link as a separate step. The customer must say it again, in their own
+    words. A **lone** frame handed to the menu step is unaffected: every entry
+    there is applied or named with its reason. The plan's add-on `scopes`
+    (`[{ kind, words }]`, §9.1) is what would carry the words.
+  - **The existing browser-driven hand-overs stall when the tab closes**
+    (found while revising the plan, 2026-10-03; not fixed, and the plan
+    would move them to the server). Today the page itself makes three hops:
+    - an edit escalating to the add-on;
+    - a sideways hop to another edit layer;
+    - the add-on handing a lone menu link to the menu step.
+
+    Each is made by the page after the first job ends (`escalatedEdit`,
+    `EditPoll.escalateAction`). Close the tab between them and the second
+    half is never run. Nothing tells the customer, beyond the first job's own
+    reply.
   - **Left by the fixes, said** (2026-10-03): a part the picker names nowhere
     (no lane, no `elsewhere`) is still neither made nor named — nothing reads
     the customer's words for meaning, so only the real-model batch can say
-    how often a real picker does that; the per-kind addition ceilings and the
-    menu's ten items stay as limits, each item past them named; row changes,
+    how often a real picker does that; the per-kind addition ceilings stay
+    as limits, each item past them named (the menu's ten items and each
+    footer list's eight were removed on the owner's review, 2026-10-03:
+    `docs/history/2026-10-03-footer-lists.md`); row changes,
     rules tables and link changes past their old counts are shown at their
     readers, not through the route; the page's fallback composer still shows
     at most three of a page's lint problems and 200 characters of a part left

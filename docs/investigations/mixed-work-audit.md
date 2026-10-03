@@ -68,17 +68,21 @@ shown with supplied answers):
 1. **An edit and an addition never finish together.** One message reaches
    one route; the other half is left for later, named, and must be sent
    again. The smallest change that would finish both halves in the same
-   request is proposed in the plan (not built; three decisions are yours).
+   request is proposed in the plan (revised 2026-10-03 around the server's
+   job runner; not built; nine decisions are yours).
 2. **The fixes depend on the models answering as told.** A picker that names
    no lane and no `elsewhere` for a part leaves the code nothing to read, and
    nothing here guesses at it (no keyword rules). Only the real-model batch
    can measure how often that happens.
-3. **Genuine limits remain, each now named when it binds**: ten items per
-   menu and eight per footer list; per-kind addition ceilings (§2); one
-   answer per step, refused whole when it is cut off at its ceiling; what one
-   request can carry (48,000 characters); the information limits on what
-   each step is shown (60 rows, 60 photograph slots), which belong to the
-   paused information-limits batches.
+3. **Genuine limits remain, each now named when it binds**: per-kind
+   addition ceilings (§2); one answer per step, refused whole when it is cut
+   off at its ceiling; what one request can carry (48,000 characters); the
+   information limits on what each step is shown (60 rows, 60 photograph
+   slots), which belong to the paused information-limits batches. **The
+   menu's ten items and each footer list's eight are gone** (2026-10-03, on
+   your review). Neither was a technical constraint: the kit renders every
+   item. The eight cut a ninth small-print link before any entry was read,
+   and said nothing.
 4. **Nothing runs at the same time**, by your decision: steps run in turn, a
    site runs one job at a time, and a big message takes the sum of its
    steps' time.
@@ -120,13 +124,27 @@ photographs per picture step (8), row changes per data step (20), tables per
 rules step (4), link changes per menu step (12), parts put off per request (4,
 now bounded by what one request carries), and the schema `maxItems` on the
 nine list-kind addition tools (which told a model to leave entries out
-before the cleaner could name them).
+before the cleaner could name them). **And, on your review (2026-10-03), the
+menu's items (10, `MAX_NAV_ITEMS`) and each footer list's entries (8,
+`MAX_LIST_ITEMS`)**, in the reader and in the add-on's frame hand-off:
+- the footer's count cut the list before any entry was read
+  (`raw2.slice(0, MAX_LIST_ITEMS)`), so a ninth valid entry vanished with
+  `dropped: []`;
+- the menu's count was named when it bound, but it was a design number, not
+  a constraint (the kit renders every item).
+
+What bounds a menu or footer list now:
+- the step's answer ceiling (`navMaxTokens`), with a cut answer refused
+  whole;
+- each label's length (`MAX_LABEL`, 40, an information limit left for the
+  paused batches);
+- each entry's destination, checked one by one, with every refused entry
+  named with its own reason (`docs/history/2026-10-03-footer-lists.md`).
 
 **Limits kept, each named when it binds**:
 
 | Limit | Value | Why it stays | What the customer is told |
 |---|---|---|---|
-| Items in the site's menu | 10 (`MAX_NAV_ITEMS`); footer list 8 (`MAX_LIST_ITEMS`) | a design limit of the menu and footer | every item past it, by name, with the limit |
 | Additions of one kind per message | pages 6 (the page writer's own), components 12, tables 6, rows 12, functions 6, APIs 4, jobs 4 (the engine keeps 8 per site), lines of words 6, photographs 6 (`IMAGE_CAP`, the purchase ceiling) | ceilings a site can hold, set by the owner's "no low limits while testing" | every entry past it, by name (`over-cap`) |
 | One step's answer | its ceiling grows with what the step is shown, enforced at most 16,000 tokens (`LIST_ANSWER_MAX_TOKENS`, inside the call's time limit) | the time a call may take | an answer cut off at its ceiling is refused whole: *"The builder's answer for that part was cut off before it finished, so none of it was used and nothing there changed — this is on us."* |
 | Parts carried across turns | 48,000 characters together (`MAX_CARRIED_CHARS`), each part one message (16,000) | the size policy | a list past it is refused whole at no cost, never run whole |
@@ -298,13 +316,21 @@ and the balance, and the customer-visible reply word for word.
 
 ## 9. What is left, and what is yours to decide
 
-- **Finishing both halves in one request** — the plan
-  (`docs/investigations/edit-addon-one-request-plan.md`): each part left for
-  later becomes a guarded continuation run through the existing routes, in
-  turn, with the latch held; one routing call and one publish per part; a
-  failure or a question stops the chain cleanly. **Your decisions first**:
-  whether later parts may spend without a second press; one reply per part
-  or a summary; stop on failure (proposed) or continue independent parts.
+- **Finishing both halves in one request**: the plan, revised 2026-10-03 on
+  your review (`docs/investigations/edit-addon-one-request-plan.md`). The
+  first version's browser-driven chain is gone.
+  - An accepted message becomes one **request** on the server.
+  - Each of its parts runs as ordinary queued jobs, filed under keys derived
+    from the request, through the existing runner (claim, lease, site lock,
+    reserves, publish marks, sweeps, reconcile).
+  - A driver files the next runnable part after each job ends. The
+    two-minute cron is what guarantees it.
+  - The model names which parts need which, and code enforces the order.
+  - The browser only follows and answers questions.
+  - **Your decisions first** (D1–D9 in the plan): among them, whether later
+    parts may spend without a second press, the failure policy (B proposed:
+    stop only what depends on a failure), and one reply per part or a
+    summary.
 - **An addition with one refused part**: keep all-or-nothing (your
   2026-09-13 rule) or apply the independent parts and name the refused one.
 - **Running steps at the same time**: keep "in turn" (your decision), or a

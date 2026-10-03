@@ -684,7 +684,46 @@ the owner's free press, run 51, at 22:57 UTC):
     record: `docs/history/2026-10-03-mixed-work-fixes.md`. **Next**: the
     owner's three decisions on the plan for finishing Edit and Add-on in one
     request (`docs/investigations/edit-addon-one-request-plan.md`, not
-    built), and the real-model batch on their approval.
+    built), and the real-model batch on their approval. *(Superseded by item
+    20: the menu's ten is gone too, and the plan is revised.)*
+20. **Footer lists and the menu: every entry applied or named; the plan
+    revised** (2026-10-03, on the owner's review of item 19; for review: not
+    merged or deployed, no container built, no model called, nothing spent,
+    Build unchanged; `13c22ea3`).
+    - **The cut**: the owner reproduced it. `readNav` cut each footer list at
+      eight before reading an entry, so a ninth valid entry vanished with
+      `dropped: []`.
+    - **The fix**: the menu's ten and each footer list's eight are removed,
+      from the reader and from the add-on's frame hand-off; the kit renders
+      every item. Every entry is read, including one that is not an entry at
+      all. Every refusal has its own reason, on the answer (`dropped`,
+      `refusedLinks` carry entries, not counts) and in the reply, which names
+      each list's entries.
+    - **What bounds a list now**: the step's answer ceiling, each label's 40
+      characters and each entry's own checks.
+    - **Not changed, in the backlog**: a link or entry the add-on sets aside
+      beside other kinds is named by its kind, not its words.
+    - **Tested only with supplied model output**:
+      - 10 new cases through the real routes, sync and queued: nine-and-nine
+        links, invalid entries among valid ones, the frame hand-off beside
+        existing links, refused links in the copy, a twelve-item menu. Each
+        reads the stored pages and the reply;
+      - plus the readers' cases;
+      - red check 16 of 289 failing on `a66244e2`;
+      - sweep 10 of 10, with 2 controls surviving;
+      - the 23 menu-related files 1,139 of 1,139;
+      - the published footer built with the real kit, before and after, in
+        the session.
+    - **The plan, revised** (`docs/investigations/edit-addon-one-request-plan.md`):
+      - a request row, each part run as ordinary queued jobs under derived
+        keys, and a driver backed by the two-minute cron, so no open tab is
+        needed;
+      - relations named by the model and enforced by code;
+      - checkpoints and recovery specified one by one;
+      - nine decisions, and grouped tests.
+    - The record: `docs/history/2026-10-03-footer-lists.md`.
+    - **Next**: the owner's review and the plan's decisions; the real-model
+      batch on their approval.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).
