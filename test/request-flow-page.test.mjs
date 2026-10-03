@@ -171,8 +171,8 @@ test("PAGE 3 — a part's question comes up on the page's question card and is a
   });
 });
 
-test("PAGE 4 — Stop the rest: the server stops what has not run, the card says so and offers Stop no more, and nothing more starts", async () => {
-  await withPage({ slug: slugOf("p4"), answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }], ...DESCRIBE, ...GALLERY } }, async (P) => {
+test("PAGE 4 — Stop the rest: the server stops what has not run, the card says so and offers Stop no more, nothing more starts, and the request's own reply is shown once", async () => {
+  await withPage({ slug: slugOf("p4"), replies: true, answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }], ...DESCRIBE, ...GALLERY } }, async (P) => {
     const seen = [];
     const p = openPage(P, wire(P, seen));
     p.ctx.siteSend(DESC + ", and " + ADD + ".");
@@ -189,6 +189,12 @@ test("PAGE 4 — Stop the rest: the server stops what has not run, the card says
     const html = p.ctx.siteRequestHTML(card(p, KEY), p.s);
     assert.equal((html.match(/>Stopped</g) || []).length, 2, html);
     assert.doesNotMatch(html, /Stop the rest/);
+    // THE REQUEST'S OWN REPLY (the server's, model-written from its facts), on
+    // the thread once — however many times the page reads the request again.
+    p.flush();
+    await idle();
+    const own = texts(p).filter((t) => /Stopped at their request before it changed anything: “add a gallery page”/.test(t));
+    assert.equal(own.length, 1, JSON.stringify(texts(p)));
   });
 });
 

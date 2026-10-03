@@ -12,7 +12,7 @@ import {
   planParts, carveParts, newRequest, readRequest, nextStep, settleState, answerless, readRun, readRoute, handOff,
   jobKey, readJobKey, parseLiveKey, liveKey, recordKey, isRequestKey, answerPart, askedAgain, cancelPart, noteJobId,
   noteFilingRefused, noteOffered, questionsToOffer, jobBody, readRequestOf, requestView, liveJobIds, doneSummary, RETRIES, WAIT_MS,
-  LIVE_ROOT, SWEEP_CURSOR_KEY,
+  LIVE_ROOT, SWEEP_CURSOR_KEY, chargedOf,
 } from "../builder/request.mjs";
 import { readDepends, readPartOf, partBlock, withPart, PART_HEADING } from "../builder/site-ask.mjs";
 import { requestReplyFacts } from "../builder/site-reply.mjs";
@@ -392,6 +392,44 @@ test("the request's own reply facts: one per part, a part with its own reply nam
   assert.match(f[0], /^Done: “part 0” — its own reply above says what changed\./);
   assert.match(f[1], /^Not started: “part 1”, because it needed “part 0” done first/);
   assert.match(f[2], /Their site takes no new changes until an earlier change that stopped part-way through publishing has been checked/);
+});
+
+test("money: a part's charge is its jobs' rows' — finalized reserves only — and the reply says it, never assuming nothing; the message's routing charge is said once", () => {
+  // THE ROW SAYS, OR NOTHING DOES.
+  assert.equal(chargedOf({ billing: "finalized", cost: 2 }), 2);
+  for (const row of [{ billing: "refunded", cost: 2 }, { billing: "exempt", cost: 0 }, { billing: "none", cost: 0 }, { billing: "reserved", cost: 3 }, { billing: "finalized", cost: "2" }, null]) {
+    assert.equal(chargedOf(row), 0, JSON.stringify(row));
+  }
+  // A PART'S CHARGE IN THE VIEW, from every job it ran: its routing and its runs.
+  const r = nextStep(rec0({ intent: "edit", alsoAsked: [ADD], cost: 1 }), {}, 1);
+  const rec = r.record;
+  rec.routedCost = 1;
+  rec.parts[1].jobs = [
+    { key: "a", kind: "route", op: "route", id: "j1", end: { act: "route", cost: 1 } },
+    { key: "b", kind: "run", op: "addon", id: "j2", end: { act: "cancelled", cost: 0 } },
+  ];
+  const v = requestView(rec);
+  assert.equal(v.parts[1].charged, 1);
+  assert.equal(v.parts[0].charged, 0);
+  // PART 0 HAS A RUN ON THE ACCEPTING ANSWER THAT WILL WRITE A REPLY? Not yet: unsaid.
+  assert.equal(v.routedUnsaid, 1, "the message's routing charge was taken as said by a reply that does not exist");
+  rec.parts[0].jobs[0].id = "j0";
+  rec.parts[0].jobs[0].end = { act: "success", cost: 2 };
+  assert.equal(requestView(rec).routedUnsaid, 0, "part 0's own reply carries it");
+  rec.parts[0].jobs.unshift({ key: "z", kind: "route", op: "route", id: "jz", end: { act: "route", cost: 1 } });
+  assert.equal(requestView(rec).routedUnsaid, 1, "a part 0 routed again carries its own routing's charge, not the message's");
+  // THE REPLY'S FACTS.
+  const view = (parts, extra = {}) => ({ ...extra, parts: parts.map((p, n) => ({ n, words: "part " + n, jobs: [], ...p })) });
+  const said = (vv) => requestReplyFacts(vv).facts.map((x) => x.text).join(" | ");
+  assert.match(said(view([{ status: "done", jobs: ["j"], charged: 2 }, { status: "cancelled", why: "stopped", charged: 1 }])), /“part 1”\. The steps it had already taken were charged one credit\./);
+  assert.match(said(view([{ status: "done", jobs: ["j"] }, { status: "cancelled", why: "question-cancelled", charged: 0 }])), /Cancelled with the question it asked, before it changed anything: “part 1”\. Nothing was charged for it\./);
+  // CANNOT TELL IS NEVER NOTHING: no number, no claim.
+  assert.doesNotMatch(said(view([{ status: "done", jobs: ["j"] }, { status: "cancelled", why: "stopped" }])), /charged/);
+  assert.match(said(view([{ status: "not-run", why: "needs:1", charged: 0 }, { status: "failed", jobs: ["k"], charged: 3 }], { routedUnsaid: 1 })), /Reading their message cost one credit\./);
+  // EVERY PART DONE WITH ITS OWN REPLY, BUT THE MESSAGE'S ROUTING UNSAID: the reply is still written, for that.
+  const only = requestReplyFacts(view([{ status: "done", jobs: ["j"] }, { status: "done", jobs: ["k"] }], { routedUnsaid: 2 }));
+  assert.equal(only.skip, null);
+  assert.match(only.facts.map((x) => x.text).join(" | "), /Reading their message cost 2 credits\./);
 });
 
 test("hand-overs: an unknown layer named by the add-on is not followed, and an escalate that is not one is unknown", () => {

@@ -771,8 +771,19 @@ export function requestReplyFacts(v) {
   if (!v || typeof v !== "object" || !Array.isArray(v.parts) || !v.parts.length) return { skip: "unreadable", facts: [] };
   const parts = v.parts.filter((p) => p && typeof p.words === "string" && typeof p.status === "string");
   const own = (p) => Array.isArray(p.jobs) && p.jobs.length > 0;
-  if (parts.every((p) => p.status === "done" && (own(p) || typeof p.answer === "string"))) return { skip: "nothing-to-add", facts: [] };
+  // THE MESSAGE'S OWN ROUTING CHARGE that no part's reply says (`routedUnsaid`).
+  const unsaid = num(v.routedUnsaid);
+  if (!(unsaid > 0) && parts.every((p) => p.status === "done" && (own(p) || typeof p.answer === "string"))) return { skip: "nothing-to-add", facts: [] };
   const F = factList();
+  // WHAT A PART THAT DID NOT FINISH WAS CHARGED, as its jobs' rows say
+  // (`charged`): never assumed from how it ended — a later part's own routing
+  // is charged before it runs, whatever happens to it after.
+  // A view with no number there says nothing about money: cannot-tell is
+  // never read as nothing.
+  const paid = (p) => {
+    const c = num(p.charged);
+    return c === null ? "" : c > 0 ? " The steps it had already taken were charged " + count(c, "credit") + "." : " Nothing was charged for it.";
+  };
   const named = (n) => { const q = parts.find((x) => x.n === n); return q ? quote(q.words) : "another part of the request"; };
   const neededOf = (p) => Number((/^needs:(\d+)$/.exec(String(p.why || "")) || [])[1]);
   for (const p of parts) {
@@ -781,21 +792,21 @@ export function requestReplyFacts(v) {
     if (p.status === "done") {
       F.add("changed", "Done: " + w + (own(p) ? " — its own reply above says what changed." : typeof p.answer === "string" ? " — they asked a question, answered above." : "."), item);
     } else if (p.status === "not-run") {
-      F.add("not-done", "Not started: " + w + ", because it needed " + named(neededOf(p)) + " done first, and that did not finish. Nothing was charged for it.", item);
+      F.add("not-done", "Not started: " + w + ", because it needed " + named(neededOf(p)) + " done first, and that did not finish." + paid(p), item);
     } else if (p.status === "cancelled") {
-      F.add("not-done", "Stopped at their request before it changed anything: " + w + ". Nothing was charged for it.", item);
+      F.add("not-done", (p.why === "question-cancelled" ? "Cancelled with the question it asked, before it changed anything: " : "Stopped at their request before it changed anything: ") + w + "." + paid(p), item);
     } else if (p.status === "needs-rewrite") {
       F.add("not-done", "Not made: " + w + ". The quicker steps could not make it; only the full rewrite of every page could " +
         "(a full rewrite of the same site was measured at 17 credits), which changes far more than this part asked for, " +
-        "so it was not started. They can start it from the button shown under this part, or leave it.", item);
+        "so it was not started. They can start it from the button shown under this part, or leave it." + paid(p), item);
     } else if (p.status === "expired") {
-      F.add("not-done", "Not done: " + w + ", because the question it asked went unanswered for a day. They can ask for it again.", item);
+      F.add("not-done", "Not done: " + w + ", because the question it asked went unanswered for a day. They can ask for it again." + paid(p), item);
     } else if (p.status === "refused") {
-      F.add("not-done", "Not done: " + w + ", because it and the parts it depends on could not be put in an order that works. They can send it on its own.", item);
+      F.add("not-done", "Not done: " + w + ", because it and the parts it depends on could not be put in an order that works. They can send it on its own." + paid(p), item);
     } else if (p.status === "failed") {
       F.add("not-done", "Not done: " + w + (own(p) ? " — its own reply above says why."
-        : p.why === "routing-failed" ? " — working out what it needed failed on our side; nothing was charged for it."
-        : " — it stopped before it finished, on our side; nothing was charged for it."), item);
+        : p.why === "routing-failed" ? " — working out what it needed failed on our side." + paid(p)
+        : " — it stopped before it finished, on our side." + paid(p)), item);
     } else if (p.status === "waiting") {
       const q = p.question && typeof p.question.text === "string" ? p.question.text : "";
       F.add("question", "Waiting for their answer before it goes on: " + w + (q ? ", which asked " + quote(q) : "") + ".", item);
@@ -811,6 +822,7 @@ export function requestReplyFacts(v) {
       F.add("pending", "Queued, not started yet: " + w + ".", item);
     }
   }
+  if (unsaid > 0) F.add("money", "Reading their message cost " + count(unsaid, "credit") + ".");
   return { skip: null, facts: F.out };
 }
 

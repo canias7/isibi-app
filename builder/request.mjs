@@ -561,17 +561,28 @@ export function answerless(row) {
   return !ans || NO_ANSWER.includes(ans.body.error);
 }
 
+/** What a job that ended was charged: its reserves when its row says they were finalized, else nothing. */
+export function chargedOf(row) {
+  // A NUMBER AS THE ROW HOLDS IT, never one coerced from something else.
+  const c = row && typeof row.cost === "number" ? row.cost : NaN;
+  return row && row.billing === "finalized" && Number.isInteger(c) && c > 0 ? c : 0;
+}
+
 /**
  * SETTLE ONE JOB THAT ENDED: what its answer means for its part.
  */
 function settle(rec, p, job, row, now) {
   const ans = answerOf(row);
-  job.end = { state: row.state, at: now };
+  // WHAT IT WAS CHARGED, AS ITS ROW SAYS — its reserves once finalized, and
+  // nothing for one refunded, exempt or never reserved — so a part's money is
+  // read from the ledger's own record, never assumed from how it ended.
+  job.end = { state: row.state, at: now, cost: chargedOf(row) };
   // STOPPED, AS THE JOB ITSELF SAYS: a cancel caught at a gate (`error`) or at
   // the publish gate (`detail`) — the job runner then marks the row failed, so
   // the answer is what tells a stop from a failure.
   const stopped = row.state === "cancelled" || (!!ans && ans.body.ok === false && (ans.body.error === "cancelled" || ans.body.detail === "cancelled"));
   if (stopped && !(ans && ans.body.ok === true)) {
+    job.end.act = "cancelled";
     p.status = "cancelled"; p.why = rec.stop ? "stopped" : "cancelled"; return;
   }
   if (answerless(row)) {
@@ -980,6 +991,9 @@ export function readRequestOf(v) {
 
 // ── WHAT THE PAGE AND THE REPLY ARE SHOWN ────────────────────────────────────
 
+/** A run job whose own reply explains its part: it ended with an answer, and was not a hand-over. */
+const shownRun = (j) => j.kind === "run" && !!j.id && !!j.end && !["hop", "climb", "answerless"].includes(j.end.act);
+
 /**
  * A REQUEST AS THE PAGE FOLLOWS IT: each part with its words, its status and
  * why, its question while it waits, and the run jobs whose stored answers
@@ -987,8 +1001,15 @@ export function readRequestOf(v) {
  * model reply once). Nothing private: no uid, no files' keys.
  */
 export function requestView(rec) {
+  // THE MESSAGE'S OWN ROUTING CHARGE, WHEN NO PART'S REPLY SAYS IT: part 0's
+  // run carries it (`routedCost`) only when part 0 ran on the answer that
+  // accepted the message and its job's reply was written; a part 0 routed
+  // again, stopped or never run leaves it to the request's own reply.
+  const p0 = rec.parts[0];
+  const saidByPart0 = !!p0 && !p0.jobs.some((j) => j.kind === "route") && p0.jobs.some(shownRun);
   return {
     key: rec.key, state: rec.state, ended: rec.ended === true, stop: rec.stop === true, at: rec.at, updatedAt: rec.updatedAt,
+    routedUnsaid: !saidByPart0 && Number.isInteger(rec.routedCost) && rec.routedCost > 0 ? rec.routedCost : 0,
     parts: rec.parts.map((p) => ({
       n: p.n, words: typeof p.shown === "string" && p.shown ? p.shown : p.words, status: p.status,
       // WHAT A STEP FOR IT IS SENT — the full rewrite's go-ahead sends this.
@@ -999,7 +1020,10 @@ export function requestView(rec) {
       // THE JOBS WHOSE OWN REPLY EXPLAINS THIS PART: every run that ended with an
       // answer, never a hand-over (the page says nothing for one, as it never
       // did) or a job that ended without an answer.
-      jobs: p.jobs.filter((j) => j.kind === "run" && j.id && j.end && !["hop", "climb", "answerless"].includes(j.end.act)).map((j) => j.id),
+      jobs: p.jobs.filter(shownRun).map((j) => j.id),
+      // WHAT ITS JOBS WERE CHARGED, from their rows (`chargedOf`): its routing,
+      // its runs, a hand-over's, whatever came back excluded.
+      charged: p.jobs.reduce((s, j) => s + (j.end && Number.isInteger(j.end.cost) ? j.end.cost : 0), 0),
       ...(p.route ? { route: p.route.op === "addon" ? "addon" : (p.route.layer || "edit") } : {}),
     })),
   };

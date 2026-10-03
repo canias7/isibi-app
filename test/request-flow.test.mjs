@@ -570,6 +570,29 @@ test("E5 — a part's job that ended in the site's container moves its request o
   });
 });
 
+test("E6 — a look at a request whose job is still running writes nothing; another owner's request is not found, whether read, stopped or listed", async () => {
+  await withPlatform({ slug: slugOf("e6"), answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }], ...DESCRIBE, ...GALLERY } }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    const at = "requests/" + P.slug + "/" + r.key + ".json";
+    const etag = P.objects.get(at).etag;
+    // TWO LOOKS WHILE PART 0'S JOB WAITS IN THE QUEUE: read, never written,
+    // so a page that polls never takes the write a real step needs.
+    for (let i = 0; i < 2; i++) assert.equal((await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key)).status, 200);
+    assert.equal(P.objects.get(at).etag, etag, "a look wrote the request though nothing had moved");
+    // ANOTHER OWNER'S REQUEST ON THIS SITE (a slug that changed hands): its own record, its marker.
+    const theirs = newKey();
+    const other = { ...P.record(r.key), key: theirs, uid: "someone-else" };
+    await P.bucket.put("requests/" + P.slug + "/" + theirs + ".json", JSON.stringify(other));
+    await P.bucket.put("requests-live/" + P.slug + "/" + theirs, JSON.stringify({ at: P.now(), endedAt: null }));
+    const before = JSON.stringify(P.record(theirs));
+    assert.equal((await call(P, "GET", "/api/site/request/" + P.slug + "/" + theirs)).status, 404, "another owner's request was read");
+    assert.equal((await call(P, "DELETE", "/api/site/request/" + P.slug + "/" + theirs)).status, 404, "another owner's request was stopped");
+    assert.equal(JSON.stringify(P.record(theirs)), before, "another owner's request was changed");
+    const list = await call(P, "GET", "/api/site/requests/" + P.slug);
+    assert.deepEqual(list.body.requests.map((v) => v.key), [r.key], "another owner's request was listed");
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // F. THE HAND-OVERS THE PAGE USED TO MAKE, MADE ON THE SERVER
 // ─────────────────────────────────────────────────────────────────────────────
@@ -712,7 +735,8 @@ test("G1 — a part whose routing fails on our side is asked once more, then end
     assert.equal(P.look().description, NEW_DESC, "the finished part was undone");
     await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key);
     const facts = P.replyLog.at(-1).map((f) => f.text).join(" | ");
-    assert.match(facts, /Not done: “add a gallery page” — working out what it needed failed on our side; nothing was charged for it\./);
+    // "NOTHING WAS CHARGED" IS READ FROM ITS JOBS' ROWS, which say so above.
+    assert.match(facts, /Not done: “add a gallery page” — working out what it needed failed on our side\. Nothing was charged for it\./);
     assert.match(facts, /Done: “Change the site description/);
   });
 });
@@ -776,6 +800,100 @@ test("H3 — Stop pressed while a step is publishing comes too late for it: that
     assert.deepEqual(statuses(rec), ["done", "cancelled"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
     assert.equal(P.look().description, NEW_DESC);
     assert.equal(P.jobsOf(r.key).length, 1, "a job was filed after the stop");
+  });
+});
+
+test("H4 — Stop pressed after a step was chosen but before its filing was confirmed: the job is filed under its own key only to be cancelled at once, and nothing it would have done is done", async () => {
+  await withPlatform({ slug: slugOf("h4"), answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }], ...DESCRIBE, ...GALLERY } }, async (P) => {
+    const key = newKey();
+    // THE ACCEPTING CALL DIES JUST AFTER THE ROW: the record names part 0's
+    // job with no id, and no stored request or message was ever sent for it.
+    P.hang("edit_create");
+    assert.equal((await sendMessage(P, { message: DESC + ", and " + ADD + ".", key })).hung, "edit_create");
+    P.recover();
+    assert.equal(P.record(key).parts[0].jobs[0].id, null);
+    const s = await call(P, "DELETE", "/api/site/request/" + P.slug + "/" + key);
+    assert.equal(s.status, 200);
+    const { rec } = await settle(P, key);
+    assert.deepEqual(statuses(rec), ["cancelled", "cancelled"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.equal(P.look().description, OLD_DESC, "the step chosen before the stop ran after it");
+    const j = P.jobsOf(key);
+    assert.equal(j.length, 1, "a second job was filed");
+    assert.equal(P.answerOf(j[0]).detail, "cancelled");
+    assert.notEqual(j[0].billing, "finalized", "the stopped step was charged");
+    assert.equal(P.spent(), 1, "more than the routing call stayed charged");
+  });
+});
+
+test("H5 — a Stop that lands while another step is being taken is never lost: the step that read the request before it loses the write, reads again, sees the stop and files nothing", async () => {
+  await withPlatform({ slug: slugOf("h5"), answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }], ...DESCRIBE, ...GALLERY } }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    const job0 = P.record(r.key).parts[0].jobs[0].id;
+    // PART 0'S JOB ENDS, AND ITS STEP READS THE REQUEST AND THE JOB'S ROW; AT
+    // THAT VERY MOMENT THE CUSTOMER PRESSES STOP IN ANOTHER TAB.
+    let pressed = null;
+    P.after("edit_get", async () => { pressed = await call(P, "DELETE", "/api/site/request/" + P.slug + "/" + r.key); }, (a, out) => a.p_id === job0 && out && out.state === "done");
+    const { rec } = await settle(P, r.key);
+    assert.ok(pressed, "the stop was never pressed mid-step — the case did not happen");
+    assert.equal(pressed.status, 200);
+    assert.equal(rec.stop, true, "the stop was overwritten by the step that read the request before it");
+    assert.deepEqual(statuses(rec), ["done", "cancelled"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.equal(P.jobsOf(r.key).length, 1, "a job was filed after the stop");
+    assert.ok(!P.pages().includes("gallery.tsx"), "the part stopped was made anyway");
+  });
+});
+
+test("H6 — the request's own reply says what each part that did not finish was charged, as its jobs' rows say: a part stopped after its own routing ran says what that cost; the message's routing cost is said once — by part 0's own reply when it has one, else by the request's", async () => {
+  // A. STOPPED AFTER PART 1'S ROUTING RAN (charged through its reserve) AND BEFORE ITS STEP DID ANYTHING.
+  await withPlatform({ slug: slugOf("h6a"), replies: true, answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }], ...DESCRIBE, ...GALLERY } }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    await pump(P, { max: 1 });
+    await pump(P, { max: 1 });
+    const routeJob = P.jobsOf(r.key).find((j) => j.op === "route");
+    assert.ok(routeJob && routeJob.state === "done", "part 1 was not routed before the stop");
+    const paid = reserveOf(P, routeJob.id).reduce((a, c) => a + c, 0);
+    assert.ok(paid > 0, "part 1's routing was not charged — the case did not happen");
+    assert.equal((await call(P, "DELETE", "/api/site/request/" + P.slug + "/" + r.key)).status, 200);
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "cancelled"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.ok(!P.pages().includes("gallery.tsx"), "the stopped part was made");
+    await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key);
+    const facts = P.replyLog.at(-1).map((f) => f.text).join(" | ");
+    assert.match(facts, new RegExp("Stopped at their request before it changed anything: “add a gallery page”\\. The steps it had already taken were charged " + (paid === 1 ? "one credit" : paid + " credits") + "\\."), facts);
+    assert.doesNotMatch(facts, /add a gallery page”\. Nothing was charged/, "a part whose routing was charged was said to cost nothing");
+    // PART 0 RAN ON THE ANSWER THAT ACCEPTED THE MESSAGE, and its own reply said that cost.
+    assert.doesNotMatch(facts, /Reading their message cost/);
+  });
+  // B. PART 0 NEVER RAN (the part it needed failed): no part's own reply says
+  // what reading the message cost, so the request's reply does.
+  await withPlatform({
+    slug: slugOf("h6b"), replies: true,
+    answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD], dependsOn: [{ change: 0, after: [1] }] }, { intent: "addon" }], ...DESCRIBE, [T.adds]: { kinds: [] } },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["not-run", "failed"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.equal(rec.parts[0].jobs.length, 0);
+    await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key);
+    const facts = P.replyLog.at(-1).map((f) => f.text).join(" | ");
+    assert.deepEqual(rows(P, "route"), [-1]);
+    assert.match(facts, /Not started: “Change the site description[^”]*”, because it needed “add a gallery page” done first, and that did not finish\. Nothing was charged for it\./, facts);
+    assert.match(facts, /Reading their message cost one credit\./, facts);
+  });
+  // C. STOPPED BEFORE ANYTHING RAN: part 0's step ended at its gate, and its own
+  // reply (the job's, through the job poll) says what reading the message cost —
+  // so the request's reply does not say it twice.
+  await withPlatform({ slug: slugOf("h6c"), replies: true, answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }], ...DESCRIBE, ...GALLERY } }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    await call(P, "DELETE", "/api/site/request/" + P.slug + "/" + r.key);
+    await settle(P, r.key);
+    const job0 = P.record(r.key).parts[0].jobs[0].id;
+    await call(P, "GET", "/api/site/edit/" + job0);
+    assert.match(P.replyLog.at(-1).map((f) => f.text).join(" | "), /Reading their message cost one credit\./, "the stopped step's own reply did not say what reading the message cost");
+    await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key);
+    const facts = P.replyLog.at(-1).map((f) => f.text).join(" | ");
+    assert.doesNotMatch(facts, /Reading their message cost/, facts);
+    assert.equal((facts.match(/Stopped at their request before it changed anything: [^|]*Nothing was charged for it\./g) || []).length, 2, facts);
   });
 });
 
