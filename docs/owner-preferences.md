@@ -782,3 +782,17 @@
   with everything the request needs kept, and only their answer or their
   Cancel moves it on. The same holds at the router, every edit step and
   every add-on call.
+- **The answers a customer gave are a history, never a window**
+  (2026-10-03, the owner's fourth review): *"appendAnswer must not discard
+  an answer needed by unfinished work merely because 12 answers already
+  exist. Separate the stored clarification history from any bounded
+  model-input window; preserve relevant answers durably and retrieve them
+  for the operations that need them. Do not infer irrelevance from age or
+  assume a later answer to the same question replaces all earlier
+  details."* So a limit on how often we ask is never a limit on what we
+  keep: every answer stays with its request on every hop; none is dropped
+  for being old, or because the same question was answered again later
+  (each answer can carry its own detail); each model is shown the answers
+  retrieved for its own operation; and where a size bound has to exist, it
+  refuses something new, at no cost and with nothing lost, rather than
+  forget something the customer gave.

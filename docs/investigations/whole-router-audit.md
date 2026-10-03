@@ -143,11 +143,32 @@ to a model again on our own and no question is taken away — every call is
 offered its question, a reply that asks comes back with it, and nothing
 proposed beside it is done; the router's question is held under a note the
 same way; a step's question at 12 answers is kept with everything its
-request needs, and a thirteenth answer takes the place of the one the
-request needs least (N52 and N55 superseded). The changes are §3.13's last
-part, the checks §4.8, the limits N56–N58 (§3.0), and the record
+request needs, and a thirteenth answer took the place of the one the
+request needed least — that last part superseded by the fourth review,
+below (N52 and N55 superseded). The changes are §3.13's last part, the
+checks §4.8, the limits N56–N58 (§3.0), and the record
 `docs/history/2026-10-03-clarify-limits.md`. Nothing was spent, no model was
 called, nothing was changed on a site, and no container was built.
+
+**Then the owner's fourth review** (2026-10-03): *"Fix only the remaining
+answer-retention issue: appendAnswer must not discard an answer needed by
+unfinished work merely because 12 answers already exist. Separate the
+stored clarification history from any bounded model-input window; preserve
+relevant answers durably and retrieve them for the operations that need
+them. Do not infer irrelevance from age or assume a later answer to the same
+question replaces all earlier details. … Keep deployment and paid testing
+pending; avoid unrelated changes."* **Done on the branch (`5cbd5239`),
+for review, not merged or deployed**: the answer history and the question
+limit are two things — every answer stays in the request's history on every
+hop, up to its own size bound (`MAX_HISTORY`, 64), none let go for its age
+or because its question was answered again; 12 (`MAX_ASKED`) only says when
+our own re-asking stops; what a model is shown is retrieved for its own
+operation, never a window of the latest answers; a history full of needed
+answers refuses the next one at no cost, the question still waiting
+(`answers-full`), rather than forget one (N56 superseded). The changes are
+§3.13's last part, the checks §4.9, the limits N59–N60 (§3.0), and the
+record `docs/history/2026-10-03-clarify-history.md`. Nothing was spent, no
+model was called, nothing was changed on a site, and no container was built.
 
 ## In short
 
@@ -604,7 +625,7 @@ history's §4):
 | N51 | Limit (pre-existing) | a reload between the routing answer and the edit's post loses the resumed request (the question is already closed and no job exists yet) | recorded |
 | N52 | Limit (by design) | once a waiting question carries 11 answers, the router offers no question for the next message, even one that turns out to be a new request | **superseded by the third review** (`a38adac3`): the router is offered its question however many answers the waiting request carries |
 | N53 | Cost | a repeat costs one extra model call, ours and unbilled; the question field's pointer adds 31 characters to every tool that can ask, and the scope's `answers` 186 more to the picker (measured; both size bounds still hold) | recorded; **narrowed by the third review**: at the repeated-question threshold or past the total-answer limit a repeat is never sent again, so it costs no extra call |
-| N54 | Decision (yours) | 12 answers per request, 500 characters per answer and the same question twice are our numbers | recorded; **restated by the third review**: 12 is the total-answer limit (how many answers a request keeps, and past which nothing is sent again on our own), twice the repeated-question threshold; neither is ever a reason to act |
+| N54 | Decision (yours) | 12 answers per request, 500 characters per answer and the same question twice are our numbers | recorded; **restated by the third review**: 12 is the total-answer limit (how many answers a request keeps, and past which nothing is sent again on our own), twice the repeated-question threshold; neither is ever a reason to act; **restated by the fourth review**: 12 bounds no storage — only our re-asking — and the history holds 64 (N59) |
 | N55 | Limit (by design) | a step's question past 12 answers is not kept (`clarify-closed`, the request back in the box); every call there is offered no question, so it is a backstop | **superseded by the third review** (`a38adac3`): every call is offered its question, a step's question at 12 answers is kept with everything its request needs, and `clarify-closed` is gone |
 
 **Limits the owner's third review leaves** (`a38adac3`; the limits history's
@@ -612,9 +633,17 @@ history's §4):
 
 | # | Class | What | Where it stands |
 |---|---|---|---|
-| N56 | Limit (by design) | past 12 answers a new answer takes the place of the one the request needs least: a `handled` one, else the earlier answer to a question answered again since, else the oldest — which an unfinished part may still need | recorded; a model that needs it asks again, and the customer answers or cancels |
+| N56 | Limit (by design) | past 12 answers a new answer takes the place of the one the request needs least: a `handled` one, else the earlier answer to a question answered again since, else the oldest — which an unfinished part may still need | **superseded by the fourth review** (`5cbd5239`): no answer still needed is let go — not for its age, not because its question was answered again; only at the history's own bound (64) may a handled answer make room |
 | N57 | Behaviour (by design) | nothing ends a question but the customer — an answer that settles it, a new request, Cancel — or its expiry after a day (`ASK_TTL_MS`); a model that keeps asking keeps the request waiting, and no guess is ever made instead | recorded |
-| N58 | Untested model behaviour | whether a real model, shown answers that did not settle its question, asks a better one rather than the same one, and leaves proposed changes out when it asks | recorded; needs real models |
+| N58 | Untested model behaviour | whether a real model, shown answers that did not settle its question, asks a better one rather than the same one, and leaves proposed changes out when it asks | recorded; needs real models; **widened by the fourth review**: also whether a real picker names an old answer for the change that needs it |
+
+**Limits the owner's fourth review leaves** (`5cbd5239`; the history
+record's §4):
+
+| # | Class | What | Where it stands |
+|---|---|---|---|
+| N59 | Limit (by design) | a request's history holds 64 answers; at 64 only a `handled` answer can make room, and when all 64 are still needed a further answer is refused at no cost with the question still waiting (`answers-full`) — going on means Cancel and sending what is left as a new message; reaching it takes 52 rounds past the point where our re-asking stops, every one the customer's | recorded |
+| N60 | Cost | a long history makes every call shown it longer: at their longest, 64 answers are about 47,000 characters in the picker's and the router's input (answers up to 500, questions up to 240); real answers are short | recorded |
 
 **Tracked for the following batches** (a proposed grouping, your call):
 lost and deferred parts W5, W7, W8, W15, W24 (**batch 2, fixed on the
@@ -1549,15 +1578,39 @@ add-on work.** *A policy change on the owner's order; done on the branch.*
 - **The question keeps everything**: the request (or its unfinished part),
   its answers, its put-off parts and whether files came with it; a step's
   question at 12 answers is kept (`clarify-closed` gone, N55 superseded).
-- **The total-answer limit is a window**: a thirteenth answer takes the place
-  of the one the request needs least (`appendAnswer`: a handled one, else the
-  earlier answer to a question answered again, else the oldest), read the
-  same way by the router's repeat check and the routing route's settlement.
+- **The total-answer limit is a window** (superseded by the fourth review,
+  below): a thirteenth answer takes the place of the one the request needs
+  least (`appendAnswer`: a handled one, else the earlier answer to a
+  question answered again, else the oldest), read the same way by the
+  router's repeat check and the routing route's settlement.
 - **The note at the threshold** names the last two answers and both ways on
   — answer once more, or cancel — and never says nothing changed. Cancel is
   on every card, free.
 - **Unchanged**: the first build (the 42 pinned cases), the answers' retention
   from the second review, the 500-character answer.
+
+**The owner's fourth review of W27** (`5cbd5239`, for review; the record
+is `docs/history/2026-10-03-clarify-history.md`):
+- **The history and what a model is shown are two things**: every answer
+  stays in the request's history, up to its own size bound (`MAX_HISTORY`,
+  64), on every hop — the stored question, the routing answer, the posts, a
+  queued job, the browser's job record and hand-overs (`CONTEXT_MAX`, 64).
+  12 (`MAX_ASKED`) bounds no storage: it only says when our own re-asking
+  stops, as the third review left it.
+- **No answer still needed is let go** (N56 superseded): `appendAnswer`
+  keeps the oldest, and keeps every answer to a question answered again —
+  each may carry a detail of its own. Only at 64 is room made, and only by
+  the first handled answer; when all 64 are still needed the routing route
+  refuses the next answer (`answers-full`, 422, free, the question waiting,
+  the record untouched) and the browser keeps the card and the typed answer
+  (N59).
+- **Retrieved, never windowed**: the picker and the router are shown every
+  answer still needed, each step the answers the picker named for its
+  change plus those named for none, the add-on's designers every answer
+  still needed; the repeat check reads the whole history, so an old answer
+  asked again is held under a note naming it — all driven past 12 answers.
+- **Unchanged**: the third review's question limits, the first build, the
+  500-character answer.
 
 ## 4. Free checks run this round
 
@@ -1916,6 +1969,42 @@ them as left for later.
   and not built. **Unit CI** `8960 / 8956 / 0 / 4` (run 37087266116);
   **site build** run 37087266079, all 8 jobs green, "404 checks in 27
   sections across 4 shards, every job green".
+
+### 4.9 The fourth review's checks (W27 answer history, 2026-10-03)
+
+- **Reproduced first** on `9b3f00be` (the records on `a38adac3`): the
+  owner's regression fails at the thirteenth answer — the oldest, the
+  Contact-photo answer, pushed out of the stored question — and, with that
+  assertion taken out, the resumed photo step asks the customer which photo
+  again, sync and queued.
+- **Cases `8960` → `8972`**: `test/live-clarify-history.test.mjs`
+  (11, new, through the real routes): thirteen distinct answers with the
+  oldest still needed, through a reload, the browser's post, job record and
+  hand-over, and the resumed photo step acting on it without asking or
+  repeating the heading (sync, queued); each step shown exactly the answers
+  named for its change past 12 (sync, queued); the oldest answer still
+  recognised when asked again, at the router and at a step (sync, queued);
+  the picker's own question keeping all thirteen (sync, queued); a full
+  history refused as `answers-full`, a too-long answer still too long, one
+  handled answer making room; the add-on carrying thirteen to its designers
+  and keeping them with a designer's question. The contract file: the
+  history's bound on the record, `readContext` and the browser (13 and 64
+  read, 65 refused), `appendAnswer` rewritten. The limits file: the
+  thirteenth answer joining all twelve at the router and at an edit step.
+  The continuity file: the unreadable list at 65. The browser file (+1):
+  `answers-full` keeps the card and the typed answer.
+- **Red check**: the new and changed cases over `9b3f00be`'s code fail 20
+  of 91, each for the old window (the other 71 pass on both).
+- **Mutation sweep**, the old tiers among the mutants: 19 mutants; 17
+  killed on the first pass, the two survivors (the edit picker's and an
+  add-on designer's question keeping only the latest twelve) gaps closed by
+  new cases, then killed. **19 of 19 killed**, 3 comment-only controls
+  surviving.
+- **Full suite** `8972 / 8972 / 0 / 0` on the tree committed as
+  `5cbd5239`; the image predicted `a4409e55d3f3eb09` → `8bfc67dc695e65cc`
+  (191 inputs, 161 distinct) and not built. **Unit CI** (run 37090241036)
+  and the **site build** (run 37090241073) on `5cbd5239` are pending at
+  this commit.
 
 ## 5. The validation matrix
 

@@ -365,20 +365,44 @@ here; take a closed one out of both.**
   or its day-long expiry — no guess is ever made instead (N57); whether real
   models ask better questions and leave proposed changes out when they ask
   is unmeasured (N58).
+  **After the owner's fourth review** (`5cbd5239`): N56 superseded — no
+  answer still needed is let go; N58 widened to whether a real picker names
+  an old answer for the change that needs it.
+- **What the fourth review leaves** (2026-10-03, N59–N60 in the audit's
+  §3.0): a request's history holds 64 answers, and when all 64 are still
+  needed the next answer is refused, free, with the question waiting (N59);
+  a long history makes every call shown it longer, about 47,000 characters
+  at its longest (N60).
 
 ---
 
 ## Backlog
 
+- **WHAT THE FOURTH REVIEW OF THE CLARIFICATION ROUND LEAVES (N59–N60; found
+  2026-10-03 while separating the answer history from the question limit on
+  the owner's fourth review; deliberate unless marked).** Each is in the
+  audit's §3.0 and in `docs/history/2026-10-03-clarify-history.md` §4.
+  - **A request's history holds 64 answers** (N59): at 64 only a `handled`
+    answer can make room; when all 64 are still needed, a further answer is
+    refused at no cost with the question still waiting (`answers-full`),
+    and going on means Cancel and sending what is left as a new message.
+    Reaching it takes 52 rounds past the point where our own re-asking
+    stops, every one of them the customer's. 64 is our number, yours to
+    move.
+  - **A long history costs more per call** (N60): every call shown the
+    answers is longer — at their longest, 64 answers are about 47,000
+    characters in the picker's and the router's input; real answers are
+    short.
 - **WHAT THE THIRD REVIEW OF THE CLARIFICATION ROUND LEAVES (N56–N58; found
   2026-10-03 while fixing the question limits on the owner's third review;
   deliberate unless marked).** Each is in the audit's §3.0 and in
   `docs/history/2026-10-03-clarify-limits.md` §4.
-  - **Past 12 answers, one answer makes room for the next** (N56): a
-    `handled` answer goes first, then the earlier answer to a question
-    answered again, then the oldest — which an unfinished part may still
-    need. A model that needs it asks again, and the customer answers or
-    cancels; nothing is done without it.
+  - **Past 12 answers, one answer makes room for the next** (N56):
+    **superseded by the fourth review** (`5cbd5239`) — no answer still
+    needed is let go, not for its age and not because its question was
+    answered again. It read: a `handled` answer goes first, then the earlier
+    answer to a question answered again, then the oldest — which an
+    unfinished part may still need.
   - **Only the customer ends a question** (N57): an answer that settles it, a
     new request, or Cancel — or its expiry after a day. A model that keeps
     asking keeps the request waiting; no guess is ever made instead.
@@ -416,7 +440,8 @@ here; take a closed one out of both.**
     owner's to move). **Restated by the third review**: 12 is the
     total-answer limit (answers kept; past it nothing is sent again on our
     own) and twice the repeated-question threshold — neither is ever a
-    reason to act.
+    reason to act. **Restated by the fourth review**: 12 keeps nothing — it
+    only says when our own re-asking stops; the history holds 64 (N59).
   - ~~**A step's question past 12 answers is refused** (N55, a backstop):
     every call there is offered no question.~~ **Superseded by the third
     review** (2026-10-03): every call is offered its question, and a step's

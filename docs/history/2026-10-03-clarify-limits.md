@@ -98,6 +98,10 @@ below both limits, which keeps its question).
   from `askReport`, and `packAsk` accepts a full list.
 
 ### The total-answer limit is a window, never an ending
+*(Superseded by the owner's fourth review, the same day: no answer still
+needed is let go — not for its age, not because its question was answered
+again — and 12 bounds no storage; see
+`docs/history/2026-10-03-clarify-history.md`.)*
 - `appendAnswer` adds an answer to a request already carrying 12 by letting
   go of the one it needs least: the oldest `handled` answer first (about a
   part no longer held, never shown to a model again), then the earlier
@@ -237,7 +241,8 @@ New (the audit's §3.0):
   of the one the request needs least; when none is handled and no question
   was answered twice, that is the oldest, which an unfinished part may still
   need. A model that needs it asks again, and the customer answers or
-  cancels; nothing is done without it.
+  cancels; nothing is done without it. *(Superseded by the fourth review:
+  `docs/history/2026-10-03-clarify-history.md`.)*
 - **N57** (behaviour, by design): nothing ends a question but the customer —
   an answer that settles it, a new request, or Cancel — or its expiry after
   a day (`ASK_TTL_MS`, unchanged). A model that keeps asking keeps the

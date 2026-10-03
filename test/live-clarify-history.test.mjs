@@ -25,10 +25,12 @@
 //
 // THE HISTORY AND WHAT A MODEL IS SHOWN ARE TWO THINGS: every answer is kept
 // (`MAX_HISTORY`, `appendAnswer`); each step is shown the answers the picker
-// named for its change, with the ones it named for none (`eCtxOf`). The second
-// case drives that past the total-answer limit: the oldest answer goes to the
-// step that needs it and to no other. The last cases are the history's own
-// bound, refused rather than kept by forgetting, and the add-on route.
+// named for its change, with the ones it named for none (`eCtxOf`). The other
+// cases drive that past the total-answer limit: the oldest answer still counts
+// as theirs when a model asks it again, a question the picker asks keeps every
+// answer, the oldest answer goes to the step that needs it and to no other,
+// the history's own bound is refused rather than kept by forgetting, and the
+// add-on route carries and keeps all thirteen.
 //
 // ⚠ SUPPLIED-MODEL PROOF ONLY: which answers a real picker names for a change
 // is a live measurement.

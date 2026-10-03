@@ -526,6 +526,22 @@ the owner's free press, run 51, at 22:57 UTC):
     checks, every job green) on `a38adac3`. Not shown with real models
     (N58). The record is `docs/history/2026-10-03-clarify-limits.md`; the
     audit's §3.13, §4.8 and N56–N58.
+    **The owner's fourth review** (2026-10-03, `5cbd5239`, for review,
+    not merged or deployed): the answer history and the question limit are
+    two things — every answer stays in the request's history on every hop
+    up to 64 (`MAX_HISTORY`), none let go for its age or because its
+    question was answered again (N56 superseded); 12 only says when our own
+    re-asking stops; each model is shown the answers retrieved for its own
+    operation; a history full of needed answers refuses the next one free,
+    the question waiting (`answers-full`, N59). The owner's regression —
+    thirteen distinct answers with the oldest, the Contact photo, still
+    needed — passes through a reload and the resume, sync and queued,
+    without repeating the heading or asking again. 12 new cases (8,960 →
+    8,972; 11 in `live-clarify-history.test.mjs`); red check 20 of 91 on the
+    old code; sweep 19 of 19; full suite `8972 / 8972 / 0 / 0`; unit CI and
+    the site build on `5cbd5239` pending at this commit. Not shown with real
+    models (N58). The record is `docs/history/2026-10-03-clarify-history.md`;
+    the audit's §3.13, §4.9 and N59–N60.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

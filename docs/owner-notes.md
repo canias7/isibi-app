@@ -1,83 +1,82 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-03, 01:53 UTC)
+## Current handoff — read this first (2026-10-03, 02:40 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**State now: your third review of questions back — the question limits — is
-done on the branch, for your review.** Not merged, not deployed, nothing
+**State now: your fourth review of questions back — keeping every answer —
+is done on the branch, for your review.** Not merged, not deployed, nothing
 spent, no model called, no site changed, no container built. The earlier
-rounds (questions back, your first and second reviews of it, batches 1 and 2
-and batch 2's review fixes) are on the same branch for the one combined
-deploy. Nothing is waiting on a press.
+rounds (questions back, your first three reviews of it, batches 1 and 2 and
+batch 2's review fixes) are on the same branch for the one combined deploy.
+Nothing is waiting on a press.
+- **What was wrong**: the number 12 did two jobs. It was the point where the
+  builder stops re-asking a model on its own (your third review), and it was
+  also the most answers a request could keep at all. So a 13th answer pushed
+  one out — at worst the very first, even when the work still to do needed
+  it. In the test you asked for, that first answer is "the photo is the one
+  on the Contact page"; once it was pushed out, the photo step came back
+  asking you *"Which photo do you mean — one on Home or the one on
+  Contact?"* all over again. I reproduced that first, on the old code.
 - **What changed**, in plain words:
-  - **A limit never makes the builder guess any more.** Before, when a
-    model asked the same question a third time, or a request had already
-    collected 12 answers, the builder sent the model back with the question
-    box taken away, so it had to go ahead with whatever it had. And if a
-    model asked a question *and* suggested a change in the same reply, the
-    question was thrown away and the change was kept. Now the question is
-    never taken away, and whatever a model suggests beside a question is
-    not made, not published and not charged.
-  - **No automatic retries at the limits.** Below them, a model that asks
-    something you already answered is still sent your answer once to try
-    again. At them, nothing is re-sent on its own: the question comes to
-    you.
-  - **When you've answered the same question twice**, the third asking
-    shows this note above it: *"I’ve asked this before, and your answers —
-    “the nice one”, then “the nicer one” — haven’t settled it. Answer once
-    more, or cancel this request and nothing more will be done for it."*
-    You can type an answer, pick a numbered one, or press **Cancel this
-    request** (free). Nothing needs retyping.
-  - **Everything waits with the question**: your request (or just the part
-    still to do, if other parts of the message were already made), your
-    earlier answers, anything put off, and whether you attached files.
-  - **The same rule everywhere**: the part that decides where a message
-    goes, every step of an edit, and every step of an addition. The part
-    that decides where a message goes used to stop asking once a request
-    had 11 answers; now it can always ask.
-  - **After 12 answers questions are still allowed**: a new answer takes the
-    place of the one least needed — first one about a part already
-    finished, then an older answer to a question you've since answered
-    again, and only then the oldest.
-- **Unchanged**: first builds (byte for byte), and the way your earlier
-  answers stay with the work still to do (your second review).
-- **Checks, all free**: 11 new cases (8,949 → 8,960) through the real
-  routes, synchronously and as queued jobs, where every model asks a
-  question *and* proposes a change at once: the repeated-question limit at
-  an edit step (beside a heading change that is made), at the routing step
-  and at the add-on; the 12-answer limit at the same three. Each checks
-  that nothing uncertain is stored, published or charged, that the question
-  keeps the request, the answers, the put-off parts and the files, and that
-  a later clear answer resumes only the unfinished work. Run against the
-  old code, 9 of the 11 fail, each for the forced guess. Mutation sweep: 25
-  of 25 caught (one gap found and closed with a new case). Full suite
-  `8960 / 8960 / 0 / 0`.
-- **CI on `a38adac3`**: unit tests `8960 / 8956 / 0 / 4` (run 37087266116;
-  CI skips its usual four); site build run 37087266079: all 8 jobs green,
-  *"404 checks in 27 sections across 4 shards, every job green"*.
-- **What you'll see on screen**: two screenshots in our chat
-  (`docs/edits/clarify-limits-threshold.png` and
-  `clarify-limits-cancelled.png`): the third asking under its note, with the
-  numbered answers and Cancel, and Cancel's free close. Rendered in a real
-  Chromium from the app's own files with supplied answers. No new styling.
-- **What it still doesn't do** (backlog N56–N58, and the earlier ones that
-  remain): nothing is shown with real models yet, so whether a real model
-  asks a better question rather than the same one, and leaves its suggested
-  changes out when it asks, is a live measurement; past 12 answers the one
-  let go can, at worst, be an older answer still needed, and then the
-  model asks again; a question only ends with your answer, a new request,
-  Cancel, or its expiry after a day.
+  - **Every answer you give stays with your request** — however old it is,
+    and even if you answered the same question again later (each answer can
+    hold its own detail). It travels everywhere the request goes: the saved
+    question, a reload, a queued job, a hand-over to another step.
+  - **12 now only means "stop re-asking on our own"**, exactly as your third
+    review set it. It no longer limits what is kept.
+  - **Each part of the builder is shown the answers that matter for its own
+    job** — the picker names which answers each change needs — never "the
+    latest twelve".
+  - **There is still a ceiling, set high: 64 answers on one request.** At 64,
+    the only answers that can make room are ones about work that is already
+    finished. If all 64 are still needed, the builder doesn't forget one: it
+    says so, charges nothing, keeps the question waiting with its Cancel,
+    and puts what you typed back in the box. Reaching it would mean
+    answering 52 more questions by hand after the builder has already
+    stopped re-asking.
+- **Unchanged**: the question limits from your third review, first builds,
+  and the 500-character answer.
+- **Checks, all free**: 12 new cases (8,960 → 8,972), through the real
+  routes, synchronously and as queued jobs. The main one is the one you
+  asked for: 13 different answers with the oldest — the Contact photo —
+  still needed. It survives in the saved question, across a reload, in the
+  browser's saved job and its hand-over, and when the request resumes the
+  photo step gets it and makes the change; the heading that was already
+  done isn't redone or charged again, and nobody asks which photo again.
+  The others: each step is shown exactly its own answers past 12; an old
+  answer asked about again is recognised as yours; questions asked past 12
+  keep every answer; the 64-answer ceiling; the add-on side. Run against
+  the old code, 20 of the 91 cases fail, each because answers were pushed
+  out or couldn't be read past 12. Mutation sweep: 19 of 19 caught (two
+  gaps found and closed with new cases). Full suite `8972 / 8972 / 0 / 0`.
+- **CI on `5cbd5239`**: running — unit tests (run 37090241036) and the
+  site build (run 37090241073) started at 02:33 UTC; I'll stamp their
+  results here when they finish.
+- **What you'll see on screen**: one screenshot, in our chat and in
+  `docs/edits/clarify-history-full.png`: the message when a request already
+  has 64 answers that are all still needed, with the question and its
+  Cancel still there and your typed answer back in the box. Rendered in a
+  real Chromium from the app's own files with supplied answers. No new
+  styling.
+- **What it still doesn't do** (backlog N57–N60, and the earlier ones that
+  remain): nothing is shown with real models yet, so whether a real picker
+  names an old answer for the change that needs it is a live measurement
+  (N58); the 64-answer ceiling (N59); a long history makes each call
+  longer, about 47,000 characters at its very longest (N60); a question
+  only ends with your answer, a new request, Cancel, or its expiry after a
+  day (N57).
 - **The container**: a merge would roll the image `a4409e55d3f3eb09` →
-  `11d56d2824119c12` (191 inputs, predicted on both ends), carrying
+  `8bfc67dc695e65cc` (191 inputs, predicted on both ends), carrying
   everything on the branch. Nothing was built.
 
 **Decisions that are yours**
 - Your review of this round (and of the earlier rounds on the branch).
-- The numbers: 12 answers per request, 500 characters per answer, the same
-  question twice (N54), and the threshold note's wording.
+- The numbers: 12 (when re-asking stops), 64 (the history's ceiling), 500
+  characters per answer, the same question twice (N54, N59), and the
+  wording of the "as many answers as I can keep" message.
 - Still open: whether the answer's routing call stays charged (N32), and
   whether the chat shows a reply's line breaks (N39).
 - Then, on your word: one merge and deploy of everything on the branch, the
@@ -86,33 +85,34 @@ deploy. Nothing is waiting on a press.
   would be priced when you ask for them.
 
 **Links**
-- The record: `docs/history/2026-10-03-clarify-limits.md`, and the earlier
-  rounds' `docs/history/2026-10-02-clarify-continuity.md`,
+- The record: `docs/history/2026-10-03-clarify-history.md`, and the earlier
+  rounds' `docs/history/2026-10-03-clarify-limits.md`,
+  `docs/history/2026-10-02-clarify-continuity.md`,
   `docs/history/2026-10-02-live-clarify-review.md` and
   `docs/history/2026-10-02-live-clarify.md`
 - The audit: `docs/investigations/whole-router-audit.md` (§3.13's last part,
-  §4.8, N56–N58)
-- The commits: `a38adac3` (code and tests), with these records on top.
-- CI on `a38adac3`: unit tests run 37087266116; site build run 37087266079.
+  §4.9, N59–N60)
+- The commits: `5cbd5239` (code and tests), with these records on top.
+- CI on `5cbd5239`: unit tests run 37090241036; site build run
+  37090241073 (running at this commit).
 
 **From our chat**
-- The transport no longer strips the question at the limit, and a reply's
-  question is never dropped while its proposed edits are kept: done.
-- No limit and no repeat is permission to act; the pending request, the
-  relevant answers, the unfinished work and the files are kept, and changes
-  beside an unresolved question are not made: done.
-- No automatic retries at the limits; answering or cancelling stays yours,
-  without retyping: done.
-- The same rule at the routing step, the edit steps and the add-on: done.
-- The regressions you named — the repeated-question limit and the 12-answer
-  limit, with a question plus proposed changes; no uncertain change,
-  publish or execution charge; a later clear answer resuming only the
-  unfinished work: done (`test/live-clarify-limits.test.mjs`).
-- Answer retention and first builds unchanged: kept.
-- Focused tests, required CI, the audit and these notes, pushed: done (CI
-  stamped above).
+- `appendAnswer` no longer lets go of an answer unfinished work needs just
+  because 12 already exist: done.
+- The stored history and what each model is shown are separate: every
+  answer is kept on every hop, and each model gets the answers for its own
+  job: done.
+- Nothing is judged irrelevant by its age, and a later answer to the same
+  question doesn't replace the earlier one: done.
+- The regression you named — 13 different answers, the oldest Contact-photo
+  answer still needed, through a reload and the resume, with no finished
+  work repeated and no question asked again: done
+  (`test/live-clarify-history.test.mjs`).
+- The question limits from your third review: kept.
+- Focused tests, the audit and this handoff, pushed: done. Required CI:
+  running on `5cbd5239`, stamped above when it finishes.
 - Not done, on purpose: no deploy, paid run or container build; CLAUDE.md
-  untouched.
+  untouched; nothing outside answer retention changed.
 
 **Blockers**
 - None. Waiting on your review.
@@ -179,6 +179,37 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-03 — Your fourth review of questions back: every answer kept, none pushed out (nothing spent, merged or deployed)
+
+- **Your words**: *"Fix only the remaining answer-retention issue:
+  appendAnswer must not discard an answer needed by unfinished work merely
+  because 12 answers already exist. Separate the stored clarification
+  history from any bounded model-input window; preserve relevant answers
+  durably and retrieve them for the operations that need them. Do not infer
+  irrelevance from age or assume a later answer to the same question
+  replaces all earlier details. … Keep deployment and paid testing pending;
+  avoid unrelated changes."*
+- **What was wrong**: 12 was both the point where re-asking stops and the
+  most answers a request could keep, so a 13th answer pushed one out — at
+  worst the oldest, still needed — and nothing could carry more than 12.
+  Reproduced first: the oldest, Contact-photo answer pushed out at the
+  13th, and the resumed photo step asking which photo again.
+- **What changed** (`5cbd5239`): every answer stays with the request on
+  every hop, up to 64; none is dropped for its age or because its question
+  was answered again; 12 only stops our own re-asking; each model is shown
+  the answers for its own job; at 64 with every answer still needed, the
+  next is refused at no cost with the question waiting and your typed
+  answer kept (`answers-full`).
+- **Checks**: 12 new cases through the real routes (sync and queued), led by
+  your regression; 20 of 91 fail on the old code; mutation sweep 19 of 19
+  after two gaps were closed; full suite `8972 / 8972 / 0 / 0`; CI on
+  `5cbd5239` (the handoff above). One screenshot.
+- **Left open** (backlog N59–N60, with N57 and N58): the 64-answer ceiling;
+  longer calls for long histories; real models unmeasured; only you (or a
+  day's expiry) end a question.
+- **The record**: `docs/history/2026-10-03-clarify-history.md`; the audit's
+  §3.13, §4.9 and N59–N60.
 
 ## 2026-10-03 — Your third review of questions back: no limit or repeat is permission to act (nothing spent, merged or deployed)
 
