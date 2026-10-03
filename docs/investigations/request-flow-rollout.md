@@ -52,6 +52,10 @@ to finish. Keep any full-rewrite test separately identified with its cost."*
   `edit_jobs`; read 2026-10-03 23:05 UTC).
 - **Deploy 2180's free runtime press was never made.** The merge's press
   stands for it.
+- **Unit CI is red since 23:00 UTC for a reason of the calendar's**, not of
+  any change: three tests date a one-time job `2026-10-03` (Phase A, item
+  0). Unit CI on this plan's own documents-only push read `9237 / 9230 / 3
+  / 4`, and the run at 22:49 UTC had passed them all.
 - **`fold-lane-bakery` (Harbour Loaf)** is live at `01790923788063-bp9rcv`,
   read from its served pages at 23:00 UTC:
   - pages:
@@ -104,6 +108,13 @@ leaving it at its default (§11).
 
 **Phase A — the instruments, free, after your approval** (scripts and test
 fixtures only; no product file, no deploy, no paid call):
+- **0. The one-time job tests' date.**
+  - `test/addon-route.test.mjs` dates its one-time jobs `2026-10-03`. Since
+    that date ended in London, the add-on correctly refuses them as
+    `past-date`, so three cases fail on `main` and the branch alike.
+  - The fix takes the date from the test's own clock: the next day, and the
+    assertions read that date back. It is a test change only.
+  - Without it no candidate can show the green CI a merge needs.
 - **The canary's request mode** (`scripts/canary-ui.mjs`) gains:
   - `until: "question"`: a step ends when a part waits on its question and
     the page shows it. The next `say` is then typed as the answer, which is
@@ -554,11 +565,15 @@ your demo rule it stays as it is unless you ask.
 4. **RW**: whether to run it after the batch, on its cap of 50, and whether to
    restore the bakery afterwards (free).
 5. **The demo changes stay**, by your rule, unless you say otherwise.
+6. **The one-time job tests' date** (Phase A, item 0). It is needed for any
+   merge, whatever you decide about the rest.
 
 **Found while preparing, and kept separate** (`docs/backlog.md`):
 - `REQUEST_FLOW` has no allowlist: on applies to every owner whose edits are
   queued. Today every live site belongs to the building account.
 - The runtime read cannot show either new switch.
+- Three one-time job tests dated `2026-10-03` went red when that date ended
+  in London (Phase A, item 0).
 
 ## Appendix A: the routing controls, `scripts/router-probes/request-flow-1.json`
 

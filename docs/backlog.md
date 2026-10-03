@@ -462,6 +462,24 @@ here; take a closed one out of both.**
   own part gets one more part and one more routing call before the chain
   ends. Found by the review fixes' sweep, 2026-10-03; it predates them. Not
   changed.
+- **Three tests went red when 2026-10-03 ended in London**:
+  - `test/addon-route.test.mjs` dates its one-time jobs `2026-10-03`
+    (`ONCE_JOB`, `ONCE_REUSE` and a third call, five places). From
+    2026-10-04 (London, 23:00 UTC) the add-on correctly refuses them as
+    `past-date`;
+  - the failing cases: *a one-time job is offered, kept, registered and
+    reported*, *a one-time job reusing a stored function is registered AND
+    reported as scheduled*, and *the genuine job failures are still reported
+    when a stored function is in play*;
+  - on `main` (since `a45c4433`, 2026-09-19) and the branch alike. Unit CI
+    on `bc725a6c`, a documents-only push, read `9237 / 9230 / 3 / 4`, and
+    the same three fail locally. Run 37159581953 at 22:49 UTC had passed
+    them all;
+  - found 2026-10-03; not changed, because unrelated implementation is
+    frozen until the owner approves the rollout plan;
+  - the proposed fix is a date taken from the test's clock (the rollout
+    plan's Phase A, item 0). A merge needs it, because a merge needs green
+    CI.
 - `REQUEST_FLOW` has no allowlist: on, it applies to every signed-in owner
   whose edits are queued, at once (`requestFlowOn` reads one word). Today
   every live site belongs to the building account. Found 2026-10-03 while

@@ -20,6 +20,14 @@ is in git; the dated entries further down are the full story.*
   - `fold-lane-bakery` is live at `01790923788063-bp9rcv`.
 - Deploy 2180's free runtime press was never made; the merge's press stands
   for it.
+- **Unit CI is red since 2026-10-03 ended in London (23:00 UTC), and not
+  because of any change.** Three tests in `test/addon-route.test.mjs` date
+  a one-time job `2026-10-03`, which the add-on now rightly refuses as a
+  date that has passed:
+  - this is on `main` too;
+  - the plan's documents-only push read `9237 / 9230 / 3 / 4`;
+  - the fix is a date from the test's clock, a test change only. It waits
+    for your approval as the plan's Phase A, item 0, and a merge needs it.
 
 **The plan in brief**
 1. **Instruments, free, after your approval**:
@@ -66,6 +74,7 @@ working.
 **Found and kept separate** (backlog):
 - `REQUEST_FLOW` has no allowlist;
 - the runtime read can't show either new switch;
+- the one-time job tests dated `2026-10-03` (above);
 - `docs/request-flow.md` listed the request-mode canary press before the
   switch; corrected to the order the plan uses.
 
@@ -186,7 +195,9 @@ since. Add new ones there.
   stop new requests while accepted ones finish.
 - **Found and kept separate** (backlog):
   - `REQUEST_FLOW` has no allowlist;
-  - `/api/site/runtime` reports neither new switch.
+  - `/api/site/runtime` reports neither new switch;
+  - three one-time job tests dated `2026-10-03` went red when that date
+    ended in London. The fix waits for your approval as Phase A, item 0.
 
   Corrected: `docs/request-flow.md` listed the request-mode canary press
   before the switch, which cannot work.
