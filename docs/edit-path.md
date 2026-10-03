@@ -260,6 +260,20 @@ answers unless a run is named.
 - **A publish carries the site's stored redirects** (`composePublish` reads the
   sidecar through `manifestFromCsv`, deploy 2165): a removed page 301s home and
   a moved one to its new address.
+- **The reply is written by a model from verified facts** (2026-10-03, on the
+  branch for review; not merged or deployed): with `MODEL_REPLIES` on, every
+  edit and add-on ending that is a normal outcome — success, partial work,
+  parts left for later, a step's question beside work, an ordinary refusal,
+  the routing route's four stops, a cancel, a repeated question's note — is
+  explained by the picked quick model from facts read off the route's own
+  final answer (`builder/site-reply.mjs`: what changed, what did not and the
+  builder's reason, what waits, the question, the money, the undo). The page
+  shows it whole and adds nothing; a reply that leaves a fact out, or cannot
+  be had, leaves the answer as it was and the page composes as above.
+  Failures of ours keep their fixed sentences, decided by what the answer
+  says (`ours`, `TECHNICAL`), never by its status. A queued job's reply is
+  written once by the poll, after the money settles, and kept. The record is
+  `docs/history/2026-10-03-model-replies.md`.
 
 ---
 

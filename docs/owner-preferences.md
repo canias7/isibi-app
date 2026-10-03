@@ -98,6 +98,8 @@
   model-written from authoritative operation results. Do not implement that
   redesign now."* Recorded, not started. Until then the replies are composed by
   code from those same results, never from how the request was worded.
+  **Ordered on 2026-10-03** (the last preference in this file, *"Normal
+  customer-facing messages are written by a model from verified facts"*).
 
 **The media product (gofarther.dev)**
 - **Never name the provider to a user.** "fal" is an implementation detail; error
@@ -796,3 +798,20 @@
   retrieved for its own operation; and where a size bound has to exist, it
   refuses something new, at no cost and with nothing lost, rather than
   forget something the customer gave.
+- **Normal customer-facing messages are written by a model from verified
+  facts; fixed sentences only for failures of ours** (2026-10-03): *"Make
+  normal customer-facing messages throughout edit and add-on model-written
+  … Code must supply structured, verified facts about what changed, what
+  failed, what remains pending, and whether input is needed; the model
+  should explain those facts naturally using the conversation and site
+  context, without inventing outcomes or changing execution decisions. Keep
+  fixed messages only for genuine technical failures such as model/provider
+  outages, network errors, or unavailable services; an HTTP status alone
+  must not turn a normal product outcome into that exception. Reuse existing
+  model calls where practical and report any added latency or credit cost. A
+  reply-generation failure must never rerun completed work."* So the code
+  decides and does the work, then states what really happened as facts; a
+  model only puts those facts into words, and a reply that leaves a fact out
+  is not used; whether a failure is ours is read from what the answer says,
+  never from its status; and when no reply can be had, the answer goes out
+  as it was, with nothing redone.

@@ -549,6 +549,22 @@ the owner's free press, run 51, at 22:57 UTC):
     (questions-back rows Q1–Q7 beside the routing and delivered rows, about
     71–129 credits, a proposed cap of 115) is
     `docs/history/2026-10-03-live-matrix.md`: prepared, not pressed.
+15. **Model-written replies** (2026-10-03, on the owner's word, for review;
+    free: nothing spent, merged or deployed): every normal edit and add-on
+    ending is explained by the picked quick model from facts read off the
+    route's own answer, and the page shows it whole; a reply that cannot be
+    had changes nothing; failures of ours keep their fixed sentences,
+    decided by what the answer says, never by status; a queued job's reply
+    is written once by the poll after the money settles. 40 new cases
+    (16 module, 17 through the real routes and the real page against the
+    real Worker, 7 page rules); red check 21 of the 24 route and page cases
+    fail on main's code (the 3 that pass assert what must not change);
+    sweep 51 of 51 with 3 controls surviving; full suite `9012 / 9012 / 0 /
+    0`; unit CI `9012 / 9008 / 0 / 4` and the site build (404 checks, every
+    job green) on `906bacbe`. **Tested only with supplied model output**: no real model has
+    written a reply (MR1). A look ending's reply covers a page change made
+    beside it (review #9's case) with supplied answers only. The record is
+    `docs/history/2026-10-03-model-replies.md`.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).
@@ -600,7 +616,8 @@ stylesheet scope and rule keys (deploy 2161).
   - the build path's money sentences and the two refund policies.
 
 Deferred by the owner: hydration (#418), translation, model-written replies,
-and drafts surviving a refresh.
+and drafts surviving a refresh. (**Model-written replies ordered on
+2026-10-03**: item 15.)
 
 ## The router audit (2026-10-02; corrected after the owner's review; decision reporting and the routing-only batch merged and deployed in deploy 2178; the batch ran as run 90)
 

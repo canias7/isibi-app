@@ -373,11 +373,64 @@ here; take a closed one out of both.**
   needed the next answer is refused, free, with the question waiting (N59);
   a long history makes every call shown it longer, about 47,000 characters
   at its longest (N60).
+- **What the model-written replies leave** (2026-10-03, MR1–MR8 in
+  `docs/history/2026-10-03-model-replies.md` §8): no real model has written
+  a reply (MR1); the reply calls are absorbed, not charged, your decision
+  (MR2); one quick call more per ending, unmeasured (MR3); the revise and
+  the first build keep their composed sentences (MR4); a job that ends with
+  no stored answer keeps its fixed sentence, and a Stop before the job is
+  claimed is not traced (MR5); one reply per job relies on R2's wildcard
+  condition (MR6); the reply's rules are sent uncached (MR7); a fact carries
+  only what the route's answer does (MR8).
 
 ---
 
 ## Backlog
 
+- **WHAT THE MODEL-WRITTEN REPLIES LEAVE (MR1–MR8; found 2026-10-03 while
+  making edit and add-on replies model-written on the owner's word;
+  deliberate unless marked).** Each is in
+  `docs/history/2026-10-03-model-replies.md` §8.
+  - **No real model has written a reply** (MR1, untested model behaviour):
+    whether its replies are faithful to the facts, in the customer's
+    language and words, how long they take and what they cost is unmeasured.
+    Every route and page case supplies the reply.
+  - **The reply calls are absorbed** (MR2, yours to decide): not charged to
+    the customer and not on the ledger; each call is logged (`reply:` with
+    tokens and milliseconds). At list price about a third to half a credit
+    per reply at the default picker (grok-4.6), about 0.6–1.0 on Sonnet and
+    0.9–1.7 on Opus; a retry doubles it.
+  - **One quick call more per ending** (MR3, latency): at the end of every
+    synchronous ending that gets a reply, at the first poll of a finished
+    queued job, and for a repeated question's note; unmeasured, bounded at
+    12 s per call and 20 s in all (a provider that hangs), after which the
+    answer goes out without one. A refusal that came back at once (a stale
+    answer, one too long) now waits for its reply; on the synchronous path
+    the wait adds to the customer's open connection (reset at about 273 s in
+    run 21), while a queued edit, the default, writes it at the poll.
+  - **The revise and the first build keep their composed sentences** (MR4,
+    scope): they share code, and the first build is to stay as it is; so an
+    empty balance on a live site, which the router turns into a build, gets
+    the build path's 402 sentence.
+  - **A job that ends with no stored answer keeps its fixed sentence** (MR5,
+    scope; partly not traced): lost, under review, a finished job whose
+    answer is missing. Which sentence a Stop pressed before the job is
+    claimed ends on was not traced: `edit_claim` refuses a job whose cancel
+    was requested and the consumer only logs it, so the row's later state is
+    the sweep's.
+  - **One reply per job relies on R2's wildcard condition** (MR6, a
+    dependency): the poll keeps the reply with `etagDoesNotMatch: "*"`, which
+    workerd reads as its `WildcardEtag`; shown only with the test bucket. If
+    R2 ignored it, two polls at the same moment could hand back two
+    different replies — never a second change or charge.
+  - **The reply's rules are sent uncached** (MR7, cost): 2,211 characters
+    (about 580 tokens) of rules and tool on every call; prompt caching could
+    cut it.
+  - **A fact carries only what the route's answer does** (MR8, deliberate):
+    "Changed the description." does not carry the new words, because the
+    answer does not (D1's kin). A reply may restate the customer's own words
+    for what they asked beside a fact that says it changed — the request's
+    words, not a read-back.
 - **WHAT THE FOURTH REVIEW OF THE CLARIFICATION ROUND LEAVES (N59–N60; found
   2026-10-03 while separating the answer history from the question limit on
   the owner's fourth review; deliberate unless marked).** Each is in the
