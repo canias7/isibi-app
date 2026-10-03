@@ -784,7 +784,11 @@ test("EVERY EDIT LANE FORWARDS THE RENDER REPORT it paid for", () => {
   // in the call, not what else is.
   // RE-ANCHORED 2026-10-02: the reply is composed once (`doneText`) and shown
   // as it is, or with a step's question after it — the sentence is in both.
-  assert.match(chat, /const doneText = editReply\(e\)[^;]*renderTail\(e\)[^;]*;\s*finish\(asked \? askReplyMsg\(doneText, [^;]*\) : doneText\);/, "the edit reply drops the render sentence");
-  assert.match(chat, /const doneText = addonReplyText\(a\)[^;]*renderTail\(a\)[^;]*;\s*finish\(asked \? askReplyMsg\(doneText, [^;]*\) : doneText\);/, "the addon reply drops the render sentence");
+  // RE-ANCHORED 2026-10-03: a reply the server had a model write comes first,
+  // and it carries the render sentence as one of the facts it must cover
+  // (`renderNote`, test/model-replies.test.mjs); the composed reply below it
+  // still carries `renderTail`.
+  assert.match(chat, /const doneText = EditPoll\.modelReply\(e\) \|\| \(editReply\(e\)[^;]*renderTail\(e\)[^;]*;\s*finish\(asked \? askReplyMsg\(doneText, [^;]*\) : doneText\);/, "the edit reply drops the render sentence");
+  assert.match(chat, /const doneText = EditPoll\.modelReply\(a\) \|\| \(addonReplyText\(a\)[^;]*renderTail\(a\)[^;]*;\s*finish\(asked \? askReplyMsg\(doneText, [^;]*\) : doneText\);/, "the addon reply drops the render sentence");
   assert.match(chat, /function renderTail\(d\)[\s\S]{0,900}?renderNote/, "renderTail no longer reads renderNote");
 });

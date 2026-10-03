@@ -241,7 +241,8 @@ import { routeMessage, routeDecision, routeFailure, clarifiedBrief, siteDigest, 
 // THE HAND-OVER (2026-10-02, the whole-router audit's batch 2): what travels when
 // work moves from one step to another — the parts put off, the scope, and why.
 import { readHandOver, handOverLine, heldReport, deferredOf } from "./builder/hand-over.mjs";
-import { loadAsk, storeAsk, closeAsk, replaceAsk, askLive, packAsk, newAskId, askOf, readAsk, readContext, shownContext, repeatOf, appendAnswer, againNote, clarifyTransport, clarifyCall } from "./builder/clarify.mjs";
+import { loadAsk, storeAsk, closeAsk, replaceAsk, askLive, packAsk, newAskId, askOf, readAsk, readContext, shownContext, repeatOf, appendAnswer, againNote, clarifyTransport, clarifyCall, MAX_NOTE_CHARS, MAX_SAME_ASK, MAX_ASKED } from "./builder/clarify.mjs";
+import { repliesOn, editReplyFacts, addonReplyFacts, routeReplyFacts, cancelReplyFacts, repeatNoteFacts, replyContext, writeReply, withReplyText, REPLY_CALL_MS } from "./builder/site-reply.mjs";
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
@@ -6159,10 +6160,16 @@ async function askReport(env, res, ctx) {
   } else {
     const round = (Number.isInteger(c.round) && c.round > 0 ? c.round : 1);
     const hit = repeatOf(told, ask);
+    // A QUESTION ASKED AGAIN IS KEPT UNDER A NOTE WRITTEN FROM WHAT HAPPENED
+    // (2026-10-03, `repeatNote`): the answers that did not settle it, and
+    // whether our own re-asking has stopped. `againNote` is its fallback.
+    const note = hit.length
+      ? await repeatNote(env, { question: ask, earlier: hit, atLimit: hit.length >= MAX_SAME_ASK || told.length >= MAX_ASKED, request, answers: told, picker: c.picker, slug: c.slug }, againNote(hit))
+      : undefined;
     const rec = packAsk({
       id: newAskId(), uid: c.uid, slug: c.slug, stage: typeof stage === "string" ? stage : "look",
       round, question: ask, request, held: Array.isArray(c.held) ? c.held : [], at: Date.now(),
-      attached: c.attached === true, context: told, note: hit.length ? againNote(hit) : undefined,
+      attached: c.attached === true, context: told, note,
     });
     const kept = !!rec && !!env.SITES_BUCKET && await storeAskTwice(env.SITES_BUCKET, rec);
     if (kept) out.clarify = { id: rec.id, text: rec.question.text, options: rec.question.options, ...(rec.note ? { note: rec.note } : {}) };
@@ -6171,6 +6178,191 @@ async function askReport(env, res, ctx) {
   const headers = new Headers(res.headers);
   headers.delete("content-length");
   return new Response(JSON.stringify(out), { status, headers });
+}
+
+// ── THE REPLY THE CUSTOMER READS, WRITTEN BY A MODEL FROM WHAT HAPPENED ──────
+//
+// (2026-10-03.) Owner: *"Make normal customer-facing messages throughout edit
+// and add-on model-written … Code must supply structured, verified facts …
+// Keep fixed messages only for genuine technical failures … A reply-generation
+// failure must never rerun completed work."* The facts and the call are
+// builder/site-reply.mjs's; this is where an ending gets its reply, and it is
+// reached only once the route has done everything it will do — written,
+// published, charged or refunded, its question kept. Anything short of a
+// usable reply returns the answer untouched, and the browser says it the way
+// it always has.
+//
+// A QUEUED JOB DOES NOT WRITE ITS OWN REPLY. Its stored answer is read back
+// later, after the consumer may have refunded it (`servedEditReply` rewrites
+// the money then), so a sentence written inside the job could state money the
+// row no longer holds. The job keeps what a reply needs beside its answer
+// (`replyFor`), and the poll route writes the reply once, when that answer is
+// first handed back (`servedModelReply`), and keeps it for every later read.
+const replyBudget = { capMs: () => REPLY_CALL_MS };
+
+/** What a reply is told about the request, read once from the route's own body. */
+function replyAsked(b, extra = {}) {
+  const body = b && typeof b === "object" && !Array.isArray(b) ? b : {};
+  const cost = Number(body.routedCost);
+  return {
+    request: typeof body.instruction === "string" ? body.instruction : typeof body.message === "string" ? body.message : "",
+    answers: Array.isArray(body.context) ? body.context : [],
+    picker: typeof body.picker === "string" ? body.picker : undefined,
+    routedCost: Number.isInteger(cost) && cost >= 0 && cost <= 1000 ? cost : null,
+    pages: () => [],
+    ...extra,
+  };
+}
+
+/** The facts of an answer of one kind: `{ skip, facts }`. */
+function replyFactsOf(kind, body, ask) {
+  if (kind === "edit") return editReplyFacts(body, { routedCost: ask.routedCost });
+  if (kind === "addon") return addonReplyFacts(body, { routedCost: ask.routedCost });
+  if (kind === "route") return routeReplyFacts(body);
+  if (kind === "cancel") return cancelReplyFacts(body);
+  return { skip: "kind", facts: [] };
+}
+
+/** One reply written for `body`, or null. Never throws; logs what it did and what it used. */
+async function writeModelReply(env, kind, body, ask) {
+  const read = replyFactsOf(kind, body, ask);
+  if (read.skip || !read.facts.length) return null;
+  let pages = [];
+  try { pages = typeof ask.pages === "function" ? ask.pages() : Array.isArray(ask.pages) ? ask.pages : []; } catch { pages = []; }
+  const model = modelsFor(ask.picker).quick;
+  const t0 = Date.now();
+  let out;
+  try {
+    out = await writeReply({ send: quickSend(env, "reply", replyBudget) }, {
+      facts: read.facts,
+      context: replyContext({ request: ask.request, answers: ask.answers, site: { name: ask.name, slug: ask.slug, pages } }),
+      model,
+    });
+  } catch (e) {
+    out = { ok: false, why: "send", usage: [], attempts: 0 };
+  }
+  // WHAT IT COST US, IN THE LOG: the reply is not charged to the customer, so
+  // the ledger never shows it, and this line is where it is measured.
+  try {
+    const tokens = (out.usage || []).reduce((n, u) => ({ in: n.in + (u.in || 0), out: n.out + (u.out || 0) }), { in: 0, out: 0 });
+    console.log("reply:", kind, out.ok ? "written" : "fell back (" + out.why + ")", "facts", read.facts.length, "attempts", out.attempts, "tokens", tokens.in + "/" + tokens.out, "ms", Date.now() - t0);
+  } catch { /* a log line never costs the reply */ }
+  return out.ok ? out.text : null;
+}
+
+/** The answer with its reply on it, or the answer exactly as it was. */
+async function withModelReply(env, res, kind, ask) {
+  if (!repliesOn(env) || !ask) return res;
+  if (!res || !res.headers || !String(res.headers.get("content-type") || "").includes("application/json")) return res;
+  let body;
+  try { body = await res.clone().json(); } catch { return res; }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return res;
+  const text = await writeModelReply(env, kind, body, ask);
+  if (!text) return res;
+  const headers = new Headers(res.headers);
+  headers.delete("content-length");
+  return new Response(JSON.stringify(withReplyText(body, text)), { status: res.status, headers });
+}
+
+/**
+ * A QUEUED JOB'S ENDING: what its reply will need, kept beside the answer the
+ * consumer stores. The customer's words (clipped), the answers that went with
+ * them (the last twelve, as the reply is shown), the picked model, what reading
+ * the message cost, and the site's pages — nothing the route had not already.
+ */
+async function keepReplyFor(env, res, kind, ask) {
+  if (!repliesOn(env) || !ask) return res;
+  if (!res || !res.headers || !String(res.headers.get("content-type") || "").includes("application/json")) return res;
+  let body;
+  try { body = await res.clone().json(); } catch { return res; }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return res;
+  let pages = [];
+  try { pages = typeof ask.pages === "function" ? ask.pages() : Array.isArray(ask.pages) ? ask.pages : []; } catch { pages = []; }
+  const replyFor = {
+    kind,
+    request: String(ask.request || "").slice(0, 2000),
+    answers: (readContext(ask.answers) || []).slice(-12),
+    picker: typeof ask.picker === "string" ? ask.picker : undefined,
+    routedCost: ask.routedCost,
+    slug: typeof ask.slug === "string" ? ask.slug : undefined,
+    pages: Array.isArray(pages) ? pages.slice(0, 30) : [],
+  };
+  const headers = new Headers(res.headers);
+  headers.delete("content-length");
+  return new Response(JSON.stringify({ ...body, replyFor }), { status: res.status, headers });
+}
+
+/** The ending of the edit and add-on routes: a reply written now, or kept for the poll when this is a queued job. */
+function replyEnding(env, res, kind, ask) {
+  return ask && ask.job ? keepReplyFor(env, res, kind, ask) : withModelReply(env, res, kind, ask);
+}
+
+/** Where a queued job's written reply is kept, so every later read hands back the same one. */
+const replyKey = (job) => "edit-replies/" + job + ".json";
+
+/**
+ * A FINISHED JOB'S STORED ANSWER, AS THE POLL HANDS IT BACK: its private
+ * `replyFor` taken off, and the reply written from it once and kept. `text` is
+ * the body the poll was about to serve (its money already the row's). Any
+ * failure hands back that body without a reply, which is what it was before.
+ */
+async function servedModelReply(env, job, text) {
+  let body;
+  try { body = JSON.parse(text); } catch { return text; }
+  if (!body || typeof body !== "object" || Array.isArray(body) || !Object.hasOwn(body, "replyFor")) return text;
+  const { replyFor, ...rest } = body;
+  const plain = JSON.stringify(rest);
+  if (!repliesOn(env) || !replyFor || typeof replyFor !== "object" || (replyFor.kind !== "edit" && replyFor.kind !== "addon")) return plain;
+  const bucket = env && env.SITES_BUCKET;
+  try {
+    const kept = bucket ? await bucket.get(replyKey(job)) : null;
+    if (kept) {
+      const k = JSON.parse(await kept.text());
+      if (k && typeof k.text === "string" && k.text.trim()) return JSON.stringify(withReplyText(rest, k.text));
+    }
+  } catch { /* an unread copy is written again below */ }
+  const reply = await writeModelReply(env, replyFor.kind, rest, {
+    request: replyFor.request, answers: replyFor.answers, picker: replyFor.picker,
+    routedCost: Number.isInteger(replyFor.routedCost) ? replyFor.routedCost : null,
+    slug: replyFor.slug, pages: Array.isArray(replyFor.pages) ? replyFor.pages : [],
+  });
+  if (!reply) return plain;
+  // KEPT ONCE: of two polls that both wrote one, the first stored wins, and
+  // the later reads hand back that one — never two different sentences.
+  try {
+    if (bucket) {
+      const put = await bucket.put(replyKey(job), JSON.stringify({ text: reply, at: Date.now() }), { onlyIf: { etagDoesNotMatch: "*" } });
+      if (put === null) {
+        const won = await bucket.get(replyKey(job));
+        const w = won ? JSON.parse(await won.text()) : null;
+        if (w && typeof w.text === "string" && w.text.trim()) return JSON.stringify(withReplyText(rest, w.text));
+      }
+    }
+  } catch { /* the reply is still the one written; it just is not kept */ }
+  return JSON.stringify(withReplyText(rest, reply));
+}
+
+/**
+ * A QUESTION ASKED AGAIN, ITS NOTE WRITTEN FROM WHAT HAPPENED (2026-10-03):
+ * the answers that did not settle it, and whether our own re-asking has
+ * stopped. `fallback` is the fixed note (`againNote`), kept when no note can
+ * be written or the one written would not fit beside the question.
+ */
+async function repeatNote(env, { question, earlier, atLimit, request, answers, picker, slug }, fallback) {
+  if (!repliesOn(env)) return fallback;
+  const read = repeatNoteFacts({ question, earlier, atLimit });
+  if (read.skip) return fallback;
+  let out;
+  try {
+    out = await writeReply({ send: quickSend(env, "reply", replyBudget) }, {
+      facts: read.facts,
+      context: replyContext({ request, answers, site: { slug } }) + "\n\nWRITE A NOTE OF ONE OR TWO SHORT SENTENCES, UNDER 280 CHARACTERS IN ALL.",
+      model: modelsFor(picker).quick,
+      maxChars: MAX_NOTE_CHARS,
+    });
+  } catch { out = { ok: false, why: "send", usage: [], attempts: 0 }; }
+  try { console.log("reply: note", out.ok ? "written" : "fell back (" + out.why + ")", "attempts", out.attempts); } catch { /* never */ }
+  return out.ok ? out.text : fallback;
 }
 
 // ── THE SITE'S LIVE QUESTION, AROUND A ROUTING CALL (2026-10-02) ───────────
@@ -20246,6 +20438,17 @@ async function handleRequest(request, env, ctx) {
       { const tlR2 = tooLargeBody(request, 2_000_000); if (tlR2) return tlR2; }
       let rb = {};
       try { rb = await request.json(); } catch { rb = {}; }
+      // ── A ROUTING ANSWER THAT ENDS THE TURN IS EXPLAINED (2026-10-03) ──
+      //
+      // An answer to a question that is no longer live, one too long to keep,
+      // a request whose answers are full, a question busy elsewhere: each is
+      // an ordinary outcome, and its reply is written from what happened
+      // (`routeReplyFacts`), at any status. A site that exists only: the first
+      // build's interview is untouched. The body below is not re-indented.
+      const rReplyAsk = rb && rb.hasSite === true && rb.firstBuild !== true
+        ? replyAsked(rb, { slug: typeof rb.slug === "string" ? rb.slug : undefined, name: rb.site && typeof rb.site.name === "string" ? rb.site.name : undefined, pages: rb.site && Array.isArray(rb.site.pages) ? rb.site.pages.map((p) => (typeof p === "string" ? p : p && typeof p.path === "string" ? p.path : "")).filter(Boolean) : [] })
+        : null;
+      return withModelReply(env, await (async () => {
       const auth = request.headers.get("Authorization") || "";
       // BEFORE the model call, and the only thing that can refuse it. A balance
       // read rather than a debit: the charge is settled afterwards on real usage,
@@ -20490,7 +20693,14 @@ async function handleRequest(request, env, ctx) {
           // answer so far. One the router asked again, shown the answer it
           // already had (`routeMessage`'s `again`), is kept under a note naming
           // the answer that did not settle it — never an ending, and never put
-          // to the customer as if new.
+          // to the customer as if new. THE NOTE IS WRITTEN FROM WHAT HAPPENED
+          // (2026-10-03, `repeatNote`), the router's own `againNote` its fallback.
+          const rNote = routed.again === true && typeof routed.note === "string"
+            ? await repeatNote(env, {
+              question: routed.question, earlier: routed.repeat && routed.repeat.answers, atLimit: !!(routed.repeat && routed.repeat.atLimit),
+              request, answers: resumed ? rContext : [], picker: rb.picker, slug: rSlug,
+            }, routed.note)
+            : undefined;
           const rec = packAsk({
             id: newAskId(), uid: ru.id, slug: rSlug, stage: "route",
             round: resumed ? rWaiting.round + 1 : 1,
@@ -20502,7 +20712,7 @@ async function handleRequest(request, env, ctx) {
             // holds them asks for them again instead of answering without.
             attached: rb.attached === true || !!(resumed && rWaiting.attached === true),
             context: resumed ? rContext : [],
-            note: routed.again === true && typeof routed.note === "string" ? routed.note : undefined,
+            note: rNote,
           });
           let owner;
           try { owner = await siteOwnerBySlug(rSlug, env); } catch { owner = undefined; }
@@ -20652,6 +20862,7 @@ async function handleRequest(request, env, ctx) {
         // it is the evidence that tells a model's choice from a conversion.
         decision: routed.decision,
       });
+      })(), "route", rReplyAsk);
     }
 
     // Website builder — provision this site's database and apply its declared
@@ -20745,7 +20956,10 @@ async function handleRequest(request, env, ctx) {
         // ITS COST IS THE ROW'S (2026-09-25) — see `servedEditReply`: the
         // reply was stored before the consumer's refund, and the row records
         // whether the refund landed.
-        return new Response(servedEditReply(row, res.body), {
+        // AND ITS REPLY, WRITTEN ONCE THE MONEY IS THE ROW'S (2026-10-03,
+        // `servedModelReply`): from the answer as it is about to be served,
+        // kept for every later read, its private `replyFor` never served.
+        return new Response(await servedModelReply(env, ejid, servedEditReply(row, res.body)), {
           status: Number(res.status) || 200,
           headers: {
             "content-type": String(res.type || "application/json"),
@@ -21403,7 +21617,14 @@ async function handleRequest(request, env, ctx) {
             // set where the question is known), what they already told us that
             // goes with it (`eAskOut.context`) and the parts put off so far.
             const eAskOut = { request: "", round: 1, attached: false, context: [] };
-            return askReport(env, await heldReport(await (async () => {
+            // ── AND ITS REPLY IS WRITTEN THERE (2026-10-03, `replyEnding`) ──
+            //
+            // From the route's own final answer and what this request carried
+            // (`eReplyOut`, filled where the body is read), only after every
+            // other part of the ending has run; a queued job keeps what the
+            // reply needs instead, and the poll writes it.
+            const eReplyOut = replyAsked({}, { slug: ownerSlug, job: false });
+            return replyEnding(env, await askReport(env, await heldReport(await (async () => {
             // ── THE EDIT LANE ─────────────────────────────────────────────
             //
             // Two layers live here and neither runs the page generator, which
@@ -21441,6 +21662,7 @@ async function handleRequest(request, env, ctx) {
             const ebRaw = await request.text().catch(() => "");
             let eb = {};
             try { const p = JSON.parse(ebRaw); if (p && typeof p === "object" && !Array.isArray(p)) eb = p; } catch { eb = {}; }
+            Object.assign(eReplyOut, replyAsked(eb, { slug: ownerSlug, job: false }));
 
             // ── ONE FORK, AND NOTHING BELOW IT CAN TELL ───────────────────
             //
@@ -21476,6 +21698,7 @@ async function handleRequest(request, env, ctx) {
             const eJob = (eReplay && eReplay.replay) || null;
             if (eRawMarker && !eJob) return Response.json({ error: "not found" }, { status: 404 });
             if (eJob) editTraceJob = eJob.id;
+            eReplyOut.job = !!eJob;
             // ── THE FLAG SAYS WHETHER, THE ALLOWLIST SAYS WHO ─────────────
             //
             // Both have to say yes. An empty allowlist with the flag on is a
@@ -21740,6 +21963,7 @@ async function handleRequest(request, env, ctx) {
             if (!eSource.ok) return explain("route/no-source-unreadable", undefined,
               eSource.why === "editable-state" ? { unchanged: false, msg: "I couldn't recover the editable state of your site, so I've stopped this change. Recovery may already have updated stored state." } : undefined);
             let eSrc = eSource.pages;
+            eReplyOut.pages = eRoutes;
             if (!eSrc.length) {
               // Missing pages permit reconstruction only when the remaining
               // inputs can be read. Otherwise the rewrite meets the same fault.
@@ -26659,7 +26883,7 @@ async function handleRequest(request, env, ctx) {
               return Response.json(merged, { status: 422 });
             }
             return Response.json(merged);
-            })(), eHeldOut.parts, eHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: eAskOut.round, held: [...new Set([...eHeldOut.earlier, ...eHeldOut.parts])], request: eAskOut.request, attached: eAskOut.attached, context: eAskOut.context });
+            })(), eHeldOut.parts, eHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: eAskOut.round, held: [...new Set([...eHeldOut.earlier, ...eHeldOut.parts])], request: eAskOut.request, attached: eAskOut.attached, context: eAskOut.context, picker: eReplyOut.picker }), "edit", eReplyOut);
           }
 
           if (ad) {
@@ -26673,7 +26897,9 @@ async function handleRequest(request, env, ctx) {
             // request carries: nothing of an addition is applied before a
             // designer asks, so nothing it was told goes with a finished change.
             const aAskOut = { request: "", round: 1, attached: false, context: [] };
-            return askReport(env, await heldReport(await (async () => {
+            // AND ITS REPLY IS WRITTEN THERE (2026-10-03), the edit route's ending.
+            const aReplyOut = replyAsked({}, { slug: ownerSlug, job: false });
+            return replyEnding(env, await askReport(env, await heldReport(await (async () => {
             // ── THE ADDON LANE ────────────────────────────────────────────
             //
             // The rung between edit and build: add a page the site does not
@@ -26699,6 +26925,7 @@ async function handleRequest(request, env, ctx) {
             const abRaw = await request.text().catch(() => "");
             let ab = {};
             try { const p = JSON.parse(abRaw); if (p && typeof p === "object" && !Array.isArray(p)) ab = p; } catch { ab = {}; }
+            Object.assign(aReplyOut, replyAsked(ab, { slug: ownerSlug, job: false }));
 
             // ── THE SAME FORK THE EDIT ROUTE HAS (2026-09-03, run 21) ─────
             //
@@ -26724,6 +26951,7 @@ async function handleRequest(request, env, ctx) {
             const aJob = (eReplay && eReplay.replay) || null;
             if (aRawMarker && !aJob) return Response.json({ error: "not found" }, { status: 404 });
             if (aJob) editTraceJob = aJob.id;
+            aReplyOut.job = !!aJob;
             if (!aJob && editAsyncFor(env, { uid: ou.id, slug: ownerSlug })) {
               return enqueueReply(await enqueueEditJob(env, {
                 slug: ownerSlug, uid: ou.id, op: "addon",
@@ -26806,6 +27034,7 @@ async function handleRequest(request, env, ctx) {
             const aRead = await loadSiteSourceForEdit(env, ownerSlug, { checked: true });
             if (!aRead.ok) return aFailure(aRead.why === "editable-state" ? "editable-state" : "no-source", { recovery: aRead.recovery });
             const aSrc = aRead.pages;
+            aReplyOut.pages = () => aSrc.map((p) => routeOf(p && p.path)).filter(Boolean);
             // Absence is not permission yet: backend, config and schema must
             // also be readable before a reconstruction may be requested.
             // A SITE WITHOUT A DATABASE CAN STILL BE ADDED TO. This step opened
@@ -30727,7 +30956,7 @@ async function handleRequest(request, env, ctx) {
               } : undefined,
               cost: aCost,
             });
-            })(), aHeldOut.parts, aHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: aAskOut.round, held: [...new Set([...aHeldOut.earlier, ...aHeldOut.parts])], request: aAskOut.request, attached: aAskOut.attached, context: aAskOut.context });
+            })(), aHeldOut.parts, aHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: aAskOut.round, held: [...new Set([...aHeldOut.earlier, ...aHeldOut.parts])], request: aAskOut.request, attached: aAskOut.attached, context: aAskOut.context, picker: aReplyOut.picker }), "addon", aReplyOut);
           }
           if (tx) {
             // ── CHANGING THE WORDS, WITH NO MODEL CALL ────────────────────
@@ -30913,10 +31142,18 @@ async function handleRequest(request, env, ctx) {
               // ALREADY CLOSED IS STILL A QUESTION NOTHING CAN ACT ON, so the
               // cancel is not refused; `cancelled` says whether this one closed it,
               // and `putOff` names what its request had put off, for the reply.
-              return Response.json({
+              // THE ACKNOWLEDGEMENT IS WRITTEN FROM THAT (2026-10-03,
+              // `cancelReplyFacts`): whether it closed, why not, and what was
+              // put off, beside the request it cancelled. The cancel itself is
+              // done and stays done whatever the reply does.
+              return withModelReply(env, Response.json({
                 ok: true, cancelled: closed.ok === true, why: closed.ok ? undefined : closed.why,
                 putOff: closed.ok && closed.record.held.length ? closed.record.held : undefined,
-              });
+              }), "cancel", replyAsked({
+                instruction: closed.ok && closed.record && typeof closed.record.request === "string" ? closed.record.request : "",
+                context: closed.ok && closed.record && Array.isArray(closed.record.context) ? closed.record.context : [],
+                picker: qb.picker,
+              }, { slug: ownerSlug }));
             }
             return Response.json({ ok: false, error: "method not allowed" }, { status: 405 });
           }

@@ -194,6 +194,26 @@
   }
 
   /**
+   * THE REPLY A MODEL WROTE FOR THIS ENDING, or null (2026-10-03).
+   *
+   * The server writes it from the facts of what really happened
+   * (builder/site-reply.mjs) and marks it `replySource: "model"`; with one, the
+   * page shows it as it came — no sentence of the page's own is added before or
+   * after it, because the reply already explains every fact the page would have
+   * stated. Without one (the switch off, the call failed, or a failure of ours
+   * that keeps its fixed sentence) the page says it the way it always has.
+   * Read strictly: a string, not blank, inside the length the server allows.
+   */
+  var MODEL_REPLY_MAX = 1600;
+  function modelReply(body) {
+    if (!body || typeof body !== "object" || body.replySource !== "model") return null;
+    var t = body.reply;
+    if (typeof t !== "string") return null;
+    t = t.trim();
+    return t && t.length <= MODEL_REPLY_MAX ? t : null;
+  }
+
+  /**
    * WHAT A JOB THAT IS WAITING SAYS (stage 3b, 2026-09-05). The poll route
    * marks a pending answer `waiting: true` once the site's own lock or a
    * deploy's gate has refused the job's claim at least once (stages 6 and 3a):
@@ -796,6 +816,8 @@
     shouldRetryPoll: shouldRetryPoll,
     outcomeMessage: outcomeMessage,
     isRecovered: isRecovered,
+    modelReply: modelReply,
+    MODEL_REPLY_MAX: MODEL_REPLY_MAX,
     waitingMessage: waitingMessage,
     makeWatch: makeWatch,
     shouldGiveUp: shouldGiveUp,

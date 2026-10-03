@@ -9193,10 +9193,16 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer) {
     // gave is forgotten to make room, the question stays with Cancel on it,
     // and what they typed comes back to the box. The route's own sentence, at
     // no cost: no model was asked, or its answer was not charged.
-    if (!isBuild && d && d.ok === false && (d.error === 'stale-question' || d.error === 'answer-too-long' || d.error === 'answers-full') && typeof d.msg === 'string' && d.msg.trim()) {
+    //
+    // THE MODEL'S REPLY, WHEN THE ROUTE WROTE ONE (2026-10-03): these are
+    // ordinary outcomes, whatever their status, and the reply explaining them
+    // is shown as it came — the route's fixed sentence, with the page's own
+    // warning sign, only when there is none.
+    const routeSaid = !isBuild ? EditPoll.modelReply(d) : null;
+    if (!isBuild && d && d.ok === false && (d.error === 'stale-question' || d.error === 'answer-too-long' || d.error === 'answers-full') && (routeSaid || (typeof d.msg === 'string' && d.msg.trim()))) {
       if (d.error === 'stale-question') siteAskClear(origin);
       else siteHoldUnsent(origin, t, imgs);
-      finish('⚠️ ' + d.msg);
+      finish(routeSaid || '⚠️ ' + d.msg);
       return;
     }
     // ── A REPLACEMENT THAT LOST A RACE (2026-10-02) ───────────────────────
@@ -9204,10 +9210,10 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer) {
     // that moment, so nothing acted — the message comes back to the box to send
     // again, and the card comes off. (A question asked again is never an
     // ending now: the route keeps it with a note, and it is drawn below.)
-    if (!isBuild && d && d.ok === false && d.error === 'question-busy' && typeof d.msg === 'string' && d.msg.trim()) {
+    if (!isBuild && d && d.ok === false && d.error === 'question-busy' && (routeSaid || (typeof d.msg === 'string' && d.msg.trim()))) {
       siteAskClear(origin);
       siteHoldUnsent(origin, t, imgs);
-      finish('⚠️ ' + d.msg);
+      finish(routeSaid || '⚠️ ' + d.msg);
       return;
     }
     // CHECKED BEFORE ANYTHING IS SENT. Past this line a live site's answer is a
@@ -9489,6 +9495,10 @@ function siteEdit(site, d, instruction, origin, finish, fallback, imgs, handedOf
       context: EditPoll.contextWire(d.context),
       attached: Array.isArray(imgs) && imgs.length ? true : undefined,
       picker: buildPicker,
+      // WHAT READING THE MESSAGE COST (2026-10-03): the routing reply's own
+      // `cost`, so a refusal the Worker writes in words can state it beside
+      // the edit's, as `wholeRequestNote` does. Only ever said, never billed.
+      routedCost: Number.isInteger(d.cost) && d.cost >= 0 ? d.cost : undefined,
       // THE UNDO. A deleted row is gone from the table, so the server cannot
       // show the model what "put it back" refers to — the client is the only
       // party that still holds it, because it rendered the contents in the
@@ -9706,14 +9716,25 @@ function editAnswer(httpOk, e, o) {
   // only one, so its question is the reply — kept as the site's live question
   // when it has an id, with the message's files, its card drawn under it.
   // Nothing was changed or charged for the edit; what was put off is named.
+  // ── A REPLY THE SERVER HAD A MODEL WRITE (2026-10-03) ─────────────────
+  // It explains every fact this page would otherwise state — what changed,
+  // what did not and why, what it cost, what was put off — so it is shown as
+  // it came, with the question's card under it when one was kept, and nothing
+  // of the page's own beside it. Without one, each ending below says it the
+  // way it always has.
+  const modelSaid = EditPoll.modelReply(e);
   if (said.act === 'clarify') {
-    o.finish(askReplyMsg(alsoTail(e, false), askFromReply(o.origin, said.ask, o.imgs)));
+    o.finish(askReplyMsg(modelSaid || alsoTail(e, false), askFromReply(o.origin, said.ask, o.imgs)));
     return;
   }
   if (said.act === 'refusal') {
     // A QUESTION THAT COULD NOT BE KEPT (2026-10-02): what it left to do goes
     // back in the message box first, so the redraw below hands it over.
     holdResume(o, e);
+    if (modelSaid && e.error !== 'needs-review') {
+      o.finish(said.ask ? askReplyMsg(modelSaid, askFromReply(o.origin, said.ask, o.imgs)) : modelSaid);
+      return;
+    }
     // The server's own sentence when it has one. `buildDownMsg` already knows
     // to drop the "try again in a few seconds" advice on a failure that no
     // amount of retrying fixes.
@@ -9809,7 +9830,9 @@ function applyEditResult(e, o) {
     // WHAT RAN, THEN A STEP'S QUESTION (2026-10-02): the parts that went through
     // are said as ever, and the part that asked waits on the answer.
     const asked = clarifyOf(e.clarify);
-    const doneText = editReply(e) + renderTail(e) + alsoTail(e);
+    // THE MODEL'S REPLY WHEN THERE IS ONE (2026-10-03), whole: it already
+    // names what changed, what did not, what was put off and how to undo it.
+    const doneText = EditPoll.modelReply(e) || (editReply(e) + renderTail(e) + alsoTail(e));
     finish(asked ? askReplyMsg(doneText, askFromReply(o.origin, asked, o.imgs)) : doneText);
   } catch (err) {
     if (told) return;
@@ -10223,6 +10246,9 @@ function siteAddon(site, instruction, origin, finish, fallback, d, imgs) {
       askRound: d && Number.isInteger(d.askRound) && d.askRound > 0 ? d.askRound : undefined,
       putOff: EditPoll.heldWire(d && d.putOff),
       context: EditPoll.contextWire(d && d.context),
+      // WHAT READING THE MESSAGE COST (2026-10-03), so a reply the Worker
+      // writes can state it as `wholeRequestNote` does; never billed from.
+      routedCost: d && Number.isInteger(d.cost) && d.cost >= 0 ? d.cost : undefined,
       attached: Array.isArray(imgs) && imgs.length ? true : undefined }),
   }).then(async (r) => {
     const a = await r.json().catch(() => null);
@@ -10313,12 +10339,19 @@ function addonAnswer(httpOk, a, o) {
   }
   // A QUESTION BACK (2026-10-02): the add-on's picker asked one thing before
   // anything was added or charged — `editAnswer`'s rule.
+  // THE MODEL'S REPLY, WHEN THE SERVER WROTE ONE (2026-10-03) — `editAnswer`'s
+  // rule: shown as it came, the card under it when a question was kept.
   if (said.act === 'clarify') {
-    o.finish(askReplyMsg(alsoTail(a, false), askFromReply(o.origin, said.ask, o.imgs)));
+    o.finish(askReplyMsg(EditPoll.modelReply(a) || alsoTail(a, false), askFromReply(o.origin, said.ask, o.imgs)));
     return;
   }
   if (said.act === 'refusal') {
     holdResume(o, a);
+    const modelSaid = EditPoll.modelReply(a);
+    if (modelSaid) {
+      o.finish(said.ask ? askReplyMsg(modelSaid, askFromReply(o.origin, said.ask, o.imgs)) : modelSaid);
+      return;
+    }
     if (said.ask) {
       const told = typeof a.msg === 'string' && a.msg.trim() ? '⚠️ ' + a.msg : '';
       o.finish(askReplyMsg(told + alsoTail(a, false), askFromReply(o.origin, said.ask, o.imgs)));
@@ -10494,7 +10527,8 @@ function applyAddonResult(a, o) {
     scheduleCreditRefresh();
     holdResume(o, a);
     const asked = clarifyOf(a.clarify);
-    const doneText = addonReplyText(a) + renderTail(a) + alsoTail(a);
+    // THE MODEL'S REPLY WHEN THERE IS ONE (2026-10-03), whole.
+    const doneText = EditPoll.modelReply(a) || (addonReplyText(a) + renderTail(a) + alsoTail(a));
     finish(asked ? askReplyMsg(doneText, askFromReply(o.origin, asked, o.imgs)) : doneText);
   } catch (err) {
     if (told) return;
@@ -12374,7 +12408,8 @@ function siteAskCancel() {
   };
   apiFetch('/api/site/' + encodeURIComponent(site.slug) + '/question', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: asked.id, cancel: true }),
+    // THE PICKED MODEL, for the acknowledgement the route has it write.
+    body: JSON.stringify({ id: asked.id, cancel: true, picker: buildPicker }),
   }).then(async (r) => {
     const c = await r.json().catch(() => null);
     if (!r.ok || !c || c.ok !== true || typeof c.cancelled !== 'boolean') {
@@ -12383,7 +12418,11 @@ function siteAskCancel() {
     }
     // CLOSED, by this press or before it: either way nothing can act on it.
     siteAskClear(origin);
-    say('Cancelled — nothing more will be done for that request.' + (c.cancelled ? alsoTail({ deferred: c.putOff }, false) : ''));
+    // THE ACKNOWLEDGEMENT THE ROUTE HAD A MODEL WRITE (2026-10-03), from what
+    // the cancel really did — closed, or found the question already answered,
+    // replaced or expired — and what it had put off. The page's own sentence
+    // only when there is none.
+    say(EditPoll.modelReply(c) || ('Cancelled — nothing more will be done for that request.' + (c.cancelled ? alsoTail({ deferred: c.putOff }, false) : '')));
   }).catch(() => say('⚠️ I couldn’t cancel that just now, so the question is still open. Try again in a moment.'));
 }
 // THE RELOAD CHECK, once per site per page load: the server's live question

@@ -1021,6 +1021,10 @@ export const JOB_ENV_NAMES = [
   "NEON_API_KEY", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "SITE_SECRETS_KEY",
   "SITE_WORKERS_NAMESPACE", "SITE_WORKERS_API_ACCOUNT", "SITES_BUCKET_NAME", "SAAS_FALLBACK_ORIGIN", "EMAIL_FROM",
   "EDIT_ASYNC", "EDIT_ASYNC_CANARY", "EDIT_ASYNC_EVERYONE",
+  // THE REPLY SWITCH (2026-10-03): a queued job's ending keeps what its reply
+  // needs (`replyFor`) and writes a repeated question's note, both only with
+  // it on — so without it here every queued edit would end with no reply.
+  "MODEL_REPLIES",
 ];
 
 /** The subset of `env` a job is handed: the names above, strings only. */

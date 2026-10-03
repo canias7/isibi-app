@@ -89,6 +89,10 @@ export function bucket(slug, { failQuestion = false, failQuestionRead = false, f
       }
       const cur = store.get(k);
       if (opts.onlyIf && opts.onlyIf.etagMatches != null && (!cur || cur.etag !== String(opts.onlyIf.etagMatches))) return null;
+      // AND THE OTHER HALF (2026-10-03): `etagDoesNotMatch`, where "*" matches
+      // any object — a write only when nothing is there yet, as workerd's
+      // wildcard etag reads it. A queued job's reply is kept that way.
+      if (opts.onlyIf && opts.onlyIf.etagDoesNotMatch != null && cur && (String(opts.onlyIf.etagDoesNotMatch) === "*" || cur.etag === String(opts.onlyIf.etagDoesNotMatch))) return null;
       put(k, v);
       return { etag: store.get(k).etag };
     },

@@ -2142,8 +2142,13 @@ test("the wire is not cut, at either end", () => {
   // reads what that route HELD BACK (`e` / `a`, their `deferred`), never the
   // routing decision — which was said whatever the route then did.
   // RE-ANCHORED 2026-10-02: composed once (`doneText`), shown with or without a step's question.
-  assert.match(c, /const doneText = editReply\(e\)[^;]*alsoTail\(e\);\s*finish\(asked \? askReplyMsg\(doneText, [^;]*\) : doneText\);/, "the edit reply drops the leftover, or reads it off the routing decision");
-  assert.match(c, /const doneText = addonReplyText\(a\)[^;]*alsoTail\(a\);\s*finish\(asked \? askReplyMsg\(doneText, [^;]*\) : doneText\);/, "the addon reply drops the leftover, or reads it off the routing decision");
+  // RE-ANCHORED 2026-10-03: a reply the server had a model write comes first
+  // (`EditPoll.modelReply`), and the composed one, tail and all, is what the
+  // page says without it. The model's reply names the leftover because the
+  // route's own `deferred` is one of its facts, and it is refused unless it
+  // covers every fact (test/model-replies.test.mjs).
+  assert.match(c, /const doneText = EditPoll\.modelReply\(e\) \|\| \(editReply\(e\)[^;]*alsoTail\(e\)\);\s*finish\(asked \? askReplyMsg\(doneText, [^;]*\) : doneText\);/, "the edit reply drops the leftover, or reads it off the routing decision");
+  assert.match(c, /const doneText = EditPoll\.modelReply\(a\) \|\| \(addonReplyText\(a\)[^;]*alsoTail\(a\)\);\s*finish\(asked \? askReplyMsg\(doneText, [^;]*\) : doneText\);/, "the addon reply drops the leftover, or reads it off the routing decision");
   assert.match(tail, /\.deferred\b/, "alsoTail no longer reads what the route held back");
   // AND THE TWO NEW HOPS: the browser posts what was held back on BOTH routes,
   // and BOTH routes take it out of the message before anything runs.

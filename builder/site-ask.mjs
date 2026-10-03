@@ -2545,7 +2545,11 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
     const hit = repeatOf(all, routed.question);
     if (hit.length && (hit.length >= MAX_SAME_ASK || all.length >= MAX_ASKED)) {
       trace.reasons.push("clarify-again");
-      routed = { ...routed, again: true, note: againNote(hit) };
+      // `repeat` IS WHAT THE NOTE IS MADE OF (2026-10-03): the answers that did
+      // not settle the question and whether our own re-asking has stopped, so
+      // the route can have the note written from them (`repeatNoteFacts`) and
+      // keep `againNote` as its fallback.
+      routed = { ...routed, again: true, note: againNote(hit), repeat: { answers: hit, atLimit: true } };
     } else if (hit.length) {
       let again;
       try {
@@ -2563,7 +2567,7 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
       const still = routed.unusable !== true && routed.intent === "clarify" ? repeatOf(all, routed.question) : [];
       if (still.length) {
         trace.reasons.push("clarify-again");
-        routed = { ...routed, again: true, note: againNote(still) };
+        routed = { ...routed, again: true, note: againNote(still), repeat: { answers: still, atLimit: still.length >= MAX_SAME_ASK || all.length >= MAX_ASKED } };
       }
     }
   }

@@ -213,6 +213,7 @@ jobs:
             DESIGN_SPLIT_EVERYONE
             DESIGN_GRAPH_CANARY
             DESIGN_GRAPH_EVERYONE
+            MODEL_REPLIES
         env:
           DEPLOY_ID: ${{ github.sha }}
           FAL_KEY: ${{ secrets.FAL_KEY }}
@@ -385,6 +386,16 @@ jobs:
           # and redeploy, and every edit is synchronous again with the canary
           # allowlist still honoured. `EDIT_ASYNC` off overrides both doors.
           EDIT_ASYNC_EVERYONE: ${{ secrets.EDIT_ASYNC_EVERYONE || 'on' }}
+          # ── THE CUSTOMER'S REPLY, WRITTEN BY A MODEL (2026-10-03) ──────────
+          #
+          # With this on, an edit's or an add-on's ending is explained to the
+          # customer by the picked quick model, from the facts of what really
+          # happened (builder/site-reply.mjs); any reply that cannot be had
+          # leaves the answer as it was, and the browser says it the old way.
+          # ON BY DEFAULT, like EDIT_ASYNC_EVERYONE: the secret exists to turn
+          # it OFF — set it to `off` in GitHub and redeploy, and every reply is
+          # composed as before, with nothing else changed.
+          MODEL_REPLIES: ${{ secrets.MODEL_REPLIES || 'on' }}
           # ── WHO RUNS A QUEUED JOB (2026-09-04) ────────────────────────────
           #
           # The job runner: for the uids and slugs the canary names, or for
