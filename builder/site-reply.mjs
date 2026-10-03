@@ -784,15 +784,37 @@ export function requestReplyFacts(v) {
     const c = num(p.charged);
     return c === null ? "" : c > 0 ? " The steps it had already taken were charged " + count(c, "credit") + "." : " Nothing was charged for it.";
   };
+  // WHAT A PART MADE WITH NO REPLY OF ITS OWN WAS CHARGED (the full rewrite):
+  // every job it filed, as their rows and the build's own answer say.
+  const paidAll = (p) => {
+    const c = num(p.charged);
+    return c === null ? "" : c > 0 ? " Everything done for it was charged " + count(c, "credit") + "." : " Nothing was charged for it.";
+  };
   const named = (n) => { const q = parts.find((x) => x.n === n); return q ? quote(q.words) : "another part of the request"; };
   const neededOf = (p) => Number((/^needs:(\d+)$/.exec(String(p.why || "")) || [])[1]);
   for (const p of parts) {
     const w = quote(p.words);
     const item = "part:" + p.n;
     if (p.status === "done") {
-      F.add("changed", "Done: " + w + (own(p) ? " — its own reply above says what changed." : typeof p.answer === "string" ? " — they asked a question, answered above." : "."), item);
+      F.add("changed", "Done: " + w + (own(p) ? " — its own reply above says what changed."
+        // MADE BY THE FULL REWRITE THEY GAVE THE GO-AHEAD FOR (2026-10-03): no
+        // step's reply says it, so this one does, with what it cost.
+        : p.approved ? " — by the full rewrite of every page, on their go-ahead. Every page was written again, so parts of the site this did not mention may read differently now." + paidAll(p)
+        : typeof p.answer === "string" ? " — they asked a question, answered above." : "."), item);
+    } else if (p.status === "approval") {
+      // WAITING FOR THEIR GO-AHEAD (2026-10-03): nothing starts until they press
+      // it, and what needs this part waits with it rather than being given up.
+      F.add("pending", "Waiting for their go-ahead: " + w + ". The quicker steps could not make it; only the full rewrite of every page can " +
+        "(a full rewrite of the same site was measured at 17 credits), and that writes every page again, so it changes far more than this part asked for. " +
+        "It starts only if they press the go-ahead button shown under this part, and lapses if it is left for a day; anything that needs it waits until then." + paid(p), item);
+    } else if (p.status === "partial") {
+      // DONE IN PART (2026-10-03): its step named something it was asked for
+      // and did not do; its own reply says what. Nothing that needed it ran.
+      F.add("not-done", "Done only in part: " + w + (own(p) ? " — its own reply above says what was made and what was not." : "."), item);
     } else if (p.status === "not-run") {
-      F.add("not-done", "Not started: " + w + ", because it needed " + named(neededOf(p)) + " done first, and that did not finish." + paid(p), item);
+      const before = parts.find((x) => x.n === neededOf(p));
+      F.add("not-done", "Not started: " + w + ", because it needed " + named(neededOf(p)) + " done first, and " +
+        (before && before.status === "partial" ? "that was only partly done." : "that did not finish.") + paid(p), item);
     } else if (p.status === "cancelled") {
       F.add("not-done", (p.why === "question-cancelled" ? "Cancelled with the question it asked, before it changed anything: " : "Stopped at their request before it changed anything: ") + w + "." + paid(p), item);
     } else if (p.status === "needs-rewrite") {
@@ -800,12 +822,16 @@ export function requestReplyFacts(v) {
         "(a full rewrite of the same site was measured at 17 credits), which changes far more than this part asked for, " +
         "so it was not started. They can start it from the button shown under this part, or leave it." + paid(p), item);
     } else if (p.status === "expired") {
-      F.add("not-done", "Not done: " + w + ", because the question it asked went unanswered for a day. They can ask for it again." + paid(p), item);
+      F.add("not-done", "Not done: " + w + (p.why === "unapproved"
+        ? ", because the full rewrite it needed was not given the go-ahead within a day, so it was never started. They can ask for it again."
+        : ", because the question it asked went unanswered for a day. They can ask for it again.") + paid(p), item);
     } else if (p.status === "refused") {
       F.add("not-done", "Not done: " + w + ", because it and the parts it depends on could not be put in an order that works. They can send it on its own." + paid(p), item);
     } else if (p.status === "failed") {
       F.add("not-done", "Not done: " + w + (own(p) ? " — its own reply above says why."
         : p.why === "routing-failed" ? " — working out what it needed failed on our side." + paid(p)
+        : p.why === "rewrite-not-written" ? " — the full rewrite they gave the go-ahead for ran, but its pages could not be written, so their site stayed exactly as it was." + paid(p)
+        : p.approved ? " — the full rewrite they gave the go-ahead for did not finish, on our side." + paid(p)
         : " — it stopped before it finished, on our side." + paid(p)), item);
     } else if (p.status === "waiting") {
       const q = p.question && typeof p.question.text === "string" ? p.question.text : "";

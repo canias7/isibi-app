@@ -97,6 +97,13 @@ export function parseLiveKey(k) {
 }
 /** How long a marker stays after its request ended: a page opened within a day still learns how it ended. */
 export const LIVE_AFTER_END_MS = 24 * 60 * 60 * 1000;
+/**
+ * How long a marker may wait for its record before the sweep takes it away:
+ * the marker is written first, so one with no record is an acceptance that
+ * died between the two writes — or one still writing. Far longer than any
+ * acceptance takes, and short enough that the sweep stops reading it soon.
+ */
+export const ORPHAN_MARKER_MS = 15 * 60 * 1000;
 /** How long a part may wait on a question: the question record's own lifetime (`ASK_TTL_MS`). */
 export const WAIT_MS = 24 * 60 * 60 * 1000;
 
@@ -131,14 +138,19 @@ export const HOPS_MAX = 3;
 //   waiting        it asked a question, and waits for the answer
 //   unverified     its job began publishing and could not confirm it (review)
 //   done           its job finished and said what changed, or that nothing needed to
+//   partial        its job finished and named something it was asked for and did not
+//                  do (`notDoneOf`): what it did stands, and nothing that needs it runs
 //   failed         its job ended with its own reason
 //   not-run        never started: a part it needs did not finish
 //   cancelled      stopped before it started, or before it published
-//   needs-rewrite  only the full rewrite of every page could make it; not started without a go-ahead
+//   approval       only the full rewrite of every page could make it: it waits for the
+//                  customer's own go-ahead (`approvePart`), its files kept and what needs
+//                  it held; approved, it runs the rewrite as a job of its own (`rewrite`)
+//   needs-rewrite  the same, in a request recorded before approvals were kept (ended)
 //   expired        its question went unanswered for a day
 //   refused        it could not be placed in an order that makes sense (the relations formed a cycle)
-export const PART_TERMINAL = Object.freeze(["done", "failed", "not-run", "cancelled", "needs-rewrite", "expired", "refused"]);
-const BAD = Object.freeze(["failed", "not-run", "cancelled", "needs-rewrite", "expired", "refused"]);
+export const PART_TERMINAL = Object.freeze(["done", "partial", "failed", "not-run", "cancelled", "needs-rewrite", "expired", "refused"]);
+const BAD = Object.freeze(["partial", "failed", "not-run", "cancelled", "needs-rewrite", "expired", "refused"]);
 const LIVE_JOB = Object.freeze(["queued", "claimed", "routing", "editing", "building", "verifying", "correcting", "rebuilding", "publishing"]);
 const ENDED_JOB = Object.freeze(["done", "failed", "cancelled", "lost"]);
 
@@ -445,6 +457,49 @@ export function readRun(ans) {
   return { act: "success", ask, deferred };
 }
 
+/**
+ * WHAT AN `ok: true` ANSWER SAYS WAS ASKED FOR AND NOT DONE (2026-10-03, the
+ * owner's review: *"distinguish genuine refusals and partial outcomes, and
+ * never satisfy dependencies merely because the enclosing response has
+ * ok:true"*). Each `{ what, why }`, from the step's own named lists, never
+ * from `ok` alone:
+ *   an edit's    a step that did not go through (`partial`; a question is
+ *                asked, not refused), a lane not built (`notBuilt`), a
+ *                component kept or unseen (`keptParts`, `unseenParts`), a
+ *                menu or footer entry left out (`dropped`; a duplicate is
+ *                there once), a link refused in the copy (`refusedLinks`),
+ *                rows that failed (`failed`);
+ *   an addition's  an entry left out (`notAdded`), a kind its designer
+ *                declined (`declined`), a kind or entry set aside without its
+ *                words (`skipped`), a page that did not survive the writer
+ *                (`missingPages`), a part of the design that could not be
+ *                built (`droppedFields`).
+ */
+export function notDoneOf(body, op = "edit") {
+  const b = plain(body) ? body : {};
+  const out = [];
+  const list = (v) => (Array.isArray(v) ? v : []);
+  const str = (v) => (typeof v === "string" ? v : "");
+  const add = (what, why) => out.push({ what: String(what || "").slice(0, 200), why: String(why || "").slice(0, 60) });
+  if (op === "addon") {
+    for (const n of list(b.notAdded)) if (plain(n)) add(n.name || n.kind || "entry", n.why || "left-out");
+    for (const d of list(b.declined)) add(typeof d === "string" ? d : plain(d) ? d.kind : "kind", "declined");
+    for (const k of list(b.skipped)) add(typeof k === "string" ? k : plain(k) ? k.name || k.kind : "entry", plain(k) && k.why ? k.why : "set-aside");
+    for (const m of list(b.missingPages)) add(typeof m === "string" ? m : "page", "missing");
+    for (const f of list(b.droppedFields)) if (plain(f)) add(f.name || f.what || "part", "dropped");
+    return out;
+  }
+  for (const p of list(b.partial)) if (plain(p) && !p.ask && p.error !== "clarify") add(p.page || p.layer || "step", p.error || p.reason || "not-done");
+  for (const n of list(b.notBuilt)) if (plain(n)) add(n.field || "lane", "not-built");
+  for (const k of list(b.keptParts)) add(str(k) || "component", "kept");
+  for (const k of list(b.unseenParts)) add(str(k) || "component", "unseen");
+  for (const d of list(b.dropped)) if (plain(d) && d.why !== "duplicate") add(d.label || d.href || "entry", d.why || "left-out");
+  for (const r of list(b.refusedLinks)) if (plain(r)) add(r.label || r.to || "link", r.why || "refused");
+  const failed = Array.isArray(b.failed) ? b.failed.length : Number.isInteger(b.failed) ? b.failed : 0;
+  if (failed > 0) add(failed + " row" + (failed === 1 ? "" : "s"), "failed");
+  return out;
+}
+
 /** WHAT A ROUTING JOB'S ANSWER SAYS (the routing route's reply for one part). */
 export function readRoute(ans) {
   if (!ans || !plain(ans.body)) return { act: "unknown" };
@@ -528,6 +583,16 @@ export function doneSummary(body) {
   return said.length > 400 ? said.slice(0, 400) : said;
 }
 
+/**
+ * WORDS A STEP LEFT FOR LATER ARE A PART OF THE REQUEST: a part of their own,
+ * or inside a part other than the one that left them.
+ */
+function carried(rec, n, w0) {
+  const w = wordsIn(rec.message, w0);
+  if (!w) return false;
+  return rec.parts.some((q) => q.n !== n && (q.words === w || (q.words.length > w.length && !!wordsIn(q.words, w))));
+}
+
 // ── THE NEXT STEP ────────────────────────────────────────────────────────────
 
 const currentJob = (p) => { for (let i = p.jobs.length - 1; i >= 0; i--) if (!p.jobs[i].end) return p.jobs[i]; return null; };
@@ -566,6 +631,71 @@ export function chargedOf(row) {
   // A NUMBER AS THE ROW HOLDS IT, never one coerced from something else.
   const c = row && typeof row.cost === "number" ? row.cost : NaN;
   return row && row.billing === "finalized" && Number.isInteger(c) && c > 0 ? c : 0;
+}
+
+/**
+ * A PART ONLY THE FULL REWRITE CAN MAKE WAITS FOR THE CUSTOMER'S GO-AHEAD
+ * (2026-10-03, the owner's review: *"Preserve a waiting approval state and
+ * attachments, record the approval durably, and use the existing rewrite
+ * executor"*). Not an ending: what needs it waits rather than being given up,
+ * and the request keeps its files until it ends.
+ */
+function askApproval(p, why, now) {
+  p.status = "approval"; p.why = why; p.approvalAt = now; p.phase = "approval"; p.route = null;
+}
+
+/** The final answer of a rewrite's build, `{ status, body }`, or `null` while there is none yet (or only its 202). */
+function finalBuild(v, uid) {
+  if (!plain(v) || typeof v.body !== "string") return null;
+  if (typeof v.uid === "string" && v.uid && uid && v.uid !== uid) return null;
+  let body = null;
+  try { body = JSON.parse(v.body); } catch { body = null; }
+  if (!plain(body)) return null;
+  const status = Number(v.status) || 0;
+  if (status === 202 || body.stage === "resuming") return null;
+  return { status, body };
+}
+
+/**
+ * SETTLE AN APPROVED REWRITE FROM ITS BUILD (the existing executor's own
+ * records): the answer it wrote (`build`), else its row. A build that wrote no
+ * final answer yet is still running; one whose row ended without one is said
+ * from the row — kept as published only when the row says it finished.
+ */
+function settleRewrite(rec, p, job, row, now) {
+  const fin = finalBuild(row.build, rec.uid);
+  if (!fin) {
+    if (row.needs_review === true) { p.status = "unverified"; return; }
+    if (!ENDED_JOB.includes(row.state)) { p.status = row.state === "queued" ? "queued" : "started"; return; }
+    // NO ANSWER, SO NO WORD ON MONEY: what it cost cannot be told.
+    job.end = { state: row.state, at: now, cost: null, act: "no-answer" };
+    if (row.state === "cancelled") { p.status = "cancelled"; p.why = rec.stop ? "stopped" : "cancelled"; return; }
+    if (row.state === "done") {
+      p.status = "done"; p.why = "unrecorded"; p.outcome = { job: job.id, kind: "rewrite" };
+      p.done = "rewrote the site for this (what it changed was not recorded)"; return;
+    }
+    p.status = "failed"; p.why = row.state === "lost" ? "rewrite-lost" : "rewrite-failed"; return;
+  }
+  const b = fin.body;
+  // WHAT IT CHARGED, AS THE BUILD ITSELF REPORTS IT: the build path bills by
+  // its own refs, never through the job's reserves. An answer that names no
+  // whole number says nothing about money (null), never nothing charged.
+  job.end = { state: row.state, at: now, cost: typeof b.cost === "number" && Number.isInteger(b.cost) && b.cost >= 0 ? b.cost : null, act: "rewrite" };
+  // DONE ONLY WHEN IT PUBLISHED THE SITE ITSELF (`page: "app"`), as the page
+  // reads a build. One that salvaged a page it could not write published the
+  // rest: partial, so nothing that needs it runs.
+  if (b.ok === true && b.page === "app") {
+    p.outcome = { job: job.id, kind: "rewrite" };
+    if (!b.error) { p.status = "done"; p.done = "rewrote the site's pages for this"; return; }
+    p.status = "partial"; p.why = "partly-done";
+    p.notDone = [{ what: "a page of the rewrite", why: String(b.error).slice(0, 60) }]; return;
+  }
+  if (b.cancelled === true) { p.status = "cancelled"; p.why = rec.stop ? "stopped" : "cancelled"; return; }
+  // ANSWERED, BUT NO SITE WRITTEN (the pages could not be made; a revise leaves
+  // the live site as it was), or failed outright.
+  p.status = "failed";
+  p.why = b.ok === true ? "rewrite-not-written" : typeof b.error === "string" && b.error ? b.error.slice(0, 60) : typeof b.stage === "string" && b.stage ? b.stage : "rewrite-failed";
+  p.outcome = { job: job.id, kind: "rewrite" };
 }
 
 /**
@@ -617,7 +747,7 @@ function settle(rec, p, job, row, now) {
     }
     if (read.act === "clarify") { p.status = "waiting"; p.question = { round: 1, ...read.ask, at: now }; p.phase = "answer"; return; }
     if (read.act === "answer") { p.status = "done"; p.answer = read.answer; p.outcome = { job: job.id, kind: "answer" }; p.done = "answered a question about the site"; return; }
-    if (read.act === "rewrite") { p.status = "needs-rewrite"; p.why = read.why; return; }
+    if (read.act === "rewrite") { askApproval(p, read.why, now); return; }
     // THE ROUTING CALL ITSELF FAILED (the provider, our ceiling): ours, so it
     // is asked once more, as a job with no answer is; then the part fails.
     if (read.act === "failed") {
@@ -632,11 +762,15 @@ function settle(rec, p, job, row, now) {
   const read = readRun(ans);
   job.end.act = read.act;
   if (read.deferred && read.deferred.length) carveParts(rec, p.n, read.deferred);
+  // A PART THIS STEP LEFT FOR LATER THAT IS NO PART OF THE REQUEST NOW — not
+  // the customer's words, or all of this part's — is work asked for and not
+  // done, never dropped.
+  const lost = (read.deferred || []).filter((w) => !carried(rec, p.n, w));
   if (read.act === "hop" || read.act === "climb") {
     const to = handOff(read, p.route || {});
     job.end.handOff = to.act;
     if (to.act === "hop") { p.route = handedRoute(p.route || {}, to, read); p.hops = p.route.hops; p.status = "ready"; return; }
-    if (to.act === "rewrite") { p.status = "needs-rewrite"; p.why = to.why; p.outcome = { job: job.id, kind: "escalate" }; return; }
+    if (to.act === "rewrite") { askApproval(p, to.why, now); p.outcome = { job: job.id, kind: "escalate" }; return; }
     if (to.act === "stop") { p.status = "failed"; p.why = "handed-back"; p.outcome = { job: job.id, kind: "escalate" }; return; }
     p.status = "failed"; p.why = "unreadable"; return;
   }
@@ -645,6 +779,11 @@ function settle(rec, p, job, row, now) {
     p.outcome = { job: job.id, kind: "done" };
     p.done = doneSummary(ans.body);
     if (read.ask) { p.status = "waiting"; p.question = { round: (p.askRound || 0) + 1, ...read.ask, at: now }; p.phase = "answer"; return; }
+    // DONE ONLY WHEN NOTHING ASKED FOR WAS LEFT UNDONE: what it named as not
+    // done makes it partial, which nothing that needs it treats as finished.
+    const notDone = notDoneOf(ans.body, (p.route && p.route.op) === "addon" ? "addon" : "edit");
+    for (const w of lost) notDone.push({ what: w, why: "left-over" });
+    if (notDone.length) { p.status = "partial"; p.why = "partly-done"; p.notDone = notDone.slice(0, 24); return; }
     p.status = "done"; return;
   }
   if (read.act === "clarify" || (read.act === "refusal" && read.ask)) {
@@ -673,6 +812,7 @@ export function nextStep(record, rows = {}, now = Date.now()) {
     if (!job || !job.id) continue;
     const row = rows[job.id];
     if (!row || row.ok === false) continue;
+    if (job.kind === "rewrite") { settleRewrite(rec, p, job, row, now); continue; }
     if (row.needs_review === true) { p.status = "unverified"; continue; }
     if (LIVE_JOB.includes(row.state)) { p.status = row.state === "queued" ? "queued" : "started"; continue; }
     if (ENDED_JOB.includes(row.state)) settle(rec, p, job, row, now);
@@ -688,6 +828,9 @@ export function nextStep(record, rows = {}, now = Date.now()) {
   // A QUESTION NOBODY ANSWERED IN A DAY EXPIRES, as the question record does.
   for (const p of rec.parts) {
     if (p.status === "waiting" && p.question && Number.isFinite(p.question.at) && now - p.question.at >= WAIT_MS) { p.status = "expired"; p.why = "unanswered"; }
+    // AND A GO-AHEAD NOBODY GAVE IN A DAY, the same way: its files are let go
+    // when the request ends, and what needed it is not run.
+    if (p.status === "approval" && Number.isFinite(p.approvalAt) && now - p.approvalAt >= WAIT_MS) { p.status = "expired"; p.why = "unapproved"; }
   }
   // WHO MAY RUN: an independent part whatever happened elsewhere; a part whose
   // prerequisite did not finish is not run, and says which. The prerequisites
@@ -738,13 +881,14 @@ export function settleState(rec, now = Date.now()) {
   const ended = ps.length > 0 && ps.every((p) => PART_TERMINAL.includes(p.status));
   if (ended) {
     const done = ps.filter((p) => p.status === "done").length;
-    rec.state = done === ps.length ? "done" : done ? "partial" : (rec.stop ? "stopped" : "failed");
+    const some = ps.filter((p) => p.status === "done" || p.status === "partial").length;
+    rec.state = done === ps.length ? "done" : some ? "partial" : (rec.stop ? "stopped" : "failed");
     if (!rec.ended) { rec.ended = true; rec.endedAt = now; }
   } else {
     rec.ended = false;
     rec.state = ps.some((p) => p.status === "unverified") ? "review"
       : ps.some((p) => ["queued", "started", "ready"].includes(p.status)) ? "running"
-      : ps.some((p) => p.status === "waiting") ? "waiting" : "blocked";
+      : ps.some((p) => p.status === "waiting" || p.status === "approval") ? "waiting" : "blocked";
   }
   return rec;
 }
@@ -842,7 +986,7 @@ export function answerPart(record, n, { routed, resume, context, round, now = Da
   } else if (routed && routed.intent === "ask") {
     p.status = "done"; p.answer = typeof routed.answer === "string" ? routed.answer : ""; p.done = "answered a question about the site"; p.outcome = { kind: "answer" };
   } else if (routed && routed.intent === "build") {
-    p.status = "needs-rewrite"; p.why = "rebuild";
+    askApproval(p, "rebuild", now);
   } else return null;
   rec.updatedAt = now;
   rec.rev = (Number(rec.rev) || 0) + 1;
@@ -881,6 +1025,30 @@ export function cancelPart(record, n, questionId, now = Date.now()) {
   rec.rev = (Number(rec.rev) || 0) + 1;
   return settleState(rec, now);
 }
+
+/**
+ * THE CUSTOMER'S GO-AHEAD FOR A PART'S FULL REWRITE, RECORDED (2026-10-03):
+ * the part runs the rewrite as its next job — `job` the build's id, derived
+ * from the request (so a second press finds the same one), filed by the
+ * press before this is written. `null` when the part is not waiting for a
+ * go-ahead: given already (by another press, another device), stopped, or
+ * past its day.
+ */
+export function approvePart(record, n, { job, seq, now = Date.now() } = {}) {
+  const rec = clone(record);
+  const p = rec.parts[n];
+  if (rec.stop || rec.ended || !p || p.status !== "approval" || typeof job !== "string" || !job || !Number.isInteger(seq) || seq <= (p.seq || 0)) return null;
+  p.seq = seq;
+  p.jobs.push({ key: job, kind: "rewrite", op: "build", id: job, seq, end: null });
+  p.status = "queued"; p.phase = "rewrite"; p.why = null;
+  p.approval = { at: now, job };
+  rec.updatedAt = now;
+  rec.rev = (Number(rec.rev) || 0) + 1;
+  return settleState(rec, now);
+}
+
+/** The next job number a part's go-ahead files its rewrite under. */
+export const approvalSeq = (p) => (Number(p && p.seq) || 0) + 1;
 
 /** The part a waiting question belongs to, kept on the record when the question is asked again (`part.question`). */
 export function askedPart(record, questionId) {
@@ -1013,7 +1181,12 @@ export function requestView(rec) {
     parts: rec.parts.map((p) => ({
       n: p.n, words: typeof p.shown === "string" && p.shown ? p.shown : p.words, status: p.status,
       // WHAT A STEP FOR IT IS SENT — the full rewrite's go-ahead sends this.
-      ...(p.status === "needs-rewrite" ? { ask: p.resume || p.words } : {}),
+      ...(p.status === "needs-rewrite" || p.status === "approval" ? { ask: p.resume || p.words } : {}),
+      // THE APPROVED REWRITE'S BUILD, which no job poll reads (`/api/site/build/<id>` does).
+      ...(p.approval ? { approved: { at: p.approval.at } } : {}),
+      // EVERY JOB IT FILED, in order — its routing, its runs, its rewrite —
+      // for a reader that checks each one's row and ledger (the UI canary).
+      ids: p.jobs.filter((j) => j.id).map((j) => j.id),
       ...(p.why ? { why: p.why } : {}),
       ...(p.status === "waiting" && p.question ? { question: { id: p.question.id, text: p.question.text, options: p.question.options, ...(p.question.note ? { note: p.question.note } : {}), ...(p.question.queued ? { queued: true } : {}) } } : {}),
       ...(typeof p.answer === "string" ? { answer: p.answer } : {}),
@@ -1023,8 +1196,13 @@ export function requestView(rec) {
       jobs: p.jobs.filter(shownRun).map((j) => j.id),
       // WHAT ITS JOBS WERE CHARGED, from their rows (`chargedOf`): its routing,
       // its runs, a hand-over's, whatever came back excluded.
-      charged: p.jobs.reduce((s, j) => s + (j.end && Number.isInteger(j.end.cost) ? j.end.cost : 0), 0),
+      // A job whose cost cannot be told (a rewrite whose answer named none)
+      // makes the part's money cannot-tell (null), never a smaller number.
+      charged: p.jobs.some((j) => j.end && j.end.cost === null) ? null : p.jobs.reduce((s, j) => s + (j.end && Number.isInteger(j.end.cost) ? j.end.cost : 0), 0),
       ...(p.route ? { route: p.route.op === "addon" ? "addon" : (p.route.layer || "edit") } : {}),
+      // AN EDIT THE ADD-ON STEP HANDED THIS PART TO, as its job's body marks it
+      // (`addition`): read by the UI canary's wall for an additions scenario.
+      ...(p.route && p.route.op !== "addon" && p.route.fromAddon === true ? { addition: true } : {}),
     })),
   };
 }

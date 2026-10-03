@@ -836,3 +836,46 @@ addition."* `scripts/canary-ui.mjs`, the `ui_scenario` box on `edit-canary.yml`,
   the idle reading held across three messages, the in-page wall had nothing to
   block, the balance was read before each message, every filed job was
   followed, and the after-read waited for the last published version.
+
+### THE UI MODE FOR A REQUEST THE SERVER RUNS (2026-10-03 — on the branch, unmerged; no press)
+
+Owner, reviewing the combined request flow: *"Adapt the UI canary for
+request mode on this branch before rollout, rather than leaving that
+implementation until after deployment."* With `REQUEST_FLOW` on, the routing
+call answers with a request and the page posts no edit of its own, so the
+mode read a page that had sent nothing. What is law here
+(`scripts/canary-ui.mjs`, `docs/request-flow.md` § *The UI canary in request
+mode*):
+
+- **A REQUEST'S CARD IS NOT A REPLY.** The page read marks a thread message
+  that holds a request's card (`card`), and `newReplies` leaves it out: the
+  card is drawn the moment the server takes the message on, before anything
+  ran.
+- **A MESSAGE THE SERVER TOOK ON IS FOLLOWED TO ITS END.** Its routing
+  answer names the request (`requestKeyOf`, off the page's own record of
+  that call). The step ends only when the request has ended, the page has
+  shown all of it (the page's own record: `closed`), and the composer is
+  idle. The request's view is read through the page's own session every
+  three seconds; each read moves the request on, as the page's own do.
+- **THE WALL CANNOT ABORT WHAT THE SERVER FILES, SO IT IS THE REQUEST'S OWN
+  STOP.** A part routed outside the message's or scenario's layers, to the
+  add-on step where the scenario never opens it, to an edit an additions
+  scenario did not get from the add-on step, or waiting for the full
+  rewrite's go-ahead, is stopped at once through
+  `DELETE /api/site/request/<site>/<key>` and recorded as BLOCKED
+  (`requestWall`). The browser's wall lets that Stop out for the scenario's
+  own site only, and refuses the go-ahead's POST like the rewrite route. **A
+  Stop is not an abort**: a part already past its publish gate is done, and
+  that is recorded as it is.
+- **ITS JOBS ARE THE REQUEST'S** (`requestJobsOf`: every id its view names,
+  routing jobs included), for the chain and the money. `requestVerdict`
+  passes it only with one routing call carrying the words, no edit posted
+  from the page, and every part done where allowed, nothing stopped.
+- **A REQUEST'S FILE TRAVELS ON THE ROUTING CALL**, and is checked there
+  (`routeCallOf` in `scripts/edit-canary.mjs`). The additions verdict reads a
+  request's one part and only the answering step's reply
+  (`scripts/canary-additions.mjs`).
+- **PROVEN WITH THE STAND-IN PAGE ONLY**: seven cases in
+  `test/canary-ui.test.mjs` (the readers, the wall, the verdict, the end to
+  end with a file, a misrouted part stopped, a part waiting for the go-ahead
+  stopped, and the additions verdict). No request-mode press has been made.

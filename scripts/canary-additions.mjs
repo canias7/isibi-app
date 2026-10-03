@@ -33,6 +33,7 @@
 import { navSlots, actionSlots, chromeListSlots, contactSlots, applyNav, applyAction, applyChromeList } from "../builder/site-nav.mjs";
 import { extractText } from "../builder/site-text.mjs";
 import { imageRefCounts, photoAlts } from "../builder/site-images.mjs";
+import { requestKeyOf } from "./canary-ui.mjs";
 
 const byPath = (list) => new Map((Array.isArray(list) ? list : []).filter((p) => p && typeof p.path === "string").map((p) => [p.path, String(p.source || "")]));
 const one = (path, source) => [{ path, source }];
@@ -107,12 +108,26 @@ export function additionRequestVerdict(step, site, expect) {
     editWords: edits.every((e) => e.req && e.req.instruction === said),
     editAddition: edits.every((e) => e.req && e.req.addition === true),
   };
+  const routedOk = out.routes === 1 && out.routedWords && out.routedIntent === "addon" &&
+    out.decisionSource === "model" && out.rawIntent === "addon" && !out.routeFailed;
+  // TAKEN ON AS A REQUEST (2026-10-03): the page posts nothing after the
+  // routing call; the request's one part ran the add-on step (and, for a frame
+  // item, the edit it handed the item to, as an addition) and ended done.
+  const key = requestKeyOf(net);
+  if (key) {
+    const fin = step && step.request ? step.request.final : null;
+    const parts = fin && Array.isArray(fin.parts) ? fin.parts : [];
+    const p = parts[0] || null;
+    out.request = { key, ended: !!(fin && fin.ended === true), parts: parts.map((q) => ({ n: q.n, status: q.status, route: q.route || "", addition: q.addition === true, jobs: Array.isArray(q.ids) ? q.ids.length : 0 })) };
+    const partOk = !!p && parts.length === 1 && p.status === "done" && Array.isArray(p.ids) &&
+      (hop ? p.route === hop && p.addition === true && p.ids.length === 2 : p.route === "addon" && p.ids.length === 1);
+    out.ok = routedOk && out.adds === 0 && out.edits === 0 && out.request.ended && partOk;
+    return out;
+  }
   const editsOk = hop
     ? out.edits === 1 && out.editLayers[0] === hop && out.editWords && out.editAddition
     : out.edits === 0;
-  out.ok = out.routes === 1 && out.routedWords && out.routedIntent === "addon" &&
-    out.decisionSource === "model" && out.rawIntent === "addon" && !out.routeFailed &&
-    out.adds === 1 && out.addWords && editsOk;
+  out.ok = routedOk && out.adds === 1 && out.addWords && editsOk;
   return out;
 }
 
@@ -127,7 +142,13 @@ export function additionReplyVerdict(step, expect) {
   const hop = expect && typeof expect.hop === "string" ? expect.hop : "";
   const shown = Array.isArray(step && step.replies) && step.replies.length ? step.replies.join("\n") : String((step && step.reply) || "");
   const out = { finals: fin.length, shown: shown.slice(0, 200) };
-  if (hop) {
+  // A REQUEST'S PAGE READS ONLY THE STEP THAT ANSWERED (2026-10-03): a
+  // hand-over is the server's to act on, so the add-on step's own reply is
+  // never fetched, and the edit it handed the item to is the one read.
+  if (hop && requestKeyOf(step && step.network)) {
+    if (fin.length !== 1) return { ...out, ok: false, why: `${fin.length} stored replies read, not the ${hop} step's one` };
+    if (!(fin[0].ok === true && fin[0].layer === hop)) return { ...out, ok: false, why: `the ${hop} step did not succeed (${JSON.stringify({ ok: fin[0].ok, layer: fin[0].layer, error: fin[0].error })})` };
+  } else if (hop) {
     const [handed, done] = fin;
     if (fin.length !== 2) return { ...out, ok: false, why: `${fin.length} stored repl${fin.length === 1 ? "y" : "ies"}, not the hand-over and the ${hop} step's answer` };
     if (!(handed.ok !== true && handed.escalate === true && handed.layer === hop)) return { ...out, ok: false, why: `the add-on step did not hand the item to ${hop} (${JSON.stringify({ ok: handed.ok, escalate: handed.escalate, layer: handed.layer, error: handed.error })})` };

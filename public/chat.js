@@ -8101,8 +8101,8 @@ function renderSiteWorkspace(view, site) {
       // A REQUEST'S CARD (2026-10-03): Stop the rest, or a part's rewrite.
       const reqStop = e.target.closest('[data-req-stop]');
       if (reqStop && thread.contains(reqStop)) { siteRequestStop(site.id, reqStop.getAttribute('data-req-stop')); return; }
-      const reqGo = e.target.closest('[data-req-rewrite]');
-      if (reqGo && thread.contains(reqGo)) { siteRequestRewrite(site.id, reqGo.getAttribute('data-req-rewrite'), Number(reqGo.getAttribute('data-req-part'))); return; }
+      const reqGo = e.target.closest('[data-req-approve]');
+      if (reqGo && thread.contains(reqGo)) { siteRequestApprove(site.id, reqGo.getAttribute('data-req-approve'), Number(reqGo.getAttribute('data-req-part'))); return; }
       const skip = e.target.closest('[data-skip]');
       if (skip && thread.contains(skip)) { siteAnswer('', true); return; }
       const ans = e.target.closest('[data-ans]');
@@ -9422,11 +9422,10 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
 // another device, picks its requests up from the server (`siteRequestsCheck`).
 const SITE_REQ_KEEP_MS = 2 * 24 * 60 * 60 * 1000;
 const SITE_REQ_MISSES = 30;
-// Requests this page is following, and the files a message carried (in memory
-// only, like a held message): a part's full rewrite is the one step this page
-// starts, and it takes the files when this page still holds them.
+// Requests this page is following. Even a part's full rewrite is the server's
+// to run: the page only gives the go-ahead (`siteRequestApprove`), and the
+// request keeps its own files for it.
 const siteReqFollowing = new Set();
-const siteReqFiles = new Map();
 /** The request the routing reply says the server took on, or null. */
 function siteRequestOf(d) {
   const v = d && d.request;
@@ -9440,7 +9439,7 @@ function siteReqState(origin, key, view) {
   const now = Date.now();
   for (const k of Object.keys(s.requests)) { const r = s.requests[k]; if (!r || !(now - (r.at || 0) < SITE_REQ_KEEP_MS)) delete s.requests[k]; }
   let r = s.requests[key];
-  if (!r) r = s.requests[key] = { at: now, view: null, shown: [], replied: false, closed: false, rewrites: [] };
+  if (!r) r = s.requests[key] = { at: now, view: null, shown: [], replied: false, replies: [], closed: false, approving: [] };
   if (view && typeof view === 'object' && Array.isArray(view.parts)) r.view = view;
   return r;
 }
@@ -9461,7 +9460,6 @@ function siteRequestStart(origin, d, imgs) {
   const s = siteById(origin);
   if (!s || !view) return;
   siteReqState(origin, view.key, view);
-  if (Array.isArray(imgs) && imgs.length && !siteReqFiles.has(origin + '|' + view.key)) siteReqFiles.set(origin + '|' + view.key, imgs.slice(0, 3));
   if (!s.msgs.some((m) => m && m.request === view.key)) s.msgs.push({ r: 'a', t: '', request: view.key });
   // AN ANSWER MET WITH THE NEXT QUESTION: its card, as any question's.
   const q = d.intent === 'clarify' ? liveQuestion(d) : null;
@@ -9505,7 +9503,7 @@ function siteRequestFollow(origin, key) {
       return;
     }
     misses = 0;
-    const done = await siteRequestShow(origin, key, b.request, EditPoll.modelReply(b));
+    const done = await siteRequestShow(origin, key, b.request, EditPoll.modelReply(b), b.replyFor);
     if (done) { stop(); return; }
     // A REQUEST WAITING ONLY ON AN ANSWER is looked at seldom: the answer comes
     // through this page, which follows it again from there.
@@ -9514,7 +9512,7 @@ function siteRequestFollow(origin, key) {
   step();
 }
 /** One reading of a request on the page; true when it has ended and all it said is shown. */
-async function siteRequestShow(origin, key, view, reply) {
+async function siteRequestShow(origin, key, view, reply, replyFor) {
   const s = siteById(origin);
   if (!s) return true;
   const st = siteReqState(origin, key, view);
@@ -9535,8 +9533,17 @@ async function siteRequestShow(origin, key, view, reply) {
     siteAskKeep(origin, { ...q, request: { key, part: p.n } }, []);
     s.msgs.push(siteReplyMsg(askReplyMsg('', q)));
   }
-  // THE REQUEST'S OWN REPLY, once it has ended.
-  if (view.ended && all && reply && !st.replied) { st.replied = true; s.msgs.push({ r: 'a', t: reply }); }
+  // THE REQUEST'S OWN REPLIES, EACH ONCE: one while it waits on a go-ahead,
+  // one when it has ended — named by the server (`replyFor`), so a page opened
+  // later or on another device shows each once too.
+  const rf = typeof replyFor === 'string' && replyFor ? replyFor : (view.ended ? 'end' : '');
+  if (!Array.isArray(st.replies)) st.replies = [];
+  const said = st.replies.includes(rf) || (rf === 'end' && st.replied);
+  if (all && reply && rf && !said) {
+    st.replies.push(rf);
+    if (rf === 'end') st.replied = true;
+    s.msgs.push({ r: 'a', t: reply });
+  }
   const done = view.ended && all;
   if (done) st.closed = true;
   s.updatedAt = Date.now();
@@ -9582,31 +9589,47 @@ function siteRequestStop(origin, key) {
   apiFetch('/api/site/request/' + encodeURIComponent(s.slug) + '/' + encodeURIComponent(key), { method: 'DELETE' }).then(async (r) => {
     const b = await r.json().catch(() => null);
     if (!r.ok || !b || b.ok !== true || !siteRequestOf(b)) { failed(); return; }
-    const done = await siteRequestShow(origin, key, b.request, EditPoll.modelReply(b));
+    const done = await siteRequestShow(origin, key, b.request, EditPoll.modelReply(b), b.replyFor);
     if (!done) siteRequestFollow(origin, key);
   }).catch(failed);
 }
-/** The full rewrite one part needs, started only from its own button: the rewrite every message's climb runs. */
-function siteRequestRewrite(origin, key, n) {
+/**
+ * A PART'S GO-AHEAD FOR THE FULL REWRITE, from its own button (2026-10-03):
+ * the server records it on the request and runs the rewrite through its queued
+ * build, with the request's own words and files, and settles it back into the
+ * request — so it carries on with this page closed, and a second press, here
+ * or on another device, reaches the same rewrite.
+ */
+function siteRequestApprove(origin, key, n) {
   const s = siteById(origin);
-  if (!s || siteBusy) return;
+  if (!s || !s.slug) return;
   const st = siteReqState(origin, key);
   const p = st && st.view && Array.isArray(st.view.parts) ? st.view.parts.find((x) => x && x.n === n) : null;
-  if (!p || p.status !== 'needs-rewrite' || (st.rewrites || []).includes(n)) return;
-  st.rewrites = (st.rewrites || []).concat([n]);
-  // THE PART'S OWN WORDS, AS ITS STEPS WERE SENT THEM (`ask`), never the card's.
-  const words = typeof p.ask === 'string' && p.ask.trim() ? p.ask : p.words;
-  s.msgs.push({ r: 'u', t: words });
-  siteBusy = true;
-  siteBuildStart(true);
+  if (!p || p.status !== 'approval' || (st.approving || []).includes(n)) return;
+  st.approving = (st.approving || []).concat([n]);
   sitesSave();
-  renderSites();
-  const finish = (reply) => {
-    siteBusy = false;
-    siteBuildStop();
-    siteReqSay(origin, reply);
+  if (siteOpenId === origin) renderSites();
+  const settle = () => { st.approving = (st.approving || []).filter((x) => x !== n); sitesSave(); };
+  const failed = () => {
+    settle();
+    siteReqSay(origin, '⚠️ I couldn’t confirm the go-ahead just now. If the part still shows its button, press it again — pressing twice never starts it twice.');
+    siteRequestFollow(origin, key);
   };
-  reactSend(s, words, origin, 'revise', siteReqFiles.get(origin + '|' + key) || [], finish, []);
+  apiFetch('/api/site/request/' + encodeURIComponent(s.slug) + '/' + encodeURIComponent(key) + '/approve', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ part: n }),
+  }).then(async (r) => {
+    const b = await r.json().catch(() => null);
+    const view = b ? siteRequestOf(b) : null;
+    // GIVEN, OR GIVEN ALREADY (another press, another device), OR NO LONGER
+    // WAITING: the card shows which, from the request as the server has it.
+    if (view && (r.ok || r.status === 409)) {
+      settle();
+      const done = await siteRequestShow(origin, key, view, null, null);
+      if (!done) siteRequestFollow(origin, key);
+      return;
+    }
+    failed();
+  }).catch(failed);
 }
 /** Once per site per page load: the server's requests for this site, followed where this page has not finished with them. */
 const siteReqChecked = new Set();
@@ -9640,8 +9663,9 @@ function siteRequestsCheck(site) {
 // happened and why is said by each part's own reply and the request's.
 const SITE_REQ_STATUS = {
   blocked: 'Waiting for another part', ready: 'Next', queued: 'Queued', started: 'In progress',
-  waiting: 'Waiting for your answer', unverified: 'Checking it published', done: 'Done', failed: 'Not done',
+  waiting: 'Waiting for your answer', unverified: 'Checking it published', done: 'Done', partial: 'Partly done', failed: 'Not done',
   'not-run': 'Not run', cancelled: 'Stopped', 'needs-rewrite': 'Needs a full rewrite', expired: 'Question expired', refused: 'Not run',
+  approval: 'Needs your go-ahead',
 };
 /** The request's card, under its message: each part and its status, Stop, and a part's rewrite button. */
 function siteRequestHTML(m, site) {
@@ -9652,8 +9676,13 @@ function siteRequestHTML(m, site) {
     const status = p && typeof p.status === 'string' ? p.status : '';
     let label = SITE_REQ_STATUS[status] || status;
     if (status === 'waiting' && p.question && p.question.queued === true) label = 'Has a question to ask next';
-    const rewrite = status === 'needs-rewrite' && !(st.rewrites || []).includes(p.n)
-      ? '<button type="button" class="st-opt st-req-go" data-req-rewrite="' + esc(m.request) + '" data-req-part="' + esc(String(p.n)) + '"><span>Rewrite the site for this</span></button>' : '';
+    if (status === 'expired' && p.why === 'unapproved') label = 'Go-ahead not given';
+    if (p.approved && (status === 'queued' || status === 'started')) label = status === 'queued' ? 'Full rewrite queued' : 'Full rewrite in progress';
+    // ITS GO-AHEAD, while it waits for one; gone while a press is in flight.
+    const pressing = (st.approving || []).includes(p.n);
+    const rewrite = status === 'approval'
+      ? (pressing ? '<span class="st-req-status">Starting…</span>'
+        : '<button type="button" class="st-opt st-req-go" data-req-approve="' + esc(m.request) + '" data-req-part="' + esc(String(p.n)) + '"><span>Rewrite the whole site for this</span></button>') : '';
     return '<li class="st-req-part st-req-' + esc(status) + '"><span class="st-req-words">' + esc(String(p.words || '')) + '</span>' +
       '<span class="st-req-status">' + esc(label) + '</span>' + rewrite + '</li>';
   }).join('');

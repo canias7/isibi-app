@@ -774,13 +774,39 @@ the owner's free press, run 51, at 22:57 UTC):
         37144978309);
       - screenshots of the request's card in the session.
     - **No real-model evidence.**
-    - **Before the switch goes on**: the UI canary must learn a request the
-      server runs (backlog).
+    - **The owner's review fixes** (2026-10-03, on the branch, unmerged,
+      undeployed, off; nothing spent):
+      - additions the add-on step sets aside (a menu link beside a page, a
+        list entry beside other kinds) become parts of the request in the
+        picker's own words (`scopes`); an `ok` answer naming anything not
+        done is `partial`, and nothing that needs it runs;
+      - the acceptance writes the marker before the record, so the sweep
+        alone recovers any saved request; a lone marker is cleared after 15
+        minutes;
+      - the full rewrite's go-ahead waits on the request with its files,
+        runs the existing queued build (one row per go-ahead, run only under
+        its lease), settles back, and resumes what needed it; given from any
+        device, refused once stopped, lapsing after a day;
+      - the UI canary follows a request the server runs and walls its parts
+        with the request's own Stop (stand-in page only, no press).
+      - **Tested with supplied model output**: 23 new cases (14 flow cases
+        through the real Worker and the real queued build — page plus menu
+        link, additions plus row, dependent work, recovery with no browser,
+        resend or look, interrupted marker writes, the go-ahead given twice,
+        from another device, failing, stopped three ways, crashing three
+        ways, lapsing, and its end moving the request on through `/next`;
+        2 decision cases; 7 canary cases), PAGE 5 and F3 rewritten; the red
+        check fails them on `d5d383cc`'s code; sweep 41 of 41 after three
+        test gaps were closed, 5 controls surviving; full suite
+        `9228 / 9228 / 0 / 0`; four screenshots in the session.
+      - The record: `docs/history/2026-10-03-request-review-fixes.md`.
+    - **Before the switch goes on**: a merge and deploy on the owner's
+      word, then a request-mode UI canary press (backlog).
     - The record: `docs/history/2026-10-03-combined-requests.md`. How it
       works: `docs/request-flow.md`.
-    - **Next**: the owner's review; a merge on their word (the image rolls,
-      `8bfc67dc695e65cc` → `1a5437e9464f41e2`, predicted); the UI canary;
-      the switch; a real-model batch on their approval.
+    - **Next**: the owner's review of the fixes; a merge on their word (the
+      image rolls; predicted, not built); a request-mode canary press; the
+      switch; a real-model batch on their approval.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

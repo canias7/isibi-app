@@ -8,6 +8,12 @@ not reopened.
 
 - Code: `b1d96b3d` (the flow) and `b7564f82` (each unfinished part's charge
   read from its jobs' rows; the tests the sweep asked for).
+- **The owner's review of this round, and its fixes**: set-aside additions,
+  partial outcomes, the marker-first acceptance, the go-ahead kept on the
+  request and the UI canary's request mode —
+  `docs/history/2026-10-03-request-review-fixes.md`. Where this file and
+  that one disagree (the full rewrite's button, the marker's order, the
+  canary), that one is current.
 - How it works now: `docs/request-flow.md`.
 - The plan it came from: `docs/investigations/edit-addon-one-request-plan.md`.
 

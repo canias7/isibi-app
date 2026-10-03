@@ -15,7 +15,9 @@ import {
   imageFacts, recordableRequest, recordsBody, blocksPost, chainVerdict, runUi, describeUi,
   wallRefusal, requestVerdict, storedReplyVerdict, moneyVerdict, unpublishedVerdict, routeCostsOf,
   conditionProbe, dependencyVerdict, finalReplyOf, failureVerdict, refundedVerdict, sameTab,
+  requestKeyOf, requestWall, requestJobsOf,
 } from "../scripts/canary-ui.mjs";
+import { additionRequestVerdict, additionReplyVerdict } from "../scripts/canary-additions.mjs";
 import { probeBody } from "../scripts/canary-rows.mjs";
 import { readAllow, bookingBodyVerdict, EVIDENCE_BOUNDARY } from "../scripts/canary-rules.mjs";
 import { MAX_LOGO_BYTES } from "../builder/site-logo.mjs";
@@ -174,7 +176,15 @@ function standIn(opt = {}) {
     workspace: false, busy: false, messages: [], attached: 0, strip: 0, value: "", pending: null, step: 0, typed: 0,
     // THE DOCUMENT: a reload starts a new one, without the run's mark.
     mark: "", origin: 1_000_000.5,
+    // A MESSAGE THE SERVER TOOK ON AS A REQUEST (2026-10-03): its script, and
+    // what the page has shown of each request.
+    req: null, requests: {}, views: 0, stops: 0,
   };
+  // THE REQUEST'S OWN VIEW AS THE SERVER WOULD ANSWER IT, from its script.
+  const viewOf = (q) => ({
+    key: q.key, ended: q.ended, stop: q.stopped, state: q.ended ? (q.stopped ? "stopped" : q.approval ? "waiting" : "done") : q.approval ? "waiting" : "running",
+    parts: [{ n: 0, words: q.say, status: q.ended ? (q.stopped ? "cancelled" : "done") : q.approval ? "approval" : "queued", route: q.route, ids: [q.job], jobs: q.ended && !q.stopped ? [q.job] : [], charged: 0, ...(q.addition ? { addition: true } : {}) }],
+  });
   const listeners = {};
   const state = () => ({
     signedIn: st.signedIn, uid: st.uid, gate: st.gate, workspace: st.workspace,
@@ -182,6 +192,7 @@ function standIn(opt = {}) {
     stop: st.workspace && st.busy, textarea: st.workspace, disabled: st.workspace ? false : null,
     value: st.value, working: st.busy ? 1 : 0, attached: st.attached, strip: st.strip,
     messages: st.messages.concat(st.busy ? [{ who: "a", busy: true, text: "Working" }] : []),
+    requests: st.requests,
   });
   const respond = (method, path, status, req, res, headers = {}) => {
     const r = {
@@ -200,7 +211,33 @@ function standIn(opt = {}) {
       if (fn.name === "tabMarkInPage") return { mark: st.mark, origin: st.origin, path: "/projects" };
       // THE SITE'S OWN PAGE (a row scenario reads what a visitor sees there).
       if (fn.name === "shownListInPage") { calls.push(`shown ${arg}`); return opt.shown ? opt.shown(st.url) : []; }
+      // A REQUEST'S VIEW, READ THROUGH THE PAGE'S SESSION: it ends after its polls, or once stopped.
+      if (fn.name === "requestViewInPage") {
+        const q = st.req;
+        calls.push(`view ${arg.key}`);
+        st.views++;
+        if (!q || q.key !== arg.key) return { status: 404, ok: false, request: null };
+        if (!q.ended && (q.stopped || (!q.approval && --q.polls <= 0))) q.ended = true;
+        return { status: 200, ok: true, request: viewOf(q) };
+      }
+      if (fn.name === "stopRequestInPage") {
+        calls.push(`stop ${arg.key}`);
+        st.stops++;
+        if (st.req && st.req.key === arg.key) st.req.stopped = true;
+        return { status: 200, ok: true, state: "stopped" };
+      }
       if (fn.name !== "readComposerInPage") throw new Error("unexpected page function " + fn.name);
+      // THE PAGE SHOWS A REQUEST THAT ENDED: its part's own reply (read
+      // through the job poll, under its final mark), then closes it.
+      if (st.req && st.req.ended && !st.req.shown) {
+        const q = st.req;
+        q.shown = true;
+        if (!q.stopped) {
+          await respond("GET", `/api/site/edit/${q.job}`, 200, null, q.reply, { "x-gf-edit": "final" });
+          st.messages.push({ who: "a", busy: false, text: q.reply.msg || "✅ Done." });
+        } else st.messages.push({ who: "a", busy: false, text: "Stopped at your request." });
+        st.requests[q.key] = { closed: true, ended: true };
+      }
       if (st.pending && --st.pending.polls <= 0) {
         const p = st.pending; st.pending = null;
         if (!p.hang) {
@@ -239,6 +276,19 @@ function standIn(opt = {}) {
         const images = st.attached ? [{ name: "ui-logo.png", data: "data:image/png;base64," + fs.readFileSync(ROOT + FIXTURE).toString("base64") }] : undefined;
         st.value = ""; st.attached = 0; st.strip = 0; st.busy = true;
         const job = String(n + 1).padStart(32, "0");
+        // TAKEN ON AS A REQUEST: the routing answer names it, the page posts no
+        // edit, draws the card, and follows it.
+        if (opt.request) {
+          const q = { ...opt.request(n), say: said, job, polls: 3, ended: false, stopped: false, shown: false };
+          st.req = q;
+          await respond("POST", "/api/site/route", 200, { message: said, attached: !!images, ...(images ? { images } : {}) },
+            { ok: true, intent: q.route === "addon" ? "addon" : "edit", layer: q.route === "addon" ? "" : q.route, cost: 2, request: viewOf(q) });
+          opt.onSend && opt.onSend(n);
+          st.messages.push({ who: "a", busy: false, card: true, text: said + " Queued" });
+          st.requests[q.key] = { closed: false, ended: false };
+          st.busy = false;
+          return;
+        }
         await respond("POST", "/api/site/route", 200, { message: said, attached: !!images },
           opt.routed ? opt.routed(n) : { ok: true, intent: "edit", layer: ["logo", "picture", "page"][n], cost: 2 });
         await respond("POST", `/api/site/${slug}/edit`, 202, opt.editBody ? opt.editBody(n, said) : { layer: "x", images }, { ok: true, job, status: "queued" });
@@ -2164,4 +2214,125 @@ test("the canary judges Test 9 by the failure, the table after it, the tab, the 
   assert.match(win, /check\(`message \$\{s\.n\}'s reply was read in the tab the run opened, never reloaded`, s\.sameTab === true/);
   assert.match(win, /if \(ROW\.restore === false\) \{\s*check\("this run made no write of its own/);
   assert.match(CANARY, /import \{ failureVerdict, refundedVerdict, sameTab \} from "\.\/canary-ui\.mjs"/);
+});
+
+// ── REQUEST MODE (2026-10-03, the owner's review: *"Adapt the UI canary for
+// request mode on this branch before rollout, rather than leaving that
+// implementation until after deployment."*) — a message the server takes on
+// as a request: the page posts no edit, draws the request's card and follows
+// it; the canary follows it too, walls its parts with the request's own Stop,
+// and reads its jobs off the request's own view.
+
+const KEY_N = (n) => "rqcanary" + "0".repeat(11) + n;
+const LOGO_ONLY = { site: "fold-lane-bakery", budget: 20, layers: ["logo"], steps: [{ say: "Use this picture as the logo.", attach: FIXTURE }] };
+
+test("request mode, pure: the routing answer names the request; a card is not a reply; the request's jobs are every id it filed; the wall's own Stop is let out for this site alone, and the go-ahead never", () => {
+  const net = [{ method: "POST", path: "/api/site/route", res: { ok: true, intent: "edit", layer: "logo", request: { key: KEY_N(1) } } }];
+  assert.equal(requestKeyOf(net), KEY_N(1));
+  assert.equal(requestKeyOf([{ method: "POST", path: "/api/site/route", res: { ok: true, intent: "edit" } }]), "");
+  assert.equal(requestKeyOf([{ method: "POST", path: "/api/site/route", res: { request: { key: "short" } } }]), "");
+  assert.equal(requestKeyOf(null), "");
+  const msgs = [{ who: "u", text: "x" }, { who: "a", busy: false, card: true, text: "x Queued" }, { who: "a", busy: false, text: "✅ Done." }];
+  assert.deepEqual(newReplies(1, msgs).map((m) => m.text), ["✅ Done."]);
+  assert.deepEqual(requestJobsOf({ parts: [{ ids: ["a", "b"] }, { ids: [] }, { ids: ["c", 7, ""] }] }), ["a", "b", "c"]);
+  assert.deepEqual(requestJobsOf(null), []);
+  // THE WALL'S OWN DOOR: a stop of this site's request; another site's, or any other DELETE, is refused.
+  const sc = UI_SCENARIOS["4b-d1-price"];
+  assert.equal(wallRefusal({ method: "DELETE", pathname: "/api/site/request/fold-lane-bakery/" + KEY_N(1), scenario: sc }), "");
+  assert.match(wallRefusal({ method: "DELETE", pathname: "/api/site/request/fretwork-1/" + KEY_N(1), scenario: sc }), /fretwork-1/);
+  assert.match(wallRefusal({ method: "DELETE", pathname: "/api/site/fold-lane-bakery/rows/loaves/6", scenario: sc }), /never makes/);
+  // THE FULL REWRITE'S GO-AHEAD is work no scenario asks for, on every scenario.
+  for (const name of Object.keys(UI_SCENARIOS)) {
+    assert.equal(blocksPost("POST", "/api/site/request/fold-lane-bakery/" + KEY_N(1) + "/approve", UI_SCENARIOS[name]), true, name);
+  }
+});
+
+test("request mode, pure: the wall names the first part routed where the message may not go, or left waiting for the go-ahead", () => {
+  const sc = { site: "fold-lane-bakery", layers: ["data"] };
+  const view = (parts) => ({ parts });
+  assert.equal(requestWall(view([{ n: 0, status: "queued", route: "data" }, { n: 1, status: "blocked" }]), sc, null), null);
+  assert.deepEqual(requestWall(view([{ n: 0, status: "done", route: "data" }, { n: 1, status: "queued", route: "page" }]), sc, null), { n: 1, why: "a part routed to the page layer, which this scenario does not allow" });
+  assert.match(requestWall(view([{ n: 0, status: "queued", route: "addon" }]), sc, null).why, /add-on step/);
+  assert.match(requestWall(view([{ n: 0, status: "approval" }]), sc, null).why, /go-ahead/);
+  // A MESSAGE'S OWN LAYERS WIN OVER THE SCENARIO'S.
+  assert.equal(requestWall(view([{ n: 0, status: "queued", route: "nav" }]), { site: "x", layers: ["nav", "page"] }, { layers: ["nav"] }), null);
+  assert.ok(requestWall(view([{ n: 0, status: "queued", route: "page" }]), { site: "x", layers: ["nav", "page"] }, { layers: ["nav"] }));
+  // AN ADDITIONS SCENARIO: the add-on step, and an edit only as its hand-over.
+  const adds = UI_SCENARIOS["12-additions"];
+  assert.equal(requestWall(view([{ n: 0, status: "queued", route: "addon" }]), adds, adds.steps[0]), null);
+  assert.equal(requestWall(view([{ n: 0, status: "queued", route: "nav", addition: true }]), adds, adds.steps[0]), null);
+  assert.match(requestWall(view([{ n: 0, status: "queued", route: "nav" }]), adds, adds.steps[0]).why, /not an addition/);
+  assert.match(requestWall(view([{ n: 0, status: "queued", route: "nav", addition: true }]), adds, adds.steps[3]).why, /nav layer/);
+});
+
+test("request mode, pure: the verdict is one routing call with the words, no edit from the page, and the request ended with every part done where allowed", () => {
+  const sc = { site: "fold-lane-bakery", layers: ["logo"] };
+  const say = "Use this picture as the logo.";
+  const step = (final) => ({ say, network: [{ method: "POST", path: "/api/site/route", req: { message: say }, res: { ok: true, intent: "edit", layer: "logo", cost: 2, request: { key: KEY_N(1) } } }], request: { key: KEY_N(1), final, wall: null } });
+  const done = { key: KEY_N(1), ended: true, state: "done", parts: [{ n: 0, status: "done", route: "logo", ids: ["j"] }] };
+  assert.equal(requestVerdict(step(done), sc).ok, true);
+  assert.equal(requestVerdict(step({ ...done, ended: false, state: "running" }), sc).ok, false, "a request still running passed");
+  assert.equal(requestVerdict(step({ ...done, parts: [{ n: 0, status: "failed", route: "logo" }] }), sc).ok, false, "a failed part passed");
+  assert.equal(requestVerdict(step({ ...done, parts: [{ n: 0, status: "done", route: "page" }] }), sc).ok, false, "a part done at another layer passed");
+  assert.equal(requestVerdict(step(null), sc).ok, false, "a request whose view was never read passed");
+  const walled = step(done); walled.request.wall = { n: 0, why: "x" };
+  assert.equal(requestVerdict(walled, sc).ok, false, "a request the wall stopped passed");
+  const posted = step(done); posted.network.push({ method: "POST", path: "/api/site/fold-lane-bakery/edit", req: { instruction: say, layer: "logo" } });
+  assert.equal(requestVerdict(posted, sc).ok, false, "a page that posted an edit beside a request passed");
+});
+
+test("request mode end to end: the card is not the reply; the step ends once the request has ended and the page has shown it; its jobs are the request's; the file is on the routing call", async () => {
+  const h = standIn({ request: (n) => ({ key: KEY_N(n + 1), route: "logo", reply: { ok: true, layer: "logo", msg: "✅ That's your logo." } }) });
+  const rec = await drive(h, { scenario: LOGO_ONLY, viewEveryMs: 0 });
+  assert.equal(rec.stopped, null, JSON.stringify(rec.stopped));
+  const s0 = rec.steps[0];
+  assert.equal(s0.reply, "✅ That's your logo.", "the card, or nothing, was taken for the reply");
+  assert.equal(s0.request.key, KEY_N(1));
+  assert.equal(s0.request.final.ended, true);
+  assert.deepEqual(s0.jobs, ["1".padStart(32, "0")]);
+  assert.deepEqual(rec.blocked, []);
+  assert.equal(h.st.stops, 0, "a request with nothing walled was stopped");
+  assert.ok(!s0.network.some((e) => e.method === "POST" && /\/edit$/.test(e.path)), "the page posted an edit");
+  const route = s0.network.find((e) => e.path === "/api/site/route");
+  assert.equal(route.req.images[0].sha256, FIXTURE_SHA, "the file is not on the routing call");
+  assert.equal(requestVerdict(s0, LOGO_ONLY).ok, true, JSON.stringify(requestVerdict(s0, LOGO_ONLY)));
+  assert.match(describeUi(rec), new RegExp("request " + KEY_N(1) + ": done, ended — 0:done@logo"));
+});
+
+test("request mode's wall: a part routed outside the message's layers is stopped through the request's own Stop at once, recorded, and the step ends with the request stopped", async () => {
+  const h = standIn({ request: (n) => ({ key: KEY_N(n + 1), route: "page", reply: { ok: true, layer: "page", msg: "✅ Rewrote it." } }) });
+  const rec = await drive(h, { scenario: LOGO_ONLY, viewEveryMs: 0 });
+  const s0 = rec.steps[0];
+  assert.equal(h.st.stops, 1, "the misrouted part was not stopped exactly once");
+  assert.deepEqual(s0.request.wall, { n: 0, why: "a part routed to the page layer, which this scenario does not allow" });
+  assert.equal(rec.blocked.length, 1);
+  assert.match(rec.blocked[0].path, new RegExp(KEY_N(1)));
+  assert.equal(s0.request.final.state, "stopped");
+  assert.equal(requestVerdict(s0, LOGO_ONLY).ok, false);
+  assert.match(describeUi(rec), /STOPPED BY THE WALL at part 0/);
+});
+
+test("request mode's wall: a part left waiting for the full rewrite's go-ahead is stopped, and the go-ahead is never pressed", async () => {
+  const h = standIn({ request: (n) => ({ key: KEY_N(n + 1), route: "logo", approval: true, reply: { ok: true, msg: "x" } }) });
+  const rec = await drive(h, { scenario: LOGO_ONLY, viewEveryMs: 0 });
+  assert.equal(h.st.stops, 1);
+  assert.match(rec.steps[0].request.wall.why, /go-ahead/);
+  assert.ok(!h.calls.some((c) => /approve/.test(c)), "the go-ahead was pressed");
+});
+
+test("request mode, additions: one routing call and nothing posted after it; the one part ran the add-on step, or the edit it handed a frame item to as an addition, and only that step's reply is read", () => {
+  const SITE = "fold-lane-bakery";
+  const say = "Add Order to the menu.";
+  const net = (extra = []) => [{ method: "POST", path: "/api/site/route", req: { message: say }, res: { ok: true, intent: "addon", cost: 2, decision: { source: "model", raw: { intent: "addon" } }, request: { key: KEY_N(2) } } }, ...extra];
+  const step = (part, extra) => ({ say, network: net(extra), request: { key: KEY_N(2), final: { key: KEY_N(2), ended: true, state: "done", parts: [part] } }, replies: ["✅ Added Order to the menu."] });
+  const hop = { hop: "nav" };
+  assert.equal(additionRequestVerdict(step({ n: 0, status: "done", route: "nav", addition: true, ids: ["a", "b"] }), SITE, hop).ok, true);
+  assert.equal(additionRequestVerdict(step({ n: 0, status: "done", route: "nav", ids: ["a", "b"] }), SITE, hop).ok, false, "an edit not handed over by the add-on step passed");
+  assert.equal(additionRequestVerdict(step({ n: 0, status: "done", route: "addon", ids: ["a"] }), SITE, {}).ok, true);
+  assert.equal(additionRequestVerdict(step({ n: 0, status: "failed", route: "addon", ids: ["a"] }), SITE, {}).ok, false);
+  assert.equal(additionRequestVerdict(step({ n: 0, status: "done", route: "addon", ids: ["a"] }, [{ method: "POST", path: "/api/site/" + SITE + "/addon", req: { instruction: say } }]), SITE, {}).ok, false, "a page post beside the request passed");
+  // ONLY THE STEP THAT ANSWERED IS READ: the hand-over is the server's.
+  const fin = (res) => ({ method: "GET", path: "/api/site/edit/b", final: true, res });
+  assert.equal(additionReplyVerdict(step({ n: 0 }, [fin({ ok: true, layer: "nav" })]), hop).ok, true);
+  assert.equal(additionReplyVerdict(step({ n: 0 }, [fin({ ok: false, layer: "nav", error: "x" })]), hop).ok, false);
 });

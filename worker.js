@@ -94,7 +94,7 @@ import { siteAnswer, pageNotes, ANSWER_FIELDS } from "./builder/build-answer.mjs
 // one spelling of the column, and says why it is not called `project`.
 import { cleanChatId, CHAT_COLUMN } from "./builder/site-chat.mjs";
 import { OFFLINE_COLUMN, siteOffline } from "./builder/site-offline.mjs";
-import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
+import { BUILD_OP, GENERATING, HANDOFF_TTL_S, RELEASE_TTL_S, CONTAINER_BEAT_TTL_S, GEN_BEAT_MS, containerOwner, buildRowSlug, cleanBuildSlug, isRowSlug, buildOutcome, rowVerdict, genBound, CANCELLED_MSG, BUSY_BUILD_MSG, BUSY_EDIT_MSG, GATED_BUILD_MSG, GATED_EDIT_MSG, STALE_BUILD_MSG, STALE_EDIT_MSG } from "./builder/build-lease.mjs";
 import { siteMetaKey, SITE_LIVE_FILE } from "./site-meta.mjs";
 import { VERIFIERS, VERIFIER_NAMES, mergeVerification, verificationPairs, verificationNote } from "./builder/site-verify.mjs";
 import { siteRoutes, sitemapXml, robotsTxt, substituteOrigin, routesContent, redirectsContent, parseSiteManifest, manifestFromCsv, mergeRedirects, decideFallback } from "./site-seo.mjs";
@@ -237,7 +237,7 @@ import { sweepAfterPublish, P_ORPHANS } from "./site-sweep.mjs";
 import { loadConfig, saveConfig, withConfig, LEGACY_KEYS, CONFIG_KEY } from "./site-config.mjs";
 import { takeOffline, putBackOnline } from "./site-live.mjs";
 import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES, MAX_ATTACHMENTS } from "./builder/site-context.mjs";
-import { routeMessage, routeDecision, routeFailure, clarifiedBrief, siteDigest, DOOR_LAYERS, heldParts, heldList, wordsLess, ROUTE_ERROR_CLASSES } from "./builder/site-ask.mjs";
+import { routeMessage, routeDecision, routeFailure, clarifiedBrief, siteDigest, DOOR_LAYERS, heldParts, heldList, wordsLess, wordsIn, ROUTE_ERROR_CLASSES } from "./builder/site-ask.mjs";
 // THE HAND-OVER (2026-10-02, the whole-router audit's batch 2): what travels when
 // work moves from one step to another — the parts put off, the scope, and why.
 import { readHandOver, handOverLine, heldReport, deferredOf } from "./builder/hand-over.mjs";
@@ -247,8 +247,9 @@ import { repliesOn, editReplyFacts, addonReplyFacts, routeReplyFacts, cancelRepl
 // the plan, what a job's answer means for its part, and the next job.
 import {
   isRequestKey, requestFlowOn, recordKey as requestRecordKey, liveKey as requestLiveKey, fileKey as requestFileKey, requestReplyKey,
-  parseLiveKey, LIVE_ROOT as REQUEST_LIVE_ROOT, REQUEST_ROOT, SWEEP_CURSOR_KEY as REQUEST_SWEEP_CURSOR_KEY, LIVE_AFTER_END_MS, ROUTE_OP, readJobKey, newRequest, readRequest, planParts,
+  parseLiveKey, LIVE_ROOT as REQUEST_LIVE_ROOT, REQUEST_ROOT, SWEEP_CURSOR_KEY as REQUEST_SWEEP_CURSOR_KEY, LIVE_AFTER_END_MS, ORPHAN_MARKER_MS, ROUTE_OP, readJobKey, newRequest, readRequest, planParts,
   nextStep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, requestView, liveJobIds, questionsToOffer, noteOffered,
+  approvePart, approvalSeq,
 } from "./builder/request.mjs";
 // ONE SIZE POLICY FOR WHAT A CUSTOMER SAYS ON A SITE THAT EXISTS (2026-10-03).
 import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS, REWRITE_MAX_CHARS, carriedChars } from "./builder/input-budget.mjs";
@@ -13274,6 +13275,7 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
           body: JSON.stringify({ ok: false, stage: "queue", error: why, job: id, deferrals: row.deferrals, refunded: back.refunded, msg: row.gated ? GATED_BUILD_MSG : BUSY_BUILD_MSG }),
         })));
       } catch (e) { console.error("build queue: could not write the busy answer for", id, String((e && e.message) || e)); }
+      await requestRewriteEnded(env, ctx, rewriteRequestOf(job));
       return;
     }
     let kept = false;
@@ -13311,6 +13313,18 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
     }
   }
   const lease = row.held ? rowOwner : null;
+  // A REQUEST'S REWRITE (2026-10-03) whose request was stopped while it waited
+  // ends here, before it designs, fires or spends. Only a build a request
+  // filed carries one; a first build or a page's own revise pays no read.
+  const reqMark = rewriteRequestOf(job);
+  if (reqMark) {
+    // ONLY UNDER ITS OWN ROW'S LEASE: every press of one go-ahead files the
+    // same row, so a delivery whose claim is refused — held by the consumer
+    // already running it, or ended — is that rewrite, never a second one. An
+    // unread claim stays queued for the stale sweep to send again.
+    if (!lease) { console.log("request rewrite:", id, "not claimed (" + (row.unread ? "unread" : row.row ? "held or ended" : "no row") + ") — not run here"); return; }
+    if (await requestRewriteStopped(env, ctx, id, job, reqMark, lease, { inContainer: !!takeOver })) return;
+  }
 
   // ── THE BUILD RUNS IN THE SITE'S CONTAINER WHEN IT CAN (stage 5b, 2026-09-06) ──
   //
@@ -13464,11 +13478,16 @@ async function runQueuedSiteBuild(env, ctx, id, { tries = 0, takeOver = null, sl
   // later look closes. A poll that reads `done` off the row and finds no
   // answer object is then a build whose answer was collected, never one
   // still being written.
+  let payload = null;
+  try { payload = JSON.parse(out.body); } catch { payload = null; }
   if (row.row) {
-    let payload = null;
-    try { payload = JSON.parse(out.body); } catch { payload = null; }
     await closeBuildRow(env, id, buildOutcome(out.status, payload), "the build failed");
   }
+  // A REQUEST'S REWRITE ENDED (2026-10-03): the request moves on now — the
+  // dependents its part held run — not at the next sweep. Not on a build that
+  // fired its generation, whose answer is interim: the sweep reads the
+  // resumed half's answer when it lands.
+  if (reqMark && !(out.status === 202 && payload && payload.stage === "resuming")) await requestRewriteEnded(env, ctx, reqMark);
 }
 
 /**
@@ -14218,12 +14237,39 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
       const { rec, etag } = await loadRequest(env, slug, key);
       if (!rec || !etag) return null;
       if (rec.ended) { await settleRequestMarker(env, rec); return rec; }
-      const rows = {};
-      for (const id of liveJobIds(rec)) {
+      // A GO-AHEAD WHOSE PRESS DIED AFTER FILING ITS REWRITE: the build's row
+      // is there under the id that press derived, and nothing recorded it.
+      // Recorded now, so the rewrite settles with no second press.
+      let base = rec;
+      for (const p of rec.parts) {
+        if (p.status !== "approval" || rec.stop) continue;
+        const seq = approvalSeq(p);
+        const id = await rewriteJobId(rec.key, p.n, seq);
         const row = await editRpc(env, "edit_get", { p_id: id, p_uid: rec.uid });
-        if (row && row.ok === true) rows[id] = row;
+        if (!row || row.ok !== true) continue;
+        // A ROW STILL QUEUED WHOSE STORED JOB NEVER LANDED is a press that
+        // failed and was told so: the go-ahead is not given until one files it.
+        if (row.state === "queued") {
+          let there = true;
+          try { there = !!(await env.SITES_BUCKET.head(jobKey(id))); } catch { there = true; }
+          if (!there) continue;
+        }
+        base = approvePart(base, p.n, { job: id, seq }) || base;
       }
-      const { record, file } = nextStep(rec, rows, Date.now());
+      const rewrites = new Set(base.parts.flatMap((p) => p.jobs.filter((j) => j.kind === "rewrite" && j.id).map((j) => j.id)));
+      const rows = {};
+      for (const id of liveJobIds(base)) {
+        const row = await editRpc(env, "edit_get", { p_id: id, p_uid: rec.uid });
+        if (!row || row.ok !== true) continue;
+        // AN APPROVED REWRITE IS READ FROM ITS BUILD'S OWN ANSWER, as the
+        // build's poll route reads it; its row says only whether it is running.
+        if (rewrites.has(id) && isJobId(id)) {
+          try { const obj = await env.SITES_BUCKET.get(resultKey(id)); if (obj) row.build = readResult(JSON.parse(await obj.text())); }
+          catch { /* read again on the next step */ }
+        }
+        rows[id] = row;
+      }
+      const { record, file } = nextStep(base, rows, Date.now());
       // NOTHING MOVED, NOTHING WRITTEN: a look from the page or the sweep at a
       // request whose job is still running costs a read, never a write.
       const same = !file && JSON.stringify({ ...record, rev: 0, updatedAt: 0 }) === JSON.stringify({ ...rec, rev: 0, updatedAt: 0 });
@@ -14309,9 +14355,22 @@ async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, 
   let tag = null;
   try {
     draft.files = await storeRequestFiles(env, slug, key, rb.images);
+    // THE MARKER BEFORE THE RECORD (2026-10-03, the owner's review): the sweep
+    // finds a request only by its marker, so a record written first and an
+    // invocation that died before its marker left a saved request nothing
+    // would ever move on without a resend. Written first, any record that
+    // exists has a marker; a marker whose record never landed is the sweep's
+    // to clear once it is old enough (`ORPHAN_MARKER_MS`). Create-only, so a
+    // marker already there — another tab's, or an ended request's — is left
+    // as it was. A marker that cannot be written stops the acceptance here,
+    // before anything is saved, and the message is held for sending again.
+    await env.SITES_BUCKET.put(requestLiveKey(slug, key), JSON.stringify({ at: draft.at, endedAt: null }),
+      { httpMetadata: { contentType: "application/json" }, onlyIf: { etagDoesNotMatch: "*" } });
     tag = await createRequestRecord(env, draft);
   } catch (e) {
     console.error("request store:", slug, errorClassForLog(e));
+    // NOTHING WAS SAVED, SO NOTHING IS LEFT: the files copied for it go too.
+    for (const f of draft.files || []) { try { await env.SITES_BUCKET.delete(f.key); } catch { /* deleted with the site */ } }
     return { failed: true };
   }
   if (!tag) {
@@ -14322,7 +14381,6 @@ async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, 
     if (prior && prior.rec && prior.rec.uid === uid && prior.rec.accepted) return { ...prior.rec.accepted, request: requestView(prior.rec), duplicate: true };
     return { failed: true };
   }
-  await settleRequestMarker(env, draft);
   const moved = await advanceRequest(env, ctx, slug, key, "accepted");
   return { ...out, request: requestView(moved || draft) };
 }
@@ -14430,7 +14488,18 @@ export async function runRequestSweep(env, ctx) {
       continue;
     }
     if (mark && Number.isFinite(mark.endedAt)) continue;
-    await advanceRequest(env, ctx, at.slug, at.key, "sweep");
+    if (await advanceRequest(env, ctx, at.slug, at.key, "sweep")) continue;
+    // A MARKER WHOSE RECORD NEVER LANDED (the acceptance died between the two,
+    // or its record write failed): nothing to move on, and it is taken away
+    // once it is older than any acceptance still writing its record. Only on a
+    // read that found NO object at all — a record that exists and will not
+    // read is kept, and a read that failed is cannot-tell.
+    let found = null;
+    try { found = await loadRequest(env, at.slug, at.key); } catch { found = null; }
+    if (found && !found.rec && !found.answer && !found.etag) {
+      const since = mark && Number.isFinite(mark.at) ? mark.at : 0;
+      if (since && now - since > ORPHAN_MARKER_MS) { try { await env.SITES_BUCKET.delete(o.key); } catch { /* next tick */ } }
+    }
   }
 }
 
@@ -14447,13 +14516,176 @@ async function stopRequest(env, ctx, slug, key, uid) {
     if (rec.ended || rec.stop) break;
     const t = await saveRequestRecord(env, { ...rec, stop: true, updatedAt: Date.now() }, etag);
     if (t) {
-      for (const id of liveJobIds(rec)) {
+      // …AND A GO-AHEAD'S BUILD A PRESS MAY HAVE FILED AND NOT YET RECORDED
+      // (`rewriteJobId`), so it ends at its gate rather than after the stop.
+      const ids = liveJobIds(rec);
+      for (const p of rec.parts) if (p.status === "approval") ids.push(await rewriteJobId(rec.key, p.n, approvalSeq(p)));
+      for (const id of ids) {
         try { await editRpc(env, "edit_cancel", { p_id: id, p_uid: uid }); } catch { /* the job's own end settles it */ }
       }
       break;
     }
   }
   return advanceRequest(env, ctx, slug, key, "stop");
+}
+
+// ── A PART'S FULL REWRITE, ON THE CUSTOMER'S GO-AHEAD (2026-10-03) ──────────
+//
+// Owner: *"keep the full-rewrite approval attached to the original request …
+// record the approval durably, and use the existing rewrite executor without
+// changing first Build; settle its result back into the request and resume
+// eligible dependents."* The press files the rewrite exactly as the page's
+// own revise does (`enqueueSiteBuild`'s row, object and message: the same
+// queued build, consumer, pipeline, charging and publish), under an id derived
+// from the request — so every press of the same go-ahead names one build —
+// and with the customer's own session, which the build bills with. The
+// request reads the build's answer back (`settleRewrite`); nothing waits on
+// the press's own connection.
+
+/** The id a part's approved rewrite is filed under: derived from the request, its part and that job's number. */
+async function rewriteJobId(key, n, seq) {
+  const d = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode("request-rewrite:" + key + ":" + n + ":" + seq)));
+  return [...d.slice(0, 16)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * FILE A PART'S REWRITE: the revise the page posts (`reactSend`), with the
+ * part's words, the request's own files and the picked model, under `id` —
+ * which is also its idempotency key, as every build's is, so each press of the
+ * same go-ahead reaches the one row. A row still queued gets its stored job
+ * and its message (again, if an earlier press died between the two): a second
+ * delivery's claim is refused, and a request's rewrite never runs without its
+ * row's lease (`runQueuedSiteBuild`), so it runs once. A row already claimed
+ * or ended is this go-ahead's build, under way or done.
+ */
+async function fileRequestRewrite(env, rec, n, { id, auth }) {
+  const p = rec.parts[n];
+  const made = await editRpc(env, "edit_create", { p_id: id, p_uid: rec.uid, p_slug: buildRowSlug(rec.slug, id), p_op: BUILD_OP, p_idem: id });
+  if (!made || made.ok !== true || made.job !== id) return { ok: false, error: String((made && made.error) || "rpc") };
+  if (made.state !== "queued") return { ok: true, state: made.state };
+  const files = await requestFiles(env, rec);
+  const body = JSON.stringify({
+    slug: rec.slug, instruction: p.resume || p.words, picker: rec.picker || undefined,
+    images: files.length ? files.slice(0, MAX_ATTACHMENTS) : undefined,
+    // WHICH REQUEST AND PART, for the consumer's stop check and its next step.
+    request: { key: rec.key, part: n },
+  });
+  // A FILING THAT FAILS LEAVES ITS ROW QUEUED, never closed: the next press
+  // files the same row again, and the next step does not count it given while
+  // it holds no stored job (`advanceRequest`).
+  try {
+    await env.SITES_BUCKET.put(jobKey(id), JSON.stringify(packJob({ url: "https://" + APP_ZONE + "/api/site/react-revise", auth, body, uid: rec.uid, at: Date.now() })));
+  } catch (e) {
+    console.error("request rewrite: could not store", id, errorClassForLog(e));
+    return { ok: false, error: "store" };
+  }
+  try {
+    await env.BUILD_QUEUE.send({ kind: JOB_KIND, id });
+  } catch (e) {
+    console.error("request rewrite: could not send", id, errorClassForLog(e));
+    // THE STORED JOB GOES WITH IT, as the page's own queued build tidies one:
+    // nobody was sent it, and it holds a session. Left behind, the stale sweep
+    // sends it later, and it runs once.
+    try { await env.SITES_BUCKET.delete(jobKey(id)); } catch { /* see above */ }
+    return { ok: false, error: "send" };
+  }
+  return { ok: true, state: "queued" };
+}
+
+/**
+ * THE GO-AHEAD, PRESSED: the rewrite filed first, then recorded on the part
+ * (a press that dies between the two is found by the next step's probe). A
+ * part no longer waiting — stopped, expired, given its go-ahead already — is
+ * answered as it is; one stopped while this press filed has its build
+ * cancelled at once, through its row, so it ends before it begins.
+ */
+async function approveRequestPart(env, ctx, { slug, key, uid, n, auth }) {
+  const at = await loadRequest(env, slug, key);
+  if (!at.rec || at.rec.uid !== uid || !Number.isInteger(n) || !at.rec.parts[n]) return { status: 404 };
+  const p0 = at.rec.parts[n];
+  if (p0.status !== "approval" || at.rec.stop || at.rec.ended) return p0.approval ? { status: 200, rec: at.rec } : { status: 409, rec: at.rec };
+  const seq = approvalSeq(p0);
+  const id = await rewriteJobId(key, n, seq);
+  const filed = await fileRequestRewrite(env, at.rec, n, { id, auth });
+  if (!filed.ok) return { status: 503, rec: at.rec };
+  let recorded = false;
+  for (let k = 0; k < 6 && !recorded; k++) {
+    const cur = k === 0 ? at : await loadRequest(env, slug, key);
+    if (!cur.rec) break;
+    const next = approvePart(cur.rec, n, { job: id, seq });
+    if (!next) break;
+    if (await saveRequestRecord(env, next, cur.etag)) recorded = true;
+  }
+  if (!recorded) {
+    const now = await loadRequest(env, slug, key);
+    const p = now.rec && now.rec.parts[n];
+    if (!(p && p.approval && p.approval.job === id)) {
+      try { await editRpc(env, "edit_cancel", { p_id: id, p_uid: uid }); } catch { /* the consumer reads the request too */ }
+    }
+  }
+  const moved = await advanceRequest(env, ctx, slug, key, "approved");
+  return { status: 200, rec: moved || at.rec };
+}
+
+/** The request a rewrite was filed for (`request` on its body), or null: a first build or a page's own revise has none. */
+function rewriteRequestOf(job) {
+  let b = null;
+  try { b = JSON.parse(String((job && job.body) || "")); } catch { b = null; }
+  const m = b && b.request;
+  return m && typeof m === "object" && isRequestKey(m.key) && Number.isInteger(m.part) && m.part >= 0
+    ? { key: m.key, part: m.part, slug: typeof b.slug === "string" ? b.slug : "" } : null;
+}
+
+/** A request's rewrite ended: its request moves on — directly in the Worker, through the gateway's `/next` in the container. */
+async function requestRewriteEnded(env, ctx, mark) {
+  if (!mark) return;
+  if (typeof env.JOB_NEXT === "function") {
+    try { await env.JOB_NEXT({ key: mark.key }); } catch (e) { console.error("request next:", errorClassForLog(e)); }
+    return;
+  }
+  await advanceRequest(env, ctx, mark.slug, mark.key, "rewrite-ended");
+}
+
+/**
+ * A REQUEST'S REWRITE WHOSE REQUEST WAS STOPPED WHILE IT WAITED (`edit_cancel`
+ * on its row): closed cancelled, its answer said, nothing run or charged. Only
+ * a rewrite a request filed reaches this; a first build or a page's revise
+ * carries no request and never pays the read.
+ */
+async function requestRewriteStopped(env, ctx, id, job, mark, lease, { inContainer = false } = {}) {
+  // ITS ROW, through the lease this side holds (`edit_beat`, the one a
+  // container job may call): a stop pressed after the go-ahead was recorded.
+  const g = await editRpc(env, "edit_beat", { p_id: id, p_owner: lease, p_ttl: LEASE_TTL_S, p_phase: null });
+  let stopped = !!(g && g.ok === true && g.cancel === true);
+  // AND ITS REQUEST, on the Worker before the fire: a part that no longer waits
+  // for this build — stopped, lapsed, or the request gone — while the press
+  // that filed it died before it could cancel it. A request that cannot be read
+  // is not a stop, as a row that cannot be read is not one on the edit path.
+  if (!stopped && !inContainer) {
+    let at = null;
+    try { at = await loadRequest(env, mark.slug, mark.key); } catch { at = null; }
+    if (at && !at.etag && !at.rec) stopped = true;
+    else if (at && at.rec) {
+      const p = at.rec.parts[mark.part];
+      stopped = at.rec.uid !== job.uid || !p || !((p.approval && p.approval.job === id) || (p.status === "approval" && !at.rec.stop && !at.rec.ended));
+    }
+  }
+  if (!stopped) return false;
+  await editRpc(env, "edit_refund", { p_id: id, p_state: "cancelled", p_note: "stopped before the rewrite began" });
+  try {
+    await env.SITES_BUCKET.put(resultKey(id), JSON.stringify(packResult({
+      status: 410, type: "application/json", uid: job.uid,
+      body: JSON.stringify({ ok: false, cancelled: true, stage: "queue", job: id, cost: 0, msg: CANCELLED_MSG }),
+    })));
+  } catch (e) { console.error("request rewrite: could not write the stop for", id, errorClassForLog(e)); }
+  await requestRewriteEnded(env, ctx, mark);
+  return true;
+}
+
+/** Waiting only on a go-ahead: a part asks for one, and nothing else of the request can move. */
+function awaitingApproval(rec) {
+  return !rec.ended && rec.parts.some((p) => p.status === "approval") &&
+    !rec.parts.some((p) => ["queued", "started", "ready", "unverified"].includes(p.status));
 }
 
 /**
@@ -14466,11 +14698,21 @@ async function stopRequest(env, ctx, slug, key, uid) {
  */
 async function requestReply(env, rec) {
   const view = requestView(rec);
-  if (!rec.ended || !repliesOn(env)) return null;
-  const k = requestReplyKey(rec.slug, rec.key);
+  if (!repliesOn(env)) return null;
+  // ONCE AT THE END, AND ONCE FOR EACH GO-AHEAD IT WAITS ON (2026-10-03): a
+  // part only the full rewrite can make is asked about in a written reply
+  // (what it is, why, what it was measured to cost), keyed by that go-ahead,
+  // so a page opened anywhere shows each once.
+  let k = "", forKey = "";
+  if (rec.ended) { k = requestReplyKey(rec.slug, rec.key); forKey = "end"; }
+  else if (awaitingApproval(rec)) {
+    const p = rec.parts.find((q) => q.status === "approval");
+    forKey = "approval:" + p.n + ":" + approvalSeq(p);
+    k = REQUEST_ROOT + rec.slug + "/" + rec.key + "/reply-approval-" + p.n + "-" + approvalSeq(p) + ".json";
+  } else return null;
   try {
     const kept = await env.SITES_BUCKET.get(k);
-    if (kept) { const v = JSON.parse(await kept.text()); if (v && typeof v.text === "string" && v.text.trim()) return v.text; }
+    if (kept) { const v = JSON.parse(await kept.text()); if (v && typeof v.text === "string" && v.text.trim()) return { text: v.text, for: forKey }; }
   } catch { /* written again below */ }
   const text = await writeModelReply(env, "request", view, { request: rec.message, answers: rec.context, picker: rec.picker, routedCost: rec.routedCost, slug: rec.slug, pages: [] });
   if (!text) return null;
@@ -14479,10 +14721,10 @@ async function requestReply(env, rec) {
     if (put === null) {
       const won = await env.SITES_BUCKET.get(k);
       const w = won ? JSON.parse(await won.text()) : null;
-      if (w && typeof w.text === "string" && w.text.trim()) return w.text;
+      if (w && typeof w.text === "string" && w.text.trim()) return { text: w.text, for: forKey };
     }
   } catch { /* the reply is still the one written */ }
-  return text;
+  return { text, for: forKey };
 }
 
 /**
@@ -21792,13 +22034,35 @@ async function handleRequest(request, env, ctx) {
       const qu = await authUser(request, env);
       if (!qu) return Response.json({ error: "sign in first" }, { status: 401 });
       const rqm = url.pathname.match(/^\/api\/site\/request\/([a-z0-9][a-z0-9-]{0,80})\/([A-Za-z0-9_-]{16,64})$/);
-      const rlm = rqm ? null : url.pathname.match(/^\/api\/site\/requests\/([a-z0-9][a-z0-9-]{0,80})$/);
-      if (!rqm && !rlm) return Response.json({ error: "not found" }, { status: 404 });
+      const rqa = rqm ? null : url.pathname.match(/^\/api\/site\/request\/([a-z0-9][a-z0-9-]{0,80})\/([A-Za-z0-9_-]{16,64})\/approve$/);
+      const rlm = rqm || rqa ? null : url.pathname.match(/^\/api\/site\/requests\/([a-z0-9][a-z0-9-]{0,80})$/);
+      if (!rqm && !rqa && !rlm) return Response.json({ error: "not found" }, { status: 404 });
       {
         if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "requests are not available" }, { status: 503 });
-        const qSlug = (rqm || rlm)[1];
+        const qSlug = (rqm || rqa || rlm)[1];
         const qOwner = await siteOwnerBySlug(qSlug, env).catch(() => null);
         if (qOwner && qOwner !== qu.id) return Response.json({ error: "not found" }, { status: 404 });
+        // `POST /api/site/request/<slug>/<key>/approve` `{ part }` — THE GO-AHEAD
+        // for a part only the full rewrite can make (2026-10-03): the rewrite is
+        // filed through the existing queued build with this session, recorded on
+        // the part, and settled back into the request when the build answers.
+        // Pressed twice, or from another device, it answers the one build; a
+        // part no longer waiting answers 409 with the request as it is.
+        if (rqa) {
+          if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405 });
+          const ab = await readJsonBody(request, { max: 4096 });
+          const aPart = ab.ok && ab.body && Number.isInteger(ab.body.part) ? ab.body.part : -1;
+          if (aPart < 0) return Response.json({ ok: false, error: "which part?" }, { status: 400 });
+          if (!env.BUILD_QUEUE) return Response.json({ ok: false, error: "the full rewrite is not available here" }, { status: 503 });
+          let aOut;
+          try { aOut = await approveRequestPart(env, ctx, { slug: qSlug, key: rqa[2], uid: qu.id, n: aPart, auth: request.headers.get("Authorization") || "" }); }
+          catch (e) { console.error("request approve:", qSlug, errorClassForLog(e)); return Response.json({ ok: false, error: "could not start the rewrite" }, { status: 503 }); }
+          if (aOut.status === 404) return Response.json({ error: "not found" }, { status: 404 });
+          const aView = aOut.rec ? requestView(aOut.rec) : undefined;
+          if (aOut.status === 409) return Response.json({ ok: false, error: "not-waiting", request: aView }, { status: 409 });
+          if (aOut.status === 503) return Response.json({ ok: false, error: "could not start the rewrite", request: aView }, { status: 503 });
+          return Response.json({ ok: true, request: aView });
+        }
         if (rlm) {
           if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
           let listed = null;
@@ -21825,9 +22089,11 @@ async function handleRequest(request, env, ctx) {
           ? await stopRequest(env, ctx, qSlug, qKey, qu.id)
           : await advanceRequest(env, ctx, qSlug, qKey, "look");
         const qRec = moved || found.rec;
-        const reply = qRec.ended ? await requestReply(env, qRec) : null;
+        // ONCE IT HAS ENDED, OR WHILE IT WAITS ONLY ON A GO-AHEAD: the reply
+        // for what no part's own reply explains, and which one it is (`replyFor`).
+        const reply = await requestReply(env, qRec);
         const qOut = { ok: true, request: requestView(qRec) };
-        return Response.json(reply ? withReplyText(qOut, reply) : qOut);
+        return Response.json(reply ? { ...withReplyText(qOut, reply.text), replyFor: reply.for } : qOut);
       }
     }
 
@@ -28694,6 +28960,31 @@ async function handleRequest(request, env, ctx) {
             // the message runs exactly as it did before `row` existed.
             const aRowAside = aPicked.kinds.includes("row");
             const aKinds = aPicked.kinds.filter((k) => k !== "row");
+            // ── A KIND SET ASIDE GOES ON IN THE CUSTOMER'S OWN WORDS (2026-10-03) ──
+            //
+            // The owner's review of the combined request flow: a menu link or a
+            // list entry set aside beside other additions was named by its KIND
+            // (`skipped: ["frame"]`, `notAdded: row-alone`), so it could not be
+            // carried anywhere — a request marked the part done and ran what
+            // depended on the missing link. The picker now names each kind's
+            // own words (`scopes`, read only where they are the message's), and
+            // a kind set aside with its words is left for later the way any
+            // held part is: on the answer's `deferred` (`aHeldOut.parts`, which
+            // the route's one ending adds), where the page says "say it next"
+            // and a request makes it a part of its own. Without its words it is
+            // set aside and named as before, and a request reads it as a part
+            // of this one NOT done.
+            const aScopes = aPicked.scopes && typeof aPicked.scopes === "object" && !Array.isArray(aPicked.scopes) ? aPicked.scopes : {};
+            const aCarried = [];
+            const aCarry = (kind) => {
+              // THE CUSTOMER'S OWN WORDS, FOUND IN WHAT THIS STEP WAS GIVEN, in
+              // their spelling — or the kind is set aside by its name.
+              const w = Object.hasOwn(aScopes, kind) && typeof aScopes[kind] === "string" ? wordsIn(aInstruction, aScopes[kind]) : "";
+              if (!w) return false;
+              if (!aHeldOut.parts.includes(w)) aHeldOut.parts.push(w);
+              aCarried.push({ kind, words: w });
+              return true;
+            };
             // A NEW ITEM IN THE FRAME, ALONE, IS THE MENU EDITOR'S (2026-10-02),
             // one step sideways: it writes the link, the button or the footer
             // detail on every page at once. Named with that layer so the
@@ -28729,6 +29020,10 @@ async function handleRequest(request, env, ctx) {
             }
             if (aHop && aKinds.length === 1) return aFailure("layer", { layer: addLayerIn(aHop, aKinds), kind: aHop });
             const aSkipped = aKinds.filter((k) => addLayerIn(k, aKinds));
+            // WHAT IS SET ASIDE AND STILL SAID AS SET ASIDE: a kind carried on
+            // in its own words is left for later instead (`deferred`, above).
+            const aFrameCarried = aSkipped.includes("frame") && aCarry("frame");
+            const aSkippedSaid = aSkipped.filter((k) => !(k === "frame" && aFrameCarried));
             // THE SITE ALREADY HAS IT — the edit route's wall, mirrored, so the
             // two doors never bounce a customer between them: that door
             // refuses to CREATE a code or a scene the site lacks and sends the
@@ -28756,7 +29051,8 @@ async function handleRequest(request, env, ctx) {
             // AN ENTRY LEFT OUT OF A LIST IS SAID (owner: no low limits, so a
             // page, component or table answer is a list; one bad entry must
             // not throw the good ones away, and must not vanish either).
-            const aNotAdded = aRowAside ? [{ kind: "row", why: "row-alone", msg: addRefusal("row-alone", "row") }] : [];
+            const aRowCarried = aRowAside && aCarry("row");
+            const aNotAdded = aRowAside && !aRowCarried ? [{ kind: "row", why: "row-alone", msg: addRefusal("row-alone", "row") }] : [];
             // EVERY DESIGNER'S RAW REPLY, KEPT (run 28, 2026-09-03) — answered
             // or not — and written to the site's own store the moment the
             // loop ends, before a decline can return. Three live declines had
@@ -29988,8 +30284,10 @@ async function handleRequest(request, env, ctx) {
               const aCostNow = aFirstPlaced ? aFirst : await aCharge(pageCredits(...aDesignUsage, aSeedUsage));
               return Response.json({
                 ok: true,
-                kinds: aAnswers.map((a) => a.kind), skipped: aSkipped,
+                kinds: aAnswers.map((a) => a.kind), skipped: aSkippedSaid,
                 notAdded: aNotAdded.length ? aNotAdded : undefined,
+                // EACH KIND SET ASIDE AND CARRIED ON IN ITS OWN WORDS (on `deferred`).
+                setAside: aCarried.length ? aCarried.slice() : undefined,
                 // A KIND WHOSE DESIGNER DECLINED, BESIDE THE ONES THAT DESIGNED
                 // (2026-10-03, the mixed-work audit's MW6): read only when every
                 // kind declined before, so a declined part vanished.
@@ -30123,7 +30421,7 @@ async function handleRequest(request, env, ctx) {
             const aPhotoOnly = aKinds.length === 1 && aKinds[0] === "photo";
             const aNoPhoto = () => Response.json({
               ok: false, error: "no-photo", cost: 0,
-              msg: noPhotoMsg() + (aRowAside ? " " + addRefusal("row-alone", "row") : ""),
+              msg: noPhotoMsg() + (aRowAside && !aRowCarried ? " " + addRefusal("row-alone", "row") : ""),
             }, { status: 422 });
             if (aPhotoOnly && !aFold.reuse.length && !aShots.length) {
               aMark("photos", "skip", { planned: aFold.photos.length, offered: 0, reuse: 0 });
@@ -31795,8 +32093,10 @@ async function handleRequest(request, env, ctx) {
               // WHAT THIS TURN HELD BACK, for the reply's last sentence.
               // What was added, by kind, and what was set aside for another
               // rung — so the reply can say "the photograph needs its own ask".
-              kinds: aAnswers.map((a) => a.kind), skipped: aSkipped,
+              kinds: aAnswers.map((a) => a.kind), skipped: aSkippedSaid,
               notAdded: aNotAdded.length ? aNotAdded : undefined,
+              // EACH KIND SET ASIDE AND CARRIED ON IN ITS OWN WORDS (on `deferred`).
+              setAside: aCarried.length ? aCarried.slice() : undefined,
               // A KIND WHOSE DESIGNER DECLINED, BESIDE THE ONES THAT DESIGNED
               // (2026-10-03, the mixed-work audit's MW6). Each designer was
               // asked for its kind and answered nothing; read before only when

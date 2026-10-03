@@ -50,7 +50,7 @@ const KEYS = cutStatement("\ndocument.addEventListener('keydown', (e) => {", "\n
 // THE CLICKS: the thread's one delegated handler, assigned on every render.
 const CLICKS = cutStatement("\n    thread.onclick = (e) => {", "\n    };\n", "data-ask-ans");
 // THE LABELS OF A REQUEST'S CARD (2026-10-03, the combined request flow).
-const REQ_STATUS = cutStatement("\nconst SITE_REQ_STATUS = {", "\n};\n", "needs-rewrite");
+const REQ_STATUS = cutStatement("\nconst SITE_REQ_STATUS = {", "\n};\n", "approval:");
 
 // THE FUNCTIONS: the send and route handlers, the question block, and both
 // readers' whole selection (the lists the sweep's readers run, so a reply here
@@ -66,7 +66,7 @@ const FNS = [...new Set([
   // ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03): the
   // message's key, following a request, its card, Stop and the rewrite go-ahead.
   "siteMessageKey", "siteUnsentBack", "siteRequestOf", "siteReqState", "siteReqSay", "siteRequestStart", "siteRequestFollow",
-  "siteRequestStop", "siteRequestRewrite", "siteRequestsCheck", "siteRequestHTML",
+  "siteRequestStop", "siteRequestApprove", "siteRequestsCheck", "siteRequestHTML",
 ])];
 // AND THE TWO OF THEM THAT ARE `async function`s.
 const ASYNC_FNS = ["siteRequestShow", "siteRequestJobReply"];
@@ -74,7 +74,7 @@ const LINES = [...new Set([
   "const ROUTE_EDIT_LAYERS =", "const siteRoutesAsked =", "const SITE_ROUTES_WAIT_MS =", "const siteRoutesPending =",
   "const SITE_NO_PAGES_MSG =", "const siteNewDraft =", "function siteBuildStop(", ...ASK_LINES, "const siteAskChecked =",
   "const ST_PHASE_ORDER =",
-  "const SITE_REQ_KEEP_MS =", "const SITE_REQ_MISSES =", "const siteReqFollowing =", "const siteReqFiles =", "const siteReqChecked =",
+  "const SITE_REQ_KEEP_MS =", "const SITE_REQ_MISSES =", "const siteReqFollowing =", "const siteReqChecked =",
 ])];
 const SRC = [
   cut("async function apiFetch("),

@@ -47,7 +47,12 @@ const SEQUENCED = new Set(["route", T.pick, T.tweak, T.pages, T.adds]);
  * keys). `balance` is the owner's credits; `founder` makes the reserve exempt.
  * Returns the state, the env, and the actions a test drives.
  */
-export function platform({ slug, balance = 50, founder = false, answers = {}, owner = USER.id, replies = false, pages = PAGES } = {}) {
+// `db` (2026-10-03): a site database that remembers (`fixtures/rows-db.mjs`),
+// reached the way the demo sites reach theirs — a blank link in
+// `site_backends` and the project's own connection — for a part that writes a
+// row. Without it the site has no database, as before.
+const DB_CONN = "postgres://u:p@ep-rows.neon.tech/neondb";
+export function platform({ slug, balance = 50, founder = false, answers = {}, owner = USER.id, replies = false, pages = PAGES, db = null } = {}) {
   let clock = 0;
   const now = () => Date.now() + clock;
   // ── R2 ────────────────────────────────────────────────────────────────────
@@ -390,7 +395,12 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     }
     if (url.includes("/rest/v1/edit_traces")) return new Response(null, { status: 201 });
     if (url.includes("/rest/v1/site_backends")) return resp([{ uid: owner, brief: "", neon_db: "" }]);
-    if (url.includes("/rest/v1/site_project") || url.includes("/rest/v1/site_aliases")) return resp([]);
+    if (url.includes("/rest/v1/site_project")) return resp(db ? [{ uid: owner, neon_project: "proj-1", neon_branch: "br-1", neon_role: "owner", neon_conn: DB_CONN }] : []);
+    if (url.includes("/rest/v1/site_aliases")) return resp([]);
+    if (db && url.includes("neon.tech/sql")) {
+      const own = db.answer(String(args.query || ""), Array.isArray(args.params) ? args.params : []);
+      return own || resp({ command: "SELECT", rowCount: 0, rows: [], fields: [] });
+    }
     if (url.includes("/rest/v1/credits")) return resp([{ balance: credits.balance }]);
     if (url.includes("/v1/messages")) return model(args);
     if (isDispatchUpload(url)) return dispatchOk();
@@ -443,6 +453,8 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     after(fn, then, when) { afters.push({ fn, then, when }); },
     /** A job's stored request: `{ url, body }` with the body parsed. */
     bodyOf(jobId) { const o = filed.get(jobId); if (!o) return null; let body = null; try { body = JSON.parse(o.body); } catch { body = null; } return { url: o.url, body }; },
+    /** A call to the job table's stand-in as a Worker makes it — a press's filing, in a case that races it with something else. */
+    rpc(fn, args) { return rpc[fn](args); },
     /** A person settles a job under review, as `edit_reconcile` lets them. */
     reconcile(jobId, committed) { return rpc.edit_reconcile({ p_id: jobId, p_committed: committed, p_note: "settled by the case" }); },
     /** The next write to a key `match(key, body)` accepts lands and never answers. */

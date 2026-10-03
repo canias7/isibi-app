@@ -1,142 +1,93 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-03, 18:40 UTC)
+## Current handoff — read this first (2026-10-03, 20:10 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **The combined Edit/Add-on request flow is built on the branch, for your
-  review**, as you ordered. One message can ask for several edits and
-  additions, and the server finishes every part with no tab open.
-  - The code is `b1d96b3d` and `b7564f82`.
-  - The record is `docs/history/2026-10-03-combined-requests.md`, and how it
-    works is `docs/request-flow.md`.
-- **It is off by default** (the `REQUEST_FLOW` secret, `off` in
-  `deploy.yml`). With it off, nothing a customer or the canaries see
-  changes.
-- **Nothing merged or deployed. No migration (none is needed), no container
-  built, no model called, nothing spent. First Build unchanged.** The
-  limits audit is not reopened.
+- **Your review's three findings are fixed on the branch, and the UI canary
+  has its request mode**, for your review.
+  - The record is `docs/history/2026-10-03-request-review-fixes.md`, and how
+    it works is `docs/request-flow.md`.
+- **The combined flow stays unmerged, undeployed and off** (`REQUEST_FLOW`).
+  With it off, nothing a customer or the canaries see changes.
+- **Nothing merged or deployed. No paid call, no model call, no live
+  migration, no container built. First Build unchanged.**
 - **All the evidence comes from supplied model answers.** No real model has
   been asked any of these messages.
 - Deploy 2180 is still live and still waits on your free runtime press.
 
-**What it does**
-- **A message the routing call accepts becomes a request on the server**,
-  kept in the site's own storage: your words, each part, your answers and
-  copies of your files. A message that is a question, or that asks for the
-  full rewrite itself, is answered as before.
-- **The model decides the parts and their order.** The router names which
-  part needs which, even when the prerequisite comes later in the sentence,
-  and each later part is routed when its turn comes, against the site as it
-  then is. The code checks the plan, refuses a cycle and holds the order. No
-  keyword or word position decides anything.
-- **Each part is an ordinary queued job**, one at a time, with its own
-  publish and charging as if you had sent it alone. The existing claim,
-  lease, site lock, refunds, sweeps and checks do the rest.
-- **What moves a request on**: each job's end (in the Worker, or from the
-  site's container through one new gateway call), your answers, the page,
-  and the two-minute timer, which is the guarantee.
-- **The hand-overs the page used to make** are made by the server for these
-  messages: an edit passing to the add-on, a step passing sideways, the
-  add-on passing a menu link back.
-- **A part that asks waits for your answer, and the answer resumes it on the
-  server.** Its question never pushes out one you are answering, and parts
-  that don't depend on it carry on. Cancel the question and only that part
-  ends, with whatever needed it. Unanswered for a day, it expires.
-- **The full rewrite never starts by itself.** The part waits, its card shows
-  *Rewrite the site for this*, and the reply says what a rewrite was
-  measured to cost.
-- ***Stop the rest*** uses the existing cancel. Nothing new starts, a running
-  step stops before it publishes, and finished parts stay finished.
-- **The first routing call is charged once per message**, even when the
-  answer is lost and the message is sent again or from another tab.
-- **Replies stay model-written.** Each part gets its own reply, saying the
-  other parts are done by the same request, never "send it next". When the
-  request ends, one more reply covers what no part's reply explains. What
-  each unfinished part cost is read from the ledger, never assumed.
-- **Progress survives a reload or another device**: the page picks the
-  request up from the server.
+**What changed**
+- **Additions set aside are no longer lost inside an `ok`.** The add-on
+  picker now names your own words for each kind it picks. When the add-on
+  step sets a menu link aside beside a new page, or a list entry beside
+  other additions, those words become their own part of the request, routed
+  and made like any other.
+  - **Without the words**, the addition counts as done only in part.
+  - **"Done" now means everything asked.** Any answer that names something it
+    didn't do is *Partly done*, kept apart from a refusal. Nothing that
+    needed it runs, and the replies say so.
+- **A saved request can no longer be lost between two writes.** The marker
+  the two-minute timer looks for is now written before the request itself.
+  So any request that was saved is found and finished, with no browser, no
+  resend and nobody looking at it. A marker whose request never got saved is
+  cleared after 15 minutes.
+- **The full rewrite's go-ahead stays on the request.**
+  - The part waits for your go-ahead, keeping its files. What needs it waits
+    too, and independent parts carry on.
+  - The button posts the go-ahead to the request, which runs the existing
+    queued rebuild with the part's words and files, records the result on
+    the part, and then runs what was waiting for it.
+  - Pressing twice, or from another device, starts one rebuild. Stop before
+    it starts ends it with nothing spent. Left for a day, it lapses.
+- **The UI canary follows a request the server runs.** It waits for the
+  request to end. The card doesn't count as a reply. Its wall is the
+  request's own Stop, sent the moment a part goes somewhere the test doesn't
+  allow or waits for the go-ahead. It never presses the go-ahead.
 
 **How I checked it** (all free, supplied model answers)
-- **44 flow tests through the real Worker**, on a stand-in platform whose
-  jobs, ledger, storage, queue and clock keep state as the real ones do. They
-  cover:
-  - both route orders and three operations;
-  - a prerequisite named later, and one that fails;
-  - questions, attachments and a closed tab;
-  - another device, and the hand-overs;
-  - partial failure, and five kinds of Stop;
-  - duplicates: a resent message, two tabs, every job delivered twice, an
-    answer resent;
-  - crashes around charging, filing and publishing.
-
-  Each test reads the stored pages, the records, the job rows, what the reply
-  writer was told, and every ledger row.
-- **6 page tests and 29 decision tests.**
-- **Red check**:
-  - on the code before this work, 12 of the 442 tests fail;
-  - with only the Worker put back, 46 of 79 fail;
-  - with only the page put back, the page tests fail.
-- **Mutation sweeps**: the first caught 40 of 46 defects. The six it missed
-  were gaps in the tests, not the code, and each now has a test. The second
-  caught 52 of 52, and the comment-only controls survived both times.
-- **Full suite**: `9205 / 9205 / 0 / 0` locally (from `9126`).
-- **CI on the push, green**:
-  - unit tests `9205 / 9201 / 0 / 4` on `9b348401`, the code and its
-    records (run 37144978406); CI skips four, as always;
-  - the site build on the same commit: 404 checks in 27 sections, every job
-    green (run 37144978309).
-- **Screenshots** of the request's card (sent in our chat): accepted, done,
-  asking, answered, stopped, needing the rewrite, and on another device.
-- **The image would roll on a merge**: main `8bfc67dc695e65cc`, this code
-  `1a5437e9464f41e2` (predicted, nothing built).
-
-**Fixed during the round**
-- The two-minute timer could only ever read its first 100 markers. It now
-  carries on where it stopped.
-- A site called `live` would have shared every marker's storage prefix. The
-  markers moved to their own.
-- Deleting a site now removes its requests first. Otherwise an unfinished
-  one would have routed its next part, a paid call, for a site that was
-  gone.
-- The request's reply said "Nothing was charged" for a stopped part without
-  checking, but a later part's own routing is charged before it runs. It is
-  now read from the ledger.
+- **23 new tests**, through the real Worker and, for the go-ahead, the real
+  queued build on the test platform.
+  - **14 flow tests**: a page and its menu link; additions and a list entry;
+    work that waits for the set-aside link; a set-aside with no words;
+    recovery by the timer alone; the marker write failing, or landing with
+    the call dying; and the go-ahead given, given twice and from another
+    device, failing, stopped three ways, crashing three ways, lapsing, and
+    finishing in the container.
+  - **2 decision tests and 7 canary tests.** The page test for the button and
+    the full-rewrite test were rewritten.
+  - Each test reads the final site, the request's statuses, the job rows,
+    what the reply writer was told, and the ledger.
+- **Red check**: on the code before this round, the new tests fail.
+- **Mutation sweep**: 41 of 41 defects caught. The first run caught 38; the
+  three it missed were gaps in the tests, each closed and then caught. The
+  comment-only controls survived.
+- **Full suite**: `9228 / 9228 / 0 / 0` locally (from `9205`).
+- **Screenshots** (sent in our chat): the go-ahead waiting, given and done,
+  and a part done only in part.
 
 **Limits, all written down** (`docs/request-flow.md`, *Limits*)
-- The UI canary expects the page to post its own edit, so **it must be
-  adapted before the switch goes on**.
-- With the switch off, or where edits are not queued, the page drives its
-  steps as before.
-- A step stopped while still queued still makes its model calls. It is
-  refunded at its publish gate; this is today's job-runner behavior.
-- Requests are kept until the site is deleted. Their files go when the
-  request ends.
-- Found and not changed: deleting a site leaves its page source and
-  question record behind (`source/<slug>/`). This predates this work and is
-  in the backlog.
+- A set-aside addition needs the picker's words for it; with none, it is
+  done only in part.
+- A rebuild already running when you press Stop runs to its end. Its result
+  is recorded as it is.
+- If the button press dies between creating the rebuild's job row and
+  storing the job, the next press finishes it. With no further press, the
+  job fails after about 20 minutes (said as a failure on our side, nothing
+  charged).
+- No request-mode canary press has been made.
+- Found and kept separate (backlog): a part can be carved from its parent's
+  words less a final full stop, costing one extra routing call before the
+  chain ends.
 
-**Your decisions, as your order settled them** (the plan's D1–D9)
-- **Settled by your order**:
-  - later parts run without another press (D1);
-  - independent parts continue and dependent ones wait or stay unrun (D2,
-    policy B);
-  - one reply per part plus one for what none explains (D3);
-  - the rewrite waits for your press (D4);
-  - a job with no answer is retried once (D5);
-  - a question waits a day (D6);
-  - the first routing charge is keyed by the message (D7);
-  - no migration is needed (D8);
-  - a second message is its own request, taking turns under the site's lock
-    (D9).
-- **Still yours**:
-  - review this round, and say whether and when to merge (the branch also
-    carries the earlier fixes and the image roll);
-  - whether to approve a small real-model batch, paid, which I would prepare
-    with the exact messages and an estimate.
+**Still yours**
+- Review the fixes, and say whether and when to merge. A merge also rolls
+  the container image (predicted below, nothing built).
+- After a merge: a request-mode canary press, then the switch.
+- Whether to approve a small real-model batch, paid, which I would prepare
+  with the exact messages and an estimate.
 
 **The free runtime check of deploy 2180** (unchanged; the edit canary's
 form, spend `no`):
@@ -160,36 +111,26 @@ image=8bfc67dc695e65cc` and `runtime 200 deploy=b8d12ff9fe92`, with both
 checks `ok` and nothing charged.
 
 **Links**
-- The record: `docs/history/2026-10-03-combined-requests.md`. How it works:
-  `docs/request-flow.md`. The checklist's item 21. The backlog's *The
+- The record: `docs/history/2026-10-03-request-review-fixes.md`. How it
+  works: `docs/request-flow.md`. The checklist's item 21. The backlog's *The
   combined request flow*.
-- The plan it came from: `docs/investigations/edit-addon-one-request-plan.md`.
-  Its top now says where the build departs from it, and why.
-- Before it: the footer fix (`13c22ea3`) and the mixed-work fixes.
+- The first round: `docs/history/2026-10-03-combined-requests.md`.
 
 **Observations from your order**
-- A part you asked for runs without another press because it crosses a
-  route; anything that changes the scope, such as the full rewrite, is
-  asked first.
-- Duplicate protection is proven for the new layer, not inherited from the
-  job runner.
-- Finished work stays finished; unfinished work keeps an accurate status and
-  reason, recoverable on another device.
-- The smallest coherent implementation, with its storage written down, and
-  the exact remaining action for any step out of bounds.
+- A dependency is satisfied by what a step did, never by its `ok`.
+- Recovery is proven with nothing helping it.
+- A waiting approval stays attached to the work it approves.
+- An instrument is adapted before a rollout needs it.
 - Those are four new entries in `owner-preferences.md`.
 
 **Blockers**
 - None.
 
 **Exact next action**
-- Yours: review the flow; say whether to merge; decide on a real-model batch;
-  press the free runtime check of deploy 2180 when you like.
-- Mine, on your word:
-  - after a merge and deploy, adapt the UI canary to a request the server
-    runs;
-  - then you set `REQUEST_FLOW` to `on` and redeploy;
-  - and prepare the real-model batch if you want one.
+- Yours: review the fixes; say whether to merge; decide on a real-model
+  batch; press the free runtime check of deploy 2180 when you like.
+- Mine, on your word: after a merge and deploy, prepare the request-mode
+  canary press; then you set `REQUEST_FLOW` to `on` and redeploy.
 
 ---
 
@@ -249,6 +190,43 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-03 — Your review of the combined request flow, fixed (nothing spent, merged or deployed)
+
+You found three gaps and asked for the UI canary to be ready before any
+rollout.
+
+**Additions set aside.** The add-on step sometimes sets a menu link aside
+beside a new page, or a list entry beside other additions, and the request
+treated the whole answer as done. You showed it: a page was added, the link
+set aside, and the next part ran against a link that didn't exist. Now the
+add-on picker names your words for each thing it picks, and anything it sets
+aside with those words becomes its own part of the request. Without them,
+the addition is done only in part. Any answer that says something wasn't
+done now counts as partly done, so nothing that needed it runs.
+
+**A request saved but never found.** The request was saved before the
+marker the two-minute timer looks for, so a crash between the two left it
+waiting for a resend. Now the marker goes first. A test proves the timer
+alone finishes it, with no browser, no resend and nobody looking at it;
+others crash the marker write itself.
+
+**The full rewrite's go-ahead.** It used to end the part and start a
+separate rebuild in your browser. Now the part waits for your go-ahead with
+its files. The button records it on the request, the existing queued
+rebuild runs it, its result goes back into the request, and what was waiting
+for it runs. It works from any device. Pressing twice still means one
+rebuild, a Stop before it starts spends nothing, and it lapses after a day.
+
+**The UI canary** follows a request the server runs and stops any part that
+goes where a test doesn't allow.
+
+**How I checked it.** 23 new tests through the real Worker, and for the
+go-ahead the real queued rebuild. The red check fails them on the old code.
+The mutation sweep caught 41 of 41 after three test gaps were closed. The
+full suite passes, 9,228 of 9,228. Four screenshots are in our chat. All of
+this uses supplied model answers. The record is
+`docs/history/2026-10-03-request-review-fixes.md`.
 
 ## 2026-10-03 — One message, several parts, finished on the server: the combined request flow, for your review (nothing spent, merged or deployed)
 

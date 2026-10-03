@@ -12,7 +12,7 @@ import {
   planParts, carveParts, newRequest, readRequest, nextStep, settleState, answerless, readRun, readRoute, handOff,
   jobKey, readJobKey, parseLiveKey, liveKey, recordKey, isRequestKey, answerPart, askedAgain, cancelPart, noteJobId,
   noteFilingRefused, noteOffered, questionsToOffer, jobBody, readRequestOf, requestView, liveJobIds, doneSummary, RETRIES, WAIT_MS,
-  LIVE_ROOT, SWEEP_CURSOR_KEY, chargedOf,
+  LIVE_ROOT, SWEEP_CURSOR_KEY, chargedOf, notDoneOf,
 } from "../builder/request.mjs";
 import { readDepends, readPartOf, partBlock, withPart, PART_HEADING } from "../builder/site-ask.mjs";
 import { requestReplyFacts } from "../builder/site-reply.mjs";
@@ -222,7 +222,9 @@ test("next step: a hand-over files the next step with the same words, marked; a 
   assert.equal(r.record.parts[0].route.handedOff, true);
   rec = filed(r, "j2");
   r = step(rec, { [KEY + "-p0-2"]: row("done", { ok: false, escalate: true, layer: "look", reason: "x" }) });
-  assert.deepEqual([r.record.parts[0].status, r.record.parts[0].why], ["needs-rewrite", "handed-off"]);
+  // WAITING FOR THE GO-AHEAD, NOT ENDED: the request is not over for it.
+  assert.deepEqual([r.record.parts[0].status, r.record.parts[0].why], ["approval", "handed-off"]);
+  assert.equal(r.record.ended, false);
   assert.equal(r.file.n, 1, "the independent part did not go ahead");
   // THE PAGE IS SHOWN NO HAND-OVER JOB AS A PART'S REPLY.
   assert.deepEqual(requestView(r.record).parts[0].jobs, []);
@@ -250,7 +252,7 @@ test("answer: the waiting part runs with the decision read with the answer, its 
   assert.equal(b.body.putOff, undefined);
   assert.equal(answerPart(rec, 1, { routed: { intent: "edit" } }), null, "a part not waiting took an answer");
   assert.equal(answerPart(rec, 0, { routed: { intent: "ask", answer: "Yes" } }).parts[0].status, "done");
-  assert.equal(answerPart(rec, 0, { routed: { intent: "build" } }).parts[0].status, "needs-rewrite");
+  assert.equal(answerPart(rec, 0, { routed: { intent: "build" } }).parts[0].status, "approval");
   assert.equal(answerPart(rec, 0, { routed: { intent: "clarify" } }), null);
   // ASKED AGAIN: the part keeps waiting, on the new question.
   const q2 = { id: "e".repeat(32), text: "Which one, exactly?", options: ["A"], request: "r", stage: "route", round: 2 };
@@ -432,6 +434,49 @@ test("money: a part's charge is its jobs' rows' — finalized reserves only — 
   assert.match(only.facts.map((x) => x.text).join(" | "), /Reading their message cost 2 credits\./);
 });
 
+test("partial outcomes: an ok answer that names what it did not do is partial, never done — and nothing that needs it runs", () => {
+  // THE READER, PER KIND OF ANSWER.
+  assert.deepEqual(notDoneOf({ ok: true, partial: [{ layer: "nav", page: "/visit", error: "no-menu" }, { layer: "look", ask: { text: "?" } }] }), [{ what: "/visit", why: "no-menu" }]);
+  assert.deepEqual(notDoneOf({ ok: true, dropped: [{ label: "Old", why: "no-such-page" }, { label: "Twice", why: "duplicate" }] }), [{ what: "Old", why: "no-such-page" }]);
+  assert.deepEqual(notDoneOf({ ok: true, failed: 2 }), [{ what: "2 rows", why: "failed" }]);
+  assert.deepEqual(notDoneOf({ ok: true, skipped: ["frame"], notAdded: [{ kind: "row", why: "row-alone" }], declined: ["qr"] }, "addon"),
+    [{ what: "row", why: "row-alone" }, { what: "qr", why: "declined" }, { what: "frame", why: "set-aside" }]);
+  assert.deepEqual(notDoneOf({ ok: true, kinds: ["page"], skipped: [] }, "addon"), []);
+  // AN EDIT'S `skipped` IS NOT AN ADDITION'S: read only where it means a kind set aside.
+  assert.deepEqual(notDoneOf({ ok: true, skipped: ["frame"] }, "edit"), []);
+  // THROUGH THE STEP: a partial part 0 leaves the part that needs it not run.
+  const MSG2 = "Add a gallery page with a link in the menu, then make the link say Photos.";
+  const rec = rec0({ intent: "addon", alsoAsked: ["make the link say Photos"], dependsOn: [{ change: 1, after: [0] }] }, MSG2);
+  let r = step(rec);
+  r = { record: filed(r, "j0"), file: null };
+  const job = r.record.parts[0].jobs[0];
+  r = step(r.record, { [job.key]: row("done", { ok: true, kinds: ["page"], skipped: ["frame"], added: ["src/routes/gallery.tsx"] }) });
+  assert.equal(r.record.parts[0].status, "partial");
+  assert.equal(r.record.parts[1].status, "not-run");
+  assert.equal(r.record.parts[1].why, "needs:0");
+  assert.equal(r.file, null, "a job was filed for a part whose prerequisite was only partly done");
+  assert.equal(r.record.state, "partial");
+  // AND WORDS LEFT FOR LATER THAT NO PART HOLDS ARE NOT DONE EITHER.
+  const rec2 = rec0({ intent: "addon" }, "Add a gallery page.");
+  let s2 = step(rec2);
+  s2 = { record: filed(s2, "j9"), file: null };
+  const j2 = s2.record.parts[0].jobs[0];
+  s2 = step(s2.record, { [j2.key]: row("done", { ok: true, kinds: ["page"], deferred: ["something nobody said"] }) });
+  assert.equal(s2.record.parts[0].status, "partial");
+  assert.deepEqual(s2.record.parts[0].notDone, [{ what: "something nobody said", why: "left-over" }]);
+  // THE CUSTOMER'S OWN WORDS, BUT ALL OF THIS PART'S: no part can be carved
+  // from them and none holds them, so they are not done either.
+  const rec3 = rec0({ intent: "addon" }, "Add a gallery page.");
+  let s3 = step(rec3);
+  s3 = { record: filed(s3, "j8"), file: null };
+  const j3 = s3.record.parts[0].jobs[0];
+  const whole = s3.record.parts[0].words;
+  s3 = step(s3.record, { [j3.key]: row("done", { ok: true, kinds: ["page"], deferred: [whole] }) });
+  assert.equal(s3.record.parts.length, 1, "a part was carved from all of its parent's words");
+  assert.equal(s3.record.parts[0].status, "partial");
+  assert.deepEqual(s3.record.parts[0].notDone, [{ what: whole, why: "left-over" }]);
+});
+
 test("hand-overs: an unknown layer named by the add-on is not followed, and an escalate that is not one is unknown", () => {
   assert.deepEqual(handOff({ act: "success" }, { op: "edit" }), { act: "unknown" });
   assert.deepEqual(handOff({ act: "hop", layer: "nonsense" }, { op: "edit", layer: "look" }), { act: "unknown" });
@@ -447,4 +492,14 @@ test("a part carved from another is a part only when it is the customer's own wo
   assert.equal(rec.parts[2].parent, 0);
   assert.ok(rec.parts[0].held.includes("say we bake overnight"));
   assert.deepEqual(carveParts(rec, 9, ["x"]), []);
+});
+
+test("the view: a part the add-on step handed to an edit says so (`addition`), as its job's body does; a part routed straight to that edit does not", () => {
+  const rec = rec0({ intent: "edit", layer: "nav", alsoAsked: [ADD] });
+  rec.parts[0].route = { ...rec.parts[0].route, op: "edit", layer: "nav", fromAddon: true };
+  assert.equal(requestView(rec).parts[0].addition, true);
+  rec.parts[0].route = { ...rec.parts[0].route, fromAddon: false };
+  assert.equal(Object.hasOwn(requestView(rec).parts[0], "addition"), false);
+  rec.parts[0].route = { ...rec.parts[0].route, op: "addon", layer: "", fromAddon: true };
+  assert.equal(Object.hasOwn(requestView(rec).parts[0], "addition"), false, "the add-on step's own part reads as an addition handed to an edit");
 });

@@ -419,11 +419,25 @@ here; take a closed one out of both.**
   where edits are not queued for an owner and site.
 - **The combined request flow** (2026-10-03, `docs/request-flow.md`; built on
   the branch, unmerged, undeployed, off by default behind `REQUEST_FLOW`;
-  supplied model answers only). Open:
-  - before the switch goes on, the UI canary (`scripts/canary-ui.mjs`) must
-    learn a request the server runs: it expects the page to post its own
-    edit. The edit canary has no request mode;
-  - no real-model evidence: a small paid batch, for the owner's approval;
+  supplied model answers only). **The owner's review fixes are on the
+  branch too** (`docs/history/2026-10-03-request-review-fixes.md`): additions
+  set aside become parts by the picker's own words, an outcome done only in
+  part never satisfies what needs it, the marker is written before the
+  record, the full rewrite's go-ahead waits on the request and runs the
+  existing queued build, and the UI canary has a request mode. Open:
+  - no real-model evidence: a small paid batch, for the owner's approval —
+    including whether the add-on picker gives its `scopes` words;
+  - no request-mode UI canary press has been made (shown with a stand-in
+    page only);
+  - a set-aside addition with no words of the picker's is `partial`, and
+    what needs it is not run;
+  - an approved rewrite stopped after it started runs to its end (the build
+    has no stage gate for a stop);
+  - a rewrite's press that died between creating the row and storing its
+    job leaves a row the next press files; with no further press, the stale
+    sweep fails it after about 20 minutes and the part fails with it;
+  - a rewrite whose generation resumed in a later delivery settles at the
+    next look or sweep;
   - a run job stopped while still queued makes its model calls anyway. It is
     caught at its publish gate and refunded (the job runner's behavior; a
     routing job checks its gate first);
@@ -433,15 +447,22 @@ here; take a closed one out of both.**
     a tick, so a request whose job-end call was lost waits up to
     `ceil(markers / 100)` ticks;
   - a later part's routing runs in the site's container, so a cold container
-    adds its start time;
-  - the full rewrite's go-ahead takes the message's files only while the
-    page still holds them.
+    adds its start time.
+- A part may be carved from its parent's words less a trailing full stop,
+  which counts as shorter (`carveParts`), so a step that defers all of its
+  own part gets one more part and one more routing call before the chain
+  ends. Found by the review fixes' sweep, 2026-10-03; it predates them. Not
+  changed.
 - Deleting a site leaves `source/<slug>/` behind: the page source, the stored
   answers and the site's question record. So a slug's next owner could
   inherit them. Found 2026-10-03 while adding the requests to the delete; it
   predates the request flow. Not changed.
 - A list entry or a menu link the add-on sets aside beside other kinds is
   named by its kind, not its words (the add-on picker answers kinds only).
+  **On the branch the picker names each kind's own words (`scopes`), and a
+  set-aside with words becomes its own part of the request**
+  (`docs/history/2026-10-03-request-review-fixes.md`); outside a request the
+  answer also lists them in `setAside`.
 
 ---
 

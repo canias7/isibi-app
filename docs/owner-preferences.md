@@ -1003,3 +1003,25 @@
   before anything new is added. Any new storage is listed with its keys and
   lifetime. A step that needs a migration, a paid call or an image build is
   prepared, not taken, and named.
+- **A dependency is satisfied by what a step did, never by its `ok`**
+  (2026-10-03, reviewing the combined request flow): *"distinguish genuine
+  refusals and partial outcomes, and never satisfy dependencies merely
+  because the enclosing response has ok:true."* So an answer that names
+  anything it did not do is a partial outcome, kept apart from a refusal and
+  from done, and nothing that needs it runs. Work a step sets aside is kept
+  in the model's own words as work of its own, never dropped inside an `ok`.
+- **Recovery is proven with nothing helping it** (2026-10-03): *"test
+  recovery with no browser, resend or direct request GET, including
+  interrupted marker writes."* So a recovery test removes every other way
+  the work could be moved on, and crashes each write it depends on, one at a
+  time.
+- **A waiting approval stays attached to the work it approves** (2026-10-03):
+  *"Preserve a waiting approval state and attachments, record the approval
+  durably, and use the existing rewrite executor."* So an approval is a
+  durable state on the request, given from any device, run by the existing
+  executor and settled back into the request; never a separate browser
+  action.
+- **An instrument is adapted before a rollout needs it, not after**
+  (2026-10-03): *"Adapt the UI canary for request mode on this branch before
+  rollout, rather than leaving that implementation until after
+  deployment."*

@@ -54,6 +54,8 @@ import { requestVerdict, storedReplyVerdict, moneyVerdict, unpublishedVerdict, r
 // AND TEST 9's: a follow-up after a failure — the failure itself, its refund,
 // and the tab every message went from.
 import { failureVerdict, refundedVerdict, sameTab } from "./canary-ui.mjs";
+// A REQUEST'S FILES ARE ON THE MESSAGE'S ROUTING CALL (2026-10-03), read off the page's own record of it.
+import { routeCallOf } from "./canary-ui.mjs";
 // TEST 5: a page removal is judged by what its operations did, never by how
 // many replies came back.
 import { removalVerdict } from "./canary-remove.mjs";
@@ -880,9 +882,11 @@ if (UI_ASK) {
       check(`the composer was usable again after message ${s.n}`, s.usable === true, JSON.stringify(s.composer));
       check(`message ${s.n}'s reply was read in the tab the run opened, never reloaded`, s.sameTab === true, JSON.stringify({ opened: ui.tab, now: s.tab }));
       if (s.file) {
-        const post = (s.network || []).find((e) => e.method === "POST" && /\/edit$/.test(e.path));
+        // A REQUEST'S FILES TRAVEL ON THE ROUTING CALL, kept on the server under
+        // the request for every step that reads them (2026-10-03).
+        const post = s.request ? routeCallOf(s.network) : (s.network || []).find((e) => e.method === "POST" && /\/edit$/.test(e.path));
         const got = post && post.req && Array.isArray(post.req.images) && post.req.images[0] ? post.req.images[0].sha256 : "";
-        check(`message ${s.n}'s file reached the edit request byte for byte`, got === s.file.sha256, got || "(no image on the request)");
+        check(`message ${s.n}'s file reached the ${s.request ? "request" : "edit request"} byte for byte`, got === s.file.sha256, got || "(no image on the request)");
       }
     }
     check("nothing outside the scenario was started", ui.blocked.length === 0, JSON.stringify(ui.blocked));

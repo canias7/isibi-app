@@ -1409,6 +1409,30 @@ export function pickTool(kinds = ADD_KINDS) {
             "instead of guessing. When one kind plainly fits better than the others, name it.\n\n" +
             "The kinds:\n" + lines.join("\n"),
         },
+        // EACH KIND'S OWN WORDS (2026-10-03, the owner's review of the combined
+        // request flow). A kind this step sets aside beside the others — a menu
+        // link, a list entry — goes on as a part of the request by itself, and
+        // a part is the customer's words, never the name of a kind. Read only
+        // where the words are really in the message (`readAddScopes`).
+        scopes: {
+          type: "array",
+          maxItems: MAX_ADDS,
+          items: {
+            type: "object",
+            properties: {
+              kind: { type: "string", enum: list },
+              words: {
+                type: "string",
+                description: "The words of their message that ask for this kind, copied exactly as they wrote them — " +
+                  "a phrase or a clause, never a summary, a paraphrase or a kind's name.",
+              },
+            },
+            required: ["kind", "words"],
+          },
+          description:
+            "For EACH kind you name, the words of their message that ask for it, copied exactly — one entry per kind. " +
+            "When one phrase asks for two kinds (\"a booking page\" is a `page` and a `table`), each kind gets that phrase.",
+        },
         // A QUESTION BACK (2026-10-02, builder/clarify.mjs): asked instead of
         // naming a kind on a guess, with nothing added until they reply.
         question: QUESTION_FIELD,
@@ -1501,6 +1525,28 @@ export function readAdds(reply, kinds = ADD_KINDS) {
   return offered.filter((k) => seen.has(k));
 }
 
+/**
+ * EACH PICKED KIND'S OWN WORDS, as `{ kind: words }` (2026-10-03): only for a
+ * kind the picker named, and the first entry for it. A non-string is refused,
+ * never coerced. Whether the words are really a passage of the message is the
+ * route's to check where it uses them (`wordsIn`, the router's one reader), so
+ * this step imports no wording of the router's: a kind whose words are not
+ * found is set aside and named by its kind, as it always was.
+ */
+export function readAddScopes(reply, kinds) {
+  const picked = (Array.isArray(kinds) ? kinds : []).filter((k) => typeof k === "string" && k);
+  const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
+  const use = blocks.find((b) => b && b.type === "tool_use");
+  const raw = use && use.input && Array.isArray(use.input.scopes) ? use.input.scopes : [];
+  const out = {};
+  for (const s of raw) {
+    if (!s || typeof s !== "object" || typeof s.kind !== "string" || typeof s.words !== "string" || !s.words.trim()) continue;
+    if (!picked.includes(s.kind) || Object.hasOwn(out, s.kind)) continue;
+    out[s.kind] = s.words.trim();
+  }
+  return out;
+}
+
 /** Usage in the four kinds `pageCredits` prices, tagged with the model we sent. */
 export function addUsage(reply, model) {
   const u = (reply && reply.usage) || null;
@@ -1531,7 +1577,8 @@ export async function pickAdds(deps, { message, kinds = ADD_KINDS, current = "",
   }
   // A QUESTION BACK (2026-10-02): what is to be added cannot be told without a
   // detail they left out. The caller asks it before anything runs.
-  return { kinds: readAdds(reply, kinds), ask: askOf(reply) || undefined, usage: addUsage(reply, model), failed: false };
+  const picked = readAdds(reply, kinds);
+  return { kinds: picked, scopes: readAddScopes(reply, picked), ask: askOf(reply) || undefined, usage: addUsage(reply, model), failed: false };
 }
 
 /* --------------------------------------------------------------- the design */

@@ -352,10 +352,71 @@ export function composerReady(s) {
     s.working === 0 && s.textarea === true && s.disabled === false;
 }
 
-/** The replies that arrived after a send: the assistant's messages past the ones already there. */
+/**
+ * The replies that arrived after a send: the assistant's messages past the
+ * ones already there. A REQUEST'S CARD is not a reply (2026-10-03): it is the
+ * list of a request's parts and their statuses, drawn the moment the server
+ * takes the message on, and the replies come after it.
+ */
 export function newReplies(beforeCount, messages) {
   const list = Array.isArray(messages) ? messages : [];
-  return list.slice(Math.max(0, Number(beforeCount) || 0)).filter((m) => m && m.who === "a" && !m.busy);
+  return list.slice(Math.max(0, Number(beforeCount) || 0)).filter((m) => m && m.who === "a" && !m.busy && !m.card);
+}
+
+// ── A MESSAGE THE SERVER TAKES ON AS A REQUEST (2026-10-03) ─────────────────
+//
+// With the combined request flow on, the routing call answers with a request
+// (`request.key`) and the page posts no edit of its own: the server files each
+// part's job, the page draws the request's card and follows it, and each
+// part's own reply is read through the job poll as before. So a message in
+// request mode is followed until the request has ended and the page has shown
+// all of it; its jobs are the request's own (every id it filed); and the wall,
+// which cannot abort a job the server files, is the request's own Stop — sent
+// the moment a part is routed somewhere the scenario does not allow, or waits
+// for the full rewrite's go-ahead, which no scenario gives.
+
+/** The page's own record of a message's routing call, or null. */
+export function routeCallOf(network) {
+  return (Array.isArray(network) ? network : []).find((e) => e && e.method === "POST" && e.path === "/api/site/route") || null;
+}
+
+/** The request a message's routing answer says the server took on, or "": read off the page's own record of that call. */
+export function requestKeyOf(network) {
+  const route = routeCallOf(network);
+  const res = route && route.res && typeof route.res === "object" ? route.res : null;
+  const k = res && res.request && typeof res.request === "object" ? res.request.key : "";
+  return typeof k === "string" && /^[A-Za-z0-9_-]{16,64}$/.test(k) ? k : "";
+}
+
+/**
+ * THE WALL, FOR A REQUEST: the first part routed where this message may not
+ * go — another layer, the add-on step where the scenario never opens it, an
+ * edit an additions scenario did not get from the add-on step — or left
+ * waiting for the full rewrite's go-ahead. `{ n, why }`, or null. A part not
+ * routed yet says nothing.
+ */
+export function requestWall(view, scenario, step) {
+  const parts = view && Array.isArray(view.parts) ? view.parts : [];
+  const layers = step && Array.isArray(step.layers) ? step.layers : scenario && Array.isArray(scenario.layers) ? scenario.layers : null;
+  const adds = !!(scenario && scenario.adds === true);
+  for (const p of parts) {
+    if (!p || typeof p !== "object") continue;
+    if (p.status === "approval" || p.status === "needs-rewrite") return { n: p.n, why: "a part waits for the full rewrite's go-ahead, which no scenario gives" };
+    const route = typeof p.route === "string" ? p.route : "";
+    if (!route) continue;
+    if (route === "addon") {
+      if (!adds) return { n: p.n, why: "a part routed to the add-on step, which this scenario never asks for" };
+      continue;
+    }
+    if (layers && !layers.includes(route)) return { n: p.n, why: `a part routed to the ${route} layer, which this scenario does not allow` };
+    if (adds && p.addition !== true) return { n: p.n, why: "a part routed to an edit that is not an addition the add-on step handed over" };
+  }
+  return null;
+}
+
+/** Every job a request filed, part by part, in order — its routing, its runs, its hand-overs — off its own view. */
+export function requestJobsOf(view) {
+  return (view && Array.isArray(view.parts) ? view.parts : []).flatMap((p) => (p && Array.isArray(p.ids) ? p.ids.filter((id) => typeof id === "string" && id) : []));
 }
 
 /** The recovery's condition probe through the canary's own PATCH; a throw is cannot-tell. */
@@ -408,6 +469,9 @@ export function recordableRequest(raw) {
 export function blocksPost(method, pathname, scenario) {
   if (method !== "POST") return false;
   if (pathname === "/api/site/react-build" || pathname === "/api/site/build" || pathname === "/api/site/react-revise") return true;
+  // THE FULL REWRITE'S GO-AHEAD FOR A REQUEST'S PART (2026-10-03): the same
+  // rewrite, started from the request's card.
+  if (/^\/api\/site\/request\/[^/]+\/[^/]+\/approve$/.test(String(pathname || ""))) return true;
   // THE ADDITIONS BATCH ASKS FOR THE ADD-ON STEP (2026-10-02), and for its own
   // site's alone: every other scenario, and every other site, stays shut.
   if (scenario && scenario.adds === true && typeof scenario.site === "string" && pathname === `/api/site/${encodeURIComponent(scenario.site)}/addon`) return false;
@@ -459,6 +523,14 @@ export function wallRefusal({ method, pathname, body, scenario, step } = {}) {
     // the menu editor does not, and would be free to change what is there.
     return adds && !addition ? "an edit that is not an addition the add-on step handed over" : "";
   }
+  // A REQUEST'S OWN STOP, ON THIS SITE (2026-10-03): it ends work and starts
+  // none, and it is the wall's own door for a request (`requestWall`).
+  const sm = /^\/api\/site\/request\/([^/]+)\/[A-Za-z0-9_-]{16,64}$/.exec(String(pathname || ""));
+  if (method === "DELETE" && sm) {
+    let slug = "";
+    try { slug = decodeURIComponent(sm[1]); } catch { slug = ""; }
+    return slug === scenario.site ? "" : `a stop of ${slug || "another site"}'s request`;
+  }
   return `a ${method} this scenario never makes`;
 }
 
@@ -487,6 +559,23 @@ export function requestVerdict(step, scenario) {
     editLayers: edits.map((e) => (e.req && typeof e.req.layer === "string" ? e.req.layer : null)),
     editWords: edits.length > 0 && edits.every((e) => e.req && e.req.instruction === said),
   };
+  // A MESSAGE THE SERVER TOOK ON AS A REQUEST (2026-10-03): the one routing
+  // call carrying the words, no edit posted from the page, and the request
+  // ended with every part done where the scenario allows, nothing stopped.
+  const key = requestKeyOf(net);
+  if (key) {
+    const fin = step && step.request ? step.request.final : null;
+    const parts = fin && Array.isArray(fin.parts) ? fin.parts : [];
+    const allowed = (p) => !!p && typeof p.route === "string" && (p.route === "addon" ? !!(scenario && scenario.adds) : layers.includes(p.route));
+    out.request = {
+      key, ended: !!(fin && fin.ended === true), state: fin ? fin.state : "",
+      parts: parts.map((p) => ({ n: p.n, status: p.status, route: p.route || "", ...(p.why ? { why: p.why } : {}) })),
+      wall: (step && step.request && step.request.wall) || null,
+    };
+    out.ok = out.routes === 1 && out.routedWords && out.edits === 0 && out.request.ended && parts.length > 0 &&
+      parts.every((p) => p.status === "done" && allowed(p)) && !out.request.wall;
+    return out;
+  }
   out.ok = out.routes === 1 && out.routedWords && out.routedIntent === "edit" && layers.includes(out.routedLayer) &&
     out.edits === 1 && out.editWords && out.editLayers.every((l) => layers.includes(l));
   return out;
@@ -681,9 +770,38 @@ function readComposerInPage() {
     messages: [...document.querySelectorAll("#stThread .st-msg")].map((m) => ({
       who: m.classList.contains("u") ? "u" : "a",
       busy: m.classList.contains("st-busy"),
+      // A REQUEST'S CARD, not a reply (`newReplies`).
+      card: !!m.querySelector(".st-req"),
       text: String(m.innerText || m.textContent || "").replace(/⧉\s*$/, "").trim(),
     })),
+    // WHAT THE PAGE HAS SHOWN OF EACH REQUEST on the open site: ended, and
+    // closed once every part's reply and the request's own are on screen.
+    requests: (() => {
+      try {
+        const site = siteById(siteOpenId);
+        const all = site && site.requests && typeof site.requests === "object" ? site.requests : {};
+        return Object.fromEntries(Object.entries(all).map(([k, r]) => [k, { closed: !!(r && r.closed), ended: !!(r && r.view && r.view.ended) }]));
+      } catch (e) { return null; }
+    })(),
   };
+}
+
+/** A request as the server has it, read through the page's own session (the route the page follows it by). */
+async function requestViewInPage({ slug, key }) {
+  try {
+    const r = await apiFetch("/api/site/request/" + encodeURIComponent(slug) + "/" + encodeURIComponent(key), { method: "GET" });
+    const b = await r.json().catch(() => null);
+    return { status: r.status, ok: !!(b && b.ok === true && b.request), request: b && b.request ? b.request : null };
+  } catch (e) { return { status: 0, ok: false, request: null }; }
+}
+
+/** The request's own Stop, through the page's own session: nothing new starts, and a running part's job is cancelled at its next gate. */
+async function stopRequestInPage({ slug, key }) {
+  try {
+    const r = await apiFetch("/api/site/request/" + encodeURIComponent(slug) + "/" + encodeURIComponent(key), { method: "DELETE" });
+    const b = await r.json().catch(() => null);
+    return { status: r.status, ok: !!(b && b.ok === true), state: b && b.request ? b.request.state : "" };
+  } catch (e) { return { status: 0, ok: false, state: "" }; }
 }
 
 /**
@@ -1029,6 +1147,9 @@ export async function runUi(opts) {
     // share of the record is taken: the listener reads the body after the page
     // has already drawn the reply.
     settleMs = 1500,
+    // HOW OFTEN A REQUEST'S OWN VIEW IS READ while a message the server took
+    // on is followed (each read moves the request on, as the page's do).
+    viewEveryMs = 3000,
     // A SCENARIO THAT CHANGES A ROW (`scenario.row`) is handed the canary's
     // own readers: `rows = { owner, pub, patch }` — the owner route's read,
     // the visitor route's read and the owner route's PATCH — and the site's
@@ -1098,6 +1219,40 @@ export async function runUi(opts) {
     for (;;) {
       try { s = await page.evaluate(readComposerInPage); } catch { s = null; }
       if (s && test(s)) return { ok: true, s };
+      if (Date.now() >= end) return { ok: false, s };
+      await sleep(pollMs);
+    }
+  };
+
+  // ONE WAIT FOR EITHER KIND OF MESSAGE (2026-10-03): an ordinary message is
+  // done at its first reply with an idle composer; one the server took on as
+  // a request (its routing answer names one) once the request has ended and
+  // the page has shown all of it — its parts walled as they are routed, by the
+  // request's own Stop.
+  const followStep = async (page, { before, netFrom, step, r, ms }) => {
+    const end = Date.now() + ms;
+    let s = null, key = "", view = null, lastLook = 0;
+    for (;;) {
+      try { s = await page.evaluate(readComposerInPage); } catch { s = null; }
+      if (!key) key = requestKeyOf(rec.network.slice(netFrom));
+      if (key) {
+        if (!r.request) r.request = { key, views: 0, wall: null, stop: null, final: null };
+        if (Date.now() - lastLook >= viewEveryMs || !view) {
+          lastLook = Date.now();
+          const v = await page.evaluate(requestViewInPage, { slug, key }).catch(() => null);
+          if (v && v.ok && v.request) { view = v.request; r.request.views++; r.request.final = view; }
+        }
+        const hit = view && !r.request.wall ? requestWall(view, scenario, step) : null;
+        if (hit) {
+          r.request.wall = hit;
+          rec.blocked.push({ ms: Date.now() - t0, method: "STOP", path: `request ${key} part ${hit.n}`, why: hit.why });
+          log(`  BLOCKED request ${key}, part ${hit.n}: ${hit.why} — the request is stopped`);
+          r.request.stop = await page.evaluate(stopRequestInPage, { slug, key }).catch(() => ({ status: 0, ok: false, state: "" }));
+          view = null;
+        }
+        const shown = s && s.requests ? s.requests[key] : null;
+        if (s && composerReady(s) && view && view.ended === true && shown && shown.closed === true) return { ok: true, s };
+      } else if (s && composerReady(s) && newReplies(before, s.messages).length > 0) return { ok: true, s };
       if (Date.now() >= end) return { ok: false, s };
       await sleep(pollMs);
     }
@@ -1355,9 +1510,9 @@ export async function runUi(opts) {
       await page.click("#stSend");
       rec.sent++;
       r.sent = true;
-      const started = await until(page, (s) => s.busy === true || s.stop || newReplies(before, s.messages).length > 0, startMs);
+      const started = await until(page, (s) => s.busy === true || s.stop || newReplies(before, s.messages).length > 0 || !!requestKeyOf(rec.network.slice(netFrom)), startMs);
       r.startedMs = started.ok ? Date.now() - sentAt : null;
-      const done = await until(page, (s) => composerReady(s) && newReplies(before, s.messages).length > 0, stepMs);
+      const done = await followStep(page, { before, netFrom, step, r, ms: stepMs });
       r.ms = Date.now() - sentAt;
       await sleep(settleMs);
       const after = done.s || (await page.evaluate(readComposerInPage).catch(() => null));
@@ -1368,7 +1523,8 @@ export async function runUi(opts) {
       // EVERY JOB THE MESSAGE FILED, IN ORDER. An edit the route hands to
       // another layer is a second edit request with a job of its own, and
       // following only the first would read the chain and the money short.
-      r.jobs = r.network
+      // A REQUEST'S are the server's, every one its own view names.
+      r.jobs = r.request ? requestJobsOf(r.request.final) : r.network
         .filter((e) => e.method === "POST" && /\/(edit|addon)$/.test(e.path) && e.res && typeof e.res.job === "string" && e.res.job)
         .map((e) => e.res.job);
       r.job = r.jobs[0] || "";
@@ -1499,6 +1655,11 @@ export function describeUi(rec) {
     for (const post of (s.network || []).filter((e) => e.method === "POST" && /\/(edit|addon)$/.test(e.path))) {
       const job = post.res && typeof post.res.job === "string" ? post.res.job : "";
       out.push(`     ${post.path} -> ${post.status}${post.req && post.req.layer ? ` layer ${post.req.layer}` : ""}${job ? ` job ${job}` : ""}${post.req && post.req.images ? `  images ${JSON.stringify(post.req.images)}` : ""}`);
+    }
+    if (s.request) {
+      const f = s.request.final;
+      out.push(`     request ${s.request.key}: ${f ? `${f.state}${f.ended ? ", ended" : ", NOT ended"} — ${(f.parts || []).map((p) => `${p.n}:${p.status}${p.route ? "@" + p.route : ""}`).join(" ")}` : "its view was never read"}  jobs ${(s.jobs || []).join(", ") || "none"}`);
+      if (s.request.wall) out.push(`     STOPPED BY THE WALL at part ${s.request.wall.n}: ${s.request.wall.why} (stop ${s.request.stop ? s.request.stop.status + " " + (s.request.stop.state || "") : "not answered"})`);
     }
     const fin = (s.network || []).filter((e) => e.final);
     if (fin.length) out.push(`     final reply: ${fin[fin.length - 1].status} ${JSON.stringify(fin[fin.length - 1].res).slice(0, 400)}`);

@@ -36,7 +36,7 @@ const siteFor = (slug) => ({ id: "origin-1", slug, react: true, name: "Harbour L
 function wire(P, seen = []) {
   return (url, method, body) => (async () => {
     seen.push({ url, method, body });
-    // THE FULL REWRITE IS NOT RUN HERE: what the page asked for is the evidence.
+    // THE PAGE NEVER RUNS THE REWRITE ITSELF: a post here would be the evidence.
     if (url === "/api/site/react-revise") return new Promise(() => {});
     const worker = await loadWorker();
     return P.run(async () => {
@@ -198,10 +198,25 @@ test("PAGE 4 — Stop the rest: the server stops what has not run, the card says
   });
 });
 
-test("PAGE 5 — a part that only the full rewrite can make shows a button for it; nothing starts until it is pressed, and then the rewrite is asked for with that part's words", async () => {
+test("PAGE 5 — a part only the full rewrite can make shows its go-ahead; nothing starts until it is pressed; the press is recorded on the server, which runs the rewrite and finishes the request — a reload or another device sees the go-ahead given, and a second press starts nothing more", async () => {
   const many = Array.from({ length: 610 }, (_, i) => "<p>Line " + (i + 1) + " of our story.</p>").join("");
   const BIG = [{ path: "index.tsx", source: pageSrc("/", "<section>" + many + "</section>") }, { path: "visit.tsx", source: VISIT }];
-  await withPage({ slug: slugOf("p5"), pages: BIG, answers: { route: [{ intent: "edit", layer: "text", alsoAsked: [ADD] }, { intent: "addon" }], ...GALLERY } }, async (P) => {
+  const slug = slugOf("p5");
+  const WARM = pageSrc("/", "<section><p>A warmer story, line by line.</p></section>");
+  await withPage({
+    slug, pages: BIG, replies: true,
+    answers: {
+      route: [{ intent: "edit", layer: "text", alsoAsked: [ADD] }, { intent: "addon" }], ...GALLERY,
+      // THE EXISTING REWRITE'S OWN TWO CALLS: its designer, then its page writer.
+      design_schema: { brand: "Harbour Loaf", slug, description: "a bakery", kind: "shopfront", purpose: "visit", pages: [{ path: "/", name: "Home" }, { path: "/visit", name: "Visit" }], components: [], css: "" },
+      [T.pages]: (args, n) => (n === 0 ? { pages: [writtenPage("/gallery")] } : { pages: [{ path: "src/routes/index.tsx", source: WARM }], notes: "Rewrote the home page." }),
+    },
+  }, async (P) => {
+    // THE QUEUED BUILD'S OWN BINDINGS (its database check and its compile container).
+    P.env.NEON_API_KEY = "neon-test";
+    P.env.SITE_BUILD_CONTAINER = {};
+    const builds = () => [...P.jobs.values()].filter((j) => j.op === "build");
+    const press = (pg) => pg.thread.onclick({ target: { closest: (sel) => (sel === "[data-req-approve]" ? { getAttribute: (a) => (a === "data-req-approve" ? KEY : "0") } : null) } });
     const seen = [];
     const p = openPage(P, wire(P, seen));
     p.ctx.siteSend("Reword every line to sound warmer, and " + ADD + ".");
@@ -209,17 +224,59 @@ test("PAGE 5 — a part that only the full rewrite can make shows a button for i
     await pump(P);
     p.flush();
     await idle();
-    const html = p.ctx.siteRequestHTML(card(p, KEY), p.s);
-    assert.match(html, /Needs a full rewrite/);
-    assert.ok(html.includes('data-req-rewrite="' + KEY + '" data-req-part="0"'), html);
-    assert.deepEqual(posts(seen, /react-revise/), [], "the rewrite started without its button");
-    // ITS BUTTON: the click handler reads the request and the part off it.
-    p.thread.onclick({ target: { closest: (sel) => (sel === "[data-req-rewrite]" ? { getAttribute: (a) => (a === "data-req-rewrite" ? KEY : "0") } : null) } });
+    let html = p.ctx.siteRequestHTML(card(p, KEY), p.s);
+    assert.match(html, /Needs your go-ahead/);
+    assert.ok(html.includes('data-req-approve="' + KEY + '" data-req-part="0"'), html);
+    assert.deepEqual(posts(seen, /\/approve$|react-revise/), [], "something was asked for before the button was pressed");
+    assert.deepEqual(builds(), [], "the rewrite started without its go-ahead");
+    // ITS OWN REPLY WHILE IT WAITS, ONCE — and once still after another look.
+    const waitingSaid = texts(p).filter((t) => /Waiting for their go-ahead/.test(t));
+    assert.equal(waitingSaid.length, 1, JSON.stringify(texts(p)));
+    p.flush();
     await idle();
-    const asked = posts(seen, /react-revise/);
-    assert.equal(asked.length, 1, "the rewrite was not asked for once");
-    assert.equal(asked[0].body.instruction, P.record(KEY).parts[0].words);
-    assert.equal(asked[0].body.slug, P.slug);
+    assert.equal(texts(p).filter((t) => /Waiting for their go-ahead/.test(t)).length, 1, "the go-ahead's reply was shown again on the next look");
+    // ANOTHER DEVICE, BEFORE THE GO-AHEAD: the same button, from the server.
+    const b = openPage(P, wire(P));
+    b.ctx.siteRequestsCheck(b.s);
+    await idle();
+    assert.ok(b.ctx.siteRequestHTML(card(b, KEY), b.s).includes('data-req-approve="' + KEY + '"'));
+    // THE PRESS: one POST to the request's go-ahead, with the part; never the rewrite route.
+    press(p);
+    await idle();
+    const pressed = posts(seen, /\/approve$/);
+    assert.equal(pressed.length, 1);
+    assert.equal(pressed[0].url, "/api/site/request/" + P.slug + "/" + KEY + "/approve");
+    assert.deepEqual(pressed[0].body, { part: 0 });
+    assert.deepEqual(posts(seen, /react-revise/), [], "the page ran the rewrite itself");
+    assert.equal(builds().length, 1);
+    html = p.ctx.siteRequestHTML(card(p, KEY), p.s);
+    assert.match(html, /Full rewrite queued/);
+    assert.doesNotMatch(html, /data-req-approve/);
+    // THE OTHER DEVICE PRESSES ITS OLD BUTTON: the same rewrite, nothing more.
+    press(b);
+    await idle();
+    assert.equal(builds().length, 1, "a second press filed a second rewrite");
+    assert.match(b.ctx.siteRequestHTML(card(b, KEY), b.s), /Full rewrite queued/);
+    // A RELOAD OF THE FIRST PAGE: its stored record, opened again, reads it given.
+    const c = page({ site: p.s, answer: wire(P), timers: true });
+    c.ctx.siteRequestsCheck(c.s);
+    await idle();
+    html = c.ctx.siteRequestHTML(card(c, KEY), c.s);
+    assert.match(html, /Full rewrite queued/);
+    assert.doesNotMatch(html, /data-req-approve/);
+    // THE SERVER RUNS IT WITH EVERY PAGE CLOSED, through the existing queued build.
+    await pump(P);
+    const rec = P.record(KEY);
+    assert.deepEqual(rec.parts.map((x) => x.status), ["done", "done"], JSON.stringify(rec.parts.map((x) => [x.status, x.why])));
+    assert.equal(rec.ended, true);
+    assert.equal(P.page("index.tsx"), WARM, "the rewrite did not publish the rewritten page");
+    // THE PAGE FOLLOWS: Done for both, the request's end reply once, the go-ahead's not again.
+    p.flush();
+    await idle();
+    html = p.ctx.siteRequestHTML(card(p, KEY), p.s);
+    assert.equal((html.match(/>Done</g) || []).length, 2, html);
+    assert.equal(texts(p).filter((t) => /Waiting for their go-ahead/.test(t)).length, 1, "the go-ahead's reply was shown twice");
+    assert.equal(texts(p).filter((t) => /by the full rewrite of every page, on their go-ahead/.test(t)).length, 1, JSON.stringify(texts(p)));
   });
 });
 

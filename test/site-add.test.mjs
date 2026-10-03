@@ -1583,7 +1583,12 @@ test("THE ROUTE RUNS THE ADD STEP WHERE IT RAN THE BUILD'S DESIGNER, and folds w
   assert.match(planBuild, /pageComponents\(aSrc\)/, "the kit components the site's pages already import do not reach the page call's plan");
   // The reply says what kinds were added and what was set aside — and which
   // entries of a list were left out, with the server's own sentence.
-  assert.match(b, /kinds: aAnswers\.map\(\(a\) => a\.kind\), skipped: aSkipped,/, "the reply does not say what was added");
+  // RE-ANCHORED 2026-10-03 (the combined request flow): a kind set aside and
+  // carried on in its own words is left for later (`deferred`, `setAside`)
+  // instead of named as set aside, so the reply's list is the ones that were
+  // not carried — `aSkippedSaid`, the set-aside list less a carried `frame`.
+  assert.match(b, /kinds: aAnswers\.map\(\(a\) => a\.kind\), skipped: aSkippedSaid,/, "the reply does not say what was added");
+  assert.match(b, /const aSkippedSaid = aSkipped\.filter\(\(k\) => !\(k === "frame" && aFrameCarried\)\);/, "the set-aside list drops more than the kind carried on");
   assert.match(b.slice(clean, fold), /for \(const sk of Array\.isArray\(clean\.skipped\) \? clean\.skipped : \[\]\) aNotAdded\.push\(\{ kind: k, \.\.\.sk, msg: addRefusal\(sk\.why, k\) \}\);/, "an entry left out of a list is not carried to the reply");
   // EVERY ENTRY SINCE 2026-10-03 (the mixed-work fixes: *"report every
   // completed, failed, declined and pending operation with its target"*): the
