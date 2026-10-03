@@ -459,7 +459,8 @@ test("a FAILED picture step between two page lanes: one page operation, billed o
       expected: (home) => BOTH(home),
       photo: (slug) => "<SafeImage src=\"" + BENCH(slug) + "\" alt=\"the bench\" />",
       money: mode === "job" ? [{ seq: 1, cost: 3 }] : [3],
-      text: "✅ Updated /. ⚠️ I couldn't reach the model that picks the picture — try again in a moment.",
+      // THE FAILED STEP LED BY ITS TARGET SINCE 2026-10-03 (the mixed-work fixes).
+      text: "✅ Updated /. ⚠️ A photograph: I couldn't reach the model that picks the picture — try again in a moment.",
     });
     assert.deepEqual(r.reply.layers, ["page"], mode + ": the page operation is not the one rung that shipped");
     assert.deepEqual((r.reply.partial || []).map((x) => [x.layer, x.error]), [["picture", "send"]], mode + ": the picture step's failure is not the one refusal reported");
@@ -474,7 +475,9 @@ test("a SUCCESSFUL picture change between two page lanes: one page operation, th
       expected: (home) => framed(BOTH(home)),
       photo: (slug) => "<SafeImage focus=\"top\" src=\"" + BENCH(slug) + "\" alt=\"the bench\" />",
       money: mode === "job" ? [{ seq: 1, cost: 3 }, { seq: 2, cost: 1 }] : [3, 1],
-      text: "✅ Updated the look.",
+      // THE PAGE AND THE PICTURE STEP'S OWN ACCOUNT SINCE 2026-10-03 (the
+      // mixed-work fixes, MW1 and MW8), where it read "✅ Updated the look."
+      text: "✅ Updated /. Moved “the bench” to show the top.",
     });
     assert.deepEqual(r.reply.layers, ["page", "picture"], mode + ": the two rungs that shipped are not the page and the picture");
     assert.equal(r.reply.partial, undefined, mode + ": a refusal was reported on a message whose every part shipped");
@@ -534,7 +537,8 @@ test("a GENUINE picture dependency still runs the later page step: withheld firs
     assert.deepEqual(r.reply.layers, ["picture", "page"], label + ": layers");
     assert.equal(r.reply.partial, undefined, label + ": the superseded refusal was reported beside the change that shipped: " + JSON.stringify(r.reply.partial));
     assert.equal(r.reply.photosRemoved, 1, label + ": the removal the customer asked for is not reported");
-    assert.equal(r.said.text, "✅ Updated the look. One photograph is no longer on the site. If that was not what you wanted, roll back to the previous build in Cloud → Versions.",
+    // THE PAGE AND THE PICTURE STEP'S OWN ACCOUNT SINCE 2026-10-03 (MW1, MW8).
+    assert.equal(r.said.text, "✅ Updated /. Took “the bench” off the page. One photograph is no longer on the site. If that was not what you wanted, roll back to the previous build in Cloud → Versions.",
       label + ": the customer's sentence");
     assert.ok(!r.said.text.includes("didn't make it"), label + ": the screen says the change was not made");
     assert.deepEqual(r.said.actions, ["refresh the credit balance"], label + ": the browser started something paid");
@@ -547,7 +551,7 @@ test("a GENUINE picture dependency still runs the later page step: withheld firs
   assert.deepEqual(relevantCalls(other), [T.picture, T.tweak], "the picture step did not run before the page step: " + JSON.stringify(other.calls));
   assert.deepEqual((other.reply.partial || []).map((x) => [x.layer, x.error]), [["picture", "send"]],
     "a failure of a DIFFERENT step was superseded by the page step's success: " + JSON.stringify(other.reply.partial));
-  assert.equal(other.said.text, "✅ Updated /. ⚠️ I couldn't reach the model that picks the picture — try again in a moment.",
+  assert.equal(other.said.text, "✅ Updated /. ⚠️ A photograph: I couldn't reach the model that picks the picture — try again in a moment.",
     "the customer's sentence lost the picture step's failure");
 });
 

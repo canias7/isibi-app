@@ -27,6 +27,8 @@ import {
   maxOutputTokens,
   modelsFor,
 } from "../builder/build-models.mjs";
+import { LIST_ANSWER_MAX_TOKENS, MAX_INPUT_CHARS, echoTokens } from "../builder/input-budget.mjs";
+import { LANE_PICK_MAX_TOKENS } from "../builder/site-lanes.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -275,11 +277,21 @@ test("a computed ceiling is named, so a new one cannot slip past the check unsee
   // floor.
   // Listed by name so a new computed ceiling fails here rather than quietly
   // reducing what the assertion above covers.
+  // AND FIVE MORE (2026-10-03, the mixed-work fixes): with no count of changes
+  // left on the picture, row, rules and menu steps, each step's ceiling grows
+  // with what it is shown and is held to `LIST_ANSWER_MAX_TOKENS` by its own
+  // `Math.min` (asserted below to fit the floor); the lane picker copies every
+  // change's words and every part no lane makes, so its copy room is doubled —
+  // still bounded by the longest message a route takes.
   const known = new Set([
     "laneMaxTokens(field)", "maxTokens", "r.max_tokens",
     "live ? ASK_MAX_TOKENS + echoTokens(text",
-    "LANE_PICK_MAX_TOKENS + echoTokens(String(message || \"\"))",
+    "LANE_PICK_MAX_TOKENS + 2 * echoTokens(String(message || \"\"))",
+    "pictureMaxTokens(slots)", "dataMaxTokens(tables)", "rulesMaxTokens(tables)", "navMaxTokens(digest)",
   ]);
+  const floor = Math.min(...[...modelsInUse()].map((id) => maxOutputTokens(id)));
+  assert.ok(LIST_ANSWER_MAX_TOKENS <= floor, "a step's list ceiling (" + LIST_ANSWER_MAX_TOKENS + ") is above the smallest output limit (" + floor + ")");
+  assert.ok(LANE_PICK_MAX_TOKENS + 2 * echoTokens("x".repeat(MAX_INPUT_CHARS)) <= floor, "the picker's ceiling at the longest message is above the floor");
   for (const expr of dynamic) {
     assert.ok(
       known.has(expr),

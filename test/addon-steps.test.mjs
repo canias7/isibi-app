@@ -506,8 +506,10 @@ test("`jobErrors` reaches the wire and the browser prints it", () => {
     "the failed jobs do not reach both the queued reply and the synchronous one");
   assert.ok((W.match(/functionErrors: aFnErrors\.length \? aFnErrors : undefined/g) || []).length >= 2,
     "the observer is dead: the function half is not on both replies either");
-  assert.match(C, /for \(const je of \(Array\.isArray\(a\.jobErrors\) \? a\.jobErrors : \[\]\)\.slice\(0, 3\)\)/,
-    "the browser never reads the failed jobs");
+  // EVERY FAILED JOB SINCE 2026-10-03 (the mixed-work fixes): the browser read
+  // the first three and dropped the rest without a word.
+  assert.match(C, /for \(const je of \(Array\.isArray\(a\.jobErrors\) \? a\.jobErrors : \[\]\)\)/,
+    "the browser never reads the failed jobs, or reads only some of them");
   assert.match(C, /couldn’t be set up/, "the browser has no sentence for a job that would not register");
   assert.match(C, /so it won’t run yet/, "the sentence does not say what it means for the customer");
 });

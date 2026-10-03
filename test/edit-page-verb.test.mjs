@@ -617,7 +617,9 @@ for (const mode of ["sync", "job"]) {
     assert.equal(r.reply.removed, undefined, label + ": a removal was reported");
     assertOps(r, [LAYOUT("/prices")], label);
     assertOneCharge(r, mode, label);
-    assert.equal(r.said.text, "✅ Updated /prices. ⚠️ I left / — that is the home page, and removing it would leave the site with no front door.", label + ": the customer's sentence");
+    // THE REFUSED STEP LED BY ITS TARGET SINCE 2026-10-03 (the mixed-work fixes).
+    // (The builder's sentence names the page, so the lead does not.)
+    assert.equal(r.said.text, "✅ Updated /prices. ⚠️ A page: I left / — that is the home page, and removing it would leave the site with no front door.", label + ": the customer's sentence");
     assert.ok(!/took|off the site/i.test(r.said.text), label + ": the refused removal was described as done");
     assert.deepEqual(r.said.actions, ["refresh the credit balance"], label + ": the browser started something paid");
   });
@@ -817,7 +819,8 @@ test("control: unchanged styling beside a REFUSED removal keeps the look's own s
   assert.deepEqual((r.reply.partial || []).map((p) => [p.layer, p.error]), [["page", "kept"]], label + ": partial");
   assert.equal(r.reply.pageOps, undefined, label + ": a refused removal was listed as an operation");
   assert.equal(r.reply.lookNote, LOOK_SAME, label + ": the look's note on the wire");
-  assert.equal(r.said.text, "✅ " + LOOK_SAME + " ⚠️ I left / — that is the home page, and removing it would leave the site with no front door.", label + ": the customer's sentence");
+  // THE REFUSED STEP LED BY ITS TARGET SINCE 2026-10-03 (the mixed-work fixes).
+  assert.equal(r.said.text, "✅ " + LOOK_SAME + " ⚠️ A page: I left / — that is the home page, and removing it would leave the site with no front door.", label + ": the customer's sentence");
   assert.ok(!/took|off the site/i.test(r.said.text), label + ": the refused removal was described as done");
 });
 

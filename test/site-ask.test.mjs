@@ -1932,7 +1932,13 @@ test("ABSENT MEANS ABSENT — an empty object, not an empty string", () => {
 test("a non-string is refused rather than coerced", () => {
   // `String(["a","b"])` is "a,b", which would be shown to the customer as their
   // own words — the coercion bug this repo has recorded on `normalizeRole`.
-  assert.deepEqual(readAlso({ alsoAsked: ["a", "b"] }), {});
+  // A LIST OF STRINGS IS SEVERAL PARTS SINCE 2026-10-03 (the mixed-work fixes:
+  // *"Support multiple distinct deferred passages"*), each kept as given and
+  // never joined; a list holding anything else is refused whole.
+  assert.deepEqual(readAlso({ alsoAsked: ["a", "b"] }), { alsoAsked: ["a", "b"] });
+  assert.deepEqual(readAlso({ alsoAsked: ["a", " a ", ""] }), { alsoAsked: "a" }, "one part, given twice, is one part");
+  assert.deepEqual(readAlso({ alsoAsked: ["a", 7] }), {});
+  assert.deepEqual(readAlso({ alsoAsked: ["a", ["b"]] }), {});
   assert.deepEqual(readAlso({ alsoAsked: 7 }), {});
   assert.deepEqual(readAlso({ alsoAsked: {} }), {});
   assert.deepEqual(readAlso({ alsoAsked: true }), {});
@@ -2117,7 +2123,9 @@ test("the wire is not cut, at either end", () => {
   const at = w.indexOf("question: routed.intent === \"clarify\"");
   assert.ok(at > 0, "the routing response literal moved");
   const block = w.slice(w.lastIndexOf("intent: routed.intent", at), at);
-  assert.match(block, /alsoAsked: typeof routed\.alsoAsked === "string"/);
+  // ONE PART AS A STRING, SEVERAL AS A LIST, SINCE 2026-10-03 (the mixed-work
+  // fixes): both shapes are forwarded, and a list only when every entry is text.
+  assert.match(block, /alsoAsked: \(typeof routed\.alsoAsked === "string" && routed\.alsoAsked\) \|\|\s*\(Array\.isArray\(routed\.alsoAsked\) && routed\.alsoAsked\.length && routed\.alsoAsked\.every\(\(p\) => typeof p === "string" && p\) \? routed\.alsoAsked : undefined\)/);
 
   // And the CLIENT renders it — on both rungs, since either can drop half a
   // message. Asserted as the count, because one `finish` learning it and the

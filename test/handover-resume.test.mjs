@@ -51,8 +51,8 @@ import { SITE_PAGES_TOOL } from "../builder/page-gen.mjs";
 // before the round, which has no such constants).
 import * as resumeMod from "../builder/build-resume.mjs";
 import { JOB_KIND, resultKey } from "../builder/build-job.mjs";
-import { MAX_HELD, MAX_MESSAGE } from "../builder/site-ask.mjs";
-import { MAX_INPUT_CHARS } from "../builder/input-budget.mjs";
+import { MAX_MESSAGE } from "../builder/site-ask.mjs";
+import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS } from "../builder/input-budget.mjs";
 
 const EP = createRequire(import.meta.url)("../public/edit-poll.js");
 const { packResume, readResume, resumeKey, genKey } = resumeMod;
@@ -73,7 +73,14 @@ test("the record keeps the parts put off, all or nothing, and one written before
   assert.deepEqual(round(["add a map", 7]), []);
   assert.deepEqual(round(["add a map", " "]), []);
   assert.deepEqual(round("add a map"), [], "a bare string is not the record's shape");
-  assert.deepEqual(round(["a", "b", "c", "d", "e"]), [], "more parts than a hand-over carries");
+  // NO COUNT SINCE 2026-10-03 (the mixed-work fixes): five parts were refused,
+  // and with them every part the record named. The bound is what one request
+  // carries, together (`MAX_CARRIED_CHARS`).
+  assert.deepEqual(round(["a", "b", "c", "d", "e"]), ["a", "b", "c", "d", "e"], "parts past the old four were dropped from the record");
+  const fill = Math.floor(MAX_CARRIED_CHARS / MAX_INPUT_CHARS);
+  const atBound = Array.from({ length: fill }, (_, i) => String(i).padStart(MAX_INPUT_CHARS, "q"));
+  assert.equal(round(atBound).length, fill, "parts within what one request carries were dropped");
+  assert.deepEqual(round([...atBound, "one more part"]), [], "parts past what one request carries were kept");
   // ONE MESSAGE OF THE SIZE POLICY (2026-10-03; it was 2,000): a part cut from a
   // longer message is kept whole, one past the bound is no part of any message.
   assert.deepEqual(round(["x".repeat(MAX_INPUT_CHARS + 1)]), [], "a part longer than any message (the record's bound is the hand-over's, below)");
@@ -90,7 +97,9 @@ test("the record keeps the parts put off, all or nothing, and one written before
 });
 
 test("the record's bounds are the hand-over's own", () => {
-  assert.equal(resumeMod.MAX_RESUME_DEFERRED, MAX_HELD, "a record could name more parts than a hand-over carries, or fewer");
+  // BY WHAT ONE REQUEST CARRIES SINCE 2026-10-03, as the hand-over is — no count.
+  assert.equal(resumeMod.MAX_RESUME_DEFERRED, undefined, "the record counts its parts again");
+  assert.equal(resumeMod.MAX_RESUME_DEFERRED_TOTAL, MAX_CARRIED_CHARS, "a record could carry more than a hand-over, or less");
   assert.equal(resumeMod.MAX_RESUME_DEFERRED_CHARS, MAX_INPUT_CHARS, "a record could keep a part longer than any message, or cut one short");
 });
 

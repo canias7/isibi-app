@@ -499,7 +499,6 @@ const ADDS = {
     requirements: true,
     shape: {
       type: "array",
-      maxItems: MAX_ADD_TABLES,
       items: {
         type: "object",
         properties: {
@@ -618,7 +617,6 @@ const ADDS = {
       "`table`), not a change to an entry that is already there, and never a card or section drawn onto a page by hand.",
     shape: {
       type: "array",
-      maxItems: MAX_ADD_ROWS,
       items: {
         type: "object",
         properties: {
@@ -665,7 +663,6 @@ const ADDS = {
     requirements: true,
     shape: {
       type: "array",
-      maxItems: MAX_ADD_FUNCTIONS,
       items: FUNCTION_ITEM,
     },
     add: {
@@ -701,7 +698,6 @@ const ADDS = {
     requirements: true,
     shape: {
       type: "array",
-      maxItems: MAX_ADD_APIS,
       items: API_ITEM,
     },
     add: {
@@ -730,7 +726,6 @@ const ADDS = {
     requirements: true,
     shape: {
       type: "array",
-      maxItems: MAX_ADD_JOBS,
       items: JOB_ITEM,
     },
     add: {
@@ -762,7 +757,6 @@ const ADDS = {
     requirements: true,
     shape: {
       type: "array",
-      maxItems: MAX_ADD_PAGES,
       items: {
       type: "object",
       properties: {
@@ -857,7 +851,6 @@ const ADDS = {
     requirements: true,
     shape: {
       type: "array",
-      maxItems: MAX_ADD_COMPONENTS,
       items: {
       type: "object",
       properties: {
@@ -936,7 +929,6 @@ const ADDS = {
     hint: "NEW WORDS ON A PAGE THE SITE ALREADY HAS — a line, a sentence or a short paragraph that is not on the page yet: \"add a line saying we're closed on bank holidays\", \"put a note under the prices that they include VAT\". Changing words that are already there is an edit, not this; a whole new section with its own heading is a `component`.",
     shape: {
       type: "array",
-      maxItems: MAX_ADD_WORDS,
       items: {
         type: "object",
         properties: {
@@ -1151,7 +1143,6 @@ const ADDS = {
     // one made for it.
     shape: {
       type: "array",
-      maxItems: IMAGE_CAP,
       items: {
         type: "object",
         properties: {
@@ -3367,12 +3358,21 @@ export function cleanAdd(kind, value, site) {
   // with the first entry's reason — the same sentence a single bad answer
   // gets. A bare object is tolerated as a list of one.
   if (LIST_ADDS.includes(kind)) {
+    // ⚠ THE CEILING IS HERE, AND ONLY HERE (2026-10-03, the mixed-work fixes).
+    // Each list kind's tool carried it too, as `maxItems` — which tells a
+    // model to leave the rest out, so a seventh table they asked for never
+    // reached this list and `over-cap` below never named it. The tools now ask
+    // for everything asked for; this keeps what a site can hold and names
+    // every entry past it.
     const cap = kind === "page" ? MAX_ADD_PAGES : kind === "table" ? MAX_ADD_TABLES : kind === "row" ? MAX_ADD_ROWS
       : kind === "function" ? MAX_ADD_FUNCTIONS : kind === "api" ? MAX_ADD_APIS : kind === "job" ? MAX_ADD_JOBS
       // THE PLATFORM'S OWN PHOTOGRAPH CEILING, not a constant of this file's:
       // `planImages` and the design step both slice at `IMAGE_CAP`, so a wider
       // cap here would clean an entry nothing downstream will ever buy.
       : kind === "photo" ? IMAGE_CAP
+      // WORDS KEEP THEIR OWN SIX, which only their tool said until the tool
+      // stopped saying it.
+      : kind === "words" ? MAX_ADD_WORDS
       : MAX_ADD_COMPONENTS;
     const raw = Array.isArray(value) ? value : (isObj(value) ? [value] : []);
     const usable = raw.filter(isObj);
@@ -3382,7 +3382,10 @@ export function cleanAdd(kind, value, site) {
     const kept = [], skipped = [];
     const named = (v) => str(v.path, 120) || str(v.name, 120) || (isObj(v.table) ? str(v.table.name, 63) : "") || str(v.does, 80)
       || (kind === "row" && isObj(v.values) ? str(v.values.name, 120) || str(v.values.title, 120) : "")
-      || (kind === "row" ? str(v.table, 63) : "");
+      || (kind === "row" ? str(v.table, 63) : "")
+      // A LINE OF WORDS AND A PHOTOGRAPH ARE NAMED BY WHAT THEY SAY AND SHOW
+      // (2026-10-03): an entry past the cap is said by name, never as “”.
+      || (kind === "words" ? str(v.words, 120) : "") || (kind === "photo" ? str(v.describe, 120) : "");
     for (const v of items) {
       const r = one(v, ctx);
       if (r.ok) kept.push(r.value);
@@ -3399,11 +3402,12 @@ export function cleanAdd(kind, value, site) {
     // `skipped` is one entry per ITEM refused, and these are names dropped out
     // of items that were otherwise built. Reported either way — a silent drop
     // is the defect this whole round is about.
-    const unknownKit = ctx.unknownKit.slice(0, 12);
+    // (EVERY ONE SINCE 2026-10-03: the first twelve were kept and the rest cut.)
+    const unknownKit = ctx.unknownKit.slice();
     // AND THE SAME RULE FOR A FIELD BINNED INSIDE AN ITEM (2026-09-20) — a
     // column, a hand-written component. Same argument as the line above: one
     // `skipped` entry per ITEM cannot carry a loss inside one that was built.
-    const dropped = ctx.dropped.slice(0, 12);
+    const dropped = ctx.dropped.slice();
     const extra = { ...(unknownKit.length ? { unknownKit } : {}), ...(dropped.length ? { dropped } : {}) };
     if (!kept.length) return { ok: false, why: skipped[0].why, skipped, ...extra };
     return { ok: true, value: kept, skipped, ...extra };
@@ -3430,7 +3434,7 @@ export function cleanAdd(kind, value, site) {
   // partition that makes it dead, so that day is a red run rather than a drift.
   const ctx = freshCtx();
   const out = one(v, ctx);
-  const dropped = ctx.dropped.slice(0, 12);
+  const dropped = ctx.dropped.slice();
   return dropped.length ? { ...out, dropped } : out;
 }
 

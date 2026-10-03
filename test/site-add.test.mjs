@@ -34,7 +34,7 @@ import { IMAGE_CAP, MAX_PROMPT_CHARS } from "../builder/site-images.mjs";
 import { MIN_EVERY_MINUTES, MAX_EVERY_MINUTES, AT_RE as JOBS_AT_RE, ON_RE as JOBS_ON_RE } from "../site-jobs.mjs";
 import { REQUIREMENT_ITEM } from "../builder/site-requirements.mjs";
 import {
-  ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, PLACING_ADDS, MAKES_PAGES, addLayerIn, LIST_ADDS, MAX_ADDS, MAX_ADD_PAGES, MAX_ADD_COMPONENTS, MAX_ADD_TABLES, MAX_SECTIONS, MAX_ADD_SEED_ROWS, MAX_MESSAGE, ADD_MODEL, ADD_DESIGN_RULE,
+  ADD_KINDS, OWN_ADDS, DISPATCHED_ADDS, PLACING_ADDS, MAKES_PAGES, addLayerIn, LIST_ADDS, MAX_ADDS, MAX_ADD_PAGES, MAX_ADD_COMPONENTS, MAX_ADD_TABLES, MAX_ADD_ROWS, MAX_ADD_WORDS, MAX_SECTIONS, MAX_ADD_SEED_ROWS, MAX_MESSAGE, ADD_MODEL, ADD_DESIGN_RULE,
   BACKEND_ADDS, BACKEND_KEYS, MAX_ADD_FUNCTIONS, MAX_ADD_APIS, MAX_ADD_JOBS, MIN_JOB_MINUTES, MAX_JOB_MINUTES, AT_RE, ON_RE, onceDay, backendDesigned, pageless, jobEvery,
   addLayer, pickTool, pickRequest, readAdds, pickAdds, addUsage,
   addTool, addRule, composeRule, RULE_PARTS, addRequest, siteNote, readAddAnswer, runAdd,
@@ -292,6 +292,14 @@ test("the words kind takes one line for a page the site has, and refuses empty o
   }
   assert.equal(cleanAdd("words", [{ page: "/visit", words: "x".repeat(MAX_WORDS_CHARS) }], SITE_W).ok, true, "the longest allowed line was refused");
   assert.match(addRefusal("no-words"), /the line itself, and the page it goes on/);
+  // SIX LINES, AND EVERY ONE PAST THEM NAMED (2026-10-03, the mixed-work fixes):
+  // the cap left the tool, where it told the model to leave lines out, and is
+  // the cleaner's — so a seventh line is named as left out, never dropped.
+  const seven = Array.from({ length: MAX_ADD_WORDS + 1 }, (_, i) => ({ page: "/visit", words: "Line number " + (i + 1) + "." }));
+  const many = cleanAdd("words", seven, SITE_W);
+  assert.equal(many.ok, true, JSON.stringify(many));
+  assert.equal(many.value.length, MAX_ADD_WORDS, "not exactly six lines were kept");
+  assert.deepEqual(many.skipped.map((k) => [k.why, k.name]), [["over-cap", "Line number 7."]], "the seventh line is not named, by its own words, as past the cap");
 });
 
 // THE SENTENCE FOR AN ADDITION THAT DID NOT LAND names what is missing and
@@ -551,19 +559,27 @@ test("a message may name every kind, and the kinds that come in numbers answer l
   // JOINED 2026-10-01 for the same reason: "add a rye and a spelt" is two
   // entries in one list.
   assert.deepEqual([...LIST_ADDS].sort(), ["api", "component", "function", "job", "page", "photo", "row", "table", "words"]);
+  // ⚠ THE CEILING LEFT THE TOOLS ON 2026-10-03 (the mixed-work fixes). Each
+  // list kind's tool said `maxItems`, which tells a model to leave the rest out
+  // — so an entry past it never reached the cleaner, and `over-cap` never named
+  // it. The tools ask for everything asked for now; the cleaner keeps what a
+  // site can hold (the same numbers, below) and names every entry past it.
+  const caps = { table: MAX_ADD_TABLES, row: MAX_ADD_ROWS, function: MAX_ADD_FUNCTIONS, api: MAX_ADD_APIS, job: MAX_ADD_JOBS,
+    page: MAX_ADD_PAGES, component: MAX_ADD_COMPONENTS, words: MAX_ADD_WORDS, photo: IMAGE_CAP };
   for (const k of LIST_ADDS) {
     const p = addTool(k).input_schema.properties[k];
     assert.equal(p.type, "array", k + " answers one thing, not a list");
+    assert.equal(p.maxItems, undefined, k + "'s tool tells the model to leave entries out again");
     // The backend's own ceilings are the engine's (it keeps eight of each
     // tier), and a message that adds four connections or four jobs is
     // already a site that reads as several.
-    assert.ok(p.maxItems >= (k === "api" || k === "job" ? 4 : 6), k + " has a low cap: " + p.maxItems);
-    // …AND A PHOTOGRAPH'S CAP IS THE PLATFORM'S OWN, not a number of this
-    // file's: `planImages` and the design step both slice at `IMAGE_CAP`, so a
-    // wider one here would offer a picture nothing downstream will ever buy.
-    if (k === "photo") assert.equal(p.maxItems, IMAGE_CAP, "the photo tool promises a cap the spend path does not keep");
+    assert.ok(caps[k] >= (k === "api" || k === "job" ? 4 : 6), k + " has a low cap: " + caps[k]);
     assert.ok(Array.isArray(p.items.required) && p.items.required.length, k + "'s entries require nothing");
   }
+  // …AND A PHOTOGRAPH'S CAP IS THE PLATFORM'S OWN, not a number of this
+  // file's: `planImages` and the design step both slice at `IMAGE_CAP`, so a
+  // wider one would clean a picture nothing downstream will ever buy.
+  assert.equal(caps.photo, IMAGE_CAP);
   for (const k of [...OWN_ADDS, ...PLACING_ADDS].filter((x) => !LIST_ADDS.includes(x))) assert.equal(addTool(k).input_schema.properties[k].type, "object", k + " is a list of a thing a site has one of");
   // The page cap is the page writer's own ceiling: a seventh page would be
   // dropped there, so promising it here would be a page nobody gets.
@@ -1569,7 +1585,11 @@ test("THE ROUTE RUNS THE ADD STEP WHERE IT RAN THE BUILD'S DESIGNER, and folds w
   // entries of a list were left out, with the server's own sentence.
   assert.match(b, /kinds: aAnswers\.map\(\(a\) => a\.kind\), skipped: aSkipped,/, "the reply does not say what was added");
   assert.match(b.slice(clean, fold), /for \(const sk of Array\.isArray\(clean\.skipped\) \? clean\.skipped : \[\]\) aNotAdded\.push\(\{ kind: k, \.\.\.sk, msg: addRefusal\(sk\.why, k\) \}\);/, "an entry left out of a list is not carried to the reply");
-  assert.match(b, /notAdded: aNotAdded\.length \? aNotAdded\.slice\(0, 6\) : undefined,/, "the reply does not say which entries were left out");
+  // EVERY ENTRY SINCE 2026-10-03 (the mixed-work fixes: *"report every
+  // completed, failed, declined and pending operation with its target"*): the
+  // first six were kept and the rest dropped without a word.
+  assert.match(b, /notAdded: aNotAdded\.length \? aNotAdded : undefined,/, "the reply does not say which entries were left out");
+  assert.doesNotMatch(b, /aNotAdded\.slice\(/, "the entries left out are cut again");
   // The model-down answer is the edit route's: billing is ours, a timeout is ours.
   const down = b.slice(at(b, "const aDown = (e, what) => {", "down"), pick);
   assert.match(down, /isCallTimeout\(e\)/); assert.match(down, /k\.billing/); assert.match(down, /status: 503/);

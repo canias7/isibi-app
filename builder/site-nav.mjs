@@ -41,6 +41,7 @@ import { routeOf } from "./site-addon.mjs";
 import { modelsFor } from "./build-models.mjs";
 // THE QUESTION BACK (2026-10-02), shared with every step (`builder/clarify.mjs`).
 import { QUESTION_FIELD, askOf } from "./clarify.mjs";
+import { ECHO_CHARS_PER_TOKEN, LIST_ANSWER_MAX_TOKENS } from "./input-budget.mjs";
 
 /**
  * THE PICKED MODEL, NOT A HARDCODED ONE (owner, 2026-08-31).
@@ -60,7 +61,16 @@ import { QUESTION_FIELD, askOf } from "./clarify.mjs";
 export const NAV_MODEL = modelsFor().quick;
 export const NAV_MAX_TOKENS = 1200;
 
-/** A nav longer than this is a menu nobody can use, on a phone least of all. */
+/**
+ * A nav longer than this is a menu nobody can use, on a phone least of all.
+ *
+ * KEPT AS A DESIGN LIMIT, AND NEVER SILENT (2026-10-03). Owner: *"where a
+ * genuine limit must remain, preserve and identify each unexecuted operation
+ * instead of losing it or claiming success."* A menu past ten took the first
+ * ten and dropped the rest with no word (the mixed-work audit's MW4); each link
+ * past it is now left out BY NAME (`dropped`, why `full`) and said in the
+ * reply. Whether a menu may hold more is a design decision for the owner.
+ */
 export const MAX_NAV_ITEMS = 10;
 
 /** Long enough for "Frequently asked questions", short enough to be a label. */
@@ -978,16 +988,26 @@ export function menuApply(items, change) {
   return out;
 }
 
+/**
+ * THE CEILING FOR ONE ANSWER, GROWN WITH WHAT IT IS SHOWN (2026-10-03): the base,
+ * and room to write back everything the digest lists — every menu, button,
+ * contact detail and link — once. Only the tokens written are billed.
+ */
+export function navMaxTokens(digest) {
+  return Math.min(LIST_ANSWER_MAX_TOKENS, NAV_MAX_TOKENS + Math.ceil(String(digest || "").length / ECHO_CHARS_PER_TOKEN));
+}
+
 export function navRequest({ instruction, slots, routes, actions, links, contacts, lists, layouts, seconds, addition = false, model = NAV_MODEL }) {
+  const digest = navDigest(slots, routes, actions, links, contacts, lists, layouts, seconds);
   return {
     model,
-    max_tokens: NAV_MAX_TOKENS,
+    max_tokens: navMaxTokens(digest),
     system: NAV_SYSTEM,
     tools: [NAV_TOOL],
     tool_choice: { type: "tool", name: NAV_TOOL.name },
     messages: [{
       role: "user",
-      content: navDigest(slots, routes, actions, links, contacts, lists, layouts, seconds) +
+      content: digest +
         (addition === true ? "\n\n" + ADDITION_NOTE : "") +
         // WHOLE (2026-10-03): kept to the size policy by the route, never cut here.
         "\n\nWHAT THEY ASKED FOR:\n" + String(instruction || ""),
@@ -1128,7 +1148,6 @@ export function readNav(reply, routes) {
     const from = typeof c.from === "string" ? c.from.trim() : "";
     if (!to || (!label && !from)) { dropped.push({ label, href: to, why: "incomplete", link: true }); continue; }
     pageLinks.push({ label, from, to });
-    if (pageLinks.length >= MAX_LINK_CHANGES) break;
   }
 
   if (!Array.isArray(raw)) {
@@ -1154,8 +1173,9 @@ export function readNav(reply, routes) {
     if (why) { dropped.push({ label, href, why }); continue; }
     if (seen.has(href)) { dropped.push({ label, href, why: "duplicate" }); continue; }
     seen.add(href);
+    // PAST THE MENU'S OWN LIMIT, LEFT OUT BY NAME — never dropped unsaid.
+    if (links.length >= MAX_NAV_ITEMS) { dropped.push({ label, href, why: "full" }); continue; }
     links.push({ label, href });
-    if (links.length >= MAX_NAV_ITEMS) break;
   }
   return { links, dropped, action, removeAction, secondAction, removeSecondAction, pageLinks, contact, lists, layout };
 }
@@ -1462,25 +1482,8 @@ export function navReply({ links = [], dropped = [], changed = [], action = null
       ? "✅ Updated the menu on " + menuPages + " pages, each keeping its own items — " +
         menuLists.map((m) => named(m.items) + " (" + m.pages + (m.pages === 1 ? " page" : " pages") + ")").join("; ") + "."
       : "✅ Updated the menu on " + menuPages + (menuPages === 1 ? " page" : " pages") + ": " + (menuLists ? named(menuLists[0].items) : menu) + ".";
-  // NAMED, NOT COUNTED. "1 item was dropped" tells them something went wrong and
-  // not what, and the commonest reason by far is a page that does not exist —
-  // which is a thing they can act on by asking for the page.
-  const bad = dropped.filter((d) => d.why === "no-such-page");
-  if (bad.length) {
-    msg += " I left out " + bad.map((d) => d.label || d.href).join(", ") +
-      " — there's no " + bad.map((d) => d.href).join(" or ") + " page on the site yet.";
-  }
-  // A PAGE-LOCAL ANCHOR GETS ITS OWN SENTENCE, because the fix is one word and
-  // they can ask for it. Folded into the generic count it reads as "something
-  // went wrong" about a menu item that is nearly right.
-  const local = dropped.filter((d) => d.why === "page-local");
-  if (local.length) {
-    msg += " I left out " + local.map((d) => d.label || d.href).join(", ") +
-      " — that points at a section of whichever page you're on, so it would do nothing on the others. " +
-      "Say which page it's on and I'll link to it properly.";
-  }
-  const other = dropped.length - bad.length - local.length;
-  if (other > 0) msg += " " + other + (other === 1 ? " item was" : " items were") + " not usable and left out.";
+  // EVERY ITEM LEFT OUT, BY NAME AND REASON (`itemsLeftOut`, below).
+  msg += itemsLeftOut(dropped);
   // AND THE BUTTON, when this change carried both.
   if (removedAction) msg += " The button at the top is gone too.";
   else if (action) msg += " The button now says “" + action.label + "” and goes to " + action.href + ".";
@@ -1491,11 +1494,59 @@ export function navReply({ links = [], dropped = [], changed = [], action = null
   return msg;
 }
 
-/** The dropped-item sentences, shared by both halves of the reply. */
+/**
+ * EVERY ITEM LEFT OUT OF A MENU OR A FOOTER LIST, BY NAME AND REASON — never a
+ * count (2026-10-03, the owner: *"Do not replace missing targets with a vague
+ * count."*). It was said only on the menu's own branch, and there the reasons
+ * past the first two were "2 items were not usable"; a footer list or a button
+ * answer said nothing of an item it left out.
+ */
+function itemsLeftOut(dropped) {
+  const list = (Array.isArray(dropped) ? dropped : []).filter((d) => d && !d.button);
+  const name = (d) => "“" + (d.label || d.href || "an item with no name") + "”";
+  let out = "";
+  // NAMED, NOT COUNTED. The commonest reason by far is a page that does not
+  // exist — which is a thing they can act on by asking for the page.
+  const bad = list.filter((d) => d.why === "no-such-page");
+  if (bad.length) {
+    out += " I left out " + bad.map(name).join(", ") +
+      " — there's no " + bad.map((d) => d.href).join(" or ") + " page on the site yet.";
+  }
+  // A PAGE-LOCAL ANCHOR GETS ITS OWN SENTENCE, because the fix is one word and
+  // they can ask for it.
+  const local = list.filter((d) => d.why === "page-local");
+  if (local.length) {
+    out += " I left out " + local.map(name).join(", ") +
+      " — that points at a section of whichever page you're on, so it would do nothing on the others. " +
+      "Say which page it's on and I'll link to it properly.";
+  }
+  // PAST THE LIMIT, NAMED WITH THE LIMIT: the one reason asking again does not
+  // fix, so it says what the limit is.
+  for (const [items, what, max] of [
+    [list.filter((d) => d.why === "full" && !d.list), "the menu", MAX_NAV_ITEMS],
+    [list.filter((d) => d.why === "full" && d.list), "that footer list", MAX_LIST_ITEMS],
+  ]) {
+    if (!items.length) continue;
+    out += " I left out " + items.map(name).join(", ") + " — " + what + " holds at most " + max + " items, and adding " +
+      (items.length === 1 ? "it" : "them") + " would go past that. Say which to take out to make room.";
+  }
+  const other = list.filter((d) => d.why !== "no-such-page" && d.why !== "page-local" && d.why !== "full");
+  if (other.length) {
+    out += " I left out " + other.map((d) => name(d) + (d.why === "duplicate" ? " (it was listed twice)"
+      : d.why === "incomplete" ? " (it had no name or no destination)" : "")).join(", ") +
+      " — " + (other.length === 1 ? "it wasn't" : "they weren't") + " usable there.";
+  }
+  return out;
+}
+
+/** The dropped-item sentences, shared by both halves of the reply: the button's, then every item's. */
 function droppedNote(dropped) {
   const list = Array.isArray(dropped) ? dropped : [];
   const btn = list.filter((d) => d.button);
-  if (!btn.length) return "";
+  if (!btn.length) return itemsLeftOut(list);
+  return buttonNote(btn) + itemsLeftOut(list);
+}
+function buttonNote(btn) {
   // THE BUTTON'S OWN REFUSAL NAMES WHAT WAS WRONG WITH IT. A silent drop here
   // is the worst shape this lane has: the customer is told the button changed
   // and it did not.
@@ -1569,7 +1620,7 @@ export function frameNow({ slots, actions, seconds, contacts, lists } = {}) {
  * answer named only new items, which is where an item added to a list goes.
  * What no list has room for is left out and named, never an existing item.
  */
-function newItems(known, answer, room, dropped) {
+function newItems(known, answer, room, dropped, list = "") {
   const has = new Set((Array.isArray(known) ? known : []).filter((it) => it && typeof it.href === "string").map((it) => it.href));
   const given = (Array.isArray(answer) ? answer : []).filter((it) => it && typeof it.href === "string");
   const anyKnown = given.some((it) => has.has(it.href));
@@ -1581,7 +1632,7 @@ function newItems(known, answer, room, dropped) {
     if (seen.has(it.href)) continue;
     seen.add(it.href);
     if (out.length >= Math.max(0, room)) {
-      dropped.push({ label: it.label || it.network || "", href: it.href, why: "full" });
+      dropped.push({ label: it.label || it.network || "", href: it.href, why: "full", ...(list ? { list } : {}) });
       continue;
     }
     out.push({ item: it, after: prev });
@@ -1643,7 +1694,7 @@ export function additionOnly(read, now) {
   out.addLists = {};
   if (out.lists && typeof out.lists === "object") {
     for (const prop of Object.keys(out.lists)) {
-      const adds = newItems((n.lists || {})[prop], out.lists[prop], MAX_LIST_ITEMS - ((n.listMax || {})[prop] || 0), out.dropped);
+      const adds = newItems((n.lists || {})[prop], out.lists[prop], MAX_LIST_ITEMS - ((n.listMax || {})[prop] || 0), out.dropped, prop);
       if (adds.length) out.addLists[prop] = adds;
     }
   }
@@ -1704,6 +1755,14 @@ export async function runNavEdit(deps, { instruction, pages, routes, model = NAV
   try { reply = await deps.send(navRequest({ instruction, slots, routes, actions, links, contacts, lists, layouts, seconds, addition: addition === true, model })); }
   catch (e) { return { ok: false, escalate: false, reason: "send", error: e, usage: null }; }
   const usage = navUsage(reply, model);
+  // AN ANSWER CUT OFF AT ITS CEILING IS NO ANSWER (2026-10-03): a menu or a
+  // list of link changes stopped part way would be written as if whole. Failed
+  // as a call that did not answer — ours, so nothing changes.
+  if (reply && reply.stop_reason === "max_tokens") {
+    const e = new Error("menu truncated at max_tokens");
+    e.truncated = true;
+    return { ok: false, escalate: false, reason: "send", error: e, usage };
+  }
   // A QUESTION BACK (2026-10-02): the model could not tell which link, button
   // or detail is meant without a detail they left out. Nothing is changed; the
   // route asks it.
@@ -2405,8 +2464,11 @@ export const MAX_LINK_SLOTS = 2000;
 /** Enough lines to describe a site's links without burying the instruction. */
 export const MAX_LINK_LINES = 40;
 
-/** One instruction is not fifty link changes. */
-export const MAX_LINK_CHANGES = 12;
+// NO NUMBER OF LINK CHANGES IS A LIMIT ANY MORE (2026-10-03). `MAX_LINK_CHANGES`
+// (12) kept the first twelve and dropped the rest with no word. Each change
+// still repoints only links the site really has (`MAX_LINK_SLOTS` bounds how
+// many are read), and the call's ceiling grows with what it is shown
+// (`navMaxTokens`); an answer cut off at it is refused whole (`runNavEdit`).
 
 /** The words between the element's tags, with any nested markup dropped. */
 function linkLabel(src, from, tag) {

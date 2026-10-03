@@ -192,9 +192,9 @@ const paths = (v) => [...new Set((Array.isArray(v) ? v : []).map(pathOf).filter(
 const strings = (v) => (Array.isArray(v) ? v : []).filter((x) => typeof x === "string" && x.trim()).map(flat);
 /**
  * The parts put off, every one, as the answer carries them: one as a string or
- * several as a list. Read for telling, never validated away — a list longer
- * than one hand-over carries (`heldList`'s `MAX_HELD`) is still every part
- * (2026-10-03: such a list was dropped whole).
+ * several as a list. Read for telling, never validated away — whatever the
+ * hand-over's own reader would refuse is still every part said here
+ * (2026-10-03: a list past the old four-part count was dropped whole).
  */
 const partsOf = (v) => [...new Set((typeof v === "string" ? [v] : Array.isArray(v) ? v : []).filter((p) => typeof p === "string" && p.trim()).map(flat))];
 const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
@@ -247,18 +247,89 @@ function questionOnly(facts) {
   return facts.some((f) => f.kind === "question") && facts.every((f) => f.kind === "question" || f.kind === "nothing");
 }
 
-/** What a refusal or a part that did not go through says, each once; parts that said nothing are counted. */
+/**
+ * A PART'S TARGET, AS A CUSTOMER READS IT (2026-10-03): their own words for it
+ * (the picker's scope), the page it was on, or — when the step was given
+ * neither — the part of the site it is about. Never a count: the owner's
+ * *"Do not replace missing targets with a vague count."*
+ */
+const LANE_PLAIN = Object.freeze({
+  css: "the styling", theme: "the theme", brand: "the site's name", description: "the description",
+  wordmark: "the logo", favicon: "the tab icon", lang: "the language", langs: "the other languages",
+  behavior: "what a control does", qr: "a QR code", purpose: "what a page leads with", components: "a page's building blocks",
+  shape: "a page's layout", images: "a photograph", action: "the menu or the header button",
+  backend: "what the site stores and accepts", three: "the 3D scene", tsx: "a part built for the site",
+  kind: "the kind of site", pages: "a page", slug: "the web address",
+});
+/** A step's layer as a customer reads it, for a step named by neither words nor lanes (the router's own step). */
+const LAYER_PLAIN = Object.freeze({
+  picture: "a photograph", nav: "the menu or the header button", rules: "what the site stores and accepts",
+  rename: "the web address", logo: "the logo", text: "the wording", data: "an entry in a stored list", page: "a page", look: "the look",
+});
+/** What a part was asked, as names: its own words when the picker scoped it, else its lanes' part of the site, else its layer's. */
+function namesOf(p) {
+  const words = strings(p && p.words).map(quote);
+  if (words.length) return words;
+  const lanes = [...new Set((Array.isArray(p && p.lanes) ? p.lanes : []).map((l) => LANE_PLAIN[l]).filter(Boolean))];
+  if (lanes.length) return lanes;
+  const layer = p && typeof p.layer === "string" ? LAYER_PLAIN[p.layer] : "";
+  return layer ? [layer] : [];
+}
+const pageOfPart = (p) => (typeof (p && p.page) === "string" && p.page.charAt(0) === "/" ? p.page : "");
+function targetSaid(p) {
+  const names = namesOf(p);
+  const page = pageOfPart(p);
+  if (names.length) return listOf(names) + (page ? " on " + page : "");
+  return page ? "the change on " + page : "";
+}
+
+/**
+ * What a refusal or a part that did not go through says, each with its target;
+ * none is folded into a count. Two parts refused for the same reason on the same
+ * page are one problem (two lanes of one page operation, say), said once with
+ * both their names.
+ */
 function partialFacts(F, parts) {
-  let silent = 0;
+  const groups = [];
   for (const p of parts) {
     const m = p && typeof p.msg === "string" ? p.msg.trim() : "";
-    if (!m) silent++;
-    else F.add("not-done", "Part of the request was not done. The builder's own reason: " + quote(m));
+    const page = pageOfPart(p);
+    // A PART WITH NO REASON IS ALWAYS ITS OWN FACT: each entry is its own step.
+    let g = m ? groups.find((x) => x.m === m && x.page === page) : null;
+    if (!g) groups.push(g = { m, page, names: [] });
+    for (const n of namesOf(p)) if (!g.names.includes(n)) g.names.push(n);
   }
-  if (silent) F.add("not-done", count(silent, "more part") + " of the request did not go through, with no reason recorded; asking for it again on its own will say why.");
+  groups.forEach((g, i) => {
+    const what = g.names.length ? listOf(g.names) + (g.page ? " on " + g.page : "") : (g.page ? "the change on " + g.page : "");
+    F.add("not-done", (what ? "This part was not done: " + what + "." : "Part of the request was not done.") +
+      (g.m ? " The builder's own reason: " + quote(g.m) : " No reason was recorded; asking for it again on its own will say why."), "partial:" + i);
+  });
   const charged = parts.map((p) => num(p && p.cost)).filter((c) => c !== null && c > 0);
   const total = charged.reduce((a, c) => a + c, 0);
   if (total > 0) F.add("money", (charged.length === 1 ? "That part" : "Those parts") + " still cost " + count(total, "credit") + ".");
+}
+
+/**
+ * EVERY STEP THAT RAN BESIDE OTHERS SAYS WHAT IT DID (2026-10-03, the
+ * mixed-work audit's MW1). A message that ran several steps answers `look`,
+ * and the facts above read the look's fields and the page operations — so a
+ * photograph taken off and a menu changed beside them were made and told
+ * nowhere. `steps` is each step's own account (worker.js, the edit route's
+ * merge); a step whose layer writes its own sentence (only it knows which
+ * picture, which links, which address) is said here in its words, with the
+ * words it was asked in. Look and page steps are already said above.
+ */
+const OWN_ACCOUNT = new Set(["picture", "nav", "rules", "rename", "logo", "text", "data"]);
+function stepFacts(F, e) {
+  if (!Array.isArray(e.steps)) return;
+  e.steps.forEach((s, i) => {
+    if (!s || typeof s !== "object" || s.status !== "done" || !OWN_ACCOUNT.has(s.layer)) return;
+    const own = said(s.msg).replace(/^✅\s*/, "");
+    const what = targetSaid(s);
+    F.add("changed", (what ? "Done: " + what + ". " : "") +
+      (own ? "What the builder reports it did: " + quote(own) : "The change was made."), "step:" + i);
+    if (s.layer === "rules") F.add("note", "The change to what the site accepts took effect at once; nothing needed rebuilding.");
+  });
 }
 
 /** The money a refusal states (`wholeRequestNote`): the edit's own charge, and the routing call's when it is known. */
@@ -390,6 +461,7 @@ export function editReplyFacts(e, { routedCost = null } = {}) {
           : "The title and link preview use the new name, but the old name was not found written on any page; the headings are worth checking.");
       }
       for (const n of [e.styleNote, e.tokenNote, e.cssNote]) { const s = said(n); if (s) F.add("note", s); }
+      stepFacts(F, e);
       if (!F.out.length) F.add("changed", "Updated the look.");
     } else {
       // picture, nav, logo, rename, rules: the step wrote its own account,
@@ -419,17 +491,79 @@ export function editReplyFacts(e, { routedCost = null } = {}) {
   return questionOnly(F.out) ? { skip: "question-only", facts: [] } : { skip: null, facts: F.out };
 }
 
+/** An interval in minutes as a customer reads it: "every 15 minutes", "every day". */
+function everySaid(m) {
+  return !Number.isFinite(m) || m <= 0 ? ""
+    : m === 1 ? "every minute"
+      : m % 10080 === 0 ? (m === 10080 ? "every week" : "every " + (m / 10080) + " weeks")
+        : m % 1440 === 0 ? (m === 1440 ? "every day" : "every " + (m / 1440) + " days")
+          : m % 60 === 0 ? (m === 60 ? "every hour" : "every " + (m / 60) + " hours")
+            : "every " + m + " minutes";
+}
+
 /** A scheduled job as a customer reads it (the browser's `jobWords`, without the zone). */
 function jobSaid(j) {
   if (!j || typeof j !== "object" || typeof j.name !== "string" || !j.name) return "";
-  const m = Number(j.everyMinutes);
-  const every = !Number.isFinite(m) || m <= 0 ? ""
-    : m % 10080 === 0 ? (m === 10080 ? "every week" : "every " + (m / 10080) + " weeks")
-      : m % 1440 === 0 ? (m === 1440 ? "every day" : "every " + (m / 1440) + " days")
-        : m % 60 === 0 ? (m === 60 ? "every hour" : "every " + (m / 60) + " hours")
-          : "every " + m + " minutes";
+  const every = everySaid(Number(j.everyMinutes));
   const at = typeof j.at === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(j.at) ? " at " + j.at : "";
   return flat(j.name) + (every ? " (" + every + at + ")" : "");
+}
+
+/** An add-on kind as a customer reads it, for a kind named without a design of its own (declined). */
+const KIND_PLAIN = Object.freeze({
+  table: "a list for the site to store", row: "an entry in one of the site's lists", function: "a function the site runs",
+  api: "a connection to an outside service", job: "a scheduled job", page: "a page", component: "a section on a page",
+  words: "a line of words", frame: "a menu link, button or footer item", qr: "a QR code", three: "a 3D scene", photo: "a photograph",
+});
+
+/** A code's destination as a customer reads it: a web address's path when it is one, the payload otherwise. */
+function opensSaid(points) {
+  const t = typeof points === "string" ? points.trim() : "";
+  if (!t) return "";
+  try {
+    const u = new URL(t);
+    if (u.protocol === "http:" || u.protocol === "https:") return u.pathname && u.pathname !== "/" ? u.pathname : u.host;
+  } catch { /* not a web address: said as it is */ }
+  return t;
+}
+
+/**
+ * WHAT A CODE OR A SCENE REALLY IS ON THE SITE (2026-10-03, the mixed-work
+ * audit's MW5; the owner: *"distinguish configuration saved from placement
+ * verified"*). Shown on a page the publication carries (`on`) is done; carried
+ * only by a part a page may render (`unsure`) is a note that nothing confirmed
+ * it; saved with no page showing it is not done — the configuration exists and
+ * nobody can see it. The page asked for is named beside where it really is.
+ */
+function placedFacts(F, a) {
+  (Array.isArray(a.qrs) ? a.qrs : []).forEach((q, i) => {
+    if (!q || typeof q !== "object") return;
+    const what = "a QR code" + (said(q.label) ? " captioned " + quote(q.label) : "") + (opensSaid(q.opens) ? " that opens " + opensSaid(q.opens) : "");
+    const on = paths(q.on);
+    const asked = typeof q.page === "string" && q.page.charAt(0) === "/" ? q.page : "";
+    if (on.length) {
+      F.add("changed", "Added " + what + ", shown on " + listOf(on) + ".", "qr:" + i);
+      if (asked && !on.includes(asked)) F.add("not-done", "That QR code was asked for on " + asked + ", and that page does not show it.", "qr-page:" + i);
+    } else if (q.unsure === true) {
+      F.add("note", "Saved " + what + (asked ? " for " + asked : "") + ", but nothing could confirm a page shows it; worth a look.", "qr:" + i);
+    } else {
+      F.add("not-done", "Saved " + what + ", but no page shows it yet" + (asked ? " (it was asked for on " + asked + ")" : "") + "; asking to put it on a page places it.", "qr:" + i);
+    }
+  });
+  const sc = a.scene && typeof a.scene === "object" ? a.scene : null;
+  if (sc) {
+    const what = "a 3D scene" + (said(sc.about) ? " (" + said(sc.about) + ")" : "");
+    const on = paths(sc.on);
+    const asked = typeof sc.page === "string" && sc.page.charAt(0) === "/" ? sc.page : "";
+    if (on.length) {
+      F.add("changed", "Added " + what + " on " + listOf(on) + ".");
+      if (asked && !on.includes(asked)) F.add("not-done", "The 3D scene was asked for on " + asked + ", and that page does not draw it.");
+    } else if (sc.unsure === true) {
+      F.add("note", "Saved " + what + (asked ? " for " + asked : "") + ", but nothing could confirm a page draws it; worth a look.");
+    } else {
+      F.add("not-done", "Saved " + what + ", but no page draws it yet" + (asked ? " (it was asked for on " + asked + ")" : "") + "; asking for it on a page puts it there.");
+    }
+  }
 }
 
 /** THE FACTS OF AN ADD-ON'S FINAL ANSWER, synchronous or a queued job's stored one. */
@@ -456,6 +590,21 @@ export function addonReplyFacts(a, { routedCost = null } = {}) {
     if (apis.length) F.add("changed", "Connected " + listOf(apis) + ".");
     const jobs = (Array.isArray(a.jobs) ? a.jobs : []).map(jobSaid).filter(Boolean);
     if (jobs.length) F.add("changed", "Scheduled " + listOf(jobs) + ".");
+    // WHAT A JOB ASKED FOR, WHEN IT RUNS ON ANOTHER INTERVAL (2026-10-03, the
+    // mixed-work audit's MW7): stated beside the interval it really runs on,
+    // never instead of it.
+    (Array.isArray(a.jobs) ? a.jobs : []).forEach((j, i) => {
+      const asked = j && Number.isFinite(Number(j.askedEveryMinutes)) ? Number(j.askedEveryMinutes) : null;
+      if (asked === null || !j.name) return;
+      F.add("note", "The scheduled job " + flat(j.name) + " was asked to run " + everySaid(asked) + ", which the platform does not run; it runs " +
+        everySaid(Number(j.everyMinutes)) + ", the nearest interval the platform allows.", "job-every:" + i);
+    });
+    placedFacts(F, a);
+    // A KIND WHOSE DESIGNER DECLINED, BESIDE THE KINDS THAT WERE ADDED
+    // (2026-10-03, the mixed-work audit's MW6): asked for, and nothing designed.
+    strings(a.declined).forEach((k, i) => {
+      F.add("not-done", "Nothing was made for " + (KIND_PLAIN[k] || "one part of the request") + ": the builder could not design it from what was asked, and asking for it again on its own, with more detail, may work.", "declined:" + i);
+    });
     const rows = (Array.isArray(a.rows) ? a.rows : []).filter((r) => r && typeof r.table === "string" && r.table);
     rows.forEach((r, i) => {
       F.add("changed", "Added " + (typeof r.label === "string" && r.label ? quote(r.label) : "an entry") + " to " + flat(r.table) + (Number.isSafeInteger(r.id) ? " (entry " + r.id + ")" : "") + ".", "row:" + i);

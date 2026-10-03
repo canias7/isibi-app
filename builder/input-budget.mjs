@@ -90,6 +90,18 @@ export const REWRITE_MAX_CHARS = 4000;
 export const ECHO_CHARS_PER_TOKEN = 2;
 
 /**
+ * THE MOST ROOM ONE STEP'S LIST ANSWER IS GIVEN (2026-10-03, the mixed-work
+ * fixes). With no count of changes left on the picture, menu, row and rules
+ * steps, each step's ceiling grows with what it is shown (every picture, row,
+ * table or link named once) — and is held to this. The constraint is TIME, not
+ * the models' output caps (128,000 at the smallest): 16,000 tokens is about 160
+ * seconds of writing at 100 a second, inside the 240-second quick call
+ * (`QUICK_CALL_MS`). An answer that needs more is cut at the ceiling, and each
+ * step refuses a cut answer whole and says so, at no cost — never half-applied.
+ */
+export const LIST_ANSWER_MAX_TOKENS = 16000;
+
+/**
  * THE OUTPUT TOKENS A MODEL MAY NEED TO COPY THESE WORDS BACK: added to the
  * ceiling of a call whose answer quotes the customer (the router's held-back
  * parts, the picker's scoped words). A ceiling, not a charge: only the tokens

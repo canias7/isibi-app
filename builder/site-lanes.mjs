@@ -237,18 +237,25 @@ export function laneMaxTokens(field) {
 // arrives here is whole and is sent whole.
 
 /**
- * HOW MANY LANES ONE MESSAGE MAY RUN.
+ * NO NUMBER OF LANES IS A LIMIT ANY MORE (2026-10-03).
  *
- * Owner's call, 2026-08-29, asked which way a two-part message should go: "run
- * both lanes in turn". So two is ordinary, and this is not a gate against it —
- * it is a gate against a model that answers "all of them", which is what a
- * seventeen-name enum invites and which would restore the whole-tool cost the
- * split exists to remove, one call at a time.
- *
- * FOUR, and the arithmetic is here rather than in a description: a cap the model
- * is merely told about is not a cap.
+ * Owner: *"stop silently dropping operations at the four-lane or per-step count
+ * limits. Remove arbitrary operation caps where the existing execution and
+ * resource safeguards support processing the complete list."* `MAX_LANES` (4)
+ * kept the first four lanes the picker named and dropped the rest with no word:
+ * not run, not put off, not in `partial`, not in the reply (the mixed-work
+ * audit's MW2, reproduced through the route). It was a gate against a model
+ * answering "all of them" — and the safeguards against that are real and
+ * elsewhere: every lane is the customer's own request, billed through the
+ * sequenced reserve, which refuses past their balance; every model call under a
+ * job is bounded by what the job's budget has left, and the publish gate stops
+ * a job short of time before anything ships, refunding it; and the picker is
+ * told to name a part only for a separate thing they really asked for, with a
+ * scoped answer's every change carrying words copied from the message
+ * (`readScopes`), so a lane named on a guess with no words of its own is
+ * withheld at no cost. So every lane the picker names now runs, in turn, in
+ * `LANE_FIELDS` order.
  */
-export const MAX_LANES = 4;
 
 /* ------------------------------------------------------------------ the lanes */
 
@@ -1349,7 +1356,6 @@ export function pickTool(fields = LANE_FIELDS, { routed = false } = {}) {
         // before (`picker/no-lane`).
         fields: {
           type: "array",
-          maxItems: MAX_LANES,
           items: { type: "string", enum: list },
           description:
             "The part or parts of the site this message asks to change. ONE IS THE ORDINARY ANSWER — several " +
@@ -1364,11 +1370,42 @@ export function pickTool(fields = LANE_FIELDS, { routed = false } = {}) {
         },
         removes: removesProp("fields"),
         scopes: scopesProp("fields"),
+        elsewhere: elsewhereProp(),
         ...pageProps("fields"),
         question: QUESTION_FIELD,
       },
       required: ["fields", "scopes"],
     },
+  };
+}
+
+/**
+ * ── AND EVERY PART OF THE MESSAGE NONE OF THESE CAN MAKE (2026-10-03) ───────
+ *
+ * Owner: *"Let models identify intent, scope and unhandled parts using clear
+ * instructions and structured outputs, without keyword rules."* A part of the
+ * message no part of the site listed here can make (an entry in a stored list,
+ * say, or exact new wording) had nowhere to go in this answer:
+ * the router can hold back one passage, and a second beside it, or one the
+ * router let through, was not run, not held and not said (the mixed-work
+ * audit's MW3). The picker names each here, in the customer's words; the route
+ * checks each is in the message (`readElsewhere`), takes it out of every step's
+ * words before anything runs, and names it as left for later.
+ */
+//
+// ⚠ NO LIST OF KINDS. What the parts above can make is said once, by the parts
+// themselves: a first draft named kinds here ("a photograph", "a menu link")
+// that `images` and `action` can add, so one answer would have told the
+// picker two things about the same request.
+function elsewhereProp(extra = "") {
+  return {
+    type: "array",
+    items: { type: "string" },
+    description:
+      "EVERY PART OF THE MESSAGE THAT NONE OF THE PARTS ABOVE CAN MAKE, one entry each, copied EXACTLY from the " +
+      "message. Each is left for them to send on its own and is not done this time.\n" + extra +
+      "LEAVE IT OUT when the parts you named cover the whole message, which is nearly every message. Never a part " +
+      "one of the parts above can make, or a detail of a change you named.",
   };
 }
 
@@ -1445,7 +1482,6 @@ function scopesProp(name, extra = "") {
   // (`test/edit-lanes.test.mjs` holds them under a tenth of the build tool).
   return {
     type: "array",
-    maxItems: MAX_LANES,
     items: {
       type: "object",
       properties: {
@@ -1563,7 +1599,6 @@ function doorPickTool(list, lines) {
       properties: {
         routed: {
           type: "array",
-          maxItems: MAX_LANES,
           items: { type: "string", enum: list },
           description:
             "WHICH PART OF THE SITE THE ALREADY-ROUTED CHANGE IS ABOUT, if one of the parts listed under " +
@@ -1573,7 +1608,6 @@ function doorPickTool(list, lines) {
         },
         additional: {
           type: "array",
-          maxItems: MAX_LANES,
           items: { type: "string", enum: list },
           description:
             "ANYTHING ELSE THIS MESSAGE ASKS TO CHANGE — a separate thing they asked for BESIDE the already-routed " +
@@ -1589,6 +1623,7 @@ function doorPickTool(list, lines) {
         },
         removes: removesProp("additional", "The already-routed change is taken off already; it never goes here.\n"),
         scopes: scopesProp("additional", "The already-routed change is being made already; it never goes here. "),
+        elsewhere: elsewhereProp("The already-routed change is being made already; it never goes here.\n"),
         ...pageProps("additional"),
         question: QUESTION_FIELD,
       },
@@ -1659,7 +1694,10 @@ export function pickRequest({ message, fields = LANE_FIELDS, current = "", model
     model,
     // ROOM FOR EACH CHANGE'S OWN WORDS, COPIED (2026-10-03): `scopes` quotes the
     // message, so the ceiling grows by what may be copied. A ceiling, not a charge.
-    max_tokens: LANE_PICK_MAX_TOKENS + echoTokens(String(message || "")),
+    // TWICE OVER since the same day: with no count of lanes, every change's
+    // words and every part no lane here can make (`elsewhere`) are copied, and
+    // two changes may quote the same words.
+    max_tokens: LANE_PICK_MAX_TOKENS + 2 * echoTokens(String(message || "")),
     // A REAL CACHED PREFIX: the tool and the system text are byte-identical on
     // every edit any customer makes, and the message is the only per-call byte.
     // The door has its own pair, byte-identical on every door message; what
@@ -1707,14 +1745,13 @@ function laneList(reply, key, fields) {
     // billing for both, and the second would be shown the state the first has
     // already changed — so it would undo it.
     seen.add(f);
-    if (seen.size >= MAX_LANES) break;
   }
-  // IN THE CALLER'S ORDER, NEVER THE MODEL'S. Not because the lanes depend on
-  // each other — they do not, and that is the point of the split: each is shown
-  // its OWN stored value and answers only its own field, so two lanes in one
-  // message cannot race — but because the order decides which four survive the
-  // cap above, and a cap that keeps a different four depending on how the model
-  // happened to list them is one nobody can reproduce.
+  // IN THE CALLER'S ORDER, NEVER THE MODEL'S, and EVERY ONE (2026-10-03: the
+  // four-lane cap is gone, see above). Not because the lanes depend on each
+  // other — each is shown its OWN stored value and answers only its own field —
+  // but because the steps run in this order, values before page source, and an
+  // order that moved with how the model happened to list them is one nobody
+  // can reproduce.
   return offered.filter((f) => seen.has(f));
 }
 
@@ -1813,6 +1850,26 @@ function answerNumbers(v, count) {
   return [...new Set(v)].sort((a, b) => a - b);
 }
 
+/**
+ * THE PARTS THE PICKER SAID NO PART HERE CAN MAKE (2026-10-03), each as it
+ * stands in the message: an entry the message does not hold word for word is
+ * not the customer's words, so it is left out rather than put off on a guess
+ * (`unread` counts them, for the trace). A non-string is never coerced.
+ */
+export function readElsewhere(reply, message = "") {
+  const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
+  const use = blocks.find((b) => b && b.type === "tool_use");
+  const raw = use && use.input && typeof use.input === "object" ? use.input.elsewhere : undefined;
+  const out = [];
+  let unread = 0;
+  for (const w of Array.isArray(raw) ? raw : []) {
+    const found = typeof w === "string" && w.trim() ? wordsIn(message, w) : "";
+    if (!found) { unread++; continue; }
+    if (!out.includes(found)) out.push(found);
+  }
+  return { parts: out, unread };
+}
+
 export function readScopes(reply, picked = [], message = "", count = 0) {
   const chosen = (Array.isArray(picked) ? picked : []).filter((f) => typeof f === "string" && f);
   const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
@@ -1907,6 +1964,7 @@ function doorPicked(reply, door, fields, model, message, answers = 0) {
     // change is the router's step and keeps the router's page. `scoped` says
     // whether the answer carried scope metadata at all (`readScopes`).
     ...scopesOf(readScopes(reply, work, message, answers)),
+    ...elsewhereOf(readElsewhere(reply, message)),
     // A QUESTION BACK (2026-10-02): the picker could not tell what else is
     // asked without a detail they left out. The caller asks it before
     // anything runs, the router's own step included.
@@ -1919,6 +1977,11 @@ function doorPicked(reply, door, fields, model, message, answers = 0) {
 /** `readScopes`'s answer as the two fields a pick carries: `scopes` (the ops) and `scoped`. */
 function scopesOf(read) {
   return { scopes: read.ops, scoped: read.scoped };
+}
+
+/** `readElsewhere`'s answer as a pick carries it: `elsewhere` (the parts) and `elsewhereUnread`, each only when there is one. */
+function elsewhereOf(read) {
+  return { ...(read.parts.length ? { elsewhere: read.parts } : {}), ...(read.unread ? { elsewhereUnread: read.unread } : {}) };
 }
 
 /**
@@ -2027,6 +2090,9 @@ export async function pickLanes(deps, { message, fields = LANE_FIELDS, current =
     // the message the picker was shown (`readScopes`), and whether the answer
     // carried any scope metadata at all (`scoped`).
     ...scopesOf(readScopes(reply, picked, text, answers)),
+    // AND EVERY PART IT SAID NO PART HERE CAN MAKE (2026-10-03), found in the
+    // message: the route puts each off before anything runs.
+    ...elsewhereOf(readElsewhere(reply, text)),
     page: readPageVerb(reply),
     // THE REMOVAL RIDES THE SAME ANSWER AS THE LANES, rather than being read
     // again by the caller off a reply it would have to keep. One read, one

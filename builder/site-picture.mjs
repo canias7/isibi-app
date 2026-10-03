@@ -36,6 +36,7 @@ import { codeOnly } from "./site-files.mjs";
 import { modelsFor } from "./build-models.mjs";
 // THE QUESTION BACK (2026-10-02), shared with every step (`builder/clarify.mjs`).
 import { QUESTION_FIELD, askOf } from "./clarify.mjs";
+import { ECHO_CHARS_PER_TOKEN, LIST_ANSWER_MAX_TOKENS } from "./input-budget.mjs";
 
 /** A small call: matching a sentence to a list of sentences is not a design task. */
 /**
@@ -59,8 +60,16 @@ export const PICTURE_MAX_TOKENS = 1200;
 /** How many slots the model is shown. A page with more than this is a contact sheet. */
 export const MAX_SLOTS = 60;
 
-/** How many pictures one instruction may change. "Replace all the shop photos" is real. */
-export const MAX_PICTURE_OPS = 8;
+// NO NUMBER OF PICTURE CHANGES IS A LIMIT ANY MORE (2026-10-03). Owner: *"stop
+// silently dropping operations at the four-lane or per-step count limits."*
+// `MAX_PICTURE_OPS` (8) kept the first eight entries and dropped the rest with
+// no word — nine photographs asked off a page, eight came off and the ninth
+// stayed, the reply naming the eight (the mixed-work audit's MW4). An answer
+// can name no more pictures than the slots it is shown, the made ones are each
+// priced against the real balance before they are bought (`generate` in the
+// edit route), and the call's ceiling now grows with the slots it is shown
+// (`pictureMaxTokens`) — so the one bound left is the answer itself, and an
+// answer cut off at it is refused whole (`runPictureEdit`), never half-read.
 
 /**
  * WHICH PART OF A PICTURE SURVIVES THE CROP — the five `SafeImage` accepts.
@@ -859,10 +868,25 @@ export function pictureDigest(slots, library) {
   return out.join("\n");
 }
 
+/**
+ * THE CEILING FOR ONE ANSWER, GROWN WITH THE SLOTS IT IS SHOWN (2026-10-03): the
+ * base for a question and a place, and room for every slot to be named once —
+ * its page and its description copied back, a made picture's description at
+ * its own bound, a file name and a framing. With no count of changes any more,
+ * this is what lets an answer that changes every picture on the page finish;
+ * only the tokens written are billed, and it is held
+ * to `LIST_ANSWER_MAX_TOKENS` (the time one call has).
+ */
+export function pictureMaxTokens(slots) {
+  const list = Array.isArray(slots) ? slots : [];
+  const chars = list.reduce((n, s) => n + 200 + String((s && s.page) || "").length + String((s && s.alt) || "").length + MAX_DESCRIBE, 0);
+  return Math.min(LIST_ANSWER_MAX_TOKENS, PICTURE_MAX_TOKENS + Math.ceil(chars / ECHO_CHARS_PER_TOKEN));
+}
+
 export function pictureRequest({ instruction, slots, library, model = PICTURE_MODEL }) {
   return {
     model,
-    max_tokens: PICTURE_MAX_TOKENS,
+    max_tokens: pictureMaxTokens(slots),
     tools: [PICTURE_TOOL],
     tool_choice: { type: "tool", name: "choose_pictures" },
     system: [{ type: "text", text: PICTURE_SYSTEM }],
@@ -995,13 +1019,11 @@ export function readPictures(reply, slots, library) {
     if ((asks.remove && (asks.clear || asks.swap || asks.focus)) || (asks.clear && asks.swap)) {
       out.push({ slot, refused: "conflict" });
       seen.add(key);
-      if (out.length >= MAX_PICTURE_OPS) break;
       continue;
     }
     if (asks.remove) {
       out.push({ slot, remove: true });
       seen.add(key);
-      if (out.length >= MAX_PICTURE_OPS) break;
       continue;
     }
 
@@ -1049,7 +1071,6 @@ export function readPictures(reply, slots, library) {
       out.push({ slot, describe, focus, refused });
       seen.add(key);
     }
-    if (out.length >= MAX_PICTURE_OPS) break;
   }
   return out;
 }
@@ -1474,6 +1495,15 @@ export async function runPictureEdit(deps, { instruction, pages, model = PICTURE
   try { reply = await deps.send(pictureRequest({ instruction, slots, library, model })); }
   catch (e) { return { ok: false, escalate: false, reason: "send", error: e, usage: null }; }
   const usage = pictureUsage(reply, model);
+  // AN ANSWER CUT OFF AT ITS CEILING IS NO ANSWER (2026-10-03), the picker's
+  // rule: with no count of changes, a list stopped part way would change some
+  // pictures and drop the rest without a word. Failed as a call that did not
+  // answer — ours, so nothing changes and nothing is charged.
+  if (reply && reply.stop_reason === "max_tokens") {
+    const e = new Error("pictures truncated at max_tokens");
+    e.truncated = true;
+    return { ok: false, escalate: false, reason: "send", error: e, usage };
+  }
   // A QUESTION BACK (2026-10-02): the model could not tell which photograph is
   // meant without a detail they left out. Nothing is changed; the route asks it.
   const ask = askOf(reply);

@@ -1,7 +1,7 @@
 
 import { modelsFor } from "./build-models.mjs";
 import { isXaiModel } from "./model-xai.mjs";
-import { MAX_INPUT_CHARS, echoTokens } from "./input-budget.mjs";// Telling a question from an instruction — and answering the question.
+import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS, echoTokens } from "./input-budget.mjs";// Telling a question from an instruction — and answering the question.
 //
 // THE BUILDER COULD NOT BE ASKED ANYTHING. `siteSend` had exactly one decision
 // in it — `isBuild = !sitePages(site).length` — so the FIRST message on a project
@@ -337,6 +337,8 @@ export const ASK_TOOL = {
       // a part named here is HELD BACK: the browser posts it and the edit and
       // add-on routes take it out of the message before anything runs
       // (`heldBack`, below), so it is never also run this turn.
+      // ON A SITE THAT EXISTS THIS IS A LIST (2026-10-03, `LIVE_ASK_TOOL`): a
+      // first build is sent this field exactly as it was.
       alsoAsked: {
         type: "string",
         description:
@@ -857,6 +859,35 @@ function liveIntentDescription() {
   return live.slice(0, tie) + LIVE_TIE_BREAK + live.slice(tie + SHARED_TIE_BREAK.length);
 }
 
+// ── SEVERAL PARTS HELD BACK, ON A SITE THAT EXISTS (2026-10-03) ────────────
+//
+// Owner: *"Support multiple distinct deferred passages through the existing
+// handoff mechanism, validating that their words belong to the request and
+// ensuring they do not accidentally execute this turn."* One string held one
+// part, so a message asking for an addition AND a wording change beside a
+// styling change held the addition and lost the other (the mixed-work audit's
+// MW3). The hand-over already carried a list; on a site that exists the router
+// now gives one — each entry copied word for word, found in the message and
+// taken out by every route before anything runs (`heldParts`), a list that
+// cannot be read refused, never run. A first build keeps its own field.
+//
+// DERIVED, NEVER WRITTEN TWICE: the first sentence is swapped, found exactly
+// once or the module fails to load, and every other clause is `ASK_TOOL`'s.
+const FIRST_ALSO_AT =
+  "A SECOND REQUEST THIS TURN CANNOT CARRY OUT — in their own words, copied EXACTLY from their message so " +
+  "they can send it straight back. Whatever you put here is held back: it is taken out of what is done this " +
+  "turn, and they are asked to send it next.\n";
+const LIVE_ALSO_AT =
+  "EACH SEPARATE REQUEST THIS TURN CANNOT CARRY OUT, one entry for each — in their own words, copied EXACTLY " +
+  "from their message so they can send it straight back. Whatever you put here is held back: it is taken out " +
+  "of what is done this turn, and they are asked to send it next.\n";
+function liveAlsoAsked() {
+  const d = ASK_TOOL.input_schema.properties.alsoAsked.description;
+  const at = d.indexOf(FIRST_ALSO_AT);
+  if (at !== 0 || d.indexOf(FIRST_ALSO_AT, at + 1) >= 0) throw new Error("site-ask: the held-back field's first sentence was not found exactly once");
+  return { type: "array", items: { type: "string" }, description: LIVE_ALSO_AT + d.slice(FIRST_ALSO_AT.length) };
+}
+
 export const LIVE_ASK_TOOL = {
   name: ASK_TOOL.name,
   description: "Say whether this message is asking for a change to the site or asking a question, answer it if it is a question, and ask for the one detail you need when what they want cannot be decided without it.",
@@ -865,6 +896,7 @@ export const LIVE_ASK_TOOL = {
     properties: {
       ...ASK_TOOL.input_schema.properties,
       intent: { ...ASK_TOOL.input_schema.properties.intent, description: liveIntentDescription() },
+      alsoAsked: liveAlsoAsked(),
       question: {
         type: "object",
         description: "Only when intent is \"clarify\". ONE short question, written to them, naming the one detail you need.",
@@ -1197,6 +1229,9 @@ export const ROUTE_REASONS = Object.freeze({
   "edit-fields-ignored": Object.freeze({ kind: "changed", what: "an edit's fields on an answer that is not an edit, left out" }),
   "also-not-text": Object.freeze({ kind: "changed", what: "a held-back part that was not text, left out" }),
   "also-too-long": Object.freeze({ kind: "changed", what: "a held-back part longer than any message, left out" }),
+  // SEVERAL PARTS HELD BACK (2026-10-03): the router gave a list, each part its
+  // own entry, carried as the hand-over's list and taken out by every route.
+  "also-several": Object.freeze({ kind: "context", what: "several separate parts were held back, each its own entry" }),
   "also-ignored": Object.freeze({ kind: "changed", what: "a held-back part on an answer that carries none, left out" }),
   "also-dropped": Object.freeze({ kind: "changed", what: "a held-back part beside an edit answer that could not be used, left out: the step it falls to gets the whole message" }),
   "answer-ignored": Object.freeze({ kind: "changed", what: "reply text on an answer that is not a reply, left out" }),
@@ -1577,22 +1612,33 @@ export function normalizePagePath(raw) {
  */
 export function readAlso(input, trace = null) {
   const mark = noteTo(trace);
-  if (input && given(input.alsoAsked) && typeof input.alsoAsked !== "string") mark("also-not-text");
-  const raw = input && typeof input.alsoAsked === "string" ? input.alsoAsked.trim() : "";
-  if (!raw) return {};
-  // ⚠ NEVER CUT (2026-09-29). This was `raw.slice(0, MAX_ALSO_CHARS)`, harmless
-  // while the field was only a sentence on the reply. It is now also WHAT THE
-  // ROUTES HOLD BACK, and a copy cut between two words is still found in the
-  // message — so only its first 200 characters would be held back, and the rest
-  // of the part promised for later would run this turn. A site's message is at
-  // most `MAX_INPUT_CHARS` characters (the size policy, 2026-10-03), so a longer
-  // copy is not a copy of anything they said: it is dropped, not cut, and
-  // nothing is held back.
-  if (raw.length > MAX_INPUT_CHARS) {
-    mark("also-too-long");
-    return {};
+  const v = input ? input.alsoAsked : undefined;
+  // A STRING IS ONE PART (the shape every answer had until 2026-10-03, and
+  // still a fair answer from a model); A LIST IS SEVERAL. Anything else — a
+  // number, an object — is refused, never coerced.
+  if (given(v) && typeof v !== "string" && !Array.isArray(v)) { mark("also-not-text"); return {}; }
+  const raw = typeof v === "string" ? [v] : Array.isArray(v) ? v : [];
+  const out = [];
+  for (const p of raw) {
+    // A NON-STRING ENTRY IS REFUSED RATHER THAN COERCED: `String(["a","b"])` is
+    // "a,b", which would be shown to the customer as their own words — and one
+    // unreadable entry makes the list unreadable, so nothing is held back on a
+    // guess about which entries were meant.
+    if (typeof p !== "string") { mark("also-not-text"); return {}; }
+    const t = p.trim();
+    if (!t) continue;
+    // ⚠ NEVER CUT (2026-09-29). A copy cut between two words is still found in
+    // the message — so only its start would be held back, and the rest of the
+    // part promised for later would run this turn. A site's message is at most
+    // `MAX_INPUT_CHARS` characters (the size policy, 2026-10-03), so a longer
+    // copy is not a copy of anything they said: the list is dropped, not cut,
+    // and nothing is held back.
+    if (t.length > MAX_INPUT_CHARS) { mark("also-too-long"); return {}; }
+    if (!out.includes(t)) out.push(t);
   }
-  return { alsoAsked: raw };
+  if (!out.length) return {};
+  if (out.length > 1) mark("also-several");
+  return { alsoAsked: out.length === 1 ? out[0] : out };
 }
 
 /**
@@ -1706,13 +1752,12 @@ export function heldBack(message, later) {
   return { ok: r.ok, run: r.run, held: r.ok ? r.held[0] : "" };
 }
 
-/**
- * The most parts one message may have put off. The router puts off at most
- * one; a step acting as its net puts off what it cannot do beside the rest
- * (`heldParts`), and a message asking for more than this many separate things
- * is not one a hand-over can carry honestly.
- */
-export const MAX_HELD = 4;
+// NO NUMBER OF PARTS PUT OFF IS A LIMIT ANY MORE (2026-10-03). `MAX_HELD` (4)
+// refused a hand-over carrying a fifth part, and with it the whole message.
+// Every part is a passage of one message — each is found in it before anything
+// runs (`heldParts`) — and what a request carries across a question is bounded
+// by the size policy (`MAX_CARRIED_CHARS`), which is the constraint a count was
+// standing in for; so the list is bounded by that, and by nothing else.
 
 /**
  * THE PARTS PUT OFF, AS A LIST — what a hand-over's `alsoAsked` may be on the
@@ -1720,20 +1765,24 @@ export const MAX_HELD = 4;
  * list is several; absent (`null` or missing), a blank string or an empty list
  * is none. `null` when the value cannot be read: a list with an entry that is
  * not text, a blank one, one longer than any message (`MAX_INPUT_CHARS`, the
- * size policy), or more entries than `MAX_HELD` — or a value that is neither
- * text nor a list. A NON-STRING IS
- * NEVER COERCED (`String(["a"])` is "a"), and a value that cannot be read is
- * never read as none: the caller refuses, because running the message whole
- * would run the parts meant for later.
+ * size policy), parts more than one request carries together
+ * (`MAX_CARRIED_CHARS`), or a value that is neither text nor a list. A
+ * NON-STRING IS NEVER COERCED (`String(["a"])` is "a"), and a value that cannot
+ * be read is never read as none: the caller refuses, because running the
+ * message whole would run the parts meant for later.
  */
 export function heldList(v) {
   if (v == null) return [];
   if (typeof v === "string") return v.trim() ? [v.trim()] : [];
-  if (!Array.isArray(v) || v.length > MAX_HELD) return null;
+  if (!Array.isArray(v)) return null;
   const out = [];
+  let chars = 0;
   for (const p of v) {
     if (typeof p !== "string" || !p.trim() || p.length > MAX_INPUT_CHARS) return null;
-    if (!out.includes(p.trim())) out.push(p.trim());
+    if (out.includes(p.trim())) continue;
+    chars += p.trim().length;
+    if (chars > MAX_CARRIED_CHARS) return null;
+    out.push(p.trim());
   }
   return out;
 }

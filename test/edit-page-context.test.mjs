@@ -385,7 +385,9 @@ test("a page step and then a picture step in one message: BOTH components reach 
       assert.equal(said.ok, true, "the browser could not compose a reply: " + said.why);
       // BOTH RUNGS SHIPPED, so the merged reply reads as a look edit — the
       // message came in through the lane picker's door.
-      assert.equal(said.text, "✅ Updated the look.", "the customer's sentence changed: " + JSON.stringify(said.text));
+      // THE PAGE AND THE PICTURE STEP'S OWN ACCOUNT SINCE 2026-10-03 (the
+      // mixed-work fixes, MW1 and MW8), where it read "✅ Updated the look."
+      assert.equal(said.text, "✅ Updated /. Moved “the weir” to show the top.", "the customer's sentence changed: " + JSON.stringify(said.text));
       assert.deepEqual(body.layers, ["page", "picture"], "the two rungs that shipped are not the page and the picture: " + JSON.stringify(body.layers));
 
       // THE ORDER THE LANES SET: the page step, then the picture step.

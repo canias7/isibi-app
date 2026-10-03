@@ -623,7 +623,10 @@ test("the row designer is told the lists it may add to — the display list, nev
   // and the one question back, never designed into the site.
   assert.deepEqual(Object.keys(props), ["row", "question"]);
   assert.deepEqual(props.row.items.required, ["table", "values"]);
-  assert.equal(props.row.maxItems, MAX_ADD_ROWS);
+  // NO `maxItems` SINCE 2026-10-03 (the mixed-work fixes): the tool asks for
+  // every entry asked for, and the cleaner keeps `MAX_ADD_ROWS` and names the rest.
+  assert.equal(props.row.maxItems, undefined);
+  assert.ok(MAX_ADD_ROWS >= 12);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1143,10 +1146,12 @@ test("the statement: entries and the request's key together, the key read back a
   assert.equal(readRowMarker(JSON.stringify({ rows: [{ n: 0, table: "loaves", row: "x" }] }), lists), null, "a row that is not an object was reported as saved");
 });
 
-test("the customer's reply names six entries and counts the rest", () => {
+// EVERY ENTRY, NEVER "AND N MORE" (2026-10-03, the mixed-work fixes): this named
+// six and counted the rest, and a count names no entry anybody can check.
+test("the customer's reply names every entry it added", () => {
   const rows = Array.from({ length: 8 }, (_, i) => ({ table: "loaves", id: 12 + i, label: "L" + i, row: {} }));
   const said = screen(200, { ok: true, kinds: ["row"], rows, added: [], changed: [], removed: [], moved: [], cost: 2 });
-  assert.equal(said.text, "✅ Done — " + rows.slice(0, 6).map((r) => "added “" + r.label + "” to loaves (entry " + r.id + ")").join(", ") + ", and 2 more.");
+  assert.equal(said.text, "✅ Done — " + rows.map((r) => "added “" + r.label + "” to loaves (entry " + r.id + ")").join(", ") + ".");
 });
 
 test("the cleaner: a display list's declared columns only, capped, each refusal named", async () => {

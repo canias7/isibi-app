@@ -1018,7 +1018,7 @@ test("a page the site does not have is said, never climbed", () => {
 // and build and came back ~25 credits later with the price unchanged.
 
 const {
-  DATA_TOOL, DATA_MODEL, MAX_DATA_ROWS: DROWS, MAX_DATA_OPS,
+  DATA_TOOL, DATA_MODEL, MAX_DATA_ROWS: DROWS,
   dataDigest, dataRequest, readDataChanges, runDataEdit,
 } = await import("../builder/site-apply.mjs");
 
@@ -1153,6 +1153,25 @@ test("a site with no display table DOES escalate", async () => {
   assert.equal(r.usage, null, "a site with nothing stored costs no model call");
 });
 
+
+// ── AN ANSWER CUT OFF AT ITS CEILING IS NO ANSWER (2026-10-03) ──────────────
+// With no count of changes per step (the mixed-work fixes), the one bound left
+// on the list is the answer itself — and a list stopped part way would make
+// some changes and drop the rest without a word. It is refused whole, as a
+// call that did not answer: nothing is applied.
+test("a row answer cut off at its ceiling writes no row and is refused as a call that did not answer", async () => {
+  const wrote = [];
+  const r = await runDataEdit({
+    send: async () => ({ ...dataReply([{ table: "services", id: 1, values: { price: "£25" } }]), stop_reason: "max_tokens" }),
+    apply: async (c) => { wrote.push(c); return true; },
+  }, { instruction: "put the prices up", tables: MENU });
+  assert.equal(r.ok, false);
+  assert.equal(r.escalate, false);
+  assert.equal(r.reason, "send");
+  assert.equal(r.error && r.error.truncated, true);
+  assert.deepEqual(wrote, [], "a row was written from a cut answer");
+});
+
 test("a partial apply is REPORTED, not hidden", async () => {
   // Rows are independent, unlike a page where half an edit is a file that does
   // not compile — so the ones that worked are worth keeping, and the owner has
@@ -1170,9 +1189,26 @@ test("a partial apply is REPORTED, not hidden", async () => {
   assert.equal(r.failed, 1, "the failure must be counted, not swallowed");
 });
 
-test("the number of changes one instruction may make is bounded", () => {
-  const many = Array.from({ length: MAX_DATA_OPS + 5 }, () => ({ table: "services", values: { name: "x" } }));
-  assert.equal(readDataChanges(dataReply(many), MENU).length, MAX_DATA_OPS);
+// ⚠ THESE TWO PINNED THE DEFECT until 2026-10-03 (the mixed-work fixes; the
+// audit's MW4): they required the list to stop at `MAX_DATA_OPS` (20), which
+// changed the first twenty rows of a longer list and dropped the rest without
+// a word. Every change that names a row offered (or adds one) is read now;
+// the one bound left is the answer itself, refused whole when it is cut off.
+const LONG = [{
+  name: "services",
+  columns: ["name", "price"],
+  rows: Array.from({ length: 30 }, (_, i) => ({ id: i + 1, name: "Service " + (i + 1), price: "£" + (10 + i) })),
+}];
+
+test("every change one instruction makes is read, however many — past the old twenty", () => {
+  const many = LONG[0].rows.map((r) => ({ table: "services", id: r.id, values: { price: "£" + (20 + r.id) } }));
+  const got = readDataChanges(dataReply(many), LONG);
+  assert.equal(got.length, 30, "a change past the twentieth was dropped");
+  assert.deepEqual(got.map((c) => c.id), LONG[0].rows.map((r) => r.id), "the changes were not read in order, each on its own row");
+  assert.equal(got[29].values.price, "£50", "the last change did not keep its own value");
+  // An addition past the old count is read too.
+  const added = Array.from({ length: 25 }, (_, i) => ({ table: "services", values: { name: "New " + i } }));
+  assert.equal(readDataChanges(dataReply(added), LONG).length, 25);
 });
 
 test("the tool tells the model to return nothing rather than guess", () => {
@@ -1364,9 +1400,13 @@ test("only a real true removes — nothing merely truthy", () => {
     "a removal with no values and no real flag is not an edit either");
 });
 
-test("removals are bounded with everything else", () => {
-  const many = Array.from({ length: MAX_DATA_OPS + 5 }, () => ({ table: "services", id: 1, remove: true }));
-  assert.equal(readDataChanges(dataReply(many), MENU).length, MAX_DATA_OPS);
+test("every removal is read with everything else, however many", () => {
+  const many = LONG[0].rows.slice(0, 25).map((r) => ({ table: "services", id: r.id, remove: true }));
+  const got = readDataChanges(dataReply(many), LONG);
+  assert.equal(got.length, 25, "a removal past the twentieth was dropped");
+  assert.deepEqual(got.map((c) => c.was && c.was.name), LONG[0].rows.slice(0, 25).map((r) => r.name), "a removal lost the row it carries back");
+  // A removal still names only a row it was offered.
+  assert.equal(readDataChanges(dataReply([{ table: "services", id: 31, remove: true }]), LONG).length, 0);
 });
 
 test("the tool can express a removal, and does not demand values for one", () => {

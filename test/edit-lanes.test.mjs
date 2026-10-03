@@ -35,10 +35,11 @@ import { QUESTION_FIELD } from "../builder/clarify.mjs";
 import { MAX_WORDMARK, MAX_FAVICON } from "../builder/site-favicon.mjs";
 import { MAX_CSS } from "../builder/site-freecss.mjs";
 import {
-  LANE_FIELDS, OWN_LANES, DISPATCHED_LANES, VERB_LANES, ESCALATE_LANES, UNBUILT_LANES, MAX_LANES,
+  LANE_FIELDS, OWN_LANES, DISPATCHED_LANES, VERB_LANES, ESCALATE_LANES, UNBUILT_LANES,
   laneEscalate, laneVerbs, verbLayer, readPageVerb, PAGE_VERBS,
   laneLayer, laneUnbuilt, laneRule, composeRule, RULE_PARTS, editTool, pickTool, readLanes, readLaneAnswer, editRequest, pickRequest,
   laneMaxTokens, tokensForChars, LANE_EDIT_MAX_TOKENS, LANE_MIN_TOKENS, FIELD_STORE_CAP,
+  readElsewhere, pickLanes,
 } from "../builder/site-lanes.mjs";
 
 const LANES_SRC = fs.readFileSync(new URL("../builder/site-lanes.mjs", import.meta.url), "utf8");
@@ -462,7 +463,7 @@ test("EVERY lane acts — and the partition over all eighteen is total and disjo
   }
 });
 
-test("the router refuses what it did not offer, de-dupes, and caps", () => {
+test("the router refuses what it did not offer, de-dupes, and keeps every lane it did", () => {
   const reply = (fields) => ({ content: [{ type: "tool_use", input: { fields } }] });
   assert.deepEqual(readLanes(reply(["css"])), ["css"]);
   assert.deepEqual(readLanes(reply(["css", "css"])), ["css"], "a repeated lane runs twice and bills twice");
@@ -473,10 +474,16 @@ test("the router refuses what it did not offer, de-dupes, and caps", () => {
   assert.deepEqual(readLanes(reply([["css"]])), [], "a one-element array coerced into a lane name");
   assert.deepEqual(readLanes(reply([null, 7, {}])), [], "a non-string coerced into a lane name");
   assert.deepEqual(readLanes({ content: [] }), [], "no tool call still produced lanes");
-  // THE CAP IS ARITHMETIC, not an instruction in a description.
-  const many = readLanes(reply(LANE_FIELDS.slice(0, MAX_LANES + 3)));
-  assert.equal(many.length, MAX_LANES, "more lanes ran than the cap allows");
+  // ⚠ THIS PINNED THE CAP until 2026-10-03 (the mixed-work fixes; the audit's
+  // MW2): it required the list to stop at `MAX_LANES` (4), which ran the first
+  // four lanes of a message naming more and dropped the rest without a word.
+  // Every lane offered and named runs now, each once, in the caller's order.
+  const many = readLanes(reply(LANE_FIELDS.slice(0, 7)));
+  assert.deepEqual(many, LANE_FIELDS.slice(0, 7), "a lane past the fourth was dropped");
+  assert.deepEqual(readLanes(reply([...LANE_FIELDS].reverse())), LANE_FIELDS, "every lane offered does not run, in the caller's order");
   // AND JUNK MUST NOT SPEND THE CAP — found by a surviving mutant, 2026-08-29.
+  // (There is no cap now; the case still holds that a name the router does not
+  // offer never displaces one it does.)
   // Dropping the per-name refusal looked harmless because the `offered.filter`
   // on the way out refuses an unknown name a second time, so the ANSWER stayed
   // right. What it changed was the counting: four junk names fill `seen`, the
@@ -535,7 +542,21 @@ test("the edit path is a fraction of the build path — measured, not claimed", 
   // (1/8.07), from 11,787; the router alone 9,691 against its tenth of 9,714,
   // from 9,474 — both under their lines, by trimming the wording rather than
   // moving either line.
-  assert.ok(pick + css < whole / 8,
+  //
+  // RE-ANCHORED 2026-10-03, ONE EIGHTH TO TWO FIFTEENTHS (and the router's own
+  // line below, ONE TENTH TO ONE NINTH), and the growth is named: the picker
+  // gained `elsewhere` (416 characters with its key), the structured answer
+  // the owner asked for — *"Let models identify intent, scope and unhandled
+  // parts using clear instructions and structured outputs"* — that names each
+  // part of a message no lane here can make, so it is put off and said rather
+  // than run by no step and said by none (the mixed-work audit's MW3); and the
+  // four `maxItems` of the lane cap left with the cap (MW2). Measured: 12,438
+  // against 97,142 (1/7.81), from 12,035; the router alone 10,094 against
+  // 9,691. Not trimmed instead: the remaining wording is what the live tests
+  // of removals and pages were run on, and the per-lane anchor below — the
+  // one that says the router carries hints and never a lane's instructions —
+  // is untouched.
+  assert.ok(pick + css < whole * 2 / 15,
     "the edit path is no longer materially smaller than the build tool (" + (pick + css) + " vs " + whole + ")");
   // And the router really is the small half — if it grew to carry each field's
   // full instructions it would cost more than the call it exists to shrink.
@@ -564,7 +585,8 @@ test("the edit path is a fraction of the build path — measured, not claimed", 
     " chars per lane against a smallest lane tool of " + smallestLane);
   // The headline claim stays absolute, because THAT one is about the two calls a
   // customer actually pays for and does not move with the lane count.
-  assert.ok(pick < whole / 10, "the router alone is no longer a fraction of the build tool (" + pick + " vs " + whole + ")");
+  // (ONE NINTH SINCE 2026-10-03: `elsewhere`, named above.)
+  assert.ok(pick < whole / 9, "the router alone is no longer a fraction of the build tool (" + pick + " vs " + whole + ")");
   // THE PICKED MODEL, not a spelling. This pinned `claude-haiku-4-5` until run
   // 93, when a billing refusal at that one provider took down every lane, the
   // router and the whole cheap ladder at once. What this line is for is that
@@ -734,4 +756,54 @@ test("every site-lanes name worker.js uses is on its import line", () => {
   const missing = used.filter((n) => !imported.has(n));
   assert.deepEqual(missing, [],
     "worker.js uses these and does not import them, so the line throws when it runs: " + missing.join(", "));
+});
+
+// ── THE PARTS NO LANE HERE CAN MAKE (2026-10-03, the mixed-work fixes) ──────
+//
+// Owner: *"Let models identify intent, scope and unhandled parts using clear
+// instructions and structured outputs, without keyword rules or
+// fixture-specific routing."* The picker names each in the customer's own
+// words; only words the message holds are kept, so nothing is put off on a
+// guess, and nothing in this code reads the customer's words for meaning.
+
+test("the picker's tools ask for the parts no lane here can make, as the customer's own words, and list no kinds of their own", () => {
+  for (const tool of [pickTool(), pickTool(LANE_FIELDS, { routed: true })]) {
+    const p = tool.input_schema.properties.elsewhere;
+    assert.ok(p, tool.name + " has no `elsewhere`");
+    assert.deepEqual([p.type, p.items], ["array", { type: "string" }]);
+    assert.equal(p.maxItems, undefined, "the parts put off are counted");
+    assert.match(p.description, /NONE OF THE PARTS ABOVE CAN MAKE/);
+    assert.match(p.description, /copied EXACTLY from the message/);
+    assert.match(p.description, /not done this time/);
+    assert.match(p.description, /LEAVE IT OUT when the parts you named cover the whole message/);
+    // ⚠ NO LIST OF KINDS: the lanes say what they make, once. A first draft
+    // named "a photograph" and "a menu link", which `images` and `action` add.
+    assert.doesNotMatch(p.description, /photograph|menu|price|table|form/i, "the field names kinds a lane may make");
+    assert.ok(!tool.input_schema.required.includes("elsewhere"), "an answer must name a part put off");
+  }
+  assert.match(pickTool(LANE_FIELDS, { routed: true }).input_schema.properties.elsewhere.description, /already-routed change is being made already; it never goes here/);
+});
+
+test("readElsewhere keeps each part the message holds, once, in the message's own spelling — and counts what it could not find", () => {
+  const msg = "Make the headings green, put the Dark Rye up to £5.60 and change the Visit heading to Find the bakery.";
+  const said = (elsewhere) => ({ content: [{ type: "tool_use", name: "pick_lanes", input: { fields: ["css"], elsewhere } }] });
+  assert.deepEqual(readElsewhere(said(["put the Dark Rye up to £5.60", "change the Visit heading to Find the bakery"]), msg),
+    { parts: ["put the Dark Rye up to £5.60", "change the Visit heading to Find the bakery"], unread: 0 });
+  assert.deepEqual(readElsewhere(said(["put the Dark Rye up to £5.60", "put the Dark Rye up to £5.60"]), msg).parts, ["put the Dark Rye up to £5.60"], "one part twice is one part");
+  // NOT IN THE MESSAGE: dropped and counted, never put off on a guess.
+  assert.deepEqual(readElsewhere(said(["rename the bakery to Fold Lane", "put the Dark Rye up to £5.60"]), msg), { parts: ["put the Dark Rye up to £5.60"], unread: 1 });
+  // A NON-STRING IS NEVER COERCED (`String(["a"])` is "a").
+  assert.deepEqual(readElsewhere(said([["put the Dark Rye up to £5.60"], 7, null, "", "   "]), msg), { parts: [], unread: 5 });
+  // ABSENT, OR NOT A LIST: nothing, and nothing to count.
+  for (const v of [undefined, null, "put the Dark Rye up to £5.60", {}]) assert.deepEqual(readElsewhere(said(v), msg), { parts: [], unread: 0 }, JSON.stringify(v));
+  assert.deepEqual(readElsewhere(null, msg), { parts: [], unread: 0 });
+});
+
+test("pickLanes carries the parts put off on its answer, and none when there are none", async () => {
+  const msg = "Make the headings green and put the Dark Rye up to £5.60.";
+  const answer = (input) => ({ send: async () => ({ content: [{ type: "tool_use", name: "pick_lanes", input }], usage: { input_tokens: 1, output_tokens: 1 } }) });
+  const r = await pickLanes(answer({ fields: ["css"], elsewhere: ["put the Dark Rye up to £5.60", "something else"] }), { message: msg, fields: LANE_FIELDS });
+  assert.deepEqual([r.fields, r.elsewhere, r.elsewhereUnread], [["css"], ["put the Dark Rye up to £5.60"], 1]);
+  const none = await pickLanes(answer({ fields: ["css"] }), { message: msg, fields: LANE_FIELDS });
+  assert.equal(Object.hasOwn(none, "elsewhere"), false, "an answer with no parts put off carries an empty list");
 });

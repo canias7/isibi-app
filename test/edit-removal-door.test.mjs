@@ -233,7 +233,7 @@ function assertDoorAsked(r, layer, ask, label) {
   const q = pickSent(r);
   const tool = q.tools.find((t) => t.name === PICK);
   assert.ok(tool, label + ": the picker was not given its tool");
-  assert.deepEqual(Object.keys(tool.input_schema.properties), ["routed", "additional", "removes", "scopes", "pageVerb", "pageName", "pageTo", "question"], label + ": the door's tool");
+  assert.deepEqual(Object.keys(tool.input_schema.properties), ["routed", "additional", "removes", "scopes", "elsewhere", "pageVerb", "pageName", "pageTo", "question"], label + ": the door's tool");
   assert.deepEqual(tool.input_schema.required, ["additional"], label + ": what the door's tool requires");
   const text = q.system.map((b) => b.text).join("\n");
   assert.match(text, /ALREADY been routed to one change/, label + ": the door's system text");
@@ -393,7 +393,7 @@ test("THE SELECTOR'S CONTRACT: on the door it is told what was routed and asked 
     // THE DOOR'S TOOL: two lists, `additional` the only one required, and no
     // `fields` at all — so an answer in the ordinary tool's shape names no work.
     assert.equal(tool.name, PICK);
-    assert.deepEqual(Object.keys(tool.input_schema.properties), ["routed", "additional", "removes", "scopes", "pageVerb", "pageName", "pageTo", "question"], layer);
+    assert.deepEqual(Object.keys(tool.input_schema.properties), ["routed", "additional", "removes", "scopes", "elsewhere", "pageVerb", "pageName", "pageTo", "question"], layer);
     assert.deepEqual(tool.input_schema.required, ["additional"], layer);
     for (const k of ["routed", "additional"]) {
       const list = tool.input_schema.properties[k];
@@ -429,7 +429,7 @@ test("THE SELECTOR'S CONTRACT: on the door it is told what was routed and asked 
   // EVERYWHERE ELSE THE QUESTION IS THE ORDINARY ONE, BYTE FOR BYTE: the look
   // door, a door layer the router did NOT mark as a removal, a layer that is
   // not a door, and anything unreadable.
-  assert.deepEqual(Object.keys(look.tools[0].input_schema.properties), ["fields", "removes", "scopes", "pageVerb", "pageName", "pageTo", "question"]);
+  assert.deepEqual(Object.keys(look.tools[0].input_schema.properties), ["fields", "removes", "scopes", "elsewhere", "pageVerb", "pageName", "pageTo", "question"]);
   // `scopes` IS REQUIRED SINCE 2026-09-29: each change's own page and words
   // (run 52). The door's `required` above is unchanged — its scopes cover only
   // the work asked beside the routed change, and that list is usually empty.
@@ -482,9 +482,11 @@ test("THE DOOR'S ANSWER, READ BY ITS NAMES: only `additional` makes work, the ro
   assert.deepEqual(await pick("nav", { additional: ["three", "backend"], removes: ["three", "backend"] }),
     want(["backend", "three"], [], ["three"], { refused: ["backend"] }));
   assert.deepEqual(await pick("nav", { additional: ["pages"], removes: ["pages"] }), want(["pages"], [], [], { pages: true }));
-  // THE SAME CAP, DE-DUPLICATION AND ORDER AS EVERY LANE LIST.
-  // The first four distinct names in the model's order, then the caller's order.
-  assert.deepEqual((await pick("nav", { additional: ["tsx", "css", "css", "shape", "brand", "favicon", "lang"] })).fields, ["css", "brand", "shape", "tsx"]);
+  // THE SAME DE-DUPLICATION AND ORDER AS EVERY LANE LIST, AND NO CAP
+  // (2026-10-03, the mixed-work fixes): every distinct name, in the caller's
+  // order. This kept the first four the model listed and dropped the rest with
+  // no word (the audit's MW2).
+  assert.deepEqual((await pick("nav", { additional: ["tsx", "css", "css", "shape", "brand", "favicon", "lang"] })).fields, ["css", "brand", "favicon", "lang", "shape", "tsx"]);
   // And every one of those calls was the door's question.
   assert.equal(sent.length, 17);
   for (const req of sent) assert.deepEqual(req.tools[0].input_schema.required, ["additional"]);
@@ -598,7 +600,10 @@ for (const mode of ["sync", "job"]) {
       for (const p of PAGES) if (p.path !== "index.tsx") assert.equal(page(r, p.path), p.source, label + ": " + p.path + " changed");
       assertDoorAsked(r, "picture", PHOTO_BAND_ASK, label);
       assert.deepEqual(doorMarks(r).map((e) => e.d), [{ layer: "picture", routed: lanes.includes("images") ? ["images"] : [], additional: ["shape"] }], label + ": the lists recorded");
-      assert.equal(r.said.text, "✅ Updated the look. One photograph is no longer on the site. If that was not what you wanted, roll back to the previous build in Cloud → Versions.", label + ": the screen");
+      // BOTH CHANGES ARE NAMED (2026-10-03, the mixed-work fixes, MW1/MW8): the
+      // page the layout changed and the picture step's own account. This said
+      // "✅ Updated the look." over both, naming neither.
+      assert.equal(r.said.text, "✅ Updated /. Took “A sourdough boule cooling after the morning bake” off the page. One photograph is no longer on the site. If that was not what you wanted, roll back to the previous build in Cloud → Versions.", label + ": the screen");
       assert.deepEqual(r.said.actions, ["refresh the credit balance"], label + ": the browser started something paid");
       assertCharged(r, mode, [3, 2], label);
     });
@@ -630,7 +635,9 @@ for (const mode of ["sync", "job"]) {
       assertOthersKept(r, label);
       for (const p of PAGES) if (p.path !== "index.tsx") assert.equal(page(r, p.path), p.source, label + ": " + p.path + " changed");
       assertDoorAsked(r, "picture", ask, label);
-      assert.equal(r.said.text, "✅ Updated /. ⚠️ I couldn't match that to any of the pictures on your site. That part still cost 2 credits.", label + ": the screen");
+      // THE PART THAT DID NOT GO THROUGH IS NAMED BY WHAT IT WAS ABOUT (2026-10-03):
+      // the router's own step carries no words of its own, so its part of the site.
+      assert.equal(r.said.text, "✅ Updated /. ⚠️ A photograph: I couldn't match that to any of the pictures on your site. That part still cost 2 credits.", label + ": the screen");
       assert.deepEqual(r.said.actions, ["refresh the credit balance"], label + ": the browser started something paid");
       assertCharged(r, mode, [3, 2], label);
     });
@@ -664,7 +671,8 @@ for (const mode of ["sync", "job"]) {
       }
       assertOthersKept(r, label);
       assertDoorAsked(r, "nav", BAND_ASK, label);
-      assert.equal(r.said.text, "✅ Updated the look.", label + ": the screen");
+      // BOTH NAMED (2026-10-03, MW1/MW8): the page and the menu editor's own account.
+      assert.equal(r.said.text, "✅ Updated /. Updated the menu on 2 pages: Today's bake · The starter · Visit.", label + ": the screen");
       assertCharged(r, mode, [3, 2], label);
     });
   }
@@ -689,7 +697,8 @@ for (const mode of ["sync", "job"]) {
     }
     assert.equal(outsideMenus(page(r, "index.tsx")), outsideMenus(MOVED), label + ": the home page is not the layout outside its menu");
     assertOthersKept(r, label);
-    assert.equal(r.said.text, "✅ Updated the look. ⚠️ I couldn't work out how to change the site's look that way. Say which part — a colour, the fonts, a section — and what it should look like.", label + ": the screen");
+    // BOTH SHIPPED CHANGES NAMED, AND THE REFUSED PART BY WHAT IT WAS ABOUT (2026-10-03).
+    assert.equal(r.said.text, "✅ Updated /. Updated the menu on 2 pages: Today's bake · The starter · Visit. ⚠️ What a control does: I couldn't work out how to change the site's look that way. Say which part — a colour, the fonts, a section — and what it should look like.", label + ": the screen");
     assertCharged(r, mode, [3, 2], label);
   });
 }
@@ -767,10 +776,10 @@ for (const mode of ["sync", "job"]) {
     for (const p of ["order.tsx", "starter.tsx", "gallery.tsx"]) assert.equal(page(r, p), ORIG[p], label + ": " + p + " changed");
     assertOthersKept(r, label);
     assertDoorAsked(r, "picture", PHOTO_VISIT_ASK, label);
-    // THE SCREEN IS THE UNSCOPED CASE'S, word for word: two rungs read "the
-    // look", which names neither page — the parked review #9 wording, kept
-    // because no reply is redesigned here. Nothing in it is untrue.
-    assert.equal(r.said.text, "✅ Updated the look. One photograph is no longer on the site. If that was not what you wanted, roll back to the previous build in Cloud → Versions.", label + ": the screen");
+    // THE SCREEN NAMES BOTH (2026-10-03, the mixed-work fixes, MW1/MW8): the
+    // Visit page the move changed and the picture step's own account. It read
+    // "✅ Updated the look." — the parked review #9 wording, naming neither.
+    assert.equal(r.said.text, "✅ Updated /visit. Took “A sourdough boule cooling after the morning bake” off the page. One photograph is no longer on the site. If that was not what you wanted, roll back to the previous build in Cloud → Versions.", label + ": the screen");
     assertCharged(r, mode, [3, 2], label);
   });
 }
@@ -845,7 +854,7 @@ test("CONTROL: an ordinary look request still runs the lane the picker chose, an
   assert.equal(r.builds.length, 0);
   assert.deepEqual(doorMarks(r), []);
   const q = pickSent(r);
-  assert.deepEqual(Object.keys(q.tools[0].input_schema.properties), ["fields", "removes", "scopes", "pageVerb", "pageName", "pageTo", "question"]);
+  assert.deepEqual(Object.keys(q.tools[0].input_schema.properties), ["fields", "removes", "scopes", "elsewhere", "pageVerb", "pageName", "pageTo", "question"]);
   assert.ok(!q.messages[0].content.includes("ALREADY BEEN ROUTED"), "the look door was told something was routed");
   assert.ok(q.messages[0].content.endsWith("Their message:\n" + ask));
 });
@@ -1039,7 +1048,9 @@ for (const mode of ["sync", "job"]) {
       assert.equal(r.builds.length, 1, label + ": one compile carries both");
       assert.equal(r.reply.partial, undefined, label + ": " + JSON.stringify(r.reply.partial));
       assert.equal(r.reply.photosTakenOff, 1, label + ": the removal is not carried on the reply");
-      assert.equal(r.said.text, "✅ Updated the look. One photograph is no longer on the site. " + TAKEN_OFF, label + ": the screen");
+      // BOTH NAMED (2026-10-03, MW1/MW8): the home page the move changed and the
+      // picture step's own account of the counter it took off.
+      assert.equal(r.said.text, "✅ Updated /. Took “" + COUNTER + "” off the page. One photograph is no longer on the site. " + TAKEN_OFF, label + ": the screen");
     });
   }
 }
@@ -1155,9 +1166,11 @@ for (const mode of ["sync", "job"]) {
       // GALLERY LEAVES EVERY COPY OF THE MENU; OUTSIDE THE MENUS ONLY THE HOME PAGE'S LAYOUT MOVED.
       assertMenuLessGallery(r, { "index.tsx": MOVED }, label);
       assertOthersKept(r, label);
-      // THE SCREEN NAMES NEITHER CHANGE: review #9, a multi-step look reply
-      // naming only the look, kept separate by the owner.
-      assert.equal(r.said.text, "✅ Updated the look.", label + ": the screen");
+      // THE SCREEN NAMES BOTH CHANGES (2026-10-03, the mixed-work fixes,
+      // MW1/MW8). It named neither — review #9, a multi-step look reply naming
+      // only the look — and the owner's order now asks for every completed
+      // operation with its target.
+      assert.equal(r.said.text, "✅ Updated /. Updated the menu on 2 pages: Today's bake · The starter · Visit.", label + ": the screen");
       assertCharged(r, mode, [3, 2], label);
     });
   }
@@ -1181,7 +1194,8 @@ for (const mode of ["sync", "job"]) {
     assert.equal(page(r, "index.tsx"), MOVED, label + ": the layout did not ship on its own");
     for (const p of PAGES) if (p.path !== "index.tsx") assert.equal(page(r, p.path), p.source, label + ": " + p.path + " changed");
     assert.deepEqual((r.reply.partial || []).map((p) => [p.layer, p.error, p.lanes]), [["look", "no-change", ["behavior"]]], label + ": partial");
-    assert.equal(r.said.text, "✅ Updated /. ⚠️ I couldn't work out how to change the site's look that way. Say which part — a colour, the fonts, a section — and what it should look like.", label + ": the screen");
+    // THE REFUSED PART NAMED BY ITS OWN WORDS (2026-10-03): the picker scoped it.
+    assert.equal(r.said.text, "✅ Updated /. ⚠️ “" + MENU_WORDS + "”: I couldn't work out how to change the site's look that way. Say which part — a colour, the fonts, a section — and what it should look like.", label + ": the screen");
   });
 }
 
@@ -1195,10 +1209,10 @@ for (const mode of ["sync", "job"]) {
   for (const [name, navAnswer, partial, cost, charged, said] of [
     ["the menu editor answers nothing it can apply", {},
       [["nav", "no-menu", [MENU_LANE], 2]], 5, [3, 2],
-      "✅ Updated /. ⚠️ I couldn't work out what the menu should be. Tell me what to add, take out or move. That part still cost 2 credits."],
+      "✅ Updated /. ⚠️ “" + MENU_WORDS + "”: I couldn't work out what the menu should be. Tell me what to add, take out or move. That part still cost 2 credits."],
     ["the menu editor cannot be reached", undefined,
       [["nav", "send", [MENU_LANE], undefined]], 3, [3],
-      "✅ Updated /. ⚠️ I couldn't reach the model that sets the menu — try again in a moment."],
+      "✅ Updated /. ⚠️ “" + MENU_WORDS + "”: I couldn't reach the model that sets the menu — try again in a moment."],
   ]) {
     test(`LOOK DOOR, THE MENU HALF FAILS (${mode}): ${name} — the layout ships alone, every menu is as it was, and the reply says the menu was not changed`, async () => {
       const answers = { [PICK]: MENU_AND_BAND, write_tweak: bandWriter };
@@ -1226,11 +1240,15 @@ for (const mode of ["sync", "job"]) {
   for (const [name, pick, writers, calls, partial, said] of [
     ["the layout names a page the site does not have",
       { fields: ["shape", MENU_LANE], scopes: [{ part: MENU_LANE, words: MENU_WORDS }, { part: "shape", page: "/menu", words: BAND_WORDS }] },
-      { write_tweak: bandWriter }, [PICK, "write_nav"], [["page", "no-page", ["shape"]]], NO_PAGE],
+      // NAMED BY ITS OWN WORDS (2026-10-03): a change withheld for a page the
+      // site does not have keeps the words it was for, which passed their
+      // check; the page is in the builder's sentence already, so not said twice.
+      { write_tweak: bandWriter }, [PICK, "write_nav"], [["page", "no-page", ["shape"]]], "“" + BAND_WORDS + "”: " + NO_PAGE],
     ["the page's writers find nothing to change",
       MENU_AND_BAND,
       { write_tweak: { cannot: "That needs the page rewritten." }, write_pages: { pages: [{ path: "index.tsx", source: ORIG["index.tsx"] }] } },
-      [PICK, "write_tweak", "write_pages", "write_nav"], [["page", "no-change", ["shape"]]], NO_CHANGE],
+      // NAMED BY ITS OWN WORDS (2026-10-03); the builder's sentence names its page.
+      [PICK, "write_tweak", "write_pages", "write_nav"], [["page", "no-change", ["shape"]]], "“" + BAND_WORDS + "”: " + NO_CHANGE],
   ]) {
     test(`LOOK DOOR, THE LAYOUT HALF FAILS (${mode}): ${name} — Gallery still leaves every menu, nothing else moves, and the reply says the layout was not changed`, async () => {
       const r = await drive({ mode, routed: { layer: "look" }, ask: BAND_ASK, answers: { [PICK]: pick, ...writers, write_nav: menuEditor } });

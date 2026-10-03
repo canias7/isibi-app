@@ -101,7 +101,11 @@ const CASES = [
   ["rename-normalized", () => routed({ intent: "edit", layer: "page", page: "/book", rename: "/Booking/" }), "model"],
   ["rename-ignored", () => routed({ intent: "edit", layer: "look", rename: "/x" }), "model"],
   ["edit-fields-ignored", () => routed({ intent: "addon", layer: "nav" }), "model"],
-  ["also-not-text", () => routed({ intent: "addon", alsoAsked: ["a", "b"] }), "model"],
+  // A LIST IS SEVERAL PARTS SINCE 2026-10-03 (the mixed-work fixes); a list
+  // with an entry that is not text is still refused rather than coerced.
+  ["also-not-text", () => routed({ intent: "addon", alsoAsked: ["a", 7] }), "model"],
+  ["also-not-text", () => routed({ intent: "addon", alsoAsked: 7 }), "model"],
+  ["also-several", () => routed({ intent: "addon", alsoAsked: ["and a gallery", "and a map"] }), "model"],
   // LONGER THAN ANY MESSAGE OF A SITE (the size policy's, 2026-10-03; it was 2,000).
   ["also-too-long", () => routed({ intent: "addon", alsoAsked: "x".repeat(MAX_INPUT_CHARS + 1) }), "model"],
   ["also-ignored", () => routed({ intent: "build", alsoAsked: "and a map" }), "model"],

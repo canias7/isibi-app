@@ -10887,29 +10887,74 @@ function addonReplyText(a) {
   // what the database saved — the entry's own words, its list and the number
   // the database gave it — never from the request's wording.
   const rowsAdded = (Array.isArray(a.rows) ? a.rows : []).filter((r) => r && typeof r.table === 'string' && r.table);
-  for (const r of rowsAdded.slice(0, 6)) {
+  // EVERY ONE, NEVER "AND N MORE" (2026-10-03): a count names no entry.
+  for (const r of rowsAdded) {
     bits.push('added ' + (typeof r.label === 'string' && r.label ? '“' + r.label + '”' : 'an entry') + ' to ' + r.table +
       (Number.isSafeInteger(r.id) ? ' (entry ' + r.id + ')' : ''));
   }
-  if (rowsAdded.length > 6) bits.push('and ' + (rowsAdded.length - 6) + ' more');
   // NEW WORDS, AND A PHOTOGRAPH OF THE SITE'S OWN PUT ON A PAGE (2026-10-02),
   // said from what the server found on the page before it published — each
   // one checked there — never from the request's wording.
   const routeName = (r) => (typeof r === 'string' && r.charAt(0) === '/' ? r : '');
-  for (const w of (Array.isArray(a.words) ? a.words : []).slice(0, 3)) {
+  for (const w of (Array.isArray(a.words) ? a.words : [])) {
     if (w && typeof w.words === 'string' && w.words && routeName(w.page)) bits.push('added “' + w.words.slice(0, 140) + '” to ' + routeName(w.page));
   }
   const placed = (Array.isArray(a.ownPhotos) ? a.ownPhotos : []).map((p) => routeName(p && p.page)).filter(Boolean);
   if (placed.length) bits.push('put ' + (placed.length === 1 ? 'one of your own photographs' : placed.length + ' of your own photographs') + ' on ' + [...new Set(placed)].join(', '));
+  // A QR CODE OR A 3D SCENE A PAGE REALLY SHOWS (2026-10-03, the mixed-work
+  // audit's MW5): said from where the publication shows it, never from the
+  // request. One saved and shown nowhere is said below, as not done.
+  const shownOn = (x) => (Array.isArray(x && x.on) ? x.on : []).filter((r) => routeName(r));
+  const qrCodes = (Array.isArray(a.qrs) ? a.qrs : []).filter((q) => q && typeof q === 'object');
+  for (const q of qrCodes) {
+    if (shownOn(q).length) bits.push('added a QR code' + (q.label ? ' captioned “' + q.label + '”' : '') + ' on ' + shownOn(q).join(', '));
+  }
+  const scene = a.scene && typeof a.scene === 'object' ? a.scene : null;
+  if (scene && shownOn(scene).length) bits.push('added a 3D scene on ' + shownOn(scene).join(', '));
   let out = bits.length ? '✅ Done — ' + bits.join(', ') + '.' : '✅ Done.';
   // WHAT A ONE-TIME JOB DOES NEXT, said right after the schedule it belongs to
   // and before anything about the database or the pictures.
   out += jobOnceNote(a.jobs);
+  // A SCHEDULE THE PLATFORM RUNS ON ANOTHER INTERVAL THAN ASKED (2026-10-03,
+  // MW7), said beside the one it really runs on.
+  const everyWords = (m) => (!Number.isFinite(m) || m <= 0 ? ''
+    : m === 1 ? 'every minute'
+    : m % 10080 === 0 ? (m === 10080 ? 'every week' : 'every ' + (m / 10080) + ' weeks')
+    : m % 1440 === 0 ? (m === 1440 ? 'every day' : 'every ' + (m / 1440) + ' days')
+    : m % 60 === 0 ? (m === 60 ? 'every hour' : 'every ' + (m / 60) + ' hours')
+    : 'every ' + m + ' minutes');
+  for (const j of (Array.isArray(a.jobs) ? a.jobs : [])) {
+    if (!j || !j.name || !Number.isFinite(Number(j.askedEveryMinutes))) continue;
+    out += ' You asked for ' + j.name + ' to run ' + everyWords(Number(j.askedEveryMinutes)) +
+      ', which the platform doesn’t do, so it runs ' + everyWords(Number(j.everyMinutes)) + ' — the nearest it allows.';
+  }
+  // A CODE OR A SCENE SAVED THAT NO PAGE SHOWS, said as not done, with where it
+  // was asked for — or, when only a section a page may draw carries it, that
+  // nothing confirmed it.
+  for (const q of qrCodes) {
+    if (shownOn(q).length) continue;
+    const what = 'the QR code' + (q.label ? ' “' + q.label + '”' : '');
+    out += q.unsure === true
+      ? ' I saved ' + what + ', but couldn’t confirm a page shows it — have a look.'
+      : ' I saved ' + what + ', but no page shows it yet' + (routeName(q.page) ? ' (you asked for it on ' + q.page + ')' : '') + ' — ask me to put it on a page and I will.';
+  }
+  if (scene && !shownOn(scene).length) {
+    out += scene.unsure === true
+      ? ' I saved the 3D scene, but couldn’t confirm a page draws it — have a look.'
+      : ' I saved the 3D scene, but no page draws it yet' + (routeName(scene.page) ? ' (you asked for it on ' + scene.page + ')' : '') + ' — ask me to put it on a page and I will.';
+  }
+  // A KIND WHOSE DESIGNER DECLINED, beside the kinds that were added
+  // (2026-10-03, MW6).
+  const KIND_SAID = { table: 'a list for the site to store', row: 'an entry in one of your lists', function: 'a function', api: 'a connection to an outside service', job: 'a scheduled job', page: 'a page', component: 'a section', words: 'a line of words', frame: 'a menu link, button or footer item', qr: 'a QR code', three: 'a 3D scene', photo: 'a photograph' };
+  for (const k of (Array.isArray(a.declined) ? a.declined : [])) {
+    if (typeof k !== 'string' || !k) continue;
+    out += ' I couldn’t design ' + (KIND_SAID[k] || 'one part of that') + ' from what you asked, so nothing was made for it — ask for it on its own, with a little more detail.';
+  }
   if (a.provisioned === true) out += ' Your site has its own database now.';
   // A FUNCTION THE DATABASE REFUSED IS SAID, with its own reason: the rest
   // of the addition landed, and "added the function" would be a lie for
   // this one. The server names it in `functionErrors`, never in `functions`.
-  for (const fe of (Array.isArray(a.functionErrors) ? a.functionErrors : []).slice(0, 3)) {
+  for (const fe of (Array.isArray(a.functionErrors) ? a.functionErrors : [])) {
     if (!fe || !fe.name) continue;
     out += ' The function ' + fe.name + ' couldn’t be created' + (fe.error ? ' — ' + String(fe.error).slice(0, 140) : '') + '.';
   }
@@ -10918,7 +10963,7 @@ function addonReplyText(a) {
   // `jobs`, so this line said "scheduled a reminder every day at 09:00" about
   // something that will never run. It names it in `jobErrors` now and takes it
   // off `jobs`, so the two lines can never both be about the same job.
-  for (const je of (Array.isArray(a.jobErrors) ? a.jobErrors : []).slice(0, 3)) {
+  for (const je of (Array.isArray(a.jobErrors) ? a.jobErrors : [])) {
     if (!je || !je.name) continue;
     out += ' The scheduled job ' + je.name + ' couldn’t be set up' + (je.error ? ' — ' + String(je.error).slice(0, 140) : '') + ', so it won’t run yet.';
   }
@@ -10966,7 +11011,7 @@ function addonReplyText(a) {
   // AN ENTRY LEFT OUT OF A LIST IS SAID, with the server's own reason: a
   // message may add several pages or components at once, and one refused
   // among them must not read as added.
-  for (const n of (Array.isArray(a.notAdded) ? a.notAdded : []).slice(0, 3)) {
+  for (const n of (Array.isArray(a.notAdded) ? a.notAdded : [])) {
     if (!n || !n.msg) continue;
     out += ' I left out ' + (n.name ? '“' + n.name + '”' : 'one ' + (n.kind || 'entry')) + ': ' + n.msg;
   }
@@ -10987,7 +11032,7 @@ function addonReplyText(a) {
   // A PAGE WE REFUSED TO DELETE IS SAID PLAINLY. Keeping it quietly is the
   // silent partial this lane already had once: asked for gone, told it worked,
   // still there.
-  for (const k of (Array.isArray(a.kept) ? a.kept : []).slice(0, 3)) {
+  for (const k of (Array.isArray(a.kept) ? a.kept : [])) {
     if (!k || !k.path) continue;
     const p = sitePathOf(k.path);
     out += k.why === 'home'
@@ -11277,24 +11322,57 @@ function partialShown(e) {
   const parts = e && Array.isArray(e.partial) ? e.partial : [];
   return clarifyOf(e && e.clarify) ? parts.filter((p) => !(p && p.error === 'clarify')) : parts;
 }
+// ⚠ EVERY PART, BY ITS TARGET, AND NO COUNT (2026-10-03, the owner: *"report
+// every completed, failed, declined and pending operation with its target …
+// Do not replace missing targets with a vague count."*). This said two
+// sentences and counted the rest, and counted every part with no sentence —
+// "2 more parts of that message didn't go through" names nothing anybody can
+// send again. The route now carries each part's own words and page
+// (`partial[].words`, `.page`); a part with a sentence says it, a part without
+// one is named by its words, its page or the part of the site it is about, and
+// a sentence two parts share is said once. The names live inside this one
+// function so every reader that cuts it out of this file carries them along.
 function partialSaid(parts) {
-  const stopped = Array.isArray(parts) ? parts : [];
-  const said = [];
-  let silent = 0;
-  stopped.forEach(function (p) {
+  const PLAIN = { css: 'the styling', theme: 'the theme', brand: 'the site’s name', description: 'the description', wordmark: 'the logo', favicon: 'the tab icon', lang: 'the language', langs: 'the other languages', behavior: 'what a control does', qr: 'a QR code', purpose: 'what a page leads with', components: 'a page’s building blocks', shape: 'a page’s layout', images: 'a photograph', action: 'the menu or the header button', backend: 'what the site stores and accepts', three: 'the 3D scene', tsx: 'a part built for the site', kind: 'the kind of site', pages: 'a page', slug: 'the web address' };
+  // THE ROUTER'S OWN STEP NAMES NO LANE: named by what its layer changes.
+  const LAYER = { picture: 'a photograph', nav: 'the menu or the header button', rules: 'what the site stores and accepts', rename: 'the web address', logo: 'the logo', text: 'the wording', data: 'an entry in a stored list', page: 'a page', look: 'the look' };
+  const list = (xs) => (xs.length <= 1 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1]);
+  // WHAT A PART WAS ASKED, AS NAMES AND A PAGE: its own words when the picker
+  // scoped it, else the part of the site its lanes are, else its layer's.
+  const namesOf = (p) => {
+    const words = (p && Array.isArray(p.words) ? p.words : []).filter((w) => typeof w === 'string' && w.trim()).map((w) => '“' + w.trim() + '”');
+    if (words.length) return words;
+    const lanes = (p && Array.isArray(p.lanes) ? p.lanes : []).map((l) => PLAIN[l]).filter(Boolean);
+    if (lanes.length) return lanes;
+    return p && LAYER[p.layer] ? [LAYER[p.layer]] : [];
+  };
+  const pageOf = (p) => (p && typeof p.page === 'string' && p.page.charAt(0) === '/' ? p.page : '');
+  // ONE SENTENCE PER REASON AND PAGE: two steps refused for the same reason on
+  // the same page are one problem (two lanes of one page operation, say), said
+  // once with both their names — and two reasons are two sentences. A STEP WITH
+  // NO REASON IS ALWAYS ITS OWN SENTENCE (the owner's 2026-09-23 rule: each
+  // entry is its own step, never folded into another).
+  const groups = [];
+  (Array.isArray(parts) ? parts : []).forEach(function (p) {
     const m = p && typeof p.msg === 'string' ? p.msg.trim() : '';
-    if (!m) silent++;
-    else if (said.indexOf(m) < 0) said.push(m);
+    const page = pageOf(p);
+    let g = m ? groups.find((x) => x.m === m && x.page === page) : null;
+    if (!g) groups.push(g = { m: m, page: page, names: [] });
+    namesOf(p).forEach((n) => { if (g.names.indexOf(n) < 0) g.names.push(n); });
   });
-  let out = said.slice(0, 2).join(' ');
-  if (said.length > 2) out += ' (' + (said.length - 2) + ' more part' + (said.length - 2 === 1 ? '' : 's') + ' of that message didn’t go through either.)';
-  if (!silent) return out;
-  // "MORE" ONLY BESIDE A SENTENCE: alone, the count is the whole answer and
-  // reads exactly as it did before a sentence could stand next to it.
-  const more = said.length ? ' more' : '';
-  return (out ? out + ' ' : '') + (silent === 1 ? 'One' + more + ' part' : silent + more + ' parts') +
-    ' of that message didn’t go through. Ask for ' + (silent === 1 ? 'it' : 'them') + ' again on ' +
-    (silent === 1 ? 'its' : 'their') + ' own and I’ll tell you why.';
+  // A SENTENCE THAT ALREADY NAMES ITS PAGE is not told the page again ("I left
+  // / — that is the home page" needs no "on /" in front of it).
+  const says = (m, page) => m.split(/\s+/).some((t) => t.replace(/^[“"(]+|[”"),.;:!?]+$/g, '') === page);
+  return groups.map(function (g) {
+    const pageSaid = !!(g.page && g.m && says(g.m, g.page));
+    let what = list(g.names) + (g.page && !pageSaid ? ' on ' + g.page : '');
+    if (!what && g.page && !pageSaid) what = 'the change on ' + g.page;
+    const cap = what ? what.charAt(0).toUpperCase() + what.slice(1) : '';
+    if (!g.m) return (cap || 'One part of that message') + ' didn’t go through. Ask for it again on its own and I’ll tell you why.';
+    // A SENTENCE THAT ALREADY NAMES WHAT IT IS ABOUT is not prefixed twice.
+    const named = g.names.length && g.m.toLowerCase().indexOf(list(g.names).toLowerCase()) >= 0;
+    return cap && !named ? cap + ': ' + g.m : g.m;
+  }).join(' ');
 }
 
 /**
@@ -11370,12 +11448,20 @@ function pageOpsSaid(ops) {
     } else if (verb === 'move') {
       s = 'moved ' + (page || 'that page') + ' to ' + op.renamedTo;
     } else {
-      s = 'updated ' + (page || 'the page');
+      // EVERY PAGE EDITED IS ONE CLAUSE (2026-10-03): "updated / and /menu",
+      // where it read "updated / and updated /menu" once the look branch named
+      // its pages.
+      const p = page || 'the page';
+      let g = said.find((x) => x && Array.isArray(x.pages));
+      if (!g) said.push(g = { pages: [] });
+      if (g.pages.indexOf(p) < 0) g.pages.push(p);
+      return;
     }
     if (said.indexOf(s) < 0) said.push(s);
   });
   if (!said.length) return '';
-  const list = said.length === 1 ? said[0] : said.slice(0, -1).join(', ') + ' and ' + said[said.length - 1];
+  const and = (xs) => (xs.length === 1 ? xs[0] : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1]);
+  const list = and(said.map((x) => (typeof x === 'string' ? x : 'updated ' + and(x.pages))));
   // FREE, AND SAYING SO IS THE POINT: a removal costs nothing but a recompile,
   // and every publish is kept, so it can be put back.
   return list.charAt(0).toUpperCase() + list.slice(1) + '.' +
@@ -11384,7 +11470,31 @@ function pageOpsSaid(ops) {
 
 function editReply(e) {
   if (EditPoll.isRecovered(e)) return EditPoll.outcomeMessage('recovered');
-  return editReplyBody(e) + editOutcomes(e) + photoNote(e.photos) + problemNote(e.problems);
+  // ── WHAT EACH STEP THAT RAN BESIDE OTHERS SAID IT DID (2026-10-03) ────────
+  //
+  // The mixed-work audit's MW1: several steps answer `look`, and the look
+  // branch reads the look's fields and the page operations — so a photograph
+  // taken off and a menu changed beside them were made and said nowhere. The
+  // route keeps every step's own account (`steps`); a step whose layer writes
+  // its own sentence (which picture, which links, which address) is said here
+  // in its words. Inline, so every reader that cuts this function out carries it.
+  let stepsSaid = '';
+  if (e.layer === 'look' && Array.isArray(e.steps)) {
+    const OWN = ['picture', 'nav', 'rules', 'rename', 'logo', 'text', 'data'];
+    const out = [];
+    e.steps.forEach(function (st) {
+      if (!st || st.status !== 'done' || OWN.indexOf(st.layer) < 0) return;
+      let m = typeof st.msg === 'string' ? st.msg.trim().replace(/^✅\s*/, '') : '';
+      if (!m) {
+        const words = (Array.isArray(st.words) ? st.words : []).filter((w) => typeof w === 'string' && w.trim()).map((w) => '“' + w.trim() + '”');
+        m = 'Done' + (words.length ? ': ' + words.join(', ') : '') + '.';
+      }
+      if (st.layer === 'rules') m += ' It’s live now — nothing needed rebuilding.';
+      if (out.indexOf(m) < 0) out.push(m);
+    });
+    if (out.length) stepsSaid = ' ' + out.join(' ');
+  }
+  return editReplyBody(e) + stepsSaid + editOutcomes(e) + photoNote(e.photos) + problemNote(e.problems);
 }
 
 function editReplyBody(e) {
@@ -11575,7 +11685,11 @@ function editReplyBody(e) {
     // anything else did. Nothing else here can say what shipped, so the page
     // operations follow the note.
     const ops = Array.isArray(e.pageOps) ? e.pageOps : [];
-    const opsSaid = ops.some(pageOpVerb) ? pageOpsSaid(ops) : '';
+    // EVERY PAGE OPERATION THAT SHIPPED IS NAMED, AN ORDINARY EDIT TOO
+    // (2026-10-03, the mixed-work audit's MW8): two layout moves on two pages
+    // answered "✅ Updated the look." and named neither page, though the answer
+    // carried both. Only removals and moves were said here before.
+    const opsSaid = ops.length ? pageOpsSaid(ops) : '';
     if (typeof e.lookNote === 'string' && e.lookNote.trim()) {
       const shipped = pageOpsSaid(ops);
       return '✅ ' + e.lookNote.trim() + (shipped ? ' ' + shipped : '');
@@ -11597,7 +11711,14 @@ function editReplyBody(e) {
     // scoped change and a site-wide one read identically — and the customer
     // goes and looks at the home page, sees nothing, and concludes it failed.
     var where = typeof e.tokensPage === 'string' && e.tokensPage ? ' on ' + e.tokensPage : '';
-    let out = !bits.length && opsSaid ? '✅ ' + opsSaid
+    // NOTHING OF THE LOOK ITSELF MOVED, BUT OTHER STEPS DID (2026-10-03): a
+    // photograph and a menu change together answer `look` with no look field,
+    // and "Updated the look" would be a claim about a step that never ran.
+    // Their own sentences follow (`stepsSaid`, in `editReply`).
+    const others = !bits.length && !opsSaid && Array.isArray(e.steps) &&
+      e.steps.some((st) => st && st.status === 'done' && ['picture', 'nav', 'rules', 'rename', 'logo', 'text', 'data'].indexOf(st.layer) >= 0);
+    let out = others ? '✅'
+      : !bits.length && opsSaid ? '✅ ' + opsSaid
       : '✅ Updated the look' + (bits.length ? ' — ' + bits.join(', ') : '') + where + '.';
     // A REMOVAL THAT ALSO NAMED SOMETHING THE SITE DOES NOT HAVE (2026-10-02,
     // W2): what was there came off, and the server's sentence says which names

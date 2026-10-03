@@ -385,7 +385,11 @@ test("PARTIAL COMPLETION, ON THE PAGE: the part that could run is made and charg
       const part = (edit.body.partial || [])[0];
       assert.equal(part && part.error, "no-page", JSON.stringify(edit.body.partial));
       assert.deepEqual(replies[0].facts.map((f) => f.id), ["c1", "f1"]);
-      assert.equal(replies[0].facts[1].text, "Part of the request was not done. The builder's own reason: “" + part.msg + "”");
+      // NAMED BY ITS TARGET SINCE 2026-10-03 (the mixed-work fixes: *"report
+      // every completed, failed, declined and pending operation with its
+      // target"*): the change's own words, and the page it was for.
+      assert.deepEqual([part.page, part.words], ["/gallery", [MOVE_WORDS]], "the withheld change lost its target: " + JSON.stringify(part));
+      assert.equal(replies[0].facts[1].text, "This part was not done: “" + MOVE_WORDS + "” on /gallery. The builder's own reason: “" + part.msg + "”");
       assert.equal(p.last().t, edit.body.reply, "the page added to the reply, or did not show it");
     }, { slug });
   } finally { compiler.uninstall(); }

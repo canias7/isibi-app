@@ -9,7 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
-  RULES_MODEL, RULES_TOOL, CLEARABLE, NOT_CLEARABLE, MAX_RULE_TABLES,
+  RULES_MODEL, RULES_TOOL, CLEARABLE, NOT_CLEARABLE,
   rulesDigest, rulesRequest, readRules, mergeRules, rulesReply, rulesUsage, runRulesEdit,
 } from "../builder/site-rules.mjs";
 import { normalizeSchema } from "../site-schema.mjs";
@@ -171,10 +171,15 @@ test("no tool call at all reads as no changes, never as a throw", () => {
   assert.deepEqual(readRules(null, TABLES).changes, []);
 });
 
-test("more tables than the cap are cut, not the whole batch dropped", () => {
-  const many = Array.from({ length: MAX_RULE_TABLES + 3 }, (_, i) => ({ name: "t" + i, access: "display", columns: [{ name: "a", type: "text" }] }));
+// ⚠ THIS PINNED THE CAP until 2026-10-03 (the mixed-work fixes): it required
+// the reader to stop at `MAX_RULE_TABLES`, which changed the rules of the first
+// tables a message named and dropped the rest without a word. Every table the
+// site has that the answer names is read now.
+test("every table is read, however many — past the old cap", () => {
+  const many = Array.from({ length: 11 }, (_, i) => ({ name: "t" + i, access: "display", columns: [{ name: "a", type: "text" }] }));
   const { changes } = readRules(said({ tables: many.map((t) => ({ table: t.name, retired: true })) }), many);
-  assert.equal(changes.length, MAX_RULE_TABLES);
+  assert.equal(changes.length, 11, "a table past the old cap was dropped");
+  assert.deepEqual(changes.map((c) => c.table), many.map((t) => t.name), "a change lost its own table");
 });
 
 // ── the merge ───────────────────────────────────────────────────────────────
@@ -314,6 +319,24 @@ test("a rules edit applies the merged spec and never publishes", async () => {
   assert.deepEqual(seen.applied[0].tables[0].unique, ["slot_date", "slot_time"]);
   assert.equal(r.usage.model, RULES_MODEL);
   assert.equal(deps.publish, undefined, "the layer has no publish dependency at all — the protection is the absence");
+});
+
+
+// ── AN ANSWER CUT OFF AT ITS CEILING IS NO ANSWER (2026-10-03) ──────────────
+// With no count of changes per step (the mixed-work fixes), the one bound left
+// on the list is the answer itself — and a list stopped part way would make
+// some changes and drop the rest without a word. It is refused whole, as a
+// call that did not answer: nothing is applied.
+test("a rules answer cut off at its ceiling applies nothing and is refused as a call that did not answer", async () => {
+  const { deps, seen } = fake({ table: "bookings", unique: ["slot_date", "slot_time"] });
+  const sent = deps.send;
+  deps.send = async (req) => ({ ...(await sent(req)), stop_reason: "max_tokens" });
+  const r = await runRulesEdit(deps, { instruction: "stop double bookings", tables: TABLES });
+  assert.equal(r.ok, false);
+  assert.equal(r.escalate, false);
+  assert.equal(r.reason, "send");
+  assert.equal(r.error && r.error.truncated, true);
+  assert.deepEqual(seen.applied, [], "rules were applied from a cut answer");
 });
 
 test("THE WHOLE SPEC IS APPLIED, not only the table that changed", async () => {

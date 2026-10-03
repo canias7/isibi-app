@@ -614,7 +614,8 @@ for (const mode of ["sync", "job"]) {
     // THE SCREEN, AS IT IS TODAY: the look door's merged reply names neither
     // page (the parked "a multi-step look reply names only the look", review
     // #9, kept separate), and says nothing about the excluded one.
-    assert.equal(r.said.text, "✅ Updated the look.");
+    // THE PAGES IT CHANGED SINCE 2026-10-03 (the mixed-work fixes, MW8).
+    assert.equal(r.said.text, "✅ Updated / and /menu.");
   });
 }
 

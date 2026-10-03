@@ -1230,7 +1230,9 @@ test("every edit lane routes a model outage to the shared 503", () => {
   // matched a wider region. An anchor that moves with the thing it asserts
   // proves nothing, which is this repo's own most repeated testing bug.
   const body = WORKER_SRC.slice(i, WORKER_SRC.indexOf("\n            };", i));
-  assert.ok(body.length > 200 && body.length < 2500, "modelDown was not found whole: " + body.length);
+  // 3,000 SINCE 2026-10-03: the helper gained the cut-answer sentence (a list
+  // answer refused whole at its ceiling is ours too), still one function.
+  assert.ok(body.length > 200 && body.length < 3000, "modelDown was not found whole: " + body.length);
   // 5xx, ALWAYS. The customer's request was fine; ours failed, and a 4xx tells
   // both them and any retry logic the opposite.
   assert.match(body, /\{ status: 503 \}/, "our own outage must not be reported as the caller's mistake");

@@ -32,6 +32,7 @@ import { READ_LEVELS, WRITE_LEVELS, ACCESS_PRESETS, resolveAccess } from "../sit
 import { modelsFor } from "./build-models.mjs";
 // THE QUESTION BACK (2026-10-02), shared with every step (`builder/clarify.mjs`).
 import { QUESTION_FIELD, askOf } from "./clarify.mjs";
+import { ECHO_CHARS_PER_TOKEN, LIST_ANSWER_MAX_TOKENS } from "./input-budget.mjs";
 
 /**
  * Haiku, deliberately, and the reason is the validation rather than the task
@@ -58,8 +59,15 @@ import { QUESTION_FIELD, askOf } from "./clarify.mjs";
 export const RULES_MODEL = modelsFor().quick;
 export const RULES_MAX_TOKENS = 1400;
 
-/** How many tables one instruction may change. "Cap both forms" is a real ask. */
-export const MAX_RULE_TABLES = 4;
+// NO NUMBER OF TABLES IS A LIMIT ANY MORE (2026-10-03). Owner: *"stop silently
+// dropping operations at the four-lane or per-step count limits."*
+// `MAX_RULE_TABLES` (4) kept the first four tables' changes and dropped the
+// rest with no word — "close every form" on a site with five changed four and
+// said so of four (the mixed-work audit's MW4, by the code). A change names a
+// table the site has and is checked rule by rule before it is applied, and the
+// call's ceiling now grows with the tables it is shown (`rulesMaxTokens`) — so
+// the one bound left is the answer itself, and an answer cut off at it is
+// refused whole (`runRulesEdit`).
 
 /**
  * WHAT CAN BE SWITCHED OFF AGAIN, AND WHY IT IS NOT EVERYTHING.
@@ -267,10 +275,21 @@ export function rulesDigest(tables) {
   return out.join("\n");
 }
 
+/**
+ * THE CEILING FOR ONE ANSWER, GROWN WITH THE TABLES IT IS SHOWN (2026-10-03):
+ * the base, and room for every table to be named once with every rule it can
+ * carry — what "close every form" asks of a site with many. Only the tokens
+ * written are billed.
+ */
+export function rulesMaxTokens(tables) {
+  const list = Array.isArray(tables) ? tables : [];
+  return Math.min(LIST_ANSWER_MAX_TOKENS, RULES_MAX_TOKENS + Math.ceil((rulesDigest(list).length + 400 * list.length) / ECHO_CHARS_PER_TOKEN));
+}
+
 export function rulesRequest({ instruction, tables, model = RULES_MODEL }) {
   return {
     model,
-    max_tokens: RULES_MAX_TOKENS,
+    max_tokens: rulesMaxTokens(tables),
     tools: [RULES_TOOL],
     tool_choice: { type: "tool", name: "write_table_rules" },
     system: [{ type: "text", text: RULES_SYSTEM }],
@@ -393,7 +412,6 @@ export function readRules(reply, tables) {
     if (okClear.length) { change.clear = okClear; touched = true; }
 
     if (touched) out.push(change);
-    if (out.length >= MAX_RULE_TABLES) break;
   }
   return { changes: out, refused };
 }
@@ -530,6 +548,14 @@ export async function runRulesEdit(deps, { instruction, tables, model = RULES_MO
     return { ok: false, escalate: false, reason: "send", error: e, usage: null };
   }
   const usage = rulesUsage(reply, model);
+  // AN ANSWER CUT OFF AT ITS CEILING IS NO ANSWER (2026-10-03): with no count
+  // of tables, a list stopped part way would change some tables' rules and
+  // drop the rest without a word. Failed as a call that did not answer — ours.
+  if (reply && reply.stop_reason === "max_tokens") {
+    const e = new Error("table rules truncated at max_tokens");
+    e.truncated = true;
+    return { ok: false, escalate: false, reason: "send", error: e, usage };
+  }
   // A QUESTION BACK (2026-10-02): the model could not tell which list or what
   // rule is meant without a detail they left out. Nothing is applied; the
   // route asks it.

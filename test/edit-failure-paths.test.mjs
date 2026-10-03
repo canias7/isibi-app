@@ -390,6 +390,10 @@ function correctionAsked(r) {
 }
 
 const NAMED_ONLY = "✅ The requested styling was already in place.";
+// THE MENU STEP'S OWN ACCOUNT, SAID BESIDE THE LOOK SINCE 2026-10-03 (the
+// mixed-work fixes, MW1): it repointed a link in the copy, and that was told
+// nowhere when it ran beside a styling change.
+const LINK_SAID = " Repointed 1 link across 1 page.";
 
 for (const mode of ["sync", "job"]) {
   test("an old rule that matches nothing does not hold an unrelated edit: the menu change ships in one build, the stylesheet is not rewritten, and the next edit ships the same sheet (" + mode + ")", async () => {
@@ -426,7 +430,7 @@ for (const mode of ["sync", "job"]) {
     assert.equal(r.reply.cost, 3, "the reply's cost is not what the ledger holds");
     // THE SCREEN NAMES THE STYLING AND NOT THE MENU CHANGE — the look branch's
     // recorded limitation (review #9, next-task 3), not this change's to fix.
-    assert.equal(r.said.text, NAMED_ONLY);
+    assert.equal(r.said.text, NAMED_ONLY + LINK_SAID);
     assert.deepEqual(r.said.actions, ["refresh the credit balance"]);
     // AND THE NEXT, UNRELATED EDIT BUILDS ONCE, WITH THE SAME SHEET.
     const next = await drive({ mode: "sync", routed: { layer: "look" }, ask: NAME_ASK, pick: { fields: ["brand"] }, lanes: [{ brand: "Harbour Loaf Co" }], site: r.site, render: judge() });
@@ -605,7 +609,7 @@ for (const mode of ["sync", "job"]) {
     // so it says the look was updated though the stored sheet ended as the site
     // had it, and it names no menu change (review #9). Recorded, not this
     // correction's to change.
-    assert.equal(r.said.text, LOOK_SAID);
+    assert.equal(r.said.text, LOOK_SAID + LINK_SAID);
     assert.deepEqual(r.said.actions, ["refresh the credit balance"]);
   });
 }
@@ -1107,7 +1111,8 @@ for (const mode of ["sync", "job"]) {
     assert.equal(r.reply.partial[0].cost, 1, "the refused step's charge is not on its entry");
     assert.deepEqual(mode === "job" ? r.reserves : r.debits, [2, 1], "not the css change and the menu rung's call");
     assert.equal(r.reply.cost, 3, "the reply's cost is not what the ledger took");
-    assert.equal(r.said.text, LOOK_SAID + " ⚠️ " + MENU_REFUSED + " That part still cost 1 credit.");
+    // THE PART THAT DID NOT GO THROUGH, NAMED BY WHAT IT WAS ABOUT (2026-10-03).
+    assert.equal(r.said.text, LOOK_SAID + " ⚠️ The menu or the header button: " + MENU_REFUSED + " That part still cost 1 credit.");
     assert.deepEqual(r.said.actions, ["refresh the credit balance"]);
   });
 
@@ -1120,7 +1125,7 @@ for (const mode of ["sync", "job"]) {
     assert.equal(r.reply.partial && r.reply.partial.length, 1, JSON.stringify(r.reply.partial));
     assert.equal(r.reply.partial[0].cost, undefined, "a step that took nothing reports a cost");
     assert.deepEqual(mode === "job" ? r.reserves : r.debits, [2], "the timed-out step was charged");
-    assert.equal(r.said.text, LOOK_SAID + " ⚠️ That took longer than we allow ourselves to wait — this is on us.");
+    assert.equal(r.said.text, LOOK_SAID + " ⚠️ The menu or the header button: That took longer than we allow ourselves to wait — this is on us.");
   });
 }
 

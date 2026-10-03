@@ -401,8 +401,12 @@ test("when every step is refused, each says why — the steps' own sentences, on
   assert.equal(r.compiles, 0);
   assert.deepEqual(r.seen.debits, []);
   // THE SCREEN: each distinct sentence ONCE, in the order the steps ran, then
-  // the whole-request clause — and not one follow-up.
-  assert.equal(r.said.text, "⚠️ " + noChange + " " + noSlots + NOTHING_CHANGED + ROUTING_2);
+  // the whole-request clause — and not one follow-up. SINCE 2026-10-03 (the
+  // mixed-work fixes) each sentence is led by what it was about, and the two
+  // page steps refused for the one reason on the one page are named together,
+  // still once.
+  // (The page is in the builder's sentence, so it is not said in front of it too.)
+  assert.equal(r.said.text, "⚠️ A page’s building blocks and a part built for the site: " + noChange + " " + noSlots + NOTHING_CHANGED + ROUTING_2);
   assert.deepEqual(r.said.actions, [], "a message whose every step was refused started a follow-up");
 });
 
@@ -426,7 +430,9 @@ test("steps refused for different reasons each keep their own sentence", async (
   const noSlots = failureMsg("picture/no-slots");
   const noChange = failureMsg("page/no-change", { page: "/" });
   assert.deepEqual(r.body.partial.map((p) => p.msg), [noSlots, noChange], "each step's own sentence is not on the reply");
-  assert.equal(r.said.text, "⚠️ " + noSlots + " " + noChange + NOTHING_CHANGED + ROUTING_2);
+  // EACH LED BY WHAT IT WAS ABOUT (2026-10-03); the photograph's own sentence
+  // already names it, so it is not named twice.
+  assert.equal(r.said.text, "⚠️ " + noSlots + " A part built for the site: " + noChange + NOTHING_CHANGED + ROUTING_2);
   assert.deepEqual(r.said.actions, []);
   assert.equal(snapshot(store), before);
   assert.deepEqual(r.seen.debits, []);
@@ -684,7 +690,7 @@ test("control: a partial success keeps its green tick and names the half that di
   assert.deepEqual((r.body.partial || []).map((p) => p.msg), [noChange]);
   assert.equal(JSON.parse(store.store.get(CONFIG_KEY(slug))).css.includes("#1f2a44"), true, "the stylesheet change was not stored");
   assert.match(r.said.text, /^✅/);
-  assert.ok(r.said.text.includes(" ⚠️ " + noChange), "the refused half is not named after the tick");
+  assert.ok(r.said.text.includes(" ⚠️ A part built for the site: " + noChange), "the refused half is not named, with what it was about, after the tick");
   assert.ok(!r.said.text.includes("Nothing on your site changed"), "a partial success claims nothing changed");
   assert.equal(sum(r.seen.debits), r.body.cost, "the reply's cost is not what was debited");
   assert.deepEqual(r.said.actions, [REFRESH]);
@@ -814,7 +820,8 @@ test("a message whose steps did not all write nothing never claims the site is u
   // your site changed", and never free: the rename step's charge stands on
   // this path, and the routing call is its own.
   const n = r.body.cost;
-  assert.equal(r.said.text, "⚠️ " + byLayer.page.msg + " " + byLayer.rename.msg
+  // EACH LED BY WHAT IT WAS ABOUT (2026-10-03, the mixed-work fixes).
+  assert.equal(r.said.text, "⚠️ A part built for the site: " + byLayer.page.msg + " The web address: " + byLayer.rename.msg
     + " This edit cost " + n + " credit" + (n === 1 ? "" : "s") + ". Reading your message cost 2 credits.");
   assert.deepEqual(r.said.actions, []);
 });
@@ -863,9 +870,12 @@ test("the screen states the edit's own charge and the routing charge as two amou
   assert.equal(unsettledSame.text, "⚠️ " + msg + " Nothing on your site changed. Reading your message cost 2 credits.");
 });
 
-test("a refused step with no sentence of its own is still counted, never dropped", () => {
+// NAMED, NOT COUNTED, SINCE 2026-10-03 (the mixed-work fixes: *"Do not replace
+// missing targets with a vague count."*): a step with no sentence is named by
+// what it was about — here only its layer is known.
+test("a refused step with no sentence of its own is still named, never dropped", () => {
   const said = editBrowserReply({ ok: false, cost: 0, partial: [{ layer: "page", error: "compile" }] }, false, ROUTED("look"));
-  assert.match(said.text, /^⚠️ One part of that message didn’t go through\./);
+  assert.match(said.text, /^⚠️ A page didn’t go through\. Ask for it again on its own and I’ll tell you why\./);
   assert.deepEqual(said.actions, []);
 });
 
@@ -873,41 +883,39 @@ test("a refused step with no sentence of its own is still counted, never dropped
 //
 // THE OWNER'S BROWSER-COMPOSER REPRODUCTION (2026-09-23): `partial:
 // [{msg}, {error: "compile"}]` printed the first sentence and nothing else —
-// byte-identical to a reply holding that failure ALONE. The count of steps
-// with no sentence lived in the branch reached only when NO step had one, so
-// a single explained step made every unexplained one vanish, in both of the
-// composer's callers. Driven at the browser only, because that is where the
-// defect lived; a step whose reply could not be read (`body` null) or whose
-// failure carried no `msg` is how the route can still write one.
+// byte-identical to a reply holding that failure ALONE. A step with no
+// sentence must never vanish beside one that has one, and two such steps are
+// two. SINCE 2026-10-03 (the mixed-work fixes) each is NAMED by its target —
+// its own words, its part of the site, its page — never counted: *"Do not
+// replace missing targets with a vague count."* Driven at the browser, where
+// the defect lived; the route writes such an entry for a step whose reply
+// could not be read or whose failure carried no `msg`.
 const REFUSED = "The photo change was refused.";
-const EXPLAINED = { layer: "page", msg: REFUSED };
-const SILENT = (layer) => ({ layer, error: "compile" });
-const MORE_1 = " One more part of that message didn’t go through. Ask for it again on its own and I’ll tell you why.";
-const MORE_2 = " 2 more parts of that message didn’t go through. Ask for them again on their own and I’ll tell you why.";
+const EXPLAINED = { layer: "picture", lanes: ["images"], page: "/", words: ["swap the window photo"], msg: REFUSED };
+const SILENT = (lanes, page, words) => ({ layer: "page", lanes, page, ...(words ? { words } : {}), error: "compile" });
+const ASK_AGAIN = " didn’t go through. Ask for it again on its own and I’ll tell you why.";
 const TOOK = "✅ Took the picture off “the window”.";
+const EXPLAINED_SAID = "“swap the window photo” on /: " + REFUSED;
 
 // WHAT A REFUSAL ALSO STATES (2026-09-25): the edit's recorded cost and the
 // routing call's, after whatever the steps said.
 const PAID = " This edit cost you nothing. Reading your message cost 2 credits.";
-test("a refusal counts the steps that gave no reason beside the ones that did — the owner's reproduction", () => {
+test("a refusal names the steps that gave no reason beside the ones that did — the owner's reproduction, by target", () => {
   const refuse = (partial) => editBrowserReply({ ok: false, cost: 0, partial }, false, ROUTED("look"));
   const alone = refuse([EXPLAINED]);
-  const mixed = refuse([EXPLAINED, SILENT("look")]);
-  assert.equal(alone.text, "⚠️ " + REFUSED + PAID, "control: one explained failure alone reads as it always did");
-  assert.equal(mixed.text, "⚠️ " + REFUSED + MORE_1 + PAID, "the step with no reason vanished beside the one with a reason");
+  const mixed = refuse([EXPLAINED, SILENT(["shape"], "/visit", ["move the order band up"])]);
+  assert.equal(alone.text, "⚠️ " + EXPLAINED_SAID + PAID, "one explained failure alone");
+  assert.equal(mixed.text, "⚠️ " + EXPLAINED_SAID + " “move the order band up” on /visit" + ASK_AGAIN + PAID,
+    "the step with no reason vanished beside the one with a reason, or was not named");
   assert.notEqual(mixed.text, alone.text, "two failures read byte-identically to one");
-  // A DUPLICATE SENTENCE IS ONE PROBLEM; TWO STEPS WITH NO SENTENCE ARE TWO —
-  // even two that look exactly alike, because each entry is its own step.
-  assert.equal(refuse([EXPLAINED, EXPLAINED, SILENT("page"), SILENT("page")]).text, "⚠️ " + REFUSED + MORE_2 + PAID);
-  // THE TWO COUNTS STAY APART: explanations past the first two are counted
-  // as they always were, and the steps with none are counted after them.
-  assert.equal(refuse([EXPLAINED, { layer: "nav", msg: "The menu change was refused." }, { layer: "look", msg: "The colour change was refused." }, SILENT("page")]).text,
-    "⚠️ " + REFUSED + " The menu change was refused. (1 more part of that message didn’t go through either.)" + MORE_1 + PAID);
-  // CONTROLS — one kind of step alone reads exactly as it did before.
-  assert.equal(refuse([EXPLAINED, { layer: "nav", msg: "The menu change was refused." }]).text, "⚠️ " + REFUSED + " The menu change was refused." + PAID);
-  assert.equal(refuse([SILENT("page"), SILENT("look")]).text,
-    "⚠️ 2 parts of that message didn’t go through. Ask for them again on their own and I’ll tell you why." + PAID);
-  for (const partial of [[EXPLAINED], [EXPLAINED, SILENT("look")], [EXPLAINED, EXPLAINED, SILENT("page"), SILENT("page")]]) {
+  // A DUPLICATE SENTENCE ON ONE PAGE IS ONE PROBLEM; TWO STEPS WITH NO SENTENCE
+  // ARE TWO — each named, even two that look alike, because each is its own step.
+  assert.equal(refuse([EXPLAINED, EXPLAINED, SILENT(["tsx"], "/"), SILENT(["components"], "/")]).text,
+    "⚠️ " + EXPLAINED_SAID + " A part built for the site on /" + ASK_AGAIN + " A page’s building blocks on /" + ASK_AGAIN + PAID);
+  // EVERY EXPLANATION, NOT TWO AND A COUNT: three steps with three sentences are three.
+  assert.equal(refuse([EXPLAINED, { layer: "nav", lanes: ["action"], msg: "The menu change was refused." }, { layer: "look", lanes: ["css"], msg: "The colour change was refused." }]).text,
+    "⚠️ " + EXPLAINED_SAID + " The menu or the header button: The menu change was refused. The styling: The colour change was refused." + PAID);
+  for (const partial of [[EXPLAINED], [EXPLAINED, SILENT(["shape"], "/visit")], [EXPLAINED, EXPLAINED, SILENT(["tsx"], "/"), SILENT(["components"], "/")]]) {
     const r = refuse(partial);
     assert.ok(r.ok, r.why);
     assert.equal(r.shown, true, "the browser showed nothing");
@@ -915,16 +923,14 @@ test("a refusal counts the steps that gave no reason beside the ones that did �
   }
 });
 
-test("a partial success counts them too, after the tick, and starts nothing paid", () => {
+test("a partial success names them too, after the tick, and starts nothing paid", () => {
   const land = (partial) => editBrowserReply({ ok: true, layer: "picture", msg: TOOK, partial }, true, ROUTED("look"));
   const alone = land([EXPLAINED]);
-  const mixed = land([EXPLAINED, SILENT("look")]);
-  const doubled = land([EXPLAINED, EXPLAINED, SILENT("page"), SILENT("page")]);
-  assert.equal(alone.text, TOOK + " ⚠️ " + REFUSED, "control: one explained failure after the tick reads as it always did");
-  assert.equal(mixed.text, TOOK + " ⚠️ " + REFUSED + MORE_1, "the step with no reason vanished after the tick");
+  const mixed = land([EXPLAINED, SILENT(["shape"], "/visit", ["move the order band up"])]);
+  assert.equal(alone.text, TOOK + " ⚠️ " + EXPLAINED_SAID, "one explained failure after the tick");
+  assert.equal(mixed.text, TOOK + " ⚠️ " + EXPLAINED_SAID + " “move the order band up” on /visit" + ASK_AGAIN, "the step with no reason vanished after the tick");
   assert.notEqual(mixed.text, alone.text, "two failures read byte-identically to one");
-  assert.equal(doubled.text, TOOK + " ⚠️ " + REFUSED + MORE_2);
-  for (const r of [alone, mixed, doubled]) {
+  for (const r of [alone, mixed]) {
     assert.ok(r.ok, r.why);
     assert.ok(!r.text.includes("Nothing on your site changed"), "a partial success claims nothing changed");
     assert.deepEqual(paid(r), [], "something paid was started: " + JSON.stringify(r.actions));

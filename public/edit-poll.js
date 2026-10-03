@@ -348,20 +348,25 @@
   // `heldList` in builder/site-ask.mjs, which this file cannot import, read the
   // same way: a string is one part, a list is several, absent is none — and
   // `null` when the value cannot be read as either (a list with an entry that
-  // is not text, a blank one, one longer than any message, more than
-  // `MAX_HELD` entries, or a value of another type). A value that cannot be
-  // read is NEVER read as none: running the message whole would run the parts
-  // promised for later, so it is sent on as it came and the route refuses it.
-  var MAX_HELD = 4;
+  // is not text, a blank one, one longer than any message, parts more than one
+  // request carries together, or a value of another type). A value that cannot
+  // be read is NEVER read as none: running the message whole would run the
+  // parts promised for later, so it is sent on as it came and the route
+  // refuses it. NO COUNT (2026-10-03): the four-part limit went with the
+  // server's; the carried size (`CARRIED_MAX`) is the bound.
   function heldList(v) {
     if (v === null || v === undefined) return [];
     if (typeof v === "string") return v.trim() ? [v.trim()] : [];
-    if (!Array.isArray(v) || v.length > MAX_HELD) return null;
+    if (!Array.isArray(v)) return null;
     var out = [];
+    var chars = 0;
     for (var i = 0; i < v.length; i++) {
       var p = v[i];
       if (typeof p !== "string" || !p.trim() || p.length > ASK_MAX) return null;
-      if (out.indexOf(p.trim()) < 0) out.push(p.trim());
+      if (out.indexOf(p.trim()) >= 0) continue;
+      chars += p.trim().length;
+      if (chars > CARRIED_MAX) return null;
+      out.push(p.trim());
     }
     return out;
   }
@@ -823,7 +828,6 @@
     heldWire: heldWire,
     contextOf: contextOf,
     contextWire: contextWire,
-    MAX_HELD: MAX_HELD,
     newIdemKey: newIdemKey,
     pollDelayMs: pollDelayMs,
     pollBaseMs: pollBaseMs,

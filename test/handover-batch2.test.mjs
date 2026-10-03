@@ -35,8 +35,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { HAND_FROM, HAND_REASONS, readHandOver, handOverLine, deferredOf, heldReport } from "../builder/hand-over.mjs";
-import { heldList, heldParts, wordsLess, MAX_HELD, MAX_MESSAGE, EDIT_LAYERS } from "../builder/site-ask.mjs";
-import { MAX_INPUT_CHARS } from "../builder/input-budget.mjs";
+import { heldList, heldParts, wordsLess, MAX_MESSAGE, EDIT_LAYERS } from "../builder/site-ask.mjs";
+import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS } from "../builder/input-budget.mjs";
 import { addonFailure } from "../builder/site-addon.mjs";
 import { rowReviewReply } from "../builder/site-add.mjs";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
@@ -206,13 +206,26 @@ test("wordsLess takes every part put off out of one change's words, by position,
 // holds its own `heldList`. Two copies of one reading drift silently — so they
 // are run side by side over every shape a value can take, both ways.
 test("the browser's held-part reading and the module's agree on every value, and on their bounds", () => {
-  assert.equal(EP.MAX_HELD, MAX_HELD);
+  // NO COUNT SINCE 2026-10-03 (the mixed-work fixes: `MAX_HELD`, four parts,
+  // refused a fifth and the whole message with it). The bound is what one
+  // request carries (`MAX_CARRIED_CHARS`), on both sides.
+  assert.equal(EP.MAX_HELD, undefined, "the browser still counts the parts");
+  assert.equal(EP.CARRIED_MAX, MAX_CARRIED_CHARS);
   // THE PART'S BOUND IS ONE MESSAGE OF THE SIZE POLICY (2026-10-03), both sides.
   assert.equal(EP.ASK_MAX, MAX_INPUT_CHARS);
   const long = "a".repeat(MAX_INPUT_CHARS + 1);
+  const parts = (n, len = 4) => Array.from({ length: n }, (_, i) => String(i).padStart(len, "p"));
+  // Just inside and just past what one request carries, in distinct parts.
+  const fill = Math.floor(MAX_CARRIED_CHARS / MAX_INPUT_CHARS);
+  const atBound = Array.from({ length: fill }, (_, i) => String(i).padStart(MAX_INPUT_CHARS, "q"));
+  const pastBound = [...atBound, "one more part"];
   const values = [undefined, null, "", "   ", "x", " x ", [], ["x"], ["x", "x"], ["x", " y "], [5], ["x", ""], ["x", "   "],
-    7, 0, true, false, {}, { x: 1 }, Array(MAX_HELD).fill("a"), Array(MAX_HELD + 1).fill("a"), [long], long, ["x", null]];
-  for (const v of values) assert.deepEqual(EP.heldList(v), heldList(v), "the two readings disagree on " + JSON.stringify(v));
+    7, 0, true, false, {}, { x: 1 }, Array(5).fill("a"), parts(4), parts(5), parts(12), [long], long, ["x", null], atBound, pastBound];
+  for (const v of values) assert.deepEqual(EP.heldList(v), heldList(v), "the two readings disagree on " + String(JSON.stringify(v)).slice(0, 200));
+  // AND WHAT THEY AGREE ON: twelve parts are twelve parts, the carried bound holds.
+  assert.deepEqual(heldList(parts(12)), parts(12), "parts past the old four were refused");
+  assert.equal(heldList(atBound).length, fill, "parts within what one request carries were refused");
+  assert.equal(heldList(pastBound), null, "parts past what one request carries were read");
   // AND THE WIRE: one part a string, several a list, a value that does not read
   // passed as it came (the route refuses it), none nothing.
   assert.equal(EP.heldWire("add a map"), "add a map");

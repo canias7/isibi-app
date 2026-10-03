@@ -185,7 +185,15 @@ export function withWire(answers, run, { owner = USER.id, slug = "" } = {}) {
       seen.calls.push(tool);
       (seen.inputs[tool] = seen.inputs[tool] || []).push(userText(args));
       const usage = { input_tokens: 10, output_tokens: 5 };
-      const say = (input) => json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input }], usage });
+      // AN ANSWER CUT OFF AT ITS CEILING (2026-10-03): a supplied answer carrying
+      // `__stop_reason` arrives with that stop reason and without the key.
+      const say = (input) => {
+        if (input && typeof input === "object" && typeof input.__stop_reason === "string") {
+          const { __stop_reason, ...rest } = input;
+          return json({ stop_reason: __stop_reason, content: [{ type: "tool_use", name: tool, input: rest }], usage });
+        }
+        return json({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input }], usage });
+      };
       const props = (args.tools && args.tools[0] && args.tools[0].input_schema && args.tools[0].input_schema.properties) || {};
       if (tool === T.route) {
         seen.routerAsked.push(args);

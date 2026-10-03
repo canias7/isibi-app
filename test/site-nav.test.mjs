@@ -9,7 +9,7 @@ import {
   MAX_NAV_ITEMS, MAX_LABEL,
   actionSlots, applyAction,
   linkSlots, matchLinks, applyPageLinks, linkRefusal,
-  MAX_LINK_CHANGES, MAX_LINK_LINES, MAX_LINK_SLOTS,
+  MAX_LINK_LINES, MAX_LINK_SLOTS,
 } from "../builder/site-nav.mjs";
 import { EDIT_LAYERS } from "../builder/site-ask.mjs";
 import { CORPUS_DIR } from "./fixtures/corpus.mjs";
@@ -312,6 +312,11 @@ test("a label is bounded, and a menu is bounded", () => {
   assert.equal(long.links[0].label.length, MAX_LABEL);
   const many = readNav(reply(Array.from({ length: 40 }, (_, i) => ({ label: "L" + i, href: "/#a" + i }))), ROUTES);
   assert.equal(many.links.length, MAX_NAV_ITEMS);
+  // AND NEVER SILENT (2026-10-03, the mixed-work fixes): the menu's ten is a
+  // design limit, kept, and every item past it is named as left out ("full"),
+  // where the eleventh onwards used to vanish without a word.
+  const full = many.dropped.filter((d) => d.why === "full");
+  assert.deepEqual(full.map((d) => d.label), Array.from({ length: 30 }, (_, i) => "L" + (i + 10)), "an item past the limit was dropped without being named");
 });
 
 test("no tool call, or a links that is not an array, reads as nothing", () => {
@@ -408,6 +413,24 @@ test("A MENU THAT COMES BACK IDENTICAL REFUSES rather than republishing every pa
   assert.equal(out.ok, false);
   assert.equal(out.escalate, false);
   assert.equal(out.reason, "no-change");
+});
+
+
+// ── AN ANSWER CUT OFF AT ITS CEILING IS NO ANSWER (2026-10-03) ──────────────
+// With no count of changes per step (the mixed-work fixes), the one bound left
+// on the list is the answer itself — and a list stopped part way would make
+// some changes and drop the rest without a word. It is refused whole, as a
+// call that did not answer: nothing is applied.
+test("a menu answer cut off at its ceiling writes no page and is refused as a call that did not answer", async () => {
+  const out = await runNavEdit({ send: async () => ({ ...okReply, stop_reason: "max_tokens" }) }, {
+    instruction: "put book first", pages: [page("index.tsx", NAV), page("book.tsx", NAV)], routes: ROUTES,
+  });
+  assert.equal(out.ok, false);
+  assert.equal(out.escalate, false);
+  assert.equal(out.reason, "send");
+  assert.equal(out.error && out.error.truncated, true);
+  assert.equal(out.pages, undefined, "pages were written from a cut answer");
+  assert.equal(out.changed, undefined);
 });
 
 test("a send failure is reported, never escalated", async () => {
@@ -1098,9 +1121,15 @@ test("a non-string label or destination is refused rather than coerced", () => {
   assert.deepEqual(r.pageLinks, []);
 });
 
-test("the number of link changes in one instruction is bounded", () => {
-  const many = Array.from({ length: MAX_LINK_CHANGES + 5 }, (_, i) => ({ label: "L" + i, to: "/book" }));
-  assert.equal(readNav(linkReply(many), ROUTES).pageLinks.length, MAX_LINK_CHANGES);
+// ⚠ THIS PINNED THE CAP until 2026-10-03 (the mixed-work fixes): it required
+// the reader to stop at `MAX_LINK_CHANGES` (12), which repointed the first
+// twelve links an instruction named and dropped the rest without a word. Every
+// link change is read now; each still names a page the site has.
+test("every link change in one instruction is read, however many — past the old twelve", () => {
+  const many = Array.from({ length: 15 }, (_, i) => ({ label: "L" + i, to: "/book" }));
+  const got = readNav(linkReply(many), ROUTES).pageLinks;
+  assert.equal(got.length, 15, "a link change past the twelfth was dropped");
+  assert.deepEqual(got.map((l) => l.label), many.map((l) => l.label), "the link changes were not read in order");
 });
 
 test("A LINK-ONLY ANSWER IS NOT 'NO ANSWER' — it used to return null", () => {

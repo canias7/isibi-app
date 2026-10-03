@@ -56,6 +56,7 @@ import { QUESTION_FIELD, askOf } from "./clarify.mjs";
 // ONE NEW ROW, ADMITTED AND WRITTEN THE SAME WAY FROM EITHER DOOR (2026-10-01):
 // the value rule `readDataChanges` applies, and the INSERT the route writes.
 import { rowValues } from "./site-rows.mjs";
+import { ECHO_CHARS_PER_TOKEN, LIST_ANSWER_MAX_TOKENS } from "./input-budget.mjs";
 
 /** A small call: choosing which of a list of strings to change is not a design task. */
 /**
@@ -441,8 +442,15 @@ export const DATA_MODEL = modelsFor().quick;
 export const DATA_MAX_TOKENS = 1200;
 /** How many rows the model is shown. A menu is a dozen; a hundred is not a menu. */
 export const MAX_DATA_ROWS = 60;
-/** How many changes one instruction may make. "Put the prices up by 10%" is a real ask. */
-export const MAX_DATA_OPS = 20;
+// NO NUMBER OF ROW CHANGES IS A LIMIT ANY MORE (2026-10-03). Owner: *"stop
+// silently dropping operations at the four-lane or per-step count limits."*
+// `MAX_DATA_OPS` (20) kept the first twenty changes and dropped the rest with
+// no word — "put the prices up by 10%" on a list of thirty changed twenty and
+// said it had updated "20 entries" (the mixed-work audit's MW4, by the code).
+// A change names a row it was shown or adds one, every write is checked against
+// the declared columns before it reaches SQL, and the call's ceiling now grows
+// with what it is shown (`dataMaxTokens`) — so the one bound left is the answer
+// itself, and an answer cut off at it is refused whole (`runDataEdit`).
 
 // ── ONE ANSWER TO "TAKE THIS OFF THE LIST" (Lane 1a, 2026-09-30) ───────────
 //
@@ -604,13 +612,25 @@ export function recentBlock(recent) {
     "entirely: it is a record of what went, not a list of things to restore.";
 }
 
+/**
+ * THE CEILING FOR ONE ANSWER, GROWN WITH THE ROWS IT IS SHOWN (2026-10-03): the
+ * base, and room for every row shown to be named once with every value it
+ * holds — an answer changing the whole list, which "put every price up" is.
+ * Only the tokens written are billed.
+ */
+export function dataMaxTokens(tables) {
+  const list = Array.isArray(tables) ? tables : [];
+  const rows = list.reduce((n, t) => n + Math.min(Array.isArray(t && t.rows) ? t.rows.length : 0, MAX_DATA_ROWS), 0);
+  return Math.min(LIST_ANSWER_MAX_TOKENS, DATA_MAX_TOKENS + Math.ceil((dataDigest(list).length + 80 * rows) / ECHO_CHARS_PER_TOKEN));
+}
+
 export function dataRequest({ instruction, tables, recent, lists, model = DATA_MODEL }) {
   // THE LISTS BLOCK IS OMITTED WHEN THERE ARE NONE, so a caller that does not
   // pass the pages sends exactly the request it sent before this existed.
   const order = sortDigest(lists, tables);
   return {
     model,
-    max_tokens: DATA_MAX_TOKENS,
+    max_tokens: dataMaxTokens(tables),
     tools: [DATA_TOOL],
     tool_choice: { type: "tool", name: "write_row_changes" },
     system: [{ type: "text", text: DATA_SYSTEM }],
@@ -694,7 +714,6 @@ export function readDataChanges(reply, tables) {
       if (!Number.isFinite(rid) || !t.ids.has(rid)) continue;
       const was = t.rows.find((r) => Number(r.id) === rid) || null;
       out.push({ table: String(c.table), id: rid, remove: true, was });
-      if (out.length >= MAX_DATA_OPS) break;
       continue;
     }
     const set = rowValues(c.values, t.cols);
@@ -707,7 +726,6 @@ export function readDataChanges(reply, tables) {
       if (!Number.isFinite(id) || !t.ids.has(id)) continue;
       out.push({ table: String(c.table), id, values: set });
     }
-    if (out.length >= MAX_DATA_OPS) break;
   }
   return out;
 }
@@ -769,6 +787,14 @@ export async function runDataEdit(deps, { instruction, tables, recent, pages, mo
     return { ok: false, escalate: false, reason: "send", error: e, usage: null };
   }
   const usage = dataUsage(reply, model);
+  // AN ANSWER CUT OFF AT ITS CEILING IS NO ANSWER (2026-10-03): with no count
+  // of changes, a list stopped part way would write some rows and drop the
+  // rest without a word. Failed as a call that did not answer — ours.
+  if (reply && reply.stop_reason === "max_tokens") {
+    const e = new Error("row changes truncated at max_tokens");
+    e.truncated = true;
+    return { ok: false, escalate: false, reason: "send", error: e, usage };
+  }
   // A QUESTION BACK (2026-10-02): the model could not tell which entry is meant
   // without a detail they left out. No row is written; the route asks it.
   const ask = askOf(reply);

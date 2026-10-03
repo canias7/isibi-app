@@ -8,7 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
-  PICTURE_MODEL, PICTURE_TOOL, MAX_SLOTS, MAX_PICTURE_OPS, MAX_DESCRIBE,
+  PICTURE_MODEL, PICTURE_TOOL, MAX_SLOTS, MAX_DESCRIBE,
   imageSlots, isEmptySlot, pictureDigest, pictureRequest, readPictures,
   applyPictures, pictureReply, pictureUsage, runPictureEdit, readNeedsPlace, newEmptySlots,
   listFrames, newListFrames, MAX_LIST_FRAMES, codeOnly, photoRemoval, BARE_CONTAINERS,
@@ -166,11 +166,16 @@ test("the same slot twice is one change", () => {
   assert.equal(got.length, 1);
 });
 
-test("more changes than the cap are cut, not the whole batch dropped", () => {
-  const many = { path: "p.tsx", source: Array.from({ length: MAX_PICTURE_OPS + 4 }, (_, i) => `<SafeImage src={null} alt="p${i}" />`).join("\n") };
+// ⚠ THIS PINNED THE CAP until 2026-10-03 (the mixed-work fixes; the audit's
+// MW4): it required the reader to stop at `MAX_PICTURE_OPS` (8), which changed
+// the first eight photographs a message named and dropped the rest without a
+// word. Every change naming a photograph shown is read now, each once.
+test("every change is read, however many — past the old eight", () => {
+  const many = { path: "p.tsx", source: Array.from({ length: 12 }, (_, i) => `<SafeImage src={null} alt="p${i}" />`).join("\n") };
   const slots = imageSlots([many]);
   const got = readPictures(said(slots.map((s) => ({ page: s.page, alt: s.alt, describe: "x" }))), slots, []);
-  assert.equal(got.length, MAX_PICTURE_OPS);
+  assert.equal(got.length, 12, "a change past the eighth was dropped");
+  assert.deepEqual(got.map((c) => c.slot.alt), slots.map((s) => s.alt), "a change lost its own photograph");
 });
 
 test("no tool call reads as no changes, never as a throw", () => {
@@ -289,6 +294,25 @@ test("A PICTURE THAT CANNOT BE MADE LEAVES ITS SLOT AND THE OTHERS STILL CHANGE"
   assert.equal(r.used.length, 1);
   assert.equal(r.failed, 1);
   assert.match(r.msg, /couldn't be made/);
+});
+
+
+// ── AN ANSWER CUT OFF AT ITS CEILING IS NO ANSWER (2026-10-03) ──────────────
+// With no count of changes per step (the mixed-work fixes), the one bound left
+// on the list is the answer itself — and a list stopped part way would make
+// some changes and drop the rest without a word. It is refused whole, as a
+// call that did not answer: nothing is applied.
+test("a picture answer cut off at its ceiling changes no photograph and is refused as a call that did not answer", async () => {
+  const { deps } = fake([{ page: "index.tsx", alt: "The team", file: "shop-front.jpg" }]);
+  const sent = deps.send;
+  deps.send = async (req) => ({ ...(await sent(req)), stop_reason: "max_tokens" });
+  const r = await runPictureEdit(deps, { instruction: "use my shop photo for the team picture", pages: PAGES });
+  assert.equal(r.ok, false);
+  assert.equal(r.escalate, false, "a cut answer climbed the ladder");
+  assert.equal(r.reason, "send");
+  assert.equal(r.error && r.error.truncated, true, "the refusal does not say the answer was cut");
+  assert.equal(r.pages, undefined, "pages were written from a cut answer");
+  assert.ok(r.usage, "the call's usage is lost");
 });
 
 test("with no generator at all, a described picture fails softly and says so", async () => {

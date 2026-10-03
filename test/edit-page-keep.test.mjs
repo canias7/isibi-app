@@ -947,7 +947,8 @@ for (const mode of ["sync", "job"]) {
     const blocked = (r.reply.partial || []).find((p) => p.error === "withheld");
     assert.ok(blocked, "the refused page step is on the reply: " + JSON.stringify(r.reply.partial));
     assert.equal(blocked.msg, refusalFor(DROPS_ORDER));
-    assert.ok(r.said.text.includes("⚠️ " + refusalFor(DROPS_ORDER)), r.said.text);
+    // LED BY WHAT IT WAS ABOUT SINCE 2026-10-03 (the mixed-work fixes).
+    assert.ok(r.said.text.includes("⚠️ A page’s building blocks on /: " + refusalFor(DROPS_ORDER)), r.said.text);
     assert.ok(!r.said.text.includes("Nothing on your site changed"), "something DID change, so the whole-request note must not say otherwise");
   });
 }

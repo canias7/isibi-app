@@ -125,7 +125,7 @@ test("COMPLETE SUCCESS: each layer's own result is a fact — the new wording, t
   assert.match(texts(photo)[2], /Cloud → Versions/);
 });
 
-test("PARTIAL COMPLETION: what ran, then each part that did not and the builder's own reason for it — a part that gave none is counted — what those parts still cost, and what was left for later", () => {
+test("PARTIAL COMPLETION: what ran, then each part that did not and the builder's own reason for it — a part that gave none is named — what those parts still cost, and what was left for later", () => {
   const r = editReplyFacts({
     ok: true, layer: "look", moved: ["description"], cost: 3,
     partial: [{ layer: "page", msg: "There's no Gallery page on your site, so I left that part alone.", cost: 0 }, { layer: "nav", cost: 2 }],
@@ -133,8 +133,11 @@ test("PARTIAL COMPLETION: what ran, then each part that did not and the builder'
   });
   assert.equal(r.skip, null);
   assert.deepEqual(kinds(r), ["changed", "not-done", "not-done", "money", "pending"]);
-  assert.match(texts(r)[1], /The builder's own reason: “There's no Gallery page on your site, so I left that part alone\.”/);
-  assert.match(texts(r)[2], /^one more part of the request did not go through, with no reason recorded/);
+  // EACH NAMED BY ITS TARGET SINCE 2026-10-03 (the mixed-work fixes: *"Do not
+  // replace missing targets with a vague count."*) — here the only one these
+  // parts carry, their layer.
+  assert.match(texts(r)[1], /^This part was not done: a page\. The builder's own reason: “There's no Gallery page on your site, so I left that part alone\.”/);
+  assert.equal(texts(r)[2], "This part was not done: the menu or the header button. No reason was recorded; asking for it again on its own will say why.");
   assert.equal(texts(r)[3], "That part still cost 2 credits.");
   assert.match(texts(r)[4], /^Left for later, so not tried this time \(they can send it next\): “add a gallery page”$/);
   // EACH ID ONCE, BY KIND, IN ORDER: what a reply's `covers` is held to.

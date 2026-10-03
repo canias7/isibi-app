@@ -309,5 +309,7 @@ test("a step's own ask replaces the customer's sentence for that step only", () 
   // other assignment.
   assert.match(CODE, /let eRun = eHeld\.ok \? eHeld\.run : eMessage;/, "this turn's sentence is not the message less what was held back");
   assert.deepEqual([...CODE.matchAll(/\beRun = /g)].length, 2, "this turn's sentence is reassigned somewhere other than the look door's take-out");
-  assert.match(CODE, /const left = heldParts\(eRun, lookHeld\);[\s\S]{0,400}eRun = left\.run;/, "the look door's take-out does not narrow this turn's sentence");
+  // WIDER SINCE 2026-10-03 (the mixed-work fixes): the branch for parts the
+  // picker named as no lane's here (`elsewhere`) sits between the two.
+  assert.match(CODE, /const left = heldParts\(eRun, lookHeld\);[\s\S]{0,1200}eRun = left\.run;/, "the look door's take-out does not narrow this turn's sentence");
 });

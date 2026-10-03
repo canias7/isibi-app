@@ -54,7 +54,7 @@ import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { installCompiler, dispatchEnv, isDispatchUpload, dispatchOk } from "./fixtures/cf-containers.mjs";
 import { CONFIG_KEY } from "../site-config.mjs";
 import { ASK_TOOL, wordsIn, heldBack } from "../builder/site-ask.mjs";
-import { pickTool, editTool, pickLanes, readScopes, mergePageSteps, samePageOperation, LANE_FIELDS, MAX_LANES } from "../builder/site-lanes.mjs";
+import { pickTool, editTool, pickLanes, readScopes, mergePageSteps, samePageOperation, LANE_FIELDS } from "../builder/site-lanes.mjs";
 import { TWEAK_TOOL } from "../builder/site-tweak.mjs";
 import { SITE_PAGES_TOOL } from "../builder/page-gen.mjs";
 import { packEditJob, EDIT_JOB_PREFIX, EDIT_JOB_KIND } from "../builder/edit-job.mjs";
@@ -409,10 +409,9 @@ test("changes to two different pages: each page's writer is shown its own page a
   assert.equal(r.body.partial, undefined, why(r));
   assert.deepEqual(r.body.pageOps, [{ page: "/visit" }, { page: "/gallery" }], "the reply's record of the page operations is wrong" + why(r));
   // THE SCREEN, EXACTLY. It claims nothing that did not happen — no warning, no
-  // work held back — and it does not name the two pages: that is the known
-  // multi-step reply omission (review #9), which the owner keeps separate from
-  // this fix ("no reporting redesign"). The record above names both.
-  assert.equal(r.said.text, "✅ Updated the look.", why(r));
+  // work held back — and SINCE 2026-10-03 it names the two pages it changed
+  // (the mixed-work fixes, MW8), where it read "✅ Updated the look."
+  assert.equal(r.said.text, "✅ Updated /visit and /gallery.", why(r));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -619,10 +618,13 @@ test("a scope naming a page the site does not have withholds that change alone, 
   assert.deepEqual(r.seen.writers, [], why(r));
   assert.deepEqual(r.seen.lanes, [{ field: "description", asked: DESC_WORDS }], why(r));
   assert.equal(r.body.ok, true, why(r));
-  assert.deepEqual(r.body.partial, [{ layer: "page", lanes: ["shape"], error: "no-page", msg: said, unchanged: true }], why(r));
+  // THE WITHHELD CHANGE KEEPS ITS TARGET SINCE 2026-10-03 (the mixed-work
+  // fixes): the page it named and its own words, which passed every check.
+  assert.deepEqual(r.body.partial, [{ layer: "page", lanes: ["shape"], error: "no-page", page: "/menu", words: [VISIT_WORDS], msg: said, unchanged: true }], why(r));
   assert.equal(storedLook(r.store, r.slug).description, NEW_DESC, why(r));
   for (const [path, src] of [["index.tsx", HOME], ["visit.tsx", VISIT], ["gallery.tsx", GALLERY]]) assert.equal(storedPage(r.store, r.slug, path), src, why(r));
-  assert.equal(r.said.text, "✅ Updated the look — the description. ⚠️ " + said, why(r));
+  // Led by its own words; the page is in the builder's sentence already.
+  assert.equal(r.said.text, "✅ Updated the look — the description. ⚠️ “" + VISIT_WORDS + "”: " + said, why(r));
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -646,19 +648,22 @@ test("a scope naming a page the site does not have withholds that change alone, 
  * all, the description lane handed only its own words, the description stored,
  * every page byte for byte, one publish, and a screen that says both.
  */
-function assertShapeWithheld(r, msg, label) {
+// `target` SINCE 2026-10-03 (the mixed-work fixes): what the withheld change
+// still names — the page, when it was a page the site has — and what the
+// screen leads it with. Words that failed their check are never carried.
+function assertShapeWithheld(r, msg, label, target = { lead: "A page’s layout: " }) {
   assert.deepEqual(r.seen.calls, [T.route, T.pick, T.lane], label + ": the calls" + why(r));
   assert.deepEqual(r.seen.writers, [], label + ": a page writer was called" + why(r));
   assert.deepEqual(r.seen.lanes, [{ field: "description", asked: DESC_WORDS }], label + ": the description lane was handed more than its own words" + why(r));
   assert.equal(r.status, 200, label + why(r));
   assert.equal(r.body.ok, true, label + why(r));
-  assert.deepEqual(r.body.partial, [{ layer: "page", lanes: ["shape"], error: "scope-unread", msg, unchanged: true }], label + ": partial" + why(r));
+  assert.deepEqual(r.body.partial, [{ layer: "page", lanes: ["shape"], error: "scope-unread", ...(target.page ? { page: target.page } : {}), msg, unchanged: true }], label + ": partial" + why(r));
   assert.equal(storedLook(r.store, r.slug).description, NEW_DESC, label + ": the description was not stored" + why(r));
   for (const [path, src] of [["index.tsx", HOME], ["visit.tsx", VISIT], ["gallery.tsx", GALLERY]]) {
     assert.equal(storedPage(r.store, r.slug, path), src, label + ": " + path + " changed" + why(r));
   }
   assert.equal(r.compiles, 1, label + ": not exactly one publish" + why(r));
-  assert.equal(r.said.text, "✅ Updated the look — the description. ⚠️ " + msg, label + ": the screen" + why(r));
+  assert.equal(r.said.text, "✅ Updated the look — the description. ⚠️ " + target.lead + msg, label + ": the screen" + why(r));
 }
 
 for (const mode of ["sync", "job"]) {
@@ -684,7 +689,9 @@ for (const mode of ["sync", "job"]) {
       ] }, "lane:description": NEW_DESC },
     });
     assert.ok(!RUN52.toLowerCase().includes("move that section up"), "the fixture's words must not be in the request");
-    assertShapeWithheld(r, failureMsg("picker/scope-unread", { why: "words", page: "/visit" }), "words not in the request " + mode);
+    // The page passed its check, so the withheld change names it — and the
+    // builder's sentence names it already, so the screen does not again.
+    assertShapeWithheld(r, failureMsg("picker/scope-unread", { why: "words", page: "/visit" }), "words not in the request " + mode, { page: "/visit", lead: "A page’s layout: " });
   });
 }
 
@@ -716,7 +723,8 @@ test("a description scope whose words are not in the request is withheld: its la
   assert.equal(storedPage(r.store, r.slug, "visit.tsx"), bandsSwapped(VISIT), "the Visit move did not ship" + why(r));
   assert.equal(storedPage(r.store, r.slug, "index.tsx"), HOME, why(r));
   assert.equal(storedPage(r.store, r.slug, "gallery.tsx"), GALLERY, why(r));
-  assert.equal(r.said.text, "✅ Updated /visit. ⚠️ " + msg, "the screen" + why(r));
+  // LED BY WHAT IT WAS ABOUT SINCE 2026-10-03 (the mixed-work fixes).
+  assert.equal(r.said.text, "✅ Updated /visit. ⚠️ The description: " + msg, "the screen" + why(r));
 });
 
 test("an own lane a scoped answer left without a scope is withheld too: the description lane is never handed the whole request", async () => {
@@ -732,7 +740,8 @@ test("an own lane a scoped answer left without a scope is withheld too: the desc
   assert.deepEqual(r.body.partial, [{ layer: "look", lanes: ["description"], error: "scope-unread", msg, unchanged: true }], why(r));
   assert.equal(storedLook(r.store, r.slug).description, OLD_DESC, why(r));
   assert.equal(storedPage(r.store, r.slug, "visit.tsx"), bandsSwapped(VISIT), why(r));
-  assert.equal(r.said.text, "✅ Updated /visit. ⚠️ " + msg, why(r));
+  // LED BY WHAT IT WAS ABOUT SINCE 2026-10-03 (the mixed-work fixes).
+  assert.equal(r.said.text, "✅ Updated /visit. ⚠️ The description: " + msg, why(r));
 });
 
 test("a message whose only change is withheld changes nothing, costs nothing for the edit, and says why", async () => {
@@ -848,8 +857,9 @@ test("readScopes: a valid scope names a picked part, a page in one spelling and 
   // withholds every lane it left without a scope.
   assert.deepEqual(readScopes(reply([{ part: "shape", words: VISIT_WORDS }]), [], RUN52), { scoped: true, ops: [] });
   // NOTHING IS DROPPED IN SILENCE: every entry naming a picked lane is an op.
-  const many = Array.from({ length: MAX_LANES + 3 }, () => ({ part: "shape", words: VISIT_WORDS }));
-  assert.equal(readScopes(reply(many), ["shape"], RUN52).ops.length, MAX_LANES + 3);
+  // (Past the old four-lane cap, which went on 2026-10-03.)
+  const many = Array.from({ length: 7 }, () => ({ part: "shape", words: VISIT_WORDS }));
+  assert.equal(readScopes(reply(many), ["shape"], RUN52).ops.length, 7);
 });
 
 test("pickLanes reads the scopes off the answer it was given, against the message it sent", async () => {
@@ -889,7 +899,9 @@ test("the picker's tools ask for each change's scope — required on the ordinar
   assert.deepEqual(item.properties.answers.items, { type: "integer" });
   assert.match(item.properties.answers.description, /WHAT THEY ALREADY TOLD YOU/);
   assert.match(item.properties.answers.description, /`words` still comes from the request/);
-  assert.equal(plain.properties.scopes.maxItems, MAX_LANES);
+  // NO COUNT SINCE 2026-10-03 (the mixed-work fixes, MW2): the tool asked for
+  // at most four changes, so a model answering more was answering outside it.
+  assert.equal(plain.properties.scopes.maxItems, undefined, "the scopes list is capped again");
   assert.match(plain.properties.scopes.description, /ONE ENTRY PER SEPARATE CHANGE/);
   assert.match(item.properties.words.description, /copied EXACTLY from the message/);
   const door = pickTool(LANE_FIELDS, { routed: true }).input_schema;

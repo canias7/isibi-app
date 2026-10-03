@@ -20912,7 +20912,11 @@ async function handleRequest(request, env, ctx) {
         // browser now posts it back with the message, and the edit and add-on
         // routes take it out before anything runs (`heldBack`); the reply's
         // last sentence is composed from what the route really held back.
-        alsoAsked: typeof routed.alsoAsked === "string" && routed.alsoAsked ? routed.alsoAsked : undefined,
+        // ONE PART AS A STRING, SEVERAL AS A LIST (2026-10-03): `readAlso`
+        // decides the shape, and the browser posts it on as it came
+        // (`EditPoll.heldWire`). A list that is not all text never reaches here.
+        alsoAsked: (typeof routed.alsoAsked === "string" && routed.alsoAsked) ||
+          (Array.isArray(routed.alsoAsked) && routed.alsoAsked.length && routed.alsoAsked.every((p) => typeof p === "string" && p) ? routed.alsoAsked : undefined) || undefined,
         // AND, WHEN THE ANSWER WAS NOT THE MODEL'S EDIT AS GIVEN, WHY AND WHERE
         // (2026-10-02, the whole-router audit's W5 and W24). The reader turned
         // the edit into an add-on, and the add-on step is told so — the page
@@ -22524,13 +22528,20 @@ async function handleRequest(request, env, ctx) {
               // the identical wait. Run 95 is the measured instance: 27.7s, a
               // Haiku-sized window around a Grok call, reported as a busy model.
               const timedOut = isCallTimeout(e);
+              // AN ANSWER CUT OFF AT ITS CEILING (2026-10-03) is a bound of
+              // ours too: the step refused it whole rather than act on part of
+              // a list, and the sentence says so instead of "busy".
+              const cut = !!(e && e.truncated);
               return Response.json({
                 ok: false, error: "send", cost: 0,
                 msg: k.billing
                   ? "The site builder is temporarily unavailable — this is on us, not your change."
                   : timedOut
                     ? "That took longer than we allow ourselves to wait — this is on us."
-                    : (what || "That didn't go through — try again in a moment."),
+                    : cut
+                      ? "The builder's answer for that part was cut off before it finished, so none of it was used and nothing there changed — this is on us."
+                      : (what || "That didn't go through — try again in a moment."),
+                truncated: cut || undefined,
                 upstream: (e && e.status) || null,
                 upstreamType: k.type,
                 billing: k.billing || undefined,
@@ -22781,6 +22792,17 @@ async function handleRequest(request, env, ctx) {
               // this block walks `pickedFields`, so all of them are no-ops on an
               // empty list, and where the lanes become steps the router's own
               // step is put in (`doorDispatch`). `eRemovalDoor` is read there too.
+              // ── NOTHING HERE, AND EVERY PART NAMED AS ANOTHER STEP'S (2026-10-03) ──
+              //
+              // The picker placed no lane and named every part of the message as
+              // something no part here can make (`elsewhere`, each found in the
+              // message). Not "I couldn't tell which part": it could, and each is
+              // carried as left for later — said on the reply, never run.
+              if (!picked.fields.length && !eRemovalDoor && Array.isArray(picked.elsewhere) && picked.elsewhere.length) {
+                for (const w of picked.elsewhere) if (!eHeldOut.parts.includes(w)) eHeldOut.parts.push(w);
+                editTrace.mark("handover:elsewhere", "ok", { parts: picked.elsewhere.length, unread: picked.elsewhereUnread || 0 });
+                return explain("picker/elsewhere");
+              }
               if (!picked.fields.length && !eRemovalDoor) return explain("picker/no-lane");
               pickedFields = picked.fields;
 
@@ -22984,6 +23006,25 @@ async function handleRequest(request, env, ctx) {
                   }
                 }
               }
+              // ── AND EVERY PART THE PICKER SAID NO PART HERE CAN MAKE (2026-10-03) ──
+              //
+              // Owner: *"Let models identify intent, scope and unhandled parts
+              // using clear instructions and structured outputs."* Before this, a
+              // part no lane here makes (a new form, an entry in a stored list,
+              // exact wording) beside work this door does was not run, not held
+              // and not said unless the router happened to hold it — and the
+              // router holds what it sees, not what the picker finds (the
+              // mixed-work audit's MW3). Each part the picker named, found in the
+              // message, is put off exactly as an addition is: taken out of every
+              // step's words and of `eRun` by the cut below, before anything runs,
+              // and named on every ending.
+              for (const w of Array.isArray(picked.elsewhere) ? picked.elsewhere : []) {
+                if (!eHeldOut.parts.includes(w)) eHeldOut.parts.push(w);
+                if (!lookHeld.includes(w)) lookHeld.push(w);
+              }
+              if (Array.isArray(picked.elsewhere) && picked.elsewhere.length) {
+                editTrace.mark("handover:elsewhere", "ok", { parts: picked.elsewhere.length, unread: picked.elsewhereUnread || 0 });
+              }
 
               // ── THERE IS NO SHADOW WALL ANY MORE, AND THAT IS THE POINT ───
               //
@@ -23064,16 +23105,20 @@ async function handleRequest(request, env, ctx) {
               // is spelled, so the classification census reads every one. One
               // per lane, doubt and page: a sentence said twice is noise.
               const withheld = [];
-              const withhold = (f, why, page, answer) => {
-                if (withheld.some((w) => w.fields[0] === f && w.withheld.why === why && w.page === page)) return;
-                withheld.push({ layer: OWN_LANES.includes(f) ? "look" : (laneLayer(f) || "look"), page, fields: [f], withheld: { why, answer } });
+              // AND THE WORDS IT WAS FOR (2026-10-03, the mixed-work fixes), when
+              // they passed every check — so the reply names the change withheld,
+              // not only its lane. A scope whose words are unread carries none.
+              const withhold = (f, why, page, answer, words = []) => {
+                const had = withheld.find((w) => w.fields[0] === f && w.withheld.why === why && w.page === page);
+                if (had) { if (words.length) had.words = [...new Set([...(had.words || []), ...words])]; return; }
+                withheld.push({ layer: OWN_LANES.includes(f) ? "look" : (laneLayer(f) || "look"), page, fields: [f], ...(words.length ? { words: [...words] } : {}), withheld: { why, answer } });
               };
               // A PAGE THE SITE DOES NOT HAVE is the router's own check and
               // sentence, for that one change — the rest of the message runs.
               const strayPage = (op) => !!op.page && laneLayer(op.part) === "page" && !eKnown.includes(op.page);
               for (const op of eOps) {
                 if (op.invalid) withhold(op.part, op.invalid, op.page, () => explain("picker/scope-unread", { why: op.invalid, page: op.page }));
-                else if (strayPage(op)) withhold(op.part, "no-page", op.page, () => explain("page/no-page", { page: op.page, verb: "", routes: eKnown }));
+                else if (strayPage(op)) withhold(op.part, "no-page", op.page, () => explain("page/no-page", { page: op.page, verb: "", routes: eKnown }), [op.words]);
               }
               // WHAT EACH LANE MAY RUN ON: its ops that passed every check.
               const eRunnable = eOps.filter((op) => !op.invalid && !strayPage(op));
@@ -23340,7 +23385,16 @@ async function handleRequest(request, env, ctx) {
                 // the router's own step runs on `eRun`, and none of it is left.
                 const left = heldParts(eRun, lookHeld);
                 if (!left.ok) {
-                  eHeldOut.parts = eHeldOut.parts.filter((p) => !lookHeld.includes(p));
+                  // NOTHING LEFT TO RUN. When the parts put off were all ones the
+                  // picker named as no step's here (`elsewhere`), each is named
+                  // as left for later; an addition's words that swallowed the
+                  // rest keep their own sentence, as before.
+                  if (!lookHeldWhat) return explain("picker/elsewhere");
+                  // THE ADDITION'S OWN WORDS COME OFF THE LIST (its sentence asks
+                  // for it alone); a part the picker named as no step's here
+                  // stays named.
+                  const named = Array.isArray(picked.elsewhere) ? picked.elsewhere : [];
+                  eHeldOut.parts = eHeldOut.parts.filter((p) => !lookHeld.includes(p) || named.includes(p));
                   return explain("picker/addition-mixed", { what: lookHeldWhat });
                 }
                 eRun = left.run;
@@ -26119,8 +26173,8 @@ async function handleRequest(request, env, ctx) {
                           "changing a page without them could take one off. Try again in a moment."
                         : "The only thing that change would have done is take a photograph off your page, " +
                           "so I didn't make it. Say “take the photo off” if that is what you wanted.",
-                    keptParts: pKeptParts.length ? pKeptParts.slice(0, 6) : undefined,
-                    unseenParts: pUnseenParts.length ? pUnseenParts.slice(0, 6) : undefined,
+                    keptParts: pKeptParts.length ? pKeptParts : undefined,
+                    unseenParts: pUnseenParts.length ? pUnseenParts : undefined,
                     problems: pProblems.slice(0, 4),
                   }, { status: 409 });
                 }
@@ -26316,8 +26370,8 @@ async function handleRequest(request, env, ctx) {
                 // `unseenParts` is "I could not read this site's components at
                 // all". Omitted when empty, so an ordinary page edit's reply is
                 // byte-identical to what it was.
-                keptParts: pKeptParts.length ? pKeptParts.slice(0, 6) : undefined,
-                unseenParts: pUnseenParts.length ? pUnseenParts.slice(0, 6) : undefined,
+                keptParts: pKeptParts.length ? pKeptParts : undefined,
+                unseenParts: pUnseenParts.length ? pUnseenParts : undefined,
                 // ONE BILL, ONE ROUNDING, for both calls. `eCharge` is variadic
                 // precisely so two calls on one path do not each round up — the
                 // lesson `pageCredits` already carries. `twSpent` is null when
@@ -26777,6 +26831,53 @@ async function handleRequest(request, env, ctx) {
               removed: Array.isArray(d.body.removed) && d.body.removed.length ? d.body.removed : undefined,
               renamedTo: typeof d.body.renamedTo === "string" && d.body.renamedTo ? d.body.renamedTo : undefined,
             }));
+            // ── EVERY STEP'S OWN ACCOUNT, WITH WHAT IT WAS ASKED (2026-10-03) ──
+            //
+            // Owner: *"preserve each executed operation's authoritative result
+            // through merging, queued storage and reply generation; report every
+            // completed, failed, declined and pending operation with its target."*
+            // The fields around this flatten the steps: `layers` lists them, but
+            // one `msg` survived the catch-all below — the first step's — so a
+            // menu or a photograph changed beside a look or page change was made
+            // and told nowhere (the mixed-work audit's MW1, reproduced sync and
+            // queued). `steps` keeps one entry per step, in the order it ran,
+            // read off that step's own answer: its target (the page it was on
+            // and its own words, from the picker's scope), what became of it,
+            // and its own sentence — never composed here, because only the step
+            // knows which picture, which links, which address. A queued job
+            // stores this answer whole, so the poll's reply reads the same list.
+            //
+            // ONLY WHEN SEVERAL STEPS RAN: one step's answer already IS its own
+            // account, and stays byte-identical.
+            const wordsOf = (s) => {
+              if (Array.isArray(s.words) && s.words.length) return s.words.filter((w) => typeof w === "string" && w);
+              if (s.opWords && typeof s.opWords === "object") return (s.fields || []).flatMap((f) => (Array.isArray(s.opWords[f]) ? s.opWords[f] : [])).filter((w) => typeof w === "string" && w);
+              return [];
+            };
+            // A PAGE IS A STEP'S TARGET ONLY ON THE PAGE RUNG, which works on that
+            // one page. Every other rung works across the site — a photograph is
+            // found on whichever page holds it, the menu is on every page — and
+            // the page it was dispatched with is the message's, not its own.
+            const targetOf = (d) => {
+              const bd = d.body || {};
+              const own = d.step.layer === "page";
+              const page = !own ? "" : typeof bd.page === "string" && bd.page ? bd.page : (typeof d.step.page === "string" && d.step.page ? d.step.page : "");
+              const words = wordsOf(d.step);
+              return { page: page || undefined, words: words.length ? words : undefined };
+            };
+            const stepsOut = done.length > 1 ? done.map((d) => {
+              const bd = d.body || {};
+              const own = typeof bd.msg === "string" && bd.msg.trim() ? bd.msg.trim() : "";
+              return {
+                layer: d.step.layer, lanes: d.step.fields,
+                status: !d.failed ? "done" : d.superseded ? "superseded" : readAsk(bd.ask) ? "asked" : "failed",
+                ...targetOf(d),
+                msg: own || undefined,
+                removed: Array.isArray(bd.removed) && bd.removed.length ? bd.removed : undefined,
+                renamedTo: typeof bd.renamedTo === "string" && bd.renamedTo ? bd.renamedTo : undefined,
+                cost: Number(bd.cost) > 0 ? Number(bd.cost) : undefined,
+              };
+            }) : undefined;
             // ── WHAT THE MESSAGE DID TO THE SITE'S PICTURES, ASKED ONCE ────
             //
             // Owner: *"avoid reporting intermediate changes that the final
@@ -26844,6 +26945,7 @@ async function handleRequest(request, env, ctx) {
               moved: flat("moved"),
               changed: flat("changed"),
               pageOps: pageOps.length ? pageOps : undefined,
+              steps: stepsOut,
               // WHAT THIS TURN HELD BACK is added by the route's one ending
               // (`heldReport`, 2026-10-02), with any part a step put off itself
               // — every reply carries it now, not this one alone.
@@ -26918,6 +27020,10 @@ async function handleRequest(request, env, ctx) {
                   const own = typeof bd.msg === "string" && bd.msg.trim() ? bd.msg : "";
                   return {
                     layer: d.step.layer, lanes: d.step.fields, error: bd.error,
+                    // WHAT IT WAS ASKED (2026-10-03): its page and its own words,
+                    // so a part that did not go through is named by its target
+                    // and never folded into a count.
+                    ...targetOf(d),
                     reason: bd.escalate === true ? bd.reason : undefined,
                     msg: own || (bd.escalate === true ? stepMsg(bd) : undefined),
                     unchanged: stepWroteNothing(bd) || undefined,
@@ -26926,6 +27032,9 @@ async function handleRequest(request, env, ctx) {
                     // answered for its charge. Beside a change that shipped,
                     // nothing refunds it, so the customer is told.
                     cost: Number(bd.cost) > 0 ? Number(bd.cost) : undefined,
+                    // ITS ANSWER WAS CUT OFF AT ITS CEILING (2026-10-03), so
+                    // none of it was used — the one bound a step's list has.
+                    truncated: bd.truncated === true || undefined,
                     // A QUESTION BACK (2026-10-02): this step's model asked the
                     // customer one thing instead of acting. `askReport` lifts it
                     // off this entry, keeps it as the site's live question and
@@ -26948,10 +27057,10 @@ async function handleRequest(request, env, ctx) {
               // DE-DUPLICATED, because `components` and `tsx` both dispatch
               // to the page rung and both meet the same oversized component:
               // one sentence naming it twice reads as two problems.
-              keptParts: [...new Set(flat("keptParts"))].slice(0, 6).length
-                ? [...new Set(flat("keptParts"))].slice(0, 6) : undefined,
-              unseenParts: [...new Set(flat("unseenParts"))].slice(0, 6).length
-                ? [...new Set(flat("unseenParts"))].slice(0, 6) : undefined,
+              // EVERY ONE (2026-10-03): each is a change asked for and not made,
+              // so none is dropped past a count.
+              keptParts: flat("keptParts").length ? [...new Set(flat("keptParts"))] : undefined,
+              unseenParts: flat("unseenParts").length ? [...new Set(flat("unseenParts"))] : undefined,
               // NOT A SUM OF THE RUNGS — see the intersection above. What the
               // protection held AND the publication still shows.
               photosKept: picsKept,
@@ -27528,7 +27637,7 @@ async function handleRequest(request, env, ctx) {
               kinds: ["row"],
               rows: saved,
               repeat: repeat || undefined,
-              notAdded: skipped.length ? skipped.slice(0, 6) : undefined,
+              notAdded: skipped.length ? skipped : undefined,
               added: [], changed: [], removed: [], moved: [],
               cost,
             });
@@ -27738,7 +27847,7 @@ async function handleRequest(request, env, ctx) {
                 return Response.json({
                   ok: false, error: "add", kind: "row", reason: rowClean.why, cost: 0,
                   msg: addRefusal(rowClean.why, "row") + " Nothing was added.",
-                  notAdded: rowSkipped.length > 1 ? rowSkipped.slice(0, 6) : undefined,
+                  notAdded: rowSkipped.length > 1 ? rowSkipped : undefined,
                 }, { status: 422 });
               }
               const rowBill = pageCredits(...aDesignUsage);
@@ -27877,6 +27986,8 @@ async function handleRequest(request, env, ctx) {
             // an answer refused by the cleaner is a sentence, never a climb.
             const aAnswers = [];
             const aDeclined = [];
+            // A JOB'S ASKED INTERVAL, BY NAME (2026-10-03): see where it is read.
+            const aAskedEvery = new Map();
             // AN ENTRY LEFT OUT OF A LIST IS SAID (owner: no low limits, so a
             // page, component or table answer is a list; one bad entry must
             // not throw the good ones away, and must not vanish either).
@@ -28083,7 +28194,10 @@ async function handleRequest(request, env, ctx) {
             // `holds`, or in `fails`) — so without this a placement nobody could
             // establish would be recorded as a CONTRADICTION, which is the
             // strongest negative this vocabulary has.
-            let aApplied = false, aShipped = null, aLookMade = null, aPhotoMade = null, aThreeOn = [], aThreeUnsure = false, aPhotoUnsure = false, aPhotoLost = [], aPhotoShots = [];
+            // …AND `aQrShown` IS WHERE EACH NEW CODE IS REALLY SHOWN (2026-10-03),
+            // on the publish's clock like `aThreeOn`, for the reply: a code
+            // stored is configuration, a page rendering its binding is placement.
+            let aApplied = false, aShipped = null, aLookMade = null, aPhotoMade = null, aThreeOn = [], aThreeUnsure = false, aPhotoUnsure = false, aPhotoLost = [], aPhotoShots = [], aQrShown = null;
             const aMade = () => appliedFacts({
               spec: aSpec, tables: aTables, altered: aAltered,
               functions: aFunctions, apis: aApis, jobs: aJobs, fnErrors: aFnErrors,
@@ -28312,12 +28426,12 @@ async function handleRequest(request, env, ctx) {
                 // different objects, and folding them would be two findings in
                 // one field — the shape this route has already had to unpick
                 // twice.
-                droppedQrs: aDeadQr.dropped.length ? aDeadQr.dropped.slice(0, 6) : undefined,
-                heldPages: aDeadQr.withheld.length ? aDeadQr.withheld.map((w) => w.path).slice(0, 6) : undefined,
+                droppedQrs: aDeadQr.dropped.length ? aDeadQr.dropped : undefined,
+                heldPages: aDeadQr.withheld.length ? aDeadQr.withheld.map((w) => w.path) : undefined,
                 // …AND THE COMPONENTS, ON THEIR OWN FIELD FOR THE SAME REASON.
                 // A component has no route, so folding it into `heldPages`
                 // would put a name where every reader expects a path.
-                heldParts: aDeadQr.withheldParts.length ? aDeadQr.withheldParts.map((w) => w.name).slice(0, 6) : undefined,
+                heldParts: aDeadQr.withheldParts.length ? aDeadQr.withheldParts.map((w) => w.name) : undefined,
                 // THE DEVELOPER'S COPY OF THE TWO NEW FINDINGS. `seedSkips`
                 // carries the engine's own sentences, which name the rule the
                 // customer's clause deliberately leaves out; `noPopulation` is
@@ -28394,6 +28508,17 @@ async function handleRequest(request, env, ctx) {
               // were made without the answer, and are made again with it, once.
               if (ran.ask) { aStepAsk = { kind: k, ask: ran.ask }; break; }
               if (ran.value === undefined) { aDeclined.push(k); continue; }
+              // WHAT EACH JOB ASKED TO RUN EVERY, from the designer's OWN answer
+              // (2026-10-03, the mixed-work audit's MW7): the cleaner and the
+              // engine both raise an interval faster than the platform runs, and
+              // the reply then stated the raised number as if it were asked.
+              // Read off `ran.value`, never the cleaned one, by name.
+              if (k === "job") {
+                for (const j of Array.isArray(ran.value) ? ran.value : [ran.value]) {
+                  const n = j && typeof j === "object" ? Number(j.everyMinutes) : NaN;
+                  if (j && typeof j.name === "string" && Number.isFinite(n)) aAskedEvery.set(j.name.trim().toLowerCase(), Math.round(n));
+                }
+              }
               // `today` IS THE SITE'S OWN LOCAL DATE, not ours, and it is
               // stamped HERE rather than inside `siteFacts` for one reason:
               // `aSite` is rebuilt from the proposal after every kind, so a
@@ -28917,9 +29042,19 @@ async function handleRequest(request, env, ctx) {
                 // reads it, so a refused apply never claims to have looked.
                 aApplied = true;
                 aFunctions = aNamed("functions").filter((n) => aMadeFns.includes(n));
-                aFnErrors = Array.isArray(aMade && aMade.functionErrors) ? aMade.functionErrors.slice(0, 6) : [];
+                aFnErrors = Array.isArray(aMade && aMade.functionErrors) ? aMade.functionErrors.slice() : [];
                 aApis = (merged.apis || []).map((a) => a.name).filter((n) => aNamed("apis").includes(n));
-                aJobs = (merged.jobs || []).filter((j) => aNamed("jobs").includes(j.name)).map((j) => ({ name: j.name, fn: j.fn, everyMinutes: j.everyMinutes, ...(j.at ? { at: j.at, tz: j.tz || null } : {}), ...(j.on ? { on: j.on } : {}) }));
+                // AND WHAT IT ASKED FOR, WHEN THE PLATFORM RUNS SOMETHING ELSE
+                // (2026-10-03, MW7): the applied interval is the engine's own,
+                // and `askedEveryMinutes` rides beside it only when the two
+                // differ — never on a job that runs once, whose interval is not
+                // a schedule anybody asked for.
+                aJobs = (merged.jobs || []).filter((j) => aNamed("jobs").includes(j.name)).map((j) => {
+                  const asked = aAskedEvery.get(String(j.name || "").toLowerCase());
+                  return { name: j.name, fn: j.fn, everyMinutes: j.everyMinutes,
+                    ...(Number.isFinite(asked) && asked !== j.everyMinutes && !j.on ? { askedEveryMinutes: asked } : {}),
+                    ...(j.at ? { at: j.at, tz: j.tz || null } : {}), ...(j.on ? { on: j.on } : {}) };
+                });
                 aSecrets = [...new Set((merged.apis || []).filter((a) => aApis.includes(a.name)).flatMap((a) => secretsNeeded(a)))];
                 // REGISTER THE JOBS — the build route's own call, still
                 // non-fatal (the database is live and the rest of the change
@@ -28958,7 +29093,7 @@ async function handleRequest(request, env, ctx) {
                 const aBlocked = aDeadFns.size ? aJobs.filter((j) => aDeadFns.has(String(j.fn || "").toLowerCase())) : [];
                 if (aBlocked.length) {
                   const blockedNames = new Set(aBlocked.map((j) => String(j.name || "").toLowerCase()));
-                  aJobErrors = [...aJobErrors, ...aBlocked.map((j) => ({ name: j.name, error: "the function it runs, " + j.fn + ", could not be created" }))].slice(0, 6);
+                  aJobErrors = [...aJobErrors, ...aBlocked.map((j) => ({ name: j.name, error: "the function it runs, " + j.fn + ", could not be created" }))];
                   aJobs = aJobs.filter((j) => !blockedNames.has(String(j.name || "").toLowerCase()));
                   aFailedKinds.add("job");
                   aMark("jobs", "blocked", { n: aBlocked.length });
@@ -28973,7 +29108,7 @@ async function handleRequest(request, env, ctx) {
                   catch (e) {
                     const why = (e && e.message ? String(e.message) : "could not be scheduled").slice(0, 200);
                     console.error("addon jobs persist:", ownerSlug, why);
-                    aJobErrors = aJobs.map((j) => ({ name: j.name, error: why })).slice(0, 6);
+                    aJobErrors = aJobs.map((j) => ({ name: j.name, error: why }));
                     aJobs = [];
                     aFailedKinds.add("job");
                     aMark("jobs", "fail", { n: aJobErrors.length });
@@ -29089,7 +29224,11 @@ async function handleRequest(request, env, ctx) {
               return Response.json({
                 ok: true,
                 kinds: aAnswers.map((a) => a.kind), skipped: aSkipped,
-                notAdded: aNotAdded.length ? aNotAdded.slice(0, 6) : undefined,
+                notAdded: aNotAdded.length ? aNotAdded : undefined,
+                // A KIND WHOSE DESIGNER DECLINED, BESIDE THE ONES THAT DESIGNED
+                // (2026-10-03, the mixed-work audit's MW6): read only when every
+                // kind declined before, so a declined part vanished.
+                declined: aDeclined.length ? aDeclined.slice() : undefined,
                 // AN `ok: true` THAT STILL OWES SOMETHING SAYS SO. A job or an
                 // internal function changes no page, so this reply is the whole
                 // of what the customer hears — and a requirement handed to the
@@ -29566,7 +29705,7 @@ async function handleRequest(request, env, ctx) {
             // from the refusing side.
             if (!aMerge.ok && aRewrote.length) {
               return Response.json({
-                ok: false, error: "unseen-rewrite", cost: 0, keptPages: aRewrote.slice(0, 6),
+                ok: false, error: "unseen-rewrite", cost: 0, keptPages: aRewrote.slice(),
                 msg: unseenPagesNote(aRewrote),
               }, { status: 422 });
             }
@@ -29790,9 +29929,9 @@ async function handleRequest(request, env, ctx) {
               if (!aHeld.ok) {
                 return Response.json({
                   ok: false, error: "qr-dependency", cost: 0,
-                  droppedQrs: aDeadQr.dropped.slice(0, 6),
-                  heldPages: aDeadQr.withheld.map((w) => w.path).slice(0, 6),
-                  heldParts: aDeadQr.withheldParts.length ? aDeadQr.withheldParts.map((w) => w.name).slice(0, 6) : undefined,
+                  droppedQrs: aDeadQr.dropped.slice(),
+                  heldPages: aDeadQr.withheld.map((w) => w.path),
+                  heldParts: aDeadQr.withheldParts.length ? aDeadQr.withheldParts.map((w) => w.name) : undefined,
                   msg: deadQrNote(aDeadQr).trim(),
                 }, { status: 422 });
               }
@@ -29853,7 +29992,7 @@ async function handleRequest(request, env, ctx) {
             if (!aWordsAt.ok || !aPhotosAt.ok) {
               return Response.json({
                 ok: false, error: "not-landed", cost: 0,
-                missing: { words: aWordsAt.missing.slice(0, 6), photos: aPhotosAt.missing.slice(0, 6) },
+                missing: { words: aWordsAt.missing.slice(), photos: aPhotosAt.missing.slice() },
                 msg: notLandedMsg({ words: aWordsAt.missing, photos: aPhotosAt.missing }),
               }, { status: 422 });
             }
@@ -29992,7 +30131,7 @@ async function handleRequest(request, env, ctx) {
             aMark("pics", aKeptPics.ok ? "ok" : "fail", { lost: aKeptPics.lost.length });
             if (!aKeptPics.ok) {
               return Response.json({
-                ok: false, error: "lost-photos", cost: 0, lostPhotos: aKeptPics.lost.slice(0, 6),
+                ok: false, error: "lost-photos", cost: 0, lostPhotos: aKeptPics.lost.slice(),
                 msg: lostPhotosMsg(aKeptPics.lost),
               }, { status: 422 });
             }
@@ -30838,6 +30977,30 @@ async function handleRequest(request, env, ctx) {
               aThreeOn = [...new Set(drawn.flatMap((p) => (p && p.routes) || []))].filter(Boolean);
               aThreeUnsure = !aThreeOn.length
                 && drawn.some((p) => ((p && p.maybeRoutes) || []).some(Boolean));
+              // ── AND WHERE EACH NEW CODE IS REALLY SHOWN (2026-10-03) ─────
+              //
+              // Owner: *"Report QR codes, scenes and other additions as
+              // delivered only when the actual result supports that claim;
+              // distinguish configuration saved from placement verified."* A
+              // code is a STORED LOOK ENTRY and its figure is written by the
+              // PAGE step, so — exactly as for the scene — "the site has the
+              // code" and "a page shows it" are two facts that come apart, and
+              // the reply said neither (the mixed-work audit's MW5). Read off
+              // the same publication, with the one reader of "does this source
+              // show this code" (`qrUnplaced`), asked against the whole list so
+              // its index-keyed legacy arm still means what it means.
+              {
+                const codesNow = qrList(aMerged.qr);
+                aQrShown = ((aLookMade && aLookMade.qrs) || []).map((c) => {
+                  const on = new Set(), maybe = new Set();
+                  for (const p of live) {
+                    if (qrUnplaced(codesNow, [p]).includes(c.name)) continue;
+                    for (const r of (p && p.routes) || []) if (r) on.add(r);
+                    for (const r of (p && p.maybeRoutes) || []) if (r) maybe.add(r);
+                  }
+                  return { name: c.name, on: [...on], unsure: !on.size && maybe.size > 0 };
+                });
+              }
             }
             // THE RECORD IS RE-WRITTEN HERE WHETHER OR NOT A PAGE WENT MISSING
             // (2026-09-15), and until a sweep survivor found it this write was
@@ -30868,7 +31031,13 @@ async function handleRequest(request, env, ctx) {
               // What was added, by kind, and what was set aside for another
               // rung — so the reply can say "the photograph needs its own ask".
               kinds: aAnswers.map((a) => a.kind), skipped: aSkipped,
-              notAdded: aNotAdded.length ? aNotAdded.slice(0, 6) : undefined,
+              notAdded: aNotAdded.length ? aNotAdded : undefined,
+              // A KIND WHOSE DESIGNER DECLINED, BESIDE THE ONES THAT DESIGNED
+              // (2026-10-03, the mixed-work audit's MW6). Each designer was
+              // asked for its kind and answered nothing; read before only when
+              // EVERY kind declined, so beside a kind that was added it
+              // vanished — in no field and no sentence.
+              declined: aDeclined.length ? aDeclined.slice() : undefined,
               // WHAT THE CHANGE STILL OWES, AFTER THE WHOLE OF IT RAN. A
               // requirement handed to the page step IS covered here, because
               // the page step really ran — which is why this is computed from
@@ -30881,12 +31050,36 @@ async function handleRequest(request, env, ctx) {
               // before the publish — so the reply can say what was added from
               // what the page really holds. Absent when there were none, so
               // every other addition's reply is byte-identical.
-              words: aFold.words.length ? aFold.words.slice(0, 6).map((w) => ({ page: w.page, words: w.words })) : undefined,
-              ownPhotos: aFold.reuse.length ? aFold.reuse.slice(0, 6).map((p) => ({ page: p.page })) : undefined,
+              words: aFold.words.length ? aFold.words.map((w) => ({ page: w.page, words: w.words })) : undefined,
+              ownPhotos: aFold.reuse.length ? aFold.reuse.map((p) => ({ page: p.page })) : undefined,
               // The design fields this addon gave the site (a `qr`, a `three`),
               // in the look lane's own word for it, so a reader can tell "added
               // a page" from "added a code to a page".
               moved: aLookMoved,
+              // ── EVERY CODE AND THE SCENE THIS CHANGE ADDED, AND WHERE THEY
+              //    REALLY ARE (2026-10-03, the mixed-work audit's MW5) ────────
+              //
+              // A code or a scene that was added was told nowhere: the answer
+              // carried no field for either. Each now carries what was saved
+              // (its words, what it opens or shows), the page it was asked for,
+              // and the routes the publication really shows it on (`on`, read
+              // by `qrUnplaced` and `sceneOn`), or `unsure` when only a
+              // component a page may render carries it. Saved and not shown is
+              // a code with an empty `on` — configuration, not placement.
+              qrs: aQrShown && aQrShown.length ? aQrShown.map((q) => {
+                const c = qrList(aMerged.qr).find((x) => x && x.name === q.name) || {};
+                const asked = aAnswers.filter((a) => a.kind === "qr").flatMap((a) => (Array.isArray(a.value) ? a.value : [a.value]))
+                  .find((v) => v && v.name === q.name);
+                return { name: q.name, label: c.label || undefined, opens: c.points || undefined,
+                  page: asked && typeof asked.page === "string" && asked.page ? asked.page : undefined,
+                  on: q.on, unsure: q.unsure || undefined };
+              }) : undefined,
+              scene: aLookMade && aLookMade.three ? (() => {
+                const asked = aAnswers.filter((a) => a.kind === "three").flatMap((a) => (Array.isArray(a.value) ? a.value : [a.value])).find((v) => v && typeof v === "object");
+                return { about: typeof aMerged.three === "string" ? aMerged.three : (asked && asked.scene) || undefined,
+                  page: asked && typeof asked.page === "string" && asked.page ? asked.page : undefined,
+                  on: aThreeOn.slice(), unsure: aThreeUnsure || undefined };
+              })() : undefined,
               photos: aSlots,
               // ── AND THE ONES NOTHING CAN FILL (2026-09-19) ────────────────
               //
@@ -31047,19 +31240,19 @@ async function handleRequest(request, env, ctx) {
               // change the customer may have asked for did not land. Named
               // rather than dropped in silence, and absent when nothing was
               // refused, so an ordinary addon's response is byte-identical.
-              keptParts: aKeptParts.length ? aKeptParts.slice(0, 6) : undefined,
+              keptParts: aKeptParts.length ? aKeptParts : undefined,
               // …OR ONE WE COULD NOT READ THE STORE FOR AT ALL. A separate
               // field because it is a separate fact and a separate sentence:
               // above, one named component was too long to carry; here nothing
               // was read, so nothing may be replaced and we do not even know
               // what the site has. The two are disjoint by construction.
-              unseenParts: aUnseenParts.length ? aUnseenParts.slice(0, 6) : undefined,
+              unseenParts: aUnseenParts.length ? aUnseenParts : undefined,
               // …AND THE SAME WALL FOR A PAGE (2026-09-17). A returned file for
               // a page the window could not carry is refused and the stored
               // one kept — the pages we could not SHOW are the pages we cannot
               // CHECK. Its own field beside the component one, because a page
               // and a component are different objects with different advice.
-              keptPages: aRewrote.length ? aRewrote.slice(0, 6) : undefined,
+              keptPages: aRewrote.length ? aRewrote : undefined,
               // …AND THE SENTENCE, composed here and printed VERBATIM by the
               // browser — `coverNote`'s rule, for `coverNote`'s reason: the
               // decision is entirely the server's, since it is the only thing

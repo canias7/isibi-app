@@ -27,7 +27,7 @@
 // decision is reproducible — a rule that consults `Date.now()` cannot be driven
 // past its own deadline in a test, which is exactly the case that matters.
 
-import { MAX_INPUT_CHARS } from "./input-budget.mjs";
+import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS } from "./input-budget.mjs";
 import { BUILDER_CALL_MS, retryHere } from "./build-call.mjs";
 import { readTries } from "./build-job.mjs";
 
@@ -51,15 +51,17 @@ export const RESUME_VERSION = 1;
 // because the marks nearest the failure are the ones anybody is reading for.
 export const MAX_RESUME_STEPS = 40;
 
-// HOW MANY PARTS PUT OFF A RECORD MAY NAME, and how long each may be: the
-// hand-over's own bounds (`MAX_HELD` in site-ask.mjs, and one message of the
-// size policy, `MAX_INPUT_CHARS` in input-budget.mjs — held equal to these by
-// test/handover-resume.test.mjs). The count is not imported: this module is
-// the resume's envelope and carries no router. The length is the size policy's
-// own (2026-10-03): a part cut from a message of up to 16,000 characters, held
-// to 2,000 here, left the record naming none of the parts put off.
-export const MAX_RESUME_DEFERRED = 4;
+// HOW MUCH OF THE PARTS PUT OFF A RECORD MAY NAME: the hand-over's own bounds
+// — one message of the size policy for each part (`MAX_INPUT_CHARS`), and what
+// one request carries for all of them together (`MAX_CARRIED_CHARS`), both in
+// input-budget.mjs and held equal to the hand-over's by
+// test/handover-resume.test.mjs. The length is the size policy's own
+// (2026-10-03): a part cut from a message of up to 16,000 characters, held to
+// 2,000 here, left the record naming none of the parts put off. AND NO COUNT
+// (2026-10-03, with the hand-over's): a fifth part made this record name none of
+// them. A first build carries no parts put off, so its record is unchanged.
 export const MAX_RESUME_DEFERRED_CHARS = MAX_INPUT_CHARS;
+export const MAX_RESUME_DEFERRED_TOTAL = MAX_CARRIED_CHARS;
 
 // CLOUDFLARE'S OWN CEILING ON A DELAYED MESSAGE — 24 hours, for `send()` and
 // `msg.retry()` alike (verified against their documentation rather than
@@ -491,17 +493,22 @@ export function packResume({ id, auth, uid, slug, lane, genId, report, firedAt, 
 
 /**
  * THE PARTS PUT OFF, AS THE RECORD KEEPS THEM: a list of distinct non-blank
- * strings, at most `MAX_RESUME_DEFERRED`. ALL OR NOTHING — a list with an entry
- * that is not text, or too many entries, keeps none: a record this module did
- * not write names nothing rather than half of something. The Worker writes it
- * from the parts the build really took out (`heldParts`), already read.
+ * strings, together within `MAX_RESUME_DEFERRED_TOTAL`. ALL OR NOTHING — a list
+ * with an entry that is not text, or more than one request carries, keeps none:
+ * a record this module did not write names nothing rather than half of
+ * something. The Worker writes it from the parts the build really took out
+ * (`heldParts`), already read.
  */
 function normalizeDeferred(list) {
-  if (!Array.isArray(list) || list.length > MAX_RESUME_DEFERRED) return [];
+  if (!Array.isArray(list)) return [];
   const out = [];
+  let chars = 0;
   for (const p of list) {
     if (typeof p !== "string" || !p.trim() || p.length > MAX_RESUME_DEFERRED_CHARS) return [];
-    if (!out.includes(p)) out.push(p);
+    if (out.includes(p)) continue;
+    chars += p.length;
+    if (chars > MAX_RESUME_DEFERRED_TOTAL) return [];
+    out.push(p);
   }
   return out;
 }

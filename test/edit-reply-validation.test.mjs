@@ -433,7 +433,9 @@ test("CONTROL: refusals are shown in their own words, with the whole-request not
   const ALL = { ok: false, layer: "look", lanes: ["css", "shape"], cost: 0, unchanged: true,
     partial: [{ layer: "look", msg: "I couldn't find that colour." }, { layer: "page", msg: "The photo change was refused." }] };
   const all = await drive({ answers: { route: [routeTo("look")], edit: [ok(ALL, 422)] } });
-  assert.deepEqual(all.said, ["⚠️ I couldn't find that colour. The photo change was refused." + NOTE]);
+  // EACH LED BY WHAT IT WAS ABOUT SINCE 2026-10-03 (the mixed-work fixes: a
+  // part is named by its target, here the only one these parts carry, their layer).
+  assert.deepEqual(all.said, ["⚠️ The look: I couldn't find that colour. A page: The photo change was refused." + NOTE]);
   // A refusal whose body carries a real `escalate: false` is a refusal.
   // (2026-09-25) Every refusal now states what the routing call cost when the
   // page holds its reply, and what the edit cost when the reply records it —
@@ -456,7 +458,8 @@ test("CONTROL: refusals are shown in their own words, with the whole-request not
 test("CONTROL: a partial outcome is said beside the change that shipped, and escalate: false does not stop a success", async () => {
   const PARTIAL = { ...SUCCESS, partial: [{ layer: "page", msg: "The photo change was refused." }] };
   const o = await drive({ answers: { route: [routeTo("look")], edit: [ok(PARTIAL)] } });
-  assert.deepEqual(o.said, ["✅ Updated the look. ⚠️ The photo change was refused."]);
+  // LED BY WHAT IT WAS ABOUT SINCE 2026-10-03 (the mixed-work fixes).
+  assert.deepEqual(o.said, ["✅ Updated the look. ⚠️ A page: The photo change was refused."]);
   const f = await drive({ answers: { route: [routeTo("look")], edit: [ok({ ...SUCCESS, escalate: false })] } });
   assert.deepEqual(f.said, ["✅ Updated the look."]);
 });

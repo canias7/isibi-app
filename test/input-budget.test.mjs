@@ -145,7 +145,9 @@ test("ROOM TO COPY THE CUSTOMER'S WORDS BACK: the router's and the picker's ceil
   assert.equal(askRequest({ message: "the first", site, hasSite: true, live: true, pending: waiting }).max_tokens, ASK_MAX_TOKENS + echoTokens(waiting.request),
     "a held-back part of the waiting request has no room to be copied");
   assert.equal(askRequest({ message: LONG, site: {}, hasSite: false }).max_tokens, ASK_MAX_TOKENS, "a first build's ceiling moved");
-  assert.equal(lanePickRequest({ message: LONG }).max_tokens, LANE_PICK_MAX_TOKENS + echoTokens(LONG));
+  // TWICE THE COPY ROOM SINCE THE LANE CAP WENT (2026-10-03): every change's own
+  // words and every part no lane here can make (`elsewhere`) are copied back.
+  assert.equal(lanePickRequest({ message: LONG }).max_tokens, LANE_PICK_MAX_TOKENS + 2 * echoTokens(LONG));
 });
 
 test("AN ANSWER CUT OFF AT ITS CEILING IS NO ANSWER: the router fails the call on a site that exists, the picker fails as a call that did not answer", async () => {

@@ -77,6 +77,8 @@ export const EDIT_FAILURES = Object.freeze([
     why: "A code or a scene the site does not have yet is designed from nothing — the add-on step's job." },
   { key: "picker/addition-mixed", reason: "addition-mixed", cls: "explain",
     why: "An addition (a QR code, a 3D scene or a page the site does not have) asked beside other work, on a picker answer that gave no words for each change (2026-10-02, the audit's W15). Handing the message to the add-on step would drop the other work, and running the other work on the whole message would leave the addition with no words to put off — so nothing runs, nothing is charged for the edit, and the customer is asked to send the addition on its own." },
+  { key: "picker/elsewhere", reason: "elsewhere", cls: "explain",
+    why: "Every part of the message is something the parts of the site this step changes cannot make — something new to add, an entry in a stored list, exact new wording — and the picker named each in the customer's own words (`elsewhere`, 2026-10-03, the mixed-work fixes). Nothing runs and nothing is charged for the edit; each part is carried as left for later (`deferred`), so the customer can send it on its own." },
   { key: "picker/build", reason: "build", cls: "up",
     why: "`kind` (shopfront or tool) is a different site, not an edit of this one — the owner's own rule. The rewrite is the rung that rebuilds." },
   { key: "picker/unbuilt", reason: "unbuilt", cls: "explain",
@@ -241,6 +243,8 @@ export function failureMsg(key, facts = {}) {
       return "Your site doesn't have " + (f.what || "that") + " on it, so there was nothing to take off.";
     case "picker/addition-mixed":
       return "Adding " + (f.what || "that") + " is a step of its own, and I couldn't tell which of your words asked for it, so I haven't changed anything. Ask for " + (f.what || "it") + " on its own, then for the rest, and I'll make each.";
+    case "picker/elsewhere":
+      return "None of that is something I can change in this step, so I haven't changed anything — each part is a step of its own.";
     case "picker/unbuilt":
       return "That part of your site can't be changed from here yet.";
     case "pages/page-verb":
