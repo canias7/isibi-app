@@ -371,7 +371,9 @@ test("CONTROL: an edit's well-typed page, removal, move and tab reach the edit P
 
 test("CONTROL: a valid addon posts the addon route", async () => {
   const o = await drive({ site: LIVE, message: "Add a gallery page", route: ok200({ ok: true, intent: "addon", cost: 2 }) });
-  assert.deepEqual(o.posts, [{ url: "/api/site/fretwork-1/addon", body: { instruction: "Add a gallery page", picker: "grok", idem: "idem-1", tz: "Europe/London" } }]);
+  // `routedCost` SINCE 2026-10-03: what reading the message cost rides along,
+  // so a reply the Worker has a model write can state it; it is never billed from.
+  assert.deepEqual(o.posts, [{ url: "/api/site/fretwork-1/addon", body: { instruction: "Add a gallery page", picker: "grok", idem: "idem-1", tz: "Europe/London", routedCost: 2 } }]);
   assert.equal(o.busy, true);
 });
 

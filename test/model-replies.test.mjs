@@ -75,6 +75,12 @@ test("A FAILURE OF OURS IS DECIDED BY WHAT THE ANSWER SAYS, NEVER BY ITS STATUS:
   for (const ordinary of ["no-page", "withheld", "cancelled", "compile", "declined", "clarify", "add", "already", "take-off", "not-removable", "rename", "qr", "stale-question", "answer-too-long", "answers-full", "question-busy"]) {
     assert.equal(TECHNICAL.has(ordinary), false, ordinary + " is an ordinary outcome and is on the technical list");
   }
+  // ONE REASON, TWO OUTCOMES, AND `ours` DECIDES: the page-keep check's
+  // `withheld` is ordinary when the check found content the change would lose
+  // (409), and ours when the check could not be made (503, `ours: true`).
+  assert.equal(editReplyFacts({ ok: false, error: "withheld", cost: 0, msg: "That would take out the opening hours, so I left the page alone." }).skip, null);
+  assert.equal(editReplyFacts({ ok: false, error: "withheld", cost: 0, ours: true, msg: "I couldn't check what that change would keep, so I left the page alone." }).skip, "technical");
+  assert.equal(TECHNICAL.has("withheld"), false);
   // AND AN EDIT'S FACTS FOLLOW IT: a technical answer is skipped, an ordinary refusal at a 503 is not.
   assert.equal(editReplyFacts({ ok: false, error: "send", msg: "The builder could not be reached." }).skip, "technical");
   assert.equal(editReplyFacts({ ok: false, error: "cancelled", msg: "I stopped that edit before anything was published.", cost: 0 }).skip, null);

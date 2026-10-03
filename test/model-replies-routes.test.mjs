@@ -473,6 +473,28 @@ test("A QUESTION ASKED AGAIN — AT THE ROUTER AND AT A STEP: its note is writte
       });
     }
     {
+      // AT THE THRESHOLD: answered once already, answered again, and asked again — the router is not sent
+      // again, and the note says only their answer or a cancel moves it now.
+      const slug = freshSlug("again-limit");
+      const store = bucket(slug);
+      const q = seedQuestion(store, slug, { context: [{ q: Q.text, a: "the first one" }], round: 2 });
+      const again = { intent: "clarify", question: { text: Q.text, options: Q.options }, answered: true };
+      const replies = [];
+      await withWire({ route: [again], ...(writes ? { [W]: writer(replies) } : {}) }, async (seen) => {
+        const r = await routeCall(worker, ON(store), { slug, message: "the bigger one", ask: { id: q.id } });
+        assert.equal(r.status, 200, JSON.stringify(r.body).slice(0, 300));
+        assert.equal(seen.routerAsked.length, 1, "the router was sent again at the threshold");
+        if (writes) {
+          assert.match(replies[0].facts[0].text, /their answers, “the first one” and “the bigger one”, did not settle it/);
+          assert.match(replies[0].facts[2].text, /until they answer once more or cancel/, "the note was not told our own re-asking has stopped");
+          assert.match(r.body.question.note, /^You answered this one before/);
+        } else {
+          assert.equal(r.body.question.note, againNote([{ q: Q.text, a: "the first one" }, { q: Q.text, a: "the bigger one" }]));
+        }
+        assert.equal(question(store, slug).note, r.body.question.note);
+      });
+    }
+    {
       const slug = freshSlug("again-step");
       const store = bucket(slug);
       const replies = [];
@@ -687,6 +709,11 @@ test("THE FIRST BUILD IS UNTOUCHED, AND SO IS EVERYTHING WITH THE SWITCH OFF: no
     const r = await routeCall(worker, ON(store), { slug, message: "A bakery site for Harbour Loaf", firstBuild: true, hasSite: false });
     assert.equal(r.status, 200, JSON.stringify(r.body).slice(0, 200));
     assert.equal(r.body.reply, undefined, "the first build's routing answer was given a reply");
+    // EVEN ITS REFUSALS: a first build naming a question is refused as stale, in the route's own words.
+    const stale = await routeCall(worker, ON(store), { slug, message: "Visit", ask: { id: "e".repeat(32) }, firstBuild: true, hasSite: false });
+    assert.equal(stale.status, 409, JSON.stringify(stale.body).slice(0, 200));
+    assert.equal(stale.body.error, "stale-question");
+    assert.equal(stale.body.reply, undefined, "a first build's refusal was given a reply");
     assert.equal(replyCalls(seen), 0);
   });
   const slug2 = freshSlug("off");

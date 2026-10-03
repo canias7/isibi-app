@@ -63,6 +63,17 @@ test("AN EDIT'S REPLY IS THE WHOLE MESSAGE: a success shows it alone — no head
   }
 });
 
+test("A STEP'S QUESTION WITH PARTS LEFT FOR LATER: nothing ran, so the reply only leads into the question — edit and add-on alike — and the page draws the question under it, with its card", async () => {
+  for (const [name, url, routedAs] of [["edit", EDIT, routed()], ["add-on", ADDON, routed({ intent: "addon", layer: undefined })]]) {
+    const reply = model({ ok: false, error: "clarify", cost: 0, unchanged: true, msg: STEP_Q.text, clarify: STEP_Q, putOff: ["add a gallery page"] }, "Nothing's changed yet, and the gallery page is still waiting for later — first, one question.");
+    const p = page({ site: LIVE, answer: (u) => (u === ROUTE ? { body: routedAs } : u === url ? { status: 422, body: reply } : null) });
+    p.ctx.siteSend("Move the band, and add a gallery page later");
+    await settle();
+    assert.deepEqual(p.last(), { r: "a", t: "Nothing's changed yet, and the gallery page is still waiting for later — first, one question.\n" + STEP_Q.text, q: STEP_Q.text, opts: STEP_Q.options, ask: QID2 }, name);
+    assert.equal(p.ask().id, QID2, name + ": the question did not become the live card");
+  }
+});
+
 test("AN EDIT REFUSED, WITH A REPLY: shown whole, never with the page's own warning, sentence or money beside it — and what a question that could not be kept left to do still goes back to the message box", async () => {
   const unkeptRest = "put the order band above the other one";
   const reply = model({ ok: false, error: "withheld", unchanged: true, cost: 0, msg: "There's no Gallery page on your site.", resume: unkeptRest }, "There's no Gallery page on your site, so nothing changed and it cost you nothing.");
