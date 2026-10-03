@@ -407,14 +407,39 @@ here; take a closed one out of both.**
   2026-10-03, unmerged and undeployed** (`docs/history/2026-10-03-mixed-work-fixes.md`).
   **The footer's eighth-entry cut the owner reproduced on the review, and
   the menu's count of ten, removed the same day**
-  (`docs/history/2026-10-03-footer-lists.md`). Open: an edit and an addition
-  finishing in one request (the plan, revised around the server's job runner,
-  `docs/investigations/edit-addon-one-request-plan.md`, nine decisions the
-  owner's), and the real-model batch.
+  (`docs/history/2026-10-03-footer-lists.md`). **An edit and an addition
+  finishing in one request is built on the branch** (the combined request
+  flow, next lines; unmerged, undeployed, off by default). Open: the
+  real-model batch.
 - The page itself makes the three existing hand-overs (edit → add-on, a
   sideways hop, add-on → menu step), so closing the tab between the two jobs
-  loses the second half (found 2026-10-03; the plan would move them to the
-  server).
+  loses the second half (found 2026-10-03). **On the branch, a message the
+  request flow takes on has them made by the server** (`handOff`,
+  `docs/request-flow.md`). The page still makes them with the switch off, or
+  where edits are not queued for an owner and site.
+- **The combined request flow** (2026-10-03, `docs/request-flow.md`; built on
+  the branch, unmerged, undeployed, off by default behind `REQUEST_FLOW`;
+  supplied model answers only). Open:
+  - before the switch goes on, the UI canary (`scripts/canary-ui.mjs`) must
+    learn a request the server runs: it expects the page to post its own
+    edit. The edit canary has no request mode;
+  - no real-model evidence: a small paid batch, for the owner's approval;
+  - a run job stopped while still queued makes its model calls anyway. It is
+    caught at its publish gate and refunded (the job runner's behavior; a
+    routing job checks its gate first);
+  - request records, answer pointers and replies have no retention window.
+    They go with the site;
+  - the per-site list shows at most 50 requests. The sweep reads 100 markers
+    a tick, so a request whose job-end call was lost waits up to
+    `ceil(markers / 100)` ticks;
+  - a later part's routing runs in the site's container, so a cold container
+    adds its start time;
+  - the full rewrite's go-ahead takes the message's files only while the
+    page still holds them.
+- Deleting a site leaves `source/<slug>/` behind: the page source, the stored
+  answers and the site's question record. So a slug's next owner could
+  inherit them. Found 2026-10-03 while adding the requests to the delete; it
+  predates the request flow. Not changed.
 - A list entry or a menu link the add-on sets aside beside other kinds is
   named by its kind, not its words (the add-on picker answers kinds only).
 

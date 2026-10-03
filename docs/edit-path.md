@@ -276,6 +276,21 @@ answers unless a run is named.
   says (`ours`, `TECHNICAL`), never by its status. A queued job's reply is
   written once by the poll, after the money settles, and kept. The record is
   `docs/history/2026-10-03-model-replies.md`.
+- **One message, several parts, finished on the server** (2026-10-03, on the
+  branch for review; not merged or deployed; off by default behind
+  `REQUEST_FLOW`):
+  - a site's message the routing call accepts becomes a request in the site
+    bucket;
+  - each part (the router's held parts, a picker's `elsewhere`, the look
+    door's held additions) is routed when its turn comes and run as an
+    ordinary queued job, one at a time, in the order the model gave
+    (`dependsOn`);
+  - the hand-overs above (`escalateAction`) are made by the server for these
+    messages, and the full rewrite waits for the customer's press;
+  - each part's reply says the other parts are done by the same request,
+    never "send it next".
+
+  How it works: `docs/request-flow.md`.
 
 ---
 

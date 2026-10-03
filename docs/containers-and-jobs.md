@@ -31,6 +31,14 @@ spent). `JOB_RUNNER_EVERYONE` is on. The hold probe proved a 20-minute job
 child in the container (1,200,182 ms, 20 of 20 pulses); the transport probe's
 reading is still to take.
 
+**A request of several parts** (2026-10-03, on the branch; off by default):
+each part's step is an ordinary queued job under a key derived from the
+message (`<key>-p<part>-<seq>`), including a routing job that replays
+`/api/site/route` under the job's marker. When one ends in the container,
+the gateway's `POST /api/job/<id>/next` (`JOB_NEXT`), bound to the job's
+token, asks the Worker to move the request on. The two-minute cron is the
+guarantee (`runRequestSweep`). How it works: `docs/request-flow.md`.
+
 ---
 
 ### EVERY RUNG RUNS IN THE SITE'S CONTAINER, AND THE CONTAINER HAS NO CLOCK

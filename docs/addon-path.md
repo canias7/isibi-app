@@ -44,6 +44,12 @@ data step's own parameterised insert, beside the request's key in one
 statement, with no page call and no publish; beside other kinds it is set
 aside and named (*THE `row` KIND*, below).
 
+**An addition that is one part of a longer message** (2026-10-03, on the
+branch, off by default behind `REQUEST_FLOW`) runs as its own queued job,
+in the order the model gave. The edit step's hand-over to the add-on, and
+the add-on's hand-over of a menu link to the menu step, are made by the
+server instead of the page. How it works: `docs/request-flow.md`.
+
 ## What is proven live, per addon kind
 
 **IMPLEMENTED-BUT-UNVERIFIED IS NOT UNSUPPORTED, and the two are kept apart

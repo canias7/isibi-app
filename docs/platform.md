@@ -90,7 +90,10 @@ unreachable CSS**. The law that survives:
   prefix — frozen for a site until its next publish, and still where
   `site.live` and the early placeholder live), `source/` (page source),
   `uploads/`, `versions/` (the legacy copy archive), `backups/`, `sitemeta/`,
-  `config/`, `orphans/`, `jobs/`.
+  `config/`, `orphans/`, `jobs/`, and, on the branch (2026-10-03, off by
+  default), `requests/` (a request of several parts: its record, files, reply
+  and answer pointers) and `requests-live/` (the markers the two-minute
+  sweep lists; `docs/request-flow.md`).
 - **The Media Agent and the universal memory are GONE** (stages 2b–4). The agent
   was an Instagram/YouTube manager over Composio — read and comment auto-reply
   live, DM auto-reply blocked on Meta App Review — and the memory was

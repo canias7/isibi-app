@@ -1,4 +1,4 @@
-# Finishing Edit and Add-on work from one request: the plan, revised (proposed, not built)
+# Finishing Edit and Add-on work from one request: the plan, revised (built on the branch, 2026-10-03)
 
 > **The order** (owner, 2026-10-03, the review of the first plan): *"the
 > proposed browser-driven continuation can stall after the tab closes, and
@@ -24,7 +24,20 @@
 > job machinery, with sequential writes and first Build unchanged; do not
 > implement the cross-route continuation yet."*
 >
-> **Status: a proposal for your review. Nothing in it is built.** It replaces
+> **Status now: built on `claude/help-needed-ehlwlj` (2026-10-03, `b1d96b3d`
+> and `b7564f82`), unmerged and undeployed, and off by default
+> (`REQUEST_FLOW`).** How it works as built is `docs/request-flow.md`.
+> Where the build departs from this plan, and why, is
+> `docs/history/2026-10-03-combined-requests.md` §3:
+> - the record is in the site bucket, so no migration is needed;
+> - a message is accepted at the routing call;
+> - the routing charge is keyed by the message (D7);
+> - only failure policy B is built;
+> - the full rewrite waits for a button.
+>
+> The plan below is kept as it was proposed.
+>
+> **Status when written: a proposal for your review. Nothing in it is built.** It replaces
 > the first plan (2026-10-03, `ddbde31a`/`f26e00e2`), whose browser-driven
 > chain §1 explains. It builds on the mixed-work fixes on
 > `claude/help-needed-ehlwlj` (unmerged): several parts left for later per

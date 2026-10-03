@@ -972,3 +972,34 @@
   after a publish, and duplicate requests from another tab."* So a plan for
   work that spans jobs states, for each checkpoint, what happens on each
   failure, what is charged and what the customer reads.
+- **A part the customer asked for runs without another press because it
+  crosses a route; a scope change is asked first** (2026-10-03, ordering the
+  combined request flow): *"An explicitly requested part should run without
+  another confirmation merely because it crosses an internal route; retain
+  existing credit checks and ask when proceeding would materially change the
+  requested scope, including a full rewrite fallback."* So a later part of a
+  message spends what its own steps cost, as if sent by hand, and each step
+  keeps its own credit gate. The full rewrite, and anything else that changes
+  far more than the part asked for, is never started without the customer's
+  own press.
+- **Duplicates are proven, not inherited** (2026-10-03): *"Prevent duplicate
+  execution and charging across retries, lost responses, duplicate delivery
+  and multiple tabs, including the initial routing call; do not claim
+  existing job recovery alone proves the new coordination is correct."* So
+  new coordination gets its own tests for each of those cases, each reading
+  the job rows and the ledger. The job runner's recovery is not cited as
+  proof of the layer above it.
+- **Finished work stays finished; unfinished work keeps an accurate status
+  and reason** (2026-10-03): *"Keep completed parts completed and preserve
+  every unfinished part with an accurate status and reason."* And: *"Make
+  progress and questions recoverable after reopening the site or using
+  another device."* So the server holds the state, and a page only shows it.
+- **The smallest coherent implementation, its storage written down, and the
+  exact remaining action when a step is out of bounds** (2026-10-03): *"Use
+  the smallest coherent implementation, document any necessary new storage
+  or infrastructure, and avoid unrelated refactors."* And: *"If a required
+  step needs those, finish the reviewable code and migration first and
+  report the exact remaining action."* So existing machinery is reused
+  before anything new is added. Any new storage is listed with its keys and
+  lifetime. A step that needs a migration, a paid call or an image build is
+  prepared, not taken, and named.

@@ -729,6 +729,55 @@ the owner's free press, run 51, at 22:57 UTC):
     - The record: `docs/history/2026-10-03-footer-lists.md`.
     - **Next**: the owner's review and the plan's decisions; the real-model
       batch on their approval.
+21. **One message, several parts, finished on the server: the combined
+    request flow** (2026-10-03, on the owner's order; for review: unmerged,
+    undeployed, off by default behind `REQUEST_FLOW`; no migration, no
+    container built, no model called, nothing spent; first Build unchanged;
+    `b1d96b3d`, `b7564f82`).
+    - **What it does**: a site's message the routing call accepts becomes a
+      request kept in the site bucket. Each part runs as an ordinary queued
+      job under a key derived from the message's key, routed against the site
+      as it then is, one at a time, in the order the model gave
+      (`dependsOn`). Each job's end, the container's gateway `/next`, an
+      answer, the page and a two-minute sweep move the request on.
+    - **Its pieces**:
+      - questions take the site's slot in their turn and resume their part on
+        the server;
+      - the hand-overs are made by the server;
+      - the full rewrite waits for the customer's press;
+      - *Stop the rest* uses `edit_cancel`;
+      - the routing call is charged once per message key, and each part as
+        before;
+      - each part has its own model-written reply, and the request has one for
+        what none explains, with each unfinished part's charge read from its
+        jobs' rows;
+      - the page follows the request and picks it up on another device.
+    - **Tested only with supplied model output**:
+      - 44 flow cases through the real Worker (`test/request-flow.test.mjs`):
+        both route orders, three operations, a prerequisite named later and
+        one that fails, questions (routing's, a step's beside an independent
+        part, waiting for the slot, cancelled, expired), attachments, the
+        closed tab, another device, the hand-overs, partial failure, Stop
+        (five ways), duplicates (a resent message, two tabs, every job twice,
+        an answer resent), and crashes around charging, filing and
+        publication. Each reads the stored pages and look, the records, the
+        job rows, the reply writer's facts and every ledger row;
+      - 6 page cases (the page's own functions on the real Worker) and 29
+        decision cases;
+      - red check: on the old code, 12 of 442 fail; with only the Worker put
+        back, 46 of 79; with only the page put back, the page file;
+      - sweeps 40 of 46, then 52 of 52 after the six gaps it showed were
+        tested, 4 controls surviving each time;
+      - full suite `9205 / 9205 / 0 / 0`;
+      - screenshots of the request's card in the session.
+    - **No real-model evidence.**
+    - **Before the switch goes on**: the UI canary must learn a request the
+      server runs (backlog).
+    - The record: `docs/history/2026-10-03-combined-requests.md`. How it
+      works: `docs/request-flow.md`.
+    - **Next**: the owner's review; a merge on their word (the image rolls,
+      `8bfc67dc695e65cc` → `1a5437e9464f41e2`, predicted); the UI canary;
+      the switch; a real-model batch on their approval.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).
