@@ -96,7 +96,8 @@ together from one message today, and what stops it doing more?**
     the same way: the 20 new cases exactly;
   - the image can't move (nothing under `test/` or `docs/` goes into it):
     the branch still predicts `2635a0a1fb74f8c3`, main `8bfc67dc695e65cc`;
-  - unit CI on the push: stamped in the record when it finishes.
+  - unit CI on the push, green: `9090 / 9086 / 0 / 4` on `c5ecb081` (run
+    37118809585; CI skips four, as always).
 
 **The real-model batch, prepared and not run (needs your approval)**. Six
 rows, one message per press of the edit canary, from `main`. Before writing
@@ -283,8 +284,9 @@ since. Add new ones there.
   nothing on a failed check; nothing runs at the same time.
 - **Checks** (all free): the 20 cases pass as recorded; sweep 13 of 13
   with both controls left alone, after three first-run survivors were each
-  answered; full suite `9090 / 9090 / 0 / 0` from `9070` at `c088fc52`; the
-  image unmoved (`2635a0a1fb74f8c3` on the branch).
+  answered; full suite `9090 / 9090 / 0 / 0` from `9070` at `c088fc52`;
+  unit CI `9090 / 9086 / 0 / 4` on `c5ecb081`; the image unmoved
+  (`2635a0a1fb74f8c3` on the branch).
 - **The real-model batch** (MX1–MX6, about 35–73 credits, at most about 127
   in the worst case, against a balance of 137) is prepared and not run. The
   sites were read first, free: the bakery is at `bp9rcv` with Test 12's

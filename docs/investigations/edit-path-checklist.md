@@ -651,7 +651,8 @@ the owner's free press, run 51, at 22:57 UTC):
     design, said**: an edit and an addition never finish together; an
     addition is all or nothing on a failed check; nothing runs
     concurrently. Sweep 13 of 13 with 2 controls surviving; full suite
-    `9090 / 9090 / 0 / 0` (from `9070` at `c088fc52`). The report:
+    `9090 / 9090 / 0 / 0` (from `9070` at `c088fc52`); unit CI `9090 / 9086
+    / 0 / 4` on `c5ecb081` (run 37118809585). The report:
     `docs/investigations/mixed-work-audit.md`; the record:
     `docs/history/2026-10-03-mixed-work-audit.md`. **Next, separately**: the
     real-model batch MX1–MX6 (the report's §8), on the owner's approval.

@@ -402,7 +402,8 @@ would be done once.
   13 put a finding's fix in place (MW1's step sentence read, MW5's QR code
   named), so each finding's case is shown to turn when its defect goes.
 - Full suite `9090 / 9090 / 0 / 0` locally (from `9070` at `c088fc52`: the
-  20 new cases exactly). CI: the history record
-  (`docs/history/2026-10-03-mixed-work-audit.md`).
+  20 new cases exactly); unit CI `9090 / 9086 / 0 / 4` on `c5ecb081` (run
+  37118809585; CI skips four). The record:
+  `docs/history/2026-10-03-mixed-work-audit.md`.
 - No model call, no paid run, no container rebuilt, nothing merged or
   deployed; Build untouched.

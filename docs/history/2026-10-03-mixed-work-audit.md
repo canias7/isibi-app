@@ -136,3 +136,12 @@ The report holds the matrix and the plain-English answer. In one line each:
   included), main `8bfc67dc695e65cc` (191) — unchanged from batch 1's
   record. Nothing built.
 - **CI**: §6, after the push.
+
+## 6. CI (read after the push)
+
+- **Unit tests on `c5ecb081`** (the audit `e25a8270` and its records): run
+  37118809585, job `test`, `success`; its log reads `# tests 9090`, `# pass
+  9086`, `# fail 0`, `# skipped 4` — `9090 / 9086 / 0 / 4`, the local total
+  exactly (CI skips four, as always).
+- **The site build** was not started by this push: it watches only the
+  paths the site image copies, and nothing under them changed.
