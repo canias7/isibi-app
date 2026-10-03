@@ -872,3 +872,24 @@
   the code, driven with supplied answers, plausible but unshown, or
   something the product does not do — and a measurement of inputs is never
   written up as evidence about what a real model produces.
+- **Mixed work is judged by what really happened, with three things kept
+  apart** (2026-10-03, ordering the mixed-work audit and pausing the limits
+  batches): *"Distinguish clearly between several tasks completed from one
+  user message, several model calls, and tasks actually running
+  concurrently … For every scenario, compare requested operations and
+  targets against actual changes, publication, pending work, failures and
+  the final customer-visible reply; receiving a successful HTTP response or
+  selecting a lane is not sufficient. Keep model-written wording and
+  model-based intent selection: no keyword rules, fixture-specific routing,
+  forced route choices presented as real-model success, or new
+  orchestration architecture … Reuse completed evidence, avoid unnecessary
+  restoration of demo data, and do not deploy or rebuild containers for
+  controlled tests."* And of requests past the thresholds: *"keep these
+  findings within this mixed-work scope instead of restarting the general
+  limits campaign."* So a record says which of the three it means (one
+  message, several calls, at the same moment); a test passes on the stored
+  pages, look, menus, photographs, database statements, jobs, publishes,
+  ledger and the reply, never on a status or a chosen lane; a supplied
+  answer is said to be supplied and never written up as a real model's
+  choice; and a closed test or a live reading already taken is cited rather
+  than repeated.

@@ -628,7 +628,33 @@ the owner's free press, run 51, at 22:57 UTC):
     four classes kept apart; reply sizes are estimates). The record is
     `docs/history/2026-10-03-input-limits-batch1.md`. **Next**: batch 2
     (the pending request), batch 3 (operations and results), batch 4 (the
-    reply), then the real-model audit on the owner's approval.
+    reply), then the real-model audit on the owner's approval. **Batches
+    2–4 paused by the owner on 2026-10-03** for item 18.
+18. **Many changes from one message, across Edit and Add-on** (2026-10-03,
+    on the owner's word; an audit and tests only: nothing implemented,
+    spent, merged or deployed; Build untouched). The registered
+    capabilities read from the code and pinned (9 edit layers, 21 lanes of
+    which 4 run, 12 add-on kinds, every per-message count); the flow traced
+    from the router through the picker, the scopes, the steps, the
+    hand-overs, the queue, the publish and the billing to the reply; one
+    capability matrix. **Tested only with supplied model output**: 20 cases
+    through the real routes (`test/mixed-work.test.mjs`) on the bakery's
+    own pages and the add-on's harness, each comparing what was asked with
+    what changed, was published, waited, failed, was charged and was told.
+    **Works**: up to four edit kinds across pages in turn with one publish,
+    each later step on the earlier one's result; the same kind on several
+    pages; a failing or asking step beside others; up to twelve addition
+    kinds in dependency order (a table, a function reading it, an API, a
+    job running the function), one publish and one charge; a new page and
+    what goes on it; additions past their limits named. **Found**: MW1–MW8
+    (the report's §6; the backlog's *Mixed work from one message*). **By
+    design, said**: an edit and an addition never finish together; an
+    addition is all or nothing on a failed check; nothing runs
+    concurrently. Sweep 13 of 13 with 2 controls surviving; full suite
+    `9090 / 9090 / 0 / 0` (from `9070` at `c088fc52`). The report:
+    `docs/investigations/mixed-work-audit.md`; the record:
+    `docs/history/2026-10-03-mixed-work-audit.md`. **Next, separately**: the
+    real-model batch MX1–MX6 (the report's §8), on the owner's approval.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

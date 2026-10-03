@@ -393,6 +393,17 @@ here; take a closed one out of both.**
   deployed). Left, in the plan's order: batch 2, the pending request (IL3,
   IL4, IL6, IL7, IL8, IL17); batch 3, operations and results (IL10–IL16,
   IL18, IL19); batch 4, the reply (IL21, IL22); then the real-model audit.
+  **Batches 2–4 paused by the owner on 2026-10-03**, for the mixed-work
+  audit (next line).
+- **Mixed work from one message** (2026-10-03, the mixed-work audit,
+  `docs/investigations/mixed-work-audit.md`; audit and tests only): eight
+  findings reproduced through the real routes (MW1–MW8): steps that ran but
+  are never told (MW1, review #9's cause on three- and four-step messages;
+  MW5, an added QR code or 3D scene; MW8, page steps alone), parts dropped
+  without a word (MW2, a fifth lane; MW4, past a step's count; MW6, an
+  addition's declined part), a second part the answer cannot make vanishing
+  (MW3), and a job's interval raised unsaid (MW7). A real-model batch
+  (MX1–MX6) is prepared, not run.
 
 ---
 
@@ -401,7 +412,9 @@ here; take a closed one out of both.**
 - **INFORMATION LIMITS ON EDIT AND ADD-ON (21 defects, 2 optional
   capabilities, 15 untested risks; found 2026-10-03 by the limits audit on
   the owner's word and corrected on their review; batch 1 implemented for
-  review).** Each, with its lines, evidence, test coverage and smallest
+  review; batches 2–4 paused by the owner on 2026-10-03 for the mixed-work
+  audit, whose MW1, MW2, MW4 and MW6 are IL12, IL13, IL14 and IL10 shown in
+  a mix).** Each, with its lines, evidence, test coverage and smallest
   change, is in `docs/investigations/information-limits-audit.md` (§9 lists
   them; §10 groups the changes; §11 is the plan).
   - **The words** (IL1, IL2, IL5) — **batch 1, implemented for review**
@@ -454,6 +467,42 @@ here; take a closed one out of both.**
     size, measured without a model); the copy-back ceiling for a long
     held-back part in a script near a character a token (R16, batch 1); and
     twelve more, listed in the audit's §9.
+- **MIXED WORK FROM ONE MESSAGE (MW1–MW8; found 2026-10-03 by the
+  mixed-work audit on the owner's word; audit and tests only, nothing
+  changed).** Each is a case in `test/mixed-work.test.mjs` that asserts the
+  behaviour as it happens, and each is in
+  `docs/investigations/mixed-work-audit.md` §6 with its place in the code;
+  the ranked fixes are its §9. Four are information-limits items shown in a
+  mix, and would be fixed once:
+  - **MW1** (= IL12, review #9): beside a look or page change, a photograph
+    change and a menu change are made but told nowhere — the merged answer
+    keeps one step's `msg`, and on a `look` answer both the page's composer
+    and `editReplyFacts` read only the look's fields and the page
+    operations. Shown for three changes on one page and four across pages,
+    sync and queued.
+  - **MW2** (= IL13): a fifth lane is dropped, not run, put off, listed or
+    said; which one goes follows `LANE_FIELDS` order.
+  - **MW3** (new): a second part the answer cannot make, beside one the
+    router held, can vanish — `alsoAsked` holds one passage, and nothing on
+    the edit side checks that every part went to a lane or was held. Shown
+    with a supplied picker that left a wording change unscoped; whether a
+    real picker does is MX4's to measure.
+  - **MW4** (= IL14): changes of one kind past a step's count go without a
+    word (the ninth photograph shown; the eleventh menu link, 21st row
+    change and fifth rules table by the code).
+  - **MW5** (new): a QR code or 3D scene that was added is never named, and
+    nothing checks that the code was placed on a page.
+  - **MW6** (= IL10): an addition's declined part vanishes beside a part
+    that was added.
+  - **MW7** (new, low): a job faster than every 15 minutes is slowed to 15,
+    at two layers (the add-on's cleaner and `normalizeJob`), and the reply
+    states fifteen as if asked.
+  - **MW8** (new, low): the page's own reply for page steps alone names no
+    page (*"Updated the look."*); a model reply's facts name both.
+  - **Kept as decisions, not defects**: an edit and an addition never finish
+    together from one message; an addition is all or nothing on a failed
+    check; nothing runs concurrently. Whether to change any of the three is
+    the owner's (the report's §9, item 6).
 - **WHAT THE MODEL-WRITTEN REPLIES LEAVE (MR1–MR8; found 2026-10-03 while
   making edit and add-on replies model-written on the owner's word;
   deliberate unless marked).** Each is in
