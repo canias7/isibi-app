@@ -381,7 +381,9 @@ here; take a closed one out of both.**
   no stored answer keeps its fixed sentence, and a Stop before the job is
   claimed is not traced (MR5); one reply per job relies on R2's wildcard
   condition (MR6); the reply's rules are sent uncached (MR7); a fact carries
-  only what the route's answer does (MR8).
+  only what the route's answer does (MR8). **After the owner's review
+  (nothing cut)**: every fact now reaches the model whole; the routes' own
+  answers still cap several lists before any reply sees them (MR9, found).
 
 ---
 
@@ -423,14 +425,22 @@ here; take a closed one out of both.**
     workerd reads as its `WildcardEtag`; shown only with the test bucket. If
     R2 ignored it, two polls at the same moment could hand back two
     different replies — never a second change or charge.
-  - **The reply's rules are sent uncached** (MR7, cost): 2,211 characters
-    (about 580 tokens) of rules and tool on every call; prompt caching could
-    cut it.
+  - **The reply's rules are sent uncached** (MR7, cost): 3,103 characters
+    (about 820 tokens) of rules and tool on every call since the owner's
+    review (2,211 before); prompt caching could cut it.
   - **A fact carries only what the route's answer does** (MR8, deliberate):
     "Changed the description." does not carry the new words, because the
     answer does not (D1's kin). A reply may restate the customer's own words
     for what they asked beside a fact that says it changed — the request's
     words, not a read-back.
+  - **The routes' own answers cap several lists** (MR9, found 2026-10-03
+    while removing the reply's own cuts on the owner's review; kept
+    separate): at most 6 left-out additions (`notAdded`), 4 problems, 6
+    words placed and 6 own photographs, 6 kept and 6 unseen sections, 4
+    pages listed elsewhere (`reordered`) and 4 left alone (`ignored`), 8 new
+    wordings (`changed`) and 4 stale links, set in `worker.js` before the
+    page's composer or the reply sees them. The reply now passes on all of
+    what an answer carries; lifting these is a separate change.
 - **WHAT THE FOURTH REVIEW OF THE CLARIFICATION ROUND LEAVES (N59–N60; found
   2026-10-03 while separating the answer history from the question limit on
   the owner's fourth review; deliberate unless marked).** Each is in the

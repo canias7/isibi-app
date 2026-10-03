@@ -815,3 +815,14 @@
   is not used; whether a failure is ours is read from what the answer says,
   never from its status; and when no reply can be had, the answer goes out
   as it was, with nothing redone.
+- **The reply model gets the complete outcome, and nothing is cut at an
+  arbitrary limit** (2026-10-03, reviewing the replies): *"stop cutting off
+  pending requests, failed additions, and facts after arbitrary limits. Pass
+  the complete outcome to the model and clearly instruct it to explain what
+  succeeded, what failed, what remains pending, and what needs an
+  answer—without claiming unfinished work is complete. Let the model write
+  naturally and summarize without hiding material details. Keep this small:
+  no new layers, hardcoded customer messages, or routing changes."* So no
+  list is cut at a count, no sentence at a length, and no fact is left out of
+  what the model is shown; the model may summarize, but names every change,
+  failure, waiting part and question.

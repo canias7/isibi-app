@@ -565,6 +565,15 @@ the owner's free press, run 51, at 22:57 UTC):
     written a reply (MR1). A look ending's reply covers a page change made
     beside it (review #9's case) with supplied answers only. The record is
     `docs/history/2026-10-03-model-replies.md`.
+    **Then the owner's review: nothing cut** (for review; free): every fact
+    reaches the model whole — no list cut at a count, no sentence at a
+    length, no fact past the 24th left out, parts left for later never
+    validated away, identical entries kept two — and the model is told to
+    make clear what was done, what was not, what waits and what needs an
+    answer, never to call unfinished work done, and to summarize without
+    dropping anything; a reply may be up to 4,000 characters. 13 new cases,
+    all failing on the code before the fix; sweep 34 of 34; the routes' own
+    list caps kept separate (MR9). The record is that file's §11.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

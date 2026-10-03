@@ -267,7 +267,9 @@ answers unless a run is named.
   the routing route's four stops, a cancel, a repeated question's note — is
   explained by the picked quick model from facts read off the route's own
   final answer (`builder/site-reply.mjs`: what changed, what did not and the
-  builder's reason, what waits, the question, the money, the undo). The page
+  builder's reason, what waits, the question, the money, the undo) — every
+  fact whole, never cut at a count or a length (the owner's review), with the
+  model told never to call unfinished work done. The page
   shows it whole and adds nothing; a reply that leaves a fact out, or cannot
   be had, leaves the answer as it was and the page composes as above.
   Failures of ours keep their fixed sentences, decided by what the answer

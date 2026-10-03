@@ -2,7 +2,9 @@
 
 On the owner's word, for review: **not merged, not deployed, no paid run.**
 Deploy 2180 (`b8d12ff9`) was already finished when this started and is left
-as it was; this change is separate from it.
+as it was; this change is separate from it. **Then the owner's review: nothing
+cut** (§11) — every fact now reaches the model whole; §3, §5 and §8 below are
+as amended by it.
 
 ## 1. The order
 
@@ -57,16 +59,18 @@ charged or what is kept for a question changes.
 - **The call.** One forced tool call, `write_reply` `{ reply, covers }`, on
   `modelsFor(picker).quick` — the model the customer picked. Besides the
   facts it is shown the conversation the request belongs to — their words,
-  and the answers they gave to questions about it (up to the last twelve) — and
-  the site: its name where the route has it, its slug and its pages.
+  whole, and every answer they gave to questions about it — and the site: its
+  name where the route has it, its slug and every page (§11: these were cut at
+  2,000 characters, twelve answers and thirty pages).
   Earlier, unrelated messages in the thread are not sent. The system prompt
   says: only the facts; explain every fact and list its id in `covers`; lead
   into a question without asking or repeating it; say plainly that a part left
   for later was not tried; their words, their language; no steps, tools,
   layers, files, codes or models; no fact ids in the text. A reply that leaves
   a fact out is asked for once more, naming what it missed; a second miss, an
-  unreadable answer, a reply over 1,600 characters or one carrying a fact id is
-  not used. 12 s per call, 20 s for both. It never throws.
+  unreadable answer, a reply over 4,000 characters (1,600 before §11) or one
+  carrying a fact id is not used. 12 s per call, 20 s for both. It never
+  throws.
 - **Which endings get none, on purpose:** an escalate (not an ending — the
   page walks on), a queued job's receipt, a recovered job, an answer with no
   `ok`, a failure of ours, and a step's question with nothing else to say (the
@@ -158,7 +162,9 @@ done job whose answer is missing) keeps its fixed sentence.
   cost can be measured from the Worker's log; the ledger never shows it.
   Whether to charge it is the owner's decision (§8).
 - **What one call would cost at list price** (`pageCost`, the repo's own
-  rates; a typical request is about 3,100 characters, ≈ 860 tokens in):
+  rates; a typical request was about 3,100 characters, ≈ 860 tokens in, and
+  after §11's longer rules is about 4,000, ≈ 1,100 tokens in — the table is the
+  first version's; §11 has the new figures):
 
   | Model (picker) | ~900 in / 120 out | ~1,400 in / 250 out | ~2,800 in / 500 out |
   |---|---|---|---|
@@ -282,9 +288,9 @@ done job whose answer is missing) keeps its fixed sentence.
   `WildcardEtag`); shown only with the test bucket. If R2 ignored it, two
   polls at the same moment could hand back two different replies — never a
   second change or charge.
-- **MR7, cost.** The reply's rules and tool (2,211 characters, about 580
-  tokens) are sent uncached on every call; prompt caching could cut that
-  later.
+- **MR7, cost.** The reply's rules and tool (3,103 characters, about 820
+  tokens, after §11; 2,211 before) are sent uncached on every call; prompt
+  caching could cut that later.
 - **MR8, what a fact can carry.** A fact says only what the route's answer
   carries: "Changed the description." does not carry the new words, because
   the answer does not (D1's kin: `applied` names the table, the row and the
@@ -312,3 +318,96 @@ answers a repeat is made of), `builder/edit-job.mjs`, `Dockerfile` (the
 module copied into the image), `.github/workflows/deploy.yml`, the three new
 test files, `test/fixtures/browser-page.mjs` (moved), `test/fixtures/live-ask.mjs`
 (the bucket's `etagDoesNotMatch`), and the four re-anchored tests.
+
+## 11. The owner's review: nothing cut (2026-10-03)
+
+> Fix the reply information loss in builder/site-reply.mjs: stop cutting off
+> pending requests, failed additions, and facts after arbitrary limits. Pass
+> the complete outcome to the model and clearly instruct it to explain what
+> succeeded, what failed, what remains pending, and what needs an
+> answer—without claiming unfinished work is complete. Let the model write
+> naturally and summarize without hiding material details. Keep this small:
+> no new layers, hardcoded customer messages, or routing changes. Run focused
+> regression tests for the omissions we found, record the results in the
+> docs, and don't deploy or spend credits yet.
+
+**What the first version cut** (every one reproduced by a test before the
+fix):
+- **Parts left for later**: at most 6, each cut at 200 characters — and a
+  list of more than four earlier parts failed `heldList`'s hand-over bound,
+  so *all* of them were dropped (measured: 4 of 9 parts reached the facts).
+- **Failed additions**: at most 3 left-out entries (on a success and on a
+  refusal), 3 functions and 3 jobs that could not be set up, 3 pages kept
+  and 3 left as they were; reasons cut at 300 characters.
+- **Facts past the 24th**: never sent, and the model was told *"do not
+  mention them"*; a reply covering only the first 24 was accepted.
+- **Lengths**: every fact cut at 420 characters; a refusal's reason or a
+  step's account at 400, a part's reason at 360, a question at 240, a new
+  wording at 80, an answer at 300 and its question at 200, a removed
+  entry's value at 60.
+- **Counts**: entries added past 6 and taken off past 3 folded into "N more
+  entries"; a removed entry's fields past 3; new wordings past 4; only the
+  first link left pointing the old way; look fields past 6 and tokens and
+  styles past 4; problems past 3; a cancel's parts past 6; a repeated
+  question's answers past the last 3.
+- **Context**: their words at 2,000 characters, the answers at the last
+  twelve, the pages at thirty — in the reply call and in what a queued job
+  keeps for it (`replyFor`).
+- **Two entries that read the same** — two identical rows taken off a list —
+  were folded into one fact by the de-duplication.
+
+**What changed** (`builder/site-reply.mjs`, plus two lines each in
+`worker.js` and `public/edit-poll.js`):
+- Every fact goes to the model whole: no count, no length, no cap on the
+  list; the one text helper (`flat`) only makes a value one line. Parts
+  left for later are read as the answer carries them (`partsOf`), never
+  validated away. A list's own entries stay distinct even when they read
+  the same.
+- The instructions: a legend for what each id says a fact is (c done, f not
+  done, p still waiting — not done yet, q needs their answer, x nothing
+  changed, m money, u undo, n worth knowing); *make clear what was done, what
+  was not done and why, what is still waiting, and what you need from them*;
+  *never say or suggest that something not done, or still waiting, was done;
+  when only part was done, say which part*; *group and summarize a long list
+  in your own words, but name every change, failure, waiting part and
+  question, even briefly — never drop or blur one to keep the message short*.
+  The reply's description no longer says "one to three short sentences".
+- The bound on what comes back is 4,000 characters (refused, never cut;
+  the page reads the same number), and a call may write 2,000 tokens.
+- A queued job keeps its request, every answer and every page for its reply.
+- Nothing else moved: no new layer, no customer sentence in code, no routing
+  change; what runs, publishes, is charged or is kept is as before.
+
+**Still bounded, not by this file — kept separate** (MR9): the routes' own
+answers carry at most 6 left-out additions (`notAdded`), 4 problems, 6
+words placed and 6 own photographs, 6 kept and 6 unseen sections, 4 pages
+listed elsewhere (`reordered`) and 4 left alone (`ignored`), 8 new wordings
+(`changed`) and 4 stale links — before the page's composer or the reply
+sees them. Unchanged here.
+
+**Cost** (estimates; nothing measured live): the longer rules make a typical
+request about 4,000 characters (≈ 1,100 tokens in, from ≈ 860); a reply now
+costs about 0.4–0.6 credit at the default picker (grok-4.6), 0.7–1.1 on
+Sonnet and 1.1–1.8 on Opus at list price; a large outcome costs more because
+all of it is now sent. Still absorbed, not charged.
+
+**Checks**:
+- 13 new cases: 12 in `test/model-replies.test.mjs` (parts left for later,
+  failed additions, forty facts, long reasons, removed entries with every
+  field and identical twins, every wording and stale link, every look field,
+  a cancel's parts, every answer of a repeated question, the whole context,
+  the instructions, a long reply accepted on both sides) and 1 in
+  `test/model-replies-routes.test.mjs` (a queued job keeping fourteen
+  answers, and the poll's reply call shown all of them).
+- Red check: all 13 fail on `3ebf82f1` (the code before the fix), each on
+  its omission.
+- Two existing assertions moved with the fix: the request no longer cuts
+  past 24 facts, and the page's bound is the server's (4,000).
+- Mutation sweep: each cut put back one at a time, 34 of 34 killed; 2
+  comment-only controls survived; every file restored byte for byte.
+- Focused files: 80 of 80. Full suite `9025 / 9025 / 0 / 0` locally on
+  `ddfe44f8` (from 9,012: the 13 new cases); unit CI `9025 / 9021 / 0 / 4`
+  (run 37108250924) and the site build green, 404 checks in 27 sections,
+  every job green (run 37108250898).
+- The image, if merged: `8bfc67dc695e65cc` → `8c1ec3d5aab3062d` (192
+  inputs).

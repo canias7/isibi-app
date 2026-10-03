@@ -1,76 +1,73 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-03, 04:29 UTC)
+## Current handoff — read this first (2026-10-03, 08:07 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**State now: your order for model-written replies is done on the branch, for
-your review — not merged, not deployed, no paid run.** Deploy 2180 is still
-live and still waits on your free runtime press, and the live-test matrix is
-still prepared, not pressed. Nothing spent, no model called, no site changed.
+**State now: your review of the model-written replies is done on the branch
+— nothing is cut any more — for your review: not merged, not deployed, no
+paid run.** Deploy 2180 is still live and still waits on your free runtime
+press; the live-test matrix is still prepared, not pressed. Nothing spent, no
+model called, no site changed.
 
-- **What changed** (`b17747ed`, `906bacbe`):
-  - every normal edit and add-on ending is now explained by the model you
-    picked (its quick model);
-  - it writes from facts the code reads off what the route really did: what
-    changed, what didn't and the builder's reason, what was left for later,
-    the question that needs an answer, what it cost, and how to undo it;
-  - the page shows that reply whole, with the question's card under it when
-    one was kept, and adds nothing of its own;
-  - covered: success, partial work, parts left for later, a step's question
-    beside work, ordinary refusals at any status, the routing stops (a stale
-    answer, one too long, answers full, a question busy elsewhere),
-    cancelling a question, a queued change you stopped, and a repeated
-    question's note;
-  - a step's question on its own is already the model's own words, so it
-    gets no extra call;
-  - failures of ours keep their fixed sentences. That is decided by what the
-    answer says (`ours` and a fixed list), never by its HTTP status;
-  - a reply that leaves a fact out is asked for once more. One that still
-    does, or can't be had at all, leaves the answer exactly as it was, and
-    the page says what it always said;
-  - a queued job writes no reply itself: the poll writes it once, after the
-    money is settled, and keeps it, so a refresh or another tab sees the
-    same one;
-  - the switch is `MODEL_REPLIES`, on by default when merged. The GitHub
-    secret turns it off.
-- **What it can't do: rerun work.** It runs only after the route has
-  finished, writes nothing but the reply, and charges nothing. The first
-  build and the full rewrite are untouched.
-- **Cost and time** (estimates; nothing measured live):
-  - one more quick-model call per ending, and a second only when the first
-    leaves a fact out;
-  - not charged to the customer, and logged per call;
-  - at list price, about 0.3–0.5 credit per reply at the default picker
-    (grok), 0.6–1.0 on Sonnet, and 0.9–1.7 on Opus;
-  - about 1–5 s more at the end of an edit (or on the first poll of a queued
-    one), bounded at 12 s per call and 20 s in all.
+- **What was cut, and now isn't** (`ddfe44f8`, in `builder/site-reply.mjs`):
+  - parts left for later: at most 6, each cut at 200 characters — and more
+    than four earlier parts were dropped altogether (4 of 9 got through);
+  - failed additions: at most 3 left out, 3 functions and 3 jobs that
+    failed, 3 pages kept; reasons cut at 300 characters;
+  - every fact past the 24th was never sent, and the model was told not to
+    mention it;
+  - every fact cut at 420 characters, a reason at 400, a question at 240, a
+    new wording at 80; entries past 6 added or 3 taken off folded into a
+    count; only the first stale link said;
+  - their words cut at 2,000 characters, the answers at the last twelve and
+    the pages at thirty, in the reply call and in what a queued job keeps;
+  - two identical entries taken off a list told as one.
+- **What the model is told now**:
+  - what each fact is: done, not done (with why), still waiting (not done
+    yet), needs their answer, nothing changed, money, how to undo, worth
+    knowing;
+  - make clear what was done, what wasn't and why, what is still waiting,
+    and what you need from them;
+  - never say or suggest something not done, or still waiting, was done;
+    when only part was done, say which part;
+  - summarize in its own words, but name every change, failure, waiting part
+    and question — never drop or blur one to keep it short.
+- **What else moved**: a reply may be up to 4,000 characters (it was 1,600;
+  past it the reply is refused, never cut, and the page says it the old
+  way), and the page reads the same bound. Nothing else: no new layer, no
+  customer sentence in code, no routing change.
+- **Cost** (estimates): the longer rules make a typical reply call about
+  1,100 tokens in (from about 860). A reply is now about 0.4–0.6 credit at
+  the default picker (grok), 0.7–1.1 on Sonnet and 1.1–1.8 on Opus, and a
+  large outcome costs more because all of it is sent. Still not charged to
+  the customer.
 - **Checks**:
-  - 40 new cases: 16 for the module, 17 through the real routes and the real
-    page against the real Worker, and 7 for the page's own rules;
-  - the red check: on main's code, 21 of the 24 route and page cases fail
-    (the 3 that pass check what must not change);
-  - the mutation sweep: 51 of 51 killed, and 3 comment-only controls
-    survived;
-  - the full suite: `9012 / 9012 / 0 / 0` locally on `906bacbe`;
-  - CI on `906bacbe`: unit tests `9012 / 9008 / 0 / 4` (run 37096375736;
+  - 13 new cases for the omissions, and all 13 fail on the code before the
+    fix;
+  - the mutation sweep puts each cut back one at a time: 34 of 34 killed, 2
+    comment-only controls survived;
+  - the full suite: `9025 / 9025 / 0 / 0` locally on `ddfe44f8`;
+  - CI on `ddfe44f8`: unit tests `9025 / 9021 / 0 / 4` (run 37108250924;
     CI skips four, as always) and the site build green, 404 checks with
-    every job green (run 37096375748);
-  - screenshots: four cases, before and after (sent in our chat).
-- **The image, if merged**: `8bfc67dc695e65cc` → `a23b7df53c021875` (192
-  inputs; the new module is copied into it).
-- **Code-tested vs real models**: everything here is shown with supplied
-  model replies only. No real model has written one yet.
+    every job green (run 37108250898).
+- **Found, kept separate** (backlog MR9): the routes themselves still cap
+  some lists before any reply sees them — 6 left-out additions, 4 problems,
+  8 new wordings, 4 stale links and a few more.
+- **The image, if merged**: `8bfc67dc695e65cc` → `8c1ec3d5aab3062d` (192
+  inputs).
+- **Code-tested vs real models**: all of this is shown with supplied
+  replies only. No real model has written one yet.
 
 **Decisions that are yours**
-- Charge for the reply call, or keep absorbing it.
-- Keep `MODEL_REPLIES` on by default when merged, or ship it off.
-- When to merge. My recommendation is still to run the matrix on deploy 2180
-  first, then merge this with its own check.
-- A live look at real replies. It's a paid measurement, proposed for the
-  next check and not run.
+- Whether to lift the routes' own list caps too (MR9). It's a separate
+  change to the routes' answers.
+- Still open from the replies round: charge for the reply call or keep
+  absorbing it; keep `MODEL_REPLIES` on by default when merged; when to
+  merge (my recommendation: the matrix on deploy 2180 first); and a paid
+  look at real replies.
 - Still open from before: the free runtime check of deploy 2180, the
   matrix's cap (115), and how the questions-back rows run.
 
@@ -96,23 +93,23 @@ image=8bfc67dc695e65cc` and `runtime 200 deploy=b8d12ff9fe92`, with both
 checks `ok` and nothing charged.
 
 **Links**
-- The record: `docs/history/2026-10-03-model-replies.md` (what changed,
-  cost, what it leaves: MR1–MR8).
-- The commits: `b17747ed`, `906bacbe`, and the records commit on top.
-- CI: unit tests run 37096375736 and the site build run 37096375748.
-- The deploy and the matrix: `docs/history/2026-10-03-live-matrix.md`.
+- The record: `docs/history/2026-10-03-model-replies.md`, §11 (this
+  review) and §8 (what it leaves, MR1–MR9).
+- The commits: `ddfe44f8` and the records commit on top; before them
+  `b17747ed`, `906bacbe` and `3ebf82f1`.
+- CI: unit tests run 37108250924 and the site build run 37108250898.
 
 **Observations from our chat**
-- Your order came in while I was recording the deploy. Deploy 2180 had
-  already finished (02:58 UTC), so nothing was in flight, and this change
-  was kept separate: no deploy and no paid test.
+- You asked for this change small: no new layers, no customer sentences in
+  code, and no routing changes. It touches `site-reply.mjs`, two lines in
+  `worker.js` and the page's matching bound.
 
 **Blockers**
 - None.
 
 **Exact next action**
-- Yours: review this change; press the free runtime check of deploy 2180;
-  and your decisions above.
+- Yours: review this fix; decide on MR9; press the free runtime check of
+  deploy 2180; and the decisions above.
 - Mine: nothing until your word.
 
 ---
@@ -173,6 +170,31 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-03 — Your review of the replies: nothing cut (nothing spent, merged or deployed)
+
+- **Your words**: *"Fix the reply information loss in
+  builder/site-reply.mjs: stop cutting off pending requests, failed
+  additions, and facts after arbitrary limits. Pass the complete outcome to
+  the model and clearly instruct it to explain what succeeded, what failed,
+  what remains pending, and what needs an answer—without claiming
+  unfinished work is complete. … Keep this small: no new layers, hardcoded
+  customer messages, or routing changes."*
+- **What was cut** (each reproduced by a test first): parts left for later
+  past 6 or 200 characters, and all earlier parts past four; failed
+  additions past 3, with reasons past 300 characters; every fact past the
+  24th, with the model told not to mention it; facts past 420 characters;
+  entries folded into a count; the request, answers and pages in the
+  context; identical entries folded into one.
+- **What changed** (`ddfe44f8`): every fact is sent whole; the model is
+  told what each fact is (done, not done, still waiting, needs an answer…),
+  to make each clear, never to call unfinished work done, and to summarize
+  without dropping anything; a reply may be up to 4,000 characters.
+- **Checks**: 13 new cases, all failing before the fix; sweep 34 of 34;
+  full suite `9025 / 9025 / 0 / 0`; unit CI `9025 / 9021 / 0 / 4` and the
+  site build (404 checks, every job green) on `ddfe44f8`.
+- **Kept separate**: the routes' own list caps (MR9).
+- **The record**: `docs/history/2026-10-03-model-replies.md` §11.
 
 ## 2026-10-03 — Model-written replies for edit and add-on, for your review (nothing spent, merged or deployed)
 
