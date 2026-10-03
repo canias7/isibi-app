@@ -574,6 +574,26 @@ the owner's free press, run 51, at 22:57 UTC):
     dropping anything; a reply may be up to 4,000 characters. 13 new cases,
     all failing on the code before the fix; sweep 34 of 34; the routes' own
     list caps kept separate (MR9). The record is that file's §11.
+16. **Information limits on Edit and Add-on** (2026-10-03, on the owner's
+    word; an audit only: nothing implemented, spent, merged or deployed):
+    every character, token, count, list, history, time and retry limit from
+    the composer to the page's display, traced producer to consumer, with
+    nine free probes (supplied answers) and one read-only select of stored
+    reply lengths. **22 confirmed defects** (IL1–IL22: 7 by probe, 15 by
+    code) and **14 untested risks**; the safeguards kept, with their
+    evidence. Shown by probe: words cut at 2,000 without a word; a question
+    cut at 240 and its options clipped; a side question dropping a waiting
+    request; more than 4 parts across a question told as "just now"; a
+    seventh page's edit routed as an addition after a reload; an
+    addition's declined kinds vanishing; and, through the real edit route,
+    a menu change beside a layout move missing from the reply facts
+    (review #9's cause, not closed by the model replies). The automatic
+    re-ask thresholds stop only our own retries; the 40-message history is
+    display only; the reply bounds fit every large outcome measured, but
+    its fallback still caps lists. The record, the grouped changes and the
+    plan: `docs/investigations/information-limits-audit.md`. **Next,
+    separately**: the real-model audit of route, operation, target and
+    clarification (its §12), on the owner's approval and a cost estimate.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

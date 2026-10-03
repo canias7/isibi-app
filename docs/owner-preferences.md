@@ -826,3 +826,22 @@
   list is cut at a count, no sentence at a length, and no fact is left out of
   what the model is shown; the model may summarize, but names every change,
   failure, waiting part and question.
+- **Natural conversation, with no limit that loses meaning; safeguards kept
+  and explained** (2026-10-03, ordering the information-limits audit):
+  *"Our goal is natural conversation without arbitrary restrictions that
+  lose meaning: requests must not be silently shortened, relevant answers
+  must remain available while unfinished work needs them, and completed
+  work, failures, pending operations, targets, questions, and billing facts
+  must not disappear because a list is long. … reaching a threshold must
+  never force guessing, repeat completed work, or abandon the pending
+  request without explanation. Keep necessary technical safeguards for
+  resource usage, provider context/output budgets, payload size, execution
+  time, retries, and spending, but explain the evidence for each safeguard
+  and what happens when it is reached. … do not assume model-reported
+  coverage proves the wording is accurate. Prefer complete authoritative
+  inputs and clear model instructions over extra rule layers or hardcoded
+  customer messages."* So a limit either refuses with its reason or keeps a
+  count of what it left out, never cuts silently; a limit on our automatic
+  retries is never a limit on the customer going on; a safeguard is kept
+  with its evidence and its outcome said; and a model's own claim that it
+  covered everything is not proof that it did.

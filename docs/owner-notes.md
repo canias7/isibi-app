@@ -1,75 +1,84 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-03, 08:07 UTC)
+## Current handoff — read this first (2026-10-03, 08:52 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**State now: your review of the model-written replies is done on the branch
-— nothing is cut any more — for your review: not merged, not deployed, no
-paid run.** Deploy 2180 is still live and still waits on your free runtime
-press; the live-test matrix is still prepared, not pressed. Nothing spent, no
-model called, no site changed.
+**State now: the information-limits audit for Edit and Add-on is done, for
+your review — an audit only: no code changed, nothing spent, merged or
+deployed.** The reply fix passed your review and is still on the branch, not
+merged. Deploy 2180 is still live and still waits on your free runtime
+press.
 
-- **What was cut, and now isn't** (`ddfe44f8`, in `builder/site-reply.mjs`):
-  - parts left for later: at most 6, each cut at 200 characters — and more
-    than four earlier parts were dropped altogether (4 of 9 got through);
-  - failed additions: at most 3 left out, 3 functions and 3 jobs that
-    failed, 3 pages kept; reasons cut at 300 characters;
-  - every fact past the 24th was never sent, and the model was told not to
-    mention it;
-  - every fact cut at 420 characters, a reason at 400, a question at 240, a
-    new wording at 80; entries past 6 added or 3 taken off folded into a
-    count; only the first stale link said;
-  - their words cut at 2,000 characters, the answers at the last twelve and
-    the pages at thirty, in the reply call and in what a queued job keeps;
-  - two identical entries taken off a list told as one.
-- **What the model is told now**:
-  - what each fact is: done, not done (with why), still waiting (not done
-    yet), needs their answer, nothing changed, money, how to undo, worth
-    knowing;
-  - make clear what was done, what wasn't and why, what is still waiting,
-    and what you need from them;
-  - never say or suggest something not done, or still waiting, was done;
-    when only part was done, say which part;
-  - summarize in its own words, but name every change, failure, waiting part
-    and question — never drop or blur one to keep it short.
-- **What else moved**: a reply may be up to 4,000 characters (it was 1,600;
-  past it the reply is refused, never cut, and the page says it the old
-  way), and the page reads the same bound. Nothing else: no new layer, no
-  customer sentence in code, no routing change.
-- **Cost** (estimates): the longer rules make a typical reply call about
-  1,100 tokens in (from about 860). A reply is now about 0.4–0.6 credit at
-  the default picker (grok), 0.7–1.1 on Sonnet and 1.1–1.8 on Opus, and a
-  large outcome costs more because all of it is sent. Still not charged to
-  the customer.
-- **Checks**:
-  - 13 new cases for the omissions, and all 13 fail on the code before the
-    fix;
-  - the mutation sweep puts each cut back one at a time: 34 of 34 killed, 2
-    comment-only controls survived;
-  - the full suite: `9025 / 9025 / 0 / 0` locally on `ddfe44f8`;
-  - CI on `ddfe44f8`: unit tests `9025 / 9021 / 0 / 4` (run 37108250924;
-    CI skips four, as always) and the site build green, 404 checks with
-    every job green (run 37108250898).
-- **Found, kept separate** (backlog MR9): the routes themselves still cap
-  some lists before any reply sees them — 6 left-out additions, 4 problems,
-  8 new wordings, 4 stale links and a few more.
-- **The image, if merged**: `8bfc67dc695e65cc` → `8c1ec3d5aab3062d` (192
-  inputs).
-- **Code-tested vs real models**: all of this is shown with supplied
-  replies only. No real model has written one yet.
+- **What I did** (`f10e419d`, `docs/investigations/information-limits-audit.md`):
+  traced every character, token, count, list, history, time and retry limit
+  from the message box to what the page shows — through the router,
+  questions and answers, the steps, the queue, the reply and the page —
+  saying for each what it really does, who reads it, what you'd see, and
+  what tests it.
+- **What loses meaning without a word** (22 confirmed, 7 of them by a free
+  run with supplied answers):
+  - **your words are cut at 2,000 characters**, and the thread shows the
+    cut copy as what you said (2,936 typed, 2,000 sent);
+  - **a side question drops a waiting request**: "what's the difference?"
+    while a question waits closes it, and only the side answer is shown;
+  - **after a reload the page knows six pages**, so an edit on a site's
+    seventh page is sent to the add-on step as if it were new;
+  - **a change made beside a look change is missing from the reply**:
+    through the real edit route, a menu change and a band move both
+    shipped, and the reply's facts say only "Updated /." (review #9's
+    cause, still there under model replies);
+  - **steps drop work past their caps and say nothing**: a fifth design
+    part, the 21st row change, a ninth picture change, an eleventh menu
+    link;
+  - **an addition's declined parts vanish** when another part succeeds, and
+    the routes cut nine lists before any reply sees them (MR9);
+  - **a model's question is cut mid-sentence** ("…when they open the…"), an
+    option clipped and then sent as your answer, and a fifth option dropped;
+  - **a question's expiry (24 hours) and a full answer history (64) drop
+    the request**: going on means retyping it.
+- **What already works the way you asked**:
+  - the automatic re-ask limits (2 repeats, 12 answers) stop only our own
+    second call — you can keep answering, nothing is guessed, nothing done
+    is redone;
+  - every answer reaches the router, the picker, the steps and the add-on
+    whole;
+  - the 40-message chat history is only what the page draws; no model reads
+    it;
+  - the reply limits (4,000 characters, 2,000 tokens) fit every large
+    outcome I measured.
+- **But**: a reply past 4,000 characters isn't asked again (the model isn't
+  told the limit), and the page's own fallback still cuts its lists, so a
+  long outcome loses facts exactly when it falls back. And the model's list
+  of what it covered is its own claim — nothing checks the wording.
+- **The plan** (the audit's §11), four batches in this order:
+  1. your words and the page list whole;
+  2. a waiting request kept, and named whenever it is set aside;
+  3. every list whole or counted, and every outcome reported as it really
+     happened;
+  4. the reply told its limit, asked again when over it, and a complete
+     fallback.
+  No new layers, no new customer sentences of our own, routing rules
+  untouched except one field (`answered` gets a third answer: "asked
+  something aside").
+- **Next, separately**: the real-model audit of route, operation, target and
+  questions (the audit's §12) — it needs your approval and a cost estimate.
 
 **Decisions that are yours**
-- Whether to lift the routes' own list caps too (MR9). It's a separate
-  change to the routes' answers.
-- Still open from the replies round: charge for the reply call or keep
-  absorbing it; keep `MODEL_REPLIES` on by default when merged; when to
-  merge (my recommendation: the matrix on deploy 2180 first); and a paid
-  look at real replies.
-- Still open from before: the free runtime check of deploy 2180, the
-  matrix's cap (115), and how the questions-back rows run.
+- Whether to go ahead with the plan, and in that order.
+- The message limit: 2,000 today; nothing measured needs it that low.
+- How long a question stays answerable: a day today (seven days would match
+  how long a job's record is kept).
+- Whether the router should be told what the last change did, so a
+  follow-up like "put it back" works without restating (a design change,
+  only on your word).
+- Still open: MR9 is now part of this plan (IL11); charge for the reply
+  call or keep absorbing it; keep model replies on by default when merged;
+  when to merge (my recommendation: the matrix on deploy 2180 first); the
+  free runtime check of deploy 2180; the matrix's cap (115); how the
+  questions-back rows run.
 
 **The free runtime check of deploy 2180** (the edit canary's form, spend
 `no`):
@@ -92,24 +101,38 @@ It passes when the log shows `build-health 200 deploy=b8d12ff9fe92
 image=8bfc67dc695e65cc` and `runtime 200 deploy=b8d12ff9fe92`, with both
 checks `ok` and nothing charged.
 
+**Checks run** (all free):
+- nine probes of the real code with supplied answers (the audit's §13),
+  including the real edit route for the menu-and-band reply;
+- one read-only look at stored job replies: 315 jobs, the largest 27,961
+  characters, against a 200,000 limit — none near it;
+- the reply-size measure: large outcomes give 1,406–2,748 characters of
+  facts;
+- the tests that read these docs, with the marker and trigger guards: 53
+  of 53.
+- No model call, no paid run, no container rebuilt, nothing deployed; the
+  temporary probe files are deleted.
+
 **Links**
-- The record: `docs/history/2026-10-03-model-replies.md`, §11 (this
-  review) and §8 (what it leaves, MR1–MR9).
-- The commits: `ddfe44f8` and the records commit on top; before them
-  `b17747ed`, `906bacbe` and `3ebf82f1`.
-- CI: unit tests run 37108250924 and the site build run 37108250898.
+- The audit: `docs/investigations/information-limits-audit.md` (`f10e419d`);
+  the checklist's item 16; the backlog's *Information limits on Edit and
+  Add-on*; your stated goal recorded in `owner-preferences.md`.
+- Before it: the replies fix `ddfe44f8` and its records `88406d05`.
 
 **Observations from our chat**
-- You asked for this change small: no new layers, no customer sentences in
-  code, and no routing changes. It touches `site-reply.mjs`, two lines in
-  `worker.js` and the page's matching bound.
+- You asked for an audit only: no implementing, merging, deploying, Build
+  changes, broad mutation campaign, container rebuild or model spend; and
+  for the real-model audit to stay the next separate step.
+- Your goal, recorded as a preference: natural conversation with no limit
+  that loses meaning; safeguards kept with their evidence; complete inputs
+  and clear model instructions over extra rules or fixed customer messages.
 
 **Blockers**
 - None.
 
 **Exact next action**
-- Yours: review this fix; decide on MR9; press the free runtime check of
-  deploy 2180; and the decisions above.
+- Yours: review the audit; decide on the plan and the four decisions above;
+  press the free runtime check of deploy 2180 when you like.
 - Mine: nothing until your word.
 
 ---
@@ -170,6 +193,40 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-03 — The information-limits audit for Edit and Add-on, for your review (nothing spent, merged or deployed)
+
+- **Your words**: *"audit all remaining information limits across Edit
+  and Add-on only … Our goal is natural conversation without arbitrary
+  restrictions that lose meaning … This is audit-only: do not implement,
+  merge, deploy, change Build, or expand into unrelated architecture work.
+  Finish with one concrete implementation plan, and keep the subsequent
+  real-model audit of correct route, operation, target, and clarification
+  behavior listed as the next separate step."*
+- **What it found**: 22 confirmed defects (7 shown by a free run with
+  supplied answers, 15 read in the code) and 14 untested risks. The worst:
+  your words cut at 2,000 characters without a word; a side question
+  dropping a waiting request; after a reload, a seventh page's edit sent to
+  the add-on step; a menu change beside a band move missing from the reply's
+  facts, through the real route (review #9's cause); steps dropping work
+  past their caps silently; an addition's declined parts vanishing; a
+  model's question cut mid-sentence and its options clipped; expiry and a
+  full answer history dropping the request.
+- **What works as you asked**: the automatic re-ask limits stop only our own
+  retries; every answer reaches every model that needs it; the 40-message
+  history is display only; the reply limits fit every large outcome
+  measured — though a reply past 4,000 characters isn't asked again and the
+  page's fallback still cuts lists.
+- **The plan**: four batches (words and page list whole; a waiting request
+  kept and named; every list whole or counted and every outcome reported as
+  it happened; the reply's limit told and a complete fallback). Next,
+  separately: the real-model audit, on your approval.
+- **Checks**: nine free probes, one read-only look at stored reply lengths
+  (315 jobs, largest 27,961 characters against a 200,000 limit), the
+  doc-reading tests with the marker and trigger guards 53 of 53. No model
+  call, nothing spent.
+- **The record**: `docs/investigations/information-limits-audit.md`
+  (`f10e419d`); your goal recorded in `owner-preferences.md`.
 
 ## 2026-10-03 — Your review of the replies: nothing cut (nothing spent, merged or deployed)
 
