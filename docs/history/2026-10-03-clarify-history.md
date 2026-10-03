@@ -247,6 +247,12 @@ change that needs it.
 
 ## 6. CI
 
-Pending at this commit: unit tests (run 37090241036) and the site build
-(run 37090241073) on `5cbd5239`, both started at 02:33 UTC. They are read
-from their own job logs and stamped here when they finish.
+Read from the runs on the branch after the push of `5cbd5239`, each from
+its own job log:
+- **Unit tests** (run 37090241036): `8972 / 8968 / 0 / 4`, the local total;
+  CI skips its usual four.
+- **Site build** (run 37090241073): all 8 jobs green; the gate printed
+  *"ALL CHECKS: 404 checks in 27 sections across 4 shards, every job green"*
+  for commit `5cbd5239` at inputs `71ce2ead86af780b` (3,969 files).
+- The records commit on top (`94e79672`) ran unit tests again (run
+  37090418289): `8972 / 8968 / 0 / 4`.

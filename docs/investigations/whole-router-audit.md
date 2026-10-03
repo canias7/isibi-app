@@ -2002,9 +2002,9 @@ them as left for later.
   surviving.
 - **Full suite** `8972 / 8972 / 0 / 0` on the tree committed as
   `5cbd5239`; the image predicted `a4409e55d3f3eb09` → `8bfc67dc695e65cc`
-  (191 inputs, 161 distinct) and not built. **Unit CI** (run 37090241036)
-  and the **site build** (run 37090241073) on `5cbd5239` are pending at
-  this commit.
+  (191 inputs, 161 distinct) and not built. **Unit CI** `8972 / 8968 / 0 /
+  4` (run 37090241036); **site build** run 37090241073, all 8 jobs green,
+  "404 checks in 27 sections across 4 shards, every job green".
 
 ## 5. The validation matrix
 

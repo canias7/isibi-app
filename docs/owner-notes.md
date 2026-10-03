@@ -52,9 +52,11 @@ Nothing is waiting on a press.
   the old code, 20 of the 91 cases fail, each because answers were pushed
   out or couldn't be read past 12. Mutation sweep: 19 of 19 caught (two
   gaps found and closed with new cases). Full suite `8972 / 8972 / 0 / 0`.
-- **CI on `5cbd5239`**: running — unit tests (run 37090241036) and the
-  site build (run 37090241073) started at 02:33 UTC; I'll stamp their
-  results here when they finish.
+- **CI on `5cbd5239`**: unit tests `8972 / 8968 / 0 / 4` (run 37090241036;
+  CI skips its usual four); site build run 37090241073: all 8 jobs green,
+  *"404 checks in 27 sections across 4 shards, every job green"*. The
+  records on top (`94e79672`) are green on unit tests too (run
+  37090418289).
 - **What you'll see on screen**: one screenshot, in our chat and in
   `docs/edits/clarify-history-full.png`: the message when a request already
   has 64 answers that are all still needed, with the question and its
@@ -94,7 +96,7 @@ Nothing is waiting on a press.
   §4.9, N59–N60)
 - The commits: `5cbd5239` (code and tests), with these records on top.
 - CI on `5cbd5239`: unit tests run 37090241036; site build run
-  37090241073 (running at this commit).
+  37090241073.
 
 **From our chat**
 - `appendAnswer` no longer lets go of an answer unfinished work needs just
@@ -109,8 +111,8 @@ Nothing is waiting on a press.
   work repeated and no question asked again: done
   (`test/live-clarify-history.test.mjs`).
 - The question limits from your third review: kept.
-- Focused tests, the audit and this handoff, pushed: done. Required CI:
-  running on `5cbd5239`, stamped above when it finishes.
+- Focused tests, required CI, the audit and this handoff, pushed: done (CI
+  stamped above).
 - Not done, on purpose: no deploy, paid run or container build; CLAUDE.md
   untouched; nothing outside answer retention changed.
 
@@ -203,8 +205,9 @@ since. Add new ones there.
   answer kept (`answers-full`).
 - **Checks**: 12 new cases through the real routes (sync and queued), led by
   your regression; 20 of 91 fail on the old code; mutation sweep 19 of 19
-  after two gaps were closed; full suite `8972 / 8972 / 0 / 0`; CI on
-  `5cbd5239` (the handoff above). One screenshot.
+  after two gaps were closed; full suite `8972 / 8972 / 0 / 0`; unit CI
+  `8972 / 8968 / 0 / 4` and the site build (404 checks, every job green)
+  on `5cbd5239`. One screenshot.
 - **Left open** (backlog N59–N60, with N57 and N58): the 64-answer ceiling;
   longer calls for long histories; real models unmeasured; only you (or a
   day's expiry) end a question.

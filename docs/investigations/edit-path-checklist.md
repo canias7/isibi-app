@@ -538,9 +538,9 @@ the owner's free press, run 51, at 22:57 UTC):
     needed — passes through a reload and the resume, sync and queued,
     without repeating the heading or asking again. 12 new cases (8,960 →
     8,972; 11 in `live-clarify-history.test.mjs`); red check 20 of 91 on the
-    old code; sweep 19 of 19; full suite `8972 / 8972 / 0 / 0`; unit CI and
-    the site build on `5cbd5239` pending at this commit. Not shown with real
-    models (N58). The record is `docs/history/2026-10-03-clarify-history.md`;
+    old code; sweep 19 of 19; full suite `8972 / 8972 / 0 / 0`; unit CI
+    `8972 / 8968 / 0 / 4` and the site build (404 checks, every job green)
+    on `5cbd5239`. Not shown with real models (N58). The record is `docs/history/2026-10-03-clarify-history.md`;
     the audit's §3.13, §4.9 and N59–N60.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
