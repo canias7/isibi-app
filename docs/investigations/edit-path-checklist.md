@@ -494,6 +494,21 @@ the owner's free press, run 51, at 22:57 UTC):
     0`; unit CI `8933 / 8929 / 0 / 4` and the site build (404 checks, every
     job green) on `2965e405`. The record is `docs/history/2026-10-02-live-clarify-review.md`; the
     audit's §3.13 (its last part), §4.6 and N41–N47.
+    **Then the owner's second review** (`09029550`, for review; free):
+    what they already told us travels beside the request, never in it, and
+    the request an answer resumes is the waiting one, word for word; every
+    model is shown the answers in a section of their own; the picker names
+    the answers each change needs, so a question beside work that ran keeps
+    the answers its unfinished part needs (N41 superseded); a question
+    already answered is sent back to its model to act or ask more
+    specifically, kept with a note if asked again, and closed after twice —
+    no request ends for it (N47 superseded); an unreadable list is refused
+    at no cost. 16 new cases (13 in `live-clarify-continuity.test.mjs`);
+    sweeps 64 of 64; full suite `8949 / 8949 / 0 / 0`; unit CI `8949 / 8945
+    / 0 / 4` and the site build (404 checks, every job green) on `09029550`.
+    Not shown with real models (N48). The record is
+    `docs/history/2026-10-02-clarify-continuity.md`; the audit's §3.13, §4.7
+    and N48–N55.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

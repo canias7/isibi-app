@@ -743,3 +743,26 @@
   instruction to choose the closest kind"*). What a resumed request's models
   are actually sent is what gets checked (*"verify actual resumed model
   inputs and that completed changes and charges never repeat"*).
+  (**The ending is superseded by the second review**, below: a question
+  already asked, or a long request, no longer ends the request.)
+- **What they already told us stays with the work still to do, beside the
+  request, never in it; a repeated question is reused or asked better,
+  never an ending** (2026-10-02, the owner's second review): *"Preserve the
+  answers relevant to unfinished operations while excluding completed
+  operations from execution; keep clarification context separate from
+  executable instructions, with the model identifying its relevant scope
+  rather than customer-keyword rules. Also replace the terminal
+  clarify-repeat/question-ended behavior: when an answer did not resolve the
+  ambiguity, retain the pending request and let the model ask a more
+  specific follow-up; when the answer already exists, reuse it instead of
+  asking again. Prevent repeated-question loops without discarding the
+  request or requiring the user to retype it."* So the answers travel as
+  their own list beside the request and are shown to models as details,
+  never as a change; which answer belongs to which change is the model's
+  reading, and code checks only that it is in range; an answer only a
+  finished change needed is never shown to a model again, but is still used
+  if the same question comes back; a question already answered goes back to
+  its model with the answer; one an answer did not settle is asked more
+  specifically while the request waits; and a loop is stopped by offering
+  the model no question, never by ending the request or making the customer
+  type it again.

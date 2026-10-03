@@ -111,6 +111,26 @@ The changes are §3.13's last part, the checks §4.6, the limits N41–N47
 Nothing was spent, no model was called, nothing was changed on a site, and
 no container was built.
 
+**Then the owner's second review** (2026-10-02): *"Finish clarification
+continuity: askRemainder currently drops every earlier answer whenever
+another step succeeds. Preserve the answers relevant to unfinished
+operations while excluding completed operations from execution; keep
+clarification context separate from executable instructions, with the model
+identifying its relevant scope rather than customer-keyword rules. Also
+replace the terminal clarify-repeat/question-ended behavior … Keep
+deployment and paid testing pending."* **Done on the branch (`09029550`), for
+review, not merged or deployed**: what they already told us travels beside
+the request (`context`), never in it, and the request an answer resumes is
+the waiting one, word for word; every model is shown the answers in a
+section of its own; the picker names which answers each change needs, so a
+step's question beside work that ran keeps the answers its unfinished part
+needs (N41 superseded); a question already answered is sent back to its
+model to act or ask more specifically, kept with a note if asked again, and
+closed after twice (N47 superseded). The changes are §3.13's last part, the
+checks §4.7, the limits N48–N55 (§3.0), and the record
+`docs/history/2026-10-02-clarify-continuity.md`. Nothing was spent, no model
+was called, nothing was changed on a site, and no container was built.
+
 ## In short
 
 - **Where it stands after batch 1.** W1–W4 are fixed on the branch, with
@@ -530,7 +550,7 @@ deliberate unless marked):
 |---|---|---|---|
 | N28 | Untested model behaviour | whether a real router asks a good question when a detail matters, and acts directly when it doesn't; the same for each step | recorded; needs a real router and real steps |
 | N29 | Limit (by design) | any message that names no question closes the live one as replaced, including a side question asked in another tab | recorded; the router decides whether a reply that names it answers it |
-| N30 | Limit (by design) | the answer and the request it resumes share 2,000 characters; a longer pair is refused at no cost, with the question kept | recorded |
+| N30 | Limit (by design) | the answer and the request it resumes share 2,000 characters; a longer pair is refused at no cost, with the question kept | **superseded by the second review** (`09029550`): the answer travels beside the request; each answer up to 500 characters (`answer-too-long`, the question kept), and the request is never cut |
 | N31 | Limit (by design) | past two questions per request a question is shown as words with nothing waiting | **superseded by the review** (`2965e405`): no count; a question is kept whenever its answer can resume the request, and N47 says how a request ends instead |
 | N32 | Decision (yours) | the answer's routing call is charged like any other routing call | recorded; it could be free with a rule for who pays when the router asks |
 | N33 | Limit (by design) | not every model call asks: the per-lane calls, the full page writer and the add-on's designers do not; the pickers and the text, data, rules, picture, menu and page steps do | **narrowed by the review**: the look lanes, the removal picker, the one-page full writer and the add-on designers ask; what still does not is N44 |
@@ -547,13 +567,27 @@ history's §4):
 
 | # | Class | What | Where it stands |
 |---|---|---|---|
-| N41 | Limit (by design) | beside a change that was made, a step's question resumes without the request's earlier answers (which change an answer was about cannot be told, and one about the change made would have it made again), and records as asked only what its request still answers, so the remaining part may be asked again what the request had answered | recorded; the trade is yours to confirm |
+| N41 | Limit (by design) | beside a change that was made, a step's question resumes without the request's earlier answers (which change an answer was about cannot be told, and one about the change made would have it made again), and records as asked only what its request still answers, so the remaining part may be asked again what the request had answered | **superseded by the second review** (`09029550`): the picker names the answers each change needs; a step's question keeps the answers its unfinished part was shown, and one only finished work needed is held back from models (`handled`) and still reused |
 | N42 | Limit (by design) | a step's question our store refuses twice is not kept: its sentence names the question, and what was left goes back to the message box with the message's files | recorded |
 | N43 | Cost | the question field now rides every lane call (`edit_site`), the removal picker (`take_off`) and every designer call (`add_to_site`); the page rung's full writer has its own tool (`SITE_PAGES_TOOL_ASK`), so its cached prompt prefix is separate from the build's and is written once after a deploy | recorded |
-| N44 | Limit (by design) | the add-on's page writer (the designers ask first, and it builds what they designed), the build's writers (the first build is unchanged) and the stylesheet correction round (it re-aims a change already made, nobody's request) do not ask | recorded |
+| N44 | Limit (by design) | the add-on's page writer (the designers ask first, and it builds what they designed), the build's writers (the first build is unchanged) and the stylesheet correction round (it re-aims a change already made, nobody's request) do not ask | recorded; **narrowed by the second review**: the add-on's page writer is shown the answers, and still does not ask |
 | N45 | Found, kept separate | a few fixed refusals end *"Say which one"* (`takeOffRefusal`'s unread case, lines in `builder/edit-failure.mjs`), so they read as a question no answer resumes: an answer typed to one starts a fresh request | backlog |
 | N46 | Untested model behaviour | whether the real lanes, removal picker, page writer and designers ask only when a detail matters (N28's extension) | recorded; needs real models |
-| N47 | Limit (by design) | a question asked again ends the request (`question-ended` / `clarify-repeat`), and so does a request too long to carry an answer (`clarify-no-room`, the request back in the box); the customer sends it again with the detail | recorded |
+| N47 | Limit (by design) | a question asked again ends the request (`question-ended` / `clarify-repeat`), and so does a request too long to carry an answer (`clarify-no-room`, the request back in the box); the customer sends it again with the detail | **superseded by the second review** (`09029550`): a repeat is sent back to its model to act or ask more specifically, kept with a note if asked again (`clarify-again`), and closed after twice; no request is too long to ask about |
+
+**Limits the owner's second review leaves** (`09029550`; the continuity
+history's §4):
+
+| # | Class | What | Where it stands |
+|---|---|---|---|
+| N48 | Untested model behaviour | whether a real picker names the right answers for each change, and whether a real model reuses an answer, or asks a better question, when shown one | recorded; needs real models |
+| N49 | Limit (by design) | a repeat is recognised by the question's own words (case, accents, spacing and punctuation aside); the same thing asked in other words is not caught, though every answer is shown and the model told never to ask one again | recorded |
+| N50 | Limit (by design) | the picker's `words` must come from the request; words copied from the answers section are not in the message and are withheld (`picker/scope-unread`) | recorded |
+| N51 | Limit (pre-existing) | a reload between the routing answer and the edit's post loses the resumed request (the question is already closed and no job exists yet) | recorded |
+| N52 | Limit (by design) | once a waiting question carries 11 answers, the router offers no question for the next message, even one that turns out to be a new request | recorded |
+| N53 | Cost | a repeat costs one extra model call, ours and unbilled; the question field's pointer adds 31 characters to every tool that can ask, and the scope's `answers` 186 more to the picker (measured; both size bounds still hold) | recorded |
+| N54 | Decision (yours) | 12 answers per request, 500 characters per answer and the same question twice are our numbers | recorded |
+| N55 | Limit (by design) | a step's question past 12 answers is not kept (`clarify-closed`, the request back in the box); every call there is offered no question, so it is a backstop | recorded |
 
 **Tracked for the following batches** (a proposed grouping, your call):
 lost and deferred parts W5, W7, W8, W15, W24 (**batch 2, fixed on the
@@ -1438,6 +1472,37 @@ add-on work.** *A policy change on the owner's order; done on the branch.*
   `minItems`, and the removal, page-verb and picture wording now say to ask
   instead of guessing; the first build's router is unchanged.
 
+**The owner's second review of W27** (`09029550`, for review; the record is
+`docs/history/2026-10-02-clarify-continuity.md`):
+- **Beside the request, never in it**: what they already told us is a list
+  of `{ q, a }` pairs (`context`, at most 12, each answer up to 500
+  characters) on every hop — the stored question (record `v: 2`), the
+  routing answer, the posts, a queued job's record, a hand-over, a resumed
+  watch — and the request an answer resumes is the waiting one, word for
+  word. Every model call a step makes is shown the answers in a section of
+  their own (*WHAT THEY ALREADY TOLD YOU*, `clarifyTransport`), labelled as
+  details, never a change. A list that cannot be read is refused at no cost
+  (`route/context-unread`, `context-unread`).
+- **The model scopes the answers**: the picker's scope for each change may
+  name the numbered answers it needs (`answers`); each step and each look
+  lane is shown its own plus any answer no change named, and a change given
+  no reading is shown every answer. Code checks only that the numbers are in
+  range.
+- **What a question keeps**: the answers a still-asking step was shown ride
+  on; an answer only finished work needed is `handled` — never shown to a
+  model again, kept to answer the same question if it is asked again (N41
+  superseded).
+- **Repeats**: a question already answered is sent back to its model once,
+  with the answer in front of it, to act or ask a more specific question
+  (`clarify-reused` at the router); one still asked is kept under a note
+  naming the answer that did not settle it (`againNote`, `clarify-again`);
+  after the same question twice, the call sent again offers no question;
+  at 12 answers no call is offered one. Only the reply used is billed.
+  `question-ended`, `clarify-repeat` and `clarify-no-room` are gone (N47
+  superseded); an answer over 500 characters is refused with the question
+  kept and the answer back in the box (N30 superseded).
+- **The first build is unchanged** (the 42 pinned cases).
+
 ## 4. Free checks run this round
 
 All in `docs/investigations/whole-router-checks.mjs` (`node
@@ -1740,6 +1805,32 @@ them as left for later.
   the image predicted `a4409e55d3f3eb09` → `7b863327f98367c9` (191 inputs)
   and not built. **Unit CI** `8933 / 8929 / 0 / 4` (run 37077217887);
   **site build** run 37077217768, all 8 jobs green, "404 checks in 27
+  sections across 4 shards, every job green".
+
+### 4.7 The second review's checks (W27 continuity, 2026-10-02)
+
+- **Cases `8933` → `8949`**: `test/live-clarify-continuity.test.mjs` (13, new,
+  through the real routes, sync and queued, reading what each model was
+  really sent), the contract file (net +3), `edit-op-scope` (+1),
+  `route-decision` (−1, `addReason` removed; its table gains
+  `clarify-reused` and `clarify-again`). The regressions the owner named:
+  the heading made while the photo keeps its Contact answer (sync and job),
+  several unfinished operations each shown only its own earlier answer, and
+  an unclear answer getting a more specific follow-up (router and step);
+  with the resumed models' inputs, a refresh, and no change or charge
+  repeated, asserted in each.
+- **Existing cases** re-anchored with their reasons: the route, continue and
+  browser files, the question-field wording, the scope schema, the measured
+  tool-size bounds (still under both lines), and three source pins whose
+  calls grew (`addon-queue`, `edit-parts`, `site-apply`).
+- **Red check by mutation**, each change undone alone, the old N41 and N47
+  rules among the mutants: 45 server and 19 page mutants; 7 survived the
+  first pass, each a gap closed by a new case, then killed. **64 of 64
+  killed**, 5 comment-only controls surviving.
+- **Full suite** `8949 / 8949 / 0 / 0` on the tree committed as `09029550`;
+  the image predicted `a4409e55d3f3eb09` → `68e35e1debf88e38` (191 inputs)
+  and not built. **Unit CI** `8949 / 8945 / 0 / 4` (run 37083988901);
+  **site build** run 37083988895, all 8 jobs green, "404 checks in 27
   sections across 4 shards, every job green".
 
 ## 5. The validation matrix

@@ -346,11 +346,48 @@ here; take a closed one out of both.**
   (N44); fixed refusals ending *"Say which one"* (N45, found); the real
   models' asking is unmeasured (N46); a repeat or a request too long ends
   the request, said (N47).
+  **After the owner's second review** (`09029550`): N41, N47 and N30
+  superseded, N44 narrowed.
+- **What the second review leaves** (2026-10-02, N48–N55 in the audit's
+  §3.0): whether real models name the right answers and reuse them is
+  unmeasured (N48); a repeat is caught only in the same words (N49); the
+  picker's words must come from the request (N50); a reload between the
+  routing answer and the edit's post loses the request (N51, pre-existing);
+  11 answers close the router's questions for the next message (N52); a
+  repeat costs one unbilled call (N53); 12, 500 and twice are our numbers
+  (N54, yours); a step's question past 12 answers is a backstop refusal
+  (N55).
 
 ---
 
 ## Backlog
 
+- **WHAT THE SECOND REVIEW OF THE CLARIFICATION ROUND LEAVES (N48–N55; found
+  2026-10-02 while finishing clarification continuity on the owner's second
+  review; deliberate unless marked).** Each is in the audit's §3.0 and in
+  `docs/history/2026-10-02-clarify-continuity.md` §4.
+  - **Whether real models use the answers well is unmeasured** (N48): which
+    answers a real picker names for each change, and whether a real model
+    reuses an answer or asks a better question when shown one.
+  - **A repeat is caught only in the same words** (N49): case, accents,
+    spacing and punctuation aside; the same thing asked in other words is
+    not caught by the check, though every answer is shown and the model told
+    never to ask one again.
+  - **The picker's words come from the request** (N50): words copied from
+    the answers section are not in the message and are withheld
+    (`picker/scope-unread`).
+  - **A reload in one narrow moment loses the request** (N51, pre-existing):
+    between the routing answer (the question already closed) and the edit's
+    post (no job yet).
+  - **11 answers close the router's questions for the next message** (N52),
+    even one that turns out to be a new request.
+  - **A repeat costs one extra model call** (N53, cost): ours and unbilled;
+    the question field's pointer adds 31 characters to every tool that can
+    ask, and the scope's `answers` 186 more to the picker.
+  - **12 answers, 500 characters and twice are our numbers** (N54, the
+    owner's to move).
+  - **A step's question past 12 answers is refused** (N55, a backstop):
+    every call there is offered no question.
 - **WHAT THE REVIEW OF THE CLARIFICATION ROUND LEAVES (N41–N47; found
   2026-10-02 while finishing questions back on the owner's review;
   deliberate unless marked).** Each is in the audit's §3.0 and in
@@ -361,6 +398,10 @@ here; take a closed one out of both.**
     again. The question records as asked only what its request still
     answers, so the remaining part may be asked again what the request had
     answered. The trade is the owner's to confirm.
+    **Superseded by the second review** (`09029550`): the picker names the
+    answers each change needs, and a step's question keeps the answers its
+    unfinished part was shown; one only finished work needed is held back
+    from models (`handled`) and still reused.
   - **A step's question our store refuses twice is not kept** (N42): its
     sentence names the question, and what was left goes back to the message
     box with the message's files, to be sent again.
@@ -369,6 +410,8 @@ here; take a closed one out of both.**
     its own tool, so its cached prompt prefix is separate from the build's.
   - **Some writers do not ask** (N44, by design): the add-on's page writer,
     the build's writers and the stylesheet correction round.
+    **Narrowed by the second review**: the add-on's page writer is shown the
+    answers; it still does not ask.
   - **Fixed refusals that end "Say which one"** (N45, found, kept
     separate): `takeOffRefusal`'s unread case and lines in
     `builder/edit-failure.mjs` read as a question no answer resumes; an
@@ -379,6 +422,9 @@ here; take a closed one out of both.**
     matters.
   - **A repeat or a request too long ends the request** (N47): said and
     uncharged; the customer sends it again with the detail.
+    **Superseded by the second review** (`09029550`): a repeat is sent back
+    to its model to act or ask more specifically, kept with a note if asked
+    again, and closed after twice; no request is too long to ask about.
 - **WHAT THE CLARIFICATION ROUND LEAVES (N28–N40; found 2026-10-02 while
   building questions back on a site that exists, W27; deliberate unless
   marked, none changed).** Each is in the audit's §3.0 and in
@@ -391,6 +437,9 @@ here; take a closed one out of both.**
     included.
   - **The answer and the request share 2,000 characters** (N30); a longer
     pair is refused at no cost, the question kept.
+    **Superseded by the second review** (`09029550`): the answer travels
+    beside the request; each answer up to 500 characters, the request never
+    cut.
   - **Past two questions per request a question is words** (N31), with
     nothing waiting. **Superseded by the review** (`2965e405`): no count; a
     question is kept whenever its answer can resume the request (N47).

@@ -1,115 +1,108 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-02, 23:40 UTC)
+## Current handoff — read this first (2026-10-03, 01:01 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
-**State now: your review of questions back is done on the branch, for your
-review.** Not merged, not deployed, nothing spent, no model called, no site
-changed, no container built. The first round of questions back
-(`4d2f10ed`), batches 1 and 2 and batch 2's review fixes are on the same
-branch for the one combined deploy. Nothing is waiting on a press.
+**State now: your second review of questions back is done on the branch, for
+your review.** Not merged, not deployed, nothing spent, no model called, no
+site changed, no container built. The earlier rounds (questions back, your
+first review of it, batches 1 and 2 and batch 2's review fixes) are on the
+same branch for the one combined deploy. Nothing is waiting on a press.
 - **What changed**, in plain words:
-  - **Work that ran is never asked about again.** When one part of a
-    message ran and another part stopped to ask, the question used to keep
-    any words the two parts shared, so your answer could have redone the
-    part that already ran. Now everything that ran is taken out, however the
-    parts' words overlap. If nothing of the waiting part can be told apart
-    from what ran, it isn't kept as a question: you're told that part was
-    left alone.
-  - **Your answer reaches the step that asked.** Found while checking what
-    each model is actually sent after an answer: when a message is split
-    into parts, each part got only its own words, and your answer sits at
-    the end of the message, so the part that asked never saw it. Now every
-    part is handed the answers too.
-  - **Every model that makes a change can ask now**: each look setting's
-    model, the one that picks which language or QR code to take off, the
-    full page writer, and the add-on's designers. A step that asks changes
-    and charges nothing. If one add-on designer asks, the whole addition
-    waits: nothing is created until you answer, and then every designer is
-    handed your answer.
-  - **No more dead end after two questions.** There's no limit any more: a
-    question is only shown when something is waiting for its answer. If the
-    same question would be asked twice, or your request is too long to carry
-    another answer, it stops with a plain sentence instead, and a request
-    too long to ask about comes back to your message box to shorten.
-  - **Nothing goes on while a question is still open.** If you send a new
-    message while the last question is being answered in another tab, or
-    the question couldn't be closed, nothing runs and nothing is charged,
-    and your message comes back to the box. An answer that leads to another
-    question is now saved in one write, so if saving fails your answer isn't
-    used up: send it again and it goes through.
-  - **The instructions no longer tell a model to guess**: the add-on
-    picker's *"choose the closest one"*, the router's *"when you cannot
-    tell, it's an addition"*, and the rules that forced a model to name
-    something it couldn't tell now all say to ask.
-- **No rule reads your words**: whether to ask, and what, stays the model's.
+  - **Your earlier answers stay with the work still to do.** Before, if one
+    part of a message was made and another part stopped to ask, the question
+    dropped everything you'd already answered. Now, say you asked to make
+    the home page heading bigger and show more of the top of the photo, and
+    you'd already said "Contact" when asked which photo: the heading is
+    made, and when the photo step asks its next question, "Contact" is
+    still with it. When you answer, the photo step is shown both answers,
+    and the heading isn't made or charged again.
+  - **Answers sit beside your request, not inside it.** Your request is
+    resumed exactly as you wrote it, and your answers travel next to it in a
+    list of their own. Every model sees them in a section labelled as your
+    answers, never as something extra to do.
+  - **The model decides which answer goes with which change.** The part
+    that splits your message names, for each change, which of your answers
+    it needs. Each piece of the work sees its own answers, plus any answer
+    that wasn't tied to one change. If two changes are still waiting with
+    different answers, each keeps its own. No rule reads your words for this.
+  - **No asking the same thing twice, and no dead end.** If a model asks
+    something you already answered, it's sent your answer and told to act
+    on it, or to ask a more specific question about what your answer left
+    open. If it still asks the same thing, the question is shown with a
+    short note (*"Your answer — “the nice one” — didn't settle this, so I
+    need to ask once more."*) and your request keeps waiting; you never
+    retype it. After the same question twice, the model has to go ahead with
+    what it has; after 12 answers on one request, nothing asks again.
+  - **The old endings are gone.** A repeated question or a long request no
+    longer ends the request. The only thing refused is an answer over 500
+    characters: your request keeps waiting, and the answer goes back in the
+    box to shorten.
+  - **Nothing is lost on a reload**: the waiting question, your request,
+    every answer and the note all come back.
 - **First builds are unchanged**: their router and page writers are
   byte-identical.
-- **Checks, all free**: 32 new cases (8,901 → 8,933) through the real
-  routes and the chat's real code, including each regression you named
-  (overlapping parts, a later add-on designer asking after an earlier one
-  finished, a third question, a replacement that fails or loses a race,
-  recovery after a failed save); 12 existing cases that pinned the old
-  shapes re-anchored, each with its reason. Mutation sweeps: 45 of 45
-  caught; six slipped through the first pass, each a missing test, now
-  written. Full suite `8933 / 8933 / 0 / 0`.
-- **CI on `2965e405`**: unit tests `8933 / 8929 / 0 / 4` (run 37077217887;
-  CI skips its usual four); site build run 37077217768: all 8 jobs green, *"404 checks in 27
-  sections across 4 shards, every job green"*.
+- **Checks, all free**: 16 new cases (8,933 → 8,949) through the real routes
+  and the chat's real code, including the three regressions you named (the
+  heading made while the photo keeps its Contact answer; several waiting
+  parts each with a different earlier answer; an unclear answer getting a
+  more specific follow-up). Each checks exactly what every model was sent,
+  a reload, and that nothing made is made or charged twice. Mutation sweeps:
+  64 of 64 caught; seven slipped through the first pass, each a missing
+  test, now written. Full suite `8949 / 8949 / 0 / 0`.
+- **CI on `09029550`**: unit tests `8949 / 8945 / 0 / 4` (run 37083988901;
+  CI skips its usual four); site build run 37083988895: all 8 jobs
+  green, *"404 checks in 27 sections across 4 shards, every job green"*.
 - **What you'll see on screen**: four screenshots in our chat
-  (`docs/edits/live-clarify-{busy,repeat,unkept,room}.png`), rendered in a
-  real Chromium from the app's own files with supplied answers. No new
-  styling.
-- **What it still doesn't do** (backlog N41–N47, and the first round's
-  N28–N40 that remain): nothing is shown with real models yet; when part of
-  a request already ran, earlier answers aren't carried into the remaining
-  part (so the part that ran can't be redone), so you may be asked again
-  something you'd answered; a few fixed refusals end *"Say which one"* but
-  aren't real questions (found, kept separate); the add-on's page writer and
-  the build's writers don't ask.
+  (`docs/edits/clarify-continuity-{again,reload,followup,toolong}.png`),
+  rendered in a real Chromium from the app's own files with supplied
+  answers. No new styling; the note and its question read as one paragraph
+  because the chat shows line breaks as spaces (N39, yours).
+- **What it still doesn't do** (backlog N48–N55, and the earlier ones that
+  remain): nothing is shown with real models yet, so whether a real model
+  names the right answers and reuses them is a live measurement; a repeat is
+  only caught when asked in the same words (the model is still shown every
+  answer and told never to ask one again); a reload in one split second
+  between the router's answer and the edit starting loses the request (as
+  before); 12 answers, 500 characters and "twice" are my numbers, yours to
+  change.
 - **The container**: a merge would roll the image `a4409e55d3f3eb09` →
-  `7b863327f98367c9` (191 inputs, predicted on both ends), carrying
+  `68e35e1debf88e38` (191 inputs, predicted on both ends), carrying
   everything on the branch. Nothing was built.
 
 **Decisions that are yours**
-- Your review of this round (and of the first round and batch 2's review
-  fixes).
-- N41: beside a part that ran, earlier answers are left out (as built)
-  rather than risk that part being redone.
-- Still open from the first round: whether the answer's routing call stays
-  charged (N32), and whether the chat shows a reply's line breaks (N39).
+- Your review of this round (and of the earlier rounds on the branch).
+- The numbers: 12 answers per request, 500 characters per answer, the same
+  question twice (N54).
+- Still open: whether the answer's routing call stays charged (N32), and
+  whether the chat shows a reply's line breaks (N39).
 - Then, on your word: one merge and deploy of everything on the branch, the
   free runtime check, and the grouped live batch (the audit's §5.4, about
   35–59 credits before any questions are added). Probes for questions back
   would be priced when you ask for them.
 
 **Links**
-- The record: `docs/history/2026-10-02-live-clarify-review.md`, and the
-  first round's `docs/history/2026-10-02-live-clarify.md`
+- The record: `docs/history/2026-10-02-clarify-continuity.md`, and the
+  earlier rounds' `docs/history/2026-10-02-live-clarify-review.md` and
+  `docs/history/2026-10-02-live-clarify.md`
 - The audit: `docs/investigations/whole-router-audit.md` (§3.13's last part,
-  §4.6, N41–N47)
-- The commits: `2965e405` (code and tests), with these records on top.
-- CI on `2965e405`: unit tests run 37077217887; site build run 37077217768.
+  §4.7, N48–N55)
+- The commits: `09029550` (code and tests), with these records on top.
+- CI on `09029550`: unit tests run 37083988901; site build run 37083988895.
 
 **From our chat**
-- `askRemainder`: overlapping scopes can't put work that ran back into the
-  resumed request: done.
-- The resumed models' actual inputs checked, completed changes and charges
-  never repeated: done (and the scoped-answers gap it found, fixed).
-- Clarification in the edit models and add-on designers, keeping completed
-  and remaining work: done.
-- The two-question dead end removed; no question shown whose answer can't
-  resume the request; protection against repeating one: done.
-- Replacement and transitions reliable: nothing goes on when closing fails
-  or loses a race; the answered question kept if storing the next one
-  fails: done.
-- Contradictory prompts reconciled, the add-on picker's closest kind
-  included: done.
-- The regressions you named: done (`test/live-clarify-continue.test.mjs`).
-- Intent model-driven, first builds unchanged: kept.
+- Answers kept for unfinished work, completed work kept out of what runs:
+  done.
+- Clarification kept separate from the request, the model scoping it: done.
+- The repeat and question-ended endings replaced (a more specific
+  follow-up, the existing answer reused, no loop, nothing retyped): done.
+- The regressions you named: done (`test/live-clarify-continuity.test.mjs`).
+- The resumed models' actual inputs, a refresh, no repeated changes or
+  charges: checked in each.
+- First builds unchanged: kept.
 - Fast tests, required CI, the audit and these notes, pushed: done (CI
   stamped above).
 - Not done, on purpose: no deploy, paid run or container build; CLAUDE.md
@@ -180,6 +173,40 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-02 — Your second review of questions back: answers kept for unfinished work, repeats reused, no endings (nothing spent, merged or deployed)
+
+- **Your words**: *"Finish clarification continuity: askRemainder currently
+  drops every earlier answer whenever another step succeeds. … Keep
+  deployment and paid testing pending."*
+- **Answers beside the request**: a list of each question and its answer
+  (`context`) travels next to the request on every hop (the stored question,
+  the router's answer, the posts, a queued job, a hand-over); the request is
+  resumed word for word; every model is shown the answers in a section of
+  their own, labelled as details, never as a change.
+- **The model scopes them**: the picker names the answers each change needs;
+  each step and look lane sees its own plus any answer no change named; code
+  only checks the numbers are in range.
+- **What a question keeps**: the answers its unfinished part needs; one only
+  finished work needed is held back from models and still reused if the
+  same question comes back (N41 superseded).
+- **Repeats**: sent back to the model with the answer, to act or ask more
+  specifically; kept with a note if asked again; after twice, the model has
+  to act; at 12 answers nothing asks. `question-ended`, `clarify-repeat` and
+  `clarify-no-room` are gone (N47 superseded); an answer over 500 characters
+  is refused with the request still waiting (N30 superseded).
+- **Refresh**: the question, the answers and the note survive a reload.
+- **Checks**: 16 new cases (8,933 → 8,949), 64 of 64 mutants caught (seven
+  gaps closed by new cases), full suite `8949 / 8949 / 0 / 0`, unit CI
+  `8949 / 8945 / 0 / 4` on `09029550`; site build green on the same commit
+  (run 37083988895, 404 checks).
+- **Not done, on purpose**: no merge, deploy, spend or container build;
+  CLAUDE.md untouched. A merge would roll the image to `68e35e1debf88e38`.
+- **Yours to decide**: your review; the numbers 12, 500 and twice (N54); N32
+  and N39 still open.
+- The record: `history/2026-10-02-clarify-continuity.md`, the audit (§3.13,
+  §4.7, N48–N55), the checklist's item 14, `backlog.md` (N48–N55) and
+  `owner-preferences.md` (a new entry).
 
 ## 2026-10-02 — Your review of questions back: no dead end, every step can ask (nothing spent, merged or deployed)
 
