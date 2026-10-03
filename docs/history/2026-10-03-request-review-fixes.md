@@ -5,7 +5,7 @@ On the owner's order, for review on `claude/help-needed-ehlwlj`.
 was built, no model was called, nothing was spent, and no migration was
 applied: none is needed. First Build is unchanged.
 
-- Code: the commit after `d5d383cc` that carries this file.
+- Code: `4fd05e68`.
 - How it works now: `docs/request-flow.md`.
 - The first round: `docs/history/2026-10-03-combined-requests.md`.
 
@@ -279,4 +279,7 @@ its parent's words less a trailing full stop, which counts as shorter.
 ## 9. Not done
 
 No merge, no deploy, no paid call or model call, no live migration, no
-container build. The image moves with the code and is predicted, not built.
+container build. The image moves with the code, predicted over both ends
+(`containerInputs` and `imageId`) and not built: `main` (`b8d12ff9`)
+`8bfc67dc695e65cc` (191 inputs) → `4fd05e68` `ca9a89c7bed78b38` (194
+inputs); the branch before this round, `d5d383cc`, was `1a5437e9464f41e2`.

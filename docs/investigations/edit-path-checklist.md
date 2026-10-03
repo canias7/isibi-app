@@ -799,14 +799,16 @@ the owner's free press, run 51, at 22:57 UTC):
         check fails them on `d5d383cc`'s code; sweep 41 of 41 after three
         test gaps were closed, 5 controls surviving; full suite
         `9228 / 9228 / 0 / 0`; four screenshots in the session.
-      - The record: `docs/history/2026-10-03-request-review-fixes.md`.
+      - Code: `4fd05e68`. The record:
+        `docs/history/2026-10-03-request-review-fixes.md`.
     - **Before the switch goes on**: a merge and deploy on the owner's
       word, then a request-mode UI canary press (backlog).
     - The record: `docs/history/2026-10-03-combined-requests.md`. How it
       works: `docs/request-flow.md`.
     - **Next**: the owner's review of the fixes; a merge on their word (the
-      image rolls; predicted, not built); a request-mode canary press; the
-      switch; a real-model batch on their approval.
+      image rolls, `8bfc67dc695e65cc` → `ca9a89c7bed78b38` on `4fd05e68`,
+      predicted, not built); a request-mode canary press; the switch; a
+      real-model batch on their approval.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

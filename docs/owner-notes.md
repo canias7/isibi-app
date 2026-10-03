@@ -9,8 +9,9 @@ is in git; the dated entries further down are the full story.*
 **State now**
 - **Your review's three findings are fixed on the branch, and the UI canary
   has its request mode**, for your review.
-  - The record is `docs/history/2026-10-03-request-review-fixes.md`, and how
-    it works is `docs/request-flow.md`.
+  - The code is `4fd05e68`. The record is
+    `docs/history/2026-10-03-request-review-fixes.md`, and how it works is
+    `docs/request-flow.md`.
 - **The combined flow stays unmerged, undeployed and off** (`REQUEST_FLOW`).
   With it off, nothing a customer or the canaries see changes.
 - **Nothing merged or deployed. No paid call, no model call, no live
@@ -84,7 +85,8 @@ is in git; the dated entries further down are the full story.*
 
 **Still yours**
 - Review the fixes, and say whether and when to merge. A merge also rolls
-  the container image (predicted below, nothing built).
+  the container image: main `8bfc67dc695e65cc`, this code
+  `ca9a89c7bed78b38` (predicted, nothing built).
 - After a merge: a request-mode canary press, then the switch.
 - Whether to approve a small real-model batch, paid, which I would prepare
   with the exact messages and an estimate.
