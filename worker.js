@@ -241,8 +241,15 @@ import { routeMessage, routeDecision, routeFailure, clarifiedBrief, siteDigest, 
 // THE HAND-OVER (2026-10-02, the whole-router audit's batch 2): what travels when
 // work moves from one step to another — the parts put off, the scope, and why.
 import { readHandOver, handOverLine, heldReport, deferredOf } from "./builder/hand-over.mjs";
-import { loadAsk, storeAsk, closeAsk, replaceAsk, askLive, packAsk, newAskId, askOf, readAsk, readContext, shownContext, repeatOf, appendAnswer, againNote, clarifyTransport, clarifyCall, MAX_NOTE_CHARS, MAX_SAME_ASK, MAX_ASKED } from "./builder/clarify.mjs";
-import { repliesOn, editReplyFacts, addonReplyFacts, routeReplyFacts, cancelReplyFacts, repeatNoteFacts, replyContext, writeReply, withReplyText, REPLY_CALL_MS } from "./builder/site-reply.mjs";
+import { loadAsk, storeAsk, storeAskIfFree, closeAsk, replaceAsk, askLive, packAsk, newAskId, askOf, readAsk, readContext, shownContext, repeatOf, appendAnswer, againNote, clarifyTransport, clarifyCall, MAX_NOTE_CHARS, MAX_SAME_ASK, MAX_ASKED } from "./builder/clarify.mjs";
+import { repliesOn, editReplyFacts, addonReplyFacts, routeReplyFacts, cancelReplyFacts, repeatNoteFacts, requestReplyFacts, replyContext, writeReply, withReplyText, REPLY_CALL_MS } from "./builder/site-reply.mjs";
+// ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03): the record,
+// the plan, what a job's answer means for its part, and the next job.
+import {
+  isRequestKey, requestFlowOn, recordKey as requestRecordKey, liveKey as requestLiveKey, fileKey as requestFileKey, requestReplyKey,
+  parseLiveKey, LIVE_ROOT as REQUEST_LIVE_ROOT, REQUEST_ROOT, SWEEP_CURSOR_KEY as REQUEST_SWEEP_CURSOR_KEY, LIVE_AFTER_END_MS, ROUTE_OP, readJobKey, newRequest, readRequest, planParts,
+  nextStep, noteJobId, noteFilingRefused, answerPart, askedAgain, cancelPart, jobBody, readRequestOf, requestView, liveJobIds, questionsToOffer, noteOffered,
+} from "./builder/request.mjs";
 // ONE SIZE POLICY FOR WHAT A CUSTOMER SAYS ON A SITE THAT EXISTS (2026-10-03).
 import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS, REWRITE_MAX_CHARS, carriedChars } from "./builder/input-budget.mjs";
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
@@ -1336,6 +1343,9 @@ export default {
     // with no jobs the RPC is one Supabase call that comes back empty, the same
     // posture `runSiteRebuild` above has.
     ctx.waitUntil(runLostEditJobs(env));
+    // Move every unfinished request of several parts on (2026-10-03): the
+    // guarantee behind each job's own end, so no part waits for a browser.
+    ctx.waitUntil(runRequestSweep(env, ctx));
     // Take out the litter under `jobs/` — the requests, answers and resume
     // records the unhappy paths leave behind, which nothing has ever swept
     // (stage 9, 2026-09-06). One nibble of the prefix per tick and nothing
@@ -6092,6 +6102,18 @@ function askRemainder(asking, done, run, context) {
   };
 }
 
+/**
+ * A PART'S QUESTION INTO THE SITE'S SLOT IF IT IS FREE, with one more try at a
+ * write that threw: `true` kept there, `false` another question is waiting
+ * (this one waits its turn on its part), `null` our store failed twice.
+ */
+async function storeAskIfFreeTwice(bucket, rec) {
+  try { return await storeAskIfFree(bucket, rec); } catch (e) { console.error("question store (first try):", rec.slug, errorClassForLog(e)); }
+  await new Promise((r) => setTimeout(r, 150));
+  try { return await storeAskIfFree(bucket, rec); } catch (e) { console.error("question store:", rec.slug, errorClassForLog(e)); }
+  return null;
+}
+
 /** One more try at a write that failed: the store's own blips are not a lost question. */
 async function storeAskTwice(bucket, rec) {
   try { await storeAsk(bucket, rec); return true; } catch (e) { console.error("question store (first try):", rec.slug, errorClassForLog(e)); }
@@ -6174,14 +6196,32 @@ async function askReport(env, res, ctx) {
     const note = hit.length
       ? await repeatNote(env, { question: ask, earlier: hit, atLimit: hit.length >= MAX_SAME_ASK || told.length >= MAX_ASKED, request, answers: told, picker: c.picker, slug: c.slug }, againNote(hit))
       : undefined;
+    // A PART OF A LONGER REQUEST ASKING (2026-10-03): the question names its
+    // part, and goes in the site's slot only when that is free — never over
+    // one the customer is about to answer. Kept or waiting its turn, it rides
+    // on the answer (`clarify`) for the request's step, which offers it again
+    // when the slot frees (`offerRequestQuestions`). Its put-off parts are
+    // parts of the request already, so it holds none of its own.
+    const ofPart = isRequestKey(c.requestKey) && Number.isInteger(c.part) && c.part >= 0;
     const rec = packAsk({
       id: newAskId(), uid: c.uid, slug: c.slug, stage: typeof stage === "string" ? stage : "look",
-      round, question: ask, request, held: Array.isArray(c.held) ? c.held : [], at: Date.now(),
+      round, question: ask, request, held: ofPart ? [] : Array.isArray(c.held) ? c.held : [], at: Date.now(),
       attached: c.attached === true, context: told, note,
+      ...(ofPart ? { requestKey: c.requestKey, part: c.part } : {}),
     });
-    const kept = !!rec && !!env.SITES_BUCKET && await storeAskTwice(env.SITES_BUCKET, rec);
-    if (kept) out.clarify = { id: rec.id, text: rec.question.text, options: rec.question.options, ...(rec.note ? { note: rec.note } : {}) };
-    else notKept("clarify-unkept", "I needed to ask you something about that part — " + ask.text + " — but couldn't keep track of the question just now, so I left it alone. What was left of your request is back in your message box: add the detail and send it, and I'll make it.", request);
+    let kept = false;
+    let queued = false;
+    if (rec && env.SITES_BUCKET && ofPart) {
+      const free = await storeAskIfFreeTwice(env.SITES_BUCKET, rec);
+      kept = free !== null;
+      queued = free === false;
+    } else kept = !!rec && !!env.SITES_BUCKET && await storeAskTwice(env.SITES_BUCKET, rec);
+    if (kept) {
+      out.clarify = {
+        id: rec.id, text: rec.question.text, options: rec.question.options, ...(rec.note ? { note: rec.note } : {}),
+        ...(ofPart ? { request: rec.request, stage: rec.stage, round: rec.round, queued } : {}),
+      };
+    } else notKept("clarify-unkept", "I needed to ask you something about that part — " + ask.text + " — but couldn't keep track of the question just now, so I left it alone. What was left of your request is back in your message box: add the detail and send it, and I'll make it.", request);
   }
   const headers = new Headers(res.headers);
   headers.delete("content-length");
@@ -6224,8 +6264,10 @@ function replyAsked(b, extra = {}) {
 
 /** The facts of an answer of one kind: `{ skip, facts }`. */
 function replyFactsOf(kind, body, ask) {
-  if (kind === "edit") return editReplyFacts(body, { routedCost: ask.routedCost });
-  if (kind === "addon") return addonReplyFacts(body, { routedCost: ask.routedCost });
+  if (kind === "edit") return editReplyFacts(body, { routedCost: ask.routedCost, inRequest: ask.inRequest === true });
+  // A REQUEST OF SEVERAL PARTS (2026-10-03): what no part's own reply explains.
+  if (kind === "request") return requestReplyFacts(body);
+  if (kind === "addon") return addonReplyFacts(body, { routedCost: ask.routedCost, inRequest: ask.inRequest === true });
   if (kind === "route") return routeReplyFacts(body);
   if (kind === "cancel") return cancelReplyFacts(body);
   return { skip: "kind", facts: [] };
@@ -6296,6 +6338,9 @@ async function keepReplyFor(env, res, kind, ask) {
     routedCost: ask.routedCost,
     slug: typeof ask.slug === "string" ? ask.slug : undefined,
     pages: Array.isArray(pages) ? pages : [],
+    // A PART OF A LONGER REQUEST (2026-10-03): its held parts are the request's
+    // own, run after it on the server.
+    ...(ask.inRequest === true ? { inRequest: true } : {}),
   };
   const headers = new Headers(res.headers);
   headers.delete("content-length");
@@ -6335,6 +6380,7 @@ async function servedModelReply(env, job, text) {
     request: replyFor.request, answers: replyFor.answers, picker: replyFor.picker,
     routedCost: Number.isInteger(replyFor.routedCost) ? replyFor.routedCost : null,
     slug: replyFor.slug, pages: Array.isArray(replyFor.pages) ? replyFor.pages : [],
+    inRequest: replyFor.inRequest === true,
   });
   if (!reply) return plain;
   // KEPT ONCE: of two polls that both wrote one, the first stored wins, and
@@ -12830,6 +12876,25 @@ async function deleteSiteFor(env, uid, dslug) {
       }
     } catch (e) { console.error("site backups delete failed:", dslug, e && e.message); }
 
+    // AND ITS REQUESTS OF SEVERAL PARTS (2026-10-03) — the customer's own
+    // messages, their answers and their files, keyed by slug. THE MARKERS
+    // FIRST: an unfinished request's marker is what the two-minute sweep moves
+    // on, and a request moved on for a site that is gone would route its next
+    // part — a paid model call — for nothing. Cursor-followed and best-effort,
+    // as the backups are, before the row the delete needs to be retried.
+    try {
+      if (env.SITES_BUCKET) {
+        for (const prefix of [REQUEST_LIVE_ROOT + dslug + "/", REQUEST_ROOT + dslug + "/"]) {
+          let rqCursor;
+          do {
+            const got = await env.SITES_BUCKET.list({ prefix, cursor: rqCursor, limit: 500 });
+            for (const o of (got && got.objects) || []) await env.SITES_BUCKET.delete(o.key);
+            rqCursor = (got && got.truncated) ? got.cursor : undefined;
+          } while (rqCursor);
+        }
+      }
+    } catch (e) { console.error("site requests delete failed:", dslug, e && e.message); }
+
     // AND THE BUILD RECORD. One row keyed by slug, so a leftover would be
     // INHERITED by whoever claims the slug next — their first build would show
     // a stranger's trace until it upserted over it, which is a diagnostic
@@ -13909,6 +13974,19 @@ async function enqueueEditJob(env, { slug, uid, url, body, idem, op = "edit", de
   if (!made || made.ok !== true) return { ok: false, error: String((made && made.error) || "rpc"), job: made && made.job };
   const jobId = String(made.job || id);
   if (made.duplicate === true) return { ok: true, job: jobId, state: made.state, duplicate: true };
+  const sent = await storeAndSendEditJob(env, jobId, { url, body, uid, slug, delayS });
+  if (!sent.ok) return sent;
+  return { ok: true, job: jobId, state: "queued", duplicate: false };
+}
+
+/**
+ * THE OBJECT, THEN THE MESSAGE, for a row that exists — `enqueueEditJob`'s
+ * second half, and the repair a request's driver makes for a job whose filer
+ * died between the row and the object (2026-10-03): the body is rebuilt from
+ * the request record, so writing it again is writing the same request, and a
+ * second message is harmless — the claim refuses it.
+ */
+async function storeAndSendEditJob(env, jobId, { url, body, uid, slug, delayS = 0 }) {
   // THE SECRET IS MINTED HERE AND NEVER LEAVES THE SERVER. It is what the
   // consumer later presents to prove a replay is a replay; the customer is
   // handed the job id and nothing else, so a marker cannot be assembled from
@@ -13938,7 +14016,7 @@ async function enqueueEditJob(env, { slug, uid, url, body, idem, op = "edit", de
     console.error("edit queue: could not enqueue", jobId, String((e && e.message) || e));
     return { ok: false, error: "enqueue" };
   }
-  return { ok: true, job: jobId, state: "queued", duplicate: false };
+  return { ok: true };
 }
 
 /**
@@ -13981,6 +14059,432 @@ function enqueueReply(q) {
     { status: q.duplicate ? 200 : 202 });
 }
 
+// ── ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03) ──────────
+//
+// Owner: *"all accepted parts are remembered and processed without the user
+// resending them or keeping the browser open … reuse existing leases, site
+// locks, idempotency, publication checkpoints and billing records wherever
+// possible."* `builder/request.mjs` decides; these keep the record in the site
+// bucket, file each part's job through `enqueueEditJob` under a key derived
+// from the request, read the jobs' rows, and move the request on. Four things
+// move it, all through `advanceRequest`, and any of them can be lost without
+// stalling anything: the routing call that accepted it, the end of each part's
+// job (the consumer in the Worker, the gateway's `/next` from the container),
+// the answer to a part's question, and the two-minute sweep (the guarantee).
+
+/** The stored request and its etag; `answer` when the key named an answer that resumed another request's part. */
+async function loadRequest(env, slug, key) {
+  if (!env.SITES_BUCKET || !isRequestKey(key)) return { rec: null, etag: null, answer: null };
+  const obj = await env.SITES_BUCKET.get(requestRecordKey(slug, key));
+  if (!obj) return { rec: null, etag: null, answer: null };
+  let raw = null;
+  try { raw = JSON.parse(await obj.text()); } catch { raw = null; }
+  if (raw && raw.kind === "answer" && raw.key === key) return { rec: null, etag: obj.etag || null, answer: raw };
+  return { rec: readRequest(raw), etag: obj.etag || null, answer: null };
+}
+
+/** A new record, written only where none is: the etag, or `null` when one was there first. */
+async function createRequestRecord(env, value) {
+  const put = await env.SITES_BUCKET.put(requestRecordKey(value.slug, value.key), JSON.stringify(value),
+    { httpMetadata: { contentType: "application/json" }, onlyIf: { etagDoesNotMatch: "*" } });
+  return put ? put.etag || "created" : null;
+}
+
+/** The record written back on the etag it was read under: the new etag, or `null` when another step moved it first. */
+async function saveRequestRecord(env, rec, etag) {
+  if (!etag) return null;
+  const put = await env.SITES_BUCKET.put(requestRecordKey(rec.slug, rec.key), JSON.stringify(rec),
+    { httpMetadata: { contentType: "application/json" }, onlyIf: { etagMatches: etag } });
+  return put ? put.etag || etag : null;
+}
+
+/**
+ * THE LIVE MARKER the sweep lists: written while the request is unfinished,
+ * stamped with when it ended, and left a day after (`LIVE_AFTER_END_MS`) so a
+ * page opened later or elsewhere learns how it ended. The request's files go
+ * when it ends: every part's job carried its own copy.
+ */
+async function settleRequestMarker(env, rec) {
+  try {
+    await env.SITES_BUCKET.put(requestLiveKey(rec.slug, rec.key), JSON.stringify({ at: rec.at, endedAt: rec.ended ? rec.endedAt : null }),
+      { httpMetadata: { contentType: "application/json" } });
+    if (rec.ended) for (const f of rec.files || []) { try { await env.SITES_BUCKET.delete(f.key); } catch { /* the sweep is not this */ } }
+  } catch (e) { console.error("request marker:", rec.slug, errorClassForLog(e)); }
+}
+
+/**
+ * THE MESSAGE'S FILES, KEPT ON THE SERVER (2026-10-03): each attachment's
+ * bytes under the request, content-addressed, so the part that reads files —
+ * the logo step today, as the page sends them — has them whenever it runs.
+ * At most `MAX_ATTACHMENTS`, as the routes take them; one that is not a data
+ * URL is not a file this can keep, and is left out (the logo step says what it
+ * did with the ones it got).
+ */
+async function storeRequestFiles(env, slug, key, images) {
+  const out = [];
+  for (const [i, a] of (Array.isArray(images) ? images : []).slice(0, MAX_ATTACHMENTS).entries()) {
+    const data = typeof a === "string" ? a : a && typeof a.data === "string" ? a.data : "";
+    const m = /^data:([a-z0-9.+\-]+\/[a-z0-9.+\-]+);base64,([A-Za-z0-9+/=\s]+)$/i.exec(data);
+    if (!m) continue;
+    let bytes;
+    try { bytes = Uint8Array.from(atob(m[2].replace(/\s+/g, "")), (c) => c.charCodeAt(0)); } catch { continue; }
+    const digest = await crypto.subtle.digest("SHA-256", bytes);
+    const sha = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    const ext = (m[1].split("/")[1] || "bin").replace(/[^a-z0-9]/gi, "").slice(0, 8) || "bin";
+    const k = requestFileKey(slug, key, sha, ext);
+    await env.SITES_BUCKET.put(k, bytes, { httpMetadata: { contentType: m[1] } });
+    const name = a && typeof a.name === "string" ? a.name.slice(0, 120) : "file-" + (i + 1);
+    out.push({ key: k, sha, type: m[1], name, bytes: bytes.length });
+  }
+  return out;
+}
+
+/** The request's files back as the page sends them (`{ data, name }`); one that is gone is left out. */
+async function requestFiles(env, rec) {
+  const out = [];
+  for (const f of rec.files || []) {
+    try {
+      const obj = await env.SITES_BUCKET.get(f.key);
+      if (!obj) continue;
+      const bytes = new Uint8Array(await obj.arrayBuffer());
+      let bin = "";
+      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      out.push({ data: "data:" + f.type + ";base64," + btoa(bin), name: f.name });
+    } catch (e) { console.error("request file:", rec.slug, errorClassForLog(e)); }
+  }
+  return out;
+}
+
+/**
+ * FILE ONE PART'S JOB — an ordinary queued job under its derived key, whose
+ * stored request is exactly the POST the page would have sent (`jobBody`). A
+ * second filing answers the first row (`duplicate`); a row still queued whose
+ * stored request never landed (its filer died between the two) gets it again.
+ */
+async function fileRequestJob(env, rec, file) {
+  const files = file.kind === "run" ? await requestFiles(env, rec) : [];
+  const { url, body } = jobBody(rec, file.n, file.kind, file.key, { files });
+  const abs = "https://" + APP_ZONE + url;
+  const text = JSON.stringify(body);
+  const q = await enqueueEditJob(env, { slug: rec.slug, uid: rec.uid, url: abs, body: text, idem: file.key, op: file.op });
+  if (q.ok && q.duplicate && q.state === "queued") {
+    let there = true;
+    try { there = !!(await env.SITES_BUCKET.head(editJobKey(q.job))); } catch { there = true; }
+    if (!there) await storeAndSendEditJob(env, q.job, { url: abs, body: text, uid: rec.uid, slug: rec.slug });
+  }
+  return q;
+}
+
+/**
+ * A WAITING PART'S QUESTION, PUT IN THE SITE'S SLOT IN ITS TURN: only when the
+ * slot is free (`storeAskIfFree`), so a question asked on the server never
+ * replaces one the customer is about to answer.
+ */
+async function offerRequestQuestions(env, rec, etag) {
+  let cur = rec;
+  let tag = etag;
+  try {
+    const { record: live } = await loadAsk(env.SITES_BUCKET, rec.slug);
+    for (const p of questionsToOffer(cur, live)) {
+      const q = p.question;
+      const ask = packAsk({
+        id: q.id, uid: cur.uid, slug: cur.slug, stage: q.stage || "route", round: q.round || 1,
+        question: { text: q.text, options: q.options || [] }, request: q.request, held: [], at: Date.now(),
+        attached: (cur.files || []).length > 0 || cur.attached === true, context: cur.context, note: q.note,
+        requestKey: cur.key, part: p.n,
+      });
+      if (!ask) continue;
+      if (!(await storeAskIfFree(env.SITES_BUCKET, ask))) break;
+      const next = noteOffered(cur, p.n, q.id);
+      const t = await saveRequestRecord(env, next, tag);
+      if (t) { cur = next; tag = t; }
+      break;
+    }
+  } catch (e) { console.error("request question:", rec.slug, errorClassForLog(e)); }
+  return { rec: cur, etag: tag };
+}
+
+/**
+ * MOVE ONE REQUEST ON: read it, read its live jobs' rows, take one step
+ * (`nextStep`), write it back on its etag, file the job that step chose, and
+ * record the job's id. A step that lost the write to another reads again and
+ * starts over — so two drivers at once file one job, under one key. Never
+ * throws; answers the record as it left it, or `null`.
+ */
+async function advanceRequest(env, ctx, slug, key, why = "") {
+  if (!env.SITES_BUCKET || !isRequestKey(key)) return null;
+  try {
+    for (let round = 0; round < 6; round++) {
+      const { rec, etag } = await loadRequest(env, slug, key);
+      if (!rec || !etag) return null;
+      if (rec.ended) { await settleRequestMarker(env, rec); return rec; }
+      const rows = {};
+      for (const id of liveJobIds(rec)) {
+        const row = await editRpc(env, "edit_get", { p_id: id, p_uid: rec.uid });
+        if (row && row.ok === true) rows[id] = row;
+      }
+      const { record, file } = nextStep(rec, rows, Date.now());
+      // NOTHING MOVED, NOTHING WRITTEN: a look from the page or the sweep at a
+      // request whose job is still running costs a read, never a write.
+      const same = !file && JSON.stringify({ ...record, rev: 0, updatedAt: 0 }) === JSON.stringify({ ...rec, rev: 0, updatedAt: 0 });
+      let tag = same ? etag : await saveRequestRecord(env, record, etag);
+      if (!tag) continue;
+      let cur = same ? rec : record;
+      let again = false;
+      if (file) {
+        const q = await fileRequestJob(env, cur, file);
+        if (q.ok && q.job) {
+          for (let k = 0; k < 4; k++) {
+            const at = k === 0 ? { rec: cur, etag: tag } : await loadRequest(env, slug, key);
+            if (!at.rec) break;
+            const withId = noteJobId(at.rec, file.key, q.job);
+            const t = await saveRequestRecord(env, withId, at.etag);
+            if (t) { cur = withId; tag = t; break; }
+          }
+          // A JOB FILED AFTER A STOP — one an earlier step chose and could not
+          // file, filed now so its id is known — is cancelled at once, through
+          // the job's own door: it ends at its first gate, as any job does.
+          if (cur.stop) { try { await editRpc(env, "edit_cancel", { p_id: q.job, p_uid: cur.uid }); } catch { /* its own end settles it */ } }
+          // A DUPLICATE OF A JOB THAT ALREADY ENDED (its filer died after the
+          // filing): its row is read and settled on the next turn, now.
+          again = q.duplicate === true && ["done", "failed", "cancelled", "lost"].includes(String(q.state));
+        } else {
+          console.log("request:", slug, key, "could not file", file.key, String(q.error || ""), "— the sweep files it again");
+          // THE SITE IS PAUSED FOR A CHECK: said on the part, which keeps its place.
+          if (q.error === "needs-review") {
+            const noted = noteFilingRefused(cur, file.key, q.error);
+            const t = await saveRequestRecord(env, noted, tag);
+            if (t) { cur = noted; tag = t; }
+          }
+        }
+      }
+      const offered = await offerRequestQuestions(env, cur, tag);
+      cur = offered.rec;
+      await settleRequestMarker(env, cur);
+      if (again) continue;
+      return cur;
+    }
+  } catch (e) {
+    console.error("request advance:", slug, key, why, errorClassForLog(e));
+  }
+  return null;
+}
+
+/**
+ * ACCEPT A ROUTED MESSAGE (2026-10-03). Work on a site becomes a request the
+ * server finishes, every part of it; an answer to a part's question resumes
+ * that part. Answers `null` when the message is neither — a question about the
+ * site, a question back, the full rewrite the message itself asked for, a plan
+ * whose held parts cannot be found in the message — and the routing answer
+ * goes back as it always has, to be acted on as it always was. `{ failed:
+ * true }` when our store failed around a usable answer: the message is held
+ * for sending again, under the same key, which nothing charges twice.
+ */
+async function acceptRequest(env, ctx, { uid, rb, slug, key, out, ask, waiting, instruction }) {
+  if (waiting && waiting.requestKey && ask && ask.answered === true) {
+    return resumeRequestPart(env, ctx, { uid, slug, key, out, waiting, ask, images: rb.images });
+  }
+  if (out.intent !== "edit" && out.intent !== "addon") return null;
+  const answered = !!(ask && ask.answered === true);
+  // THE REQUEST IS WHAT WAS ASKED FOR: the message, or — when it answered a
+  // question — the request that was waiting, word for word, its answers kept
+  // beside it, never folded into it.
+  const message = typeof instruction === "string" && instruction.trim() ? instruction : String(rb.message || "");
+  const planned = planParts(message, out, { putOff: answered && ask.putOff ? ask.putOff : [] });
+  if (!planned.ok) return null;
+  const draft = newRequest({
+    key, uid, slug, message,
+    picker: typeof rb.picker === "string" ? rb.picker : "",
+    tz: typeof rb.tz === "string" ? rb.tz : "",
+    digest: rb.site && typeof rb.site === "object" && !Array.isArray(rb.site) ? rb.site : null,
+    recent: Array.isArray(rb.recent) ? rb.recent : null,
+    files: [],
+    attached: rb.attached === true || !!(waiting && waiting.attached === true),
+    context: answered && Array.isArray(ask.context) ? ask.context : [],
+    accepted: { ...out, request: { key } },
+    routedCost: Number.isInteger(out.cost) ? out.cost : null,
+    parts: planned.parts,
+  });
+  if (!draft) return null;
+  let tag = null;
+  try {
+    draft.files = await storeRequestFiles(env, slug, key, rb.images);
+    tag = await createRequestRecord(env, draft);
+  } catch (e) {
+    console.error("request store:", slug, errorClassForLog(e));
+    return { failed: true };
+  }
+  if (!tag) {
+    // THE SAME MESSAGE ACCEPTED FIRST BY ANOTHER CALL (a retry, another tab):
+    // that acceptance is the answer, and nothing runs twice.
+    let prior = null;
+    try { prior = await loadRequest(env, slug, key); } catch { prior = null; }
+    if (prior && prior.rec && prior.rec.uid === uid && prior.rec.accepted) return { ...prior.rec.accepted, request: requestView(prior.rec), duplicate: true };
+    return { failed: true };
+  }
+  await settleRequestMarker(env, draft);
+  const moved = await advanceRequest(env, ctx, slug, key, "accepted");
+  return { ...out, request: requestView(moved || draft) };
+}
+
+/**
+ * AN ANSWER TO A PART'S QUESTION, ON THE SERVER. The routing call read the
+ * answer with the part's waiting words, as it reads any answer: the part runs
+ * next with that decision (`answerPart`), or waits on the next question it
+ * asked (`askedAgain`). A pointer under the answer's own key hands a retry of
+ * the same answer the same reply. The question was closed before this, once,
+ * so of two answers only one gets here; when the record cannot be moved, the
+ * part still waits on its question, which is offered again (`offerRequestQuestions`).
+ */
+async function resumeRequestPart(env, ctx, { uid, slug, key, out, waiting, ask, images }) {
+  const rkey = waiting.requestKey;
+  const n = waiting.part;
+  let rec = null;
+  let gone = null;
+  let added = null;
+  try {
+    for (let k = 0; k < 6 && !rec; k++) {
+      const at = await loadRequest(env, slug, rkey);
+      if (!at.rec || at.rec.uid !== uid || !at.etag) return { failed: true };
+      const next = out.intent === "clarify"
+        ? askedAgain(at.rec, n, { ask: { ...(out.question || {}), request: waiting.request, stage: "route", round: waiting.round + 1 }, context: ask.context })
+        : answerPart(at.rec, n, { routed: out, resume: waiting.request, context: ask.context, round: waiting.round });
+      // THE PART NO LONGER WAITS — stopped, or past its day — so the answer
+      // has nothing to resume: the request is shown as it is.
+      if (!next) { gone = at.rec; break; }
+      // AND THE ANSWER'S OWN FILES JOIN THE REQUEST'S, kept as its others are
+      // (the route has already held the two together to one request's).
+      if (added === null) added = await storeRequestFiles(env, slug, rkey, images);
+      for (const f of added) if (!next.files.some((g) => g.sha === f.sha)) next.files.push(f);
+      const t = await saveRequestRecord(env, next, at.etag);
+      if (t) rec = next;
+    }
+  } catch (e) {
+    console.error("request answer:", slug, errorClassForLog(e));
+  }
+  if (!rec && !gone) { await advanceRequest(env, ctx, slug, rkey, "answer-unsaved"); return { failed: true }; }
+  const accepted = { ...out, request: { key: rkey }, resumed: { key: rkey, part: n } };
+  try {
+    await env.SITES_BUCKET.put(requestRecordKey(slug, key), JSON.stringify({ v: 1, kind: "answer", key, uid, slug, resumes: { key: rkey, part: n }, accepted, at: Date.now() }),
+      { httpMetadata: { contentType: "application/json" }, onlyIf: { etagDoesNotMatch: "*" } });
+  } catch (e) { console.error("request answer pointer:", slug, errorClassForLog(e)); }
+  const moved = rec ? await advanceRequest(env, ctx, slug, rkey, "answered") : gone;
+  return { ...accepted, request: requestView(moved || rec || gone) };
+}
+
+/**
+ * A PART'S JOB ENDED: move its request on. In the Worker, directly; inside the
+ * container — which has no queue and may not file a job — through the
+ * gateway's `/next` (`JOB_NEXT`), bound to this job's own token. Either can be
+ * lost; the sweep moves the request within two minutes.
+ */
+async function requestJobEnded(env, ctx, job) {
+  let body = null;
+  try { body = JSON.parse(String(job && job.body || "")); } catch { body = null; }
+  const req = body && readRequestOf(body.request);
+  if (!req) return;
+  if (typeof env.JOB_NEXT === "function") {
+    try { await env.JOB_NEXT({ key: req.key }); } catch (e) { console.error("request next:", errorClassForLog(e)); }
+    return;
+  }
+  await advanceRequest(env, ctx, String(job.slug || ""), req.key, "job-ended");
+}
+
+/**
+ * THE SWEEP: every unfinished request is moved on, whatever was lost — a
+ * gateway call, an isolate evicted between a job's end and its next filing, a
+ * job the stale or lost sweep closed. A marker a day past its request's end is
+ * taken away. One page of markers per tick, EVERY PAGE IN TURN: each tick
+ * starts where the last one stopped (`SWEEP_CURSOR_KEY`), so a request whose
+ * marker sorts past the first page is reached too — a listing that always began
+ * at the first key would never get past markers kept a day after their end.
+ */
+export async function runRequestSweep(env, ctx) {
+  if (!env || !env.SITES_BUCKET || typeof env.SITES_BUCKET.list !== "function") return;
+  let cursor;
+  try {
+    const c = await env.SITES_BUCKET.get(REQUEST_SWEEP_CURSOR_KEY);
+    const v = c ? JSON.parse(await c.text()) : null;
+    cursor = v && typeof v.cursor === "string" && v.cursor ? v.cursor : undefined;
+  } catch { cursor = undefined; }
+  let listed;
+  try { listed = await env.SITES_BUCKET.list({ prefix: REQUEST_LIVE_ROOT, limit: 100, ...(cursor ? { cursor } : {}) }); }
+  catch (e) {
+    // A CURSOR THE STORE NO LONGER TAKES: the first page again.
+    if (!cursor) { console.error("request sweep: list", errorClassForLog(e)); return; }
+    try { listed = await env.SITES_BUCKET.list({ prefix: REQUEST_LIVE_ROOT, limit: 100 }); } catch (e2) { console.error("request sweep: list", errorClassForLog(e2)); return; }
+  }
+  // WHERE THE NEXT TICK STARTS: past this page, or back at the first once this
+  // was the last. Two ticks at once may sweep a page twice, never skip one for good.
+  const resume = listed && listed.truncated === true && typeof listed.cursor === "string" && listed.cursor ? listed.cursor : null;
+  try { await env.SITES_BUCKET.put(REQUEST_SWEEP_CURSOR_KEY, JSON.stringify({ cursor: resume, at: Date.now() }), { httpMetadata: { contentType: "application/json" } }); }
+  catch { /* the first page next tick */ }
+  const now = Date.now();
+  for (const o of (listed && listed.objects) || []) {
+    const at = parseLiveKey(o && o.key);
+    if (!at) continue;
+    let mark = null;
+    try { const m = await env.SITES_BUCKET.get(o.key); mark = m ? JSON.parse(await m.text()) : null; } catch { mark = null; }
+    if (mark && Number.isFinite(mark.endedAt) && now - mark.endedAt > LIVE_AFTER_END_MS) {
+      try { await env.SITES_BUCKET.delete(o.key); } catch { /* next tick */ }
+      continue;
+    }
+    if (mark && Number.isFinite(mark.endedAt)) continue;
+    await advanceRequest(env, ctx, at.slug, at.key, "sweep");
+  }
+}
+
+/**
+ * STOP THE REST OF A REQUEST: nothing new starts (`stop`), and the running
+ * part's job is asked to cancel through the job's own door (`edit_cancel`):
+ * stopped before it publishes, or answered `too-late` after. Parts already done
+ * stay done.
+ */
+async function stopRequest(env, ctx, slug, key, uid) {
+  for (let k = 0; k < 4; k++) {
+    const { rec, etag } = await loadRequest(env, slug, key);
+    if (!rec || rec.uid !== uid) return null;
+    if (rec.ended || rec.stop) break;
+    const t = await saveRequestRecord(env, { ...rec, stop: true, updatedAt: Date.now() }, etag);
+    if (t) {
+      for (const id of liveJobIds(rec)) {
+        try { await editRpc(env, "edit_cancel", { p_id: id, p_uid: uid }); } catch { /* the job's own end settles it */ }
+      }
+      break;
+    }
+  }
+  return advanceRequest(env, ctx, slug, key, "stop");
+}
+
+/**
+ * THE REPLY FOR A REQUEST'S PARTS THAT NO JOB'S OWN REPLY EXPLAINS — not run,
+ * stopped, needing the full rewrite, a question nobody answered — written by
+ * the model from the request's facts (`requestReplyFacts`), once, when the
+ * request has ended, and kept: every later read hands back the same one.
+ * `null` when there is nothing to add or no reply can be had; the page then
+ * shows each part's status as it is.
+ */
+async function requestReply(env, rec) {
+  const view = requestView(rec);
+  if (!rec.ended || !repliesOn(env)) return null;
+  const k = requestReplyKey(rec.slug, rec.key);
+  try {
+    const kept = await env.SITES_BUCKET.get(k);
+    if (kept) { const v = JSON.parse(await kept.text()); if (v && typeof v.text === "string" && v.text.trim()) return v.text; }
+  } catch { /* written again below */ }
+  const text = await writeModelReply(env, "request", view, { request: rec.message, answers: rec.context, picker: rec.picker, routedCost: rec.routedCost, slug: rec.slug, pages: [] });
+  if (!text) return null;
+  try {
+    const put = await env.SITES_BUCKET.put(k, JSON.stringify({ text, at: Date.now() }), { onlyIf: { etagDoesNotMatch: "*" } });
+    if (put === null) {
+      const won = await env.SITES_BUCKET.get(k);
+      const w = won ? JSON.parse(await won.text()) : null;
+      if (w && typeof w.text === "string" && w.text.trim()) return w.text;
+    }
+  } catch { /* the reply is still the one written */ }
+  return text;
+}
+
 /**
  * RUN ONE QUEUED EDIT.
  *
@@ -14003,6 +14507,8 @@ function enqueueReply(q) {
 async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = null, takeOver = null, startedAt = 0, budgetMs: capMs = null } = {}) {
   const owner = lease || newLeaseOwner();
   let beat = null;
+  // THE JOB, ONCE READ, for its request's next step whichever way it ends (2026-10-03).
+  let ended = null;
   try {
     if (!env.SITES_BUCKET) { console.error("edit queue: no bucket for", id); return; }
     // CLAIM FIRST, BEFORE READING ANYTHING. A second delivery of the same
@@ -14048,6 +14554,7 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
       await editRpc(env, "edit_refund", { p_id: id, p_state: "failed", p_note: "request object missing" });
       return;
     }
+    ended = job;
     // ── THE OBJECT AND THE ROW MUST AGREE ────────────────────────────────
     //
     // The claim came from Postgres and the request came from R2, and until this
@@ -14185,6 +14692,9 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
       // the reconcile keeps it rather than a person a day later.
       await reconcileAfterRefund(env, id, refund);
     }
+    // A PART OF A LONGER REQUEST ENDED (2026-10-03): its request moves on —
+    // the next part, a hand-over, a question offered — with no browser open.
+    await requestJobEnded(env, ctx, job);
     // The measured durations are written by the HANDLER, beside its trace flush
     // — that is where the trace lives, and copying it out here would be a second
     // opinion about what happened built from a value the handler owns.
@@ -14194,6 +14704,7 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
       const refund = await editRpc(env, "edit_refund", { p_id: id, p_state: "failed", p_note: "consumer threw" });
       await reconcileAfterRefund(env, id, refund);
     } catch { /* an instrument may not break the thing it measures */ }
+    if (ended) { try { await requestJobEnded(env, ctx, ended); } catch { /* the sweep moves it */ } }
   } finally {
     if (beat) clearInterval(beat);
   }
@@ -14261,6 +14772,16 @@ function jobGateway(env, ctx) {
     scope: {
       sign: async (p) => { const k = await gatewayKeyFor(env); if (!k) throw new Error("no key"); return signJobToken(p, k); },
       owner: async (slug) => { const r = await siteBackendRowFresh(env, slug); return (r && r.uid) || null; },
+    },
+    // A PART OF A LONGER REQUEST ENDED IN THE CONTAINER (2026-10-03): the
+    // request is this job's site's and owner's, and names this job among its
+    // parts' jobs, or nothing moves. The step itself is the Worker's.
+    next: async ({ id, slug, uid, key }) => {
+      const { rec } = await loadRequest(env, slug, key);
+      if (!rec || rec.uid !== uid || !rec.parts.some((p) => p.jobs.some((j) => j.id === id))) return false;
+      const step = advanceRequest(env, ctx, slug, key, "next");
+      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(step); else await step;
+      return true;
     },
   });
 }
@@ -20490,14 +21011,42 @@ async function handleRequest(request, env, ctx) {
     // one line above a response that can now be 503 is a comment somebody will
     // believe.
     if (url.pathname === "/api/site/route" && request.method === "POST") {
-      const ru = await authUser(request, env);
-      if (!ru) return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
+      // ── A PART OF A LONGER REQUEST IS ROUTED HERE TOO, AS A JOB (2026-10-03) ──
+      //
+      // Its routing job replays this route under the job's marker (the edit
+      // route's own door, `editReplayUser`): the job's owner, for the job's
+      // site, while that job runs — and nothing else. Every other caller
+      // signs in as ever.
+      const rMarker = request.headers.get(REPLAY_HEADER) || "";
+      let ru = rMarker ? null : await authUser(request, env);
+      if (!rMarker && !ru) return Response.json({ ok: false, error: "unauthorized" }, { status: 401 });
       // Same backstop as the build route, sized for what this carries: a
       // message, a brief, a names-only digest and a QA list. 2MB is ~50x the
-      // largest real payload seen.
-      { const tlR2 = tooLargeBody(request, 2_000_000); if (tlR2) return tlR2; }
+      // largest real payload seen. A SITE'S MESSAGE MAY CARRY ITS FILES NOW
+      // (2026-10-03: kept on the server for the part that reads them), so it
+      // has the edit route's backstop; a first build keeps its own.
+      { const tlR2 = tooLargeBody(request, 24_000_000); if (tlR2) return tlR2; }
+      let rbRaw = "";
+      try { rbRaw = await request.text(); } catch { rbRaw = ""; }
+      // THE BYTES THAT ARRIVED, not the header the caller wrote and not the
+      // characters (`readJsonBody`'s lesson): 24 MB for a site's message, 2 MB
+      // for everything else, as before.
+      const rbBytes = new TextEncoder().encode(rbRaw).length;
+      if (rbBytes > 24_000_000) return Response.json({ error: "payload too large" }, { status: 413 });
       let rb = {};
-      try { rb = await request.json(); } catch { rb = {}; }
+      try { const parsed = JSON.parse(rbRaw); rb = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {}; } catch { rb = {}; }
+      if (rbBytes > 2_000_000 && !(rb.hasSite === true && rb.firstBuild !== true)) return Response.json({ error: "payload too large" }, { status: 413 });
+      let rJob = null;
+      if (rMarker) {
+        const rr = editReplayUser(request, rb.slug);
+        if (!rr) return Response.json({ error: "not found" }, { status: 404 });
+        ru = { id: rr.id };
+        rJob = rr.replay;
+      }
+      // THE PART THIS ROUTING JOB IS FOR: its request's message, what the
+      // parts before it did and the answers so far (`readRequestOf`).
+      const rPart = rJob ? readRequestOf(rb.request) : null;
+      if (rJob && !rPart) return Response.json({ error: "not found" }, { status: 404 });
       // ── A ROUTING ANSWER THAT ENDS THE TURN IS EXPLAINED (2026-10-03) ──
       //
       // An answer to a question that is no longer live, one too long to keep,
@@ -20505,7 +21054,9 @@ async function handleRequest(request, env, ctx) {
       // an ordinary outcome, and its reply is written from what happened
       // (`routeReplyFacts`), at any status. A site that exists only: the first
       // build's interview is untouched. The body below is not re-indented.
-      const rReplyAsk = rb && rb.hasSite === true && rb.firstBuild !== true
+      // A PART'S ROUTING JOB WRITES NO REPLY: its answer is read by the
+      // request's own step, never shown as it is.
+      const rReplyAsk = !rJob && rb && rb.hasSite === true && rb.firstBuild !== true
         ? replyAsked(rb, { slug: typeof rb.slug === "string" ? rb.slug : undefined, name: rb.site && typeof rb.site.name === "string" ? rb.site.name : undefined, pages: rb.site && Array.isArray(rb.site.pages) ? rb.site.pages.map((p) => (typeof p === "string" ? p : p && typeof p.path === "string" ? p.path : "")).filter(Boolean) : [] })
         : null;
       return withModelReply(env, await (async () => {
@@ -20551,8 +21102,11 @@ async function handleRequest(request, env, ctx) {
       // `collectCredits` below already tolerates a ledger that will not answer.
       // Nothing expensive escapes either way — the build behind it still meets
       // its own gate, which still fails closed.
+      // A PART'S ROUTING JOB HAS NO SESSION TO READ A BALANCE WITH: its charge
+      // goes through the job's own reserve, which refuses a balance that
+      // cannot cover it, and the step after it meets its own gate.
       let rBal = null;
-      try { const n = await readCredits(auth); rBal = Number.isFinite(n) ? n : null; } catch { rBal = null; }
+      if (!rJob) { try { const n = await readCredits(auth); rBal = Number.isFinite(n) ? n : null; } catch { rBal = null; } }
       if (rBal !== null && !(rBal > 0)) {
         // Out of credits is not a reason to refuse to BUILD — the build path has
         // its own gate and its own 402, with a message about the thing they were
@@ -20565,6 +21119,34 @@ async function handleRequest(request, env, ctx) {
       // THE SITE'S OWN TABLE NAMES when the browser sent none (Lane 1d) —
       // ownership verified first, names only, bounded in time, and any
       // failure routes exactly as before (`routeDigest`).
+      // ── ONE MESSAGE, ONE ACCEPTANCE (2026-10-03, the combined request flow) ──
+      //
+      // A site's message sent with its key (`idem`, minted per message by the
+      // page) is accepted as a request the server finishes — every part, with
+      // no browser needed — where edits are queued for this owner and site.
+      // The same message again (a lost response, a retry, another tab holding
+      // it) is answered from what the first one accepted: no model is asked,
+      // nothing is charged, and no question is closed or read again.
+      const rKeySlug = typeof rb.slug === "string" && /^[a-z0-9][a-z0-9-]{0,80}$/.test(rb.slug) ? rb.slug : "";
+      const rKey = !rJob && requestFlowOn(env) && rb.hasSite === true && rb.firstBuild !== true && !!rKeySlug && !!env.SITES_BUCKET && isRequestKey(rb.idem) &&
+        editAsyncFor(env, { uid: ru.id, slug: rKeySlug }) ? rb.idem : "";
+      if (rKey) {
+        let prior = null;
+        try { prior = await loadRequest(env, rKeySlug, rKey); } catch (e) { console.error("request read:", rKeySlug, errorClassForLog(e)); }
+        if (prior && prior.rec && prior.rec.uid === ru.id && prior.rec.accepted) {
+          // AND IT IS MOVED ON, in case the call that accepted it was cut off
+          // before filing its first job: the sweep would within two minutes.
+          if (!prior.rec.ended && ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(advanceRequest(env, ctx, rKeySlug, rKey, "duplicate"));
+          return Response.json({ ...prior.rec.accepted, request: requestView(prior.rec), duplicate: true });
+        }
+        if (prior && prior.answer && prior.answer.uid === ru.id && prior.answer.accepted) {
+          // THE SAME ANSWER AGAIN: the part it resumed, as it is now.
+          let resumed = null;
+          const rk = prior.answer.resumes && prior.answer.resumes.key;
+          try { resumed = isRequestKey(rk) ? (await loadRequest(env, rKeySlug, rk)).rec : null; } catch { resumed = null; }
+          return Response.json({ ...prior.answer.accepted, ...(resumed && resumed.uid === ru.id ? { request: requestView(resumed) } : {}), duplicate: true });
+        }
+      }
       const rDigest = await routeDigest(env, ru, rb);
       // ── THE SITE'S LIVE QUESTION, READ BEFORE THE MODEL (2026-10-02) ──────
       //
@@ -20576,7 +21158,9 @@ async function handleRequest(request, env, ctx) {
       // and where it cannot, the router is told questions are closed.
       const rSlug = typeof rb.slug === "string" && /^[a-z0-9][a-z0-9-]{0,80}$/.test(rb.slug) ? rb.slug : "";
       const rLive = rb.hasSite === true && rb.firstBuild !== true && !!rSlug && !!env.SITES_BUCKET;
-      const rClaim = answerClaim(rb);
+      // A PART'S ROUTING JOB IS NEVER AN ANSWER, and never closes the site's
+      // question: that question may be another request's, or theirs.
+      const rClaim = rJob ? undefined : answerClaim(rb);
       const rModel = modelsFor(rb && rb.picker).quick;
       // OUR STORE FAILED AROUND A USABLE ANSWER: the routing call's own failure
       // shape, so the browser holds the message for sending again, and nothing
@@ -20610,7 +21194,24 @@ async function handleRequest(request, env, ctx) {
         const live = askLive(st.record, { id: rClaim.id, uid: ru.id, slug: rSlug });
         if (!live.ok) return staleAnswer(live.why);
         rWaiting = { ...st.record, chosen: rClaim.chosen };
-      } else if (rLive) {
+        // AN ANSWER TO A PART'S QUESTION MAY BRING FILES OF ITS OWN (2026-10-03):
+        // they join the request's, which the server already holds, and together
+        // they are at most one request's — past that nothing is sent on, the
+        // question stays waiting, and the number is said before anything is
+        // charged (the owner's rule for attachments across a question).
+        const rNewFiles = Array.isArray(rb.images) ? rb.images.length : 0;
+        if (rWaiting.requestKey && rNewFiles > 0) {
+          let held = null;
+          try { held = (await loadRequest(env, rSlug, rWaiting.requestKey)).rec; } catch { held = null; }
+          const had = held && held.uid === ru.id ? (held.files || []).length : 0;
+          if (had + rNewFiles > MAX_ATTACHMENTS) {
+            return Response.json({
+              ok: false, error: "answer-files-full", cost: 0, files: had, adding: rNewFiles, max: MAX_ATTACHMENTS,
+              msg: "Your request already carries " + (had === 1 ? "one file" : had + " files") + ", and one request can carry " + MAX_ATTACHMENTS + ", so I haven't sent this answer. Your answer and its files are back in the box, and the question is still open.",
+            }, { status: 422 });
+          }
+        }
+      } else if (rLive && !rJob) {
         let st = null;
         try { st = await loadAsk(env.SITES_BUCKET, rSlug); } catch (e) { console.error("question read:", rSlug, errorClassForLog(e)); }
         if (!st) return rStoreFailed(undefined);
@@ -20620,6 +21221,17 @@ async function handleRequest(request, env, ctx) {
           catch (e) { console.error("question close:", rSlug, errorClassForLog(e)); }
           if (!closed) return rStoreFailed(undefined);
           if (closeLost(closed)) return askBusy();
+        }
+      }
+      // A PART'S ROUTING JOB STOPPED BEFORE IT ASKS ANY MODEL: the request was
+      // stopped while the job waited (`edit_cancel`, the job's own door). The
+      // job ends cancelled, with nothing spent.
+      if (rJob) {
+        try { await rJob.beat("route"); } catch { /* a transport failure is not a cancel */ }
+        const rGate = rJob.gate("route");
+        if (rGate.go === false) {
+          try { await editRpc(env, "edit_refund", { p_id: rJob.id, p_state: rGate.why === "cancelled" ? "cancelled" : "failed", p_note: rGate.why + " before routing" }); } catch { /* the job's end settles it */ }
+          return Response.json({ ok: false, error: rGate.why === "cancelled" ? "cancelled" : "stopped", cost: 0 });
         }
       }
       const routed = await routeMessage(
@@ -20689,8 +21301,11 @@ async function handleRequest(request, env, ctx) {
           // the waiting request, and the question this message may answer
           // (2026-10-02). Where no question can be kept, none may be asked.
           canAsk: rLive,
-          context: rWaiting ? rWaiting.context : [],
+          // A PART OF A LONGER REQUEST (2026-10-03) is shown that request's
+          // answers, the message it came from and what the parts before it did.
+          context: rWaiting ? rWaiting.context : rPart ? rPart.context : [],
           pending: rWaiting ? { request: rWaiting.request, question: rWaiting.question, chosen: rWaiting.chosen } : null,
+          part: rPart ? { original: rPart.original, done: rPart.done } : null,
         },
       );
       // THE REASON IS LOGGED AS WELL AS ANSWERED, and it is the same allow-listed
@@ -20711,6 +21326,8 @@ async function handleRequest(request, env, ctx) {
       let rAsk;
       let rInstruction;
       let rQuestion;
+      // WHAT IT TAKES TO OFFER A PART'S QUESTION AGAIN, for its request's step.
+      let rQuestionFor;
       if (routed.failed !== true) {
         const resumed = !!(rWaiting && routed.answered === true);
         const asking = routed.intent === "clarify" && rLive;
@@ -20799,6 +21416,12 @@ async function handleRequest(request, env, ctx) {
               request, answers: resumed ? rContext : [], picker: rb.picker, slug: rSlug,
             }, routed.note)
             : undefined;
+          // A QUESTION FOR A PART OF A LONGER REQUEST (2026-10-03) says which
+          // part of which request it is for, so its answer resumes that part on
+          // the server: a part's routing job asking, or an answer to a part's
+          // question met with the next one.
+          const rFor = rPart ? { requestKey: rPart.key, part: rPart.part }
+            : resumed && rWaiting.requestKey ? { requestKey: rWaiting.requestKey, part: rWaiting.part } : {};
           const rec = packAsk({
             id: newAskId(), uid: ru.id, slug: rSlug, stage: "route",
             round: resumed ? rWaiting.round + 1 : 1,
@@ -20809,8 +21432,9 @@ async function handleRequest(request, env, ctx) {
             // WHETHER THE REQUEST CARRIED FILES, so a browser that no longer
             // holds them asks for them again instead of answering without.
             attached: rb.attached === true || !!(resumed && rWaiting.attached === true),
-            context: resumed ? rContext : [],
+            context: resumed ? rContext : rPart ? rPart.context : [],
             note: rNote,
+            ...rFor,
           });
           let owner;
           try { owner = await siteOwnerBySlug(rSlug, env); } catch { owner = undefined; }
@@ -20826,6 +21450,15 @@ async function handleRequest(request, env, ctx) {
             if (!replaced) return rStoreFailed(routed.decision);
             if (!replaced.ok) return staleAnswer(replaced.why === "raced" ? "closed" : replaced.why);
             rAsk = { answered: true, round: rWaiting.round, putOff: rWaiting.held.length ? rWaiting.held : undefined, context: rContext };
+          } else if (rPart) {
+            // A PART'S QUESTION NEVER REPLACES ONE WAITING ON THE CUSTOMER: put
+            // in the site's slot only when it is free, else kept on the part,
+            // and offered in its turn (`offerRequestQuestions`).
+            let kept = null;
+            try { kept = await storeAskIfFree(env.SITES_BUCKET, rec); }
+            catch (e) { console.error("question store:", rSlug, errorClassForLog(e)); }
+            if (kept === null) return rStoreFailed(routed.decision);
+            rQuestionFor = { request, stage: "route", round: rec.round, queued: kept !== true };
           } else {
             let kept = false;
             try { await storeAsk(env.SITES_BUCKET, rec); kept = true; }
@@ -20842,9 +21475,28 @@ async function handleRequest(request, env, ctx) {
       // build path does: our fault, our cost.
       if (routed.usage) {
         rCost = pageCredits(routed.usage);
-        try { rCost = await collectCredits(auth, rCost); } catch { rCost = 0; /* never fail a route over the ledger */ }
+        // ── CHARGED ONCE, HOWEVER OFTEN IT ARRIVES (2026-10-03) ─────────────
+        //
+        // A part's routing job pays through the job's own reserve (`job#1`):
+        // a redelivered or retried job is never charged twice. A message sent
+        // with its key pays under a ref made of that key (`credit_debit`), so
+        // a retry of the same message — a lost response, another tab — that
+        // reaches the model again is not charged again. Every other call pays
+        // as it always has. None of them fails the route over the ledger.
+        if (rJob) {
+          try {
+            const rr = rCost > 0 ? await editRpc(env, "edit_reserve", { p_id: rJob.id, p_seq: 1, p_cost: rCost }) : null;
+            if (rr && rr.ok === true) { if (typeof rJob.noteReserve === "function") rJob.noteReserve(); rCost = Number(rr.cost) || 0; }
+            else rCost = 0;
+          } catch { rCost = 0; }
+        } else if (rKey && rCost > 0) {
+          try { const d = await debitCredits(auth, rCost, "route:" + rKeySlug + ":" + rKey, "route", true); rCost = d.repeat ? d.prior : d.taken; }
+          catch { rCost = 0; /* never fail a route over the ledger */ }
+        } else {
+          try { rCost = await collectCredits(auth, rCost); } catch { rCost = 0; /* never fail a route over the ledger */ }
+        }
       }
-      return Response.json({
+      const rOut = {
         ok: true,
         intent: routed.intent,
         answer: routed.intent === "ask" ? routed.answer : undefined,
@@ -20963,7 +21615,32 @@ async function handleRequest(request, env, ctx) {
         // from `ROUTE_REASONS`' fixed list. The browser reads nothing here;
         // it is the evidence that tells a model's choice from a conversion.
         decision: routed.decision,
-      });
+        // WHICH HELD PART NEEDS WHICH (2026-10-03, `readDepends`): for the
+        // request's plan; absent when the router named none.
+        dependsOn: Array.isArray(routed.dependsOn) && routed.dependsOn.length ? routed.dependsOn : undefined,
+        // A PART'S QUESTION, as its request's step needs it to offer it again.
+        questionFor: rQuestionFor,
+      };
+      // ── ACCEPTED: THE SERVER FINISHES IT (2026-10-03) ────────────────────
+      // Work on a site sent with its key becomes a request whose every part
+      // runs on the server; an answer to a part's question resumes that part.
+      // Anything else — a question about the site, a question back, a failure,
+      // a plan that cannot be read — is answered as it always was.
+      if (rKey && routed.failed !== true) {
+        let accepted = null;
+        try {
+          accepted = await acceptRequest(env, ctx, { uid: ru.id, rb, slug: rKeySlug, key: rKey, out: rOut, ask: rAsk, waiting: rWaiting, instruction: rInstruction });
+        } catch (e) { console.error("request accept:", rKeySlug, errorClassForLog(e)); accepted = { failed: true }; }
+        // OUR STORE FAILED AROUND A USABLE ANSWER: the routing call's own
+        // failure shape, so the page holds the message, key and all, for
+        // sending again — and its charge, already taken under that key, is
+        // never taken twice.
+        if (accepted && accepted.failed === true) {
+          return Response.json({ ok: true, intent: "addon", cost: rCost, failed: true, failure: routeFailure("store", null, { model: rModel }), decision: routed.decision });
+        }
+        if (accepted) return Response.json(accepted);
+      }
+      return Response.json(rOut);
       })(), "route", rReplyAsk);
     }
 
@@ -21093,6 +21770,65 @@ async function handleRequest(request, env, ctx) {
         // asked again. Absent otherwise, so the ordinary poll is unchanged.
         waiting: Number(row.deferrals) > 0 ? true : undefined,
       }, { status: row.state === "done" ? 200 : 202 });
+    }
+
+    // ── ONE REQUEST OF SEVERAL PARTS: FOLLOW IT, OR STOP WHAT IS LEFT (2026-10-03) ──
+    //
+    // `GET /api/site/request/<slug>/<key>` — the request as it is now: every
+    // part with its status and why, its question while it waits, and the jobs
+    // whose own replies explain it. It is moved on first (`advanceRequest`), so
+    // a page that looks is one more thing that keeps it going; once it has
+    // ended, the reply for what no part's own reply explains (`requestReply`).
+    // `DELETE` stops what is left (`stopRequest`): nothing new starts, the
+    // running part's job is asked to cancel through the job's own door, and
+    // parts already done stay done.
+    // `GET /api/site/requests/<slug>` — this owner's requests on the site that
+    // are unfinished or ended within a day, for a page opened later or on
+    // another device.
+    // FOUR-OH-FOUR FOR ANYTHING NOT YOURS, the job poll's posture.
+    // SIGNED IN FIRST, THEN THE PATH READ — the job poll's order, so a path
+    // that names nothing answers what any other caller of this route would.
+    if (url.pathname.startsWith("/api/site/request/") || url.pathname.startsWith("/api/site/requests/")) {
+      const qu = await authUser(request, env);
+      if (!qu) return Response.json({ error: "sign in first" }, { status: 401 });
+      const rqm = url.pathname.match(/^\/api\/site\/request\/([a-z0-9][a-z0-9-]{0,80})\/([A-Za-z0-9_-]{16,64})$/);
+      const rlm = rqm ? null : url.pathname.match(/^\/api\/site\/requests\/([a-z0-9][a-z0-9-]{0,80})$/);
+      if (!rqm && !rlm) return Response.json({ error: "not found" }, { status: 404 });
+      {
+        if (!env.SITES_BUCKET) return Response.json({ ok: false, error: "requests are not available" }, { status: 503 });
+        const qSlug = (rqm || rlm)[1];
+        const qOwner = await siteOwnerBySlug(qSlug, env).catch(() => null);
+        if (qOwner && qOwner !== qu.id) return Response.json({ error: "not found" }, { status: 404 });
+        if (rlm) {
+          if (request.method !== "GET") return Response.json({ error: "method not allowed" }, { status: 405 });
+          let listed = null;
+          try { listed = await env.SITES_BUCKET.list({ prefix: REQUEST_LIVE_ROOT + qSlug + "/", limit: 50 }); }
+          catch (e) { console.error("requests list:", qSlug, errorClassForLog(e)); return Response.json({ ok: false, error: "could not read the requests" }, { status: 503 }); }
+          const views = [];
+          for (const o of (listed && listed.objects) || []) {
+            const at = parseLiveKey(o && o.key);
+            if (!at || at.slug !== qSlug) continue;
+            let found = null;
+            try { found = await loadRequest(env, qSlug, at.key); } catch { found = null; }
+            if (found && found.rec && found.rec.uid === qu.id) views.push(requestView(found.rec));
+          }
+          views.sort((a, b) => a.at - b.at);
+          return Response.json({ ok: true, requests: views });
+        }
+        if (request.method !== "GET" && request.method !== "DELETE") return Response.json({ error: "method not allowed" }, { status: 405 });
+        const qKey = rqm[2];
+        let found = null;
+        try { found = await loadRequest(env, qSlug, qKey); }
+        catch (e) { console.error("request read:", qSlug, errorClassForLog(e)); return Response.json({ ok: false, error: "could not read the request" }, { status: 503 }); }
+        if (!found.rec || found.rec.uid !== qu.id) return Response.json({ error: "not found" }, { status: 404 });
+        const moved = request.method === "DELETE"
+          ? await stopRequest(env, ctx, qSlug, qKey, qu.id)
+          : await advanceRequest(env, ctx, qSlug, qKey, "look");
+        const qRec = moved || found.rec;
+        const reply = qRec.ended ? await requestReply(env, qRec) : null;
+        const qOut = { ok: true, request: requestView(qRec) };
+        return Response.json(reply ? withReplyText(qOut, reply) : qOut);
+      }
     }
 
     if (url.pathname.startsWith("/api/site/build/") && request.method === "GET") {
@@ -21801,6 +22537,14 @@ async function handleRequest(request, env, ctx) {
             if (eRawMarker && !eJob) return Response.json({ error: "not found" }, { status: 404 });
             if (eJob) editTraceJob = eJob.id;
             eReplyOut.job = !!eJob;
+            // A PART OF A LONGER REQUEST (2026-10-03): the message it came from
+            // and what the parts before it did, shown to every model call here
+            // beside its words, so "it" and "that page" still mean what they
+            // meant. Read only from a job's own replay, never a customer's POST.
+            const ePart = eJob ? readRequestOf(eb && eb.request) : null;
+            const ePartShown = () => (ePart ? { original: ePart.original, done: ePart.done } : null);
+            // AND A QUESTION THIS STEP ASKS NAMES THAT PART (`askReport`).
+            if (ePart) { eAskOut.requestKey = ePart.key; eAskOut.part = ePart.part; eReplyOut.inRequest = true; }
             // ── THE FLAG SAYS WHETHER, THE ALLOWLIST SAYS WHO ─────────────
             //
             // Both have to say yes. An empty allowlist with the flag on is a
@@ -21851,6 +22595,7 @@ async function handleRequest(request, env, ctx) {
             const eQuick = (what = "") => clarifyTransport(quickSend(env, what, eJob && eJob.budget), {
               shown: () => eCtx,
               all: () => eCtxAll || [],
+              part: ePartShown,
               onReuse: (hit) => { try { if (editTrace) editTrace.mark("clarify:reuse", "ok", { what, answers: hit.length }); } catch { /* the record never costs the job */ } },
             });
             // THE BLACK BOX STARTS HERE — see `editTrace` where it is declared.
@@ -25918,7 +26663,7 @@ async function handleRequest(request, env, ctx) {
                 // NO CLOCK OF ITS OWN, exactly as before; AND THE ANSWERS this
                 // step was given (2026-10-02), through the same transport every
                 // other call on this route goes through (`clarifyTransport`).
-                null, clarifyCall(pagesCall(env), { shown: () => eCtx, all: () => eCtxAll || [] }));
+                null, clarifyCall(pagesCall(env), { shown: () => eCtx, all: () => eCtxAll || [], part: ePartShown }));
               } catch (e) {
                 console.error("page edit generate failed:", ownerSlug, e && e.message);
                 const pKind = upstreamKind(e && e.detail, e && e.status);
@@ -27126,7 +27871,7 @@ async function handleRequest(request, env, ctx) {
               return Response.json(merged, { status: 422 });
             }
             return Response.json(merged);
-            })(), eHeldOut.parts, eHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: eAskOut.round, held: [...new Set([...eHeldOut.earlier, ...eHeldOut.parts])], request: eAskOut.request, attached: eAskOut.attached, context: eAskOut.context, picker: eReplyOut.picker }), "edit", eReplyOut);
+            })(), eHeldOut.parts, eHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: eAskOut.round, held: [...new Set([...eHeldOut.earlier, ...eHeldOut.parts])], request: eAskOut.request, attached: eAskOut.attached, context: eAskOut.context, picker: eReplyOut.picker, requestKey: eAskOut.requestKey, part: eAskOut.part }), "edit", eReplyOut);
           }
 
           if (ad) {
@@ -27195,6 +27940,10 @@ async function handleRequest(request, env, ctx) {
             if (aRawMarker && !aJob) return Response.json({ error: "not found" }, { status: 404 });
             if (aJob) editTraceJob = aJob.id;
             aReplyOut.job = !!aJob;
+            // A PART OF A LONGER REQUEST (2026-10-03), as on the edit route.
+            const aPart = aJob ? readRequestOf(ab && ab.request) : null;
+            const aPartShown = () => (aPart ? { original: aPart.original, done: aPart.done } : null);
+            if (aPart) { aAskOut.requestKey = aPart.key; aAskOut.part = aPart.part; aReplyOut.inRequest = true; }
             if (!aJob && editAsyncFor(env, { uid: ou.id, slug: ownerSlug })) {
               return enqueueReply(await enqueueEditJob(env, {
                 slug: ownerSlug, uid: ou.id, op: "addon",
@@ -27217,6 +27966,7 @@ async function handleRequest(request, env, ctx) {
             const aQuick = (what = "") => clarifyTransport(quickSend(env, what, aJob && aJob.budget), {
               shown: () => aCtxShown,
               all: () => aCtxAll || [],
+              part: aPartShown,
               onReuse: (hit) => { try { if (editTrace) editTrace.mark("clarify:reuse", "ok", { what, answers: hit.length }); } catch { /* the record never costs the job */ } },
             });
             // THE BLACK BOX, the edit route's own: every phase marks itself,
@@ -29584,7 +30334,7 @@ async function handleRequest(request, env, ctx) {
               // route that does not go through `aQuick`, and the longest.
               }), aSpec, aMerged.brand || aLook.brand || ownerSlug, [], aModels.pages, aSrc, "addon", undefined, aJob && aJob.budget,
               // THE ANSWERS, through the transport every other call here uses.
-              clarifyCall(pagesCall(env), { shown: () => aCtxShown, all: () => aCtxAll || [] }), "", aKeepPages);
+              clarifyCall(pagesCall(env), { shown: () => aCtxShown, all: () => aCtxAll || [], part: aPartShown }), "", aKeepPages);
               aPagesMs = Date.now() - aPagesT0;
               aPagesWrote = aGen && aGen.input && Array.isArray(aGen.input.pages) ? aGen.input.pages.length : 0;
               aMark("pages", "ok", { files: aPagesWrote, ms: aPagesMs });
@@ -31292,7 +32042,7 @@ async function handleRequest(request, env, ctx) {
               } : undefined,
               cost: aCost,
             });
-            })(), aHeldOut.parts, aHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: aAskOut.round, held: [...new Set([...aHeldOut.earlier, ...aHeldOut.parts])], request: aAskOut.request, attached: aAskOut.attached, context: aAskOut.context, picker: aReplyOut.picker }), "addon", aReplyOut);
+            })(), aHeldOut.parts, aHeldOut.earlier), { slug: ownerSlug, uid: ou.id, round: aAskOut.round, held: [...new Set([...aHeldOut.earlier, ...aHeldOut.parts])], request: aAskOut.request, attached: aAskOut.attached, context: aAskOut.context, picker: aReplyOut.picker, requestKey: aAskOut.requestKey, part: aAskOut.part }), "addon", aReplyOut);
           }
           if (tx) {
             // ── CHANGING THE WORDS, WITH NO MODEL CALL ────────────────────
@@ -31463,7 +32213,9 @@ async function handleRequest(request, env, ctx) {
               const live = !!r && askLive(r, { id: r.id, uid: ou.id, slug: ownerSlug }).ok;
               // AND THE NOTE A QUESTION ASKED ONCE MORE WAS KEPT UNDER, so a card
               // rebuilt after a reload names the answer that did not settle it.
-              return Response.json({ ok: true, question: live ? { id: r.id, text: r.question.text, options: r.question.options, attached: r.attached === true, ...(r.note ? { note: r.note } : {}) } : null });
+              // A PART'S QUESTION NAMES ITS REQUEST (2026-10-03): its files are
+              // on the server already, and its answer resumes that part there.
+              return Response.json({ ok: true, question: live ? { id: r.id, text: r.question.text, options: r.question.options, attached: r.attached === true, ...(r.note ? { note: r.note } : {}), ...(r.requestKey ? { request: { key: r.requestKey, part: r.part } } : {}) } : null });
             }
             if (request.method === "POST") {
               let qb = null;
@@ -31475,6 +32227,23 @@ async function handleRequest(request, env, ctx) {
               try { closed = await closeAsk(env.SITES_BUCKET, { slug: ownerSlug, id: qb.id, uid: ou.id, status: "cancelled" }); }
               catch (e) { console.error("question cancel:", ownerSlug, errorClassForLog(e)); }
               if (!closed) return Response.json({ ok: false, error: "unread" }, { status: 503 });
+              // A PART'S QUESTION CANCELLED ENDS THAT PART (2026-10-03): said on
+              // the request, which moves on — what needed the part is not run,
+              // and everything independent of it goes ahead.
+              let qView;
+              if (closed.ok && closed.record && closed.record.requestKey) {
+                const qk = closed.record.requestKey;
+                for (let k = 0; k < 6; k++) {
+                  let at = null;
+                  try { at = await loadRequest(env, ownerSlug, qk); } catch { at = null; }
+                  if (!at || !at.rec || at.rec.uid !== ou.id) break;
+                  const next = cancelPart(at.rec, closed.record.part, closed.record.id);
+                  if (!next) { qView = requestView(at.rec); break; }
+                  let t = null;
+                  try { t = await saveRequestRecord(env, next, at.etag); } catch { t = null; }
+                  if (t) { const moved = await advanceRequest(env, ctx, ownerSlug, qk, "question-cancelled"); qView = requestView(moved || next); break; }
+                }
+              }
               // ALREADY CLOSED IS STILL A QUESTION NOTHING CAN ACT ON, so the
               // cancel is not refused; `cancelled` says whether this one closed it,
               // and `putOff` names what its request had put off, for the reply.
@@ -31485,6 +32254,7 @@ async function handleRequest(request, env, ctx) {
               return withModelReply(env, Response.json({
                 ok: true, cancelled: closed.ok === true, why: closed.ok ? undefined : closed.why,
                 putOff: closed.ok && closed.record.held.length ? closed.record.held : undefined,
+                request: qView,
               }), "cancel", replyAsked({
                 instruction: closed.ok && closed.record && typeof closed.record.request === "string" ? closed.record.request : "",
                 context: closed.ok && closed.record && Array.isArray(closed.record.context) ? closed.record.context : [],

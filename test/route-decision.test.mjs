@@ -109,6 +109,11 @@ const CASES = [
   // LONGER THAN ANY MESSAGE OF A SITE (the size policy's, 2026-10-03; it was 2,000).
   ["also-too-long", () => routed({ intent: "addon", alsoAsked: "x".repeat(MAX_INPUT_CHARS + 1) }), "model"],
   ["also-ignored", () => routed({ intent: "build", alsoAsked: "and a map" }), "model"],
+  // WHICH HELD PART NEEDS WHICH (2026-10-03, the combined request flow): named
+  // when the relations read whole, and unread — no order taken at all — when
+  // one of them names a change that is not there.
+  ["depends-named", () => routed({ intent: "addon", alsoAsked: ["and a gallery"], dependsOn: [{ change: 1, after: [0] }] }), "model"],
+  ["depends-unread", () => routed({ intent: "addon", alsoAsked: ["and a gallery"], dependsOn: [{ change: 1, after: [5] }] }), "model"],
   ["answer-ignored", () => routed({ intent: "addon", answer: "On it." }), "model"],
   ["question-ignored", () => routed({ intent: "addon", question: QUESTION }), "model"],
   ["question-clipped", () => routed({ intent: "clarify", question: { text: "word ".repeat(80), options: ["Book", "Order"] } }, { firstBuild: true, hasSite: false, site: {} }), "model"],

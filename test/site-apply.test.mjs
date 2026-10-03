@@ -2114,15 +2114,21 @@ test("the router RETURNS the layer it picked", () => {
   // unauthenticated caller, and anchoring there gave a 6,860-byte "response
   // literal" that was really the whole route — a window that would have passed
   // for any reason at all.
-  const ret = body.lastIndexOf("return Response.json({");
-  assert.ok(ret > 0, "the routing answer is no longer a Response.json literal");
-  const obj = body.slice(ret, body.indexOf("\n      });", ret));
+  // RE-ANCHORED 2026-10-03 (the combined request flow): the answer is built
+  // as one literal, `rOut`, so a message the server takes on can hand the same
+  // answer back whole (`acceptRequest`) — the property is that literal's fields.
+  const ret = body.indexOf("const rOut = {");
+  assert.ok(ret > 0, "the routing answer is no longer one literal");
+  assert.equal(body.indexOf("const rOut = {", ret + 1), -1, "the routing answer is built in two places");
+  const obj = body.slice(ret, body.indexOf("\n      };", ret));
   // MEASURED ON THE CODE, NOT THE TEXT. The bound exists to catch a window that
   // has silently swallowed the whole route; comments are what this repo puts its
   // reasoning in, so counting them made a correct, well-documented field
   // addition fail a size check. Blanked rather than removed, per the house rule.
   const code = obj.replace(/^\s*\/\/.*$/gm, "");
-  assert.ok(code.length > 60 && code.length < 1500,
+  // 2,000 SINCE 2026-10-03: two fields joined it (`dependsOn`, `questionFor`);
+  // the whole route is many times that, which is what the bound catches.
+  assert.ok(code.length > 60 && code.length < 2000,
     "the response literal window looks wrong: " + code.length + " of code in " + obj.length + " bytes");
   // The PROPERTY: every field the client reads off this answer is on it, as a
   // real property with a value rather than as a word in a sentence.

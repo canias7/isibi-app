@@ -15,6 +15,10 @@ export const ASK_FNS = Object.freeze([
   // THE SIZE POLICY'S CHECK (2026-10-03): the send handler and the answer both
   // keep a message past one message's bound in the box and say the number.
   "siteTooLong",
+  // THE COMBINED REQUEST FLOW (2026-10-03): every message is sent under its
+  // own key (`siteMessageKey`), and every routing answer is asked whether the
+  // server took the work on (`siteRequestOf`) — both on every send.
+  "siteMessageKey", "siteRequestOf",
 ]);
 
 // The block's three top-level lines, each one line of chat.js named by its opening.
@@ -23,4 +27,7 @@ export const ASK_LINES = Object.freeze([
   // How many files one request carries (2026-10-03): an answer is held to the
   // request's files and its own together.
   "const SITE_MAX_FILES =",
+  // AND THE KEYS OF MESSAGES HELD TO SEND AGAIN (2026-10-03, the combined
+  // request flow), beside them in memory.
+  "const siteHeldKeys =",
 ]);

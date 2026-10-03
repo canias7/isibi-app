@@ -350,7 +350,8 @@ const routeBlock = () => {
 test("the composer asks before it builds: an empty project falls through to the build, a live site stops", () => {
   const src = chat();
   assert.match(src, /function siteRoute\(/, "the composer-side router is gone");
-  assert.match(src, /siteRoute\(site, t, origin, isBuild, imgs, finish\)/, "siteSend no longer calls it");
+  // AND THE MESSAGE'S KEY SINCE 2026-10-03 (`siteMessageKey`), its last argument.
+  assert.match(src, /siteRoute\(site, t, origin, isBuild, imgs, finish, undefined, undefined, key\)/, "siteSend no longer calls it");
   const block = routeBlock();
   // TWO RULES SINCE 2026-09-24, and the behaviour of both is DRIVEN through the
   // real send handler in test/site-route-failure.test.mjs. What is asserted

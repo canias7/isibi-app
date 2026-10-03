@@ -99,6 +99,7 @@ import {
   MAX_OPTIONS, readAsk, usableAsk, heldList, EDIT_LAYERS,
   MAX_ASKED, MAX_HISTORY, MAX_SAME_ASK, MAX_ANSWER_CHARS, MAX_NOTE_CHARS, CONTEXT_HEADING,
   readContext, shownContext, repeatOf, appendAnswer, contextBlock, withContext, reuseNote, withReuse, againNote,
+  withPart,
 } from "./site-ask.mjs";
 
 // The question's reader is the router's own, so the router and every step hold
@@ -210,7 +211,13 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,80}$/;
 // questions the request has asked, this one included. `note` is the line a
 // question asked once more is shown under (`againNote`), naming the answer
 // that did not settle it.
-export function packAsk({ id, uid, slug, stage, round, question, request, held = [], at, status = "pending", attached = false, context = [], note } = {}) {
+//
+// `requestKey` AND `part` (2026-10-03, the combined request flow) say which
+// part of which stored request the question is for (`builder/request.mjs`):
+// its answer resumes that part, on the server, and nothing else. Both or
+// neither; a question with neither is an ordinary one, read as it always was.
+export const REQUEST_KEY_RE = /^[A-Za-z0-9_-]{16,64}$/;
+export function packAsk({ id, uid, slug, stage, round, question, request, held = [], at, status = "pending", attached = false, context = [], note, requestKey, part } = {}) {
   const q = usableAsk(question);
   const parts = heldList(held);
   const req = typeof request === "string" ? request.trim() : "";
@@ -232,9 +239,12 @@ export function packAsk({ id, uid, slug, stage, round, question, request, held =
   const told = readContext(context);
   if (told === null) return null;
   if (note !== undefined && (typeof note !== "string" || !note.trim() || note.trim().length > MAX_NOTE_CHARS)) return null;
+  const ofRequest = requestKey !== undefined || part !== undefined;
+  if (ofRequest && (typeof requestKey !== "string" || !REQUEST_KEY_RE.test(requestKey) || !Number.isInteger(part) || part < 0)) return null;
   return {
     v: 2, id, uid, slug, stage, round, question: q, request: req, held: parts, at, status, attached, context: told,
     ...(note === undefined ? {} : { note: note.trim() }),
+    ...(ofRequest ? { requestKey, part } : {}),
   };
 }
 
@@ -261,11 +271,17 @@ export function packAsk({ id, uid, slug, stage, round, question, request, held =
  *     never returned with its question taken out.
  *
  * `onReuse(hit)` hears each time a model was sent again, for the trace.
+ *
+ * `part()` (2026-10-03, the combined request flow) is the longer request a
+ * part of it came from — its whole message and what the parts before it did
+ * (`readPartOf` in site-ask.mjs) — shown after the answers, for what the
+ * part's words refer to. `null` for an ordinary message, whose requests are
+ * byte-identical to what they were.
  */
-export function clarifyTransport(send, { shown = () => [], all = () => [], onReuse = null } = {}) {
+export function clarifyTransport(send, { shown = () => [], all = () => [], onReuse = null, part = () => null } = {}) {
   return async (request) => {
     const every = readContext(all()) || [];
-    const req = withContext(request, shown());
+    const req = withPart(withContext(request, shown()), typeof part === "function" ? part() : null);
     const reply = await send(req);
     const ask = askOf(reply);
     const hit = ask ? repeatOf(every, ask) : [];
@@ -318,6 +334,27 @@ export async function loadAsk(bucket, slug) {
 /** A new live question for the site, replacing whatever was there. */
 export async function storeAsk(bucket, record) {
   await bucket.put(QUESTION_KEY(record.slug), JSON.stringify(record), { httpMetadata: { contentType: "application/json" } });
+}
+
+/**
+ * A QUESTION FOR A PART OF A LONGER REQUEST, PUT IN THE SITE'S SLOT ONLY WHEN
+ * IT IS FREE (2026-10-03, the combined request flow). A part runs on the
+ * server whether or not anybody is looking, so its question must never
+ * replace one the customer is about to answer — another request's, or their
+ * own newer message's. `true` when it is now the live question (or already
+ * was); `false` when another pending question holds the slot, or another
+ * writer won the slot first: the part keeps its question and it is offered in
+ * its turn. Throws when the store fails.
+ */
+export async function storeAskIfFree(bucket, record, now = Date.now()) {
+  const { record: cur, etag } = await loadAsk(bucket, record.slug);
+  if (cur && cur.id === record.id && cur.status === "pending") return true;
+  if (cur && cur.status === "pending" && now - cur.at < ASK_TTL_MS) return false;
+  const won = await bucket.put(QUESTION_KEY(record.slug), JSON.stringify(record), {
+    httpMetadata: { contentType: "application/json" },
+    onlyIf: etag ? { etagMatches: etag } : { etagDoesNotMatch: "*" },
+  });
+  return !!won;
 }
 
 /**

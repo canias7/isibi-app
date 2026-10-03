@@ -4900,11 +4900,16 @@ function siteWithPages(origin, slug, go, stop) {
 //
 // A LIST, because a second message on the same site can stop while the first is
 // still waiting to come back — each keeps its own words and its own files.
-function siteHoldUnsent(origin, t, imgs) {
+// AND ITS KEY (2026-10-03), kept beside it in memory (`siteHeldKeys`): the same
+// words sent again from this site are the same message, so a request the
+// server already took on is followed, never taken on twice.
+const siteHeldKeys = new Map();
+function siteHoldUnsent(origin, t, imgs, key) {
   const s = siteById(origin);
   if (!s) return;
   const held = Array.isArray(s.unsent) ? s.unsent : [];
   s.unsent = held.concat([{ t: String(t || ''), imgs: Array.isArray(imgs) ? imgs.slice(0, 3) : [] }]);
+  if (typeof key === 'string' && key) siteHeldKeys.set(origin + '\u0000' + String(t || ''), key);
 }
 // Hand the latest held message back to its own site's composer, INTO THAT SITE'S
 // DRAFT (`siteDraft`) — its words for the box and its files for the strip — so
@@ -4931,6 +4936,15 @@ function siteUnsentBack(site) {
   draft.t = back.t;
   draft.imgs = back.imgs.slice(0, 3);
   site.unsent = held.length > 1 ? held.slice(0, -1) : null;
+}
+// THE KEY A MESSAGE IS SENT UNDER (2026-10-03): the one a message held on this
+// site came back with, when these are its words exactly, and a new one
+// otherwise — an edited message is a new message. Used once.
+function siteMessageKey(origin, t, leaveDraft) {
+  const at = origin + '\u0000' + String(t || '');
+  const kept = !leaveDraft ? siteHeldKeys.get(at) : '';
+  siteHeldKeys.delete(at);
+  return typeof kept === 'string' && kept ? kept : EditPoll.newIdemKey();
 }
 function siteActivePage(site) {
   const pages = sitePages(site);
@@ -5398,7 +5412,7 @@ function renderSites() {
   // 2026-09-05): a refresh mid-edit used to lose sight of the job for good.
   // Idempotent — a job already watched is refused inside — so this is safe on
   // the render every reply triggers.
-  if (open) { resumeOpenSite(open); siteAskCheck(open); renderSiteWorkspace(view, open); return; }
+  if (open) { resumeOpenSite(open); siteAskCheck(open); siteRequestsCheck(open); renderSiteWorkspace(view, open); return; }
   // AN ID THAT NAMES NOTHING FALLS BACK TO THE LIST, AND THE URL STOPS LYING.
   // A pasted link to a deleted project, or one belonging to another account,
   // lands here. `replaceState` and not a push, and not `openProject` either:
@@ -8063,7 +8077,7 @@ function renderSiteWorkspace(view, site) {
     const linkify = (s) => esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
     thread.innerHTML = (site.msgs || []).map((m) => m.r === 'u'
       ? '<div class="st-msg u">' + esc(m.t) + '</div>'
-      : '<div class="st-msg a">' + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + linkify(m.t) + (m.why ? '<div class="st-why">' + esc(m.why) + '</div>' : '') + (m.build ? reactStepsHTML(m.build) : '') + siteAskHTML(m, site) + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
+      : '<div class="st-msg a">' + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + linkify(m.t) + (m.why ? '<div class="st-why">' + esc(m.why) + '</div>' : '') + (m.build ? reactStepsHTML(m.build) : '') + siteAskHTML(m, site) + (m.request ? siteRequestHTML(m, site) : '') + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
     ).join('') + (siteBusy
       ? (siteBuild
           ? '<div class="st-msg a st-busy st-busy-react">' + reactLiveStepsHTML() + '</div>'
@@ -8084,6 +8098,11 @@ function renderSiteWorkspace(view, site) {
       if (askAns && thread.contains(askAns)) { siteAskReply(askAns.getAttribute('data-ask-ans'), true); return; }
       const askCancel = e.target.closest('[data-ask-cancel]');
       if (askCancel && thread.contains(askCancel)) { siteAskCancel(); return; }
+      // A REQUEST'S CARD (2026-10-03): Stop the rest, or a part's rewrite.
+      const reqStop = e.target.closest('[data-req-stop]');
+      if (reqStop && thread.contains(reqStop)) { siteRequestStop(site.id, reqStop.getAttribute('data-req-stop')); return; }
+      const reqGo = e.target.closest('[data-req-rewrite]');
+      if (reqGo && thread.contains(reqGo)) { siteRequestRewrite(site.id, reqGo.getAttribute('data-req-rewrite'), Number(reqGo.getAttribute('data-req-part'))); return; }
       const skip = e.target.closest('[data-skip]');
       if (skip && thread.contains(skip)) { siteAnswer('', true); return; }
       const ans = e.target.closest('[data-ans]');
@@ -9127,7 +9146,11 @@ function routeActionable(d, site) {
 // `chosen` when one of its answers was pressed. The route checks the question is
 // still the live one before anything is spent, and the router says whether the
 // message answers it.
-function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer) {
+// `key` IS THE MESSAGE'S OWN (2026-10-03, the combined request flow): minted
+// when it is sent and kept with it if it comes back unsent, so the same message
+// sent again — a lost answer, another tab — is one request on the server,
+// routed and charged once (`siteMessageKey`).
+function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, key) {
   // THE BRIEF THE BUILD RUNS ON, not the message that was just typed. After a
   // clarify round `t` is "Book a time slot" and the real brief — "a barber shop
   // in Leeds" — is three messages back. Losing it here would build a site about
@@ -9173,7 +9196,7 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer) {
   // this site's composer and to no other. Nothing sends it again: the routing
   // call is billed, so sending is the customer's press.
   const lost = (r) => {
-    siteHoldUnsent(origin, t, imgs);
+    siteHoldUnsent(origin, t, imgs, key);
     finish('⚠️ ' + (r && r.status === 401
       ? 'You’re signed out. Sign in and send that again.'
       : 'I couldn’t work out what to do with that just now, so nothing on your site changed. Send it again in a moment.'));
@@ -9227,7 +9250,18 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer) {
     // provider in the seat, and a dead one sends every customer to the fallback
     // intent: a build on an empty project, an add-on on a live site.
     body: JSON.stringify({ message: t, site: digest, picker: buildPicker, firstBuild: !!isBuild, brief: brief, qa: qa, answering: !!answering, attached: !!((imgs && imgs.length) || keptImgs.length), slug: site.slug || '', hasSite: !!(site.slug && sitePages(site).length),
-      ask: !isBuild && answer && typeof answer.id === 'string' ? { id: answer.id, chosen: answer.chosen === true } : undefined }),
+      ask: !isBuild && answer && typeof answer.id === 'string' ? { id: answer.id, chosen: answer.chosen === true } : undefined,
+      // ── WHAT THE SERVER KEEPS WHEN IT TAKES THE WORK ON (2026-10-03) ──────
+      // A site's message the server accepts as a request is finished there,
+      // every part of it, whether or not this page stays open: so it carries
+      // what the steps after it need from this page — its key, the files that
+      // go with the work (the request's own and an answer's), the zone a
+      // schedule is read in, and the rows an undo refers to. A first build
+      // sends none of it, and is unchanged.
+      idem: !isBuild && typeof key === 'string' && key ? key : undefined,
+      images: !isBuild && (keptImgs.length || (imgs && imgs.length)) ? keptImgs.concat(Array.isArray(imgs) ? imgs.slice(0, 3) : []) : undefined,
+      tz: !isBuild ? browserTimeZone() : undefined,
+      recent: !isBuild && Array.isArray(site.undoRows) && site.undoRows.length ? site.undoRows.slice(0, 3) : undefined }),
   }).then(async (r) => {
     const d = await r.json().catch(() => null);
     // ── AN ANSWER THE ROUTE WOULD NOT ACT ON (2026-10-02) ─────────────────
@@ -9247,9 +9281,12 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer) {
     // is shown as it came — the route's fixed sentence, with the page's own
     // warning sign, only when there is none.
     const routeSaid = !isBuild ? EditPoll.modelReply(d) : null;
-    if (!isBuild && d && d.ok === false && (d.error === 'stale-question' || d.error === 'answer-too-long' || d.error === 'answers-full' || d.error === 'message-too-long') && (routeSaid || (typeof d.msg === 'string' && d.msg.trim()))) {
+    // AND AN ANSWER TO A PART OF A LONGER REQUEST WHOSE FILES, WITH THE
+    // REQUEST'S OWN, ARE MORE THAN ONE REQUEST CAN CARRY (`answer-files-full`,
+    // 2026-10-03): the question stays, the answer and its files come back.
+    if (!isBuild && d && d.ok === false && (d.error === 'stale-question' || d.error === 'answer-too-long' || d.error === 'answers-full' || d.error === 'message-too-long' || d.error === 'answer-files-full') && (routeSaid || (typeof d.msg === 'string' && d.msg.trim()))) {
       if (d.error === 'stale-question') siteAskClear(origin);
-      else siteHoldUnsent(origin, t, imgs);
+      else siteHoldUnsent(origin, t, imgs, key);
       finish(routeSaid || '⚠️ ' + d.msg);
       return;
     }
@@ -9260,7 +9297,7 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer) {
     // ending now: the route keeps it with a note, and it is drawn below.)
     if (!isBuild && d && d.ok === false && d.error === 'question-busy' && (routeSaid || (typeof d.msg === 'string' && d.msg.trim()))) {
       siteAskClear(origin);
-      siteHoldUnsent(origin, t, imgs);
+      siteHoldUnsent(origin, t, imgs, key);
       finish(routeSaid || '⚠️ ' + d.msg);
       return;
     }
@@ -9286,6 +9323,10 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer) {
       // one request's files in the box before anything was sent.
       sendImgs = keptImgs.concat(sendImgs);
     }
+    // ── THE SERVER TOOK IT ON (2026-10-03) ──────────────────────────────────
+    // A request it finishes itself, every part, with no page needed: this page
+    // follows it and starts nothing — no edit, no addition, no hand-over.
+    if (!isBuild && siteRequestOf(d)) return siteRequestStart(origin, d, sendImgs);
     // A QUESTION ON A SITE THAT EXISTS: the model's words and its answers on
     // the thread, kept on the site with this message's files so a reload still
     // shows it and the next message answers it. Nothing is built or charged
@@ -9353,6 +9394,274 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer) {
     if (siteOpenId === origin) renderSites();
   }).catch(() => (isBuild ? go() : lost()));
 }
+// ── ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03) ─────────
+//
+// Owner: *"one user message can request multiple edits and additions, and all
+// accepted parts are remembered and processed without the user resending them
+// or keeping the browser open … Make progress and questions recoverable after
+// reopening the site or using another device … Provide a stop-remaining-work
+// control using existing cancellation behavior."*
+//
+// When the server takes a message on as a request (the routing reply carries
+// `request`), it runs every part itself: routing each one against the site as
+// it is then, handing a step on, asking, resuming after an answer, charging and
+// publishing as each step always has. This page only FOLLOWS it:
+//
+//   * one card on the thread with each part's words and status, and Stop while
+//     anything is left (`DELETE` on the request: nothing new starts, and a
+//     running step is cancelled through its job's own door);
+//   * each part's own reply, once, from its job's stored answer through the job
+//     poll — read by the same readers as a message's own edit or addition
+//     (`editAnswer`, `addonAnswer`), its model-written reply with it;
+//   * the request's own reply once it has ended, for what no part's reply
+//     explains (a part not run, stopped, needing the full rewrite);
+//   * a part's question on the site's question card, answered like any other;
+//   * the full rewrite a part needs, started only from its own button.
+//
+// Nothing here starts, hands on or retries a step. A page opened later, or on
+// another device, picks its requests up from the server (`siteRequestsCheck`).
+const SITE_REQ_KEEP_MS = 2 * 24 * 60 * 60 * 1000;
+const SITE_REQ_MISSES = 30;
+// Requests this page is following, and the files a message carried (in memory
+// only, like a held message): a part's full rewrite is the one step this page
+// starts, and it takes the files when this page still holds them.
+const siteReqFollowing = new Set();
+const siteReqFiles = new Map();
+/** The request the routing reply says the server took on, or null. */
+function siteRequestOf(d) {
+  const v = d && d.request;
+  return v && typeof v === 'object' && !Array.isArray(v) && typeof v.key === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(v.key) && Array.isArray(v.parts) ? v : null;
+}
+/** This page's record of one request on a site — what it last read, and what it has shown. */
+function siteReqState(origin, key, view) {
+  const s = siteById(origin);
+  if (!s) return null;
+  if (!s.requests || typeof s.requests !== 'object' || Array.isArray(s.requests)) s.requests = {};
+  const now = Date.now();
+  for (const k of Object.keys(s.requests)) { const r = s.requests[k]; if (!r || !(now - (r.at || 0) < SITE_REQ_KEEP_MS)) delete s.requests[k]; }
+  let r = s.requests[key];
+  if (!r) r = s.requests[key] = { at: now, view: null, shown: [], replied: false, closed: false, rewrites: [] };
+  if (view && typeof view === 'object' && Array.isArray(view.parts)) r.view = view;
+  return r;
+}
+/** A line on the site's thread, said once. */
+function siteReqSay(origin, reply) {
+  const s = siteById(origin);
+  if (!s) return;
+  s.msgs.push(siteReplyMsg(reply));
+  s.updatedAt = Date.now();
+  sitesSave();
+  if (siteOpenId === origin) renderSites();
+}
+/** The routing reply took the work on: its card, its question if it asked one, and the follow. */
+function siteRequestStart(origin, d, imgs) {
+  siteBusy = false;
+  siteBuildStop();
+  const view = siteRequestOf(d);
+  const s = siteById(origin);
+  if (!s || !view) return;
+  siteReqState(origin, view.key, view);
+  if (Array.isArray(imgs) && imgs.length && !siteReqFiles.has(origin + '|' + view.key)) siteReqFiles.set(origin + '|' + view.key, imgs.slice(0, 3));
+  if (!s.msgs.some((m) => m && m.request === view.key)) s.msgs.push({ r: 'a', t: '', request: view.key });
+  // AN ANSWER MET WITH THE NEXT QUESTION: its card, as any question's.
+  const q = d.intent === 'clarify' ? liveQuestion(d) : null;
+  if (q) {
+    const p = (view.parts || []).find((x) => x && x.question && x.question.id === q.id);
+    siteAskKeep(origin, { ...q, request: p ? { key: view.key, part: p.n } : undefined }, []);
+    s.msgs.push(siteReplyMsg(askReplyMsg('', q)));
+  }
+  s.updatedAt = Date.now();
+  sitesSave();
+  if (siteOpenId === origin) renderSites();
+  siteRequestFollow(origin, view.key);
+}
+/** Follow one request until it has ended and everything it said has been shown. */
+function siteRequestFollow(origin, key) {
+  const id = origin + '|' + key;
+  if (siteReqFollowing.has(id)) return;
+  siteReqFollowing.add(id);
+  let attempt = 0;
+  let misses = 0;
+  const stop = () => { siteReqFollowing.delete(id); };
+  const step = async () => {
+    const s = siteById(origin);
+    if (!s || !s.slug) { stop(); return; }
+    let r = null;
+    let b = null;
+    try {
+      r = await apiFetch('/api/site/request/' + encodeURIComponent(s.slug) + '/' + encodeURIComponent(key), { method: 'GET' });
+      b = await r.json().catch(() => null);
+    } catch (e) { r = null; }
+    // NOT THIS OWNER'S, OR GONE: there is nothing left to follow.
+    if (r && r.status === 404) { const st0 = siteReqState(origin, key); if (st0) { st0.closed = true; sitesSave(); } stop(); return; }
+    if (!r || !r.ok || !b || b.ok !== true || !siteRequestOf(b)) {
+      misses++;
+      if (misses > SITE_REQ_MISSES) {
+        stop();
+        siteReqSay(origin, '⚠️ I lost sight of how that request is going. It carries on without this page — reload to see where it is.');
+        return;
+      }
+      setTimeout(step, EditPoll.pollDelayMs(++attempt));
+      return;
+    }
+    misses = 0;
+    const done = await siteRequestShow(origin, key, b.request, EditPoll.modelReply(b));
+    if (done) { stop(); return; }
+    // A REQUEST WAITING ONLY ON AN ANSWER is looked at seldom: the answer comes
+    // through this page, which follows it again from there.
+    setTimeout(step, b.request.state === 'waiting' ? EditPoll.POLL_MAX_MS : EditPoll.pollDelayMs(++attempt));
+  };
+  step();
+}
+/** One reading of a request on the page; true when it has ended and all it said is shown. */
+async function siteRequestShow(origin, key, view, reply) {
+  const s = siteById(origin);
+  if (!s) return true;
+  const st = siteReqState(origin, key, view);
+  if (!s.msgs.some((m) => m && m.request === key)) s.msgs.push({ r: 'a', t: '', request: key });
+  // EACH PART'S OWN REPLY, ONCE, IN ORDER.
+  let all = true;
+  for (const p of view.parts) {
+    for (const job of Array.isArray(p.jobs) ? p.jobs : []) {
+      if (st.shown.includes(job)) continue;
+      if (!(await siteRequestJobReply(origin, key, p, job))) { all = false; break; }
+    }
+    if (!all) break;
+  }
+  // A QUESTION THE SERVER PUT IN THE SITE'S SLOT that no reply drew: its card.
+  for (const p of view.parts) {
+    const q = p && p.status === 'waiting' && p.question && p.question.queued !== true ? clarifyOf(p.question) : null;
+    if (!q || s.msgs.some((m) => m && m.ask === q.id)) continue;
+    siteAskKeep(origin, { ...q, request: { key, part: p.n } }, []);
+    s.msgs.push(siteReplyMsg(askReplyMsg('', q)));
+  }
+  // THE REQUEST'S OWN REPLY, once it has ended.
+  if (view.ended && all && reply && !st.replied) { st.replied = true; s.msgs.push({ r: 'a', t: reply }); }
+  const done = view.ended && all;
+  if (done) st.closed = true;
+  s.updatedAt = Date.now();
+  sitesSave();
+  if (siteOpenId === origin) renderSites();
+  return done;
+}
+/** One part's reply from its job, read as a message's own; true when it is shown (or has nothing to show). */
+async function siteRequestJobReply(origin, key, part, job) {
+  const s = siteById(origin);
+  if (!s || !s.slug) return false;
+  let r = null;
+  let e = null;
+  try {
+    r = await apiFetch('/api/site/edit/' + encodeURIComponent(job), { method: 'GET' });
+    e = await r.json().catch(() => null);
+  } catch (err) { return false; }
+  const read = EditPoll.readPoll(r.status, r.headers && r.headers.get(EditPoll.FINAL_HEADER), e);
+  if (read.act !== 'reply' && read.act !== 'ended' && read.act !== 'gone') return false;
+  const st = siteReqState(origin, key);
+  if (!st || st.shown.includes(job)) return true;
+  st.shown.push(job);
+  sitesSave();
+  // A JOB WITH NO STORED REPLY, OR A HAND-OVER (the server's to act on): the
+  // request's own reply says what became of the part.
+  if (read.act !== 'reply' || !e || typeof e !== 'object' || e.escalate === true) return true;
+  // A QUESTION WAITING ITS TURN is not drawn as live: its card comes when the
+  // server puts it in the site's slot. AND THE PARTS THIS STEP LEFT ARE THE
+  // REQUEST'S OWN, on its card and run after it by the server, so the page's
+  // "say it and I'll do it next" is not said for them.
+  const { deferred: _held, putOff: _off, ...kept } = e;
+  const body = kept.clarify && kept.clarify.queued === true ? (({ clarify: _drop, ...rest }) => rest)(kept) : kept;
+  const d = { intent: part.route === 'addon' ? 'addon' : 'edit', layer: part.route && part.route !== 'addon' ? part.route : '' };
+  const o = { site: s, d, instruction: part.words, origin, finish: (t) => siteReqSay(origin, t), fallback: null, imgs: [], handedOff: false, slug: s.slug };
+  try { (d.intent === 'addon' ? addonAnswer : editAnswer)(!!r.ok, body, o); } catch (err) { /* what was said stands */ }
+  return true;
+}
+/** Stop what is left of a request: the server's stop, through the jobs' own cancel. */
+function siteRequestStop(origin, key) {
+  const s = siteById(origin);
+  if (!s || !s.slug) return;
+  const failed = () => siteReqSay(origin, '⚠️ I couldn’t stop that just now, so the rest is still going ahead. Try again in a moment.');
+  apiFetch('/api/site/request/' + encodeURIComponent(s.slug) + '/' + encodeURIComponent(key), { method: 'DELETE' }).then(async (r) => {
+    const b = await r.json().catch(() => null);
+    if (!r.ok || !b || b.ok !== true || !siteRequestOf(b)) { failed(); return; }
+    const done = await siteRequestShow(origin, key, b.request, EditPoll.modelReply(b));
+    if (!done) siteRequestFollow(origin, key);
+  }).catch(failed);
+}
+/** The full rewrite one part needs, started only from its own button: the rewrite every message's climb runs. */
+function siteRequestRewrite(origin, key, n) {
+  const s = siteById(origin);
+  if (!s || siteBusy) return;
+  const st = siteReqState(origin, key);
+  const p = st && st.view && Array.isArray(st.view.parts) ? st.view.parts.find((x) => x && x.n === n) : null;
+  if (!p || p.status !== 'needs-rewrite' || (st.rewrites || []).includes(n)) return;
+  st.rewrites = (st.rewrites || []).concat([n]);
+  // THE PART'S OWN WORDS, AS ITS STEPS WERE SENT THEM (`ask`), never the card's.
+  const words = typeof p.ask === 'string' && p.ask.trim() ? p.ask : p.words;
+  s.msgs.push({ r: 'u', t: words });
+  siteBusy = true;
+  siteBuildStart(true);
+  sitesSave();
+  renderSites();
+  const finish = (reply) => {
+    siteBusy = false;
+    siteBuildStop();
+    siteReqSay(origin, reply);
+  };
+  reactSend(s, words, origin, 'revise', siteReqFiles.get(origin + '|' + key) || [], finish, []);
+}
+/** Once per site per page load: the server's requests for this site, followed where this page has not finished with them. */
+const siteReqChecked = new Set();
+function siteRequestsCheck(site) {
+  if (!site || !site.slug || siteReqChecked.has(site.id)) return;
+  siteReqChecked.add(site.id);
+  const origin = site.id;
+  for (const k of Object.keys(site.requests || {})) {
+    const st = site.requests[k];
+    if (st && st.view && !st.closed) siteRequestFollow(origin, k);
+  }
+  apiFetch('/api/site/requests/' + encodeURIComponent(site.slug), { method: 'GET' }).then(async (r) => {
+    const b = await r.json().catch(() => null);
+    if (!r.ok || !b || b.ok !== true || !Array.isArray(b.requests)) return;
+    const s = siteById(origin);
+    if (!s) return;
+    for (const v of b.requests) {
+      if (!siteRequestOf({ request: v })) continue;
+      const known = s.requests && s.requests[v.key];
+      if (known && known.closed) continue;
+      siteReqState(origin, v.key, v);
+      if (!s.msgs.some((m) => m && m.request === v.key)) s.msgs.push({ r: 'a', t: '', request: v.key });
+      siteRequestFollow(origin, v.key);
+    }
+    s.updatedAt = Date.now();
+    sitesSave();
+    if (siteOpenId === origin) renderSites();
+  }).catch(() => { /* not knowing changes nothing */ });
+}
+// WHAT EACH PART'S STATUS IS CALLED ON ITS CARD. Labels, not explanations: what
+// happened and why is said by each part's own reply and the request's.
+const SITE_REQ_STATUS = {
+  blocked: 'Waiting for another part', ready: 'Next', queued: 'Queued', started: 'In progress',
+  waiting: 'Waiting for your answer', unverified: 'Checking it published', done: 'Done', failed: 'Not done',
+  'not-run': 'Not run', cancelled: 'Stopped', 'needs-rewrite': 'Needs a full rewrite', expired: 'Question expired', refused: 'Not run',
+};
+/** The request's card, under its message: each part and its status, Stop, and a part's rewrite button. */
+function siteRequestHTML(m, site) {
+  const st = site && site.requests && site.requests[m.request];
+  const v = st && st.view;
+  if (!v || !Array.isArray(v.parts)) return '';
+  const rows = v.parts.map((p) => {
+    const status = p && typeof p.status === 'string' ? p.status : '';
+    let label = SITE_REQ_STATUS[status] || status;
+    if (status === 'waiting' && p.question && p.question.queued === true) label = 'Has a question to ask next';
+    const rewrite = status === 'needs-rewrite' && !(st.rewrites || []).includes(p.n)
+      ? '<button type="button" class="st-opt st-req-go" data-req-rewrite="' + esc(m.request) + '" data-req-part="' + esc(String(p.n)) + '"><span>Rewrite the site for this</span></button>' : '';
+    return '<li class="st-req-part st-req-' + esc(status) + '"><span class="st-req-words">' + esc(String(p.words || '')) + '</span>' +
+      '<span class="st-req-status">' + esc(label) + '</span>' + rewrite + '</li>';
+  }).join('');
+  const stop = !v.ended && !v.stop
+    ? '<div class="st-opts"><button type="button" class="st-opt st-opt-skip" data-req-stop="' + esc(m.request) + '"><span>Stop the rest</span></button></div>' : '';
+  return '<div class="st-req"><ol class="st-req-parts">' + rows + '</ol>' + stop + '</div>';
+}
+
 // The cheap rung: change what the site already has, without rewriting a page.
 //
 // `fallback` IS THE WHOLE SAFETY ARGUMENT and it is the revise that used to be
@@ -12370,7 +12679,7 @@ function siteAnswer(label, skip) {
       s.clarify = null;
       sitesSave();
       if (siteOpenId === origin) renderSites();
-      siteRoute(s, round.brief, origin, false, imgs, finish);
+      siteRoute(s, round.brief, origin, false, imgs, finish, undefined, undefined, EditPoll.newIdemKey());
     }, finish);
     return;
   }
@@ -12500,7 +12809,10 @@ function siteAskKeep(origin, q, imgs) {
   if (!s || !q || !q.id) return;
   const files = Array.isArray(imgs) ? imgs.slice(0, 3) : [];
   if (s.ask && s.ask.id !== q.id) askFilesDrop(s.ask.id);
-  s.ask = { id: q.id, text: q.text, options: q.options.slice(), attached: q.attached === true || files.length > 0, ...(q.note ? { note: q.note } : {}) };
+  // AND WHICH PART OF WHICH REQUEST IT IS FOR (2026-10-03), when it is one's:
+  // that request's files are on the server, and its answer resumes it there.
+  const of = q.request && typeof q.request === 'object' && typeof q.request.key === 'string' && Number.isInteger(q.request.part) ? { key: q.request.key, part: q.request.part } : null;
+  s.ask = { id: q.id, text: q.text, options: q.options.slice(), attached: q.attached === true || files.length > 0, ...(q.note ? { note: q.note } : {}), ...(of ? { request: of } : {}) };
   askFilesStore(q.id, files);
 }
 function siteAskClear(origin) {
@@ -12551,6 +12863,7 @@ function siteAskReply(label, chosen, leaveDraft) {
   const origin = siteOpenId;
   if (siteTooLong(origin, said, chosen || leaveDraft, 'answer')) return;
   const asked = site.ask;
+  const key = siteMessageKey(origin, said, chosen || leaveDraft);
   const draft = chosen || leaveDraft ? null : siteDraft(origin);
   const own = draft ? draft.imgs.slice(0, 3) : [];
   if (draft) { draft.imgs = []; paintAttachStrip(); }
@@ -12570,8 +12883,10 @@ function siteAskReply(label, chosen, leaveDraft) {
     if (siteOpenId === origin) renderSites();
   };
   askFilesFor(asked.id).then((kept) => {
-    if (asked.attached && !kept.length && !own.length) {
-      siteHoldUnsent(origin, said, own);
+    // A PART OF A LONGER REQUEST (2026-10-03) has its files on the server
+    // already, so this browser holding none of them is no reason to stop.
+    if (asked.attached && !asked.request && !kept.length && !own.length) {
+      siteHoldUnsent(origin, said, own, key);
       finish('⚠️ That question is about the file you sent with your request, and this browser no longer has it. Attach it again and send your answer.');
       return;
     }
@@ -12585,7 +12900,7 @@ function siteAskReply(label, chosen, leaveDraft) {
     // sent — the answer and its files go back in the box, the question stays
     // open, and they are told the number before anything runs or is charged.
     if (kept.length + own.length > SITE_MAX_FILES) {
-      siteHoldUnsent(origin, said, own);
+      siteHoldUnsent(origin, said, own, key);
       const room = Math.max(0, SITE_MAX_FILES - kept.length);
       finish('⚠️ Your request already carries ' + (kept.length === 1 ? 'one file' : kept.length + ' files') + ', and one request can carry ' +
         SITE_MAX_FILES + ', so this answer can add ' + (room === 0 ? 'none' : room === 1 ? 'one more' : room + ' more') +
@@ -12595,7 +12910,7 @@ function siteAskReply(label, chosen, leaveDraft) {
     const s = siteById(origin);
     if (!s) return;
     siteWithPages(origin, s.slug, (s2) => siteRoute(s2, said, origin, false, own, finish, false,
-      { id: asked.id, chosen: chosen === true, files: kept }), finish);
+      { id: asked.id, chosen: chosen === true, files: kept }, key), finish);
   });
 }
 // CANCEL: the server closes the question once, so nothing can act on it, and
@@ -12661,7 +12976,7 @@ function siteAskCheck(site) {
       return;
     }
     if (s.ask && s.ask.id === q.id) return;
-    siteAskKeep(origin, { ...q, attached: c.question.attached === true }, []);
+    siteAskKeep(origin, { ...q, attached: c.question.attached === true, request: c.question.request }, []);
     if (!s.msgs.some((m) => m && m.ask === q.id)) s.msgs.push(siteReplyMsg(askReplyMsg('', q)));
     s.updatedAt = Date.now();
     sitesSave();
@@ -12750,6 +13065,7 @@ function siteSend(text, leaveDraft) {
   // (`leaveDraft`), and whatever is in the box and the strip stays there: a
   // picture waiting beside its words is never sent away from them with an
   // instruction nobody wrote.
+  const key = siteMessageKey(origin, t, leaveDraft);
   const draft = leaveDraft ? null : siteDraft(origin);
   const imgs = draft ? draft.imgs.slice(0, 3) : [];
   if (draft) { draft.imgs = []; paintAttachStrip(); }
@@ -12793,13 +13109,13 @@ function siteSend(text, leaveDraft) {
   // instead, the words and the files are kept on this site (`siteHoldUnsent`)
   // BEFORE `finish` redraws it, so that redraw is the one that hands them back.
   if (isBuild && typeof site.slug === 'string' && site.slug) {
-    siteWithPages(origin, site.slug, (s) => siteRoute(s, t, origin, false, imgs, finish), (said) => {
-      siteHoldUnsent(origin, t, imgs);
+    siteWithPages(origin, site.slug, (s) => siteRoute(s, t, origin, false, imgs, finish, undefined, undefined, key), (said) => {
+      siteHoldUnsent(origin, t, imgs, key);
       finish(said);
     });
     return;
   }
-  if (reactPath) { siteRoute(site, t, origin, isBuild, imgs, finish); return; }
+  if (reactPath) { siteRoute(site, t, origin, isBuild, imgs, finish, undefined, undefined, key); return; }
   // A LEGACY STATIC SITE CANNOT BE EDITED — the engine that made it is gone.
   //
   // This posted to `POST /api/site`, deleted with the D1 runtime on 2026-07-27.

@@ -146,15 +146,32 @@ test("the replay identity resolves for exactly the two queued routes, which are 
   // blocks and nowhere else; the third is the platform rebuild's, filed by the
   // CRON for the site's owner — outside the router entirely, which is what
   // makes the rebuild route replay-only rather than a button.
+  // RE-ANCHORED 2026-10-03 (the combined request flow): a FOURTH filer — the
+  // request's own driver (`fileRequestJob`), which files each part's step for
+  // the request's owner, outside the router like the rebuild's. Its replay is
+  // the edit and add-on routes' own (above), and the routing route's, whose
+  // replay door is its own and refuses a replay that is not a request's part
+  // (asserted below).
   const forks = [...CODE.matchAll(/await enqueueEditJob\(env, \{/g)].map((x) => x.index);
-  assert.equal(forks.length, 3, `${forks.length} places file jobs`);
+  assert.equal(forks.length, 4, `${forks.length} places file jobs`);
   const edOpen = at(CODE, "\n          if (ed) {", "edit route");
   const adOpen = at(CODE, "\n          if (ad) {", "addon route");
   const txOpen = at(CODE, "\n          if (tx) {", "text route");
   const cron = at(CODE, "async function runSiteRebuild(env) {", "the rebuild drain");
-  assert.ok(forks[0] > cron && forks[0] < edOpen, "the platform rebuild's job is not filed by the cron");
-  assert.ok(forks[1] > edOpen && forks[1] < adOpen, "the edit route's fork is not inside the edit route");
-  assert.ok(forks[2] > adOpen && forks[2] < txOpen, "the addon route's fork is not inside the addon route");
+  const driver = at(CODE, "async function fileRequestJob(env, rec, file) {", "the request's driver");
+  const driverEnd = at(CODE, "\nasync function offerRequestQuestions(", "the end of the driver's filer");
+  const inside = (i, a, b) => forks.filter((x) => x > a && x < b).length === 1;
+  assert.ok(driver < driverEnd && inside(0, driver, driverEnd), "the request's driver does not file its parts' jobs in one place");
+  const rest = forks.filter((x) => !(x > driver && x < driverEnd));
+  assert.ok(rest[0] > cron && rest[0] < edOpen, "the platform rebuild's job is not filed by the cron");
+  assert.ok(rest[1] > edOpen && rest[1] < adOpen, "the edit route's fork is not inside the edit route");
+  assert.ok(rest[2] > adOpen && rest[2] < txOpen, "the addon route's fork is not inside the addon route");
+  // THE ROUTING ROUTE'S OWN REPLAY DOOR: a part's routing job, for its own
+  // site, and nothing else — a replay without a request's part is refused.
+  const routeOpen = at(CODE, 'if (url.pathname === "/api/site/route" && request.method === "POST") {', "the routing route");
+  const door = CODE.slice(routeOpen, routeOpen + 6000);
+  assert.match(door, /const rr = editReplayUser\(request, rb\.slug\);\s*if \(!rr\) return Response\.json\(\{ error: "not found" \}, \{ status: 404 \}\);/, "the routing route's replay is not the job's own, for its own site");
+  assert.match(door, /if \(rJob && !rPart\) return Response\.json\(\{ error: "not found" \}, \{ status: 404 \}\);/, "the routing route takes a replay that is not a request's part");
 });
 
 test("the addon body is read as text before the fork, stored verbatim, and parsed once", () => {
@@ -398,8 +415,11 @@ test("siteAddon mints one key per POST and watches a filed job with the addon's 
   // THE WORD, not the call: the watcher is handed the reader as a value, with
   // no parenthesis after it. FOUR since stage 2b: the resumed watch picks the
   // same reader, as a value, for a record an addon filed.
+  // FIVE SINCE 2026-10-03: a part of a request the server finishes has its
+  // job's stored reply read by the same reader (`siteRequestJobReply`).
   const readers = (CHAT.match(/\baddonAnswer\b/g) || []).length;
-  assert.equal(readers, 4, `addonAnswer has ${readers} mentions — one definition, the synchronous call, the watcher argument and the resumed watch's reader, and no fifth copy`);
+  assert.equal(readers, 5, `addonAnswer has ${readers} mentions — one definition, the synchronous call, the watcher argument, the resumed watch's reader and a request part's reply, and no sixth copy`);
+  assert.match(between(CHAT, "\nasync function siteRequestJobReply(", "\nfunction siteRequestStop(", "a part's reply"), /\(d\.intent === 'addon' \? addonAnswer : editAnswer\)\(!!r\.ok, body, o\)/, "a request part's reply is not read by the routes' own readers");
 });
 
 test("the shared watcher takes a reader and defaults to the edit's", () => {

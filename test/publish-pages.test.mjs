@@ -2399,9 +2399,18 @@ test("both build-adjacent routes cap the body before parsing it", () => {
   assert.ok(!/\bawait request\.json\(\)/.test(bWin),
     "the build route reads the body twice — a body reads ONCE, so the second is empty");
   // /api/site/route: hit on EVERY builder message.
+  // RE-ANCHORED 2026-10-03 (the combined request flow): a site's message may
+  // carry its files now, kept on the server for the part that reads them, so
+  // the router takes the edit route's backstop for one (24 MB) and keeps 2 MB
+  // for everything else — both measured on the bytes that arrived, before the
+  // body is parsed, never only on the caller's header.
   const r = w.indexOf('"/api/site/route"');
-  const rWin = w.slice(r, w.indexOf("request.json()", r));
-  assert.match(rWin, /tooLargeBody\(request,\s*2_000_000\)/, "the router parses an uncapped body again");
+  const rWin = w.slice(r, w.indexOf("JSON.parse(rbRaw)", r));
+  assert.ok(rWin.length > 0 && rWin.length < 4000, "the router's body read moved — the observer is alive");
+  assert.match(rWin, /tooLargeBody\(request,\s*24_000_000\)/, "the router parses an uncapped body again");
+  assert.match(rWin, /const rbBytes = new TextEncoder\(\)\.encode\(rbRaw\)\.length;\s*if \(rbBytes > 24_000_000\)/, "the router's cap is the caller's header alone");
+  const after = w.slice(w.indexOf("JSON.parse(rbRaw)", r), w.indexOf("JSON.parse(rbRaw)", r) + 600);
+  assert.match(after, /if \(rbBytes > 2_000_000 && !\(rb\.hasSite === true && rb\.firstBuild !== true\)\)/, "anything but a site's message is no longer held to 2 MB");
 });
 
 test("a stranger's upload can never be the og image", () => {

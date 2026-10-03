@@ -49,6 +49,8 @@ function cutStatement(first, last, holding) {
 const KEYS = cutStatement("\ndocument.addEventListener('keydown', (e) => {", "\n});\n", "siteAskCancel()");
 // THE CLICKS: the thread's one delegated handler, assigned on every render.
 const CLICKS = cutStatement("\n    thread.onclick = (e) => {", "\n    };\n", "data-ask-ans");
+// THE LABELS OF A REQUEST'S CARD (2026-10-03, the combined request flow).
+const REQ_STATUS = cutStatement("\nconst SITE_REQ_STATUS = {", "\n};\n", "needs-rewrite");
 
 // THE FUNCTIONS: the send and route handlers, the question block, and both
 // readers' whole selection (the lists the sweep's readers run, so a reply here
@@ -61,18 +63,27 @@ const FNS = [...new Set([
   "readAddonReply", "readEditReply", "addonOutcomeMsg", "alsoTail",
   "reactSend", "reactStageLabel", "buildCostWords", "buildErrOutcome",
   ...BROWSER_FNS, ...EDIT_BROWSER_FNS,
+  // ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03): the
+  // message's key, following a request, its card, Stop and the rewrite go-ahead.
+  "siteMessageKey", "siteUnsentBack", "siteRequestOf", "siteReqState", "siteReqSay", "siteRequestStart", "siteRequestFollow",
+  "siteRequestStop", "siteRequestRewrite", "siteRequestsCheck", "siteRequestHTML",
 ])];
+// AND THE TWO OF THEM THAT ARE `async function`s.
+const ASYNC_FNS = ["siteRequestShow", "siteRequestJobReply"];
 const LINES = [...new Set([
   "const ROUTE_EDIT_LAYERS =", "const siteRoutesAsked =", "const SITE_ROUTES_WAIT_MS =", "const siteRoutesPending =",
   "const SITE_NO_PAGES_MSG =", "const siteNewDraft =", "function siteBuildStop(", ...ASK_LINES, "const siteAskChecked =",
   "const ST_PHASE_ORDER =",
+  "const SITE_REQ_KEEP_MS =", "const SITE_REQ_MISSES =", "const siteReqFollowing =", "const siteReqFiles =", "const siteReqChecked =",
 ])];
 const SRC = [
   cut("async function apiFetch("),
   ...FNS.map((n) => cut("function " + n + "(")),
+  ...ASYNC_FNS.map((n) => cut("async function " + n + "(")),
   ...LINES.map(cutLine),
   KEYS,
-  "function wireThread(thread) {" + CLICKS + "}",
+  REQ_STATUS,
+  "function wireThread(thread, site) {" + CLICKS + "}",
 ].join("\n");
 
 export const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -136,9 +147,13 @@ export function fakeIndexedDB() {
  * `{ reject }`, or nothing for a request that never answers. `site` is the
  * record as `sitesSave` would have kept it. Returns the page's handles.
  */
-export function page({ site, answer = () => null, idb } = {}) {
+export function page({ site, answer = () => null, idb, timers = false } = {}) {
   const calls = [];
   const keys = [];
+  // THE PAGE'S OWN TIMERS, WHEN A CASE DRIVES THEM (2026-10-03): a request's
+  // poll waits on `setTimeout`; with `timers`, each wait is held until the case
+  // runs it (`flush`), so a poll happens exactly when the case says.
+  const held = [];
   const s = copy(site);
   if (!Array.isArray(s.msgs)) s.msgs = [];
   const ctx = vm.createContext({
@@ -154,13 +169,15 @@ export function page({ site, answer = () => null, idb } = {}) {
       if (!a) return new Promise(() => {});
       const respond = (x) => {
         if (x.reject) return Promise.reject(x.reject);
-        return new Response(typeof x.body === "string" ? x.body : JSON.stringify(x.body), { status: x.status || 200, headers: { "content-type": "application/json" } });
+        // AND ANY HEADER THE ANSWER CARRIES (a job poll's final-reply mark).
+        return new Response(typeof x.body === "string" ? x.body : JSON.stringify(x.body), { status: x.status || 200, headers: { "content-type": "application/json", ...(x.headers || {}) } });
       };
       // A LATE ANSWER: a promise the case resolves when it chooses.
       if (typeof a.then === "function") return a.then(respond);
       return Promise.resolve().then(() => respond(a));
     },
-    setInterval: () => ({}), clearInterval: () => {}, setTimeout: () => ({}), clearTimeout: () => {},
+    setInterval: () => ({}), clearInterval: () => {},
+    setTimeout: (fn) => { if (timers && typeof fn === "function") held.push(fn); return {}; }, clearTimeout: () => {},
     showAuthGate: () => {}, scheduleCreditRefresh: () => {}, fetchCredits: () => {},
     siteById: (id) => (id === s.id ? s : null),
     sitesSave: () => {},
@@ -179,9 +196,11 @@ export function page({ site, answer = () => null, idb } = {}) {
   });
   vm.runInContext(SRC, ctx);
   const thread = { onclick: null, contains: () => true };
-  ctx.wireThread(thread);
+  ctx.wireThread(thread, s);
   return {
     s, ctx, calls, thread,
+    /** Run every wait the page is holding (its polls), once. */
+    flush: () => { const now = held.splice(0); now.forEach((fn) => fn()); return now.length; },
     said: () => copy(s.msgs),
     last: () => copy(s.msgs[s.msgs.length - 1]),
     ask: () => (s.ask == null ? null : copy(s.ask)),

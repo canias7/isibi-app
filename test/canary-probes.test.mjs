@@ -389,8 +389,17 @@ test("each probe is posted as the browser posts it, with the site's real page li
   // live question, and is absent on a fresh message, which is what a probe is.
   assert.match(line, /ask: !isBuild && answer && typeof answer\.id === 'string' \? \{ id: answer\.id, chosen: answer\.chosen === true \} : undefined/,
     "the browser sends `ask` on a message that answers nothing");
-  const fields = [...line.replace(/ask: !isBuild && answer[^}]*\} : undefined/, "").matchAll(/([a-zA-Z]+):/g)].map((m) => m[1]).filter((k) => k !== "picker");
+  // AND LESS WHAT THE PAGE SENDS FOR THE SERVER'S OWN REQUEST FLOW (2026-10-03):
+  // the message's key, its files, the zone and the undo rows. A probe never
+  // sends them, and must not: a message sent with its key is taken on and RUN
+  // by the server, every part of it, which is the paid work a routing probe
+  // exists not to do.
+  const REQUEST_FLOW = ["idem", "images", "tz", "recent"];
+  for (const f of REQUEST_FLOW) assert.match(line, new RegExp("\\b" + f + ": !isBuild"), "the browser no longer sends `" + f + "` only for a site's message — the observer is stale");
+  const code = line.replace(/\/\/[^\n]*/g, "");
+  const fields = [...code.replace(/ask: !isBuild && answer[^}]*\} : undefined/, "").matchAll(/([a-zA-Z]+):/g)].map((m) => m[1]).filter((k) => k !== "picker" && !REQUEST_FLOW.includes(k));
   assert.deepEqual(Object.keys(body).sort(), [...new Set(fields)].sort(), "the probe does not post the fields the browser posts");
+  for (const f of REQUEST_FLOW) assert.equal(Object.hasOwn(body, f), false, "a routing probe sends `" + f + "`, and would have the server run the work it only routes");
 });
 
 // ── THE FLOW ───────────────────────────────────────────────────────────────

@@ -214,6 +214,7 @@ jobs:
             DESIGN_GRAPH_CANARY
             DESIGN_GRAPH_EVERYONE
             MODEL_REPLIES
+            REQUEST_FLOW
         env:
           DEPLOY_ID: ${{ github.sha }}
           FAL_KEY: ${{ secrets.FAL_KEY }}
@@ -396,6 +397,15 @@ jobs:
           # it OFF — set it to `off` in GitHub and redeploy, and every reply is
           # composed as before, with nothing else changed.
           MODEL_REPLIES: ${{ secrets.MODEL_REPLIES || 'on' }}
+          # ── ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03) ──
+          #
+          # With this on, a site's message the routing call accepts is kept as a
+          # request and every part of it — edits and additions, in the order
+          # the model gave, each through its own route and job — is run by the
+          # server with no page open (builder/request.mjs). OFF BY DEFAULT: the
+          # page then drives its steps exactly as before, which is what the UI
+          # canary checks. Set the secret to `on` and redeploy to switch it on.
+          REQUEST_FLOW: ${{ secrets.REQUEST_FLOW || 'off' }}
           # ── WHO RUNS A QUEUED JOB (2026-09-04) ────────────────────────────
           #
           # The job runner: for the uids and slugs the canary names, or for

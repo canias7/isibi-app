@@ -524,7 +524,7 @@ export function readWire(b) {
   return { mode, ms, everyMs };
 }
 
-export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scope = null, waitUntil = null }) {
+export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scope = null, waitUntil = null, next = null }) {
   return async function handle(request, id) {
     const auth = String(request.headers.get("authorization") || "");
     const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
@@ -641,6 +641,26 @@ export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scop
       try { token = await scope.sign({ id: who.id, slug, uid: who.uid, exp: who.exp }); }
       catch (e) { log("scope-sign", { id: who.id, slug, error: String((e && e.message) || e) }); return json(503, { error: "could not sign" }); }
       return json(200, { ok: true, token, slug });
+    }
+
+    // ── THE NEXT OP (2026-10-03): a part of a longer request ended here ─────
+    //
+    // The container has no queue and may not file a job (`edit_create` is a
+    // Worker's call), so the job that ran a part of a request asks the Worker
+    // to move that request on. Bound to the job's own token — its id, its site
+    // and its owner — and to a request key the Worker checks names this job
+    // among its parts; the Worker's step is idempotent, so a repeated call
+    // changes nothing. A pre-scoped build has no request.
+    if (tail === "/next" && request.method === "POST") {
+      if (typeof next !== "function") return json(503, { error: "no next" });
+      if (who.pre === true) return json(403, { error: "not a site job" });
+      let body = null;
+      try { body = await request.json(); } catch { body = null; }
+      const key = body && typeof body.key === "string" ? body.key : "";
+      if (!/^[A-Za-z0-9_-]{16,64}$/.test(key)) return json(400, { error: "bad key" });
+      let ok = false;
+      try { ok = (await next({ id: who.id, slug: who.slug, uid: who.uid, key })) === true; } catch { ok = false; }
+      return ok ? json(200, { ok: true }) : json(404, { error: "not this job's request" });
     }
 
     if (!bucket) return json(503, { error: "no bucket" });

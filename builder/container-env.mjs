@@ -252,6 +252,16 @@ export function makeContainerEnv({ secrets = {}, gateway, sb = null, fetch: f, p
   env.BUILD_QUEUE = refusingQueue;
   env.SITE_BUILD_CONTAINER = { local: true };
   if (pre === true) env.JOB_SCOPE = (slug) => rescopeJob({ gateway, bucket: env.SITES_BUCKET, fetch: f }, slug);
+  // A PART OF A LONGER REQUEST ENDED HERE (2026-10-03): the Worker is asked to
+  // move the request on (the gateway's `/next`), since nothing in here may file
+  // its next job. A call that fails is the two-minute sweep's to recover.
+  else env.JOB_NEXT = async ({ key }) => {
+    const r = await (f || globalThis.fetch)(String(gateway.url).replace(/\/+$/, "") + "/next", {
+      method: "POST", headers: { authorization: "Bearer " + gateway.token, "content-type": "application/json" },
+      body: JSON.stringify({ key }), signal: AbortSignal.timeout(20_000),
+    });
+    return r.ok;
+  };
   // THE STOP SIGNAL (stage 5d, 2026-09-06): aborted by the runner when the
   // process is told to stop (SIGTERM — the build service past the job's
   // deadline, a cancel from outside, the service's own drain giving up), read

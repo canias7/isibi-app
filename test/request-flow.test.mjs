@@ -1,0 +1,1063 @@
+// ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER — THE GROUPED FREE TESTS
+// (2026-10-03, the owner's order: *"Verify the actual flow with grouped free
+// tests covering both route orders, multiple operations, prerequisites
+// mentioned later, clarification and resume, attachments, closed-tab
+// continuation, existing handoffs, partial failure, cancellation, duplicate
+// delivery and crashes around publication and charging; check final site
+// changes, stored statuses, customer-visible facts and ledger outcomes."*)
+//
+// EVERY CASE RUNS THE REAL WORKER: the routing route that accepts the message,
+// the queue consumer that runs each part's job, the edit and add-on routes the
+// job replays, the request's driver, the two-minute sweep, and the owner
+// routes the page reads — against `test/fixtures/request-flow.mjs`, whose
+// `edit_jobs`, ledger, bucket and queue keep state the way the real ones do.
+// What each case checks is what happened: the site's stored pages and look,
+// the request record and each job row, what the reply writer was told (the
+// customer-visible facts), and every ledger row.
+//
+// ⚠ SUPPLIED-MODEL PROOF ONLY. Every model answer — the router's, the
+// picker's, each lane's, the add-on's, the page writer's and the reply
+// writer's — is supplied by the case. Nothing here is evidence of what a real
+// model answers for these messages; the real-model batch is separate and not
+// run (it would be paid).
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import { platform, sendMessage, pump, tick, call, settle, browserBody, T, USER, newKey } from "./fixtures/request-flow.mjs";
+import { installCompiler } from "./fixtures/cf-containers.mjs";
+import { writtenPage } from "./fixtures/addon-route.mjs";
+import { PAGES, HOME, VISIT, VISIT_MOVED, OLD_DESC, page as pageSrc } from "./fixtures/live-ask.mjs";
+import { PART_HEADING } from "../builder/site-ask.mjs";
+import { jobBody, handOff, HOPS_MAX } from "../builder/request.mjs";
+import { gatewayHandler, gatewayKey, signJobToken, verifyJobToken, preScopeSlug } from "../builder/job-gateway.mjs";
+import { makeContainerEnv } from "../builder/container-env.mjs";
+
+const DESC = "Change the site description to say we bake overnight sourdough";
+const NEW_DESC = "Overnight sourdough from a Bristol side street.";
+const ADD = "add a gallery page";
+const PAGE = (path, name) => ({ path, name, purpose: "what " + name + " is for", sections: ["a band"], components: ["section-header"] });
+const GALLERY = { [T.adds]: { kinds: ["page"] }, "add:page": { page: [PAGE("/gallery", "Gallery")] }, [T.pages]: { pages: [writtenPage("/gallery")] } };
+const DESCRIBE = { [T.pick]: { fields: ["description"], scopes: [{ part: "description", words: DESC }] }, "lane:description": NEW_DESC };
+const slugOf = (k) => "rq-" + k + "-" + Math.random().toString(16).slice(2, 8);
+
+/** One case: a platform and the compiler, closed whatever happens. */
+async function withPlatform(opts, fn) {
+  const compiler = installCompiler();
+  const P = platform(opts);
+  try { return await fn(P); } finally { P.close(); compiler.uninstall(); }
+}
+const statuses = (rec) => rec.parts.map((p) => p.status);
+const jobLine = (P, key) => P.jobsOf(key).map((j) => j.op + ":" + j.state);
+/** The ledger rows of one kind, as numbers. */
+const rows = (P, reason) => P.ledger.filter((e) => e.reason === reason).map((e) => e.delta);
+const reserveOf = (P, jobId) => P.ledger.filter((e) => e.ref.startsWith(jobId + "#") && e.reason === "reserve").map((e) => -e.delta);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A. BOTH ROUTE ORDERS, AND SEVERAL OPERATIONS IN ONE MESSAGE
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("A1 — an edit then an addition: both land, in order, each through its own route, each part charged once, the routing call once", async () => {
+  await withPlatform({ slug: slugOf("a1"), answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }], ...DESCRIBE, ...GALLERY } }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    assert.equal(r.status, 200);
+    // ACCEPTED: the page is handed the request, and is not told to run anything itself.
+    assert.equal(r.body.request.key, r.key);
+    assert.deepEqual(r.body.request.parts.map((p) => p.status), ["queued", "ready"]);
+    const { rec } = await settle(P, r.key);
+    assert.equal(rec.state, "done", JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.deepEqual(statuses(rec), ["done", "done"]);
+    // THE SITE: the description changed and the gallery page added; nothing else moved.
+    assert.equal(P.look().description, NEW_DESC);
+    assert.deepEqual(P.pages(), ["index.tsx", "visit.tsx", "gallery.tsx"]);
+    assert.equal(P.page("index.tsx"), HOME);
+    assert.equal(P.page("visit.tsx"), VISIT);
+    // THE JOBS, in order: part 0's edit, part 1's routing, part 1's addition.
+    assert.deepEqual(jobLine(P, r.key), ["edit:done", "route:done", "addon:done"]);
+    // THE MONEY: the routing call once under the message's key, and one reserve per job.
+    assert.deepEqual(rows(P, "route"), [-1]);
+    assert.equal(P.ledger.find((e) => e.reason === "route").ref, "route:" + P.slug + ":" + r.key);
+    for (const j of P.jobsOf(r.key)) assert.deepEqual(reserveOf(P, j.id), [1], j.op + " was not charged once");
+    assert.deepEqual(rows(P, "refund"), []);
+    assert.equal(P.spent(), 4);
+  });
+});
+
+test("A2 — an addition then an edit (the other order): the addition runs as the answered part, the edit is routed after it", async () => {
+  await withPlatform({ slug: slugOf("a2"), answers: { route: [{ intent: "addon", alsoAsked: [DESC] }, { intent: "edit", layer: "look" }], ...DESCRIBE, ...GALLERY } }, async (P) => {
+    const r = await sendMessage(P, { message: "Please " + ADD + ", and " + DESC.charAt(0).toLowerCase() + DESC.slice(1) + "." });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.deepEqual(jobLine(P, r.key), ["addon:done", "route:done", "edit:done"]);
+    assert.equal(P.look().description, NEW_DESC);
+    assert.ok(P.pages().includes("gallery.tsx"));
+    assert.equal(P.spent(), 4);
+  });
+});
+
+test("A3 — three operations in one message, two edits and an addition: each part is its own job, run one at a time against the site as it then is", async () => {
+  const MOVE = "on the Visit page put the band above the heading";
+  const MOVED = VISIT_MOVED;
+  await withPlatform({
+    slug: slugOf("a3"),
+    answers: {
+      route: [{ intent: "edit", layer: "look", alsoAsked: [MOVE, ADD] }, { intent: "edit", layer: "look", page: "/visit" }, { intent: "addon" }],
+      [T.pick]: [{ fields: ["description"], scopes: [{ part: "description", words: DESC }] }, { fields: ["shape"], scopes: [{ part: "shape", page: "/visit", words: MOVE }] }],
+      "lane:description": NEW_DESC,
+      [T.tweak]: { source: MOVED },
+      ...{ [T.adds]: GALLERY[T.adds], "add:page": GALLERY["add:page"], [T.pages]: GALLERY[T.pages] },
+    },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", " + MOVE + ", and " + ADD + "." });
+    assert.deepEqual(r.body.request.parts.map((p) => p.words), [DESC + ", , and .", MOVE, ADD].map((w, i) => (i === 0 ? r.body.request.parts[0].words : w)));
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.deepEqual(jobLine(P, r.key), ["edit:done", "route:done", "edit:done", "route:done", "addon:done"]);
+    assert.equal(P.look().description, NEW_DESC);
+    assert.equal(P.page("visit.tsx"), MOVED);
+    assert.ok(P.pages().includes("gallery.tsx"));
+    // ONE JOB AT A TIME: no job of the request was filed while another was live.
+    const js = P.jobsOf(r.key);
+    for (let i = 1; i < js.length; i++) assert.ok(js[i].created_at >= js[i - 1].updated_at - 1, "a job was filed while the one before it was still running");
+    // EACH LATER PART WAS SHOWN THE WHOLE REQUEST AND WHAT THE PARTS BEFORE IT DID.
+    const routed = P.modelLog.filter((m) => m.tool === T.route);
+    assert.equal(routed.length, 3);
+    assert.ok(routed[1].text.includes(PART_HEADING) && routed[1].text.includes(DESC), "the second part's routing was not shown the whole request");
+    assert.ok(routed[2].text.includes(PART_HEADING) && routed[2].text.includes(MOVE), "the third part's routing was not shown the parts before it");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// B. A PREREQUISITE MENTIONED LATER, AND ONE THAT FAILS
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("B1 — a change that needs something the message asks for later waits for it: the later part runs first, and the earlier one is routed again against the site it made", async () => {
+  const NEEDS = "Change the site description to mention our gallery page";
+  await withPlatform({
+    slug: slugOf("b1"),
+    answers: {
+      route: [
+        { intent: "edit", layer: "look", alsoAsked: [ADD], dependsOn: [{ change: 0, after: [1] }] },
+        { intent: "addon" },
+        { intent: "edit", layer: "look" },
+      ],
+      [T.pick]: { fields: ["description"], scopes: [{ part: "description", words: NEEDS }] }, "lane:description": "Sourdough, and a gallery of our loaves.",
+      ...GALLERY,
+    },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: NEEDS + ", and " + ADD + "." });
+    // THE ANSWERED PART WAITS: it needs part 1, which nothing has made yet.
+    assert.deepEqual(r.body.request.parts.map((p) => p.status), ["blocked", "queued"]);
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    // THE ORDER THE MODEL GAVE, NOT THE ORDER OF THE WORDS.
+    assert.deepEqual(jobLine(P, r.key), ["route:done", "addon:done", "route:done", "edit:done"]);
+    // AND PART 0 WAS ROUTED AGAIN AFTER THE GALLERY EXISTED: its routing call saw /gallery.
+    const third = P.modelLog.filter((m) => m.tool === T.route)[2];
+    assert.ok(third.text.includes("/gallery"), "the re-routed part was not shown the page the earlier part made");
+    assert.equal(P.look().description, "Sourdough, and a gallery of our loaves.");
+  });
+});
+
+test("B2 — a prerequisite that fails: the part that needed it is not run and says which, an independent part still goes ahead, and nothing is charged for the part not run", async () => {
+  const LINK = "put a link to the new gallery on the Visit page";
+  await withPlatform({
+    slug: slugOf("b2"), replies: true,
+    answers: {
+      route: [{ intent: "edit", layer: "look", alsoAsked: [LINK, ADD], dependsOn: [{ change: 1, after: [2] }] }, { intent: "addon" }],
+      ...DESCRIBE,
+      // THE ADDITION FAILS: the add-on step finds nothing it can add.
+      [T.adds]: { kinds: [] },
+    },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", " + LINK + ", and " + ADD + "." });
+    const { rec } = await settle(P, r.key);
+    assert.equal(rec.parts[0].status, "done", "the independent part did not go ahead");
+    assert.equal(rec.parts[2].status, "failed", JSON.stringify(rec.parts[2]));
+    assert.equal(rec.parts[1].status, "not-run");
+    assert.equal(rec.parts[1].why, "needs:2");
+    assert.equal(rec.state, "partial");
+    // PART 1 NEVER RAN: no job of its own, nothing charged for it.
+    assert.equal(rec.parts[1].jobs.length, 0);
+    assert.equal(P.look().description, NEW_DESC);
+    assert.ok(!P.pages().includes("gallery.tsx"));
+    // WHAT THE CUSTOMER IS TOLD, from the request's own facts (the reply writer's input).
+    const v = await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key);
+    assert.equal(v.status, 200);
+    const facts = P.replyLog.at(-1).map((f) => f.text).join(" | ");
+    assert.match(facts, /Not started: “put a link to the new gallery on the Visit page”, because it needed “add a gallery page” done first/);
+    assert.ok(typeof v.body.reply === "string" && v.body.replySource === "model", "the request's reply was not handed back");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// C. A PART ASKS, IS ANSWERED, AND RESUMES — WHILE THE REST GOES ON
+// ─────────────────────────────────────────────────────────────────────────────
+
+const Q = { text: "Which photos should the gallery show?", options: ["Loaves", "The bakery"] };
+
+test("C1 — a part's routing asks: the part waits on the site's question, the answer resumes it on the server, and the same answer sent again is handed back without a second routing call", async () => {
+  await withPlatform({
+    slug: slugOf("c1"),
+    answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "clarify", question: Q }, { intent: "addon", answered: true }], ...DESCRIBE, ...GALLERY },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + " for it." });
+    const s1 = await settle(P, r.key);
+    assert.deepEqual(statuses(s1.rec), ["done", "waiting"]);
+    assert.equal(s1.rec.state, "waiting");
+    // THE QUESTION IS THE SITE'S LIVE ONE, AND NAMES ITS PART.
+    const q = P.question();
+    assert.equal(q.status, "pending");
+    assert.equal(q.requestKey, r.key);
+    assert.equal(q.part, 1);
+    assert.equal(s1.rec.parts[1].question.id, q.id);
+    // "IT" STILL MEANS WHAT IT MEANT: the part's routing was shown the whole message.
+    assert.ok(P.modelLog.filter((m) => m.tool === T.route)[1].text.includes(DESC + ", and " + ADD + " for it."));
+    // THE ANSWER, AS THE PAGE SENDS IT.
+    const before = P.spent();
+    const a = await sendMessage(P, { message: "Loaves", ask: { id: q.id, chosen: true } });
+    assert.equal(a.status, 200, JSON.stringify(a.body));
+    assert.deepEqual(a.body.resumed, { key: r.key, part: 1 });
+    assert.equal(a.body.request.key, r.key);
+    assert.equal(P.question().status, "answered");
+    const s2 = await settle(P, r.key);
+    assert.deepEqual(statuses(s2.rec), ["done", "done"]);
+    assert.ok(P.pages().includes("gallery.tsx"));
+    assert.deepEqual(s2.rec.context, [{ q: Q.text, a: "Loaves" }]);
+    // THE ANSWER'S ROUTING WAS CHARGED ONCE, UNDER ITS OWN KEY.
+    assert.deepEqual(P.ledger.filter((e) => e.ref === "route:" + P.slug + ":" + a.key).map((e) => e.delta), [-1]);
+    // THE SAME ANSWER AGAIN (a lost response): no model asked, nothing charged.
+    const calls = P.modelLog.length;
+    const spent = P.spent();
+    const again = await sendMessage(P, { message: "Loaves", ask: { id: q.id, chosen: true }, key: a.key });
+    assert.equal(again.body.duplicate, true);
+    assert.deepEqual(again.body.resumed, { key: r.key, part: 1 });
+    assert.equal(P.modelLog.length, calls, "a second routing call was made for the same answer");
+    assert.equal(P.spent(), spent);
+    assert.ok(spent > before);
+  });
+});
+
+test("C2 — a step asks while an independent part continues; a part that needs the asking one waits, and runs once the answer has resumed it", async () => {
+  const LINE = "add a line about the new wording to the Visit page";
+  const QD = { text: "Which word should lead — overnight or slow?", options: ["Overnight", "Slow"] };
+  await withPlatform({
+    slug: slugOf("c2"),
+    answers: {
+      route: [{ intent: "edit", layer: "look", alsoAsked: [ADD, LINE], dependsOn: [{ change: 2, after: [0] }] }, { intent: "addon" }, { intent: "edit", layer: "look", answered: true }, { intent: "edit", layer: "look", page: "/visit" }],
+      [T.pick]: [
+        { fields: ["description"], scopes: [{ part: "description", words: DESC }] },
+        { fields: ["description"], scopes: [{ part: "description", words: DESC }] },
+        { fields: ["shape"], scopes: [{ part: "shape", page: "/visit", words: LINE }] },
+      ],
+      "lane:description": (args, n) => (n === 0 ? { question: QD } : NEW_DESC),
+      [T.tweak]: { source: VISIT_MOVED },
+      ...{ [T.adds]: GALLERY[T.adds], "add:page": GALLERY["add:page"], [T.pages]: GALLERY[T.pages] },
+    },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", " + ADD + ", and " + LINE + "." });
+    const s1 = await settle(P, r.key);
+    // PART 0 ASKED; PART 1 IS INDEPENDENT AND WENT AHEAD; PART 2 NEEDS PART 0 AND WAITS.
+    assert.deepEqual(statuses(s1.rec), ["waiting", "done", "blocked"], JSON.stringify(s1.rec.parts.map((p) => [p.status, p.why])));
+    assert.ok(P.pages().includes("gallery.tsx"));
+    assert.equal(P.look().description, OLD_DESC, "the asking part changed something before its answer");
+    const q = P.question();
+    assert.equal(q.part, 0);
+    assert.equal(q.stage, "look");
+    // THE ANSWER RESUMES PART 0, AND PART 2 FOLLOWS.
+    await sendMessage(P, { message: "Overnight", ask: { id: q.id, chosen: true } });
+    const s2 = await settle(P, r.key);
+    assert.deepEqual(statuses(s2.rec), ["done", "done", "done"], JSON.stringify(s2.rec.parts.map((p) => [p.status, p.why])));
+    assert.equal(P.look().description, NEW_DESC);
+    assert.equal(P.page("visit.tsx"), VISIT_MOVED);
+  });
+});
+
+test("C3 — a part's question never replaces one the customer is answering: it waits its turn on the part, and is put in the slot once that one is settled", async () => {
+  await withPlatform({
+    slug: slugOf("c3"),
+    answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "clarify", question: Q }], ...DESCRIBE, ...GALLERY },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    // ANOTHER QUESTION GOES LIVE ON THE SITE MEANWHILE (another tab's message).
+    const other = { v: 2, id: "f".repeat(32), uid: USER.id, slug: P.slug, stage: "route", round: 1, question: { text: "Something else?", options: [] }, request: "Something else", held: [], at: P.now(), status: "pending", attached: false, context: [] };
+    await P.bucket.put("source/" + P.slug + "/question.json", JSON.stringify(other));
+    const s1 = await settle(P, r.key);
+    assert.deepEqual(statuses(s1.rec), ["done", "waiting"]);
+    assert.equal(s1.rec.parts[1].question.queued, true, "the part's question did not wait its turn");
+    assert.equal(P.question().id, other.id, "the part's question replaced the one waiting on the customer");
+    // THE OTHER IS CANCELLED: the part's question is offered on the next look.
+    const c = await call(P, "POST", "/api/site/" + P.slug + "/question", { id: other.id, cancel: true });
+    assert.equal(c.body.cancelled, true);
+    await tick(P);
+    const live = P.question();
+    assert.equal(live.requestKey, r.key);
+    assert.equal(live.status, "pending");
+    assert.equal(P.record(r.key).parts[1].question.queued, false);
+  });
+});
+
+test("C4 — cancelling a part's question ends that part: what needed it is not run, the rest goes ahead, and the acknowledgement says only that part is cancelled", async () => {
+  const LINE = "add a line about the new wording to the Visit page";
+  const QD = { text: "Which word should lead — overnight or slow?", options: ["Overnight", "Slow"] };
+  await withPlatform({
+    slug: slugOf("c4"), replies: true,
+    answers: {
+      route: [{ intent: "edit", layer: "look", alsoAsked: [ADD, LINE], dependsOn: [{ change: 2, after: [0] }] }, { intent: "addon" }],
+      ...DESCRIBE, "lane:description": { question: QD }, ...GALLERY,
+    },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", " + ADD + ", and " + LINE + "." });
+    await settle(P, r.key);
+    const q = P.question();
+    // AS THE PAGE SENDS IT, with the picked model the acknowledgement is written by.
+    const c = await call(P, "POST", "/api/site/" + P.slug + "/question", { id: q.id, cancel: true, picker: "sonnet" });
+    assert.equal(c.body.cancelled, true);
+    const rec = P.record(r.key);
+    assert.deepEqual(statuses(rec), ["cancelled", "done", "not-run"]);
+    assert.equal(rec.parts[0].why, "question-cancelled");
+    assert.equal(rec.parts[2].why, "needs:0");
+    assert.equal(rec.state, "partial");
+    assert.equal(P.look().description, OLD_DESC);
+    // THE ACKNOWLEDGEMENT'S FACTS: only that part, the rest as it stands.
+    const facts = P.replyLog.at(-1).map((f) => f.text).join(" | ");
+    assert.match(facts, /The part of their request that asked this question is cancelled/);
+    assert.match(facts, /Not started, because it needed the cancelled part: “add a line about the new wording to the Visit page”/);
+    assert.match(facts, /Already done before this, and unchanged by it: “add a gallery page”/);
+  });
+});
+
+test("C5 — a part's question nobody answers for a day expires, as the question does, and what needed it is not run", async () => {
+  await withPlatform({
+    slug: slugOf("c5"),
+    answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "clarify", question: Q }], ...DESCRIBE, ...GALLERY },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    await settle(P, r.key);
+    P.advance(24 * 60 * 60 * 1000 + 1000);
+    await tick(P);
+    const rec = P.record(r.key);
+    assert.deepEqual(statuses(rec), ["done", "expired"]);
+    assert.equal(rec.state, "partial");
+    assert.equal(rec.ended, true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// D. ATTACHMENTS KEPT ON THE SERVER FOR THE PART THAT READS THEM
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+const LOGO = "Use the attached picture as the logo";
+
+test("D1 — a message's file is kept on the server under its request, reaches the step that reads it whenever that step runs, and is let go when the request ends", async () => {
+  await withPlatform({ slug: slugOf("d1"), answers: { route: [{ intent: "edit", layer: "logo", alsoAsked: [ADD] }, { intent: "addon" }], ...GALLERY } }, async (P) => {
+    const r = await sendMessage(P, { message: LOGO + ", and " + ADD + ".", images: [{ name: "logo.png", data: PNG }] });
+    // KEPT BEFORE ANYTHING RAN: one durable copy, by content.
+    const rec0 = P.record(r.key);
+    assert.equal(rec0.files.length, 1);
+    assert.match(rec0.files[0].key, new RegExp("^requests/" + P.slug + "/" + r.key + "/files/[0-9a-f]{64}\\.png$"));
+    assert.ok(P.objects.has(rec0.files[0].key));
+    assert.equal(rec0.attached, true);
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    // THE LOGO STEP WAS SENT THE FILE, AS THE PAGE SENDS IT; THE ADDITION WAS NOT.
+    const [logoJob, , addJob] = P.jobsOf(r.key);
+    const lb = P.bodyOf(logoJob.id).body;
+    assert.deepEqual(lb.images, [{ data: PNG, name: "logo.png" }]);
+    assert.equal(lb.attached, true);
+    assert.equal(P.bodyOf(addJob.id).body.images, undefined);
+    assert.notEqual((P.look().wordmark || {}).form, "text", "the logo did not reach the site");
+    // THE LOGO STEP IS FREE, as it always was: no reserve for it.
+    assert.deepEqual(reserveOf(P, logoJob.id), []);
+    // AND THE COPY GOES WHEN THE REQUEST HAS ENDED.
+    assert.ok(!P.objects.has(rec0.files[0].key), "the request's file outlived it");
+  });
+});
+
+test("D2 — an answer to a part's question may bring a file: it joins the request's; past one request's files nothing is sent, the question stays and nothing is charged", async () => {
+  await withPlatform({
+    slug: slugOf("d2"),
+    answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "clarify", question: Q }, { intent: "addon", answered: true }], ...DESCRIBE, ...GALLERY },
+  }, async (P) => {
+    const three = [1, 2, 3].map((n) => ({ name: "p" + n + ".png", data: PNG }));
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + ".", images: three });
+    await settle(P, r.key);
+    const q = P.question();
+    assert.equal(q.part, 1);
+    const spent = P.spent();
+    const calls = P.modelLog.length;
+    // A FOURTH FILE WITH THE ANSWER: refused before any model is asked.
+    const over = await sendMessage(P, { message: "Use this one too", ask: { id: q.id, chosen: false }, images: [{ name: "p4.png", data: PNG }] });
+    assert.equal(over.status, 422);
+    assert.equal(over.body.error, "answer-files-full");
+    assert.equal(P.question().status, "pending", "the question did not stay open");
+    assert.equal(P.spent(), spent);
+    assert.equal(P.modelLog.length, calls);
+    // WITHOUT IT, THE ANSWER GOES THROUGH.
+    await sendMessage(P, { message: "Loaves", ask: { id: q.id, chosen: true } });
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "done"]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// E. NO PAGE NEEDED: CLOSED TABS, AND A PAGE OPENED LATER ON ANOTHER DEVICE
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("E1 — after the routing call nothing from the page is needed: a job's end that is lost is picked up by the two-minute sweep, and every part finishes", async () => {
+  await withPlatform({ slug: slugOf("e1"), answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }], ...DESCRIBE, ...GALLERY } }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    // THE TAB CLOSES HERE. Part 0's job runs, and the step after it is lost:
+    // the invocation dies writing the request's next step.
+    let n = 0;
+    P.hangPut((k) => k === "requests/" + P.slug + "/" + r.key + ".json" && ++n === 1);
+    const first = await pump(P);
+    assert.match(String(first.hung), /^put:requests\//);
+    P.recover();
+    assert.equal(P.look().description, NEW_DESC, "part 0 did not land before the crash");
+    // ONLY THE CRON FROM HERE ON.
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.ok(P.pages().includes("gallery.tsx"));
+    // ONE ROUTING CALL FROM THE PAGE, AND NOTHING ELSE OF ITS.
+    assert.deepEqual(rows(P, "route"), [-1]);
+    assert.equal(P.spent(), 4);
+  });
+});
+
+test("E2 — a page opened later, or on another device, finds the request, its parts and its question; an ended one stays listed for a day and is then let go", async () => {
+  await withPlatform({
+    slug: slugOf("e2"),
+    answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "clarify", question: Q }, { intent: "addon", answered: true }], ...DESCRIBE, ...GALLERY },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    await settle(P, r.key);
+    const list = await call(P, "GET", "/api/site/requests/" + P.slug);
+    assert.equal(list.status, 200);
+    assert.equal(list.body.requests.length, 1);
+    const v = list.body.requests[0];
+    assert.equal(v.key, r.key);
+    assert.deepEqual(v.parts.map((p) => p.status), ["done", "waiting"]);
+    assert.equal(v.parts[1].question.text, Q.text);
+    // THE QUESTION ROUTE NAMES ITS PART, so the other device's card answers it there.
+    const qd = await call(P, "GET", "/api/site/" + P.slug + "/question");
+    assert.deepEqual(qd.body.question.request, { key: r.key, part: 1 });
+    // NOTHING PRIVATE: no owner id, no file keys.
+    assert.equal(JSON.stringify(list.body).includes(USER.id), false);
+    // ANSWERED, ENDED, STILL LISTED; A DAY ON, LET GO.
+    await sendMessage(P, { message: "Loaves", ask: { id: P.question().id, chosen: true } });
+    await settle(P, r.key);
+    assert.equal((await call(P, "GET", "/api/site/requests/" + P.slug)).body.requests[0].ended, true);
+    P.advance(24 * 60 * 60 * 1000 + 5 * 60 * 1000);
+    await tick(P);
+    assert.deepEqual((await call(P, "GET", "/api/site/requests/" + P.slug)).body.requests, []);
+    // ANOTHER OWNER'S LOOK IS REFUSED AS IF IT WERE NOT THERE.
+    assert.equal((await call(P, "GET", "/api/site/request/" + P.slug + "/" + newKey())).status, 404);
+  });
+});
+
+test("E3 — the sweep reaches every page of markers in turn: a request whose marker sorts past the first page is still moved on", async () => {
+  await withPlatform({ slug: slugOf("e3"), answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }], ...DESCRIBE, ...GALLERY } }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    // PART 0 RUNS, AND THE STEP AFTER IT IS LOST, as in E1.
+    let n = 0;
+    P.hangPut((k) => k === "requests/" + P.slug + "/" + r.key + ".json" && ++n === 1);
+    assert.match(String((await pump(P)).hung), /^put:requests\//);
+    P.recover();
+    // A HUNDRED MARKERS OF REQUESTS THAT ENDED TODAY SORT BEFORE THIS ONE'S:
+    // a full first page with nothing to move on.
+    for (let i = 0; i < 100; i++) {
+      await P.bucket.put("requests-live/a0-ended/" + "k".repeat(14) + String(i).padStart(4, "0"), JSON.stringify({ at: P.now(), endedAt: P.now() }));
+    }
+    const stuck = JSON.stringify(P.record(r.key));
+    await tick(P);
+    assert.equal(JSON.stringify(P.record(r.key)), stuck, "the first page held only ended markers, and this request moved anyway");
+    await tick(P);
+    assert.notEqual(JSON.stringify(P.record(r.key)), stuck, "the sweep never got past the first page of markers");
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.ok(P.pages().includes("gallery.tsx"));
+    assert.deepEqual(rows(P, "route"), [-1]);
+  });
+});
+
+test("E4 — deleting a site takes its requests with it: the markers first, so the sweep moves nothing on for a site that is gone, then the records and files, before the row a retry needs", () => {
+  // THE SITE DELETE'S OWN SHAPE, as every by-slug cleanup there is guarded
+  // (backups, config, versions): anchors proven first, then the order.
+  const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  const del = w.indexOf("async function deleteSiteFor");
+  assert.ok(del > 0, "deleteSiteFor moved — rescope this");
+  const body = w.slice(del, w.indexOf("\n}", w.indexOf("domainsReleased", del)));
+  const markers = body.indexOf("REQUEST_LIVE_ROOT + dslug + \"/\"");
+  const records = body.indexOf("REQUEST_ROOT + dslug + \"/\"");
+  const row = body.indexOf('site_backends?slug=eq.${encodeURIComponent(dslug)}`, { method: "DELETE"');
+  assert.ok(markers > 0, "a deleted site's request markers outlive it — the sweep would route its parts for a site that is gone");
+  assert.ok(records > 0, "a deleted site's request records and files outlive it");
+  assert.ok(row > 0, "the registration delete moved — rescope this");
+  assert.ok(markers < records, "the records go before the markers, so a sweep between the two moves a request it can no longer read");
+  assert.ok(records < row, "the requests are wiped after the row delete — a failure there is unretryable");
+  assert.match(body, /rqCursor = \(got && got\.truncated\) \? got\.cursor : undefined/, "the requests wipe does not follow the cursor — it can leave objects behind");
+});
+
+test("E5 — a part's job that ended in the site's container moves its request on through the gateway's /next, bound to that job's own token: the Worker checks the request names the job, and nothing else moves it", async () => {
+  const JOB = "1".repeat(8) + "-2222-3333-4444-" + "5".repeat(12);
+  const KEY = "k".repeat(20);
+  // ── THE CONTAINER'S SIDE: the key, posted to the job's own gateway with its token.
+  const posts = [];
+  const jobEnv = makeContainerEnv({
+    gateway: { url: "https://gofarther.dev/api/job/" + JOB, token: "the-job-token" },
+    fetch: async (url, init) => { posts.push({ url: String(url), init }); return new Response("{}", { status: 200 }); },
+  });
+  assert.equal(typeof jobEnv.JOB_NEXT, "function", "a site job in the container has no way to move its request on");
+  assert.equal(await jobEnv.JOB_NEXT({ key: KEY }), true);
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0].url, "https://gofarther.dev/api/job/" + JOB + "/next");
+  assert.equal(posts[0].init.method, "POST");
+  assert.equal(new Headers(posts[0].init.headers).get("authorization"), "Bearer the-job-token");
+  assert.deepEqual(JSON.parse(posts[0].init.body), { key: KEY });
+  // A pre-scoped build has no request to move.
+  assert.equal(makeContainerEnv({ gateway: { url: "https://gofarther.dev/api/job/" + JOB, token: "t" }, pre: true, fetch: async () => new Response("{}") }).JOB_NEXT, undefined);
+
+  // ── THE GATEWAY: the token's own id, site and owner, and a key that reads; nothing else.
+  const gk = await gatewayKey("platform-secret");
+  const asked = [];
+  const handle = gatewayHandler({
+    bucket: { async get() { return null; } }, verify: (t) => verifyJobToken(t, gk, Date.now()),
+    next: async (a) => { asked.push(a); return a.key === KEY; },
+  });
+  const exp = Math.floor(Date.now() / 1000) + 600;
+  const tok = await signJobToken({ id: JOB, slug: "fold-lane", uid: USER.id, exp }, gk);
+  const post = (token, body, h = handle) => h(new Request("https://gofarther.dev/api/job/" + JOB + "/next", {
+    method: "POST", headers: { ...(token ? { authorization: "Bearer " + token } : {}), "content-type": "application/json" }, body: JSON.stringify(body),
+  }), JOB);
+  assert.equal((await post(tok, { key: KEY })).status, 200);
+  assert.deepEqual(asked, [{ id: JOB, slug: "fold-lane", uid: USER.id, key: KEY }], "the Worker was not asked with the token's own job, site and owner");
+  assert.equal((await post(tok, { key: "q".repeat(20) })).status, 404, "a request that does not name this job was moved");
+  for (const bad of [{ key: "short" }, { key: 42 }, {}]) assert.equal((await post(tok, bad)).status, 400, JSON.stringify(bad));
+  assert.equal((await post(null, { key: KEY })).status, 401);
+  assert.equal((await post(await signJobToken({ id: JOB, slug: preScopeSlug(JOB), uid: USER.id, exp, pre: true }, gk), { key: KEY })).status, 403, "a pre-scoped build moved a request");
+  assert.equal((await post(tok, { key: KEY }, gatewayHandler({ bucket: { async get() { return null; } }, verify: (t) => verifyJobToken(t, gk, Date.now()) }))).status, 503);
+  assert.equal(asked.length, 2, "a refused call still reached the Worker's step");
+
+  // ── THE WORKER'S STEP, through its own gateway mount: the request moves only
+  // for a job it names, under the request's own owner and site.
+  await withPlatform({ slug: slugOf("e5"), answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }], ...DESCRIBE, ...GALLERY } }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    // PART 0'S JOB RUNS, AND ITS OWN STEP AFTER IT IS LOST (as in E1).
+    let n = 0;
+    P.hangPut((k) => k === "requests/" + P.slug + "/" + r.key + ".json" && ++n === 1);
+    await pump(P);
+    P.recover();
+    P.env.SITE_SECRETS_KEY = "platform-secret";
+    const job0 = P.record(r.key).parts[0].jobs[0].id;
+    const stuck = JSON.stringify(P.record(r.key));
+    const sign = (p) => signJobToken({ exp, ...p }, gk);
+    const next = async (p, key = r.key) => call(P, "POST", "/api/job/" + p.id + "/next", { key }, "Bearer " + await sign(p));
+    // ANOTHER JOB'S TOKEN, ANOTHER OWNER'S, ANOTHER SITE'S: refused, nothing moved.
+    assert.equal((await next({ id: "9".repeat(8) + "-2222-3333-4444-" + "5".repeat(12), slug: P.slug, uid: USER.id })).status, 404);
+    assert.equal((await next({ id: job0, slug: P.slug, uid: "someone-else" })).status, 404);
+    assert.equal((await next({ id: job0, slug: "another-site", uid: USER.id })).status, 404);
+    assert.equal(JSON.stringify(P.record(r.key)), stuck, "a token that is not this request's job moved it");
+    // THE JOB'S OWN TOKEN: the request moves on, and the next part is filed.
+    const ok = await next({ id: job0, slug: P.slug, uid: USER.id });
+    assert.equal(ok.status, 200, JSON.stringify(ok.body));
+    const moved = P.record(r.key);
+    assert.equal(moved.parts[0].status, "done");
+    assert.equal(moved.parts[1].jobs.length, 1, "the next part was not filed");
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "done"]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// F. THE HAND-OVERS THE PAGE USED TO MAKE, MADE ON THE SERVER
+// ─────────────────────────────────────────────────────────────────────────────
+
+const LINE_FROM = "Bread from the harbour, every morning.";
+const textAnswer = (to) => (args) => {
+  const lines = String(args.messages[0].content).split("\n");
+  const at = lines.find((l) => l.includes("[index.tsx] " + LINE_FROM));
+  return { edits: [{ id: Number(String(at || "-1.").split(".")[0]), to }] };
+};
+
+test("F1 — a step that hands on to another edit step: the server files the next step with the same words, marked a hand-over, and the other part still runs", async () => {
+  const OPEN = "Change the opening line on the home page to say we open at 8";
+  await withPlatform({
+    slug: slugOf("f1"),
+    answers: { route: [{ intent: "edit", layer: "data", alsoAsked: [ADD] }, { intent: "addon" }], [T.text]: textAnswer("Open from 8 every morning."), ...GALLERY },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: OPEN + ", and " + ADD + "." });
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    const [dataJob, textJob] = P.jobsOf(r.key);
+    // THE DATA STEP HANDED ON (the site has no database): its answer is the escalate.
+    assert.equal(P.answerOf(dataJob).escalate, true);
+    assert.equal(P.answerOf(dataJob).layer, "text");
+    // THE NEXT STEP: the text layer, the same words, marked a hand-over, saying from where and why.
+    const b = P.bodyOf(textJob.id).body;
+    assert.equal(b.layer, "text");
+    assert.equal(b.handedOff, true);
+    assert.deepEqual(b.handOver, { from: "data", reason: "no-backend" });
+    assert.equal(b.instruction, P.bodyOf(dataJob.id).body.instruction);
+    assert.ok(P.page("index.tsx").includes("Open from 8 every morning."));
+    assert.ok(P.pages().includes("gallery.tsx"));
+    // THE PART'S JOBS FOR THE PAGE: only the step that answered, never the hand-over.
+    const v = await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key);
+    assert.deepEqual(v.body.request.parts[0].jobs, [textJob.id]);
+  });
+});
+
+test("F2 — an edit step that names the add-on hands the part there, with why: the addition is made, as the page's own hand-over made it", async () => {
+  await withPlatform({
+    slug: slugOf("f2"),
+    answers: {
+      route: [{ intent: "edit", layer: "look" }],
+      [T.pick]: { fields: ["pages"], pageVerb: "add", pageName: "/gallery", scopes: [{ part: "pages", words: "Add a gallery page" }] },
+      ...GALLERY,
+    },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: "Add a gallery page." });
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    const [lookJob, addJob] = P.jobsOf(r.key);
+    assert.equal(lookJob.op, "edit");
+    assert.equal(addJob.op, "addon");
+    const b = P.bodyOf(addJob.id).body;
+    assert.equal(b.instruction, "Add a gallery page.");
+    assert.deepEqual(b.handOver, { from: "look", reason: "addon", field: "pages" });
+    assert.ok(P.pages().includes("gallery.tsx"));
+  });
+});
+
+test("F3 — a step that can only be done by the full rewrite is not started: the part waits for a go-ahead, the rest still runs, and the customer is told the measured cost", async () => {
+  // A SITE WITH MORE WORDING THAN THE TEXT STEP REWRITES ONE AT A TIME: that
+  // step climbs (`too-much-text`) with no model call — the designed climb.
+  const many = Array.from({ length: 610 }, (_, i) => "<p>Line " + (i + 1) + " of our story.</p>").join("");
+  const BIG = [{ path: "index.tsx", source: pageSrc("/", "<section>" + many + "</section>") }, { path: "visit.tsx", source: VISIT }];
+  await withPlatform({ slug: slugOf("f3"), pages: BIG, replies: true, answers: { route: [{ intent: "edit", layer: "text", alsoAsked: [ADD] }, { intent: "addon" }], ...GALLERY } }, async (P) => {
+    const r = await sendMessage(P, { message: "Reword every line to sound warmer, and " + ADD + "." });
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["needs-rewrite", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.equal(rec.parts[0].why, "climb");
+    assert.equal(rec.state, "partial");
+    // NOTHING STARTED THE REWRITE: no build job, nothing charged for part 0.
+    assert.equal([...P.jobs.values()].some((j) => j.op === "build"), false);
+    assert.deepEqual(reserveOf(P, P.jobsOf(r.key)[0].id), []);
+    assert.equal(P.page("index.tsx"), BIG[0].source);
+    // THE CUSTOMER'S FACTS NAME THE GO-AHEAD AND ITS MEASURED COST.
+    await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key);
+    const facts = P.replyLog.at(-1).map((f) => f.text).join(" | ");
+    assert.match(facts, /only the full rewrite of every page could \(a full rewrite of the same site was measured at 17 credits\)/);
+    assert.match(facts, /button shown under this part/);
+  });
+});
+
+test("F4 — the hand-overs are bounded as the page bounded them: a second edit hand-over, a loop back to the add-on, or a long chain goes to the go-ahead, never round again", () => {
+  const edit = { op: "edit", layer: "look", handedOff: false, fromAddon: false, hops: 0 };
+  assert.deepEqual(handOff({ act: "hop", layer: "text" }, edit).act, "hop");
+  assert.deepEqual(handOff({ act: "hop", layer: "text" }, { ...edit, handedOff: true }), { act: "rewrite", why: "handed-off" });
+  assert.deepEqual(handOff({ act: "hop", layer: "look" }, edit), { act: "rewrite", why: "same-layer" });
+  assert.deepEqual(handOff({ act: "hop", layer: "addon" }, { ...edit, fromAddon: true }), { act: "stop" });
+  assert.deepEqual(handOff({ act: "hop", layer: "text" }, { ...edit, hops: HOPS_MAX }), { act: "rewrite", why: "hops" });
+  assert.deepEqual(handOff({ act: "climb" }, edit), { act: "rewrite", why: "climb" });
+  const addon = { op: "addon", layer: "", hops: 0 };
+  assert.deepEqual(handOff({ act: "hop", layer: "nav", page: "" }, addon), { act: "hop", op: "edit", layer: "nav", page: "", fromAddon: true, handedOff: true });
+  assert.deepEqual(handOff({ act: "hop", layer: "made-up" }, addon), { act: "unknown" });
+});
+
+test("F5 — every part's job posts exactly what the page posts for the same decision, field for field: the same route, gates, publish and charging", async () => {
+  const site = { slug: "rq-parity", name: "Harbour Loaf", react: true, pages: [{ path: "/" }, { path: "/visit" }], msgs: [], undoRows: [{ table: "loaves", was: { id: 1 } }] };
+  const MSG = DESC + ", and " + ADD + ".";
+  const cases = [
+    { intent: "edit", layer: "look", alsoAsked: [ADD], cost: 2 },
+    { intent: "edit", layer: "data", page: "/visit", alsoAsked: ADD, cost: 1 },
+    { intent: "edit", layer: "page", page: "/visit", remove: true, cost: 1 },
+    { intent: "addon", alsoAsked: [ADD], cost: 2 },
+  ];
+  const { planParts, newRequest } = await import("../builder/request.mjs");
+  for (const d of cases) {
+    const planned = planParts(MSG, d);
+    assert.equal(planned.ok, true);
+    const rec = newRequest({ key: "rqparity0000000000", uid: USER.id, slug: site.slug, message: MSG, picker: "sonnet", tz: "Europe/London", recent: site.undoRows, accepted: d, routedCost: d.cost, parts: planned.parts });
+    const ours = jobBody(rec, 0, "run", "rqparity0000000000-p0-1", { files: [] });
+    const page = browserBody(site, d, MSG);
+    assert.equal(ours.url, page.url, "a part posts to another route than the page: " + d.intent + "/" + d.layer);
+    const strip = (b) => { const o = JSON.parse(JSON.stringify(b)); delete o.idem; delete o.request; return o; };
+    assert.deepEqual(strip(ours.body), strip(page.body), "a part's body differs from the page's for " + d.intent + "/" + (d.layer || ""));
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// G. PARTIAL FAILURE: WHAT FINISHED STAYS FINISHED, AND EVERY OTHER PART SAYS WHY
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("G1 — a part whose routing fails on our side is asked once more, then ends failed with that reason; nothing is charged for a routing call that failed, and the finished part stays finished", async () => {
+  await withPlatform({
+    slug: slugOf("g1"), replies: true,
+    // THE ROUTER IS DOWN for part 1's routing, twice: no answer to give.
+    answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, null, null], ...DESCRIBE, ...GALLERY },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "failed"]);
+    assert.equal(rec.parts[1].why, "routing-failed");
+    assert.equal(rec.state, "partial");
+    const routeJobs = P.jobsOf(r.key).filter((j) => j.op === "route");
+    assert.equal(routeJobs.length, 2, "the failed routing was not asked exactly once more");
+    for (const j of routeJobs) {
+      assert.equal(P.answerOf(j).failed, true);
+      assert.deepEqual(reserveOf(P, j.id), [], "a routing call that failed was charged");
+    }
+    assert.equal(P.look().description, NEW_DESC, "the finished part was undone");
+    await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key);
+    const facts = P.replyLog.at(-1).map((f) => f.text).join(" | ");
+    assert.match(facts, /Not done: “add a gallery page” — working out what it needed failed on our side; nothing was charged for it\./);
+    assert.match(facts, /Done: “Change the site description/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H. STOP THE REST — THROUGH THE JOBS' OWN CANCEL
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("H1 — Stop before anything ran: the queued step ends cancelled with its money back, nothing else starts, and the site is as it was", async () => {
+  await withPlatform({ slug: slugOf("h1"), answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }], ...DESCRIBE, ...GALLERY } }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    const s = await call(P, "DELETE", "/api/site/request/" + P.slug + "/" + r.key);
+    assert.equal(s.status, 200);
+    assert.equal(s.body.request.stop, true);
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["cancelled", "cancelled"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.equal(rec.state, "stopped");
+    assert.equal(P.look().description, OLD_DESC);
+    assert.equal(P.jobsOf(r.key).length, 1, "a job was filed after the stop");
+    // THE STEP'S OWN CANCEL, AS IT HAS ALWAYS BEEN CAUGHT: at the publish gate,
+    // the money given back (the job runner then marks the row failed; its
+    // answer says why).
+    const j = P.jobsOf(r.key)[0];
+    assert.equal(P.answerOf(j).detail, "cancelled");
+    assert.equal(j.billing, "refunded");
+    // ONLY THE ROUTING CALL STAYS CHARGED: whatever the step reserved came back.
+    assert.equal(P.spent(), 1);
+  });
+});
+
+test("H2 — Stop after a part finished: it stays done, and a part's routing job still waiting ends at its gate before any model is asked", async () => {
+  await withPlatform({ slug: slugOf("h2"), answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }], ...DESCRIBE, ...GALLERY } }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    // PART 0'S JOB RUNS; PART 1'S ROUTING JOB IS FILED AND WAITS IN THE QUEUE.
+    const m0 = P.queue.shift();
+    P.queue.unshift(m0);
+    await pump(P, { max: 1 });
+    assert.equal(P.record(r.key).parts[0].status, "done");
+    assert.equal(P.queue.length, 1, "part 1's routing job was not waiting");
+    const routed = P.modelLog.filter((m) => m.tool === T.route).length;
+    await call(P, "DELETE", "/api/site/request/" + P.slug + "/" + r.key);
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "cancelled"]);
+    assert.equal(rec.state, "partial");
+    assert.equal(P.modelLog.filter((m) => m.tool === T.route).length, routed, "the stopped routing job asked the router");
+    const routeJob = P.jobsOf(r.key).find((j) => j.op === "route");
+    assert.equal(P.answerOf(routeJob).error, "cancelled");
+    assert.deepEqual(reserveOf(P, routeJob.id), []);
+    assert.equal(P.look().description, NEW_DESC);
+    assert.ok(!P.pages().includes("gallery.tsx"));
+  });
+});
+
+test("H3 — Stop pressed while a step is publishing comes too late for it: that part is done, and only what had not started is stopped", async () => {
+  await withPlatform({ slug: slugOf("h3"), answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }], ...DESCRIBE, ...GALLERY } }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    let stop = null;
+    P.after("edit_committed", async () => { stop = await call(P, "DELETE", "/api/site/request/" + P.slug + "/" + r.key); });
+    const { rec } = await settle(P, r.key);
+    assert.ok(stop && stop.status === 200, "the stop was not pressed mid-publish");
+    assert.deepEqual(statuses(rec), ["done", "cancelled"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.equal(P.look().description, NEW_DESC);
+    assert.equal(P.jobsOf(r.key).length, 1, "a job was filed after the stop");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// I. DUPLICATE DELIVERY: THE SAME MESSAGE, ANOTHER TAB, A REDELIVERED JOB
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("I1 — the same message sent again (a lost response) is answered from what was accepted: no second routing call, no second charge, no second request", async () => {
+  await withPlatform({ slug: slugOf("i1"), answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }], ...DESCRIBE, ...GALLERY } }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    const again = await sendMessage(P, { message: DESC + ", and " + ADD + ".", key: r.key });
+    assert.equal(again.body.duplicate, true);
+    assert.equal(again.body.request.key, r.key);
+    assert.equal(P.modelLog.filter((m) => m.tool === T.route).length, 1);
+    assert.deepEqual(rows(P, "route"), [-1]);
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "done"]);
+    assert.equal(P.jobsOf(r.key).length, 3);
+  });
+});
+
+test("I2 — two tabs sending the same message at once make one request: one routing charge, one set of jobs, both tabs following the same request", async () => {
+  await withPlatform({ slug: slugOf("i2"), answers: { route: (args, n) => (n < 2 ? { intent: "edit", layer: "look", alsoAsked: [ADD] } : { intent: "addon" }), ...DESCRIBE, ...GALLERY } }, async (P) => {
+    const key = newKey();
+    const msg = DESC + ", and " + ADD + ".";
+    const [a, b] = await Promise.all([sendMessage(P, { message: msg, key }), sendMessage(P, { message: msg, key })]);
+    assert.equal(a.body.request.key, key);
+    assert.equal(b.body.request.key, key);
+    assert.equal([a.body.duplicate, b.body.duplicate].filter((x) => x === true).length, 1, "neither or both were told they were the second");
+    // BOTH REACHED THE MODEL — ours to absorb — and the ledger took one charge.
+    assert.deepEqual(rows(P, "route"), [-1]);
+    const { rec } = await settle(P, key);
+    assert.deepEqual(statuses(rec), ["done", "done"]);
+    assert.deepEqual(jobLine(P, key), ["edit:done", "route:done", "addon:done"]);
+  });
+});
+
+test("I3 — every job delivered twice runs once: the second delivery finds the claim taken, nothing is charged twice and nothing is published twice", async () => {
+  await withPlatform({ slug: slugOf("i3"), answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }], ...DESCRIBE, ...GALLERY } }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    for (let i = 0; i < 8 && !(P.record(r.key) || {}).ended; i++) await pump(P, { twice: true });
+    const rec = P.record(r.key);
+    assert.deepEqual(statuses(rec), ["done", "done"]);
+    for (const j of P.jobsOf(r.key)) assert.deepEqual(reserveOf(P, j.id), [1]);
+    assert.equal(P.jobsOf(r.key).length, 3);
+    assert.equal(P.rpcLog.filter((c) => c.fn === "edit_committed" && c.out.ok).length, 2, "a step published twice");
+  });
+});
+
+test("I4 — an answer sent again under a new key finds its question already answered: nothing runs twice", async () => {
+  await withPlatform({
+    slug: slugOf("i4"),
+    answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "clarify", question: Q }, { intent: "addon", answered: true }], ...DESCRIBE, ...GALLERY },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    await settle(P, r.key);
+    const q = P.question();
+    await sendMessage(P, { message: "Loaves", ask: { id: q.id, chosen: true } });
+    const spent = P.spent();
+    const second = await sendMessage(P, { message: "Loaves", ask: { id: q.id, chosen: true } });
+    assert.equal(second.body.error, "stale-question");
+    assert.equal(P.spent(), spent);
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "done"]);
+    assert.equal(P.jobsOf(r.key).filter((j) => j.op === "addon").length, 1);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// J. CRASHES AROUND CHARGING AND PUBLICATION
+//
+// A crash here is an invocation that stops dead after a call LANDED and before
+// its caller heard back — no catch, no finally, its heartbeat gone — and the
+// platform's own sweeps meet what it left: the lease runs out (90 s) and, past
+// the grace (60 s), `edit_sweep_lost` settles the row; the request's sweep then
+// moves the request on. The job runner's recovery is the existing one; what
+// these show is that the REQUEST comes out right on top of it.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PAST_LEASE = (90 + 60 + 15) * 1000;
+// A PUBLISH HOLDS ITS LEASE LONGER (`PUBLISH_LEASE_S`, 300 s) than a step does.
+const PAST_PUBLISH = (300 + 60 + 15) * 1000;
+const TWO = [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }];
+
+test("J1 — a step that dies just after its charge: the sweep gives the money back, the part is run once more, and in the end it is charged once", async () => {
+  await withPlatform({ slug: slugOf("j1"), answers: { route: TWO, ...DESCRIBE, ...GALLERY } }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    P.hang("edit_reserve", (a, out) => !!out && out.ok === true && out.charged > 0);
+    assert.equal((await pump(P)).hung, "edit_reserve");
+    P.recover();
+    P.advance(PAST_LEASE);
+    await tick(P);
+    await tick(P);
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    const [first, second] = P.jobsOf(r.key).filter((j) => j.op === "edit");
+    assert.equal(first.state, "lost");
+    assert.equal(first.billing, "refunded");
+    assert.deepEqual(reserveOf(P, first.id), [1]);
+    assert.deepEqual(P.ledger.filter((e) => e.ref === first.id && e.reason === "refund").map((e) => e.delta), [1]);
+    assert.deepEqual(reserveOf(P, second.id), [1]);
+    assert.equal(P.look().description, NEW_DESC);
+    assert.equal(P.spent(), 4, "the part was charged more than once in the end");
+  });
+});
+
+test("J2 — a step that dies just after it published: the sweep keeps it (it is live) without a refund, the part is done, and the next part runs", async () => {
+  await withPlatform({ slug: slugOf("j2"), replies: true, answers: { route: TWO, ...DESCRIBE, ...GALLERY } }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    P.hang("edit_committed", (a, out) => !!out && out.ok === true);
+    assert.equal((await pump(P)).hung, "edit_committed");
+    P.recover();
+    P.advance(PAST_PUBLISH);
+    await tick(P);
+    await tick(P);
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.equal(rec.parts[0].why, "unrecorded");
+    const job = P.jobsOf(r.key)[0];
+    assert.equal(P.answerOf(job).recovered, true);
+    assert.equal(job.billing, "finalized");
+    assert.deepEqual(reserveOf(P, job.id), [1]);
+    assert.deepEqual(P.ledger.filter((e) => e.ref === job.id && e.reason === "refund"), []);
+    assert.equal(P.jobsOf(r.key).filter((j) => j.op === "edit").length, 1, "a published step was run again");
+    assert.equal(P.look().description, NEW_DESC);
+    assert.ok(P.pages().includes("gallery.tsx"));
+  });
+});
+
+test("J3 — a step that dies mid-publish is held for review: the request waits on it and starts nothing else; once it is settled the request goes on", async () => {
+  await withPlatform({ slug: slugOf("j3"), answers: { route: TWO, ...DESCRIBE, ...GALLERY } }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    P.hang("edit_may_publish", (a, out) => !!out && out.granted === true);
+    assert.equal((await pump(P)).hung, "edit_may_publish");
+    P.recover();
+    P.advance(PAST_PUBLISH);
+    await tick(P);
+    await tick(P);
+    const job = P.jobsOf(r.key)[0];
+    if (job.needs_review) {
+      // THE REVIEW COULD NOT DECIDE ON ITS OWN: the part says so and nothing else runs.
+      const held = P.record(r.key);
+      assert.equal(held.parts[0].status, "unverified");
+      assert.equal(held.state, "review");
+      assert.equal(P.jobsOf(r.key).length, 1, "a job was filed while one waited on review");
+      // A PERSON SETTLES IT: it never went live, and the money goes back.
+      P.reconcile(job.id, false);
+      await tick(P);
+    }
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    const edits = P.jobsOf(r.key).filter((j) => j.op === "edit");
+    assert.equal(edits.length, 2, "the part was not run once more after the review gave its money back");
+    assert.equal(edits[0].billing, "refunded");
+    assert.equal(P.spent(), 4);
+  });
+});
+
+test("J4 — the routing call dies just after its charge: the same message sent again routes once more but is not charged again, and one request is made", async () => {
+  await withPlatform({ slug: slugOf("j4"), answers: { route: (args, n) => (n < 2 ? TWO[0] : TWO[1]), ...DESCRIBE, ...GALLERY } }, async (P) => {
+    const key = newKey();
+    P.hang("credit_debit");
+    const first = await sendMessage(P, { message: DESC + ", and " + ADD + ".", key });
+    assert.equal(first.hung, "credit_debit");
+    P.recover();
+    assert.equal(P.record(key), null, "a request was made by the call that died");
+    const again = await sendMessage(P, { message: DESC + ", and " + ADD + ".", key });
+    assert.equal(again.body.request.key, key);
+    assert.deepEqual(rows(P, "route"), [-1], "the routing call was charged twice");
+    const { rec } = await settle(P, key);
+    assert.deepEqual(statuses(rec), ["done", "done"]);
+    assert.equal(P.spent(), 4);
+  });
+});
+
+test("J5 — the routing call dies just after the request is written: the same message sent again finds it and moves it on, and nothing is charged twice", async () => {
+  await withPlatform({ slug: slugOf("j5"), answers: { route: TWO, ...DESCRIBE, ...GALLERY } }, async (P) => {
+    const key = newKey();
+    P.hangPut((k) => k === "requests/" + P.slug + "/" + key + ".json");
+    const first = await sendMessage(P, { message: DESC + ", and " + ADD + ".", key });
+    assert.match(String(first.hung), /^put:requests\//);
+    P.recover();
+    assert.ok(P.record(key), "the request was not written before the crash");
+    assert.equal(P.jobsOf(key).length, 0);
+    const again = await sendMessage(P, { message: DESC + ", and " + ADD + ".", key });
+    assert.equal(again.body.duplicate, true);
+    assert.equal(P.jobsOf(key).length, 1, "the duplicate did not move the request on");
+    const { rec } = await settle(P, key);
+    assert.deepEqual(statuses(rec), ["done", "done"]);
+    assert.deepEqual(rows(P, "route"), [-1]);
+    assert.equal(P.modelLog.filter((m) => m.tool === T.route).length, 2, "the router was asked again for a message already accepted");
+  });
+});
+
+test("J6 — a job filed whose stored request failed to write is repaired on the next step under the same key: one job, run once", async () => {
+  await withPlatform({ slug: slugOf("j6"), answers: { route: TWO, ...DESCRIBE, ...GALLERY } }, async (P) => {
+    P.failPut((k) => k.startsWith("jobs/edit/"));
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    assert.equal(r.status, 200);
+    assert.equal(P.jobsOf(r.key).length, 1);
+    assert.equal(P.queue.length, 0, "a message was sent for a job with no stored request");
+    await tick(P);
+    assert.equal(P.queue.length, 1, "the next step did not repair the job");
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "done"]);
+    assert.equal(P.jobsOf(r.key).filter((j) => j.op === "edit").length, 1);
+  });
+});
+
+test("J7 — the routing call dies just after filing the first job's row: the same message sent again files it under the same key — one row — and it runs", async () => {
+  await withPlatform({ slug: slugOf("j7"), answers: { route: TWO, ...DESCRIBE, ...GALLERY } }, async (P) => {
+    const key = newKey();
+    P.hang("edit_create");
+    const first = await sendMessage(P, { message: DESC + ", and " + ADD + ".", key });
+    assert.equal(first.hung, "edit_create");
+    P.recover();
+    assert.equal(P.jobsOf(key).length, 1, "the row was not created before the crash");
+    await sendMessage(P, { message: DESC + ", and " + ADD + ".", key });
+    const { rec } = await settle(P, key);
+    assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+    assert.equal(P.jobsOf(key).filter((j) => j.op === "edit").length, 1, "the first job was filed twice");
+    assert.equal(P.spent(), 4);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// K. WHAT A PART'S OWN REPLY TELLS THE CUSTOMER ABOUT THE OTHER PARTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("K1 — a part's own reply says the other parts are done next by the same request, never that the customer should send them again", async () => {
+  await withPlatform({ slug: slugOf("k1"), replies: true, answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }], ...DESCRIBE, ...GALLERY } }, async (P) => {
+    const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+    await settle(P, r.key);
+    const job = P.jobsOf(r.key)[0];
+    const polled = await call(P, "GET", "/api/site/edit/" + job.id);
+    assert.equal(polled.body.replySource, "model");
+    const facts = P.replyLog.at(-1).map((f) => f.text).join(" | ");
+    assert.match(facts, /its own part of the same request, done separately after this one without them sending it again: “add a gallery page”/);
+    assert.doesNotMatch(facts, /they can send it next/);
+    // THE CONTROL: the same held part on a message sent the old way (no request) keeps its sentence.
+    const { editReplyFacts } = await import("../builder/site-reply.mjs");
+    const old = editReplyFacts({ ok: true, layer: "look", deferred: ADD }, {}).facts.map((f) => f.text).join(" | ");
+    assert.match(old, /they can send it next/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// L. THE SWITCH, AND THE PATHS IT LEAVES AS THEY WERE
+// ─────────────────────────────────────────────────────────────────────────────
+
+test("L1 — with the switch off, or edits not queued for this owner, a message with its key is answered as before: no request, nothing filed, the page drives its steps", async () => {
+  for (const off of [{ REQUEST_FLOW: "off" }, { REQUEST_FLOW: undefined }, { EDIT_ASYNC: "off" }]) {
+    await withPlatform({ slug: slugOf("l1"), answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }], ...DESCRIBE } }, async (P) => {
+      Object.assign(P.env, off);
+      const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
+      assert.equal(r.status, 200);
+      assert.equal(r.body.intent, "edit");
+      assert.equal(Object.hasOwn(r.body, "request"), false, JSON.stringify(off) + ": a request was made");
+      assert.equal(P.record(r.key), null);
+      assert.equal(P.jobs.size, 0, "a job was filed for a message the page drives");
+      // AND IT IS CHARGED AS IT ALWAYS WAS, not under the message's key.
+      assert.equal(P.ledger.some((e) => e.reason === "route"), false);
+    });
+  }
+});
+
+test("L2 — a first build, and a question about the site, are never taken on as requests", async () => {
+  await withPlatform({ slug: slugOf("l2"), answers: { route: [{ intent: "ask", answer: "We open at eight." }, { intent: "build" }] } }, async (P) => {
+    const r = await sendMessage(P, { message: "When do you open?" });
+    assert.equal(r.body.intent, "ask");
+    assert.equal(Object.hasOwn(r.body, "request"), false);
+    assert.equal(P.record(r.key), null);
+    // A FIRST BUILD, KEY AND ALL: the build path, untouched.
+    const key = newKey();
+    const b = await call(P, "POST", "/api/site/route", { message: "A bakery in Bristol", site: { name: "", pages: [], tables: [] }, picker: "sonnet", firstBuild: true, brief: "A bakery in Bristol", qa: [], answering: false, attached: false, slug: "", hasSite: false, idem: key });
+    assert.equal(b.status, 200);
+    assert.equal(Object.hasOwn(b.body, "request"), false);
+    assert.equal(P.record(key), null);
+    assert.equal(P.jobs.size, 0);
+  });
+  const { requestFlowOn } = await import("../builder/request.mjs");
+  assert.equal(requestFlowOn({ REQUEST_FLOW: "on" }), true);
+  assert.equal(requestFlowOn({ REQUEST_FLOW: " YES " }), true);
+  for (const v of [undefined, "", "off", "0", true, 1, ["on"]]) assert.equal(requestFlowOn({ REQUEST_FLOW: v }), false, String(v));
+});

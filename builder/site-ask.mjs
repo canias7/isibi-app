@@ -877,16 +877,53 @@ const FIRST_ALSO_AT =
   "A SECOND REQUEST THIS TURN CANNOT CARRY OUT — in their own words, copied EXACTLY from their message so " +
   "they can send it straight back. Whatever you put here is held back: it is taken out of what is done this " +
   "turn, and they are asked to send it next.\n";
+// ── HELD BACK IS NOT DROPPED (2026-10-03, the combined request flow) ────────
+//
+// Owner: *"one user message can request multiple edits and additions, and all
+// accepted parts are remembered and processed without the user resending
+// them or keeping the browser open."* A part held back here is kept on the
+// server as a part of the request and run after this answer, routed then
+// against the site as it is (`builder/request.mjs`). Where that flow is not on
+// (a browser that sent no message key, the synchronous path), the customer is
+// still told the part and sends it. The sentence says what is true in both:
+// the part is taken out of this answer and handled as a request of its own.
 const LIVE_ALSO_AT =
   "EACH SEPARATE REQUEST THIS TURN CANNOT CARRY OUT, one entry for each — in their own words, copied EXACTLY " +
-  "from their message so they can send it straight back. Whatever you put here is held back: it is taken out " +
-  "of what is done this turn, and they are asked to send it next.\n";
+  "from their message. Whatever you put here is held back from your answer: it is taken out of what your " +
+  "answer does, and handled after it as a request of its own.\n";
 function liveAlsoAsked() {
   const d = ASK_TOOL.input_schema.properties.alsoAsked.description;
   const at = d.indexOf(FIRST_ALSO_AT);
   if (at !== 0 || d.indexOf(FIRST_ALSO_AT, at + 1) >= 0) throw new Error("site-ask: the held-back field's first sentence was not found exactly once");
   return { type: "array", items: { type: "string" }, description: LIVE_ALSO_AT + d.slice(FIRST_ALSO_AT.length) };
 }
+
+// ── WHICH CHANGE NEEDS WHICH, SAID BY THE MODEL (2026-10-03) ────────────────
+//
+// Owner: *"Explain how multiple dependent operations are ordered even when the
+// user mentions prerequisites later in the sentence; let the model identify
+// those relationships, with code enforcing execution state, rather than
+// assuming textual order or inventing keyword rules."* The router names the
+// relations; `readDepends` checks them and `builder/request.mjs` decides what
+// may run. Where words sit in the message is never a dependency.
+const DEPENDS_ON = {
+  type: "array",
+  description:
+    "ONLY WHEN ONE CHANGE THEY ASK FOR NEEDS ANOTHER ONE MADE FIRST, wherever each comes in their message. Number " +
+    "the changes like this: 0 is the change your answer makes; 1 is the first entry of alsoAsked, 2 the second, " +
+    "and so on. For each change that has to wait, give one entry: `change` is its number, `after` the numbers of " +
+    "the changes it needs done first. A change needs another when it uses something that other change makes or " +
+    "changes and the site does not have yet. When the change your answer makes is the one that needs another, " +
+    "say so with change 0: it then waits until that one is done. Leave this out when no change needs another.",
+  items: {
+    type: "object",
+    properties: {
+      change: { type: "integer", description: "The number of the change that has to wait." },
+      after: { type: "array", items: { type: "integer" }, description: "The numbers of the changes it needs done first." },
+    },
+    required: ["change", "after"],
+  },
+};
 
 export const LIVE_ASK_TOOL = {
   name: ASK_TOOL.name,
@@ -897,6 +934,7 @@ export const LIVE_ASK_TOOL = {
       ...ASK_TOOL.input_schema.properties,
       intent: { ...ASK_TOOL.input_schema.properties.intent, description: liveIntentDescription() },
       alsoAsked: liveAlsoAsked(),
+      dependsOn: DEPENDS_ON,
       question: {
         type: "object",
         description: "Only when intent is \"clarify\". ONE short question, written to them, naming the one detail you need.",
@@ -1058,7 +1096,7 @@ const SYSTEM =
 // request and never a change of their own), the question and the answers
 // offered. The router then says whether the message answers it (`answered`);
 // nothing in code reads the customer's words to decide that.
-function liveBlock({ canAsk = false, pending = null, context = [] } = {}) {
+function liveBlock({ canAsk = false, pending = null, context = [], part = null } = {}) {
   const p = pending && typeof pending === "object" ? pending : null;
   const q = p && p.question && typeof p.question === "object" ? p.question : null;
   const opts = q && Array.isArray(q.options) ? q.options.filter((o) => typeof o === "string" && o) : [];
@@ -1077,8 +1115,9 @@ function liveBlock({ canAsk = false, pending = null, context = [] } = {}) {
     : "";
   // WHAT THEY ALREADY TOLD US ABOUT THE WAITING REQUEST, in its own section
   // under it: the details of that request, never asked again. Only beside a
-  // waiting request — a new message carries no answers of its own.
-  const told = waiting ? contextBlock(context) : "";
+  // waiting request — a new message carries no answers of its own — or beside
+  // a part of a longer request (2026-10-03), whose answers are that request's.
+  const told = waiting || readPartOf(part) ? contextBlock(context) : "";
   const asking = canAsk
     ? "\n\nA QUESTION MAY BE ASKED\nBefore answering with work you may ask them one question instead (\"clarify\"), when " +
       "a detail they left out decides your answer — whether it is a change or an addition, which page or part of the " +
@@ -1089,7 +1128,7 @@ function liveBlock({ canAsk = false, pending = null, context = [] } = {}) {
   return waiting + (told ? "\n" + told : "") + asking;
 }
 
-export function askRequest({ message, site, canClarify = false, brief = "", qa = [], hasSite = false, model = ASK_MODEL, live = false, canAsk = false, pending = null, context = [] } = {}) {
+export function askRequest({ message, site, canClarify = false, brief = "", qa = [], hasSite = false, model = ASK_MODEL, live = false, canAsk = false, pending = null, context = [], part = null } = {}) {
   // A FIRST BUILD'S MESSAGE IS CUT TO ITS OWN BOUND, AS IT ALWAYS WAS; a site
   // that exists sends it whole (2026-10-03, the size policy): the route has
   // already refused one past `MAX_INPUT_CHARS`, so nothing here shortens what
@@ -1132,7 +1171,7 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
     // A SITE THAT EXISTS (2026-10-02) is told its own two facts instead
     // (`liveBlock`); everything else in this request is what it was.
     : live
-      ? liveBlock({ canAsk, pending, context })
+      ? liveBlock({ canAsk, pending, context, part })
       : "\n\nQUESTIONS\nQuestions are closed for this message — never answer \"clarify\".";
   return {
     model,
@@ -1149,7 +1188,10 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
     // is a decision the code can read, not a reply a human has to interpret.
     tool_choice: { type: "tool", name: "route_message" },
     system: [{ type: "text", text: SYSTEM }],
-    messages: [{ role: "user", content: "THEIR SITE\n" + siteDigest(site) + state + round + "\n\nTHEIR MESSAGE\n" + text }],
+    // ONE PART OF A LONGER REQUEST (2026-10-03): the message it came from and
+    // what the parts before it did, after its own words — a site's only, and
+    // only when the route was handed one (`partBlock`).
+    messages: [{ role: "user", content: "THEIR SITE\n" + siteDigest(site) + state + round + "\n\nTHEIR MESSAGE\n" + text + (live && partBlock(part) ? "\n\n" + partBlock(part) : "") }],
   };
 }
 
@@ -1232,6 +1274,10 @@ export const ROUTE_REASONS = Object.freeze({
   // SEVERAL PARTS HELD BACK (2026-10-03): the router gave a list, each part its
   // own entry, carried as the hand-over's list and taken out by every route.
   "also-several": Object.freeze({ kind: "context", what: "several separate parts were held back, each its own entry" }),
+  // WHICH CHANGE NEEDS WHICH (2026-10-03, `readDepends`): named by the model,
+  // or unreadable and left out whole — the parts then carry no stated order.
+  "depends-named": Object.freeze({ kind: "context", what: "the answer said which changes need others done first" }),
+  "depends-unread": Object.freeze({ kind: "changed", what: "which changes need others could not be read whole, so no order was taken from it" }),
   "also-ignored": Object.freeze({ kind: "changed", what: "a held-back part on an answer that carries none, left out" }),
   "also-dropped": Object.freeze({ kind: "changed", what: "a held-back part beside an edit answer that could not be used, left out: the step it falls to gets the whole message" }),
   "answer-ignored": Object.freeze({ kind: "changed", what: "reply text on an answer that is not a reply, left out" }),
@@ -1638,7 +1684,43 @@ export function readAlso(input, trace = null) {
   }
   if (!out.length) return {};
   if (out.length > 1) mark("also-several");
-  return { alsoAsked: out.length === 1 ? out[0] : out };
+  const deps = readDepends(input, out.length, trace);
+  return { alsoAsked: out.length === 1 ? out[0] : out, ...(deps.length ? { dependsOn: deps } : {}) };
+}
+
+/**
+ * WHICH CHANGE NEEDS WHICH (2026-10-03, `DEPENDS_ON`): `[{ change, after }]`
+ * over the changes numbered 0 (the one the answer makes) to `held` (the last
+ * part held back), each `after` a list of other changes' numbers, an entry for
+ * one change merged with another for the same change. `[]` when the model said
+ * none — and when what it said cannot be read whole: a number outside the
+ * changes, a change that needs itself, a value of another type. A relation is
+ * never half-read, and never coerced (`Number("1")` is 1); an unreadable set
+ * leaves the parts with no stated order, said in the trace (`depends-unread`),
+ * so `builder/request.mjs` runs them as independent parts — each step's own
+ * checks refuse work whose prerequisite is missing — and never on a guess.
+ */
+export function readDepends(input, held, trace = null) {
+  const mark = noteTo(trace);
+  const v = input ? input.dependsOn : undefined;
+  if (!given(v)) return [];
+  const top = Number.isInteger(held) && held > 0 ? held : 0;
+  const ok = (n) => Number.isInteger(n) && n >= 0 && n <= top;
+  if (!Array.isArray(v)) { mark("depends-unread"); return []; }
+  const by = new Map();
+  for (const e of v) {
+    if (!e || typeof e !== "object" || Array.isArray(e) || !ok(e.change) || !Array.isArray(e.after)) { mark("depends-unread"); return []; }
+    for (const a of e.after) {
+      if (!ok(a) || a === e.change) { mark("depends-unread"); return []; }
+    }
+    const list = by.get(e.change) || [];
+    for (const a of e.after) if (!list.includes(a)) list.push(a);
+    by.set(e.change, list);
+  }
+  const out = [...by.entries()].filter(([, after]) => after.length).map(([change, after]) => ({ change, after: after.slice().sort((x, y) => x - y) }));
+  out.sort((x, y) => x.change - y.change);
+  if (out.length) mark("depends-named");
+  return out;
 }
 
 /**
@@ -2403,6 +2485,57 @@ export function withContext(request, context) {
   return afterLastUser(request, contextBlock(context));
 }
 
+// ── ONE PART OF A LONGER REQUEST KEEPS WHAT ITS WORDS REFER TO (2026-10-03) ──
+//
+// Owner: *"preserve context so references like 'it' remain meaningful."* A
+// part run on its own words loses their referent: in "add a gallery page and
+// put it in the menu", the part "put it in the menu" does not say what "it"
+// is. So every model call made for a part of a request is shown, after
+// everything else it holds, the whole message the part came from and what the
+// parts before it really did — for reference only. The part's own words stay
+// the only thing it may act on, and no step's request builder changes: the
+// router adds it (`askRequest`'s `part`), and every step's calls through the
+// transport that adds the answers (`clarifyTransport`'s `part`).
+export const PART_HEADING = "THE WHOLE REQUEST THIS PART CAME FROM";
+
+/**
+ * `{ original, done: [{ words, said }] }`, or `null` when there is nothing to
+ * show or it cannot be read. Never coerced, never cut: a value past what one
+ * request carries (`MAX_CARRIED_CHARS`) is not read at all.
+ */
+export function readPartOf(v) {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+  const original = typeof v.original === "string" ? v.original.trim() : "";
+  if (!original || original.length > MAX_INPUT_CHARS) return null;
+  const done = [];
+  let chars = original.length;
+  for (const d of Array.isArray(v.done) ? v.done : []) {
+    if (!d || typeof d !== "object" || typeof d.words !== "string" || typeof d.said !== "string") return null;
+    const words = d.words.trim();
+    const said = d.said.trim();
+    if (!words || !said) return null;
+    chars += words.length + said.length;
+    if (chars > MAX_CARRIED_CHARS) return null;
+    done.push({ words, said });
+  }
+  return { original, done };
+}
+
+export function partBlock(part) {
+  const p = readPartOf(part);
+  if (!p) return "";
+  return PART_HEADING + " — for what this part's words refer to (\"it\", \"that page\", \"there\") and nothing " +
+    "else. Do only what this part asks; the rest of the request is handled on its own:\n“" + p.original + "”" +
+    (p.done.length
+      ? "\nWHAT THE PARTS BEFORE THIS ONE DID, in order:\n" + p.done.map((d, i) => (i + 1) + ". “" + d.words + "” — " + d.said).join("\n")
+      : "");
+}
+
+/** A model request with the part's section after everything else; the request itself when there is none. */
+export function withPart(request, part) {
+  return afterLastUser(request, partBlock(part));
+}
+
 /**
  * THE NOTE A MODEL IS SENT AGAIN WITH, when it asked what was already
  * answered: every answer to that question, and the two things it may do with
@@ -2590,7 +2723,7 @@ export function routeFailure(stage, e, { model, classify } = {}) {
  * for a call that failed — the same our-fault rule the build path follows. And
  * it says why, as `failure` (`routeFailure` above).
  */
-export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, attached = false, hasSite = false, model = ASK_MODEL, tablesFilled = false, pagesFilled = false, pagesComplete = true, canAsk: askable = false, context = [], pending = null } = {}) {
+export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, attached = false, hasSite = false, model = ASK_MODEL, tablesFilled = false, pagesFilled = false, pagesComplete = true, canAsk: askable = false, context = [], pending = null, part = null } = {}) {
   const text = String(message || "").trim();
   // AN EMPTY MESSAGE NEVER REACHES THE MODEL. The composer will not send one, but
   // this is a paid call behind a public route and "the client wouldn't do that"
@@ -2654,7 +2787,11 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
     // page addresses (2026-10-03).
     if (tablesFilled === true) shown.push("tables-filled");
     if (pagesFilled === true) shown.push("pages-filled");
-    request = askRequest({ message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live, canAsk, pending: waiting, context: told });
+    // A PART OF A LONGER REQUEST (2026-10-03) is shown the answers that
+    // request already has beside its own words, as a waiting request is, and
+    // the message it came from (`partBlock`).
+    const partOf = live && !waiting ? readPartOf(part) : null;
+    request = askRequest({ message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live, canAsk, pending: waiting, context: waiting ? told : (partOf ? (readContext(context) || []) : told), part: partOf });
   } catch (e) {
     return fail("request", e);
   }

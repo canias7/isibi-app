@@ -1586,6 +1586,17 @@ body.in-sites .top-tab, body.in-sites .top-back { display: none !important; }
    exists to avoid. */
 .st-opt-skip { color: var(--muted); }
 .st-opt-skip:hover { color: var(--text); }
+/* A REQUEST OF SEVERAL PARTS (2026-10-03): one card under its message, each
+   part's words beside its status, in the thread's own type and colours — what
+   happened is said in the replies above and below it, so the card stays quiet:
+   a list, a muted status, and the question card's own quiet buttons. */
+.st-req { margin: .15rem 0 .2rem; }
+.st-req-parts { margin: 0; padding-left: 1.25rem; display: flex; flex-direction: column; gap: .3rem; }
+.st-req-part { font-size: .84rem; line-height: 1.4; }
+.st-req-words { display: block; overflow-wrap: anywhere; }
+.st-req-status { display: block; font-size: .74rem; color: var(--muted); }
+.st-req-done .st-req-status { color: var(--text); }
+.st-req-go { margin-top: .15rem; }
 .st-act { font: inherit; font-size: .8rem; background: none; border: none; color: var(--muted); cursor: pointer; padding: 0; }
 .st-act:hover { color: var(--text); }
 .st-msg.st-busy { color: var(--muted); }

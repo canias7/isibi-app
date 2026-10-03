@@ -221,12 +221,19 @@ function factList() {
   return { add, out };
 }
 
-/** The parts left for later: this turn's (`deferred`) and those put off before a question (`putOff`). */
-function heldFacts(F, body, done) {
+/**
+ * The parts left for later: this turn's (`deferred`) and those put off before a
+ * question (`putOff`). IN A REQUEST OF SEVERAL PARTS (2026-10-03, `inRequest`)
+ * they are its other parts, which the server runs after this one by itself —
+ * so nobody is asked to send them again.
+ */
+function heldFacts(F, body, done, inRequest = false) {
   const now = partsOf(body.deferred);
   const parts = now.concat(partsOf(body.putOff).filter((p) => !now.includes(p)));
   for (const p of parts) {
-    F.add("pending", (done ? "Left for later, so not tried this time (they can send it next): " : "Left for later, so not tried: ") + quote(p));
+    F.add("pending", inRequest
+      ? "Not part of this step: it is its own part of the same request, done separately after this one without them sending it again: " + quote(p)
+      : (done ? "Left for later, so not tried this time (they can send it next): " : "Left for later, so not tried: ") + quote(p));
   }
 }
 
@@ -394,7 +401,7 @@ function outcomeFacts(F, e) {
  * queued job's stored one. `skip` says why no reply is written: an answer that
  * is not an ending, or a failure of ours that keeps its fixed sentence.
  */
-export function editReplyFacts(e, { routedCost = null } = {}) {
+export function editReplyFacts(e, { routedCost = null, inRequest = false } = {}) {
   if (!e || typeof e !== "object" || Array.isArray(e)) return { skip: "unreadable", facts: [] };
   if (e.escalate === true) return { skip: "escalate", facts: [] };
   if (typeof e.job === "string" && typeof e.poll === "string") return { skip: "receipt", facts: [] };
@@ -486,7 +493,7 @@ export function editReplyFacts(e, { routedCost = null } = {}) {
       refusalMoney(F, e, routedCost);
     }
   }
-  heldFacts(F, e, e.ok === true);
+  heldFacts(F, e, e.ok === true, inRequest === true);
   questionFact(F, e.clarify);
   return questionOnly(F.out) ? { skip: "question-only", facts: [] } : { skip: null, facts: F.out };
 }
@@ -567,7 +574,7 @@ function placedFacts(F, a) {
 }
 
 /** THE FACTS OF AN ADD-ON'S FINAL ANSWER, synchronous or a queued job's stored one. */
-export function addonReplyFacts(a, { routedCost = null } = {}) {
+export function addonReplyFacts(a, { routedCost = null, inRequest = false } = {}) {
   if (!a || typeof a !== "object" || Array.isArray(a)) return { skip: "unreadable", facts: [] };
   if (a.escalate === true) return { skip: "escalate", facts: [] };
   if (typeof a.job === "string" && typeof a.poll === "string") return { skip: "receipt", facts: [] };
@@ -657,7 +664,7 @@ export function addonReplyFacts(a, { routedCost = null } = {}) {
     });
     if (routedCost !== null && num(routedCost) > 0) F.add("money", "Reading their message cost " + count(num(routedCost), "credit") + ".");
   }
-  heldFacts(F, a, a.ok === true);
+  heldFacts(F, a, a.ok === true, inRequest === true);
   questionFact(F, a.clarify);
   return questionOnly(F.out) ? { skip: "question-only", facts: [] } : { skip: null, facts: F.out };
 }
@@ -702,6 +709,14 @@ export function routeReplyFacts(d) {
       max.toLocaleString("en-GB") + " characters, what the builder can carry beside their site in one request), so it was not sent on.");
     F.add("nothing", "Nothing on their site changed, and nothing was charged.");
     F.add("note", "Their words are kept in the message box: a shorter message, or the request sent as separate messages, lets it go ahead.");
+  } else if (d.error === "answer-files-full") {
+    // A PART'S QUESTION ANSWERED WITH FILES (2026-10-03): with the request's own,
+    // more than one request can carry.
+    const had = num(d.files);
+    const max = num(d.max);
+    F.add("not-done", "Their answer brought " + (num(d.adding) === 1 ? "a file" : "files") + ", and with the " + (had === 1 ? "file" : (had || "") + " files").trim() + " their request already carries that is more than one request can carry" + (max ? " (" + max + ")" : "") + ", so the answer was not sent on.");
+    F.add("pending", "Their request is still waiting, with its question still open; their answer and its files are back in the message box.");
+    F.add("nothing", "Nothing on their site changed, and nothing was charged.");
   } else if (d.error === "answers-full") {
     F.add("not-done", "Their request already carries as many answers as can be kept beside it, and every one of them is still needed, so this answer could not be added without forgetting one they gave.");
     F.add("nothing", "Nothing on their site changed, and nothing was charged.");
@@ -716,7 +731,18 @@ export function routeReplyFacts(d) {
 export function cancelReplyFacts(r) {
   if (!r || typeof r !== "object" || Array.isArray(r) || typeof r.cancelled !== "boolean") return { skip: "unreadable", facts: [] };
   const F = factList();
-  if (r.cancelled) {
+  if (r.cancelled && r.request && typeof r.request === "object" && Array.isArray(r.request.parts)) {
+    // ONE PART OF A LONGER REQUEST (2026-10-03): only that part ends; the rest
+    // goes on as it was, except what needed it.
+    F.add("changed", "The part of their request that asked this question is cancelled: nothing more will be done for it.");
+    F.add("nothing", "Nothing on their site changed because of it.");
+    for (const p of r.request.parts) {
+      if (!p || typeof p.words !== "string") continue;
+      if (p.status === "not-run") F.add("not-done", "Not started, because it needed the cancelled part: " + quote(p.words));
+      else if (p.status === "done") F.add("note", "Already done before this, and unchanged by it: " + quote(p.words));
+      else if (p.status !== "cancelled") F.add("pending", "Still going ahead as part of the same request: " + quote(p.words));
+    }
+  } else if (r.cancelled) {
     F.add("changed", "Their waiting request is cancelled: nothing more will be done for it.");
     F.add("nothing", "Nothing on their site changed because of it.");
     for (const p of partsOf(r.putOff)) F.add("pending", "Left for later and never tried, so it is not done either: " + quote(p));
@@ -726,6 +752,64 @@ export function cancelReplyFacts(r) {
       : r.why === "missing"
         ? "There was nothing to cancel: no question is waiting on this site."
         : "There was nothing to cancel: that question had already been answered or replaced, so whatever it led to is going ahead as answered.");
+  }
+  return { skip: null, facts: F.out };
+}
+
+/**
+ * THE FACTS OF A REQUEST OF SEVERAL PARTS (2026-10-03, the combined request
+ * flow): one fact per part, from its status on the server (`requestView` in
+ * builder/request.mjs) — for what no part's own reply explains. A part a job
+ * finished has its own reply, written from that job's answer, and is named
+ * here only as done; a part that never ran says why (the part it needed, a
+ * stop, a question nobody answered, the full rewrite it would need), and a
+ * part still going says whether it is queued, running or waiting — never
+ * done before its record says so. Nothing to add when every part is done and
+ * each has its own reply.
+ */
+export function requestReplyFacts(v) {
+  if (!v || typeof v !== "object" || !Array.isArray(v.parts) || !v.parts.length) return { skip: "unreadable", facts: [] };
+  const parts = v.parts.filter((p) => p && typeof p.words === "string" && typeof p.status === "string");
+  const own = (p) => Array.isArray(p.jobs) && p.jobs.length > 0;
+  if (parts.every((p) => p.status === "done" && (own(p) || typeof p.answer === "string"))) return { skip: "nothing-to-add", facts: [] };
+  const F = factList();
+  const named = (n) => { const q = parts.find((x) => x.n === n); return q ? quote(q.words) : "another part of the request"; };
+  const neededOf = (p) => Number((/^needs:(\d+)$/.exec(String(p.why || "")) || [])[1]);
+  for (const p of parts) {
+    const w = quote(p.words);
+    const item = "part:" + p.n;
+    if (p.status === "done") {
+      F.add("changed", "Done: " + w + (own(p) ? " — its own reply above says what changed." : typeof p.answer === "string" ? " — they asked a question, answered above." : "."), item);
+    } else if (p.status === "not-run") {
+      F.add("not-done", "Not started: " + w + ", because it needed " + named(neededOf(p)) + " done first, and that did not finish. Nothing was charged for it.", item);
+    } else if (p.status === "cancelled") {
+      F.add("not-done", "Stopped at their request before it changed anything: " + w + ". Nothing was charged for it.", item);
+    } else if (p.status === "needs-rewrite") {
+      F.add("not-done", "Not made: " + w + ". The quicker steps could not make it; only the full rewrite of every page could " +
+        "(a full rewrite of the same site was measured at 17 credits), which changes far more than this part asked for, " +
+        "so it was not started. They can start it from the button shown under this part, or leave it.", item);
+    } else if (p.status === "expired") {
+      F.add("not-done", "Not done: " + w + ", because the question it asked went unanswered for a day. They can ask for it again.", item);
+    } else if (p.status === "refused") {
+      F.add("not-done", "Not done: " + w + ", because it and the parts it depends on could not be put in an order that works. They can send it on its own.", item);
+    } else if (p.status === "failed") {
+      F.add("not-done", "Not done: " + w + (own(p) ? " — its own reply above says why."
+        : p.why === "routing-failed" ? " — working out what it needed failed on our side; nothing was charged for it."
+        : " — it stopped before it finished, on our side; nothing was charged for it."), item);
+    } else if (p.status === "waiting") {
+      const q = p.question && typeof p.question.text === "string" ? p.question.text : "";
+      F.add("question", "Waiting for their answer before it goes on: " + w + (q ? ", which asked " + quote(q) : "") + ".", item);
+    } else if (p.status === "unverified") {
+      F.add("pending", "Not known yet whether it went live: " + w + "; it is being checked, and nothing else runs until that is settled.", item);
+    } else if (p.status === "started") {
+      F.add("pending", "Being done now: " + w + ".", item);
+    } else if (p.status === "blocked") {
+      F.add("pending", "Queued, and waiting for another part to finish first: " + w + ".", item);
+    } else if (p.why === "site-review") {
+      F.add("pending", "Queued, and waiting: " + w + ". Their site takes no new changes until an earlier change that stopped part-way through publishing has been checked; it goes ahead after that.", item);
+    } else {
+      F.add("pending", "Queued, not started yet: " + w + ".", item);
+    }
   }
   return { skip: null, facts: F.out };
 }
