@@ -803,14 +803,33 @@ the owner's free press, run 51, at 22:57 UTC):
         green (run 37150065918); four screenshots in the session.
       - Code: `4fd05e68`. The record:
         `docs/history/2026-10-03-request-review-fixes.md`.
+    - **The owner's second review: two recovery gaps closed** (2026-10-03,
+      on the branch, unmerged, undeployed, off; nothing spent):
+      - a record write whose answer is lost is an outcome not known: nothing
+        is deleted, the record is read back under the same key, and an
+        acceptance's own copies (under its own id) go only once no record
+        can name them;
+      - the full rewrite's go-ahead is written before anything depends on
+        it: the press stores the build's job, then writes the go-ahead as a
+        job not yet filed, and the request's next step files it, so a press
+        cut off at any later point is finished by the server with no second
+        press, one rewrite and one charge;
+      - **Tested with supplied model output**: J10–J16 (the logo step's job
+        reads the file's exact bytes; a lost answer, two acceptances at
+        once, the browser closed), N5 (five crash points after the go-ahead,
+        no press, resend or page look), N8, N9, and N2–N4 updated; red check
+        14 of 67 on `caeb4414`; sweep 27 of 27, 3 controls surviving; full
+        suite `9237 / 9237 / 0 / 0`.
+      - Code: `567409ce`. The record:
+        `docs/history/2026-10-03-recovery-gaps.md`.
     - **Before the switch goes on**: a merge and deploy on the owner's
       word, then a request-mode UI canary press (backlog).
     - The record: `docs/history/2026-10-03-combined-requests.md`. How it
       works: `docs/request-flow.md`.
-    - **Next**: the owner's review of the fixes; a merge on their word (the
-      image rolls, `8bfc67dc695e65cc` → `ca9a89c7bed78b38` on `4fd05e68`,
-      predicted, not built); a request-mode canary press; the switch; a
-      real-model batch on their approval.
+    - **Next**: the owner's review of the recovery fixes; a merge on their
+      word (the image rolls, `8bfc67dc695e65cc` → `882477e1bbbe8cbe` on
+      `567409ce`, predicted, not built); a request-mode canary press; the
+      switch; a real-model batch on their approval.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

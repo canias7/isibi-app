@@ -1,17 +1,17 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-03, 20:10 UTC)
+## Current handoff — read this first (2026-10-03, 22:46 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **Your review's three findings are fixed on the branch, and the UI canary
-  has its request mode**, for your review.
-  - The code is `4fd05e68`. The record is
-    `docs/history/2026-10-03-request-review-fixes.md`, and how it works is
-    `docs/request-flow.md`.
+- **The two recovery gaps of your second review are closed on the branch**,
+  for your review.
+  - The code is `567409ce`. The record is
+    `docs/history/2026-10-03-recovery-gaps.md`, and how it works is
+    `docs/request-flow.md` (*The checkpoints*).
 - **The combined flow stays unmerged, undeployed and off** (`REQUEST_FLOW`).
   With it off, nothing a customer or the canaries see changes.
 - **Nothing merged or deployed. No paid call, no model call, no live
@@ -21,77 +21,57 @@ is in git; the dated entries further down are the full story.*
 - Deploy 2180 is still live and still waits on your free runtime press.
 
 **What changed**
-- **Additions set aside are no longer lost inside an `ok`.** The add-on
-  picker now names your own words for each kind it picks. When the add-on
-  step sets a menu link aside beside a new page, or a list entry beside
-  other additions, those words become their own part of the request, routed
-  and made like any other.
-  - **Without the words**, the addition counts as done only in part.
-  - **"Done" now means everything asked.** Any answer that names something it
-    didn't do is *Partly done*, kept apart from a refusal. Nothing that
-    needed it runs, and the replies say so.
-- **A saved request can no longer be lost between two writes.** The marker
-  the two-minute timer looks for is now written before the request itself.
-  So any request that was saved is found and finished, with no browser, no
-  resend and nobody looking at it. A marker whose request never got saved is
-  cleared after 15 minutes.
-- **The full rewrite's go-ahead stays on the request.**
-  - The part waits for your go-ahead, keeping its files. What needs it waits
-    too, and independent parts carry on.
-  - The button posts the go-ahead to the request, which runs the existing
-    queued rebuild with the part's words and files, records the result on
-    the part, and then runs what was waiting for it.
-  - Pressing twice, or from another device, starts one rebuild. Stop before
-    it starts ends it with nothing spent. Left for a day, it lapses.
-- **The UI canary follows a request the server runs.** It waits for the
-  request to end. The card doesn't count as a reply. Its wall is the
-  request's own Stop, sent the moment a part goes somewhere the test doesn't
-  allow or waits for the go-ahead. It never presses the go-ahead.
+- **A save that loses its answer no longer deletes your files.**
+  - Each attempt to take on a message keeps its own copies of the files,
+    and its record says which attempt wrote it.
+  - A save that errors deletes nothing; the record under the same request
+    key is read back. This attempt's: it carries on. Another attempt's (a
+    second tab, a retry): that one answers, and this attempt's own copies
+    go. Nothing there: saved again under the same key. Can't tell: kept,
+    and the two-minute timer finishes a record that did land.
+  - Copies go only when no record can name them.
+- **The go-ahead is written before anything depends on it.**
+  - The press stores the rebuild's job (with your session), then writes the
+    go-ahead, then the request's ordinary next step files and sends the
+    rebuild.
+  - A press cut off after the go-ahead is written is finished by the server:
+    the timer or the rebuild's own end. No second press, no resend, no page
+    open; one rebuild, one charge.
+  - A press that never wrote the go-ahead gave none; its stored job is let
+    go when the request ends.
+  - Stop and pressing twice behave as before. A Stop also ends a rebuild
+    whose cancel never reached its row.
 
 **How I checked it** (all free, supplied model answers)
-- **23 new tests**, through the real Worker and, for the go-ahead, the real
-  queued build on the test platform.
-  - **14 flow tests**: a page and its menu link; additions and a list entry;
-    work that waits for the set-aside link; a set-aside with no words;
-    recovery by the timer alone; the marker write failing, or landing with
-    the call dying; and the go-ahead given, given twice and from another
-    device, failing, stopped three ways, crashing three ways, lapsing, and
-    finishing in the container.
-  - **2 decision tests and 7 canary tests.** The page test for the button and
-    the full-rewrite test were rewritten.
-  - Each test reads the final site, the request's statuses, the job rows,
-    what the reply writer was told, and the ledger.
-- **Red check**: on the code before this round, the new tests fail.
-- **Mutation sweep**: 41 of 41 defects caught. The first run caught 38; the
-  three it missed were gaps in the tests, each closed and then caught. The
-  comment-only controls survived.
-- **Full suite**: `9228 / 9228 / 0 / 0` locally (from `9205`).
-- **CI on the push, green**:
-  - unit tests `9228 / 9224 / 0 / 4` on `0d764232`, the code and its
-    records (run 37150065928); CI skips four, as always;
-  - the site build on the same commit: 404 checks in 27 sections, every job
-    green (run 37150065918).
-- **Screenshots** (sent in our chat): the go-ahead waiting, given and done,
-  and a part done only in part.
+- **Tests**: J10–J16 for the files, each reading the exact bytes the logo
+  step was handed (a save that lands and loses its answer, two attempts at
+  once, the browser closed, a save that fails, copies cleared only once
+  nothing can name them); N5 (five crash points after the go-ahead is
+  written, each finished with no second press, resend or page look, and
+  checked as one rebuild under one id and one charge), N8 and N9; N2, N3
+  and N4(c) updated.
+- **Red check**: on the code you reviewed, exactly the changed and new cases
+  fail.
+- **Mutation sweep**: 27 of 27 defects caught (your finding put back among
+  them); the three comment-only controls survived.
+- **Full suite**: `9237 / 9237 / 0 / 0` locally (from `9228`: 9 new cases).
+- **CI on the push**: not yet read; stamped in the next commit once the runs end.
 
 **Limits, all written down** (`docs/request-flow.md`, *Limits*)
-- A set-aside addition needs the picker's words for it; with none, it is
-  done only in part.
-- A rebuild already running when you press Stop runs to its end. Its result
-  is recorded as it is.
-- If the button press dies between creating the rebuild's job row and
-  storing the job, the next press finishes it. With no further press, the
-  job fails after about 20 minutes (said as a failure on our side, nothing
-  charged).
+- A press answered "couldn't confirm" may still have given the go-ahead
+  (its save landed and the answer was lost): the server runs it, and the
+  page shows it given on its next look.
+- A second press racing the rebuild can leave a copy of the job, with its
+  session, until the request ends.
+- A message sent twice to a rebuild the site is too busy for uses up its
+  waiting allowance twice as fast.
+- A rebuild already running when you press Stop runs to its end.
+- A set-aside addition needs the picker's words for it.
 - No request-mode canary press has been made.
-- Found and kept separate (backlog): a part can be carved from its parent's
-  words less a final full stop, costing one extra routing call before the
-  chain ends.
 
 **Still yours**
-- Review the fixes, and say whether and when to merge. A merge also rolls
-  the container image: main `8bfc67dc695e65cc`, this code
-  `ca9a89c7bed78b38` (predicted, nothing built).
+- Review the two fixes, and say whether and when to merge. A merge also
+  rolls the container image: main `8bfc67dc695e65cc`, this code `882477e1bbbe8cbe` (predicted, nothing built).
 - After a merge: a request-mode canary press, then the switch.
 - Whether to approve a small real-model batch, paid, which I would prepare
   with the exact messages and an estimate.
@@ -118,23 +98,24 @@ image=8bfc67dc695e65cc` and `runtime 200 deploy=b8d12ff9fe92`, with both
 checks `ok` and nothing charged.
 
 **Links**
-- The record: `docs/history/2026-10-03-request-review-fixes.md`. How it
-  works: `docs/request-flow.md`. The checklist's item 21. The backlog's *The
+- The record: `docs/history/2026-10-03-recovery-gaps.md`. How it works:
+  `docs/request-flow.md`. The checklist's item 21. The backlog's *The
   combined request flow*.
-- The first round: `docs/history/2026-10-03-combined-requests.md`.
+- The rounds before: `docs/history/2026-10-03-request-review-fixes.md`,
+  `docs/history/2026-10-03-combined-requests.md`.
 
 **Observations from your order**
-- A dependency is satisfied by what a step did, never by its `ok`.
-- Recovery is proven with nothing helping it.
-- A waiting approval stays attached to the work it approves.
-- An instrument is adapted before a rollout needs it.
-- Those are four new entries in `owner-preferences.md`.
+- A lost write's answer is an outcome not known: nothing is deleted, and
+  what it may have left is read back under the same key.
+- An approval, and what finishing its work needs, are written before
+  anything depends on them.
+- Those are two new entries in `owner-preferences.md`.
 
 **Blockers**
 - None.
 
 **Exact next action**
-- Yours: review the fixes; say whether to merge; decide on a real-model
+- Yours: review the two fixes; say whether to merge; decide on a real-model
   batch; press the free runtime check of deploy 2180 when you like.
 - Mine, on your word: after a merge and deploy, prepare the request-mode
   canary press; then you set `REQUEST_FLOW` to `on` and redeploy.
@@ -197,6 +178,71 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-03 — Your second review: the two recovery gaps closed (nothing spent, merged or deployed)
+
+- **Your words**: *"Treat a lost write response as an uncertain outcome;
+  preserve files while acceptance or another concurrent acceptance may
+  reference them, recover using the same request key, and clean up only
+  when non-use is established … persist rewrite approval and the
+  information required to finish filing its job before depending on
+  subsequent calls … Make the server recover that boundary automatically
+  through the existing machinery, with one rewrite and one charge, and test
+  it without another approval, resend or browser GET. Preserve cancellation
+  and duplicate-approval behavior."*
+- **First gap, the attachment deleted under a saved request**: when saving
+  a request's record failed with an error, the code assumed nothing was
+  saved and deleted the message's files. But a save can land and lose its
+  answer, which is what you ran. Now:
+  - each attempt to take on a message keeps its own copies of the files,
+    and its record says which attempt wrote it;
+  - a save that errors deletes nothing. The record under the same request
+    key is read back. If it is this attempt's, it carries on. If it is
+    another attempt's (a second tab, a retry), that one answers, and this
+    attempt's own copies are let go. If nothing is there, it saves again
+    under the same key. If it cannot tell, it keeps everything and says it
+    could not, and the two-minute timer finishes a record that did land;
+  - copies are let go only when no record can name them: at once when the
+    attempt knows it saved nothing or lost to another; after 15 minutes
+    with a lone marker, keeping any copy newer than that; and everything a
+    day after the request ended.
+- **Second gap, the go-ahead that needed a second press**: the press now
+  writes what finishing the rebuild needs (the rebuild's job, with your
+  session) and then the go-ahead itself, before anything else. Filing the
+  rebuild and sending it are then the request's ordinary next step, which
+  the press takes — or, if the press dies, the two-minute timer or the
+  rebuild's own end. No second press, no resend, no page open; one rebuild,
+  charged once. A press that never wrote the go-ahead gave none, and its
+  stored job is let go when the request ends. Stop and pressing twice
+  behave as before, and a Stop now also ends a rebuild whose cancel never
+  reached its row.
+- **How I checked it** (all free, supplied model answers):
+  - new tests J10–J16 for the files (each reads the exact bytes the logo
+    step was handed), with the browser closed and with two attempts at
+    once; N5 (five crash points after the go-ahead is written, each
+    finished with no second press, resend or page look, and checked as one
+    rebuild under one id and one charge), N8 (presses that wrote no
+    go-ahead) and N9 (Stop when no cancel reaches the row); N2, N3 and
+    N4(c) updated for two devices at once, a press whose job cannot be
+    stored, and a press racing a Stop;
+  - red check: on the code you reviewed, exactly the changed and new cases
+    fail, with your finding's own message (*"the file the saved request
+    names was deleted"*) and N5's (*"a row was filed before the press
+    died"*);
+  - mutation sweep: 27 of 27 defects caught, your finding put back among
+    them; the three comment-only controls survived;
+  - full suite `9237 / 9237 / 0 / 0` locally (from `9228`); CI on the push is read after it ends.
+- **Limits, written down**: a press answered "couldn't confirm" may still
+  have given the go-ahead (its save landed and its answer was lost): the
+  server runs it and the page shows it given on its next look; a second
+  press racing the rebuild can leave a copy of the job with its session
+  until the request ends; a message sent twice to a rebuild the site is too
+  busy for uses up that rebuild's waiting allowance twice as fast.
+- **Found and kept separate** (backlog): the test platform's crash on a
+  job's filing marks that job's heartbeat dead, though only the filer died.
+- **Not done**: no merge, deploy, paid call, model call, live migration or
+  container build. The image moves with the code: main `8bfc67dc695e65cc` → this code `882477e1bbbe8cbe` (predicted, nothing built).
+- The record: `docs/history/2026-10-03-recovery-gaps.md`.
 
 ## 2026-10-03 — Your review of the combined request flow, fixed (nothing spent, merged or deployed)
 

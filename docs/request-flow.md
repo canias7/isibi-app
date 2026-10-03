@@ -36,8 +36,10 @@
   sweeps and reconcile apply unchanged, and **one job of a request runs at a
   time**, against the site as the part before left it.
 - **A part only the full rewrite can make waits for the customer's
-  go-ahead on the request itself**, with its files kept. The press runs the
-  existing queued build, and its result settles back into the part.
+  go-ahead on the request itself**, with its files kept. The go-ahead is
+  written before anything depends on it, and the server files the existing
+  queued build from it, whoever takes the next step. Its result settles back
+  into the part.
 - **A part is done only when its step did everything it was asked.** An
   `ok` answer that names something it did not do is `partial`, and nothing
   that needs it runs.
@@ -49,12 +51,12 @@
 |---|---|---|
 | `requests-live/<slug>/<key>` | the marker the sweep lists: `{ at, endedAt }`. **Written first, create-only** | deleted by the sweep a day after the request ended, or 15 minutes after it was written when no record ever landed |
 | `requests/<slug>/<key>.json` | the record (below). Created once (`etagDoesNotMatch: "*"`), moved only on the etag it was read under | until the site is deleted |
-| `requests/<slug>/<key>/files/<sha256>.<ext>` | the message's files, and an answer's, content-addressed (at most `MAX_ATTACHMENTS`, 3) | deleted when the request ends — kept while a part waits for its go-ahead |
+| `requests/<slug>/<key>/files/<attempt>/<sha256>.<ext>` | the message's files, and an answer's, content-addressed (at most `MAX_ATTACHMENTS`, 3), under the acceptance that wrote them (`attempt`: when it began, in base 36, and a random tail) | the record's own deleted when the request ends — kept while a part waits for its go-ahead. Copies no record names are let go only once none can: at once when the acceptance knows it wrote no record or lost to another; after 15 minutes, with an orphan marker; all of them a day after the request ended |
 | `requests/<slug>/<key>/reply.json` | the request's own reply, written once after it ended | until the site is deleted |
 | `requests/<slug>/<key>/reply-approval-<n>-<seq>.json` | the reply for one go-ahead a part waits on, written once | until the site is deleted |
 | `requests/<slug>/<answer key>.json`, `kind: "answer"` | an answer that resumed a part: the same answer sent again gets the same reply | until the site is deleted |
 | `requests/sweep-cursor.json` | where the sweep stopped listing markers | overwritten every tick |
-| `jobs/<id>.json`, `jobs/<id>.result.json` | an approved rewrite's stored job and its answer: the existing queued build's own objects | the job deleted when the consumer reads it; the answer kept (the build's own residue) |
+| `jobs/<id>.json`, `jobs/<id>.result.json` | an approved rewrite's stored job and its answer: the existing queued build's own objects. The press stores the job **before** it writes the go-ahead | the job deleted when the consumer reads it, by a press refused before writing its go-ahead, and, for any copy nothing will send, when the request ends; the answer kept (the build's own residue) |
 
 The markers have a root of their own because `live` is a valid slug. Under
 `requests/`, a site called `live` would share every marker's prefix.
@@ -163,9 +165,9 @@ One function, `advanceRequest`. It reads the record and the rows of its
 live jobs (`edit_get`), takes one step (`nextStep`), writes on the etag it
 read under (no write when nothing moved), files at most one job, and records
 the job's id. A writer that loses the race reads again (at most six rounds),
-so two drivers at once file one job under one key. Before the step it also
-looks for **a go-ahead's build a press filed and never recorded** (below).
-Its callers:
+so two drivers at once file one job under one key. A go-ahead is one of
+those jobs: written on the part not yet filed, and filed by whichever step
+comes next (below). Its callers:
 
 1. the routing call that accepted the message;
 2. **a part's job ending**: in the Worker's consumer directly
@@ -190,10 +192,31 @@ markers.
   written first, with the call dying before its marker, was a saved request
   nothing would move on without a resend. Now any record has a marker. The
   marker is create-only; one that cannot be written stops the acceptance
-  before anything is saved, its files are deleted, and the page holds the
-  message for sending again.
+  before anything is saved, and the page holds the message for sending
+  again.
+- **Then the files, under this acceptance's own id, then the record that
+  names them.** Files that fail to store part-way are let go at once: no
+  record was written, and no other acceptance can name them.
+- **A record write whose answer is lost is an outcome not known**
+  (2026-10-03, the owner's second review: *"Treat a lost write response as
+  an uncertain outcome; preserve files while acceptance or another
+  concurrent acceptance may reference them, recover using the same request
+  key, and clean up only when non-use is established."*). Nothing is deleted
+  on a failed write. The record under the key is read back:
+  - **this acceptance's own** (the record names its `attempt`): it landed,
+    and the acceptance goes on;
+  - **another acceptance's** of the same message (a retry, another tab): that
+    one is the answer, nothing runs twice, and this acceptance's own copies
+    are let go, since no record can ever name them;
+  - **none**: written again under the same key, up to three rounds;
+  - **cannot tell** (the read fails too): `failed`, with everything kept. A
+    record that did land has its marker, so the sweep finishes it with no
+    resend and no page open.
 - A marker whose record never landed (the call died between the two) is
-  cleared by the sweep once it is 15 minutes old (`ORPHAN_MARKER_MS`).
+  cleared by the sweep once it is 15 minutes old (`ORPHAN_MARKER_MS`), with
+  the copies older than that window: an acceptance of the same message still
+  writing keeps its own. A record that lands as the marker goes gets the
+  marker back.
 - Charged once per message key: `credit_debit` with ref
   `route:<slug>:<key>`, reason `route`. A retry that reaches the model again
   is not charged again. A routing call that failed is not charged.
@@ -221,30 +244,53 @@ markers.
   a loop, more than three hand-overs, or an answer routed to a rewrite —
   puts the part in `approval`, with its files kept. What needs it stays
   `blocked`; independent parts go on.
-- `POST /api/site/request/<slug>/<key>/approve` `{ part }` files the
-  rewrite **through the existing queued build**: its row (`edit_create`,
-  op `build`, billed `external`), its stored job (the revise the page posts
-  to `/api/site/react-revise`, with the part's words, the request's files,
-  the picked model and the customer's session), and its queue message. The
-  consumer, design, page writer, compile, publish and charging are the
-  build's own. First Build and a page's own revise are unchanged.
+- `POST /api/site/request/<slug>/<key>/approve` `{ part }` gives the
+  go-ahead, and the rewrite runs **through the existing queued build**: its
+  row (`edit_create`, op `build`, billed `external`), its stored job (the
+  revise the page posts to `/api/site/react-revise`, with the part's words,
+  the request's files, the picked model and the customer's session), and its
+  queue message. The consumer, design, page writer, compile, publish and
+  charging are the build's own. First Build and a page's own revise are
+  unchanged.
 - **Every press of one go-ahead files one row**: the job id is derived from
   the request, the part and that job's number (`rewriteJobId`), and it is
   also the row's idempotency key. A request's rewrite **runs only under its
   own row's lease**: a second delivery whose claim is refused (another
   consumer holds it, or it ended) builds nothing. So a second press, another
   device's press, or a redelivered message runs it once.
-- **The press files first, then records** the go-ahead on the part. A press
-  that dies after filing is found by the next step, which looks for a row
-  under the id the press derived and records it — unless the row is still
-  queued with no stored job (a press that failed and was told so), which
-  the next press files again. A send that fails deletes the stored job it
-  wrote, so it is not counted given.
-- **Stop reaches it**: a stop cancels a recorded rewrite through its row,
-  and also the id a waiting part's press would use, so a build filed and not
-  yet recorded ends at its gate. The consumer also reads the request before
-  it starts: a rewrite whose part no longer waits for it (stopped, lapsed,
-  the request gone) ends cancelled with nothing designed or charged.
+- **The go-ahead is written before anything depends on it** (2026-10-03,
+  the owner's second review: *"persist rewrite approval and the information
+  required to finish filing its job before depending on subsequent calls …
+  Make the server recover that boundary automatically through the existing
+  machinery, with one rewrite and one charge"*). The press:
+  1. stores the build's job — the session, the one thing no later step can
+     make again. A store that fails gives nothing: 503, and the part still
+     waits;
+  2. writes the go-ahead on the part, on the record's etag, as a job not yet
+     filed. A write whose answer is lost is read back: a go-ahead found
+     there is written, whoever wrote it;
+  3. moves the request on. The row and the message are the request's next
+     step (`advanceRequest`), filed under the derived id.
+
+  A press cut off after step 2 — before the row, after the row, after the
+  message — or one whose message the queue refused is finished by the
+  server: the sweep's step (or the build's own end) files the same row,
+  sends a row still queued its message, and records it. No second press, no
+  resend, no page open; one rewrite, charged once. A row filed twice
+  answers as one, and a second message finds the job taken or its claim
+  refused.
+- **A press that wrote no go-ahead gave none.** Cut off after storing the
+  job, or with writes that failed and could not be read back (503), the
+  part still waits. Its stored job is kept while another press of the same
+  go-ahead might still write it, and is let go when the request ends. A
+  press refused because the request was stopped, ended or lapsed first
+  takes its stored job back at once.
+- **Stop reaches it**: a stop cancels a written rewrite through its row —
+  by the id it is filed under, even when the step that filed it died before
+  recording it. The consumer also reads the request before it starts: a
+  rewrite whose request was stopped, whose part does not name it, or whose
+  request is gone ends cancelled with nothing designed or charged, so a stop
+  whose cancel never reached the row still ends it.
 - **Its result settles back** from the build's own answer
   (`jobs/<id>.result.json`, `settleRewrite`): `done` only when it published
   the site (`page: "app"`); `partial` when it salvaged a page it could not
@@ -344,7 +390,8 @@ meaning they had in the message. A routing job is shown the same.
 - `DELETE` on the same path stops the rest.
 - `POST …/approve` `{ part }` gives a part its go-ahead: 200 with the view
   (given now or already), 409 `not-waiting` with the view, 503 when it could
-  not be filed (nothing given; press again).
+  not be written here (press again; when its write landed and its answer was
+  lost, the server goes on and the next look shows it given).
 - `GET /api/site/requests/<slug>` answers this owner's requests on the site
   that are unfinished or ended within a day, at most 50.
 - Anything not the owner's answers 404. A view carries no owner id and no
@@ -407,12 +454,14 @@ To turn it on:
 - **An approved rewrite stopped after it started runs to its end**: the
   build has no gate between its stages for a stop. Its result is recorded as
   it is.
-- **A rewrite's press that died after creating the row and before storing
-  its job** leaves a queued row, which the next step does not count as
-  given. The next press files it. With no further press, the stale sweep
-  fails that row after about 20 minutes, the next step records it, and the
-  part fails with it (`stale`): said as a failure on our side, nothing
-  charged. The customer can ask again.
+- **A press answered 503 may still have given the go-ahead**: when its write
+  landed and the answer was lost, and reading it back failed too, the press
+  cannot tell and says so, and the server runs it. The page's next look
+  shows it given; a second press is answered with it.
+- **A second press racing the build can leave a copy of the job**, with its
+  session, until the request ends.
+- **A message sent again to a queued row the site is busy for** is deferred
+  twice, so the row's busy deferrals run out sooner.
 - **A rewrite whose generation resumed in a later delivery** settles at the
   next look or sweep, not at once.
 - **The go-ahead's job carries the session of the press**, as the page's

@@ -1025,3 +1025,18 @@
   (2026-10-03): *"Adapt the UI canary for request mode on this branch before
   rollout, rather than leaving that implementation until after
   deployment."*
+- **A lost write's answer is an outcome not known** (2026-10-03, the second
+  review of the combined request flow): *"Treat a lost write response as an
+  uncertain outcome; preserve files while acceptance or another concurrent
+  acceptance may reference them, recover using the same request key, and
+  clean up only when non-use is established."* So a write that throws
+  deletes nothing. What it may have left is read back under the same key,
+  and anything a record could still name is kept until none can.
+- **An approval, and what finishing its work needs, are written before
+  anything depends on them** (2026-10-03): *"persist rewrite approval and the
+  information required to finish filing its job before depending on
+  subsequent calls … Make the server recover that boundary automatically
+  through the existing machinery, with one rewrite and one charge, and test
+  it without another approval, resend or browser GET."* So the durable write
+  comes first, and the rest is the server's own next step. A customer never
+  has to press twice for work they already approved.

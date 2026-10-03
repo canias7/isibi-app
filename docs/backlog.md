@@ -424,7 +424,12 @@ here; take a closed one out of both.**
   set aside become parts by the picker's own words, an outcome done only in
   part never satisfies what needs it, the marker is written before the
   record, the full rewrite's go-ahead waits on the request and runs the
-  existing queued build, and the UI canary has a request mode. Open:
+  existing queued build, and the UI canary has a request mode. **So are the
+  two recovery gaps of the owner's second review**
+  (`docs/history/2026-10-03-recovery-gaps.md`): a record write whose answer
+  is lost is an outcome not known (nothing deleted, read back under the same
+  key), and the go-ahead is written before anything depends on it (the
+  server files it from there, with no second press). Open:
   - no real-model evidence: a small paid batch, for the owner's approval —
     including whether the add-on picker gives its `scopes` words;
   - no request-mode UI canary press has been made (shown with a stand-in
@@ -433,9 +438,13 @@ here; take a closed one out of both.**
     what needs it is not run;
   - an approved rewrite stopped after it started runs to its end (the build
     has no stage gate for a stop);
-  - a rewrite's press that died between creating the row and storing its
-    job leaves a row the next press files; with no further press, the stale
-    sweep fails it after about 20 minutes and the part fails with it;
+  - a press answered 503 may still have given the go-ahead (its write
+    landed, its answer was lost, and reading it back failed): the server
+    runs it, and the next look shows it given;
+  - a second press racing the build can leave a copy of the job, with its
+    session, until the request ends;
+  - a message sent again to a queued row the site is busy for is deferred
+    twice, so that row's busy deferrals run out sooner;
   - a rewrite whose generation resumed in a later delivery settles at the
     next look or sweep;
   - a run job stopped while still queued makes its model calls anyway. It is
@@ -453,6 +462,11 @@ here; take a closed one out of both.**
   own part gets one more part and one more routing call before the chain
   ends. Found by the review fixes' sweep, 2026-10-03; it predates them. Not
   changed.
+- The test platform's `hang` on `edit_create` marks the job being filed as
+  dead (`die(p_id)`), though it is the filer that died, so that job's
+  heartbeats then fail in the case. The build treats its beat as an
+  instrument and the request reads its stop elsewhere, so no case's verdict
+  rests on it. Found 2026-10-03 while writing N5; not changed.
 - Deleting a site leaves `source/<slug>/` behind: the page source, the stored
   answers and the site's question record. So a slug's next owner could
   inherit them. Found 2026-10-03 while adding the requests to the delete; it
