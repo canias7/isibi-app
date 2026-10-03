@@ -26,8 +26,9 @@ it again:
 | Who leaves it for later | The field on the answer | Its words kept? | What the customer reads |
 |---|---|---|---|
 | **The router**: a part no single answer can make with the rest (`alsoAsked`, a list on a site since this branch) | `deferred` | yes, checked against the message (`heldParts`) | *"I only did part of it this time. Say “…”, then “…”, and I'll do those next."* (`alsoTail` in `public/chat.js`) |
-| **The look door**: an addition beside other edit work (W15, `lookHeld`) | `putOff` | yes | the same sentence |
-| **The edit picker**: a part no lane here can make (`elsewhere`, this branch) | `putOff` | yes, checked (`readElsewhere`) | the same sentence |
+| **The look door**: an addition beside other edit work (W15, `lookHeld`) | `deferred` (with the router's) | yes | the same sentence |
+| **The edit picker**: a part no lane here can make (`elsewhere`, this branch) | `deferred` (with the router's) | yes, checked (`readElsewhere`) | the same sentence |
+| **A resumed question's request**: parts put off before the question, carried in (not in its message) | `putOff` | yes | the same sentence |
 | **The add-on step**: a new list entry (`row`) or a menu link (`frame`) beside other kinds | `notAdded` (`row-alone`), `skipped: ["frame"]` | **no** — the add-on picker answers kinds only | *"I left out one row: … a step of its own"*, *"The new link … is a separate step"* |
 
 Two chains already run **sequentially inside one request**, in the browser,
