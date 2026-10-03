@@ -71,7 +71,10 @@ real models, and not yet live):
   (sent in our chat);
 - the image would roll on a merge: main `8bfc67dc695e65cc`, this code
   `e60719bec1c5e023` (predicted, nothing built);
-- unit CI on the push: recorded after it finishes.
+- CI on the push, green: unit tests `9115 / 9111 / 0 / 4` on `f26e00e2`
+  (run 37125497316; CI skips four, as always — the run on `ddbde31a` was
+  cancelled by that one-file follow-up push), and the site build on
+  `ddbde31a`, 404 checks, every job green (run 37125423087).
 
 **The audit, corrected** (`docs/investigations/mixed-work-audit.md`): ten
 addition kinds combine and `row`/`frame` are set aside beside others; storing

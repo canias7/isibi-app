@@ -675,7 +675,9 @@ the owner's free press, run 51, at 22:57 UTC):
     sync and queued, and the readers' cut-answer cases; red check 142 of
     1,471 failing on `5b94a39e` (every converted or new mixed-work case;
     the controls pass); sweep 35 of 35 with 3 controls surviving; full
-    suite `9115 / 9115 / 0 / 0` (from `9090`). Screens before and after in
+    suite `9115 / 9115 / 0 / 0` (from `9090`); unit CI `9115 / 9111 / 0 /
+    4` on `f26e00e2` (run 37125497316) and the site build on `ddbde31a` (404
+    checks, every job green, run 37125423087). Screens before and after in
     the session. The report's capability claims and cost wording corrected
     (ten addition kinds combine, `row` and `frame` set aside; stored is not
     placed; supplied answers are not real-model proof; no "at most"). The

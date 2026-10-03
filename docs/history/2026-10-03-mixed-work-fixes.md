@@ -191,4 +191,13 @@ the audit's dated entry) are corrected too.
 
 ## 6. CI (read after the push)
 
-Recorded after the push.
+- **Unit tests**: the run on `ddbde31a` (the code and its records) was
+  cancelled by the next push, a one-file correction to the plan (one run per
+  branch at a time); the run on **`f26e00e2`** — the same code — is run
+  37125497316, job `test`, `success`; its log reads `# tests 9115`, `# pass
+  9111`, `# fail 0`, `# skipped 4`: **`9115 / 9111 / 0 / 4`**, the local total
+  exactly (CI skips four, as always).
+- **The site build on `ddbde31a`**: run 37125423087, all eight jobs
+  `success`; its gate's own line: *"ALL CHECKS: 404 checks in 27 sections
+  across 4 shards, every job green"* (site build inputs `598f56edeafd8dea`,
+  3,971 files).
