@@ -241,7 +241,7 @@ import { routeMessage, routeDecision, routeFailure, clarifiedBrief, siteDigest, 
 // THE HAND-OVER (2026-10-02, the whole-router audit's batch 2): what travels when
 // work moves from one step to another — the parts put off, the scope, and why.
 import { readHandOver, handOverLine, heldReport, deferredOf } from "./builder/hand-over.mjs";
-import { loadAsk, storeAsk, closeAsk, replaceAsk, askLive, packAsk, newAskId, askOf, readAsk, readContext, shownContext, repeatOf, againNote, clarifyTransport, clarifyCall, MAX_ASKED } from "./builder/clarify.mjs";
+import { loadAsk, storeAsk, closeAsk, replaceAsk, askLive, packAsk, newAskId, askOf, readAsk, readContext, shownContext, repeatOf, appendAnswer, againNote, clarifyTransport, clarifyCall } from "./builder/clarify.mjs";
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
@@ -6113,12 +6113,20 @@ async function storeAskTwice(bucket, rec) {
  * A QUESTION ALREADY ANSWERED IS KEPT WITH ITS NOTE, NEVER AN ENDING (2026-10-02,
  * the owner's second review: *"replace the terminal clarify-repeat/question-
  * ended behavior … retain the pending request"*). The step's transport already
- * sent its model the answer once (`clarifyTransport`); a model that still asks
- * it is kept like any question, under a line naming the answer that did not
- * settle it (`againNote`), and the request waits for a better one. Answers
- * travel beside the request (`context`), so no question is refused for want of
- * room. Only a request already carrying `MAX_ASKED` answers keeps no more —
- * its models are offered none, so this is a model asking past that.
+ * sent its model the answer once (`clarifyTransport`), or, at the repeated-
+ * question threshold or past the total-answer limit, did not send it again; a
+ * model that still asks is kept like any question, under a line naming the
+ * answer that did not settle it (`againNote`), and the request waits for a
+ * better one. Answers travel beside the request (`context`), so no question is
+ * refused for want of room.
+ *
+ * AND NO LIMIT ENDS IT (2026-10-03, the owner's third review: *"Never treat a
+ * question limit or repeated question as permission to act"*). A request
+ * already carrying `MAX_ASKED` answers left its part alone and put it back in
+ * the message box (`clarify-closed`) — its answers lost, its request to send
+ * again. Now its question is kept like any other, with every answer, the
+ * put-off parts and whether files came with it; the answer joins the list
+ * within the limit at the routing route (`appendAnswer`).
  * `ctx`: `{ slug, uid, round, held, request, attached, context }`.
  */
 async function askReport(env, res, ctx) {
@@ -6147,8 +6155,6 @@ async function askReport(env, res, ctx) {
   };
   if (!request) {
     notKept("clarify-mixed", "One part of that needed a detail before I could make it, but it was mixed in with a change I'd just made, so I left it alone rather than risk doing anything twice. Send that part again on its own, with the detail, and I'll make it.");
-  } else if (told.length >= MAX_ASKED) {
-    notKept("clarify-closed", "I needed one more detail for that part, but I've already asked you about this request as many times as I will, so I left that part alone. What was left of it is back in your message box: add the detail and send it, and I'll make it.", request);
   } else {
     const round = (Number.isInteger(c.round) && c.round > 0 ? c.round : 1);
     const hit = repeatOf(told, ask);
@@ -20422,8 +20428,12 @@ async function handleRequest(request, env, ctx) {
           // THE ANSWER IS KEPT AS THEY GAVE IT, OR NOT AT ALL: a reply to one
           // question, never a second request. One too long to keep leaves the
           // question waiting, untouched, for a shorter answer — nothing is
-          // closed, nothing charged, and the request is not lost.
-          rContext = readContext([...rWaiting.context, { q: rWaiting.question.text, a: String(rb.message || "").trim() }]);
+          // closed, nothing charged, and the request is not lost. IT JOINS THE
+          // LIST WITHIN THE TOTAL-ANSWER LIMIT (2026-10-03, the owner's third
+          // review): a request already carrying `MAX_ASKED` answers still takes
+          // it, in place of the answer it needs least (`appendAnswer`) — the
+          // same list the router's repeat check read.
+          rContext = appendAnswer(rWaiting.context, { q: rWaiting.question.text, a: String(rb.message || "").trim() });
           if (!rContext) {
             return Response.json({
               ok: false, error: "answer-too-long", cost: 0,
@@ -21495,13 +21505,15 @@ async function handleRequest(request, env, ctx) {
             // one. `eJob` is null on the synchronous path and `quickSend` then
             // falls back to its flat ceiling, exactly as before. AND SO DO THE
             // ANSWERS (`clarifyTransport`): each call is shown `eCtx` in its own
-            // section, a question one of them already answered is sent back with
-            // its answer rather than put to the customer, and past `MAX_ASKED`
-            // answers no call is offered a question.
+            // section, and a question one of them already answered is sent back
+            // with its answer rather than put to the customer — below the
+            // repeated-question threshold and the total-answer limit; at either,
+            // the question goes to the customer and nothing beside it is done
+            // (2026-10-03, the owner's third review).
             const eQuick = (what = "") => clarifyTransport(quickSend(env, what, eJob && eJob.budget), {
               shown: () => eCtx,
               all: () => eCtxAll || [],
-              onReuse: (hit, closed) => { try { if (editTrace) editTrace.mark("clarify:reuse", closed ? "closed" : "ok", { what, answers: hit.length }); } catch { /* the record never costs the job */ } },
+              onReuse: (hit) => { try { if (editTrace) editTrace.mark("clarify:reuse", "ok", { what, answers: hit.length }); } catch { /* the record never costs the job */ } },
             });
             // THE BLACK BOX STARTS HERE — see `editTrace` where it is declared.
             // From this point every phase marks itself, and the marks are
@@ -26721,7 +26733,7 @@ async function handleRequest(request, env, ctx) {
             const aQuick = (what = "") => clarifyTransport(quickSend(env, what, aJob && aJob.budget), {
               shown: () => aCtxShown,
               all: () => aCtxAll || [],
-              onReuse: (hit, closed) => { try { if (editTrace) editTrace.mark("clarify:reuse", closed ? "closed" : "ok", { what, answers: hit.length }); } catch { /* the record never costs the job */ } },
+              onReuse: (hit) => { try { if (editTrace) editTrace.mark("clarify:reuse", "ok", { what, answers: hit.length }); } catch { /* the record never costs the job */ } },
             });
             // THE BLACK BOX, the edit route's own: every phase marks itself,
             // the marks are in-memory pushes, and the `finally` below the

@@ -20,7 +20,7 @@ import { createRequire } from "node:module";
 import {
   QUESTION_FIELD, ASK_TTL_MS, QUESTION_KEY, MAX_ASKED, MAX_SAME_ASK, MAX_ANSWER_CHARS, CONTEXT_HEADING, askOf, newAskId,
   packAsk, readAskRecord, askLive, loadAsk, storeAsk, closeAsk, replaceAsk, withQuestion, readContext, shownContext,
-  repeatOf, contextBlock, withContext, reuseNote, againNote, stripQuestion, clarifyTransport, clarifyCall,
+  repeatOf, contextBlock, withContext, reuseNote, againNote, appendAnswer, clarifyTransport, clarifyCall,
 } from "../builder/clarify.mjs";
 import { allowedJobKey } from "../builder/job-gateway.mjs";
 import { routeMessage, readRouting, readAsk, askRequest, ASK_TOOL, LIVE_ASK_TOOL, MAX_MESSAGE } from "../builder/site-ask.mjs";
@@ -86,20 +86,23 @@ test("A STORED QUESTION IS EVERY FIELD CHECKED, and one field wrong makes it no 
     ["request", ""], ["request", "x".repeat(MAX_MESSAGE + 1)], ["held", [3]], ["held", "x".repeat(5000)],
     ["at", "now"], ["status", "open"], ["attached", "yes"], ["attached", 1],
     // WHAT THEY ALREADY TOLD US (2026-10-02, the owner's second review): `{ q, a }`
-    // pairs beside the request, fewer than `MAX_ASKED` so this question's answer
-    // still fits the list. Anything else makes no question at all, never a
-    // shorter list — and so does a note that is not one short line.
+    // pairs beside the request, up to `MAX_ASKED` of them — a full list still
+    // keeps its question (2026-10-03, the owner's third review). Anything else
+    // makes no question at all, never a shorter list — and so does a note that
+    // is not one short line.
     ["context", "Visit"], ["context", [3]], ["context", [{ q: "Which?" }]], ["context", [{ q: "", a: "Visit" }]],
     ["context", [{ q: "Which?", a: "  " }]], ["context", [{ q: "x".repeat(241), a: "Visit" }]],
     ["context", [{ q: "Which?", a: "x".repeat(MAX_ANSWER_CHARS + 1) }]], ["context", [{ q: "Which?", a: "Visit", handled: "yes" }]],
-    ["context", Array.from({ length: MAX_ASKED }, (_, i) => ({ q: "Q" + i + "?", a: "A" + i }))],
+    ["context", Array.from({ length: MAX_ASKED + 1 }, (_, i) => ({ q: "Q" + i + "?", a: "A" + i }))],
     ["note", ""], ["note", 3], ["note", "x".repeat(301)],
   ]) {
     assert.equal(rec({ [field]: bad }), null, field + " = " + JSON.stringify(bad) + " was accepted");
   }
-  // A REQUEST'S ELEVENTH ANSWER STILL LEAVES ROOM FOR THIS QUESTION'S.
-  const eleven = Array.from({ length: MAX_ASKED - 1 }, (_, i) => ({ q: "Q" + i + "?", a: "A" + i }));
-  assert.equal(rec({ round: 12, context: eleven }).context.length, MAX_ASKED - 1);
+  // A REQUEST CARRYING ITS TWELFTH ANSWER STILL KEEPS ITS QUESTION (2026-10-03):
+  // the total-answer limit is never a reason to drop one — its answer takes the
+  // place of the one the request needs least (`appendAnswer`).
+  const twelve = Array.from({ length: MAX_ASKED }, (_, i) => ({ q: "Q" + i + "?", a: "A" + i }));
+  assert.equal(rec({ round: 13, context: twelve }).context.length, MAX_ASKED, "a question on a full list of answers was dropped");
   assert.deepEqual(good.context, [], "a first question carries answers");
   assert.equal(Object.hasOwn(good, "note"), false, "a first asking carries a note");
   assert.equal(Object.hasOwn(good, "asked"), false, "the old list of questions is still written");
@@ -311,7 +314,7 @@ async function liveRoute(input, opts = {}) {
   return { r, sent };
 }
 
-test("A LIVE SITE'S ROUTER IS OFFERED A QUESTION WHEREVER ONE CAN BE KEPT, and is shown what they already told us about the waiting request — until the request carries its last answer", async () => {
+test("A LIVE SITE'S ROUTER IS OFFERED A QUESTION WHEREVER ONE CAN BE KEPT, and is shown what they already told us about the waiting request — however many answers it carries", async () => {
   const fresh = await liveRoute({ intent: "edit", layer: "text" });
   assert.equal(fresh.sent.tools[0], LIVE_ASK_TOOL, "a live site was not sent the live tool");
   const props = LIVE_ASK_TOOL.input_schema.properties;
@@ -335,12 +338,14 @@ test("A LIVE SITE'S ROUTER IS OFFERED A QUESTION WHEREVER ONE CAN BE KEPT, and i
   // A FRESH MESSAGE is shown no answers, whatever a caller sends.
   const stray = await liveRoute({ intent: "edit", layer: "text" }, { context });
   assert.doesNotMatch(String(stray.sent.messages[0].content), /WHAT THEY ALREADY TOLD YOU/, "a fresh message was shown answers of a request it does not resume");
-  // ONCE THIS ANSWER WOULD BE ITS LAST, no question is offered: the router acts on what it was told.
-  const full = Array.from({ length: MAX_ASKED - 1 }, (_, i) => ({ q: "Q" + i + "?", a: "A" + i }));
-  const capped = await liveRoute({ intent: "edit", layer: "text" }, { context: full, pending });
-  assert.match(String(capped.sent.messages[0].content), /Questions are closed for this message/, "a request at its last answer was offered another question");
-  const under = await liveRoute({ intent: "edit", layer: "text" }, { context: full.slice(1), pending });
-  assert.match(String(under.sent.messages[0].content), /A QUESTION MAY BE ASKED/, "a request below its last answer was closed off");
+  // AT THE TOTAL-ANSWER LIMIT A QUESTION IS STILL OFFERED (2026-10-03, the owner's
+  // third review): closing questions there told the router to act on a guess.
+  for (const n of [MAX_ASKED - 1, MAX_ASKED]) {
+    const full = Array.from({ length: n }, (_, i) => ({ q: "Q" + i + "?", a: "A" + i }));
+    const atLimit = String((await liveRoute({ intent: "edit", layer: "text" }, { context: full, pending })).sent.messages[0].content);
+    assert.match(atLimit, /A QUESTION MAY BE ASKED/, "a request carrying " + n + " answers was not offered a question");
+    assert.doesNotMatch(atLimit, /Questions are closed/, "a request carrying " + n + " answers was told questions are closed — permission to act on a guess");
+  }
   // WHERE NONE CAN BE KEPT, NONE MAY BE ASKED.
   const closed = await liveRoute({ intent: "edit", layer: "text" }, { canAsk: false });
   assert.match(String(closed.sent.messages[0].content), /Questions are closed for this message — never answer "clarify"/);
@@ -702,7 +707,7 @@ test("EVERY CALL A STEP MAKES IS SHOWN ITS ANSWERS; A QUESTION ALREADY ANSWERED 
   const run = async (replies, shown, closed) => {
     const sent = [];
     const heard = [];
-    const send = clarifyTransport(async (r) => { sent.push(r); return replies.shift(); }, { shown: () => shown, all: () => ctx, onReuse: (h, c) => heard.push([h.length, c]) });
+    const send = clarifyTransport(async (r) => { sent.push(r); return replies.shift(); }, { shown: () => shown, all: () => ctx, onReuse: (h) => heard.push(h.length) });
     return { got: await send(stepReq()), sent, heard };
   };
   // A REPEAT OF AN ANSWER IT WAS SHOWN: sent once more with that answer in front of it.
@@ -714,7 +719,7 @@ test("EVERY CALL A STEP MAKES IS SHOWN ITS ANSWERS; A QUESTION ALREADY ANSWERED 
   assert.ok(r.sent[1].messages[0].content.endsWith(reuseNote([ctx[0]])), "the second call was not sent the answer to the question it asked");
   assert.match(r.sent[1].messages[0].content, /ask them a MORE SPECIFIC question that names exactly what their answer left open/);
   assert.ok(r.sent[1].tools[0].input_schema.properties.question, "a first repeat was sent back with no question offered");
-  assert.deepEqual(r.heard, [[1, false]]);
+  assert.deepEqual(r.heard, [1]);
   // A HANDLED ANSWER IS NEVER SHOWN, BUT IS STILL THE ANSWER TO ITS QUESTION.
   r = await run([asking("which heading"), done], [ctx[0]]);
   assert.doesNotMatch(r.sent[0].messages[0].content, /The top one/, "a handled answer was shown as context");
@@ -729,30 +734,102 @@ test("EVERY CALL A STEP MAKES IS SHOWN ITS ANSWERS; A QUESTION ALREADY ANSWERED 
   assert.equal(r.sent[0].messages[0].content, "What they asked for:\nChange the photo", "a step shown no answers was sent a section anyway");
 });
 
-test("A QUESTION PUT TO THE CUSTOMER TWICE IS SENT BACK WITH NO QUESTION OFFERED, AND ONCE A REQUEST CARRIES ITS LAST ANSWER NO CALL IS OFFERED ONE — a question in such a reply is never read", async () => {
-  const twice = [{ q: "Which photo?", a: "the nice one" }, { q: "which photo", a: "the big one" }];
-  assert.equal(MAX_SAME_ASK, 2);
+// AT THE REPEATED-QUESTION THRESHOLD AND PAST THE TOTAL-ANSWER LIMIT (2026-10-03,
+// the owner's third review: *"clarifyTransport currently strips question
+// fields at the limit and dropQuestion removes an unresolved question while
+// retaining proposed edits. Never treat a question limit or repeated question
+// as permission to act"*): every call is offered its question, the model is
+// never sent again on our own, and its reply comes back exactly as it came —
+// question and all — so the step asks it and does nothing proposed beside it.
+const asksAndProposes = (text) => ({ content: [{ type: "tool_use", name: "t", input: { value: "guessed", question: { text } } }], usage: { input_tokens: 9, output_tokens: 1 } });
+const runTransport = async (all, replies) => {
   const sent = [];
-  const replies = [asking("Which photo?"), asking("Which photo?")];
-  const send = clarifyTransport(async (r) => { sent.push(r); return replies.shift(); }, { shown: () => twice, all: () => twice });
-  const got = await send(stepReq());
-  assert.ok(sent[0].tools[0].input_schema.properties.question, "the first call was offered no question");
-  assert.equal(Object.hasOwn(sent[1].tools[0].input_schema.properties, "question"), false, "a third asking was offered the question again");
-  assert.match(sent[1].messages[0].content, /they answered: “the nice one”\nAsked: “which photo” — they answered: “the big one”/, "both answers were not sent back");
-  assert.equal(askOf(got), null, "a question in a reply that was offered none was read");
-  assert.equal(got.content[0].input.value, "guessed", "the rest of that reply was not kept");
-  // AT THE CAP.
+  const heard = [];
+  const send = clarifyTransport(async (r) => { sent.push(r); return replies.shift(); }, { shown: () => all, all: () => all, onReuse: (h) => heard.push(h.length) });
+  return { got: await send(stepReq()), sent, heard };
+};
+const offersQuestion = (req) => Object.hasOwn(req.tools[0].input_schema.properties, "question");
+
+test("AT THE REPEATED-QUESTION THRESHOLD A STEP'S MODEL IS NEVER SENT AGAIN, AND ITS QUESTION COMES BACK WITH IT — never taken out while the change it proposed beside it is kept", async () => {
+  assert.equal(MAX_SAME_ASK, 2);
+  const twice = [{ q: "Which photo?", a: "the nice one" }, { q: "which photo", a: "the big one" }];
+  const reply = asksAndProposes("Which photo?");
+  const r = await runTransport(twice, [reply, acting("acted on a guess")]);
+  assert.equal(r.sent.length, 1, "the model was sent again at the threshold");
+  assert.ok(offersQuestion(r.sent[0]), "the call was not offered its question");
+  assert.equal(r.got, reply, "the reply was not returned exactly as it came");
+  assert.deepEqual(askOf(r.got), { text: "Which photo?", options: [] }, "the question was taken out of the reply");
+  assert.deepEqual(r.heard, [], "a call nobody sent again was traced as one");
+  // ASKED THE THIRD TIME AND MORE, the same.
+  const thrice = [...twice, { q: "Which photo?", a: "the one I said" }];
+  const r3 = await runTransport(thrice, [asksAndProposes("Which photo?"), acting()]);
+  assert.equal(r3.sent.length, 1);
+  assert.ok(askOf(r3.got), "the question was taken out of the reply");
+  // ONE ANSWER BELOW THE THRESHOLD, the answer is still given back once, the question still offered.
+  const once = await runTransport(twice.slice(0, 1), [asksAndProposes("Which photo?"), acting()]);
+  assert.equal(once.sent.length, 2, "below the threshold the model was not sent its answer back");
+  assert.ok(offersQuestion(once.sent[1]), "the call sent again was offered no question — permission to act on a guess");
+  assert.match(once.sent[1].messages[0].content, /YOU ASKED THEM THIS ALREADY/);
+});
+
+test("PAST THE TOTAL-ANSWER LIMIT EVERY CALL IS STILL OFFERED ITS QUESTION, A NEW QUESTION COMES BACK AS IT CAME, AND ONE ALREADY ANSWERED IS NEVER SENT AGAIN", async () => {
   const full = Array.from({ length: MAX_ASKED }, (_, i) => ({ q: "Q" + i + "?", a: "A" + i }));
-  const capSent = [];
-  const capped = clarifyTransport(async (r) => { capSent.push(r); return asking("Anything else?"); }, { shown: () => full, all: () => full });
-  const cappedGot = await capped(stepReq());
-  assert.equal(capSent.length, 1, "a request at its cap was sent twice");
-  assert.equal(Object.hasOwn(capSent[0].tools[0].input_schema.properties, "question"), false, "a request at its cap was offered a question");
-  assert.equal(askOf(cappedGot), null, "a question past the cap was read");
-  // stripQuestion leaves a tool with no question as it was, and the request whole when none has one.
-  const plain = { tools: [{ name: "p", input_schema: { type: "object", properties: { v: { type: "string" } } } }] };
-  assert.equal(stripQuestion(plain), plain);
-  assert.equal(stripQuestion(null), null);
+  // A NEW QUESTION.
+  const fresh = asksAndProposes("Anything else?");
+  const r = await runTransport(full, [fresh, acting()]);
+  assert.equal(r.sent.length, 1);
+  assert.ok(offersQuestion(r.sent[0]), "a request at the limit was offered no question");
+  assert.equal(r.got, fresh);
+  assert.ok(askOf(r.got), "a question at the limit was taken out of the reply");
+  // ONE IT ALREADY HAS AN ANSWER TO, ONCE: never sent again past the limit.
+  const again = asksAndProposes("Q3?");
+  const r2 = await runTransport(full, [again, acting()]);
+  assert.equal(r2.sent.length, 1, "the model was sent again past the total-answer limit");
+  assert.equal(r2.got, again);
+  assert.deepEqual(r2.heard, []);
+  // ONE BELOW THE LIMIT, the answer is given back once.
+  const r3 = await runTransport(full.slice(1), [asksAndProposes("Q3?"), acting()]);
+  assert.equal(r3.sent.length, 2, "below the limit the model was not sent its answer back");
+  assert.deepEqual(r3.heard, [1]);
+  // A REPLY WITH NO QUESTION, untouched.
+  const done = acting();
+  const r4 = await runTransport(full, [done]);
+  assert.equal(r4.got, done);
+  assert.equal(r4.sent.length, 1);
+});
+
+test("ONE MORE ANSWER JOINS THE LIST WITHIN THE TOTAL-ANSWER LIMIT, letting go of the answer the request needs least: a handled one first, then the earlier answer to a question answered again, then the oldest — and never the new one", () => {
+  const A = (i, extra = {}) => ({ q: "Q" + i + "?", a: "A" + i, ...extra });
+  // BELOW THE LIMIT, nothing is let go.
+  assert.deepEqual(appendAnswer([A(0)], A(1)), [A(0), A(1)]);
+  assert.deepEqual(appendAnswer([], A(0)), [A(0)]);
+  // 1. THE OLDEST HANDLED ANSWER.
+  const withHandled = Array.from({ length: MAX_ASKED }, (_, i) => A(i, i === 4 || i === 7 ? { handled: true } : {}));
+  const one = appendAnswer(withHandled, A(99));
+  assert.equal(one.length, MAX_ASKED);
+  assert.deepEqual(one, [...withHandled.filter((_, i) => i !== 4), A(99)], "the oldest handled answer was not the one let go");
+  // 2. THE EARLIER ANSWER TO A QUESTION ANSWERED AGAIN, spelled however.
+  const repeated = Array.from({ length: MAX_ASKED }, (_, i) => (i === 9 ? { q: "q2", a: "again" } : A(i)));
+  assert.deepEqual(appendAnswer(repeated, A(99)), [...repeated.filter((_, i) => i !== 2), A(99)], "the earlier answer to a question answered again was not let go");
+  // …including the new answer's own question.
+  const plain = Array.from({ length: MAX_ASKED }, (_, i) => A(i));
+  assert.deepEqual(appendAnswer(plain, { q: "Q5?", a: "now settled" }), [...plain.filter((_, i) => i !== 5), { q: "Q5?", a: "now settled" }]);
+  // 3. ELSE THE OLDEST.
+  assert.deepEqual(appendAnswer(plain, A(99)), [...plain.slice(1), A(99)]);
+  // NEVER LONGER THAN THE LIMIT, AND THE NEW ANSWER IS ALWAYS KEPT, LAST.
+  let list = [];
+  for (let i = 0; i < 40; i++) {
+    list = appendAnswer(list, A(i % 7, { a: "answer " + i }));
+    assert.ok(list.length <= MAX_ASKED);
+    assert.deepEqual(list.at(-1), { q: "Q" + (i % 7) + "?", a: "answer " + i });
+    assert.ok(readContext(list), "the list stopped reading");
+  }
+  // CANNOT-TELL IS NULL, NEVER A SHORTER LIST.
+  assert.equal(appendAnswer("nope", A(1)), null);
+  assert.equal(appendAnswer(Array.from({ length: MAX_ASKED + 1 }, (_, i) => A(i)), A(99)), null, "a list no reader keeps was made to fit");
+  assert.equal(appendAnswer([A(0)], { q: "Q?", a: "x".repeat(MAX_ANSWER_CHARS + 1) }), null, "an answer too long to keep was kept");
+  assert.equal(appendAnswer([A(0)], { q: "", a: "x" }), null);
+  assert.equal(appendAnswer([A(0)], { q: "Q?", a: "x", handled: true }), null, "a new answer arrived already handled");
 });
 
 test("THE PAGE WRITER'S CALL GOES THROUGH THE SAME TRANSPORT, with its keys and its clock passed through untouched", async () => {
@@ -774,4 +851,15 @@ test("THE NOTE A QUESTION ASKED ONCE MORE IS SHOWN UNDER names the answer that d
   const long = againNote([{ q: "q", a: "word ".repeat(80).trim() }]);
   assert.ok(long.length <= 300 && long.includes("\u2026"), "a long answer was not cut to fit");
   assert.equal(againNote([]), "Your answer didn\u2019t settle this, so I need to ask once more.");
+  // AT THE REPEATED-QUESTION THRESHOLD (2026-10-03): the last two answers, and both
+  // ways on — answer once more, or cancel — never a claim that nothing changed.
+  const at = againNote([{ q: "Which photo?", a: "the nice one" }, { q: "which photo", a: "the big one" }]);
+  assert.equal(at, "I\u2019ve asked this before, and your answers \u2014 \u201cthe nice one\u201d, then \u201cthe big one\u201d \u2014 haven\u2019t settled it. Answer once more, or cancel this request and nothing more will be done for it.");
+  const three = againNote([{ q: "q", a: "first" }, { q: "q", a: "second" }, { q: "q", a: "third" }]);
+  assert.ok(three.includes("\u201csecond\u201d, then \u201cthird\u201d") && !three.includes("first"), "the note did not name the last two answers");
+  const longs = againNote([{ q: "q", a: "word ".repeat(100).trim() }, { q: "q", a: "other ".repeat(80).trim() }]);
+  assert.ok(longs.length <= 300, "the note does not fit: " + longs.length);
+  assert.ok(longs.endsWith("nothing more will be done for it."), "the ways on were cut off a long note");
+  assert.equal((longs.match(/\u2026/g) || []).length, 2, "each long answer was not cut to fit");
+  for (const note of [at, three, longs]) assert.doesNotMatch(note, /nothing (has )?changed/i);
 });

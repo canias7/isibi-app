@@ -56,11 +56,28 @@
 // of it (`clarifyTransport`, and the router's own call), to act on it or ask a
 // more specific follow-up. One that still asks the same thing is kept with a
 // note naming the answer that did not settle it (`againNote`), and the request
-// waits for a better answer; asked a third time, it is sent once more with no
-// question offered and acts on what it was told (`MAX_SAME_ASK`). Past
-// `MAX_ASKED` answers no question is offered at all. Replacing the question an
-// answer was given to is one conditional write (`replaceAsk`), so a failed
-// write leaves that question waiting to be answered again.
+// waits for a better answer. Replacing the question an answer was given to is
+// one conditional write (`replaceAsk`), so a failed write leaves that question
+// waiting to be answered again.
+//
+// NO LIMIT AND NO REPEAT IS EVER PERMISSION TO ACT (2026-10-03, the owner's
+// third review: *"Never treat a question limit or repeated question as
+// permission to act. If a model still needs clarification, preserve the
+// pending request, relevant answers, unfinished operations, and attachments;
+// suppress changes accompanying that unresolved question. Stop automatic retry
+// loops while keeping a user-driven way to clarify or cancel, without
+// requiring the original request to be retyped."*). Asked a third time, a
+// question was sent with none offered, and past `MAX_ASKED` answers no call
+// was offered one — so the model acted on a guess, and a question in its reply
+// was taken out while the changes beside it were kept. Now every call is
+// offered its question, a reply that asks is always returned with its
+// question, and every step reads that question before anything else in the
+// reply, so nothing proposed beside it is done. At the repeated-question
+// threshold (`MAX_SAME_ASK`) and past the total-answer limit (`MAX_ASKED`),
+// what stops is our own re-asking: the question goes to the customer, under
+// a note, with the request, its answers, its put-off parts and whether it
+// carried files kept as they were; the answer joins the list within the limit
+// (`appendAnswer`), and Cancel is always on the card.
 //
 // DEPENDENCY-LIGHT: the router's own readers, nothing else, so the Worker and
 // the job child import it alike (it is in the Dockerfile's worker line).
@@ -68,7 +85,7 @@
 import {
   MAX_MESSAGE, MAX_OPTIONS, readAsk, heldList, EDIT_LAYERS,
   MAX_ASKED, MAX_SAME_ASK, MAX_ANSWER_CHARS, MAX_NOTE_CHARS, CONTEXT_HEADING,
-  readContext, shownContext, repeatOf, contextBlock, withContext, reuseNote, withReuse, againNote,
+  readContext, shownContext, repeatOf, appendAnswer, contextBlock, withContext, reuseNote, withReuse, againNote,
 } from "./site-ask.mjs";
 
 // The question's reader is the router's own, so the router and every step hold
@@ -83,7 +100,7 @@ export { readAsk };
 // router cannot import this module: this one imports it.
 export {
   MAX_ASKED, MAX_SAME_ASK, MAX_ANSWER_CHARS, MAX_NOTE_CHARS, CONTEXT_HEADING,
-  readContext, shownContext, repeatOf, contextBlock, withContext, reuseNote, withReuse, againNote,
+  readContext, shownContext, repeatOf, appendAnswer, contextBlock, withContext, reuseNote, withReuse, againNote,
 };
 
 /** How long a question stays answerable. A day: an answer the next morning still counts. */
@@ -167,10 +184,12 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,80}$/;
 //
 // `context` IS WHAT THEY ALREADY TOLD US: each question this request asked
 // before this one, with its answer, in order (`readContext`) — beside the
-// request, never in it, and fewer than `MAX_ASKED` of them, so the answer to
-// this one still fits the list. `round` is how many questions the request has
-// asked, this one included. `note` is the line a question asked once more is
-// shown under (`againNote`), naming the answer that did not settle it.
+// request, never in it, and up to `MAX_ASKED` of them: a request at the limit
+// still keeps its question, and the answer to it takes the place of the one
+// the request needs least (`appendAnswer`, 2026-10-03). `round` is how many
+// questions the request has asked, this one included. `note` is the line a
+// question asked once more is shown under (`againNote`), naming the answer
+// that did not settle it.
 export function packAsk({ id, uid, slug, stage, round, question, request, held = [], at, status = "pending", attached = false, context = [], note } = {}) {
   const q = readAsk(question);
   const parts = heldList(held);
@@ -187,47 +206,14 @@ export function packAsk({ id, uid, slug, stage, round, question, request, held =
   if (!ASK_STATUSES.includes(status)) return null;
   if (typeof attached !== "boolean") return null;
   // WHAT THEY TOLD US SO FAR: a list that is anything else makes the record
-  // unusable, never a shorter list.
+  // unusable, never a shorter list. A full one is still a list (2026-10-03):
+  // the limit is never a reason to drop the question.
   const told = readContext(context);
-  if (told === null || told.length >= MAX_ASKED) return null;
+  if (told === null) return null;
   if (note !== undefined && (typeof note !== "string" || !note.trim() || note.trim().length > MAX_NOTE_CHARS)) return null;
   return {
     v: 2, id, uid, slug, stage, round, question: q, request: req, held: parts, at, status, attached, context: told,
     ...(note === undefined ? {} : { note: note.trim() }),
-  };
-}
-
-/**
- * A REQUEST WITH NO QUESTION OFFERED: the question field taken off every tool
- * that has one — for a request already carrying `MAX_ASKED` answers, and for a
- * question asked `MAX_SAME_ASK` times. Its model acts on what it was told.
- */
-export function stripQuestion(request) {
-  if (!request || typeof request !== "object" || !Array.isArray(request.tools)) return request;
-  let changed = false;
-  const tools = request.tools.map((t) => {
-    const schema = t && t.input_schema;
-    const props = schema && schema.properties;
-    if (!props || !Object.hasOwn(props, "question")) return t;
-    changed = true;
-    const { question: _drop, ...rest } = props;
-    return { ...t, input_schema: { ...schema, properties: rest } };
-  });
-  return changed ? { ...request, tools } : request;
-}
-
-/** A reply to a request that offered no question: any question in it is not one, and is taken out. */
-function dropQuestion(reply) {
-  const blocks = reply && Array.isArray(reply.content) ? reply.content : null;
-  const asks = (b) => !!b && b.type === "tool_use" && !!b.input && typeof b.input === "object" && Object.hasOwn(b.input, "question");
-  if (!blocks || !blocks.some(asks)) return reply;
-  return {
-    ...reply,
-    content: blocks.map((b) => {
-      if (!asks(b)) return b;
-      const { question: _drop, ...rest } = b.input;
-      return { ...b, input: rest };
-    }),
   };
 }
 
@@ -237,35 +223,34 @@ function dropQuestion(reply) {
  * it, so no step's request builder changes and no step can forget:
  *
  *   * each request is shown the answers this step needs (`shown`), in their
- *     own section after everything else it holds (`withContext`);
+ *     own section after everything else it holds (`withContext`), and is sent
+ *     with its tools as the step built them — the question field included,
+ *     however many answers the request carries;
  *   * a reply that asks what this request already asked (`all`: every answer
  *     it carries, shown to this step or not) is not put to the customer — the
  *     model is sent the request again with that answer in front of it
  *     (`withReuse`), to act on it or ask a more specific question, and only
  *     that second reply is returned: the first call is ours and its usage is
  *     never billed;
- *   * a question already put to the customer `MAX_SAME_ASK` times is sent
- *     again with no question offered, and once the request carries
- *     `MAX_ASKED` answers no call is offered one (`stripQuestion`): a question
- *     in such a reply is taken out, never read.
+ *   * AT THE REPEATED-QUESTION THRESHOLD OR PAST THE TOTAL-ANSWER LIMIT
+ *     (2026-10-03, the owner's third review) — the question answered
+ *     `MAX_SAME_ASK` times, or the request carrying `MAX_ASKED` answers — the
+ *     model is not sent again: its reply is returned as it came, question and
+ *     all, so the step asks it and does nothing proposed beside it. A reply is
+ *     never returned with its question taken out.
  *
- * `onReuse(hit, closed)` hears each time a model was sent again, for the trace.
+ * `onReuse(hit)` hears each time a model was sent again, for the trace.
  */
 export function clarifyTransport(send, { shown = () => [], all = () => [], onReuse = null } = {}) {
   return async (request) => {
     const every = readContext(all()) || [];
-    const closed = every.length >= MAX_ASKED;
-    let req = withContext(request, shown());
-    if (closed) req = stripQuestion(req);
+    const req = withContext(request, shown());
     const reply = await send(req);
-    if (closed) return dropQuestion(reply);
     const ask = askOf(reply);
     const hit = ask ? repeatOf(every, ask) : [];
-    if (!hit.length) return reply;
-    const last = hit.length >= MAX_SAME_ASK;
-    if (typeof onReuse === "function") { try { onReuse(hit, last); } catch { /* the trace never costs the call */ } }
-    const second = await send(withReuse(last ? stripQuestion(req) : req, hit));
-    return last ? dropQuestion(second) : second;
+    if (!hit.length || hit.length >= MAX_SAME_ASK || every.length >= MAX_ASKED) return reply;
+    if (typeof onReuse === "function") { try { onReuse(hit); } catch { /* the trace never costs the call */ } }
+    return send(withReuse(req, hit));
   };
 }
 

@@ -27,7 +27,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { loadWorker } from "./fixtures/worker-harness.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
-import { QUESTION_KEY, contextBlock, MAX_ASKED, readAskRecord, againNote } from "../builder/clarify.mjs";
+import { QUESTION_KEY, contextBlock, MAX_ASKED, readAskRecord } from "../builder/clarify.mjs";
 import { addon, writtenPage, promptFor, pagePrompt } from "./fixtures/addon-route.mjs";
 import { editBrowserReply } from "../scripts/addon-sweep.mjs";
 import { failureMsg } from "../builder/edit-failure.mjs";
@@ -326,32 +326,9 @@ test("AN UNCLEAR ANSWER GETS A MORE SPECIFIC FOLLOW-UP — from the router and f
   }
 });
 
-test("ASKED THE SAME TWICE, THE ROUTER IS SENT IT AGAIN WITH QUESTIONS CLOSED, and acts on what it was told: the request is resumed word for word with both answers beside it, and only the call whose answer was used is billed", async () => {
-  const worker = await loadWorker();
-  const slug = freshSlug("same-twice");
-  const store = bucket(slug);
-  // THE QUESTION WAS PUT ONCE, ANSWERED UNCLEARLY, AND PUT AGAIN UNDER ITS NOTE.
-  const first = { q: Q.text, a: "the nice one" };
-  const q = seedQuestion(store, slug, { context: [first], note: againNote([first]), round: 2 });
-  await withWire({ route: [{ intent: "clarify", question: Q, answered: true }, { intent: "edit", layer: "look", answered: true }] }, async (seen) => {
-    const m0 = marks(seen);
-    const r = await routeCall(worker, envFor(store), { slug, message: "the nicer one", ask: { id: q.id } });
-    assert.equal(r.status, 200, JSON.stringify(r.body).slice(0, 300));
-    assert.equal(r.body.intent, "edit", "the router asked a third time what it was told twice");
-    assert.equal(r.body.question, undefined);
-    assert.equal(seen.routerAsked.length, 2, "the router was not sent the request again exactly once");
-    const offered = (i) => JSON.stringify(seen.routerAsked[i]);
-    assert.ok(offered(0).includes("A QUESTION MAY BE ASKED"), "the first call was not offered a question");
-    assert.ok(offered(1).includes("Questions are closed for this message"), "the call sent again, after the same question twice, was still offered one");
-    assert.ok(!offered(1).includes("A QUESTION MAY BE ASKED"), "the call sent again offered a question");
-    assert.ok(offered(1).includes("YOU ASKED THEM THIS ALREADY"), "the call sent again was not shown its answers");
-    assert.deepEqual(r.body.decision.reasons, ["clarify-reused"]);
-    assert.equal(r.body.instruction, q.request, "the request was not resumed word for word");
-    assert.deepEqual(r.body.ask.context, [first, { q: Q.text, a: "the nicer one" }]);
-    assert.equal(charged(seen, m0), 1, "the call sent again was billed as well as the one used, or neither was");
-    assert.equal(question(store, slug).status, "answered");
-  });
-});
+// (ASKED THE SAME TWICE, the router was sent the request again with questions
+// closed and acted on what it was told; the owner's third review, 2026-10-03,
+// made that a hold: `live-clarify-limits.test.mjs` drives it now.)
 
 test("AN ANSWER ALREADY GIVEN IS REUSED, NEVER ASKED AGAIN: a step that asks what was answered — even an answer that went with a finished change — is sent it back and acts; no question reaches the customer, and only the call whose answer was used is billed", async () => {
   const slug = freshSlug("reuse");
@@ -379,7 +356,7 @@ test("AN ANSWER ALREADY GIVEN IS REUSED, NEVER ASKED AGAIN: a step that asks wha
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 4. ACROSS A REFRESH, AND AT THE CAP
+// 4. ACROSS A REFRESH, AND ANSWERS NO READER KEEPS
 // ─────────────────────────────────────────────────────────────────────────────
 
 test("ACROSS A REFRESH NOTHING IS LOST: the waiting question's record holds the request, every answer and the note; the owner route gives back the note; the browser's job record and its hand-over carry the answers to the next post", async () => {
@@ -410,28 +387,9 @@ test("ACROSS A REFRESH NOTHING IS LOST: the waiting question's record holds the 
   assert.deepEqual(post.body.context, told, "the add-on post after a reload does not carry the answers");
 });
 
-test("AT THE CAP NO QUESTION IS OFFERED: a request carrying its last answer sends its steps no question field, a question in a reply anyway is never read, and the request is never discarded for it", async () => {
-  const slug = freshSlug("cap");
-  const store = bucket(slug);
-  const worker = await loadWorker();
-  const compiler = installCompiler();
-  const full = Array.from({ length: MAX_ASKED }, (_, i) => ({ q: "Q" + i + "?", a: "A" + i }));
-  const offered = [];
-  try {
-    await withWire({
-      [T.pick]: (args) => { offered.push(Object.hasOwn(args.tools[0].input_schema.properties, "question")); return { fields: ["shape"], scopes: [{ part: "shape", page: "/visit", words: "Move the band" }], question: { text: "Anything else?" } }; },
-      [T.tweak]: { source: VISIT_MOVED },
-    }, async (seen) => {
-      const post = browserPost(SITE(slug), { intent: "edit", layer: "look", askRound: MAX_ASKED, context: full }, "Move the band");
-      const r = await postRoute(worker, envFor(store), store, seen, slug, post, "sync");
-      assert.deepEqual(offered, [false], "a request at its cap was offered a question, or asked twice");
-      assert.equal(r.body.clarify, undefined, "a question past the cap was kept");
-      assert.equal(r.body.ok, true, "the request was not acted on: " + JSON.stringify(r.body).slice(0, 300));
-      assert.equal(storedPage(store, slug, "visit.tsx"), VISIT_MOVED);
-      assert.deepEqual(store.questionWrites, []);
-    }, { slug });
-  } finally { compiler.uninstall(); }
-});
+// (AT THE CAP no question was offered and a question in a reply was never read,
+// so the step acted on a guess; the owner's third review, 2026-10-03, keeps the
+// question and the request instead: `live-clarify-limits.test.mjs` drives it now.)
 
 test("ANSWERS THAT CANNOT BE READ ARE REFUSED, NEVER READ AS NONE: an edit or an addition resumed with an answers list no reader keeps runs no model, changes nothing and charges nothing — inline and queued", async () => {
   // ONE PAST `MAX_ASKED` is a list no reader keeps; the browser carries it as
