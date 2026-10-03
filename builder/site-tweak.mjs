@@ -195,7 +195,8 @@ export function tweakRequest({ instruction, path, source, rules = TWEAK_RULES, h
     messages: [{
       role: "user",
       content:
-        String(heading || "THE CHANGE THEY ASKED FOR") + "\n" + what.slice(0, 2000) +
+        // THE CHANGE WHOLE (2026-10-03): kept to the size policy by the route.
+        String(heading || "THE CHANGE THEY ASKED FOR") + "\n" + what +
         "\n\nTHE FILE (" + String(path || "this page") + ")\n" + file,
     }],
   };

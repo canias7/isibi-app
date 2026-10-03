@@ -236,13 +236,15 @@ import {
 import { sweepAfterPublish, P_ORPHANS } from "./site-sweep.mjs";
 import { loadConfig, saveConfig, withConfig, LEGACY_KEYS, CONFIG_KEY } from "./site-config.mjs";
 import { takeOffline, putBackOnline } from "./site-live.mjs";
-import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES } from "./builder/site-context.mjs";
+import { readLinkedPages, normalizeQueries, shouldSearch, contextBrief, contextSummary, contextSentence, attachments, MAX_QUERIES, MAX_ATTACHMENTS } from "./builder/site-context.mjs";
 import { routeMessage, routeDecision, routeFailure, clarifiedBrief, siteDigest, DOOR_LAYERS, heldParts, heldList, wordsLess, ROUTE_ERROR_CLASSES } from "./builder/site-ask.mjs";
 // THE HAND-OVER (2026-10-02, the whole-router audit's batch 2): what travels when
 // work moves from one step to another — the parts put off, the scope, and why.
 import { readHandOver, handOverLine, heldReport, deferredOf } from "./builder/hand-over.mjs";
 import { loadAsk, storeAsk, closeAsk, replaceAsk, askLive, packAsk, newAskId, askOf, readAsk, readContext, shownContext, repeatOf, appendAnswer, againNote, clarifyTransport, clarifyCall, MAX_NOTE_CHARS, MAX_SAME_ASK, MAX_ASKED } from "./builder/clarify.mjs";
 import { repliesOn, editReplyFacts, addonReplyFacts, routeReplyFacts, cancelReplyFacts, repeatNoteFacts, replyContext, writeReply, withReplyText, REPLY_CALL_MS } from "./builder/site-reply.mjs";
+// ONE SIZE POLICY FOR WHAT A CUSTOMER SAYS ON A SITE THAT EXISTS (2026-10-03).
+import { MAX_INPUT_CHARS, MAX_CARRIED_CHARS, REWRITE_MAX_CHARS, carriedChars } from "./builder/input-budget.mjs";
 // THE EDIT PATH — its own module, its own tools, its own wording. It imports
 // nothing from this file, which is what makes "two separated paths" (owner,
 // 2026-08-29) a fact about the code rather than a claim about it.
@@ -5984,8 +5986,8 @@ async function ownerSiteConn(env, slug) {
  */
 const ROUTE_TABLES_MS = 3000;
 const ROUTE_TABLE_NAME = /^[a-z_][a-z0-9_]{0,62}$/i;
-async function routeTableNames(env, uid, slug) {
-  if (!uid || (await siteOwnerBySlug(slug, env)) !== uid) return [];
+async function routeTableNames(env, uid, slug, owned = null) {
+  if (!uid || !(owned === true || (await siteOwnerBySlug(slug, env)) === uid)) return [];
   const conn = await ownerSiteConn(env, slug);
   if (!conn) return [];
   const st = await readStoredSpec(conn);
@@ -6151,12 +6153,18 @@ async function askReport(env, res, ctx) {
   const notKept = (why, msg, resume) => {
     if (top) {
       out.msg = msg; out.error = why;
-      if (why === "clarify-unkept") { out.ours = true; status = 503; } else status = 422;
-    } else out.partial[at] = { ...out.partial[at], msg, error: why };
+      if (why === "clarify-unkept" || why === "ask-unusable") { out.ours = true; status = 503; } else status = 422;
+    } else out.partial[at] = { ...out.partial[at], msg, error: why, ...(why === "ask-unusable" ? { ours: true } : {}) };
     if (resume) out.resume = resume;
   };
   if (!request) {
     notKept("clarify-mixed", "One part of that needed a detail before I could make it, but it was mixed in with a change I'd just made, so I left it alone rather than risk doing anything twice. Send that part again on its own, with the detail, and I'll make it.");
+  } else if (ask.unusable === true) {
+    // A QUESTION THAT COULD NOT BE SHOWN WHOLE (2026-10-03, `readAsk`): never
+    // asked as a shorter one and never stored. The step that asked did nothing
+    // beside it, so nothing was guessed; what was left of the request goes back
+    // to the message box, to send again. A failure of the model's answer: ours.
+    notKept("ask-unusable", "I needed to ask you something about that, but the question came back in a form I couldn't show you, so I left it alone — this is on us. What was left of your request is back in your message box: send it again and I'll ask once more.", request);
   } else {
     const round = (Number.isInteger(c.round) && c.round > 0 ? c.round : 1);
     const hit = repeatOf(told, ask);
@@ -6396,21 +6404,71 @@ function staleAnswer(why) {
   }, { status: 409 });
 }
 
+/**
+ * A SITE'S PAGE ADDRESSES FROM ITS STORED PAGES — one reader for the page
+ * picker's route (`GET /api/site/routes`) and the routing route's digest, so
+ * the two cannot disagree about which pages a site has. A part is not a route
+ * (a leading `-` on any segment, the container's own rule); home first, the
+ * rest in the order the pages were written.
+ */
+function sitePageRoutes(pages) {
+  const routes = (Array.isArray(pages) ? pages : [])
+    .map((p) => (p && typeof p.path === "string" ? p.path : ""))
+    .map((p) => routeOf(p))
+    .filter((p) => p && !/(^|\/)-/.test(p));
+  const seen = new Set();
+  const uniq = routes.filter((p) => (seen.has(p) ? false : (seen.add(p), true)));
+  uniq.sort((a, b) => (a === "/" ? -1 : b === "/" ? 1 : 0));
+  return uniq;
+}
+
+// THE SITE'S OWN PAGES, FOR THE ROUTER (2026-10-03, the owner's first
+// information-limits batch: *"Fix the six-page reload issue and downstream
+// page-list truncation so route decisions use complete, authoritative page
+// identities rather than a partial browser cache; keep cached markup separate
+// from page identity, preserve access checks, and handle an unavailable or
+// incomplete inventory without treating an existing page as absent."*). The
+// browser kept six pages across a reload, so the router was told six and an
+// edit of a site's seventh page became an addition. The route reads the
+// verified owner's pages itself — what the site publishes, through the reader
+// the page picker uses (`sitePageRoutes`) — bounded in time like the table
+// names, and they replace whatever list the browser sent. When it cannot (not
+// this owner's site, a store that will not answer, nothing stored, out of
+// time), the browser's list is shown as it came and the router is told it may
+// be partial (`pagesComplete` false), so a page missing from it is never read
+// as one the site lacks (`readEdit`).
+const ROUTE_PAGES_MS = 3000;
+
+/** A promise's answer within `ms`, or `null` — a read that throws or runs late changes nothing. */
+function withinMs(promise, ms, label, slug) {
+  let timer = null;
+  return Promise.race([
+    Promise.resolve(promise).catch((e) => { console.error(label, slug, errorClassForLog(e)); return null; }),
+    new Promise((resolve) => { timer = setTimeout(() => resolve(null), ms); }),
+  ]).then((v) => { if (timer) clearTimeout(timer); return v; });
+}
+
 async function routeDigest(env, user, rb) {
   const site = rb && rb.site && typeof rb.site === "object" && !Array.isArray(rb.site) ? rb.site : null;
-  if (!site || rb.hasSite !== true) return { site: rb && rb.site, filled: null };
-  const sent = Array.isArray(site.tables) ? site.tables.filter((t) => typeof t === "string" && t.trim()) : [];
-  if (sent.length) return { site, filled: null };
+  if (!site || rb.hasSite !== true) return { site: rb && rb.site, filled: null, pagesFilled: false, pagesComplete: false };
   const slug = typeof rb.slug === "string" ? rb.slug : "";
-  if (!/^[a-z0-9][a-z0-9-]{0,80}$/.test(slug)) return { site, filled: null };
-  let timer = null;
-  const names = await Promise.race([
-    routeTableNames(env, user && user.id, slug).catch((e) => { console.error("route tables:", slug, errorClassForLog(e)); return []; }),
-    new Promise((resolve) => { timer = setTimeout(() => resolve(null), ROUTE_TABLES_MS); }),
+  if (!/^[a-z0-9][a-z0-9-]{0,80}$/.test(slug)) return { site, filled: null, pagesFilled: false, pagesComplete: false };
+  const sent = Array.isArray(site.tables) ? site.tables.filter((t) => typeof t === "string" && t.trim()) : [];
+  // OWNERSHIP FIRST, ONCE, FOR BOTH READS: nothing of a site leaves for a
+  // caller who does not own it.
+  const uid = user && user.id;
+  const owned = uid ? withinMs(siteOwnerBySlug(slug, env).then((o) => o === uid), ROUTE_PAGES_MS, "route owner:", slug) : Promise.resolve(false);
+  const [names, routes] = await Promise.all([
+    sent.length ? Promise.resolve(null)
+      : owned.then((ok) => (ok === true ? withinMs(routeTableNames(env, uid, slug, true), ROUTE_TABLES_MS, "route tables:", slug) : null)),
+    owned.then((ok) => (ok === true ? withinMs(loadSiteSource(env, slug).then(sitePageRoutes), ROUTE_PAGES_MS, "route pages:", slug) : null)),
   ]);
-  if (timer) clearTimeout(timer);
-  if (!Array.isArray(names) || !names.length) return { site, filled: null };
-  return { site: { ...site, tables: names }, filled: names };
+  let out = site;
+  const filled = Array.isArray(names) && names.length ? names : null;
+  if (filled) out = { ...out, tables: filled };
+  const pagesFilled = Array.isArray(routes) && routes.length > 0;
+  if (pagesFilled) out = { ...out, pages: routes };
+  return { site: out, filled, pagesFilled, pagesComplete: pagesFilled };
 }
 
 /**
@@ -15095,9 +15153,13 @@ function resumeHeld(record) {
 // of batch 2). The climb posts them (`alsoAsked`); they are taken out of the
 // brief, prompt or instruction the build reads, every occurrence, or the whole
 // is refused (`heldParts`, `ok: false`).
+// THE BUILD'S OWN READ OF A REQUEST, UNCHANGED (2026-10-03): its first
+// `REWRITE_MAX_CHARS` (4,000), named in input-budget.mjs so the page can say so
+// before it sends a longer request here — a site's request may now be longer,
+// and none is rewritten from a shortened copy.
 function buildHeld(body) {
   const asked = [body && body.brief, body && body.prompt, body && body.instruction].find((v) => typeof v === "string" && v.trim());
-  return heldParts(asked ? String(asked).trim().slice(0, 4000) : "", body && body.alsoAsked);
+  return heldParts(asked ? String(asked).trim().slice(0, REWRITE_MAX_CHARS) : "", body && body.alsoAsked);
 }
 
 async function runSiteBuild(request, env, { rec, tr, budget, auth, jobId = null, lease = null }) {
@@ -19552,16 +19614,12 @@ async function handleRequest(request, env, ctx) {
       // component from being published as a page. `render-check.mjs` already
       // records `/-parts/...` as a 404 finding; offering one here would put that
       // finding in a customer's own page menu.
-      const routes = (Array.isArray(rPages) ? rPages : [])
-        .map((p) => (p && typeof p.path === "string" ? p.path : ""))
-        .map((p) => routeOf(p))
-        .filter((p) => p && !/(^|\/)-/.test(p));
-      const seen = new Set();
-      const uniq = routes.filter((p) => (seen.has(p) ? false : (seen.add(p), true)));
       // HOME FIRST, the rest in the order the model wrote them — the picker's own
       // ordering rule, which matches a site's own nav far more often than
-      // alphabetical does.
-      uniq.sort((a, b) => (a === "/" ? -1 : b === "/" ? 1 : 0));
+      // alphabetical does. ONE READER with the routing route's digest
+      // (`sitePageRoutes`, 2026-10-03), so the router and the picker are told
+      // the same pages.
+      const uniq = sitePageRoutes(rPages);
       return Response.json({
         ok: true,
         slug: rslug,
@@ -20451,6 +20509,28 @@ async function handleRequest(request, env, ctx) {
         ? replyAsked(rb, { slug: typeof rb.slug === "string" ? rb.slug : undefined, name: rb.site && typeof rb.site.name === "string" ? rb.site.name : undefined, pages: rb.site && Array.isArray(rb.site.pages) ? rb.site.pages.map((p) => (typeof p === "string" ? p : p && typeof p.path === "string" ? p.path : "")).filter(Boolean) : [] })
         : null;
       return withModelReply(env, await (async () => {
+      // ── ONE MESSAGE, KEPT WHOLE UP TO THE SIZE POLICY AND REFUSED PAST IT ──
+      //
+      // (2026-10-03, the owner's first information-limits batch: *"Within that
+      // supported budget, preserve the complete input; beyond it, preserve the
+      // draft and pending state, explain the real constraint, and never execute
+      // a shortened request."*) A site's message was cut to 2,000 characters on
+      // its way to the router and to every step, without a word. Now it is
+      // whole, and one past `MAX_INPUT_CHARS` is refused HERE — before any model
+      // is asked, before anything is charged and before a waiting question is
+      // read or closed, so the question stays exactly as it was and the page
+      // keeps the words in the box. An answer is said as an answer. A first
+      // build keeps its own bound, untouched.
+      if (rb && rb.hasSite === true && rb.firstBuild !== true && typeof rb.message === "string" && rb.message.trim().length > MAX_INPUT_CHARS) {
+        const n = rb.message.trim().length;
+        const isAnswer = answerClaim(rb) !== undefined;
+        return Response.json({
+          ok: false, error: isAnswer ? "answer-too-long" : "message-too-long", cost: 0, chars: n, max: MAX_INPUT_CHARS,
+          msg: isAnswer
+            ? "That answer is " + n.toLocaleString("en-GB") + " characters, more than one message can hold (" + MAX_INPUT_CHARS.toLocaleString("en-GB") + "), so I haven't added it. Your request is still waiting with its question — a shorter answer lets it go ahead."
+            : "That message is " + n.toLocaleString("en-GB") + " characters, more than one message can hold (" + MAX_INPUT_CHARS.toLocaleString("en-GB") + " — what I can carry beside your site in one request), so I haven't sent it on and nothing changed. Your words are still in the box: shorten them, or send the request as separate messages.",
+        }, { status: 422 });
+      }
       const auth = request.headers.get("Authorization") || "";
       // BEFORE the model call, and the only thing that can refuse it. A balance
       // read rather than a debit: the charge is settled afterwards on real usage,
@@ -20600,6 +20680,11 @@ async function handleRequest(request, env, ctx) {
           // WHETHER THE NAMES THE ROUTER IS SHOWN WERE FILLED IN HERE: named in
           // the decision (`tables-filled`), never a change to what it is shown.
           tablesFilled: !!rDigest.filled,
+          // AND THE PAGES (2026-10-03): read from the site itself when the route
+          // could, and whether that list is the whole of them — a page missing
+          // from a list that may be partial is never read as one it lacks.
+          pagesFilled: rDigest.pagesFilled === true,
+          pagesComplete: rDigest.pagesComplete === true,
           // WHETHER A QUESTION CAN BE KEPT, WHAT THEY ALREADY TOLD US about
           // the waiting request, and the question this message may answer
           // (2026-10-02). Where no question can be kept, none may be asked.
@@ -20648,14 +20733,25 @@ async function handleRequest(request, env, ctx) {
           rContext = appendAnswer(rWaiting.context, rPair);
           if (!rContext && readContext([rPair]) === null) {
             return Response.json({
-              ok: false, error: "answer-too-long", cost: 0,
-              msg: "That answer is longer than I can keep beside your request. Your request is still waiting — answer the question in a sentence or two and I'll carry on with it.",
+              ok: false, error: "answer-too-long", cost: 0, chars: rPair.a.length, max: MAX_INPUT_CHARS,
+              msg: "That answer is longer than one message can hold (" + MAX_INPUT_CHARS.toLocaleString("en-GB") + " characters), so I haven't added it. Your request is still waiting with its question — a shorter answer lets it go ahead.",
             }, { status: 422 });
           }
           if (!rContext) {
             return Response.json({
               ok: false, error: "answers-full", cost: 0,
               msg: "Your request already has as many answers beside it as I can keep, and every one is still needed, so I can't take another without forgetting one you gave. Nothing was changed or charged. Your request is still waiting — press Cancel on the question and send what's left of it as a new message.",
+            }, { status: 422 });
+          }
+          // AND WHAT THE REQUEST WOULD CARRY WITH THIS ANSWER (2026-10-03, the
+          // size policy): the request, its put-off parts and every question and
+          // answer go to each model that resumes it, so together they are held
+          // to `MAX_CARRIED_CHARS` — refused here at no cost, with the question
+          // still waiting and the answer back in the box, never kept by cutting.
+          if (carriedChars({ request: rWaiting.request, held: rWaiting.held, context: rContext }) > MAX_CARRIED_CHARS) {
+            return Response.json({
+              ok: false, error: "answer-too-long", carried: true, cost: 0, chars: rPair.a.length, max: MAX_CARRIED_CHARS,
+              msg: "With your request and the answers you've already given, that answer is more than one request can carry to the builder (" + MAX_CARRIED_CHARS.toLocaleString("en-GB") + " characters), so I haven't added it. Your request is still waiting with its question — a shorter answer lets it go ahead.",
             }, { status: 422 });
           }
           rInstruction = rWaiting.request;
@@ -21814,7 +21910,10 @@ async function handleRequest(request, env, ctx) {
             // `eInstruction`. The customer's sentence is `eMessage`, restored
             // after the steps have run, so the reply and the version label
             // still carry what they actually typed.
-            let eInstruction = String((eb && eb.instruction) || "").trim().slice(0, 2000);
+            // WHOLE (2026-10-03): kept to the size policy and refused past it
+            // below, never cut — a cut at 2,000 characters left an instruction
+            // written at the end of a longer message to no step at all.
+            let eInstruction = String((eb && eb.instruction) || "").trim();
             const eMessage = eInstruction;
             // ── A PART THE ROUTER HELD BACK NEVER RUNS HERE (2026-09-29) ────
             //
@@ -21938,6 +22037,22 @@ async function handleRequest(request, env, ctx) {
               ok: false, error: "clarify", layer, cost: 0, unchanged: true, ask, msg: ask.text,
             });
             if (!eInstruction) return escalate("empty");
+            // ONE REQUEST, AT MOST THE SIZE POLICY'S, AND WHAT IT CARRIES AT MOST
+            // ITS OWN (2026-10-03): refused at no cost before the source is read
+            // or any model asked, never cut, so no step runs on part of what was
+            // asked. Our page never sends one — the routing route refuses it
+            // first — so this answers a direct caller or a replay, with numbers.
+            // THE MESSAGE AS SENT (`eMessage`), not the part this turn runs.
+            if (eMessage.length > MAX_INPUT_CHARS) return explain("route/input-too-long", { chars: eMessage.length, max: MAX_INPUT_CHARS });
+            // AND NO MORE FILES THAN ONE REQUEST CARRIES (2026-10-03): the
+            // composer allows `MAX_ATTACHMENTS` and an answer that would add past
+            // it is held in the box with the reason, so our page never sends more
+            // — a caller that does is told, rather than the extras dropped
+            // without a word.
+            if (Array.isArray(eb && eb.images) && eb.images.length > MAX_ATTACHMENTS) return explain("route/too-many-files", { files: eb.images.length, max: MAX_ATTACHMENTS });
+            if (eCtxAll && carriedChars({ request: eMessage, held: eHeldOut.earlier, context: eCtxAll }) > MAX_CARRIED_CHARS) {
+              return explain("route/input-too-long", { chars: carriedChars({ request: eMessage, held: eHeldOut.earlier, context: eCtxAll }), max: MAX_CARRIED_CHARS, carried: true });
+            }
             // NOTHING RUNS ON A MESSAGE THIS ROUTE COULD NOT SPLIT. At no cost
             // for the edit, before the source is read or any model is asked.
             if (!eHeld.ok) return explain("route/held-unread");
@@ -24185,11 +24300,13 @@ async function handleRequest(request, env, ctx) {
               // this branch; `configDeps` guards it with `if (db)` and reads the
               // logo out of R2 regardless. There is no query here to need it.
               const ldb = await siteBackendBySlug(env, ownerSlug);
-              // UP TO 3 ARRIVE AND ONLY THE FIRST IS USED — the composer allows
-              // three, and a business has one logo. Taking the first is the only
-              // non-arbitrary choice; asking which would be a question about
-              // something they can simply send again.
-              const eImages = Array.isArray(eb && eb.images) ? eb.images.slice(0, 3) : [];
+              // UP TO 3 ARRIVE (more were refused above), AND ONE IS A LOGO — a
+              // business has one. This used to take the first and say nothing;
+              // since 2026-10-03 the step refuses more than one, with the
+              // number, before anything is stored (`runLogoEdit`), because the
+              // first of a request's file and an answer's is not a choice
+              // anybody made.
+              const eImages = Array.isArray(eb && eb.images) ? eb.images.slice(0, MAX_ATTACHMENTS) : [];
               const lOut = await runLogoEdit({
                 sniff: sniffImage,
                 // The same content-hashed library every other upload lands in,
@@ -26988,7 +27105,9 @@ async function handleRequest(request, env, ctx) {
             // WHAT THE ROUTER HELD BACK IS TAKEN OUT BEFORE ANYTHING RUNS
             // (2026-09-29) — the edit route's rule, for the same reason: a look
             // change put off beside an addition must not be designed into it.
-            const aAsked = String((ab && ab.instruction) || "").trim().slice(0, 2000);
+            // WHOLE (2026-10-03): kept to the size policy and refused past it
+            // below, never cut.
+            const aAsked = String((ab && ab.instruction) || "").trim();
             //
             // EVERY PART, AS A LIST (2026-10-02, batch 2): a hand-over carries the
             // router's part and any a step put off beside it.
@@ -27025,6 +27144,13 @@ async function handleRequest(request, env, ctx) {
             const aAuth = request.headers.get("Authorization") || "";
             const aFailure = (reason, extra) => Response.json(addonFailure(reason, extra));
             if (!aInstruction) return aFailure("empty");
+            // ONE REQUEST, AT MOST THE SIZE POLICY'S, AND WHAT IT CARRIES AT MOST
+            // ITS OWN (2026-10-03) — the edit route's rule: refused at no cost,
+            // never cut. Our page never sends one; a direct caller is told.
+            if (aAsked.length > MAX_INPUT_CHARS) return aFailure("input-too-long", { chars: aAsked.length, max: MAX_INPUT_CHARS });
+            if (aCtxAll && carriedChars({ request: aAsked, held: aHeldOut.earlier, context: aCtxAll }) > MAX_CARRIED_CHARS) {
+              return aFailure("input-too-long", { chars: carriedChars({ request: aAsked, held: aHeldOut.earlier, context: aCtxAll }), max: MAX_CARRIED_CHARS, carried: true });
+            }
             if (!aLater.ok) return aFailure("held-unread");
             // NOR ON ANSWERS IT CANNOT READ (2026-10-02), the edit route's rule.
             if (!aCtxAll) return aFailure("context-unread");

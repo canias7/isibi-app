@@ -62,6 +62,7 @@
 // is this path's own and written to be replaced. Replacing one is editing one
 // value here; nothing else in this repo reads them.
 
+import { MAX_INPUT_CHARS } from "./input-budget.mjs";
 import { TSX_ITEM, MAX_TSX, COMPONENT_MENU, MAX_COMPONENTS, TOOL_DIRECTIVE } from "./site-plan.mjs";
 // THE KIT, AS A SET, off the same list the tool hands the model — never a
 // second copy. `COMPONENT_MENU` is itself derived from the kit's palette and
@@ -191,8 +192,14 @@ export const ADD_PICK_MAX_TOKENS = 200;
  */
 export const ADD_MAX_TOKENS = 16000;
 
-/** How much of the message we will even consider. Matches `site-ask.mjs`. */
-export const MAX_MESSAGE = 2000;
+/**
+ * HOW LONG A SITE'S MESSAGE MAY BE: the size policy's one message
+ * (`MAX_INPUT_CHARS`, input-budget.mjs), kept under its old name for the sweep
+ * harness that reads it (scripts/addon-sweep.mjs). It was 2,000, and both
+ * requests below cut the message there (2026-10-03): the route now keeps a
+ * site's message to this and refuses one past it, so they send it whole.
+ */
+export const MAX_MESSAGE = MAX_INPUT_CHARS;
 
 /**
  * ── THE UNIVERSAL RULE OF THE ADD STEP (owner, 2026-09-02) ──────────────────
@@ -1477,7 +1484,7 @@ export function pickRequest({ message, kinds = ADD_KINDS, current = "", model = 
     messages: [{ role: "user", content:
       (current ? "Their site as it stands:\n" + current + "\n\n" : "") +
       (typeof handOver === "string" && handOver.trim() ? "How this reached the add-on step:\n" + handOver.trim() + "\n\n" : "") +
-      "Their message:\n" + String(message || "").slice(0, MAX_MESSAGE) }],
+      "Their message:\n" + String(message || "") }],
   };
 }
 
@@ -1778,7 +1785,13 @@ export function siteNote(site) {
   const proposed = s.proposed && typeof s.proposed === "object" && !Array.isArray(s.proposed) ? s.proposed : {};
   const isNew = (k, n) => (Array.isArray(proposed[k]) ? proposed[k] : []).some((x) => typeof x === "string" && x.toLowerCase() === String(n).toLowerCase());
   const mark = (k) => (n) => (isNew(k, n) ? n + " (being added by this same change)" : n);
-  const pages = (Array.isArray(s.pages) ? s.pages : []).filter((p) => typeof p === "string" && p.trim()).slice(0, 24);
+  // EVERY PAGE THE SITE HAS (2026-10-03, the owner's first information-limits
+  // batch: *"downstream page-list truncation so route decisions use complete,
+  // authoritative page identities"*). The addresses were cut at 24, so the
+  // add-on's picker and designers could not see a site's 25th page — one they
+  // might be asked to put a section on, or must not add again. Read from the
+  // site's own source (`siteFacts`), a page address is a few dozen characters.
+  const pages = (Array.isArray(s.pages) ? s.pages : []).filter((p) => typeof p === "string" && p.trim());
   // EACH PAGE WITH WHAT IT CALLS ITSELF (run 28, 2026-09-03), so "the booking
   // page" can be found among routes that never say the word: the page whose
   // headline is "Book a guitar lesson" is the one they mean.
@@ -2140,7 +2153,7 @@ export function addRequest({ kind, message, site, model, brief = "" }) {
     system: [{ type: "text", cache_control: { type: "ephemeral" }, text: ADD_SYSTEM }],
     messages: [{ role: "user", content:
       "Their site as it stands:\n" + siteNote(site) +
-      "\n\nWhat they asked to add:\n" + String(message || "").slice(0, MAX_MESSAGE) +
+      "\n\nWhat they asked to add:\n" + String(message || "") +
       // WHAT AN EARLIER STEP IN THIS SAME MESSAGE HANDED TO THIS ONE. Below the
       // ask, because it is a second thing to cover and never a replacement for
       // it; absent entirely when nobody handed this kind anything, so a call

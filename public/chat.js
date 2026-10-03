@@ -4448,17 +4448,32 @@ async function siteAttachOne(f) {
   return { name, type };
 }
 
+// HOW MANY FILES ONE REQUEST CARRIES: what the composer allows and what the
+// build and edit routes take (`MAX_ATTACHMENTS` in builder/site-context.mjs,
+// held equal by test/input-budget.test.mjs).
+const SITE_MAX_FILES = 3;
 function siteAttachFiles(fileList) {
   // INTO THE DRAFT OF THE COMPOSER THEY WERE CHOSEN IN, named now: a file is read
   // on a later turn, and by then another site may be on screen.
   const owner = siteAttachFor;
-  const files = Array.from(fileList || []).slice(0, 3 - siteDraft(owner).imgs.length);
+  const picked = Array.from(fileList || []);
+  const room = Math.max(0, SITE_MAX_FILES - siteDraft(owner).imgs.length);
+  const files = picked.slice(0, room);
+  // THE ONES THAT DID NOT FIT ARE NAMED (2026-10-03): picking five took the
+  // first three and the other two were gone without a word.
+  const left = picked.slice(room);
+  if (left.length && typeof sbToast === 'function') {
+    sbToast('One message can carry ' + SITE_MAX_FILES + ' files, so ' + (left.length === 1
+      ? (left[0].name || 'one file') + ' wasn’t attached.'
+      : left.length + ' weren’t attached: ' + left.map((f) => f.name || 'a file').join(', ') + '.'));
+  }
   if (!files.length) return;
   let pending = files.length;
   files.forEach((f) => {
     siteAttachOne(f).then((a) => {
       const strip = siteDraft(owner).imgs;
-      if (strip.length < 3) strip.push(a);
+      if (strip.length < SITE_MAX_FILES) strip.push(a);
+      else if (typeof sbToast === 'function') sbToast((a && a.name ? a.name : 'A file') + ' wasn’t attached: one message can carry ' + SITE_MAX_FILES + ' files.');
       if (a && a.note === 'too large' && typeof sbToast === 'function') sbToast(a.name + ' is too large to attach.');
       if (--pending === 0) paintAttachStrip();
     });
@@ -4562,7 +4577,13 @@ function sitesSave() {
   const build = (withHist) => (sitesCache || []).slice(0, 20).map((s) => ({
     ...s,
     html: (s.html || '').slice(0, 400000),
-    pages: Array.isArray(s.pages) ? s.pages.slice(0, 6).map((p) => ({ path: p.path, name: p.name, html: (p.html || '').slice(0, 400000) })) : undefined,
+    // EVERY PAGE'S ADDRESS AND NAME, AND THE MARKUP OF THE FIRST SIX (2026-10-03,
+    // the owner: *"keep cached markup separate from page identity"*). The six
+    // pages kept were the whole list after a reload, so the router was told six
+    // and an edit of the seventh became an addition. Markup is the heavy part,
+    // and only it is held to six; a page past them keeps `html: ''`, which is
+    // what a React page carries anyway (`pageFromPath`).
+    pages: Array.isArray(s.pages) ? s.pages.map((p, i) => ({ path: p.path, name: p.name, html: i < 6 ? (p.html || '').slice(0, 400000) : '' })) : undefined,
     msgs: (s.msgs || []).slice(-40),
     // A message held after a stop carries its files as data URLs, and one can
     // be larger than all of localStorage — so it is never written. See
@@ -4786,11 +4807,31 @@ function siteRoutesRead(slug) {
   return read;
 }
 // The answer onto one record, and whether it was written.
+//
+// A SHORT LIST IS REPLACED, A LONGER ONE GAINS WHAT IT LACKS (2026-10-03, the
+// owner: *"route decisions use complete, authoritative page identities rather
+// than a partial browser cache"*). The answer was applied only over a list of
+// one page, so a browser that held six — the six a reload kept — never learned
+// of the seventh. A longer list is still this browser's own, and is kept whole:
+// a build can land while the request is in the air, and its list is what was
+// just written where this answer is what was last published. So every page it
+// holds stays, with its name and any markup it cached, and the pages the site
+// publishes that it lacks are added after them. Nothing missing, nothing is
+// written. (The router does not depend on this list: the routing route reads
+// the site's own.)
 function siteRoutesApply(id, paths) {
   if (!Array.isArray(paths) || !paths.length) return false;
   const s = siteById(id);
-  if (!s || (Array.isArray(s.pages) && s.pages.length > 1)) return false;
-  s.pages = paths.map(pageFromPath);
+  if (!s) return false;
+  const had = Array.isArray(s.pages) ? s.pages : [];
+  if (had.length <= 1) {
+    s.pages = paths.map(pageFromPath);
+  } else {
+    const known = new Set(had.map((p) => (p && typeof p.path === 'string' ? p.path : '')));
+    const missing = paths.filter((path) => !known.has(path));
+    if (!missing.length) return false;
+    s.pages = had.concat(missing.map(pageFromPath));
+  }
   sitesSave();
   return true;
 }
@@ -7634,14 +7675,16 @@ function siteSetLive(site, live) {
 // and the stage (Preview / Code / More). Skinned in Go Farther's own dark + pink→amber.
 function renderSiteWorkspace(view, site) {
   const pages = sitePages(site);
-  // AND IF THAT LIST IS SHORT, ASK THE SERVER WHAT PAGES THIS SITE REALLY HAS.
+  // AND ASK THE SERVER WHAT PAGES THIS SITE REALLY HAS, once a load.
   // Fire-and-forget and re-renders when it lands — `sitesFetchRemote`'s own
   // pattern in `renderSites`, and for the same reason: this function is
   // synchronous, so the first paint is still the list this browser holds and
-  // nothing waits on the network. Gated on the list being short because that is
-  // the only state the answer can improve; a browser that built the site already
-  // has the real list and must not spend a request per render to confirm it.
-  if (pages.length <= 1) siteRoutesFetch(site);
+  // nothing waits on the network. ONCE PER SITE PER LOAD (`siteRoutesAsked`),
+  // and no longer only when the list is short (2026-10-03): this browser keeps
+  // every page's address across a reload now, but a list it holds can still be
+  // behind the site — a page added from another device — and the server's is
+  // the one the router is told.
+  siteRoutesFetch(site);
   const active = siteActivePage(site);
   const curHtml = active ? active.html : '';
   const isReact = !!(site.react && site.url);
@@ -9007,12 +9050,14 @@ function clarifyOf(q) {
   const words = (v) => typeof v === 'string' && v.trim() !== '';
   if (!q || typeof q !== 'object' || Array.isArray(q) || !words(q.text)) return null;
   if (typeof q.id !== 'string' || !/^[0-9a-f]{32}$/.test(q.id)) return null;
-  // THE FIRST FOUR, as `routeQuestion` draws them: the server keeps at most
-  // four, and a fifth is not a reason to lose the question.
+  // EVERY ANSWER THE SERVER KEPT (2026-10-03, the owner: *"do not … silently
+  // discard choices"*): the server keeps a site's question whole with every
+  // answer it was offered (`readAsk`), so none is dropped here either — a fifth
+  // was, as the first build's card draws only four.
   const opts = q.options === undefined ? [] : q.options;
   if (!Array.isArray(opts) || !opts.every(words)) return null;
   if (q.note !== undefined && !(words(q.note) && q.note.length <= 300)) return null;
-  return { id: q.id, text: q.text, options: opts.slice(0, 4), ...(q.note !== undefined ? { note: q.note.trim() } : {}) };
+  return { id: q.id, text: q.text, options: opts.slice(), ...(q.note !== undefined ? { note: q.note.trim() } : {}) };
 }
 function liveQuestion(d) {
   return clarifyOf(d && d.question);
@@ -9138,7 +9183,10 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer) {
   const digest = {
     name: site.name || '',
     url: site.url || '',
-    pages: sitePages(site).map((p) => p.path).slice(0, 24),
+    // EVERY PAGE THIS BROWSER KNOWS (2026-10-03): the route replaces the list
+    // with the site's own when it can read it, and is told the list may be
+    // partial when it cannot — never cut to 24 here.
+    pages: sitePages(site).map((p) => p.path),
     tables: Array.isArray(site.tables) ? site.tables.slice(0, 24) : [],
   };
   apiFetch('/api/site/route', {
@@ -9199,7 +9247,7 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer) {
     // is shown as it came — the route's fixed sentence, with the page's own
     // warning sign, only when there is none.
     const routeSaid = !isBuild ? EditPoll.modelReply(d) : null;
-    if (!isBuild && d && d.ok === false && (d.error === 'stale-question' || d.error === 'answer-too-long' || d.error === 'answers-full') && (routeSaid || (typeof d.msg === 'string' && d.msg.trim()))) {
+    if (!isBuild && d && d.ok === false && (d.error === 'stale-question' || d.error === 'answer-too-long' || d.error === 'answers-full' || d.error === 'message-too-long') && (routeSaid || (typeof d.msg === 'string' && d.msg.trim()))) {
       if (d.error === 'stale-question') siteAskClear(origin);
       else siteHoldUnsent(origin, t, imgs);
       finish(routeSaid || '⚠️ ' + d.msg);
@@ -9233,7 +9281,10 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer) {
       d.askRound = d.ask.round;
       d.putOff = d.ask.putOff;
       d.context = EditPoll.contextWire(d.ask.context);
-      sendImgs = sendImgs.concat(keptImgs).slice(0, 3);
+      // THE REQUEST'S OWN FILES FIRST, THEN THE ANSWER'S, NONE DROPPED
+      // (2026-10-03): `siteAskReply` held an answer that would take the two past
+      // one request's files in the box before anything was sent.
+      sendImgs = keptImgs.concat(sendImgs);
     }
     // A QUESTION ON A SITE THAT EXISTS: the model's words and its answers on
     // the thread, kept on the site with this message's files so a reload still
@@ -10437,7 +10488,7 @@ function readRouteReply(httpOk, a, hops) {
   if (EditPoll.heldList(a.putOff) === null) return unknown;
   // AND WHAT A QUESTION THAT COULD NOT BE KEPT LEAVES TO DO (`resume`): words
   // for the message box, no longer than a message, or nothing.
-  if (!(a.resume == null || (typeof a.resume === 'string' && a.resume.trim() && a.resume.length <= 2000))) return unknown;
+  if (!(a.resume == null || (typeof a.resume === 'string' && a.resume.trim() && a.resume.length <= EditPoll.ASK_MAX))) return unknown;
   // A QUESTION BACK (2026-10-02): a step's model asked one thing instead of
   // acting. Read with the screen's own reader, or the reply is not — a card
   // drawn from fields nobody checked could be answered into work.
@@ -11753,6 +11804,20 @@ async function followBuildJob(job, signal, origin) {
 // message before its writer reads it, and `handOver`, why the step below handed
 // it on. Every reply names the parts (`deferred`), and this names them back.
 function reactSend(site, t, origin, mode, imgs, finish, qa, ho) {
+  // THE FULL REWRITE READS THE FIRST `REWRITE_MAX` CHARACTERS OF A REQUEST
+  // (2026-10-03): it is the build's pipeline, kept as it is, and it finds a
+  // climb's held parts in that much of the instruction and writes from it. A
+  // site's request may now be longer, so one that is goes nowhere shorter: it
+  // is not sent, its words and files go back in the box, and the number is said
+  // before anything runs or is charged. A first build is untouched.
+  if (mode !== 'build' && String(t || '').length > EditPoll.REWRITE_MAX) {
+    const n = String(t).length;
+    siteHoldUnsent(origin, t, imgs);
+    finish('⚠️ That needs the full rewrite, which reads at most ' + EditPoll.REWRITE_MAX.toLocaleString('en-GB') +
+      ' characters of a request — this one is ' + n.toLocaleString('en-GB') + ' — so I haven’t started it and nothing changed.' +
+      ' Your words are back in the box: shorten them, or ask for the change in smaller parts.');
+    return;
+  }
   // WE KNOW IT IS A BUILD NOW, so the steps may appear. Set here rather than in
   // `siteRoute` because an attachment skips the router and comes straight here —
   // one place, so neither entry can leave it stuck on `thinking`.
@@ -12081,11 +12146,14 @@ function siteAskHTML(m, site) {
 // in the composer is the answer then.
 function siteLiveAskHTML(m, site) {
   if (!site || !site.ask || site.ask.id !== m.ask) return '';
-  const opts = Array.isArray(m.opts) ? m.opts.slice(0, 4) : [];
+  // EVERY ANSWER OFFERED, WHOLE (2026-10-03): a button sends its own words as
+  // the answer, so none is cut and none left off. The keys reach nine; a tenth
+  // answer is a button without a key.
+  const opts = Array.isArray(m.opts) ? m.opts.slice() : [];
   return '<div class="st-opts">' +
     opts.map((o, i) =>
       '<button type="button" class="st-opt" data-ask-ans="' + esc(String(o)) + '">' +
-        '<kbd>' + (i + 1) + '</kbd><span>' + esc(String(o)) + '</span>' +
+        (i < 9 ? '<kbd>' + (i + 1) + '</kbd>' : '') + '<span>' + esc(String(o)) + '</span>' +
       '</button>').join('') +
     '<button type="button" class="st-opt st-opt-skip" data-ask-cancel="1">' +
       '<kbd>esc</kbd><span>Cancel this request</span>' +
@@ -12113,7 +12181,7 @@ document.addEventListener('keydown', (e) => {
   // on the thread, so a number and a click cannot disagree.
   if (site && site.ask && !siteBusy && (site.msgs || []).some((x) => x && x.ask === site.ask.id)) {
     if (e.key === 'Escape') { e.preventDefault(); siteAskCancel(); return; }
-    const lopts = Array.isArray(site.ask.options) ? site.ask.options.slice(0, 4) : [];
+    const lopts = Array.isArray(site.ask.options) ? site.ask.options.slice(0, 9) : [];
     const ln = Number(e.key);
     if (!(ln >= 1 && ln <= lopts.length)) return;
     e.preventDefault();
@@ -12288,7 +12356,9 @@ function askFilesDrop(id) {
 // thread writes through this, so a reader can end its chain with a question.
 function siteReplyMsg(reply) {
   if (reply && typeof reply === 'object' && typeof reply.t === 'string') {
-    return { r: 'a', t: reply.t, q: reply.q || undefined, opts: Array.isArray(reply.opts) ? reply.opts.slice(0, 4) : undefined, ask: reply.ask || undefined };
+    // A SITE'S QUESTION KEEPS EVERY ANSWER (2026-10-03); a first build's card
+    // draws its own four (`siteAskHTML`), as it always has.
+    return { r: 'a', t: reply.t, q: reply.q || undefined, opts: Array.isArray(reply.opts) ? (reply.ask ? reply.opts.slice() : reply.opts.slice(0, 4)) : undefined, ask: reply.ask || undefined };
   }
   return { r: 'a', t: reply };
 }
@@ -12301,7 +12371,7 @@ function askReplyMsg(before, q) {
   // settle it, so it is never read as the same question asked again for nothing.
   const asked = q.note ? q.note + '\n' + q.text : q.text;
   const t = lead ? lead + '\n' + asked : asked;
-  return { t: t, q: q.text, opts: q.options.slice(0, 4), ask: q.id };
+  return { t: t, q: q.text, opts: q.options.slice(), ask: q.id };
 }
 // THE CARD'S STATE, ON THE SITE — what `sitesSave` keeps, files apart.
 function siteAskKeep(origin, q, imgs) {
@@ -12309,7 +12379,7 @@ function siteAskKeep(origin, q, imgs) {
   if (!s || !q || !q.id) return;
   const files = Array.isArray(imgs) ? imgs.slice(0, 3) : [];
   if (s.ask && s.ask.id !== q.id) askFilesDrop(s.ask.id);
-  s.ask = { id: q.id, text: q.text, options: q.options.slice(0, 4), attached: q.attached === true || files.length > 0, ...(q.note ? { note: q.note } : {}) };
+  s.ask = { id: q.id, text: q.text, options: q.options.slice(), attached: q.attached === true || files.length > 0, ...(q.note ? { note: q.note } : {}) };
   askFilesStore(q.id, files);
 }
 function siteAskClear(origin) {
@@ -12352,10 +12422,14 @@ function holdResume(o, r) {
 function siteAskReply(label, chosen, leaveDraft) {
   const site = siteById(siteOpenId);
   if (!site || siteBusy || !site.ask) return;
-  const said = String(label || '').trim().slice(0, 2000);
+  // WHOLE (2026-10-03): an answer is one message of the size policy — it was
+  // cut to 2,000 here and refused past 500 by the route. Past the policy it
+  // stays in the box, the question waits, and nothing is sent.
+  const said = String(label || '').trim();
   if (!said) return;
-  const asked = site.ask;
   const origin = siteOpenId;
+  if (siteTooLong(origin, said, chosen || leaveDraft, 'answer')) return;
+  const asked = site.ask;
   const draft = chosen || leaveDraft ? null : siteDraft(origin);
   const own = draft ? draft.imgs.slice(0, 3) : [];
   if (draft) { draft.imgs = []; paintAttachStrip(); }
@@ -12378,6 +12452,23 @@ function siteAskReply(label, chosen, leaveDraft) {
     if (asked.attached && !kept.length && !own.length) {
       siteHoldUnsent(origin, said, own);
       finish('⚠️ That question is about the file you sent with your request, and this browser no longer has it. Attach it again and send your answer.');
+      return;
+    }
+    // THE REQUEST'S FILES AND THIS ANSWER'S GO TOGETHER, AND TOGETHER THEY ARE
+    // AT MOST ONE REQUEST'S (2026-10-03, the owner: *"Preserve original and
+    // newly supplied attachment references across clarification; never
+    // silently choose which files to discard, and report any genuine attachment
+    // limit before execution."*). The answer's files went first and the three
+    // that fitted were kept, so the request's own file could be dropped without
+    // a word. Now neither is chosen over the other: past the limit nothing is
+    // sent — the answer and its files go back in the box, the question stays
+    // open, and they are told the number before anything runs or is charged.
+    if (kept.length + own.length > SITE_MAX_FILES) {
+      siteHoldUnsent(origin, said, own);
+      const room = Math.max(0, SITE_MAX_FILES - kept.length);
+      finish('⚠️ Your request already carries ' + (kept.length === 1 ? 'one file' : kept.length + ' files') + ', and one request can carry ' +
+        SITE_MAX_FILES + ', so this answer can add ' + (room === 0 ? 'none' : room === 1 ? 'one more' : room + ' more') +
+        '. I haven’t sent it — your answer and its files are back in the box, and the question is still open.');
       return;
     }
     const s = siteById(origin);
@@ -12457,12 +12548,44 @@ function siteAskCheck(site) {
   }).catch(() => { /* not knowing changes nothing */ });
 }
 
+// ONE MESSAGE OF A SITE'S CONVERSATION, AT MOST THE SIZE POLICY'S (2026-10-03,
+// the owner: *"Within that supported budget, preserve the complete input;
+// beyond it, preserve the draft and pending state, explain the real
+// constraint, and never execute a shortened request."*). `true` when it is
+// longer: nothing is sent, nothing is charged, a waiting question stays as it
+// is, the customer's words go back in the box (`leaveDraft` words are the
+// platform's own and stay out of it), and the number is said. The bound is
+// the server's (`MAX_INPUT_CHARS`), mirrored as `EditPoll.ASK_MAX`.
+function siteTooLong(origin, t, leaveDraft, what) {
+  if (t.length <= EditPoll.ASK_MAX) return false;
+  const s = siteById(origin);
+  if (!s) return true;
+  if (!leaveDraft) {
+    const d = siteDraft(origin);
+    if (!d.t.trim()) d.t = t;
+  }
+  s.msgs.push({ r: 'a', t: '⚠️ That ' + (what || 'message') + ' is ' + t.length.toLocaleString('en-GB') +
+    ' characters, more than one message can hold (' + EditPoll.ASK_MAX.toLocaleString('en-GB') +
+    ' — what I can carry beside your site in one request), so I haven’t sent it and nothing changed.' +
+    (leaveDraft ? '' : ' Your words are back in the box: shorten them, or send the request as separate messages.') });
+  s.updatedAt = Date.now();
+  sitesSave();
+  if (siteOpenId === origin) renderSites();
+  return true;
+}
 // `leaveDraft` is for words the platform wrote — the "Fix with AI" presses —
 // which are sent beside the composer rather than from it (see the take below).
 function siteSend(text, leaveDraft) {
   const site = siteById(siteOpenId);
   if (!site || siteBusy) return;
-  const t = String(text || '').trim().slice(0, 2000);
+  // A FIRST BUILD KEEPS ITS OWN 2,000, AS IT ALWAYS HAS; a site that exists —
+  // a record with an address — sends its message whole up to the size policy
+  // and never shorter (2026-10-03, `siteTooLong` below). It was cut to 2,000
+  // here for everyone, and the thread then showed the cut copy as what they
+  // had said.
+  const raw = String(text || '').trim();
+  const firstBuild = !site.slug || !!site.clarify;
+  const t = firstBuild ? raw.slice(0, 2000) : raw;
   if (!t) return;
   // A QUESTION IS ON SCREEN, so this is the answer to it. Typing instead of
   // clicking is normal — the options cover the likely answers, not every answer
@@ -12472,6 +12595,7 @@ function siteSend(text, leaveDraft) {
   // A QUESTION ON A SITE THAT EXISTS (2026-10-02): the message answers it, or —
   // the router decides — asks for something else and replaces it.
   if (site.ask) { siteAskReply(t, false, leaveDraft); return; }
+  if (!firstBuild && siteTooLong(siteOpenId, t, leaveDraft, 'message')) return;
   const isBuild = !sitePages(site).length;
   const active = siteActivePage(site);
   site.msgs.push({ r: 'u', t });

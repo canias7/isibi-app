@@ -869,7 +869,8 @@ export function pictureRequest({ instruction, slots, library, model = PICTURE_MO
     messages: [{
       role: "user",
       content: "THE PICTURES THIS SITE HAS\n" + pictureDigest(slots, library) +
-        "\n\nWHAT THEY ASKED FOR\n" + String(instruction || "").trim().slice(0, 2000),
+        // WHOLE (2026-10-03): kept to the size policy by the route, never cut here.
+        "\n\nWHAT THEY ASKED FOR\n" + String(instruction || "").trim(),
     }],
   };
 }

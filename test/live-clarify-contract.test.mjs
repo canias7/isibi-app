@@ -24,6 +24,7 @@ import {
 } from "../builder/clarify.mjs";
 import { allowedJobKey } from "../builder/job-gateway.mjs";
 import { routeMessage, readRouting, readAsk, askRequest, ASK_TOOL, LIVE_ASK_TOOL, MAX_MESSAGE } from "../builder/site-ask.mjs";
+import { MAX_INPUT_CHARS } from "../builder/input-budget.mjs";
 import { pickTool as lanePickTool, pickLanes, editTool, LANE_FIELDS, OWN_LANES, takeOffTool, runLane, runTakeOff } from "../builder/site-lanes.mjs";
 import { TEXT_TOOL, DATA_TOOL, runTextEdit, runDataEdit } from "../builder/site-apply.mjs";
 import { RULES_TOOL, runRulesEdit } from "../builder/site-rules.mjs";
@@ -80,10 +81,22 @@ test("A STORED QUESTION IS EVERY FIELD CHECKED, and one field wrong makes it no 
   assert.equal(good.status, "pending");
   assert.equal(good.attached, false);
   assert.deepEqual(readAskRecord(JSON.stringify(good)), good, "a stored question does not read back as it was written");
+  // A REQUEST PAST THE OLD 2,000, ITS LAST WORDS THE ONES THAT MATTER, IS KEPT
+  // WHOLE (2026-10-03), and so are an answer past the old 500 and a question
+  // past the old 240.
+  const longRequest = "Keep everything as it is on the Visit page. ".repeat(80) + "Then make the order band dark red.";
+  const longAsk = "Which band do you mean — " + "the one with the opening hours and the map, ".repeat(10) + "or the order band?";
+  const kept = rec({ request: longRequest, question: { text: longAsk, options: ["The order band"] }, context: [{ q: longAsk, a: "y".repeat(700) + " the order band" }] });
+  assert.ok(kept, "a long request, question or answer inside the policy was refused");
+  assert.equal(kept.request, longRequest);
+  assert.equal(kept.question.text, longAsk);
+  assert.equal(kept.context[0].a, "y".repeat(700) + " the order band");
   for (const [field, bad] of [
     ["id", "nope"], ["id", 7], ["uid", ""], ["slug", "Not A Slug"], ["stage", "build"], ["stage", 3],
     ["round", 0], ["round", 1.5], ["round", "3"], ["question", { text: "" }], ["question", "Which?"],
-    ["request", ""], ["request", "x".repeat(MAX_MESSAGE + 1)], ["held", [3]], ["held", "x".repeat(5000)],
+    // THE SIZE POLICY'S ONE MESSAGE (2026-10-03; the request was 2,000, a
+    // question 240 and an answer 500): past it, no question at all.
+    ["request", ""], ["request", "x".repeat(MAX_INPUT_CHARS + 1)], ["held", [3]], ["held", "x".repeat(MAX_INPUT_CHARS + 1)],
     ["at", "now"], ["status", "open"], ["attached", "yes"], ["attached", 1],
     // WHAT THEY ALREADY TOLD US (2026-10-02, the owner's second review): `{ q, a }`
     // pairs beside the request, up to `MAX_HISTORY` of them — the request's
@@ -91,7 +104,7 @@ test("A STORED QUESTION IS EVERY FIELD CHECKED, and one field wrong makes it no 
     // owner's fourth review). Anything else makes no question at all, never a
     // shorter list — and so does a note that is not one short line.
     ["context", "Visit"], ["context", [3]], ["context", [{ q: "Which?" }]], ["context", [{ q: "", a: "Visit" }]],
-    ["context", [{ q: "Which?", a: "  " }]], ["context", [{ q: "x".repeat(241), a: "Visit" }]],
+    ["context", [{ q: "Which?", a: "  " }]], ["context", [{ q: "x".repeat(MAX_INPUT_CHARS + 1), a: "Visit" }]],
     ["context", [{ q: "Which?", a: "x".repeat(MAX_ANSWER_CHARS + 1) }]], ["context", [{ q: "Which?", a: "Visit", handled: "yes" }]],
     ["context", Array.from({ length: MAX_HISTORY + 1 }, (_, i) => ({ q: "Q" + i + "?", a: "A" + i }))],
     ["note", ""], ["note", 3], ["note", "x".repeat(301)],
@@ -212,15 +225,33 @@ test("WHAT THEY ALREADY TOLD US IS A LIST BESIDE THE REQUEST, READ STRICTLY, AND
   assert.equal(withContext(req, []), req, "a request with nothing to show was rebuilt");
 });
 
-test("A QUESTION THE SCREEN CAN SHOW: words, and none or up to four answers — a lone answer is no choice, so it is dropped", () => {
+test("A QUESTION THE SCREEN CAN SHOW, WHOLE: its words and every answer offered — none cut, none dropped; one that cannot be shown whole is unusable, never shorter", () => {
   assert.deepEqual(readAsk({ text: "Which one?" }), { text: "Which one?", options: [] });
   assert.deepEqual(readAsk({ text: "Which one?", options: ["A", "B"] }), { text: "Which one?", options: ["A", "B"] });
-  assert.deepEqual(readAsk({ text: "Which one?", options: ["Only"] }), { text: "Which one?", options: [] });
+  // A LONE ANSWER IS KEPT AND A FIFTH IS NOT DROPPED (2026-10-03, the owner: *"do
+  // not … silently discard choices"*); a blank one is no answer, a repeat is one.
+  assert.deepEqual(readAsk({ text: "Which one?", options: ["Only"] }), { text: "Which one?", options: ["Only"] });
+  assert.deepEqual(readAsk({ text: "Which?", options: ["A", "B", "C", "D", "E"] }).options, ["A", "B", "C", "D", "E"], "an answer was dropped");
+  assert.deepEqual(readAsk({ text: "Which?", options: ["A", " a ", "", "  ", "B"] }).options, ["A", "B"]);
   assert.equal(readAsk({ text: "" }), null);
+  assert.equal(readAsk({}), null, "a question field with no words is no question");
   assert.equal(readAsk("Which?"), null);
   assert.equal(readAsk(null), null);
-  const many = readAsk({ text: "Which?", options: ["A", "B", "C", "D", "E"] });
-  assert.ok(many && many.options.length <= 4, "more than four answers reach the screen");
+  // THE WORDS THAT DECIDE IT, AT THE END OF A LONG QUESTION AND A LONG ANSWER,
+  // SURVIVE: nothing is cut mid-sentence and a pressed answer is the whole one.
+  const longQ = "Which band should move — the one that says Order a collection so we hold a loaf for you, which sits under the opening hours on the Visit page, or the one that says Come to the bakery, which is the first thing people see when they open the Visit page on a phone?";
+  const longO = "The order band that sits under the opening hours on the Visit page";
+  const q = readAsk({ text: longQ, options: [longO, "Come to the bakery"] });
+  assert.equal(q.text, longQ, "the question was shortened");
+  assert.equal(q.options[0], longO, "an answer was shortened");
+  // UNUSABLE, NEVER SHORTER: past one message of the size policy, or words and
+  // answers that are not text. Read again, it stays what it is.
+  assert.deepEqual(readAsk({ text: "x".repeat(MAX_INPUT_CHARS + 1) }), { unusable: true, why: "too-long" });
+  assert.deepEqual(readAsk({ text: "Which?", options: ["x".repeat(MAX_INPUT_CHARS)] }), { unusable: true, why: "too-long" }, "the question and its answers are one message");
+  assert.deepEqual(readAsk({ text: "Which?", options: ["A", 7] }), { unusable: true, why: "options-unreadable" });
+  assert.deepEqual(readAsk({ text: "Which?", options: "A, B" }), { unusable: true, why: "options-unreadable" });
+  assert.deepEqual(readAsk({ text: 5 }), { unusable: true, why: "text-unreadable" });
+  assert.deepEqual(readAsk(readAsk({ text: "x".repeat(MAX_INPUT_CHARS + 1) })), { unusable: true, why: "too-long" });
 });
 
 // ── THE FIRST BUILD, UNCHANGED ──────────────────────────────────────────────
@@ -687,7 +718,10 @@ test("A HAND-OVER AND A JOB RECORD CARRY WHAT THEY ALREADY TOLD US, as it came �
   assert.deepEqual(EditPoll.handOver({ layer: "text", context: [3] }, { layer: "nav" }, {}).context, [3], "an unreadable list was dropped, so the step would run as if nothing was answered");
   assert.deepEqual(EditPoll.contextOf(undefined), []);
   assert.equal(EditPoll.contextOf("Which band?"), null);
-  assert.equal(EditPoll.contextOf([{ q: "Which band?", a: "x".repeat(501) }]), null, "an answer longer than the server keeps was read");
+  assert.equal(EditPoll.contextOf([{ q: "Which band?", a: "x".repeat(MAX_ANSWER_CHARS + 1) }]), null, "an answer longer than the server keeps was read");
+  // AND ONE THE SERVER KEEPS IS READ WHOLE (2026-10-03): past the old 500.
+  const longAnswer = "x".repeat(600) + " — the one under the opening hours";
+  assert.deepEqual(EditPoll.contextOf([{ q: "Which band?", a: longAnswer }]), [{ q: "Which band?", a: longAnswer }], "an answer the server keeps was not read whole");
   assert.equal(EditPoll.contextOf(Array.from({ length: MAX_HISTORY + 1 }, () => ({ q: "q", a: "a" }))), null, "a list longer than the server keeps was read");
   // THE BROWSER CARRIES THE WHOLE HISTORY THE SERVER KEEPS (2026-10-03, the
   // owner's fourth review): past the total-answer limit a reload, a resumed

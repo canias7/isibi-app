@@ -27,6 +27,7 @@
 // decision is reproducible — a rule that consults `Date.now()` cannot be driven
 // past its own deadline in a test, which is exactly the case that matters.
 
+import { MAX_INPUT_CHARS } from "./input-budget.mjs";
 import { BUILDER_CALL_MS, retryHere } from "./build-call.mjs";
 import { readTries } from "./build-job.mjs";
 
@@ -51,11 +52,14 @@ export const RESUME_VERSION = 1;
 export const MAX_RESUME_STEPS = 40;
 
 // HOW MANY PARTS PUT OFF A RECORD MAY NAME, and how long each may be: the
-// hand-over's own bounds (`MAX_HELD` and `MAX_MESSAGE` in site-ask.mjs, held
-// equal to these by test/handover-resume.test.mjs). Not imported: this module
-// is the resume's envelope and carries no router.
+// hand-over's own bounds (`MAX_HELD` in site-ask.mjs, and one message of the
+// size policy, `MAX_INPUT_CHARS` in input-budget.mjs — held equal to these by
+// test/handover-resume.test.mjs). The count is not imported: this module is
+// the resume's envelope and carries no router. The length is the size policy's
+// own (2026-10-03): a part cut from a message of up to 16,000 characters, held
+// to 2,000 here, left the record naming none of the parts put off.
 export const MAX_RESUME_DEFERRED = 4;
-export const MAX_RESUME_DEFERRED_CHARS = 2000;
+export const MAX_RESUME_DEFERRED_CHARS = MAX_INPUT_CHARS;
 
 // CLOUDFLARE'S OWN CEILING ON A DELAYED MESSAGE — 24 hours, for `send()` and
 // `msg.retry()` alike (verified against their documentation rather than

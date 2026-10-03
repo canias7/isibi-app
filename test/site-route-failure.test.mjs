@@ -420,13 +420,16 @@ test("CONTROL: a question on a live site is drawn with its answers, kept as the 
   assert.equal(o.ticker, null);
 });
 
-test("CONTROL: four answers, or more, draw the first four; none is a question to answer in words", async () => {
+test("CONTROL: four answers, or more, draw every one; none is a question to answer in words", async () => {
+  // EVERY ANSWER THE SERVER KEPT (2026-10-03, the owner: *"do not … silently
+  // discard choices"*): a fifth was dropped here, as the first build's card
+  // draws four; a site's question keeps every answer it was offered.
   const four = ["Main", "Shop", "Blog", "Help"];
   for (const options of [four, [...four, "Other"]]) {
     const o = await drive({ site: LIVE, message: ASK, route: clarify({ id: QID, text: "Which footer?", options }) });
     assert.deepEqual(o.posts, []);
-    assert.deepEqual(o.said, [{ r: "a", t: "Which footer?", q: "Which footer?", opts: four, ask: QID }], json(options));
-    assert.deepEqual(o.ask, { id: QID, text: "Which footer?", options: four, attached: false });
+    assert.deepEqual(o.said, [{ r: "a", t: "Which footer?", q: "Which footer?", opts: options, ask: QID }], json(options));
+    assert.deepEqual(o.ask, { id: QID, text: "Which footer?", options, attached: false });
     assert.equal(o.clarify, null);
   }
   const o = await drive({ site: LIVE, message: ASK, route: clarify({ id: QID, text: "Which footer?", options: [] }) });

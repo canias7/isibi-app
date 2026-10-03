@@ -484,7 +484,9 @@ test("A STEP'S QUESTION THAT COULD NOT BE KEPT PUTS WHAT IT LEFT TO DO BACK IN T
   {
     // A `resume` THAT IS NOT A MESSAGE'S WORDS makes the reply unreadable, never a composer full of junk —
     // and never a refusal read as if it were whole.
-    for (const resume of [["Move the band"], "   ", "x".repeat(2001), 7]) {
+    // PAST ONE MESSAGE OF THE SIZE POLICY is no request anybody sent (2026-10-03;
+    // it was 2,000, which a request now outgrows).
+    for (const resume of [["Move the band"], "   ", "x".repeat(16001), 7]) {
       const p = page({ site: LIVE, answer: (url) => (url === ROUTE ? { body: { ok: true, intent: "edit", layer: "look", cost: 2 } }
         : url === EDIT ? { body: { ok: false, error: "clarify-unkept", msg: "THE ROUTE'S OWN SENTENCE", resume } } : null) });
       p.ctx.siteSend("Move the order band up");

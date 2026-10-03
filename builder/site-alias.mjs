@@ -285,7 +285,8 @@ export function renameRequest({ message, current, former, model }) {
       // vague "drop the old one" is answerable only when there is one.
       (old.length ? "Its old addresses, which still send people to it: " + old.join(", ") + ".\n" : "It has no old addresses.\n") +
       "\nWhat they asked for:\n" +
-      String(message || "").slice(0, 2000) }],
+      // WHOLE (2026-10-03): kept to the size policy by the route.
+      String(message || "") }],
   };
 }
 

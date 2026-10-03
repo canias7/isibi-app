@@ -662,12 +662,22 @@ test("the editable copy: four editing readers read through the repairing reader,
   // repairing read blinked, and the route answers "couldn't read just now"
   // rather than editing a copy nothing repaired. Asserted as that property,
   // below, not as a count alone.
+  //
+  // RE-ANCHORED 2026-10-03 — 8 → 9, AND THE NINTH IS THE ROUTER'S PAGE LIST.
+  // The routing route reads a verified owner's page ADDRESSES for the router
+  // (`routeDigest`, through the page picker's own reader, `sitePageRoutes`), so
+  // a page past the six a browser keeps is never read as missing. It sits beside
+  // the page picker's read for the picker's reason, stronger: it runs on EVERY
+  // message, so a repairing read would make a site busy for routing a sentence.
+  // It never publishes and never opens a page's code for an edit — what an edit
+  // runs on is still read through the repairing reader by the edit route.
   const bare = [...W.matchAll(/(?<!function )\b(?:load|read)SiteSource\(env, [^)]*\)/g)].map((m) => m[0]);
-  // The ninth is the checked arm INSIDE the repairing wrapper; its caller
+  // The tenth is the checked arm INSIDE the repairing wrapper; its caller
   // cannot publish unless recovery and the strict source read both succeeded.
-  assert.equal(bare.length, 8, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
+  assert.equal(bare.length, 9, "a bare source read appeared or vanished — is it an editing reader? " + bare.join(" | "));
   assert.ok(bare.includes("readSiteSource(env, sslug)"), "the Code tab's read is gone, or no longer bare");
   assert.ok(bare.includes("loadSiteSource(env, rslug)"), "the page picker's read is gone, or no longer bare");
+  assert.ok(/withinMs\(loadSiteSource\(env, slug\)\.then\(sitePageRoutes\)/.test(W), "the router's page list is no longer the bare, bounded, addresses-only read");
   // Both editing routes now use the checked recovery wrapper, so the
   // second bare classification read is gone rather than becoming editable input.
   assert.doesNotMatch(W, /const eSrcRead = await readSiteSource/);

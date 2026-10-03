@@ -22,7 +22,8 @@ import {
   decisionReadable, probeVerdict, probeBody, readProbePages, routeProbes, probesCost, probesReport, answerSaid,
   MAX_PROBES, PROBE_DIR, PROBE_COST_MAX, ROUTE_PATH,
 } from "../scripts/canary-probes.mjs";
-import { MAX_MESSAGE } from "../builder/site-ask.mjs";
+// A probe's message is a site's: one message of the size policy (2026-10-03).
+import { MAX_INPUT_CHARS as MAX_MESSAGE } from "../builder/input-budget.mjs";
 
 const REPO = path.resolve(new URL("..", import.meta.url).pathname);
 const BATCH = "router-audit-1";

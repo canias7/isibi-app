@@ -193,6 +193,29 @@ test("…while an attachment with no picture in it is still no logo", async () =
   assert.equal(seen.stored, 0);
 });
 
+// MORE THAN ONE PICTURE IS NOT ONE LOGO (2026-10-03, the owner: *"never
+// silently choose which files to discard, and report any genuine attachment
+// limit before execution."*). The first used to win without a word; once a
+// request's own file and an answer's both go on, the first is not a choice
+// anybody made. Refused before anything is stored, with the number.
+test("TWO PICTURES ARE REFUSED, NEITHER CHOSEN: nothing stored, saved or published, and the number said — for the tab icon too", async () => {
+  for (const tab of [false, true]) {
+    const { d, seen } = deps();
+    const r = await runLogoEdit(d, { images: [dataUrl(PNG), { name: "b.png", data: dataUrl(PNG) }], tab });
+    assert.equal(r.ok, false, JSON.stringify(r));
+    assert.equal(r.reason, "several");
+    assert.equal(r.files, 2);
+    assert.match(r.msg, /^That came with 2 files, and a site has one /);
+    assert.match(r.msg, tab ? /one tab icon/ : /one logo/);
+    assert.equal(seen.stored, 0, "a picture was stored");
+    assert.deepEqual(seen.saved, []);
+    assert.equal(seen.published, 0);
+  }
+  // A NOTE BESIDE ONE PICTURE IS STILL ONE PICTURE, and a blank entry is nothing.
+  const { d } = deps();
+  assert.equal((await runLogoEdit(d, { images: ["", { name: "notes.txt", text: "our colours" }, dataUrl(PNG)] })).ok, true);
+});
+
 test("a refusal never publishes and never saves", async () => {
   const { d, seen } = deps();
   const r = await runLogoEdit(d, { images: ["data:image/svg+xml;base64,PHN2Zz4="] });

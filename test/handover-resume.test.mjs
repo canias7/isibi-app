@@ -52,6 +52,7 @@ import { SITE_PAGES_TOOL } from "../builder/page-gen.mjs";
 import * as resumeMod from "../builder/build-resume.mjs";
 import { JOB_KIND, resultKey } from "../builder/build-job.mjs";
 import { MAX_HELD, MAX_MESSAGE } from "../builder/site-ask.mjs";
+import { MAX_INPUT_CHARS } from "../builder/input-budget.mjs";
 
 const EP = createRequire(import.meta.url)("../public/edit-poll.js");
 const { packResume, readResume, resumeKey, genKey } = resumeMod;
@@ -73,8 +74,11 @@ test("the record keeps the parts put off, all or nothing, and one written before
   assert.deepEqual(round(["add a map", " "]), []);
   assert.deepEqual(round("add a map"), [], "a bare string is not the record's shape");
   assert.deepEqual(round(["a", "b", "c", "d", "e"]), [], "more parts than a hand-over carries");
-  assert.deepEqual(round(["x".repeat(MAX_MESSAGE + 1)]), [], "a part longer than any message (the record's bound is the hand-over's, below)");
-  assert.deepEqual(round(["x".repeat(MAX_MESSAGE)]), ["x".repeat(MAX_MESSAGE)]);
+  // ONE MESSAGE OF THE SIZE POLICY (2026-10-03; it was 2,000): a part cut from a
+  // longer message is kept whole, one past the bound is no part of any message.
+  assert.deepEqual(round(["x".repeat(MAX_INPUT_CHARS + 1)]), [], "a part longer than any message (the record's bound is the hand-over's, below)");
+  assert.deepEqual(round(["x".repeat(MAX_INPUT_CHARS)]), ["x".repeat(MAX_INPUT_CHARS)]);
+  assert.deepEqual(round(["x".repeat(MAX_MESSAGE + 1)]), ["x".repeat(MAX_MESSAGE + 1)], "a part past the old 2,000 was dropped from the record");
   // AN OLDER RECORD — no field at all — still resumes, and names none.
   const old = packResume(BASE);
   delete old.deferred;
@@ -87,7 +91,7 @@ test("the record keeps the parts put off, all or nothing, and one written before
 
 test("the record's bounds are the hand-over's own", () => {
   assert.equal(resumeMod.MAX_RESUME_DEFERRED, MAX_HELD, "a record could name more parts than a hand-over carries, or fewer");
-  assert.equal(resumeMod.MAX_RESUME_DEFERRED_CHARS, MAX_MESSAGE, "a record could keep a part longer than any message, or cut one short");
+  assert.equal(resumeMod.MAX_RESUME_DEFERRED_CHARS, MAX_INPUT_CHARS, "a record could keep a part longer than any message, or cut one short");
 });
 
 // ── THE CHAIN ───────────────────────────────────────────────────────────────

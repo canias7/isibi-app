@@ -511,7 +511,11 @@ test("the step imports nothing from worker.js and carries none of the build's to
     // Its only import is `site-ask.mjs`, for the router's own question reader
     // and the per-request budget, so the router and every step hold a question
     // to one rule. It carries the question field's wording and no path's.
-    assert.ok(["./site-plan.mjs", "./clarify.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs", "./site-tweak.mjs", "./site-render.mjs", "./site-langs.mjs", "./site-requirements.mjs", "./site-files.mjs", "./site-images.mjs", "./site-rows.mjs", "./site-text.mjs", "../site-access.mjs", "../site-schema.mjs", "../site-apis.mjs", "../site-api-shape.mjs", "../site-rls.mjs"].includes(from),
+    // `./input-budget.mjs` (2026-10-03) is a LEAF with no imports: the size
+    // policy every hop of a site's conversation reads — how long one message
+    // may be — so this step sends the whole message the route kept rather than
+    // a cut of its own. Numbers and their reasons; no path's wording.
+    assert.ok(["./site-plan.mjs", "./clarify.mjs", "./input-budget.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs", "./site-tweak.mjs", "./site-render.mjs", "./site-langs.mjs", "./site-requirements.mjs", "./site-files.mjs", "./site-images.mjs", "./site-rows.mjs", "./site-text.mjs", "../site-access.mjs", "../site-schema.mjs", "../site-apis.mjs", "../site-api-shape.mjs", "../site-rls.mjs"].includes(from),
       "the add step reaches into a module the two paths do not share: " + from);
     assert.notEqual(from, "./site-repair.mjs", "the add step imports the BUILD's repair — the addon path triggering the build path");
   }
@@ -742,12 +746,15 @@ test("the picking request and the add request are cached where they must be and 
   // NO SITE AT ALL STILL WORKS, and carries no empty heading: an addon on a
   // site whose note could not be read is not an addon with a blank label.
   assert.match(pickRequest({ message: "hi", model: "m" }).messages[0].content, /^Their message:\nhi$/);
-  const a = addRequest({ kind: "component", message: "x".repeat(MAX_MESSAGE + 50), site: SITE, model: "sentinel-model" });
+  // THE WHOLE MESSAGE (2026-10-03): the route keeps a site's message to the
+  // size policy and refuses one past it, so the add request never cuts it — an
+  // instruction written at its end reaches the designer.
+  const a = addRequest({ kind: "component", message: "x".repeat(MAX_MESSAGE + 50) + " and give it a border", site: SITE, model: "sentinel-model" });
   assert.equal(a.model, "sentinel-model");
   assert.equal(a.tool_choice.name, "add_to_site");
   assert.ok(a.tools[0].cache_control && a.system[0].cache_control, "the add's fixed blocks are not cached");
   assert.ok(a.messages[0].content.includes(siteNote(SITE)), "the add is not shown the site");
-  assert.ok(!a.messages[0].content.includes("x".repeat(MAX_MESSAGE + 1)), "the message is not capped");
+  assert.ok(a.messages[0].content.includes("x".repeat(MAX_MESSAGE + 50) + " and give it a border"), "the message was cut");
   assert.equal(ADD_MODEL, modelsFor().quick, "the default model is not the picker's");
 });
 

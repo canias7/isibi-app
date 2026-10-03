@@ -18,6 +18,7 @@ import {
   siteDigest, normalizePagePath,
   readAlso, MAX_ALSO_CHARS, heldBack,
 } from "../builder/site-ask.mjs";
+import { MAX_INPUT_CHARS } from "../builder/input-budget.mjs";
 // ⚠ `editBrowserReply`, the browser's own edit composer executed — the add
 // composer answers a plausible "✅ Done." for an edit body.
 import { editBrowserReply } from "../scripts/addon-sweep.mjs";
@@ -79,11 +80,17 @@ test("the digest carries names and never contents", () => {
   assert.ok(!/ada@example\.com/.test(d), "row data reached the routing call");
 });
 
-test("the digest is bounded, however much is thrown at it", () => {
+test("the digest names every page the site has, and still caps the table names", () => {
+  // EVERY PAGE (2026-10-03, the owner: *"route decisions use complete,
+  // authoritative page identities"*): the addresses were cut at 24, so a
+  // site's 25th page could not be named by the router or the lane picker. A
+  // page address is a few dozen characters and the list is the site's own;
+  // table names keep their 24.
   const many = Array.from({ length: 500 }, (_, i) => "/p" + i);
   const d = siteDigest({ name: "x".repeat(400), pages: many, tables: many });
-  assert.ok(d.length < 2000, "the digest rides on every message and must stay small: " + d.length);
-  assert.ok(!d.includes("/p400"), "the page list is not capped");
+  assert.ok(d.includes("/p25,") && d.includes("/p499."), "a page past the 24th was left out of the digest");
+  const tables = d.slice(d.indexOf("Its database tables are: "));
+  assert.ok(tables.includes("/p23") && !tables.includes("/p24"), "the table names are no longer capped at 24");
 });
 
 test("junk in the site object does not become junk in the prompt", () => {
@@ -1946,8 +1953,10 @@ test("it is bounded ON THE SCREEN — one more sentence, not a second brief — 
   const message = "Make the headings dark green. " + clause + ".";
   assert.equal(heldBack(message, readAlso({ alsoAsked: clause }).alsoAsked).run, "Make the headings dark green. .", "a long held-back part left words in the turn");
   // A COPY NO MESSAGE COULD HOLD IS NOT ONE: dropped, never cut.
-  assert.deepEqual(readAlso({ alsoAsked: "x".repeat(MAX_MESSAGE + 1) }), {});
-  assert.equal(readAlso({ alsoAsked: "x".repeat(MAX_MESSAGE) }).alsoAsked.length, MAX_MESSAGE);
+  // (One message of the size policy, 2026-10-03; it was 2,000.)
+  assert.deepEqual(readAlso({ alsoAsked: "x".repeat(MAX_INPUT_CHARS + 1) }), {});
+  assert.equal(readAlso({ alsoAsked: "x".repeat(MAX_INPUT_CHARS) }).alsoAsked.length, MAX_INPUT_CHARS);
+  assert.equal(readAlso({ alsoAsked: "x".repeat(MAX_MESSAGE + 1) }).alsoAsked.length, MAX_MESSAGE + 1, "a part past the old 2,000 was dropped");
   // THE SCREEN'S BOUND is this constant, read off the browser's own composer.
   const chat = fs.readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
   const open = chat.indexOf("\nfunction alsoTail(");

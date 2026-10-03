@@ -49,8 +49,9 @@ export const KEEP_MODEL = modelsFor().quick;
 /** A verdict per item is a few words; far under the smallest model's ceiling. */
 export const KEEP_MAX_TOKENS = 1024;
 
-/** Enough of the message to judge it by, the same bound the tweak rung sends. */
-const MAX_MESSAGE = 2000;
+// THE WHOLE MESSAGE TO JUDGE IT BY (2026-10-03): it was cut at 2,000
+// characters, "the same bound the tweak rung sends", and neither cuts it now —
+// the route keeps a site's message to the size policy (input-budget.mjs).
 
 /** How many items a refusal names before it counts the rest. */
 const MAX_SAID = 3;
@@ -462,7 +463,7 @@ function describe(it, i) {
 
 /** The request, in the shape `callBuilderModel` sends. */
 export function keepRequest({ message, items, model = KEEP_MODEL }) {
-  const msg = String(message == null ? "" : message).trim().slice(0, MAX_MESSAGE);
+  const msg = String(message == null ? "" : message).trim();
   return {
     model,
     max_tokens: KEEP_MAX_TOKENS,

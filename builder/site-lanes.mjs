@@ -94,6 +94,7 @@
 import { PLAN_KEYS, BEHAVIOR_ITEM, MAX_BEHAVIOR } from "./site-plan.mjs";
 import { THEME_SHORTLIST } from "./site-theme-registry.mjs";
 import { modelsFor } from "./build-models.mjs";
+import { echoTokens } from "./input-budget.mjs";
 // THE STORAGE CAPS THEMSELVES, so the per-field token ceiling below is derived
 // from the refusals rather than written down a second time beside them.
 import { MAX_WORDMARK, MAX_FAVICON } from "./site-favicon.mjs";
@@ -133,8 +134,10 @@ export const LANE_MODEL = modelsFor().quick;
 /**
  * Enough for the names AND each change's own words (2026-09-29). It was 200
  * while the answer was a short list of names; `scopes` copies the customer's
- * words for each change out of a message of up to `MAX_MESSAGE` characters
- * (about 500 tokens at three characters a token), plus the list and the pages.
+ * words for each change out of the message, plus the list and the pages. The
+ * BASE: a request adds room for the words it may copy back (`echoTokens`,
+ * 2026-10-03), since a message is now whole up to the size policy
+ * (input-budget.mjs) rather than cut at 2,000 characters.
  */
 export const LANE_PICK_MAX_TOKENS = 800;
 
@@ -227,8 +230,11 @@ export function laneMaxTokens(field) {
   return tokensForChars(cap);
 }
 
-/** How much of the message we will even consider. Matches `site-ask.mjs`. */
-export const MAX_MESSAGE = 2000;
+// THE MESSAGE IS NOT CUT HERE (2026-10-03). Every request below carried at
+// most 2,000 characters of it, so an instruction written at the end of a longer
+// message reached no editor. The route keeps a site's message to the size
+// policy (`MAX_INPUT_CHARS`, input-budget.mjs) and refuses one past it, so what
+// arrives here is whole and is sent whole.
 
 /**
  * HOW MANY LANES ONE MESSAGE MAY RUN.
@@ -970,7 +976,7 @@ export function takeOffRequest({ field, message, value, model }) {
     messages: [{ role: "user", content:
       "The " + t.many + " on their site (`" + field + "`), each by the name to answer with:\n" +
       (list.length ? list.map((e) => "- " + e.id + (e.show && e.show !== e.id ? " — " + e.show : "")).join("\n") : "(none)") +
-      "\n\nWhat they asked for:\n" + String(message || "").slice(0, MAX_MESSAGE) },
+      "\n\nWhat they asked for:\n" + String(message || "") },
     ],
   };
 }
@@ -1651,7 +1657,9 @@ export function pickRequest({ message, fields = LANE_FIELDS, current = "", model
   const tool = pickTool(fields, { routed: !!door });
   return {
     model,
-    max_tokens: LANE_PICK_MAX_TOKENS,
+    // ROOM FOR EACH CHANGE'S OWN WORDS, COPIED (2026-10-03): `scopes` quotes the
+    // message, so the ceiling grows by what may be copied. A ceiling, not a charge.
+    max_tokens: LANE_PICK_MAX_TOKENS + echoTokens(String(message || "")),
     // A REAL CACHED PREFIX: the tool and the system text are byte-identical on
     // every edit any customer makes, and the message is the only per-call byte.
     // The door has its own pair, byte-identical on every door message; what
@@ -1662,7 +1670,7 @@ export function pickRequest({ message, fields = LANE_FIELDS, current = "", model
     // WHAT THE SITE IS, IN ONE LINE, AND ONLY WHEN THE CALLER HAS IT.
     // Deliberately thin — a name and the pages, never the stylesheet. The whole
     // point of this call is that it is small.
-    messages: [{ role: "user", content: (current ? current + "\n\n" : "") + (door ? routedNote(door) + "\n\n" : "") + "Their message:\n" + String(message || "").slice(0, MAX_MESSAGE) }],
+    messages: [{ role: "user", content: (current ? current + "\n\n" : "") + (door ? routedNote(door) + "\n\n" : "") + "Their message:\n" + String(message || "") }],
   };
 }
 
@@ -1993,6 +2001,14 @@ export async function pickLanes(deps, { message, fields = LANE_FIELDS, current =
     // model by reading `e.status` and `e.detail`.
     return { fields: [], scopes: [], scoped: false, usage: null, failed: true, error: e };
   }
+  // AN ANSWER CUT OFF AT ITS CEILING IS NO ANSWER (2026-10-03): a list of
+  // changes stopped part way would run some of them and drop the rest without a
+  // word. Failed, as a call that did not answer, with the cut named.
+  if (reply && reply.stop_reason === "max_tokens") {
+    const e = new Error("pick truncated at max_tokens");
+    e.truncated = true;
+    return { fields: [], scopes: [], scoped: false, usage: null, failed: true, error: e };
+  }
   // ON THE DOOR THE ANSWER IS TWO LISTS, read by their names (`doorPicked`).
   if (door) return doorPicked(reply, door, fields, model, text, answers);
   // THE MODEL THAT WAS ACTUALLY SENT, not the module default. This stamped
@@ -2274,7 +2290,7 @@ export function editRequest({ field, message, value, model, note = "", ask = tru
         ? "(not set — this site has never had one)"
         : (typeof value === "string" ? value : JSON.stringify(value))) +
       (note ? "\n\n" + note : "") +
-      "\n\nWhat they asked for:\n" + String(message || "").slice(0, MAX_MESSAGE) },
+      "\n\nWhat they asked for:\n" + String(message || "") },
     ],
   };
 }

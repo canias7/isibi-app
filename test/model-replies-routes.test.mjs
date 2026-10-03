@@ -595,7 +595,11 @@ test("AN ANSWER THE ROUTE WILL NOT ACT ON, ON THE PAGE: a question already answe
     // A STALE ANSWER IS REFUSED BEFORE ANY MODEL CALL; ONE TOO LONG, OR PAST A
     // FULL HISTORY, AFTER THE ROUTER SAID IT ANSWERS THE QUESTION — uncharged.
     ["closed", (store, slug) => { const q = seedQuestion(store, slug, { status: "cancelled" }); return q; }, "Visit", 409, "stale-question", false],
-    ["too long", (store, slug) => seedQuestion(store, slug), "y".repeat(MAX_ANSWER_CHARS + 1), 422, "answer-too-long", true],
+    // TOO LONG FOR WHAT THE REQUEST CARRIES (2026-10-03, the size policy): an
+    // answer past ONE message never leaves the page (test/input-handoffs.test.mjs);
+    // one that would take the request with its answers past what a request
+    // carries is refused here, after the router said it answers the question.
+    ["too long", (store, slug) => seedQuestion(store, slug, { request: "x".repeat(MAX_ANSWER_CHARS), context: [{ q: "Detail?", a: "a".repeat(15900) }, { q: "More?", a: "b".repeat(15900) }], round: 3 }), "y".repeat(300), 422, "answer-too-long", true],
     ["answers full", (store, slug) => seedQuestion(store, slug, { context: Array.from({ length: MAX_HISTORY }, (_, i) => ({ q: "Detail " + i + "?", a: "Answer " + i })), round: MAX_HISTORY + 1 }), "Visit", 422, "answers-full", true],
   ];
   for (const [name, seed, typed, status, error, routerAsked] of cases) {

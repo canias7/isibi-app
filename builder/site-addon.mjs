@@ -43,7 +43,7 @@ export const ADD_HOPS = Object.freeze({ frame: "nav" });
  * describe this step, not the whole request's bill or side effects
  * (routing/recovery may precede it).
  */
-export function addonFailure(reason, { reconstruct = false, layer, kind, problems, recovery } = {}) {
+export function addonFailure(reason, { reconstruct = false, layer, kind, problems, recovery, chars, max, carried } = {}) {
   const base = { ok: false, reason, cost: 0 };
   if (reconstruct === true && (reason === "no-source" || reason === "no-meta")) {
     return { ...base, escalate: true };
@@ -68,10 +68,20 @@ export function addonFailure(reason, { reconstruct = false, layer, kind, problem
     // THE ANSWERS A RESUMED REQUEST CAME WITH CANNOT BE READ (2026-10-02): the
     // edit route's `route/context-unread`, in this route's shape.
     "context-unread": "I couldn't read the answers you'd already given me for that request, so I haven't added anything — this is on us. Send the request again with the details in it and I'll make it.",
+    // PAST THE SIZE POLICY (2026-10-03): the edit route's `route/input-too-long`,
+    // in this route's shape, with the numbers.
+    "input-too-long": (carried === true
+      ? "That request, with the answers and parts that go with it," + (Number.isFinite(chars) ? " comes to " + chars.toLocaleString("en-GB") + " characters," : "") + " which is more than one request can carry to the builder"
+      : "That request" + (Number.isFinite(chars) ? " is " + chars.toLocaleString("en-GB") + " characters," : " is") + " more than one message can hold") +
+      (Number.isFinite(max) ? " (" + max.toLocaleString("en-GB") + " characters)" : "") + ", so I haven't added anything. Send it in shorter parts and I'll make each.",
   };
   const msg = Object.hasOwn(messages, reason) ? messages[reason]
     : "I couldn't complete this addition, so I've stopped instead of starting another operation.";
-  return { ...base, error: reason, msg, ...(problems ? { problems } : {}), ...(recovery ? { recovery } : {}) };
+  return {
+    ...base, error: reason, msg, ...(problems ? { problems } : {}), ...(recovery ? { recovery } : {}),
+    ...(reason === "input-too-long" && Number.isFinite(chars) ? { chars } : {}),
+    ...(reason === "input-too-long" && Number.isFinite(max) ? { max } : {}),
+  };
 }
 
 /**

@@ -184,7 +184,9 @@ export function textRequest({ instruction, items, model = TEXT_MODEL }) {
       role: "user",
       content:
         "THE TEXT ON THEIR SITE\n" + lines.join("\n") +
-        "\n\nWHAT THEY ASKED FOR\n" + String(instruction || "").trim().slice(0, 2000),
+        // WHOLE (2026-10-03): the route keeps a site's message to the size policy
+        // (input-budget.mjs); a cut here hid an instruction written at its end.
+        "\n\nWHAT THEY ASKED FOR\n" + String(instruction || "").trim(),
     }],
   };
 }
@@ -616,7 +618,9 @@ export function dataRequest({ instruction, tables, recent, lists, model = DATA_M
       role: "user",
       content: "WHAT THIS SITE STORES\n" + dataDigest(tables) + recentBlock(recent) +
         (order ? "\n\n" + order : "") +
-        "\n\nWHAT THEY ASKED FOR\n" + String(instruction || "").trim().slice(0, 2000),
+        // WHOLE (2026-10-03): the route keeps a site's message to the size policy
+        // (input-budget.mjs); a cut here hid an instruction written at its end.
+        "\n\nWHAT THEY ASKED FOR\n" + String(instruction || "").trim(),
     }],
   };
 }

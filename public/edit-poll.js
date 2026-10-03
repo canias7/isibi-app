@@ -327,8 +327,19 @@
   // confidence; the attachments are not kept either (a logo is a megabyte of
   // base64, and the logo lane's job is already filed).
   var STORE_KEY = "gf.edit.watch.v1";
-  /** The send box's own cap on a message, so the record can never outgrow it. */
-  var ASK_MAX = 2000;
+  // ── THE SIZE POLICY, AS THE PAGE READS IT (2026-10-03) ─────────────────
+  //
+  // builder/input-budget.mjs, which this file cannot import, held equal by
+  // test/input-budget.test.mjs: one message of a site's conversation (a
+  // request, an answer, a question asked, an answer offered) is at most
+  // `ASK_MAX` characters, and one request with everything it carries at most
+  // `CARRIED_MAX`; the full rewrite, the build's pipeline, reads the first
+  // `REWRITE_MAX` of a request. Within them nothing is cut; past them the page
+  // keeps the words and says the number before anything is sent. It was 2,000,
+  // the send box's cut.
+  var ASK_MAX = 16000;
+  var CARRIED_MAX = 48000;
+  var REWRITE_MAX = 4000;
   /** Which route filed the job — the resumed watch picks its reader by it. */
   var RESUME_OPS = ["edit", "addon"];
 
@@ -391,7 +402,9 @@
       var all = readStore(store);
       var rec = { job: String(job), at: Date.now() };
       var x = extra && typeof extra === "object" ? extra : null;
-      if (x && typeof x.ask === "string" && x.ask.trim()) rec.ask = x.ask.slice(0, ASK_MAX);
+      // WHOLE OR NOT AT ALL (2026-10-03): a cut copy is a shorter request, and a
+      // resumed watch would hand it to the next step as theirs.
+      if (x && typeof x.ask === "string" && x.ask.trim() && x.ask.length <= ASK_MAX) rec.ask = x.ask;
       if (x && typeof x.op === "string" && RESUME_OPS.indexOf(x.op) >= 0) rec.op = x.op;
       if (x && typeof x.layer === "string" && x.layer) rec.layer = x.layer.slice(0, 64);
       if (x && typeof x.page === "string" && x.page) rec.page = x.page.slice(0, 200);
@@ -473,7 +486,7 @@
       ...(askRoundOf(v.askRound) ? { askRound: v.askRound } : {}),
       ...(v.context !== undefined && (contextOf(v.context) === null || contextOf(v.context).length) ? { context: contextOf(v.context) || v.context } : {}),
       job: v.job,
-      ask: typeof v.ask === "string" && v.ask.trim() ? v.ask.slice(0, ASK_MAX) : "",
+      ask: typeof v.ask === "string" && v.ask.trim() && v.ask.length <= ASK_MAX ? v.ask : "",
       op: typeof v.op === "string" && RESUME_OPS.indexOf(v.op) >= 0 ? v.op : "edit",
       layer: typeof v.layer === "string" ? v.layer.slice(0, 64) : "",
       page: typeof v.page === "string" ? v.page.slice(0, 200) : "",
@@ -656,9 +669,12 @@
   // request's whole history (`MAX_HISTORY`), never a window of its latest
   // answers (2026-10-03, the owner's fourth review). A reload, a resumed job
   // and a hand-over carry every answer the route kept.
+  // EACH QUESTION AND ANSWER ONE MESSAGE (2026-10-03, the size policy): they
+  // were 240 and 500, and a longer answer the route keeps now came back here
+  // unreadable.
   var CONTEXT_MAX = 64;
-  var QUESTION_MAX = 240;
-  var ANSWER_MAX = 500;
+  var QUESTION_MAX = ASK_MAX;
+  var ANSWER_MAX = ASK_MAX;
   function askRoundOf(v) {
     return typeof v === "number" && isFinite(v) && Math.floor(v) === v && v > 0 && v <= ASKED_MAX;
   }
@@ -831,6 +847,8 @@
     resumableJob: resumableJob,
     resumableRecord: resumableRecord,
     ASK_MAX: ASK_MAX,
+    CARRIED_MAX: CARRIED_MAX,
+    REWRITE_MAX: REWRITE_MAX,
     RESUME_OPS: RESUME_OPS,
     STORE_KEY: STORE_KEY,
   };

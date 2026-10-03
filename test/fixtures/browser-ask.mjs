@@ -12,9 +12,15 @@ export const ASK_FNS = Object.freeze([
   "clarifyOf", "liveQuestion", "partialShown", "siteReplyMsg", "askReplyMsg", "askFromReply",
   "siteAskKeep", "siteAskClear", "siteAskSet", "askFilesDb", "askFilesStore", "askFilesFor",
   "askFilesDrop", "siteAskReply", "holdResume",
+  // THE SIZE POLICY'S CHECK (2026-10-03): the send handler and the answer both
+  // keep a message past one message's bound in the box and say the number.
+  "siteTooLong",
 ]);
 
 // The block's three top-level lines, each one line of chat.js named by its opening.
 export const ASK_LINES = Object.freeze([
   "const askFilesMem =", "const ASK_FILES_DB =", "const ASK_FILES_TTL =",
+  // How many files one request carries (2026-10-03): an answer is held to the
+  // request's files and its own together.
+  "const SITE_MAX_FILES =",
 ]);

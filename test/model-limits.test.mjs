@@ -267,9 +267,19 @@ test("a computed ceiling is named, so a new one cannot slip past the check unsee
   //                         by `maxTokens: SITE_SCHEMA_MAX_TOKENS`, which the
   //                         resolvable half checks.
   //   r.max_tokens          a caller's request echoed back on the xAI boundary.
-  // Listed by name so a FOURTH computed ceiling fails here rather than quietly
+  // AND TWO MORE (2026-10-03, the size policy): the router's and the lane
+  // picker's ceilings grow by the customer's words they may copy back
+  // (`echoTokens`). Each is its checked constant plus a term bounded by the
+  // longest message a route takes (`MAX_INPUT_CHARS`, refused past it), and
+  // test/input-budget.test.mjs asserts both sums at that bound fit this same
+  // floor.
+  // Listed by name so a new computed ceiling fails here rather than quietly
   // reducing what the assertion above covers.
-  const known = new Set(["laneMaxTokens(field)", "maxTokens", "r.max_tokens"]);
+  const known = new Set([
+    "laneMaxTokens(field)", "maxTokens", "r.max_tokens",
+    "live ? ASK_MAX_TOKENS + echoTokens(text",
+    "LANE_PICK_MAX_TOKENS + echoTokens(String(message || \"\"))",
+  ]);
   for (const expr of dynamic) {
     assert.ok(
       known.has(expr),

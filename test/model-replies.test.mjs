@@ -200,9 +200,18 @@ test("A ROUTING ANSWER THAT ENDS THE TURN: stale, busy, too long, answers full â
   assert.match(texts(stale)[0], /already been answered or set aside/);
   assert.match(texts(routeReplyFacts({ ok: false, error: "stale-question", why: "expired" }))[0], /had expired/);
   assert.deepEqual(kinds(routeReplyFacts({ ok: false, error: "question-busy" })), ["not-done", "nothing", "note"]);
-  const long = routeReplyFacts({ ok: false, error: "answer-too-long" });
+  // THE REAL CONSTRAINT, WITH ITS NUMBERS (2026-10-03, the size policy): one
+  // message, or what one request carries with its answers.
+  const long = routeReplyFacts({ ok: false, error: "answer-too-long", chars: 16001, max: 16000 });
   assert.deepEqual(kinds(long), ["not-done", "pending", "nothing"]);
-  assert.match(texts(long)[0], /at most \d+ characters/);
+  assert.match(texts(long)[0], /16,001 characters, longer than one message can hold \(16,000 characters\)/);
+  assert.match(texts(routeReplyFacts({ ok: false, error: "answer-too-long" }))[0], /longer than one message can hold \(16,000 characters\)/, "with no numbers on the answer, the bound is still said");
+  const carried = routeReplyFacts({ ok: false, error: "answer-too-long", carried: true, chars: 300, max: 48000 });
+  assert.match(texts(carried)[0], /with their request and the answers already beside it, is more than the 48,000 characters one request can carry/);
+  const msgLong = routeReplyFacts({ ok: false, error: "message-too-long", chars: 16500, max: 16000 });
+  assert.deepEqual(kinds(msgLong), ["not-done", "nothing", "note"]);
+  assert.match(texts(msgLong)[0], /16,500 characters, longer than one message can hold \(16,000 characters/);
+  assert.match(texts(msgLong)[2], /kept in the message box/);
   const full = routeReplyFacts({ ok: false, error: "answers-full" });
   assert.deepEqual(kinds(full), ["not-done", "nothing", "pending"]);
   assert.match(texts(full)[2], /pressing Cancel/);

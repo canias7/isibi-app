@@ -151,7 +151,7 @@ export const REPLY_SYSTEM =
 export const TECHNICAL = Object.freeze(new Set([
   "send", "no-container", "queue", "stale", "bad-idem", "needs-review", "storage not configured",
   "backend", "config", "store", "rename-store", "generate", "provision", "schema", "verify",
-  "parts-unreadable", "row-unprotected", "row-write", "unread", "no-page-back", "clarify-unkept",
+  "parts-unreadable", "row-unprotected", "row-write", "unread", "no-page-back", "clarify-unkept", "ask-unusable",
   "unconfigured", "held-unread", "context-unread", "scope-unread", "layer", "editable-state",
   "no-meta", "lost", "could not read the job", "stopped", "time", "budget", "unverified",
 ]));
@@ -535,9 +535,24 @@ export function routeReplyFacts(d) {
     F.add("nothing", "Nothing on their site changed, and nothing was charged.");
     F.add("note", "Sending the message again picks it up from there.");
   } else if (d.error === "answer-too-long") {
-    F.add("not-done", "Their answer is longer than can be kept beside the request (at most " + MAX_ANSWER_CHARS + " characters).");
-    F.add("pending", "Their request is still waiting, with its question still open; answering in a sentence or two lets it go ahead.");
+    // THE REAL CONSTRAINT, WITH ITS NUMBERS (2026-10-03, the size policy): one
+    // message past `MAX_INPUT_CHARS`, or the request with every answer beside it
+    // past `MAX_CARRIED_CHARS` — what one request can carry to the models.
+    const n = num(d.chars);
+    const max = num(d.max) || (d.carried === true ? null : MAX_ANSWER_CHARS);
+    F.add("not-done", d.carried === true
+      ? "Their answer" + (n ? " is " + n.toLocaleString("en-GB") + " characters, and with" : ", with") + " their request and the answers already beside it, is more than the " +
+        (max ? max.toLocaleString("en-GB") + " characters" : "amount") + " one request can carry to the builder, so it was not added."
+      : "Their answer" + (n ? " is " + n.toLocaleString("en-GB") + " characters," : " is") + " longer than one message can hold" + (max ? " (" + max.toLocaleString("en-GB") + " characters)" : "") + ", so it was not added.");
+    F.add("pending", "Their request is still waiting, with its question still open; a shorter answer lets it go ahead.");
     F.add("nothing", "Nothing on their site changed, and nothing was charged.");
+  } else if (d.error === "message-too-long") {
+    const n = num(d.chars);
+    const max = num(d.max) || MAX_ANSWER_CHARS;
+    F.add("not-done", "Their message" + (n ? " is " + n.toLocaleString("en-GB") + " characters," : " is") + " longer than one message can hold (" +
+      max.toLocaleString("en-GB") + " characters, what the builder can carry beside their site in one request), so it was not sent on.");
+    F.add("nothing", "Nothing on their site changed, and nothing was charged.");
+    F.add("note", "Their words are kept in the message box: a shorter message, or the request sent as separate messages, lets it go ahead.");
   } else if (d.error === "answers-full") {
     F.add("not-done", "Their request already carries as many answers as can be kept beside it, and every one of them is still needed, so this answer could not be added without forgetting one they gave.");
     F.add("nothing", "Nothing on their site changed, and nothing was charged.");

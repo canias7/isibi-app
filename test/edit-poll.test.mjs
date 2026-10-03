@@ -830,12 +830,14 @@ test("the record carries the ask, the route and the hop's coordinates, bounded",
   assert.deepEqual(P.resumableRecord("s1", Date.now(), store),
     { job: "j1", ask: "make the heading dark red", op: "edit", layer: "look", page: "/menu" });
   assert.equal(P.resumableJob("s1", Date.now(), store), "j1", "resumableJob no longer answers the id");
-  // BOUNDED: the ask at the send box's own cap; an unknown route read as the
-  // edit reader; a non-string dropped rather than coerced — `String(["look"])`
-  // is "look", and this repo has shipped that coercion as a bug four times.
-  P.rememberJob("s2", "j2", store, { ask: "x".repeat(5000), op: "delete", layer: ["look"], page: 7 });
+  // BOUNDED: the ask WHOLE up to one message of the size policy (2026-10-03 —
+  // it was cut at the send box's 2,000, and a resumed watch handed the cut copy
+  // to the next step as theirs); an unknown route read as the edit reader; a
+  // non-string dropped rather than coerced — `String(["look"])` is "look", and
+  // this repo has shipped that coercion as a bug four times.
+  P.rememberJob("s2", "j2", store, { ask: "x".repeat(5000) + " and make it red", op: "delete", layer: ["look"], page: 7 });
   const r2 = P.resumableRecord("s2", Date.now(), store);
-  assert.equal(r2.ask.length, P.ASK_MAX);
+  assert.equal(r2.ask, "x".repeat(5000) + " and make it red", "a request inside the policy was not kept whole");
   assert.equal(r2.op, "edit");
   assert.equal(r2.layer, "");
   assert.equal(r2.page, "");
@@ -843,8 +845,14 @@ test("the record carries the ask, the route and the hop's coordinates, bounded",
   // (the store is the browser's), so a writer that stored junk would pass
   // every read above while the record outgrew its cap in storage.
   const rawS2 = JSON.parse(store.getItem(P.STORE_KEY)).s2;
-  assert.ok(rawS2.ask.length <= P.ASK_MAX, "the stored ask outgrew the send box's cap");
+  assert.ok(rawS2.ask.length <= P.ASK_MAX, "the stored ask outgrew the policy's bound");
   assert.deepEqual(Object.keys(rawS2).sort(), ["ask", "at", "job"], "junk fields were stored: " + Object.keys(rawS2).join(","));
+  // PAST THE BOUND, WHOLE OR NOT AT ALL: never a shorter copy, written or read.
+  P.rememberJob("s3x", "j3x", store, { ask: "y".repeat(P.ASK_MAX + 1), op: "edit" });
+  assert.equal(Object.hasOwn(JSON.parse(store.getItem(P.STORE_KEY)).s3x, "ask"), false, "a request past the bound was stored, cut or whole");
+  assert.equal(P.resumableRecord("s3x", Date.now(), store).ask, "", "a request past the bound came back");
+  store.setItem(P.STORE_KEY, JSON.stringify({ ...JSON.parse(store.getItem(P.STORE_KEY)), s3y: { job: "j3y", at: Date.now(), ask: "z".repeat(P.ASK_MAX + 1) } }));
+  assert.equal(P.resumableRecord("s3y", Date.now(), store).ask, "", "a stored request past the bound was read as a cut copy");
   // AN ADDON RECORD KEEPS ITS ROUTE, so the resumed watch reads with the addon's tail.
   P.rememberJob("s4", "j4", store, { ask: "add a prices page", op: "addon" });
   assert.equal(P.resumableRecord("s4", Date.now(), store).op, "addon");

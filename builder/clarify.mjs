@@ -94,8 +94,9 @@
 // DEPENDENCY-LIGHT: the router's own readers, nothing else, so the Worker and
 // the job child import it alike (it is in the Dockerfile's worker line).
 
+import { MAX_INPUT_CHARS } from "./input-budget.mjs";
 import {
-  MAX_MESSAGE, MAX_OPTIONS, readAsk, heldList, EDIT_LAYERS,
+  MAX_OPTIONS, readAsk, usableAsk, heldList, EDIT_LAYERS,
   MAX_ASKED, MAX_HISTORY, MAX_SAME_ASK, MAX_ANSWER_CHARS, MAX_NOTE_CHARS, CONTEXT_HEADING,
   readContext, shownContext, repeatOf, appendAnswer, contextBlock, withContext, reuseNote, withReuse, againNote,
 } from "./site-ask.mjs";
@@ -103,7 +104,7 @@ import {
 // The question's reader is the router's own, so the router and every step hold
 // a question to one rule (`readAsk` in site-ask.mjs). Re-exported for the
 // steps, which import this module.
-export { readAsk };
+export { readAsk, usableAsk };
 
 // AND SO ARE WHAT THEY ALREADY TOLD US AND ITS READERS (2026-10-02): the
 // router shows a waiting request's answers and sends a repeated question back
@@ -164,7 +165,13 @@ export function withQuestion(tool) {
   return { ...tool, input_schema: { ...schema, properties: { ...props, question: QUESTION_FIELD } } };
 }
 
-/** The question a step's model asked, read off its tool call; null when it asked none. */
+/**
+ * The question a step's model asked, read off its tool call; null when it asked
+ * none. ONE IT CANNOT SHOW WHOLE comes back as itself, `{ unusable: true }`
+ * (2026-10-03, `readAsk`), so a step that reads `if (ask)` stops exactly as for
+ * a question — nothing proposed beside it is done — and the route says the
+ * question could not be shown, never asks a shorter one (`askReport`).
+ */
 export function askOf(reply) {
   const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
   const use = blocks.find((b) => b && b.type === "tool_use");
@@ -204,7 +211,7 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,80}$/;
 // question asked once more is shown under (`againNote`), naming the answer
 // that did not settle it.
 export function packAsk({ id, uid, slug, stage, round, question, request, held = [], at, status = "pending", attached = false, context = [], note } = {}) {
-  const q = readAsk(question);
+  const q = usableAsk(question);
   const parts = heldList(held);
   const req = typeof request === "string" ? request.trim() : "";
   if (typeof id !== "string" || !ID_RE.test(id)) return null;
@@ -212,9 +219,10 @@ export function packAsk({ id, uid, slug, stage, round, question, request, held =
   if (typeof slug !== "string" || !SLUG_RE.test(slug)) return null;
   if (typeof stage !== "string" || !ASK_STAGES.includes(stage)) return null;
   if (!Number.isInteger(round) || round < 1) return null;
-  // EVERY PART NO LONGER THAN A MESSAGE: each was cut from one, and a single
-  // string reaches `heldList` unchecked for length.
-  if (!q || !req || req.length > MAX_MESSAGE || parts === null || parts.some((p) => p.length > MAX_MESSAGE)) return null;
+  // THE REQUEST AND EVERY PART NO LONGER THAN A MESSAGE (`MAX_INPUT_CHARS`, the
+  // size policy, 2026-10-03; it was 2,000): each part was cut from one, and a
+  // single string reaches `heldList` unchecked for length.
+  if (!q || !req || req.length > MAX_INPUT_CHARS || parts === null || parts.some((p) => p.length > MAX_INPUT_CHARS)) return null;
   if (!Number.isFinite(at)) return null;
   if (!ASK_STATUSES.includes(status)) return null;
   if (typeof attached !== "boolean") return null;

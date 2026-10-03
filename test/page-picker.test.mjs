@@ -335,19 +335,28 @@ test("DRIVEN: the server's answer becomes the picker's pages, and the workspace 
   assert.equal(d.renders.length, 1, "the workspace was not re-rendered, so the picker stays a label until something else redraws");
 });
 
-test("DRIVEN: it never overwrites a list this browser already has", async () => {
+test("DRIVEN: it never takes a page out of a list this browser already has — it adds the pages the site publishes that the list lacks", async () => {
   // The check is at APPLY time rather than at fetch time: a build can land while
   // the request is in the air, and that list is the better one — it is what was
-  // just written, where this answer is what was last published.
-  const mine = [{ path: "/", name: "Home", html: "" }, { path: "/gear", name: "Gear", html: "" }];
+  // just written, where this answer is what was last published. So nothing of
+  // it is overwritten or dropped; but a list a reload kept short (six pages of
+  // eight) gains the ones it lacks (2026-10-03), or the router was told six.
+  const mine = [{ path: "/", name: "Home", html: "" }, { path: "/gear", name: "Gear", html: "<p>drafted here</p>" }];
   const d = driveFetch({
     answer: { ok: true, routes: ["/", "/menu", "/book"] },
     record: { id: "s1", slug: "lido-free-a", react: true, url: "https://x/", pages: mine },
   });
   d.run(d.store);
   await new Promise((r) => setTimeout(r, 0));
-  assert.deepEqual(d.store.pages.map((p) => p.path), ["/", "/gear"], "the server's answer clobbered a list this browser built");
-  assert.equal(d.saved.length, 0, "a no-op wrote to storage");
+  assert.deepEqual(d.store.pages.map((p) => p.path), ["/", "/gear", "/menu", "/book"], "the server's answer clobbered a list this browser built, or added nothing");
+  assert.equal(d.store.pages[1].html, "<p>drafted here</p>", "a page this browser held lost what it cached");
+  assert.equal(d.saved.length, 1);
+  // NOTHING MISSING, NOTHING WRITTEN.
+  const same = driveFetch({ answer: { ok: true, routes: ["/", "/gear"] }, record: { id: "s1", slug: "lido-free-b", react: true, url: "https://x/", pages: mine } });
+  same.run(same.store);
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(same.store.pages.map((p) => p.path), ["/", "/gear"]);
+  assert.equal(same.saved.length, 0, "a no-op wrote to storage");
 });
 
 test("DRIVEN: once per slug, however many times the workspace renders", async () => {
@@ -402,16 +411,14 @@ test("DRIVEN: a site with no slug, or one this browser has no record of, is neve
 
 // ── THE CALL SITE ───────────────────────────────────────────────────────────
 
-test("the workspace asks, and only when the list it holds is short", () => {
-  // A POSITION IS NOT A BEHAVIOUR — the recorded trap: `if (false) siteRoutesFetch(site)`
-  // leaves the call exactly where a position check finds it. The call's OWN
-  // condition is what is read.
+test("the workspace asks once a load, whatever the list it holds", () => {
+  // NO LONGER ONLY WHEN THE LIST IS SHORT (2026-10-03): a reload kept six pages
+  // of eight, a list of six is not short, and the seventh was never learned. The
+  // call stands on its own line — no condition of its own — and the latch in
+  // `siteRoutesFetch` (`siteRoutesAsked`, driven above) is what keeps it to once
+  // a load. A POSITION IS NOT A BEHAVIOUR: the line is read whole, so a call
+  // wrapped in a condition again fails here.
   const block = fn("function renderSiteWorkspace(");
-  const m = block.match(/if \(([^)]*)\) siteRoutesFetch\(site\);/);
-  assert.ok(m, "renderSiteWorkspace does not call siteRoutesFetch under a condition of its own");
-  assert.match(m[1], /pages\.length <= 1/, "the fetch is not gated on the list being short: " + m[1]);
-  // AND IT IS ASKED AFTER THE LIST IS READ, or the gate reads an undefined
-  // length and the branch is decided by a value that does not exist yet.
-  assert.ok(block.indexOf("const pages = sitePages(site)") < block.indexOf("siteRoutesFetch(site)"),
-    "the fetch is gated on a list that has not been read yet");
+  assert.match(block, /\n {2}siteRoutesFetch\(site\);\n/, "renderSiteWorkspace does not ask on its own line");
+  assert.doesNotMatch(block, /if \([^)]*\) siteRoutesFetch\(site\);/, "the fetch is gated again");
 });

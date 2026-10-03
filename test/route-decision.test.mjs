@@ -22,6 +22,7 @@ import {
   ROUTE_REASONS, ROUTE_SOURCES, routeDecision, readRouting, readEdit, readAlso, routeMessage, digestLists,
   siteDigest, EDIT_LAYERS, MAX_MESSAGE, MAX_CLARIFY,
 } from "../builder/site-ask.mjs";
+import { MAX_INPUT_CHARS } from "../builder/input-budget.mjs";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 
 const SITE = { name: "Sharp Fade", url: "/s/sharp-fade/", pages: ["/", "/book"], tables: ["services", "bookings"] };
@@ -101,7 +102,8 @@ const CASES = [
   ["rename-ignored", () => routed({ intent: "edit", layer: "look", rename: "/x" }), "model"],
   ["edit-fields-ignored", () => routed({ intent: "addon", layer: "nav" }), "model"],
   ["also-not-text", () => routed({ intent: "addon", alsoAsked: ["a", "b"] }), "model"],
-  ["also-too-long", () => routed({ intent: "addon", alsoAsked: "x".repeat(MAX_MESSAGE + 1) }), "model"],
+  // LONGER THAN ANY MESSAGE OF A SITE (the size policy's, 2026-10-03; it was 2,000).
+  ["also-too-long", () => routed({ intent: "addon", alsoAsked: "x".repeat(MAX_INPUT_CHARS + 1) }), "model"],
   ["also-ignored", () => routed({ intent: "build", alsoAsked: "and a map" }), "model"],
   ["answer-ignored", () => routed({ intent: "addon", answer: "On it." }), "model"],
   ["question-ignored", () => routed({ intent: "addon", question: QUESTION }), "model"],
@@ -110,9 +112,15 @@ const CASES = [
   // As many options as were given, one of them cut to a button's length: a
   // change no count can see (the sweep found it unreached, 2026-10-02).
   ["options-changed", () => routed({ intent: "clarify", question: { text: "Which?", options: ["Book", "word ".repeat(20).trim()] } }, { firstBuild: true, hasSite: false, site: {} }), "model"],
-  ["message-cut", () => routed({ intent: "edit", layer: "look" }, { message: "a".repeat(MAX_MESSAGE + 5) }), "model"],
+  // A FIRST BUILD'S MESSAGE ONLY (2026-10-03): a site's is never cut.
+  ["message-cut", () => routed({ intent: "build" }, { firstBuild: true, hasSite: false, site: {}, message: "a".repeat(MAX_MESSAGE + 5) }), "model"],
   ["brief-cut", () => routed({ intent: "build" }, { firstBuild: true, hasSite: false, site: {}, brief: "b".repeat(MAX_MESSAGE + 5) }), "model"],
-  ["pages-cut", () => routed({ intent: "edit", layer: "look" }, { site: { ...SITE, pages: Array.from({ length: 30 }, (_, i) => "/p" + i) } }), "model"],
+  // THE SITE'S OWN PAGES, AND A PAGE MISSING FROM A LIST THAT MAY BE PARTIAL
+  // KEPT AS AN EDIT (2026-10-03): `pages-cut` went with the 24-page cut.
+  ["pages-filled", () => routed({ intent: "edit", layer: "look" }, { pagesFilled: true }), "model"],
+  ["page-unverified", () => routed({ intent: "edit", layer: "page", page: "/blog" }, { pagesComplete: false }), "model"],
+  // AN ANSWER CUT OFF AT ITS CEILING, ON A SITE THAT EXISTS: a failure of the call.
+  ["answer-cut", () => routed(null, {}, { ...toolReply({ intent: "edit", layer: "look", alsoAsked: "and make the foot" }), stop_reason: "max_tokens" }), "fallback"],
   ["tables-cut", () => routed({ intent: "edit", layer: "look" }, { site: { ...SITE, tables: ["services", 7] } }), "model"],
   ["tables-filled", () => routed({ intent: "edit", layer: "data" }, { tablesFilled: true }), "model"],
   // A SITE THAT EXISTS (2026-10-02, the owner's second review): a question back
@@ -264,27 +272,32 @@ test("readRouting, readEdit and readAlso return the same with and without a trac
   assert.deepEqual(readEdit(null, [], { reasons: [] }), readEdit(null, []));
 });
 
-test("the digest the router is shown is unchanged, and digestLists says when it was cut", () => {
+test("the digest the router is shown is unchanged, shows every page, and digestLists says when the table names were cut", () => {
   const many = { ...SITE, pages: [...Array.from({ length: 30 }, (_, i) => "/p" + i), 9, ""], tables: ["a", "", 3] };
   assert.equal(siteDigest(SITE), "The site is called Sharp Fade. It is published at /s/sharp-fade/. Its pages are: /, /book. Its database tables are: services, bookings.");
   const l = digestLists(many);
-  assert.equal(l.pages.length, 24);
+  // EVERY PAGE (2026-10-03): the 25th and the 30th are the site's too.
+  assert.equal(l.pages.length, 30);
   assert.deepEqual(l.tables, ["a"]);
-  assert.equal(l.pagesCut, true);
   assert.equal(l.tablesCut, true);
-  assert.deepEqual(digestLists(SITE), { pages: SITE.pages, tables: SITE.tables, pagesCut: false, tablesCut: false });
-  assert.deepEqual(digestLists(null), { pages: [], tables: [], pagesCut: false, tablesCut: false });
-  assert.ok(siteDigest(many).includes("/p23") && !siteDigest(many).includes("/p24"), "the digest stopped showing 24 pages");
+  assert.deepEqual(digestLists(SITE), { pages: SITE.pages, tables: SITE.tables, tablesCut: false });
+  assert.deepEqual(digestLists(null), { pages: [], tables: [], tablesCut: false });
+  assert.ok(siteDigest(many).includes("/p24") && siteDigest(many).includes("/p29"), "the digest stopped short of the site's last page");
 });
 
 test("the context codes describe what the model was really shown", async () => {
+  // A FIRST BUILD'S MESSAGE IS CUT WHERE THE CODE SAYS; A SITE'S IS NEVER CUT
+  // (2026-10-03), its last words reaching the router.
   const long = "a".repeat(MAX_MESSAGE + 5);
-  const { r, sent } = await routed({ intent: "edit", layer: "look" }, { message: long });
+  const { r, sent } = await routed({ intent: "build" }, { message: long, firstBuild: true, hasSite: false, site: {} });
   const content = String(sent[0].messages[0].content);
   assert.ok(content.includes("a".repeat(MAX_MESSAGE)) && !content.includes("a".repeat(MAX_MESSAGE + 1)), "the message was not cut where the code says");
   assert.ok(r.decision.reasons.includes("message-cut"));
-  const exact = await routed({ intent: "edit", layer: "look" }, { message: "a".repeat(MAX_MESSAGE) });
+  const exact = await routed({ intent: "build" }, { message: "a".repeat(MAX_MESSAGE), firstBuild: true, hasSite: false, site: {} });
   assert.ok(!exact.r.decision.reasons.includes("message-cut"), "a message of exactly the limit was called cut");
+  const site = await routed({ intent: "edit", layer: "look" }, { message: long + " and make it red" });
+  assert.ok(String(site.sent[0].messages[0].content).includes(long + " and make it red"), "a site's message was cut");
+  assert.ok(!site.r.decision.reasons.includes("message-cut"), "a site's whole message was called cut");
   const closed = await routed({ intent: "build" }, { firstBuild: true, hasSite: false, site: {}, brief: "b".repeat(MAX_MESSAGE + 5), qa: Array.from({ length: MAX_CLARIFY }, () => ({ q: "q", a: "a" })) });
   assert.ok(!closed.r.decision.reasons.includes("brief-cut"), "a brief the model is never shown was called cut");
 });
@@ -300,8 +313,15 @@ test("every layer the router names can be reported as the model's own", async ()
 
 // ── THE REAL ROUTE ─────────────────────────────────────────────────────────
 
-/** One `POST /api/site/route` through the real Worker; the model answers `input`, the balance reads `balance`. */
-async function route({ input, balance = 50, body = {} } = {}) {
+/**
+ * One `POST /api/site/route` through the real Worker; the model answers `input`,
+ * the balance reads `balance`. THE SITE'S OWN PAGES (2026-10-03): `owner` is who
+ * `site_backends` names (the caller by default) and `stored` the pages the
+ * site's store holds, so the route reads the site's own list; `owner: null`
+ * makes that read impossible and the browser's list is all there is.
+ */
+const CALLER = "33333333-3333-3333-3333-333333333333";
+async function route({ input, balance = 50, body = {}, owner = CALLER, stored = ["index.tsx", "visit.tsx"] } = {}) {
   const worker = await loadWorker();
   const real = globalThis.fetch;
   const json = (v, status = 200) => new Response(JSON.stringify(v), { status, headers: { "content-type": "application/json" } });
@@ -313,6 +333,7 @@ async function route({ input, balance = 50, body = {} } = {}) {
     if (u.includes("/auth/v1/user")) return json({ id: "33333333-3333-3333-3333-333333333333", email: "owner@example.com" });
     if (u.includes("/rpc/get_credits")) return json(balance);
     if (u.includes("/rpc/use_credits")) return json(1);
+    if (u.includes("/rest/v1/site_backends")) return json(owner ? [{ uid: owner }] : []);
     if (u.includes("/rest/v1/")) return json([]);
     if (u.startsWith("https://api.anthropic.com/")) {
       model++;
@@ -325,7 +346,10 @@ async function route({ input, balance = 50, body = {} } = {}) {
       method: "POST",
       headers: { "content-type": "application/json", Authorization: "Bearer t" },
       body: JSON.stringify({ message: "Add our Instagram to the footer.", site: { name: "Harbour Loaf", url: "https://x.gofarther.app", pages: ["/", "/visit"], tables: ["loaves"] }, picker: "sonnet", firstBuild: false, brief: "", qa: [], answering: false, attached: false, slug: "x", hasSite: true, ...body }),
-    }), { ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key", SUPABASE_SERVICE_KEY: "svc" }, makeCtx());
+    }), {
+      ANTHROPIC_API_KEY: "test-key", XAI_API_KEY: "test-key", SUPABASE_SERVICE_KEY: "svc",
+      SITES_BUCKET: { get: async (k) => (k === "source/x/pages.json" ? { text: async () => JSON.stringify(stored.map((path) => ({ path, source: "x" }))) } : null), put: async () => ({ etag: "e" }), head: async () => null, delete: async () => {} },
+    }, makeCtx());
     return { status: res.status, body: await res.json(), model };
   } finally {
     globalThis.fetch = real;
@@ -337,15 +361,28 @@ test("the route's reply carries the decision: the model's own, a fallback, and t
   const own = await route({ input: { intent: "addon" } });
   assert.equal(own.status, 200);
   assert.equal(own.body.intent, "addon");
-  assert.deepEqual(own.body.decision, { source: "model", reasons: [], raw: { intent: "addon", layer: "none" } });
+  // THE ROUTE READ THE SITE'S OWN PAGES (2026-10-03): a context code, the
+  // model's answer its own.
+  assert.deepEqual(own.body.decision, { source: "model", reasons: ["pages-filled"], raw: { intent: "addon", layer: "none" } });
 
+  // A PAGE THE SITE'S OWN LIST DOES NOT HAVE is an addition on that page.
   const converted = await route({ input: { intent: "edit", layer: "page", page: "/blog" } });
   assert.equal(converted.body.intent, "addon", "the route's answer moved: this change is reporting only");
-  assert.deepEqual(converted.body.decision, { source: "fallback", reasons: ["page-unknown"], raw: { intent: "edit", layer: "page" } });
+  assert.deepEqual(converted.body.decision, { source: "fallback", reasons: ["pages-filled", "page-unknown"], raw: { intent: "edit", layer: "page" } });
   // THE HAND-OVER RIDES THE ROUTE'S REPLY (2026-10-02, the audit's W24), so the
   // browser posts it to the add-on step: why it came, and the page.
   assert.deepEqual(converted.body.handOver, { from: "route", reason: "page-unknown", page: "/blog" });
   assert.equal(own.body.handOver, undefined, "a model's own add-on answer carried a hand-over");
+
+  // AND ONE MISSING FROM A LIST THE ROUTE COULD NOT CONFIRM — not this
+  // owner's to read — stays the edit it is, for the edit step to check against
+  // the site (2026-10-03): never read as a page the site lacks.
+  // (Its own slug: the owner lookup is cached per slug for five minutes.)
+  const unverified = await route({ input: { intent: "edit", layer: "page", page: "/blog" }, owner: null, body: { slug: "y" } });
+  assert.equal(unverified.body.intent, "edit");
+  assert.equal(unverified.body.page, "/blog");
+  assert.deepEqual(unverified.body.decision, { source: "model", reasons: ["page-unverified"], raw: { intent: "edit", layer: "page" } });
+  assert.equal(unverified.body.handOver, undefined);
 
   const broke = await route({ balance: 0, input: { intent: "addon" } });
   assert.equal(broke.body.intent, "build");
@@ -361,14 +398,14 @@ test("the route's decision holds codes and fixed names only, never the customer'
   const r = await route({ input: { intent: "ask", answer: "Footer? Sure: Instagram", alsoAsked: "secret words" }, body: { message: "Add our Instagram to the footer: @harbourloaf." } });
   const d = JSON.stringify(r.body.decision);
   for (const words of ["Instagram", "harbourloaf", "secret", "Footer"]) assert.ok(!d.includes(words), `the decision carries "${words}"`);
-  assert.deepEqual(r.body.decision.reasons, ["also-ignored"]);
+  assert.deepEqual(r.body.decision.reasons, ["pages-filled", "also-ignored"]);
   assert.equal(r.body.decision.source, "model");
 });
 
 test("the route names the table names it filled in, through the decision", async () => {
   // Lane 1d fills the names only for a verified owner; this stub's ownership read
   // answers no owner, so nothing is filled and the code must not appear.
-  const r = await route({ input: { intent: "edit", layer: "data" }, body: { site: { name: "x", pages: ["/"], tables: [] } } });
+  const r = await route({ input: { intent: "edit", layer: "data" }, owner: null, body: { slug: "z", site: { name: "x", pages: ["/"], tables: [] } } });
   assert.equal(r.body.tablesFilled, undefined);
   assert.ok(!r.body.decision.reasons.includes("tables-filled"), "a fill that did not happen was reported");
 });

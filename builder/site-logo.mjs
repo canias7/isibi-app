@@ -90,8 +90,12 @@ export function readLogoImage(dataUrl, { sniff } = {}) {
 }
 
 /** What to tell the customer when it could not be used. One sentence each. */
-export function logoRefusal(reason) {
+export function logoRefusal(reason, { files = 0, target = "logo" } = {}) {
   switch (reason) {
+    case "several": {
+      const what = target === "icon" ? "tab icon" : "logo";
+      return "That came with " + files + " files, and a site has one " + what + ", so I haven't picked one — your site is unchanged. Send the one you want on its own and say it's your " + what + ".";
+    }
     case "none":
       return "Attach the logo with the 📎 button and say it's your logo — I'll put it in the header.";
     case "svg":
@@ -177,7 +181,18 @@ export async function runLogoEdit(deps, { images, remove, tab } = {}) {
   // answered "Attach the logo with the 📎 button", and nothing was stored. Every
   // test of this rung posted a bare string, so none of them could see it.
   const dataOf = (a) => (typeof a === "string" ? a : (a && typeof a.data === "string" ? a.data : ""));
-  const first = Array.isArray(images) ? images.map(dataOf).find(Boolean) || null : null;
+  // EVERY FILE THAT ARRIVED, AND NONE CHOSEN OVER ANOTHER (2026-10-03, the
+  // owner's first information-limits batch: *"never silently choose which
+  // files to discard, and report any genuine attachment limit before
+  // execution."*). This took the first file and said nothing of the rest, and
+  // once a request's own file and an answer's both go on (`siteRoute`), the
+  // first is whichever came first — not the one they meant. One mark takes one
+  // file, so more than one is refused before anything is stored, with the
+  // number and what to send. A text note beside the picture carries no `data`
+  // and is not a candidate, as before.
+  const given = Array.isArray(images) ? images.map(dataOf).filter(Boolean) : [];
+  if (given.length > 1) return { ok: false, reason: "several", files: given.length, msg: logoRefusal("several", { files: given.length, target: where }) };
+  const first = given.length ? given[0] : null;
   const read = readLogoImage(first, deps);
   if (!read.ok) return { ok: false, reason: read.reason, msg: logoRefusal(read.reason) };
 

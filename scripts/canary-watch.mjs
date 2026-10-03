@@ -196,9 +196,11 @@ export function watchReport(w) {
  * not a reading.
  *
  * THE BROWSER DOES NOT ROUTE BLIND. `siteRoutesFetch` in `public/chat.js` fills
- * `site.pages` from `GET /api/site/routes?slug=`, and `siteRoute` sends those
- * paths, capped at 24. This is that read with the browser's own filter: a 2xx,
- * `ok: true`, a `routes` array, and only strings that start with `/`.
+ * `site.pages` from `GET /api/site/routes?slug=`, and `siteRoute` sends every
+ * one of those paths (2026-10-03: no longer capped at 24, and the routing route
+ * reads the site's own list besides). This is that read with the browser's own
+ * filter: a 2xx, `ok: true`, a `routes` array, and only strings that start
+ * with `/`.
  *
  * CANNOT-TELL REFUSES; IT NEVER BECOMES AN EMPTY LIST. An empty list here is
  * not "the site has no pages", it is the blind router this exists to stop — and
@@ -206,14 +208,13 @@ export function watchReport(w) {
  * its list as it was. A harness has no earlier list to keep, so it stops before
  * the routing call, which is the first thing that spends.
  */
-export const MAX_ROUTER_PAGES = 24;
 export function readRoutes(status, body) {
   if (!(status >= 200 && status < 300)) return { ok: false, why: `status ${status}` };
   if (!body || typeof body !== "object" || body.ok !== true) return { ok: false, why: "the answer is not ok" };
   if (!Array.isArray(body.routes)) return { ok: false, why: "no routes list" };
   // STRINGS ONLY, never coerced: `String(["/menu"])` is "/menu", the recorded
   // coercion that has shipped three times here. The browser drops them too.
-  const pages = body.routes.filter((p) => typeof p === "string" && p.charAt(0) === "/").slice(0, MAX_ROUTER_PAGES);
+  const pages = body.routes.filter((p) => typeof p === "string" && p.charAt(0) === "/");
   if (!pages.length) return { ok: false, why: "no usable routes" };
   return { ok: true, pages };
 }

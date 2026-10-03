@@ -18,7 +18,7 @@
 //     transient poll failure and polled past until the watch ran out.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { EditPoll, readInstruction, instructionRefusal, watchEdit, watchReport, readRoutes, routesRefusal, MAX_ROUTER_PAGES } from "../scripts/canary-watch.mjs";
+import { EditPoll, readInstruction, instructionRefusal, watchEdit, watchReport, readRoutes, routesRefusal } from "../scripts/canary-watch.mjs";
 import { publishedVersion, afterReadTarget, sameVersion, awaitVersion, afterReadVerdict, verdictSentence } from "../scripts/canary-watch.mjs";
 import { readBalance, readStoredHead, storedHeadSaid } from "../scripts/canary-watch.mjs";
 import { readFileSync } from "node:fs";
@@ -303,18 +303,18 @@ test("a page list that cannot be read refuses; it never becomes an empty list", 
   }
 });
 
-test("the list is capped where the browser caps it", () => {
-  const many = Array.from({ length: MAX_ROUTER_PAGES + 6 }, (_, i) => (i ? "/p" + i : "/"));
+test("the list is the site's whole list, as the browser sends it", () => {
+  // NO CAP (2026-10-03): the browser sends every page it knows to the routing
+  // route, and the route reads the site's own list besides — a 30-page site is
+  // routed with all thirty, so the harness sends all thirty too.
+  const many = Array.from({ length: 30 }, (_, i) => (i ? "/p" + i : "/"));
   const r = readRoutes(200, { ok: true, routes: many });
   assert.equal(r.ok, true);
-  assert.equal(r.pages.length, MAX_ROUTER_PAGES);
-  assert.equal(r.pages[0], "/", "home must survive the cap");
-  // THE BROWSER'S NUMBER, not a second one typed here: `siteRoute`'s digest
-  // slices `sitePages(site)` at this bound, and two copies of one number drift.
+  assert.deepEqual(r.pages, many);
+  // THE BROWSER'S OWN DIGEST, read rather than assumed: every path, no slice.
   const chat = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
-  const m = chat.match(/pages:\s*sitePages\(site\)\.map\(\(p\) => p\.path\)\.slice\(0,\s*(\d+)\)/);
-  assert.ok(m, "the browser's routing digest is no longer where this guard reads its cap from");
-  assert.equal(Number(m[1]), MAX_ROUTER_PAGES, "the harness caps the page list differently from the browser");
+  assert.ok(/\n {4}pages: sitePages\(site\)\.map\(\(p\) => p\.path\),\n/.test(chat), "the browser's routing digest is no longer where this guard reads it from");
+  assert.ok(!/pages:\s*sitePages\(site\)\.map\(\(p\) => p\.path\)\.slice\(/.test(chat), "the browser cuts its page list again, and the harness does not");
 });
 
 test("the refusal names the site and the reason", () => {

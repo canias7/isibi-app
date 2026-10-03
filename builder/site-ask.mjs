@@ -1,6 +1,7 @@
 
 import { modelsFor } from "./build-models.mjs";
-import { isXaiModel } from "./model-xai.mjs";// Telling a question from an instruction — and answering the question.
+import { isXaiModel } from "./model-xai.mjs";
+import { MAX_INPUT_CHARS, echoTokens } from "./input-budget.mjs";// Telling a question from an instruction — and answering the question.
 //
 // THE BUILDER COULD NOT BE ASKED ANYTHING. `siteSend` had exactly one decision
 // in it — `isBuild = !sitePages(site).length` — so the FIRST message on a project
@@ -64,7 +65,13 @@ export const ASK_MODEL = modelsFor().quick;
  */
 export const ASK_MAX_TOKENS = 700;
 
-/** How much of the message we will even consider. A brief is capped at 2000 client-side. */
+/**
+ * HOW MUCH OF A FIRST BUILD'S MESSAGE AND BRIEF THE ROUTER CONSIDERS — the
+ * build's own bound, unchanged. A site that exists is not bounded by this
+ * (2026-10-03): its messages, answers and held-back parts are kept whole up to
+ * the size policy (`MAX_INPUT_CHARS` in input-budget.mjs), refused beyond it
+ * and never cut.
+ */
 export const MAX_MESSAGE = 2000;
 
 /**
@@ -83,13 +90,20 @@ export const MAX_MESSAGE = 2000;
  */
 export const MAX_CLARIFY = 3;
 
-/** Two to four. One option is not a choice; five is a form. */
+/**
+ * A FIRST BUILD'S QUESTION: two to four answers, the words at most
+ * `MAX_QUESTION_CHARS` and each answer `MAX_OPTION_CHARS` (`readQuestion`, the
+ * build's own reader, unchanged). `MAX_OPTIONS` is also what every question's
+ * tool TELLS a model to offer at most (the guidance, kept). A question on a
+ * site that exists is never cut to these and never loses an answer
+ * (`readAsk`, 2026-10-03).
+ */
 export const MIN_OPTIONS = 2;
 export const MAX_OPTIONS = 4;
-/** Two short sentences. A hard bound, since a cap the model is told about is not one. */
+/** A first build's question: two short sentences, clipped at a word if longer (`clipQuestion`). */
 export const MAX_QUESTION_CHARS = 240;
 
-/** Long enough to be a real answer, short enough to sit on a button. */
+/** A first build's answer button (`clipOption`). */
 export const MAX_OPTION_CHARS = 48;
 
 /**
@@ -926,18 +940,26 @@ export function siteDigest(site) {
 }
 
 /**
- * The page addresses and table names the router is shown, and whether that is
- * fewer than were sent. ONE READER for both: the digest shows these, and the
- * decision report (`ROUTE_REASONS`, `pages-cut` and `tables-cut`) says when
- * they were cut, so the two cannot disagree about what the model saw.
+ * The page addresses and table names the router is shown, and whether the
+ * table names are fewer than were sent. ONE READER for both: the digest shows
+ * these, and the decision report (`ROUTE_REASONS`, `tables-cut`) says when the
+ * names were cut, so the two cannot disagree about what the model saw.
+ *
+ * EVERY PAGE (2026-10-03, the owner's first information-limits batch: *"route
+ * decisions use complete, authoritative page identities rather than a partial
+ * browser cache"*). The addresses were cut at 24, so the router could not name
+ * a site's 25th page, and the lane picker — shown the site's real pages through
+ * this same reader — could not either. A page address is a few dozen
+ * characters, and a site has as many as it has published: the list is the
+ * site's own, not a window of it.
  */
 export function digestLists(site) {
   const s = site || {};
   const sentPages = Array.isArray(s.pages) ? s.pages : [];
   const sentTables = Array.isArray(s.tables) ? s.tables : [];
-  const pages = sentPages.filter((p) => typeof p === "string" && p.trim()).slice(0, 24);
+  const pages = sentPages.filter((p) => typeof p === "string" && p.trim());
   const tables = sentTables.filter((t) => typeof t === "string" && t.trim()).slice(0, 24);
-  return { pages, tables, pagesCut: pages.length < sentPages.length, tablesCut: tables.length < sentTables.length };
+  return { pages, tables, tablesCut: tables.length < sentTables.length };
 }
 
 const SYSTEM =
@@ -1009,9 +1031,12 @@ function liveBlock({ canAsk = false, pending = null, context = [] } = {}) {
   const q = p && p.question && typeof p.question === "object" ? p.question : null;
   const opts = q && Array.isArray(q.options) ? q.options.filter((o) => typeof o === "string" && o) : [];
   const waiting = p && q && typeof q.text === "string" && typeof p.request === "string"
-    ? "\n\nTHEIR LAST REQUEST IS WAITING ON AN ANSWER\nThey asked: " + p.request.trim().slice(0, MAX_MESSAGE) +
-      "\nThey were asked: " + q.text.trim().slice(0, MAX_QUESTION_CHARS) +
-      (opts.length ? "\nThe answers they were offered: " + opts.slice(0, MAX_OPTIONS).join(" / ") : "") +
+    // WHOLE (2026-10-03): the request, the question and every answer offered
+    // were each kept to the size policy when they were stored, so nothing here
+    // is cut again — a router shown half a request decides for half of it.
+    ? "\n\nTHEIR LAST REQUEST IS WAITING ON AN ANSWER\nThey asked: " + p.request.trim() +
+      "\nThey were asked: " + q.text.trim() +
+      (opts.length ? "\nThe answers they were offered: " + opts.join(" / ") : "") +
       (p.chosen === true ? "\nThey picked one of those answers: it is their message below." : "") +
       "\nTheir message below answers that question, or asks for something else instead: say which in `answered`. " +
       "With true, decide everything for their last request with the answer taken into account — when it does not " +
@@ -1033,7 +1058,11 @@ function liveBlock({ canAsk = false, pending = null, context = [] } = {}) {
 }
 
 export function askRequest({ message, site, canClarify = false, brief = "", qa = [], hasSite = false, model = ASK_MODEL, live = false, canAsk = false, pending = null, context = [] } = {}) {
-  const text = String(message || "").trim().slice(0, MAX_MESSAGE);
+  // A FIRST BUILD'S MESSAGE IS CUT TO ITS OWN BOUND, AS IT ALWAYS WAS; a site
+  // that exists sends it whole (2026-10-03, the size policy): the route has
+  // already refused one past `MAX_INPUT_CHARS`, so nothing here shortens what
+  // the router decides on.
+  const text = live ? String(message || "").trim() : String(message || "").trim().slice(0, MAX_MESSAGE);
   // WHICH ANSWERS ARE EVEN AVAILABLE, said outright rather than left to be
   // inferred from whether the digest happens to list any pages. The digest is a
   // description of the site; this is an instruction about the decision, and a
@@ -1075,7 +1104,11 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
       : "\n\nQUESTIONS\nQuestions are closed for this message — never answer \"clarify\".";
   return {
     model,
-    max_tokens: ASK_MAX_TOKENS,
+    // ROOM TO COPY A HELD-BACK PART BACK, on a site that exists (2026-10-03):
+    // `alsoAsked` is the customer's own words, copied, from this message or the
+    // request waiting on an answer, so the ceiling grows by what may be copied
+    // (`echoTokens`). A ceiling, not a charge. A first build's is unchanged.
+    max_tokens: live ? ASK_MAX_TOKENS + echoTokens(text, pending && typeof pending.request === "string" ? pending.request : "") : ASK_MAX_TOKENS,
     // A SITE THAT EXISTS IS SENT ITS OWN TOOL (2026-10-02, `LIVE_ASK_TOOL`); a
     // first build, and anything else, the tool it was always sent.
     tools: [live ? LIVE_ASK_TOOL : ASK_TOOL],
@@ -1170,9 +1203,16 @@ export const ROUTE_REASONS = Object.freeze({
   "question-ignored": Object.freeze({ kind: "changed", what: "a question on an answer that is not a question back, left out" }),
   "question-clipped": Object.freeze({ kind: "changed", what: "the question's text was shortened" }),
   "options-changed": Object.freeze({ kind: "changed", what: "the question's options were shortened, deduplicated or cut" }),
-  "message-cut": Object.freeze({ kind: "context", what: "the router was shown only the message's first 2,000 characters" }),
+  // A FIRST BUILD'S MESSAGE AND BRIEF ONLY (2026-10-03): a site that exists is
+  // shown its message whole, and every page it has (`pages-filled` when the
+  // route read them itself); `pages-cut` is gone with the 24-page cut.
+  "message-cut": Object.freeze({ kind: "context", what: "the router was shown only the first 2,000 characters of a first build's message" }),
   "brief-cut": Object.freeze({ kind: "context", what: "the router was shown only the brief's first 2,000 characters" }),
-  "pages-cut": Object.freeze({ kind: "context", what: "the router was shown fewer page addresses than were sent" }),
+  "pages-filled": Object.freeze({ kind: "context", what: "the route listed the site's own pages, read from what it publishes" }),
+  "page-unverified": Object.freeze({ kind: "changed", what: "a page edit naming a page missing from a list the route could not confirm was complete, kept as an edit for the edit step to check against the site" }),
+  // A ROUTING ANSWER CUT OFF AT ITS OWN CEILING IS NO ANSWER (2026-10-03): half
+  // a held-back part, or a page cut mid-word, is never acted on.
+  "answer-cut": Object.freeze({ kind: "fallback", what: "the routing answer was cut off at its length limit, a failure of the answer" }),
   "tables-cut": Object.freeze({ kind: "context", what: "the router was shown fewer table names than were sent" }),
   "tables-filled": Object.freeze({ kind: "context", what: "the route filled in the site's own table names" }),
 });
@@ -1309,7 +1349,10 @@ export function readRouting(reply, opts = {}) {
   const withAnswered = (out) => (answered === undefined ? out : { ...out, answered });
   if (input.intent === "clarify") {
     if (o.trace) o.trace.input = input;
-    const q = readAsk(input.question);
+    // A QUESTION THAT CANNOT BE SHOWN WHOLE IS NO QUESTION (2026-10-03):
+    // `readAsk` never shortens one, so the call fails as for an unreadable
+    // one — nothing run or billed, a waiting request left waiting.
+    const q = usableAsk(input.question);
     if (!q) {
       mark("clarify-unreadable");
       return { intent: fallback, answer: "", unusable: true };
@@ -1325,7 +1368,7 @@ export function readRouting(reply, opts = {}) {
   return withAnswered(readDecision(reply, { ...o, canClarify: false }));
 }
 
-function readDecision(reply, { canClarify = false, answering = false, attached = false, hasSite = false, pages = [], trace = null } = {}) {
+function readDecision(reply, { canClarify = false, answering = false, attached = false, hasSite = false, pages = [], pagesComplete = true, trace = null } = {}) {
   const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
   const use = blocks.find((b) => b && b.type === "tool_use");
   const input = (use && use.input) || {};
@@ -1391,7 +1434,7 @@ function readDecision(reply, { canClarify = false, answering = false, attached =
     return out;
   }
   if (hasSite && input.intent === "edit") {
-    const { converted, ...edit } = readEdit(input, pages, trace);
+    const { converted, ...edit } = readEdit(input, pages, trace, pagesComplete);
     // ── A CONVERTED EDIT IS A HAND-OVER, AND SAYS WHY (2026-10-02, W5) ───────
     //
     // The held-back part belongs to the decision it was made with. An edit of a
@@ -1541,10 +1584,11 @@ export function readAlso(input, trace = null) {
   // while the field was only a sentence on the reply. It is now also WHAT THE
   // ROUTES HOLD BACK, and a copy cut between two words is still found in the
   // message — so only its first 200 characters would be held back, and the rest
-  // of the part promised for later would run this turn. The router is shown at
-  // most `MAX_MESSAGE` characters, so a longer copy is not a copy of anything
-  // they said: it is dropped, not cut, and nothing is held back.
-  if (raw.length > MAX_MESSAGE) {
+  // of the part promised for later would run this turn. A site's message is at
+  // most `MAX_INPUT_CHARS` characters (the size policy, 2026-10-03), so a longer
+  // copy is not a copy of anything they said: it is dropped, not cut, and
+  // nothing is held back.
+  if (raw.length > MAX_INPUT_CHARS) {
     mark("also-too-long");
     return {};
   }
@@ -1675,8 +1719,9 @@ export const MAX_HELD = 4;
  * wire (2026-10-02, the whole-router audit's batch 2). A string is one part, a
  * list is several; absent (`null` or missing), a blank string or an empty list
  * is none. `null` when the value cannot be read: a list with an entry that is
- * not text, a blank one, one longer than any message, or more entries than
- * `MAX_HELD` — or a value that is neither text nor a list. A NON-STRING IS
+ * not text, a blank one, one longer than any message (`MAX_INPUT_CHARS`, the
+ * size policy), or more entries than `MAX_HELD` — or a value that is neither
+ * text nor a list. A NON-STRING IS
  * NEVER COERCED (`String(["a"])` is "a"), and a value that cannot be read is
  * never read as none: the caller refuses, because running the message whole
  * would run the parts meant for later.
@@ -1687,7 +1732,7 @@ export function heldList(v) {
   if (!Array.isArray(v) || v.length > MAX_HELD) return null;
   const out = [];
   for (const p of v) {
-    if (typeof p !== "string" || !p.trim() || p.length > MAX_MESSAGE) return null;
+    if (typeof p !== "string" || !p.trim() || p.length > MAX_INPUT_CHARS) return null;
     if (!out.includes(p.trim())) out.push(p.trim());
   }
   return out;
@@ -1802,7 +1847,7 @@ export function wordsLess(message, words, later) {
 //                     a page edit naming no page: the model did not decide
 const unreadEdit = () => ({ intent: FALLBACK_WITH_SITE, answer: "", converted: { reason: "route-unreadable" } });
 
-export function readEdit(input, pages, trace = null) {
+export function readEdit(input, pages, trace = null, pagesComplete = true) {
   const mark = noteTo(trace);
   const layer = EDIT_LAYERS.includes(input && input.layer) ? input.layer : null;
   if (!layer) {
@@ -1894,9 +1939,20 @@ export function readEdit(input, pages, trace = null) {
   // site's real pages at no cost for the edit (`page/no-page`), the held-back
   // part named beside it. An edit of a page the site lacks is still an
   // addition, on that page.
+  // ⚠ AND ONLY AGAINST THE SITE'S WHOLE LIST (2026-10-03). A page missing from
+  // a list that may be partial — the browser's own, when the route could not
+  // read the site's (`pagesComplete` false) — is not a page the site lacks: the
+  // browser kept six pages across a reload, so an edit of the seventh became an
+  // addition. It stays an edit, and the edit step checks it against the site's
+  // real pages (`page/no-page` at no cost for the edit when it truly is not
+  // there).
   if (known.length && !known.includes(want) && !remove && !(movePath && movePath !== want)) {
-    mark("page-unknown");
-    return { intent: FALLBACK_WITH_SITE, answer: "", converted: { reason: "page-unknown", page: want } };
+    if (pagesComplete === false) {
+      mark("page-unverified");
+    } else {
+      mark("page-unknown");
+      return { intent: FALLBACK_WITH_SITE, answer: "", converted: { reason: "page-unknown", page: want } };
+    }
   }
   if (!known.length) mark("page-unchecked");
   if (want !== input.page) mark("page-normalized");
@@ -2043,32 +2099,68 @@ export function readQuestion(raw) {
   return { text, options };
 }
 
+/** Why a question a model asked cannot be shown whole (`readAsk`). */
+export const ASK_UNUSABLE = Object.freeze(["too-long", "text-unreadable", "options-unreadable"]);
+
 /**
- * A QUESTION FOR A SITE THAT EXISTS, or null (2026-10-02) — the router's and
- * every step's (`builder/clarify.mjs`). Unlike a first build's, its answers are
- * optional: a typed answer is always taken, and buttons are offered only when
- * the answer is one of a few things the model could name. The words are
- * required and bounded without being cut mid-word (`clipQuestion`); answers,
- * when given, are strings cleaned like the first build's (`clipOption`),
- * deduped, at most four, and ONE answer is not a choice, so it is dropped and
- * the question kept. Nothing is coerced: `String(["a","b"])` is "a,b".
+ * A QUESTION FOR A SITE THAT EXISTS, or null when none was asked (2026-10-02)
+ * — the router's and every step's (`builder/clarify.mjs`). Unlike a first
+ * build's, its answers are optional: a typed answer is always taken, and the
+ * model may offer answers to press.
+ *
+ * KEPT WHOLE: NEVER CUT, NO ANSWER DROPPED (2026-10-03, the owner's first
+ * information-limits batch: *"Preserve the meaning of model-written questions
+ * and answer options: do not cut questions mid-sentence, silently discard
+ * choices, or submit a shortened option as the user's answer. Keep
+ * concise-question guidance in the prompt, and handle an unusable model
+ * response without guessing or losing the waiting request."*). The words were
+ * clipped at 240 characters with "…" and each answer at 48 with no mark — and a
+ * pressed answer was sent as the clipped words — a fifth answer was dropped and
+ * a lone one too. Now:
+ *
+ *   * the words and every answer are kept as the model wrote them: spacing
+ *     tidied, an answer said twice kept once, a blank one is no answer;
+ *   * the question with its answers is ONE MESSAGE of the conversation, bounded
+ *     as every message is (`MAX_INPUT_CHARS`, the size policy);
+ *   * one that cannot be shown whole — past that bound, or with words or
+ *     answers that are not text — is UNUSABLE, `{ unusable: true, why }`, and
+ *     never a shorter question. Every reader takes it as a question it cannot
+ *     ask: the router fails the call (nothing run or billed; a waiting request
+ *     stays waiting), a step stops before anything it proposed beside it, and
+ *     the route says so with what was left of the request back in the message
+ *     box (`askReport`). It is never stored and never drawn. Read again, it
+ *     stays what it is.
+ *
+ * How short a question should be is the tools' guidance (`QUESTION_FIELD`: one
+ * or two short sentences, up to four short answers), never a cut. Nothing is
+ * coerced: `String(["a","b"])` is "a,b".
  */
 export function readAsk(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-  if (typeof raw.text !== "string") return null;
-  const text = clipQuestion(raw.text);
+  if (raw.unusable === true) return { unusable: true, why: ASK_UNUSABLE.includes(raw.why) ? raw.why : "text-unreadable" };
+  const unusable = (why) => ({ unusable: true, why });
+  if (raw.text === undefined || raw.text === null) return null;
+  if (typeof raw.text !== "string") return unusable("text-unreadable");
+  const text = raw.text.trim().replace(/\s+/g, " ");
   if (!text) return null;
+  if (raw.options !== undefined && raw.options !== null && !Array.isArray(raw.options)) return unusable("options-unreadable");
   const seen = new Set();
   const options = [];
   for (const o of Array.isArray(raw.options) ? raw.options : []) {
-    if (typeof o !== "string") continue;
-    const label = clipOption(o);
+    if (typeof o !== "string") return unusable("options-unreadable");
+    const label = o.trim().replace(/\s+/g, " ");
     if (!label || seen.has(label.toLowerCase())) continue;
     seen.add(label.toLowerCase());
     options.push(label);
-    if (options.length >= MAX_OPTIONS) break;
   }
-  return { text, options: options.length >= MIN_OPTIONS ? options : [] };
+  if (text.length + options.reduce((n, o) => n + o.length, 0) > MAX_INPUT_CHARS) return unusable("too-long");
+  return { text, options };
+}
+
+/** A question that can be asked: read, and not unusable. */
+export function usableAsk(raw) {
+  const q = readAsk(raw);
+  return q && q.unusable !== true ? q : null;
 }
 
 // ── WHAT THEY ALREADY TOLD US, ON A SITE THAT EXISTS (2026-10-02) ───────
@@ -2126,8 +2218,15 @@ export const MAX_HISTORY = 64;
  */
 export const MAX_SAME_ASK = 2;
 
-/** The longest answer kept beside a request: a reply to one question, never a new request. */
-export const MAX_ANSWER_CHARS = 500;
+/**
+ * THE LONGEST ANSWER KEPT BESIDE A REQUEST: one message, so the size policy's
+ * (`MAX_INPUT_CHARS`, input-budget.mjs). It was 500 characters (2026-10-03, the
+ * owner: *"remove the arbitrary … 500-character clarification-answer
+ * restriction"*): an answer that quoted a heading or listed a week's hours was
+ * refused for its length alone. What a request carries in all is bounded by
+ * `MAX_CARRIED_CHARS`, checked where an answer joins it.
+ */
+export const MAX_ANSWER_CHARS = MAX_INPUT_CHARS;
 
 /** The longest note a question asked once more is shown under (`againNote`). */
 export const MAX_NOTE_CHARS = 300;
@@ -2151,7 +2250,9 @@ export function readContext(v) {
     if (p.handled !== undefined && p.handled !== true) return null;
     const q = p.q.trim();
     const a = p.a.trim();
-    if (!q || !a || q.length > MAX_QUESTION_CHARS || a.length > MAX_ANSWER_CHARS) return null;
+    // EACH ONE MESSAGE (2026-10-03): a question as the builder asked it, whole,
+    // and an answer as they gave it — the size policy's bound for both.
+    if (!q || !a || q.length > MAX_INPUT_CHARS || a.length > MAX_ANSWER_CHARS) return null;
     out.push(p.handled === true ? { q, a, handled: true } : { q, a });
   }
   return out;
@@ -2440,7 +2541,7 @@ export function routeFailure(stage, e, { model, classify } = {}) {
  * for a call that failed — the same our-fault rule the build path follows. And
  * it says why, as `failure` (`routeFailure` above).
  */
-export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, attached = false, hasSite = false, model = ASK_MODEL, tablesFilled = false, canAsk: askable = false, context = [], pending = null } = {}) {
+export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, attached = false, hasSite = false, model = ASK_MODEL, tablesFilled = false, pagesFilled = false, pagesComplete = true, canAsk: askable = false, context = [], pending = null } = {}) {
   const text = String(message || "").trim();
   // AN EMPTY MESSAGE NEVER REACHES THE MODEL. The composer will not send one, but
   // this is a paid call behind a public route and "the client wouldn't do that"
@@ -2494,13 +2595,16 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
   });
   let request;
   try {
-    if (text.length > MAX_MESSAGE) shown.push("message-cut");
+    // A FIRST BUILD'S MESSAGE IS CUT TO ITS OWN BOUND (`askRequest`); a site
+    // that exists is sent its message whole (2026-10-03).
+    if (!live && text.length > MAX_MESSAGE) shown.push("message-cut");
     if (canClarify && String(brief || "").trim().length > MAX_MESSAGE) shown.push("brief-cut");
     const lists = digestLists(site);
-    if (lists.pagesCut) shown.push("pages-cut");
     if (lists.tablesCut) shown.push("tables-cut");
-    // The route's own word that it filled the table names in (Lane 1d).
+    // The route's own word that it filled the table names in (Lane 1d), and the
+    // page addresses (2026-10-03).
     if (tablesFilled === true) shown.push("tables-filled");
+    if (pagesFilled === true) shown.push("pages-filled");
     request = askRequest({ message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live, canAsk, pending: waiting, context: told });
   } catch (e) {
     return fail("request", e);
@@ -2511,8 +2615,18 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
   } catch (e) {
     return fail("send", e);
   }
+  // AN ANSWER CUT OFF AT ITS CEILING, ON A SITE THAT EXISTS, IS NO ANSWER
+  // (2026-10-03): its held-back part or page may stop mid-word, and nothing is
+  // ever run on half of one. A failure of the call, unbilled — our ceiling. A
+  // first build reads its answer exactly as before.
+  const cutOff = (r, reasons) => (live && r && r.stop_reason === "max_tokens"
+    ? { intent: FALLBACK_WITH_SITE, answer: "", usage: null, failed: true, failure: routeFailure("answer", null, { model }), decision: routeDecision([...reasons, "answer-cut"]) }
+    : null);
+  { const c = cutOff(reply, shown); if (c) return c; }
+  // WHETHER THE PAGE LIST IS THE SITE'S WHOLE LIST (2026-10-03): a page missing
+  // from a list that may be partial is never read as a page the site lacks.
   const readAs = (r, open, tr) => readRouting(r, {
-    canClarify, answering: !!answering, attached: !!attached, hasSite: !!hasSite, pages, trace: tr,
+    canClarify, answering: !!answering, attached: !!attached, hasSite: !!hasSite, pages, pagesComplete: pagesComplete !== false, trace: tr,
     live, canAsk: open, pending: !!waiting, chosen: !!(waiting && waiting.chosen === true),
   });
   let trace = { reasons: shown.slice(), input: undefined };
@@ -2541,7 +2655,9 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
   // before it), and the waiting request stays as it is for the customer's
   // next answer or their Cancel.
   if (waiting && routed.unusable !== true && routed.intent === "clarify" && routed.answered === true) {
-    const all = appendAnswer(told, { q: String(waiting.question && waiting.question.text || "").trim(), a: text.slice(0, MAX_ANSWER_CHARS) }) || [];
+    // THE ANSWER WHOLE, as the route stores it (2026-10-03): one past the size
+    // policy never reaches here — the route refuses it first.
+    const all = appendAnswer(told, { q: String(waiting.question && waiting.question.text || "").trim(), a: text }) || [];
     const hit = repeatOf(all, routed.question);
     if (hit.length && (hit.length >= MAX_SAME_ASK || all.length >= MAX_ASKED)) {
       trace.reasons.push("clarify-again");
@@ -2562,6 +2678,7 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
       } catch (e) {
         return fail("send", e);
       }
+      { const c = cutOff(reply, [...shown, "clarify-reused"]); if (c) return c; }
       trace = { reasons: [...shown, "clarify-reused"], input: undefined };
       routed = readAs(reply, canAsk, trace);
       const still = routed.unusable !== true && routed.intent === "clarify" ? repeatOf(all, routed.question) : [];

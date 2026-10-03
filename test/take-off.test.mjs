@@ -12,7 +12,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  LANE_FIELDS, REMOVABLE_LANES, MAX_MESSAGE, pickTool,
+  LANE_FIELDS, REMOVABLE_LANES, pickTool,
   takeOffLane, takeOffTool, takeOffRequest, readTakeOff, takeOffTargets, runTakeOff, takeOffRefusal, takeOffNote,
 } from "../builder/site-lanes.mjs";
 import { QUESTION_FIELD } from "../builder/clarify.mjs";
@@ -75,9 +75,11 @@ test("the removal is shown each entry by the name to answer with, then their wor
   assert.match(beh.messages[0].content, /^- 1 — the filter chips — pressing one — shows one instrument\n- 2 — the term tabs — pressing one — switches terms$/m);
   const none = takeOffRequest({ field: "langs", message: "x", value: [], model: "m" });
   assert.match(none.messages[0].content, /:\n\(none\)\n\nWhat they asked for:/);
-  // THE WORDS ARE CAPPED, never rewritten.
-  const long = takeOffRequest({ field: "langs", message: "a".repeat(MAX_MESSAGE + 50), value: ["fr"], model: "m" });
-  assert.ok(long.messages[0].content.endsWith("\n" + "a".repeat(MAX_MESSAGE)), "the message was not capped at MAX_MESSAGE");
+  // THE WORDS WHOLE, never rewritten (2026-10-03: they were cut at 2,000; the
+  // route keeps a site's message to the size policy and refuses one past it).
+  const words = "a".repeat(2050) + " and take French off";
+  const long = takeOffRequest({ field: "langs", message: words, value: ["fr"], model: "m" });
+  assert.ok(long.messages[0].content.endsWith("\n" + words), "the message was cut");
   // THE SYSTEM WORDS: name only what was asked; never the nearest entry.
   const sys = langs.system.map((b) => b.text).join("\n");
   assert.match(sys, /NAME ONLY WHAT THEY ASKED TO TAKE OFF/);

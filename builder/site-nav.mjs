@@ -989,7 +989,8 @@ export function navRequest({ instruction, slots, routes, actions, links, contact
       role: "user",
       content: navDigest(slots, routes, actions, links, contacts, lists, layouts, seconds) +
         (addition === true ? "\n\n" + ADDITION_NOTE : "") +
-        "\n\nWHAT THEY ASKED FOR:\n" + String(instruction || "").slice(0, 2000),
+        // WHOLE (2026-10-03): kept to the size policy by the route, never cut here.
+        "\n\nWHAT THEY ASKED FOR:\n" + String(instruction || ""),
     }],
   };
 }

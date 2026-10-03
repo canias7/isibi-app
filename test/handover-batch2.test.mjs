@@ -36,6 +36,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { HAND_FROM, HAND_REASONS, readHandOver, handOverLine, deferredOf, heldReport } from "../builder/hand-over.mjs";
 import { heldList, heldParts, wordsLess, MAX_HELD, MAX_MESSAGE, EDIT_LAYERS } from "../builder/site-ask.mjs";
+import { MAX_INPUT_CHARS } from "../builder/input-budget.mjs";
 import { addonFailure } from "../builder/site-addon.mjs";
 import { rowReviewReply } from "../builder/site-add.mjs";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
@@ -206,8 +207,9 @@ test("wordsLess takes every part put off out of one change's words, by position,
 // are run side by side over every shape a value can take, both ways.
 test("the browser's held-part reading and the module's agree on every value, and on their bounds", () => {
   assert.equal(EP.MAX_HELD, MAX_HELD);
-  assert.equal(EP.ASK_MAX, MAX_MESSAGE);
-  const long = "a".repeat(MAX_MESSAGE + 1);
+  // THE PART'S BOUND IS ONE MESSAGE OF THE SIZE POLICY (2026-10-03), both sides.
+  assert.equal(EP.ASK_MAX, MAX_INPUT_CHARS);
+  const long = "a".repeat(MAX_INPUT_CHARS + 1);
   const values = [undefined, null, "", "   ", "x", " x ", [], ["x"], ["x", "x"], ["x", " y "], [5], ["x", ""], ["x", "   "],
     7, 0, true, false, {}, { x: 1 }, Array(MAX_HELD).fill("a"), Array(MAX_HELD + 1).fill("a"), [long], long, ["x", null]];
   for (const v of values) assert.deepEqual(EP.heldList(v), heldList(v), "the two readings disagree on " + JSON.stringify(v));

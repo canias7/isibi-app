@@ -196,11 +196,14 @@ test("a missing or invalid slug, or no site: no lookup at all", async () => {
   }
 });
 
-test("names the browser already sent stand, and nothing is looked up", async () => {
+test("names the browser already sent stand, and no table name is looked up", async () => {
   const r = await route({ slug: "tables-sent", site: { name: "tables-sent", pages: PAGES, tables: ["menu"] } });
   assert.deepEqual(tablesTold(r), ["menu"], "the browser's own names were replaced");
   assert.equal(r.body.tablesFilled, undefined);
-  assert.deepEqual(r.seen.rest, []);
+  // THE ONE READ LEFT IS WHO OWNS THE SITE (2026-10-03): the route reads the
+  // site's own page list for a verified owner whatever the browser sent, so it
+  // asks the owner — and nothing else, and nothing of the database.
+  assert.ok(r.seen.rest.length >= 1 && r.seen.rest.every((u) => /\/rest\/v1\/site_backends\?.*select=uid(&|$)/.test(u)), "something but the ownership read was looked up: " + JSON.stringify(r.seen.rest));
   assertNothingRead(r, "sent");
 });
 

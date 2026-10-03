@@ -59,6 +59,10 @@ export const EDIT_FAILURES = Object.freeze([
     why: "Every router layer is implemented, so reaching the fall-through is a mismatch of ours between the router and this route — a defect to fix, not a reason to buy a rewrite." },
   { key: "route/held-unread", reason: "held-unread", cls: "explain", ours: true,
     why: "The router held part of the message back for a later turn (`alsoAsked`) and those words are not in the message the browser sent (2026-09-29). Running the message whole would also run the part promised for later, and choosing which words it meant would be a guess — so nothing runs, nothing is charged for the edit, and the customer is asked to send the changes one at a time. The router copying badly is ours." },
+  { key: "route/input-too-long", reason: "input-too-long", cls: "explain",
+    why: "The request, or the request with everything it carries (its put-off parts and every question and answer), is past the size policy (`MAX_INPUT_CHARS`, `MAX_CARRIED_CHARS` in input-budget.mjs, 2026-10-03). Never cut: a step handed part of a request does part of what was asked and reports it done. Refused at no cost before anything is read or asked, with the numbers. Our page never sends one — the routing route refuses it first, keeping the words in the box — so this answers a direct caller or a replay." },
+  { key: "route/too-many-files", reason: "too-many-files", cls: "explain",
+    why: "More files than one request carries (`MAX_ATTACHMENTS`, site-context.mjs) arrived with an edit (2026-10-03). Choosing which to keep would drop a file somebody attached without a word, so nothing runs and nothing is charged. Our page never sends more — the composer says the limit, and an answer that would add past it is held in the box — so this answers a direct caller." },
   { key: "route/context-unread", reason: "context-unread", cls: "explain", ours: true,
     why: "A request resumed from a question came with answers (`context`) that are not a readable list (2026-10-02). Running it without them would ask the customer again what they already told us, and running it on a guess at them could make a change they never described — so nothing runs and nothing is charged for the edit. Our own browser sends that list, so a broken one is ours." },
 
@@ -210,6 +214,18 @@ export function failureMsg(key, facts = {}) {
       return "I couldn't work out how to make that kind of change from here — this is on us. Try asking for it another way.";
     case "route/held-unread":
       return "I couldn't separate the part of your message I was leaving for later from the part to do now, so I haven't changed anything — this is on us. Send the changes one at a time and I'll make each.";
+    case "route/input-too-long": {
+      // THE REAL CONSTRAINT, WITH ITS NUMBERS (2026-10-03).
+      const n = Number.isFinite(f.chars) ? f.chars.toLocaleString("en-GB") + " characters" : "";
+      const max = Number.isFinite(f.max) ? f.max.toLocaleString("en-GB") + " characters" : "";
+      return (f.carried === true
+        ? "That request, with the answers and parts that go with it," + (n ? " comes to " + n + "," : "") + " which is more than one request can carry to the builder"
+        : "That request" + (n ? " is " + n + "," : " is") + " more than one message can hold") +
+        (max ? " (" + max + ")" : "") + ", so I haven't changed anything. Send it in shorter parts and I'll make each.";
+    }
+    case "route/too-many-files":
+      return "That came with " + (Number.isFinite(f.files) ? f.files + " files" : "more files") + ", and one request can carry " +
+        (Number.isFinite(f.max) ? f.max : "a few") + ", so I haven't changed anything. Send it again with fewer files.";
     case "route/context-unread":
       return "I couldn't read the answers you'd already given me for that request, so I haven't changed anything — this is on us. Send the request again with the details in it and I'll make it.";
     // ONE CHANGE WITHHELD, said so it reads true beside a change that shipped
