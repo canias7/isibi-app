@@ -6266,9 +6266,11 @@ async function withModelReply(env, res, kind, ask) {
 
 /**
  * A QUEUED JOB'S ENDING: what its reply will need, kept beside the answer the
- * consumer stores. The customer's words (clipped), the answers that went with
- * them (the last twelve, as the reply is shown), the picked model, what reading
- * the message cost, and the site's pages — nothing the route had not already.
+ * consumer stores. The customer's words, every answer that went with them,
+ * the picked model, what reading the message cost, and the site's pages —
+ * nothing the route had not already, and nothing cut (2026-10-03: the words
+ * were cut at 2,000 characters, the answers at the last twelve and the pages
+ * at thirty).
  */
 async function keepReplyFor(env, res, kind, ask) {
   if (!repliesOn(env) || !ask) return res;
@@ -6280,12 +6282,12 @@ async function keepReplyFor(env, res, kind, ask) {
   try { pages = typeof ask.pages === "function" ? ask.pages() : Array.isArray(ask.pages) ? ask.pages : []; } catch { pages = []; }
   const replyFor = {
     kind,
-    request: String(ask.request || "").slice(0, 2000),
-    answers: (readContext(ask.answers) || []).slice(-12),
+    request: String(ask.request || ""),
+    answers: readContext(ask.answers) || [],
     picker: typeof ask.picker === "string" ? ask.picker : undefined,
     routedCost: ask.routedCost,
     slug: typeof ask.slug === "string" ? ask.slug : undefined,
-    pages: Array.isArray(pages) ? pages.slice(0, 30) : [],
+    pages: Array.isArray(pages) ? pages : [],
   };
   const headers = new Headers(res.headers);
   headers.delete("content-length");

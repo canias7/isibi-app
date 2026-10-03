@@ -34,6 +34,16 @@
 //   runs before the outcome is final, writes anything, or charges anything, so
 //   a reply that fails cannot repeat a change or a charge.
 //
+// NOTHING IS CUT (2026-10-03, the owner's review of the first version:
+// *"stop cutting off pending requests, failed additions, and facts after
+// arbitrary limits. Pass the complete outcome to the model"*). Every fact goes
+// to the model whole — every part left for later, every addition that failed,
+// every entry, every reason in full — and the model is told to summarize in its
+// own words without dropping or blurring any of them, and never to call
+// unfinished work done. The only bound left is on what comes back: a reply
+// longer than `REPLY_MAX_CHARS` is refused (never cut), and the page then says
+// it the old way, which carries everything too.
+//
 // WHAT IS NOT WRITTEN BY A MODEL, ON PURPOSE: a technical failure of ours (a
 // model or provider that did not answer, a store or service that could not be
 // reached), told by its fixed sentence — decided by what the answer says
@@ -44,7 +54,7 @@
 // DEPENDENCY-LIGHT: the Worker and the job child both import it, and the job
 // image copies `builder/` modules by name (the Dockerfile's worker line).
 
-import { heldList, readContext, MAX_ANSWER_CHARS } from "./site-ask.mjs";
+import { readContext, MAX_ANSWER_CHARS } from "./site-ask.mjs";
 
 /** The switch: `MODEL_REPLIES` = "on" in the Worker's vars. Anything else keeps every reply as it was. */
 export function repliesOn(env) {
@@ -54,11 +64,16 @@ export function repliesOn(env) {
 /** Where the reply came from, on the answer the browser reads. Only "model" is ever written. */
 export const REPLY_SOURCE = "model";
 
-/** The longest reply used. Enough for several facts; a reply past it is refused, never cut. */
-export const REPLY_MAX_CHARS = 1600;
+/**
+ * The longest reply used: a bound against a runaway answer, not a length to
+ * aim for — room for a long outcome summarized with every detail named. A
+ * reply past it is refused, never cut. The page reads the same number
+ * (`MODEL_REPLY_MAX` in public/edit-poll.js).
+ */
+export const REPLY_MAX_CHARS = 4000;
 
-/** What one call may write. A reply is a few sentences. */
-export const REPLY_MAX_TOKENS = 700;
+/** What one call may write: the reply and the list of facts it covers. */
+export const REPLY_MAX_TOKENS = 2000;
 
 /**
  * How long a reply may take, end to end, both attempts together. The work is
@@ -70,12 +85,6 @@ export const REPLY_DEADLINE_MS = 20000;
 /** One call's own ceiling, inside the deadline. */
 export const REPLY_CALL_MS = 12000;
 
-/** At most this many facts go to one call; a longer list is cut and the cut is said. */
-export const MAX_FACTS = 24;
-
-/** One fact's text, at most. */
-const FACT_MAX = 420;
-
 export const REPLY_TOOL = {
   name: "write_reply",
   description:
@@ -86,8 +95,10 @@ export const REPLY_TOOL = {
       reply: {
         type: "string",
         description:
-          "The message to the customer, in plain sentences. Explain every fact, and only the facts. Usually one to three " +
-          "short sentences; more only when there are several facts. No headings, no lists unless there are four or more changes.",
+          "The message to the customer, in your own words: what was done, what was not done and why, what is still waiting, " +
+          "and what you need from them — every fact, and only the facts. As long as that takes and no longer: short when little " +
+          "happened; when much happened, group and summarize, but name every change, failure and waiting part. A short list is " +
+          "fine when there are many items.",
       },
       covers: {
         type: "array",
@@ -101,12 +112,21 @@ export const REPLY_TOOL = {
 
 export const REPLY_SYSTEM =
   "You write the chat message a customer reads after asking an AI website builder to change their live website. " +
-  "The builder's code has already done the work and checked what really happened; you are given that as a list of facts, " +
-  "each with an id. Your job is only to tell the customer, naturally and briefly, what those facts say.\n\n" +
+  "The builder's code has already done the work and checked what really happened; you are given all of it as a list of " +
+  "facts, each with an id. Your job is only to tell the customer, naturally and in your own words, what those facts say.\n\n" +
+  "WHAT A FACT'S ID SAYS IT IS\n" +
+  "c: done. f: not done (with the reason when there is one). p: still waiting — not done yet. q: needs their answer " +
+  "(the question is shown under your message). x: nothing changed. m: money. u: how to undo. n: worth knowing.\n\n" +
   "RULES\n" +
+  "- Make clear what was done, what was not done and why, what is still waiting, and what you need from them — in that " +
+  "order where they apply.\n" +
+  "- Never say or suggest that something not done, or still waiting, was done. When only part of what they asked for " +
+  "was done, say which part.\n" +
   "- Say only what the facts say. Never claim a change, a failure, a charge, a refund, a question or a next step that no " +
   "fact states. If a fact says nothing on the site changed, say so plainly.\n" +
-  "- Explain every fact, and list its id in covers. Do not drop one because another seems more important.\n" +
+  "- Explain every fact, and list its id in covers. You may group related facts and summarize a long list in your own " +
+  "words, but every change, failure, waiting part and question must still be recognisable in what you write: name each " +
+  "one, even briefly. Never drop or blur one to keep the message short.\n" +
   "- When a fact says a question will be shown under your reply, lead into it in a few words. Do not ask it yourself, " +
   "do not repeat its words, and do not invent answers to choose from.\n" +
   "- When a fact names a part of their request that was left for later, say plainly that it was not tried, in their own words.\n" +
@@ -148,12 +168,10 @@ export function technicalAnswer(body) {
   return typeof body.error === "string" && TECHNICAL.has(body.error);
 }
 
-const clip = (v, n = FACT_MAX) => {
-  const s = String(v == null ? "" : v).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
-  return s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s;
-};
-const said = (v) => (typeof v === "string" && v.trim() ? clip(v) : "");
-const quote = (v, n = 160) => "“" + clip(v, n) + "”";
+/** Text on one line, WHOLE: control characters and runs of space made single spaces, and never shortened (2026-10-03). */
+const flat = (v) => String(v == null ? "" : v).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
+const said = (v) => (typeof v === "string" && v.trim() ? flat(v) : "");
+const quote = (v) => "“" + flat(v) + "”";
 const listOf = (items) => (items.length <= 1 ? items.join("") : items.slice(0, -1).join(", ") + " and " + items[items.length - 1]);
 const count = (n, one, many) => (n === 1 ? "one " + one : n + " " + (many || one + "s"));
 
@@ -171,7 +189,14 @@ export function pathOf(file) {
   return "/" + (dir + segs.join("/")).replace(/\/$/, "");
 }
 const paths = (v) => [...new Set((Array.isArray(v) ? v : []).map(pathOf).filter(Boolean))];
-const strings = (v, n = 8) => (Array.isArray(v) ? v : []).filter((x) => typeof x === "string" && x.trim()).slice(0, n).map((x) => clip(x, 200));
+const strings = (v) => (Array.isArray(v) ? v : []).filter((x) => typeof x === "string" && x.trim()).map(flat);
+/**
+ * The parts put off, every one, as the answer carries them: one as a string or
+ * several as a list. Read for telling, never validated away — a list longer
+ * than one hand-over carries (`heldList`'s `MAX_HELD`) is still every part
+ * (2026-10-03: such a list was dropped whole).
+ */
+const partsOf = (v) => [...new Set((typeof v === "string" ? [v] : Array.isArray(v) ? v : []).filter((p) => typeof p === "string" && p.trim()).map(flat))];
 const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
 /** A list of facts with ids by kind: c changed, f not done, p pending, q question, n note, m money, u undo. */
@@ -180,10 +205,15 @@ function factList() {
   const seen = new Set();
   const n = {};
   const PREFIX = { changed: "c", "not-done": "f", pending: "p", question: "q", note: "n", money: "m", undo: "u", nothing: "x" };
-  const add = (kind, text) => {
-    const t = clip(text);
-    if (!t || seen.has(kind + "|" + t)) return;
-    seen.add(kind + "|" + t);
+  // `item` KEEPS TWO THINGS TWO (2026-10-03): the same words said twice from
+  // two sources are one fact, but two entries that read the same — two
+  // identical rows taken off a list — are two, and folding them would report
+  // one where two moved. A list's own entries pass their place in the list.
+  const add = (kind, text, item) => {
+    const t = flat(text);
+    const key = item === undefined ? kind + "|" + t : kind + "|" + item;
+    if (!t || seen.has(key)) return;
+    seen.add(key);
     const p = PREFIX[kind] || "n";
     n[p] = (n[p] || 0) + 1;
     out.push({ id: p + n[p], kind, text: t });
@@ -193,18 +223,17 @@ function factList() {
 
 /** The parts left for later: this turn's (`deferred`) and those put off before a question (`putOff`). */
 function heldFacts(F, body, done) {
-  const now = heldList(body.deferred) || [];
-  const earlier = heldList(body.putOff) || [];
-  const parts = now.concat(earlier.filter((p) => !now.includes(p)));
-  for (const p of parts.slice(0, 6)) {
-    F.add("pending", (done ? "Left for later, so not tried this time (they can send it next): " : "Left for later, so not tried: ") + quote(p, 200));
+  const now = partsOf(body.deferred);
+  const parts = now.concat(partsOf(body.putOff).filter((p) => !now.includes(p)));
+  for (const p of parts) {
+    F.add("pending", (done ? "Left for later, so not tried this time (they can send it next): " : "Left for later, so not tried: ") + quote(p));
   }
 }
 
 /** The question a step or the router is asking, shown under the reply by the page itself. */
 function questionFact(F, q) {
   if (!q || typeof q.text !== "string" || !q.text.trim()) return;
-  F.add("question", "A question for them will be shown right under your reply, with its own words and choices: " + quote(q.text, 240) +
+  F.add("question", "A question for them will be shown right under your reply, with its own words and choices: " + quote(q.text) +
     ". Lead into it briefly; do not repeat or answer it.");
 }
 
@@ -224,7 +253,7 @@ function partialFacts(F, parts) {
   for (const p of parts) {
     const m = p && typeof p.msg === "string" ? p.msg.trim() : "";
     if (!m) silent++;
-    else F.add("not-done", "Part of the request was not done. The builder's own reason: " + quote(m, 360));
+    else F.add("not-done", "Part of the request was not done. The builder's own reason: " + quote(m));
   }
   if (silent) F.add("not-done", count(silent, "more part") + " of the request did not go through, with no reason recorded; asking for it again on its own will say why.");
   const charged = parts.map((p) => num(p && p.cost)).filter((c) => c !== null && c > 0);
@@ -284,7 +313,7 @@ function outcomeFacts(F, e) {
   if (frames > 0) F.add("note", "There " + (frames === 1 ? "is an empty space" : "are " + frames + " empty spaces") + " for a photo; uploading their own in the Data panel fills " + (frames === 1 ? "it" : "them") + ".");
   const listPix = Number(e.listPhotos) || 0;
   if (listPix > 0 || e.listPhotosMore === true) F.add("note", "The page draws its pictures from a list, so the photographs there come from that list; they can ask for photographs there.");
-  for (const p of strings(e.problems, 3)) F.add("note", "Worth knowing: " + p);
+  for (const p of strings(e.problems)) F.add("note", "Worth knowing: " + p);
   const render = said(e.renderNote);
   if (render) F.add("note", render);
 }
@@ -306,14 +335,13 @@ export function editReplyFacts(e, { routedCost = null } = {}) {
     const layer = typeof e.layer === "string" ? e.layer : "";
     if (layer === "text") {
       const n = Number(e.applied) || 0;
-      const now = strings(e.changed, 4).map((x) => quote(x, 80));
+      const now = strings(e.changed).map(quote);
       F.add("changed", "Changed the wording" + (n > 1 ? " in " + n + " places" : "") + (now.length ? "; it now reads " + listOf(now) : "") + ".");
-      const stale = Array.isArray(e.staleTel) ? e.staleTel : [];
-      if (stale.length && stale[0] && typeof stale[0].href === "string") {
-        const mail = /^mailto:/.test(stale[0].href);
-        F.add("not-done", mail
-          ? "The email link still sends to " + clip(stale[0].href.replace(/^mailto:/, ""), 120) + "; saying “point the email link at the new address” fixes it."
-          : "The Call link still dials " + clip(stale[0].href.replace(/^tel:/, ""), 60) + "; saying “make the call button use the new number” fixes it.");
+      for (const link of (Array.isArray(e.staleTel) ? e.staleTel : [])) {
+        if (!link || typeof link.href !== "string" || !link.href) continue;
+        F.add("not-done", /^mailto:/.test(link.href)
+          ? "The email link still sends to " + flat(link.href.replace(/^mailto:/, "")) + "; saying “point the email link at the new address” fixes it."
+          : "The Call link still dials " + flat(link.href.replace(/^tel:/, "")) + "; saying “make the call button use the new number” fixes it.");
       }
     } else if (layer === "data") {
       const rows = Array.isArray(e.applied) ? e.applied : [];
@@ -324,15 +352,14 @@ export function editReplyFacts(e, { routedCost = null } = {}) {
       const tables = (list) => [...new Set(list.map((r) => (typeof r.table === "string" ? r.table : "")).filter(Boolean))];
       if (changed.length) F.add("changed", "Updated " + count(changed.length, "entry", "entries") + (tables(changed).length ? " in " + listOf(tables(changed)) : "") + ".");
       if (added.length) F.add("changed", "Added " + count(added.length, "entry", "entries") + (tables(added).length ? " to " + listOf(tables(added)) : "") + ".");
-      for (const g of gone.slice(0, 3)) {
+      gone.forEach((g, i) => {
         const w = g.was && typeof g.was === "object" ? g.was : null;
         const cols = w ? Object.keys(w).filter((k) => k !== "id" && w[k] != null && String(w[k]).trim()) : [];
-        const desc = cols.slice(0, 3).map((k) => k + " " + clip(w[k], 60)).join(", ");
-        F.add("changed", "Removed an entry from " + (typeof g.table === "string" ? g.table : "a list") + (desc ? " (" + desc + ")" : "") + ".");
-        const name = cols.length ? clip(w[cols[0]], 40) : "";
-        if (name) F.add("undo", "To bring it back, they can say “put " + name + " back”.");
-      }
-      if (gone.length > 3) F.add("changed", "Removed " + count(gone.length - 3, "more entry", "more entries") + ".");
+        const desc = cols.map((k) => k + " " + flat(w[k])).join(", ");
+        F.add("changed", "Removed an entry from " + (typeof g.table === "string" ? g.table : "a list") + (desc ? " (" + desc + ")" : "") + ".", "removed:" + i);
+        const name = cols.length ? flat(w[cols[0]]) : "";
+        if (name) F.add("undo", "To bring it back, they can say “put " + name + " back”.", "removed:" + i);
+      });
       const sorted = said(e.sortMsg);
       if (sorted) F.add("changed", sorted.replace(/^✅\s*/, ""));
       if (e.failed) F.add("not-done", count(Number(e.failed) || 1, "entry", "entries") + " could not be saved; trying that one again may work.");
@@ -349,8 +376,8 @@ export function editReplyFacts(e, { routedCost = null } = {}) {
       const ops = Array.isArray(e.pageOps) ? e.pageOps : [];
       const look = said(e.lookNote);
       if (look) F.add("changed", look);
-      const moved = (Array.isArray(e.moved) ? e.moved : []).filter((k) => typeof k === "string").slice(0, 6).map((k) => LOOK_SAY[k] || k);
-      const bits = moved.concat(strings(e.tokens, 4), strings(e.style, 4), e.css ? ["the design"] : []);
+      const moved = (Array.isArray(e.moved) ? e.moved : []).filter((k) => typeof k === "string").map((k) => LOOK_SAY[k] || k);
+      const bits = moved.concat(strings(e.tokens), strings(e.style), e.css ? ["the design"] : []);
       const where = typeof e.tokensPage === "string" && e.tokensPage ? " on " + e.tokensPage : "";
       if (bits.length) F.add("changed", "Changed " + listOf(bits) + where + ".");
       pageOpFacts(F, ops);
@@ -368,7 +395,7 @@ export function editReplyFacts(e, { routedCost = null } = {}) {
       // picture, nav, logo, rename, rules: the step wrote its own account,
       // because only it knows which picture, which links, which address.
       const own = said(e.msg);
-      F.add("changed", own ? "What the builder reports it did: " + quote(own.replace(/^✅\s*/, ""), 400) : "The change was made.");
+      F.add("changed", own ? "What the builder reports it did: " + quote(own.replace(/^✅\s*/, "")) : "The change was made.");
       if (layer === "rules") F.add("note", "It took effect at once; nothing needed rebuilding.");
     }
     outcomeFacts(F, e);
@@ -378,7 +405,7 @@ export function editReplyFacts(e, { routedCost = null } = {}) {
       F.add("nothing", "Nothing on their site changed yet; one detail is needed first.");
     } else {
       const own = said(e.msg);
-      if (own) F.add("not-done", "The change was not made. The builder's own reason: " + quote(own, 400));
+      if (own) F.add("not-done", "The change was not made. The builder's own reason: " + quote(own));
       else {
         const parts = Array.isArray(e.partial) ? e.partial.filter((p) => !(p && p.error === "clarify")) : [];
         if (parts.length) partialFacts(F, parts);
@@ -402,7 +429,7 @@ function jobSaid(j) {
         : m % 60 === 0 ? (m === 60 ? "every hour" : "every " + (m / 60) + " hours")
           : "every " + m + " minutes";
   const at = typeof j.at === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(j.at) ? " at " + j.at : "";
-  return clip(j.name, 80) + (every ? " (" + every + at + ")" : "");
+  return flat(j.name) + (every ? " (" + every + at + ")" : "");
 }
 
 /** THE FACTS OF AN ADD-ON'S FINAL ANSWER, synchronous or a queued job's stored one. */
@@ -430,21 +457,20 @@ export function addonReplyFacts(a, { routedCost = null } = {}) {
     const jobs = (Array.isArray(a.jobs) ? a.jobs : []).map(jobSaid).filter(Boolean);
     if (jobs.length) F.add("changed", "Scheduled " + listOf(jobs) + ".");
     const rows = (Array.isArray(a.rows) ? a.rows : []).filter((r) => r && typeof r.table === "string" && r.table);
-    for (const r of rows.slice(0, 6)) {
-      F.add("changed", "Added " + (typeof r.label === "string" && r.label ? quote(r.label, 120) : "an entry") + " to " + clip(r.table, 60) + (Number.isSafeInteger(r.id) ? " (entry " + r.id + ")" : "") + ".");
-    }
-    if (rows.length > 6) F.add("changed", "Added " + count(rows.length - 6, "more entry", "more entries") + ".");
-    for (const w of (Array.isArray(a.words) ? a.words : []).slice(0, 3)) {
-      if (w && typeof w.words === "string" && w.words && typeof w.page === "string" && w.page.charAt(0) === "/") F.add("changed", "Added " + quote(w.words, 140) + " to " + w.page + ".");
+    rows.forEach((r, i) => {
+      F.add("changed", "Added " + (typeof r.label === "string" && r.label ? quote(r.label) : "an entry") + " to " + flat(r.table) + (Number.isSafeInteger(r.id) ? " (entry " + r.id + ")" : "") + ".", "row:" + i);
+    });
+    for (const w of (Array.isArray(a.words) ? a.words : [])) {
+      if (w && typeof w.words === "string" && w.words && typeof w.page === "string" && w.page.charAt(0) === "/") F.add("changed", "Added " + quote(w.words) + " to " + w.page + ".");
     }
     const placed = [...new Set((Array.isArray(a.ownPhotos) ? a.ownPhotos : []).map((p) => (p && typeof p.page === "string" && p.page.charAt(0) === "/" ? p.page : "")).filter(Boolean))];
     if (placed.length) F.add("changed", "Put one of their own photographs on " + listOf(placed) + ".");
     if (a.provisioned === true) F.add("changed", "The site has its own database now.");
-    for (const fe of (Array.isArray(a.functionErrors) ? a.functionErrors : []).slice(0, 3)) {
-      if (fe && typeof fe.name === "string" && fe.name) F.add("not-done", "The function " + clip(fe.name, 80) + " could not be created" + (fe.error ? ": " + clip(fe.error, 140) : "") + ".");
+    for (const fe of (Array.isArray(a.functionErrors) ? a.functionErrors : [])) {
+      if (fe && typeof fe.name === "string" && fe.name) F.add("not-done", "The function " + flat(fe.name) + " could not be created" + (fe.error ? ": " + flat(fe.error) : "") + ".");
     }
-    for (const je of (Array.isArray(a.jobErrors) ? a.jobErrors : []).slice(0, 3)) {
-      if (je && typeof je.name === "string" && je.name) F.add("not-done", "The scheduled job " + clip(je.name, 80) + " could not be set up" + (je.error ? ": " + clip(je.error, 140) : "") + ", so it will not run yet.");
+    for (const je of (Array.isArray(a.jobErrors) ? a.jobErrors : [])) {
+      if (je && typeof je.name === "string" && je.name) F.add("not-done", "The scheduled job " + flat(je.name) + " could not be set up" + (je.error ? ": " + flat(je.error) : "") + ", so it will not run yet.");
     }
     const secrets = strings(a.needsSecrets);
     if (secrets.length) F.add("note", "To switch it on, they add " + listOf(secrets) + " under Cloud → Secrets.");
@@ -454,21 +480,21 @@ export function addonReplyFacts(a, { routedCost = null } = {}) {
     const skipped = Array.isArray(a.skipped) ? a.skipped : [];
     if (skipped.includes("photo")) F.add("not-done", "The photograph is a separate step: asking for it on its own places it.");
     if (skipped.includes("frame")) F.add("not-done", "The new link, button or footer item is a separate step: asking for it on its own adds it to every page.");
-    for (const nA of (Array.isArray(a.notAdded) ? a.notAdded : []).slice(0, 3)) {
-      if (nA && typeof nA.msg === "string" && nA.msg) F.add("not-done", "Left out " + (typeof nA.name === "string" && nA.name ? quote(nA.name, 80) : "one " + clip(nA.kind || "entry", 30)) + ". The builder's own reason: " + quote(nA.msg, 300));
-    }
-    for (const k of (Array.isArray(a.kept) ? a.kept : []).slice(0, 3)) {
+    (Array.isArray(a.notAdded) ? a.notAdded : []).forEach((nA, i) => {
+      if (nA && typeof nA.msg === "string" && nA.msg) F.add("not-done", "Left out " + (typeof nA.name === "string" && nA.name ? quote(nA.name) : "one " + flat(nA.kind || "entry")) + ". The builder's own reason: " + quote(nA.msg), "notAdded:" + i);
+    });
+    for (const k of (Array.isArray(a.kept) ? a.kept : [])) {
       if (!k || !k.path) continue;
-      const p = pathOf(k.path) || clip(k.path, 80);
+      const p = pathOf(k.path) || flat(k.path);
       F.add("not-done", k.why === "home"
         ? "Left " + p + ": it is the home page, and removing it would leave the site with no front door."
         : "Left " + p + ": " + listOf(paths(k.from)) + " still links to it; the link has to come out first.");
     }
-    const back = paths(a.reverted).slice(0, 3);
+    const back = paths(a.reverted);
     if (back.length) F.add("note", "Left " + listOf(back) + " as " + (back.length === 1 ? "it was" : "they were") + ": nothing there needed to change for this.");
     const unlinked = strings(a.unlinked);
     if (unlinked.length) F.add("note", "Nothing links to " + listOf(unlinked) + " yet; saying where the link should go adds it.");
-    for (const p of strings(a.problems, 3)) F.add("note", "Worth knowing: " + p);
+    for (const p of strings(a.problems)) F.add("note", "Worth knowing: " + p);
     const render = said(a.renderNote);
     if (render) F.add("note", render);
     if (!F.out.length) F.add("changed", "The addition was made.");
@@ -476,10 +502,10 @@ export function addonReplyFacts(a, { routedCost = null } = {}) {
     F.add("nothing", "Nothing was added yet; one detail is needed first.");
   } else {
     const own = said(a.msg);
-    F.add("not-done", own ? "Nothing was added. The builder's own reason: " + quote(own, 400) : "The addition did not go through.");
-    for (const nA of (Array.isArray(a.notAdded) ? a.notAdded : []).slice(0, 3)) {
-      if (nA && typeof nA.msg === "string" && nA.msg) F.add("not-done", "Left out " + (typeof nA.name === "string" && nA.name ? quote(nA.name, 80) : "one entry") + ". The builder's own reason: " + quote(nA.msg, 300));
-    }
+    F.add("not-done", own ? "Nothing was added. The builder's own reason: " + quote(own) : "The addition did not go through.");
+    (Array.isArray(a.notAdded) ? a.notAdded : []).forEach((nA, i) => {
+      if (nA && typeof nA.msg === "string" && nA.msg) F.add("not-done", "Left out " + (typeof nA.name === "string" && nA.name ? quote(nA.name) : "one entry") + ". The builder's own reason: " + quote(nA.msg), "notAdded:" + i);
+    });
     if (routedCost !== null && num(routedCost) > 0) F.add("money", "Reading their message cost " + count(num(routedCost), "credit") + ".");
   }
   heldFacts(F, a, a.ok === true);
@@ -529,8 +555,7 @@ export function cancelReplyFacts(r) {
   if (r.cancelled) {
     F.add("changed", "Their waiting request is cancelled: nothing more will be done for it.");
     F.add("nothing", "Nothing on their site changed because of it.");
-    const parts = heldList(r.putOff) || [];
-    for (const p of parts.slice(0, 6)) F.add("pending", "Left for later and never tried, so it is not done either: " + quote(p, 200));
+    for (const p of partsOf(r.putOff)) F.add("pending", "Left for later and never tried, so it is not done either: " + quote(p));
   } else {
     F.add("not-done", r.why === "expired"
       ? "There was nothing to cancel: that question had already expired."
@@ -552,8 +577,8 @@ export function repeatNoteFacts({ question, earlier = [], atLimit = false } = {}
   const answers = (Array.isArray(earlier) ? earlier : []).map((p) => (p && typeof p.a === "string" ? p.a.trim() : "")).filter(Boolean);
   if (!q || !answers.length) return { skip: "unreadable", facts: [] };
   const F = factList();
-  F.add("note", "This question was asked before, and their " + (answers.length === 1 ? "answer, " + quote(answers[0], 160) + "," : "answers, " + listOf(answers.slice(-3).map((a) => quote(a, 120))) + ",") + " did not settle it.");
-  F.add("question", "The question will be shown right under your note, with its own words: " + quote(q, 240) + ". Do not repeat it.");
+  F.add("note", "This question was asked before, and their " + (answers.length === 1 ? "answer, " + quote(answers[0]) + "," : "answers, " + listOf(answers.map(quote)) + ",") + " did not settle it.");
+  F.add("question", "The question will be shown right under your note, with its own words: " + quote(q) + ". Do not repeat it.");
   F.add("pending", atLimit
     ? "Nothing more will be done until they answer once more or cancel the request; either is fine."
     : "Their request is waiting for this one answer.");
@@ -565,26 +590,23 @@ export function repeatNoteFacts({ question, earlier = [], atLimit = false } = {}
 /** What the model is shown besides the facts: their words, their answers, the site. */
 export function replyContext({ request = "", answers = [], site = null } = {}) {
   const lines = [];
-  const name = site && typeof site.name === "string" ? clip(site.name, 80) : "";
-  const slug = site && typeof site.slug === "string" ? clip(site.slug, 80) : "";
-  const pages = site && Array.isArray(site.pages) ? site.pages.filter((p) => typeof p === "string" && p.charAt(0) === "/").slice(0, 30) : [];
+  const name = site && typeof site.name === "string" ? flat(site.name) : "";
+  const slug = site && typeof site.slug === "string" ? flat(site.slug) : "";
+  const pages = site && Array.isArray(site.pages) ? site.pages.filter((p) => typeof p === "string" && p.charAt(0) === "/") : [];
   if (name || slug) lines.push("THEIR SITE: " + (name || slug) + (name && slug ? " (" + slug + ")" : ""));
   if (pages.length) lines.push("ITS PAGES: " + pages.join(", "));
   const words = typeof request === "string" ? request.trim() : "";
-  if (words) lines.push("WHAT THEY ASKED FOR:\n" + clip(words, 2000));
-  const told = (readContext(answers) || []).slice(-12);
-  if (told.length) lines.push("WHAT THEY TOLD US IN ANSWER TO EARLIER QUESTIONS:\n" + told.map((p) => "- " + quote(p.q, 200) + " → " + quote(p.a, 300)).join("\n"));
+  if (words) lines.push("WHAT THEY ASKED FOR:\n" + flat(words));
+  const told = readContext(answers) || [];
+  if (told.length) lines.push("WHAT THEY TOLD US IN ANSWER TO EARLIER QUESTIONS:\n" + told.map((p) => "- " + quote(p.q) + " → " + quote(p.a)).join("\n"));
   return lines.join("\n\n");
 }
 
-/** The request one reply call sends. `missed` names the facts a first answer left out. */
+/** The request one reply call sends: every fact, whole. `missed` names the facts a first answer left out. */
 export function replyRequest({ facts, context = "", model, missed = [] }) {
-  const shown = facts.slice(0, MAX_FACTS);
-  const cut = facts.length - shown.length;
   const body = (context ? context + "\n\n" : "") +
     "WHAT REALLY HAPPENED (explain every fact; list each id you explained in covers):\n" +
-    shown.map((f) => "[" + f.id + "] " + f.text).join("\n") +
-    (cut > 0 ? "\n(" + cut + " smaller details are not listed; do not mention them.)" : "") +
+    facts.map((f) => "[" + f.id + "] " + f.text).join("\n") +
     (missed.length ? "\n\nYOUR LAST REPLY LEFT OUT " + missed.join(", ") + ". Explain every fact this time." : "");
   return {
     model,
@@ -598,21 +620,20 @@ export function replyRequest({ facts, context = "", model, missed = [] }) {
 
 /**
  * A reply, read and checked: the forced tool's `reply`, inside the length
- * bound, carrying no fact id in its text, with every listed fact in `covers`.
+ * bound, carrying no fact id in its text, with every fact in `covers`.
  * `{ ok, text, missing }`; `ok` false with `missing` empty is an answer that
  * could not be read at all.
  */
 export function readReply(reply, facts, maxChars = REPLY_MAX_CHARS) {
-  const shown = facts.slice(0, MAX_FACTS);
   const block = reply && Array.isArray(reply.content) ? reply.content.find((b) => b && b.type === "tool_use" && b.name === REPLY_TOOL.name) : null;
   const input = block && block.input && typeof block.input === "object" ? block.input : null;
   if (!input || typeof input.reply !== "string" || !Array.isArray(input.covers)) return { ok: false, text: "", missing: [] };
   const text = input.reply.replace(/\r\n/g, "\n").trim();
   if (!text || text.length > maxChars) return { ok: false, text: "", missing: [] };
-  const ids = new Set(shown.map((f) => f.id));
+  const ids = new Set(facts.map((f) => f.id));
   if ([...ids].some((id) => new RegExp("\\[" + id + "\\]").test(text))) return { ok: false, text: "", missing: [] };
   const covered = new Set(input.covers.filter((c) => typeof c === "string").map((c) => c.trim()));
-  const missing = shown.map((f) => f.id).filter((id) => !covered.has(id));
+  const missing = facts.map((f) => f.id).filter((id) => !covered.has(id));
   return { ok: missing.length === 0, text, missing };
 }
 

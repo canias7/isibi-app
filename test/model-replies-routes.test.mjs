@@ -249,6 +249,27 @@ test("COMPLETE SUCCESS, QUEUED: the job makes, publishes and charges the change 
   } finally { compiler.uninstall(); }
 });
 
+test("A QUEUED JOB KEEPS EVERY ANSWER ITS REPLY NEEDS — none cut at twelve — and the poll's reply call is shown them all (2026-10-03, the owner's review: nothing cut)", async () => {
+  const worker = await loadWorker();
+  const compiler = installCompiler();
+  try {
+    const slug = freshSlug("all-answers");
+    const store = bucket(slug);
+    const told = Array.from({ length: 14 }, (_, i) => ({ q: "Detail " + (i + 1) + "?", a: "Answer number " + (i + 1) }));
+    await withWire({ [T.pick]: { fields: ["description"] }, "lane:description": NEW_DESC, [W]: writer([]) }, async (seen) => {
+      const post = browserPost(SITE(slug), { intent: "edit", layer: "look", askRound: 2, context: told }, DESC_WORDS);
+      assert.deepEqual(post.body.context, told, "the page did not post every answer");
+      const r = await postRoute(worker, ON(store), store, seen, slug, post, "job");
+      assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 300));
+      assert.deepEqual(r.body.replyFor.answers, told, "the job kept fewer answers than the request carried");
+      await poll(worker, ON(store), r.finalized.p_id, doneRow(slug, r));
+      const shown = seen.inputs[W] && seen.inputs[W][0];
+      assert.ok(shown, "no reply call was made");
+      for (const p of told) assert.ok(shown.includes("“" + p.a + "”"), "the reply call was not shown " + p.a);
+    }, { slug });
+  } finally { compiler.uninstall(); }
+});
+
 test("TWO POLLS AT ONCE KEEP ONE REPLY: both may write one, the first kept wins, and both — and every later read — hand back that one", async () => {
   const worker = await loadWorker();
   const compiler = installCompiler();

@@ -202,9 +202,11 @@
    * after it, because the reply already explains every fact the page would have
    * stated. Without one (the switch off, the call failed, or a failure of ours
    * that keeps its fixed sentence) the page says it the way it always has.
-   * Read strictly: a string, not blank, inside the length the server allows.
+   * Read strictly: a string, not blank, inside the length the server allows
+   * (`REPLY_MAX_CHARS` in builder/site-reply.mjs — the same number, raised
+   * from 1,600 on 2026-10-03 so a long outcome can be told with every detail).
    */
-  var MODEL_REPLY_MAX = 1600;
+  var MODEL_REPLY_MAX = 4000;
   function modelReply(body) {
     if (!body || typeof body !== "object" || body.replySource !== "model") return null;
     var t = body.reply;

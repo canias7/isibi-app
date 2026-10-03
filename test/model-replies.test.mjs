@@ -21,9 +21,10 @@ import assert from "node:assert/strict";
 import {
   repliesOn, REPLY_SOURCE, REPLY_MAX_CHARS, REPLY_TOOL, REPLY_SYSTEM, TECHNICAL, technicalAnswer, pathOf,
   editReplyFacts, addonReplyFacts, routeReplyFacts, cancelReplyFacts, repeatNoteFacts,
-  replyContext, replyRequest, readReply, writeReply, withReplyText, MAX_FACTS,
+  replyContext, replyRequest, readReply, writeReply, withReplyText,
 } from "../builder/site-reply.mjs";
 import { MAX_NOTE_CHARS } from "../builder/clarify.mjs";
+import { createRequire } from "node:module";
 
 const kinds = (r) => r.facts.map((f) => f.kind);
 const texts = (r) => r.facts.map((f) => f.text);
@@ -243,7 +244,7 @@ test("A PAGE FILE IS SAID AS ITS ADDRESS: the browser's own reading of a route f
 // 4. THE CALL, AND WHAT MAKES ITS ANSWER USABLE
 // ─────────────────────────────────────────────────────────────────────────────
 
-test("ONE FORCED CALL: the reply tool, the rules, their site, their words and their answers, then every fact by its id — and a list past the cap says it was cut", () => {
+test("ONE FORCED CALL: the reply tool, the rules, their site, their words and their answers, then every fact by its id, however many", () => {
   const facts = editReplyFacts({ ok: true, layer: "text", applied: 1, changed: ["Fresh bread"], deferred: ["add a gallery page"] }).facts;
   const context = replyContext({ request: "Change the heading to Fresh bread, then add a gallery page", answers: [{ q: "Which heading?", a: "The first" }], site: { name: "Harbour Loaf", slug: "harbour-loaf", pages: ["/", "/visit", "nope"] } });
   const req = replyRequest({ facts, context, model: "claude-test" });
@@ -260,10 +261,11 @@ test("ONE FORCED CALL: the reply tool, the rules, their site, their words and th
   assert.match(body, /WHAT THEY ASKED FOR:\nChange the heading to Fresh bread, then add a gallery page/);
   assert.match(body, /- “Which heading\?” → “The first”/);
   assert.deepEqual(shownIn(req).map((f) => f.id), ["c1", "p1"]);
-  const many = Array.from({ length: MAX_FACTS + 3 }, (_, i) => ({ id: "n" + (i + 1), kind: "note", text: "note " + i }));
-  const cut = replyRequest({ facts: many, model: "m" });
-  assert.equal(shownIn(cut).length, MAX_FACTS);
-  assert.match(cut.messages[0].content, /\(3 smaller details are not listed; do not mention them\.\)/);
+  // EVERY FACT, HOWEVER MANY (2026-10-03: past 24 they were cut and the model told not to mention them).
+  const many = Array.from({ length: 60 }, (_, i) => ({ id: "n" + (i + 1), kind: "note", text: "note " + i }));
+  const all = replyRequest({ facts: many, model: "m" });
+  assert.equal(shownIn(all).length, 60);
+  assert.doesNotMatch(all.messages[0].content, /not listed|do not mention/);
 });
 
 test("A USABLE ANSWER: the forced tool's reply, inside the length bound, with no fact id in its text, covering every fact — anything less is refused, and a fact left out is named", () => {
@@ -340,4 +342,172 @@ test("THE REPLY GOES ON THE ANSWER AS TWO NEW FIELDS: everything the route said 
   const out = withReplyText(body, "There's no Gallery page yet, so nothing changed.");
   assert.deepEqual(out, { ...body, reply: "There's no Gallery page yet, so nothing changed.", replySource: "model" });
   assert.equal(body.reply, undefined, "the route's own answer was changed in place");
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. NOTHING IS CUT (2026-10-03, the owner's review of the replies)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Owner: *"Fix the reply information loss in builder/site-reply.mjs: stop
+// cutting off pending requests, failed additions, and facts after arbitrary
+// limits. Pass the complete outcome to the model and clearly instruct it to
+// explain what succeeded, what failed, what remains pending, and what needs
+// an answer—without claiming unfinished work is complete."* Each case is an
+// omission the first version made: a list cut at a count, a sentence cut at a
+// length, a whole list dropped because it failed a validator, or every fact
+// past the 24th never sent. Each now reaches the request whole.
+
+const long = (tag, n) => { let s = tag; for (let i = 0; s.length < n; i++) s += " word" + i; return s; };
+const sent = (facts) => replyRequest({ facts, model: "m" }).messages[0].content;
+function wholeIn(facts, parts, label) {
+  const body = sent(facts);
+  for (const p of parts) assert.ok(body.includes(p), label + ": not sent whole: " + p.slice(0, 60) + "…");
+  assert.doesNotMatch(body, /…/, label + ": something was cut short");
+  assert.doesNotMatch(body, /not listed|do not mention/, label + ": facts were left out of the request");
+}
+
+test("EVERY PART LEFT FOR LATER REACHES THE REPLY WHOLE — this turn's and earlier ones', however many and however long; a list longer than one hand-over carries is still read, never dropped", () => {
+  const now = [1, 2, 3, 4].map((i) => long("this turn's part " + i + ":", 450));
+  const earlier = [5, 6, 7, 8, 9].map((i) => long("an earlier part " + i + ":", 450));
+  const r = editReplyFacts({ ok: true, layer: "look", moved: ["description"], deferred: now, putOff: earlier });
+  const pending = r.facts.filter((f) => f.kind === "pending");
+  assert.equal(pending.length, 9, "parts left for later were dropped: " + pending.length + " of 9");
+  for (const p of [...now, ...earlier]) assert.ok(pending.some((f) => f.text.includes(p)), "a part was cut: " + p.slice(0, 40));
+  wholeIn(r.facts, [...now, ...earlier], "pending");
+  const one = editReplyFacts({ ok: false, error: "clarify", clarify: { id: "a".repeat(32), text: "Which?" }, putOff: "add a gallery page" });
+  assert.equal(one.facts.filter((f) => f.kind === "pending").length, 1, "one part, as the route sends it, was not read");
+});
+
+test("EVERY ADDITION THAT FAILED IS IN THE REPLY WITH ITS WHOLE REASON — beside a success and in a refusal — and every function, job and page left as it was", () => {
+  const reasons = [1, 2, 3, 4, 5, 6].map((i) => long("the builder's reason " + i + ":", 520));
+  const notAdded = reasons.map((msg, i) => ({ kind: "row", name: "Entry " + (i + 1), msg }));
+  const fnErr = [1, 2, 3, 4, 5].map((i) => ({ name: "fn_" + i, error: long("function error " + i + ":", 300) }));
+  const jobErr = [1, 2, 3, 4, 5].map((i) => ({ name: "job_" + i, error: long("job error " + i + ":", 300) }));
+  const kept = ["a.tsx", "b.tsx", "c.tsx", "d.tsx", "e.tsx"].map((path) => ({ path, from: ["index.tsx"] }));
+  const ok = addonReplyFacts({ ok: true, added: ["gallery.tsx"], notAdded, functionErrors: fnErr, jobErrors: jobErr, kept, reverted: ["f.tsx", "g.tsx", "h.tsx", "i.tsx", "j.tsx"] });
+  const notDone = ok.facts.filter((f) => f.kind === "not-done");
+  assert.equal(notDone.filter((f) => /^Left out/.test(f.text)).length, 6, "failed additions were dropped");
+  assert.equal(notDone.filter((f) => /^The function /.test(f.text)).length, 5, "failed functions were dropped");
+  assert.equal(notDone.filter((f) => /^The scheduled job /.test(f.text)).length, 5, "failed jobs were dropped");
+  assert.equal(notDone.filter((f) => /still links to it/.test(f.text)).length, 5, "pages kept were dropped");
+  const back = ok.facts.find((f) => /as they were: nothing there needed to change/.test(f.text));
+  for (const p of ["/f", "/g", "/h", "/i", "/j"]) assert.ok(back && back.text.includes(p), "a page left as it was was not named: " + p);
+  wholeIn(ok.facts, [...reasons, ...fnErr.map((e) => e.error), ...jobErr.map((e) => e.error)], "add-on success");
+  const no = addonReplyFacts({ ok: false, error: "declined", msg: long("Nothing was added because", 700), notAdded, cost: 0 });
+  assert.equal(no.facts.filter((f) => /^Left out/.test(f.text)).length, 6, "failed additions were dropped from a refusal");
+  wholeIn(no.facts, [long("Nothing was added because", 700), ...reasons], "add-on refusal");
+});
+
+test("NO FACT IS LEFT OUT FOR ITS COUNT: forty entries added are forty facts, every one sent, and every one required in `covers`", () => {
+  const rows = Array.from({ length: 40 }, (_, i) => ({ table: "loaves", label: "Loaf number " + (i + 1), id: i + 1 }));
+  const r = addonReplyFacts({ ok: true, rows });
+  assert.equal(r.facts.filter((f) => /^Added “Loaf number \d+” to loaves/.test(f.text)).length, 40, "entries were folded into a count");
+  assert.ok(!r.facts.some((f) => /more entr/.test(f.text)), "a count stood in for entries");
+  const body = sent(r.facts);
+  for (let i = 1; i <= 40; i++) assert.ok(body.includes("“Loaf number " + i + "”"), "entry " + i + " was not sent");
+  assert.equal(shownIn(replyRequest({ facts: r.facts, model: "m" })).length, r.facts.length, "facts past a cap were not sent");
+  assert.doesNotMatch(body, /not listed|do not mention/, "the model was told to leave facts out");
+  const read = readReply(said({ reply: "Done.", covers: r.facts.slice(0, 24).map((f) => f.id) }), r.facts);
+  assert.equal(read.ok, false, "a reply that explained only the first 24 facts was used");
+  assert.deepEqual(read.missing, r.facts.slice(24).map((f) => f.id));
+});
+
+test("A REASON, A QUESTION, A PART'S OWN SENTENCE OR A STEP'S OWN ACCOUNT IS NEVER CUT SHORT", () => {
+  const reason = long("There's no Gallery page on your site:", 900);
+  wholeIn(editReplyFacts({ ok: false, error: "no-page", msg: reason, unchanged: true, cost: 0 }).facts, [reason], "refusal");
+  const question = long("Which band do you mean —", 420);
+  wholeIn(editReplyFacts({ ok: true, layer: "look", moved: ["description"], clarify: { id: "b".repeat(32), text: question } }).facts, [question], "question");
+  const partMsg = long("I couldn't move it:", 700);
+  wholeIn(editReplyFacts({ ok: true, layer: "look", moved: ["description"], partial: [{ layer: "page", msg: partMsg }] }).facts, [partMsg], "partial");
+  const account = long("Took these links out of the menu:", 800);
+  wholeIn(editReplyFacts({ ok: true, layer: "nav", msg: account }).facts, [account], "a step's own account");
+});
+
+test("EVERY ENTRY TAKEN OFF A LIST IS NAMED WITH EVERY FIELD, AND EACH CAN BE PUT BACK", () => {
+  const was = (i) => ({ id: i, name: "Rye " + i, price: 4 + i, description: long("a dense dark loaf " + i + ":", 260), baked: "daily", size: "large" });
+  const r = editReplyFacts({ ok: true, layer: "data", applied: [1, 2, 3, 4, 5].map((i) => ({ table: "loaves", removed: true, was: was(i) })) });
+  const removed = r.facts.filter((f) => /^Removed an entry from loaves/.test(f.text));
+  assert.equal(removed.length, 5, "removed entries were folded into a count");
+  assert.ok(!r.facts.some((f) => /more entr/.test(f.text)));
+  removed.forEach((f, i) => {
+    for (const v of [was(i + 1).name, String(was(i + 1).price), was(i + 1).description, "daily", "large"]) assert.ok(f.text.includes(v), "entry " + (i + 1) + " lost a field: " + v.slice(0, 30));
+  });
+  assert.equal(r.facts.filter((f) => f.kind === "undo").length, 5, "an entry could not be put back");
+  // TWO ENTRIES THAT READ THE SAME ARE STILL TWO: taken off, added, or left out.
+  const twin = { id: 9, name: "Rye", price: 5 };
+  const offTwice = editReplyFacts({ ok: true, layer: "data", applied: [{ table: "loaves", removed: true, was: twin }, { table: "loaves", removed: true, was: { ...twin, id: 10 } }] });
+  assert.equal(offTwice.facts.filter((f) => /^Removed an entry from loaves/.test(f.text)).length, 2, "two identical entries taken off were told as one");
+  const inTwice = addonReplyFacts({ ok: true, rows: [{ table: "loaves", label: "Rye" }, { table: "loaves", label: "Rye" }] });
+  assert.equal(inTwice.facts.filter((f) => /^Added “Rye” to loaves/.test(f.text)).length, 2, "two identical entries added were told as one");
+  const outTwice = addonReplyFacts({ ok: false, error: "add", msg: "Nothing added.", notAdded: [{ kind: "row", name: "Rye", msg: "Already listed." }, { kind: "row", name: "Rye", msg: "Already listed." }] });
+  assert.equal(outTwice.facts.filter((f) => /^Left out “Rye”/.test(f.text)).length, 2, "two identical additions left out were told as one");
+});
+
+test("EVERY NEW WORDING AND EVERY LINK LEFT POINTING THE OLD WAY IS IN THE REPLY", () => {
+  const wordings = Array.from({ length: 8 }, (_, i) => long("New words " + (i + 1) + ":", 150));
+  const r = editReplyFacts({ ok: true, layer: "text", applied: 8, changed: wordings, staleTel: [{ href: "tel:+441132000000" }, { href: "mailto:old@example.com" }, { href: "tel:+441132000001" }] });
+  wholeIn(r.facts, wordings, "wordings");
+  const stale = r.facts.filter((f) => f.kind === "not-done");
+  assert.equal(stale.length, 3, "only the first link left pointing the old way was said");
+  for (const v of ["+441132000000", "old@example.com", "+441132000001"]) assert.ok(stale.some((f) => f.text.includes(v)), v);
+});
+
+test("EVERY PART OF A LOOK CHANGE IS LISTED", () => {
+  const tokens = ["primary", "accent", "radius", "spacing", "shadow", "border"];
+  const style = ["header", "footer", "buttons", "cards", "links", "hero"];
+  const r = editReplyFacts({ ok: true, layer: "look", moved: ["lang", "brand", "description", "theme", "favicon", "wordmark", "font", "palette"], tokens, style, renamed: 2 });
+  const changed = r.facts.find((f) => /^Changed /.test(f.text)).text;
+  for (const w of ["the language", "the logo", "font", "palette", ...tokens, ...style]) assert.ok(changed.includes(w), "a part of the look was left out: " + w);
+});
+
+test("A CANCEL NAMES EVERY PART IT HAD PUT OFF, WHOLE, HOWEVER MANY", () => {
+  const parts = Array.from({ length: 7 }, (_, i) => long("put off " + (i + 1) + ":", 300));
+  const r = cancelReplyFacts({ ok: true, cancelled: true, putOff: parts });
+  assert.equal(r.facts.filter((f) => f.kind === "pending").length, 7, "parts put off were dropped");
+  wholeIn(r.facts, parts, "cancel");
+});
+
+test("A QUESTION ASKED AGAIN IS TOLD EVERY ANSWER THAT DID NOT SETTLE IT, WHOLE", () => {
+  const answers = Array.from({ length: 5 }, (_, i) => ({ q: "Which page?", a: long("answer " + (i + 1) + ":", 300) }));
+  const q = long("Which page should the band move on", 230);
+  const r = repeatNoteFacts({ question: { text: q }, earlier: answers, atLimit: true });
+  wholeIn(r.facts, [q, ...answers.map((p) => p.a)], "repeat");
+});
+
+test("THE MODEL IS SHOWN THEIR WHOLE REQUEST, EVERY ANSWER THEY GAVE AND EVERY PAGE", () => {
+  const request = long("Please change", 3000);
+  const answers = Array.from({ length: 20 }, (_, i) => ({ q: long("Question " + (i + 1) + "?", 230), a: long("Answer " + (i + 1) + ":", 480) }));
+  const pages = Array.from({ length: 45 }, (_, i) => "/page-" + (i + 1));
+  const name = long("Harbour Loaf", 120);
+  const ctx = replyContext({ request, answers, site: { name, slug: "harbour-loaf", pages } });
+  assert.ok(ctx.includes(request), "their words were cut");
+  assert.ok(ctx.includes(name), "the site's name was cut");
+  for (const p of answers) {
+    assert.ok(ctx.includes(p.q), "a question was cut or dropped: " + p.q.slice(0, 20));
+    assert.ok(ctx.includes(p.a), "an answer was cut or dropped: " + p.a.slice(0, 20));
+  }
+  assert.ok(ctx.includes("ITS PAGES: " + pages.join(", ") + "\n"), "a page was dropped");
+  assert.doesNotMatch(ctx, /…/);
+});
+
+test("THE MODEL IS TOLD TO SAY WHAT WAS DONE, WHAT WAS NOT, WHAT WAITS AND WHAT NEEDS AN ANSWER — never to call unfinished work done — and to summarize without dropping anything", () => {
+  for (const rule of [
+    /what was done, what was not done and why, what is still waiting, and what you need from them/i,
+    /never say or suggest that something not done, or still waiting, was done/i,
+    /when only part of what they asked for was done, say which part/i,
+    /summari[sz]e/i,
+    /never drop/i,
+  ]) assert.match(REPLY_SYSTEM, rule);
+  // WHAT AN ID SAYS A FACT IS, and the model is told how to read it.
+  assert.match(REPLY_SYSTEM, /c: done\. f: not done[^\n]*\. p: still waiting[^\n]*\. q: needs their answer/i);
+  assert.doesNotMatch(REPLY_TOOL.input_schema.properties.reply.description, /one to three short sentences/i, "the reply is still told to be a few sentences whatever happened");
+});
+
+test("A LONG OUTCOME'S REPLY IS NOT REFUSED FOR ITS LENGTH, AND THE PAGE SHOWS WHAT THE SERVER ACCEPTS", () => {
+  const facts = Array.from({ length: 30 }, (_, i) => ({ id: "c" + (i + 1), kind: "changed", text: "x" }));
+  const text = long("Here is everything:", 3000);
+  assert.equal(readReply(said({ reply: text, covers: facts.map((f) => f.id) }), facts).ok, true, "a 3,000-character reply covering every fact was refused");
+  const EditPoll = createRequire(import.meta.url)("../public/edit-poll.js");
+  assert.equal(EditPoll.MODEL_REPLY_MAX, REPLY_MAX_CHARS, "the page and the server disagree on the longest reply");
+  assert.equal(EditPoll.modelReply({ reply: text, replySource: "model" }), text);
 });

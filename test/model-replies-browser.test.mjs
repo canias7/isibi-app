@@ -30,8 +30,10 @@ const routed = (over = {}) => ({ ok: true, intent: "edit", layer: "look", cost: 
 
 test("THE PAGE USES A REPLY ONLY WHEN THE SERVER SAYS A MODEL WROTE IT: a string, trimmed, inside its bound — anything else is no reply", () => {
   assert.equal(EditPoll.modelReply({ reply: "  " + REPLY + "\n", replySource: "model" }), REPLY);
-  assert.equal(EditPoll.MODEL_REPLY_MAX, 1600);
-  assert.equal(EditPoll.modelReply({ reply: "x".repeat(1600), replySource: "model" }), "x".repeat(1600));
+  // THE BOUND IS THE SERVER'S (`REPLY_MAX_CHARS`; 4,000 since 2026-10-03): at it, shown; past it, no reply.
+  const MAX = EditPoll.MODEL_REPLY_MAX;
+  assert.ok(MAX >= 4000, "the page refuses a reply long enough to tell a long outcome: " + MAX);
+  assert.equal(EditPoll.modelReply({ reply: "x".repeat(MAX), replySource: "model" }), "x".repeat(MAX));
   for (const body of [
     null, "text", [], {},
     { reply: REPLY },
@@ -40,7 +42,7 @@ test("THE PAGE USES A REPLY ONLY WHEN THE SERVER SAYS A MODEL WROTE IT: a string
     { reply: "   ", replySource: "model" },
     { reply: ["a"], replySource: "model" },
     { reply: 7, replySource: "model" },
-    { reply: "x".repeat(1601), replySource: "model" },
+    { reply: "x".repeat(MAX + 1), replySource: "model" },
   ]) assert.equal(EditPoll.modelReply(body), null, JSON.stringify(body).slice(0, 80));
 });
 
