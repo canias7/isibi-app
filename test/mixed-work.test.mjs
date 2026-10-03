@@ -39,7 +39,7 @@ import { T, bucket, withWire, envFor, routeCall, browserPost, postRoute, SITE, S
 import { addon, promptFor, writtenPage, addedTo, compiledPages } from "./fixtures/addon-route.mjs";
 import { editBrowserReply, browserReply } from "../scripts/addon-sweep.mjs";
 import { editReplyFacts, addonReplyFacts } from "../builder/site-reply.mjs";
-import { navSlots, NAV_TOOL } from "../builder/site-nav.mjs";
+import { navSlots, NAV_TOOL, chromeListSlots, applyChromeList, contactSlots, actionSlots } from "../builder/site-nav.mjs";
 import * as PICTURE from "../builder/site-picture.mjs";
 import * as LANES from "../builder/site-lanes.mjs";
 const { PICTURE_TOOL, imageSlots } = PICTURE;
@@ -630,6 +630,141 @@ for (const mode of ["sync", "job"]) {
     assert.deepEqual(MW3_HELD(r.body), [WORDS], "a part not in the message was put off: " + JSON.stringify([r.body.deferred, r.body.putOff]));
     unsaid(r, /Fold Lane/, "the part the message does not hold");
     said(r, /Find the bakery/, "the wording left for later");
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3c. THE FOOTER AND THE MENU: EVERY ENTRY APPLIED, OR NAMED WITH ITS REASON
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The owner reproduced it on the mixed-work fixes' review: `readNav` handed
+// nine valid small-print links kept eight and returned `dropped: []` — the
+// footer's count (8) cut the list before any entry was read. Neither that
+// count nor the menu's ten was a technical constraint (the kit renders every
+// item), so both are gone (2026-10-03). Each case reads the stored pages and
+// both readings of the reply, on the ordinary edit and on the add-on's frame
+// hand-off (`fromAddon`, posted as `addition: true`), synchronously and queued.
+
+const CHROME = ["index.tsx", "order.tsx", "visit.tsx", "gallery.tsx"];
+const NINE_LEGAL = ["Privacy", "Terms", "Cookies", "Accessibility", "Allergens", "Delivery", "Returns", "Complaints", "Modern slavery"]
+  .map((label) => ({ label, href: "https://harbourloaf.example/" + label.toLowerCase().replace(/ /g, "-") }));
+const NINE_SOCIAL = ["instagram", "facebook", "tiktok", "x", "youtube", "linkedin", "pinterest", "threads", "mastodon"]
+  .map((network) => ({ network, href: "https://" + network + ".example/harbourloaf" }));
+const listOn = (r, path, prop) => ((chromeListSlots([{ path, source: r.src(path) }], prop)[0] || {}).items) || null;
+const chromeOf = (src, path) => {
+  const one = [{ path, source: src }];
+  return { menu: (navSlots(one)[0] || {}).items || null, button: (actionSlots(one)[0] || {}).action || null, contact: (contactSlots(one)[0] || {}).contact || null };
+};
+/** The bakery with three small-print links already in every footer, written by the real list writer. */
+const WITH_THREE = applyChromeList(RUN47, "legal", NINE_LEGAL.slice(0, 3)).pages;
+
+for (const mode of ["sync", "job"]) {
+  test("FOOTER (" + mode + ") — NINE SMALL-PRINT LINKS AND NINE SOCIAL LINKS IN ONE EDIT: every one is on every footer, nothing else in the frame moves, and the reply names all eighteen", async () => {
+    const r = await editRun({
+      mode, routed: { layer: "nav" },
+      message: "Our footer's small print should be Privacy, Terms, Cookies, Accessibility, Allergens, Delivery, Returns, Complaints and Modern slavery, and our social links Instagram, Facebook, TikTok, X, YouTube, LinkedIn, Pinterest, Threads and Mastodon.",
+      answers: { [NAV_TOOL.name]: { legal: NINE_LEGAL, social: NINE_SOCIAL } },
+    });
+    assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 300));
+    for (const f of CHROME) {
+      assert.deepEqual(listOn(r, f, "legal"), NINE_LEGAL, f + ": the small print is not all nine");
+      assert.deepEqual(listOn(r, f, "social"), NINE_SOCIAL, f + ": the social links are not all nine");
+      assert.deepEqual(chromeOf(r.src(f), f), chromeOf(ORIG[f], f), f + ": the menu, the button or the contact details moved");
+    }
+    assert.equal(r.src("starter.tsx"), ORIG["starter.tsx"], "a page with no frame changed");
+    assert.equal(r.builds, 1, "not one publish");
+    assert.deepEqual(r.body.lists, { legal: 9, social: 9 });
+    assert.equal(r.body.dropped, undefined, "an entry was left out of a list with nothing wrong in it");
+    for (const it of [...NINE_LEGAL.map((x) => x.label), ...NINE_SOCIAL.map((x) => x.network)]) {
+      assert.ok(r.reply.includes(it), "the reply does not name “" + it + "”: " + r.reply);
+      assert.ok(r.facts.some((f) => f.includes(it)), "the facts do not name “" + it + "”: " + JSON.stringify(r.facts));
+    }
+  });
+
+  test("FOOTER (" + mode + ") — AN INVALID ENTRY AMONG VALID ONES: the nine valid links are on every footer, and each refused entry is named with its own reason, never counted", async () => {
+    const legal = [...NINE_LEGAL.slice(0, 4), { label: "Opening times", href: "/opening-times" }, { label: "Old terms", href: "http://old.example/terms" },
+      ...NINE_LEGAL.slice(4), { label: "", href: "https://harbourloaf.example/blank" }];
+    const r = await editRun({
+      mode, routed: { layer: "nav" },
+      message: "Put these in the small print: Privacy, Terms, Cookies, Accessibility, Opening times, the old terms, Allergens, Delivery, Returns, Complaints and Modern slavery.",
+      answers: { [NAV_TOOL.name]: { legal } },
+    });
+    assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 300));
+    for (const f of CHROME) assert.deepEqual(listOn(r, f, "legal"), NINE_LEGAL, f + ": the valid nine are not the footer's small print");
+    assert.deepEqual((r.body.dropped || []).map((d) => [d.label || "", d.why, d.list]), [
+      ["Opening times", "no-such-page", "legal"], ["Old terms", "not-a-path", "legal"], ["", "incomplete", "legal"],
+    ], "each refused entry is not kept on the answer with its reason");
+    for (const said of [r.reply, r.facts.join(" ")]) {
+      assert.match(said, /I left out “Opening times” — there's no \/opening-times page on the site yet\./);
+      assert.match(said, /“Old terms” \(a link here goes to a page of this site or a full https:\/\/ address\)/);
+      assert.match(said, /“https:\/\/harbourloaf\.example\/blank” \(it had no name or no destination\)/);
+      assert.doesNotMatch(said, /\d+ (items|entries) (were|was) not/, "a refused entry was counted rather than named");
+    }
+  });
+
+  test("FOOTER, THE FRAME HAND-OFF (" + mode + ") — SIX NEW LINKS ADDED BESIDE THREE A FOOTER HAS: all nine on every footer, the three in their place, and the reply names the six it added", async () => {
+    const r = await editRun({
+      mode, pages: WITH_THREE, routed: { layer: "nav", fromAddon: true },
+      message: "Add Accessibility, Allergens, Delivery, Returns, Complaints and Modern slavery to the small print.",
+      // THE MODEL RESTATES THE LIST IT WAS SHOWN, as a whole-list field invites:
+      // the three the footer has, then the six new ones.
+      answers: { [NAV_TOOL.name]: { legal: NINE_LEGAL } },
+    });
+    assert.equal(r.post.body.addition, true, "the browser did not post the hand-off as an addition");
+    assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 300));
+    const before = Object.fromEntries(WITH_THREE.map((p) => [p.path, p.source]));
+    for (const f of CHROME) {
+      assert.deepEqual(listOn(r, f, "legal"), NINE_LEGAL, f + ": the footer does not hold its three and the six added after them");
+      assert.deepEqual(chromeOf(r.src(f), f), chromeOf(before[f], f), f + ": the menu, the button or the contact details moved");
+    }
+    assert.match(r.reply, /Added 6 small-print links \(Accessibility · Allergens · Delivery · Returns · Complaints · Modern slavery\) to the footer, beside what it had/);
+    assert.equal(r.body.dropped, undefined, "an entry was left out of an addition with room for all");
+  });
+
+  test("LINKS IN THE COPY (" + mode + ") — ONE REPOINTED BESIDE TWO REFUSED: the one changes, and each refused link is named with its own reason, where only the first was said", async () => {
+    // A SECOND LINK IN THE STARTER PAGE'S COPY, written as the first is, so one
+    // refusal can be for a page the site does not have.
+    const back = '      <Link\n        to="/"\n        className="mt-2 rounded-md border border-border px-5 py-2.5 text-sm font-medium"\n      >\n        Back to the home page\n      </Link>\n';
+    assert.ok(ORIG["starter.tsx"].includes(back), "the fixture's link is not where this case expects it");
+    const pages = RUN47.map((p) => (p.path !== "starter.tsx" ? p : { ...p, source: p.source.replace(back, back + back.replace("Back to the home page", "Shop the bake")) }));
+    const r = await editRun({
+      mode, pages, routed: { layer: "nav" },
+      message: "Point the starter page's back link at the Visit page, and point any Order now link at /order, and the Shop link at /shop.",
+      answers: { [NAV_TOOL.name]: { pageLinks: [
+        { label: "Back to the home page", from: "/", to: "/visit" },
+        { label: "Order now", to: "/order" },
+        { label: "Shop the bake", from: "/", to: "/shop" },
+      ] } },
+    });
+    assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 300));
+    assert.ok(r.src("starter.tsx").includes('href="/visit"') || r.src("starter.tsx").includes("to=\"/visit\""), "the back link was not repointed");
+    assert.deepEqual((r.body.refusedLinks || []).map((x) => [x.label, x.why]), [["Order now", "no-such-link"], ["Shop the bake", "no-such-page"]],
+      "each refused link is not kept on the answer with its reason");
+    for (const said of [r.reply, r.facts.join(" ")]) {
+      assert.match(said, /I couldn't find a link saying “Order now” anywhere on the site\./);
+      assert.match(said, /There's no \/shop page on the site yet, so I left “Shop the bake” where it was\./);
+    }
+  });
+
+  test("MENU (" + mode + ") — TWELVE ITEMS IN ONE EDIT, AND EIGHT ADDED BY THE FRAME HAND-OFF: every item is in the menu, past the old count of ten, and the reply names each", async () => {
+    const twelve = [
+      { label: "Today's bake", href: "/" }, { label: "The starter", href: "/starter" }, { label: "Visit", href: "/visit" }, { label: "Gallery", href: "/gallery" },
+      ...["Bread", "Pastry", "Cakes", "Coffee", "Hampers", "Classes", "Wholesale", "Jobs"].map((label) => ({ label, href: "/#" + label.toLowerCase() })),
+    ];
+    const edit = await editRun({ mode, routed: { layer: "nav" }, message: "Make the menu: Today's bake, The starter, Visit, Gallery, Bread, Pastry, Cakes, Coffee, Hampers, Classes, Wholesale, Jobs.",
+      answers: { [NAV_TOOL.name]: { links: twelve } } });
+    assert.equal(edit.body.ok, true, JSON.stringify(edit.body).slice(0, 300));
+    assert.deepEqual(edit.menus("index.tsx"), [twelve.map((l) => l.label)], "the home menu is not all twelve");
+    assert.equal(edit.body.dropped, undefined, "a menu item past the old ten was left out");
+    for (const l of twelve) assert.ok(edit.reply.includes(l.label), "the reply does not name “" + l.label + "”: " + edit.reply);
+    const add = await editRun({ mode, routed: { layer: "nav", fromAddon: true }, message: "Add Bread, Pastry, Cakes, Coffee, Hampers, Classes, Wholesale and Jobs to the menu.",
+      answers: { [NAV_TOOL.name]: { links: twelve.slice(4) } } });
+    assert.equal(add.body.ok, true, JSON.stringify(add.body).slice(0, 300));
+    for (const f of CHROME) {
+      const own = navSlots([{ path: f, source: ORIG[f] }])[0].items.map((i) => i.label);
+      assert.deepEqual(add.menus(f), [[...own, ...twelve.slice(4).map((l) => l.label)]], f + ": the menu is not its own items with all eight added");
+    }
+    assert.match(add.reply, /Added “Bread”, “Pastry”, “Cakes”, “Coffee”, “Hampers”, “Classes”, “Wholesale”, “Jobs” to the menu on 4 pages, beside the items it had/);
   });
 }
 

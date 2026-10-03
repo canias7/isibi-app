@@ -1424,7 +1424,8 @@ for (const mode of ["sync", "job"]) {
       assert.deepEqual((contactSlots(one)[0] || {}).contact, (contactSlots([{ path: f, source: ORIG[f] }])[0] || {}).contact, f + ": the footer's details moved");
     }
     assert.equal(page(r, "starter.tsx"), ORIG["starter.tsx"]);
-    assert.match(r.reply.msg, /Added 1 social link to the footer, beside what it had/);
+    // NAMED SINCE 2026-10-03 (the footer correction): which link went in, not only how many.
+    assert.match(r.reply.msg, /Added 1 social link \(instagram\) to the footer, beside what it had/);
   });
 
   test(`FRAME ADDITION (${mode}): an addition's answer that would take or change something is held to adding`, async () => {

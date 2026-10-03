@@ -61,17 +61,22 @@ import { ECHO_CHARS_PER_TOKEN, LIST_ANSWER_MAX_TOKENS } from "./input-budget.mjs
 export const NAV_MODEL = modelsFor().quick;
 export const NAV_MAX_TOKENS = 1200;
 
-/**
- * A nav longer than this is a menu nobody can use, on a phone least of all.
- *
- * KEPT AS A DESIGN LIMIT, AND NEVER SILENT (2026-10-03). Owner: *"where a
- * genuine limit must remain, preserve and identify each unexecuted operation
- * instead of losing it or claiming success."* A menu past ten took the first
- * ten and dropped the rest with no word (the mixed-work audit's MW4); each link
- * past it is now left out BY NAME (`dropped`, why `full`) and said in the
- * reply. Whether a menu may hold more is a design decision for the owner.
- */
-export const MAX_NAV_ITEMS = 10;
+// ── NO NUMBER OF MENU ITEMS OR FOOTER ENTRIES IS A LIMIT (2026-10-03) ──────
+//
+// Owner, on the mixed-work fixes' review: *"Do not treat 'a footer should have
+// eight items' or 'a menu should have ten' as a proven technical constraint;
+// remove those arbitrary counts where existing resource safeguards support the
+// complete list."* Neither was one: the kit's `SiteHeader` and `SiteFooter`
+// render every item they are given, and the counts (`MAX_NAV_ITEMS` 10,
+// `MAX_LIST_ITEMS` 8) were a designer's taste. Worse, the footer's was applied
+// as `raw2.slice(0, 8)` BEFORE the reader looked at an entry, so a ninth legal
+// or social link vanished with `dropped: []` and nothing in the reply — the
+// owner reproduced it. What bounds a menu or a footer list now is what bounds
+// every list this lane writes: the answer's own ceiling, which grows with what
+// the editor is shown and is refused whole when it is cut off
+// (`navMaxTokens`, `runNavEdit`); each label's length (`MAX_LABEL`); and each
+// entry's destination, checked one by one, every refused entry kept on
+// `dropped` with its own reason and said by name (`itemsLeftOut`).
 
 /** Long enough for "Frequently asked questions", short enough to be a label. */
 export const MAX_LABEL = 40;
@@ -1094,8 +1099,11 @@ export function readNav(reply, routes) {
     if (!Array.isArray(raw2)) continue;
     const fields = LIST_FIELDS[prop];
     const kept = [];
-    for (const it of raw2.slice(0, MAX_LIST_ITEMS)) {
-      if (!it || typeof it !== "object" || Array.isArray(it)) continue;
+    // EVERY ENTRY IS READ (2026-10-03): a ninth was cut here, before any entry
+    // was looked at, so it was neither applied nor named.
+    for (const it of raw2) {
+      // NOT AN ENTRY AT ALL is still something they asked for: named, with why.
+      if (!it || typeof it !== "object" || Array.isArray(it)) { dropped.push({ label: "", href: "", why: "incomplete", list: prop }); continue; }
       const a = typeof it[fields[0]] === "string" ? it[fields[0]].trim().slice(0, MAX_LABEL) : "";
       const href = typeof it.href === "string" ? it.href.trim() : "";
       // A LEGAL LINK TO A PAGE THAT DOES NOT EXIST is a not-found from the
@@ -1173,8 +1181,6 @@ export function readNav(reply, routes) {
     if (why) { dropped.push({ label, href, why }); continue; }
     if (seen.has(href)) { dropped.push({ label, href, why: "duplicate" }); continue; }
     seen.add(href);
-    // PAST THE MENU'S OWN LIMIT, LEFT OUT BY NAME — never dropped unsaid.
-    if (links.length >= MAX_NAV_ITEMS) { dropped.push({ label, href, why: "full" }); continue; }
     links.push({ label, href });
   }
   return { links, dropped, action, removeAction, secondAction, removeSecondAction, pageLinks, contact, lists, layout };
@@ -1413,7 +1419,10 @@ export function navReply({ links = [], dropped = [], changed = [], action = null
     for (const prop of Object.keys(lists)) {
       const n = lists[prop].length;
       const what = prop === "social" ? "social link" : "small-print link";
-      said.push(n ? n + " " + what + (n === 1 ? "" : "s") : "took the " + what + "s off");
+      // EACH ENTRY BY NAME (2026-10-03), as the menu's items are: a count says
+      // nine went in, the names say which nine, so the customer can check.
+      const names = lists[prop].map((it) => (it && (prop === "social" ? it.network : it.label)) || (it && it.href) || "").filter(Boolean);
+      said.push(n ? n + " " + what + (n === 1 ? "" : "s") + (names.length ? " (" + names.join(" · ") + ")" : "") : "took the " + what + "s off");
     }
     // AN ADDITION SAYS WHAT IT ADDED (2026-10-02): `lists` then holds only the
     // new entries, and the ones the footer had are still there beside them.
@@ -1520,20 +1529,21 @@ function itemsLeftOut(dropped) {
       " — that points at a section of whichever page you're on, so it would do nothing on the others. " +
       "Say which page it's on and I'll link to it properly.";
   }
-  // PAST THE LIMIT, NAMED WITH THE LIMIT: the one reason asking again does not
-  // fix, so it says what the limit is.
-  for (const [items, what, max] of [
-    [list.filter((d) => d.why === "full" && !d.list), "the menu", MAX_NAV_ITEMS],
-    [list.filter((d) => d.why === "full" && d.list), "that footer list", MAX_LIST_ITEMS],
-  ]) {
-    if (!items.length) continue;
-    out += " I left out " + items.map(name).join(", ") + " — " + what + " holds at most " + max + " items, and adding " +
-      (items.length === 1 ? "it" : "them") + " would go past that. Say which to take out to make room.";
-  }
-  const other = list.filter((d) => d.why !== "no-such-page" && d.why !== "page-local" && d.why !== "full");
+  // EVERY OTHER REASON, SAID FOR WHAT IT IS (2026-10-03, the owner: *"every
+  // requested entry must either be applied or retain its identity and an
+  // accurate reason it was not applied"*) — where four of these read only "it
+  // wasn't usable there".
+  const REASON = {
+    duplicate: "it was listed twice",
+    incomplete: "it had no name or no destination",
+    "bad-number": "that isn't a phone number a link can call",
+    "not-a-path": "a link here goes to a page of this site or a full https:// address",
+    offsite: "an address starting with // can't be used — give the full https:// address",
+    "bad-anchor": "that isn't a section name a link can point at",
+  };
+  const other = list.filter((d) => d.why !== "no-such-page" && d.why !== "page-local");
   if (other.length) {
-    out += " I left out " + other.map((d) => name(d) + (d.why === "duplicate" ? " (it was listed twice)"
-      : d.why === "incomplete" ? " (it had no name or no destination)" : "")).join(", ") +
+    out += " I left out " + other.map((d) => name(d) + (REASON[d.why] ? " (" + REASON[d.why] + ")" : "")).join(", ") +
       " — " + (other.length === 1 ? "it wasn't" : "they weren't") + " usable there.";
   }
   return out;
@@ -1577,14 +1587,12 @@ export const ADDITION_NOTE =
 
 /** What the frame holds now, read from the same slots the digest is written from. */
 export function frameNow({ slots, actions, seconds, contacts, lists } = {}) {
-  // EVERY HREF ANY MENU HAS, and the longest menu: an item is new only when no
-  // page's menu carries it, and it is added to each menu as that menu is.
+  // EVERY HREF ANY MENU HAS: an item is new only when no page's menu carries
+  // it, and it is added to each menu as that menu is.
   const menu = [];
   const seen = new Set();
-  let menuMax = 0;
   for (const s of Array.isArray(slots) ? slots : []) {
     const items = (s && s.items) || [];
-    menuMax = Math.max(menuMax, items.length);
     for (const it of items) {
       if (!it || !it.href || seen.has(it.href)) continue;
       seen.add(it.href);
@@ -1600,17 +1608,14 @@ export function frameNow({ slots, actions, seconds, contacts, lists } = {}) {
   const contactsNow = (Array.isArray(contacts) ? contacts : []).filter(Boolean)
     .map((c) => (c.contact && typeof c.contact === "object" ? c.contact : null));
   const listNow = {};
-  const listMax = {};
   for (const prop of Object.keys(LIST_FIELDS)) {
     const mine = (Array.isArray(lists) ? lists : []).filter((l) => l && l.prop === prop && Array.isArray(l.items));
     listNow[prop] = [];
-    listMax[prop] = 0;
     for (const l of mine) {
-      listMax[prop] = Math.max(listMax[prop], l.items.length);
       for (const it of l.items) if (it && it.href && !listNow[prop].some((x) => x.href === it.href)) listNow[prop].push(it);
     }
   }
-  return { menu, menuMax, button: has(actions), buttonNow: now(actions), second: has(seconds), secondNow: now(seconds), contacts: contactsNow, lists: listNow, listMax };
+  return { menu, button: has(actions), buttonNow: now(actions), second: has(seconds), secondNow: now(seconds), contacts: contactsNow, lists: listNow };
 }
 
 /**
@@ -1618,9 +1623,10 @@ export function frameNow({ slots, actions, seconds, contacts, lists } = {}) {
  * where it goes: after the item the answer put before it, at the start when
  * the answer put it ahead of every item the list has, or at the end when the
  * answer named only new items, which is where an item added to a list goes.
- * What no list has room for is left out and named, never an existing item.
+ * EVERY ONE (2026-10-03): there was a "room" left by a count of ten or eight,
+ * and nothing technical behind it.
  */
-function newItems(known, answer, room, dropped, list = "") {
+function newItems(known, answer) {
   const has = new Set((Array.isArray(known) ? known : []).filter((it) => it && typeof it.href === "string").map((it) => it.href));
   const given = (Array.isArray(answer) ? answer : []).filter((it) => it && typeof it.href === "string");
   const anyKnown = given.some((it) => has.has(it.href));
@@ -1631,10 +1637,6 @@ function newItems(known, answer, room, dropped, list = "") {
     if (has.has(it.href)) { prev = it.href; continue; }
     if (seen.has(it.href)) continue;
     seen.add(it.href);
-    if (out.length >= Math.max(0, room)) {
-      dropped.push({ label: it.label || it.network || "", href: it.href, why: "full", ...(list ? { list } : {}) });
-      continue;
-    }
     out.push({ item: it, after: prev });
     prev = anyKnown ? it.href : "$end";
   }
@@ -1689,12 +1691,12 @@ export function additionOnly(read, now) {
   // THE MENU AND THE FOOTER'S LISTS ARE ADDED TO PAGE BY PAGE: what the
   // answer says is read only for its NEW items and where they go, so a menu
   // missing an item on one page is not given it, and none loses one.
-  out.addLinks = Array.isArray(out.links) ? newItems(n.menu, out.links, MAX_NAV_ITEMS - (n.menuMax || 0), out.dropped) : [];
+  out.addLinks = Array.isArray(out.links) ? newItems(n.menu, out.links) : [];
   out.links = null;
   out.addLists = {};
   if (out.lists && typeof out.lists === "object") {
     for (const prop of Object.keys(out.lists)) {
-      const adds = newItems((n.lists || {})[prop], out.lists[prop], MAX_LIST_ITEMS - ((n.listMax || {})[prop] || 0), out.dropped, prop);
+      const adds = newItems((n.lists || {})[prop], out.lists[prop]);
       if (adds.length) out.addLists[prop] = adds;
     }
   }
@@ -2239,8 +2241,7 @@ export function applyLayout(pages, change) {
  */
 export const LIST_FIELDS = { social: ["network", "href"], legal: ["label", "href"] };
 
-/** How many icons or small-print links is still a footer rather than a page. */
-export const MAX_LIST_ITEMS = 8;
+// (No count: see "NO NUMBER OF MENU ITEMS OR FOOTER ENTRIES IS A LIMIT", above.)
 
 /** The `{a, b}` items of an array literal, or null if any one is not that shape. */
 export function parseListItems(body, fields) {
@@ -2578,16 +2579,27 @@ export function linkRefusal(refused) {
   const list = (Array.isArray(refused) ? refused : []).filter(Boolean);
   if (!list.length) return "";
   const name = (r) => "“" + (r.label || r.from || r.to) + "”";
-  const first = list[0];
-  if (first.why === "no-such-link") {
-    return "I couldn't find a link saying " + name(first) + " anywhere on the site.";
+  // ONE REFUSAL READS AS IT ALWAYS DID.
+  if (list.length === 1) {
+    const first = list[0];
+    if (first.why === "no-such-link") {
+      return "I couldn't find a link saying " + name(first) + " anywhere on the site.";
+    }
+    if (first.why === "typed-needs-page") {
+      return "That link is typed against the site's own pages, so it can only point at one of them — " +
+        first.to + " isn't a page here.";
+    }
+    if (first.why === "no-such-page") {
+      return "There's no " + first.to + " page on the site yet, so I left that link where it was.";
+    }
+    return "I couldn't use " + first.to + " as a destination, so that link is unchanged.";
   }
-  if (first.why === "typed-needs-page") {
-    return "That link is typed against the site's own pages, so it can only point at one of them — " +
-      first.to + " isn't a page here.";
-  }
-  if (first.why === "no-such-page") {
-    return "There's no " + first.to + " page on the site yet, so I left that link where it was.";
-  }
-  return "I couldn't use " + first.to + " as a destination, so that link is unchanged.";
+  // SEVERAL ARE EACH NAMED, WITH THEIR OWN REASON (2026-10-03): only the first
+  // was said, and every refused link after it went unmentioned.
+  return list.map((r) => {
+    if (r.why === "no-such-link") return "I couldn't find a link saying " + name(r) + " anywhere on the site.";
+    if (r.why === "typed-needs-page") return "The link " + name(r) + " is typed against the site's own pages, so it can only point at one of them — " + r.to + " isn't a page here.";
+    if (r.why === "no-such-page") return "There's no " + r.to + " page on the site yet, so I left " + name(r) + " where it was.";
+    return "I couldn't use " + r.to + " as a destination, so " + name(r) + " is unchanged.";
+  }).join(" ");
 }

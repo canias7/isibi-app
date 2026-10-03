@@ -24150,7 +24150,19 @@ async function handleRequest(request, env, ctx) {
               return Response.json({
                 ok: true, layer: "nav", msg: nOut.msg,
                 changed: nOut.changed, files: nPub.files, render: nPub.render, renderNote: nPub.renderNote,
-                links: nOut.links, dropped: nOut.dropped.length,
+                links: nOut.links,
+                // EVERY ENTRY LEFT OUT, BY NAME AND REASON (2026-10-03), where a
+                // count stood: a menu item, a footer entry or a button the
+                // answer named and the step could not use. The step's sentence
+                // (`msg`) already said each; the answer now carries each too.
+                // A phone number's digits stay out of it, the `contact` rule.
+                dropped: Array.isArray(nOut.dropped) && nOut.dropped.length
+                  ? nOut.dropped.map((d) => ({
+                    label: d.label || undefined,
+                    href: d.href && !/^tel:/i.test(d.href) ? d.href : undefined,
+                    why: d.why, list: d.list || undefined, button: d.button || undefined, second: d.second || undefined,
+                  }))
+                  : undefined,
                 // AND THE BUTTON, when this change touched it. Omitted when it
                 // did not, so a menu-only change's response is unchanged.
                 action: nOut.action || undefined, removedAction: nOut.removedAction || undefined,
@@ -24162,7 +24174,10 @@ async function handleRequest(request, env, ctx) {
                 // the customer believes happened, which is the one shape this
                 // response must not have.
                 movedLinks: nOut.movedLinks || undefined,
-                refusedLinks: nOut.refusedLinks && nOut.refusedLinks.length ? nOut.refusedLinks.length : undefined,
+                // EACH, BY ITS WORDS AND REASON (2026-10-03), where a count stood.
+                refusedLinks: nOut.refusedLinks && nOut.refusedLinks.length
+                  ? nOut.refusedLinks.map((x) => ({ label: x.label || undefined, from: x.from || undefined, to: x.to || undefined, why: x.why }))
+                  : undefined,
                 // AND THE FOOTER'S CONTACT DETAILS. Names WHICH fields moved and
                 // never their values — a response is logged, and an address and
                 // a phone number are the customer's own. Omitted when the change

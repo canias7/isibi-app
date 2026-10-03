@@ -12,7 +12,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   additionOnly, firstButton, frameNow, withAdded, ADDITION_NOTE, ACTION_PROPS,
-  actionSlots, applyAction, contactSlots, navSlots, navRequest, navDigest, readNav, runNavEdit, navReply, NAV_TOOL, MAX_NAV_ITEMS,
+  actionSlots, applyAction, contactSlots, navSlots, navRequest, navDigest, readNav, runNavEdit, navReply, NAV_TOOL,
 } from "../builder/site-nav.mjs";
 
 const HOME = `import { SiteChrome } from "@/components/ui/site-chrome";
@@ -81,7 +81,9 @@ test("withAdded places each new item after its anchor, at the start or at the en
 test("additionOnly: nothing taken, nothing repointed, the frame's arrangement left, a new button becomes the second", () => {
   const n = now();
   assert.equal(n.button, true);
-  assert.equal(n.menuMax, 3, "the longest menu is not the visit page's");
+  // NO LONGEST-MENU COUNT SINCE 2026-10-03: it was only the "room" a count of
+  // ten left, and the count is gone (the footer correction).
+  assert.equal(Object.hasOwn(n, "menuMax"), false, "the frame still measures room against a count");
   const held = additionOnly(read({
     links: [{ label: "Home", href: "/" }, { label: "Contact", href: "/contact" }],
     action: { label: "Call us", href: "tel:01174960000" },
@@ -163,11 +165,17 @@ test("runNavEdit: an added phone number fills only the footers that have none, a
   assert.deepEqual(contactsOf(edited.pages).map((c) => c[0].phone), ["0117 496 0000", "0117 496 0000", "0117 496 0000"]);
 });
 
-test("additionOnly leaves out what no menu has room for, named, and never an existing item", () => {
-  const big = { ...now(), menuMax: MAX_NAV_ITEMS - 1 };
-  const held = additionOnly(read({ links: [{ label: "Order", href: "/order" }, { label: "Contact", href: "/contact" }] }), big);
-  assert.deepEqual(held.addLinks.map((a) => a.item.href), ["/order"]);
-  assert.deepEqual(held.dropped.filter((d) => d.why === "full").map((d) => d.href), ["/contact"]);
+// ⚠ THIS PINNED A "ROOM" until 2026-10-03: an addition to a menu of nine could
+// add one item and named the rest as past a count of ten (the owner, on the
+// mixed-work fixes' review: not a technical constraint). Every new item is
+// added now, and an item the frame already has is still never touched.
+test("additionOnly adds every new item, whatever the menu's length, and never touches an existing one", () => {
+  // EIGHT NEW ITEMS TO A FRAME WHOSE LONGEST MENU HAS THREE: the old room was
+  // seven, so the eighth was named as past the count. All eight go in now.
+  const eight = ["Bread", "Pastry", "Cakes", "Coffee", "Hampers", "Classes", "Wholesale", "Jobs"].map((label) => ({ label, href: "/#" + label.toLowerCase() }));
+  const held = additionOnly(read({ links: [{ label: "Home", href: "/" }, ...eight] }), now());
+  assert.deepEqual(held.addLinks.map((a) => a.item.href), eight.map((l) => l.href), "a new item past the old room was left out, or an existing one re-added");
+  assert.deepEqual(held.dropped, [], "an addable item was named as left out");
 });
 
 test("firstButton: a second button on a header with none is its first", () => {

@@ -6,7 +6,7 @@ import { createRequire } from "node:module";
 import {
   navSlots, parseNavItems, renderNav, applyNav, readNav, navDigest,
   navRequest, navUsage, navReply, runNavEdit, NAV_TOOL, NAV_MODEL,
-  MAX_NAV_ITEMS, MAX_LABEL,
+  MAX_LABEL,
   actionSlots, applyAction,
   linkSlots, matchLinks, applyPageLinks, linkRefusal,
   MAX_LINK_LINES, MAX_LINK_SLOTS,
@@ -307,16 +307,32 @@ test("a duplicate href is dropped — two menu items to one page", () => {
   assert.equal(r.dropped[0].why, "duplicate");
 });
 
-test("a label is bounded, and a menu is bounded", () => {
+// THE FOOTER'S LISTS READ EVERY ENTRY (2026-10-03, the owner reproduced it:
+// nine valid small-print links kept eight with `dropped: []`). Each entry is
+// applied or named with its own reason — a ninth, a bad destination, a
+// non-entry among real ones — and the list is read whole.
+test("a footer list keeps every valid entry, and names each one it refuses — even one that is not an entry at all", () => {
+  const legal = Array.from({ length: 9 }, (_, i) => ({ label: "Legal " + (i + 1), href: "https://example.com/legal-" + (i + 1) }));
+  const social = Array.from({ length: 9 }, (_, i) => ({ network: "net" + (i + 1), href: "https://example.com/s" + (i + 1) }));
+  const all = readNav({ content: [{ type: "tool_use", input: { legal, social } }] }, ROUTES);
+  assert.deepEqual([all.lists.legal.length, all.lists.social.length, all.dropped], [9, 9, []], "a ninth entry was cut, or a valid one named");
+  const mixed = readNav({ content: [{ type: "tool_use", input: { legal: [legal[0], "Privacy", null, { label: "Number", href: "tel:abc" }, legal[1]] } }] }, ROUTES);
+  assert.deepEqual(mixed.lists.legal, [legal[0], legal[1]]);
+  assert.deepEqual(mixed.dropped.map((d) => [d.why, d.list]), [["incomplete", "legal"], ["incomplete", "legal"], ["bad-number", "legal"]],
+    "an entry that is not one, or a bad number, was skipped without a word");
+  assert.match(navReply({ lists: mixed.lists, dropped: mixed.dropped, changed: ["index.tsx"] }), /“Number” \(that isn't a phone number a link can call\)/);
+});
+
+// ⚠ THIS PINNED THE MENU'S TEN until 2026-10-03 (the owner, on the mixed-work
+// fixes' review: *"Do not treat … 'a menu should have ten' as a proven
+// technical constraint"* — the kit's header renders every item). Every item
+// the answer names is kept; a label is still bounded.
+test("a label is bounded, and a menu keeps every item it is given", () => {
   const long = readNav(reply([{ label: "x".repeat(500), href: "/book" }]), ROUTES);
   assert.equal(long.links[0].label.length, MAX_LABEL);
   const many = readNav(reply(Array.from({ length: 40 }, (_, i) => ({ label: "L" + i, href: "/#a" + i }))), ROUTES);
-  assert.equal(many.links.length, MAX_NAV_ITEMS);
-  // AND NEVER SILENT (2026-10-03, the mixed-work fixes): the menu's ten is a
-  // design limit, kept, and every item past it is named as left out ("full"),
-  // where the eleventh onwards used to vanish without a word.
-  const full = many.dropped.filter((d) => d.why === "full");
-  assert.deepEqual(full.map((d) => d.label), Array.from({ length: 30 }, (_, i) => "L" + (i + 10)), "an item past the limit was dropped without being named");
+  assert.equal(many.links.length, 40, "a menu item past the old ten was dropped");
+  assert.deepEqual(many.dropped, [], "an item was left out of a menu with no problem in it");
 });
 
 test("no tool call, or a links that is not an array, reads as nothing", () => {
@@ -813,7 +829,8 @@ test("the worker carries the button's outcome back", () => {
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   const at = w.indexOf('ok: true, layer: "nav"');
   assert.ok(at > 0);
-  const window = w.slice(at, at + 700);
+  // WIDER SINCE 2026-10-03: every entry left out is carried by name before it.
+  const window = w.slice(at, at + 1600);
   assert.match(window, /action: nOut\.action \|\| undefined/);
   assert.match(window, /removedAction: nOut\.removedAction \|\| undefined/);
 });
