@@ -19,7 +19,7 @@ is in git; the dated entries further down are the full story.*
   (00:22 UTC); `fold-lane-bakery` live at `01790923788063-bp9rcv`.
 - Deploy 2180's free runtime press was never made; the merge's press stands
   for it.
-- **CI**: read after the push, and stamped then.
+- **CI**: unit tests `9275 / 9271 / 0 / 4` on `141fd496` (run 37166044440), the local total exactly, CI skipping four as always; green again after the date fix. The site build was not started: no path it watches changed (no builder, Worker or container input); its last run on the branch, 37159581943, was green.
 
 **What changed in the plan**
 - **No routing press.** Each press records the router's answer to its own
@@ -43,7 +43,8 @@ is in git; the dated entries further down are the full story.*
   - seen only in the after-read: what an allowed step decides, such as a
     page move in R1 or R2, or a table or photograph from the add-on.
 - **No concrete restriction is required** to run the batch. One choice is
-  yours: R2's wording, if you want no chance of a new table.
+  yours: R2's wording, if you want a new table to be less likely (no wording
+  rules it out).
 - **RW stays separate.** Run in your own chat, a `build` answer would start
   the full revise at once (11–45 credits), which is not the go-ahead test. A
   walled canary scenario is offered, not built.
@@ -193,7 +194,7 @@ since. Add new ones there.
   id. In the backlog.
 - **How I checked it**: 38 new tests, a mutation sweep that caught all 61
   defects after five gaps were answered, the full suite `9275 / 9275 / 0 / 0` locally (from `9237`: the 38 new cases), and CI
-  read after the push, and stamped then.
+  unit tests `9275 / 9271 / 0 / 4` on `141fd496` (run 37166044440), the local total exactly, CI skipping four as always; green again after the date fix. The site build was not started: no path it watches changed (no builder, Worker or container input); its last run on the branch, 37159581943, was green.
 - **Not done**: no merge, deploy, switch, paid call, model call or container
   build.
 - The record: `docs/history/2026-10-04-batch-instruments.md`.

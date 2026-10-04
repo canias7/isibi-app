@@ -79,7 +79,8 @@ container rebuild yet."*
   decides inside its own route (§4.2).
 - **Concrete restriction needed before the batch**: none is required, by your
   demo-site rule and with the recoveries in §4.3. One choice is yours there
-  (R2's wording, if you want no chance of a new table).
+  (R2's wording, if you want a new table to be less likely; no wording rules it
+  out).
 - **Model-written replies**: on in the proposed configuration
   (`MODEL_REPLIES` at its default). **Demo changes stay** afterwards.
 - **Stopping new requests**: `REQUEST_FLOW` off and redeploy; accepted

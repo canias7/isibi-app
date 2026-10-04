@@ -184,7 +184,7 @@ without a check, and keeps the verdict in `ui.json` and `ui.txt`.
   mutant (a "nothing else running" term the next term implies), removed as
   dead code. Then after the four gaps were closed and the dead term removed, 60 of 61 on the second run; the last survivor (the reopened tab's wait) was killed once the stand-in followed a request only after the workspace opened, a few looks late, as a reopened page does; a third full run: **61 of 61, the 3 controls surviving**, every file restored by hash.
 - **Full suite**: `9275 / 9275 / 0 / 0` locally (from `9237`: the 38 new cases).
-- **CI on the push**: read after the push, and stamped then.
+- **CI on the push**: unit tests `9275 / 9271 / 0 / 4` on `141fd496` (run 37166044440), the local total exactly, CI skipping four as always; green again after the date fix. The site build was not started: no path it watches changed (no builder, Worker or container input); its last run on the branch, 37159581943, was green.
 
 ## 7. The plan, revised
 
