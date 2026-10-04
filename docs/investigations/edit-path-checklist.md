@@ -835,18 +835,32 @@ the owner's free press, run 51, at 22:57 UTC):
       - the merge on the owner's word (the image rolls, `8bfc67dc695e65cc`
         → `882477e1bbbe8cbe`, predicted, not built) and the free runtime
         press;
-      - routing controls (7 probes);
       - `REQUEST_FLOW` on, then the request-mode canary press;
       - five messages on `fold-lane-bakery` (R1–R5), covering Edit and
         Add-on in both orders, several operations, a prerequisite named
         later, a menu link set aside, a step's question and its answer, an
         attachment, and a closed tab;
-      - about 43–101 credits, likely about 59, with a proposed cap of 100 of
-        137;
-      - the full-rewrite test (RW) kept separate: 12–50 if pressed, its own
-        cap of 50.
-    - **Next**: the owner's approval of that plan; nothing is pressed,
-      merged or built before it.
+      - the full-rewrite test (RW) kept separate: 12–50 if pressed.
+    - **The owner's review of the plan** (2026-10-03): the free preparation
+      only. **Done** (2026-10-04, on the branch, unmerged; nothing spent,
+      pressed, switched or built; the product frozen):
+      - the expired-date one-time job tests run on a controlled clock;
+      - the canary's request-mode options (`request`, `until: "question"`,
+        `away`, `ms`, `addon`), the routing evidence of each message, the six
+        `rq-*` scenarios and `ui-logo-2.png`, and the batch verdict
+        (checks and replies that fail a press, coverage that never does);
+        38 focused cases, a sweep of 61 mutants, the full suite;
+      - the plan revised: no routing press (each press records the router's
+        answer to its own message); per press, the checks and each valid path
+        with what it covers; **36–90 credits, likely about 50**, with 100 a
+        threshold checked between presses and **not a ceiling while a request
+        runs**, the overrun shown and the balance the only hard bound; what is
+        refused before the server runs anything and what is only detected
+        afterward (also with the tab closed); no restriction required; RW
+        separate, with the risk of the owner's own chat named.
+      - The record: `docs/history/2026-10-04-batch-instruments.md`.
+    - **Next**: the owner's approval of the revised plan; then the merge on
+      the owner's word.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

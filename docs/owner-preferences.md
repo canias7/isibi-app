@@ -1054,3 +1054,27 @@
   batch is written down to the exact words first, with its checks, its cost
   and cap, its switch steps and its way back. Nothing of it, not even its
   instruments, is built, merged or pressed before that plan is approved.
+- **Routing evidence comes from the real requests, not from probes**
+  (2026-10-03, reviewing the rollout plan): *"capture routing evidence from
+  the actual end-to-end requests instead of paying for seven separate
+  preliminary routing probes; a prior model answer does not guarantee the
+  next one."* So a validation press records the router's answer to the very
+  message it sends, and no separate routing press is paid for.
+- **An outcome and the hand-over it took are told apart** (2026-10-03):
+  *"Record valid alternative execution paths accurately, distinguishing a
+  successful user outcome from coverage of a particular internal handoff."*
+  So a press passes on what the customer got; the internal path is recorded
+  beside it as coverage, and a valid other path is never failed for it.
+- **A threshold checked between requests is not a cap** (2026-10-03): *"the
+  proposed 100-credit threshold is checked between requests and is not an
+  enforced ceiling while a request runs; show the revised estimate and
+  potential overrun clearly."* So spending limits are described by when they
+  are checked, and the possible overrun is shown with them.
+- **A restriction is described by when it is enforced** (2026-10-03):
+  *"correct "never allowed" claims where enforcement is only browser polling
+  followed by Stop: identify which restrictions are enforced before server
+  execution and which are merely detected afterward, including during the
+  closed-tab test. Do not introduce a broad new control system; report any
+  concrete restriction needed before running the batch."* So "never" is said
+  only of what is refused before the server runs it; what is detected and
+  stopped afterward, or seen only in the after-read, is said as such.

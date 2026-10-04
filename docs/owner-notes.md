@@ -1,107 +1,92 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-03, 23:40 UTC)
+## Current handoff — read this first (2026-10-04, 00:47 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **You passed the two recovery fixes, and the implementation is frozen**
-  at the branch as it stands. The code is `567409ce`.
-- **The rollout and real-model validation plan is ready for your
-  approval**: `docs/investigations/request-flow-rollout.md`. Nothing in it
-  has been done.
-- **Nothing merged or deployed. No paid call, no model call, no press, no
-  live migration, no container built. First Build unchanged.**
-- **Read today, free**:
-  - the building account's balance is **137**, its last ledger row 355, and
-    no job is open;
-  - `fold-lane-bakery` is live at `01790923788063-bp9rcv`.
+- **Your review of the rollout plan is done, free, on the branch**:
+  - the expired-date tests run on a controlled clock;
+  - the canary's request-mode options and the six batch scenarios are built
+    and tested;
+  - the plan is revised: `docs/investigations/request-flow-rollout.md`.
+- **Nothing merged or deployed. No switch, no paid call, no model call, no
+  press, no container built. The product is frozen**: no file under
+  `public/`, `builder/` or `worker.js` changed. The code is `dd632b96`.
+- **Read today, free**: balance **137**, last ledger row 355, no job open
+  (00:22 UTC); `fold-lane-bakery` live at `01790923788063-bp9rcv`.
 - Deploy 2180's free runtime press was never made; the merge's press stands
   for it.
-- **Unit CI is red since 2026-10-03 ended in London (23:00 UTC), and not
-  because of any change.** Three tests in `test/addon-route.test.mjs` date
-  a one-time job `2026-10-03`, which the add-on now rightly refuses as a
-  date that has passed:
-  - this is on `main` too;
-  - the plan's documents-only push read `9237 / 9230 / 3 / 4`;
-  - the fix is a date from the test's clock, a test change only. It waits
-    for your approval as the plan's Phase A, item 0, and a merge needs it.
+- **CI**: read after the push, and stamped then.
 
-**The plan in brief**
-1. **Instruments, free, after your approval**:
-   - two new step options for the canary's request mode: a step that ends on
-     a waiting question, and one that closes the tab and reads only the
-     request list until the request ends;
-   - a guard that refuses any edit the page posts itself;
-   - checks for a page added, the description, a heading and the logo;
-   - the scenarios, the probe list, and a second logo picture;
-   - all scripts and test fixtures; no product change.
-2. **The merge, on your word "merge"**:
-   - it carries the replies, limits batch 1, the mixed-work fixes, the
-     footer lists and the request flow;
-   - the image rolls `8bfc67dc695e65cc` → `882477e1bbbe8cbe` (predicted);
-   - then your free runtime press.
-3. **The routing controls**: 7 messages, routed only, 7–11 credits.
-4. **`REQUEST_FLOW` on**: your GitHub secret, then *Run workflow* on the
-   deploy. Nothing rolls.
-5. **The request-mode canary**: one heading change, 2–5 credits.
-6. **The batch, five messages on the bakery**:
-   - R1: the description, a menu link to a page named later, and that page
-     (Edit first, a prerequisite named later);
-   - R2: a page with its menu link, then a price (Add-on first, the link set
-     aside);
-   - R3: a heading, and a Facebook link whose address the step must ask for
-     (a question, then your answer);
-   - R4: a heading and an attached logo, checked byte for byte;
-   - R5: a line and a heading, with the tab closed straight after sending.
-7. **The full-rewrite test RW, separately**: a change of the site's kind, in
-   your own chat. 12–50 credits if pressed, about 2 if it never reaches the
-   go-ahead.
+**What changed in the plan**
+- **No routing press.** Each press records the router's answer to its own
+  message, and the request that came of it. A probe's answer would not bind
+  the next one anyway.
+- **Two verdicts per press, never mixed.** The checks say whether the site
+  ended up as asked, and nothing else moved. The coverage says which internal
+  hand-over the run went through; it is recorded and never fails a press. The
+  valid other paths are listed press by press.
+- **Cost: 36–90 credits, likely about 50.** **100 is a threshold I check
+  between presses, not a ceiling**: once a message is sent, nothing stops its
+  parts on cost. A press can pass its estimate (an add-on that rewrites every
+  page cost 28 once; a photograph about 18.75), and only the balance (137)
+  bounds it.
+- **What is enforced, and when**:
+  - refused before the server runs it: a build, the rewrite's go-ahead, an
+    edit or add-on the page posts itself;
+  - only detected afterward and stopped (every 3 s, every 20 s with the tab
+    closed; a fast part can finish first): a part at a layer the press does
+    not list;
+  - seen only in the after-read: what an allowed step decides, such as a
+    page move in R1 or R2, or a table or photograph from the add-on.
+- **No concrete restriction is required** to run the batch. One choice is
+  yours: R2's wording, if you want no chance of a new table.
+- **RW stays separate.** Run in your own chat, a `build` answer would start
+  the full revise at once (11–45 credits), which is not the go-ahead test. A
+  walled canary scenario is offered, not built.
+- `MODEL_REPLIES` stays on; the demo changes stay.
 
-**Cost**
-- **43–101 credits** for everything but RW, likely about 59.
-- **Proposed cap: 100** of the 137. I read the ledger before every press and
-  stop if the next press's upper estimate would not fit.
-- **RW** has its own cap of 50, and runs only if 50 are left.
+**Found while building** (backlog)
+- The page keeps a step's question without its request. The canary's first
+  question stop relied on it and would never have fired in R3's press; it
+  now matches the question by its id.
 
-**Stopping new requests**: set `REQUEST_FLOW` to `off` and run the deploy.
-Accepted requests still finish: the switch is read only where a message is
-accepted, so job ends, the two-minute sweep, Stop and the go-ahead all keep
-working.
-
-**Found and kept separate** (backlog):
-- `REQUEST_FLOW` has no allowlist;
-- the runtime read can't show either new switch;
-- the one-time job tests dated `2026-10-03` (above);
-- `docs/request-flow.md` listed the request-mode canary press before the
-  switch; corrected to the order the plan uses.
+**How I checked it** (all free)
+- 38 focused cases: the driver end to end through a stand-in app (the switch
+  off, R3's question and answer, R5's closed tab, a read while away, a wall
+  hit while away), the verdict on the bakery's own pages changed by the
+  product's own writers, and the in-app readers run in a VM.
+- Mutation sweep: 61 of 61 caught after five survivors were answered (four
+  test gaps closed, one dead line removed); the three comment-only controls
+  survived.
+- Full suite: `9275 / 9275 / 0 / 0` locally (from `9237`: the 38 new cases).
 
 **Still yours** (the plan's §11)
-1. Approve the plan and its cap of 100, or change them.
-2. `MODEL_REPLIES` at the merge: its default, on, which I recommend; or off
-   until the switch.
-3. R3 and R5 by the canary's two new options (recommended), or by your own
-   chat.
-4. Whether to run RW, and whether to put the bakery back afterwards (free).
-5. Demo changes stay, by your rule, unless you say otherwise.
+1. Approve the revised plan, with 100 as a threshold between presses, or
+   change it.
+2. R2's wording: as it is, or the page-only version.
+3. RW: whether to run it, in your own chat or through the walled scenario
+   (built first, on your word), and whether to put the bakery back after.
+4. The demo changes stay unless you say otherwise.
 
 **Links**
 - The plan: `docs/investigations/request-flow-rollout.md`.
-- How it works: `docs/request-flow.md`.
+- This round: `docs/history/2026-10-04-batch-instruments.md`.
+- How it works: `docs/request-flow.md`; the canary: `docs/instruments.md`.
 - The checklist's item 21, and the backlog's *The combined request flow*.
-- The rounds before: `docs/history/2026-10-03-recovery-gaps.md`,
-  `docs/history/2026-10-03-request-review-fixes.md`,
-  `docs/history/2026-10-03-combined-requests.md`.
 
 **Blockers**
 - None.
 
 **Exact next action**
-- Yours: review the plan and approve it, as it is or changed.
-- Mine, once you approve: Phase A (the instruments, free), proven and
-  pushed. Then I ask for your word to merge.
+- Yours: review the revised plan; approve or change it; say "merge" when
+  you are ready.
+- Mine, on your word: the merge and deploy, then your free runtime press;
+  you switch `REQUEST_FLOW` on; then `rq-canary`, and R1–R5 with the ledger
+  read before each press.
 ---
 
 2026-09-25: **Escalation correction CLOSED.** Independently reviewed (437 focused
@@ -160,6 +145,58 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-04 — Your review of the rollout plan: the free preparation done (nothing spent, merged, deployed or switched)
+
+- **Your words**: *"Proceed with the free preparation only: fix the
+  expired-date test fixtures using a controlled test clock, implement the
+  planned canary options and scenarios, verify them with focused tests, and
+  push with green CI. Keep product behavior frozen. Revise the rollout plan to
+  capture routing evidence from the actual end-to-end requests instead of
+  paying for seven separate preliminary routing probes … Record valid
+  alternative execution paths accurately, distinguishing a successful user
+  outcome from coverage of a particular internal handoff. Correct the spending
+  language … Also correct "never allowed" claims where enforcement is only
+  browser polling followed by Stop … report any concrete restriction needed
+  before running the batch."*
+- **The red tests are fixed**: the one-time job tests now run on a clock
+  fixed at 2 October, so their date is always tomorrow. Moving that clock to
+  4 October makes exactly the three old failures come back, so the fix is
+  doing the work.
+- **The canary can now run the batch** (scripts and tests only; the product
+  is untouched):
+  - in request mode it refuses any change the page itself would post, so with
+    the switch off a press costs one routing call and changes nothing;
+  - a message can end on a step's question, and the next message is typed as
+    your answer;
+  - a message can be sent and its tab closed, the request read only through
+    the requests list until it ends, then a new tab must show it finished;
+  - each message has its own time limit, and a press stays inside the
+    workflow's 45 minutes;
+  - each press records the router's real answer to its own message;
+  - each press is judged on what landed, with the internal path recorded
+    beside it and never counted against it.
+- **The plan is revised** (`docs/investigations/request-flow-rollout.md`):
+  - no separate routing press;
+  - for each press, what must land and each valid way it can get there;
+  - 36–90 credits, likely about 50, with 100 a threshold I check between
+    presses, not a ceiling while a request runs, and the possible overrun
+    shown;
+  - what is refused before anything runs, what is only caught afterward
+    (including with the tab closed), and what only the after-read sees;
+  - no restriction is needed to run it; R2's wording is your choice;
+  - RW stays separate, with the risk of running it in your own chat named.
+- **Found while building**: the page keeps a step's question without saying
+  which request it belongs to. Nothing you see depends on that, but the
+  canary's first version did, and in R3's press it would have waited out its
+  time and never sent your answer. It now recognises the question by its own
+  id. In the backlog.
+- **How I checked it**: 38 new tests, a mutation sweep that caught all 61
+  defects after five gaps were answered, the full suite `9275 / 9275 / 0 / 0` locally (from `9237`: the 38 new cases), and CI
+  read after the push, and stamped then.
+- **Not done**: no merge, deploy, switch, paid call, model call or container
+  build.
+- The record: `docs/history/2026-10-04-batch-instruments.md`.
 
 ## 2026-10-03 — The rollout and real-model validation plan, for your approval (nothing spent, merged or deployed)
 

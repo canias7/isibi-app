@@ -1,13 +1,13 @@
-# The combined request flow: rollout and real-model validation (plan for your approval)
+# The combined request flow: rollout and real-model validation (revised plan, for your approval)
 
-Prepared 2026-10-03, after you passed the two recovery fixes. **Nothing in
-this plan has been done**: nothing merged, deployed, spent, pressed or built.
-**The implementation is frozen** at the branch as it stands (`04c93f1f`; the
-code is `567409ce`). The only changes before the merge are instrument and
-test-fixture changes (§3, Phase A), and those wait for your approval.
+Prepared 2026-10-03; **revised 2026-10-04 after your review**. Nothing in this
+plan has been run: nothing merged, deployed, switched on, spent, pressed or
+built. **The product is frozen** at `567409ce`. The instruments it needs
+(Phase A) are on the branch at `dd632b96`: scripts, tests and the canary form's
+help text only, no product file.
 
-Your order: *"Freeze this implementation and prepare the concrete rollout and
-real-model validation batch without executing it yet. Use a compact set of
+Your first order: *"Freeze this implementation and prepare the concrete rollout
+and real-model validation batch without executing it yet. Use a compact set of
 realistic messages covering Edit plus Add-on in both orders, multiple
 operations, a prerequisite mentioned later, a deferred menu link or row,
 clarification and resume, attachments, and closed-tab continuation. State the
@@ -17,145 +17,178 @@ spending cap. Include the deployment and REQUEST_FLOW activation steps, the
 request-mode canary, and how to stop new requests while allowing accepted work
 to finish. Keep any full-rewrite test separately identified with its cost."*
 
+Your review of it (2026-10-03), in full: *"Proceed with the free preparation
+only: fix the expired-date test fixtures using a controlled test clock,
+implement the planned canary options and scenarios, verify them with focused
+tests, and push with green CI. Keep product behavior frozen. Revise the rollout
+plan to capture routing evidence from the actual end-to-end requests instead of
+paying for seven separate preliminary routing probes; a prior model answer does
+not guarantee the next one. Record valid alternative execution paths
+accurately, distinguishing a successful user outcome from coverage of a
+particular internal handoff. Correct the spending language: the proposed
+100-credit threshold is checked between requests and is not an enforced ceiling
+while a request runs; show the revised estimate and potential overrun clearly.
+Also correct "never allowed" claims where enforcement is only browser polling
+followed by Stop: identify which restrictions are enforced before server
+execution and which are merely detected afterward, including during the
+closed-tab test. Do not introduce a broad new control system; report any
+concrete restriction needed before running the batch. Keep the optional full
+rewrite separate, model-written replies enabled in the proposed test
+configuration, and demo changes as they are afterward. Save the final plan and
+handoff in the repo. No merge, deployment, switch activation, paid calls or
+container rebuild yet."*
+
+**What changed in this revision**:
+- **No routing press.** The seven-probe press (the old Phase C and Appendix A)
+  is gone. Each press records the router's answer to its own message, and the
+  request that came of it (§3, Phase E; Appendix A).
+- **Outcome and coverage are separate verdicts** (§4.1): the checks say whether
+  the site ended up as asked; the coverage says which internal hand-over the
+  run went through, and never fails a press.
+- **The spending language is corrected** (§7): 100 is a threshold I check
+  between presses, not a ceiling while a request runs. The estimate is now
+  **36–90**, likely about 50, with the possible overrun shown.
+- **The "never allowed" list is replaced** by what is enforced, and when
+  (§4.2): what the page would post is refused before it leaves; what the
+  server runs is only detected afterward and stopped; what an allowed step
+  decides inside its own route is seen only in the after-read.
+- **The instruments are built and tested** (Phase A, done), including the
+  date fix with a controlled clock.
+
 ## 0. In one screen
 
-- **Order**: instruments prepared (free) → merge and deploy, switch off →
-  free runtime press → routing controls → switch on → request-mode canary →
-  the batch R1–R5. RW, the full-rewrite test, comes last, separately, and only
-  if you approve it on its own.
-- **The batch**: five messages on `fold-lane-bakery`. R3 has a second turn,
-  the answer to a question. Together they cover:
-  - Edit plus Add-on in both orders;
-  - several operations in one message;
-  - a prerequisite named later;
-  - a menu link the add-on sets aside;
-  - a step's question and its answer;
-  - an attached file read by a later part;
-  - a request finished with its tab closed.
-- **Cost**: about **43–101 credits** for everything but RW, likely about 59.
-  The proposed cap is **100**, against a balance of **137** read today. RW is
-  **12–50 credits** if it reaches the go-ahead and you press it, about 2 if
-  not. It has its own cap of 50 and runs only if 50 are left.
-- **Stopping new requests**: set `REQUEST_FLOW` to `off` and redeploy. Every
-  accepted request still finishes, because the switch is read only where a
-  message is accepted (§8).
+- **Order**: instruments (done, free) → merge and deploy, switch off → free
+  runtime press → switch on → request-mode canary → R1–R5. RW, the full
+  rewrite, stays separate and runs only on its own approval (§9).
+- **The batch**: six presses on `fold-lane-bakery`, the same messages as
+  before. R3 has a second message, the answer to a question. Together they
+  cover Edit plus Add-on in both orders, several operations, a prerequisite
+  named later, a menu link the add-on sets aside, a step's question and its
+  answer, an attached file read by a later part, and a request finished with
+  its tab closed — each **where the router and the steps take that path**,
+  which is recorded per press (§4.1).
+- **Cost**: about **36–90 credits** for the six presses, likely about 50,
+  against a balance of **137** (read 2026-10-04 00:22 UTC). **100 is a
+  threshold I check between presses, not a ceiling**: once a message is sent,
+  nothing stops its parts on cost. The plausible overrun is in §7.
+- **Enforcement, in one line**: refused before it leaves — anything the page
+  itself would start (a build, the rewrite's go-ahead, an edit or add-on of its
+  own); detected afterward and stopped — a part the server runs at a layer the
+  press does not allow (read every 3 s, every 20 s with the tab closed; a fast
+  part can finish first); seen only in the after-read — what an allowed step
+  decides inside its own route (§4.2).
+- **Concrete restriction needed before the batch**: none is required, by your
+  demo-site rule and with the recoveries in §4.3. One choice is yours there
+  (R2's wording, if you want no chance of a new table).
+- **Model-written replies**: on in the proposed configuration
+  (`MODEL_REPLIES` at its default). **Demo changes stay** afterwards.
+- **Stopping new requests**: `REQUEST_FLOW` off and redeploy; accepted
+  requests still finish (§8).
 
-## 1. Where things stand (read today, free)
+## 1. Where things stand (read 2026-10-04, free)
 
-- **The branch** (`claude/help-needed-ehlwlj`, tip `04c93f1f`) is `main`
-  (`b8d12ff9`, deploy 2180) plus 31 commits.
-- **The container image**: `main` predicts `8bfc67dc695e65cc` (191 inputs).
-  The branch predicts `882477e1bbbe8cbe` (194 inputs), so a merge rolls the
-  image. Nothing is built.
+- **The branch** (`claude/help-needed-ehlwlj`) is `main` (`b8d12ff9`, deploy
+  2180) plus the reviewed changes and this round's instruments. Its tip is in
+  the handoff.
+- **The container image**: `main` predicts `8bfc67dc695e65cc` (191 inputs);
+  the branch predicts `882477e1bbbe8cbe` (194 inputs), unchanged by this round
+  (scripts and tests are not container inputs). A merge rolls the image.
+  Nothing is built.
 - **The building account**: balance **137**, last ledger row 355
-  (2026-10-02 06:49 UTC), no job open (`credit_events`, `credits`,
-  `edit_jobs`; read 2026-10-03 23:05 UTC).
+  (2026-10-02 06:49 UTC), no job open (read 2026-10-04 00:22 UTC).
 - **Deploy 2180's free runtime press was never made.** The merge's press
   stands for it.
-- **Unit CI is red since 23:00 UTC for a reason of the calendar's**, not of
-  any change: three tests date a one-time job `2026-10-03` (Phase A, item
-  0). Unit CI on this plan's own documents-only push read `9237 / 9230 / 3
-  / 4`, and the run at 22:49 UTC had passed them all.
-- **`fold-lane-bakery` (Harbour Loaf)** is live at `01790923788063-bp9rcv`,
-  read from its served pages at 23:00 UTC:
-  - pages:
-    - `/`: *Harbour Loaf*; sections *Fed every morning since we opened* and
-      *Order a loaf for collection*; photographs of the storefront and a
-      sourdough boule;
-    - `/order`: *Order a loaf*; *Pick a loaf and a collection slot*;
-    - `/visit`: *Come to the bakery*; *The shutters and the street*; *Order a
-      collection so we hold a loaf*; a QR code to `/gallery`; the counter and
-      the boule photographs;
-    - `/gallery`: *Our Gallery*; *Photographs of the bakery's work*;
-    - `/starter`, which shows *This page isn't finished yet*;
-  - the menu:
-    - on `/` and `/gallery`: Today's bake, The starter, Visit, Gallery,
-      Order;
-    - on `/order` and `/visit`: the same without Gallery;
-  - the header buttons: *Order a loaf* and *Call us* (`tel:0117 496 0000`);
-  - the footer: one Instagram link;
-  - the logo: `/u/fold-lane-bakery/2cc633d7….png`, byte-identical to the
-    canary's `test/fixtures/ui-logo.png`;
+- **Unit CI was red from 2026-10-03 23:00 UTC for a reason of the calendar's**:
+  three one-time job tests dated their job `2026-10-03`, a past date once that
+  day ended in London. **Fixed** (Phase A, item 0).
+- **`fold-lane-bakery` (Harbour Loaf)** is live at `01790923788063-bp9rcv`
+  (served pages read 2026-10-03 23:00 and 23:53 UTC; the same today):
+  - `/`: *Harbour Loaf*; *Fed every morning since we opened*; *Order a loaf for
+    collection*;
+  - `/order`: *Order a loaf*; *Pick a loaf and a collection slot*;
+  - `/visit`: *Come to the bakery*; *The shutters and the street*; *Order a
+    collection so we hold a loaf*;
+  - `/gallery`: *Our Gallery*; *Photographs of the bakery's work*;
+  - `/starter`: *This page isn't finished yet* (no header or footer);
+  - the menu: on `/` and `/gallery` Today's bake, The starter, Visit, Gallery,
+    Order; on `/order` and `/visit` the same without Gallery;
+  - the footer: one Instagram link; the logo `/u/fold-lane-bakery/2cc633d7….png`
+    (the canary's `ui-logo.png`);
   - the description: *Neighbourhood sourdough in Bristol. Browse today's bake
     and order a loaf for collection.*;
-  - `loaves`, read whole as the site serves it (`0-6/7`):
-    - Country White 4.8, Dark Rye 5.2, Seeded Wholemeal 5.4;
-    - Olive & Rosemary 5.8, Walnut Levain 6, Sea Salt Focaccia 4.5;
-    - Rye & Caraway 5.
+  - `loaves`, read whole as the site serves it (`0-6/7`, 23:53 UTC): Country
+    White 4.8, Dark Rye 5.2, Seeded Wholemeal 5.4, Olive & Rosemary 5.8,
+    Walnut Levain 6, Sea Salt Focaccia 4.5, Rye & Caraway 5.
 
 ## 2. What the merge carries
 
 A fast-forward of `main` to the branch puts five reviewed changes live at
-once. Each is on the branch today, unmerged:
+once, plus this round's instruments:
 
 | Change | Switch, and its default when unset | What a customer sees |
 |---|---|---|
 | Model-written replies (`b17747ed`, `906bacbe`, `ddfe44f8`) | `MODEL_REPLIES`, **on** | an edit's or add-on's ending explained by the quick model from the facts of what happened. Not charged; about a third to half a credit of model cost each, ours |
-| Information limits, batch 1 (`2a17e2cb`) | none | one size policy (16,000 characters a message, 48,000 a request); questions and options whole; at most three files per request, said before anything runs; the page list read from the site |
-| The mixed-work fixes (`460ab6e5`) | none | every executed step's result kept and named; no silent drops at the lane or step counts; several parts left for later; add-on declines named |
+| Information limits, batch 1 (`2a17e2cb`) | none | one size policy; questions and options whole; at most three files per request; the page list read from the site |
+| The mixed-work fixes (`460ab6e5`) | none | every executed step's result kept and named; no silent drops; add-on declines named |
 | Footer lists and the menu (`13c22ea3`) | none | no limit of eight footer links or ten menu items; each refusal named |
 | The combined request flow (`b1d96b3d`, `b7564f82`, `4fd05e68`, `567409ce`) | `REQUEST_FLOW`, **off** | nothing, while off; on, a site's message becomes a request the server finishes |
+| The batch's instruments (`dd632b96`) | none | nothing: the canary, its tests and the canary form's help text |
 
 Three files a visitor's browser loads change: `public/chat.js`,
-`public/edit-poll.js` and `public/styles.css`. Each gets the served-file
-check (§3, Phase B).
+`public/edit-poll.js` and `public/styles.css`. Each gets the served-file check
+(Phase B).
 
-**`MODEL_REPLIES` goes live with the merge unless you set its GitHub secret
-to `off` first.** The batch's reply checks need it on, and I recommend
-leaving it at its default (§11).
+**`MODEL_REPLIES` is on in the proposed configuration**: it goes live with the
+merge at its default, and the batch's reply checks need it.
 
 ## 3. The steps, in order
 
-**Phase A — the instruments, free, after your approval** (scripts and test
-fixtures only; no product file, no deploy, no paid call):
-- **0. The one-time job tests' date.**
-  - `test/addon-route.test.mjs` dates its one-time jobs `2026-10-03`. Since
-    that date ended in London, the add-on correctly refuses them as
-    `past-date`, so three cases fail on `main` and the branch alike.
-  - The fix takes the date from the test's own clock: the next day, and the
-    assertions read that date back. It is a test change only.
-  - Without it no candidate can show the green CI a merge needs.
-- **The canary's request mode** (`scripts/canary-ui.mjs`) gains:
-  - `until: "question"`: a step ends when a part waits on its question and
-    the page shows it. The next `say` is then typed as the answer, which is
-    how the page sends one (`siteAskReply`);
-  - `away: true`: once the server has taken the message on, the tab is
-    closed. The request is then read only through `GET
-    /api/site/requests/<slug>`, which moves nothing, every 20 seconds until it
-    has ended. Then a new tab opens the site and must show the ended request.
-    A read of the request's own route while away fails the step;
-  - `ms`: a step's own time bound. The default is 12 minutes, the most 30, so
-    a press stays under the workflow's 45;
-  - `addon: true`: opens the add-on step beside the listed edit layers. The
-    present `adds` allows only edits the add-on handed over, and these
-    messages mix in edits of their own;
+**Phase A — the instruments. Done, free, on the branch** (no product file, no
+deploy, no paid call):
+- **0. The one-time job tests' date, on a controlled clock.**
+  `test/addon-route.test.mjs` runs its five one-time job cases on a clock fixed
+  at 2026-10-02 12:00 UTC (`t.mock.timers`, `Date` only), so the job's date
+  `2026-10-03` is always tomorrow there. With the clock moved to 2026-10-04,
+  exactly the three expired cases fail, as before the fix.
+- **The canary's request mode** (`scripts/canary-ui.mjs`, Appendix A):
   - `request: true`: the browser's wall refuses any edit or add-on the page
-    itself would post. In request mode the page posts none, so if the switch
-    is not live the press costs only its routing call, changes nothing, and
-    sends nothing more;
-  - new checks:
-    - a page added (stored before and after, answered 200, its heading on
-      topic);
-    - the description changed (only that field of the stored config);
-    - a heading changed (that text only, on that page);
-    - the logo replaced by the attached file (§4, R4);
-    - the job order (one part's job ended before another's began).
-
-  The existing checks are reused: menu link, footer link, words, row, money,
-  files, wall and replies.
-- **The scenarios** of Appendix B, and **the probe list** of Appendix A
-  (`scripts/router-probes/request-flow-1.json`). The probe list as printed
-  there passes the batch reader (`readProbeBatch`: 7 probes, sha256
-  `eda0d61e…`).
-- **A second logo picture**, `test/fixtures/ui-logo-2.png`: a 240×240 green
-  disc, 1,224 bytes, sha256
-  `38d29a0457eedf0f9778d4a9f4104d279fffe622c2f61a22e0989d92ee9d1c0e`. It is
-  needed because the live logo already is `ui-logo.png`.
-- **The help text** of the canary form's scenario box names the new
-  scenarios (`.github/workflows/edit-canary.yml`). It deploys only with the
-  merge.
-- Proven with the stand-in page (`test/fixtures/browser-page.mjs`), then the
-  full suite and CI, then pushed to the branch.
+    itself would post; a message not taken on as a request stops the press;
+  - `until: "question"`: a message ends once a part waits on a step's question
+    and the page shows it; the next message is then typed into the composer as
+    the answer. The router's own question ends it too, recorded as the other
+    path. If no question comes, the answer is not sent;
+  - `away: true`: once the page has drawn the request's card, the tab is
+    closed; the request is then read only through the requests list, which
+    moves nothing, every 20 s, from the canary's own session; once it has
+    ended, a new tab opens the site and must show it ended. Any read of the
+    request's own route while the tab is closed is recorded, and fails;
+  - `ms`: a message's own time bound, at most 30 minutes, and a press's bounds
+    together at most 30, so a press ends inside the workflow's 45 with its
+    record written;
+  - `addon: true`: the add-on step beside the listed edit layers;
+  - **the routing evidence of each message** (`routingEvidence`): the router's
+    own answer to it, the parts it held back and their order, whether the answer
+    was the model's, and each part's words, status and route as the request
+    began and ended;
+  - **the publishes in the order they were made** (`chainOrdered`): a request
+    runs its parts in the order their needs allow, not their numbers;
+  - **a later message's jobs are only its own**: R3's answer never re-reads or
+    re-charges the first message's jobs.
+- **The verdict** (`scripts/canary-requests.mjs`, new): each press's
+  **checks** (§4.1), its **replies**, and, apart from both, its **coverage**.
+- **The scenarios** of Appendix B, and **a second logo picture**,
+  `test/fixtures/ui-logo-2.png` (240×240, a green disc, 1,224 bytes, sha256
+  `38d29a04…9d1c0e`), since the live logo already is `ui-logo.png`.
+- **The canary form's scenario box** names the new scenarios
+  (`.github/workflows/edit-canary.yml`, help text only).
+- **Proven with**: 38 focused cases (`test/canary-requests.test.mjs`), among
+  them the driver end to end through a stand-in app (the switch not live, R3's
+  question and answer, R5's closed tab, a read of the request's route while
+  away, a wall hit while away, a missing reader, a message's own bound), the
+  verdict against the bakery's own stored
+  pages changed by the product's own writers, and the readers that run inside
+  the app run in a VM; the full suite; a mutation sweep; CI (the handoff has
+  the numbers).
 
 **Phase B — the merge and its deploy, on your word "merge".**
 1. **Before**:
@@ -166,68 +199,57 @@ fixtures only; no product file, no deploy, no paid call):
    - the rollback verified in a throwaway worktree: `git revert --no-commit
      b8d12ff9..<candidate>` must give back `b8d12ff9`'s tree;
    - the three served files read before the deploy lands.
-2. **Your GitHub secrets**: `REQUEST_FLOW` unset or `off`. `MODEL_REPLIES` as
-   you decide (§11).
-3. I fast-forward `main` to the candidate and push. One deploy run follows.
-   It waits for live job leases (up to 14 minutes) before it deploys.
-4. **I read the log**:
-   - `built …:882477e1bbbe8cbe (registry answered 404; 194 inputs …)`;
-   - the image pair `- …8bfc67dc695e65cc` / `+ …882477e1bbbe8cbe` and
-     `SUCCESS Modified application`;
-   - each served file byte-identical to the merged one (`git show
-     <merged>:public/<file>`).
+2. **Your GitHub secrets**: `REQUEST_FLOW` unset or `off`. `MODEL_REPLIES`
+   unset (its default, on).
+3. I fast-forward `main` to the candidate and push. One deploy run follows. It
+   waits for live job leases (up to 14 minutes) before it deploys.
+4. **I read the log**: `built …:882477e1bbbe8cbe (registry answered 404; 194
+   inputs …)`; the pair `- …8bfc67dc695e65cc` / `+ …882477e1bbbe8cbe` and
+   `SUCCESS Modified application`; each served file byte-identical to the
+   merged one.
 5. **Container work waits 15–20 minutes** after the roll.
-6. **Your free runtime press** (the boxes are in §3.1). It passes when the
-   log reads `build-health 200 deploy=<sha12> image=882477e1bbbe8cbe` and
-   `runtime 200 … async=true runner=true`, every free check is `ok`, and
-   nothing is charged. Until then the deploy is *deployed, not
-   runtime-confirmed*.
+6. **Your free runtime press** (§3.1). It passes when the log reads
+   `build-health 200 deploy=<sha12> image=882477e1bbbe8cbe` and `runtime 200 …
+   async=true runner=true`, every free check is `ok`, and nothing is charged.
+   Until then the deploy is *deployed, not runtime-confirmed*.
 7. Deploy 2181 goes into `docs/deploy-record.md`.
 
-**Phase C — the routing controls** (one paid press, 7–11 credits). Each of
-Appendix A's seven messages is routed once with the real router. Nothing is
-edited, added, built or published. It shows, for each message:
-- part 0's route;
-- the other parts (`alsoAsked`);
-- the order the model gives (`dependsOn`, kept whole in
-  `routing-probes.json`).
+**Phase C — the switch on** (yours; free):
+1. GitHub → the repository's Settings → Secrets and variables → Actions: set
+   `REQUEST_FLOW` to `on`.
+2. Actions → *Deploy to Cloudflare* → *Run workflow* → branch `main` → *Run*.
+   It redeploys the same commit with the secret uploaded; the image step reads
+   `reused`, nothing rolls, and there is no wait.
 
-**Go/no-go per message**: a message answered `edit` or `addon`, its own
-changes named and none dropped, goes ahead. A message answered `ask`,
-`clarify` or `build`, or one that drops a change, is brought back to you
-before its press. It would not open a request, or would test something else.
-The switch can still be off here: a probe posts no request key either way.
-
-**Phase D — the switch on** (yours; free):
-1. GitHub → the repository's Settings → Secrets and variables → Actions:
-   set `REQUEST_FLOW` to `on`.
-2. Actions → *Deploy to Cloudflare* → *Run workflow* → branch `main` →
-   *Run*. It redeploys the same commit with the secret uploaded. The image
-   step reads `reused`, nothing rolls, and there is no wait.
-
-**No free read shows the switch**: `/api/site/runtime` reports neither
+No free read shows the switch: `/api/site/runtime` reports neither
 `REQUEST_FLOW` nor `MODEL_REPLIES` (backlog). The request-mode canary is the
 reading.
 
-**Phase E — the request-mode canary** (one paid press, 2–5 credits):
-scenario `rq-canary`.
-- **It passes when**:
-  - the routing answer names a request;
-  - the page posts no edit of its own;
-  - the server runs the one part to its end;
-  - the page's card shows it done;
-  - the reply is the model's;
-  - the money closes.
-- **If no request is opened**, the switch is not live. `request: true`
-  refuses the edit the page would then post itself, so the press costs only
-  its routing call, changes nothing, and the batch does not start.
+**Phase D — the request-mode canary** (one paid press, 2–5 credits): scenario
+`rq-canary`.
+- **It passes when** the message was taken on as a request, the page posted no
+  edit of its own, the one part ran at `text` or `look` and the request ended
+  done, `/visit`'s first heading reads *Come and see us* and nothing else
+  moved, the reply is the model's own and on screen, and the money closes.
+- **If no request is opened**, the switch is not live: the page's own edit is
+  refused before it leaves, so the press costs its routing call, changes
+  nothing, stops, and the batch does not start.
 
-**Phase F — the batch**, R1 to R5, one paid press each, in that order
-(§4). **Before each press**, I read the ledger and check that the press's
-upper estimate fits in what is left of the cap. If it does not, I stop and
-come back to you.
+**Phase E — the batch**, R1 to R5, one paid press each, in that order (§4).
+**Before each press** I read the ledger and press only if what the batch has
+spent so far plus the press's upper estimate is at most 100; otherwise I stop
+and come back to you (§7).
+- **The routing evidence comes from these presses themselves.** There is no
+  separate routing press: a probe's answer does not bind the next answer to the
+  same words, so the evidence that matters is the router's answer to the very
+  message that ran. Each press records, for each message: the routing call's
+  own answer (the part it makes and where, the parts held back, their order,
+  whether the answer was the model's own), and the request as it began and
+  ended (each part's words, status and route, and its jobs). It costs nothing
+  beyond the press.
 
-**Phase G — the full-rewrite test RW**, separately (§9).
+**Phase F — the full-rewrite test RW**, separately, only on its own approval
+(§9).
 
 **Afterwards**: each press's evidence goes into the checklist and a dated
 history file, the numbers stamped only after the runs. Nothing is pressed
@@ -235,9 +257,9 @@ twice to check it again.
 
 ### 3.1 The boxes, by their descriptions
 
-**Every press**: "Use workflow from" `main`. Every box not named is left as
-it is. `<sha>` is `main`'s first 8 characters after the fast-forward; I give
-it to you at the merge.
+**Every press**: "Use workflow from" `main`. Every box not named is left as it
+is. `<sha>` is `main`'s first 8 characters after the fast-forward; I give it to
+you at the merge.
 
 **The free runtime press (Phase B)**:
 - "Run the ONE paid edit as well (yes/no)": `no`;
@@ -246,15 +268,7 @@ it to you at the merge.
 - "Refuse to spend unless a cold container reports this image id (exact).
   Blank = read and print only.": `882477e1bbbe8cbe`.
 
-**The routing controls (Phase C)**:
-- "Run the ONE paid edit as well (yes/no)": `yes`;
-- "ROUTING-ONLY BATCH: the name of a committed probe list in
-  scripts/router-probes (e.g. router-audit-1). …": `request-flow-1`;
-- the deploy sha box: `<sha>`; the image box: `882477e1bbbe8cbe`;
-- "What to change", the scenario, job, version, expected-route and
-  expected-rows boxes: blank.
-
-**Each canary press (Phases E and F)**:
+**Each canary press (Phases D and E)**:
 - "Run the ONE paid edit as well (yes/no)": `yes`;
 - "RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: …": the
   scenario's name (`rq-canary`, `rq-1-classes`, `rq-2-wholesale`,
@@ -267,283 +281,339 @@ it to you at the merge.
 ## 4. The batch
 
 Every press runs on `fold-lane-bakery`, through the real app in a real
-browser, signed in as its owner. Each is judged against its own before-read,
-so an earlier press's change does not spoil a later one. **Demo changes are
-kept afterwards** (your rule): there is no restore and no separate rehearsal,
-and each paid press's own preflight checks the deploy and the image first.
+browser, signed in as its owner, and is judged against its own before-read, so
+an earlier press's change does not spoil a later one. **Demo changes stay
+afterwards** (your rule): no restore and no separate rehearsal; each paid
+press's own preflight checks the deploy and the image first.
 
-**Never allowed in any press**:
-- the full rewrite, or its go-ahead;
-- removing, moving or renaming a page;
-- rules, photographs, or a new database table.
+| Press | The message (exactly) | What it is for | Estimate |
+|---|---|---|---|
+| **rq-canary** `rq-canary` | On the Visit page, change the heading 'Come to the bakery' to 'Come and see us'. | request mode live | 2–5 |
+| **R1** `rq-1-classes` | Change the site description to say we now run Saturday bread-making classes, put a link to the new Classes page in the menu, and add a Classes page that explains the classes. | Edit and Add-on, the edit first; several operations; a prerequisite named later | 9–24 |
+| **R2** `rq-2-wholesale` | Add a Wholesale page for cafés that want to order loaves in bulk and put a link to it in the menu, then change the Walnut Levain's price to £6.20. | Add-on first, then Edit; a menu link the add-on sets aside | 10–25 |
+| **R3** `rq-3-facebook` | 1. On the Visit page, change the heading 'The shutters and the street' to 'Our shop on the street', and add a link to our Facebook page in the footer. 2. *(the answer)* It's facebook.com/harbourloafbristol | a step's question and the answer resuming it; another part going ahead meanwhile | 4–12 |
+| **R4** `rq-4-logo` | Change the home page heading 'Fed every morning since we opened' to 'Fed every morning since 2019', and use the attached picture as our logo. *(with `ui-logo-2.png` attached)* | an attachment read by a later part | 3–7 |
+| **R5** `rq-5-away` | Add a line to the Order page saying orders close at 8pm the night before, and change the Gallery page heading 'Photographs of the bakery's work' to 'Photographs from the bakery'. | the tab closed once the request is taken on: the server finishes alone | 8–17 |
 
-A part routed to any of them is stopped at once through the request's own
-Stop, and recorded. **No message asks for a photograph, so nothing is
-bought from fal.**
+### 4.1 Outcome, and the paths that reach it
 
-| Press | The message (exactly) | Covers | Expected request | Estimate |
+**Two verdicts per press, never mixed.**
+- **The checks** say whether the customer got what they asked for, and nothing
+  else: the request was taken on and ended with every part done at a route the
+  press allows; the site holds exactly the named changes; everything not named
+  is as it was (every stored page byte for byte apart from the named places, no
+  page gone, the stored components, the stored description and every header
+  logo unless named, and the owner's table listing: the same tables, rules,
+  columns and row counts); no part started before a part it needed had
+  finished; each reply is the model's own and on screen; the money closes. A
+  failed check fails the press.
+- **The coverage** says which internal hand-over the run went through: whether
+  a part waited for another, whether the add-on step set the menu link aside,
+  whether a step asked the question rather than the router, whether the file
+  went to a later part. It is recorded, covered or not, and **never fails a
+  press**: the router and each step choose their own path, and the same message
+  can reach the same outcome by another valid path. A press whose checks pass
+  but whose path skipped a hand-over is a success for the customer and a gap in
+  coverage, recorded as both.
+
+**Per press** (the checks first, then each valid path and what it covers):
+
+**rq-canary**
+- *Checks*: `/visit`'s first heading reads *Come and see us*, that text only.
+- *Valid paths*: the text rung or the look door, one part either way. No
+  coverage is claimed beyond request mode itself.
+- *Not a success*: the router asking a question (no request opens; the press
+  stops after its routing charge), or a part at another layer (stopped, §4.2).
+
+**R1**
+- *Checks*: the stored description names Saturday, bread-making and classes,
+  and the home page serves it; one new page about the classes, at whatever
+  address the add-on chooses, stored and served 200; every menu that had items
+  gains *Classes* → that page and keeps its own; nothing else changed; no part
+  started before a part it needs.
+- *Valid paths*:
+  - three parts — the description (look), the menu link (nav, or look through
+    its menu lane) waiting for the page, the page (add-on): covers Edit and
+    Add-on, several parts, and **the prerequisite named later**;
+  - two parts — the look door makes the description and the link, waiting for
+    the page: covers the same;
+  - the add-on makes the page and hands the link on as an addition after it,
+    the description apart: covers Edit and Add-on and several parts; nothing
+    waited, so the prerequisite is **not covered**;
+  - the router sends the page ask to the page rung, which hands it to the
+    add-on: the same outcome, with one hand-over more.
+- *Not a success*: a router question; the description or the link left for a
+  later message; any page but the new one changed.
+
+**R2**
+- *Checks*: one new page about wholesale, stored and served 200; every menu
+  gains *Wholesale* → it; `loaves` id 5 6 → 6.2, shown *£6.20* on `/order`, on
+  both readers, and nothing else in the table; nothing else changed — **no new
+  table**.
+- *Valid paths*:
+  - two router parts, the add-on's and the price's; the add-on step sets the
+    menu link aside as a part of its own, in its own words, run by the menu
+    editor after the page: covers Add-on then Edit, several parts, and **the
+    set-aside**;
+  - three router parts — page, link, price — the link waiting for the page: the
+    same site; the set-aside is **not covered** (recorded as a finding, not a
+    pass of the set-aside).
+- *Not a success*: the add-on reading "order loaves in bulk" as an order form
+  with a new table — the canary fails the press on it, and whether that outcome
+  is acceptable is yours to judge (§4.3); the price not changed.
+
+**R3**
+- *Checks*, after both messages: `/visit`'s second heading reads *Our shop on
+  the street*; every footer keeps its Instagram link and gains one link to
+  `facebook.com/harbourloafbristol`; after the first message, one part waiting
+  on its question with nothing else running.
+- *Valid paths*:
+  - the heading part runs; the Facebook part's step asks for the address; the
+    answer resumes that part: covers **the step's question**, **the answer
+    resuming it**, and several parts;
+  - the router asks for the address first, with no request opened; the answer
+    is routed whole and opens the request: the same site; neither the step's
+    question nor the resume is covered.
+- *Not a success*: a step guessing an address — the request ends without the
+  question, the answer is not sent, and the footer link check fails.
+
+**R4**
+- *Checks*: the home heading reads *Fed every morning since 2019*; the file
+  rode the routing call byte for byte; every header draws
+  `/u/fold-lane-bakery/38d29a0457eedf0f9778d4a9f4104d27.png`, and the bytes
+  served there are the file's.
+- *Valid paths*:
+  - the heading first, the logo part later reading the request's file: covers
+    **a file read by a later part**;
+  - the logo part first: the same site; the later-part hand-over is not
+    covered.
+- *Not a success*: the logo routed to the picture step (not allowed, §4.2).
+
+**R5**
+- *Checks*: `/order` gains a line stating that orders close at 8pm (any
+  spelling of the time) the night before, undenied, and loses nothing;
+  `/gallery`'s second heading reads *Photographs from the bakery*; the request
+  ended while no page was open, nothing read its route meanwhile, and the tab
+  opened afterwards showed it ended with every reply.
+- *Valid paths*:
+  - two parts, the line by the add-on and the heading by the text rung or the
+    look door: covers several parts and **the closed tab**;
+  - one look part making both: the same site; several parts not covered.
+- *Not a success*: the request not ending inside its bound; the line on
+  another page.
+
+**If a press does not pass**, it is reported with its evidence and not run
+again without your word. If the request flow itself misbehaves (parts out of
+order, a part run twice, money that does not close), the batch stops there and
+**the switch goes off by §8** while the evidence is read.
+
+### 4.2 What is enforced, and when
+
+The earlier plan listed things "never allowed" in any press. That overstated
+it. The canary enforces some restrictions **before anything reaches the
+server**; for others it only **detects afterward**, by reading the request and
+sending its Stop; and some it **does not see at all** until the after-read.
+
+| Restriction | How | Before the server runs it? | With the tab closed (R5) | If it slips |
 |---|---|---|---|---|
-| **rq-canary** | On the Visit page, change the heading 'Come to the bakery' to 'Come and see us'. | request mode live | one part (`text` or `look`), `done`; request `done` | 2–5 |
-| **R1** `rq-1-classes` | Change the site description to say we now run Saturday bread-making classes, put a link to the new Classes page in the menu, and add a Classes page that explains the classes. | Edit and Add-on, edit first; several operations; a prerequisite named later | every part `done`, request `done`; the menu link's work after the page | 9–24 |
-| **R2** `rq-2-wholesale` | Add a Wholesale page for cafés that want to order loaves in bulk and put a link to it in the menu, then change the Walnut Levain's price to £6.20. | Add-on first, then Edit; a menu link the add-on sets aside | three parts `done` (the page, the set-aside link, the price); request `done` | 10–25 |
-| **R3** `rq-3-facebook` | 1. On the Visit page, change the heading 'The shutters and the street' to 'Our shop on the street', and add a link to our Facebook page in the footer. 2. *(the answer)* It's facebook.com/harbourloafbristol | a step's question and the answer resuming it; an independent part going ahead | after turn 1: heading `done`, Facebook `waiting` with a question about the address; after turn 2: both `done`, request `done` | 4–12 |
-| **R4** `rq-4-logo` | Change the home page heading 'Fed every morning since we opened' to 'Fed every morning since 2019', and use the attached picture as our logo. *(with `ui-logo-2.png` attached)* | an attachment read by a later part | heading part `done`, logo part `done`; request `done` | 3–7 |
-| **R5** `rq-5-away` | Add a line to the Order page saying orders close at 8pm the night before, and change the Gallery page heading 'Photographs of the bakery's work' to 'Photographs from the bakery'. | the tab closed straight after sending: the server finishes alone | every part `done` while no page is open; the reopened tab shows it ended | 8–17 |
+| No build or revise started by the page | the browser's wall aborts `react-build`, `build` and `react-revise` | **Yes, refused before it leaves** | no page is open to start one, and the server starts no build for a request part except through the go-ahead | — |
+| No full rewrite | the go-ahead's POST is aborted in the browser; the server runs the rewrite only after that go-ahead | **Yes**: the rewrite cannot start | no page is open to press it | a part left waiting for it is detected and the request stopped, so it does not wait a day |
+| No edit or add-on posted by the page itself | the browser's wall (`request: true`) | **Yes, refused before it leaves** | no page is open | the press stops: the switch is not live |
+| The deploy and the image are the expected ones | the paid press's preflight, before the first message | **Yes**: nothing is sent otherwise | the same | — |
+| A part runs only at a layer the press lists, and the add-on only where it is opened | the canary reads the request and, on a part routed elsewhere, sends the request's own Stop | **No — detected afterward.** The server files a part's job before the canary can see where it went (part 0's job is filed before the routing answer reaches the page). The Stop starts nothing new and asks the part's job to cancel: the job is refused at its publish gate and refunded, and a part already publishing completes. A job stopped while still queued makes its model calls first (refunded). Whether a step that writes rows or rules without publishing pages is refused before its write is not shown here, so such a step is taken as able to complete. **A fast part can finish first** (a rules change, or a page removal, which is free) | read every **20 s** through the requests list, and stopped by the canary's own Stop, so the window is wider than with the tab open (3 s) | the after-read reports what changed; a page change can be put back from the saved version for free, on your word |
+| What an allowed step decides inside its own route | nothing at the wall: R1 and R2 allow the page rung, which can rewrite, remove or rename a page; R1, R2, R3 and R5 open the add-on, which can add a table or buy a photograph | **No, and not detected by the wall at all**: the route is one the press allows | the same | **seen only in the after-read** (the stored pages, the served pages, the owner's table listing) and in the job's reply and cost; reported as a change beyond the named ones |
+| A press's spend | its budget, checked before each message (R3 has two) | **No**: never while a request runs | the same | §7 |
+| The batch's 100 | my reading of the ledger between presses | **Not enforced by anything**; a threshold | the same | §7 |
 
-### What each press must leave on the site
+So: rules, photographs, new tables, and removing, moving or renaming a page
+are **not prevented**. Rules changes are outside every press's layers and
+would be stopped once seen; the page rung's moves (in R1 and R2) and the
+add-on's tables and photographs (where it is open) are not even seen until
+the after-read. None of the six messages asks for any of them.
 
-Each list is checked against that press's own before-read, and **everything
-not named must be unchanged**: every other stored page byte for byte apart
-from the named places, the stored config, and every row.
+### 4.3 Residual risks, and the restriction question
 
-**rq-canary**:
-- `/visit`'s first heading reads *Come and see us*, and *Come to the bakery*
-  is gone from it.
+**No concrete restriction is required to run the batch**, by your demo-site
+rule: anything a press changes by mistake is recorded by the after-read, the
+stored pages can be put back from their saved versions for free, and nothing
+in the batch can start the full rewrite or a build. What can still happen,
+none of it likely, each with its bound:
+1. **R2 may get an order form and a new table.** The add-on's own instructions
+   read "a booking page" as a page and a table, and "cafés that want to order
+   loaves in bulk" can be read the same way. The canary fails the press on it
+   (*the site's tables are as they were*); the table and the form stay unless
+   you ask. If you would rather not risk that path, the message could ask for
+   *"a Wholesale page telling cafés how to order loaves in bulk"* — yours to
+   choose; I have not changed it.
+2. **A part routed outside a press's layers can finish before the Stop**
+   (most likely a fast one, or one that writes rows or rules without
+   publishing pages). The after-read shows it; a page change can be put back
+   for free; anything else is reported for your decision.
+3. **A photograph bought by the add-on** (about 18.75 credits each) — only if
+   its picker names one, which none of the messages asks for.
 
-**R1**:
-- the description says the bakery now runs Saturday bread-making classes
-  (only that field changed);
-- a new page `/classes`, answering 200, explains the classes;
-- every page with a menu gains *Classes* → `/classes` and keeps every item
-  it had;
-- the menu link is made only after the page exists (the job order);
-- the router may plan this as two parts or three. For example: the look door
-  makes the description and the link, waiting for the page; or the
-  description, the link and the page are three parts, the link waiting for
-  the page. Either passes.
-
-**R2**:
-- a new page `/wholesale`, answering 200, is about cafés ordering in bulk;
-- every menu gains *Wholesale* → `/wholesale`, keeping its items;
-- `loaves` id 5 (Walnut Levain) reads 6.2 and shows *£6.20* on `/order`;
-- the other six rows are unchanged, read whole (`0-6/7`);
-- the menu link is its own part, carved from the add-on step's own words
-  (`scopes`), which is the first real-model evidence for that;
-- if the router lists the link as a part of its own instead, the site comes
-  out the same but the add-on's set-aside is not exercised. That is recorded
-  as a finding, not a pass of the set-aside.
-
-**R3**:
-- `/visit`'s second heading reads *Our shop on the street*;
-- after the answer, every footer keeps its Instagram link and gains one
-  Facebook link to `facebook.com/harbourloafbristol`;
-- before the answer, nothing about Facebook is on the site.
-
-**R4**:
-- the home page heading reads *Fed every morning since 2019*;
-- the routing call carried the file byte for byte (sha256 `38d29a04…`);
-- every page's header logo is
-  `/u/fold-lane-bakery/38d29a0457eedf0f9778d4a9f4104d27.png`;
-- the served file's sha256 is the attached file's, so the exact bytes
-  reached the logo step.
-
-**R5**:
-- `/order` gains one line saying orders close at 8pm the night before;
-- `/gallery`'s second heading reads *Photographs from the bakery*;
-- the request ended while no page was open, and nothing read the request's
-  own route meanwhile;
-- the tab opened afterwards shows the request ended, every part done, and
-  its replies.
-
-### If a press does not go as expected
-
-A press that fails a check is reported with its evidence and not run again
-without your word. If a message takes another path (for example the router
-asks a question first, or a step makes a guess instead of asking in R3), that
-is a finding, recorded as it happened.
-
-If the request flow itself misbehaves (parts out of order, a part run twice,
-money that does not close), the batch stops there, and **the switch goes off
-by §8** while the evidence is read.
+Preventing 2 or 3 rather than detecting them would need the product itself to
+refuse a part's route before filing its job — a product change, outside this
+freeze, and the broad control you asked me not to add. I do not propose it for
+this batch.
 
 ## 5. How the charges are verified
 
 **For every press, three readings must agree.**
-1. **The canary's money check** (`moneyVerdict`):
-   - the balance before less the balance after equals the routing calls' own
-     stated costs plus each of the request's jobs' ledger debits less
-     refunds;
-   - each job's row cost equals its debits;
-   - a job exempt or never reserved has no ledger row.
+1. **The canary's money check** (`moneyVerdict`), automatic: the balance before
+   less the balance after equals the routing calls' own stated costs (R3's
+   answer included) plus each of the request's jobs' ledger debits less
+   refunds — its routing jobs, its steps, its hand-overs, each read once even
+   when two messages belong to one request; each job's row cost equals its
+   debits; a job exempt or never reserved has no ledger row.
 2. **My read of the ledger after the press** (free; non-secret columns of
-   `credit_events` and `edit_jobs`), every new row by id:
-   - the message's routing charge exactly once (`route:<slug>:<key>`, reason
-     `route`), and none for the same message sent again;
-   - each later part's routing job charged once through its own reserve
-     (`<job>#1`);
-   - each step's reserves (`<job>#n`), and refunds by the bare job id;
-   - no reference twice;
-   - the sum equal to the balance's move.
-3. **The replies**: any charge a reply states matches the rows. A request's
-   own reply states each unfinished part's charge from its jobs' rows.
+   `credit_events` and `edit_jobs`), every new row by id: the message's
+   routing charge once (`route:<slug>:<key>`); each later part's routing job
+   once (`<job>#1`); each step's reserves (`<job>#n`) and refunds (the bare job
+   id); no reference twice; the sum equal to the balance's move.
+3. **The replies**: any charge a reply states matches the rows.
 
-**Expected shape, per press**:
-- one routing charge for the message;
-- one routing reserve per later part;
-- each step's own charge;
-- R3's answer adds one routing call, the resumed step's work and nothing for
-  the part already done;
-- a step that asks charges nothing for the edit, as built and tested with
-  supplied answers (not yet measured live);
-- R4's logo step is exempt (no ledger row).
+**Expected shape**: one routing charge per message; one routing reserve per
+later part; each step's own charge; R3's answer adds one routing call and the
+resumed step's work, nothing for the part already done; a step that asks
+charges nothing for the edit (as built, not yet measured live); R4's logo step
+is exempt.
 
 ## 6. How the model-written replies are verified
 
-**Captured by the canary**:
-- each reply as the page shows it (browser-visible text);
-- the answer each came from, which carries its source (`model`);
-- R3's question card.
+`MODEL_REPLIES` is **on** in the proposed configuration (its default).
 
-A reply that could not be had shows the old composed sentence. That is
-recorded as such, never passed as the model's.
+**Checked by the canary**, for every part: its job's stored answer carries the
+model's reply (`replySource: "model"`), and that text is on screen in the
+browser; a step's question is on screen on its card; the request's own reply,
+when it has one, is read the same way. A reply composed because the model's
+could not be had **fails the reply check** and is recorded as composed, never
+passed as the model's.
 
-**I read every reply against the request's own facts**:
-- the parts and statuses;
-- each job's applied changes and targets;
-- the site's before and after;
-- the ledger.
-
-**I record a pass or fail per reply, quoting it**:
+**Read by me against the request's own facts** (parts and statuses, each job's
+changes, the before and after, the ledger), pass or fail per reply, quoting it:
 1. **Done**: says what was done, each change with its page or list, and only
    what the operations did.
-2. **Not done**: says plainly what was not done and why, and never calls
-   unfinished work done.
-3. **Waiting**: R3's question asks for the one missing detail in plain words,
-   and does not ask again for anything the message gave.
+2. **Not done**: says plainly what was not done and why.
+3. **Waiting**: R3's question asks for the one missing detail, and nothing the
+   message gave.
 4. **Money**: any charge stated is the one the rows show.
 5. **No internals**: no layer, lane or job names, no ids, no status codes.
-6. **Natural**: reads as a person would say it, not a template, with no
-   sentence repeated from another part's reply.
+6. **Natural**: reads as a person would say it, not a template.
 
-**All the parts done means no request-level reply** (`nothing-to-add`), so
-the expected replies are one per part. R3's question is the step's own. RW's
-waiting part has the request's go-ahead reply, which states what it is, why,
-and the measured cost.
+All the parts done means no request-level reply, so the expected replies are
+one per part. **Not charged**: each reply is a quick-model call billed to us,
+about a third to half a credit of model cost; the batch makes about 12–14.
 
-**Not charged**: each reply is a quick-model call billed to us, not the
-customer, at about a third to half a credit of model cost. The batch makes
-about 12–14, about 4–7 credits' worth, which is not on the ledger.
+## 7. Cost, the threshold and the possible overrun
 
-## 7. Cost and the cap
+**Measured references**: routing 1–3 a message, about 1.3 on average (runs
+90–92); a text, data or menu step about 1; a look-door step 2–4 (run 66); a
+line added by the add-on 7 (run 92); a page added by the add-on 2–13 (runs
+47–51), taken here as 5–15; the page rung 6–22 (runs 21–37); the logo step
+exempt; an add-on that rewrote every page for a new page 28, once
+(`docs/addon-path.md`); a photograph about 18.75 (`IMAGE_USD / CREDIT_USD`).
 
-**Measured references**:
-- routing: 1–3 a message, about 1.3 on average (runs 90–92);
-- a text, data or menu step: about 1;
-- a look-door step: 2–4 (run 66 made a move and a menu change for 4);
-- a line added by the add-on: 7 (run 92);
-- a page added by the add-on: 2–13 (runs 47–51). Taken here as 5–15, for a
-  page with its own writer;
-- the logo step: exempt;
-- a revise of a whole site: 17 (once); first builds 11–45.
+| Press | Estimate | Likely | Beyond the estimate if… |
+|---|---|---|---|
+| rq-canary | 2–5 | 2.3 | a part runs at a layer it should not before the Stop reaches it |
+| R1 | 9–24 | 14 | the add-on rewrites every page for the new one (28 once), the page rung runs before handing over (6–22), or a photograph is bought (≈18.75) |
+| R2 | 10–25 | 14 | the same, or a table and form are added (§4.3) |
+| R3 (two messages) | 4–12 | 6 | the question is asked again |
+| R4 | 3–7 | 3.6 | little: the logo step is exempt |
+| R5 | 8–17 | 11 | the add-on rewrites the page, or a photograph is bought |
+| **The six presses** | **36–90** | **about 50** | |
+| RW, separately (§9) | 12–50 if its go-ahead is pressed; about 2 if not | | a revise measured once at 17; first builds 11–45 |
 
-| Press | Estimate | Likely |
-|---|---|---|
-| Routing controls (7 probes) | 7–11 | 9 |
-| rq-canary | 2–5 | 2.3 |
-| R1 | 9–24 | 14 |
-| R2 | 10–25 | 14 |
-| R3 (two turns) | 4–12 | 6 |
-| R4 | 3–7 | 3.6 |
-| R5 | 8–17 | 11 |
-| **Everything but RW** | **43–101** | **about 59** |
-| RW, separately (§9) | 12–50 if pressed; about 2 if not reached | about 20 |
-
-**The proposed cap is 100 credits** for everything but RW, out of the 137
-read today.
-- **These are estimates, not limits.** Nothing in the product enforces a
-  per-request cap; the balance is the only bound.
-- **The cap is enforced between presses.** Before each press I read the
-  ledger. If the press's upper estimate does not fit in what is left, I stop
-  and come back to you.
-- **Within a press**, a scenario's budget is checked before each message.
-  Once sent, a request's parts run on the server, so a press's own bound is
-  its message's upper estimate.
-- **RW has its own cap of 50** and runs only if at least 50 credits are left
-  after the batch. That also clears the build path's floor of 20.
+**The threshold of 100 is a check between presses, not a ceiling.**
+- **Before each press** I read the ledger and press only if the batch's spend
+  so far plus that press's upper estimate is at most 100. If not, I stop and
+  come back to you.
+- **While a press runs, nothing caps it.** Its budget is checked before each
+  message and never after a message is sent: the request's parts run on the
+  server, and the product enforces no per-request cap (`edit_reserve` refuses
+  only above 100,000). The one hard bound is the balance: a reserve the balance
+  cannot cover is refused.
+- **So the batch can pass 100** only when a press costs more than its upper
+  estimate after the rule above let it start, and **by that excess**. With
+  every press at its upper estimate the batch spends 90. The plausible worst
+  single press is its upper estimate plus 28 (an add-on rewriting every page)
+  plus about 18.75 per photograph: for R2, about 25 + 28 + 18.75 ≈ 72. After
+  such a press the rule stops the batch at the next press that no longer fits.
+- **The balance is 137** (read 2026-10-04 00:22 UTC); it is the only bound
+  nothing can pass.
+- **RW has its own threshold of 50** and runs only if at least 50 credits are
+  left after the batch, which also clears the build path's floor of 20.
 
 ## 8. Stopping new requests while accepted work finishes, and rolling back
 
-**To stop new requests**:
-1. Set the GitHub secret `REQUEST_FLOW` to `off`.
-2. Actions → *Deploy to Cloudflare* → *Run workflow* → `main`.
-3. It takes effect when that run finishes. Its drain waits for live job
-   leases, up to 14 minutes, then deploys in about a minute; the image is
-   reused, with no roll and no wait.
+**To stop new requests**: set the GitHub secret `REQUEST_FLOW` to `off`;
+Actions → *Deploy to Cloudflare* → *Run workflow* → `main`. It takes effect
+when that run finishes: its drain waits for live job leases (up to 14
+minutes), then deploys in about a minute; the image is reused.
 
-**From then on, a new message is not taken on as a request**, and the page
-drives its steps exactly as before.
+**From then on a new message is not taken on as a request**, and the page
+drives its steps as before. **Accepted requests finish**: the switch is read in
+one place only, where the routing call accepts a message (`requestFlowOn` in
+`worker.js`'s routing route), while each job's end, the two-minute sweep
+(`runRequestSweep`, cron `*/2`) and the request's routes (follow, Stop, the
+go-ahead) keep working with it off.
 
-**Accepted requests finish.** The switch is read in one place only, where
-the routing call accepts a message (`requestFlowOn` in `worker.js`'s routing
-route). These keep working with it off:
-- each job's end;
-- the two-minute sweep (`runRequestSweep`, cron `*/2`);
-- the request's routes: follow, Stop, the go-ahead.
+**Other switches**: one request — its card's *Stop the rest* ends whatever has
+not started (a part already publishing completes); replies —
+`MODEL_REPLIES` → `off` and redeploy the same way.
 
-So every accepted request goes on to its end, and a page opened later still
-shows it.
-
-**Other switches**:
-- **One request**: its card's *Stop the rest* ends whatever has not started.
-  A part already publishing completes.
-- **Replies**: `MODEL_REPLIES` → `off` and redeploy the same way. Replies are
-  then composed as before, with nothing else changed.
-
-**Rolling the code back**:
-- the range revert verified in Phase B (`git revert --no-commit
-  b8d12ff9..<candidate>`, one commit), pushed to `main`;
-- the deploy reuses `8bfc67dc695e65cc`, which the registry holds.
-
-**Turn the switch off first**, and let accepted requests end (or Stop them)
-before rolling the code back. The old code neither moves a request on nor
-sweeps it, so an unfinished request would be left as it stood.
+**Rolling the code back**: the range revert verified in Phase B, pushed to
+`main`; the deploy reuses `8bfc67dc695e65cc`. **Turn the switch off first**,
+and let accepted requests end (or Stop them): the old code neither moves a
+request on nor sweeps it.
 
 ## 9. The full-rewrite test (RW), separately
 
 **The message**: *We're changing what we do: turn this website from a bakery
 shop into a booking tool for our Saturday bread-making classes.*
 
-**Why this message.** A request reaches the full rewrite's go-ahead only when
-a step finds a change only a rebuild can make. A change of the site's kind
-is the one natural case (`picker/build`).
+**Why this message**: a request reaches the full rewrite's go-ahead only when a
+step finds a change only a rebuild can make; a change of the site's kind is the
+one natural case (`picker/build`).
 
-**What may happen instead.** A message that itself asks for the rewrite is
-answered `build`, which opens no request and takes the page's old path. The
-live matrix found no natural message that reliably reaches the go-ahead. So
-**RW is exploratory**: probe RQRW in the routing controls shows the router's
-answer for about 1.3 credits first, and if it is `build`, RW is not run.
+**No probe first** (your review): a probe's answer would not bind RW's own
+answer anyway.
 
-**How it runs**:
-- **in your own chat in the app**, not the canary, because the canary walls
-  the go-ahead by design. You type the message;
-- **expected**: one part, routed `look`, waiting for your go-ahead, with the
-  request's reply saying what the rewrite is, why, and its measured cost;
-- **you decide** whether to press the go-ahead or *Stop the rest*, which is
-  free;
-- **if pressed**, the existing queued build rebuilds the site as a booking
-  tool. That is one rewrite under one id, charged once (`build:<id>:*`
-  refs), and the request ends `done`;
-- **I verify afterwards**:
-  - the ledger rows and the build's job row;
-  - the request's statuses on your page (a screenshot or your word);
-  - every served page.
+**How it runs, and the risk that comes with your own chat**:
+- **In your own chat in the app**, as planned: you type the message; expected,
+  one part routed `look`, waiting for your go-ahead, with the request's reply
+  saying what the rewrite is, why and its measured cost; you press the go-ahead
+  or *Stop the rest* (free).
+- **Your own chat has no wall.** If the router answers `build` instead, no
+  request opens and your page starts the full revise at once, on the old path:
+  11–45 credits, and not a test of the go-ahead. The dropped probe could not
+  have ruled that out either.
+- **A walled way exists, not built**: a canary scenario that sends RW with
+  builds refused in the browser, follows the request until a part waits for
+  the go-ahead, records the go-ahead reply and its cost, and ends without
+  pressing it or stopping it, leaving the decision to you in your own app. A
+  `build` answer would then cost its routing call only. It is a small option of
+  the kind already built (`until`), not a control system. Say if you want it
+  before RW.
+- **If pressed**: the existing queued build rebuilds the site as a booking
+  tool; one rewrite under one id, charged once (`build:<id>:*`); the request
+  ends `done`. I verify the ledger, the build's row, the request's statuses
+  and every served page afterwards.
 
-**Cost**: routing about 1.3, the step before the climb 0–2, and the rebuild
-11–45 (17 measured for a revise), so **12–50 if pressed**, about 2 if it stops
-before. It runs only on its own approval, with its own cap of 50, and only if
-50 are left.
-
-**Afterwards**: the bakery would no longer be a bakery. RW runs last, and the
-version before it is recorded so a free restore can put the bakery back. By
-your demo rule it stays as it is unless you ask.
+**Cost**: routing about 1.3, the step before the climb 0–2, the rebuild 11–45
+(17 measured for a revise): **12–50 if pressed**, about 2 if it stops before.
+Its own approval, its own threshold of 50, and only if 50 are left.
+**Afterwards**: the bakery would no longer be a bakery. RW runs last; the
+version before it is recorded so a free restore can put it back, and by your
+demo rule it stays as it is unless you ask.
 
 ## 10. What this batch cannot show
 
-- How often a message takes each path: every message is routed once, by one
-  model.
-- A row set aside beside a page (the menu link was chosen instead), and
-  several devices following one request at once. Both are shown with
-  supplied answers only.
+- How often a message takes each path: each message is routed once per press,
+  by one model, and each press is run once.
+- A row set aside beside a page, and several devices following one request at
+  once: shown with supplied answers only.
 - Any site but the bakery, or any phrasing but these.
 - The full rewrite's go-ahead, unless RW reaches it.
 - A request on a site whose owner has edits unqueued (`EDIT_ASYNC` off for
@@ -551,190 +621,86 @@ your demo rule it stays as it is unless you ask.
 
 ## 11. Decisions that are yours
 
-1. **The plan as a whole and its cap of 100**: the instruments first (free),
-   then the merge on your word, the runtime press, the routing controls, the
-   switch, the canary and R1–R5.
-2. **`MODEL_REPLIES` at the merge**: left at its default, **on**, which I
-   recommend because the batch reads the replies; or set to `off` until
-   Phase D.
-3. **R3 and R5**:
-   - by the canary's two new step options (recommended): walled, budgeted,
-     and every call recorded;
-   - or by your own chat in the app, with me verifying afterwards from the
-     ledger, the job rows and the served pages.
-4. **RW**: whether to run it after the batch, on its cap of 50, and whether to
-   restore the bakery afterwards (free).
-5. **The demo changes stay**, by your rule, unless you say otherwise.
-6. **The one-time job tests' date** (Phase A, item 0). It is needed for any
-   merge, whatever you decide about the rest.
+1. **The plan as revised, and the threshold of 100 checked between presses**:
+   the merge on your word, the runtime press, the switch, the canary, R1–R5.
+2. **R2's wording** (§4.3): as it stands (a new table possible, and failed by
+   the canary if it comes), or the version that asks only for a page.
+3. **RW**: whether to run it after the batch, in your own chat (with the risk
+   in §9) or through the walled scenario (to be built on your word first); and
+   whether to restore the bakery afterwards (free).
+4. **The demo changes stay**, by your rule, unless you say otherwise.
 
 **Found while preparing, and kept separate** (`docs/backlog.md`):
 - `REQUEST_FLOW` has no allowlist: on applies to every owner whose edits are
   queued. Today every live site belongs to the building account.
 - The runtime read cannot show either new switch.
-- Three one-time job tests dated `2026-10-03` went red when that date ended
-  in London (Phase A, item 0).
+- A request part's question drawn from its step's reply is kept by the page
+  without its request and part (the page's question reader keeps the id, the
+  words and the answers); nothing a customer sees depends on it today. The
+  canary matches a question by its id for this reason.
 
-## Appendix A: the routing controls, `scripts/router-probes/request-flow-1.json`
+## Appendix A: the canary's request mode, as built
 
-Committed only on your approval, exactly as below (sha256
-`eda0d61e9302aadb5f5377410ddb9190dcb1a118ac43cd906bb7d4da480c8ed8`; the press
-prints it):
+**What a press records**, per message (`ui.json`, and in words in `ui.txt`):
+- the routing evidence: the router's answer to this message (intent, layer,
+  page, cost), the parts held back and their order (`alsoAsked`, `dependsOn`),
+  the decision's source and the model's own intent and layer, a resumed part
+  for an answer, and each part's words, status and route as the request began
+  and ended;
+- every view of the request the canary read, each time the statuses changed
+  (`trail`), which the job-order check reads;
+- the question a message ended on, whose it was (a step's, matched by its id,
+  or the router's own), and its words;
+- for a closed-tab message: when the tab closed, each read of the requests list,
+  when the request ended, any read of its own route meanwhile (there must be
+  none), and what the tab opened afterwards showed;
+- each part's job's stored answer as the page read it, and every reply on
+  screen; the request's own reply with its source.
 
-```json
-{
-  "batch": "request-flow-1",
-  "probes": [
-    {
-      "id": "RQ0",
-      "site": "fold-lane-bakery",
-      "name": "Harbour Loaf",
-      "message": "On the Visit page, change the heading 'Come to the bakery' to 'Come and see us'.",
-      "given": "/visit's first heading reads 'Come to the bakery' (served page read 2026-10-03 23:00 UTC; live version 01790923788063-bp9rcv).",
-      "intended": [
-        { "intent": "edit", "layer": "text", "alsoAsked": "none" },
-        { "intent": "edit", "layer": "look", "alsoAsked": "none" }
-      ],
-      "basis": "one exact wording change on one named page: an edit, with nothing held back",
-      "note": "The request-mode canary's message (rq-canary)."
-    },
-    {
-      "id": "RQ1",
-      "site": "fold-lane-bakery",
-      "name": "Harbour Loaf",
-      "message": "Change the site description to say we now run Saturday bread-making classes, put a link to the new Classes page in the menu, and add a Classes page that explains the classes.",
-      "given": "No /classes page. The menu on / and /gallery reads Today's bake, The starter, Visit, Gallery, Order; on /order and /visit it has no Gallery. The description reads 'Neighbourhood sourdough in Bristol. Browse today's bake and order a loaf for collection.' (served pages read 2026-10-03 23:00 UTC).",
-      "intended": [
-        { "intent": "edit", "layer": "look", "alsoAsked": "some", "held": "add a Classes page that explains the classes", "runs": "Change the site description to say we now run Saturday bread-making classes" },
-        { "intent": "addon", "alsoAsked": "some", "held": "Change the site description to say we now run Saturday bread-making classes", "runs": "add a Classes page that explains the classes" },
-        { "intent": "edit", "layer": "look", "alsoAsked": "some", "held": "put a link to the new Classes page in the menu, and add a Classes page that explains the classes", "runs": "Change the site description to say we now run Saturday bread-making classes" }
-      ],
-      "basis": "three changes no one answer makes: the page is the add-on's; the menu link needs that page, which the message names later (dependsOn)",
-      "note": "Read dependsOn too: the change holding the menu link must be numbered to wait for the Classes page."
-    },
-    {
-      "id": "RQ2",
-      "site": "fold-lane-bakery",
-      "name": "Harbour Loaf",
-      "message": "Add a Wholesale page for cafés that want to order loaves in bulk and put a link to it in the menu, then change the Walnut Levain's price to £6.20.",
-      "given": "No /wholesale page. The site's own read of loaves answers whole (0-6/7): Walnut Levain is id 5 at 6 (read 2026-10-03 23:00 UTC).",
-      "intended": [
-        { "intent": "addon", "alsoAsked": "some", "held": "change the Walnut Levain's price to £6.20", "runs": "Add a Wholesale page for cafés that want to order loaves in bulk" },
-        { "intent": "edit", "layer": "data", "alsoAsked": "some", "held": "Add a Wholesale page for cafés that want to order loaves in bulk and put a link to it in the menu", "runs": "change the Walnut Levain's price to £6.20" }
-      ],
-      "basis": "an addition (a page with its menu link) and an edit of one stored row: two answers, nothing dropped",
-      "note": "With the add-on first, its step is expected to set the menu link aside as a part of its own, in its picker's words (scopes)."
-    },
-    {
-      "id": "RQ3",
-      "site": "fold-lane-bakery",
-      "name": "Harbour Loaf",
-      "message": "On the Visit page, change the heading 'The shutters and the street' to 'Our shop on the street', and add a link to our Facebook page in the footer.",
-      "given": "/visit's second heading reads 'The shutters and the street'. Every footer has one Instagram link and no Facebook link (served pages read 2026-10-03 23:00 UTC).",
-      "intended": [
-        { "intent": "edit", "layer": "text", "alsoAsked": "some", "held": "add a link to our Facebook page in the footer", "runs": "change the heading 'The shutters and the street' to 'Our shop on the street'" },
-        { "intent": "edit", "layer": "look", "alsoAsked": "some", "held": "add a link to our Facebook page in the footer", "runs": "change the heading 'The shutters and the street' to 'Our shop on the street'" },
-        { "intent": "addon", "alsoAsked": "some", "held": "change the heading 'The shutters and the street' to 'Our shop on the street'", "runs": "add a link to our Facebook page in the footer" }
-      ],
-      "basis": "the missing Facebook address does not decide the route, so the router must not ask; the step making the link asks for it",
-      "note": "A clarify answer here is a finding: R3 would then begin with the router's question instead of a step's."
-    },
-    {
-      "id": "RQ4",
-      "site": "fold-lane-bakery",
-      "name": "Harbour Loaf",
-      "message": "Change the home page heading 'Fed every morning since we opened' to 'Fed every morning since 2019', and use the attached picture as our logo.",
-      "attached": true,
-      "given": "The home page has a heading 'Fed every morning since we opened'. The header logo is /u/fold-lane-bakery/2cc633d73b2d5ab38d29d94cf15c9ce6.png, the canary's ui-logo.png (served pages read 2026-10-03 23:00 UTC).",
-      "intended": [
-        { "intent": "edit", "layer": "text", "alsoAsked": "some", "held": "use the attached picture as our logo", "runs": "Change the home page heading 'Fed every morning since we opened' to 'Fed every morning since 2019'" },
-        { "intent": "edit", "layer": "look", "alsoAsked": "some", "held": "use the attached picture as our logo", "runs": "Change the home page heading 'Fed every morning since we opened' to 'Fed every morning since 2019'" },
-        { "intent": "edit", "layer": "logo", "alsoAsked": "some", "held": "Change the home page heading 'Fed every morning since we opened' to 'Fed every morning since 2019'", "runs": "use the attached picture as our logo" }
-      ],
-      "basis": "a wording change and a logo from the attached file: no one answer makes both",
-      "note": "The probe says a file is attached but sends none; the paid press attaches the picture."
-    },
-    {
-      "id": "RQ5",
-      "site": "fold-lane-bakery",
-      "name": "Harbour Loaf",
-      "message": "Add a line to the Order page saying orders close at 8pm the night before, and change the Gallery page heading 'Photographs of the bakery's work' to 'Photographs from the bakery'.",
-      "given": "/order says nothing about when orders close. /gallery's second heading reads 'Photographs of the bakery's work' (served pages read 2026-10-03 23:00 UTC).",
-      "intended": [
-        { "intent": "addon", "alsoAsked": "some", "held": "change the Gallery page heading 'Photographs of the bakery's work' to 'Photographs from the bakery'", "runs": "Add a line to the Order page saying orders close at 8pm the night before" },
-        { "intent": "edit", "layer": "text", "alsoAsked": "some", "held": "Add a line to the Order page saying orders close at 8pm the night before", "runs": "change the Gallery page heading 'Photographs of the bakery's work' to 'Photographs from the bakery'" },
-        { "intent": "edit", "layer": "look", "alsoAsked": "none" }
-      ],
-      "basis": "a new line on one page and a wording change on another: an addition and an edit, or one look answer making both",
-      "note": "R5 is sent with the tab then closed; the routing answer is the same either way."
-    },
-    {
-      "id": "RQRW",
-      "site": "fold-lane-bakery",
-      "name": "Harbour Loaf",
-      "message": "We're changing what we do: turn this website from a bakery shop into a booking tool for our Saturday bread-making classes.",
-      "given": "The site is a shopfront: five pages (/, /order, /visit, /gallery, /starter), a loaves list and an order form (served pages read 2026-10-03 23:00 UTC).",
-      "intended": [
-        { "intent": "edit", "layer": "look", "alsoAsked": "none" }
-      ],
-      "basis": "a change of the site's kind is the look door's to read as one only a rebuild makes (picker/build), which is what reaches the request's go-ahead",
-      "note": "The separate full-rewrite test (RW). Answered build, the message itself asks for the rewrite, opens no request, and RW is not run."
-    }
-  ]
-}
-```
+**The checks** (`requestBatchVerdict` in `scripts/canary-requests.mjs`):
+- per message: one routing call carrying its words exactly; no edit or add-on
+  posted by the page; taken on as a request; ended with every part done at an
+  allowed route, nothing stopped by the wall — or, for a message that ends on a
+  question, one part waiting on a step's question with nothing else running,
+  or the router's own question with no request opened; a file on the routing
+  call byte for byte; for a closed-tab message, ended while no page was open,
+  no read of its route meanwhile, and the reopened tab showing it ended;
+- per message: no part started before a part it needs (the order the routing
+  answer gave, mapped onto the request's parts, checked against every view
+  read; a message whose answer named no order passes and says so);
+- the site: each named change (a heading's words only, the stored and served
+  description, a new page found by what it says and served 200, a menu link to
+  that page on every menu, a footer link to the exact profile beside the old
+  ones, a line stating the words undenied, the logo by its own bytes, the row
+  by both readers and the page that shows it), and everything not named as it
+  was (every stored page byte for byte apart from the named places, no page
+  gone, no page or component added beyond a new page's own, every page that was
+  served still served 200, the description and the header logos unless named,
+  the owner's table listing);
+- the replies: each the model's own and on screen;
+- the money (`moneyVerdict`).
 
-A `clarify` answer to any probe keeps one pending question on the bakery
-until the next message replaces it. The request-mode canary's message does.
+**The coverage** (recorded, never a check): `edit-and-addon`,
+`several-parts`, `waits-for-prerequisite`, `addon-sets-aside`,
+`step-question`, `answer-resumes`, `file-to-later-part`, `closed-tab`.
 
-## Appendix B: the scenarios (`scripts/canary-ui.mjs`, committed on approval)
+## Appendix B: the scenarios (`scripts/canary-ui.mjs`)
 
-**Every scenario**:
-- site `fold-lane-bakery`; `request: true`;
-- its budget is its upper estimate, checked before each message;
-- the always-refused list of §4 applies;
-- "nothing else changed" is checked against its own before-read.
+**Every scenario**: site `fold-lane-bakery`; `request: true`; its budget is its
+upper estimate, checked before each message; its messages' bounds together at
+most 30 minutes, inside the workflow's 45; checked against its own before-read.
 
-| Scenario | Budget | Edit layers allowed | Add-on | Steps |
+| Scenario | Budget | Edit layers | Add-on | Messages |
 |---|---|---|---|---|
-| `rq-canary` | 6 | text, look | shut | `say` RQ0's message |
-| `rq-1-classes` | 25 | look, text, nav, page (a page ask the page rung hands to the add-on) | open | `say` RQ1's message, `ms` 30 min |
-| `rq-2-wholesale` | 26 | data, nav, page (as above) | open | `say` RQ2's message, `ms` 30 min |
-| `rq-3-facebook` | 13 | text, look, nav | open | 1. `say` RQ3's message, `until: "question"`, `ms` 20 min; 2. `say` *It's facebook.com/harbourloafbristol*, `ms` 20 min |
-| `rq-4-logo` | 8 | text, look, logo | shut | `attach` `test/fixtures/ui-logo-2.png`, `say` RQ4's message |
-| `rq-5-away` | 18 | text, look | open | `say` RQ5's message, `away: true`, `ms` 30 min |
+| `rq-canary` | 6 | text, look | shut | one, 12 min |
+| `rq-1-classes` | 25 | look, text, nav, page | open | one, 25 min |
+| `rq-2-wholesale` | 26 | data, nav, look, page | open | one, 25 min; the row checked from a fresh baseline and kept |
+| `rq-3-facebook` | 13 | text, look, nav | open | 1. ends on the question, 14 min; 2. the answer, 14 min |
+| `rq-4-logo` | 8 | text, look, logo | shut | one with `ui-logo-2.png` attached, 12 min |
+| `rq-5-away` | 18 | text, look | open | one, the tab closed once taken on, 25 min |
 
-**The checks each must pass**:
-- **every press**:
-  - the request opened;
-  - one routing call carried the words (and R4's file);
-  - no edit posted from the page;
-  - every part done where allowed, nothing stopped;
-  - the money closed;
-  - each reply's source is `model`;
-- **rq-canary**: the `/visit` heading changed;
-- **R1**:
-  - the description changed;
-  - `/classes` added;
-  - *Classes* → `/classes` on every menu;
-  - the link's job after the page's;
-- **R2**:
-  - `/wholesale` added;
-  - *Wholesale* → `/wholesale` on every menu;
-  - `loaves` id 5 6 → 6.2, shown *£6.20* on `/order`, the other rows
-    unchanged;
-  - the link part carved from the add-on's words;
-- **R3**:
-  - after turn 1, one part waiting with its question;
-  - after turn 2, the `/visit` heading changed and a Facebook link to
-    `facebook.com/harbourloafbristol` in every footer, Instagram kept;
-- **R4**:
-  - the home heading changed;
-  - the logo is `/u/fold-lane-bakery/38d29a0457eedf0f9778d4a9f4104d27.png`
-    on every page;
-  - the served bytes' sha256 is `38d29a04…`;
-- **R5**:
-  - the request ended while away, with no read of its own route;
-  - the reopened tab shows it ended;
-  - the `/order` line added;
-  - the `/gallery` heading changed.
+**Changed from the earlier plan**: the bounds are 25 minutes (not 30) for R1,
+R2 and R5, and 14 + 14 (not 20 + 20) for R3, so a press's messages leave at
+least a quarter of an hour of the workflow's 45 for its preflight and reads;
+R2 also allows `look`, because the router may send the menu link through the
+look door's menu lane, a path that reaches the same site.

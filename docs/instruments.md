@@ -879,3 +879,60 @@ mode*):
   `test/canary-ui.test.mjs` (the readers, the wall, the verdict, the end to
   end with a file, a misrouted part stopped, a part waiting for the go-ahead
   stopped, and the additions verdict). No request-mode press has been made.
+
+### THE REQUEST BATCH'S OPTIONS AND VERDICT (2026-10-04 — on the branch, unmerged; no press)
+
+The owner, reviewing the rollout plan: *"implement the planned canary options
+and scenarios, verify them with focused tests … Revise the rollout plan to
+capture routing evidence from the actual end-to-end requests instead of paying
+for seven separate preliminary routing probes; a prior model answer does not
+guarantee the next one. Record valid alternative execution paths accurately,
+distinguishing a successful user outcome from coverage of a particular
+internal handoff."* What is law here (`scripts/canary-ui.mjs`,
+`scripts/canary-requests.mjs`, `docs/history/2026-10-04-batch-instruments.md`,
+the plan's Appendices A and B):
+
+- **A REQUEST-MODE SCENARIO REFUSES WHAT THE PAGE WOULD POST ITSELF**
+  (`request: true`): an edit or add-on the page posts is aborted in the
+  browser, and a message not taken on as a request stops the press. With the
+  switch off, a press costs its routing call and changes nothing.
+- **WHAT IS ENFORCED, AND WHEN.** Refused before it leaves: a build or revise
+  from the page, the rewrite's go-ahead, the page's own edit or add-on. Only
+  detected afterward: a part the server files at a layer the scenario does
+  not list — read every 3 s (every 20 s with the tab closed) and stopped with
+  the request's own Stop; a fast part can finish first. Not seen by the wall
+  at all: what an allowed step decides inside its own route (the page rung's
+  moves, the add-on's tables and photographs) — the after-read reports it.
+- **A MESSAGE THAT ENDS ON A QUESTION** (`until: "question"`): once one part
+  waits on a step's question, nothing else is about to run or running, every
+  reply so far is on screen and the page draws the question's card. **Matched
+  by the question's id**: the page keeps a step's question without its
+  request and part (`clarifyOf`), and a stop that required them would never
+  have fired. The router's own question ends it too, recorded as the other
+  path. No question, no answer sent.
+- **A MESSAGE SENT WITH ITS TAB THEN CLOSED** (`away: true`): the tab closes
+  once the page has drawn the request's card; the request is read only
+  through `GET /api/site/requests/<slug>` (a read) every 20 s from the
+  canary's own session, stopped from that session if a part goes outside the
+  walls; any read of the request's own route by a page of the run's browser
+  meanwhile is recorded and fails the press; a new tab must then show the
+  request ended, every reply on screen.
+- **BOUNDS**: a message's own `ms`, at most 30 minutes; a scenario's together
+  at most 30, so a press ends inside the workflow's 45 with its record.
+- **THE ROUTING EVIDENCE IS THE MESSAGE'S OWN** (`routingEvidence`): the
+  router's answer to this very message, the parts it held back and their
+  order, whether the answer was the model's, and each part as the request
+  began and ended. No separate routing press.
+- **CHECKS AND COVERAGE ARE NEVER MIXED** (`requestBatchVerdict`): the
+  checks (the request, the job order against every view read, each named
+  change, everything not named — the stored pages byte for byte apart from
+  the named places, the components, the description, the header logos, the
+  owner's table listing) and the replies (each the model's own, on screen)
+  fail a press; the coverage of internal hand-overs is recorded and never
+  does.
+- **A LATER MESSAGE'S JOBS ARE ONLY ITS OWN**, and **A REQUEST'S PUBLISHES
+  ARE PUT IN THE ORDER THEY WERE MADE** (`chainOrdered`), for the money and
+  the chain.
+- **PROVEN WITH A STAND-IN APP AND THE BAKERY'S OWN STORED PAGES ONLY**: 38
+  cases in `test/canary-requests.test.mjs`, the in-app readers run in a VM; a
+  sweep of 61 mutants. No request-mode press has been made.

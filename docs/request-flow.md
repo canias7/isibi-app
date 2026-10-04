@@ -421,6 +421,20 @@ scenario gives (`requestWall`). The go-ahead's POST is refused like the
 rewrite route. A request's files are checked on the routing call. Shown with
 a stand-in page only; no request-mode canary run has been pressed.
 
+**The batch's options** (2026-10-04, `docs/history/2026-10-04-batch-instruments.md`):
+`request: true` refuses an edit or add-on the page posts itself;
+`until: "question"` ends a message on a step's question, matched by the
+question's id (the page keeps a step's question without its request), and
+the next message answers it; `away: true` closes the tab once the request is
+taken on and reads only the requests list until it ends, then reopens the
+site; `ms` bounds a message; `addon: true` opens the add-on step beside the
+edit layers. **What the wall can do here**: refuse what the page would post,
+before it leaves. A part the server files is only detected afterward (every
+3 s, every 20 s with the tab closed) and stopped; a fast part can finish
+first. Each press is judged by `requestBatchVerdict`
+(`scripts/canary-requests.mjs`): checks and replies, and, apart from both,
+the coverage of internal hand-overs, which never fails a press.
+
 ## The switch
 
 `REQUEST_FLOW` takes an affirmative word, read where a message is accepted
@@ -434,9 +448,11 @@ To turn it on:
 4. a paid UI canary press in request mode, which is the only reading of the
    switch (`/api/site/runtime` does not report it).
 
-The concrete rollout, with its validation batch, costs, cap and the way
-to stop new requests while accepted ones finish, is
-`docs/investigations/request-flow-rollout.md` (prepared 2026-10-03, not
+The concrete rollout, with its validation batch, costs, the threshold
+checked between presses (not a ceiling while a request runs), what is
+enforced and what only detected, and the way to stop new requests while
+accepted ones finish, is `docs/investigations/request-flow-rollout.md`
+(prepared 2026-10-03, revised 2026-10-04 after the owner's review, not
 executed).
 
 ## Limits, as built

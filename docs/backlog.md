@@ -462,7 +462,11 @@ here; take a closed one out of both.**
   own part gets one more part and one more routing call before the chain
   ends. Found by the review fixes' sweep, 2026-10-03; it predates them. Not
   changed.
-- **Three tests went red when 2026-10-03 ended in London**:
+- **RESOLVED 2026-10-04: three tests went red when 2026-10-03 ended in London**
+  (fixed on the branch with a controlled clock: the five one-time job cases run
+  at 2026-10-02 12:00 UTC through `t.mock.timers`; with the clock at
+  2026-10-04 exactly the three fail again; `docs/history/2026-10-04-batch-instruments.md`).
+  As found:
   - `test/addon-route.test.mjs` dates its one-time jobs `2026-10-03`
     (`ONCE_JOB`, `ONCE_REUSE` and a third call, five places). From
     2026-10-04 (London, 23:00 UTC) the add-on correctly refuses them as
@@ -488,6 +492,14 @@ here; take a closed one out of both.**
 - `/api/site/runtime` reports neither `REQUEST_FLOW` nor `MODEL_REPLIES`, so
   no free read shows either switch; the rollout's request-mode canary press is
   the reading. Found 2026-10-03 while preparing the rollout plan; not changed.
+- A request part's question drawn from its step's own reply is kept by the
+  page without its request and part: `clarifyOf` keeps the id, the words and
+  the answers, and only a question drawn from the request's card keeps
+  `request`. The page reads `request` only for a question about files, which a
+  step's reply never carries, so nothing a customer sees depends on it today.
+  The UI canary matches a question by its id for this reason. Found
+  2026-10-04 while building the canary's question stop; not changed (the
+  product is frozen).
 - The test platform's `hang` on `edit_create` marks the job being filed as
   dead (`die(p_id)`), though it is the filer that died, so that job's
   heartbeats then fail in the case. The build treats its beat as an
