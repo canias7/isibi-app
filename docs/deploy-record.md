@@ -1209,6 +1209,38 @@ preflight reads the deploy and the image again before any routing call. The
 money after it (02:13:24 UTC): balance 137, the ledger's last row 355, no job
 open, no live lease.
 
+**Deploy 2183 (2026-10-04) was predicted on both ends and built as
+predicted**, on the owner's word (*"Merge and deploy the reviewed fixes,
+keeping REQUEST_FLOW and MODEL_REPLIES enabled"*): `main` `f69c873c` →
+`e84b8e7e`, a fast-forward of 13 commits (run 95's two findings fixed, and
+the owner's review round), at 18:10:27 UTC. Run 37223381974, `push` on
+`e84b8e7e`, the only run that push started, `completed` / `success`, the job
+**2m38s** (18:10:34–18:13:12):
+- **before**: unit CI on the candidate `9381 / 9377 / 0 / 4` (run
+  37222281427); the site build reused, its fingerprint the same on
+  `305c8b7c` and `e84b8e7e` (`2fe758ae0d2fd885`, 3,972 files; run
+  37221787375 green); nothing in flight; the rollback giving back `main`'s
+  tree; the served files `f69c873c`'s own; balance 95, last row 367;
+- **the image**: `built isibi-app-sitebuildcontainer:386607152d4cb319
+  (registry answered 404; 194 inputs off ./Dockerfile)` at 18:12:48, as
+  predicted (`882477e1bbbe8cbe` → `386607152d4cb319`); 15 layers pushed, 4
+  already there;
+- **the drain** `no live leases after 1s — deploying`; the gate left to
+  expire for `e84b8e7e…`;
+- **Wrangler**: 25 secrets, `MODEL_REPLIES` and `REQUEST_FLOW` among them,
+  both printed masked as at deploy 2182 (a secret holds `on`; `off` prints
+  plain); 2 assets uploaded (`+ /edit-poll.js`, `+ /chat.js`), 84 already
+  there; the container's `- …:882477e1bbbe8cbe` / `+ …:386607152d4cb319`,
+  `SUCCESS Modified application` at **18:13:06Z**; `Current Version ID:
+  f287d2d3-ee05-4d18-…`; `DEPLOY_ID` `e84b8e7e1bb26c4c0dcdfad24b0b089261a1a4e4`;
+- **the served files** byte-identical to `e84b8e7e`'s at 18:14:07 (`chat.js`
+  876,852 `9c183012…`, `edit-poll.js` 50,048 `b2a9aba6…`; `styles.css`
+  unchanged), after the before reading at 18:10:04;
+- **the image window** waited once, to 18:30:30;
+- **deployed, not runtime-confirmed**: the session's one dispatch of the free
+  press answered 403 at 18:31 UTC, so the press is the owner's
+  (`docs/history/2026-10-04-deploy-2183.md` §6).
+
 ## The served-file check, driven end to end on deploy 2139
 
 **DRIVEN END TO END ON DEPLOY 2139 (2026-09-21), and it is stronger than the

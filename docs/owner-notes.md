@@ -1,111 +1,67 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-04, 17:55 UTC)
+## Current handoff — read this first (2026-10-04, 18:35 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **Your four review points are done on the branch.** Nothing is merged or
-  deployed, no image is built, and nothing paid has run.
-  - **Footer links on the pages you name.** Every page you name is now
-    accounted for.
-    - Your reproduction now puts the Classes link on `/visit`, giving its
-      footer the small print it lacked, and isn't called "already done".
-    - A page you name with no footer is refused by name, and never given one.
-    - A home page you name for a link to itself is told why: the menu never
-      gives the home page a link to itself.
-    - While any page you named is unmet, the addition is never "done". With
-      nothing else changed it's refused; with something changed it's done in
-      part. Either way, the part of your message that needed it doesn't run.
-    - With no pages named, nothing changes from before.
-  - **Reply retries.** A retry is never taken before its time. An early or
-    duplicate delivery uses up no try and skips no wait. The two-minute check
-    still recovers a lost retry.
-  - **The page.** A finished change shows at once: the preview reloads and
-    the send box frees up, without waiting for the written reply.
-    - Meanwhile the reply's place in the chat says what really happened:
-      *"Done — writing up what changed…"* only when everything asked for was
-      done, *"That didn't go through — writing up why…"* for a refusal, and
-      so on.
-    - The written reply then replaces that line, in place. If it fails or
-      never comes, the page's own sentence replaces it.
-    - A reload, or the page checking twice, never applies anything twice or
-      adds a second reply. Each part of a multi-part request works the same.
-  - **R2–R5 in one press**: `rq-batch-r2`, the same batch runner starting at
-    R2. It runs one press at a time, with the same stops and the same 100.
-    R1 and `rq-canary` are never pressed again. Its box must be at least 25,
-    what the batch has already spent.
-  - **What this rests on**: tests with answers I supplied, through the real
-    routes and the real page code; the full suite and GitHub's checks are
-    green. **No real model has run any of it yet.**
-- **Running**: unchanged. `main` `f69c873c`, image `882477e1bbbe8cbe`,
-  `REQUEST_FLOW` on, `MODEL_REPLIES` on.
-- **Money**: balance **95**, last ledger row 367, no job open (17:40 UTC). The
-  batch has spent **25** of its 100: `rq-canary` 4, R1 21.
+- **Merged and deployed once, on your word: deploy 2183.** `main` moved
+  `f69c873c` → **`e84b8e7e`** at 18:10 UTC (13 commits: run 95's fixes and
+  your review round).
+  - **The container image was built once, exactly as predicted**:
+    **`386607152d4cb319`** (it was `882477e1bbbe8cbe`). It rolled at
+    18:13 UTC, and I waited the image window once.
+  - **The page's files are live**: the served `chat.js` and `edit-poll.js`
+    are byte-identical to the merged ones.
+  - **Both switches were uploaded again**: `REQUEST_FLOW` from your secret,
+    `MODEL_REPLIES` on by default. The log can't show their values; the
+    request presses are their live reading.
+- **Deployed, not yet runtime-confirmed.** My one try at pressing the free
+  check was refused (403), as a session's always is, so the press is yours.
+- **Nothing paid has run.** Money: balance **95**, last ledger row 367, no job
+  open (18:10 UTC). The batch has spent **25** of its 100.
 - **The bakery**: unchanged. *Classes* is in the menu on `/` and `/classes`
   only.
 
-**Blockers**
-- None.
+**Exact next action — your press, then tell me "ran"**
+- **The free runtime check** ("Use workflow from" `main`):
+  - "Run the ONE paid edit as well (yes/no)": `no`;
+  - "Refuse to spend unless the Worker reports this deploy sha (prefix, >=7
+    chars). Blank = read and print only.": `e84b8e7e`;
+  - "Refuse to spend unless a cold container reports this image id (exact).
+    Blank = read and print only.": `386607152d4cb319`;
+  - every other box as it is.
+- I read it, and only if it passes hand you the next press.
 
-**Exact next action**
-- **Yours: review the branch, then say whether to merge and deploy it.** A
-  deploy builds a new container image, predicted **`386607152d4cb319`** (194
-  inputs; `docs/history/2026-10-04-review-round.md` §8).
-- **After the deploy**: your free runtime press, as before. Then **one
-  focused paid press**, `rq-menu-link`, then **R2–R5 in one press**,
-  `rq-batch-r2`.
+**Then, in this order, each only if the one before passed**
+1. **`rq-menu-link`** (about 3–9 credits): *"Put the Classes page in the menu
+   on every page."* on `fold-lane-bakery`. It passes only if `/order`,
+   `/visit` and `/gallery` each gain the Classes link with their own links
+   kept, `/` and `/classes` stay as they are, `/starter` gets no menu,
+   nothing else changes, and the reply is the model's own.
+2. **`rq-batch-r2`**, once: R2–R5 in order, its box 25 plus what
+   `rq-menu-link` actually cost. It stops itself before passing 100, after a
+   failure, or if a spend can't be read.
 
-**The focused check** (`rq-menu-link`, about 3–9 credits)
-- The message: *"Put the Classes page in the menu on every page."* on
-  `fold-lane-bakery`.
-- **It passes only if**:
-  - `/order`, `/visit` and `/gallery` each gain the Classes link, keeping
-    their own items;
-  - `/` and `/classes` stay as they are, and `/starter` gets no menu;
-  - nothing else on the site changes;
-  - the reply is the model's own, on screen.
-- **The form**, after the deploy ("Use workflow from" `main`):
-  - "Run the ONE paid edit as well (yes/no)": `yes`;
-  - "RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: …":
-    `rq-menu-link`;
-  - "The site to edit. Defaults to the canary site; name another to run this
-    against it. Not needed with read_job.": `fold-lane-bakery`;
-  - the deploy sha box and the image box: as that deploy's record names them;
-  - every other box blank.
-
-**Then R2–R5 in one press** (`rq-batch-r2`)
-- The same boxes, with:
-  - the scenario box `rq-batch-r2`;
-  - "REQUEST BATCH ONLY (rq-batch, rq-batch-r2): …": 25 plus what the
-    focused check cost (its money check says it).
-- Estimates: R2 10–25, R3 4–12, R4 3–7, R5 8–17. With the focused check at
-  its 9, the batch reaches at most **95** of 100. The last handoff said 96;
-  R2–R5's upper estimates add to 61, not 62.
-- It stops itself before any press that would pass 100, after a failed press,
-  and if a press's spend can't be read.
-
-**Spending**
-- Nothing spent on the fixes.
+I'll give you each press's exact boxes when it's due. No rewrite test, no
+restore, no repeat of R1 or `rq-canary`, and no rebuild in between.
 
 **Still yours** (the plan's §11)
 1. Approve the revised plan, with 100 as a threshold between presses, or
    change it.
 2. R2's wording: as it is, or the page-only version.
-3. RW: whether to run it, in your own chat or through the walled scenario
-   (built first, on your word), and whether to put the bakery back after.
+3. RW: whether to run it, and whether to put the bakery back after.
 4. The demo changes stay unless you say otherwise.
 
 **Links**
-- This round, with every fix, test and check:
-  `docs/history/2026-10-04-review-round.md`.
-- The fixes it reviewed: `docs/investigations/request-batch-findings.md`
-  and `docs/history/2026-10-04-findings-fixes.md`.
-- The screenshots of the page are in the chat.
-- The presses: `docs/history/2026-10-04-request-batch.md`. The canary:
-  `docs/instruments.md`. The plan: `docs/investigations/request-flow-rollout.md`.
+- The deploy and the presses: `docs/history/2026-10-04-deploy-2183.md`;
+  `docs/deploy-record.md`.
+- What was deployed: `docs/history/2026-10-04-review-round.md` and
+  `docs/history/2026-10-04-findings-fixes.md`.
+- The canary: `docs/instruments.md`. The plan:
+  `docs/investigations/request-flow-rollout.md`.
 ---
 
 2026-09-25: **Escalation correction CLOSED.** Independently reviewed (437 focused
@@ -164,6 +120,30 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-04 — Merged and deployed once as deploy 2183 (not yet runtime-confirmed: the free check is your press)
+
+You said: *"Merge and deploy the reviewed fixes, keeping REQUEST_FLOW and
+MODEL_REPLIES enabled. Build the required container once, record the
+deployed commit and actual image, and run one free runtime check."*
+
+- **Before**: unit CI green on the exact commit (`9381 / 9377 / 0 / 4`); the
+  site build's last green run covers it (identical inputs); nothing running;
+  no job open; the rollback checked; the served files read before.
+- **The merge**: `main` `f69c873c` → `e84b8e7e`, one fast-forward of 13
+  commits, at 18:10 UTC.
+- **The deploy**: one run, 2183, green, 2m38s. **The image was built once,
+  as predicted: `386607152d4cb319`** (was `882477e1bbbe8cbe`), and the
+  container moved to it at 18:13 UTC. Both switches were uploaded again;
+  their values are masked in the log, and the request press is their live
+  reading.
+- **Live now**: the page's files are byte-identical to the merged ones.
+- **The free check**: my one dispatch was refused (403), so it's your press.
+  The boxes are in the handoff above.
+- **Nothing paid**: balance 95, last ledger row 367.
+
+**Recorded in**: `docs/history/2026-10-04-deploy-2183.md`,
+`docs/deploy-record.md`.
 
 ## 2026-10-04 — Your review of the fixes: the four points done on the branch (nothing spent, nothing deployed)
 
