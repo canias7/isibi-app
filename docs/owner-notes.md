@@ -1,69 +1,106 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-04, 00:47 UTC)
+## Current handoff — read this first (2026-10-04, 01:25 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **Your review of the rollout plan is done, free, on the branch**:
-  - the expired-date tests run on a controlled clock;
-  - the canary's request-mode options and the six batch scenarios are built
-    and tested;
-  - the plan is revised: `docs/investigations/request-flow-rollout.md`.
-- **Nothing merged or deployed. No switch, no paid call, no model call, no
-  press, no container built. The product is frozen**: no file under
-  `public/`, `builder/` or `worker.js` changed. The code is `dd632b96`.
-- **Read today, free**: balance **137**, last ledger row 355, no job open
-  (00:22 UTC); `fold-lane-bakery` live at `01790923788063-bp9rcv`.
-- Deploy 2180's free runtime press was never made; the merge's press stands
-  for it.
-- **CI**: unit tests `9275 / 9271 / 0 / 4` on `141fd496` (run 37166044440), the local total exactly, CI skipping four as always; green again after the date fix. The site build was not started: no path it watches changed (no builder, Worker or container input); its last run on the branch, 37159581943, was green.
+- **Merged and deployed once, on your word**: `main` is **`f69c873c`**
+  (deploy 2181, 01:02–01:05 UTC), a fast-forward of 36 commits from
+  `b8d12ff9`. It carries:
+  - model-written replies;
+  - the information limits' batch 1;
+  - the mixed-work fixes, and the footer lists and menu;
+  - the combined request flow, switched off;
+  - the batch's instruments.
+- **Checked against the deploy's own log and the served files**:
+  - the container image was built as predicted, `882477e1bbbe8cbe`, and
+    rolled at 01:04:54 UTC;
+  - `REQUEST_FLOW` went up `off` and `MODEL_REPLIES` `on`: the workflow's
+    defaults, since neither secret holds a value;
+  - `chat.js`, `edit-poll.js` and `styles.css` are served byte for byte as
+    merged.
+- **The runtime check: deployed, not runtime-confirmed.** After the window
+  (to 01:24:11 UTC, 19 minutes after the roll) I made one dispatch of the
+  free check. It answered `403 Resource not accessible by integration`, and I did
+  not retry it. The unauthenticated gates answer 401 / 401 / 401 / 404: up,
+  not a version reading.
+- **Money**: balance **137**, last ledger row 355, no job open, no live
+  lease (01:10 UTC). The deploy charged nothing.
+- **Not started**: no paid test, `REQUEST_FLOW` not switched on, no full
+  rewrite.
+- **CI**: unit tests `9275 / 9271 / 0 / 4` on `f69c873c` itself (run
+  37166334976), CI skipping four as always. The site build's last green run
+  (37159581943, on `41286bb3`) has the same inputs fingerprint,
+  `70ac3011f592eab2`. This push is documents only.
 
-**What changed in the plan**
-- **No routing press.** Each press records the router's answer to its own
-  message, and the request that came of it. A probe's answer would not bind
-  the next one anyway.
-- **Two verdicts per press, never mixed.** The checks say whether the site
-  ended up as asked, and nothing else moved. The coverage says which internal
-  hand-over the run went through; it is recorded and never fails a press. The
-  valid other paths are listed press by press.
-- **Cost: 36–90 credits, likely about 50.** **100 is a threshold I check
-  between presses, not a ceiling**: once a message is sent, nothing stops its
-  parts on cost. A press can pass its estimate (an add-on that rewrites every
-  page cost 28 once; a photograph about 18.75), and only the balance (137)
-  bounds it.
-- **What is enforced, and when**:
-  - refused before the server runs it: a build, the rewrite's go-ahead, an
-    edit or add-on the page posts itself;
-  - only detected afterward and stopped (every 3 s, every 20 s with the tab
-    closed; a fast part can finish first): a part at a layer the press does
-    not list;
-  - seen only in the after-read: what an allowed step decides, such as a
-    page move in R1 or R2, or a table or photograph from the add-on.
-- **No concrete restriction is required** to run the batch. One choice is
-  yours: R2's wording, if you want a new table to be less likely (no wording
-  rules it out).
-- **RW stays separate.** Run in your own chat, a `build` answer would start
-  the full revise at once (11–45 credits), which is not the go-ahead test. A
-  walled canary scenario is offered, not built.
-- `MODEL_REPLIES` stays on; the demo changes stay.
+**Blockers**
+- **The free runtime check needs your press.** This session's GitHub
+  access cannot start a workflow (`403`). Nothing else it may use reads the
+  live version: both readers need a signed-in session, and I never mint or
+  read your credential. The boxes are below.
+- **The GitHub secrets cannot be listed from here** (`403`). The deploy log
+  stood in for them: it prints both switches' values in plain text
+  (`docs/history/2026-10-04-deploy-2181.md` §5).
 
-**Found while building** (backlog)
-- The page keeps a step's question without its request. The canary's first
-  question stop relied on it and would never have fired in R3's press; it
-  now matches the question by its id.
+**Exact next action**
+- **Yours**: the free runtime press (the boxes below). Then tell me its run
+  number, and I will read it and record it.
+- **Mine, once it passes**: record deploy 2181 as runtime-confirmed. Then,
+  only on your word: you switch `REQUEST_FLOW` on (Phase C), and I hand
+  over `rq-canary`, then R1–R5, reading the ledger before each press.
 
-**How I checked it** (all free)
-- 38 focused cases: the driver end to end through a stand-in app (the switch
-  off, R3's question and answer, R5's closed tab, a read while away, a wall
-  hit while away), the verdict on the bakery's own pages changed by the
-  product's own writers, and the in-app readers run in a VM.
-- Mutation sweep: 61 of 61 caught after five survivors were answered (four
-  test gaps closed, one dead line removed); the three comment-only controls
-  survived.
-- Full suite: `9275 / 9275 / 0 / 0` locally (from `9237`: the 38 new cases).
+**After the runtime check: the activation and the batch** (the plan's
+Phases C–E; none started, each only on your word)
+1. **Switch on (Phase C; yours, free)**: GitHub → the repository's Settings
+   → Secrets and variables → Actions → set `REQUEST_FLOW` to `on`. Then
+   Actions → *Deploy to Cloudflare* → *Run workflow* → `main` → *Run*. It
+   redeploys `f69c873c` with the secret uploaded. The image step reads
+   `reused` and nothing rolls, so there is no wait.
+2. **The request-mode canary (Phase D; one paid press, 2–5 credits)**:
+   `rq-canary`. If no request is opened, the switch is not live: the press
+   costs its routing call, changes nothing and stops, and the batch does not
+   start.
+3. **The batch (Phase E)**: R1 `rq-1-classes`, R2 `rq-2-wholesale`, R3
+   `rq-3-facebook`, R4 `rq-4-logo` and R5 `rq-5-away`, one paid press each,
+   in that order. Before each I read the ledger, and go on only if the
+   batch's spend so far plus that press's upper estimate is at most 100.
+
+**Spending**
+- Balance **137** (01:10 UTC).
+- **36–90 credits for the six presses, likely about 50**: rq-canary 2–5,
+  R1 9–24, R2 10–25, R3 4–12, R4 3–7, R5 8–17.
+- **100 is a threshold checked between presses, not a ceiling.** Once a
+  message is sent, nothing stops its parts on cost, so a press can pass its
+  estimate. The plausible worst single press is R2, at about 25 + 28 + 18.75
+  ≈ 72 (an add-on rewriting every page, and a photograph). The balance is
+  the only hard bound.
+- RW stays separate: 12–50 if its go-ahead is pressed, with its own
+  threshold of 50.
+
+**The press boxes** (the edit canary's form; "Use workflow from" `main`;
+every box not named is left as it is)
+- **The free runtime check**:
+  - "Run the ONE paid edit as well (yes/no)": `no`;
+  - "Refuse to spend unless the Worker reports this deploy sha (prefix, >=7
+    chars). Blank = read and print only.": `f69c873c`;
+  - "Refuse to spend unless a cold container reports this image id (exact).
+    Blank = read and print only.": `882477e1bbbe8cbe`.
+
+  It passes when the log reads `build-health 200 deploy=f69c873cc6e0
+  image=882477e1bbbe8cbe` and `runtime 200 deploy=f69c873cc6e0` with the
+  queue and the runner on, both expected checks are `ok`, and nothing is
+  charged.
+- **Each paid press, later, on your word only**:
+  - "Run the ONE paid edit as well (yes/no)": `yes`;
+  - "RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: …": the
+    scenario's name;
+  - "The site to edit. Defaults to the canary site; name another to run this
+    against it. Not needed with read_job.": `fold-lane-bakery`;
+  - the deploy sha box `f69c873c`, and the image box `882477e1bbbe8cbe`;
+  - "What to change" and the probe-list box blank.
 
 **Still yours** (the plan's §11)
 1. Approve the revised plan, with 100 as a threshold between presses, or
@@ -74,20 +111,11 @@ is in git; the dated entries further down are the full story.*
 4. The demo changes stay unless you say otherwise.
 
 **Links**
+- This round: `docs/history/2026-10-04-deploy-2181.md`; the deploy's
+  figures: `docs/deploy-record.md`.
 - The plan: `docs/investigations/request-flow-rollout.md`.
-- This round: `docs/history/2026-10-04-batch-instruments.md`.
 - How it works: `docs/request-flow.md`; the canary: `docs/instruments.md`.
 - The checklist's item 21, and the backlog's *The combined request flow*.
-
-**Blockers**
-- None.
-
-**Exact next action**
-- Yours: review the revised plan; approve or change it; say "merge" when
-  you are ready.
-- Mine, on your word: the merge and deploy, then your free runtime press;
-  you switch `REQUEST_FLOW` on; then `rq-canary`, and R1–R5 with the ledger
-  read before each press.
 ---
 
 2026-09-25: **Escalation correction CLOSED.** Independently reviewed (437 focused
@@ -146,6 +174,46 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-04 — Merged and deployed once as deploy 2181 (not yet runtime-confirmed: the free check is your press)
+
+- **Your words**: *"Approve the merge and deployment of the reviewed branch.
+  Confirm the candidate's unit CI is green and the unchanged
+  product/container inputs remain covered by the last successful site-build
+  check, then merge and deploy once. Keep REQUEST_FLOW off and MODEL_REPLIES
+  on. … Do not start paid tests, activate REQUEST_FLOW or run the optional
+  full rewrite yet."*
+- **Checked first, free**:
+  - the unit tests are green on the exact commit that was merged (`9275 /
+    9271 / 0 / 4`, CI skipping four as always);
+  - the site build's last green run still covers it: the files it reads are
+    the same on both commits (the same fingerprint), and nothing it watches
+    changed;
+  - nothing was running, the way back was tested, and the three browser
+    files were read before the push.
+- **Merged**: `main` went from `b8d12ff9` to `f69c873c` (36 commits) at
+  01:02 UTC, in one push.
+- **Deployed once**: deploy 2181, green in under three minutes. The container
+  image was rebuilt exactly as predicted (`882477e1bbbe8cbe`) and went live
+  at 01:04:54 UTC.
+- **The two switches went up as you asked**: `REQUEST_FLOW` off,
+  `MODEL_REPLIES` on. Neither has a secret set, so the deploy used its
+  defaults, and its log prints both. No live reader shows these two
+  switches; the request-mode canary will be the live reading of
+  `REQUEST_FLOW`.
+- **What visitors' browsers load**: the three changed files are served
+  exactly as merged, byte for byte.
+- **The runtime check**: **not done yet: it needs your press.** I waited the
+  15–20 minutes once (to 01:24 UTC) and tried once to start the free check.
+  GitHub refused it (403: this session cannot start workflows), and I did
+  not retry. Nothing else I am allowed to use can read which version is
+  running: that needs a signed-in session, and I never sign in as you. So
+  deploy 2181 is deployed, not runtime-confirmed. The boxes are in the
+  handoff.
+- **Money**: 137, unchanged. Nothing was charged.
+- **Not done**: no paid test, `REQUEST_FLOW` not turned on, no full rewrite.
+- The record: `docs/history/2026-10-04-deploy-2181.md`; the deploy's figures
+  are in `docs/deploy-record.md`.
 
 ## 2026-10-04 — Your review of the rollout plan: the free preparation done (nothing spent, merged, deployed or switched)
 

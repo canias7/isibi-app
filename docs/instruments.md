@@ -227,7 +227,7 @@ in `docs/instruments.md`; each test's plan and evidence is in the checklist.
     credits. The matrix and its inputs are
     `docs/investigations/whole-router-audit.md` §5.
   - **`clarify-live-1`** (prepared 2026-10-03 for the consolidated live
-    matrix, not run; on the branch only, so a press runs from the branch): 9
+    matrix, not run; on `main` since deploy 2181): 9
     probes on five sites — four ambiguous messages whose intended answer is a
     question back (`clarify`), three where a detail inside a page is the
     step's to ask about, so the router must answer with work, and two add-on
@@ -837,7 +837,7 @@ addition."* `scripts/canary-ui.mjs`, the `ui_scenario` box on `edit-canary.yml`,
   block, the balance was read before each message, every filed job was
   followed, and the after-read waited for the last published version.
 
-### THE UI MODE FOR A REQUEST THE SERVER RUNS (2026-10-03 — on the branch, unmerged; no press)
+### THE UI MODE FOR A REQUEST THE SERVER RUNS (2026-10-03 — on `main` since deploy 2181; no press)
 
 Owner, reviewing the combined request flow: *"Adapt the UI canary for
 request mode on this branch before rollout, rather than leaving that
@@ -880,7 +880,7 @@ mode*):
   end with a file, a misrouted part stopped, a part waiting for the go-ahead
   stopped, and the additions verdict). No request-mode press has been made.
 
-### THE REQUEST BATCH'S OPTIONS AND VERDICT (2026-10-04 — on the branch, unmerged; no press)
+### THE REQUEST BATCH'S OPTIONS AND VERDICT (2026-10-04 — on `main` since deploy 2181; no press)
 
 The owner, reviewing the rollout plan: *"implement the planned canary options
 and scenarios, verify them with focused tests … Revise the rollout plan to

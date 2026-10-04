@@ -388,9 +388,9 @@ here; take a closed one out of both.**
   `docs/investigations/information-limits-audit.md`, corrected on the
   owner's review): 21 defects (IL1–IL19, IL21, IL22), 2 optional
   capabilities (O1, O2) and 15 untested risks (R1–R15). **Batch 1 is
-  implemented, for review** (IL1, IL2, IL5, IL9 and R12:
-  `docs/history/2026-10-03-input-limits-batch1.md`; not merged or
-  deployed). Left, in the plan's order: batch 2, the pending request (IL3,
+  implemented, merged and deployed** (IL1, IL2, IL5, IL9 and R12:
+  `docs/history/2026-10-03-input-limits-batch1.md`; deploy 2181,
+  2026-10-04). Left, in the plan's order: batch 2, the pending request (IL3,
   IL4, IL6, IL7, IL8, IL17); batch 3, operations and results (IL10–IL16,
   IL18, IL19); batch 4, the reply (IL21, IL22); then the real-model audit.
   **Batches 2–4 paused by the owner on 2026-10-03**, for the mixed-work
@@ -403,22 +403,22 @@ here; take a closed one out of both.**
   without a word (MW2, a fifth lane; MW4, past a step's count; MW6, an
   addition's declined part), a second part the answer cannot make vanishing
   (MW3), and a job's interval raised unsaid (MW7). A real-model batch
-  (MX1–MX6) is prepared, not run. **All eight fixed on the branch on
-  2026-10-03, unmerged and undeployed** (`docs/history/2026-10-03-mixed-work-fixes.md`).
+  (MX1–MX6) is prepared, not run. **All eight fixed on
+  2026-10-03, merged and deployed in deploy 2181 (2026-10-04)** (`docs/history/2026-10-03-mixed-work-fixes.md`).
   **The footer's eighth-entry cut the owner reproduced on the review, and
   the menu's count of ten, removed the same day**
   (`docs/history/2026-10-03-footer-lists.md`). **An edit and an addition
   finishing in one request is built on the branch** (the combined request
-  flow, next lines; unmerged, undeployed, off by default). Open: the
+  flow, next lines; deployed in 2181, off). Open: the
   real-model batch.
 - The page itself makes the three existing hand-overs (edit → add-on, a
   sideways hop, add-on → menu step), so closing the tab between the two jobs
-  loses the second half (found 2026-10-03). **On the branch, a message the
-  request flow takes on has them made by the server** (`handOff`,
+  loses the second half (found 2026-10-03). **With the request flow (deployed in
+  2181, off), a message it takes on has them made by the server** (`handOff`,
   `docs/request-flow.md`). The page still makes them with the switch off, or
   where edits are not queued for an owner and site.
-- **The combined request flow** (2026-10-03, `docs/request-flow.md`; built on
-  the branch, unmerged, undeployed, off by default behind `REQUEST_FLOW`;
+- **The combined request flow** (2026-10-03, `docs/request-flow.md`; merged and
+  deployed in deploy 2181 (2026-10-04), off behind `REQUEST_FLOW`;
   supplied model answers only). **The owner's review fixes are on the
   branch too** (`docs/history/2026-10-03-request-review-fixes.md`): additions
   set aside become parts by the picker's own words, an outcome done only in
@@ -528,7 +528,7 @@ here; take a closed one out of both.**
   a mix).** Each, with its lines, evidence, test coverage and smallest
   change, is in `docs/investigations/information-limits-audit.md` (§9 lists
   them; §10 groups the changes; §11 is the plan).
-  - **The words** (IL1, IL2, IL5) — **batch 1, implemented for review**
+  - **The words** (IL1, IL2, IL5) — **batch 1, deployed in 2181**
     (`docs/history/2026-10-03-input-limits-batch1.md`): one size policy
     (16,000 a message, 48,000 a request with what it carries), every hop
     whole, refused past it with the draft and any waiting question kept;
@@ -547,7 +547,7 @@ here; take a closed one out of both.**
     question, request and answers are kept as they were (the request is
     not dropped), but going on means Cancel and retyping; three endings
     drop a step's question and the other steps' refusals.
-  - **The page list** (IL9, R12) — **batch 1, implemented for review**: the
+  - **The page list** (IL9, R12) — **batch 1, deployed in 2181**: the
     page keeps every page's address, the routing route reads the site's own
     pages (owner-verified, bounded, failing open to the browser's list
     marked unverified, never read as a missing page), and every digest
@@ -583,15 +583,15 @@ here; take a closed one out of both.**
     held-back part in a script near a character a token (R16, batch 1); and
     twelve more, listed in the audit's §9.
 - **MIXED WORK FROM ONE MESSAGE (MW1–MW8; found 2026-10-03 by the
-  mixed-work audit on the owner's word; FIXED ON THE BRANCH THE SAME DAY, on
-  their word, unmerged and undeployed —
+  mixed-work audit on the owner's word; FIXED THE SAME DAY, on
+  their word; merged and deployed in deploy 2181, 2026-10-04 —
   `docs/history/2026-10-03-mixed-work-fixes.md`).** Each case in
   `test/mixed-work.test.mjs` now requires the fix (FIXED MWn), through the
   real routes with supplied answers; `docs/investigations/mixed-work-audit.md`
   §6 holds each finding beside its status. Shown with supplied answers only:
   a real model's answers and a live site's delivery are unverified until the
   real-model batch (MX1–MX6, prepared, not run). The findings as they stood
-  on `main` (deploy 2180), where they still hold:
+  on `main` through deploy 2180:
   - **MW1** (= IL12, review #9): beside a look or page change, a photograph
     change and a menu change are made but told nowhere — the merged answer
     keeps one step's `msg`, and on a `look` answer both the page's composer

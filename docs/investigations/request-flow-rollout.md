@@ -1,10 +1,17 @@
 # The combined request flow: rollout and real-model validation (revised plan, for your approval)
 
-Prepared 2026-10-03; **revised 2026-10-04 after your review**. Nothing in this
-plan has been run: nothing merged, deployed, switched on, spent, pressed or
-built. **The product is frozen** at `567409ce`. The instruments it needs
-(Phase A) are on the branch at `dd632b96`: scripts, tests and the canary form's
-help text only, no product file.
+Prepared 2026-10-03; **revised 2026-10-04 after your review**. **The product is
+frozen** at `567409ce`. The instruments it needs (Phase A) are at `dd632b96`:
+scripts, tests and the canary form's help text only, no product file.
+
+**Status (2026-10-04, after deploy 2181)**: Phase B ran on your word. `main` was
+fast-forwarded to `f69c873c` and deployed once, as deploy 2181. The image
+`882477e1bbbe8cbe` was built and rolled as predicted. `REQUEST_FLOW` was
+uploaded `off` and `MODEL_REPLIES` `on`, the workflow's fallbacks, read in the
+deploy log. The served files are byte-identical to the merged ones.
+**Deployed, not runtime-confirmed**: the session's one dispatch of the
+free runtime press (01:24 UTC) answered 403, so that press is yours (§3.1). **Phases C–F have not started**: no switch turned on, no paid
+press, no full rewrite. The record: `docs/history/2026-10-04-deploy-2181.md`.
 
 Your first order: *"Freeze this implementation and prepare the concrete rollout
 and real-model validation batch without executing it yet. Use a compact set of
@@ -88,17 +95,17 @@ container rebuild yet."*
 
 ## 1. Where things stand (read 2026-10-04, free)
 
-- **The branch** (`claude/help-needed-ehlwlj`) is `main` (`b8d12ff9`, deploy
-  2180) plus the reviewed changes and this round's instruments. Its tip is in
-  the handoff.
-- **The container image**: `main` predicts `8bfc67dc695e65cc` (191 inputs);
-  the branch predicts `882477e1bbbe8cbe` (194 inputs), unchanged by this round
-  (scripts and tests are not container inputs). A merge rolls the image.
-  Nothing is built.
+- **`main` is `f69c873c`** (deploy 2181, 2026-10-04): the reviewed changes and
+  this round's instruments, merged. The branch (`claude/help-needed-ehlwlj`)
+  is `main` plus records.
+- **The container image** is `882477e1bbbe8cbe` (194 inputs), built and
+  rolled by deploy 2181 at 01:04:54 UTC, as predicted (from
+  `8bfc67dc695e65cc`).
 - **The building account**: balance **137**, last ledger row 355
-  (2026-10-02 06:49 UTC), no job open (read 2026-10-04 00:22 UTC).
-- **Deploy 2180's free runtime press was never made.** The merge's press
-  stands for it.
+  (2026-10-02 06:49 UTC), no job open (read 2026-10-04 01:10 UTC, after the
+  deploy).
+- **The runtime check**: deployed, not runtime-confirmed. The session's one
+  dispatch (01:24 UTC) answered 403; the free press is yours (§3.1).
 - **Unit CI was red from 2026-10-03 23:00 UTC for a reason of the calendar's**:
   three one-time job tests dated their job `2026-10-03`, a past date once that
   day ended in London. **Fixed** (Phase A, item 0).
@@ -259,8 +266,7 @@ twice to check it again.
 ### 3.1 The boxes, by their descriptions
 
 **Every press**: "Use workflow from" `main`. Every box not named is left as it
-is. `<sha>` is `main`'s first 8 characters after the fast-forward; I give it to
-you at the merge.
+is. `<sha>` is **`f69c873c`**, `main` after the fast-forward (deploy 2181).
 
 **The free runtime press (Phase B)**:
 - "Run the ONE paid edit as well (yes/no)": `no`;

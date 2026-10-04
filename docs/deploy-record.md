@@ -5,7 +5,7 @@
 > `docs/deploy.md`, where CLAUDE.md's **Deploy** section moved in the second
 > pass. This file keeps the measurements behind them: the
 > timing bands, every image-id prediction checked against a deploy's own log
-> (deploys 2137–2180), and the served-file check driven end to end on deploy
+> (deploys 2137–2181), and the served-file check driven end to end on deploy
 > 2139.
 >
 > **Add each new deploy here**, one paragraph per deploy, in the same shape:
@@ -1071,6 +1071,92 @@ wait; it answered `403 Resource not accessible by integration` and was not
 retried. The unauthenticated gates answered 401, 401, 401 and 404 at 03:14:23
 UTC (up, not a version reading). The press's exact boxes are in
 `docs/history/2026-10-03-live-matrix.md` §1.3.
+
+**Deploy 2180's own runtime check was never pressed.** Deploy 2181 runs its
+code plus the branch's reviewed changes, so 2181's runtime check stands for
+it.
+
+**Deploy 2181 (2026-10-04) was predicted on both ends and built as
+predicted**: `origin/main` `b8d12ff9` answered `8bfc67dc695e65cc` (191
+inputs, 161 distinct paths) and the candidate `f69c873c`
+**`882477e1bbbe8cbe`**, from 194 inputs (164 distinct paths), the id it had
+at `41286bb3`. 23 paths differ: `worker.js`, 21 builder modules and the
+Dockerfile, whose one changed line adds the three new modules
+(`builder/input-budget.mjs`, `builder/request.mjs`,
+`builder/site-reply.mjs`). The push carried everything reviewed on the branch
+since deploy 2180, on the owner's word (*"Approve the merge and deployment of
+the reviewed branch. … merge and deploy once. Keep REQUEST_FLOW off and
+MODEL_REPLIES on."*):
+- model-written replies with the owner's review;
+- the information limits' batch 1;
+- the mixed-work fixes, and the footer lists and menu;
+- the combined request flow with its two review rounds (off);
+- the request batch's instruments;
+- their records.
+
+**`public/` moved**: `chat.js`, `edit-poll.js` and `styles.css`. **A
+fast-forward of 36 commits**, `b8d12ff9` → `f69c873c` at 01:02:00Z. Checked
+first:
+- **the candidate**: `main` was still `b8d12ff9`, an ancestor of `f69c873c`;
+- **nothing in flight**: no Actions run in progress or queued; no open job
+  and no live lease in `edit_jobs` (01:01:07 UTC);
+- **unit CI on the candidate itself**: run 37166334976 on `f69c873c`, `9275
+  / 9271 / 0 / 4`, the local total exactly;
+- **the site build, reused**: run 37159581943 on `41286bb3`, every one of
+  its 8 jobs green (`all checks` among them), at inputs `70ac3011f592eab2`,
+  the fingerprint `f69c873c` reads too (3,972 files). None of the 20 files
+  changed since then matches any of its 33 path patterns: scripts, tests, a
+  fixture picture, the canary workflow's help text and documents;
+- **the rollback**: reverting `b8d12ff9..f69c873c` in a throwaway worktree
+  gives main's own tree (`a542846c…`);
+- **the served files, read before the push** (01:01:31 UTC): `chat.js`
+  829,182 bytes `d90a0553…`, `edit-poll.js` 42,187 bytes `638f832e…` and
+  `styles.css` 348,527 bytes `9a72381a…`, all `b8d12ff9`'s own;
+- **the money**: balance 137 on the building account, the ledger's last row
+  355, no job open.
+
+**One deploy run**, 2181 (37166771523, `push` on `f69c873c`), `completed` /
+`success`, the job **2m54s** (01:02:08–01:05:02):
+- **the gate** was set at 01:02:34 for `f69c873c…` (taking over from
+  `b8d12ff9…`), until 01:47:34; the drain answered `no live leases after 1s —
+  deploying` (masked `***s`); after Wrangler the gate was `left to expire`;
+- **the image**: `built isibi-app-sitebuildcontainer:882477e1bbbe8cbe
+  (registry answered 404; 194 inputs off ./Dockerfile)` (masked `***94`).
+  0 `CACHED` lines; 15 layers `Pushed` and 4 `Layer already exists`. Then
+  Wrangler's container step: `EDIT isibi-app-sitebuildcontainer`, `-
+  "image": …:8bfc67dc695e65cc` / `+ "image": …:882477e1bbbe8cbe`, `SUCCESS
+  Modified application isibi-app-sitebuildcontainer` at **01:04:54Z**;
+- **timings**: image step **2m01s** (01:02:34–01:04:35), in the ordinary
+  rebuild band. The apt layer took 21.6 s. The image was named at 01:03:35,
+  the push began at 01:03:36, and the last layer finished at 01:04:29.
+  Wrangler 20 s (01:04:36–01:04:56);
+- **Wrangler**: 25 secrets uploaded by `wrangler secret bulk`; the step's
+  environment prints `MODEL_REPLIES: on` and `REQUEST_FLOW: off` in plain
+  text, so both are the workflow's fallbacks and neither secret holds a
+  value (a secret's value prints `***`). `DEPLOY_ID`
+  `f69c873cc6e078b8b47715557a4fcf85c415b485` (masked); `Read 99 files from
+  the assets directory`, `Found 3 new or modified static assets to upload`
+  (`+ /edit-poll.js`, `+ /styles.css`, `+ /chat.js`), `Uploaded 3 files (83
+  already uploaded)`; `Uploaded isibi-app`, `Deployed isibi-app triggers`,
+  `Current Version ID: a6836228-445a-4a95-…` (masked).
+
+**The served files match the merged ones** (read at 01:08:57 UTC):
+`chat.js` 869,027 bytes `b677eef0…`, `edit-poll.js` 44,578 bytes
+`13418673…` and `styles.css` 349,252 bytes `54f6dd2b…`, byte-identical to
+`f69c873c`'s.
+
+**The image rolled at 01:04:54Z**, so container work waited 15–20 minutes,
+to 01:24:11 UTC (19 minutes).
+
+**Deployed, not runtime-confirmed**: the free runtime check is the owner's
+press (spend `no`, `expect_deploy` `f69c873c`, `expect_image`
+`882477e1bbbe8cbe`). The session made one dispatch at 01:24 UTC, after the
+wait; it answered `403 Resource not accessible by integration` and was not
+retried. The unauthenticated gates answered 401, 401, 401 and 404 at 01:24:29
+UTC (up, not a version reading). The press's exact boxes are in
+`docs/history/2026-10-04-deploy-2181.md` §8. The money after the deploy
+(01:10:24 UTC): balance 137, the ledger's last row 355, no job open, no live
+lease.
 
 ## The served-file check, driven end to end on deploy 2139
 

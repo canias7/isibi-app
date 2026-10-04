@@ -859,8 +859,20 @@ the owner's free press, run 51, at 22:57 UTC):
         afterward (also with the tab closed); no restriction required; RW
         separate, with the risk of the owner's own chat named.
       - The record: `docs/history/2026-10-04-batch-instruments.md`.
-    - **Next**: the owner's approval of the revised plan; then the merge on
-      the owner's word.
+    - **Merged and deployed once, on the owner's word** (2026-10-04, deploy
+      2181): `main` `b8d12ff9` → `f69c873c`, 36 commits. The image
+      `8bfc67dc695e65cc` → `882477e1bbbe8cbe` was built from 194 inputs, as
+      predicted. `REQUEST_FLOW` was uploaded `off` and `MODEL_REPLIES` `on`
+      (the workflow's fallbacks, read in the deploy log). The served
+      `chat.js`, `edit-poll.js` and `styles.css` are byte-identical to the
+      merged files. **Deployed, not runtime-confirmed**: the session's
+      one dispatch of the free runtime press answered 403 (not retried), so
+      that press is the owner's. Nothing charged: balance 137.
+      The record: `docs/history/2026-10-04-deploy-2181.md`.
+    - **Next**: the owner's free runtime press; then, each on the
+      owner's word: `REQUEST_FLOW` on (Phase C), the `rq-canary` press (Phase
+      D), and R1–R5 with the ledger read before each press (Phase E). RW
+      stays separate.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).
