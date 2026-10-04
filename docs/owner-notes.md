@@ -1,96 +1,60 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-04, 02:41 UTC)
+## Current handoff — read this first (2026-10-04, 03:11 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **The request flow is live**: your `rq-canary` press (run 94) passed every
-  check, for 4 credits.
-- **One press for R1–R5 is built, on your word** (`rq-batch`):
-  - it runs R1 to R5 in order, one at a time, each as its own complete press
-    with its own checks;
-  - it stops itself before any press that would take the batch past 100;
-  - it also stops after a press that fails, so a fault is read before more
-    is spent;
-  - it changes nothing in the product: scripts, tests and the canary form
-    only.
-- **Running**: `main` `f69c873c` (deploy 2181, runtime-confirmed), image
-  `882477e1bbbe8cbe`, `REQUEST_FLOW` on (deploy 2182), `MODEL_REPLIES` on.
-- **Money**: balance **133**, last ledger row 357, no job open (02:23 UTC).
-  The batch has spent **4**.
-- **How I checked the new mode** (all free): 18 new tests, among them the
-  real canary script run end to end with a stand-in press; a mutation sweep
-  that caught all 37 defects (the 3 comment-only controls survived); the
-  full suite `9293 / 9293 / 0 / 0`.
+- **The request flow is live** (`rq-canary`, run 94, passed).
+- **Your batch press, run 95: R1 mostly landed, and the batch stopped after
+  it, as built.**
+  - Landed: the description (the Saturday bread-making classes) and the new
+    Classes page, which loads. Nothing else moved.
+  - Failed: **the menu link**. The add-on put "Classes" on the home page's
+    menu and the new page's; the menu step then refused (*"I couldn't work
+    out what the menu should be"*), refunded. `/order`, `/visit` and
+    `/gallery` have no link.
+  - Failed: **the replies**. The parts' results carried no model-written
+    reply, so the page showed the old fixed sentences.
+  - Cost 21, within 9–24. Your build charged 8 during R1, which is why the
+    old money check failed too; every ledger row is matched.
+- **The money check now counts a press's own charges** (your fix), built and
+  tested on the branch: 9 cases, a sweep of 24 of 24, the suite
+  `9302 / 9302 / 0 / 0`.
+- **Money**: balance **95**, last ledger row 367, no job open (03:09 UTC).
+  The batch has spent **25** of its 100. Your build cost 17.
+- **Running**: `main` `f69c873c`, image `882477e1bbbe8cbe`, `REQUEST_FLOW`
+  on, `MODEL_REPLIES` on.
 
 **Blockers**
 - None.
 
 **Exact next action**
-- **Yours**: press `rq-batch` (below). It runs by itself, for about 30–60
-  minutes usually, at most 3 hours. Send me the run number.
-- **Mine, then**: read every press's verdict, the ledger and the site, and
-  record them.
+- **Mine, recommended, free**: look into the two problems. I would reproduce
+  them through the real routes with supplied answers, find the causes, and
+  propose fixes for your approval. R2 asks for another menu link, likely the
+  same failure, and every multi-part press (R2–R5) fails its reply checks
+  until the second is settled. So pressing them now mostly shows the same two
+  failures again, for about 34–60 credits.
+- **Yours**: say go for that. Or, to keep testing now, press R2–R5 one at a
+  time (below): the batch would stop after each failure, and it always starts
+  at R1. It cannot yet start from R2; I can add that when we resume.
 
-**`rq-batch`: R1–R5 in one press (paid; 34–85 credits, likely about 49)**
+**Pressing R2–R5 one at a time** (only if you choose to; each paid)
 - The form: https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml
-  → *Run workflow*.
-- **"Use workflow from": `claude/help-needed-ehlwlj`**, not `main`: the new
-  mode is on the branch. Nothing needs merging or deploying for it; the press
-  still checks the live Worker.
-- Fill these, and leave every other box as it is:
+  → *Run workflow*, "Use workflow from" `claude/help-needed-ehlwlj`. Leave
+  every box not named as it is:
   - "Run the ONE paid edit as well (yes/no)": `yes`;
   - "RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: …":
-    `rq-batch`;
-  - "REQUEST BATCH ONLY (rq-batch): the credits the batch has already spent
-    before this press (rq-canary cost 4). …": `4`;
-  - "The site to edit. Defaults to the canary site; name another to run this
-    against it. Not needed with read_job.": `fold-lane-bakery`;
-  - "Refuse to spend unless the Worker reports this deploy sha (prefix, >=7
-    chars). Blank = read and print only.": `f69c873c`;
-  - "Refuse to spend unless a cold container reports this image id (exact).
-    Blank = read and print only.": `882477e1bbbe8cbe`;
-  - "What to change" and the probe-list box: blank.
-- **What it sends, in order**:
-  1. R1: *Change the site description to say we now run Saturday
-     bread-making classes, put a link to the new Classes page in the menu,
-     and add a Classes page that explains the classes.*
-  2. R2: *Add a Wholesale page for cafés that want to order loaves in bulk
-     and put a link to it in the menu, then change the Walnut Levain's price
-     to £6.20.*
-  3. R3: *On the Visit page, change the heading 'The shutters and the street'
-     to 'Our shop on the street', and add a link to our Facebook page in the
-     footer.* Then, when the builder asks for the link: *It's
-     facebook.com/harbourloafbristol*
-  4. R4: *Change the home page heading 'Fed every morning since we opened' to
-     'Fed every morning since 2019', and use the attached picture as our
-     logo.* (with the committed `ui-logo-2.png`)
-  5. R5: *Add a line to the Order page saying orders close at 8pm the night
-     before, and change the Gallery page heading 'Photographs of the bakery's
-     work' to 'Photographs from the bakery'.* (with the tab closed once the
-     request is taken on)
-- **When it stops early**: before a press whose upper estimate would take
-  the batch past 100; after a press that fails a check; or after one whose
-  spend cannot be read. Each press's verdict is in the log either way.
-
-**Spending**
-- Balance **133**; the batch has spent 4.
-- **The five presses: 34–85 credits, likely about 49** (R1 9–24, R2 10–25,
-  R3 4–12, R4 3–7, R5 8–17). At their upper estimates the batch reaches 89.
-- **100 is checked between presses, not while one runs.** Once a message is
-  sent, nothing stops its parts on cost. The plausible worst single press is
-  R2, at about 72; after such a press the batch stops before the next one
-  that no longer fits. The balance is the only hard bound.
-
-**To stop new requests at any time**: set the secret `REQUEST_FLOW` to `off`
-(https://github.com/canias7/isibi-app/settings/secrets/actions) and run
-*Deploy to Cloudflare* on `main` again
-(https://github.com/canias7/isibi-app/actions/workflows/deploy.yml).
-Accepted requests still finish. To stop the batch itself, cancel its run on
-the Actions page; a press already sent finishes on the server.
+    `rq-2-wholesale`, then `rq-3-facebook`, `rq-4-logo`, `rq-5-away`;
+  - "The site to edit. …": `fold-lane-bakery`;
+  - the deploy sha box `f69c873c`, the image box `882477e1bbbe8cbe`;
+  - "What to change", the probe-list box and the batch box: blank.
+- Estimates: R2 10–25, R3 4–12, R4 3–7, R5 8–17. Before each I read the
+  ledger and go on only if the batch's spend plus that press's upper estimate
+  is at most 100 (now 25 + 25 = 50 for R2).
 
 **Still yours** (the plan's §11)
 1. Approve the revised plan, with 100 as a threshold between presses, or
@@ -101,11 +65,11 @@ the Actions page; a press already sent finishes on the server.
 4. The demo changes stay unless you say otherwise.
 
 **Links**
-- The presses: `docs/history/2026-10-04-request-batch.md` (the batch mode in
-  §2).
-- The canary: `docs/instruments.md` (*One press for the whole request
-  batch*).
-- The plan: `docs/investigations/request-flow-rollout.md`.
+- The presses: `docs/history/2026-10-04-request-batch.md` (run 95 in §3, the
+  money fix in §4).
+- The two problems: the backlog's first two lines.
+- The canary: `docs/instruments.md`; the plan:
+  `docs/investigations/request-flow-rollout.md`.
 ---
 
 2026-09-25: **Escalation correction CLOSED.** Independently reviewed (437 focused
@@ -164,6 +128,38 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-04 — Your batch press (run 95): R1 mostly landed, two problems found; the money check fixed (21 credits)
+
+- **What you pressed**: `rq-batch` (R1–R5 in one press), from the branch.
+- **R1's message**: *"Change the site description to say we now run Saturday
+  bread-making classes, put a link to the new Classes page in the menu, and
+  add a Classes page that explains the classes."*
+- **What landed**: the description now mentions the Saturday bread-making
+  classes, and a new Classes page exists and loads. Nothing else on the site
+  changed.
+- **What failed**:
+  - **the menu link**: the add-on step put "Classes" in the menu of the home
+    page and of the new page. The menu step was then asked to add the link
+    and refused (*"I couldn't work out what the menu should be"*); that part
+    was refunded. So `/order`, `/visit` and `/gallery` have no Classes link;
+  - **the replies**: none of the three parts got a model-written reply, so
+    the page showed the old fixed sentences.
+- **Why the batch stopped**: R1 failed a check, so it stopped before
+  spending on R2–R5, as it was built to.
+- **Your build at the same time**: it charged 8 credits during R1, which is
+  why the old money check failed too. I matched every ledger row: R1's own
+  cost was 21 (within its 9–24 estimate). Your build cost 17 in all (14 with
+  ledger rows, plus 3 for its routing, which has none).
+- **The money fix you asked for is built**: a press now counts only its own
+  charges. Anything else on the account during a press is listed beside the
+  check and never fails it. 9 new tests on run 94's real records, a mutation
+  sweep that caught all 24 defects, the full suite `9302 / 9302 / 0 / 0`. No
+  run was stopped.
+- **Both problems are in the backlog**, to look into before more paid
+  presses.
+- **Money**: balance 95; the batch has spent 25 of its 100.
+- The record: `docs/history/2026-10-04-request-batch.md` §3 and §4.
 
 ## 2026-10-04 — One press for R1–R5 (`rq-batch`), built on your word (nothing spent)
 

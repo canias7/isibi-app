@@ -61,6 +61,9 @@ import { routeCallOf } from "./canary-ui.mjs";
 // coverage it records and never fails on; its publishes put in the order the
 // request made them.
 import { chainOrdered } from "./canary-ui.mjs";
+// AND ITS MONEY, BY THE PRESS'S OWN CHARGES (2026-10-04): the account may be in
+// use while a press runs.
+import { routeCallsOf, ownMoneyVerdict, ownMoneySaid } from "./canary-ui.mjs";
 import { requestBatchVerdict } from "./canary-requests.mjs";
 // TEST 5: a page removal is judged by what its operations did, never by how
 // many replies came back.
@@ -1256,10 +1259,33 @@ if (UI_ASK) {
       for (const c of requests.checks) check(c.name, c.ok, c.why);
       console.log("\n  THE REPLIES (each the model's own, and on screen):");
       for (const c of requests.replies) check(c.name, c.ok, c.why);
-      // THE MONEY, as every other press's: the routing calls' own costs plus
-      // what each of the request's jobs' rows and ledger both say it took.
-      const money = moneyVerdict({ start: ui.balance.start, end: ui.balance.end, routeCosts: routeCostsOf(ui.steps), jobs: jobRecords });
-      check(`the money closes: routing ${money.routing ?? "?"} + jobs ${money.edits ?? "?"} = the balance's move of ${money.spent ?? "?"}`, money.ok, money.why || `${ui.balance.start} -> ${ui.balance.end}`);
+      // THE MONEY, BY THIS PRESS'S OWN CHARGES (2026-10-04, on the owner's word:
+      // the account may be in use while a press runs, and the balance's move
+      // then carries other charges too). Its routing calls' rows are read by
+      // their own refs, its jobs' by theirs, and the ledger between the two
+      // balance reads tells what else moved the balance meanwhile — told beside
+      // the check, never failing it (`ownMoneyVerdict`).
+      const calls = routeCallsOf(ui.steps);
+      const ledgerRows = async (query) => {
+        try {
+          const r = await fetch(`${SUPABASE_URL}/rest/v1/credit_events?${query}&select=id,kind,reason,delta,ref,at&order=id.asc`, { headers: svc });
+          const rows = await r.json().catch(() => null);
+          return { ok: r.status === 200 && Array.isArray(rows), rows: Array.isArray(rows) ? rows : null };
+        } catch { return { ok: false, rows: null }; }
+      };
+      const routeRows = { ok: true, rows: [] };
+      for (const ref of new Set(calls.map((c) => c.ref).filter(Boolean))) {
+        const got = await ledgerRows(`ref=eq.${encodeURIComponent(ref)}`);
+        if (!got.ok) { routeRows.ok = false; break; }
+        routeRows.rows.push(...got.rows);
+      }
+      const bal = ui.balance || {};
+      const window = bal.startAt && bal.endAt
+        ? await ledgerRows(`uid=eq.${encodeURIComponent(UID)}&at=gte.${encodeURIComponent(bal.startAt)}&at=lte.${encodeURIComponent(bal.endAt)}`)
+        : null;
+      const money = ownMoneyVerdict({ start: bal.start, end: bal.end, calls, routeRows, jobs: jobRecords, window });
+      requests.money = money;
+      check(`this press's own charges add up: routing ${money.routing ?? "?"} + jobs ${money.edits ?? "?"} = ${money.own ?? "?"}, within the balance's move of ${money.spent ?? "?"}`, money.ok, money.why || ownMoneySaid(money));
       // COVERAGE: recorded, never a check.
       console.log("\n  COVERAGE (which hand-over this run went through; recorded, never failed on):");
       for (const c of requests.coverage) console.log(`    ${c.covered ? "COVERED    " : "NOT COVERED"}  ${c.name} — ${c.why}`);

@@ -20,6 +20,12 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
+- **A menu link handed from the add-on step to the menu step failed with
+  `no-menu`** (R1, run 95, 2026-10-04): the add-on had already put the link on
+  the home page and the new page, and the other three pages got none.
+- **A multi-part request's parts got no model-written reply** (R1, run 95):
+  their job results carried no `reply`, so the page showed the old fixed
+  sentences; a single part had one (run 94).
 - A half of a message the router puts off (`alsoAsked`) is still attempted,
   on the home page, and the reply contradicts itself (run 52). **Fixed and
   deployed 2026-09-29 (deploy 2166); run 57 made both changes live, with
@@ -418,6 +424,37 @@ here; take a closed one out of both.**
   server** (`handOff`,
   `docs/request-flow.md`). The page still makes them with the switch off, or
   where edits are not queued for an owner and site.
+- **A MENU LINK HANDED FROM THE ADD-ON STEP TO THE MENU STEP FAILED WITH
+  `no-menu`** (found live in R1, run 95, 2026-10-04;
+  `docs/history/2026-10-04-request-batch.md` §3). The message: *"Change the
+  site description to say we now run Saturday bread-making classes, put a
+  link to the new Classes page in the menu, and add a Classes page that
+  explains the classes."* The router held the link back and ordered it after
+  the page, and the request kept that order.
+  - The add-on made the page (job `073e0a57…`) and itself put *Classes* in
+    the menu of the home page and of the new page.
+  - The link's own part was then routed to the add-on (`1964a100…`), which
+    handed it to the menu step (`1de75e3f…`, `nav`, `frame`).
+  - The menu step (`ac0a5b9f…`) answered `422 no-menu`, *"I couldn't work
+    out what the menu should be"*, refunded.
+  - So `/order`, `/visit` and `/gallery` have no *Classes* link.
+
+  Open: why the menu step could not work out the menu. The menus differing
+  between pages at that moment is a candidate, not shown. And whether the
+  add-on should add the link to every page itself, or leave it wholly to
+  the part that asks for it.
+- **A MULTI-PART REQUEST'S PARTS GOT NO MODEL-WRITTEN REPLY** (found live in
+  R1, run 95; the same section).
+  - The job results the page read for the request's three parts carried no
+    `reply` or `replySource`: part 0's (`4ad20b96…`, with `deferred`), part
+    2's (`073e0a57…`) and part 1's refusal (`ac0a5b9f…`, 422).
+  - So the page showed the old fixed sentences.
+  - Run 94's single part's result carried one (`replySource: "model"`).
+
+  Open: which condition skips the reply writer for these parts (the
+  `deferred` on part 0's result is one difference), and whether a refusal
+  like `no-menu` should get a model reply under the reply design's rules.
+  Every multi-part press fails its reply checks until this is settled.
 - **The combined request flow** (2026-10-03, `docs/request-flow.md`; merged and
   deployed in deploy 2181 (2026-10-04); `REQUEST_FLOW` set by the owner in
   deploy 2182;

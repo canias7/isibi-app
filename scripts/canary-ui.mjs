@@ -901,6 +901,23 @@ export function routeCostsOf(steps) {
 }
 
 /**
+ * Each routing call the page made: what its answer said it cost, and the ledger
+ * ref its charge is kept under when it carried a message's key — the Worker's
+ * `credit_debit` under `route:<site>:<key>`, the key being the message's own
+ * `idem`. A call with no key pays through the older gate, which keeps no row:
+ * its ref is "".
+ */
+export function routeCallsOf(steps) {
+  return (Array.isArray(steps) ? steps : []).flatMap((s) => (Array.isArray(s && s.network) ? s.network : [])
+    .filter((e) => e.method === "POST" && e.path === "/api/site/route")
+    .map((e) => {
+      const q = e.req && typeof e.req === "object" ? e.req : {};
+      const ref = typeof q.idem === "string" && q.idem && typeof q.slug === "string" && q.slug ? `route:${q.slug}:${q.idem}` : "";
+      return { ref, cost: e.res && typeof e.res === "object" ? e.res.cost : undefined };
+    }));
+}
+
+/**
  * THE MONEY, CLOSED OR NOT. The balance before the first message less the
  * balance at the end must be exactly the routing calls' own costs plus each
  * job's charge — and each job's charge must be what its own row says AND what
@@ -916,6 +933,21 @@ export function moneyVerdict({ start, end, routeCosts, jobs } = {}) {
   const costs = Array.isArray(routeCosts) ? routeCosts : [];
   if (costs.some((c) => !Number.isFinite(c) || c < 0)) return bad("a routing call's cost is not a number");
   const routing = costs.reduce((a, b) => a + b, 0);
+  const jc = jobCharges(jobs);
+  if (!jc.ok) return bad(jc.why);
+  const edits = jc.edits;
+  const spent = start - end;
+  return spent === routing + edits
+    ? { ok: true, why: "", spent, routing, edits }
+    : bad(`the balance moved ${spent}; routing ${routing} + edits ${edits} is ${routing + edits}`, { spent, routing, edits });
+}
+
+/**
+ * WHAT EACH JOB TOOK: what its own row says AND what the ledger took under it,
+ * or a refusal naming the job. Shared by both money verdicts.
+ */
+export function jobCharges(jobs) {
+  const bad = (why) => ({ ok: false, why });
   let edits = 0;
   for (const j of Array.isArray(jobs) ? jobs : []) {
     const id = (j && j.job) || "?";
@@ -943,10 +975,75 @@ export function moneyVerdict({ start, end, routeCosts, jobs } = {}) {
       return bad(`job ${id} is ${j.row.billing}, not settled`);
     }
   }
+  return { ok: true, why: "", edits };
+}
+
+/**
+ * THE MONEY OF ONE PRESS, BY ITS OWN CHARGES (2026-10-04, on the owner's word:
+ * the account may be in use while a press runs — another site built, another
+ * edit made — and the balance's move then carries those charges too).
+ *
+ * The press's own charges: each routing call's answered cost — and, for a call
+ * made with a message's key, the ledger's row under that key, which must have
+ * taken exactly that (a second call with the same key is not charged again) —
+ * plus each job's charge, its row and its ledger agreeing. They must add up,
+ * and they may not be more than the balance's move. What else moved the
+ * balance meanwhile is told beside them and never fails the press: the rows in
+ * the ledger between the two balance reads under any other ref, and what is
+ * left, which no row records. THE LIMIT, accepted by the owner: a charge this
+ * press made that no ledger row records would read as someone else's.
+ */
+export function ownMoneyVerdict({ start, end, calls, routeRows, jobs, window } = {}) {
+  const bad = (why, extra = {}) => ({ ok: false, why, ...extra });
+  if (!(Number.isFinite(start) && start >= 0 && Number.isFinite(end) && end >= 0)) return bad("the balance could not be read at both ends");
+  const cs = Array.isArray(calls) ? calls : [];
+  if (cs.some((c) => !c || !Number.isFinite(c.cost) || c.cost < 0)) return bad("a routing call's cost is not a number");
+  const jc = jobCharges(jobs);
+  if (!jc.ok) return bad(jc.why);
+  const keyed = new Map();
+  for (const c of cs) if (c.ref && !keyed.has(c.ref)) keyed.set(c.ref, c.cost);
+  let routing = cs.filter((c) => !c.ref).reduce((a, c) => a + c.cost, 0);
+  if (keyed.size && !(routeRows && routeRows.ok === true && Array.isArray(routeRows.rows))) return bad("the routing calls' ledger rows could not be read");
+  for (const [ref, cost] of keyed) {
+    let taken = 0;
+    for (const r of routeRows.rows) {
+      if (!r || r.ref !== ref) continue;
+      const d = Number(r.delta);
+      if (!Number.isFinite(d)) return bad(`a ledger row under ${ref} has no amount`);
+      taken -= d;
+    }
+    if (taken !== cost) return bad(`the routing call under ${ref} answered ${cost}; the ledger took ${taken}`);
+    routing += cost;
+  }
+  const edits = jc.edits;
+  const own = routing + edits;
   const spent = start - end;
-  return spent === routing + edits
-    ? { ok: true, why: "", spent, routing, edits }
-    : bad(`the balance moved ${spent}; routing ${routing} + edits ${edits} is ${routing + edits}`, { spent, routing, edits });
+  if (spent < own) return bad(`this press's own charges, routing ${routing} + jobs ${edits} = ${own}, are more than the balance's move of ${spent}`, { spent, routing, edits, own });
+  const excess = spent - own;
+  const jobIds = (Array.isArray(jobs) ? jobs : []).map((j) => (j && typeof j.job === "string" ? j.job : "")).filter(Boolean);
+  const mine = (ref) => typeof ref === "string" && (keyed.has(ref) || jobIds.some((id) => ref.includes(id)));
+  let others = null;
+  if (window && window.ok === true && Array.isArray(window.rows)) {
+    const rows = window.rows.filter((r) => r && !mine(r.ref));
+    let recorded = 0;
+    for (const r of rows) {
+      const d = Number(r.delta);
+      if (Number.isFinite(d)) recorded -= d;
+    }
+    others = { recorded, unrecorded: excess - recorded, rows: rows.map((r) => ({ id: r.id, ref: String(r.ref || ""), delta: Number(r.delta) })) };
+  }
+  return { ok: true, why: "", spent, routing, edits, own, excess, others };
+}
+
+/** The own-charges verdict's account, for the check's detail and the log. */
+export function ownMoneySaid(m) {
+  if (!m || m.ok !== true) return m && m.why ? m.why : "not read";
+  if (m.excess === 0) return `the balance moved ${m.spent}, exactly this press's own charges`;
+  const o = m.others;
+  const told = o
+    ? `${o.recorded} recorded under other refs (${o.rows.map((r) => `${r.ref.slice(0, 48)} ${r.delta}`).join(", ") || "none"}), ${o.unrecorded} recorded nowhere`
+    : "the ledger between the balance reads could not be read";
+  return `the balance moved ${m.spent}: ${m.own} this press's own, ${m.excess} other activity on the account meanwhile — ${told}`;
 }
 
 /**
@@ -1484,7 +1581,7 @@ export async function runUi(opts) {
   const rec = {
     at: new Date(t0).toISOString(), base: origin, slug, spend: spend === true,
     opened: null, card: "", steps: [], stopped: null, sent: 0, blocked: [],
-    network: [], consoleErrors: [], pageErrors: [], balance: { start: null, end: null },
+    network: [], consoleErrors: [], pageErrors: [], balance: { start: null, end: null, startAt: null, endAt: null },
   };
   const stop = (at, msg) => { rec.stopped = { at, msg }; log(`  STOPPED at ${at}: ${msg}`); };
   // The message being sent, for the wall: none before the first Send.
@@ -1833,6 +1930,9 @@ export async function runUi(opts) {
     // THE TAB, MARKED ONCE IT IS OPEN: every message goes from this document,
     // and each reply is read in it (`sameTab`).
     rec.tab = await page.evaluate(markTabInPage, crypto.randomBytes(12).toString("hex")).catch(() => null);
+    // WHEN EACH END WAS READ, so the ledger between them can be read too: what
+    // else moved the balance while this press ran (`ownMoneyVerdict`).
+    rec.balance.startAt = new Date().toISOString();
     rec.balance.start = await balanceNow();
     await shot(page, "ui-open");
 
@@ -2110,6 +2210,7 @@ export async function runUi(opts) {
       }
     }
     rec.balance.end = await balanceNow();
+    rec.balance.endAt = new Date().toISOString();
     return rec;
   } finally {
     await browser.close().catch(() => {});

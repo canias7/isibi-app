@@ -16,8 +16,11 @@ redeploy of `f69c873c` with `REQUEST_FLOW` from a secret; the image was reused,
 and the log masks the value (and every `on`). **Phase D passed**: `rq-canary`,
 run 94 (02:16–02:20 UTC), taken on as a request and finished by the server,
 every check `ok`, 4 credits (137 → 133); so the switch is live. **Phase E (R1–R5)
-can now be one press**, `rq-batch` (built on your word; §3.1). **Phase E and RW
-have not started.** The presses' record:
+can now be one press**, `rq-batch` (built on your word; §3.1). **Phase E began
+as run 95**: R1 made the description change and the Classes page, but its
+menu link failed (`no-menu`) and its parts' replies were not the model's.
+The batch stopped after it, as built; R1 cost 21, and the batch has spent 25.
+R2–R5 and RW have not been pressed. The presses' record:
 `docs/history/2026-10-04-request-batch.md`. The record: `docs/history/2026-10-04-deploy-2181.md`.
 
 Your first order: *"Freeze this implementation and prepare the concrete rollout

@@ -22,9 +22,12 @@
 // press's message is sent, nothing here stops it on cost, and the balance is
 // the only hard bound.
 //
-// A PRESS'S SPEND is the move of the balance it read itself, after the app
-// opened and after its messages ended (`ui.json`'s `ui.balance`) — the move its
-// own money check proves equal to its routing calls plus its jobs' charges.
+// A PRESS'S SPEND is its own charges, as its money check counted them
+// (`ui.json`'s `requests.money.own`: its routing calls and its jobs, each
+// against the ledger), so the owner's own use of the account while the batch
+// runs is not counted as the batch's. A press with no such verdict falls back
+// to the move of the balance it read itself, after the app opened and after
+// its messages ended — the stricter reading, since it counts everything.
 // Without `spend`, every press is a rehearsal that sends nothing, so it spent
 // nothing whatever its record says.
 import { spawn } from "node:child_process";
@@ -76,12 +79,15 @@ export function fits({ spent, upper, threshold = BATCH_THRESHOLD }) {
 }
 
 /**
- * What one press spent, off its own record: the balance it read after the app
- * opened, less the one it read after its messages. Null — cannot tell — for a
- * missing record, a balance that is not a number or was unreadable (-1), or a
- * balance that rose (something outside the press moved it).
+ * What one press spent, off its own record: its own charges where its money
+ * check passed, and otherwise the balance it read after the app opened, less
+ * the one it read after its messages. Null — cannot tell — for a missing
+ * record, a balance that is not a number or was unreadable (-1), or a balance
+ * that rose (something outside the press moved it).
  */
 export function spentOf(record) {
+  const m = record && typeof record === "object" && record.requests && typeof record.requests === "object" ? record.requests.money : null;
+  if (m && typeof m === "object" && m.ok === true && typeof m.own === "number" && Number.isFinite(m.own) && m.own >= 0) return m.own;
   const b = record && typeof record === "object" && record.ui && typeof record.ui === "object" ? record.ui.balance : null;
   if (!b || typeof b !== "object") return null;
   const { start, end } = b;

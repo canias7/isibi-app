@@ -991,4 +991,20 @@ batch's spend would pass 100: *"yeah do that better"*.
   among them the real canary script run end to end with `CANARY_BATCH_CHILD` naming a stand-in that writes
   a press's record and exits as told; a sweep of 37 mutants, all caught, with
   3 comment-only controls surviving; the full suite `9293 / 9293 / 0 / 0`.
-  Not yet pressed.
+  **Pressed as run 95** (2026-10-04): R1 failed, and the batch stopped after
+  it, as built (`docs/history/2026-10-04-request-batch.md` §3).
+- **A REQUEST PRESS'S MONEY IS ITS OWN CHARGES** (2026-10-04, on the owner's
+  word, after run 95's R1 ran beside the owner's own build):
+  - `ownMoneyVerdict` counts each routing call's answered cost, with the
+    ledger row under the message's own key (`route:<site>:<idem>`) taking
+    exactly that, plus each job's charge, its row and ledger agreeing. They
+    must add up and fit inside the balance's move;
+  - what else moved the balance meanwhile (the ledger between the two
+    balance reads, under other refs, and what no row records) is told
+    beside the check and never fails it;
+  - the batch counts each press's own charges where its money check passed;
+  - **the limit**: a charge the press made that no ledger row records would
+    read as someone else's;
+  - every other press keeps the balance-move check. 9 cases in
+    `test/canary-money.test.mjs` on run 94's own records; a sweep of 24 of
+    24; the suite `9302 / 9302 / 0 / 0`.

@@ -1,0 +1,81 @@
+{
+  "about": "Run 94 (rq-canary, 2026-10-04), as recorded: the real page's routing call (its body cut to the fields the money reads, plus the message) and its answer, the press's balance reads, the ledger rows under its routing key and its one job, and the two rows another build on the same account wrote soon after (358, 359), for the concurrent case.",
+  "steps": [
+    {
+      "network": [
+        {
+          "method": "POST",
+          "path": "/api/site/route",
+          "status": 200,
+          "req": {
+            "slug": "fold-lane-bakery",
+            "idem": "03e480007a6f9a1416b6e42b813ce6cf",
+            "hasSite": true,
+            "firstBuild": false,
+            "message": "On the Visit page, change the heading 'Come to the bakery' to 'Come and see us'."
+          },
+          "res": {
+            "intent": "edit",
+            "layer": "text",
+            "cost": 3
+          }
+        }
+      ]
+    }
+  ],
+  "balance": {
+    "start": 137,
+    "end": 133
+  },
+  "routeRows": [
+    {
+      "id": 356,
+      "kind": "build",
+      "reason": "route",
+      "delta": -3,
+      "ref": "route:fold-lane-bakery:03e480007a6f9a1416b6e42b813ce6cf",
+      "at": "2026-10-04T02:18:02.793246+00:00"
+    }
+  ],
+  "jobs": [
+    {
+      "job": "82e2a76cfcb0d8dbc1e86bc162693c61",
+      "row": {
+        "billing": "finalized",
+        "cost": 1
+      },
+      "ledgerRead": {
+        "ok": true,
+        "status": 200
+      },
+      "ledger": [
+        {
+          "id": 357,
+          "kind": "edit",
+          "reason": "reserve",
+          "delta": -1,
+          "ref": "82e2a76cfcb0d8dbc1e86bc162693c61#1",
+          "at": "2026-10-04T02:18:14.478704+00:00"
+        }
+      ]
+    }
+  ],
+  "otherBuildRows": [
+    {
+      "id": 358,
+      "kind": "build",
+      "reason": "debit",
+      "delta": -2,
+      "ref": "build:872f9f7103764eab5a4e36374b2be161:deposit",
+      "at": "2026-10-04T02:46:40.095726+00:00"
+    },
+    {
+      "id": 359,
+      "kind": "build",
+      "reason": "debit",
+      "delta": -4,
+      "ref": "build:872f9f7103764eab5a4e36374b2be161:settle",
+      "at": "2026-10-04T02:48:26.208092+00:00"
+    }
+  ]
+}

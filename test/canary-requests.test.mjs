@@ -16,7 +16,7 @@ import fs from "node:fs";
 import crypto from "node:crypto";
 import {
   UI_SCENARIOS, readUiScenario, runUi, describeUi, stepBoundMs, UI_STEP_MS, UI_STEP_MAX_MS, UI_PRESS_MAX_MS, UI_AWAY_EVERY_MS,
-  wallRefusal, blocksPost, requestWall, requestVerdict, questionShown, routingEvidence, chainOrdered, chainVerdict,
+  wallRefusal, blocksPost, requestWall, requestVerdict, questionShown, routingEvidence, chainOrdered, chainVerdict, routeCallsOf,
 } from "../scripts/canary-ui.mjs";
 import {
   headingOnly, timeWords, statesAll, namesAll, routeOfPage, pageForRoute, headerLogos, servedDescription, routeAllowed,
@@ -924,6 +924,14 @@ test("R3 END TO END: the first message ends on the step's question with the head
   const told = describeUi(rec);
   assert.match(told, /question \(part 1's, from its step\): "What is the address of your Facebook page\?"/);
   assert.ok(told.includes(`resumes {"key":"${RQ_KEY(3)}","part":1}`), told);
+  // BOTH MESSAGES' ROUTING CALLS ARE READ FOR THE MONEY (the stand-in sends no
+  // key, so neither has a ledger ref here; the real page's key is held on run
+  // 94's own recorded call, in test/canary-money.test.mjs).
+  assert.deepEqual(routeCallsOf(rec.steps).map((c) => c.ref), ["", ""]);
+  // AND THE RUN KEEPS WHEN EACH END OF THE BALANCE WAS READ.
+  assert.match(String(rec.balance.startAt), /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d/);
+  assert.match(String(rec.balance.endAt), /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d/);
+  assert.ok(Date.parse(rec.balance.startAt) <= Date.parse(rec.balance.endAt), "the press ended before it began");
 });
 
 test("the question stop holds whichever way the page keeps the question: with its request and part (drawn from the request's card) or without them (drawn from its step's reply)", async () => {
@@ -1062,7 +1070,15 @@ test("the canary hands the closed-tab readers to the driver, reads the table lis
   assert.match(block, /requestBatchVerdict\(\{/);
   assert.match(block, /for \(const c of requests\.checks\) check\(c\.name, c\.ok, c\.why\)/, "a failed check does not fail the run");
   assert.match(block, /for \(const c of requests\.replies\) check\(c\.name, c\.ok, c\.why\)/, "a reply that is not the model's does not fail the run");
-  assert.match(block, /moneyVerdict\(\{ start: ui\.balance\.start, end: ui\.balance\.end, routeCosts: routeCostsOf\(ui\.steps\), jobs: jobRecords \}\)/, "the money is not closed");
+  // THE MONEY IS THE PRESS'S OWN CHARGES (2026-10-04): its routing rows by their
+  // own refs, the ledger between the two balance reads beside them.
+  assert.match(block, /const money = ownMoneyVerdict\(\{ start: bal\.start, end: bal\.end, calls, routeRows, jobs: jobRecords, window \}\);/, "the money is not judged by the press's own charges");
+  assert.match(block, /const calls = routeCallsOf\(ui\.steps\);/);
+  assert.match(block, /ledgerRows\(`ref=eq\.\$\{encodeURIComponent\(ref\)\}`\)/, "a routing call's row is not read by its own ref");
+  assert.match(block, /ledgerRows\(`uid=eq\.\$\{encodeURIComponent\(UID\)\}&at=gte\.\$\{encodeURIComponent\(bal\.startAt\)\}&at=lte\.\$\{encodeURIComponent\(bal\.endAt\)\}`\)/, "the ledger between the balance reads is not this account's");
+  assert.match(block, /requests\.money = money;/, "the press's own spend is not kept for the batch");
+  assert.match(block, /check\(`this press's own charges add up: [^`]*`, money\.ok, money\.why \|\| ownMoneySaid\(money\)\);/, "the money does not fail the run");
+  assert.doesNotMatch(block, /moneyVerdict\(\{ start: ui\.balance/, "the balance-move check is still the request press's");
   const cov = block.slice(block.indexOf("for (const c of requests.coverage)"));
   assert.ok(cov.length > 0 && !/check\(/.test(cov.slice(0, cov.indexOf("\n"))), "coverage fails the run");
   assert.match(block, /readFileSync\(`\$\{EVID\}\/\$\{label\}\/route\$\{file\}\.html`/, "the served pages are not the inventories' own");

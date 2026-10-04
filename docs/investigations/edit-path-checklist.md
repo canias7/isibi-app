@@ -883,7 +883,20 @@ the owner's free press, run 51, at 22:57 UTC):
       before a press that would take the batch past 100, after a failed
       press, and after an unreadable spend. 18 cases, a sweep of 37 of 37,
       the suite `9293 / 9293 / 0 / 0`. Pressed from the branch.
-    - **Next**, on the owner's word: the `rq-batch` press (Phase E). RW
+    - **`rq-batch` pressed as run 95** (02:47–03:02 UTC). R1 made the
+      description change and the Classes page, but **its menu link failed**:
+      the add-on handed it to the menu step, which answered `no-menu`, so
+      three pages lack the link. **Its parts' replies were not the model's**
+      (their job results carried none). It cost 21; the batch has spent 25.
+      The batch stopped after R1, as built. Both findings are in the backlog.
+      The record: `docs/history/2026-10-04-request-batch.md` §3.
+    - **The money check now counts a request press's own charges** (on the
+      owner's word): other use of the account during a press is told beside
+      it and never fails it. 9 cases, a sweep of 24 of 24, the suite
+      `9302 / 9302 / 0 / 0`.
+    - **Next**, on the owner's word: the two findings looked into, free,
+      before R2–R5. R2 asks for another menu link, and every multi-part
+      press fails its reply checks until the second finding is settled. RW
       stays separate.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the

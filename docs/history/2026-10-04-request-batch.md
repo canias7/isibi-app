@@ -112,3 +112,104 @@ better"*.
   - The full suite: `9293 / 9293 / 0 / 0` locally, from 9,275 by the 18 new
     cases.
 - **Nothing was spent building it**, and no product file changed.
+
+## 3. `rq-batch` — run 95: R1 made most of its change, and the batch stopped after it
+
+**Run 95** (37172147443), pressed by the owner from the branch at `fdc0c507`,
+2026-10-04 02:47:53–03:02:04 UTC, spend `yes`, `rq-batch` with the batch box
+`4`. The batch made R1 and stopped after it, as built: R1 failed, so R2–R5 were
+not pressed. **The owner built a new site, `the-hot-plate`, on the same account
+meanwhile** (their own, as they said: *"yes that was me, let it run"*; its job
+from 02:46:34, done at 02:57:07). Its charges landed inside R1's window.
+
+**R1, `rq-1-classes`** (733 s for the message):
+- **The routing call's own answer**: `edit/look`, the model's own, with
+  *"put a link to the new Classes page in the menu"* and *"add a Classes page
+  that explains the classes"* held back. Its order put the link after the page
+  (`[{"change":1,"after":[2]}]`). Cost 3, ledger row 360 under the request's
+  own key (`route:fold-lane-bakery:a201acd1…`).
+- **The request** `a201acd12e7f1086b3252abf946c7bb4` ended `partial`:
+  - part 0, the description, `done@look`: job `4ad20b96…`, cost 2,
+    published `01791082295144-9ruma7`;
+  - part 2, the Classes page, `done@addon`: a routing job (`7c35874d…`, 1),
+    then the add-on (`073e0a57…`, 12), published `01791082627123-jcc61v`;
+  - part 1, the menu link, `failed@nav`. It waited for the page, as ordered.
+    Its routing job (`1964a100…`, 3) sent it to the add-on step. The add-on
+    (`1de75e3f…`, nothing reserved) handed it to the menu step (`nav`, `frame`).
+    The menu step (`ac0a5b9f…`) answered `422 no-menu`, *"I couldn't work out
+    what the menu should be. Tell me what to add, take out or move."*, and its
+    2 were refunded.
+- **What landed**:
+  - the description names Saturday, bread and classes, served on the home
+    page;
+  - `/classes` (*Bread Classes*, *Bread-making at the bakery*, …) is stored
+    and served 200;
+  - the add-on itself put *Classes* in the menu of the home page and of the
+    new page, but **not on `/order`, `/visit` or `/gallery`**;
+  - everything else is as it was: every stored page byte for byte apart from
+    the named changes, the components, the logos and the tables.
+- **The checks**: 17 `ok`. Four failed, plus the money:
+  - the request did not end with every part done (part 1 failed);
+  - the menus did not all gain *Classes*, and the served headers do not all
+    link it;
+  - the three parts' replies were not the model's own (below).
+- **The money**: the old check failed (routing 3 + jobs 18 = 21 against a
+  balance move of 29). The difference, 8, is exactly ledger row 364
+  (`build:872f9f71…:pages`, −8, 02:57:06), the owner's build. **R1 cost 21**
+  (rows 360–363 and 365–367; within its 9–24). The batch's spend is now 25
+  (4 + 21).
+- **Coverage**: `edit-and-addon`, `several-parts` and
+  `waits-for-prerequisite`, all covered.
+
+**Two findings, product behaviour, recorded in the backlog**:
+1. **A menu link handed from the add-on to the menu step failed with
+   `no-menu`.** The add-on had already put the link on the home page and on
+   the new page, so the menus differed between pages when the menu step was
+   asked to add it. Whether that difference is what the menu step could not
+   resolve is not yet shown.
+2. **The parts of a multi-part request got no model-written reply.** The
+   job results the page read for parts 0, 1 and 2 carried no `reply` or
+   `replySource`, so the page showed the old fixed sentences (*"✅ Updated
+   the look — the description."*, the add-on's *"I've set that up, but I
+   can't confirm…"*, *"⚠️ I couldn't work out what the menu should be…"*).
+   Run 94's single part carried one (`replySource: "model"`). Part 0's result
+   carried `deferred`, which run 94's did not.
+
+**Read after it** (03:09 UTC): balance 95, the ledger's last row 367, no job
+open.
+
+## 4. The money check counts each press's own charges (on the owner's word)
+
+The owner, told that a press's money check reads the balance's whole move, so
+that any other use of the account during a press fails it: *"yes do the fix
+but dont stop any of the runs pls"*. No run was stopped: run 95 ran the commit
+it started from.
+
+- **For a request press**: `ownMoneyVerdict` (`scripts/canary-ui.mjs`) takes
+  the press's own charges:
+  - each routing call's answered cost, with the ledger row under the
+    message's own key (`route:<site>:<idem>`, from the call's own body) taking
+    exactly that, and a second call under the same key charged once;
+  - each job's charge, its row and its ledger agreeing.
+
+  They must add up, and fit inside the balance's move. What else moved the
+  balance meanwhile is told beside the check, and never fails it: the rows
+  between the two balance reads (whose times the run now keeps) under any
+  other ref, and what no row records. **The limit, accepted by the owner**: a
+  charge the press made that no ledger row records would read as someone
+  else's. Routing outside the request flow, such as a new site's build, keeps
+  no row; that is where the build's other 3 went.
+- **The batch** counts each press's own charges where its money check passed,
+  and the balance's move otherwise.
+- Every other press keeps the balance-move check, unchanged.
+- **Proven, free**:
+  - 9 cases in `test/canary-money.test.mjs`, on run 94's own recorded
+    routing call and ledger rows (`test/fixtures/run94-money.json`), with run
+    95's build rows for the concurrent case;
+  - the request suite's wiring guard, the balance-read times on the R3
+    stand-in run, and the stand-in's keyless calls;
+  - the sweep: 24 mutants, all caught; 3 comment-only controls survived;
+  - the full suite `9302 / 9302 / 0 / 0`, from 9,293 by the 9 new cases.
+- **Run 95's R1 under the new check**: own 21 ≤ 29, others 8 recorded (row
+  364), 0 unrecorded. It would have passed the money and failed the rest as
+  above.
