@@ -473,7 +473,9 @@ account, with every test and check, is
 **Checks**: red check on `d5f11aef` (every new or converted case fails but
 two, each explained; no unchanged case fails); sweeps 34 of 37, then the 3
 survivors' gaps closed and 8 of 8, every comment-only control surviving; the
-full suite `9381 / 9381 / 0 / 0`. Supplied model answers only. Two dated
+full suite `9381 / 9381 / 0 / 0`; unit CI `9381 / 9377 / 0 / 4` and the site
+build green on `305c8b7c` (runs 37221787374, 37221787375). Supplied model
+answers only. Two dated
 Jobs-panel tests that the calendar broke on 2026-10-04 run on a fixed clock
 (test only).
 

@@ -38,7 +38,8 @@ is in git; the dated entries further down are the full story.*
     R1 and `rq-canary` are never pressed again. Its box must be at least 25,
     what the batch has already spent.
   - **What this rests on**: tests with answers I supplied, through the real
-    routes and the real page code. **No real model has run any of it yet.**
+    routes and the real page code; the full suite and GitHub's checks are
+    green. **No real model has run any of it yet.**
 - **Running**: unchanged. `main` `f69c873c`, image `882477e1bbbe8cbe`,
   `REQUEST_FLOW` on, `MODEL_REPLIES` on.
 - **Money**: balance **95**, last ledger row 367, no job open (17:40 UTC). The
@@ -216,7 +217,9 @@ All four are done, and nothing was spent, merged or deployed.
 - deliberate breaks: 34 of 37 caught at first. The 3 that slipped through
   were missing tests, now added, and 8 of 8 were caught after. Every
   comment-only control survived;
-- the full suite: `9381 / 9381 / 0 / 0`;
+- the full suite: `9381 / 9381 / 0 / 0`. The unit tests and the site build
+  on GitHub are green on the pushed branch (`9381 / 9377 / 0 / 4`; GitHub
+  skips four, as always);
 - the screenshots of the page are in the chat.
 
 **Found along the way**:

@@ -945,7 +945,8 @@ the owner's free press, run 51, at 22:57 UTC):
       Supplied answers only. Red check on `d5f11aef` (every new or converted
       case fails but two, explained); sweeps 34 of 37, then the 3 gaps
       closed and 8 of 8, every control surviving; the suite
-      `9381 / 9381 / 0 / 0`.
+      `9381 / 9381 / 0 / 0`; unit CI (`9381 / 9377 / 0 / 4`) and the site
+      build green on `305c8b7c`.
     - **Next**, the owner's:
       1. merge and deploy, then the free runtime press;
       2. the focused check, `rq-menu-link` (3–9): the bakery's Classes link

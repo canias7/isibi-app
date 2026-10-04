@@ -340,7 +340,9 @@ at 2026-10-02 12:00 UTC (`t.mock.timers`, Date only).
     minutes to end: killed all the same.
 - **The full suite**: `9381 / 9381 / 0 / 0`, from 9,335 by 46 new cases (24
   in the new file, 6 REVIEW, 4 through the edit route, 2 M6, 3 BG, 2 PAGE, 5
-  for the continuation).
+  for the continuation). **Unit CI** `9381 / 9377 / 0 / 4` on `305c8b7c` (run
+  37221787374; CI skips four, the totals agree), and **the site build** green,
+  every job and its `all checks` gate (run 37221787375).
 - **Money**: balance 95, last ledger row 367, no job open (read at 17:40
   UTC), as before this round.
 
