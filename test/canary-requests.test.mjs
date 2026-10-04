@@ -102,8 +102,10 @@ test("a message's own bound is capped, a press's bounds fit inside the workflow'
   }
   // THE WORKFLOW'S OWN LIMIT, read off the file: a press's messages leave at
   // least a quarter of an hour for the preflight and the before- and after-reads.
+  // (The request batch alone has a longer limit of its own, held in
+  // test/canary-batch.test.mjs; this is every other run's.)
   const flow = fs.readFileSync(ROOT + ".github/workflows/edit-canary.yml", "utf8");
-  const minutes = Number((/timeout-minutes:\s*(\d+)/.exec(flow) || [])[1]);
+  const minutes = Number((/timeout-minutes:\s*\$\{\{\s*github\.event\.inputs\.ui_scenario == 'rq-batch' && \d+ \|\| (\d+)\s*\}\}/.exec(flow) || [])[1]);
   assert.ok(minutes * 60_000 - UI_PRESS_MAX_MS >= 15 * 60_000, `the workflow allows ${minutes} minutes`);
   assert.equal(UI_STEP_MAX_MS, 30 * 60_000);
   assert.equal(UI_AWAY_EVERY_MS, 20_000);

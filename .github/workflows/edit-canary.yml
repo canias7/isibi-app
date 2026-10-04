@@ -117,7 +117,21 @@ on:
         # an add-on in both orders; rq-3-facebook ends on a step's question
         # and sends the answer; rq-4-logo attaches a picture; rq-5-away closes
         # the tab once the request is taken on. The changes stay on the site.
-        description: 'RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: 4a-part-b, 4b-d1-price (the focaccia price through the real app, then put back), 4b-d1-restore (the put-back alone), 4b-rules-close (close the bookings on lido-axes-b, then one real booking that must be refused), 5-page-remove (the gallery out of the menu, then the gallery page off fold-lane-bakery; put back afterwards with the restore box), 9-follow-up (on fretwork-1: a request that must fail, then from the same tab the Hour one-to-one price to £45, kept), 12-additions (five additions on fold-lane-bakery through the add-on step; they stay on the site), or the request batch on fold-lane-bakery with REQUEST_FLOW on: rq-canary, rq-1-classes, rq-2-wholesale, rq-3-facebook, rq-4-logo, rq-5-away (each one message the server finishes; the changes stay). Acts only with spend=yes; otherwise it reads and stops before sending or writing.'
+        # rq-batch presses rq-1-classes to rq-5-away in that order in this one
+        # run (canary-batch.mjs): each is the canary run once, with its own
+        # checks, and the batch stops itself before a press whose upper
+        # estimate would take its spend past 100, after a press that fails,
+        # and after one whose spend cannot be read. It needs the batch box.
+        description: 'RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: 4a-part-b, 4b-d1-price (the focaccia price through the real app, then put back), 4b-d1-restore (the put-back alone), 4b-rules-close (close the bookings on lido-axes-b, then one real booking that must be refused), 5-page-remove (the gallery out of the menu, then the gallery page off fold-lane-bakery; put back afterwards with the restore box), 9-follow-up (on fretwork-1: a request that must fail, then from the same tab the Hour one-to-one price to £45, kept), 12-additions (five additions on fold-lane-bakery through the add-on step; they stay on the site), or the request batch on fold-lane-bakery with REQUEST_FLOW on: rq-canary, rq-1-classes, rq-2-wholesale, rq-3-facebook, rq-4-logo, rq-5-away (each one message the server finishes; the changes stay), or rq-batch (rq-1-classes to rq-5-away in order in this one run, stopping itself before 100; fill the batch box). Acts only with spend=yes; otherwise it reads and stops before sending or writing.'
+        required: false
+        default: ''
+      batch_spent:
+        # THE REQUEST BATCH'S OWN BOX, and only its: what the batch spent before
+        # this press (rq-canary's 4). With it the run stops before any press
+        # whose upper estimate would take the batch past 100 credits. Blank
+        # beside rq-batch refuses, and filled beside any other run refuses,
+        # each before anything is signed in.
+        description: 'REQUEST BATCH ONLY (rq-batch): the credits the batch has already spent before this press (rq-canary cost 4). The run stops before any press whose upper estimate would take the total past 100. Blank otherwise.'
         required: false
         default: ''
       rules_allow:
@@ -196,7 +210,11 @@ jobs:
     # deliver. Bounded well above that, because a cancelled job reports nothing.
     # A UI scenario sends several messages, each bounded at 12 minutes by the
     # script itself, and installs a browser first; 45 covers three of them.
-    timeout-minutes: 45
+    # THE REQUEST BATCH ALONE GETS 180: five presses one after another, each
+    # inside its own bounds, and their worst case together is under that
+    # (`batchWorstMs`, held by test/canary-batch.test.mjs). Every other run
+    # keeps 45.
+    timeout-minutes: ${{ github.event.inputs.ui_scenario == 'rq-batch' && 180 || 45 }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -283,6 +301,9 @@ jobs:
           # known scenario, names one written for another site, or arrives beside
           # a version to put back.
           CANARY_UI: ${{ github.event.inputs.ui_scenario }}
+          # THE REQUEST BATCH'S SPEND SO FAR. Read whole by the batch before any
+          # press; refused beside any other run.
+          CANARY_BATCH_SPENT: ${{ github.event.inputs.batch_spent }}
           # THE RULES TEST'S APPROVALS. Read whole by the script before it signs
           # in; a word it does not know, or a filled box beside any other run,
           # refuses.

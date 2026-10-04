@@ -878,8 +878,13 @@ the owner's free press, run 51, at 22:57 UTC):
       own, `/visit`'s heading changed and nothing else, the reply the model's
       own, 4 credits (routing 3 + the job's 1). So `REQUEST_FLOW` is live.
       The record: `docs/history/2026-10-04-request-batch.md`.
-    - **Next**, each on the owner's word: R1–R5 with the ledger read before
-      each press (Phase E). RW stays separate.
+    - **One press for R1–R5, built on the owner's word** (`rq-batch`): the
+      canary runs each press in order, never two at once, and stops itself
+      before a press that would take the batch past 100, after a failed
+      press, and after an unreadable spend. 18 cases, a sweep of 37 of 37,
+      the suite `9293 / 9293 / 0 / 0`. Pressed from the branch.
+    - **Next**, on the owner's word: the `rq-batch` press (Phase E). RW
+      stays separate.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

@@ -935,4 +935,60 @@ the plan's Appendices A and B):
   the chain.
 - **PROVEN WITH A STAND-IN APP AND THE BAKERY'S OWN STORED PAGES ONLY**: 38
   cases in `test/canary-requests.test.mjs`, the in-app readers run in a VM; a
-  sweep of 61 mutants. No request-mode press has been made.
+  sweep of 61 mutants. **The first request-mode press, `rq-canary`, passed as
+  run 94** (2026-10-04; `docs/history/2026-10-04-request-batch.md`).
+
+### ONE PRESS FOR THE WHOLE REQUEST BATCH (`rq-batch`, 2026-10-04 — on the branch, so pressed from it)
+
+The owner, offered one press for R1–R5 that stops itself before the
+batch's spend would pass 100: *"yeah do that better"*.
+- **WHAT IT IS**: the scenario box's `rq-batch` hands the run to
+  `scripts/canary-batch.mjs` before anything is signed in.
+  - It runs `scripts/edit-canary.mjs` once per press, in this order:
+    `rq-1-classes`, `rq-2-wholesale`, `rq-3-facebook`, `rq-4-logo`,
+    `rq-5-away`.
+  - Each run names its own scenario and evidence directory
+    (`canary-evidence/<scenario>/`), and is not handed the batch's box.
+  - Each press is exactly the run the form would start for it: its own
+    preflight, its before-read taken just before its message, its checks
+    and its money.
+  - The next starts only once the last has exited. They never overlap,
+    since each press judges the site and the balance as its own.
+- **IT STOPS ITSELF**:
+  - **before** a press whose upper estimate would take the batch past
+    100. The batch's spend is the batch box's spend before this press,
+    plus each press's measured spend; the upper estimates are 24, 25, 12,
+    7 and 17, each its scenario's budget less one (the plan's §7);
+  - **after** a press that fails: any non-zero exit, a press killed by a
+    signal included;
+  - **after** a press whose spend cannot be read off its own record:
+    `ui.json`'s balance read after the app opened and after its
+    messages, which the press's money check ties to its routing calls and
+    jobs.
+
+  A stop at the threshold is not a failure (the run answers 0); a
+  failure answers 1. The threshold is checked between presses only: once
+  a press's message is sent nothing stops it on cost, and the balance is
+  the only hard bound.
+- **REFUSED WHOLE, BEFORE ANYTHING** (exit 2, nothing signed in): a blank
+  or non-numeric batch box; a site box that is not the batch's
+  (`fold-lane-bakery`); a paid batch without the deploy and image boxes.
+  The batch box beside any other run is refused the same way.
+- **ITS LIMIT**: the workflow's `timeout-minutes` is 180 for `rq-batch`
+  alone and 45 for every other run. The batch's worst case, every message
+  at its bound and six minutes per press beyond (`batchWorstMs`), is 145
+  minutes.
+- **ITS RECORD**: each press's own evidence under its name, and
+  `batch.json` and `batch.txt`: each press's exit and spend, the batch's
+  spend, and where and why it stopped.
+- **WITHOUT `spend`** every press is a rehearsal that sends nothing, and
+  the batch counts nothing spent.
+- **WHERE IT RUNS FROM**: the mode is on the branch, not on `main`, so it
+  is pressed with "Use workflow from" set to the branch. The live Worker
+  it checks is whatever is deployed; the press's own deploy and image boxes
+  hold it to that.
+- **PROVEN WITH A STAND-IN PRESS**: 18 cases in `test/canary-batch.test.mjs`,
+  among them the real canary script run end to end with `CANARY_BATCH_CHILD` naming a stand-in that writes
+  a press's record and exits as told; a sweep of 37 mutants, all caught, with
+  3 comment-only controls surviving; the full suite `9293 / 9293 / 0 / 0`.
+  Not yet pressed.

@@ -49,5 +49,66 @@ deploy 2182 set `REQUEST_FLOW` from a secret
   hand-over).
 - `UI MODE PASSED: 1 message sent`. The demo change stays (the owner's rule).
 
-**Next: R1** (`rq-1-classes`), 9–24 credits. Before it: spent 4, and 4 + 24 =
-28, within 100.
+**Next: R1–R5**, now in one press (§2). Before it: spent 4, and at their upper
+estimates the five reach 89, within 100.
+
+## 2. One press for R1–R5, built (on the owner's word)
+
+The owner asked whether all five could run at once. They cannot run at the
+same time: all five change the same site, each press judges the site and the
+balance as its own, and the check between presses is the batch's only brake.
+They can run in one press, one after another. The owner: *"yeah do that
+better"*.
+
+- **`rq-batch`** (`scripts/canary-batch.mjs`): the scenario box's name, which
+  the canary hands on before anything is signed in.
+  - It runs `scripts/edit-canary.mjs` once per press, in this order: R1
+    `rq-1-classes`, R2 `rq-2-wholesale`, R3 `rq-3-facebook`, R4
+    `rq-4-logo`, R5 `rq-5-away`.
+  - Each press is the run the form would start for it: its own preflight,
+    before-read, checks, money and evidence directory
+    (`canary-evidence/<scenario>/`). It is not handed the batch's box.
+  - Never two at once: the next starts only once the last has exited.
+- **It stops itself**:
+  - before a press whose upper estimate (24, 25, 12, 7 and 17, each its
+    scenario's budget less one, the plan's §7) would take the batch's spend
+    past 100. The batch's spend is the box's spend so far (4 after
+    `rq-canary`) plus each press's measured spend;
+  - after a press that fails (any non-zero exit, a killed one included);
+  - after a press whose spend cannot be read off its own record.
+
+  A stop at the threshold answers 0; a failure 1; a refusal 2, before
+  anything. At their upper estimates all five fit: 4 + 24 + 25 + 12 + 7 + 17
+  = 89. Only a press past its estimate can make the batch stop early.
+- **The workflow**:
+  - one new box, the batch's spend so far: refused blank beside `rq-batch`,
+    and refused filled beside any other run;
+  - `timeout-minutes` 180 for this mode alone (its worst case is 145
+    minutes: every message at its bound and six minutes per press beyond);
+    45 for every other run;
+  - the scenario box names the mode. The canary step is unchanged.
+- **Pressed from the branch** ("Use workflow from" `claude/help-needed-ehlwlj`):
+  the mode is not on `main`, and needs no merge or deploy. The press checks
+  the live Worker against its own deploy and image boxes.
+- **Proven, free**:
+  - 18 cases in `test/canary-batch.test.mjs`:
+    - the order and the upper estimates, held to the scenarios' budgets and
+      the plan's cost table;
+    - the workflow's limit, box, environment line and help text;
+    - the canary's hand-on, above the sign-in;
+    - the box, fit and spend readers, with cannot-tell never read as a value;
+    - the batch driven through every stop: all five made, a failed press, a
+      stop at the threshold (exactly 100 fitting), an unreadable spend, a
+      rehearsal, and no overlap;
+    - the whole batch refused before anything;
+    - the real canary script end to end with a stand-in press: the five in
+      order, one at a time, each with its own scenario and evidence and
+      without the box; stopped after a failure, a missing record and a
+      killed press, and before a press past 100; refused with 2.
+  - The sweep: 37 mutants, all caught; the 3 comment-only controls survived;
+    every file restored by hash.
+  - The canary's suites, 422 of 422 across its files; one guard taught the
+    new limit's form (`test/canary-requests.test.mjs`'s timeout reader).
+  - The full suite: `9293 / 9293 / 0 / 0` locally, from 9,275 by the 18 new
+    cases.
+- **Nothing was spent building it**, and no product file changed.

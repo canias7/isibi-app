@@ -81,6 +81,10 @@ import {
   probesCost, probesReport, PROBE_COST_MAX, ROUTE_PATH,
 } from "./canary-probes.mjs";
 import { publishedVersion } from "./canary-watch.mjs";
+// THE REQUEST BATCH IN ONE PRESS (`rq-batch`, 2026-10-04): R1–R5 in order,
+// each this script run once, stopping itself between presses — see
+// `canary-batch.mjs`.
+import { BATCH_NAME, runBatchMain } from "./canary-batch.mjs";
 // TEST 6: the description in the site's settings, beside the one the head serves.
 import { readStoredHead, storedHeadSaid } from "./canary-watch.mjs";
 // AND THE RULES TEST'S (lido-axes-b): its approvals, its readers' verdicts, and
@@ -120,6 +124,15 @@ const RESTORE = String(process.env.CANARY_RESTORE || "").trim();
 // and the before-inventory run, then the scenario, and nothing past it runs —
 // see the branch below the balance.
 const UI = String(process.env.CANARY_UI || "").trim();
+// THE REQUEST BATCH IS HANDED ON HERE, before anything is signed in or read:
+// the driver runs this script once per press, each with its own scenario
+// named, and answers the batch's exit code. Its box beside any other run is
+// refused, as every mode's box is.
+if (UI === BATCH_NAME) process.exit(await runBatchMain(process.env));
+if (String(process.env.CANARY_BATCH_SPENT || "").trim()) {
+  console.error(`REFUSING: the batch's spend box is filled, but the scenario box does not name ${BATCH_NAME}. Nothing was signed in or charged.`);
+  process.exit(2);
+}
 
 // THE READ MODE DOES NOT NEED A SLUG, and demanding one would be a false
 // demand with a real cost: the job row CARRIES its slug, so asking the caller

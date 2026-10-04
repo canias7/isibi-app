@@ -16,7 +16,8 @@ redeploy of `f69c873c` with `REQUEST_FLOW` from a secret; the image was reused,
 and the log masks the value (and every `on`). **Phase D passed**: `rq-canary`,
 run 94 (02:16–02:20 UTC), taken on as a request and finished by the server,
 every check `ok`, 4 credits (137 → 133); so the switch is live. **Phase E (R1–R5)
-and RW have not started.** The presses' record:
+can now be one press**, `rq-batch` (built on your word; §3.1). **Phase E and RW
+have not started.** The presses' record:
 `docs/history/2026-10-04-request-batch.md`. The record: `docs/history/2026-10-04-deploy-2181.md`.
 
 Your first order: *"Freeze this implementation and prepare the concrete rollout
@@ -254,6 +255,11 @@ reading.
 **Before each press** I read the ledger and press only if what the batch has
 spent so far plus the press's upper estimate is at most 100; otherwise I stop
 and come back to you (§7).
+- **Or in one press** (`rq-batch`, 2026-10-04, on your word): the canary runs
+  R1–R5 in that order itself, one at a time, each as its own press. It applies
+  the same rule between presses, from its own box (the spend before it) and
+  each press's measured spend, and it also stops after a press that fails
+  (`docs/instruments.md`).
 - **The routing evidence comes from these presses themselves.** There is no
   separate routing press: a probe's answer does not bind the next answer to the
   same words, so the evidence that matters is the router's answer to the very
@@ -291,6 +297,16 @@ is. `<sha>` is **`f69c873c`**, `main` after the fast-forward (deploy 2181).
   against it. Not needed with read_job.": `fold-lane-bakery`;
 - the deploy sha box: `<sha>`; the image box: `882477e1bbbe8cbe`;
 - "What to change" and the probe-list box: blank.
+
+**The whole batch in one press (`rq-batch`)**:
+- "Use workflow from": **`claude/help-needed-ehlwlj`**, since the mode is on
+  the branch and not on `main`;
+- "Run the ONE paid edit as well (yes/no)": `yes`;
+- the scenario box: `rq-batch`;
+- "REQUEST BATCH ONLY (rq-batch): the credits the batch has already spent
+  before this press …": `4`;
+- the site `fold-lane-bakery`, the deploy sha box `f69c873c`, the image box
+  `882477e1bbbe8cbe`; "What to change" and the probe-list box blank.
 
 ## 4. The batch
 
