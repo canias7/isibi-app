@@ -409,16 +409,18 @@ here; take a closed one out of both.**
   the menu's count of ten, removed the same day**
   (`docs/history/2026-10-03-footer-lists.md`). **An edit and an addition
   finishing in one request is built on the branch** (the combined request
-  flow, next lines; deployed in 2181, off). Open: the
+  flow, next lines; deployed in 2181, switched on in 2182). Open: the
   real-model batch.
 - The page itself makes the three existing hand-overs (edit → add-on, a
   sideways hop, add-on → menu step), so closing the tab between the two jobs
   loses the second half (found 2026-10-03). **With the request flow (deployed in
-  2181, off), a message it takes on has them made by the server** (`handOff`,
+  2181, switched on in 2182), a message it takes on has them made by the
+  server** (`handOff`,
   `docs/request-flow.md`). The page still makes them with the switch off, or
   where edits are not queued for an owner and site.
 - **The combined request flow** (2026-10-03, `docs/request-flow.md`; merged and
-  deployed in deploy 2181 (2026-10-04), off behind `REQUEST_FLOW`;
+  deployed in deploy 2181 (2026-10-04); `REQUEST_FLOW` set by the owner in
+  deploy 2182;
   supplied model answers only). **The owner's review fixes are on the
   branch too** (`docs/history/2026-10-03-request-review-fixes.md`): additions
   set aside become parts by the picker's own words, an outcome done only in

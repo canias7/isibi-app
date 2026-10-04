@@ -11,8 +11,10 @@ uploaded `off` and `MODEL_REPLIES` `on`, the workflow's fallbacks, read in the
 deploy log. The served files are byte-identical to the merged ones.
 **Runtime-confirmed by your free press, run 93** (02:02 UTC): both readers
 answered `f69c873cc6e0`, a cold container `882477e1bbbe8cbe`, and nothing was
-charged. The session's own dispatch had answered 403. **Phases C–F have not started**: no switch turned on, no paid
-press, no full rewrite. The record: `docs/history/2026-10-04-deploy-2181.md`.
+charged. The session's own dispatch had answered 403. **Phase C is done**: deploy 2182 (02:12 UTC), your
+redeploy of `f69c873c` with `REQUEST_FLOW` from a secret; the image was reused,
+and the log masks the value (and every `on`). **Phases D–F have not started**:
+no paid press, no full rewrite. The record: `docs/history/2026-10-04-deploy-2181.md`.
 
 Your first order: *"Freeze this implementation and prepare the concrete rollout
 and real-model validation batch without executing it yet. Use a compact set of

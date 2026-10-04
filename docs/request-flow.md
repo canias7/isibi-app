@@ -2,8 +2,9 @@
 
 > **Built on `claude/help-needed-ehlwlj` (2026-10-03, `b1d96b3d`, and the
 > owner's review fixes after it); merged and deployed in deploy 2181
-> (2026-10-04, `f69c873c`), and off** (`REQUEST_FLOW`, uploaded `off`;
-> `docs/history/2026-10-04-deploy-2181.md`). The owner's order: *"one user message can
+> (2026-10-04, `f69c873c`) with `REQUEST_FLOW` off, which the owner set from
+> a secret in deploy 2182** (read live by the request-mode canary;
+> `docs/history/2026-10-04-deploy-2181.md` §11). The owner's order: *"one user message can
 > request multiple edits and additions, and all accepted parts are
 > remembered and processed without the user resending them or keeping the
 > browser open."* The plan it came from, with the places the build departs

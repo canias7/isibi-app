@@ -869,9 +869,12 @@ the owner's free press, run 51, at 22:57 UTC):
       93** (02:02 UTC; the session's own dispatch had answered 403): both
       readers `f69c873cc6e0`, a cold container `882477e1bbbe8cbe`. Nothing charged: balance 137.
       The record: `docs/history/2026-10-04-deploy-2181.md`.
-    - **Next**, each on the owner's word: `REQUEST_FLOW` on (Phase C), the
-      `rq-canary` press (Phase D), and R1–R5 with the ledger read before each
-      press (Phase E). RW stays separate.
+    - **`REQUEST_FLOW` set by the owner** (deploy 2182, 02:12 UTC): the same
+      commit, the image reused, no asset changed; the log now masks the
+      switch's value, and every `on`. Read live by `rq-canary`.
+    - **Next**, each on the owner's word: the `rq-canary` press (Phase D),
+      then R1–R5 with the ledger read before each press (Phase E). RW stays
+      separate.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

@@ -1,99 +1,80 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-04, 02:06 UTC)
+## Current handoff — read this first (2026-10-04, 02:14 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **Deploy 2181 is live and runtime-confirmed.** `main` is **`f69c873c`**, a
-  fast-forward of 36 commits from `b8d12ff9`, deployed once (01:02–01:05
-  UTC). It carries:
-  - model-written replies;
-  - the information limits' batch 1;
-  - the mixed-work fixes, and the footer lists and menu;
-  - the combined request flow, switched off;
-  - the batch's instruments.
-- **Your free press, run 93** (02:02 UTC), read from the live site:
-  - both readers answered `f69c873cc6e0`, and a cold container got
-    `882477e1bbbe8cbe`;
-  - both expected checks were `ok`, and every free check passed;
-  - nothing was charged.
-- **From the deploy's own log and the served files**:
-  - the image was built as predicted;
-  - `REQUEST_FLOW` went up `off` and `MODEL_REPLIES` `on`, the workflow's
-    defaults, since neither secret holds a value. No live reader shows
-    these two;
-  - `chat.js`, `edit-poll.js` and `styles.css` are served byte for byte as
-    merged.
+- **Deploy 2181 is live and runtime-confirmed** (your free press, run 93):
+  `main` is **`f69c873c`**, image `882477e1bbbe8cbe`.
+- **You switched `REQUEST_FLOW` on: deploy 2182** (02:11–02:12 UTC), your
+  redeploy of the same commit:
+  - the image was reused and no asset changed, so nothing rolled and there
+    is no wait;
+  - the log now prints `REQUEST_FLOW: ***` where 2181 printed `off`, and
+    every `on` is masked, so a secret now holds exactly `on`;
+  - the log cannot show the value itself: `rq-canary` is the live reading.
+- **`MODEL_REPLIES` is still on** (its default, now printed masked).
 - **Money**: balance **137**, last ledger row 355, no job open, no live
-  lease (02:04 UTC).
-- **Not started**: no paid test, `REQUEST_FLOW` not switched on, no full
-  rewrite.
-- **CI**: unit tests `9275 / 9271 / 0 / 4` on `f69c873c` itself (run
-  37166334976), and the same on the records push `f5c9f1d4` (run
-  37168011977). The site build's last green run (37159581943) has the same
-  inputs fingerprint, `70ac3011f592eab2`. This push is documents only.
+  lease (02:13 UTC).
+- **The bakery** serves `01790923788063-bp9rcv`, and `/visit` opens with
+  *Come to the bakery*: the state `rq-canary` starts from.
+- **Not started**: no paid press, no full rewrite.
 
 **Blockers**
 - None. This session still cannot start a workflow or list the GitHub
-  secrets (both answer `403`); your presses and the deploy log cover both.
+  secrets (both answer `403`); your presses and the deploy logs cover both.
 
 **Exact next action**
-- **Yours**: when you want the batch to begin, turn the switch on (step 1
-  below) and send me that deploy run's number. Or change the plan first
-  (the decisions at the end).
-- **Mine, then**: read that run's log, read the ledger, and hand over
-  `rq-canary`.
+- **Yours**: press `rq-canary` (below), then send me the run number.
+- **Mine, then**: read its log and the ledger, check the site, and hand over
+  R1 if it passed.
 
-**The activation and the batch** (the plan's Phases C–E; none started, each
-only on your word)
-1. **Switch on (yours, free)**:
-   - GitHub → the repository's Settings → Secrets and variables → Actions
-     (https://github.com/canias7/isibi-app/settings/secrets/actions): add
-     `REQUEST_FLOW` with the value `on`.
-   - Then Actions → *Deploy to Cloudflare*
-     (https://github.com/canias7/isibi-app/actions/workflows/deploy.yml) →
-     *Run workflow* → branch `main` → *Run workflow*.
-   - It redeploys `f69c873c` with the secret uploaded. The image step reads
-     `reused`, nothing rolls, and there is no wait.
-   - In that run's log, `REQUEST_FLOW: ***` shows the secret was used.
-     GitHub then hides every `on` in the log, `MODEL_REPLIES: on` included:
-     that is masking, not a change.
-2. **`rq-canary` (one paid press, 2–5 credits)**: the live reading of the
-   switch. If no request is opened, the switch is not live: the press costs
-   its routing call, changes nothing and stops, and the batch does not
-   start.
-3. **R1–R5** (`rq-1-classes`, `rq-2-wholesale`, `rq-3-facebook`,
-   `rq-4-logo`, `rq-5-away`), one paid press each, in that order. Before
-   each I read the ledger, and go on only if the batch's spend so far plus
-   that press's upper estimate is at most 100.
+**`rq-canary` (Phase D; one paid press, 2–5 credits)**
+- The form: https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml
+  → *Run workflow*. "Use workflow from" `main`, and every box not named left
+  as it is:
+  - "Run the ONE paid edit as well (yes/no)": `yes`;
+  - "RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: …":
+    `rq-canary`;
+  - "The site to edit. Defaults to the canary site; name another to run this
+    against it. Not needed with read_job.": `fold-lane-bakery`;
+  - "Refuse to spend unless the Worker reports this deploy sha (prefix, >=7
+    chars). Blank = read and print only.": `f69c873c`;
+  - "Refuse to spend unless a cold container reports this image id (exact).
+    Blank = read and print only.": `882477e1bbbe8cbe`;
+  - "What to change" and the probe-list box: blank.
+- **The message it sends**: *On the Visit page, change the heading 'Come to
+  the bakery' to 'Come and see us'.*
+- **It passes when** the message was taken on as a request, the page posted
+  no edit of its own, the one part ran at `text` or `look` and the request
+  ended done, `/visit`'s first heading reads *Come and see us* and nothing
+  else moved, the reply is the model's own and on screen, and the money
+  closes.
+- **If no request is opened**, the switch is not live: the press costs its
+  routing call (about 1–3), changes nothing and stops, and the batch does not
+  start.
+
+**After it: R1–R5** (Phase E; one paid press each, in order, on your word)
+- The same form and boxes, with the scenario `rq-1-classes`,
+  `rq-2-wholesale`, `rq-3-facebook`, `rq-4-logo`, then `rq-5-away`.
+- Before each I read the ledger, and hand it over only if the batch's spend
+  so far plus that press's upper estimate is at most 100.
 
 **Spending**
-- Balance **137** (02:04 UTC).
+- Balance **137** (02:13 UTC); the batch has spent 0.
 - **36–90 credits for the six presses, likely about 50**: rq-canary 2–5,
   R1 9–24, R2 10–25, R3 4–12, R4 3–7, R5 8–17.
 - **100 is a threshold checked between presses, not a ceiling.** Once a
-  message is sent, nothing stops its parts on cost, so a press can pass its
-  estimate. The plausible worst single press is R2, at about 25 + 28 + 18.75
-  ≈ 72 (an add-on rewriting every page, and a photograph). The balance is
-  the only hard bound.
-- RW stays separate: 12–50 if its go-ahead is pressed, with its own
-  threshold of 50.
+  message is sent, nothing stops its parts on cost. The plausible worst
+  single press is R2, at about 72. The balance is the only hard bound.
+- RW stays separate: 12–50 if its go-ahead is pressed.
 
-**The paid presses' boxes** (the edit canary's form; "Use workflow from"
-`main`; every box not named left as it is; on your word only)
-- "Run the ONE paid edit as well (yes/no)": `yes`;
-- "RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: …": the
-  scenario's name;
-- "The site to edit. Defaults to the canary site; name another to run this
-  against it. Not needed with read_job.": `fold-lane-bakery`;
-- "Refuse to spend unless the Worker reports this deploy sha (prefix, >=7
-  chars). Blank = read and print only.": `f69c873c`;
-- "Refuse to spend unless a cold container reports this image id (exact).
-  Blank = read and print only.": `882477e1bbbe8cbe`;
-- "What to change" and the probe-list box: blank.
+**To stop new requests at any time**: set the secret `REQUEST_FLOW` to `off`
+and run *Deploy to Cloudflare* on `main` again. Accepted requests still
+finish.
 
 **Still yours** (the plan's §11)
 1. Approve the revised plan, with 100 as a threshold between presses, or
@@ -104,11 +85,10 @@ only on your word)
 4. The demo changes stay unless you say otherwise.
 
 **Links**
-- This round: `docs/history/2026-10-04-deploy-2181.md` (run 93 in §8.1);
-  the deploy's figures: `docs/deploy-record.md`.
+- This round: `docs/history/2026-10-04-deploy-2181.md` (run 93 in §8.1,
+  deploy 2182 in §11); the deploys' figures: `docs/deploy-record.md`.
 - The plan: `docs/investigations/request-flow-rollout.md`.
 - How it works: `docs/request-flow.md`; the canary: `docs/instruments.md`.
-- The checklist's item 21, and the backlog's *The combined request flow*.
 ---
 
 2026-09-25: **Escalation correction CLOSED.** Independently reviewed (437 focused
@@ -167,6 +147,22 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-04 — You switched the request flow on: deploy 2182 (nothing spent)
+
+- **What you did**: set the GitHub secret `REQUEST_FLOW` and re-ran the
+  deploy on `main` (deploy 2182, 02:11–02:12 UTC).
+- **What it changed**: only the Worker's settings. The same commit and the
+  same container image (reused, nothing rolled), and no browser file
+  changed, so there was no wait.
+- **What the log shows**: `REQUEST_FLOW` now comes from a secret (it prints
+  `***` where the last deploy printed `off`), and GitHub now hides every
+  `on` in the log, which means a secret holds exactly `on`. The log cannot
+  show the value itself, so the request-mode canary is the live reading.
+- **Money**: 137, unchanged.
+- **Next**: `rq-canary`, one paid press of 2–5 credits, on your word. The
+  boxes are in the handoff.
+- The record: `docs/history/2026-10-04-deploy-2181.md` §11.
 
 ## 2026-10-04 — Your free check passed: deploy 2181 is runtime-confirmed (run 93; nothing spent)
 

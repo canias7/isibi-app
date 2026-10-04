@@ -5,7 +5,7 @@
 > `docs/deploy.md`, where CLAUDE.md's **Deploy** section moved in the second
 > pass. This file keeps the measurements behind them: the
 > timing bands, every image-id prediction checked against a deploy's own log
-> (deploys 2137–2181), and the served-file check driven end to end on deploy
+> (deploys 2137–2182), and the served-file check driven end to end on deploy
 > 2139.
 >
 > **Add each new deploy here**, one paragraph per deploy, in the same shape:
@@ -1173,6 +1173,41 @@ pressed 58 minutes after the roll:
 Nothing was charged: balance 137, the ledger's last row 355, no job open and
 no live lease (read at 02:04:37 UTC). The readings are in
 `docs/history/2026-10-04-deploy-2181.md` §8.1.
+
+**Deploy 2182 (2026-10-04) is the owner's redeploy of the same commit, with
+`REQUEST_FLOW` set** (Phase C of `docs/investigations/request-flow-rollout.md`).
+The owner set the GitHub secret `REQUEST_FLOW` and dispatched *Deploy to
+Cloudflare* on `main`: run 37170272516, `workflow_dispatch` on `f69c873c`,
+`completed` / `success`, the job **50 s** (02:11:17–02:12:07):
+- **the gate** was set at 02:11:45 for `f69c873c…`, until 02:56:45, taking
+  over from its own id; the drain answered `no live leases after 1s —
+  deploying`; after Wrangler it was `left to expire`;
+- **the image**: `reused isibi-app-sitebuildcontainer:882477e1bbbe8cbe
+  (registry answered 200; 194 inputs off ./Dockerfile)` (masked
+  `sitebuildc***tainer`, `***94`), the step 2 s (02:11:45–02:11:47). Wrangler's
+  container step answered `no changes isibi-app-sitebuildcontainer`, so
+  nothing rolled and no container wait was owed;
+- **Wrangler**, 15 s (02:11:47–02:12:02): 25 secrets uploaded; `Read 99 files
+  from the assets directory`, `No updated asset files to upload`; `Uploaded
+  isibi-app`, `Deployed isibi-app triggers`, `Current Version ID:
+  63fb9429-55…` (masked); `DEPLOY_ID` `f69c873c…`, as before;
+- **the switches**: the step's environment now prints `REQUEST_FLOW: ***`
+  where deploy 2181 printed `off`, so its value now comes from a GitHub
+  secret. Every value that is `on` now prints masked (`MODEL_REPLIES`,
+  `EDIT_ASYNC_EVERYONE`, `JOB_RUNNER_EVERYONE`, and `on` inside words:
+  `acti***s`, `c***tainer`), while `BAND_SPLIT_EVERYONE: off` still prints
+  plain. So a secret now holds exactly `on`, which none did at deploy 2181,
+  and one change, `REQUEST_FLOW` set to `on`, accounts for both readings.
+  **The log cannot show the value itself**: the live reading is the
+  request-mode canary (`rq-canary`). `MODEL_REPLIES` is still its fallback
+  `on`, now printed masked.
+
+**No served-file check** (no asset changed), and **no separate runtime press**:
+the commit and the image are deploy 2181's, runtime-confirmed by run 93, and
+only the Worker's secrets changed, which no reader reports. `rq-canary`'s own
+preflight reads the deploy and the image again before any routing call. The
+money after it (02:13:24 UTC): balance 137, the ledger's last row 355, no job
+open, no live lease.
 
 ## The served-file check, driven end to end on deploy 2139
 
