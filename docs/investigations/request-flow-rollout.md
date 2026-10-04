@@ -20,6 +20,10 @@ can now be one press**, `rq-batch` (built on your word; §3.1). **Phase E began
 as run 95**: R1 made the description change and the Classes page, but its
 menu link failed (`no-menu`) and its parts' replies were not the model's.
 The batch stopped after it, as built; R1 cost 21, and the batch has spent 25.
+**Both findings are looked into, free** (`docs/investigations/request-batch-findings.md`):
+the add-on links a new page from one page's menu, and the menu step then finds
+nothing to add; every reply call on R1's parts ran into its 12 s ceiling.
+Fixes are proposed for your choice, and R2–R5 wait for them.
 R2–R5 and RW have not been pressed. The presses' record:
 `docs/history/2026-10-04-request-batch.md`. The record: `docs/history/2026-10-04-deploy-2181.md`.
 

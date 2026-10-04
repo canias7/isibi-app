@@ -894,10 +894,22 @@ the owner's free press, run 51, at 22:57 UTC):
       owner's word): other use of the account during a press is told beside
       it and never fails it. 9 cases, a sweep of 24 of 24, the suite
       `9302 / 9302 / 0 / 0`.
-    - **Next**, on the owner's word: the two findings looked into, free,
-      before R2–R5. R2 asks for another menu link, and every multi-part
-      press fails its reply checks until the second finding is settled. RW
-      stays separate.
+    - **The two findings, looked into, free** (the owner's *"yes look into
+      both problems"*; `docs/investigations/request-batch-findings.md`):
+      - **the menu link**: the add-on links a new page from one page's
+        menu, and the menu step counts a link any page has as there on
+        every page, so it found nothing to add. Reproduced on R1's stored
+        pages; a two-part fix is proposed.
+      - **the replies**: all six reply attempts on R1's parts, the page's
+        and the canary's, ran into the reply call's 12 s ceiling (each such
+        read took about 12 s longer; run 94's one-fact reply took about
+        5 s). One free log line confirms it; two fixes are proposed.
+
+      6 cases, sweeps of 4 of 4 and 5 of 5, the suite
+      `9308 / 9308 / 0 / 0`. Nothing built.
+    - **Next**, the owner's: read the log line, then choose the fixes. R2
+      asks for another menu link, and every multi-part press fails its
+      reply checks, so R2–R5 wait for the fixes. RW stays separate.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

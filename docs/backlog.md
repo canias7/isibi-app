@@ -22,10 +22,15 @@ here; take a closed one out of both.**
 
 - **A menu link handed from the add-on step to the menu step failed with
   `no-menu`** (R1, run 95, 2026-10-04): the add-on had already put the link on
-  the home page and the new page, and the other three pages got none.
+  the home page and the new page, and the other three pages got none. **Cause
+  found and reproduced** (`docs/investigations/request-batch-findings.md`):
+  the add-on links a new page from one page's menu, and the menu step counts a
+  link any page has as there on every page. A two-part fix is proposed.
 - **A multi-part request's parts got no model-written reply** (R1, run 95):
   their job results carried no `reply`, so the page showed the old fixed
-  sentences; a single part had one (run 94).
+  sentences; a single part had one (run 94). **Cause found from the run's
+  timings** (the same file): all six reply attempts ran into the reply call's
+  12 s ceiling. One log line, free, confirms it.
 - A half of a message the router puts off (`alsoAsked`) is still attempted,
   on the home page, and the reply contradicts itself (run 52). **Fixed and
   deployed 2026-09-29 (deploy 2166); run 57 made both changes live, with
@@ -433,16 +438,34 @@ here; take a closed one out of both.**
   the page, and the request kept that order.
   - The add-on made the page (job `073e0a57…`) and itself put *Classes* in
     the menu of the home page and of the new page.
-  - The link's own part was then routed to the add-on (`1964a100…`), which
-    handed it to the menu step (`1de75e3f…`, `nav`, `frame`).
+  - The link's own part was then routed to the add-on (routing job
+    `1964a100…`), whose job (`1de75e3f…`) handed it to the menu step
+    (`nav`, `frame`).
   - The menu step (`ac0a5b9f…`) answered `422 no-menu`, *"I couldn't work
     out what the menu should be"*, refunded.
   - So `/order`, `/visit` and `/gallery` have no *Classes* link.
 
-  Open: why the menu step could not work out the menu. The menus differing
-  between pages at that moment is a candidate, not shown. And whether the
-  add-on should add the link to every page itself, or leave it wholly to
-  the part that asks for it.
+  **Cause found and reproduced, free** (on the owner's word, *"yes look into
+  both problems"*; `docs/investigations/request-batch-findings.md`, F1;
+  `test/request-findings.test.mjs`):
+  - **The add-on links a new page from one page.** Its page step's directive
+    (`addDirective`) asks the page writer to return one page with the link
+    added, while every page in this kit carries its own menu.
+  - **The menu step cannot finish a link some pages already have.** For an
+    addition it keeps only what the union of every page's menu lacks
+    (`frameNow`, `additionOnly`), so *Classes*, on two pages, was nothing new.
+  - The real `runNavEdit` on R1's stored pages gives the same `no-menu`,
+    word for word.
+
+  **Proposed, not built** (product; on the owner's word):
+  1. the add-on puts a new page linked from the header menu into every page's
+     menu, by code (`withAdded`);
+  2. for an addition, the menu editor names only the items to add. Each is
+     added where a page's menu lacks it, and an item every page has finishes
+     as already there, refunded.
+
+  The bakery's *Classes* stays on two pages under the demo rule. Until fix 2,
+  a menu edit asking for it is refused the same way.
 - **A MULTI-PART REQUEST'S PARTS GOT NO MODEL-WRITTEN REPLY** (found live in
   R1, run 95; the same section).
   - The job results the page read for the request's three parts carried no
@@ -451,10 +474,27 @@ here; take a closed one out of both.**
   - So the page showed the old fixed sentences.
   - Run 94's single part's result carried one (`replySource: "model"`).
 
-  Open: which condition skips the reply writer for these parts (the
-  `deferred` on part 0's result is one difference), and whether a refusal
-  like `no-menu` should get a model reply under the reply design's rules.
-  Every multi-part press fails its reply checks until this is settled.
+  **Cause found from the run's timings, free** (the same file, F2):
+  - The context was stored and three facts were built for each part, so
+    nothing was skipped.
+  - Each read that had a reply to write took about 12 s longer than a read
+    with nothing to write. The page's reads took 12.2 and 12.3 s; the
+    canary's own after-reads took 12.97 to 13.20 s, against 0.75 to 1.23 s.
+    Run 94's one-fact reply took about 5 s.
+  - A reply call is cut at 12 s (`REPLY_CALL_MS`). The writer reads that as
+    `send` and does not try again, and a reply not written is not kept. So
+    all six attempts fell back, and each part's answer came 12 s later, in
+    the old wording.
+  - **To confirm, free**: the owner's Workers Logs, `reply:` from 02:53 to
+    03:02 UTC on 2026-10-04. Six lines are expected, each `fell back (send)`
+    after about 12 s with no tokens.
+  - Not known: why these replies took over 12 s (three facts against one, or
+    a slower model that night).
+
+  **Proposed, not built** (product; on the owner's word, after the log
+  line): the smallest fix gives a queued job's reply call the whole 20 s.
+  The better one writes the reply as soon as the job's money is settled,
+  instead of when the page reads it, so nobody waits on it.
 - **The combined request flow** (2026-10-03, `docs/request-flow.md`; merged and
   deployed in deploy 2181 (2026-10-04); `REQUEST_FLOW` set by the owner in
   deploy 2182;

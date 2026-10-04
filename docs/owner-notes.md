@@ -1,60 +1,69 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-04, 03:11 UTC)
+## Current handoff — read this first (2026-10-04, 03:46 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **The request flow is live** (`rq-canary`, run 94, passed).
-- **Your batch press, run 95: R1 mostly landed, and the batch stopped after
-  it, as built.**
-  - Landed: the description (the Saturday bread-making classes) and the new
-    Classes page, which loads. Nothing else moved.
-  - Failed: **the menu link**. The add-on put "Classes" on the home page's
-    menu and the new page's; the menu step then refused (*"I couldn't work
-    out what the menu should be"*), refunded. `/order`, `/visit` and
-    `/gallery` have no link.
-  - Failed: **the replies**. The parts' results carried no model-written
-    reply, so the page showed the old fixed sentences.
-  - Cost 21, within 9–24. Your build charged 8 during R1, which is why the
-    old money check failed too; every ledger row is matched.
-- **The money check now counts a press's own charges** (your fix), built and
-  tested on the branch: 9 cases, a sweep of 24 of 24, the suite
-  `9302 / 9302 / 0 / 0`.
-- **Money**: balance **95**, last ledger row 367, no job open (03:09 UTC).
-  The batch has spent **25** of its 100. Your build cost 17.
+- **Both problems from your batch press are looked into, on your word, and
+  both causes are found.** Free: no model was called, nothing was spent and
+  nothing in the product changed.
+  - **The menu link.** The add-on links a new page from one page's menu
+    only, and every page here carries its own menu. The menu step then
+    counts a link any page has as already on every page, so it found
+    nothing to add and refused. Reproduced on R1's own stored pages.
+  - **The replies.** The reply writer gives each reply call 12 seconds, and
+    every attempt on R1's parts was cut off there: six attempts, the page's
+    three and my canary's three. Measured from the run's own timings: each
+    read with a reply to write took about 12 seconds longer than one
+    without. Run 94's one-fact reply took about 5.
 - **Running**: `main` `f69c873c`, image `882477e1bbbe8cbe`, `REQUEST_FLOW`
   on, `MODEL_REPLIES` on.
+- **Money**: balance **95**, last ledger row 367, no job open (03:39 UTC).
+  The batch has spent **25** of its 100.
+- **The bakery**: the new description and `/classes` are live. *Classes* is
+  in the menu on `/` and `/classes` only. It stays as it is under the demo
+  rule.
 
 **Blockers**
 - None.
 
 **Exact next action**
-- **Mine, recommended, free**: look into the two problems. I would reproduce
-  them through the real routes with supplied answers, find the causes, and
-  propose fixes for your approval. R2 asks for another menu link, likely the
-  same failure, and every multi-part press (R2–R5) fails its reply checks
-  until the second is settled. So pressing them now mostly shows the same two
-  failures again, for about 34–60 credits.
-- **Yours**: say go for that. Or, to keep testing now, press R2–R5 one at a
-  time (below): the batch would stop after each failure, and it always starts
-  at R1. It cannot yet start from R2; I can add that when we resume.
+- **Yours, free, a few minutes: confirm the reply cause in the Worker's
+  logs.** Cloudflare dashboard → Workers & Pages → `isibi-app` → Logs.
+  Search `reply:` from 02:53 to 03:02 UTC today. They are kept only a few
+  days.
+  - Six lines are expected, each `fell back (send)`, about 12000 ms, tokens
+    0/0. Paste me one, or tell me if they say anything else.
+- **Yours: choose the fixes** (below). I build them on the branch with their
+  tests. No paid press, and nothing merged or deployed without your word.
+- **Then R2–R5**, each paid, once the fixes are deployed. Pressed now, R2
+  would most likely fail its menu link the same way, and the reply checks
+  would likely fail again.
 
-**Pressing R2–R5 one at a time** (only if you choose to; each paid)
-- The form: https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml
-  → *Run workflow*, "Use workflow from" `claude/help-needed-ehlwlj`. Leave
-  every box not named as it is:
-  - "Run the ONE paid edit as well (yes/no)": `yes`;
-  - "RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: …":
-    `rq-2-wholesale`, then `rq-3-facebook`, `rq-4-logo`, `rq-5-away`;
-  - "The site to edit. …": `fold-lane-bakery`;
-  - the deploy sha box `f69c873c`, the image box `882477e1bbbe8cbe`;
-  - "What to change", the probe-list box and the batch box: blank.
-- Estimates: R2 10–25, R3 4–12, R4 3–7, R5 8–17. Before each I read the
-  ledger and go on only if the batch's spend plus that press's upper estimate
-  is at most 100 (now 25 + 25 = 50 for R2).
+**The fixes to choose** (product changes; the full account is
+`docs/investigations/request-batch-findings.md`)
+- **The menu link**, both recommended:
+  1. the add-on puts a new page into every page's menu, by code;
+  2. asked to add to the menu, the menu editor names only what to add. Each
+     item goes on every page whose menu lacks it, so Gallery stays off
+     `/order` and `/visit`. One already on every page is reported as already
+     there, refunded. This is also what finishes the bakery's half-done
+     *Classes* link.
+- **The replies**, one of:
+  - **A, the smallest**: a queued job's reply call gets the whole 20
+    seconds instead of 12. Whether that is enough is not known, and the
+    customer still waits on it.
+  - **B, recommended**: the reply is written as soon as the job's money is
+    settled, not when the page reads it. Nobody waits on it. It is a larger
+    change; its plan comes to you first.
+
+**Spending**
+- Nothing spent on this.
+- R2–R5, when you choose: R2 10–25, R3 4–12, R4 3–7, R5 8–17. That is up to
+  62, inside the 75 the batch has left.
 
 **Still yours** (the plan's §11)
 1. Approve the revised plan, with 100 as a threshold between presses, or
@@ -65,9 +74,10 @@ is in git; the dated entries further down are the full story.*
 4. The demo changes stay unless you say otherwise.
 
 **Links**
+- The two findings: `docs/investigations/request-batch-findings.md`, and the
+  backlog's first two lines.
 - The presses: `docs/history/2026-10-04-request-batch.md` (run 95 in §3, the
-  money fix in §4).
-- The two problems: the backlog's first two lines.
+  findings in §5).
 - The canary: `docs/instruments.md`; the plan:
   `docs/investigations/request-flow-rollout.md`.
 ---
@@ -128,6 +138,61 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-04 — The two problems from your batch press, looked into: both causes found (nothing spent)
+
+You asked: *"yes look into both problems"*. Both were looked into for free,
+from the code, run 95's own records and log, and the product's own functions
+run on R1's stored pages. No model was called, and nothing in the product
+changed.
+
+**The menu link that failed.**
+- **Why**: when the add-on makes a page, it asks the page writer to put the
+  link in the menu of one page. Here every page has its own copy of the
+  menu, so *Classes* went on the home page, and on the new page, which copied
+  the home page's top.
+- The menu step was then asked to add the link. It looks at all the menus
+  together, and *Classes* was already in that, so it found nothing to add
+  and gave up with *"I couldn't work out what the menu should be"*.
+- **Reproduced**: the real menu step on R1's six stored pages gives the same
+  sentence, word for word.
+- **Proposed, not built**:
+  - the add-on puts a new page into every page's menu itself;
+  - asked to add to the menu, the menu editor names only what to add, and
+    each item goes wherever a page's menu lacks it. Gallery stays off
+    `/order` and `/visit`, where you have none on purpose. If every page
+    already has it, the menu editor says so, refunded.
+
+**The replies that were not the model's.**
+- **Why**: each reply call is given 12 seconds, and every attempt on R1's
+  parts was cut off there, six in all (the page's three, and my canary's
+  three when it read the jobs afterwards).
+- When that happens the old fixed sentence is used, nothing is kept, and
+  the next read tries again from the start.
+- **How I know**: the run's own timings. Each read with a reply to write
+  took about 12 seconds longer than one without (12.2 and 12.3 s on the
+  page; 13.0 to 13.2 s for my canary, against 0.75 to 1.2 s). Run 94's
+  one-fact reply took about 5 seconds.
+- **Not known**: why these took longer. They had three facts each against
+  one, but the model may simply have been slower then.
+- **To confirm it, free**: the Worker's logs from 02:53 to 03:02 UTC should
+  show six `reply:` lines, each `fell back (send)` after about 12 seconds.
+  The steps are in the handoff above.
+- **Proposed, not built**: either give a queued job's reply the whole 20
+  seconds, or, better, write it as soon as the job's money is settled, so
+  nobody waits for it.
+
+**What I checked**:
+- 6 tests that pin today's behaviour on R1's real pages and results, so the
+  fixes, when you choose them, turn them over. One of them pins the
+  12-second cut itself;
+- two sweeps caught 9 of 9 deliberate breaks, and all 4 comment-only
+  controls survived;
+- the full suite: `9308 / 9308 / 0 / 0`, from 9,302 by the 6 new cases.
+
+**Recorded in**: `docs/investigations/request-batch-findings.md`,
+`docs/history/2026-10-04-request-batch.md` §5, the backlog's first two
+items, and the checklist's item 21.
 
 ## 2026-10-04 — Your batch press (run 95): R1 mostly landed, two problems found; the money check fixed (21 credits)
 

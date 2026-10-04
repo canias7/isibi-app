@@ -213,3 +213,46 @@ it started from.
 - **Run 95's R1 under the new check**: own 21 ≤ 29, others 8 recorded (row
   364), 0 unrecorded. It would have passed the money and failed the rest as
   above.
+
+## 5. Run 95's two findings, looked into (on the owner's word)
+
+The owner: *"yes look into both problems"*. Free: the code, run 95's own
+records and log timestamps, and the product's functions on R1's stored pages
+with supplied answers. No model was called and nothing was spent. The full
+account is `docs/investigations/request-batch-findings.md`.
+
+- **F1, the menu link's `no-menu`: cause found and reproduced.**
+  - The add-on's page step asks the page writer to link the new page from
+    one page (`addDirective`), while every page carries its own menu. So
+    *Classes* went on the home page, and on the new page, which copied the
+    home page's frame.
+  - The menu step's addition keeps only what the union of every page's menu
+    lacks (`frameNow`), so a link two pages had was nothing new, and it
+    refused.
+  - The real `runNavEdit` on R1's six stored pages gives the same sentence.
+  - **Proposed, not built**: the add-on adds a header-menu page to every
+    page's menu by code (`withAdded`). For an addition, the menu editor names
+    only the items to add, each added where a page lacks it; one every page
+    has finishes as already there, refunded.
+- **F2, no model reply: the reply call ran out of time.**
+  - Nothing was skipped: each part's context was stored and gives three
+    facts.
+  - Each read with a reply to write took about 12 s longer than one without:
+    - the page's reads of parts 0 and 2: 12.2 and 12.3 s;
+    - the canary's own after-reads: 12.97 to 13.20 s, against 0.75 to
+      1.23 s for the jobs with nothing to write;
+    - run 94's one-fact reply, for comparison: about 5 s.
+  - A reply call is cut at 12 s (`REPLY_CALL_MS`) and that counts as `send`,
+    with no second try and nothing kept. So all six attempts fell back, and
+    each part's answer came 12 s later, in the old wording.
+  - **To confirm, free**: the owner's Workers Logs, searching `reply:` from
+    02:53 to 03:02 UTC.
+  - **Proposed, not built**: the whole 20 s for a queued job's reply call
+    (smallest), or the reply written as soon as the job's money is settled
+    (better).
+- **Checked**: `test/request-findings.test.mjs`, 6 cases (5 of them FOUND
+  cases) on `test/fixtures/run95-r1.json` (R1's six stored pages and the
+  three part results the page read). One case pins the reply call's 12 s
+  timer and the `send` it ends in. Two sweeps: 4 of 4 and 5 of 5 mutants
+  caught; all 4 comment-only controls survived. The full suite:
+  `9308 / 9308 / 0 / 0`, from 9,302 by the 6 new cases.
