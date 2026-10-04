@@ -13,8 +13,11 @@ deploy log. The served files are byte-identical to the merged ones.
 answered `f69c873cc6e0`, a cold container `882477e1bbbe8cbe`, and nothing was
 charged. The session's own dispatch had answered 403. **Phase C is done**: deploy 2182 (02:12 UTC), your
 redeploy of `f69c873c` with `REQUEST_FLOW` from a secret; the image was reused,
-and the log masks the value (and every `on`). **Phases D–F have not started**:
-no paid press, no full rewrite. The record: `docs/history/2026-10-04-deploy-2181.md`.
+and the log masks the value (and every `on`). **Phase D passed**: `rq-canary`,
+run 94 (02:16–02:20 UTC), taken on as a request and finished by the server,
+every check `ok`, 4 credits (137 → 133); so the switch is live. **Phase E (R1–R5)
+and RW have not started.** The presses' record:
+`docs/history/2026-10-04-request-batch.md`. The record: `docs/history/2026-10-04-deploy-2181.md`.
 
 Your first order: *"Freeze this implementation and prepare the concrete rollout
 and real-model validation batch without executing it yet. Use a compact set of

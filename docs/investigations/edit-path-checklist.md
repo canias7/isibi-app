@@ -872,9 +872,14 @@ the owner's free press, run 51, at 22:57 UTC):
     - **`REQUEST_FLOW` set by the owner** (deploy 2182, 02:12 UTC): the same
       commit, the image reused, no asset changed; the log now masks the
       switch's value, and every `on`. Read live by `rq-canary`.
-    - **Next**, each on the owner's word: the `rq-canary` press (Phase D),
-      then R1–R5 with the ledger read before each press (Phase E). RW stays
-      separate.
+    - **`rq-canary` passed** (the owner's run 94, 02:16–02:20 UTC): the
+      message taken on as a request and finished by the server (one part,
+      `done@text`, the router's own answer), the page posting nothing of its
+      own, `/visit`'s heading changed and nothing else, the reply the model's
+      own, 4 credits (routing 3 + the job's 1). So `REQUEST_FLOW` is live.
+      The record: `docs/history/2026-10-04-request-batch.md`.
+    - **Next**, each on the owner's word: R1–R5 with the ledger read before
+      each press (Phase E). RW stays separate.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

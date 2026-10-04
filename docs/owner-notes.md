@@ -1,44 +1,44 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-04, 02:14 UTC)
+## Current handoff — read this first (2026-10-04, 02:24 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **Deploy 2181 is live and runtime-confirmed** (your free press, run 93):
-  `main` is **`f69c873c`**, image `882477e1bbbe8cbe`.
-- **You switched `REQUEST_FLOW` on: deploy 2182** (02:11–02:12 UTC), your
-  redeploy of the same commit:
-  - the image was reused and no asset changed, so nothing rolled and there
-    is no wait;
-  - the log now prints `REQUEST_FLOW: ***` where 2181 printed `off`, and
-    every `on` is masked, so a secret now holds exactly `on`;
-  - the log cannot show the value itself: `rq-canary` is the live reading.
-- **`MODEL_REPLIES` is still on** (its default, now printed masked).
-- **Money**: balance **137**, last ledger row 355, no job open, no live
-  lease (02:13 UTC).
-- **The bakery** serves `01790923788063-bp9rcv`, and `/visit` opens with
-  *Come to the bakery*: the state `rq-canary` starts from.
-- **Not started**: no paid press, no full rewrite.
+- **The request flow is live.** Your `rq-canary` press, run 94 (02:16–02:20
+  UTC), passed every check:
+  - the message was taken on as a request and finished by the server: one
+    part, `done` at `text`, the router's own answer;
+  - the page posted nothing of its own;
+  - `/visit`'s heading now reads *Come and see us*, and nothing else
+    changed;
+  - the reply is the model's own, on screen;
+  - the money closes: routing 3 + the job's 1 = 4.
+- **Running**: `main` `f69c873c` (deploy 2181, runtime-confirmed by run 93),
+  image `882477e1bbbe8cbe`, `REQUEST_FLOW` set by your deploy 2182,
+  `MODEL_REPLIES` on.
+- **Money**: balance **133**, last ledger row 357, no job open, no live
+  lease (02:23 UTC). The batch has spent **4**.
+- The demo change stays.
 
 **Blockers**
-- None. This session still cannot start a workflow or list the GitHub
-  secrets (both answer `403`); your presses and the deploy logs cover both.
+- None.
 
 **Exact next action**
-- **Yours**: press `rq-canary` (below), then send me the run number.
-- **Mine, then**: read its log and the ledger, check the site, and hand over
-  R1 if it passed.
+- **Yours**: press R1 (below), then send me the run number.
+- **Mine, then**: read its log, the ledger and the site, and hand over R2 if
+  the threshold allows.
 
-**`rq-canary` (Phase D; one paid press, 2–5 credits)**
+**R1, `rq-1-classes`** (one paid press; 9–24 credits, likely about 14)
+- Before it: spent 4, and 4 + 24 = 28, within the threshold of 100.
 - The form: https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml
   → *Run workflow*. "Use workflow from" `main`, and every box not named left
   as it is:
   - "Run the ONE paid edit as well (yes/no)": `yes`;
   - "RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: …":
-    `rq-canary`;
+    `rq-1-classes`;
   - "The site to edit. Defaults to the canary site; name another to run this
     against it. Not needed with read_job.": `fold-lane-bakery`;
   - "Refuse to spend unless the Worker reports this deploy sha (prefix, >=7
@@ -46,35 +46,38 @@ is in git; the dated entries further down are the full story.*
   - "Refuse to spend unless a cold container reports this image id (exact).
     Blank = read and print only.": `882477e1bbbe8cbe`;
   - "What to change" and the probe-list box: blank.
-- **The message it sends**: *On the Visit page, change the heading 'Come to
-  the bakery' to 'Come and see us'.*
-- **It passes when** the message was taken on as a request, the page posted
-  no edit of its own, the one part ran at `text` or `look` and the request
-  ended done, `/visit`'s first heading reads *Come and see us* and nothing
-  else moved, the reply is the model's own and on screen, and the money
-  closes.
-- **If no request is opened**, the switch is not live: the press costs its
-  routing call (about 1–3), changes nothing and stops, and the batch does not
-  start.
+- **The message it sends**: *Change the site description to say we now run
+  Saturday bread-making classes, put a link to the new Classes page in the
+  menu, and add a Classes page that explains the classes.*
+- **It passes when**:
+  - the stored description names Saturday, bread-making and classes, and
+    the home page serves it;
+  - one new page about the classes exists, at whatever address the add-on
+    chooses, stored and served 200;
+  - every menu that had items gains *Classes* pointing at that page;
+  - nothing else changed, and no part started before a part it needs;
+  - the replies are the model's own, and the money closes.
+- **It can pass its estimate** if the add-on rewrites every page for the new
+  one (28 once), the page rung runs before handing over (6–22), or a
+  photograph is bought (about 18.75). It can take up to 25 minutes.
 
-**After it: R1–R5** (Phase E; one paid press each, in order, on your word)
-- The same form and boxes, with the scenario `rq-1-classes`,
-  `rq-2-wholesale`, `rq-3-facebook`, `rq-4-logo`, then `rq-5-away`.
-- Before each I read the ledger, and hand it over only if the batch's spend
-  so far plus that press's upper estimate is at most 100.
+**After R1**: R2 `rq-2-wholesale`, R3 `rq-3-facebook`, R4 `rq-4-logo`, R5
+`rq-5-away`, the same form and boxes, one at a time, each after I read the
+ledger.
 
 **Spending**
-- Balance **137** (02:13 UTC); the batch has spent 0.
-- **36–90 credits for the six presses, likely about 50**: rq-canary 2–5,
-  R1 9–24, R2 10–25, R3 4–12, R4 3–7, R5 8–17.
+- Balance **133**; the batch has spent 4.
+- The remaining five: 34–85 credits, likely about 49 (R1 9–24, R2 10–25,
+  R3 4–12, R4 3–7, R5 8–17).
 - **100 is a threshold checked between presses, not a ceiling.** Once a
   message is sent, nothing stops its parts on cost. The plausible worst
   single press is R2, at about 72. The balance is the only hard bound.
-- RW stays separate: 12–50 if its go-ahead is pressed.
 
 **To stop new requests at any time**: set the secret `REQUEST_FLOW` to `off`
-and run *Deploy to Cloudflare* on `main` again. Accepted requests still
-finish.
+(https://github.com/canias7/isibi-app/settings/secrets/actions) and run
+*Deploy to Cloudflare* on `main` again
+(https://github.com/canias7/isibi-app/actions/workflows/deploy.yml).
+Accepted requests still finish.
 
 **Still yours** (the plan's §11)
 1. Approve the revised plan, with 100 as a threshold between presses, or
@@ -85,10 +88,10 @@ finish.
 4. The demo changes stay unless you say otherwise.
 
 **Links**
-- This round: `docs/history/2026-10-04-deploy-2181.md` (run 93 in §8.1,
-  deploy 2182 in §11); the deploys' figures: `docs/deploy-record.md`.
+- The presses: `docs/history/2026-10-04-request-batch.md`.
+- The deploys: `docs/history/2026-10-04-deploy-2181.md`; figures in
+  `docs/deploy-record.md`.
 - The plan: `docs/investigations/request-flow-rollout.md`.
-- How it works: `docs/request-flow.md`; the canary: `docs/instruments.md`.
 ---
 
 2026-09-25: **Escalation correction CLOSED.** Independently reviewed (437 focused
@@ -147,6 +150,23 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-04 — Your `rq-canary` press passed: the request flow is live (run 94, 4 credits)
+
+- **The message**: *On the Visit page, change the heading 'Come to the
+  bakery' to 'Come and see us'.*, typed into the real app.
+- **What happened**: the server took it on as a request and finished it by
+  itself (one part, a text change), with the page posting nothing of its
+  own. That is the new flow working, so the switch is live.
+- **What landed**: `/visit`'s heading now reads *Come and see us*, and
+  nothing else on the site changed (every other page, component, the
+  description, the logo and the tables as they were).
+- **The reply**, written by the model and shown on screen: *✅ On the Visit
+  page, the heading now reads "Come and see us".*
+- **Money**: 4 credits (the routing call 3, the change 1), 137 → 133,
+  exactly as the ledger shows.
+- **Next**: R1, on your word (the boxes are in the handoff).
+- The record: `docs/history/2026-10-04-request-batch.md` §1.
 
 ## 2026-10-04 — You switched the request flow on: deploy 2182 (nothing spent)
 
