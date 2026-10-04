@@ -1,47 +1,47 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-04, 05:45 UTC)
+## Current handoff — read this first (2026-10-04, 17:55 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **Both problems from your batch press are fixed on the branch, on your
-  word.** Nothing is merged or deployed, no image is built, and nothing paid
-  has run.
-  - **The menu link.** Asked to add something to the menu or the footer, the
-    menu editor now names just what to add, and for which pages. The builder
-    then puts it into every menu, or footer list, that lacks it.
-    - Each page keeps its own items and order, so Gallery stays off `/order`
-      and `/visit`.
-    - A page with no menu is never given one. Your bakery has six pages and
-      five menus: `/starter` has none.
-    - If every menu already has it, the step says so, publishes nothing and
-      charges nothing for itself. Reading the message is still charged.
-    - When the add-on makes a page, the builder puts it into every menu
-      itself, unless you asked for the link somewhere else, such as a button
-      on one page.
-  - **The replies.** A part's reply is now written on the server once its
-    job has finished and its money is settled, not while the page waits.
-    - Nobody waits on it, and the next part does not wait for it either.
-    - Each call gets 90 seconds and each try 150. A failed try is tried
-      twice more, after 30 seconds and then 2 minutes; after that the old
-      fixed sentence is shown.
-    - The two-minute background check picks up any reply that was lost.
-      Reading a job never calls the model.
-    - The page shows *"Done — writing up what changed…"* while it waits. The
-      reply appears after a reload, or on another device, too.
+- **Your four review points are done on the branch.** Nothing is merged or
+  deployed, no image is built, and nothing paid has run.
+  - **Footer links on the pages you name.** Every page you name is now
+    accounted for.
+    - Your reproduction now puts the Classes link on `/visit`, giving its
+      footer the small print it lacked, and isn't called "already done".
+    - A page you name with no footer is refused by name, and never given one.
+    - A home page you name for a link to itself is told why: the menu never
+      gives the home page a link to itself.
+    - While any page you named is unmet, the addition is never "done". With
+      nothing else changed it's refused; with something changed it's done in
+      part. Either way, the part of your message that needed it doesn't run.
+    - With no pages named, nothing changes from before.
+  - **Reply retries.** A retry is never taken before its time. An early or
+    duplicate delivery uses up no try and skips no wait. The two-minute check
+    still recovers a lost retry.
+  - **The page.** A finished change shows at once: the preview reloads and
+    the send box frees up, without waiting for the written reply.
+    - Meanwhile the reply's place in the chat says what really happened:
+      *"Done — writing up what changed…"* only when everything asked for was
+      done, *"That didn't go through — writing up why…"* for a refusal, and
+      so on.
+    - The written reply then replaces that line, in place. If it fails or
+      never comes, the page's own sentence replaces it.
+    - A reload, or the page checking twice, never applies anything twice or
+      adds a second reply. Each part of a multi-part request works the same.
+  - **R2–R5 in one press**: `rq-batch-r2`, the same batch runner starting at
+    R2. It runs one press at a time, with the same stops and the same 100.
+    R1 and `rq-canary` are never pressed again. Its box must be at least 25,
+    what the batch has already spent.
   - **What this rests on**: tests with answers I supplied, through the real
-    routes: a reply that takes 13 seconds, a provider that keeps failing, two
-    writers at once, a crash right after the money settles, and more. **No
-    real model has run any of it yet**; that is the focused check below.
-  - The cause of run 95's missing replies, the 12-second cut, is still
-    **strongly inferred** from the run's timings. I didn't read the Worker's
-    logs, and the fix doesn't depend on them.
+    routes and the real page code. **No real model has run any of it yet.**
 - **Running**: unchanged. `main` `f69c873c`, image `882477e1bbbe8cbe`,
   `REQUEST_FLOW` on, `MODEL_REPLIES` on.
-- **Money**: balance **95**, last ledger row 367, no job open (05:33 UTC). The
+- **Money**: balance **95**, last ledger row 367, no job open (17:40 UTC). The
   batch has spent **25** of its 100: `rq-canary` 4, R1 21.
 - **The bakery**: unchanged. *Classes* is in the menu on `/` and `/classes`
   only.
@@ -51,11 +51,11 @@ is in git; the dated entries further down are the full story.*
 
 **Exact next action**
 - **Yours: review the branch, then say whether to merge and deploy it.** A
-  deploy builds a new container image, since the builder's own files changed.
-  Its predicted id is in the history file
-  (`docs/history/2026-10-04-findings-fixes.md`).
+  deploy builds a new container image, predicted **`386607152d4cb319`** (194
+  inputs; `docs/history/2026-10-04-review-round.md` §8).
 - **After the deploy**: your free runtime press, as before. Then **one
-  focused paid press**, `rq-menu-link`, then R2–R5.
+  focused paid press**, `rq-menu-link`, then **R2–R5 in one press**,
+  `rq-batch-r2`.
 
 **The focused check** (`rq-menu-link`, about 3–9 credits)
 - The message: *"Put the Classes page in the menu on every page."* on
@@ -75,13 +75,16 @@ is in git; the dated entries further down are the full story.*
   - the deploy sha box and the image box: as that deploy's record names them;
   - every other box blank.
 
-**Then R2–R5**, one press each, since the batch press always starts at R1,
-which is done.
-- The same boxes, with `rq-2-wholesale`, then `rq-3-facebook`, `rq-4-logo`
-  and `rq-5-away`.
-- Estimates: R2 10–25, R3 4–12, R4 3–7, R5 8–17. With the focused check
-  that is at most 71, which takes the batch to 96 of 100.
-- I read the ledger before each, and go on only if the next still fits.
+**Then R2–R5 in one press** (`rq-batch-r2`)
+- The same boxes, with:
+  - the scenario box `rq-batch-r2`;
+  - "REQUEST BATCH ONLY (rq-batch, rq-batch-r2): …": 25 plus what the
+    focused check cost (its money check says it).
+- Estimates: R2 10–25, R3 4–12, R4 3–7, R5 8–17. With the focused check at
+  its 9, the batch reaches at most **95** of 100. The last handoff said 96;
+  R2–R5's upper estimates add to 61, not 62.
+- It stops itself before any press that would pass 100, after a failed press,
+  and if a press's spend can't be read.
 
 **Spending**
 - Nothing spent on the fixes.
@@ -95,10 +98,11 @@ which is done.
 4. The demo changes stay unless you say otherwise.
 
 **Links**
-- What is fixed, and how it was checked:
-  `docs/investigations/request-batch-findings.md` (*What is fixed*).
-- The story: `docs/history/2026-10-04-findings-fixes.md`.
-- The screenshots of the waiting page are in the chat.
+- This round, with every fix, test and check:
+  `docs/history/2026-10-04-review-round.md`.
+- The fixes it reviewed: `docs/investigations/request-batch-findings.md`
+  and `docs/history/2026-10-04-findings-fixes.md`.
+- The screenshots of the page are in the chat.
 - The presses: `docs/history/2026-10-04-request-batch.md`. The canary:
   `docs/instruments.md`. The plan: `docs/investigations/request-flow-rollout.md`.
 ---
@@ -159,6 +163,73 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-04 — Your review of the fixes: the four points done on the branch (nothing spent, nothing deployed)
+
+You said: *"…address these remaining issues before merging … Keep everything
+on the branch; no merge, deployment, container rebuild or paid run yet."*
+All four are done, and nothing was spent, merged or deployed.
+
+**Footer links on the pages you name.**
+- Every page you name is now accounted for. Your reproduction puts the
+  Classes link on `/visit`, giving its footer the small print it lacked.
+- A page you name with no footer is refused by name (*"/starter has no
+  footer to put …"*), and never given one.
+- A home page you name for a link to itself is told why. The menu never
+  gives the home page a link to itself: in 93 site templates, one home page
+  lists itself.
+- While any page you named is unmet, the addition is never "done". With
+  nothing else changed it's refused; with something changed it's done in
+  part. Either way, the part that needed it doesn't run.
+- With no pages named, it works as before.
+
+**Reply retries.**
+- A retry is never taken before its time. An early or duplicate delivery
+  does nothing: it uses up no try and skips no wait. The two-minute check
+  still recovers a lost one.
+
+**The page.**
+- A finished change shows at once: the preview reloads, the send box frees
+  up, and a removed page leaves the picker.
+- While the reply is written, its place says what really happened. *"Done —
+  writing up what changed…"* appears only when everything asked for was
+  done; a refusal gets *"That didn't go through — writing up why…"*. The
+  server reads which from the same facts the reply is written from.
+- The written reply replaces that line, in the same place. If it fails or
+  never comes, the page's own sentence replaces it.
+- A reload, or the page checking twice, never applies a change twice or adds
+  a second reply. Each part of a multi-part request works the same.
+
+**R2–R5 in one press** (`rq-batch-r2`).
+- The same batch runner from R2: R2 to R5 in order, one at a time.
+- It stops after a failure, before a press that would pass 100, and if a
+  press's spend can't be read.
+- R1 and `rq-canary` are never pressed again.
+- Its box is what the batch has spent before it, at least 25 (`rq-canary` 4,
+  R1 21), plus the focused check's. Less is refused before anything happens.
+- A correction: R2–R5 and the focused check take the batch to at most 95,
+  not 96. R2–R5's upper estimates add to 61.
+
+**Checked, with answers I supplied** (no real model):
+- the old code fails every new or converted test but two, and the record
+  explains both;
+- deliberate breaks: 34 of 37 caught at first. The 3 that slipped through
+  were missing tests, now added, and 8 of 8 were caught after. Every
+  comment-only control survived;
+- the full suite: `9381 / 9381 / 0 / 0`;
+- the screenshots of the page are in the chat.
+
+**Found along the way**:
+- Two Jobs-panel tests about a one-time job dated 3 October began failing
+  today, because the date passed. They now run on a fixed date, as the
+  add-on's own did before (test only).
+- Kept separate (backlog): the preview's very first refresh, on a site with
+  no stored version, keeps the same address, so it may show the old page for
+  up to a minute. This predates the round.
+
+**Recorded in**: `docs/history/2026-10-04-review-round.md`, the
+investigation, the backlog, the checklist, the rollout plan,
+`docs/instruments.md`.
 
 ## 2026-10-04 — Both problems from your batch press, fixed on the branch (nothing spent, nothing deployed)
 

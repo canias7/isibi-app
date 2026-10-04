@@ -343,3 +343,21 @@ at 2026-10-02 12:00 UTC (`t.mock.timers`, Date only).
   for the continuation).
 - **Money**: balance 95, last ledger row 367, no job open (read at 17:40
   UTC), as before this round.
+
+## 8. The image, predicted over both ends, not built
+
+`containerInputs` and `imageId` (`.github/scripts/container-images.mjs`), 194
+inputs, none under `test/` or `docs/`:
+- `882477e1bbbe8cbe` at `main` (`f69c873c`), the image running;
+- `66b30d542d98bc74` at `d5f11aef`, the branch before this round;
+- **`386607152d4cb319` at `06df6ccb`**, this round's code commit (`worker.js`
+  is one of the inputs). A merge of the branch as it stands would build this
+  one; the records committed after it change no input.
+
+## 9. Next (each the owner's word)
+
+1. Merge and deploy, then the free runtime press.
+2. The focused check, `rq-menu-link` (3–9).
+3. R2–R5 in one press, `rq-batch-r2`, its box 25 plus the focused check's
+   own spend. At the upper estimates the batch reaches 95 of 100. R1 and
+   `rq-canary` are not repeated.
