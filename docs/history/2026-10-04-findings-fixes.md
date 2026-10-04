@@ -156,7 +156,9 @@ The full account is the investigation's *What is fixed*.
 - **The full suite**: `9334 / 9334 / 0 / 0` at `1c914c81`, from 9,308 by 26
   new cases; unit CI there `9334 / 9330 / 0 / 4` (run 37180538871; CI skips
   four), and the site build green, every job (run 37180538878). With the
-  window fix, `9335 / 9335 / 0 / 0` (one case more, BG8).
+  window fix, `9335 / 9335 / 0 / 0` (one case more, BG8); at its commit,
+  `6759c1a6`, unit CI `9335 / 9331 / 0 / 4` (run 37180946629) and the site
+  build green, every job (run 37180946807).
 - **The image**, predicted over both ends (`containerInputs`, `imageId`),
   194 inputs, not built:
   - `882477e1bbbe8cbe` (main, running) → `8610e6514e666cdb` at `1c914c81`;

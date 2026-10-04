@@ -396,7 +396,9 @@ each reply's `ms`, so real times can set it.
 - **The full suite**: `9334 / 9334 / 0 / 0` at `1c914c81`, from 9,308 by 26
   new cases; unit CI there `9334 / 9330 / 0 / 4` (run 37180538871; CI skips
   four), and the site build green, every job (run 37180538878). With the
-  window fix, `9335 / 9335 / 0 / 0`.
+  window fix, `9335 / 9335 / 0 / 0`; at its commit, `6759c1a6`, unit CI
+  `9335 / 9331 / 0 / 4` (run 37180946629) and the site build green (run
+  37180946807).
 - **The image**, predicted, not built: `882477e1bbbe8cbe` (main, running) →
   `66b30d542d98bc74` at the branch head, the window fix's commit after
   `1c914c81` (194 inputs).

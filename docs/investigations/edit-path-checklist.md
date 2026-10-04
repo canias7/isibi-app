@@ -923,7 +923,8 @@ the owner's free press, run 51, at 22:57 UTC):
       Supplied answers only (a reply held 13 s in real time among them). Red
       check on `9b543d8f` (26 cases fail, 3 files cannot load); sweeps 30 of
       30, 5 of 5 and 2 of 2 with controls; the suite `9335 / 9335 / 0 / 0`;
-      unit CI and the site build green on `1c914c81`.
+      unit CI (`9335 / 9331 / 0 / 4`) and the site build green on
+      `6759c1a6`, as on `1c914c81` before it.
     - **Next**, the owner's:
       1. merge and deploy, then the free runtime press;
       2. the focused check, `rq-menu-link` (3–9): the bakery's Classes link
