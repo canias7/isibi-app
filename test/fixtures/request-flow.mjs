@@ -52,7 +52,7 @@ const SEQUENCED = new Set(["route", T.pick, T.tweak, T.pages, T.adds]);
 // `site_backends` and the project's own connection — for a part that writes a
 // row. Without it the site has no database, as before.
 const DB_CONN = "postgres://u:p@ep-rows.neon.tech/neondb";
-export function platform({ slug, balance = 50, founder = false, answers = {}, owner = USER.id, replies = false, pages = PAGES, db = null } = {}) {
+export function platform({ slug, balance = 50, founder = false, answers = {}, owner = USER.id, replies = false, replyWith = null, pages = PAGES, db = null } = {}) {
   let clock = 0;
   const now = () => Date.now() + clock;
   // ── R2 ────────────────────────────────────────────────────────────────────
@@ -339,7 +339,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     return a;
   };
   const say = (tool, input) => resp({ stop_reason: "tool_use", content: [{ type: "tool_use", name: tool, input }], usage: { input_tokens: 10, output_tokens: 5 } });
-  async function model(args) {
+  async function model(args, signal = null) {
     const tool = (args.tool_choice && args.tool_choice.name) || "";
     const props = (args.tools && args.tools[0] && args.tools[0].input_schema && args.tools[0].input_schema.properties) || {};
     modelLog.push({ tool, text: userText(args), props: Object.keys(props) });
@@ -348,6 +348,15 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     // the code's; the wording would be a model's.
     if (tool === "write_reply" && !Object.hasOwn(answers, "write_reply")) {
       const facts = [...userText(args).matchAll(/^\[([a-z0-9:-]+)\] (.*)$/gm)].map((m) => ({ id: m[1], text: m[2] }));
+      // THE WRITER'S OWN PACE AND FAULTS (`replyWith`, 2026-10-04): a case may
+      // hold the answer back (a slow model — `heldFor` ends it when the
+      // caller's timer aborts the call, as the network would), or refuse it
+      // (`{ status }`: the provider's error). Facts reach `replyLog` only when
+      // an answer is given.
+      if (typeof replyWith === "function") {
+        const how = await replyWith({ n: nextN("write_reply"), facts, signal });
+        if (how && Number.isInteger(how.status)) return new Response(how.body || "provider error", { status: how.status });
+      }
       replyLog.push(facts);
       return say(tool, { reply: facts.map((f) => f.text).join(" "), covers: facts.map((f) => f.id) });
     }
@@ -435,7 +444,7 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
       return own || resp({ command: "SELECT", rowCount: 0, rows: [], fields: [] });
     }
     if (url.includes("/rest/v1/credits")) return resp([{ balance: credits.balance }]);
-    if (url.includes("/v1/messages")) return model(args);
+    if (url.includes("/v1/messages")) return model(args, (init && init.signal) || (input && input.signal) || null);
     if (isDispatchUpload(url)) return dispatchOk();
     return new Response("unavailable: " + method + " " + url, { status: 503 });
   };
@@ -523,8 +532,32 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     look() { return (JSON.parse(objects.get(CONFIG_KEY(slug)).body || "{}").look || {}); },
     /** Ledger rows that moved money for this owner: debits negative, refunds positive. */
     spent() { return -ledger.reduce((n, e) => n + e.delta, 0); },
+    /**
+     * THE FACTS BEHIND A REPLY THE PAGE WAS SERVED (2026-10-04): replies are
+     * written in the background, so the last call the writer took need not be
+     * the reply a read hands back — the stand-in's answer is its facts joined,
+     * so the call whose answer is exactly this text is the one behind it.
+     */
+    factsOf(reply) {
+      if (typeof reply !== "string") return null;
+      for (let i = replyLog.length - 1; i >= 0; i--) if (replyLog[i].map((f) => f.text).join(" ") === reply) return replyLog[i];
+      return null;
+    },
   };
   return P;
+}
+
+/**
+ * A MODEL THAT TAKES `ms` TO ANSWER (2026-10-04): resolves after `ms` of real
+ * time, or rejects the moment the caller's `signal` aborts — a call cut by its
+ * own timer ends then, as a fetch does, and takes no answer with it.
+ */
+export function heldFor(ms, signal) {
+  return new Promise((ok, no) => {
+    if (signal && signal.aborted) { no(signal.reason || new Error("aborted")); return; }
+    const t = setTimeout(ok, ms);
+    if (signal) signal.addEventListener("abort", () => { clearTimeout(t); no(signal.reason || new Error("aborted")); }, { once: true });
+  });
 }
 
 /** The routing call as the browser makes it, with the message's key (`idem`). */
@@ -573,6 +606,39 @@ export async function pump(P, { max = 40, twice = false } = {}) {
   return { delivered: n, left: P.queue.length };
 }
 
+/** One queued message, delivered to the real consumer and waited for; a crash ends it as `pump`'s does. */
+export async function deliver(P, m) {
+  const worker = await loadWorker();
+  return P.run(async () => {
+    const ctx = makeCtx();
+    const done = (async () => {
+      await worker.queue({ messages: [{ body: m.body, ack() {}, retry() {} }] }, P.env, ctx);
+      await Promise.allSettled(ctx.pending);
+    })();
+    const which = await Promise.race([done.then(() => "done"), P.hung.promise.then(() => "hung")]);
+    if (which === "hung") done.catch(() => {});
+    return which;
+  });
+}
+
+/**
+ * THE QUEUE RUNS ITS MESSAGES SIDE BY SIDE (2026-10-04): every queued message
+ * is delivered as `pump` does, except those `hold(m)` picks, which are started
+ * and left running beside the rest — a slow reply on the real queue, which
+ * `max_concurrency` runs beside the next part's job. Returns the started
+ * deliveries, for the case to wait on.
+ */
+export async function pumpBeside(P, hold, { max = 60 } = {}) {
+  const running = [];
+  for (let n = 0; n < max && P.queue.length; n++) {
+    const m = P.queue.shift();
+    if (hold(m)) { running.push(deliver(P, m)); continue; }
+    await deliver(P, m);
+    if (P.hung.what) break;
+  }
+  return running;
+}
+
 /** The two-minute cron, as the platform fires it: the sweeps, then the request sweep. */
 export async function tick(P) {
   const worker = await loadWorker();
@@ -585,6 +651,22 @@ export async function tick(P) {
     })();
     return Promise.race([go, P.hung.promise.then((what) => ({ hung: what }))]);
   });
+}
+
+/**
+ * A READ WHOSE REPLY IS WRITTEN IN THE BACKGROUND (2026-10-04), as the page
+ * makes it: read; while the answer says its reply is still being written
+ * (`replyState: "pending"`), let the queue deliver what was asked for and read
+ * again — the page polls the same way. `rounds` bounds it; the last read is
+ * returned whatever it says.
+ */
+export async function readWritten(P, path, { rounds = 3 } = {}) {
+  let v = await call(P, "GET", path);
+  for (let i = 0; i < rounds && v.body && v.body.replyState === "pending"; i++) {
+    await pump(P);
+    v = await call(P, "GET", path);
+  }
+  return v;
 }
 
 /** An owner route call (the request routes, the question route, a job poll); `auth` replaces the owner's sign-in (a job's gateway token). */

@@ -493,6 +493,26 @@ export const UI_SCENARIOS = Object.freeze({
       }),
     ]),
   }),
+  // THE FOCUSED CHECK OF RUN 95's TWO FIXES (2026-10-04), before R2–R5: the
+  // bakery's Classes link, which R1 left in two of its five menus, put into
+  // the three that lack it — an addition finishing a link some menus already
+  // carry (F1) — with its reply the model's own, written in the background
+  // (F2). The link stays. Look is allowed beside nav because the router may
+  // send a menu link through the look door's menu lane.
+  "rq-menu-link": Object.freeze({
+    site: "fold-lane-bakery",
+    request: true,
+    budget: 10,
+    addon: true,
+    layers: Object.freeze(["nav", "look"]),
+    expect: Object.freeze({
+      menuFinish: Object.freeze({ label: "Classes", href: "/classes" }),
+    }),
+    covers: Object.freeze([]),
+    steps: Object.freeze([
+      Object.freeze({ say: "Put the Classes page in the menu on every page.", ms: 14 * 60_000 }),
+    ]),
+  }),
 });
 
 // Bounds. A step is one message: its routing call, its job and its publish.

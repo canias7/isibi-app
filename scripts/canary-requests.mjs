@@ -420,6 +420,36 @@ export function outcomeChecks({ spec, before, after, served, beforeServed, logo,
     const off = framedRoutes.filter((r) => !anchors(region(served && served[r], "header")).some((x) => x.href === href && x.text.includes(plain(want.menu.label))));
     add(`every served header links "${want.menu.label}" to ${href || "the new page"}`, !!href && framedRoutes.length > 0 && !off.length, `not on ${off.join(", ") || "any page read"}`);
   }
+  // A LINK SOME MENUS ALREADY CARRY, FINISHED (2026-10-04, the focused check of
+  // run 95's fixes): every menu that lacked it gained exactly it, keeping its
+  // own items in their order; every menu that had it is as it was; at least
+  // one menu gained it; and every served header links it. A page with no menu
+  // is judged by the byte-for-byte check below, so none is given one.
+  if (want.menuFinish) {
+    const { label, href } = want.menuFinish;
+    const bad = [];
+    let gained = 0;
+    for (const p of framed) {
+      const was = fb.get(p).menus, now = (fa.get(p) || { menus: [] }).menus;
+      if (now.length !== was.length) { bad.push(`${p} has ${now.length} menus, not ${was.length}`); continue; }
+      was.forEach((items, i) => {
+        const got = now[i];
+        if (items.some((x) => x.href === href)) {
+          if (JSON.stringify(got) !== JSON.stringify(items)) bad.push(`${p}'s menu already had it and changed to ${JSON.stringify(got)}`);
+          return;
+        }
+        const extra = got.filter((it) => !items.some((x) => x.label === it.label && x.href === it.href));
+        const kept = got.filter((it) => items.some((x) => x.label === it.label && x.href === it.href));
+        if (extra.length !== 1 || extra[0].href !== href || !plain(extra[0].label).includes(plain(label))) bad.push(`${p}'s menu gained ${JSON.stringify(extra)}`);
+        else gained++;
+        if (JSON.stringify(kept) !== JSON.stringify(items)) bad.push(`${p}'s menu did not keep its own items in their order`);
+      });
+    }
+    add(`every menu that lacked "${label}" → ${href} gained it, keeping its own items, and every menu that had it is as it was`, complete && framed.length > 0 && gained > 0 && !bad.length,
+      bad.join("; ") || (framed.length ? "no menu gained it" : "no menu was read"));
+    const off = framedRoutes.filter((r) => !anchors(region(served && served[r], "header")).some((x) => x.href === href && x.text.includes(plain(label))));
+    add(`every served header links "${label}" to ${href}`, framedRoutes.length > 0 && !off.length, `not on ${off.join(", ") || "any page read"}`);
+  }
   // THE FOOTER'S SOCIAL LINKS: the one profile, once, beside what was there.
   if (want.social) {
     const bad = [];
@@ -435,7 +465,7 @@ export function outcomeChecks({ spec, before, after, served, beforeServed, logo,
   }
   // THE LINE OF WORDS, stored and served: nothing the page said is gone, and
   // what is new is one line stating what was asked, undenied.
-  const rest = (p, src) => withoutAdditions(p, src, { menu: !!want.menu, social: !!want.social });
+  const rest = (p, src) => withoutAdditions(p, src, { menu: !!(want.menu || want.menuFinish), social: !!want.social });
   const wordsAt = want.words ? pageForRoute(bPages, want.words.route) : null;
   if (want.words) {
     const now = wordsAt ? a.get(wordsAt.path) : undefined;

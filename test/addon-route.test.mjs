@@ -71,6 +71,7 @@ import { missingRequired, typeFromShape } from "../site-api-shape.mjs";
 // sentences written out here. The harness is its one other caller, which is why
 // it lives there and is imported rather than re-created.
 import { browserReply } from "../scripts/addon-sweep.mjs";
+import { navSlots } from "../builder/site-nav.mjs";
 const browserText = (body) => {
   const b = browserReply(body, true);
   assert.ok(b.ok, "the browser's own composer could not run: " + b.why);
@@ -9621,4 +9622,49 @@ test("…and a COMPONENT this change wrote is not a page in the inventory", asyn
   // simply emptying the list. Both halves, or a filter that dropped everything
   // would satisfy the line above.
   assert.ok(pages.includes("/"), "the page the component was added to is not in the inventory: " + JSON.stringify(pages));
+});
+
+// ── A NEW PAGE'S LINK, WHERE ITS DESIGN PUTS IT (2026-10-04, run 95's F1) ───
+//
+// The page step used to link a new page from ONE page ("Link it from the
+// header menu: return that page too"), while every page of this kit carries its
+// own menu — so the link reached one menu of five. The design now carries the
+// placement (`link.in`): the menu (the default) is the builder's to add to
+// every page's own menu, by code; a place on one page is the page writer's,
+// told exactly where. On run 47's bakery: five pages, four menus that differ
+// (the order and visit pages carry no Gallery), and a starter page with none.
+const BAKERY = ["index", "order", "starter", "visit", "gallery"].map((f) => ({ path: f + ".tsx", source: fs.readFileSync(new URL("./fixtures/run47/" + f + ".before.tsx", import.meta.url), "utf8") }));
+const menuHrefs = (pages, file) => { const pg = pages.find((x) => x.path === file); const s = pg && navSlots([pg])[0]; return s ? s.items.map((i) => i.href) : null; };
+
+test("a new page placed in the menu goes into every page's own menu, by the builder: each keeps its own items and differences, and the page with no menu is given none", async () => {
+  const r = await addon("fw-menu-place", "add a classes page and put it in the menu", {
+    kinds: ["page"], publishes: true, storedPages: BAKERY,
+    answers: { page: { page: [{ ...PAGE("/classes", "Classes"), link: { in: "menu" } }] } },
+    written: [writtenPage("/classes")],
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  const out = compiledPages(r);
+  for (const f of ["index.tsx", "order.tsx", "visit.tsx", "gallery.tsx"]) {
+    assert.deepEqual(menuHrefs(out, f), [...menuHrefs(BAKERY, f), "/classes"], f + ": not its own menu with the new page at the end");
+  }
+  for (const f of ["order.tsx", "visit.tsx"]) assert.ok(!menuHrefs(out, f).includes("/gallery"), f + " was given the Gallery link other menus carry");
+  assert.equal(out.find((x) => x.path === "starter.tsx").source, BAKERY.find((x) => x.path === "starter.tsx").source, "the page with no menu changed");
+  assert.deepEqual(r.body.changed.slice().sort(), ["gallery.tsx", "index.tsx", "order.tsx", "visit.tsx"]);
+  assert.deepEqual(r.body.unlinked, [], "the page is in every menu and was still said to be linked from nowhere");
+  // THE PAGE WRITER WAS TOLD THE MENU IS THE BUILDER'S, and to return no other page for it.
+  assert.match(JSON.stringify(pagePrompt(r)), /Its link in the site's menu is added to every page's menu by the builder: do not return any other page for it\./);
+});
+
+test("a new page placed on one page — a button there — is the page writer's to link, told that page and that place; the builder adds it to no menu", async () => {
+  const r = await addon("fw-page-place", "add a classes page with a button to it in the visit page's band", {
+    kinds: ["page"], publishes: true, storedPages: BAKERY,
+    answers: { page: { page: [{ ...PAGE("/classes", "Classes"), link: { in: "page", page: "/visit", where: "a button in the Come to the bakery band" } }] } },
+    written: [writtenPage("/classes")],
+  });
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.match(JSON.stringify(pagePrompt(r)), /Link it from a button in the Come to the bakery band on \/visit \(visit\.tsx\): return that page too, with the link added and nothing else changed\./);
+  const out = compiledPages(r);
+  for (const f of ["index.tsx", "order.tsx", "visit.tsx", "gallery.tsx"]) assert.deepEqual(menuHrefs(out, f), menuHrefs(BAKERY, f), f + ": the builder put the page in a menu it was not placed in");
+  // THE WRITER HERE RETURNED ONLY THE NEW PAGE, so nothing links to it — and the customer is told so.
+  assert.deepEqual(r.body.unlinked, ["/classes"]);
 });

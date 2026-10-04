@@ -9503,7 +9503,7 @@ function siteRequestFollow(origin, key) {
       return;
     }
     misses = 0;
-    const done = await siteRequestShow(origin, key, b.request, EditPoll.modelReply(b), b.replyFor);
+    const done = await siteRequestShow(origin, key, b.request, EditPoll.modelReply(b), b.replyFor, b.replyState);
     if (done) { stop(); return; }
     // A REQUEST WAITING ONLY ON AN ANSWER is looked at seldom: the answer comes
     // through this page, which follows it again from there.
@@ -9511,8 +9511,12 @@ function siteRequestFollow(origin, key) {
   };
   step();
 }
-/** One reading of a request on the page; true when it has ended and all it said is shown. */
-async function siteRequestShow(origin, key, view, reply, replyFor) {
+/**
+ * One reading of a request on the page; true when it has ended and all it said
+ * is shown. A REPLY STILL BEING WRITTEN (2026-10-04, `replyState: "pending"`)
+ * keeps the page reading: a part's own, or the request's.
+ */
+async function siteRequestShow(origin, key, view, reply, replyFor, replyState) {
   const s = siteById(origin);
   if (!s) return true;
   const st = siteReqState(origin, key, view);
@@ -9544,7 +9548,7 @@ async function siteRequestShow(origin, key, view, reply, replyFor) {
     if (rf === 'end') st.replied = true;
     s.msgs.push({ r: 'a', t: reply });
   }
-  const done = view.ended && all;
+  const done = view.ended && all && replyState !== 'pending';
   if (done) st.closed = true;
   s.updatedAt = Date.now();
   sitesSave();
@@ -9589,7 +9593,7 @@ function siteRequestStop(origin, key) {
   apiFetch('/api/site/request/' + encodeURIComponent(s.slug) + '/' + encodeURIComponent(key), { method: 'DELETE' }).then(async (r) => {
     const b = await r.json().catch(() => null);
     if (!r.ok || !b || b.ok !== true || !siteRequestOf(b)) { failed(); return; }
-    const done = await siteRequestShow(origin, key, b.request, EditPoll.modelReply(b), b.replyFor);
+    const done = await siteRequestShow(origin, key, b.request, EditPoll.modelReply(b), b.replyFor, b.replyState);
     if (!done) siteRequestFollow(origin, key);
   }).catch(failed);
 }

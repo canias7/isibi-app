@@ -15,7 +15,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { page, settle as drain } from "./fixtures/browser-page.mjs";
-import { platform, pump, tick, T, USER } from "./fixtures/request-flow.mjs";
+import { platform, pump, pumpBeside, tick, T, USER } from "./fixtures/request-flow.mjs";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { writtenPage } from "./fixtures/addon-route.mjs";
@@ -307,5 +307,89 @@ test("PAGE 6 — a routing answer lost on the way back: the message comes back t
     assert.equal(P.record("pagekey0000000000002"), null, "a second request was made");
     assert.ok(card(p, KEY));
     assert.deepEqual(P.ledger.filter((e) => e.reason === "route").map((e) => e.delta), [-1]);
+  });
+});
+
+test("PAGE 7 — a part's reply still being written in the background: the page shows nothing for it yet and keeps looking, the part after it waits its turn on the thread, and no look calls the model; once the queue has written it the page shows both, in order, once — and a page opened afterwards on another device shows the same", async () => {
+  let release;
+  const gate = new Promise((ok) => { release = ok; });
+  const part0 = (facts) => facts.some((f) => f.text.startsWith("Changed the description"));
+  await withPage({
+    slug: slugOf("p7"), replies: true, replyWith: async ({ facts }) => { if (part0(facts)) await gate; },
+    answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }], ...DESCRIBE, ...GALLERY },
+  }, async (P) => {
+    const p = openPage(P, wire(P));
+    p.ctx.siteSend(DESC + ", and " + ADD + ".");
+    await idle();
+    const job0 = P.jobsOf(KEY)[0].id;
+    // THE SERVER RUNS BOTH PARTS; PART 0'S REPLY IS STILL BEING WRITTEN BESIDE THEM.
+    const running = await pumpBeside(P, (m) => m.body && m.body.kind === "edit-reply" && m.body.id === job0);
+    assert.equal(running.length, 1, "part 0's reply was not asked for");
+    assert.equal(P.record(KEY).state, "done");
+    const writes = () => P.modelLog.filter((m) => m.tool === "write_reply").length;
+    const calls = writes();
+    // THE PAGE LOOKS, TWICE: nothing for part 0 yet, and part 1's reply waits behind it.
+    for (let i = 0; i < 2; i++) { p.flush(); await idle(); }
+    const during = texts(p);
+    assert.ok(!during.some((t) => /description/i.test(t) || /gallery/i.test(t)), "a reply was shown before part 0's was written: " + JSON.stringify(during));
+    assert.equal(writes(), calls, "a look of the page called the model");
+    // WRITTEN: the next look shows both, part 0's first.
+    release();
+    await Promise.all(running);
+    p.flush(); await idle();
+    const said = texts(p);
+    const at0 = said.findIndex((t) => /Changed the description/.test(t));
+    const at1 = said.findIndex((t) => /Added \/gallery/.test(t));
+    assert.ok(at0 >= 0 && at1 > at0, "the replies are not both shown, in order: " + JSON.stringify(said));
+    // ONCE: looking again shows nothing new.
+    const n = p.said().length;
+    p.ctx.siteRequestFollow("origin-1", KEY);
+    await idle();
+    assert.equal(p.said().length, n, "a reply was shown twice");
+    // ANOTHER DEVICE, OPENED AFTERWARDS: the same replies, from the server's record — and no model call.
+    const b = openPage(P, wire(P));
+    b.ctx.siteRequestsCheck(b.s);
+    await idle();
+    const there = texts(b);
+    assert.deepEqual([there.some((t) => /Changed the description/.test(t)), there.some((t) => /Added \/gallery/.test(t))], [true, true], JSON.stringify(there));
+    assert.equal(writes(), calls, "a page's look called the model");
+  });
+});
+
+test("PAGE 8 — the request's own reply still being written when the page finds the request ended: the page keeps looking instead of closing it, and shows that reply once the queue has written it — once", async () => {
+  const LINK = "put a link to the new gallery on the Visit page";
+  let release;
+  const gate = new Promise((ok) => { release = ok; });
+  // THE REQUEST'S OWN FACTS: the part that never started says so.
+  const ofRequest = (facts) => facts.some((f) => /^Not started: /.test(f.text));
+  await withPage({
+    slug: slugOf("p8"), replies: true, replyWith: async ({ facts }) => { if (ofRequest(facts)) await gate; },
+    answers: {
+      route: [{ intent: "edit", layer: "look", alsoAsked: [LINK, ADD], dependsOn: [{ change: 1, after: [2] }] }, { intent: "addon" }],
+      // THE ADDITION FAILS, so the part that needed it never starts, and the request's own reply says so.
+      ...DESCRIBE, [T.adds]: { kinds: [] },
+    },
+  }, async (P) => {
+    const p = openPage(P, wire(P));
+    p.ctx.siteSend(DESC + ", " + LINK + ", and " + ADD + ".");
+    await idle();
+    const running = await pumpBeside(P, (m) => m.body && m.body.kind === "edit-reply" && !m.body.id);
+    assert.equal(running.length, 1, "the request's own reply was not asked for");
+    assert.equal(P.record(KEY).ended, true);
+    // THE PAGE LOOKS, TWICE: the parts' own replies are there; the request's is still being written.
+    for (let i = 0; i < 2; i++) { p.flush(); await idle(); }
+    const during = texts(p);
+    assert.ok(during.some((t) => /Changed the description/.test(t)), "a part's own reply is missing: " + JSON.stringify(during));
+    assert.ok(!during.some((t) => /Not started: /.test(t)), "the request's reply was shown before it was written");
+    // WRITTEN: the next look shows it, once.
+    release();
+    await Promise.all(running);
+    p.flush(); await idle();
+    const said = texts(p);
+    assert.equal(said.filter((t) => /Not started: “put a link to the new gallery on the Visit page”/.test(t)).length, 1, JSON.stringify(said));
+    const n = p.said().length;
+    p.ctx.siteRequestFollow("origin-1", KEY);
+    await idle();
+    assert.equal(p.said().length, n, "the request's reply was shown twice");
   });
 });

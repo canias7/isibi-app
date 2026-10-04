@@ -532,7 +532,7 @@ test("the worker dispatches the nav layer and imports the module", () => {
   // The wiring layer, where this repo has recorded twelve dead features. A call
   // to a name that was never imported is a ReferenceError on the edit path.
   const w = fs.readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(w, /import \{ runNavEdit \} from "\.\/builder\/site-nav\.mjs"/);
+  assert.match(w, /import \{[^}]*\brunNavEdit\b[^}]*\} from "\.\/builder\/site-nav\.mjs"/);
   const at = w.indexOf('if (eLayer === "nav")');
   assert.ok(at > 0, "the nav branch exists");
   const window = w.slice(at, w.indexOf('if (eLayer === "picture")', at));

@@ -255,13 +255,25 @@ export function makeContainerEnv({ secrets = {}, gateway, sb = null, fetch: f, p
   // A PART OF A LONGER REQUEST ENDED HERE (2026-10-03): the Worker is asked to
   // move the request on (the gateway's `/next`), since nothing in here may file
   // its next job. A call that fails is the two-minute sweep's to recover.
-  else env.JOB_NEXT = async ({ key }) => {
-    const r = await (f || globalThis.fetch)(String(gateway.url).replace(/\/+$/, "") + "/next", {
-      method: "POST", headers: { authorization: "Bearer " + gateway.token, "content-type": "application/json" },
-      body: JSON.stringify({ key }), signal: AbortSignal.timeout(20_000),
-    });
-    return r.ok;
-  };
+  else {
+    env.JOB_NEXT = async ({ key }) => {
+      const r = await (f || globalThis.fetch)(String(gateway.url).replace(/\/+$/, "") + "/next", {
+        method: "POST", headers: { authorization: "Bearer " + gateway.token, "content-type": "application/json" },
+        body: JSON.stringify({ key }), signal: AbortSignal.timeout(20_000),
+      });
+      return r.ok;
+    };
+    // AND THE JOB'S REPLY (2026-10-04): the Worker is asked to have it written
+    // in the background (the gateway's `/reply`), since nothing in here may
+    // send to the queue. A call that fails is the two-minute sweep's to recover.
+    env.JOB_REPLY = async () => {
+      const r = await (f || globalThis.fetch)(String(gateway.url).replace(/\/+$/, "") + "/reply", {
+        method: "POST", headers: { authorization: "Bearer " + gateway.token, "content-type": "application/json" },
+        body: "{}", signal: AbortSignal.timeout(20_000),
+      });
+      return r.ok;
+    };
+  }
   // THE STOP SIGNAL (stage 5d, 2026-09-06): aborted by the runner when the
   // process is told to stop (SIGTERM — the build service past the job's
   // deadline, a cancel from outside, the service's own drain giving up), read

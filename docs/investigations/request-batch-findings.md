@@ -6,8 +6,11 @@ The owner, after run 95's R1 (`docs/history/2026-10-04-request-batch.md` §3):
 the product's own functions on what run 95 recorded
 (`test/fixtures/run95-r1.json`) and supplied model answers
 (`test/request-findings.test.mjs`). No model was called and nothing was
-spent. Nothing is changed in the product; the fixes below wait for the
-owner's word.
+spent.
+
+**Both are now fixed on the branch, on the owner's word** (*What is fixed*,
+below): not merged or deployed, no image built, nothing paid run, and shown
+with supplied model answers only.
 
 ## F1. The menu link was refused (`no-menu`): cause found, reproduced
 
@@ -68,8 +71,9 @@ cannot say "add this one item where it is missing".
    - This also finishes a link left on some pages, like the bakery's
      *Classes* now.
 
-With both, R1's message ends with the link on all six pages, and its menu part
-done with nothing left to do. The tests to write first:
+With both, R1's message ends with the link in all five menus, and its menu
+part done with nothing left to do. (R1's site has six pages but five menus:
+`/starter` has none, and is given none.) The tests to write first:
 - R1's shape through the real routes, sync and queued;
 - a menu that differs by design (Gallery) coming out unchanged except for the
   new link;
@@ -161,7 +165,244 @@ confirms it):
 Either way, the reply log line already carries each reply's `ms`, so real
 replies' times can set the ceiling instead of a guess.
 
-## How it was checked
+## The fixes: approach (2026-10-04, on the owner's word)
+
+The owner: *"Proceed with fixing both findings on the current branch …
+document your implementation approach and complete the work without stopping
+for another plan approval."* Their corrections are part of it: newness never
+from the union of every page's links (the same `newItems` logic reached the
+footer's legal and social lists); `/starter` has no menu, so R1's site has
+five menus, not six, and no navigation is created there; the add-on carries
+the link's placement explicitly; an addition already true finishes as done;
+the reply is written in the background on the server, with its own progress,
+deduplicated, bounded and recovered, and no read calls the model. Nothing is
+merged or deployed, no container is rebuilt, and nothing paid is run.
+
+**F1, the addition contract.**
+- **The model names the additions.** In addition mode the menu step's tool
+  offers one field for the menu and the footer lists, `add`: each entry names
+  its list (`menu`, `social` or `legal`), the item (its words or network, and
+  its address), its scope (`pages`, only the pages they named; left out, every
+  page that has that list) and, optionally, the item it follows (`after`).
+  The whole-list fields are not offered in this mode, so an answer cannot
+  restate a menu.
+- **Code adds each one where it is missing.** Each addition goes into every
+  list in its scope that lacks its address: after `after` where that list has
+  it, else at the list's end. Every other item, label and order stays, so a
+  menu that differs by design keeps its differences. Newness is decided per
+  list; the union no longer decides anything.
+- **No navigation is created.** A page without a menu is never given one;
+  named in the scope, it is reported as not done. A footer list gains the
+  entry where it exists; when no page in the scope has that list yet, the
+  first entry creates it on every page with a frame in the scope, as before.
+- **Already true is done.** When every addition is already in every list in
+  its scope, the step answers `ok` with `satisfied`, nothing changed and
+  nothing published. A queued job takes no reserve for it, the same net as a
+  refusal's refund; the synchronous path keeps a refusal's rule; routing
+  charges stay. The request part is done, so what needs it runs. A button or
+  a footer detail named that the frame already has counts the same way.
+- **The add-on carries the placement.** A page's design names
+  `link: { in: "menu" | "page", page, where, label, after }`. `menu`: the
+  builder adds the page to every existing menu by code, the new page's own
+  included, and the page writer is told not to edit other pages for it.
+  `page`: the page writer links it from that page or place, as before. Left
+  out, `menu`, the existing default. A design written the old way, as words,
+  is the page writer's placement in those words, as today.
+
+**F2, replies written on the server (option B).**
+- **The reply has its own record**, `edit-replies/<job>.json`: its state
+  (`pending`, `writing`, `written`, `failed`, or `none` for nothing to say),
+  attempts, lease, next try and last reason. It is separate from the job
+  row's work state.
+- **Asked for when the job's outcome and billing are final**: after
+  `edit_finalize` or `edit_refund`, and after the request has moved on. In
+  the Worker directly; in the container through the gateway's new `/reply`,
+  bound to the job's own token. Asking creates the record conditionally and
+  sends one `edit-reply` queue message.
+- **Written by the queue consumer**, a non-HTTP invocation with fifteen
+  minutes:
+  - it takes a lease by compare-and-swap, so concurrent attempts are one;
+  - it writes with a budget fit for the background: 90 s a call, 150 s an
+    attempt, two calls at most per attempt;
+  - it keeps the reply, or tries again after 30 s and 120 s (three attempts),
+    then marks it failed;
+  - it never holds the site's lock or touches the job row, so later parts are
+    not delayed and nothing is run again.
+- **A read never calls the model.** The poll hands back the kept reply, or
+  `replyState: "pending"` or `"failed"`. A read that finds no record, or a
+  stale one, only asks for it: the same conditional create and one message.
+- **Recovered without a browser.** The two-minute cron finds recently
+  finished jobs with no record, a lapsed lease or a missed retry, and asks
+  again. A record past its horizon (15 minutes) is failed.
+- **The request's own reply** (at its end, or waiting on a go-ahead) uses
+  the same record and writer, asked when the request ends or waits.
+- **The page waits for the reply.** A final answer with `replyState:
+  "pending"` keeps it waiting, the live step reading *"Done — writing up what
+  changed…"*; a later read brings the reply, after a reload or on another
+  device the same. `failed` gets the fixed wording, as a technical failure.
+- **Synchronous replies**, on the customer's own connection: 30 s a call and
+  45 s in all, up from 12 and 20.
+- **The cause stays strongly inferred.** This session has no access to the
+  Worker's logs, so run 95's timeout is inferred from the timings; nothing
+  here depends on the log line.
+
+## What is fixed (2026-10-04, on the branch; not merged or deployed)
+
+Everything here is on `claude/help-needed-ehlwlj`, for review. Nothing is
+merged or deployed, no container image is built, and nothing paid has run.
+**It is shown with supplied model answers only**: no real model has filled
+`add`, chosen a placement or written a reply under the new budgets. That is
+the focused live check's to show (*The next live steps*, below).
+
+**F1, the menu link.**
+- **The menu step's addition** (`runNavEdit`, `builder/site-nav.mjs`). The
+  model names each addition in `add`: its list (`menu`, `social`, `legal`),
+  the item, its scope (`pages`) and, optionally, the item it follows
+  (`after`). `readAdditions` checks each one: an address the site has or an
+  outside link, and scope pages the site has. `applyAdditions` puts it into
+  every list in its scope that lacks it, after `after` or at the end. In
+  addition mode the whole-list fields are not offered, and nothing reads the
+  union of the menus any more (`frameNow` keeps the buttons and each page's
+  own contact details).
+- **An ordinary menu edit takes `add` too**, so a link routed straight to the
+  menu step is added the same way.
+- **No navigation is made.** A page with no menu is never given one; named in
+  a scope, it is refused by name. A scope page the site does not have is
+  said as that. A footer list gains the entry where it exists, and is made
+  only when no page in the scope has one.
+- **Already true is done** (`satisfied`): `ok`, nothing changed, nothing
+  published. Queued, no reserve is taken, so the step costs 0. Synchronously,
+  the reading is charged, as a refusal's is. Routing charges stay. A request
+  part ends done, so what needs it runs.
+- **The add-on carries the placement** (`builder/site-add.mjs`, `worker.js`):
+  `link: { in: "menu" | "page", page, where, label, after }`.
+  - `menu` is the default. The builder adds the page to every existing menu by
+    code once the pages are written, and the writer is told not to edit other
+    pages for it.
+  - `page`: the writer is told that page and that place.
+  - An old design written as words is a placement on a page, never the menu.
+
+**F2, the replies.**
+- **The reply has its own record**, `edit-replies/<job>.json`; a request's
+  own reply sits beside its request. The record's states are `pending`,
+  `writing`, `written`, `failed` and `none`, separate from the job's.
+- **Asked for once the job's outcome and money are final**:
+  - in the Worker, after `edit_finalize` or `edit_refund` and after the
+    request moved on;
+  - from the container, through the gateway's new `/reply`, under the job's
+    own token.
+- **Written on the queue**, as `edit-reply` messages:
+  - a claim by conditional write, with a lease of 150 s + 60 s, so
+    concurrent attempts are one;
+  - 90 s per call and 150 s per try, two calls at most per try;
+  - three tries, 30 s and then 120 s apart, then `failed`;
+  - it never holds the site's lock or touches the job row.
+- **A read never calls the model.** The job poll and the request read hand
+  back the reply, or `replyState: "pending"` or `"failed"`. A read that finds
+  no record, or a stale one, asks once: the same conditional create, one
+  message.
+- **Recovered by the two-minute cron** (`runReplySweep`, and the request
+  sweep for a request's reply). An ended job with no record, a lapsed claim
+  or a missed retry is asked again; past 15 minutes it is `failed`.
+- **The page**:
+  - a final answer with `replyState: "pending"` keeps it waiting, the live
+    step reading *"Done — writing up what changed…"*;
+  - a request is not closed while a part's reply, or its own, is pending;
+  - a reload or another device reads the same record;
+  - `failed` gets the fixed wording, as a technical failure.
+- **Synchronous replies**, where a page still waits on its own connection:
+  30 s a call and 45 s in all (were 12 and 20).
+- **The cause of run 95's misses stays strongly inferred** from its timings.
+  The Worker's logs were not read in this session, and nothing here depends
+  on them.
+
+**What the tests show, with supplied answers**, sync and queued where both
+exist:
+- **On run 95's own pages**:
+  - Classes goes into the three menus that lack it; the two that have it and
+    `/starter` are untouched, and Gallery is added nowhere.
+  - Asked again, it is already done.
+  - A scope of `/visit` changes only `/visit`.
+  - `/starter` named is refused by name; an unknown page is said as such.
+  - The footer's Instagram is already there.
+  - A legal list is made on the five pages with a footer.
+- **Through the edit route, on run 47's bakery** (four menus that differ,
+  and a starter page with none):
+  - a scoped addition, then the rest, then already done: nothing published;
+    queued, no reserve, cost 0 and the job done; synchronously, the reading
+    charged once;
+  - a page with no menu, refused by name, its reserve refunded;
+  - legal links: a list made only where no page in the scope has one, a later
+    link only into the lists that exist, and the pages without one left so.
+- **Through the add-on route**:
+  - a menu placement put in every menu by code, each menu keeping its own
+    items;
+  - a placement on one page left to the writer, told the page and the place.
+- **Through the request flow, R1's shape**:
+  - the page's placement puts its link in every menu, so the link's part is
+    already done: nothing published, its step not charged, its routing kept;
+  - the part that needed it runs;
+  - its own reply is a "nothing changed" fact, written from the facts.
+- **The replies**:
+  - **slow**: a reply held 13 s, longer than the 12 s that cut run 95's, is
+    written in the background while the request's next part runs and
+    finishes, and every read meanwhile is pending with no model call;
+  - **provider failure**: a provider refusing every try gets three tries,
+    30 s and 120 s apart, then `failed`; the page shows its plain wording, and
+    the work and money are identical to a run whose reply was written;
+  - **concurrent**: two simultaneous deliveries, a late duplicate and three
+    reads make one model call;
+  - **recovery after billing**: a consumer dying after the money was final
+    leaves the cron to ask and the queue to write, with nothing re-run or
+    re-charged; a writer evicted after its claim is not overtaken by a read
+    while the claim holds, and the cron asks again after it lapses (written
+    on the second try);
+  - **the container**: its `/reply` under its own token; a pre-scoped build
+    is refused, and with replies off nothing is asked;
+  - **the page**: it waits, then shows the parts' replies in order, the
+    request's own once written, each once; a page opened later on another
+    device shows the same.
+
+**Not shown**: how a real model fills `add` or chooses a placement; how long
+real replies take; whether 90 s per call is right. The reply log line keeps
+each reply's `ms`, so real times can set it.
+
+**Limits, kept separate** (the backlog):
+- The page applies a part's result only when its reply is shown. So while a
+  reply is retried the preview waits too: about ten minutes at worst (three
+  tries), within the 15-minute horizon. Typical replies take seconds.
+- While a reply is written, the Stop control still shows. Pressing it undoes
+  nothing: a published job is refused as too late, an unpublished one has
+  already ended, and the page goes back to waiting.
+
+**Checks**:
+- **Red check** on `9b543d8f` (the investigation, before any fix): every new
+  or converted case fails, 26 cases in six files, and three files cannot load
+  because the functions they test do not exist there. No unchanged case
+  fails.
+- **Sweeps**:
+  - the fixes, 30 of 30 mutants killed. 26 at first; the four survivors were
+    test gaps, each closed by a case and killed on the re-run;
+  - 3 comment-only controls survived both runs;
+  - the focused check's verdict, 5 of 5 killed, and its control survived.
+- **The full suite**: `9334 / 9334 / 0 / 0`, from 9,308 by 26 new cases.
+
+**The next live steps** (each the owner's word; nothing is pressed from here):
+1. Merge and deploy, then the free runtime press.
+2. **The focused check**, one paid press, `rq-menu-link`: *"Put the Classes
+   page in the menu on every page."* on `fold-lane-bakery`.
+   - Expected: the three menus that lack Classes gain it; the two that have
+     it and `/starter` stay as they are; nothing else changes; the reply is
+     the model's own.
+   - Estimate 3–9 credits (its budget is 10).
+3. **Then R2–R5**, each once; R1 and `rq-canary` are done and not repeated.
+   - Estimates: R2 10–25, R3 4–12, R4 3–7, R5 8–17.
+   - One press each, since `rq-batch` always starts at R1.
+   - **The batch has spent 25**: `rq-canary` 4, R1 21. With the focused
+     check's 9 and R2–R5's 62 at their upper estimates, it would reach 96,
+     within 100.
+
+## How the findings were checked (before the fixes)
 
 - `test/request-findings.test.mjs`: 6 cases, 5 of them FOUND cases.
   - The menus after R1.
@@ -173,8 +414,9 @@ replies' times can set the ceiling instead of a guess.
     and a transport that never answers, is cut. The writer reads the cut as
     `send` after one call, while the same path answered in time is written.
     The Worker gives every reply call `REPLY_CALL_MS`.
-- Each FOUND case asserts the behaviour as it is, so the fix that changes it
-  flips the case.
+- Each FOUND case asserted the behaviour as it was, so the fix that changes it
+  flips the case. **Since the fixes, the file holds 12 cases asserting what
+  replaced it** (*What is fixed*, above).
 - Two sweeps of the product code the cases watch, every mutant caught, and
   all 4 comment-only controls survived:
   - 4 of 4: the frame's menu, the add-on's directive, a request part's facts,

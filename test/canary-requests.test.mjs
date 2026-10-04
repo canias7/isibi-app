@@ -43,9 +43,11 @@ const WORDS = {
   "rq-3-facebook": ["On the Visit page, change the heading 'The shutters and the street' to 'Our shop on the street', and add a link to our Facebook page in the footer.", "It's facebook.com/harbourloafbristol"],
   "rq-4-logo": ["Change the home page heading 'Fed every morning since we opened' to 'Fed every morning since 2019', and use the attached picture as our logo."],
   "rq-5-away": ["Add a line to the Order page saying orders close at 8pm the night before, and change the Gallery page heading 'Photographs of the bakery's work' to 'Photographs from the bakery'."],
+  // THE FOCUSED CHECK OF RUN 95's FIXES (2026-10-04), pressed before R2–R5.
+  "rq-menu-link": ["Put the Classes page in the menu on every page."],
 };
 
-test("the batch is six request-mode scenarios on the bakery, each message the plan's word for word, and the plan names each one", () => {
+test("the request-mode scenarios are the batch's six and the focused check of its fixes, all on the bakery, each message the plan's word for word, and the plan names each one", () => {
   assert.deepEqual(RQ, Object.keys(WORDS));
   for (const name of RQ) {
     const s = UI_SCENARIOS[name];
@@ -72,6 +74,7 @@ test("each press's budget is its upper estimate, its walls are the plan's, and o
     "rq-3-facebook": { budget: 13, layers: ["text", "look", "nav"], addon: true },
     "rq-4-logo": { budget: 8, layers: ["text", "look", "logo"], addon: false },
     "rq-5-away": { budget: 18, layers: ["text", "look"], addon: true },
+    "rq-menu-link": { budget: 10, layers: ["nav", "look"], addon: true },
   };
   for (const [name, w] of Object.entries(want)) {
     const s = UI_SCENARIOS[name];
@@ -537,6 +540,55 @@ test("R1 lands when the description says the classes, a new page about them is s
   const elsewhere = applyNav(RUN47, (items) => [...items, { label: "Classes", href: "/bread-classes" }]).pages.concat([{ path: "bread-classes.tsx", source: CLASSES.replace('"/classes"', '"/bread-classes"') }]);
   const e = site(elsewhere, { headings: { ...HEADINGS, "/bread-classes": ["Saturday bread-making classes"] }, description: DESC1, main: { "/bread-classes": "<p>Bake with us.</p>" } });
   assert.deepEqual(failed(judge(spec, site(RUN47), e).checks), []);
+});
+
+// ── THE FOCUSED CHECK OF RUN 95's FIXES (rq-menu-link, 2026-10-04) ──────────
+//
+// The bakery as R1 left it: Classes in the home page's menu and in the new
+// page's own, and in no other; the starter page with no menu at all. The
+// press finishes the link: every menu that lacks it gains it, and the rest of
+// every page is as it was.
+const R1_LEFT = applyNav(RUN47, (items, slot) => (slot.page === "index.tsx" ? [...items, { label: "Classes", href: "/classes" }] : items)).pages.concat([{ path: "classes.tsx", source: CLASSES }]);
+const LEFT_HEADINGS = { ...HEADINGS, "/classes": ["Saturday bread-making classes"] };
+const leftSite = (pages) => site(pages, { headings: LEFT_HEADINGS });
+const finish = (pages, add = (items) => (items.some((i) => i.href === "/classes") ? items : [...items, { label: "Classes", href: "/classes" }])) => applyNav(pages, add).pages;
+
+test("the focused check lands when every menu that lacked Classes gains it and every menu that had it is as it was, with everything else as it was", () => {
+  const spec = UI_SCENARIOS["rq-menu-link"];
+  assert.deepEqual(frameOf(R1_LEFT).get("index.tsx").menus[0].map((i) => i.href).filter((h) => h === "/classes"), ["/classes"], "the fixture's home menu does not carry Classes");
+  assert.equal(frameOf(R1_LEFT).has("starter.tsx"), false, "the fixture's starter page carries a frame");
+  const o = judge(spec, leftSite(R1_LEFT), leftSite(finish(R1_LEFT)));
+  assert.deepEqual(failed(o.checks), []);
+  assert.ok(o.checks.some((c) => /every menu that lacked "Classes"/.test(c.name) && c.ok));
+  assert.ok(o.checks.some((c) => /every served header links "Classes"/.test(c.name) && c.ok));
+});
+
+test("the focused check does not land when a menu that had Classes changed, a menu was given more than Classes, a menu that lacked it still lacks it, nothing gained it, or the page with no menu was given one", () => {
+  const spec = UI_SCENARIOS["rq-menu-link"];
+  const b = leftSite(R1_LEFT);
+  const one = (pages, re) => { const f = failed(judge(spec, b, leftSite(pages)).checks); assert.ok(f.some((x) => re.test(x)), `expected ${re}, got ${JSON.stringify(f)}`); };
+  // THE HOME MENU GIVEN IT AGAIN.
+  one(finish(R1_LEFT, (items, slot) => (slot.page === "index.tsx" ? [...items, { label: "Classes", href: "/classes" }] : items.some((i) => i.href === "/classes") ? items : [...items, { label: "Classes", href: "/classes" }])), /already had it and changed/);
+  // ORDER GIVEN THE GALLERY LINK OTHER MENUS CARRY, AS WELL.
+  one(finish(R1_LEFT, (items, slot) => (items.some((i) => i.href === "/classes") ? items : [...items, { label: "Classes", href: "/classes" }, ...(slot.page === "order.tsx" ? [{ label: "Gallery", href: "/gallery" }] : [])])), /order\.tsx's menu gained/);
+  // GALLERY'S MENU LEFT WITHOUT IT.
+  one(finish(R1_LEFT, (items, slot) => (items.some((i) => i.href === "/classes") || slot.page === "gallery.tsx" ? items : [...items, { label: "Classes", href: "/classes" }])), /gallery\.tsx's menu gained \[\]/);
+  // NOTHING DONE AT ALL.
+  one(R1_LEFT, /every menu that lacked "Classes"/);
+  // THE STARTER PAGE GIVEN A MENU OF ITS OWN.
+  const starter = finish(R1_LEFT).map((p) => (p.path === "starter.tsx" ? { ...p, source: p.source.replace("<main", '<nav><a href="/classes">Classes</a></nav><main') } : p));
+  assert.notEqual(starter.find((p) => p.path === "starter.tsx").source, R1_LEFT.find((p) => p.path === "starter.tsx").source, "the case did not change the starter page");
+  one(starter, /byte for byte as it was/);
+  // EVERY MENU ALREADY HAD IT: the press made nothing, so it is not the fix shown.
+  const done = finish(R1_LEFT);
+  const f = failed(judge(spec, leftSite(done), leftSite(done)).checks);
+  assert.ok(f.some((x) => /every menu that lacked "Classes"/.test(x) && /no menu gained it/.test(x)), JSON.stringify(f));
+  // THE STORED MENUS RIGHT, ONE SERVED HEADER WITHOUT IT.
+  const a = leftSite(finish(R1_LEFT));
+  a.served["/order"] = a.served["/order"].replace(/<a href="\/classes">Classes<\/a>/, "");
+  assert.ok(!a.served["/order"].includes('href="/classes"'), "the case did not take the link off the served header");
+  const g = failed(judge(spec, b, a).checks);
+  assert.ok(g.some((x) => /every served header links "Classes"/.test(x) && /\/order/.test(x)), JSON.stringify(g));
 });
 
 test("R1 does not land when a menu lacks the link, the link points elsewhere, the page answers 404, the description misses a word, a second page appears, or another page or a table moved", () => {

@@ -427,6 +427,48 @@ function literalProp(part, name) {
   return null;
 }
 
+/** The lists an addition can name, and what each is called in a sentence. */
+const ADD_LISTS = Object.freeze({ menu: "the menu", social: "the footer's social links", legal: "the footer's small print" });
+
+const ADD_ENTRY = {
+  type: "object",
+  properties: {
+    to: {
+      type: "string",
+      enum: Object.keys(ADD_LISTS),
+      description:
+        "Which list it goes in: \"menu\" — the navigation at the top of the pages; \"social\" — the social icons in " +
+        "the footer; \"legal\" — the small-print links beside the copyright (Privacy, Terms).",
+    },
+    label: { type: "string", description: "For \"menu\" and \"legal\": what the visitor reads — one or two words." },
+    network: {
+      type: "string",
+      description: "For \"social\": instagram, facebook, x, twitter, youtube, linkedin, tiktok, website, email or phone.",
+    },
+    href: {
+      type: "string",
+      description:
+        "Where it goes: a page of THIS site exactly as listed below (\"/classes\"; \"/#prices\" for a section of one), " +
+        "or a full https:// address. For \"social\", the profile's full address — NEVER INVENT ONE: if they did not " +
+        "give it, leave the entry out.",
+    },
+    pages: {
+      type: "array",
+      items: { type: "string" },
+      description:
+        "ONLY WHEN THEY NAMED PAGES FOR IT — \"in the home page's menu\", \"on the Visit page\": those pages, exactly as " +
+        "listed below. LEAVE IT OUT when they did not say, and it goes into that list on every page that has one.",
+    },
+    after: {
+      type: "string",
+      description:
+        "Only when they said where: the address of the item it should come straight after, exactly as listed, or " +
+        "\"$start\" to put it first. Left out, it goes at the end of each list.",
+    },
+  },
+  required: ["to", "href"],
+};
+
 export const NAV_TOOL = {
   name: "write_nav",
   description:
@@ -438,8 +480,9 @@ export const NAV_TOOL = {
         type: "array",
         description:
           "THE WHOLE MENU, IN THE ORDER IT SHOULD APPEAR — not a change to it. Start from the menu listed below and " +
-          "return it with the one change they asked for made: an item added, an item taken out, or the order moved " +
-          "around. Everything they did not mention comes back exactly as it was, in the same place.\n" +
+          "return it with the one change they asked for made: an item taken out, renamed, or the order moved around. " +
+          "AN ITEM THEY ASK TO ADD IS NAMED IN `add` INSTEAD. Everything they did not mention comes back exactly as it " +
+          "was, in the same place.\n" +
           "LEAVE THIS OUT ENTIRELY IF THE MENU IS NOT CHANGING — if they are only asking about the button, say " +
           "nothing about the menu. Restating a menu you were not asked to touch is how an item goes missing.\n" +
           "AND LEAVE OUT BOTH THIS AND `action` IF NEITHER IS WHAT THEY MEANT. Saying you could not do it is cheap " +
@@ -560,9 +603,9 @@ export const NAV_TOOL = {
       social: {
         type: "array",
         description:
-          "THE SOCIAL ICONS IN THE FOOTER — \"add our Instagram\", \"put our Facebook at the bottom\", \"take the " +
-          "Twitter link off\". THE WHOLE LIST, in order, not a change to it: start from the list below and return it " +
-          "with the one change made. An EMPTY LIST takes them all off.\n" +
+          "THE SOCIAL ICONS IN THE FOOTER — \"take the Twitter link off\", \"put Facebook first\". THE WHOLE LIST, in " +
+          "order, not a change to it: start from the list below and return it with the one change made. An EMPTY LIST " +
+          "takes them all off. A PROFILE THEY ASK TO ADD — \"add our Instagram\" — IS NAMED IN `add` INSTEAD.\n" +
           "LEAVE THIS OUT ENTIRELY IF THE ICONS ARE NOT CHANGING. Restating a list you were not asked to touch is how " +
           "one goes missing.\n" +
           "NEVER INVENT A PROFILE. If they say to add Instagram and do not give the address, leave this out — a link " +
@@ -585,7 +628,7 @@ export const NAV_TOOL = {
         type: "array",
         description:
           "THE SMALL-PRINT LINKS beside the copyright line — Privacy, Terms, Accessibility. THE WHOLE LIST; an empty " +
-          "list takes them off. Leave it out if they are not changing.\n" +
+          "list takes them off. Leave it out if they are not changing. ONE THEY ASK TO ADD IS NAMED IN `add` INSTEAD.\n" +
           "ONLY A PAGE THIS SITE ACTUALLY HAS, or a full https address. The pages are listed below. A link to a " +
           "privacy page nobody has written gives a visitor a not-found page from the bottom of EVERY page on the " +
           "site, so if they ask for one and there is no such page, that is a job for a different lane and this stays " +
@@ -682,6 +725,20 @@ export const NAV_TOOL = {
           },
         },
       },
+      // ── AN ITEM ADDED IS NAMED, NEVER RESTATED (2026-10-04, run 95's F1) ──
+      //
+      // A whole list is read against the union of every page's (`menuChange`),
+      // so an item some pages already carried was new to none of them. An
+      // addition is named here, with its scope, and put into every list that
+      // lacks it (`applyAdditions`) — the addition's own tool's field.
+      add: {
+        type: "array",
+        items: ADD_ENTRY,
+        description:
+          "TO ADD a menu item or a footer link, name it here — one entry each — instead of restating the menu or the " +
+          "list: every page carries its own copy, and each new item goes into every one that lacks it, leaving the rest " +
+          "as it is. `links`, `social` and `legal` are for taking items out, renaming them or changing their order.",
+      },
       // A QUESTION BACK (2026-10-02, builder/clarify.mjs): asked instead of acting, with nothing changed.
       question: QUESTION_FIELD,
     },
@@ -690,7 +747,8 @@ export const NAV_TOOL = {
 
 const NAV_SYSTEM =
   "You set the navigation menu on a small business's website. It is one menu, shown at the top of every page.\n" +
-  "Return the WHOLE menu every time, in order, with only what was asked for changed. A menu is short — most of " +
+  "To change it, return the WHOLE menu, in order, with only what was asked for changed; an item they ask to ADD is " +
+  "named in `add` instead, and goes into every page's menu that lacks it. A menu is short — most of " +
   "these sites want three to five items — and the one thing a customer is meant to do belongs near the end, where " +
   "the button sits.\n" +
   "Never invent a page. The pages this site has are listed for you; an item pointing anywhere else is dropped.";
@@ -703,14 +761,22 @@ const NAV_SYSTEM =
  * own. First-seen order, which is the order a visitor meets them on the home
  * page.
  */
-export function navDigest(slots, routes, actions, links, contacts, lists, layouts, seconds) {
+export function navDigest(slots, routes, actions, links, contacts, lists, layouts, seconds, { perPage = false } = {}) {
   const lines = [];
   // ONE READING OF THE UNION, shared with `menuChange`, which reads the answer
   // against exactly the list printed here.
   const seen = new Map(menuUnion(slots).map((it) => [it.href, it.label]));
-  lines.push("THE MENU AS IT IS NOW:");
-  if (!seen.size) lines.push("  (empty)");
-  for (const [href, label] of seen) lines.push("  " + (label || "(no label)") + " -> " + href);
+  // AN ADDITION IS SHOWN EACH PAGE'S OWN MENU (2026-10-04, run 95's F1): the
+  // union read as "the menu" is what made a link two pages had look present on
+  // every page. The pages that share a menu are listed together, and a page
+  // with no menu is named, so an addition can name its pages and never create
+  // a menu where there is none.
+  if (perPage) for (const l of menusByPage(slots, routes)) lines.push(l);
+  else {
+    lines.push("THE MENU AS IT IS NOW:");
+    if (!seen.size) lines.push("  (empty)");
+    for (const [href, label] of seen) lines.push("  " + (label || "(no label)") + " -> " + href);
+  }
 
   // THE BUTTON AS IT STANDS, and whether there IS one. A model told nothing
   // about it cannot be asked to change it, and one told only that a button
@@ -784,8 +850,10 @@ export function navDigest(slots, routes, actions, links, contacts, lists, layout
   // our Instagram" and "replace our socials" are the same field and the model
   // cannot tell them apart without knowing what is there.
   for (const prop of Object.keys(LIST_FIELDS)) {
-    const got = ((Array.isArray(lists) ? lists : []).find((l) => l.prop === prop && l.items) || {}).items;
     lines.push("");
+    // EACH PAGE'S OWN, FOR AN ADDITION (2026-10-04), for the menu's reason.
+    if (perPage) { for (const l of listsByPage(lists, prop)) lines.push(l); continue; }
+    const got = ((Array.isArray(lists) ? lists : []).find((l) => l.prop === prop && l.items) || {}).items;
     lines.push(prop === "social" ? "THE SOCIAL ICONS IN THE FOOTER:" : "THE SMALL-PRINT LINKS BESIDE THE COPYRIGHT:");
     if (!got || !got.length) lines.push("  (none)");
     else for (const it of got) lines.push("  " + it[LIST_FIELDS[prop][0]] + " -> " + it.href);
@@ -1003,12 +1071,16 @@ export function navMaxTokens(digest) {
 }
 
 export function navRequest({ instruction, slots, routes, actions, links, contacts, lists, layouts, seconds, addition = false, model = NAV_MODEL }) {
-  const digest = navDigest(slots, routes, actions, links, contacts, lists, layouts, seconds);
+  // AN ADDITION HAS ITS OWN TOOL (2026-10-04, run 95's F1): it names what to
+  // add and where (`add`), and it cannot restate a menu or a list — code puts
+  // each new item into every list that lacks it (`applyAdditions`).
+  const add = addition === true;
+  const digest = navDigest(slots, routes, actions, links, contacts, lists, layouts, seconds, { perPage: add });
   return {
     model,
     max_tokens: navMaxTokens(digest),
-    system: NAV_SYSTEM,
-    tools: [NAV_TOOL],
+    system: add ? NAV_ADD_SYSTEM : NAV_SYSTEM,
+    tools: [add ? NAV_ADD_TOOL : NAV_TOOL],
     tool_choice: { type: "tool", name: NAV_TOOL.name },
     messages: [{
       role: "user",
@@ -1301,7 +1373,9 @@ export function applyNav(pages, links) {
     for (const s of [...mine].sort((a, b) => b.at - a.at)) {
       // PER SLOT: each menu on the home page keeps its own link to `/` only
       // when it already had one. Every other page takes the list as it is.
-      const list = listOf(s.items);
+      // AND THE SLOT ITSELF (2026-10-04), so an addition scoped to some pages
+      // can tell which page this menu is on.
+      const list = listOf(s.items, s);
       const self = !home || s.items.some((it) => it.href === "/");
       const items = self ? list : list.filter((it) => it.href !== "/");
       // A MENU THE CHANGE LEAVES AS IT WAS IS LEFT AS IT IS WRITTEN (W4,
@@ -1380,7 +1454,7 @@ function humanList(fields) {
 }
 
 /** What the customer is told, in their words rather than ours. */
-export function navReply({ links = [], dropped = [], changed = [], action = null, removedAction = false, secondAction = null, removedSecondAction = false, moved = 0, refused = [], contact = null, lists = null, layout = null, added = false, menus = null } = {}) {
+export function navReply({ links = [], dropped = [], changed = [], action = null, removedAction = false, secondAction = null, removedSecondAction = false, moved = 0, refused = [], contact = null, lists = null, layout = null, menus = null } = {}) {
   const where = changed.length + (changed.length === 1 ? " page" : " pages");
   // EITHER BUTTON COUNTS as "the button was part of this", so a footer-only or
   // frame-only sentence below never reports a change that carried one.
@@ -1424,9 +1498,7 @@ export function navReply({ links = [], dropped = [], changed = [], action = null
       const names = lists[prop].map((it) => (it && (prop === "social" ? it.network : it.label)) || (it && it.href) || "").filter(Boolean);
       said.push(n ? n + " " + what + (n === 1 ? "" : "s") + (names.length ? " (" + names.join(" · ") + ")" : "") : "took the " + what + "s off");
     }
-    // AN ADDITION SAYS WHAT IT ADDED (2026-10-02): `lists` then holds only the
-    // new entries, and the ones the footer had are still there beside them.
-    if (added) return "✅ Added " + said.join(", and ") + " to the footer, beside what it had — on " + where + "." + droppedNote(dropped);
+    // (AN ADDITION SAYS WHAT IT ADDED in its own sentence, `additionReply`.)
     return "✅ The footer now has " + said.join(", and ") + " — on " + where + "." + droppedNote(dropped);
   }
 
@@ -1473,8 +1545,7 @@ export function navReply({ links = [], dropped = [], changed = [], action = null
   // this layer exists is that the menu is a separate copy in every page file, so
   // "on 5 pages" is exactly what the owner could not get before without paying
   // for a full rewrite.
-  // AN ADDITION NAMES WHAT IT ADDED (2026-10-02): `links` then holds only the
-  // new items, and every item each menu had stays where it was.
+  // (AN ADDITION NAMES WHAT IT ADDED in its own sentence, `additionReply`.)
   //
   // AN EDIT NAMES THE MENUS AS THEY NOW READ (W4, 2026-10-02), when it is
   // handed them (`menus`, from `runNavEdit`): each page keeps its own items,
@@ -1485,9 +1556,7 @@ export function navReply({ links = [], dropped = [], changed = [], action = null
   const menuLists = menus && Array.isArray(menus.lists) && menus.lists.length ? menus.lists : null;
   const menuPages = menuLists ? menus.pages : changed.length;
   const named = (items) => items.map((l) => l.label).join(" · ");
-  let msg = added
-    ? "✅ Added " + links.map((l) => "“" + l.label + "”").join(", ") + " to the menu on " + changed.length + (changed.length === 1 ? " page" : " pages") + ", beside the items it had."
-    : menuLists && menuLists.length > 1
+  let msg = menuLists && menuLists.length > 1
       ? "✅ Updated the menu on " + menuPages + " pages, each keeping its own items — " +
         menuLists.map((m) => named(m.items) + " (" + m.pages + (m.pages === 1 ? " page" : " pages") + ")").join("; ") + "."
       : "✅ Updated the menu on " + menuPages + (menuPages === 1 ? " page" : " pages") + ": " + (menuLists ? named(menuLists[0].items) : menu) + ".";
@@ -1540,8 +1609,20 @@ function itemsLeftOut(dropped) {
     "not-a-path": "a link here goes to a page of this site or a full https:// address",
     offsite: "an address starting with // can't be used — give the full https:// address",
     "bad-anchor": "that isn't a section name a link can point at",
+    "kept-detail": "the footer already shows a different one, and adding doesn't replace it — ask to change it",
   };
-  const other = list.filter((d) => d.why !== "no-such-page" && d.why !== "page-local");
+  // WHERE AN ADDITION COULD NOT GO (2026-10-04): a page they named that the
+  // site does not have, a page they named with no such list, or no list on
+  // the site at all — nothing is made where there was none.
+  const listSaid = (d) => (d.list === "social" ? "social links" : d.list === "legal" ? "small-print links" : "menu");
+  const unknown = list.filter((d) => d.why === "no-such-scope");
+  if (unknown.length) out += " There's no " + [...new Set(unknown.map((d) => d.page || "such"))].join(" or ") + " page on the site, so I didn't add " + [...new Set(unknown.map(name))].join(", ") + " there.";
+  for (const d of list.filter((x) => x.why === "no-list-there")) {
+    out += " " + (d.page || "That page") + " has no " + listSaid(d) + " to put " + name(d) + " in, so it isn't there.";
+  }
+  for (const d of list.filter((x) => x.why === "no-list")) out += " There's no " + listSaid(d) + " on the site to put " + name(d) + " in.";
+  const own = new Set(["no-such-page", "page-local", "no-such-scope", "no-list-there", "no-list"]);
+  const other = list.filter((d) => !own.has(d.why));
   if (other.length) {
     out += " I left out " + other.map((d) => name(d) + (REASON[d.why] ? " (" + REASON[d.why] + ")" : "")).join(", ") +
       " — " + (other.length === 1 ? "it wasn't" : "they weren't") + " usable there.";
@@ -1571,34 +1652,125 @@ function buttonNote(btn) {
   return lead + " — I couldn't use that destination.";
 }
 
-// ── AN ADDITION ADDS, AND TAKES NOTHING THE FRAME ALREADY HAS (2026-10-02) ──
+// ── AN ADDITION NAMES WHAT IT ADDS, AND CODE PUTS IT WHERE IT IS MISSING ───
 //
+// (2026-10-02, and since 2026-10-04 after run 95's F1, on the owner's word.)
 // The add-on step hands a new menu link, footer link or header button to this
-// rung (its `frame` kind), and the browser says so on the POST. The model is
-// told, and what it answers is then held to it in code: on an addition no
-// item, button, link or detail the frame already has may be changed, replaced,
-// reordered or taken away. Measured as the risk it closes: "add a Call us
-// button" on a header with "Order a loaf" had one answer, and it replaced the
-// button the site had.
+// rung (its `frame` kind), and the browser says so on the POST. Until
+// 2026-10-04 the model answered the WHOLE menu, as for any edit, and an item
+// was new only when NO page's menu carried it — the union of every page's
+// links. Run 95's R1 showed what that costs: the add-on had put Classes on two
+// pages' menus of five, so the menu step found nothing new, refused
+// (`no-menu`), and three menus never got it. The same union decided the
+// footer's legal and social lists.
+//
+// NOW THE MODEL NAMES ONLY THE ADDITIONS (`add`, its own tool): each entry its
+// list, its words and address, the pages they named for it (none named: every
+// page that has that list) and, when they said, the item it follows. Code
+// puts each into every list in its scope that lacks its address
+// (`applyAdditions`) and nothing else moves: a page's other items, their
+// words and order stay; a menu that differs from page to page on purpose
+// keeps its difference; a page with no menu is never given one. An addition
+// already true everywhere it was asked for is done, with nothing to publish
+// (`satisfied`). Owner: *"Do not decide newness from the union of every
+// page's links … Preserve each page's unrelated links, labels, ordering and
+// intentional differences; do not copy the whole union everywhere or use
+// keyword rules."*
 export const ADDITION_NOTE =
-  "THIS MESSAGE ADDS SOMETHING TO THE FRAME. Add what they asked for, and keep everything listed above exactly as " +
-  "it is: no menu item, button, footer link or detail is changed, replaced, reordered or taken away. A button they " +
-  "ask for when the header already has one is `secondAction`.";
+  "THIS MESSAGE ADDS SOMETHING TO THE FRAME. Name each new menu item or footer link in `add` — which list, its " +
+  "words and where it goes, and ONLY IF THEY NAMED PAGES for it, those pages — and nothing else. Do not restate a " +
+  "menu or a list: each page keeps its own, and every new item goes into each one that lacks it. A button they ask " +
+  "for when the header already has one is `secondAction`; a phone number, email, address or opening line is `contact`.";
 
-/** What the frame holds now, read from the same slots the digest is written from. */
-export function frameNow({ slots, actions, seconds, contacts, lists } = {}) {
-  // EVERY HREF ANY MENU HAS: an item is new only when no page's menu carries
-  // it, and it is added to each menu as that menu is.
-  const menu = [];
-  const seen = new Set();
+const NAV_ADD_SYSTEM =
+  "You add to the frame of a small business's website — its menu, the links in its footer, the button at the top, " +
+  "the details at the bottom. Every page carries its own copy of the menu and the footer, and they can differ on " +
+  "purpose.\n" +
+  "Name only what they asked to add. Never restate a list: each new item is put into every list that lacks it, and " +
+  "every item already there stays exactly where it is.\n" +
+  "Never invent a page or a profile. The pages this site has are listed for you; an item pointing anywhere else is dropped.";
+
+/**
+ * THE ADDITION'S OWN TOOL (2026-10-04). The same name as the edit's, so a
+ * reply is read the same way; no whole-list field, so an answer cannot
+ * restate a menu or a footer list. The buttons and the footer details are the
+ * edit's own fields, held to "add only" (`additionOnly`).
+ */
+export const NAV_ADD_TOOL = {
+  name: NAV_TOOL.name,
+  description:
+    "Say what to ADD to the site's frame — new menu items, footer links, a button, a footer detail. Everything already " +
+    "there stays exactly as it is.",
+  input_schema: {
+    type: "object",
+    properties: {
+      add: {
+        type: "array",
+        items: ADD_ENTRY,
+        description:
+          "EACH NEW MENU ITEM OR FOOTER LINK, one entry each. LEAVE IT OUT if they are only adding a button or a " +
+          "footer detail.",
+      },
+      action: NAV_TOOL.input_schema.properties.action,
+      secondAction: NAV_TOOL.input_schema.properties.secondAction,
+      contact: NAV_TOOL.input_schema.properties.contact,
+      question: QUESTION_FIELD,
+    },
+  },
+};
+
+/**
+ * EACH PAGE'S OWN MENU, for an addition's digest: the pages that share a menu
+ * listed together, and the pages with none named — nothing is added there.
+ */
+function menusByPage(slots, routes) {
+  const lines = ["EACH PAGE'S OWN MENU (they may differ on purpose; a new item goes into each one that lacks it):"];
+  const groups = new Map();
+  const withMenu = new Set();
   for (const s of Array.isArray(slots) ? slots : []) {
-    const items = (s && s.items) || [];
-    for (const it of items) {
-      if (!it || !it.href || seen.has(it.href)) continue;
-      seen.add(it.href);
-      menu.push({ label: it.label, href: it.href });
-    }
+    const r = s && s.route;
+    if (!r) continue;
+    withMenu.add(r);
+    const k = JSON.stringify((s.items || []).map((it) => [it.label, it.href]));
+    if (!groups.has(k)) groups.set(k, { items: s.items || [], routes: [] });
+    if (!groups.get(k).routes.includes(r)) groups.get(k).routes.push(r);
   }
+  if (!groups.size) lines.push("  (no page has a menu)");
+  for (const g of groups.values()) {
+    lines.push("  on " + g.routes.join(", ") + ": " +
+      (g.items.length ? g.items.map((it) => (it.label || "(no label)") + " -> " + it.href).join(" · ") : "(empty)"));
+  }
+  const none = [...new Set((Array.isArray(routes) ? routes : []).filter((r) => r && !withMenu.has(r)))];
+  if (none.length) lines.push("  NO MENU ON: " + none.join(", ") + " — nothing is added to a page with no menu.");
+  return lines;
+}
+
+/** Each page's own footer list (`social` or `legal`), for an addition's digest. */
+function listsByPage(lists, prop) {
+  const lines = [prop === "social" ? "THE SOCIAL ICONS IN EACH PAGE'S FOOTER:" : "THE SMALL-PRINT LINKS IN EACH PAGE'S FOOTER:"];
+  const first = LIST_FIELDS[prop][0];
+  const groups = new Map();
+  for (const l of (Array.isArray(lists) ? lists : []).filter((x) => x && x.prop === prop)) {
+    const r = routeOf(l.page);
+    const items = Array.isArray(l.items) ? l.items : null;
+    const k = items ? JSON.stringify(items.map((it) => [it[first], it.href])) : "";
+    if (!groups.has(k)) groups.set(k, { items, routes: [] });
+    if (r && !groups.get(k).routes.includes(r)) groups.get(k).routes.push(r);
+  }
+  if (!groups.size) lines.push("  (no page has a footer)");
+  for (const g of groups.values()) {
+    lines.push("  on " + g.routes.join(", ") + ": " +
+      (g.items && g.items.length ? g.items.map((it) => it[first] + " -> " + it.href).join(" · ") : "(none)"));
+  }
+  return lines;
+}
+
+/**
+ * What the frame holds now that an addition is held to: its buttons, and each
+ * page's own footer details. (The menu and the footer's lists are not read as
+ * one frame any more — see above; each list is its own.)
+ */
+export function frameNow({ actions, seconds, contacts } = {}) {
   const has = (arr) => (Array.isArray(arr) ? arr : []).some((a) => a && a.inner);
   const now = (arr) => (Array.isArray(arr) ? arr : []).map((a) => a && a.action).filter(Boolean)[0] || null;
   // EVERY PAGE'S OWN CONTACT DETAILS, NOT THE FIRST PAGE'S (review,
@@ -1607,47 +1779,15 @@ export function frameNow({ slots, actions, seconds, contacts, lists } = {}) {
   // another's. One entry per slot; `null` is a frame with none yet.
   const contactsNow = (Array.isArray(contacts) ? contacts : []).filter(Boolean)
     .map((c) => (c.contact && typeof c.contact === "object" ? c.contact : null));
-  const listNow = {};
-  for (const prop of Object.keys(LIST_FIELDS)) {
-    const mine = (Array.isArray(lists) ? lists : []).filter((l) => l && l.prop === prop && Array.isArray(l.items));
-    listNow[prop] = [];
-    for (const l of mine) {
-      for (const it of l.items) if (it && it.href && !listNow[prop].some((x) => x.href === it.href)) listNow[prop].push(it);
-    }
-  }
-  return { menu, button: has(actions), buttonNow: now(actions), second: has(seconds), secondNow: now(seconds), contacts: contactsNow, lists: listNow };
-}
-
-/**
- * THE NEW ITEMS AN ANSWER NAMES — an `href` no page's list carries — each with
- * where it goes: after the item the answer put before it, at the start when
- * the answer put it ahead of every item the list has, or at the end when the
- * answer named only new items, which is where an item added to a list goes.
- * EVERY ONE (2026-10-03): there was a "room" left by a count of ten or eight,
- * and nothing technical behind it.
- */
-function newItems(known, answer) {
-  const has = new Set((Array.isArray(known) ? known : []).filter((it) => it && typeof it.href === "string").map((it) => it.href));
-  const given = (Array.isArray(answer) ? answer : []).filter((it) => it && typeof it.href === "string");
-  const anyKnown = given.some((it) => has.has(it.href));
-  const out = [];
-  const seen = new Set();
-  let prev = anyKnown ? "$start" : "$end";
-  for (const it of given) {
-    if (has.has(it.href)) { prev = it.href; continue; }
-    if (seen.has(it.href)) continue;
-    seen.add(it.href);
-    out.push({ item: it, after: prev });
-    prev = anyKnown ? it.href : "$end";
-  }
-  return out;
+  return { button: has(actions), buttonNow: now(actions), second: has(seconds), secondNow: now(seconds), contacts: contactsNow };
 }
 
 /**
  * ONE LIST WITH THE ADDITIONS PLACED — every item it had, in its own order and
  * words, and each new one after its anchor when this list has that anchor, at
- * the end otherwise. Read per page (`applyNav`, `applyChromeList`), so a list
- * that differs from page to page keeps its difference.
+ * the end otherwise; one it already has is left where it is. Read per page
+ * (`applyNav`, `applyChromeList`), so a list that differs from page to page
+ * keeps its difference.
  */
 export function withAdded(items, adds) {
   const out = (Array.isArray(items) ? items : []).map((it) => ({ ...it }));
@@ -1662,55 +1802,174 @@ export function withAdded(items, adds) {
 }
 
 /**
- * THE ANSWER, HELD TO "ADD ONLY". Nothing taken away, nothing repointed, the
- * frame's arrangement left alone; the button they have stays (a different
- * button becomes the second one, or is refused when there are two already);
- * the menu and the footer's lists keep every item; a footer detail already
- * there is not rewritten and none is cleared.
+ * THE ADDITIONS AN ANSWER NAMES (2026-10-04): `{ adds, dropped }`, each add
+ * `{ to, item, pages, after }` — `item` `{ label, href }` (menu, legal) or
+ * `{ network, href }` (social); `pages` the routes they named, or null for
+ * every page that has that list. An entry with no words, nowhere to go or a
+ * destination the list cannot hold is dropped with its reason, and so is a
+ * page they named that the site does not have — the rest still go in. The
+ * same addition named twice is one.
+ */
+export function readAdditions(input, routes) {
+  const known = new Set((Array.isArray(routes) ? routes : []).filter(Boolean));
+  const adds = [], dropped = [];
+  const seen = new Set();
+  for (const raw of Array.isArray(input && input.add) ? input.add : []) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) { dropped.push({ label: "", href: "", why: "incomplete" }); continue; }
+    const to = typeof raw.to === "string" && Object.hasOwn(ADD_LISTS, raw.to) ? raw.to : "";
+    const words = to === "social" ? raw.network : raw.label;
+    // A NON-STRING IS REFUSED RATHER THAN COERCED, `readNav`'s rule.
+    const label = typeof words === "string" ? words.trim().slice(0, MAX_LABEL) : "";
+    const href = typeof raw.href === "string" ? raw.href.trim() : "";
+    const list = to && to !== "menu" ? { list: to } : {};
+    if (!to || !label || !href) { dropped.push({ label, href, why: "incomplete", ...list }); continue; }
+    // THE MENU'S DESTINATIONS ARE THE MENU'S (`hrefProblem`); A FOOTER LINK'S
+    // ARE A BUTTON'S, `tel:` included — the rules `readNav` holds each list to.
+    const why = to === "menu" ? hrefProblem(href, known) : actionHrefProblem(href, known);
+    if (why) { dropped.push({ label, href, why, ...list }); continue; }
+    let pages = null;
+    if (Array.isArray(raw.pages) && raw.pages.length) {
+      pages = [];
+      for (const pg of raw.pages) {
+        const r = typeof pg === "string" ? pg.trim() : "";
+        if (known.has(r)) { if (!pages.includes(r)) pages.push(r); continue; }
+        dropped.push({ label, href, why: "no-such-scope", page: r.slice(0, 80), ...list });
+      }
+      if (!pages.length) continue;
+    }
+    const after = typeof raw.after === "string" && raw.after.trim() ? raw.after.trim() : null;
+    const key = to + "\u0000" + href + "\u0000" + (pages ? pages.slice().sort().join(",") : "*");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    adds.push({ to, item: to === "social" ? { network: label, href } : { label, href }, pages, after });
+  }
+  return { adds, dropped };
+}
+
+/** Where a footer slot is, as one key across two readings of the same pages. */
+const listSlotKey = (s) => s.page + "\u0000" + (s.at ?? "i" + s.insertAt);
+
+/**
+ * EACH ADDITION, INTO EVERY LIST IN ITS SCOPE THAT LACKS IT (2026-10-04).
+ *
+ * A MENU ITEM goes into each menu on a page in its scope that does not list
+ * its address; a page with no menu is never given one, and one they named is
+ * reported (`missing`). The home page gains no link to itself, `applyNav`'s
+ * one exception, so its menu is no target for `/` unless it lists `/` already.
+ *
+ * A FOOTER LINK goes into that list wherever a page in its scope has one. Only
+ * when no page in its scope has that list yet does the first entry make it,
+ * on every page in its scope with a frame — so a footer without the list by
+ * design keeps going without it once others have it.
+ *
+ * Returns the pages, the pages that changed, and per addition its `targets`
+ * (pages in its scope with that list), `had` (those that already carried it),
+ * `added` (those that carry it now and did not) and `missing` (routes they
+ * named that have no such list).
+ */
+export function applyAdditions(pages, adds) {
+  let cur = Array.isArray(pages) ? pages : [];
+  const list = (Array.isArray(adds) ? adds : []).filter((a) => a && a.item && typeof a.item.href === "string" && Object.hasOwn(ADD_LISTS, a.to));
+  const inScope = (a, page) => !a.pages || a.pages.includes(routeOf(page));
+  const report = list.map((a) => ({ add: a, targets: [], had: [], added: [], missing: [] }));
+  const changed = new Set();
+  const placed = (a) => ({ item: a.item, after: a.after || "$end" });
+
+  const menuAt = list.map((a, i) => [a, i]).filter(([a]) => a.to === "menu");
+  if (menuAt.length) {
+    const before = navSlots(cur);
+    const target = (a, s) => inScope(a, s.page) && !(a.item.href === "/" && routeOf(s.page) === "/" && !s.items.some((it) => it.href === "/"));
+    const holds = (slots, page, href) => { const mine = slots.filter((s) => s.page === page); return mine.length > 0 && mine.every((s) => s.items.some((it) => it.href === href)); };
+    for (const [a, i] of menuAt) {
+      const r = report[i];
+      for (const s of before) if (target(a, s) && !r.targets.includes(s.page)) r.targets.push(s.page);
+      if (a.pages) for (const route of a.pages) if (!before.some((s) => routeOf(s.page) === route)) r.missing.push(route);
+      r.had = r.targets.filter((pg) => holds(before, pg, a.item.href));
+    }
+    const out = applyNav(cur, (items, slot) => withAdded(items, menuAt.filter(([a]) => target(a, slot)).map(([a]) => placed(a))));
+    cur = out.pages;
+    for (const c of out.changed) changed.add(c);
+    const after = navSlots(cur);
+    for (const [a, i] of menuAt) {
+      const r = report[i];
+      r.added = r.targets.filter((pg) => !r.had.includes(pg) && holds(after, pg, a.item.href));
+    }
+  }
+
+  for (const prop of Object.keys(LIST_FIELDS)) {
+    const at = list.map((a, i) => [a, i]).filter(([a]) => a.to === prop);
+    if (!at.length) continue;
+    const before = chromeListSlots(cur, prop);
+    const aim = new Map();
+    for (const [a, i] of at) {
+      const r = report[i];
+      const scoped = before.filter((s) => inScope(a, s.page));
+      const there = scoped.filter((s) => Array.isArray(s.items));
+      const targets = there.length ? there : scoped;
+      aim.set(i, new Set(targets.map(listSlotKey)));
+      r.targets = [...new Set(targets.map((s) => s.page))];
+      if (a.pages) for (const route of a.pages) if (!before.some((s) => routeOf(s.page) === route)) r.missing.push(route);
+      r.had = r.targets.filter((pg) => targets.filter((s) => s.page === pg).every((s) => Array.isArray(s.items) && s.items.some((it) => it.href === a.item.href)));
+    }
+    const out = applyChromeList(cur, prop, (items, slot) => withAdded(items, at.filter(([, i]) => aim.get(i).has(listSlotKey(slot))).map(([a]) => placed(a))));
+    cur = out.pages;
+    for (const c of out.changed) changed.add(c);
+    const after = chromeListSlots(cur, prop);
+    for (const [a, i] of at) {
+      const r = report[i];
+      r.added = r.targets.filter((pg) => !r.had.includes(pg) &&
+        after.some((s) => s.page === pg && Array.isArray(s.items) && s.items.some((it) => it.href === a.item.href)));
+    }
+  }
+  return { pages: cur, changed: [...changed], report };
+}
+
+/**
+ * THE BUTTONS AND THE FOOTER DETAILS, HELD TO "ADD ONLY". Nothing taken away,
+ * nothing repointed, the frame's arrangement left alone; the button they have
+ * stays (a different button becomes the second one, or is refused when there
+ * are two already); a footer detail already there is not rewritten and none
+ * is cleared. A whole menu or footer list is not read: an addition names its
+ * new items in `add`. What it named that the frame already has is `already`
+ * (2026-10-04), so an addition that is all already true is done.
  */
 export function additionOnly(read, now) {
   if (!read || typeof read !== "object") return read;
   const n = now && typeof now === "object" ? now : {};
-  const out = { ...read, dropped: [...(Array.isArray(read.dropped) ? read.dropped : [])] };
+  const out = { ...read, dropped: [...(Array.isArray(read.dropped) ? read.dropped : [])], already: { buttons: [], contact: [] } };
   out.removeAction = false;
   out.removeSecondAction = false;
   out.pageLinks = [];
   out.layout = null;
+  out.links = null;
+  out.lists = {};
   const same = (a, b) => !!(a && b && a.label === b.label && a.href === b.href);
   if (out.action && n.button) {
-    if (same(out.action, n.buttonNow)) out.action = undefined;
+    if (same(out.action, n.buttonNow)) { out.already.buttons.push(out.action); out.action = undefined; }
     else if (!n.second && !out.secondAction) { out.secondAction = out.action; out.action = undefined; }
     else { out.dropped.push({ label: out.action.label, href: out.action.href, why: "kept", button: true, second: true }); out.action = undefined; }
   }
   if (out.secondAction && n.second) {
-    if (!same(out.secondAction, n.secondNow)) {
-      out.dropped.push({ label: out.secondAction.label, href: out.secondAction.href, why: "kept", button: true, second: true });
-    }
+    if (same(out.secondAction, n.secondNow)) out.already.buttons.push(out.secondAction);
+    else out.dropped.push({ label: out.secondAction.label, href: out.secondAction.href, why: "kept", button: true, second: true });
     out.secondAction = undefined;
   }
-  // THE MENU AND THE FOOTER'S LISTS ARE ADDED TO PAGE BY PAGE: what the
-  // answer says is read only for its NEW items and where they go, so a menu
-  // missing an item on one page is not given it, and none loses one.
-  out.addLinks = Array.isArray(out.links) ? newItems(n.menu, out.links) : [];
-  out.links = null;
-  out.addLists = {};
-  if (out.lists && typeof out.lists === "object") {
-    for (const prop of Object.keys(out.lists)) {
-      const adds = newItems((n.lists || {})[prop], out.lists[prop]);
-      if (adds.length) out.addLists[prop] = adds;
-    }
-  }
-  out.lists = {};
   if (out.contact && typeof out.contact === "object") {
     // A DETAIL IS NEW WHILE SOME PAGE'S FOOTER LACKS IT, and it is written only
     // where it is missing (`applyContact` with `keep`), so a footer that
-    // already shows one keeps its own.
+    // already shows one keeps its own. Every footer showing it already: the
+    // same detail is already there; a different one is not replaced by an
+    // addition, and is named as not done.
     const pagesNow = Array.isArray(n.contacts) ? n.contacts : [];
     const shows = (c, f) => !!(c && typeof c[f] === "string" && c[f] !== "");
     const kept = {};
     for (const [f, v] of Object.entries(out.contact)) {
       if (typeof v !== "string" || v === "") continue;
-      if (pagesNow.length && pagesNow.every((c) => shows(c, f))) continue;
+      if (pagesNow.length && pagesNow.every((c) => shows(c, f))) {
+        if (pagesNow.every((c) => c[f] === v)) out.already.contact.push(f);
+        else out.dropped.push({ label: f, href: "", why: "kept-detail" });
+        continue;
+      }
       kept[f] = v;
     }
     out.contact = Object.keys(kept).length ? kept : null;
@@ -1725,6 +1984,145 @@ export function firstButton(read, hasButton) {
 }
 
 /**
+ * WHAT AN ADDITION DID, SAID PER ITEM (2026-10-04): where each one went in, on
+ * which pages it was there already, the button and the footer details — and
+ * when nothing needed changing, that, by name. Everything it could not add is
+ * named with its reason (`droppedNote`).
+ */
+export function additionReply({ report = [], dropped = [], action = null, secondAction = null, contact = null, already = null } = {}) {
+  const pagesSaid = (list) => list.length === 1 ? routeOf(list[0]) || list[0] : list.length + " pages";
+  const nameOf = (a) => (a.to === "social" ? a.item.network : "“" + a.item.label + "”");
+  const scopeSaid = (a) => (a.pages ? "on " + a.pages.join(", ") : "on every page that has one");
+  const did = [], was = [];
+  // ONE SENTENCE PER LIST AND PLACE: items added to the same list on the same
+  // pages are named together, in the order they were asked for.
+  const groups = new Map();
+  for (const r of Array.isArray(report) ? report : []) {
+    const a = r.add;
+    const kind = r.added.length ? "did" : r.targets.length && r.had.length === r.targets.length && !r.missing.length ? "was" : "";
+    if (!kind) continue;
+    const key = kind + "\u0000" + a.to + "\u0000" + JSON.stringify(kind === "did" ? [r.added, r.had] : a.pages || "*");
+    if (!groups.has(key)) groups.set(key, { kind, r, names: [] });
+    groups.get(key).names.push(nameOf(a));
+  }
+  for (const { kind, r, names } of groups.values()) {
+    const a = r.add;
+    if (kind === "did") {
+      did.push("added " + names.join(", ") + " to " + ADD_LISTS[a.to] + " on " + pagesSaid(r.added) +
+        (r.had.length ? " (" + (r.had.length === 1 ? routeOf(r.had[0]) + " already had " + (names.length === 1 ? "it" : "them") : "the other " + r.had.length + " already had " + (names.length === 1 ? "it" : "them")) + ")" : "") +
+        (a.to === "menu" ? (r.added.length === 1 ? ", beside the items it had" : ", beside the items each had") : ""));
+    } else {
+      was.push(names.join(", ") + (names.length === 1 ? " is" : " are") + " already in " + ADD_LISTS[a.to] + " " + scopeSaid(a));
+    }
+  }
+  if (action) did.push("added a button at the top, “" + action.label + "”, going to " + action.href);
+  if (secondAction) did.push("added a second button, “" + secondAction.label + "”, going to " + secondAction.href + " — the button you had stays as it is");
+  if (contact) {
+    const set = CONTACT_FIELDS.filter((f) => typeof contact[f] === "string" && contact[f] !== "");
+    if (set.length) did.push("added the footer's " + humanList(set) + " where it was missing");
+  }
+  const a0 = already && typeof already === "object" ? already : { buttons: [], contact: [] };
+  for (const b of Array.isArray(a0.buttons) ? a0.buttons : []) was.push("the header already has the button “" + b.label + "”");
+  if (Array.isArray(a0.contact) && a0.contact.length) was.push("the footer already shows that " + humanList(a0.contact));
+  const cap = (t) => t.replace(/^./, (c) => c.toUpperCase());
+  const why = droppedNote(dropped);
+  if (!did.length) {
+    if (was.length && !why) return "Nothing needed changing: " + was.join("; ") + ".";
+    if (why) return "I couldn't add that." + why + (was.length ? " " + cap(was.join("; ")) + "." : "");
+    return "I couldn't work out what to add. Tell me what to put in the menu or the footer.";
+  }
+  return "✅ " + cap(did.join(", and ")) + "." + (was.length ? " " + cap(was.join("; ")) + "." : "") + why;
+}
+
+/** The tool call's input, or null. */
+function toolInput(reply) {
+  const blocks = reply && Array.isArray(reply.content) ? reply.content : [];
+  const use = blocks.find((b) => b && b.type === "tool_use");
+  return (use && use.input) || null;
+}
+
+/** An answer that named nothing of a whole list, a button or a detail — the shape an `add`-only answer reads as. */
+const NOTHING_READ = Object.freeze({ links: null, dropped: [], action: undefined, removeAction: false, secondAction: undefined, removeSecondAction: false, pageLinks: [], contact: null, lists: {}, layout: null });
+
+/**
+ * WHAT THE ADDITIONS CAME TO (2026-10-04), from `applyAdditions`'s report:
+ * what could not go where it was asked — a page they named with no such list,
+ * or no page with the list at all; never a list made where there was none —
+ * which were already true everywhere they were asked for, and the items each
+ * list gained.
+ */
+function additionOutcome(report) {
+  const notThere = [];
+  for (const r of report) {
+    const label = r.add.to === "social" ? r.add.item.network : r.add.item.label;
+    const list = r.add.to !== "menu" ? { list: r.add.to } : {};
+    for (const route of r.missing) notThere.push({ label, href: r.add.item.href, why: "no-list-there", page: route, ...list });
+    if (!r.add.pages && !r.targets.length) notThere.push({ label, href: r.add.item.href, why: "no-list", ...list });
+  }
+  const isAlready = (r) => !r.added.length && r.targets.length > 0 && r.had.length === r.targets.length && !r.missing.length;
+  const items = (to, rs) => rs.filter((r) => r.add.to === to).map((r) => r.add.item);
+  const there = report.filter(isAlready);
+  const added = report.filter((r) => r.added.length);
+  const lists = {};
+  for (const prop of Object.keys(LIST_FIELDS)) { const got = items(prop, added); if (got.length) lists[prop] = got; }
+  return {
+    notThere, allThere: report.every(isAlready),
+    already: { menu: items("menu", there), social: items("social", there), legal: items("legal", there) },
+    links: items("menu", added).length ? items("menu", added) : null,
+    lists: Object.keys(lists).length ? lists : null,
+  };
+}
+
+/**
+ * AN ADDITION, FROM THE MODEL'S ANSWER TO THE PAGES (2026-10-04): its menu and
+ * footer additions (`readAdditions`, `applyAdditions`), its buttons and footer
+ * details (`additionOnly`), and — when every one of them was already true
+ * where it was asked for — done with nothing changed (`satisfied`), which the
+ * route answers without a publish.
+ */
+function runAddition({ reply, pages, routes, actions, seconds, contacts, hasButton, usage }) {
+  const held = firstButton(additionOnly(readNav(reply, routes) || { ...NOTHING_READ, dropped: [] }, frameNow({ actions, seconds, contacts })), hasButton);
+  const { adds, dropped: unread } = readAdditions(toolInput(reply), routes);
+  const applied = applyAdditions(pages, adds);
+  const came = additionOutcome(applied.report);
+  const dropped = [...held.dropped, ...unread, ...came.notThere];
+  let btn = { pages: applied.pages, changed: [] };
+  if (held.action) btn = applyAction(applied.pages, held.action, false);
+  let sec = { pages: btn.pages, changed: [] };
+  if (held.secondAction) sec = applyAction(btn.pages, held.secondAction, false, "secondAction");
+  let con = { pages: sec.pages, changed: [] };
+  if (held.contact) con = applyContact(sec.pages, held.contact, { keep: true });
+  const changed = [...new Set([...applied.changed, ...btn.changed, ...sec.changed, ...con.changed])];
+  const already = { ...came.already, buttons: held.already.buttons, contact: held.already.contact };
+  const msg = additionReply({
+    report: applied.report, dropped,
+    action: btn.changed.length ? held.action : null,
+    secondAction: sec.changed.length ? held.secondAction : null,
+    contact: con.changed.length ? held.contact : null,
+    already: held.already,
+  });
+  if (!changed.length) {
+    // ALREADY TRUE, ALL OF IT, AND NOTHING LEFT UNDONE: done, with nothing to
+    // publish. Something named and not there, or nothing named at all, is
+    // the refusal it always was.
+    const named = applied.report.length > 0 || held.already.buttons.length > 0 || held.already.contact.length > 0;
+    if (named && came.allThere && !dropped.length) return { ok: true, satisfied: true, pages: applied.pages, changed: [], already, dropped: [], usage, msg };
+    return { ok: false, escalate: false, reason: "no-menu", usage, msg };
+  }
+  return {
+    ok: true, pages: con.pages, changed,
+    contact: con.changed.length ? held.contact : null,
+    lists: came.lists,
+    layout: null,
+    links: came.links,
+    action: btn.changed.length ? held.action : null, removedAction: false,
+    secondAction: sec.changed.length ? held.secondAction : null, removedSecondAction: false,
+    movedLinks: 0, refusedLinks: [],
+    already, dropped, usage, msg,
+  };
+}
+
+/**
  * One model call, then a mechanical rewrite of every page.
  *
  * ESCALATES ONLY WHEN THE SITE HAS NO MENU AT ALL. A model that read the menu
@@ -1736,7 +2134,8 @@ export function firstButton(read, hasButton) {
  * EITHER. Republishing every page to write back the bytes that are already there
  * costs a container run and archives a version whose label describes a change
  * that did not happen. It refuses, and says so — the `no-change` shape the look
- * lane already uses.
+ * lane already uses. (An ADDITION already true is different, and done: see
+ * `runAddition`.)
  */
 export async function runNavEdit(deps, { instruction, pages, routes, model = NAV_MODEL, addition = false } = {}) {
   const slots = navSlots(pages);
@@ -1774,25 +2173,27 @@ export async function runNavEdit(deps, { instruction, pages, routes, model = NAV
   // A SECOND BUTTON NEEDS A FIRST: on a header with none, the button they
   // asked for IS the first one, whichever field the model put it in.
   const hasButton = actions.some((a) => a && a.inner);
-  const read = firstButton(addition === true
-    ? additionOnly(readNav(reply, routes), frameNow({ slots, actions, seconds, contacts, lists }))
-    : readNav(reply, routes), hasButton);
-  // AN ADDITION CARRIES ITS NEW ITEMS, not a list (`additionOnly`), and they
-  // are placed into each page's own menu and footer lists.
-  const addLinks = read && Array.isArray(read.addLinks) && read.addLinks.length ? read.addLinks : null;
-  const addLists = read && read.addLists && typeof read.addLists === "object" ? read.addLists : {};
-  const wantsMenu = !!(read && ((read.links && read.links.length) || addLinks));
+  // AN ADDITION IS ITS OWN PATH (2026-10-04): it names its items and code puts
+  // each where it is missing (`runAddition`).
+  if (addition === true) return runAddition({ reply, pages, routes, actions, seconds, contacts, hasButton, usage });
+  // AN EDIT'S OWN ADDITIONS (2026-10-04): an item asked to be added is named
+  // (`add`) and goes where it is missing, exactly as an addition's does.
+  const { adds, dropped: unread } = readAdditions(toolInput(reply), routes);
+  const read = firstButton(readNav(reply, routes) || (adds.length || unread.length ? { ...NOTHING_READ, dropped: [] } : null), hasButton);
+  const wantsMenu = !!(read && read.links && read.links.length);
   const wantsButton = !!(read && (read.action || read.removeAction));
   const wantsSecond = !!(read && (read.secondAction || read.removeSecondAction));
   const wantsLinks = !!(read && read.pageLinks && read.pageLinks.length);
   const wantsContact = !!(read && read.contact);
-  const wantsLists = [...new Set([...Object.keys((read && read.lists) || {}), ...Object.keys(addLists)])];
+  const wantsLists = Object.keys((read && read.lists) || {});
   const wantsLayout = !!(read && read.layout);
-  if (!wantsMenu && !wantsButton && !wantsSecond && !wantsLinks && !wantsContact && !wantsLists.length && !wantsLayout) {
+  const editWants = wantsMenu || wantsButton || wantsSecond || wantsLinks || wantsContact || wantsLists.length > 0 || wantsLayout;
+  if (!editWants && !adds.length) {
     // THE REASON TRAVELS EVEN WHEN NOTHING COULD BE APPLIED. `navReply({})` is
     // the honest answer only when the model said nothing usable at all; when it
     // named a button we had to refuse, the customer is owed the refusal.
-    const why = read && read.dropped && read.dropped.length ? navReply({ dropped: read.dropped }) : navReply({});
+    const left = [...((read && read.dropped) || []), ...unread];
+    const why = left.length ? navReply({ dropped: left }) : navReply({});
     return { ok: false, escalate: false, reason: "no-menu", usage, msg: why };
   }
 
@@ -1803,13 +2204,13 @@ export async function runNavEdit(deps, { instruction, pages, routes, model = NAV
   // changed is made to each menu (`menuApply`): a page that listed two of four
   // items keeps two, its own words for an item the answer only restated stay,
   // and its own order stays.
-  const menuMoves = !addLinks && read && Array.isArray(read.links) && read.links.length ? menuChange(menuUnion(slots), read.links) : null;
-  if (wantsMenu) out = addLinks ? applyNav(out.pages, (items) => withAdded(items, addLinks)) : applyNav(out.pages, (items) => menuApply(items, menuMoves));
+  const menuMoves = wantsMenu ? menuChange(menuUnion(slots), read.links) : null;
+  if (wantsMenu) out = applyNav(out.pages, (items) => menuApply(items, menuMoves));
   // WHAT THE REPLY NAMES IS THE MENUS AS THEY NOW READ (W4): the answer is one
   // list, and once each page keeps its own items it is no longer every
   // page's menu. A menu answer that changed no menu is not reported as one.
   const menuDone = wantsMenu && out.changed.length > 0;
-  const menus = menuDone && !addLinks ? menusNow(out.pages, out.changed) : null;
+  const menus = menuDone ? menusNow(out.pages, out.changed) : null;
   let btn = { pages: out.pages, changed: [] };
   if (wantsButton) btn = applyAction(out.pages, read.action, read.removeAction);
   let sec = { pages: btn.pages, changed: [] };
@@ -1817,18 +2218,27 @@ export async function runNavEdit(deps, { instruction, pages, routes, model = NAV
   let lnk = { pages: sec.pages, changed: [], moved: 0, refused: [] };
   if (wantsLinks) lnk = applyPageLinks(sec.pages, read.pageLinks, routes);
   let con = { pages: lnk.pages, changed: [] };
-  if (wantsContact) con = applyContact(lnk.pages, read.contact, { keep: addition === true });
+  if (wantsContact) con = applyContact(lnk.pages, read.contact);
   let lst = { pages: con.pages, changed: [] };
   for (const prop of wantsLists) {
-    const r = Object.hasOwn(addLists, prop)
-      ? applyChromeList(lst.pages, prop, (items) => withAdded(items, addLists[prop]))
-      : applyChromeList(lst.pages, prop, read.lists[prop]);
+    const r = applyChromeList(lst.pages, prop, read.lists[prop]);
     lst = { pages: r.pages, changed: [...lst.changed, ...r.changed] };
   }
   let lay = { pages: lst.pages, changed: [] };
   if (wantsLayout) lay = applyLayout(lst.pages, read.layout);
-  const changed = [...new Set([...out.changed, ...btn.changed, ...sec.changed, ...lnk.changed, ...con.changed, ...lst.changed, ...lay.changed])];
+  const editChanged = [...new Set([...out.changed, ...btn.changed, ...sec.changed, ...lnk.changed, ...con.changed, ...lst.changed, ...lay.changed])];
+  const added = applyAdditions(lay.pages, adds);
+  const came = additionOutcome(added.report);
+  const changed = [...new Set([...editChanged, ...added.changed])];
+  const dropped = [...read.dropped, ...unread, ...came.notThere];
+  const addSaid = adds.length ? additionReply({ report: added.report, dropped: editWants ? [] : dropped }) : "";
 
+  if (!changed.length && !editWants) {
+    // ONLY ADDITIONS, AND EVERY ONE ALREADY TRUE WHERE IT WAS ASKED: done,
+    // with nothing to publish — the addition's own rule (`runAddition`).
+    if (came.allThere && !dropped.length) return { ok: true, satisfied: true, pages: added.pages, changed: [], already: came.already, dropped: [], usage, msg: addSaid };
+    return { ok: false, escalate: false, reason: "no-menu", usage, msg: addSaid };
+  }
   if (!changed.length) {
     return {
       ok: false, escalate: false, reason: "no-change", usage,
@@ -1847,27 +2257,31 @@ export async function runNavEdit(deps, { instruction, pages, routes, model = NAV
                 : linkRefusal(lnk.refused) || "Those links already point there — nothing to change.",
     };
   }
-  return {
-    ok: true, pages: lay.pages, changed,
+  // THE EDIT'S SENTENCE AND ITS ADDITIONS' SENTENCE, the edit's first; an
+  // edit part that changed nothing is not reported as a change.
+  const editSaid = editChanged.length ? navReply({
+    links: menuDone ? read.links : [], action: read.action,
+    menus,
+    removedAction: !!read.removeAction, dropped: [...read.dropped, ...unread, ...came.notThere], changed: editChanged,
+    secondAction: read.secondAction || null, removedSecondAction: !!read.removeSecondAction,
+    moved: lnk.moved, refused: lnk.refused,
     contact: wantsContact ? read.contact : null,
-    lists: wantsLists.length ? (Object.keys(addLists).length ? Object.fromEntries(Object.entries(addLists).map(([k, v]) => [k, v.map((a) => a.item)])) : read.lists) : null,
+    lists: wantsLists.length ? read.lists : null,
     layout: wantsLayout ? read.layout : null,
-    links: menuDone ? (addLinks ? addLinks.map((a) => a.item) : read.links) : null,
+  }) : "";
+  const addPart = added.changed.length ? additionReply({ report: added.report }) : "";
+  return {
+    ok: true, pages: added.pages, changed,
+    contact: wantsContact ? read.contact : null,
+    lists: wantsLists.length ? read.lists : came.lists,
+    layout: wantsLayout ? read.layout : null,
+    links: menuDone ? read.links : came.links,
     action: read.action || null, removedAction: !!read.removeAction,
     secondAction: read.secondAction || null, removedSecondAction: !!read.removeSecondAction,
     movedLinks: lnk.moved, refusedLinks: lnk.refused,
-    dropped: read.dropped, usage,
-    msg: navReply({
-      links: menuDone ? (addLinks ? addLinks.map((a) => a.item) : read.links) : [], action: read.action,
-      menus,
-      added: addition === true,
-      removedAction: !!read.removeAction, dropped: read.dropped, changed,
-      secondAction: read.secondAction || null, removedSecondAction: !!read.removeSecondAction,
-      moved: lnk.moved, refused: lnk.refused,
-      contact: wantsContact ? read.contact : null,
-      lists: wantsLists.length ? (Object.keys(addLists).length ? Object.fromEntries(Object.entries(addLists).map(([k, v]) => [k, v.map((a) => a.item)])) : read.lists) : null,
-      layout: wantsLayout ? read.layout : null,
-    }),
+    already: adds.length ? came.already : undefined,
+    dropped, usage,
+    msg: editSaid && addPart ? editSaid + " " + addPart.replace(/^✅ /, "") : editSaid || addPart || addSaid,
   };
 }
 
@@ -2344,7 +2758,9 @@ export function applyChromeList(pages, prop, items) {
     if (!mine || !mine.length) return p;
     let src = p.source;
     for (const s of [...mine].sort((a, b) => (b.at ?? b.insertAt) - (a.at ?? a.insertAt))) {
-      const body = per ? bodyOf(items(s.items || [])) : whole;
+      // AND THE SLOT ITSELF (2026-10-04): which page, and whether the list is
+      // there yet (`items` null is where one would go).
+      const body = per ? bodyOf(items(s.items || [], s)) : whole;
       if (!s.items) {
         // Nothing there and nothing to write is a no-op, not a failure: asking
         // for something to go that is already gone is not an error.

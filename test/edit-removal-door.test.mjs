@@ -1315,12 +1315,18 @@ for (const mode of ["sync", "job"]) {
    becomes a second button. Driven through the real edit route with the menu
    editor's answer supplied, sync and queued — each beside the SAME answer
    without the flag, which is the edit this rung always made.
+
+   SINCE 2026-10-04 (run 95's F1) AN ADDITION NAMES ITS ITEMS (`add`) and code
+   puts each into every list that lacks it; a whole menu in an addition's
+   answer is not read.
    ═════════════════════════════════════════════════════════════════════════ */
 const ADD_ORDER = "Add Order to the menu.";
 const ADD_CALL = "Add a Call us button at the top that rings 0117 496 0000.";
 const ADD_INSTA = "Add our Instagram to the footer: @harbourloaf.";
 const CHROME_PAGES = ["index.tsx", "order.tsx", "visit.tsx", "gallery.tsx"];
 const ORDER_LINK = { label: "Order", href: "/order" };
+/** The addition's own answer for the Order link (`add`, 2026-10-04). */
+const ADD_ORDER_LINK = { to: "menu", ...ORDER_LINK };
 const CALL = { label: "Call us", href: "tel:01174960000" };
 const BEFORE_MENU = navSlots([PAGES[0]])[0].items.map(({ label, href }) => ({ label, href }));
 /** Each page's OWN menu before — they differ: the order and visit pages carry no Gallery. */
@@ -1356,7 +1362,7 @@ test("FRAME ADDITION, the control: the observers read the bakery's frame as it i
 for (const mode of ["sync", "job"]) {
   test(`FRAME ADDITION (${mode}): a new menu link is added after the items the menu has, and nothing else moves`, async () => {
     const r = await drive({ mode, ask: ADD_ORDER, routed: { layer: "nav", addition: true },
-      answers: { write_nav: { links: [ORDER_LINK] } } });
+      answers: { write_nav: { add: [ADD_ORDER_LINK] } } });
     assert.equal(r.reply && r.reply.ok, true, JSON.stringify(r.reply));
     for (const f of CHROME_PAGES) {
       assert.deepEqual(menuOn(r, f), [...OWN_MENU[f], ORDER_LINK], f + ": the menu is not this page's own with Order added at the end");
@@ -1365,16 +1371,17 @@ for (const mode of ["sync", "job"]) {
         f + ": something beside the menu changed");
     }
     assert.equal(page(r, "starter.tsx"), ORIG["starter.tsx"]);
-    assert.match(r.reply.msg, /Added “Order” to the menu on 4 pages, beside the items it had/);
+    assert.match(r.reply.msg, /Added “Order” to the menu on 4 pages, beside the items each had/);
   });
 
   test(`FRAME ADDITION (${mode}): an answer restating the home page's whole menu gives no page an item it did not have`, async () => {
     // THE DEFECT THIS CLOSES, measured on this fixture before it was fixed: the
     // menu editor writes ONE list to every page, so an addition answered as
     // "the menu, plus Order" gave the order and visit pages a Gallery link —
-    // something nobody asked for, on two pages that did not carry it.
+    // something nobody asked for, on two pages that did not carry it. Since
+    // 2026-10-04 a whole menu in an addition's answer is not read at all.
     const r = await drive({ mode, ask: ADD_ORDER, routed: { layer: "nav", addition: true },
-      answers: { write_nav: { links: [...BEFORE_MENU, ORDER_LINK] } } });
+      answers: { write_nav: { links: [...BEFORE_MENU, ORDER_LINK], add: [ADD_ORDER_LINK] } } });
     assert.equal(r.reply && r.reply.ok, true, JSON.stringify(r.reply));
     for (const f of CHROME_PAGES) assert.deepEqual(menuOn(r, f), [...OWN_MENU[f], ORDER_LINK], f + ": the menu gained more than Order");
     assert.ok(!menuOn(r, "order.tsx").some((l) => l.href === "/gallery"), "the order page was given a Gallery link");
@@ -1414,7 +1421,7 @@ for (const mode of ["sync", "job"]) {
   test(`FRAME ADDITION (${mode}): a social link is added to the footer of every page, and nothing else moves`, async () => {
     const insta = { network: "instagram", href: "https://instagram.com/harbourloaf" };
     const r = await drive({ mode, ask: ADD_INSTA, routed: { layer: "nav", addition: true },
-      answers: { write_nav: { social: [insta] } } });
+      answers: { write_nav: { add: [{ to: "social", ...insta }] } } });
     assert.equal(r.reply && r.reply.ok, true, JSON.stringify(r.reply));
     for (const f of CHROME_PAGES) {
       const one = [{ path: f, source: page(r, f) }];
@@ -1425,7 +1432,7 @@ for (const mode of ["sync", "job"]) {
     }
     assert.equal(page(r, "starter.tsx"), ORIG["starter.tsx"]);
     // NAMED SINCE 2026-10-03 (the footer correction): which link went in, not only how many.
-    assert.match(r.reply.msg, /Added 1 social link \(instagram\) to the footer, beside what it had/);
+    assert.match(r.reply.msg, /Added instagram to the footer's social links on 4 pages/);
   });
 
   test(`FRAME ADDITION (${mode}): an addition's answer that would take or change something is held to adding`, async () => {
@@ -1435,6 +1442,7 @@ for (const mode of ["sync", "job"]) {
     // (the sweep's N-2, 2026-10-02). Added: one menu item and one new detail.
     const answer = {
       links: [{ label: "Today's bake", href: "/" }, ORDER_LINK],
+      add: [{ ...ADD_ORDER_LINK, after: "/" }],
       removeAction: true, layout: { brand: "centre" },
       contact: { hours: "Every day 7–7", address: "", phone: "0117 496 0000" },
       pageLinks: [{ label: "Back to the home page", from: "/", to: "/order" }],
@@ -1465,6 +1473,88 @@ for (const mode of ["sync", "job"]) {
     assert.equal(r.reply && r.reply.ok, true, JSON.stringify(r.reply));
     assert.deepEqual(menuOn(r, "index.tsx"), [{ label: "Today's bake", href: "/" }, ORDER_LINK]);
     assert.equal(buttonOn(r, "index.tsx"), null, "an ordinary edit can no longer take the button off");
+  });
+
+  // ── RUN 95's F1, THROUGH THE ROUTE (2026-10-04) ─────────────────────────
+  //
+  // An item some menus have and others lack, a scope asked for, a footer list
+  // some pages carry, a page with no menu, and an addition already true
+  // everywhere it was asked for. Each answer is the menu editor's (`add`),
+  // supplied; what is checked is what the route did with it.
+
+  test(`FRAME ADDITION (${mode}): an item some menus have is added only where it is missing — each page keeps its own items, order and differences — and asked again it is already done: nothing published, the step's work not charged`, async () => {
+    // A SCOPE ASKED FOR: the home page and the gallery page only.
+    const r1 = await drive({ mode, ask: "Add Order to the menu on the home page and the gallery page.", routed: { layer: "nav", addition: true },
+      answers: { write_nav: { add: [{ ...ADD_ORDER_LINK, pages: ["/", "/gallery"] }] } } });
+    assert.equal(r1.reply && r1.reply.ok, true, JSON.stringify(r1.reply));
+    for (const f of ["index.tsx", "gallery.tsx"]) assert.deepEqual(menuOn(r1, f), [...OWN_MENU[f], ORDER_LINK], f + ": Order not added at the end of its own menu");
+    for (const f of ["order.tsx", "visit.tsx", "starter.tsx"]) assert.equal(page(r1, f), ORIG[f], f + ": a page outside the scope changed");
+    assert.match(r1.reply.msg, /Added “Order” to the menu on 2 pages, beside the items each had/);
+    // THEN EVERY MENU: only the two that lack it gain it, none twice, and no page anything else.
+    const r2 = await drive({ mode, site: r1.site, ask: ADD_ORDER, routed: { layer: "nav", addition: true }, answers: { write_nav: { add: [ADD_ORDER_LINK] } } });
+    assert.equal(r2.reply && r2.reply.ok, true, JSON.stringify(r2.reply));
+    for (const f of CHROME_PAGES) assert.deepEqual(menuOn(r2, f), [...OWN_MENU[f], ORDER_LINK], f + ": not its own menu with Order once, at the end");
+    for (const f of ["index.tsx", "gallery.tsx"]) assert.equal(page(r2, f), page(r1, f), f + ": a menu that had it was rewritten");
+    for (const f of ["order.tsx", "visit.tsx"]) assert.ok(!menuOn(r2, f).some((l) => l.href === "/gallery"), f + " was given the Gallery link the other menus carry");
+    assert.equal(page(r2, "starter.tsx"), ORIG["starter.tsx"], "the page with no menu was given one");
+    assert.match(r2.reply.msg, /Added “Order” to the menu on 2 pages \(the other 2 already had it\), beside the items each had/);
+    // ASKED AGAIN: already done.
+    const r3 = await drive({ mode, site: r2.site, ask: ADD_ORDER, routed: { layer: "nav", addition: true }, answers: { write_nav: { add: [ADD_ORDER_LINK] } } });
+    assert.equal(r3.status, 200);
+    assert.deepEqual([r3.reply.ok, r3.reply.satisfied, r3.reply.changed], [true, true, []], JSON.stringify(r3.reply));
+    assert.match(r3.reply.msg, /Nothing needed changing: “Order” is already in the menu on every page that has one/);
+    assert.equal(r3.builds.length, 0, "an addition already true was published");
+    for (const f of Object.keys(ORIG)) assert.equal(page(r3, f), page(r2, f), f + " changed");
+    if (mode === "job") {
+      // QUEUED: the step's work is not reserved for — the same net as a queued refusal's refund — and the job ends done.
+      assert.ok(!r3.rpc.includes("edit_reserve"), "work that was not done was reserved for");
+      assert.deepEqual([r3.row.state, r3.row.billing, r3.row.cost, r3.reply.cost], ["done", "none", 0, 0]);
+    } else {
+      // SYNCHRONOUS: a refusal's rule there — the one reading the step took, charged once, and nothing published.
+      assert.equal(r3.debits.length, 1, JSON.stringify(r3.debits));
+      assert.ok(r3.reply.cost > 0 && r3.reply.cost === r3.debits[0], "the synchronous path did not keep a refusal's rule: " + r3.reply.cost);
+    }
+  });
+
+  test(`FRAME ADDITION (${mode}): a page named for a menu item that has no menu is refused by name and given none; named beside a page with one, only that one gains it`, async () => {
+    const r = await drive({ mode, ask: "Add Order to the menu on the starter page.", routed: { layer: "nav", addition: true },
+      answers: { write_nav: { add: [{ ...ADD_ORDER_LINK, pages: ["/starter"] }] } } });
+    assert.equal(r.reply.ok, false, JSON.stringify(r.reply));
+    assert.match(r.reply.msg, /\/starter has no menu to put “Order” in, so it isn't there/);
+    assert.equal(r.builds.length, 0);
+    for (const f of Object.keys(ORIG)) assert.equal(page(r, f), ORIG[f], f + " changed");
+    if (mode === "job") assert.equal(r.row.billing, "refunded", "a refused addition kept its reserve");
+    const both = await drive({ mode, ask: "Add Order to the menu on the starter page and the visit page.", routed: { layer: "nav", addition: true },
+      answers: { write_nav: { add: [{ ...ADD_ORDER_LINK, pages: ["/starter", "/visit"] }] } } });
+    assert.equal(both.reply.ok, true, JSON.stringify(both.reply));
+    assert.deepEqual(menuOn(both, "visit.tsx"), [...OWN_MENU["visit.tsx"], ORDER_LINK]);
+    for (const f of ["index.tsx", "order.tsx", "gallery.tsx", "starter.tsx"]) assert.equal(page(both, f), ORIG[f], f + " changed");
+    assert.match(both.reply.msg, /\/starter has no menu to put “Order” in, so it isn't there/);
+  });
+
+  test(`FRAME ADDITION (${mode}): footer legal links — a list is made only where no page in scope has one, a later link goes into the lists that exist, and the pages left without one stay so`, async () => {
+    const TERMS = { label: "Terms", href: "https://harbourloaf.example/terms" };
+    const PRIVACY = { label: "Privacy", href: "https://harbourloaf.example/privacy" };
+    const legalOn = (r, f) => (chromeListSlots([{ path: f, source: page(r, f) }], "legal")[0] || {}).items;
+    for (const f of CHROME_PAGES) assert.equal((chromeListSlots([{ path: f, source: ORIG[f] }], "legal")[0] || {}).items, null, f + ": a legal list already read");
+    // THE HOME AND VISIT PAGES, AS ASKED: no page in that scope has a list, so each is given one.
+    const r1 = await drive({ mode, ask: "Add our terms to the footer of the home and visit pages.", routed: { layer: "nav", addition: true },
+      answers: { write_nav: { add: [{ to: "legal", ...TERMS, pages: ["/", "/visit"] }] } } });
+    assert.equal(r1.reply.ok, true, JSON.stringify(r1.reply));
+    for (const f of ["index.tsx", "visit.tsx"]) assert.deepEqual(legalOn(r1, f), [TERMS], f);
+    for (const f of ["order.tsx", "gallery.tsx", "starter.tsx"]) assert.equal(page(r1, f), ORIG[f], f + " changed");
+    // A LATER LINK, NO SCOPE: into the two lists that exist — the pages without one are not given one.
+    const r2 = await drive({ mode, site: r1.site, ask: "Add our privacy policy to the footer.", routed: { layer: "nav", addition: true },
+      answers: { write_nav: { add: [{ to: "legal", ...PRIVACY }] } } });
+    assert.equal(r2.reply.ok, true, JSON.stringify(r2.reply));
+    for (const f of ["index.tsx", "visit.tsx"]) assert.deepEqual(legalOn(r2, f), [TERMS, PRIVACY], f);
+    for (const f of ["order.tsx", "gallery.tsx", "starter.tsx"]) assert.equal(page(r2, f), ORIG[f], f + ": a page left without a legal list was given one");
+    for (const f of CHROME_PAGES) assert.deepEqual(menuOn(r2, f), OWN_MENU[f], f + ": the menu moved");
+    // THE TERMS AGAIN: in every list there is — already done, nothing published.
+    const r3 = await drive({ mode, site: r2.site, ask: "Add our terms to the footer.", routed: { layer: "nav", addition: true },
+      answers: { write_nav: { add: [{ to: "legal", ...TERMS }] } } });
+    assert.deepEqual([r3.reply.ok, r3.reply.satisfied], [true, true], JSON.stringify(r3.reply));
+    assert.equal(r3.builds.length, 0);
   });
 }
 

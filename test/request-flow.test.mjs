@@ -23,7 +23,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { platform, sendMessage, pump, tick, call, settle, browserBody, T, USER, newKey } from "./fixtures/request-flow.mjs";
+import { platform, sendMessage, pump, tick, call, settle, readWritten, browserBody, T, USER, newKey } from "./fixtures/request-flow.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { writtenPage } from "./fixtures/addon-route.mjs";
 import { PAGES, HOME, VISIT, VISIT_MOVED, OLD_DESC, page as pageSrc } from "./fixtures/live-ask.mjs";
@@ -53,6 +53,17 @@ const jobLine = (P, key) => P.jobsOf(key).map((j) => j.op + ":" + j.state);
 /** The ledger rows of one kind, as numbers. */
 const rows = (P, reason) => P.ledger.filter((e) => e.reason === reason).map((e) => e.delta);
 const reserveOf = (P, jobId) => P.ledger.filter((e) => e.ref.startsWith(jobId + "#") && e.reason === "reserve").map((e) => -e.delta);
+/**
+ * WHAT A READ'S REPLY TOLD THE CUSTOMER, before the wording: the facts behind
+ * the reply it handed back (replies are written in the background, 2026-10-04,
+ * so the writer's last call need not be this one), joined. No reply is a failure.
+ */
+const toldIn = (P, v) => {
+  const f = P.factsOf(v && v.body && v.body.reply);
+  assert.ok(f, "no reply was handed back: " + JSON.stringify(v && v.body && { replyState: v.body.replyState, reply: v.body.reply }));
+  return f.map((x) => x.text).join(" | ");
+};
+const REQ = (P, key) => "/api/site/request/" + P.slug + "/" + key;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // A. BOTH ROUTE ORDERS, AND SEVERAL OPERATIONS IN ONE MESSAGE
@@ -184,9 +195,9 @@ test("B2 — a prerequisite that fails: the part that needed it is not run and s
     assert.equal(P.look().description, NEW_DESC);
     assert.ok(!P.pages().includes("gallery.tsx"));
     // WHAT THE CUSTOMER IS TOLD, from the request's own facts (the reply writer's input).
-    const v = await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key);
+    const v = await readWritten(P, REQ(P, r.key));
     assert.equal(v.status, 200);
-    const facts = P.replyLog.at(-1).map((f) => f.text).join(" | ");
+    const facts = toldIn(P, v);
     assert.match(facts, /Not started: “put a link to the new gallery on the Visit page”, because it needed “add a gallery page” done first/);
     assert.ok(typeof v.body.reply === "string" && v.body.replySource === "model", "the request's reply was not handed back");
   });
@@ -322,7 +333,7 @@ test("C4 — cancelling a part's question ends that part: what needed it is not 
     assert.equal(rec.state, "partial");
     assert.equal(P.look().description, OLD_DESC);
     // THE ACKNOWLEDGEMENT'S FACTS: only that part, the rest as it stands.
-    const facts = P.replyLog.at(-1).map((f) => f.text).join(" | ");
+    const facts = toldIn(P, c);
     assert.match(facts, /The part of their request that asked this question is cancelled/);
     assert.match(facts, /Not started, because it needed the cancelled part: “add a line about the new wording to the Visit page”/);
     assert.match(facts, /Already done before this, and unchanged by it: “add a gallery page”/);
@@ -677,17 +688,18 @@ test("F3 — a step that can only be done by the full rewrite is not started: th
     assert.equal(P.page("index.tsx"), BIG[0].source);
     // THE CUSTOMER'S FACTS NAME THE GO-AHEAD AND ITS MEASURED COST, in a reply
     // of its own, named for this go-ahead so a page shows it once.
-    const g = await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key);
+    const g = await readWritten(P, REQ(P, r.key));
     assert.equal(g.body.replyFor, "approval:0:" + (rec.parts[0].seq + 1));
     assert.equal(g.body.request.parts[0].ask, rec.parts[0].words);
-    const facts = P.replyLog.at(-1).map((f) => f.text).join(" | ");
+    const facts = toldIn(P, g);
     assert.match(facts, /Waiting for their go-ahead/);
     assert.match(facts, /only the full rewrite of every page can \(a full rewrite of the same site was measured at 17 credits\)/);
     assert.match(facts, /go-ahead button shown under this part/);
-    // ASKED AGAIN, THE SAME REPLY: no second reply call.
+    // ASKED AGAIN, THE SAME REPLY: no second reply call, and nothing asked of the queue.
     const calls = P.replyLog.length;
-    const g2 = await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key);
+    const g2 = await call(P, "GET", REQ(P, r.key));
     assert.equal(g2.body.reply, g.body.reply);
+    assert.equal(P.queue.length, 0, "a read of a written reply asked for another");
     assert.equal(P.replyLog.length, calls);
   });
 });
@@ -836,9 +848,9 @@ test("N1 — the go-ahead is kept on the request: the part waits with its files,
     // THE FILES ARE LET GO NOW THE REQUEST HAS ENDED.
     assert.equal(P.objects.has(rec.files[0].key), false);
     // THE CUSTOMER'S FACTS: made by the rewrite on their go-ahead, and its cost.
-    const v = await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key);
+    const v = await readWritten(P, REQ(P, r.key));
     assert.equal(v.body.replyFor, "end");
-    const facts = P.replyLog.at(-1).map((f) => f.text).join(" | ");
+    const facts = toldIn(P, v);
     assert.match(facts, /by the full rewrite of every page, on their go-ahead/);
     assert.match(facts, new RegExp("Everything done for it was charged " + cost + " credit"));
   });
@@ -918,8 +930,7 @@ test("N3 — a rewrite that fails is said so on its part: what needed it is not 
     assert.notEqual(P.look().description, NEW_DESC, "the part that needed the rewrite ran");
     const cost = rec.parts[0].jobs.find((j) => j.kind === "rewrite").end.cost;
     assert.equal(-buildRows(P).reduce((n, d) => n + d, 0), cost);
-    await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key);
-    const facts = P.replyLog.at(-1).map((f) => f.text).join(" | ");
+    const facts = toldIn(P, await readWritten(P, REQ(P, r.key)));
     assert.match(facts, /ran, but its pages could not be written, so their site stayed exactly as it was/);
     assert.match(facts, new RegExp("charged " + cost + " credit"));
     assert.match(facts, /because it needed .* done first/);
@@ -1078,8 +1089,7 @@ test("N6 — a go-ahead nobody gives in a day lapses as a question does: what ne
     assert.equal(P.objects.has(file), false, "a lapsed request kept its files");
     assert.equal((await approve(P, r.key)).status, 409);
     assert.deepEqual(builds(P), []);
-    await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key);
-    const facts = P.replyLog.at(-1).map((f) => f.text).join(" | ");
+    const facts = toldIn(P, await readWritten(P, REQ(P, r.key)));
     assert.match(facts, /not given the go-ahead within a day, so it was never started/);
   });
 });
@@ -1275,8 +1285,7 @@ test("G1 — a part whose routing fails on our side is asked once more, then end
       assert.deepEqual(reserveOf(P, j.id), [], "a routing call that failed was charged");
     }
     assert.equal(P.look().description, NEW_DESC, "the finished part was undone");
-    await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key);
-    const facts = P.replyLog.at(-1).map((f) => f.text).join(" | ");
+    const facts = toldIn(P, await readWritten(P, REQ(P, r.key)));
     // "NOTHING WAS CHARGED" IS READ FROM ITS JOBS' ROWS, which say so above.
     assert.match(facts, /Not done: “add a gallery page” — working out what it needed failed on our side\. Nothing was charged for it\./);
     assert.match(facts, /Done: “Change the site description/);
@@ -1399,8 +1408,7 @@ test("H6 — the request's own reply says what each part that did not finish was
     const { rec } = await settle(P, r.key);
     assert.deepEqual(statuses(rec), ["done", "cancelled"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
     assert.ok(!P.pages().includes("gallery.tsx"), "the stopped part was made");
-    await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key);
-    const facts = P.replyLog.at(-1).map((f) => f.text).join(" | ");
+    const facts = toldIn(P, await readWritten(P, REQ(P, r.key)));
     assert.match(facts, new RegExp("Stopped at their request before it changed anything: “add a gallery page”\\. The steps it had already taken were charged " + (paid === 1 ? "one credit" : paid + " credits") + "\\."), facts);
     assert.doesNotMatch(facts, /add a gallery page”\. Nothing was charged/, "a part whose routing was charged was said to cost nothing");
     // PART 0 RAN ON THE ANSWER THAT ACCEPTED THE MESSAGE, and its own reply said that cost.
@@ -1416,8 +1424,7 @@ test("H6 — the request's own reply says what each part that did not finish was
     const { rec } = await settle(P, r.key);
     assert.deepEqual(statuses(rec), ["not-run", "failed"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
     assert.equal(rec.parts[0].jobs.length, 0);
-    await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key);
-    const facts = P.replyLog.at(-1).map((f) => f.text).join(" | ");
+    const facts = toldIn(P, await readWritten(P, REQ(P, r.key)));
     assert.deepEqual(rows(P, "route"), [-1]);
     assert.match(facts, /Not started: “Change the site description[^”]*”, because it needed “add a gallery page” done first, and that did not finish\. Nothing was charged for it\./, facts);
     assert.match(facts, /Reading their message cost one credit\./, facts);
@@ -1430,10 +1437,8 @@ test("H6 — the request's own reply says what each part that did not finish was
     await call(P, "DELETE", "/api/site/request/" + P.slug + "/" + r.key);
     await settle(P, r.key);
     const job0 = P.record(r.key).parts[0].jobs[0].id;
-    await call(P, "GET", "/api/site/edit/" + job0);
-    assert.match(P.replyLog.at(-1).map((f) => f.text).join(" | "), /Reading their message cost one credit\./, "the stopped step's own reply did not say what reading the message cost");
-    await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key);
-    const facts = P.replyLog.at(-1).map((f) => f.text).join(" | ");
+    assert.match(toldIn(P, await readWritten(P, "/api/site/edit/" + job0)), /Reading their message cost one credit\./, "the stopped step's own reply did not say what reading the message cost");
+    const facts = toldIn(P, await readWritten(P, REQ(P, r.key)));
     assert.doesNotMatch(facts, /Reading their message cost/, facts);
     assert.equal((facts.match(/Stopped at their request before it changed anything: [^|]*Nothing was charged for it\./g) || []).length, 2, facts);
   });
@@ -1922,6 +1927,10 @@ const menus = (P) => navSlots(P.pages().map((path) => ({ path, source: P.page(pa
 const LINK = "put a link to it in the menu";
 const GALLERY_WITH_LINK = "Add a gallery page and " + LINK + ".";
 const NAV_WITH = (extra) => ({ links: [...MENU, ...extra].map(([label, href]) => ({ label, href })) });
+// A NEW PAGE LINKED FROM ONE PAGE'S BAND, not the menu (2026-10-04): its link in
+// the menu is then the set-aside part's to make, by name (`add`).
+const GALLERY_ON_HOME = { ...PAGE("/gallery", "Gallery"), link: { in: "page", page: "/", where: "a button in the hero band" } };
+const ADD_GALLERY = { add: [{ to: "menu", label: "Gallery", href: "/gallery" }] };
 
 test("M1 — a page and a menu link from one message: the link the add-on step sets aside goes on as its own part, in the customer's words, and is made by the menu step", async () => {
   await withPlatform({
@@ -1929,8 +1938,8 @@ test("M1 — a page and a menu link from one message: the link the add-on step s
     answers: {
       route: [{ intent: "addon" }, { intent: "edit", layer: "nav" }],
       [T.adds]: { kinds: ["page", "frame"], scopes: [{ kind: "page", words: "Add a gallery page" }, { kind: "frame", words: LINK }] },
-      "add:page": { page: [PAGE("/gallery", "Gallery")] }, [T.pages]: { pages: [writtenPage("/gallery")] },
-      write_nav: NAV_WITH([["Gallery", "/gallery"]]),
+      "add:page": { page: [GALLERY_ON_HOME] }, [T.pages]: { pages: [writtenPage("/gallery")] },
+      write_nav: ADD_GALLERY,
     },
   }, async (P) => {
     const r = await sendMessage(P, { message: GALLERY_WITH_LINK });
@@ -1994,8 +2003,8 @@ test("M3 — work that needs the set-aside link waits for it: the link's own par
         { intent: "edit", layer: "nav" },
       ],
       [T.adds]: { kinds: ["page", "frame"], scopes: [{ kind: "page", words: "Add a gallery page" }, { kind: "frame", words: LINK }] },
-      "add:page": { page: [PAGE("/gallery", "Gallery")] }, [T.pages]: { pages: [writtenPage("/gallery")] },
-      write_nav: (args, n) => [NAV_WITH([["Gallery", "/gallery"]]), NAV_WITH([["Our photos", "/gallery"]])][n],
+      "add:page": { page: [GALLERY_ON_HOME] }, [T.pages]: { pages: [writtenPage("/gallery")] },
+      write_nav: (args, n) => [ADD_GALLERY, NAV_WITH([["Our photos", "/gallery"]])][n],
     },
   }, async (P) => {
     const r = await sendMessage(P, { message: GALLERY_WITH_LINK.replace(/\.$/, "") + ", then " + RENAME + "." });
@@ -2028,14 +2037,65 @@ test("M4 — with no words for the set-aside link, the addition is done only in 
     assert.equal(rec.parts[1].why, "needs:0");
     assert.deepEqual(rec.parts[0].notDone, [{ what: "frame", why: "set-aside" }]);
     assert.equal(rec.state, "partial");
-    // THE PAGE STANDS; THE MENU WAS NEVER TOUCHED; ONLY TWO JOBS EVER RAN AND THE DEPENDENT FILED NONE.
+    // THE PAGE STANDS, IN EVERY MENU BY ITS OWN DESIGN (its placement is the
+    // menu, the default, and the builder puts it there: 2026-10-04); THE
+    // RENAME THAT NEEDED THE SET-ASIDE PART NEVER RAN; ONLY ONE JOB EVER RAN.
     assert.ok(P.pages().includes("gallery.tsx"));
-    for (const m of menus(P)) assert.doesNotMatch(m, /Gallery|Our photos/, m);
+    for (const m of menus(P)) { assert.match(m, /Gallery \/gallery/, m); assert.doesNotMatch(m, /Our photos/, m); }
     assert.deepEqual(jobLine(P, r.key), ["addon:done"]);
-    await call(P, "GET", "/api/site/request/" + P.slug + "/" + r.key);
-    const facts = P.replyLog.at(-1).map((f) => f.text).join(" | ");
+    const facts = toldIn(P, await readWritten(P, REQ(P, r.key)));
     assert.match(facts, /Done only in part: “Add a gallery page and put a link to it in the menu[^”]*” — its own reply above says what was made and what was not\./, facts);
     assert.match(facts, /Not started: “make the menu's Gallery link say Our photos”, because it needed “[^”]+” done first, and that was only partly done\. Nothing was charged for it\./, facts);
+  });
+});
+
+test("M5 — run 95's R1 shape: the new page's own placement puts its link in every menu, so the link's own part finds it already done — nothing published, its step not charged, its routing charge kept — and the part that needed it runs", async () => {
+  const RENAME = "make the menu's Gallery link say Our photos";
+  await withPlatform({
+    slug: slugOf("m5"), pages: NAV_PAGES, replies: true,
+    answers: {
+      route: [
+        { intent: "addon", alsoAsked: [RENAME], dependsOn: [{ change: 1, after: [0] }] },
+        { intent: "edit", layer: "nav" },
+        { intent: "edit", layer: "nav" },
+      ],
+      [T.adds]: { kinds: ["page", "frame"], scopes: [{ kind: "page", words: "Add a gallery page" }, { kind: "frame", words: LINK }] },
+      // THE PAGE'S PLACEMENT IS THE MENU (the default): the builder puts its link in every menu.
+      "add:page": { page: [PAGE("/gallery", "Gallery")] }, [T.pages]: { pages: [writtenPage("/gallery")] },
+      // THE LINK'S OWN PART NAMES THE LINK (`add`); THE RENAME WRITES THE MENU IT MAKES.
+      write_nav: (args, n) => [ADD_GALLERY, NAV_WITH([["Our photos", "/gallery"]])][n],
+    },
+  }, async (P) => {
+    const r = await sendMessage(P, { message: GALLERY_WITH_LINK.replace(/\.$/, "") + ", then " + RENAME + "." });
+    const { rec } = await settle(P, r.key);
+    assert.deepEqual(statuses(rec), ["done", "done", "done"], JSON.stringify(rec.parts.map((p) => [p.words, p.status, p.why])));
+    assert.equal(rec.state, "done");
+    const link = rec.parts.find((p) => p.words === LINK);
+    const rename = rec.parts.find((p) => p.words === RENAME);
+    assert.ok(link && rename);
+    // THE LINK'S PART: its step found it done, published nothing, and took no reserve.
+    const linkJobs = P.jobsOf(r.key).filter((j) => j.idem_key.startsWith(r.key + "-p" + link.n));
+    const linkEdit = linkJobs.find((j) => j.op === "edit");
+    const linkRoute = linkJobs.find((j) => j.op === "route");
+    assert.ok(linkEdit && linkRoute, linkJobs.map((j) => j.op).join(","));
+    const said = P.answerOf(linkEdit);
+    assert.deepEqual([said.ok, said.satisfied, said.changed, said.cost], [true, true, [], 0], JSON.stringify(said));
+    assert.deepEqual([linkEdit.state, linkEdit.publish_started_at || null, linkEdit.published_at || null], ["done", null, null], "the part already done was published");
+    assert.deepEqual(reserveOf(P, linkEdit.id), [], "the step that changed nothing was charged");
+    assert.ok(reserveOf(P, linkRoute.id).reduce((a, c) => a + c, 0) > 0, "the link part's routing was not charged — the case did not happen");
+    // THE PART THAT NEEDED IT RAN AFTER IT, against the menu the page's placement made.
+    const order = P.jobsOf(r.key).map((j) => j.idem_key.replace(r.key + "-", "").split("-")[0]);
+    assert.ok(order.lastIndexOf("p" + link.n) < order.indexOf("p" + rename.n), order.join(" "));
+    for (const m of menus(P)) { assert.match(m, /Our photos \/gallery$/, m); assert.equal((m.match(/\/gallery/g) || []).length, 1, m); }
+    // ITS OWN REPLY SAYS NOTHING NEEDED CHANGING — written from what the step
+    // really did, as a fact of the kind "nothing changed" (x), never "done"
+    // (c): the step's own sentence is quoted inside it, so its words alone
+    // would read the same either way.
+    const linkRead = await readWritten(P, "/api/site/edit/" + linkEdit.id);
+    const told = toldIn(P, linkRead);
+    assert.match(told, /Nothing needed changing/, told);
+    const kinds = P.factsOf(linkRead.body.reply).map((f) => f.id.replace(/\d+$/, ""));
+    assert.ok(kinds.includes("x") && !kinds.includes("c"), "the part already done was told as a change: " + JSON.stringify(kinds));
   });
 });
 
@@ -2048,9 +2108,9 @@ test("K1 — a part's own reply says the other parts are done next by the same r
     const r = await sendMessage(P, { message: DESC + ", and " + ADD + "." });
     await settle(P, r.key);
     const job = P.jobsOf(r.key)[0];
-    const polled = await call(P, "GET", "/api/site/edit/" + job.id);
+    const polled = await readWritten(P, "/api/site/edit/" + job.id);
     assert.equal(polled.body.replySource, "model");
-    const facts = P.replyLog.at(-1).map((f) => f.text).join(" | ");
+    const facts = toldIn(P, polled);
     assert.match(facts, /its own part of the same request, done separately after this one without them sending it again: “add a gallery page”/);
     assert.doesNotMatch(facts, /they can send it next/);
     // THE CONTROL: the same held part on a message sent the old way (no request) keeps its sentence.

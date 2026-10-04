@@ -907,9 +907,29 @@ the owner's free press, run 51, at 22:57 UTC):
 
       6 cases, sweeps of 4 of 4 and 5 of 5, the suite
       `9308 / 9308 / 0 / 0`. Nothing built.
-    - **Next**, the owner's: read the log line, then choose the fixes. R2
-      asks for another menu link, and every multi-part press fails its
-      reply checks, so R2–R5 wait for the fixes. RW stays separate.
+    - **Both fixed on the branch, on the owner's word** (not merged or
+      deployed; nothing paid; `docs/history/2026-10-04-findings-fixes.md`):
+      - **the menu link**: an addition names its items and scope, and code
+        puts each into every menu or footer list in that scope that lacks
+        it. Each page keeps its own items and differences. A page with no
+        menu (run 95's `/starter`: six pages, five menus) is given none. An
+        addition already true is done, so the part that needed it runs.
+        The add-on carries its page's placement (the menu, by code).
+      - **the replies**: written on the queue once the job's outcome and
+        money are final, never by a read, with a lease, three tries and the
+        cron's recovery; the page waits for them. The cause stays strongly
+        inferred.
+
+      Supplied answers only (a reply held 13 s in real time among them). Red
+      check on `9b543d8f` (26 cases fail, 3 files cannot load); sweeps 30 of
+      30 and 5 of 5 with controls; the suite `9334 / 9334 / 0 / 0`.
+    - **Next**, the owner's:
+      1. merge and deploy, then the free runtime press;
+      2. the focused check, `rq-menu-link` (3–9): the bakery's Classes link
+         into the three menus that lack it, its reply the model's own;
+      3. R2–R5, one press each (R1 and `rq-canary` are not repeated).
+
+      The batch has spent 25. RW stays separate.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

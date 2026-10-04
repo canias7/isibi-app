@@ -11,7 +11,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  additionOnly, firstButton, frameNow, withAdded, ADDITION_NOTE, ACTION_PROPS,
+  additionOnly, firstButton, frameNow, withAdded, ADDITION_NOTE, ACTION_PROPS, readAdditions, applyAdditions, NAV_ADD_TOOL,
   actionSlots, applyAction, contactSlots, navSlots, navRequest, navDigest, readNav, runNavEdit, navReply, NAV_TOOL,
 } from "../builder/site-nav.mjs";
 
@@ -97,7 +97,12 @@ test("additionOnly: nothing taken, nothing repointed, the frame's arrangement le
   assert.equal(held.action, undefined, "the header's button was going to be replaced");
   assert.deepEqual(held.secondAction, { label: "Call us", href: "tel:01174960000" });
   assert.equal(held.links, null, "a whole menu is still going to be written");
-  assert.deepEqual(held.addLinks, [{ item: { label: "Contact", href: "/contact" }, after: "/" }]);
+  // A WHOLE MENU IN AN ADDITION IS NOT READ FOR NEW ITEMS (2026-10-04, run
+  // 95's F1): the union of every page's menu decided what was new, and an
+  // item two pages had was new to none. An addition names its items (`add`).
+  assert.equal(Object.hasOwn(held, "addLinks"), false, "a whole menu was read for new items");
+  assert.deepEqual(readAdditions({ add: [{ to: "menu", label: "Contact", href: "/contact", after: "/" }] }, ROUTES).adds,
+    [{ to: "menu", item: { label: "Contact", href: "/contact" }, pages: null, after: "/" }]);
   // THE SAME BUTTON RESTATED IS NO CHANGE, and a third is refused by name.
   assert.equal(additionOnly(read({ action: { label: "Order a loaf", href: "/order" } }), n).action, undefined);
   const full = additionOnly(read({ action: { label: "Call us", href: "tel:01174960000" } }), { ...n, second: true, secondNow: { label: "Menu", href: "/menu" } });
@@ -169,13 +174,17 @@ test("runNavEdit: an added phone number fills only the footers that have none, a
 // add one item and named the rest as past a count of ten (the owner, on the
 // mixed-work fixes' review: not a technical constraint). Every new item is
 // added now, and an item the frame already has is still never touched.
-test("additionOnly adds every new item, whatever the menu's length, and never touches an existing one", () => {
+test("an addition adds every new item, whatever the menu's length, and never touches an existing one", () => {
   // EIGHT NEW ITEMS TO A FRAME WHOSE LONGEST MENU HAS THREE: the old room was
   // seven, so the eighth was named as past the count. All eight go in now.
   const eight = ["Bread", "Pastry", "Cakes", "Coffee", "Hampers", "Classes", "Wholesale", "Jobs"].map((label) => ({ label, href: "/#" + label.toLowerCase() }));
-  const held = additionOnly(read({ links: [{ label: "Home", href: "/" }, ...eight] }), now());
-  assert.deepEqual(held.addLinks.map((a) => a.item.href), eight.map((l) => l.href), "a new item past the old room was left out, or an existing one re-added");
-  assert.deepEqual(held.dropped, [], "an addable item was named as left out");
+  const { adds, dropped } = readAdditions({ add: eight.map((l) => ({ to: "menu", ...l })) }, ROUTES);
+  assert.deepEqual(dropped, [], "an addable item was named as left out");
+  const out = applyAdditions(PAGES, adds);
+  for (const p of out.pages) {
+    const was = navSlots([PAGES.find((q) => q.path === p.path)])[0].items.map((i) => i.href);
+    assert.deepEqual(navSlots([p])[0].items.map((i) => i.href), [...was, ...eight.map((l) => l.href)], p.path + ": a new item past the old room was left out, or an existing one moved");
+  }
 });
 
 test("firstButton: a second button on a header with none is its first", () => {
@@ -185,13 +194,16 @@ test("firstButton: a second button on a header with none is its first", () => {
   assert.equal(firstButton(r, true), r, "a header with a button lost its second");
 });
 
-test("runNavEdit: an addition adds to each page's own menu; the same answer as an edit writes the menu it is given", async () => {
+test("runNavEdit: an addition adds to each page's own menu; an edit's whole menu is the menu it is given", async () => {
   const answer = { links: [{ label: "Contact", href: "/contact" }] };
-  const added = await runNavEdit({ send: async () => reply(answer) }, { instruction: "Add Contact to the menu", pages: PAGES, routes: ROUTES, addition: true });
+  const added = await runNavEdit({ send: async () => reply({ add: [{ to: "menu", label: "Contact", href: "/contact" }] }) }, { instruction: "Add Contact to the menu", pages: PAGES, routes: ROUTES, addition: true });
   assert.equal(added.ok, true, JSON.stringify(added));
   const menus = added.pages.map((p) => navSlots([p])[0].items.map((i) => i.href));
   assert.deepEqual(menus, [["/", "/visit", "/contact"], ["/", "/visit", "/gallery", "/contact"]], "a page's own menu was not kept");
-  assert.match(added.msg, /Added “Contact” to the menu on 2 pages, beside the items it had/);
+  assert.match(added.msg, /Added “Contact” to the menu on 2 pages, beside the items each had/);
+  // A WHOLE MENU IN AN ADDITION'S ANSWER IS NOT READ: nothing is added from it.
+  const restated = await runNavEdit({ send: async () => reply(answer) }, { instruction: "Add Contact to the menu", pages: PAGES, routes: ROUTES, addition: true });
+  assert.equal(restated.ok, false, "a whole menu was read as an addition");
   const edited = await runNavEdit({ send: async () => reply(answer) }, { instruction: "the menu should be Contact", pages: PAGES, routes: ROUTES });
   assert.deepEqual(edited.pages.map((p) => navSlots([p])[0].items.map((i) => i.href)), [["/contact"], ["/contact"]]);
 });

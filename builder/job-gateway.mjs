@@ -524,7 +524,7 @@ export function readWire(b) {
   return { mode, ms, everyMs };
 }
 
-export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scope = null, waitUntil = null, next = null }) {
+export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scope = null, waitUntil = null, next = null, reply = null }) {
   return async function handle(request, id) {
     const auth = String(request.headers.get("authorization") || "");
     const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
@@ -661,6 +661,20 @@ export function gatewayHandler({ bucket, verify, log = () => {}, sb = null, scop
       let ok = false;
       try { ok = (await next({ id: who.id, slug: who.slug, uid: who.uid, key })) === true; } catch { ok = false; }
       return ok ? json(200, { ok: true }) : json(404, { error: "not this job's request" });
+    }
+
+    // ── THE REPLY OP (2026-10-04): a job that ended here asks for its reply ──
+    //
+    // The container has no queue, so the job asks the Worker to have its reply
+    // written in the background once its outcome and money are final. Bound to
+    // the job's own token — its id and its owner, nothing the job names — and
+    // the Worker's ask is idempotent: the reply's record is made once.
+    if (tail === "/reply" && request.method === "POST") {
+      if (typeof reply !== "function") return json(503, { error: "no reply" });
+      if (who.pre === true) return json(403, { error: "not a site job" });
+      let ok = false;
+      try { ok = (await reply({ id: who.id, uid: who.uid })) === true; } catch { ok = false; }
+      return ok ? json(200, { ok: true }) : json(409, { error: "no reply asked" });
     }
 
     if (!bucket) return json(503, { error: "no bucket" });

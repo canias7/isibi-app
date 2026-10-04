@@ -804,11 +804,45 @@ const ADDS = {
             "and could not find. Each entry is real code that will be written for this site; leave the field " +
             "out for nearly every page.",
         },
+        // ── WHERE A VISITOR FINDS IT, AS A PLACEMENT (2026-10-04, run 95's F1) ──
+        //
+        // It was words — "the header menu" — and the page writer was told to
+        // link the page from "that page": one page. Every page in this kit
+        // carries its own menu, so R1's Classes page went into the home
+        // page's menu alone. A menu placement is now done by the builder on
+        // every page that has a menu; a place on one page is still the page
+        // writer's, in their words.
         link: {
-          type: "string",
+          type: "object",
           description:
-            "Where a visitor finds it — \"the header menu\", \"a button on the home page's closing band\". A page " +
-            "nobody links to is a page nobody can reach; the page that carries the link is edited to add it.",
+            "Where a visitor finds it. A page nobody links to is a page nobody can reach.",
+          properties: {
+            in: {
+              type: "string",
+              enum: ["menu", "page"],
+              description:
+                "\"menu\" — the menu at the top of the site, which the builder puts it into on every page that has " +
+                "one (the ordinary place for a new page). \"page\" — somewhere particular on ONE page, as they asked: " +
+                "a button on the home page's closing band, a link in the Visit page's copy.",
+            },
+            page: {
+              type: "string",
+              description: "For \"page\": the page that carries the link, exactly as listed — \"/\" for the home page.",
+            },
+            where: {
+              type: "string",
+              description: "For \"page\": where on that page, in a few words — \"a button in the closing band\".",
+            },
+            label: {
+              type: "string",
+              description: "The link's words, when they are not the page's name — one or two words.",
+            },
+            after: {
+              type: "string",
+              description: "For \"menu\", only when they said where: the address of the menu item it comes straight after.",
+            },
+          },
+          required: ["in"],
         },
       },
       required: ["path", "name", "purpose", "sections", "components"],
@@ -2345,6 +2379,30 @@ const route = (v) => {
   const r = s.startsWith("/") ? s : "/" + s;
   return ROUTE.test(r) ? r : "";
 };
+/**
+ * WHERE A NEW PAGE IS LINKED FROM, read from its design (2026-10-04, run 95's
+ * F1): `{ in: "menu", label?, after? }` — the builder puts it into every
+ * page's menu (`menuLinkAdds`) — or `{ in: "page", page?, where?, label? }`,
+ * the page writer's, on one page. Nothing said is the menu, the default it
+ * always had. A page named for the link must be one the site has or this
+ * change adds, and not the new page itself; otherwise the page writer picks
+ * the page from the words. WORDS, AS A DESIGN WAS WRITTEN BEFORE, are a place
+ * the page writer reads as it always did — they are not read for what they
+ * mean (`placementOf`).
+ */
+function pageLink(raw, { path = "", going = [], siblings = [] } = {}) {
+  if (typeof raw === "string") return placementOf(str(raw, 200));
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { in: "menu" };
+  const label = str(raw.label, 40);
+  if (raw.in === "page") {
+    const pg = route(raw.page);
+    const page = pg && pg !== path && (going.includes(pg) || siblings.includes(pg)) ? pg : "";
+    const where = str(raw.where, 200);
+    return { in: "page", ...(page ? { page } : {}), ...(where ? { where } : {}), ...(label ? { label } : {}) };
+  }
+  const after = str(raw.after, 200);
+  return { in: "menu", ...(label ? { label } : {}), ...(after ? { after } : {}) };
+}
 const names = (v, max) => {
   const out = [];
   for (const x of Array.isArray(v) ? v : []) {
@@ -2972,7 +3030,7 @@ export function cleanAdd(kind, value, site) {
         const components = kitNames(v.components, MAX_COMPONENTS, ctx);
         if (!sections.length && !components.length) return { ok: false, why: "no-plan" };
         ctx.paths.push(path);
-        return { ok: true, value: { path, file: fileOfRoute(path), name, purpose, sections, components, tsx: parts(v.tsx, ctx), link: str(v.link, 200) } };
+        return { ok: true, value: { path, file: fileOfRoute(path), name, purpose, sections, components, tsx: parts(v.tsx, ctx), link: pageLink(v.link, { path, going, siblings: ctx.paths }) } };
       }
       case "component": {
         // `page` IS REQUIRED ON THIS TOOL, so both of `onPage`'s refusing
@@ -3637,7 +3695,16 @@ export function addDirective(kind, value, site) {
         out.push("The page, top to bottom:");
         v.sections.forEach((line, n) => out.push("    " + (n + 1) + ". " + line));
       }
-      out.push("- Link it from " + (v.link || "the header menu") + ": return that page too, with the link added and nothing else changed.");
+      // A MENU PLACEMENT IS THE BUILDER'S (2026-10-04): it puts the page into
+      // every page's menu itself (`menuLinkAdds`), so no other page comes back
+      // for it. A place on one page is the page writer's, as it always was.
+      const ln = placementOf(v.link);
+      if (ln.in === "page") {
+        out.push("- Link it from " + (ln.where || "the page that should carry it") + (ln.page ? " on " + at(ln.page) : "") +
+          ": return that page too, with the link added and nothing else changed.");
+      } else {
+        out.push("- Its link in the site's menu is added to every page's menu by the builder: do not return any other page for it.");
+      }
       break;
     }
     case "component": {
@@ -4402,6 +4469,37 @@ export function frontendItem(kind) {
  * ORDER IS THE REQUEST'S OWN, so a customer reading the sentence meets their
  * pages in the order they asked for them.
  */
+/**
+ * A CLEANED DESIGN'S PLACEMENT, whatever shape it was stored in (2026-10-04):
+ * an object as `pageLink` left it, or — for a design written before — words,
+ * which are the page writer's placement, read exactly as they always were.
+ */
+export function placementOf(link) {
+  if (typeof link === "string") return link.trim() ? { in: "page", where: link.trim() } : { in: "menu" };
+  if (!link || typeof link !== "object" || Array.isArray(link)) return { in: "menu" };
+  return link.in === "page" ? link : { ...link, in: "menu" };
+}
+
+/**
+ * THE MENU ADDITIONS A CHANGE'S NEW PAGES ASK FOR (2026-10-04, run 95's F1):
+ * one per new page whose design puts it in the menu and that made it
+ * (`missing` are the routes that did not), in `applyAdditions`'s shape — the
+ * page's own words unless the design gave others, every page that has a menu.
+ */
+export function menuLinkAdds(designs, missing = []) {
+  const gone = new Set(Array.isArray(missing) ? missing : []);
+  const out = [];
+  for (const d of Array.isArray(designs) ? designs : []) {
+    if (!d || typeof d !== "object" || typeof d.path !== "string" || !d.path || gone.has(d.path)) continue;
+    const ln = placementOf(d.link);
+    if (ln.in === "page") continue;
+    const label = (typeof ln.label === "string" && ln.label) || (typeof d.name === "string" && d.name) || "";
+    if (!label) continue;
+    out.push({ to: "menu", item: { label, href: d.path }, pages: null, after: typeof ln.after === "string" && ln.after ? ln.after : null });
+  }
+  return out;
+}
+
 export function missingPages(requested, survived) {
   const base = (p) => String(p || "").split("/").pop().toLowerCase();
   const have = new Set((Array.isArray(survived) ? survived : []).map(base).filter(Boolean));

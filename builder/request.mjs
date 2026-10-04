@@ -595,6 +595,8 @@ export function doneSummary(body) {
     if (layers.length) out.push("changed it with the " + layers.join(", ") + " step" + (layers.length === 1 ? "" : "s"));
   } else if (typeof b.layer === "string" && b.layer) out.push("changed it with the " + b.layer + " step");
   if (typeof b.slug === "string" && b.slug && b.layer === "rename") out.push("the site's address is now " + b.slug);
+  // AN ADDITION ALREADY TRUE (2026-10-04): done, with nothing to change.
+  if (b.satisfied === true) out.push("found it already done");
   if (!out.length) out.push(b.addon === true || Array.isArray(b.kinds) ? "made the addition" : "made the change");
   const said = out.join("; ");
   return said.length > 400 ? said.slice(0, 400) : said;

@@ -41,10 +41,12 @@ import { JOB_ENV_NAMES, jobSecrets } from "../builder/edit-job.mjs";
 import { editBrowserReply, browserReply } from "../scripts/addon-sweep.mjs";
 import {
   T, TOKEN, VISIT, VISIT_MOVED, NEW_DESC, OLD_DESC, Q, freshSlug, bucket, question, seedQuestion, withWire, envFor,
-  routeCall, questionCall, browserPost, postRoute, SITE, storedLook, storedPage, userText, json,
+  routeCall, questionCall, browserPost, postRoute, SITE, storedLook, storedPage, userText, json, USER,
 } from "./fixtures/live-ask.mjs";
 
-const FINAL_HEADER = createRequire(import.meta.url)("../public/edit-poll.js").FINAL_HEADER;
+const EditPoll = createRequire(import.meta.url)("../public/edit-poll.js");
+const FINAL_HEADER = EditPoll.FINAL_HEADER;
+const USER_ID = USER.id;
 const W = REPLY_TOOL.name;
 const ON = (store) => ({ ...envFor(store), MODEL_REPLIES: "on" });
 const DESC_WORDS = "Change the site's search description to \"" + NEW_DESC + "\"";
@@ -96,6 +98,33 @@ async function poll(worker, env, id, row) {
 
 /** The row of a job `postRoute` ran: what it stored, and its money as the ledger left it. */
 const doneRow = (slug, r, over = {}) => ({ slug, state: "done", billing: "finalized", cost: Number(r.body.cost) || 0, result: r.finalized.p_result, ...over });
+
+/**
+ * A QUEUED JOB'S REPLY IS WRITTEN IN THE BACKGROUND (2026-10-04, run 95's F2):
+ * the job's end asks for it, one message goes to the queue, and the queue's
+ * writer — never a poll — writes and keeps it. `Q` is the env with a queue
+ * that keeps what is sent; `deliver` hands each kept message to the real
+ * consumer, the job's own row answering the writer's read (`edit_get`).
+ */
+const QE = (store, sent) => ({ ...ON(store), BUILD_QUEUE: { async send(body, opts) { sent.push({ body, delaySeconds: (opts && opts.delaySeconds) || 0 }); } } });
+const replyTasks = (sent) => sent.filter((m) => m.body && m.body.kind === "edit-reply");
+async function deliver(worker, env, sent, row) {
+  const wire = globalThis.fetch;
+  globalThis.fetch = async (input, init) => {
+    const url = String((input && input.url) || input || "");
+    if (/\/rest\/v1\/rpc\/edit_get\b/.test(url)) return json({ ok: true, phase: null, needs_review: false, cancel: false, ms: 1000, error: null, ...row });
+    return wire(input, init);
+  };
+  try {
+    for (let m; (m = sent.shift());) {
+      const ctx = makeCtx();
+      await worker.queue({ messages: [{ body: m.body, ack() {}, retry() {} }] }, env, ctx);
+      await Promise.allSettled(ctx.pending || []);
+    }
+  } finally { globalThis.fetch = wire; }
+}
+/** A reply's record as kept. */
+const recordOf = (store, id) => { const o = store.store.get("edit-replies/" + id + ".json"); return o ? JSON.parse(o.body) : null; };
 
 /**
  * THE PAGE'S REQUESTS, ANSWERED BY THE REAL WORKER: each goes to its route with
@@ -205,16 +234,17 @@ test("THE REPLY IS ADDED, NOTHING ELSE MOVES: the same request with replies on a
   } finally { compiler.uninstall(); }
 });
 
-test("COMPLETE SUCCESS, QUEUED: the job makes, publishes and charges the change and writes no reply — it keeps what one needs beside its answer; the first poll of the finished job writes it once, every later poll hands back the same one, `replyFor` is never served, and the page shows the reply whole", async () => {
+test("COMPLETE SUCCESS, QUEUED: the job makes, publishes and charges the change and writes no reply — it keeps what one needs beside its answer and, ended, asks for its reply; a poll before it is written says it is pending and calls no model; the queue's writer writes it once; every later poll hands back the same one, `replyFor` is never served, and the page shows the reply whole", async () => {
   const worker = await loadWorker();
   const compiler = installCompiler();
   try {
     const slug = freshSlug("ok-job");
     const store = bucket(slug);
     const replies = [];
+    const sent = [];
     await withWire({ [T.pick]: { fields: ["description"] }, "lane:description": NEW_DESC, [W]: writer(replies) }, async (seen) => {
       const post = browserPost(SITE(slug), { intent: "edit", layer: "look", cost: 2 }, DESC_WORDS);
-      const r = await postRoute(worker, ON(store), store, seen, slug, post, "job");
+      const r = await postRoute(worker, QE(store, sent), store, seen, slug, post, "job");
       assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 300));
       assert.equal(r.finalized.p_ok, true);
       assert.equal(builds(compiler), 1);
@@ -223,23 +253,37 @@ test("COMPLETE SUCCESS, QUEUED: the job makes, publishes and charges the change 
       assert.equal(r.body.reply, undefined);
       assert.deepEqual(r.body.replyFor, { kind: "edit", request: DESC_WORDS, answers: [], picker: "sonnet", routedCost: 2, slug, pages: ["/", "/visit"] });
       const id = r.finalized.p_id;
+      // THE JOB'S END ASKED FOR ITS REPLY: the record pending, one message for the writer.
+      assert.equal(recordOf(store, id).state, "pending", "the job's end did not ask for its reply");
+      assert.deepEqual(replyTasks(sent).map((m) => m.body), [{ kind: "edit-reply", id, uid: USER_ID }]);
       const rpcBefore = seen.rpc.length;
-      const p1 = await poll(worker, ON(store), id, doneRow(slug, r));
+      // A POLL BEFORE IT IS WRITTEN: pending, and no model is called by any read.
+      const p0 = await poll(worker, QE(store, sent), id, doneRow(slug, r));
+      assert.equal(p0.status, 200);
+      assert.equal(p0.final, "final");
+      assert.equal(p0.body.replyState, "pending");
+      assert.equal(p0.body.reply, undefined);
+      assert.equal(replyCalls(seen), 0, "a poll called the reply model");
+      assert.equal(replyTasks(sent).length, 1, "a poll asked for the reply a second time");
+      assert.deepEqual(EditPoll.readPoll(p0.status, p0.final, p0.body), { act: "wait", kind: "reply" }, "the page would not wait for the reply");
+      // THE QUEUE'S WRITER: one call, the reply kept.
+      await deliver(worker, QE(store, sent), sent, doneRow(slug, r));
+      assert.equal(replyCalls(seen), 1);
+      assert.deepEqual(replies[0].facts.map((f) => f.text), ["Changed the description."]);
+      assert.equal(recordOf(store, id).state, "written", "the reply was not kept");
+      const p1 = await poll(worker, QE(store, sent), id, doneRow(slug, r));
       assert.equal(p1.status, 200);
       assert.equal(p1.final, "final", "the poll's own answer and the stored one cannot be told apart");
       assert.equal(p1.body.replySource, "model");
       assert.equal(Object.hasOwn(p1.body, "replyFor"), false, "what the reply needed was served to the page");
       const { replyFor, ...stored } = r.body;
       assert.deepEqual(withoutReply(p1.body), stored, "the poll changed what the job stored");
-      assert.equal(replyCalls(seen), 1);
-      assert.deepEqual(replies[0].facts.map((f) => f.text), ["Changed the description."]);
-      assert.ok(store.store.has("edit-replies/" + id + ".json"), "the reply was not kept");
       // EVERY LATER POLL: the same reply, no second call.
-      const p2 = await poll(worker, ON(store), id, doneRow(slug, r));
+      const p2 = await poll(worker, QE(store, sent), id, doneRow(slug, r));
       assert.equal(p2.body.reply, p1.body.reply);
       assert.equal(replyCalls(seen), 1, "a later poll wrote the reply again");
-      // AND NOTHING OF THE JOB RAN AGAIN.
-      assert.equal(seen.rpc.length, rpcBefore, "a poll touched the job's own bookkeeping: " + JSON.stringify(seen.rpc.slice(rpcBefore).map((x) => x.fn)));
+      // AND NOTHING OF THE JOB RAN AGAIN: the writer read the row, and nothing else of it moved.
+      assert.deepEqual(seen.rpc.slice(rpcBefore).map((x) => x.fn), [], "a poll or the writer touched the job's own bookkeeping: " + JSON.stringify(seen.rpc.slice(rpcBefore).map((x) => x.fn)));
       assert.equal(builds(compiler), 1);
       // THE PAGE: the watcher hands the stored answer to the same reader.
       const shown = editBrowserReply(p1.body, true, { layer: "look", cost: 2 });
@@ -249,7 +293,7 @@ test("COMPLETE SUCCESS, QUEUED: the job makes, publishes and charges the change 
   } finally { compiler.uninstall(); }
 });
 
-test("A QUEUED JOB KEEPS EVERY ANSWER ITS REPLY NEEDS — none cut at twelve — and the poll's reply call is shown them all (2026-10-03, the owner's review: nothing cut)", async () => {
+test("A QUEUED JOB KEEPS EVERY ANSWER ITS REPLY NEEDS — none cut at twelve — and the writer's reply call is shown them all (2026-10-03, the owner's review: nothing cut)", async () => {
   const worker = await loadWorker();
   const compiler = installCompiler();
   try {
@@ -259,10 +303,11 @@ test("A QUEUED JOB KEEPS EVERY ANSWER ITS REPLY NEEDS — none cut at twelve —
     await withWire({ [T.pick]: { fields: ["description"] }, "lane:description": NEW_DESC, [W]: writer([]) }, async (seen) => {
       const post = browserPost(SITE(slug), { intent: "edit", layer: "look", askRound: 2, context: told }, DESC_WORDS);
       assert.deepEqual(post.body.context, told, "the page did not post every answer");
-      const r = await postRoute(worker, ON(store), store, seen, slug, post, "job");
+      const sent = [];
+      const r = await postRoute(worker, QE(store, sent), store, seen, slug, post, "job");
       assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 300));
       assert.deepEqual(r.body.replyFor.answers, told, "the job kept fewer answers than the request carried");
-      await poll(worker, ON(store), r.finalized.p_id, doneRow(slug, r));
+      await deliver(worker, QE(store, sent), sent, doneRow(slug, r));
       const shown = seen.inputs[W] && seen.inputs[W][0];
       assert.ok(shown, "no reply call was made");
       for (const p of told) assert.ok(shown.includes("“" + p.a + "”"), "the reply call was not shown " + p.a);
@@ -270,23 +315,32 @@ test("A QUEUED JOB KEEPS EVERY ANSWER ITS REPLY NEEDS — none cut at twelve —
   } finally { compiler.uninstall(); }
 });
 
-test("TWO POLLS AT ONCE KEEP ONE REPLY: both may write one, the first kept wins, and both — and every later read — hand back that one", async () => {
+test("TWO POLLS AND TWO WRITERS AT ONCE KEEP ONE REPLY: no poll writes one; the same task delivered twice at once is claimed once — one model call — and every later read hands back that one", async () => {
   const worker = await loadWorker();
   const compiler = installCompiler();
   try {
     const slug = freshSlug("race");
     const store = bucket(slug);
     const replies = [];
+    const sent = [];
     await withWire({ [T.pick]: { fields: ["description"] }, "lane:description": NEW_DESC, [W]: writer(replies) }, async (seen) => {
-      const r = await postRoute(worker, ON(store), store, seen, slug, browserPost(SITE(slug), { intent: "edit", layer: "look" }, DESC_WORDS), "job");
+      const r = await postRoute(worker, QE(store, sent), store, seen, slug, browserPost(SITE(slug), { intent: "edit", layer: "look" }, DESC_WORDS), "job");
       const id = r.finalized.p_id;
-      const [a, b] = await Promise.all([poll(worker, ON(store), id, doneRow(slug, r)), poll(worker, ON(store), id, doneRow(slug, r))]);
-      assert.equal(replyCalls(seen), 2, "the two polls did not both write (the race this case is about did not happen)");
-      assert.notEqual(replies.length, 0);
-      assert.equal(a.body.reply, b.body.reply, "two polls of one job handed back two different replies");
-      const c = await poll(worker, ON(store), id, doneRow(slug, r));
-      assert.equal(c.body.reply, a.body.reply);
-      assert.equal(replyCalls(seen), 2);
+      const [a, b] = await Promise.all([poll(worker, QE(store, sent), id, doneRow(slug, r)), poll(worker, QE(store, sent), id, doneRow(slug, r))]);
+      assert.deepEqual([a.body.replyState, b.body.replyState], ["pending", "pending"]);
+      assert.equal(replyCalls(seen), 0, "a poll wrote a reply");
+      assert.equal(replyTasks(sent).length, 1, "two polls asked for the reply again");
+      // THE SAME TASK, TWICE AT ONCE: one claim, one call.
+      const task = replyTasks(sent)[0];
+      sent.length = 0;
+      sent.push(task, { ...task });
+      await Promise.all([deliver(worker, QE(store, sent), [sent[0]], doneRow(slug, r)), deliver(worker, QE(store, sent), [sent[1]], doneRow(slug, r))]);
+      assert.equal(replyCalls(seen), 1, "two deliveries of one task both wrote a reply");
+      const c = await poll(worker, QE(store, sent), id, doneRow(slug, r));
+      const d = await poll(worker, QE(store, sent), id, doneRow(slug, r));
+      assert.equal(c.body.replySource, "model");
+      assert.equal(c.body.reply, d.body.reply);
+      assert.equal(replyCalls(seen), 1);
     }, { slug });
   } finally { compiler.uninstall(); }
 });
@@ -328,7 +382,7 @@ test("A REPLY THAT CANNOT BE WRITTEN CHANGES NOTHING: the reply model failing, o
   } finally { compiler.uninstall(); }
 });
 
-test("A QUEUED JOB WHOSE REPLY CANNOT BE WRITTEN: the poll hands back the stored answer as it was, the job is not run, published or charged again, and a later poll may still write the reply", async () => {
+test("A QUEUED JOB WHOSE REPLY CANNOT BE WRITTEN: the writer's failed try waits for its next one, and the poll hands back the stored answer as it was, pending; the next try writes it; three failed tries end it as failed, and the page says what it always said — the job never run, published or charged again", async () => {
   const worker = await loadWorker();
   const compiler = installCompiler();
   try {
@@ -337,23 +391,47 @@ test("A QUEUED JOB WHOSE REPLY CANNOT BE WRITTEN: the poll hands back the stored
     let down = true;
     const replies = [];
     const ok = writer(replies);
+    const sent = [];
     await withWire({ [T.pick]: { fields: ["description"] }, "lane:description": NEW_DESC, [W]: (args, n) => (down ? { reply: "", covers: [] } : ok(args, n)) }, async (seen) => {
-      const r = await postRoute(worker, ON(store), store, seen, slug, browserPost(SITE(slug), { intent: "edit", layer: "look" }, DESC_WORDS), "job");
+      const r = await postRoute(worker, QE(store, sent), store, seen, slug, browserPost(SITE(slug), { intent: "edit", layer: "look" }, DESC_WORDS), "job");
       const id = r.finalized.p_id;
       const before = { rpc: seen.rpc.length, built: builds(compiler), lanes: seen.lanes.length };
-      const p1 = await poll(worker, ON(store), id, doneRow(slug, r));
+      // THE FIRST TRY FAILS (an empty answer): the record waits for the next, which is sent with its wait.
+      await deliver(worker, QE(store, sent), sent.splice(0), doneRow(slug, r));
+      const rec1 = recordOf(store, id);
+      assert.deepEqual([rec1.state, rec1.attempts, rec1.why], ["pending", 1, "unreadable"], JSON.stringify(rec1));
+      assert.deepEqual(replyTasks(sent).map((m) => m.delaySeconds), [30], "the next try was not sent, or not with its wait");
+      const p1 = await poll(worker, QE(store, sent), id, doneRow(slug, r));
       assert.equal(p1.status, 200);
       assert.equal(p1.body.reply, undefined, "an unusable reply was served");
+      assert.equal(p1.body.replyState, "pending");
       assert.equal(Object.hasOwn(p1.body, "replyFor"), false, "what the reply needed was served when no reply was");
       const { replyFor, ...stored } = r.body;
-      assert.deepEqual(p1.body, stored, "the stored answer was not handed back as it was");
-      assert.equal(store.store.has("edit-replies/" + id + ".json"), false, "a reply that was never written was kept");
-      assert.match(editBrowserReply(p1.body, true, {}).text, /^✅ /);
+      assert.deepEqual({ ...p1.body, replyState: undefined }, { ...stored, replyState: undefined }, "the stored answer was not handed back as it was");
+      // THE NEXT TRY, WITH THE MODEL BACK: written, and every read hands it back.
       down = false;
-      const p2 = await poll(worker, ON(store), id, doneRow(slug, r));
-      assert.equal(p2.body.replySource, "model", "a later poll could not write the reply");
-      assert.deepEqual({ rpc: seen.rpc.length, built: builds(compiler), lanes: seen.lanes.length }, before, "a poll ran, published or charged the job again");
+      await deliver(worker, QE(store, sent), sent, doneRow(slug, r));
+      const p2 = await poll(worker, QE(store, sent), id, doneRow(slug, r));
+      assert.equal(p2.body.replySource, "model", "the next try did not write the reply");
+      assert.equal(recordOf(store, id).attempts, 2);
+      assert.deepEqual({ rpc: seen.rpc.length, built: builds(compiler), lanes: seen.lanes.length }, before, "a poll or the writer ran, published or charged the job again");
     }, { slug });
+    // THREE FAILED TRIES: failed, and the page says what it always said.
+    const slug2 = freshSlug("fail-thrice");
+    const store2 = bucket(slug2);
+    const sent2 = [];
+    await withWire({ [T.pick]: { fields: ["description"] }, "lane:description": NEW_DESC, [W]: () => ({ reply: "", covers: [] }) }, async (seen) => {
+      const r = await postRoute(worker, QE(store2, sent2), store2, seen, slug2, browserPost(SITE(slug2), { intent: "edit", layer: "look" }, DESC_WORDS), "job");
+      const id = r.finalized.p_id;
+      for (let i = 0; i < 3; i++) await deliver(worker, QE(store2, sent2), sent2, doneRow(slug2, r));
+      const rec = recordOf(store2, id);
+      assert.deepEqual([rec.state, rec.attempts], ["failed", 3], JSON.stringify(rec));
+      assert.equal(replyTasks(sent2).length, 0, "a fourth try was sent");
+      const p = await poll(worker, QE(store2, sent2), id, doneRow(slug2, r));
+      assert.equal(p.body.replyState, "failed");
+      assert.deepEqual(EditPoll.readPoll(p.status, p.final, p.body), { act: "reply" });
+      assert.match(editBrowserReply(p.body, true, {}).text, /^✅ /, "the page did not say what it always said");
+    }, { slug: slug2 });
   } finally { compiler.uninstall(); }
 });
 
@@ -666,16 +744,23 @@ test("CANCEL, ON THE PAGE: the question closes once on the server; the acknowled
   }, { slug });
 });
 
-test("A QUEUED CHANGE STOPPED AT THE CUSTOMER'S CANCEL: its stored answer is an ordinary outcome at its 503, so the poll writes its acknowledgement — nothing published, nothing charged — and a stop that is ours keeps its fixed sentence", async () => {
+test("A QUEUED CHANGE STOPPED AT THE CUSTOMER'S CANCEL: its stored answer is an ordinary outcome at its 503, so its acknowledgement is written — asked for by the first read that finds none, written by the queue — nothing published, nothing charged — and a stop that is ours keeps its fixed sentence", async () => {
   const worker = await loadWorker();
   const slug = freshSlug("job-cancel");
   const store = bucket(slug);
   const replies = [];
+  const sent = [];
   await withWire({ [W]: writer(replies) }, async (seen) => {
     const replyFor = { kind: "edit", request: "Make the header button forest green.", answers: [], picker: "sonnet", routedCost: 2, slug, pages: ["/", "/visit"] };
     const stopped = { ok: false, error: "cancelled", phase: "build", cost: 0, refunded: 1, msg: "I stopped that edit before anything was published.", replyFor };
     const id = "c".repeat(32);
-    const p = await poll(worker, ON(store), id, { slug, state: "cancelled", billing: "refunded", cost: 1, result: { status: 503, body: JSON.stringify(stopped), type: "application/json" } });
+    const row = { slug, state: "cancelled", billing: "refunded", cost: 1, result: { status: 503, body: JSON.stringify(stopped), type: "application/json" } };
+    const p0 = await poll(worker, QE(store, sent), id, row);
+    assert.equal(p0.body.replyState, "pending", "a read that found no reply did not ask for one");
+    assert.equal(replies.length, 0, "a read wrote the reply");
+    assert.equal(replyTasks(sent).length, 1);
+    await deliver(worker, QE(store, sent), sent, row);
+    const p = await poll(worker, QE(store, sent), id, row);
     assert.equal(p.status, 503, "the stored status moved");
     assert.equal(p.body.replySource, "model", "a cancel at its 503 was read as a failure of ours");
     assert.equal(p.body.cost, 0);
@@ -686,10 +771,13 @@ test("A QUEUED CHANGE STOPPED AT THE CUSTOMER'S CANCEL: its stored answer is an 
       "Reading their message cost 2 credits.",
     ]);
     assert.equal(editBrowserReply(p.body, false, {}).text, p.body.reply);
-    // A STOP THAT IS OURS — the service shut down under the job — keeps its sentence.
+    // A STOP THAT IS OURS — the service shut down under the job — keeps its sentence: nothing to say, kept so, nothing asked.
     const ours = { ...stopped, error: "stopped", msg: "That change was stopped before it could publish — the service running it was shut down or ran past its time limit. Send it again in a few minutes." };
-    const p2 = await poll(worker, ON(store), "d".repeat(32), { slug, state: "failed", billing: "refunded", cost: 1, result: { status: 503, body: JSON.stringify(ours), type: "application/json" } });
+    const p2 = await poll(worker, QE(store, sent), "d".repeat(32), { slug, state: "failed", billing: "refunded", cost: 1, result: { status: 503, body: JSON.stringify(ours), type: "application/json" } });
     assert.equal(p2.body.reply, undefined, "a failure of ours was given a model's reply");
+    assert.equal(p2.body.replyState, undefined, "a failure of ours was said to be waiting for a reply");
+    assert.equal(replyTasks(sent).length, 0, "a reply was asked for a failure of ours");
+    assert.equal(recordOf(store, "d".repeat(32)).state, "none");
     assert.equal(replies.length, 1);
     assert.match(editBrowserReply(p2.body, false, {}).text, /^⚠️ That change was stopped before it could publish/);
     assert.equal(Object.hasOwn(p2.body, "replyFor"), false);

@@ -76,14 +76,91 @@ export const REPLY_MAX_CHARS = 4000;
 export const REPLY_MAX_TOKENS = 2000;
 
 /**
- * How long a reply may take, end to end, both attempts together. The work is
- * already done and the customer is waiting on its sentence; past this the
- * route answers without one and the browser says it the old way.
+ * How long a reply may take, end to end, both attempts together, WHEN THE
+ * CUSTOMER'S OWN CONNECTION WAITS FOR IT — a synchronous edit, a routing
+ * answer, a cancel. The work is already done and the customer is waiting on
+ * its sentence; past this the route answers without one and the browser says
+ * it the old way. 45 s since 2026-10-04 (it was 20): run 95's three-fact
+ * replies ran past a 12 s call, and a reply of one fact took about 5 s.
  */
-export const REPLY_DEADLINE_MS = 20000;
+export const REPLY_DEADLINE_MS = 45000;
 
-/** One call's own ceiling, inside the deadline. */
-export const REPLY_CALL_MS = 12000;
+/** One call's own ceiling, inside the deadline (30 s since 2026-10-04; it was 12). */
+export const REPLY_CALL_MS = 30000;
+
+// ── A QUEUED JOB'S REPLY IS WRITTEN IN THE BACKGROUND (2026-10-04, run 95's F2) ──
+//
+// Run 95's R1: every reply call for its three parts ran into the poll's 12 s
+// ceiling and was cut off — six attempts, the page's three and the canary's
+// three, each read taking 12 s longer than one with nothing to write — so
+// every part's answer came late and in the fixed wording, and a reply not
+// written was not kept, so the next read paid the 12 s again. The owner chose
+// to write the reply on the server once the job's outcome and money are final,
+// independently of anybody reading it: these are its budget and its record.
+//
+// THE BUDGET IS THE BACKGROUND'S, not the poll's moved: nobody waits on it, so
+// a call has 90 s and an attempt 150 s (two calls at most), the attempt is
+// tried three times, 30 s and then 120 s apart, and a reply still not written
+// fifteen minutes after it was asked for is given up as a technical failure.
+export const REPLY_BG_CALL_MS = 90000;
+export const REPLY_BG_DEADLINE_MS = 150000;
+export const REPLY_BG_ATTEMPTS = 3;
+export const REPLY_BG_RETRY_S = Object.freeze([30, 120]);
+/** How long a writer's claim holds: its attempt's whole deadline and a minute more. */
+export const REPLY_LEASE_MS = REPLY_BG_DEADLINE_MS + 60000;
+/** How long after it was asked for a reply may still be written; past it, failed. */
+export const REPLY_HORIZON_MS = 15 * 60000;
+/** A wait past this, with no writer started, is a lost message: the reply is asked for again. */
+export const REPLY_RETRY_GRACE_MS = 90000;
+/** The states of a reply's record — its own progress, never the job's. */
+export const REPLY_STATES = Object.freeze(["pending", "writing", "written", "failed", "none"]);
+
+/**
+ * A REPLY'S RECORD, AS STORED (2026-10-04): `{ state, text?, attempts, asked,
+ * at, lease?, retryAt?, why? }`, or null when it is no record at all. One kept
+ * before 2026-10-04 — `{ text, at }`, the poll's — is a written reply.
+ */
+export function readReplyRecord(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const num = (v) => (Number.isFinite(v) && v >= 0 ? v : 0);
+  if (raw.v !== 2) {
+    return typeof raw.text === "string" && raw.text.trim() ? { state: "written", text: raw.text, attempts: 1, asked: num(raw.at), at: num(raw.at) } : null;
+  }
+  if (typeof raw.state !== "string" || !REPLY_STATES.includes(raw.state)) return null;
+  const text = typeof raw.text === "string" && raw.text.trim() ? raw.text : undefined;
+  if (raw.state === "written" && !text) return null;
+  const lease = raw.lease && typeof raw.lease === "object" && typeof raw.lease.owner === "string" && Number.isFinite(raw.lease.until) ? { owner: raw.lease.owner, until: raw.lease.until } : undefined;
+  return {
+    state: raw.state, ...(text ? { text } : {}),
+    attempts: Number.isInteger(raw.attempts) && raw.attempts >= 0 ? raw.attempts : 0,
+    asked: num(raw.asked), at: num(raw.at),
+    ...(lease ? { lease } : {}),
+    ...(Number.isFinite(raw.retryAt) ? { retryAt: raw.retryAt } : {}),
+    ...(typeof raw.why === "string" && raw.why ? { why: raw.why.slice(0, 40) } : {}),
+  };
+}
+
+/**
+ * WHAT TO DO WITH A REPLY'S RECORD NOW — the one rule the poll, the sweep and
+ * the writer all read:
+ *   ask       there is none: make it and ask for the reply;
+ *   serve     written: hand it back;
+ *   failed    given up: the browser says it the old way, a technical failure;
+ *   none      nothing to say: no reply is owed;
+ *   wait      being written, or waiting for its next try;
+ *   requeue   a writer's claim ran out, or a try was never started: ask again;
+ *   give-up   past its horizon: failed.
+ * `rec` as `readReplyRecord` reads it; `now` a time in ms.
+ */
+export function replyNext(rec, now) {
+  if (!rec) return "ask";
+  if (rec.state === "written") return "serve";
+  if (rec.state === "failed") return "failed";
+  if (rec.state === "none") return "none";
+  if (now - rec.asked > REPLY_HORIZON_MS) return "give-up";
+  if (rec.state === "writing") return rec.lease && rec.lease.until > now ? "wait" : "requeue";
+  return now - (rec.retryAt || rec.asked) > REPLY_RETRY_GRACE_MS ? "requeue" : "wait";
+}
 
 export const REPLY_TOOL = {
   name: "write_reply",
@@ -470,6 +547,12 @@ export function editReplyFacts(e, { routedCost = null, inRequest = false } = {})
       for (const n of [e.styleNote, e.tokenNote, e.cssNote]) { const s = said(n); if (s) F.add("note", s); }
       stepFacts(F, e);
       if (!F.out.length) F.add("changed", "Updated the look.");
+    } else if (e.satisfied === true) {
+      // AN ADDITION ALREADY TRUE (2026-10-04, run 95's F1): nothing changed,
+      // because nothing needed to; the step's own sentence names what was
+      // already there, and where.
+      const own = said(e.msg);
+      F.add("nothing", own ? "Nothing needed changing; the builder's own account: " + quote(own) : "Nothing needed changing: it was already there.");
     } else {
       // picture, nav, logo, rename, rules: the step wrote its own account,
       // because only it knows which picture, which links, which address.

@@ -938,6 +938,31 @@ the plan's Appendices A and B):
   sweep of 61 mutants. **The first request-mode press, `rq-canary`, passed as
   run 94** (2026-10-04; `docs/history/2026-10-04-request-batch.md`).
 
+### THE FOCUSED CHECK OF RUN 95's FIXES (`rq-menu-link`, 2026-10-04 — on the branch)
+
+One request-mode press, made before R2–R5 once the fixes are deployed
+(`docs/history/2026-10-04-findings-fixes.md` §4).
+- **The message**: *"Put the Classes page in the menu on every page."* on
+  `fold-lane-bakery`.
+  - Its budget is 10, estimate 3–9.
+  - It allows nav or look, and the add-on step is open, since the router
+    may send a menu link by either.
+- **Its verdict** (`menuFinish`, beside every request-mode check):
+  - every menu that lacked the link gained exactly it, keeping its own
+    items in their order;
+  - every menu that had it is as it was;
+  - at least one menu gained it, and every served header links it;
+  - a page with no menu is held by the byte-for-byte check, so it is given
+    none.
+- **Its reply** is judged as every part's is: the model's own, and on
+  screen. Written in the background now, it reaches the page after the job
+  ends; the canary watches until the page itself closes the request, which
+  it does only once every reply is shown.
+- **Proven with the bakery's stored pages only**:
+  - 2 cases in `test/canary-requests.test.mjs`: it lands, and six ways it
+    does not;
+  - a sweep of 5 of 5 mutants, its control surviving.
+
 ### ONE PRESS FOR THE WHOLE REQUEST BATCH (`rq-batch`, 2026-10-04 — on the branch, so pressed from it)
 
 The owner, offered one press for R1–R5 that stops itself before the

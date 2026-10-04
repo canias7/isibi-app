@@ -706,9 +706,10 @@ for (const mode of ["sync", "job"]) {
     const r = await editRun({
       mode, pages: WITH_THREE, routed: { layer: "nav", fromAddon: true },
       message: "Add Accessibility, Allergens, Delivery, Returns, Complaints and Modern slavery to the small print.",
-      // THE MODEL RESTATES THE LIST IT WAS SHOWN, as a whole-list field invites:
-      // the three the footer has, then the six new ones.
-      answers: { [NAV_TOOL.name]: { legal: NINE_LEGAL } },
+      // AN ADDITION NAMES ITS NEW ENTRIES (`add`, 2026-10-04, run 95's F1). A
+      // whole list restated beside them — the three the footer has, then the
+      // six — is not read, so nothing is decided from it.
+      answers: { [NAV_TOOL.name]: { legal: NINE_LEGAL, add: NINE_LEGAL.slice(3).map((l) => ({ to: "legal", ...l })) } },
     });
     assert.equal(r.post.body.addition, true, "the browser did not post the hand-off as an addition");
     assert.equal(r.body.ok, true, JSON.stringify(r.body).slice(0, 300));
@@ -717,7 +718,7 @@ for (const mode of ["sync", "job"]) {
       assert.deepEqual(listOn(r, f, "legal"), NINE_LEGAL, f + ": the footer does not hold its three and the six added after them");
       assert.deepEqual(chromeOf(r.src(f), f), chromeOf(before[f], f), f + ": the menu, the button or the contact details moved");
     }
-    assert.match(r.reply, /Added 6 small-print links \(Accessibility · Allergens · Delivery · Returns · Complaints · Modern slavery\) to the footer, beside what it had/);
+    assert.match(r.reply, /Added “Accessibility”, “Allergens”, “Delivery”, “Returns”, “Complaints”, “Modern slavery” to the footer's small print on 4 pages/);
     assert.equal(r.body.dropped, undefined, "an entry was left out of an addition with room for all");
   });
 
@@ -758,13 +759,13 @@ for (const mode of ["sync", "job"]) {
     assert.equal(edit.body.dropped, undefined, "a menu item past the old ten was left out");
     for (const l of twelve) assert.ok(edit.reply.includes(l.label), "the reply does not name “" + l.label + "”: " + edit.reply);
     const add = await editRun({ mode, routed: { layer: "nav", fromAddon: true }, message: "Add Bread, Pastry, Cakes, Coffee, Hampers, Classes, Wholesale and Jobs to the menu.",
-      answers: { [NAV_TOOL.name]: { links: twelve.slice(4) } } });
+      answers: { [NAV_TOOL.name]: { add: twelve.slice(4).map((l) => ({ to: "menu", ...l })) } } });
     assert.equal(add.body.ok, true, JSON.stringify(add.body).slice(0, 300));
     for (const f of CHROME) {
       const own = navSlots([{ path: f, source: ORIG[f] }])[0].items.map((i) => i.label);
       assert.deepEqual(add.menus(f), [[...own, ...twelve.slice(4).map((l) => l.label)]], f + ": the menu is not its own items with all eight added");
     }
-    assert.match(add.reply, /Added “Bread”, “Pastry”, “Cakes”, “Coffee”, “Hampers”, “Classes”, “Wholesale”, “Jobs” to the menu on 4 pages, beside the items it had/);
+    assert.match(add.reply, /Added “Bread”, “Pastry”, “Cakes”, “Coffee”, “Hampers”, “Classes”, “Wholesale”, “Jobs” to the menu on 4 pages, beside the items each had/);
   });
 }
 

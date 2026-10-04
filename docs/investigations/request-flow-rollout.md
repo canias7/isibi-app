@@ -24,6 +24,14 @@ The batch stopped after it, as built; R1 cost 21, and the batch has spent 25.
 the add-on links a new page from one page's menu, and the menu step then finds
 nothing to add; every reply call on R1's parts ran into its 12 s ceiling.
 Fixes are proposed for your choice, and R2–R5 wait for them.
+**Both are now fixed on the branch, on your word** (not merged or deployed;
+nothing paid run; `docs/investigations/request-batch-findings.md`, *What is
+fixed*): an addition names its items and code puts each into every list in its
+scope that lacks it, and a reply is written on the server once the job's
+outcome and money are final, never by a read. Shown with supplied model answers
+only. **Next, after your merge and deploy**: the free runtime press, then one
+focused paid press, `rq-menu-link` (§4: the bakery's Classes link put into the
+three menus that lack it, its reply the model's own; 3–9), then R2–R5.
 R2–R5 and RW have not been pressed. The presses' record:
 `docs/history/2026-10-04-request-batch.md`. The record: `docs/history/2026-10-04-deploy-2181.md`.
 
@@ -305,6 +313,10 @@ is. `<sha>` is **`f69c873c`**, `main` after the fast-forward (deploy 2181).
 - the deploy sha box: `<sha>`; the image box: `882477e1bbbe8cbe`;
 - "What to change" and the probe-list box: blank.
 
+**The focused check of run 95's fixes (`rq-menu-link`)**, after they are
+merged and deployed: as each canary press above, with the scenario box
+`rq-menu-link`, and the deploy sha and image boxes as that deploy names them.
+
 **The whole batch in one press (`rq-batch`)**:
 - "Use workflow from": **`claude/help-needed-ehlwlj`**, since the mode is on
   the branch and not on `main`;
@@ -331,6 +343,7 @@ press's own preflight checks the deploy and the image first.
 | **R3** `rq-3-facebook` | 1. On the Visit page, change the heading 'The shutters and the street' to 'Our shop on the street', and add a link to our Facebook page in the footer. 2. *(the answer)* It's facebook.com/harbourloafbristol | a step's question and the answer resuming it; another part going ahead meanwhile | 4–12 |
 | **R4** `rq-4-logo` | Change the home page heading 'Fed every morning since we opened' to 'Fed every morning since 2019', and use the attached picture as our logo. *(with `ui-logo-2.png` attached)* | an attachment read by a later part | 3–7 |
 | **R5** `rq-5-away` | Add a line to the Order page saying orders close at 8pm the night before, and change the Gallery page heading 'Photographs of the bakery's work' to 'Photographs from the bakery'. | the tab closed once the request is taken on: the server finishes alone | 8–17 |
+| **The fixes' check** `rq-menu-link` (2026-10-04, pressed before R2–R5) | Put the Classes page in the menu on every page. | run 95's two fixes, live: the Classes link R1 left in two of five menus put into the three that lack it, the two that have it and the starter page (no menu) as they were; its reply the model's own, written in the background | 3–9 |
 
 ### 4.1 Outcome, and the paths that reach it
 
@@ -735,6 +748,7 @@ most 30 minutes, inside the workflow's 45; checked against its own before-read.
 | `rq-3-facebook` | 13 | text, look, nav | open | 1. ends on the question, 14 min; 2. the answer, 14 min |
 | `rq-4-logo` | 8 | text, look, logo | shut | one with `ui-logo-2.png` attached, 12 min |
 | `rq-5-away` | 18 | text, look | open | one, the tab closed once taken on, 25 min |
+| `rq-menu-link` | 10 | nav, look | open | one, 14 min; judged by `menuFinish`: every menu that lacked the link gained exactly it, each menu that had it as it was |
 
 **Changed from the earlier plan**: the bounds are 25 minutes (not 30) for R1,
 R2 and R5, and 14 + 14 (not 20 + 20) for R3, so a press's messages leave at

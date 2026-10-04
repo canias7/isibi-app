@@ -25,12 +25,31 @@ here; take a closed one out of both.**
   the home page and the new page, and the other three pages got none. **Cause
   found and reproduced** (`docs/investigations/request-batch-findings.md`):
   the add-on links a new page from one page's menu, and the menu step counts a
-  link any page has as there on every page. A two-part fix is proposed.
+  link any page has as there on every page. **Fixed on the branch, on the
+  owner's word (2026-10-04; not merged or deployed;
+  `docs/history/2026-10-04-findings-fixes.md`)**: an addition names its items
+  and code puts each into every list in its scope that lacks it; the add-on
+  carries its page's placement; an addition already true is done. Shown with
+  supplied answers; live, by `rq-menu-link` after the deploy.
 - **A multi-part request's parts got no model-written reply** (R1, run 95):
   their job results carried no `reply`, so the page showed the old fixed
   sentences; a single part had one (run 94). **Cause found from the run's
   timings** (the same file): all six reply attempts ran into the reply call's
-  12 s ceiling. One log line, free, confirms it.
+  12 s ceiling (strongly inferred; the log line was not read). **Fixed on the
+  branch, on the owner's word (the same day and file)**: the reply is written
+  on the queue once the job's outcome and money are final, never by a read.
+  Shown with supplied answers; live, by `rq-menu-link` and R2–R5.
+- **The page applies a part's result only when its reply is shown**
+  (found 2026-10-04, with the background replies): while a reply is retried,
+  the site's preview and the part's message wait together, at worst about ten
+  minutes (three tries), within the reply's 15-minute horizon. It predates
+  the fix (the poll-time reply held them together for up to 20 s). Not
+  changed: showing the result first and the reply after is a page change of
+  its own.
+- **The Stop control still shows while a finished job's reply is written**
+  (found 2026-10-04): pressing it undoes nothing (a published job is refused
+  as too late, an unpublished one has already ended) and the page goes back to
+  waiting; the control is merely there. Not changed.
 - A half of a message the router puts off (`alsoAsked`) is still attempted,
   on the home page, and the reply contradicts itself (run 52). **Fixed and
   deployed 2026-09-29 (deploy 2166); run 57 made both changes live, with
@@ -466,6 +485,27 @@ here; take a closed one out of both.**
 
   The bakery's *Classes* stays on two pages under the demo rule. Until fix 2,
   a menu edit asking for it is refused the same way.
+
+  **Fixed on the branch, on the owner's word** (2026-10-04, *"Proceed with
+  fixing both findings on the current branch"*; not merged or deployed;
+  `docs/history/2026-10-04-findings-fixes.md` §1 and the investigation's
+  *What is fixed*):
+  - the model names each addition and its scope (`add`); code puts it into
+    every menu or footer list in that scope that lacks it, each page keeping
+    its own items, order and differences, and nothing reads the union;
+  - a page with no menu is given none (run 95's site: six pages, five menus);
+    named, it is refused by name; a footer list is made only where no page in
+    the scope has one;
+  - already true is `satisfied`: nothing published, queued no reserve,
+    routing kept, and a request part that needed it runs;
+  - the add-on carries its page's placement: the menu, added to every menu by
+    code, or one page, the writer's.
+
+  Shown with supplied answers (run 95's pages, run 47's bakery through the
+  edit and add-on routes, sync and queued, and R1's shape through the request
+  flow). **Open until shown live**: `rq-menu-link` after the deploy (the
+  bakery's Classes into the three menus that lack it), then R2's own menu
+  link.
 - **A MULTI-PART REQUEST'S PARTS GOT NO MODEL-WRITTEN REPLY** (found live in
   R1, run 95; the same section).
   - The job results the page read for the request's three parts carried no
@@ -495,6 +535,43 @@ here; take a closed one out of both.**
   line): the smallest fix gives a queued job's reply call the whole 20 s.
   The better one writes the reply as soon as the job's money is settled,
   instead of when the page reads it, so nobody waits on it.
+
+  **Fixed on the branch, on the owner's word: the better one, option B**
+  (2026-10-04; not merged or deployed; `docs/history/2026-10-04-findings-fixes.md`
+  §2). The owner made the log line no prerequisite, so the cause stays
+  strongly inferred.
+  - The reply has its own record and state, asked for once the job's outcome
+    and money are final (the container through the gateway's `/reply`).
+  - The queue writes it: a claim with a lease, 90 s per call and 150 s per
+    try, three tries 30 s and 120 s apart, then `failed`.
+  - No read calls the model; the two-minute cron recovers a lost ask or a
+    lapsed claim; the page waits, and picks the reply up after a reload or on
+    another device.
+  - Synchronous replies: 30 s per call, 45 s in all.
+
+  Shown with supplied answers, including a reply held 13 s in real time.
+  **Open until shown live**: every part's reply the model's own in
+  `rq-menu-link` and R2–R5.
+- **THE PAGE APPLIES A PART'S RESULT ONLY WHEN ITS REPLY IS SHOWN** (found
+  2026-10-04, writing the background replies).
+  - `editAnswer` takes the stored answer and the reply together: the preview
+    moves, the message is said and the undo offered in one go. So while a
+    reply is still being written, the page shows *"Done — writing up what
+    changed…"* and the site's preview has not moved yet.
+  - Typically a few seconds. At worst, a provider failing every try, about
+    ten minutes (three tries, 30 s and 120 s apart, each up to 150 s), within
+    the reply's 15-minute horizon, after which the fixed wording is shown.
+  - It predates the fix: the poll-time reply held both for up to 20 s.
+  - Open: whether to show the result first and the reply after. That is a
+    page change of its own; applying a result twice must stay impossible
+    (`take()`).
+- **THE STOP CONTROL STILL SHOWS WHILE A FINISHED JOB'S REPLY IS WRITTEN**
+  (found 2026-10-04, in the screenshot of the waiting page). Pressing it asks
+  the server to cancel a job that has ended (`edit_cancel`): a published one
+  is refused as too late (409), an unpublished one answers that it has ended
+  with no cancel. Either way nothing is undone and the page goes back to
+  waiting for the reply (`isCancelTooLate`, `isCancelConfirmed`). Open:
+  whether the control should give way to the waiting note.
 - **The combined request flow** (2026-10-03, `docs/request-flow.md`; merged and
   deployed in deploy 2181 (2026-10-04); `REQUEST_FLOW` set by the owner in
   deploy 2182;

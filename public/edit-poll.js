@@ -227,6 +227,9 @@
    * waiting, so the ordinary poll paints nothing new.
    */
   function waitingMessage(body) {
+    // DONE, AND ITS REPLY BEING WRITTEN (2026-10-04): the change is made, and
+    // the server is writing what to say about it.
+    if (body && typeof body === "object" && body.replyState === "pending") return "Done — writing up what changed…";
     if (!body || typeof body !== "object" || body.waiting !== true) return "";
     return "Waiting — your site is busy with another change, or the platform is being updated. This will carry on by itself.";
   }
@@ -548,6 +551,11 @@
     // 2. THE ANSWER BEFORE THE RETRY, which is the whole point: a stored 422 or
     //    503 IS the outcome, and reading it as a transient failure polls past
     //    the thing being waited for.
+    // …UNLESS ITS REPLY IS STILL BEING WRITTEN (2026-10-04): the work is done
+    //    and the server writes the customer's sentence in the background, so
+    //    the page waits for it — with a sentence of its own — rather than say
+    //    the old fixed one first. `failed` is an answer: the old wording.
+    if (finalHeader === FINAL_VALUE && body && body.replyState === "pending") return { act: "wait", kind: "reply" };
     if (finalHeader === FINAL_VALUE) return { act: "reply" };
     // 3. A POLL THAT FAILED IS NOT AN EDIT THAT FAILED.
     if (shouldRetryPoll(status)) return { act: "retry" };

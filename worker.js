@@ -207,7 +207,7 @@ import { editableFiles, splitEditable, partPath, partNameOf, PART_DIR } from "./
 // Generated from the template by `builder/gen-foundation.mjs` and bundled,
 // because a Worker has no filesystem and the template lives in the image.
 import { FOUNDATION_FILES } from "./builder/foundation-files.mjs";
-import { runNavEdit } from "./builder/site-nav.mjs";
+import { runNavEdit, applyAdditions } from "./builder/site-nav.mjs";
 import { runLogoEdit } from "./builder/site-logo.mjs";
 import { topUpSeed, mergeSeed } from "./builder/site-seed.mjs";
 import { runNightlyBackups, dumpSite, backupKey, backupListing, backupDayParam, BACKUP_META_KEYS } from "./site-backup.mjs";
@@ -242,7 +242,7 @@ import { routeMessage, routeDecision, routeFailure, clarifiedBrief, siteDigest, 
 // work moves from one step to another — the parts put off, the scope, and why.
 import { readHandOver, handOverLine, heldReport, deferredOf } from "./builder/hand-over.mjs";
 import { loadAsk, storeAsk, storeAskIfFree, closeAsk, replaceAsk, askLive, packAsk, newAskId, askOf, readAsk, readContext, shownContext, repeatOf, appendAnswer, againNote, clarifyTransport, clarifyCall, MAX_NOTE_CHARS, MAX_SAME_ASK, MAX_ASKED } from "./builder/clarify.mjs";
-import { repliesOn, editReplyFacts, addonReplyFacts, routeReplyFacts, cancelReplyFacts, repeatNoteFacts, requestReplyFacts, replyContext, writeReply, withReplyText, REPLY_CALL_MS } from "./builder/site-reply.mjs";
+import { repliesOn, editReplyFacts, addonReplyFacts, routeReplyFacts, cancelReplyFacts, repeatNoteFacts, requestReplyFacts, replyContext, writeReply, withReplyText, REPLY_CALL_MS, REPLY_BG_CALL_MS, REPLY_BG_DEADLINE_MS, REPLY_BG_ATTEMPTS, REPLY_BG_RETRY_S, REPLY_LEASE_MS, REPLY_HORIZON_MS, REPLY_RETRY_GRACE_MS, readReplyRecord, replyNext } from "./builder/site-reply.mjs";
 // ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03): the record,
 // the plan, what a job's answer means for its part, and the next job.
 import {
@@ -272,7 +272,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { requirementNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
@@ -1347,6 +1347,9 @@ export default {
     // Move every unfinished request of several parts on (2026-10-03): the
     // guarantee behind each job's own end, so no part waits for a browser.
     ctx.waitUntil(runRequestSweep(env, ctx));
+    // Ask again for every reply a finished job is still owed (2026-10-04): a
+    // job's own ask lost, a writer evicted, a try never started.
+    ctx.waitUntil(runReplySweep(env));
     // Take out the litter under `jobs/` — the requests, answers and resume
     // records the unhappy paths leave behind, which nothing has ever swept
     // (stage 9, 2026-09-06). One nibble of the prefix per tick and nothing
@@ -1405,6 +1408,9 @@ export default {
         // path, which it must never fall into: `runQueuedSiteBuild` would replay
         // an edit's request as a build.
         const edit = readEditMessage(message && message.body);
+        // A REPLY TO WRITE (2026-10-04): a finished job's or a request's, in
+        // the background — no site lock, no job row, nothing run again.
+        const replyTask = readReplyTask(message && message.body);
         if (edit) {
           // ── THE CLAIM COMES FIRST, HERE, BEFORE ANY CONTAINER IS ASKED ──────
           //
@@ -1496,6 +1502,8 @@ export default {
           await runQueuedSiteBuild(env, ctx, msg.id, { tries: msg.tries, startedAt: deliveredAt });
         } else if (resume) {
           await runResumedSiteBuild(env, ctx, resume.id, { tries: resume.tries });
+        } else if (replyTask) {
+          await runReplyTask(env, replyTask);
         } else {
           const kind = message && message.body && message.body.kind;
           console.error("build queue: no handler for message", JSON.stringify(kind || null));
@@ -6245,8 +6253,10 @@ async function askReport(env, res, ctx) {
 // later, after the consumer may have refunded it (`servedEditReply` rewrites
 // the money then), so a sentence written inside the job could state money the
 // row no longer holds. The job keeps what a reply needs beside its answer
-// (`replyFor`), and the poll route writes the reply once, when that answer is
-// first handed back (`servedModelReply`), and keeps it for every later read.
+// (`replyFor`), and since 2026-10-04 the reply is written in the background
+// once the job has ended — its outcome and money final — and kept: a read
+// hands back what it holds and never writes it (`replyJobEnded`,
+// `runReplyTask`, `servedModelReply`).
 const replyBudget = { capMs: () => REPLY_CALL_MS };
 
 /** What a reply is told about the request, read once from the route's own body. */
@@ -6276,18 +6286,32 @@ function replyFactsOf(kind, body, ask) {
 
 /** One reply written for `body`, or null. Never throws; logs what it did and what it used. */
 async function writeModelReply(env, kind, body, ask) {
+  const out = await composeModelReply(env, kind, body, ask);
+  return out.ok ? out.text : null;
+}
+
+/**
+ * ONE REPLY FOR `body`: `{ ok, text }`, `{ ok: false, skip }` when there is
+ * nothing to say, or `{ ok: false, why }` when it could not be written. Never
+ * throws; logs what it did and what it used. `background` (2026-10-04) is a
+ * reply nobody waits on — a queued job's or a request's, written by the queue
+ * (`runReplyTask`) — with the background's budget instead of the customer's
+ * connection's.
+ */
+async function composeModelReply(env, kind, body, ask, { background = false } = {}) {
   const read = replyFactsOf(kind, body, ask);
-  if (read.skip || !read.facts.length) return null;
+  if (read.skip || !read.facts.length) return { ok: false, skip: read.skip || "no-facts" };
   let pages = [];
   try { pages = typeof ask.pages === "function" ? ask.pages() : Array.isArray(ask.pages) ? ask.pages : []; } catch { pages = []; }
   const model = modelsFor(ask.picker).quick;
   const t0 = Date.now();
   let out;
   try {
-    out = await writeReply({ send: quickSend(env, "reply", replyBudget) }, {
+    out = await writeReply({ send: quickSend(env, "reply", background ? replyBgBudget : replyBudget) }, {
       facts: read.facts,
       context: replyContext({ request: ask.request, answers: ask.answers, site: { name: ask.name, slug: ask.slug, pages } }),
       model,
+      ...(background ? { deadlineMs: REPLY_BG_DEADLINE_MS } : {}),
     });
   } catch (e) {
     out = { ok: false, why: "send", usage: [], attempts: 0 };
@@ -6296,9 +6320,9 @@ async function writeModelReply(env, kind, body, ask) {
   // the ledger never shows it, and this line is where it is measured.
   try {
     const tokens = (out.usage || []).reduce((n, u) => ({ in: n.in + (u.in || 0), out: n.out + (u.out || 0) }), { in: 0, out: 0 });
-    console.log("reply:", kind, out.ok ? "written" : "fell back (" + out.why + ")", "facts", read.facts.length, "attempts", out.attempts, "tokens", tokens.in + "/" + tokens.out, "ms", Date.now() - t0);
+    console.log("reply:", kind, out.ok ? "written" : "fell back (" + out.why + ")", "facts", read.facts.length, "attempts", out.attempts, "tokens", tokens.in + "/" + tokens.out, "ms", Date.now() - t0, background ? "background" : "inline");
   } catch { /* a log line never costs the reply */ }
-  return out.ok ? out.text : null;
+  return out.ok ? { ok: true, text: out.text } : { ok: false, why: out.why || "send" };
 }
 
 /** The answer with its reply on it, or the answer exactly as it was. */
@@ -6353,50 +6377,303 @@ function replyEnding(env, res, kind, ask) {
   return ask && ask.job ? keepReplyFor(env, res, kind, ask) : withModelReply(env, res, kind, ask);
 }
 
-/** Where a queued job's written reply is kept, so every later read hands back the same one. */
+/** Where a queued job's reply is kept — its record, since 2026-10-04 — so every later read hands back the same one. */
 const replyKey = (job) => "edit-replies/" + job + ".json";
+
+// ── THE REPLY IS WRITTEN IN THE BACKGROUND, NEVER BY A READ (2026-10-04) ────
+//
+// Run 95's F2. The poll wrote a finished job's reply the first time anyone
+// read it, under the customer's own 12 s ceiling. All six attempts on R1's
+// parts — the page's three, the canary's three — ran into that ceiling, each
+// read 12 s slower than one with nothing to write; a reply not written was
+// not kept, so the next read paid again; and every part's answer came in the
+// fixed wording. Owner, on the fix: *"generate and persist the model-written
+// reply after the job's outcome and billing are final, independently of
+// browser polling … Polling must not launch another model call on every
+// read."*
+//
+// SO A REPLY HAS ITS OWN RECORD (`readReplyRecord`, `replyNext`): pending,
+// writing, written, failed, or nothing to say — its progress, never the job's.
+// The job asks for it at its end (`replyJobEnded`), when the outcome and the
+// money are final: the record is made once — the conditional write is the
+// claim, so two askers send one message — and the queue writes it
+// (`runReplyTask`), a non-HTTP invocation with fifteen minutes, holding no
+// site lock and touching no job row, under the background's own budget
+// (`REPLY_BG_CALL_MS`, three tries). A read hands back what the record holds.
+// What a lost message or an evicted writer leaves, the cron's sweep and the
+// next read ask for again, within the tries and the horizon.
+const REPLY_KIND = "edit-reply";
+const replyBgBudget = { capMs: () => REPLY_BG_CALL_MS };
+/** A job made longer ago than this, with no reply asked for, ended before replies were written this way: none is asked for now. */
+const REPLY_ASK_WINDOW_MS = 2 * 3600 * 1000;
+
+/** A reply task off the queue: `{ id, uid }` for a job's reply, `{ slug, key, for }` for a request's; null for anything else. */
+export function readReplyTask(body) {
+  if (!body || typeof body !== "object" || Array.isArray(body) || body.kind !== REPLY_KIND) return null;
+  // A NON-STRING IS REFUSED, NOT COERCED — `readEditMessage`'s rule.
+  if (typeof body.id === "string" && isJobId(body.id) && typeof body.uid === "string" && /^[A-Za-z0-9-]{8,64}$/.test(body.uid)) return { id: body.id, uid: body.uid };
+  if (typeof body.slug === "string" && /^[a-z0-9-]{1,60}$/.test(body.slug) && isRequestKey(body.key) && typeof body.for === "string" && /^(end|approval:\d+:\d+)$/.test(body.for)) {
+    return { slug: body.slug, key: body.key, for: body.for };
+  }
+  return null;
+}
+
+/** The reply's record at `key`: `{ rec, etag, read }` — `read` false when the store could not be read, which is never "none there". */
+async function replyRecordAt(env, key) {
+  try {
+    const o = await env.SITES_BUCKET.get(key);
+    if (!o) return { rec: null, etag: null, read: true };
+    let raw = null;
+    try { raw = JSON.parse(await o.text()); } catch { raw = null; }
+    return { rec: readReplyRecord(raw), etag: o.etag || o.httpEtag || null, read: true };
+  } catch (e) {
+    console.error("reply: could not read", key, errorClassForLog(e));
+    return { rec: null, etag: null, read: false };
+  }
+}
+
+/** The record written over `etag`, or made where there was none (`etag` null): its new etag, or null when another writer got there first. */
+async function putReplyRecord(env, key, rec, etag) {
+  try {
+    const put = await env.SITES_BUCKET.put(key, JSON.stringify({ ...rec, v: 2 }), {
+      httpMetadata: { contentType: "application/json" },
+      onlyIf: etag ? { etagMatches: etag } : { etagDoesNotMatch: "*" },
+    });
+    return put ? put.etag || put.httpEtag || "written" : null;
+  } catch (e) {
+    console.error("reply: could not write", key, errorClassForLog(e));
+    return null;
+  }
+}
+
+/** One message to the queue that writes replies; false when there is no queue or it would not take it. */
+async function sendReplyTask(env, task, delayS = 0) {
+  if (!env || !env.BUILD_QUEUE || typeof env.BUILD_QUEUE.send !== "function") return false;
+  try {
+    await env.BUILD_QUEUE.send({ kind: REPLY_KIND, ...task }, delayS > 0 ? { delaySeconds: queueDelay(delayS) } : undefined);
+    return true;
+  } catch (e) {
+    console.error("reply: could not queue", errorClassForLog(e));
+    return false;
+  }
+}
+
+/**
+ * ASK FOR A REPLY at `key`, for `task`: its record made `pending` — once; a
+ * second ask finds it — and one message to the queue. A record whose writer's
+ * claim ran out, or whose try was never started, is asked for again; one past
+ * its horizon is failed. The state it is in. Never throws.
+ */
+async function askReply(env, key, task, now = Date.now()) {
+  if (!env || !env.SITES_BUCKET) return "none";
+  const at = await replyRecordAt(env, key);
+  if (!at.read) return "pending";
+  const next = replyNext(at.rec, now);
+  if (next === "ask") {
+    const made = await putReplyRecord(env, key, { state: "pending", attempts: 0, asked: now, at: now }, at.etag);
+    if (made) await sendReplyTask(env, task);
+    return "pending";
+  }
+  if (next === "requeue") return requeueReply(env, key, at, task, now);
+  if (next === "give-up") {
+    await putReplyRecord(env, key, { ...at.rec, state: "failed", why: at.rec.why || "horizon", lease: undefined, retryAt: undefined, at: now }, at.etag);
+    return "failed";
+  }
+  return next === "serve" ? "written" : next === "wait" ? "pending" : next;
+}
+
+/** ASKED AGAIN: the record moves first (its try now), so of two that ask again one message is sent. */
+async function requeueReply(env, key, at, task, now) {
+  const moved = await putReplyRecord(env, key, { ...at.rec, state: "pending", retryAt: now, lease: undefined, at: now }, at.etag);
+  if (moved) await sendReplyTask(env, task);
+  return "pending";
+}
+
+/**
+ * A QUEUED JOB'S END ASKS FOR ITS REPLY — only a job whose answer carries what
+ * a reply needs (`replyFor`), after its outcome and money are final and its
+ * request has moved on, so no later part waits on it. In the Worker, directly;
+ * inside the container, which has no queue, through the gateway's `/reply`,
+ * bound to the job's own token. Lost either way, the sweep asks.
+ */
+async function replyJobEnded(env, job, payload) {
+  if (!repliesOn(env) || !job || !payload || typeof payload !== "object" || !payload.replyFor) return;
+  try {
+    if (typeof env.JOB_REPLY === "function") { await env.JOB_REPLY(); return; }
+    await askReply(env, replyKey(job.id), { id: job.id, uid: String(job.uid || "") });
+  } catch (e) { console.error("reply: could not ask for", job.id, errorClassForLog(e)); }
+}
+
+/**
+ * CLAIM A REPLY'S RECORD FOR WRITING: `{ rec, etag, attempt }`, or null when
+ * it is not this writer's — already written, failed or owed nothing; being
+ * written under a claim that still holds; past its horizon or its tries,
+ * which fail it here; or another writer's change landed first. A task that
+ * arrives with no record makes one, so the record always says what happened.
+ */
+async function claimReply(env, key, now) {
+  const at = await replyRecordAt(env, key);
+  if (!at.read) return null;
+  let rec = at.rec;
+  let etag = at.etag;
+  if (!rec) {
+    rec = { state: "pending", attempts: 0, asked: now, at: now };
+    etag = await putReplyRecord(env, key, rec, at.etag);
+    if (!etag) return null;
+  }
+  const next = replyNext(rec, now);
+  if (next === "serve" || next === "failed" || next === "none") return null;
+  if (rec.state === "writing" && rec.lease && rec.lease.until > now) return null;
+  if (next === "give-up" || rec.attempts >= REPLY_BG_ATTEMPTS) {
+    await putReplyRecord(env, key, { ...rec, state: "failed", why: rec.why || (next === "give-up" ? "horizon" : "tries"), lease: undefined, retryAt: undefined, at: now }, etag);
+    return null;
+  }
+  const attempt = rec.attempts + 1;
+  const claimed = await putReplyRecord(env, key, { ...rec, state: "writing", attempts: attempt, lease: { owner: newLeaseOwner(), until: now + REPLY_LEASE_MS }, retryAt: undefined, at: now }, etag);
+  return claimed ? { rec, etag: claimed, attempt } : null;
+}
+
+/**
+ * THE CLAIM SETTLED by what the attempt came to: written; nothing to say;
+ * failed for good (`final`), or once the tries are spent; otherwise waiting
+ * for its next try, whose message is sent now with its wait.
+ */
+async function settleReply(env, key, claim, task, out) {
+  const now = Date.now();
+  const base = { ...claim.rec, attempts: claim.attempt, lease: undefined, retryAt: undefined, why: undefined, at: now };
+  if (out.ok) return putReplyRecord(env, key, { ...base, state: "written", text: out.text }, claim.etag);
+  if (out.skip) return putReplyRecord(env, key, { ...base, state: "none", why: String(out.skip).slice(0, 40) }, claim.etag);
+  const why = String(out.why || "send").slice(0, 40);
+  if (out.final !== true && claim.attempt < REPLY_BG_ATTEMPTS) {
+    const waitS = REPLY_BG_RETRY_S[Math.min(claim.attempt - 1, REPLY_BG_RETRY_S.length - 1)];
+    const put = await putReplyRecord(env, key, { ...base, state: "pending", retryAt: now + waitS * 1000, why }, claim.etag);
+    if (put) await sendReplyTask(env, task, waitS);
+    return put;
+  }
+  return putReplyRecord(env, key, { ...base, state: "failed", why }, claim.etag);
+}
+
+/** ONE REPLY TASK OFF THE QUEUE: a job's or a request's. Never throws. */
+async function runReplyTask(env, task) {
+  if (!env || !env.SITES_BUCKET || !task) return;
+  try {
+    if (task.id) await writeJobReply(env, task);
+    else await writeRequestReply(env, task);
+  } catch (e) { console.error("reply: task failed", errorClassForLog(e)); }
+}
+
+/** What a job's kept context tells its reply (`keepReplyFor`'s own fields). */
+function askOfReplyFor(replyFor) {
+  return {
+    request: replyFor.request, answers: replyFor.answers, picker: replyFor.picker,
+    routedCost: Number.isInteger(replyFor.routedCost) ? replyFor.routedCost : null,
+    slug: replyFor.slug, pages: Array.isArray(replyFor.pages) ? replyFor.pages : [],
+    inRequest: replyFor.inRequest === true,
+  };
+}
+
+/**
+ * A QUEUED JOB'S REPLY, written from its row as the row holds it now — the
+ * outcome final, the money the ledger's (`servedEditReply`) — which is why a
+ * job does not write its own: the consumer may refund it after its answer.
+ * A row under review is a person's to settle, so no sentence states its money.
+ */
+async function writeJobReply(env, task) {
+  const key = replyKey(task.id);
+  const claim = await claimReply(env, key, Date.now());
+  if (!claim) return;
+  let row = null;
+  try { row = await editRpc(env, "edit_get", { p_id: task.id, p_uid: task.uid }); } catch { row = null; }
+  if (!row || row.ok !== true) return settleReply(env, key, claim, task, { ok: false, why: "row" });
+  const res = row.result;
+  if (!isTerminalEdit(row.state) || !res || typeof res.body !== "string") return settleReply(env, key, claim, task, { ok: false, why: "not-final" });
+  if (row.needs_review) return settleReply(env, key, claim, task, { ok: false, why: "under-review", final: true });
+  let body = null;
+  try { body = JSON.parse(servedEditReply(row, res.body)); } catch { body = null; }
+  const replyFor = body && typeof body === "object" && !Array.isArray(body) ? body.replyFor : null;
+  if (!replyFor || typeof replyFor !== "object" || (replyFor.kind !== "edit" && replyFor.kind !== "addon")) return settleReply(env, key, claim, task, { ok: false, skip: "no-context" });
+  const { replyFor: _context, ...rest } = body;
+  return settleReply(env, key, claim, task, await composeModelReply(env, replyFor.kind, rest, askOfReplyFor(replyFor), { background: true }));
+}
 
 /**
  * A FINISHED JOB'S STORED ANSWER, AS THE POLL HANDS IT BACK: its private
- * `replyFor` taken off, and the reply written from it once and kept. `text` is
- * the body the poll was about to serve (its money already the row's). Any
- * failure hands back that body without a reply, which is what it was before.
+ * `replyFor` taken off, and the reply's own progress beside the outcome
+ * (2026-10-04) —
+ *   written   the reply on it (`withReplyText`);
+ *   pending   `replyState: "pending"`, while it is written in the background;
+ *   failed    `replyState: "failed"`: the browser says it the old way;
+ *   none      nothing owed: the answer as it was.
+ * A READ NEVER CALLS THE MODEL. One that finds no record — the job's own ask
+ * lost — reads the facts (no model, no cost): nothing to say is kept so, and
+ * otherwise it makes the record and asks, once, for the reply; one that finds
+ * a writer's claim run out, or a try never started, asks again within the
+ * tries; one past the horizon fails it. `text` is the body the poll was about
+ * to serve (its money already the row's); `uid` the owner's; `ageMs` how long
+ * ago the job was made — one made before replies were written this way is
+ * not asked for one now.
  */
-async function servedModelReply(env, job, text) {
+async function servedModelReply(env, job, text, { uid = "", ageMs = null } = {}) {
   let body;
   try { body = JSON.parse(text); } catch { return text; }
   if (!body || typeof body !== "object" || Array.isArray(body) || !Object.hasOwn(body, "replyFor")) return text;
   const { replyFor, ...rest } = body;
   const plain = JSON.stringify(rest);
   if (!repliesOn(env) || !replyFor || typeof replyFor !== "object" || (replyFor.kind !== "edit" && replyFor.kind !== "addon")) return plain;
-  const bucket = env && env.SITES_BUCKET;
-  try {
-    const kept = bucket ? await bucket.get(replyKey(job)) : null;
-    if (kept) {
-      const k = JSON.parse(await kept.text());
-      if (k && typeof k.text === "string" && k.text.trim()) return JSON.stringify(withReplyText(rest, k.text));
+  if (!env || !env.SITES_BUCKET) return plain;
+  const pending = JSON.stringify({ ...rest, replyState: "pending" });
+  const failed = JSON.stringify({ ...rest, replyState: "failed" });
+  const key = replyKey(job);
+  const now = Date.now();
+  const at = await replyRecordAt(env, key);
+  if (!at.read) return pending;
+  const next = replyNext(at.rec, now);
+  if (next === "serve") return JSON.stringify(withReplyText(rest, at.rec.text));
+  if (next === "failed") return failed;
+  if (next === "none") return plain;
+  if (next === "wait") return pending;
+  const task = { id: job, uid: String(uid || "") };
+  if (next === "ask") {
+    const read = replyFactsOf(replyFor.kind, rest, askOfReplyFor(replyFor));
+    if (read.skip || !read.facts.length) {
+      await putReplyRecord(env, key, { state: "none", attempts: 0, asked: now, at: now, why: String(read.skip || "no-facts").slice(0, 40) }, at.etag);
+      return plain;
     }
-  } catch { /* an unread copy is written again below */ }
-  const reply = await writeModelReply(env, replyFor.kind, rest, {
-    request: replyFor.request, answers: replyFor.answers, picker: replyFor.picker,
-    routedCost: Number.isInteger(replyFor.routedCost) ? replyFor.routedCost : null,
-    slug: replyFor.slug, pages: Array.isArray(replyFor.pages) ? replyFor.pages : [],
-    inRequest: replyFor.inRequest === true,
-  });
-  if (!reply) return plain;
-  // KEPT ONCE: of two polls that both wrote one, the first stored wins, and
-  // the later reads hand back that one — never two different sentences.
+    if (Number.isFinite(ageMs) && ageMs > REPLY_ASK_WINDOW_MS) return plain;
+  }
+  const state = await askReply(env, key, task, now);
+  return state === "failed" ? failed : pending;
+}
+
+/**
+ * THE REPLIES' OWN SWEEP (2026-10-04), on the two-minute cron: every edit or
+ * add-on job that ended within a reply's horizon, read off the job table, and
+ * its reply asked for — made where its job's own ask was lost, asked again
+ * where a writer's claim ran out or a try was never started, failed past the
+ * horizon. A job owed nothing is settled so by its writer, at no cost. Inert
+ * with replies off.
+ */
+export async function runReplySweep(env) {
+  if (!repliesOn(env) || !env || !env.SITES_BUCKET || !env.SUPABASE_SERVICE_KEY) return;
+  const window = REPLY_HORIZON_MS + REPLY_RETRY_GRACE_MS;
+  const since = new Date(Date.now() - window).toISOString();
+  let rows = null;
   try {
-    if (bucket) {
-      const put = await bucket.put(replyKey(job), JSON.stringify({ text: reply, at: Date.now() }), { onlyIf: { etagDoesNotMatch: "*" } });
-      if (put === null) {
-        const won = await bucket.get(replyKey(job));
-        const w = won ? JSON.parse(await won.text()) : null;
-        if (w && typeof w.text === "string" && w.text.trim()) return JSON.stringify(withReplyText(rest, w.text));
-      }
-    }
-  } catch { /* the reply is still the one written; it just is not kept */ }
-  return JSON.stringify(withReplyText(rest, reply));
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/edit_jobs?select=id,uid,op,state,updated_at&op=in.(edit,addon)&state=in.(done,failed,cancelled,lost)&updated_at=gte.${encodeURIComponent(since)}&order=updated_at.desc&limit=50`, { headers: svcHeaders(env) });
+    if (r.ok) rows = await r.json();
+  } catch (e) { console.error("reply sweep: could not read edit_jobs", errorClassForLog(e)); }
+  if (!Array.isArray(rows)) return;
+  const now = Date.now();
+  for (const j of rows) {
+    if (!j || !isJobId(j.id) || typeof j.uid !== "string" || !j.uid || (j.op !== "edit" && j.op !== "addon") || !isTerminalEdit(j.state)) continue;
+    const ended = typeof j.updated_at === "number" ? j.updated_at : Date.parse(String(j.updated_at || ""));
+    if (!Number.isFinite(ended) || now - ended > window) continue;
+    const key = replyKey(j.id);
+    const at = await replyRecordAt(env, key);
+    if (!at.read) continue;
+    const next = replyNext(at.rec, now);
+    if (next === "ask" || next === "requeue" || next === "give-up") await askReply(env, key, { id: j.id, uid: j.uid }, now);
+  }
 }
 
 /**
@@ -14272,7 +14549,7 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
     for (let round = 0; round < 6; round++) {
       const { rec, etag } = await loadRequest(env, slug, key);
       if (!rec || !etag) return null;
-      if (rec.ended) { await settleRequestMarker(env, rec); return rec; }
+      if (rec.ended) { await settleRequestMarker(env, rec); await requestReply(env, rec); return rec; }
       const base = rec;
       const rewrites = new Set(base.parts.flatMap((p) => p.jobs.filter((j) => j.kind === "rewrite" && j.id).map((j) => j.id)));
       const rows = {};
@@ -14325,6 +14602,9 @@ async function advanceRequest(env, ctx, slug, key, why = "") {
       const offered = await offerRequestQuestions(env, cur, tag);
       cur = offered.rec;
       await settleRequestMarker(env, cur);
+      // ENDED, OR WAITING ON A GO-AHEAD: its reply is asked for now (2026-10-04),
+      // whether or not anybody is reading.
+      await requestReply(env, cur);
       if (again) continue;
       return cur;
     }
@@ -14538,7 +14818,14 @@ export async function runRequestSweep(env, ctx) {
       try { await env.SITES_BUCKET.delete(o.key); } catch { /* next tick */ }
       continue;
     }
-    if (mark && Number.isFinite(mark.endedAt)) continue;
+    if (mark && Number.isFinite(mark.endedAt)) {
+      // ITS REPLY, WITHIN ITS HORIZON (2026-10-04): asked for again where its
+      // ask was lost or its writer's claim ran out; failed past it.
+      if (now - mark.endedAt <= REPLY_HORIZON_MS + REPLY_RETRY_GRACE_MS && repliesOn(env)) {
+        try { const f = await loadRequest(env, at.slug, at.key); if (f && f.rec) await requestReply(env, f.rec); } catch { /* next tick */ }
+      }
+      continue;
+    }
     if (await advanceRequest(env, ctx, at.slug, at.key, "sweep")) continue;
     // A MARKER WHOSE RECORD NEVER LANDED (the acceptance died between the two,
     // or its record write failed): nothing to move on, and it is taken away
@@ -14777,43 +15064,75 @@ function awaitingApproval(rec) {
     !rec.parts.some((p) => ["queued", "started", "ready", "unverified"].includes(p.status));
 }
 
+/** Where a request's reply for `forKey` is kept: its end's, or a go-ahead's (`approval:<part>:<seq>`). */
+function requestReplyKeyFor(slug, key, forKey) {
+  if (forKey === "end") return requestReplyKey(slug, key);
+  const m = /^approval:(\d+):(\d+)$/.exec(String(forKey || ""));
+  return m ? REQUEST_ROOT + slug + "/" + key + "/reply-approval-" + m[1] + "-" + m[2] + ".json" : null;
+}
+
+/** The reply a request owes now — `{ k, forKey }` — or null: once at its end, and once for each go-ahead it waits on. */
+function requestReplyPlace(rec) {
+  if (rec.ended) return { k: requestReplyKey(rec.slug, rec.key), forKey: "end" };
+  if (!awaitingApproval(rec)) return null;
+  const p = rec.parts.find((q) => q.status === "approval");
+  const forKey = "approval:" + p.n + ":" + approvalSeq(p);
+  return { k: requestReplyKeyFor(rec.slug, rec.key, forKey), forKey };
+}
+
 /**
  * THE REPLY FOR A REQUEST'S PARTS THAT NO JOB'S OWN REPLY EXPLAINS — not run,
  * stopped, needing the full rewrite, a question nobody answered — written by
  * the model from the request's facts (`requestReplyFacts`), once, when the
  * request has ended, and kept: every later read hands back the same one.
- * `null` when there is nothing to add or no reply can be had; the page then
- * shows each part's status as it is.
+ * SINCE 2026-10-04 IT IS WRITTEN IN THE BACKGROUND, as a job's is
+ * (`writeRequestReply`): asked for when the request ends or waits on a
+ * go-ahead — by its own step, the page's look or the sweep, whichever comes
+ * first, once — and never written by a read. Answers `{ text, for }` once
+ * written, `{ state, for }` while pending or once failed, and null when there
+ * is nothing to add or replies are off; the page then shows each part's
+ * status as it is.
  */
 async function requestReply(env, rec) {
-  const view = requestView(rec);
-  if (!repliesOn(env)) return null;
-  // ONCE AT THE END, AND ONCE FOR EACH GO-AHEAD IT WAITS ON (2026-10-03): a
-  // part only the full rewrite can make is asked about in a written reply
-  // (what it is, why, what it was measured to cost), keyed by that go-ahead,
-  // so a page opened anywhere shows each once.
-  let k = "", forKey = "";
-  if (rec.ended) { k = requestReplyKey(rec.slug, rec.key); forKey = "end"; }
-  else if (awaitingApproval(rec)) {
-    const p = rec.parts.find((q) => q.status === "approval");
-    forKey = "approval:" + p.n + ":" + approvalSeq(p);
-    k = REQUEST_ROOT + rec.slug + "/" + rec.key + "/reply-approval-" + p.n + "-" + approvalSeq(p) + ".json";
-  } else return null;
-  try {
-    const kept = await env.SITES_BUCKET.get(k);
-    if (kept) { const v = JSON.parse(await kept.text()); if (v && typeof v.text === "string" && v.text.trim()) return { text: v.text, for: forKey }; }
-  } catch { /* written again below */ }
-  const text = await writeModelReply(env, "request", view, { request: rec.message, answers: rec.context, picker: rec.picker, routedCost: rec.routedCost, slug: rec.slug, pages: [] });
-  if (!text) return null;
-  try {
-    const put = await env.SITES_BUCKET.put(k, JSON.stringify({ text, at: Date.now() }), { onlyIf: { etagDoesNotMatch: "*" } });
-    if (put === null) {
-      const won = await env.SITES_BUCKET.get(k);
-      const w = won ? JSON.parse(await won.text()) : null;
-      if (w && typeof w.text === "string" && w.text.trim()) return { text: w.text, for: forKey };
+  if (!repliesOn(env) || !env.SITES_BUCKET) return null;
+  const place = requestReplyPlace(rec);
+  if (!place) return null;
+  const now = Date.now();
+  const at = await replyRecordAt(env, place.k);
+  if (!at.read) return { state: "pending", for: place.forKey };
+  const next = replyNext(at.rec, now);
+  if (next === "serve") return { text: at.rec.text, for: place.forKey };
+  if (next === "failed") return { state: "failed", for: place.forKey };
+  if (next === "none") return null;
+  if (next === "wait") return { state: "pending", for: place.forKey };
+  if (next === "ask") {
+    const read = requestReplyFacts(requestView(rec));
+    if (read.skip || !read.facts.length) {
+      await putReplyRecord(env, place.k, { state: "none", attempts: 0, asked: now, at: now, why: String(read.skip || "no-facts").slice(0, 40) }, at.etag);
+      return null;
     }
-  } catch { /* the reply is still the one written */ }
-  return { text, for: forKey };
+  }
+  const state = await askReply(env, place.k, { slug: rec.slug, key: rec.key, for: place.forKey }, now);
+  return { state: state === "failed" ? "failed" : "pending", for: place.forKey };
+}
+
+/**
+ * A REQUEST'S REPLY, written from the request as it stands now. A request
+ * that moved on — the go-ahead it waited on answered — owes that reply no
+ * more, and its record says so.
+ */
+async function writeRequestReply(env, task) {
+  const k = requestReplyKeyFor(task.slug, task.key, task.for);
+  if (!k) return;
+  const claim = await claimReply(env, k, Date.now());
+  if (!claim) return;
+  let rec = null;
+  try { rec = (await loadRequest(env, task.slug, task.key)).rec; } catch { rec = null; }
+  if (!rec) return settleReply(env, k, claim, task, { ok: false, why: "request" });
+  const place = requestReplyPlace(rec);
+  if (!place || place.forKey !== task.for) return settleReply(env, k, claim, task, { ok: false, skip: "moved-on" });
+  const ask = { request: rec.message, answers: rec.context, picker: rec.picker, routedCost: rec.routedCost, slug: rec.slug, pages: [] };
+  return settleReply(env, k, claim, task, await composeModelReply(env, "request", requestView(rec), ask, { background: true }));
 }
 
 /**
@@ -15026,6 +15345,9 @@ async function runQueuedSiteEdit(env, ctx, id, { lease = null, claim: held = nul
     // A PART OF A LONGER REQUEST ENDED (2026-10-03): its request moves on —
     // the next part, a hand-over, a question offered — with no browser open.
     await requestJobEnded(env, ctx, job);
+    // AND ITS REPLY IS ASKED FOR (2026-10-04): the outcome and the money are
+    // final now, and the request has moved on, so nothing waits on it.
+    await replyJobEnded(env, { id, uid: job.uid }, payload);
     // The measured durations are written by the HANDLER, beside its trace flush
     // — that is where the trace lives, and copying it out here would be a second
     // opinion about what happened built from a value the handler owns.
@@ -15112,6 +15434,14 @@ function jobGateway(env, ctx) {
       if (!rec || rec.uid !== uid || !rec.parts.some((p) => p.jobs.some((j) => j.id === id))) return false;
       const step = advanceRequest(env, ctx, slug, key, "next");
       if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(step); else await step;
+      return true;
+    },
+    // A JOB THAT ENDED IN THE CONTAINER ASKS FOR ITS REPLY (2026-10-04): its
+    // own id and owner, off its own token — the record is made once and the
+    // queue writes it (`askReply`).
+    reply: async ({ id, uid }) => {
+      if (!repliesOn(env)) return false;
+      await askReply(env, replyKey(id), { id, uid });
       return true;
     },
   });
@@ -22069,7 +22399,7 @@ async function handleRequest(request, env, ctx) {
         // AND ITS REPLY, WRITTEN ONCE THE MONEY IS THE ROW'S (2026-10-03,
         // `servedModelReply`): from the answer as it is about to be served,
         // kept for every later read, its private `replyFor` never served.
-        return new Response(await servedModelReply(env, ejid, servedEditReply(row, res.body)), {
+        return new Response(await servedModelReply(env, ejid, servedEditReply(row, res.body), { uid: eu.id, ageMs: Number(row.ms) }), {
           status: Number(res.status) || 200,
           headers: {
             "content-type": String(res.type || "application/json"),
@@ -22182,7 +22512,10 @@ async function handleRequest(request, env, ctx) {
         // for what no part's own reply explains, and which one it is (`replyFor`).
         const reply = await requestReply(env, qRec);
         const qOut = { ok: true, request: requestView(qRec) };
-        return Response.json(reply ? { ...withReplyText(qOut, reply.text), replyFor: reply.for } : qOut);
+        // WRITTEN, OR STILL BEING WRITTEN (2026-10-04): the page waits for it
+        // while it is `pending`, and says the statuses as they are once failed.
+        if (reply && typeof reply.text === "string") return Response.json({ ...withReplyText(qOut, reply.text), replyFor: reply.for });
+        return Response.json(reply ? { ...qOut, replyState: reply.state, replyFor: reply.for } : qOut);
       }
     }
 
@@ -25220,6 +25553,23 @@ async function handleRequest(request, env, ctx) {
               // A QUESTION BACK (2026-10-02): this step's model asked instead of acting.
               if (nOut.ask) return stepAsk("nav", nOut.ask);
 
+              // ── AN ADDITION ALREADY TRUE IS DONE (2026-10-04, run 95's F1) ──
+              //
+              // Every item it named was already in every list it was asked
+              // for, so there is nothing to publish and nothing is. The work
+              // was not done because it was not needed, so it is not charged
+              // as work: a queued job takes no reserve for it — the same net
+              // as the refund a queued refusal gets — and the synchronous
+              // path keeps a refusal's rule (the reading taken, nothing given
+              // back). What chose this route was charged where it ran and
+              // stays. `ok`, so a request part that waited on it goes on.
+              if (nOut.ok && nOut.satisfied === true) {
+                return Response.json({
+                  ok: true, satisfied: true, layer: "nav", changed: [], msg: nOut.msg,
+                  already: nOut.already,
+                  cost: eJob ? 0 : await eCharge(nOut.usage), usage: nOut.usage,
+                });
+              }
               if (!nOut.ok) {
                 if (!nOut.escalate) {
                   if (nOut.reason === "send") return modelDown(nOut.error, "I couldn't reach the model that sets the menu — try again in a moment.");
@@ -25251,6 +25601,9 @@ async function handleRequest(request, env, ctx) {
                 ok: true, layer: "nav", msg: nOut.msg,
                 changed: nOut.changed, files: nPub.files, render: nPub.render, renderNote: nPub.renderNote,
                 links: nOut.links,
+                // AN ADDITION'S ITEMS THAT WERE THERE ALREADY (2026-10-04), by
+                // list — omitted on every other menu change.
+                already: nOut.already || undefined,
                 // EVERY ENTRY LEFT OUT, BY NAME AND REASON (2026-10-03), where a
                 // count stood: a menu item, a footer entry or a button the
                 // answer named and the step could not use. The step's sentence
@@ -31147,6 +31500,30 @@ async function handleRequest(request, env, ctx) {
                 missing: { words: aWordsAt.missing.slice(), photos: aPhotosAt.missing.slice() },
                 msg: notLandedMsg({ words: aWordsAt.missing, photos: aPhotosAt.missing }),
               }, { status: 422 });
+            }
+
+            // ── A NEW PAGE GOES INTO EVERY MENU, BY CODE (2026-10-04, run 95's F1) ──
+            //
+            // A page whose design puts it in the menu (`link.in`, the default)
+            // is added to every page's own menu here — the menu step's own
+            // per-list writer (`applyAdditions`), so a page that already lists
+            // it keeps it where it is, a menu that differs by design keeps its
+            // differences, the new page's own menu gains it too, and a page
+            // with no menu is given none. The page writer was told not to edit
+            // another page for it; a link it put on one anyway is already
+            // there and stays. Only a page that made it is linked (`aGone`).
+            // A placement on one page — a button, a band — was the page
+            // writer's, and is left exactly as it wrote it.
+            {
+              const aLinks = menuLinkAdds(aWanted, aGone);
+              if (aLinks.length) {
+                const aIn = applyAdditions(aMerge.pages, aLinks);
+                if (aIn.changed.length) {
+                  const aKnown = new Set([...(aMerge.added || []), ...(aMerge.changed || [])]);
+                  aMerge = { ...aMerge, pages: aIn.pages, changed: [...(aMerge.changed || []), ...aIn.changed.filter((pg) => !aKnown.has(pg))] };
+                }
+                aMark("menu-links", "ok", { pages: aLinks.length, menus: aIn.changed.length });
+              }
             }
 
             // ── THE BILL ON THE PAGE PATH ─────────────────────────────────
