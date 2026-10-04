@@ -1,43 +1,57 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-04, 22:25 UTC)
+## Current handoff — read this first (2026-10-05, 00:05 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **Deploy 2183 is live and runtime-confirmed** by your free press, run 96
-  (22:19 UTC): the Worker runs `e84b8e7e`, a fresh container starts on image
-  `386607152d4cb319` (built once, as predicted), and queued jobs and the
-  runner are on. Nothing was charged.
-- **Nothing paid has run yet.** Money: balance **95**, last ledger row 367, no
-  job open (22:20 UTC). The batch has spent **25** of its 100.
-- **The bakery**: unchanged. *Classes* is in the menu on `/` and `/classes`
-  only.
+- **Deploy 2183 is live and runtime-confirmed** by your free press, run 96:
+  the Worker runs `e84b8e7e` and a fresh container starts on image
+  `386607152d4cb319` (built once, as predicted).
+- **Your `rq-menu-link` press ran as run 97 (4 credits) and did not pass**,
+  so, by your rule, **`rq-batch-r2` was not pressed**:
+  - **the menu passed**: *Classes* went into the menus on `/order`,
+    `/visit` and `/gallery`, each keeping its own links in their order;
+    `/` and `/classes` stayed as they were; `/starter` still has no menu;
+    nothing else on the site changed. Run 95's menu problem is fixed live;
+  - **the reply check failed**: the canary judged the reply 8 seconds after
+    the menu job ended, while the model's reply was still being written in
+    the background (the page showed *"Done — writing up what changed…"*).
+    That's a gap in the canary from your review round: the page no longer
+    waits for a reply before closing a request, and I didn't teach the
+    canary that. **Whether that reply was then written is not known yet.**
+    The logs fit a first try that settled at once, but not which way.
+- **Money**: balance **91** (routing 3, the menu edit 1), no job open. The
+  batch has spent **29** of its 100.
+- **The bakery**: *Classes* is now in all five menus. Nothing was put back.
 
-**Exact next action — your press, then tell me "ran"**
-- **`rq-menu-link`** (about 3–9 credits), at
-  https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml →
-  **Run workflow**, "Use workflow from" `main`:
-  - "Run the ONE paid edit as well (yes/no)": `yes`;
-  - "RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: …":
-    `rq-menu-link`;
-  - "The site to edit. Defaults to the canary site; name another to run this
-    against it. Not needed with read_job.": `fold-lane-bakery`;
-  - "Refuse to spend unless the Worker reports this deploy sha (prefix, >=7
-    chars). Blank = read and print only.": `e84b8e7e`;
-  - "Refuse to spend unless a cold container reports this image id (exact).
-    Blank = read and print only.": `386607152d4cb319`;
-  - every other box as it is ("What to change" and the batch box blank).
-- **It passes only if**: `/order`, `/visit` and `/gallery` each gain the
-  Classes link with their own links kept; `/` and `/classes` stay as they
-  are; `/starter` gets no menu; nothing else changes; and the reply on screen
-  is the model's own.
+**Also found in run 97** (recorded in the backlog, not fixed): when a
+browser opens a site for the first time, the page shows the replies to the
+site's earlier requests, and a message sent in the first seconds ends up
+with those replies under it (five from runs 94 and 95 here). One of them,
+R1's request reply, was written by the model just then, 20 hours after R1
+ended.
 
-**Then, only if it passes**: `rq-batch-r2`, once, its box 25 plus what
-`rq-menu-link` actually cost; I'll give you its boxes. No rewrite test, no
-restore, no repeat of R1 or `rq-canary`, and no rebuild in between.
+**Exact next actions, yours to choose**
+1. **A free check of that reply** (nothing spent): the canary's
+   read-one-job mode, at
+   https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml →
+   **Run workflow**, "Use workflow from" `main`:
+   - "READ ONE EXISTING JOB AND STOP: a job id. Spends nothing, changes
+     nothing, and ignores every input below.":
+     `f666481af2ef5410b14e00b9ad0da43d`;
+   - every other box as it is.
+
+   Its evidence holds the job's answer as you would be handed it now: the
+   model's reply if it was written.
+2. **Whether I teach the canary to wait for a held reply** (scripts only, no
+   deploy, nothing spent): no message ends while a reply's place is held,
+   and the first message waits for the page's own check of earlier
+   requests.
+3. **Then `rq-batch-r2`, once**, its batch box **29**; I'll give you its
+   boxes.
 
 **Still yours** (the plan's §11)
 1. Approve the revised plan, with 100 as a threshold between presses, or
@@ -47,12 +61,11 @@ restore, no repeat of R1 or `rq-canary`, and no rebuild in between.
 4. The demo changes stay unless you say otherwise.
 
 **Links**
-- The deploy and the presses: `docs/history/2026-10-04-deploy-2183.md`;
-  `docs/deploy-record.md`.
-- What was deployed: `docs/history/2026-10-04-review-round.md` and
-  `docs/history/2026-10-04-findings-fixes.md`.
-- The canary: `docs/instruments.md`. The plan:
-  `docs/investigations/request-flow-rollout.md`.
+- Run 97 in full: `docs/history/2026-10-04-deploy-2183.md` §7.
+- The deploy: the same file; `docs/deploy-record.md`.
+- The findings: `docs/backlog.md` (the first two items);
+  `docs/investigations/request-batch-findings.md` (*Run 97, live*).
+- The plan: `docs/investigations/request-flow-rollout.md`.
 ---
 
 2026-09-25: **Escalation correction CLOSED.** Independently reviewed (437 focused
@@ -112,6 +125,44 @@ since. Add new ones there.
 
 ---
 
+## 2026-10-04 — The free check passed (run 96); your `rq-menu-link` press (run 97) fixed the menu but failed the reply check (4 credits)
+
+You said: *"If it passes, run rq-menu-link and verify Classes appears in every
+existing menu that lacked it, existing links stay intact, no menu is created
+on the starter page, and the model-written reply appears. If that passes, run
+rq-batch-r2 … stop on failure."*
+
+- **Run 96, your free press** (22:19 UTC): the Worker answered `e84b8e7e`, a
+  fresh container `386607152d4cb319`, both on; every free check passed,
+  nothing charged. **Deploy 2183 is runtime-confirmed.**
+- **Run 97, your `rq-menu-link` press** (23:30–23:34 UTC, 4 credits):
+  - the router sent the message to the add-on step, which handed the link
+    to the menu step. The menu step put *Classes* into the menus on
+    `/order`, `/visit` and `/gallery`, each keeping its own links in their
+    order, and left `/`, `/classes` and `/starter` (no menu) as they were.
+    Every site check passed, and my own read of the live pages agrees;
+  - **the reply check failed**: the canary judged the reply while it was
+    still being written, so it saw the fixed sentence. The canary stops
+    watching when the page closes the request, and since your review round
+    the page closes it without waiting for the reply. I didn't update the
+    canary for that. Whether the reply was then written isn't known; a free
+    read-one-job press would show it;
+  - also seen: the page showed five replies from earlier requests under the
+    new message, and R1's request reply was written 20 hours late (both in
+    the backlog).
+- **Not run**: `rq-batch-r2` (your stop-on-failure rule), the rewrite test,
+  any rebuild or restore.
+- **Money**: balance 95 → 91 (routing 3, the edit 1; ledger rows 368–369).
+  The batch has spent 29.
+
+**Live, not supplied**: the menu fix; the page holding a reply's place with
+the server's own word for what happened; a request's reply written in the
+background. **Still only with supplied answers**: a job's reply written in
+the background and shown in place.
+
+**Recorded in**: `docs/history/2026-10-04-deploy-2183.md` §6.1 and §7,
+`docs/deploy-record.md`, `docs/backlog.md`, the findings and the plan.
+
 ## 2026-10-04 — Merged and deployed once as deploy 2183 (not yet runtime-confirmed: the free check is your press)
 
 You said: *"Merge and deploy the reviewed fixes, keeping REQUEST_FLOW and
@@ -134,7 +185,8 @@ deployed commit and actual image, and run one free runtime check."*
 - **Nothing paid**: balance 95, last ledger row 367.
 
 **Recorded in**: `docs/history/2026-10-04-deploy-2183.md`,
-`docs/deploy-record.md`.
+`docs/deploy-record.md`. **Since**: runtime-confirmed by your free press, run
+96 (the entry above).
 
 ## 2026-10-04 — Your review of the fixes: the four points done on the branch (nothing spent, nothing deployed)
 

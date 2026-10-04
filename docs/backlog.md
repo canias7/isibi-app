@@ -20,6 +20,23 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
+- **The UI canary judges a request part's reply before it is written** (run
+  97, 2026-10-04): in request mode a message ends when the page closes the
+  request, and since the review round a part's reply still being written no
+  longer keeps it open. Run 97 judged its part's reply 8 s after the job
+  ended, while it was `pending`, and failed it as composed. A gap in the
+  instrument, not a reading of the writer; whether that reply was written is
+  not established (a free read-one-job press would show it). **Proposed**
+  (scripts only, no deploy): no message ends while a reply's place is held.
+  Not built (`docs/history/2026-10-04-deploy-2183.md` §7.5).
+- **Earlier requests' replies land under a message sent before the page's
+  check of them** (run 97): a browser that has not seen a site's recent
+  requests appends their replies at the end of the thread when it opens the
+  site; a message sent in the first seconds is then followed by replies to
+  other requests (five in run 97, from runs 94 and 95). And an ended
+  request's own reply with no record is asked for whenever it is read,
+  however old (R1's, about 20 hours after it ended); a job's is not, after
+  two hours. Not changed (the same file, §7.6).
 - **A menu link handed from the add-on step to the menu step failed with
   `no-menu`** (R1, run 95, 2026-10-04): the add-on had already put the link on
   the home page and the new page, and the other three pages got none. **Cause
@@ -29,8 +46,12 @@ here; take a closed one out of both.**
   owner's word (2026-10-04; not merged or deployed;
   `docs/history/2026-10-04-findings-fixes.md`)**: an addition names its items
   and code puts each into every list in its scope that lacks it; the add-on
-  carries its page's placement; an addition already true is done. Shown with
-  supplied answers; live, by `rq-menu-link` after the deploy.
+  carries its page's placement; an addition already true is done. **Merged
+  and deployed in deploy 2183, and shown live by run 97** (`rq-menu-link`,
+  2026-10-04): the add-on handed the link to the menu step, which put it into
+  the three menus that lacked it and left the two that had it and the
+  starter page (no menu) as they were. R2's own menu link is not pressed yet.
+  Closing it is the owner's.
 - **A multi-part request's parts got no model-written reply** (R1, run 95):
   their job results carried no `reply`, so the page showed the old fixed
   sentences; a single part had one (run 94). **Cause found from the run's
@@ -38,7 +59,10 @@ here; take a closed one out of both.**
   12 s ceiling (strongly inferred; the log line was not read). **Fixed on the
   branch, on the owner's word (the same day and file)**: the reply is written
   on the queue once the job's outcome and money are final, never by a read.
-  Shown with supplied answers; live, by `rq-menu-link` and R2–R5.
+  Shown with supplied answers. **Merged and deployed in deploy 2183; not yet
+  shown live for a part**: run 97's canary judged its part's reply while it
+  was still `pending` (the item above). Live so far: a request's own reply
+  written in the background and served (R1's, during run 97, about 35 s).
 - **The page applies a part's result only when its reply is shown**
   (found 2026-10-04, with the background replies): while a reply is retried,
   the site's preview and the part's message wait together, at worst about ten
@@ -48,7 +72,10 @@ here; take a closed one out of both.**
   deployed; `docs/history/2026-10-04-review-round.md` §3): the outcome is
   applied at once, the reply's place held by a line that says what the job
   did (never "Done" over a refusal), and the reply followed on its own and
-  settled in place once. Supplied answers only.
+  settled in place once. **Merged and deployed in deploy 2183**; live in run
+  97 as far as the held line (*"Done — writing up what changed…"*, the
+  server's `replyOutcome` `done`); its settling in place is not seen live
+  (the canary closed the page first).
 - **The Stop control still shows while a finished job's reply is written**
   (found 2026-10-04): pressing it undoes nothing (a published job is refused
   as too late, an unpublished one has already ended) and the page goes back to
@@ -515,9 +542,15 @@ here; take a closed one out of both.**
 
   Shown with supplied answers (run 95's pages, run 47's bakery through the
   edit and add-on routes, sync and queued, and R1's shape through the request
-  flow). **Open until shown live**: `rq-menu-link` after the deploy (the
-  bakery's Classes into the three menus that lack it), then R2's own menu
-  link.
+  flow). **Shown live by run 97** (2026-10-04, deploy 2183, `rq-menu-link`;
+  `docs/history/2026-10-04-deploy-2183.md` §7): the router answered `addon`,
+  the add-on step (`1eac152b…`) handed the link to the menu step as an
+  addition, and the menu step (`f666481a…`, cost 1) put *Classes* into the
+  menus of `/order`, `/visit` and `/gallery` (both menus and the header on
+  each, at the end), leaving `/`, `/classes` and `/starter` (no menu) as
+  they were; every canary site check passed and the session's own read of
+  the served pages agrees. R2's own menu link is not pressed yet; closing
+  the item is the owner's.
 - **A MULTI-PART REQUEST'S PARTS GOT NO MODEL-WRITTEN REPLY** (found live in
   R1, run 95; the same section).
   - The job results the page read for the request's three parts carried no
@@ -563,7 +596,14 @@ here; take a closed one out of both.**
 
   Shown with supplied answers, including a reply held 13 s in real time.
   **Open until shown live**: every part's reply the model's own in
-  `rq-menu-link` and R2–R5.
+  `rq-menu-link` and R2–R5. **Run 97 (deploy 2183) did not show it**: the
+  page was handed the part's outcome with `replyState: "pending"` 6 and 8 s
+  after its job ended, and the canary judged it then (the canary's gap,
+  below). Supabase's request logs show no read of the job by a writer after
+  23:34:38 up to 23:42:49, where a retry or a re-ask would have read it by
+  23:36:40, so the record most likely settled on its first try; whether as
+  written is not established. A request's own reply was written in the
+  background and served in the same run (R1's, about 35 s).
 - **THE PAGE APPLIES A PART'S RESULT ONLY WHEN ITS REPLY IS SHOWN** (found
   2026-10-04, writing the background replies).
   - `editAnswer` takes the stored answer and the reply together: the preview
@@ -583,6 +623,9 @@ here; take a closed one out of both.**
     did (`replyOutcome`); the reply followed (`editReplyFollow`) and settled
     where it stands, once; a reload follows the held message and applies
     nothing (`docs/history/2026-10-04-review-round.md` §3).
+  - **Merged and deployed in deploy 2183.** Run 97 showed the held line live
+    (the outcome `done` from the server, the line its own); the canary
+    closed the page before the line could settle.
 - **THE STOP CONTROL STILL SHOWS WHILE A FINISHED JOB'S REPLY IS WRITTEN**
   (found 2026-10-04, in the screenshot of the waiting page). Pressing it asks
   the server to cancel a job that has ended (`edit_cancel`): a published one
@@ -593,6 +636,46 @@ here; take a closed one out of both.**
   fix above** (the same round): the job's watch ends when its outcome
   arrives, so the live steps and their control stop then; the reply is
   followed from the thread.
+- **THE UI CANARY JUDGES A REQUEST PART'S REPLY BEFORE IT IS WRITTEN**
+  (found live in run 97, 2026-10-04; `docs/history/2026-10-04-deploy-2183.md`
+  §7.5).
+  - In request mode a message ends when the composer is ready, the request
+    has ended and the page has closed it (`scripts/canary-ui.mjs`,
+    `followStep`). The page closes a request once each part's job has been
+    handed over and the request's own reply is not pending
+    (`siteRequestShow`).
+  - Since the owner's review round (deploy 2183) a part whose reply is still
+    being written counts as handed over: its outcome is applied and its
+    place held with *"Done — writing up what changed…"*, and the reply is
+    followed on its own (`siteRequestJobReply`, `editReplyHold`).
+  - So the canary ended run 97's message 8 s after the job ended and judged
+    the reply from the last answer the page had: `pending`, recorded as
+    composed. The canary was not taught the held reply when the page was,
+    and its tests did not cover it.
+  - **Proposed, not built** (scripts only, no deploy; the owner's word
+    first): no message ends while a reply's place is held on the thread,
+    up to the message's own bound; the reply is judged once it has settled,
+    the model's or the fixed wording; and the first message is sent only
+    after the page's own check of the site's earlier requests has settled
+    (the next item).
+- **EARLIER REQUESTS' REPLIES LAND UNDER A MESSAGE SENT BEFORE THE PAGE'S
+  CHECK OF THEM** (found live in run 97; the same file, §7.6).
+  - On opening a site, the page follows every request the server lists for
+    it that this browser has not closed (`siteRequestsCheck`) and appends
+    each part's reply, and the request's own, at the end of the thread. A
+    browser that has never opened the site has closed none.
+  - Run 97's canary sent its message about 2 s after the site opened. The
+    check answered after that, and five replies from runs 94 and 95 landed
+    under the new message, where they read as its replies. The canary's
+    reply list counted them; its verdicts did not depend on them.
+  - **And an ended request's own reply with no record is asked for whenever
+    it is read, however old** (`requestReply`): R1's, about 20 hours after
+    R1 ended, was written then (read `pending` for about 35 s, then served).
+    A job's reply is not asked for more than two hours after the job ended
+    (`REPLY_ASK_WINDOW_MS`). The model call is ours, not the customer's.
+  - Open: where a reply to an earlier request belongs on a thread that has
+    moved on, and whether a request too old to matter is asked for a reply
+    at all. Not changed.
 - **THE PREVIEW'S FIRST REFRESH ON A SITE WITH NO STORED VERSION KEEPS
   `?v=1`** (found 2026-10-04, the owner's review round). `sitePreviewSrc`
   (`public/chat.js`) gives a site with no `previewV` the address `?v=1`, and

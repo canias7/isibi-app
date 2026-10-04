@@ -956,6 +956,33 @@ the owner's free press, run 51, at 22:57 UTC):
 
       The batch has spent 25; at the upper estimates the focused check and
       R2–R5 take it to 95. RW stays separate.
+    - **Merged and deployed: deploy 2183** (`e84b8e7e`, image
+      `386607152d4cb319`, built once; `docs/history/2026-10-04-deploy-2183.md`),
+      **runtime-confirmed by the owner's free press, run 96** (22:19 UTC,
+      nothing charged).
+    - **`rq-menu-link` pressed as run 97** (23:30–23:34 UTC; the same file,
+      §7). Live:
+      - **the menu passed**: the router answered `addon`, the add-on step
+        handed the link to the menu step, and *Classes* went into the menus
+        of `/order`, `/visit` and `/gallery`, each keeping its own items;
+        `/` and `/classes` as they were, `/starter` still without a menu,
+        nothing else changed (every canary site check `ok`, and the
+        session's own read agrees). Run 95's F1 is fixed live;
+      - **the reply check failed**: the canary judged the part's reply 8 s
+        after its job ended, while it was still being written (`pending`),
+        because since the review round a held reply no longer keeps the
+        page's request open and the canary was not taught that. Whether the
+        reply was then written is not established (a free read-one-job
+        press would show it);
+      - also seen: five replies from earlier requests appended under the
+        new message by the page's check of them on open, and R1's request
+        reply written then, 20 hours late (backlog);
+      - 4 credits (routing 3, the edit 1), balance 91. The batch has spent
+        29.
+    - **By the owner's rule, `rq-batch-r2` was not pressed.** Next, the
+      owner's: a free read-one-job press on `f666481a…`; whether the canary
+      should wait for held replies (scripts only); then `rq-batch-r2` with
+      its box at 29.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

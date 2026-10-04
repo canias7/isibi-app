@@ -938,7 +938,7 @@ the plan's Appendices A and B):
   sweep of 61 mutants. **The first request-mode press, `rq-canary`, passed as
   run 94** (2026-10-04; `docs/history/2026-10-04-request-batch.md`).
 
-### THE FOCUSED CHECK OF RUN 95's FIXES (`rq-menu-link`, 2026-10-04 — on the branch)
+### THE FOCUSED CHECK OF RUN 95's FIXES (`rq-menu-link`, 2026-10-04 — deployed in 2183; pressed as run 97)
 
 One request-mode press, made before R2–R5 once the fixes are deployed
 (`docs/history/2026-10-04-findings-fixes.md` §4).
@@ -956,8 +956,17 @@ One request-mode press, made before R2–R5 once the fixes are deployed
     none.
 - **Its reply** is judged as every part's is: the model's own, and on
   screen. Written in the background now, it reaches the page after the job
-  ends; the canary watches until the page itself closes the request, which
-  it does only once every reply is shown.
+  ends; the canary watches until the page itself closes the request.
+  **⚠ That stopped being enough with the owner's review round (deploy
+  2183)**: the page now closes a request while a part's reply is still
+  being written (its outcome applied, its place held with *"Done — writing
+  up what changed…"*), so the canary ends the message and judges the reply
+  before it is written. **Run 97 failed its reply check this way** (the
+  part's answer `pending` 6 and 8 s after its job ended;
+  `docs/history/2026-10-04-deploy-2183.md` §7.5). Until the canary waits
+  for a held reply to settle, a request-mode reply check reads only what was
+  written before the request closed. A fix is proposed, not built
+  (`docs/backlog.md`).
 - **Proven with the bakery's stored pages only**:
   - 2 cases in `test/canary-requests.test.mjs`: it lands, and six ways it
     does not;

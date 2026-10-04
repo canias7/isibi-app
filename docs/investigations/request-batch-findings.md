@@ -12,6 +12,11 @@ spent.
 below): not merged or deployed, no image built, nothing paid run, and shown
 with supplied model answers only.
 
+**Since: merged and deployed (deploy 2183), and checked live by run 97**
+(*Run 97, live*, below): F1 is fixed live; F2 is not yet shown live for a
+part, because the canary judged the part's reply while it was still being
+written.
+
 ## F1. The menu link was refused (`no-menu`): cause found, reproduced
 
 **What happened in R1.**
@@ -478,6 +483,39 @@ build green on `305c8b7c` (runs 37221787374, 37221787375). Supplied model
 answers only. Two dated
 Jobs-panel tests that the calendar broke on 2026-10-04 run on a fixed clock
 (test only).
+
+## Run 97, live (2026-10-04, deploy 2183)
+
+The owner merged and deployed the reviewed fixes (deploy 2183, `e84b8e7e`,
+image `386607152d4cb319`; run 96 confirmed the runtime) and approved one
+focused press, `rq-menu-link`: *"Put the Classes page in the menu on every
+page."* on `fold-lane-bakery`. The full account:
+`docs/history/2026-10-04-deploy-2183.md` §7. **Live evidence**: real models,
+real money, the real site.
+
+- **F1, fixed live.** The router answered `addon`. The add-on step
+  (`1eac152b…`, cost 0) handed the link to the menu step as an addition, and
+  the menu step (`f666481a…`, cost 1) put *Classes* into the menus of
+  `/order`, `/visit` and `/gallery`, leaving `/` and `/classes` (which had
+  it) and `/starter` (no menu) as they were. Every canary site check passed,
+  and the session's own read of the served pages agrees. 4 credits in all
+  (routing 3, the edit 1; balance 91).
+- **F2, not shown live for a part.** The page was handed the part's outcome
+  with `replyState: "pending"` (`replyOutcome` `done`) 6 and 8 s after the job
+  ended, and held the reply's place with *"Done — writing up what changed…"*.
+  The canary ended the message then, because the page had closed the request,
+  and judged the reply as composed. Since the review round, a held reply no
+  longer keeps the page's request open, and the canary was not taught that.
+  So **a gap in the instrument**. Whether the reply was then written is not
+  established: Supabase's request logs show no writer reading the job after
+  23:34:38 up to 23:42:49, which fits a first try that settled at once, but
+  not which way. A free read-one-job press on `f666481a…` would show it.
+- **Also live in the run**: a request's own reply written in the background
+  and served (R1's, about 35 s). It was R1's, 20 hours late, because a fresh
+  browser picks up a site's earlier requests on open. It appended their
+  replies under the message just sent (a finding of its own, in the backlog).
+- **By the owner's rule, `rq-batch-r2` was not pressed.** The batch has spent
+  29 (rq-canary 4, R1 21, the check 4).
 
 ## How the findings were checked (before the fixes)
 

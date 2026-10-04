@@ -36,8 +36,16 @@ applies a job's outcome at once and follows its reply on its own; and R2–R5
 can be one press, `rq-batch-r2` (§3.1). **Next, after your merge and
 deploy**: the free runtime press, then one focused paid press, `rq-menu-link`
 (§4: the bakery's Classes link put into the three menus that lack it, its
-reply the model's own; 3–9), then R2–R5 in one press. R2–R5 and RW have not
-been pressed. The presses' record:
+reply the model's own; 3–9), then R2–R5 in one press. **Done since, on your
+word**: the merge and deploy, deploy 2183 (`e84b8e7e`, image
+`386607152d4cb319`, built once), runtime-confirmed by your free press, run 96.
+**`rq-menu-link` ran as run 97** (4 credits, balance 91): the Classes link
+went into the three menus that lacked it and every site check passed, but its
+reply check failed: the canary judged the part's reply 8 s after its job
+ended, while it was still being written in the background
+(`docs/history/2026-10-04-deploy-2183.md` §7). By your rule R2–R5 were not
+pressed. The batch has spent **29** (rq-canary 4, R1 21, the check 4). R2–R5
+and RW have not been pressed. The presses' record:
 `docs/history/2026-10-04-request-batch.md`. The record: `docs/history/2026-10-04-deploy-2181.md`.
 
 Your first order: *"Freeze this implementation and prepare the concrete rollout
@@ -282,7 +290,8 @@ and come back to you (§7).
   (`docs/instruments.md`).
 - **R2–R5 in one press** (`rq-batch-r2`, 2026-10-04, on your word): the same,
   from R2, after run 95 did R1. Its box is the batch's spend before it, at
-  least 25 (rq-canary 4, R1 21) plus the focused check's.
+  least 25 (rq-canary 4, R1 21) plus the focused check's: **29** after run 97
+  (the check cost 4).
 - **The routing evidence comes from these presses themselves.** There is no
   separate routing press: a probe's answer does not bind the next answer to the
   same words, so the evidence that matters is the router's answer to the very
@@ -342,11 +351,12 @@ continuation is merged and deployed:
 - the scenario box: `rq-batch-r2`;
 - "REQUEST BATCH ONLY (rq-batch, rq-batch-r2): the credits the batch has
   already spent before this press …": 25 plus what the focused check cost
-  (its own money check says it);
+  (its own money check says it): **`29`**, run 97 having cost 4;
 - the site `fold-lane-bakery`; the deploy sha and image boxes as that deploy
   names them; every other box blank.
 - At the upper estimates — the focused check's 9, then R2 25, R3 12, R4 7 and
-  R5 17 — the batch reaches 95 of 100, so every press fits.
+  R5 17 — the batch reaches 95 of 100, so every press fits. With the check's
+  measured 4, R2–R5's upper estimates take it to 90.
 
 ## 4. The batch
 

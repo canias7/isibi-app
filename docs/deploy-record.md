@@ -1241,7 +1241,12 @@ the owner's review round), at 18:10:27 UTC. Run 37223381974, `push` on
   session's one dispatch had answered 403): both readers answered
   `e84b8e7e1bb2`, a cold container `386607152d4cb319`, queued jobs and the
   runner on, nothing charged (balance 95, last row 367)
-  (`docs/history/2026-10-04-deploy-2183.md` §6.1).
+  (`docs/history/2026-10-04-deploy-2183.md` §6.1);
+- **the first paid press on it, run 97** (`rq-menu-link`, 23:30–23:34 UTC, on
+  the same image, no rebuild): the Classes link put into the three menus that
+  lacked it, every site check passed, 4 credits (rows 368–369, balance 91);
+  the reply check failed because the canary judged a reply still being
+  written, so `rq-batch-r2` was not pressed (§7 of the same file).
 
 ## The served-file check, driven end to end on deploy 2139
 
