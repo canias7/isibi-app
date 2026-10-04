@@ -363,7 +363,7 @@ test("the canary judges the batch by that verdict inside the paid branch, after 
   // THE SERVED FILES ARE NAMED AS THE INVENTORY WRITES THEM.
   assert.match(CANARY, /const file = \(r === "\/" \? "_home" : r\.replace\(\/\[\^a-z0-9\]\+\/gi, "_"\)\);\n\s+writeFileSync\(`\$\{EVID\}\/\$\{label\}\/route\$\{file\}\.html`, html\);/, "the inventory names its page files some other way");
   const write = win.slice(win.indexOf("writeFileSync(`${EVID}/ui.json`"));
-  assert.match(write, /chain, removal, additions \}/, "ui.json does not carry the additions verdict");
+  assert.match(write, /chain, removal, additions(, requests)? \}/, "ui.json does not carry the additions verdict");
   assert.match(write, /additions \$\{additions\.ok \? "ALL LANDED" : "NOT ALL LANDED"\}/, "ui.txt does not say whether the additions landed");
   assert.match(CANARY, /import \{ additionsVerdict \} from "\.\/canary-additions\.mjs"/);
 });

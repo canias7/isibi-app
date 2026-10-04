@@ -268,7 +268,7 @@ export function states(text, says) {
 }
 
 /** The words a page's source shows (the additions' own places already taken out), as a multiset of plain lines. */
-function wordsOf(src) {
+export function wordsOf(src) {
   const bag = new Map();
   for (const w of extractText(src)) {
     const t = plain(w.text);
@@ -278,7 +278,7 @@ function wordsOf(src) {
 }
 
 /** What `after` holds that `before` does not, as one span: everything between their common start and their common end. */
-function changedSpan(before, after) {
+export function changedSpan(before, after) {
   const x = String(before == null ? "" : before), y = String(after == null ? "" : after);
   let i = 0;
   while (i < x.length && i < y.length && x[i] === y[i]) i++;
@@ -288,14 +288,14 @@ function changedSpan(before, after) {
 }
 
 /** `a` less `b`, as multisets. */
-function less(a, b) {
+export function less(a, b) {
   const out = [];
   for (const [k, n] of a) for (let i = (b.get(k) || 0); i < n; i++) out.push(k);
   return out;
 }
 
 /** The photographs a page draws, as a multiset of addresses. */
-function photosOf(src, slug) {
+export function photosOf(src, slug) {
   return imageRefCounts(String(src || ""), slug);
 }
 
@@ -421,12 +421,12 @@ export function storedAdditionsVerdict({ spec, before, after, slug }) {
 }
 
 /** The anchors in one region of served HTML, as `{ href, text }`. */
-function anchors(html) {
+export function anchors(html) {
   return [...String(html || "").matchAll(/<a\b[^>]*\bhref="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g)]
     .map((m) => ({ href: m[1].replace(/&amp;/g, "&"), text: plain(m[2].replace(/<[^>]+>/g, " ").replace(/&#x27;|&#39;/g, "'").replace(/&amp;/g, "&")) }));
 }
-const region = (html, tag) => (String(html || "").match(new RegExp("<" + tag + "\\b[\\s\\S]*?<\\/" + tag + ">")) || [""])[0];
-const visible = (html) => plain(String(html || "").replace(/<script[\s\S]*?<\/script>/g, " ").replace(/<style[\s\S]*?<\/style>/g, " ").replace(/<[^>]+>/g, " ").replace(/&#x27;|&#39;/g, "'").replace(/&amp;/g, "&"));
+export const region = (html, tag) => (String(html || "").match(new RegExp("<" + tag + "\\b[\\s\\S]*?<\\/" + tag + ">")) || [""])[0];
+export const visible = (html) => plain(String(html || "").replace(/<script[\s\S]*?<\/script>/g, " ").replace(/<style[\s\S]*?<\/style>/g, " ").replace(/<[^>]+>/g, " ").replace(/&#x27;|&#39;/g, "'").replace(/&amp;/g, "&"));
 
 /**
  * WHAT A VISITOR IS SERVED, read off the published pages the after-read

@@ -113,6 +113,34 @@ const FOLLOW_ROW = Object.freeze({
   record: LESSONS_RECORD,
 });
 
+// ── THE REQUEST BATCH'S ONE ROW (R2, 2026-10-03) ────────────────────────────
+//
+// fold-lane-bakery's `loaves` as a visitor's read answered it at
+// 2026-10-03 23:53:35Z, read whole (`0-6/7`): D1's six rows as recorded, the
+// focaccia back at 4.5, and the Rye & Caraway the additions batch's routing
+// controls left. The press takes its own baseline immediately before its
+// message, as D1 does; this is what that baseline is compared with.
+const LOAVES_NOW = Object.freeze([
+  ...LOAVES_RECORD,
+  Object.freeze({ id: 7, name: "Rye & Caraway", description: "A light rye with toasted caraway.", price: 5, photo: null, created_at: "2026-10-01 23:52:15" }),
+]);
+
+// THE PRICE R2 CHANGES: loaves id 5 (it must still be the Walnut Levain),
+// 6 -> 6.2, KEPT (`restore: false`, the owner's demo-site rule: this run makes
+// no write of its own, no put-back and no conditional-write probe). `shown` is
+// where a visitor sees it: the order page's radio cards, as D1 reads them.
+const WALNUT_ROW = Object.freeze({
+  table: "loaves",
+  id: 5,
+  match: Object.freeze({ name: "Walnut Levain" }),
+  field: "price",
+  from: "6",
+  to: "6.2",
+  restore: false,
+  shown: Object.freeze({ path: "/order", sel: 'input[type="radio"]', before: "£6.00", after: "£6.20" }),
+  record: LOAVES_NOW,
+});
+
 // ── THE RULES TEST ON lido-axes-b ───────────────────────────────────────────
 //
 // What the site is kept for, read at 2026-09-27 07:59:28Z with a visitor's
@@ -317,6 +345,154 @@ export const UI_SCENARIOS = Object.freeze({
       Object.freeze({ say: "Add a photo of our sourdough to the Visit page.", layers: Object.freeze([]) }),
     ]),
   }),
+  // ── THE COMBINED REQUEST FLOW'S REAL-MODEL BATCH (2026-10-03) ─────────────
+  //
+  // docs/investigations/request-flow-rollout.md. Each press is one message
+  // the server takes on as a request (`request: true`): the routing call
+  // answers with the request, the server files and runs every part, and the
+  // page follows it. In this mode the browser's wall refuses any edit or
+  // add-on the page itself would post, so a press made while the switch is
+  // not live costs its routing call, changes nothing and sends nothing more.
+  // WHAT THE WALL CAN AND CANNOT DO HERE: what the page would post is refused
+  // before it leaves; a part the SERVER files is seen only when the request
+  // is read (every 3 s with the tab open, every 20 s with it closed) and is
+  // then stopped through the request's own Stop — which cancels what has not
+  // started and asks a running job to stop at its next gate. A fast part can
+  // finish first. `layers` lists the edit layers a part may run at; `addon`
+  // opens the add-on step beside them. Each press passes on what landed
+  // (`requestBatchVerdict`, in canary-requests.mjs) and records, never fails
+  // on, which hand-over it went through (`covers`). The changes stay on the
+  // bakery (the owner's demo-site rule). The budget is the press's upper
+  // estimate, checked before each message and not while a request runs.
+  //
+  // REQUEST MODE LIVE: one wording change, one part.
+  "rq-canary": Object.freeze({
+    site: "fold-lane-bakery",
+    request: true,
+    budget: 6,
+    layers: Object.freeze(["text", "look"]),
+    expect: Object.freeze({
+      headings: Object.freeze([Object.freeze({ route: "/visit", from: "Come to the bakery", to: "Come and see us" })]),
+    }),
+    covers: Object.freeze([]),
+    steps: Object.freeze([
+      Object.freeze({ say: "On the Visit page, change the heading 'Come to the bakery' to 'Come and see us'." }),
+    ]),
+  }),
+  // R1 — Edit and Add-on, the edit first; several operations; the page the
+  // menu link needs is named after it. The new page's address is the add-on's
+  // to choose, so it is found by what it says, and the menu link must point
+  // at it. The page rung is allowed because it hands a new page to the add-on
+  // step; nav and look for the menu link, whichever the router picks.
+  "rq-1-classes": Object.freeze({
+    site: "fold-lane-bakery",
+    request: true,
+    budget: 25,
+    addon: true,
+    layers: Object.freeze(["look", "text", "nav", "page"]),
+    expect: Object.freeze({
+      description: Object.freeze({ says: Object.freeze(["saturday", "bread", "class"]), absentBefore: "class" }),
+      pages: Object.freeze([Object.freeze({ about: Object.freeze(["class"]) })]),
+      menu: Object.freeze({ label: "Classes", page: 0 }),
+    }),
+    covers: Object.freeze(["edit-and-addon", "several-parts", "waits-for-prerequisite"]),
+    steps: Object.freeze([
+      Object.freeze({
+        say: "Change the site description to say we now run Saturday bread-making classes, put a link to the new Classes page in the menu, and add a Classes page that explains the classes.",
+        ms: 25 * 60_000,
+      }),
+    ]),
+  }),
+  // R2 — Add-on first, then Edit; the menu link is the add-on step's to set
+  // aside as a part of its own. The price is checked by the row readers, from
+  // a baseline taken immediately before the message, and kept. Look is
+  // allowed beside nav because the router may send the menu link through the
+  // look door's menu lane, a path that reaches the same site.
+  "rq-2-wholesale": Object.freeze({
+    site: "fold-lane-bakery",
+    request: true,
+    budget: 26,
+    addon: true,
+    layers: Object.freeze(["data", "nav", "look", "page"]),
+    row: WALNUT_ROW,
+    expect: Object.freeze({
+      pages: Object.freeze([Object.freeze({ about: Object.freeze(["wholesale"]) })]),
+      menu: Object.freeze({ label: "Wholesale", page: 0 }),
+    }),
+    covers: Object.freeze(["edit-and-addon", "several-parts", "addon-sets-aside"]),
+    steps: Object.freeze([
+      Object.freeze({
+        say: "Add a Wholesale page for cafés that want to order loaves in bulk and put a link to it in the menu, then change the Walnut Levain's price to £6.20.",
+        ms: 25 * 60_000,
+      }),
+    ]),
+  }),
+  // R3 — a step's question and the answer that resumes it, with the other
+  // part going ahead. The first message ends once a part waits on its
+  // question and the page shows it (`until: "question"`); the answer is then
+  // typed into the composer, as a customer answers. If no question is asked,
+  // the answer is not sent.
+  "rq-3-facebook": Object.freeze({
+    site: "fold-lane-bakery",
+    request: true,
+    budget: 13,
+    addon: true,
+    layers: Object.freeze(["text", "look", "nav"]),
+    expect: Object.freeze({
+      headings: Object.freeze([Object.freeze({ route: "/visit", from: "The shutters and the street", to: "Our shop on the street" })]),
+      social: Object.freeze({ network: "facebook", host: "facebook.com", path: "/harbourloafbristol" }),
+    }),
+    covers: Object.freeze(["several-parts", "step-question", "answer-resumes"]),
+    steps: Object.freeze([
+      Object.freeze({
+        say: "On the Visit page, change the heading 'The shutters and the street' to 'Our shop on the street', and add a link to our Facebook page in the footer.",
+        until: "question",
+        ms: 14 * 60_000,
+      }),
+      Object.freeze({ say: "It's facebook.com/harbourloafbristol", ms: 14 * 60_000 }),
+    ]),
+  }),
+  // R4 — a file attached to the message and read by a later part. The live
+  // logo already is ui-logo.png, so this press attaches a second picture.
+  "rq-4-logo": Object.freeze({
+    site: "fold-lane-bakery",
+    request: true,
+    budget: 8,
+    layers: Object.freeze(["text", "look", "logo"]),
+    expect: Object.freeze({
+      headings: Object.freeze([Object.freeze({ route: "/", from: "Fed every morning since we opened", to: "Fed every morning since 2019" })]),
+      logo: Object.freeze({ file: "test/fixtures/ui-logo-2.png", sha256: "38d29a0457eedf0f9778d4a9f4104d279fffe622c2f61a22e0989d92ee9d1c0e" }),
+    }),
+    covers: Object.freeze(["several-parts", "file-to-later-part"]),
+    steps: Object.freeze([
+      Object.freeze({
+        attach: "test/fixtures/ui-logo-2.png",
+        say: "Change the home page heading 'Fed every morning since we opened' to 'Fed every morning since 2019', and use the attached picture as our logo.",
+      }),
+    ]),
+  }),
+  // R5 — the tab closed once the server has taken the message on: the
+  // request is read only through the requests list, which moves nothing,
+  // until it has ended; then a new tab opens the site and must show it ended.
+  "rq-5-away": Object.freeze({
+    site: "fold-lane-bakery",
+    request: true,
+    budget: 18,
+    addon: true,
+    layers: Object.freeze(["text", "look"]),
+    expect: Object.freeze({
+      words: Object.freeze({ route: "/order", says: Object.freeze(["8pm", "night before"]) }),
+      headings: Object.freeze([Object.freeze({ route: "/gallery", from: "Photographs of the bakery's work", to: "Photographs from the bakery" })]),
+    }),
+    covers: Object.freeze(["several-parts", "closed-tab"]),
+    steps: Object.freeze([
+      Object.freeze({
+        say: "Add a line to the Order page saying orders close at 8pm the night before, and change the Gallery page heading 'Photographs of the bakery's work' to 'Photographs from the bakery'.",
+        away: true,
+        ms: 25 * 60_000,
+      }),
+    ]),
+  }),
 });
 
 // Bounds. A step is one message: its routing call, its job and its publish.
@@ -326,6 +502,21 @@ export const UI_ATTACH_MS = 20_000;
 export const UI_START_MS = 30_000;
 export const UI_STEP_MS = 12 * 60_000;
 export const UI_POLL_MS = 1000;
+// A MESSAGE'S OWN BOUND (`ms`, 2026-10-03) is at most this, and a scenario's
+// bounds together at most UI_PRESS_MAX_MS, so a press — its preflight, its
+// before- and after-reads and its messages — ends inside the workflow's 45
+// minutes, with its record written, rather than being killed without one.
+export const UI_STEP_MAX_MS = 30 * 60_000;
+export const UI_PRESS_MAX_MS = 30 * 60_000;
+// HOW OFTEN A REQUEST IS READ WHILE ITS TAB IS CLOSED (`away`): through the
+// requests list, which moves nothing.
+export const UI_AWAY_EVERY_MS = 20_000;
+
+/** A message's own time bound: its `ms` where it names one, the default otherwise, never past the cap. */
+export function stepBoundMs(step, { stepMs = UI_STEP_MS, capMs = UI_STEP_MAX_MS } = {}) {
+  const own = step && Number.isFinite(step.ms) && step.ms > 0 ? step.ms : stepMs;
+  return Math.min(own, capMs);
+}
 
 /** The scenario a form box names, refused whole rather than guessed. */
 export function readUiScenario(raw, slug) {
@@ -399,13 +590,17 @@ export function requestWall(view, scenario, step) {
   const parts = view && Array.isArray(view.parts) ? view.parts : [];
   const layers = step && Array.isArray(step.layers) ? step.layers : scenario && Array.isArray(scenario.layers) ? scenario.layers : null;
   const adds = !!(scenario && scenario.adds === true);
+  // THE ADD-ON STEP BESIDE THE EDIT LAYERS (`addon`, the request batch): an
+  // add-on part may run, and so may an edit part at a listed layer, whether
+  // the router chose it or the add-on step handed it over.
+  const addon = !!(scenario && scenario.addon === true);
   for (const p of parts) {
     if (!p || typeof p !== "object") continue;
     if (p.status === "approval" || p.status === "needs-rewrite") return { n: p.n, why: "a part waits for the full rewrite's go-ahead, which no scenario gives" };
     const route = typeof p.route === "string" ? p.route : "";
     if (!route) continue;
     if (route === "addon") {
-      if (!adds) return { n: p.n, why: "a part routed to the add-on step, which this scenario never asks for" };
+      if (!adds && !addon) return { n: p.n, why: "a part routed to the add-on step, which this scenario never asks for" };
       continue;
     }
     if (layers && !layers.includes(route)) return { n: p.n, why: `a part routed to the ${route} layer, which this scenario does not allow` };
@@ -414,9 +609,94 @@ export function requestWall(view, scenario, step) {
   return null;
 }
 
+/**
+ * A STEP'S QUESTION, SHOWN (`until: "question"`): a part of this request waits
+ * on a question that is not merely queued; no part is about to run or running;
+ * the page keeps that very question — by the id the server gave it — as the
+ * site's live one and draws its card; and every reply the request's view lists
+ * so far has been shown. `{ by: "step", key, part, id, text }`, or null.
+ *
+ * MATCHED BY THE QUESTION'S ID, NOT BY THE REQUEST THE PAGE NOTES BESIDE IT.
+ * A question drawn from its step's own reply is kept without its request and
+ * part (the page's question reader, `clarifyOf`, keeps the id, the words and
+ * the answers, and nothing else); one drawn from the request's card is kept
+ * with them. Where the page notes them, they must be this question's.
+ */
+export function questionShown(view, s, key) {
+  const parts = view && Array.isArray(view.parts) ? view.parts : [];
+  const waiting = parts.filter((p) => p && p.status === "waiting" && p.question && typeof p.question === "object" && p.question.queued !== true);
+  if (!waiting.length) return null;
+  if (parts.some((p) => p && ["ready", "queued", "started"].includes(p.status))) return null;
+  const ask = s && s.ask;
+  if (!ask || typeof ask.id !== "string" || !ask.id || !key || s.askCard !== true) return null;
+  const p = waiting.find((w) => w.question.id === ask.id);
+  if (!p) return null;
+  if (ask.key && ask.key !== key) return null;
+  if (Number.isInteger(ask.part) && ask.part !== p.n) return null;
+  const seen = s.requests && s.requests[key] && Array.isArray(s.requests[key].shown) ? s.requests[key].shown : [];
+  if (!parts.every((q) => (Array.isArray(q && q.jobs) ? q.jobs : []).every((j) => seen.includes(j)))) return null;
+  return { by: "step", key, part: p.n, id: ask.id, text: ask.text || String(p.question.text || "") };
+}
+
 /** Every job a request filed, part by part, in order — its routing, its runs, its hand-overs — off its own view. */
 export function requestJobsOf(view) {
   return (view && Array.isArray(view.parts) ? view.parts : []).flatMap((p) => (p && Array.isArray(p.ids) ? p.ids.filter((id) => typeof id === "string" && id) : []));
+}
+
+/**
+ * THE ROUTING EVIDENCE OF ONE MESSAGE, FROM THE REQUEST ITSELF (2026-10-03,
+ * the owner: *"capture routing evidence from the actual end-to-end requests
+ * instead of paying for seven separate preliminary routing probes; a prior
+ * model answer does not guarantee the next one"*). What the routing call
+ * answered for this very message — the part it makes and where, the parts it
+ * held back and their order, whether the answer was the model's own — and the
+ * request as it took the message on and as it ended: each part's words,
+ * status and the route its own routing gave it. Recorded, never judged: the
+ * press passes on what landed.
+ */
+export function routingEvidence(step) {
+  const route = routeCallOf(step && step.network);
+  const res = route && route.res && typeof route.res === "object" ? route.res : null;
+  if (!res) return null;
+  const str = (v) => (typeof v === "string" ? v : undefined);
+  const d = res.decision && typeof res.decision === "object" ? res.decision : null;
+  const accepted = res.request && Array.isArray(res.request.parts) ? res.request.parts : [];
+  const fin = step && step.request && step.request.final && Array.isArray(step.request.final.parts) ? step.request.final.parts : [];
+  return {
+    intent: str(res.intent), layer: str(res.layer), page: str(res.page),
+    ...(res.remove === true ? { remove: true } : {}), ...(typeof res.rename === "string" ? { rename: res.rename } : {}),
+    cost: Number.isFinite(res.cost) ? res.cost : null,
+    alsoAsked: typeof res.alsoAsked === "string" ? [res.alsoAsked] : Array.isArray(res.alsoAsked) ? res.alsoAsked.filter((x) => typeof x === "string") : [],
+    dependsOn: Array.isArray(res.dependsOn) ? res.dependsOn : [],
+    decision: d ? { source: str(d.source), reasons: Array.isArray(d.reasons) ? d.reasons : [], raw: d.raw && typeof d.raw === "object" ? d.raw : null } : null,
+    ...(res.failed === true ? { failed: true } : {}),
+    ...(res.resumed && typeof res.resumed === "object" ? { resumed: res.resumed } : {}),
+    request: requestKeyOf(step.network) || "",
+    accepted: accepted.map((p) => ({ n: p.n, words: p.words, status: p.status, ...(p.route ? { route: p.route } : {}) })),
+    final: fin.map((p) => ({ n: p.n, words: p.words, status: p.status, ...(p.route ? { route: p.route } : {}), ...(p.addition ? { addition: true } : {}), ...(p.why ? { why: p.why } : {}), jobs: Array.isArray(p.ids) ? p.ids.length : 0 })),
+  };
+}
+
+/**
+ * THE PUBLISHES IN THE ORDER THEY WERE MADE, by their own links: each built
+ * from the one before it, the first from the version the before-read saw. A
+ * request runs its parts in the order their needs allow, not the order they
+ * are numbered, so its jobs' publishes are put in order by walking the
+ * chain; whatever does not join it is left at the end, where `chainVerdict`
+ * names it.
+ */
+export function chainOrdered(before, published) {
+  const left = (Array.isArray(published) ? published : []).slice();
+  const out = [];
+  let prev = before;
+  for (;;) {
+    const i = left.findIndex((p) => p && p.parent === prev);
+    if (i < 0) break;
+    const [p] = left.splice(i, 1);
+    out.push(p);
+    prev = p.id;
+  }
+  return out.concat(left);
 }
 
 /** The recovery's condition probe through the canary's own PATCH; a throw is cannot-tell. */
@@ -494,6 +774,13 @@ export function blocksPost(method, pathname, scenario) {
  */
 export function wallRefusal({ method, pathname, body, scenario, step } = {}) {
   if (blocksPost(method, pathname, scenario)) return "work this scenario never asks for";
+  // A REQUEST-MODE SCENARIO (`request: true`, the request batch): the server
+  // files and runs every part, so an edit or add-on the page posts itself is
+  // the old path — the switch not live, or the message not taken on — and is
+  // refused before it leaves. The press then costs its routing call alone.
+  if (scenario && scenario.request === true && method === "POST" && /^\/api\/site\/[^/]+\/(edit|addon)$/.test(String(pathname || ""))) {
+    return "an edit or add-on posted by the page itself: in request mode the server runs every part";
+  }
   const layers = step && Array.isArray(step.layers) ? step.layers
     : scenario && Array.isArray(scenario.layers) ? scenario.layers : null;
   if (!layers) return "";
@@ -566,7 +853,7 @@ export function requestVerdict(step, scenario) {
   if (key) {
     const fin = step && step.request ? step.request.final : null;
     const parts = fin && Array.isArray(fin.parts) ? fin.parts : [];
-    const allowed = (p) => !!p && typeof p.route === "string" && (p.route === "addon" ? !!(scenario && scenario.adds) : layers.includes(p.route));
+    const allowed = (p) => !!p && typeof p.route === "string" && (p.route === "addon" ? !!(scenario && (scenario.adds || scenario.addon)) : layers.includes(p.route));
     out.request = {
       key, ended: !!(fin && fin.ended === true), state: fin ? fin.state : "",
       parts: parts.map((p) => ({ n: p.n, status: p.status, route: p.route || "", ...(p.why ? { why: p.why } : {}) })),
@@ -775,14 +1062,31 @@ function readComposerInPage() {
       text: String(m.innerText || m.textContent || "").replace(/⧉\s*$/, "").trim(),
     })),
     // WHAT THE PAGE HAS SHOWN OF EACH REQUEST on the open site: ended, and
-    // closed once every part's reply and the request's own are on screen.
+    // closed once every part's reply and the request's own are on screen —
+    // and which jobs' replies it has shown so far.
     requests: (() => {
       try {
         const site = siteById(siteOpenId);
         const all = site && site.requests && typeof site.requests === "object" ? site.requests : {};
-        return Object.fromEntries(Object.entries(all).map(([k, r]) => [k, { closed: !!(r && r.closed), ended: !!(r && r.view && r.view.ended) }]));
+        return Object.fromEntries(Object.entries(all).map(([k, r]) => [k, {
+          closed: !!(r && r.closed), ended: !!(r && r.view && r.view.ended),
+          shown: r && Array.isArray(r.shown) ? r.shown.filter((j) => typeof j === "string") : [],
+        }]));
       } catch (e) { return null; }
     })(),
+    // THE SITE'S LIVE QUESTION, and the request part it is for (2026-10-03):
+    // what the composer's next message answers. `askCard` is its card, drawn
+    // with its answers and its Cancel.
+    ask: (() => {
+      try {
+        const site = siteById(siteOpenId);
+        const q = site && site.ask;
+        if (!q || typeof q.id !== "string") return null;
+        const of = q.request && typeof q.request === "object" ? q.request : null;
+        return { id: q.id, text: String(q.text || ""), key: of && typeof of.key === "string" ? of.key : "", part: of && Number.isInteger(of.part) ? of.part : null };
+      } catch (e) { return null; }
+    })(),
+    askCard: !!document.querySelector("#stThread [data-ask-cancel]"),
   };
 }
 
@@ -791,8 +1095,11 @@ async function requestViewInPage({ slug, key }) {
   try {
     const r = await apiFetch("/api/site/request/" + encodeURIComponent(slug) + "/" + encodeURIComponent(key), { method: "GET" });
     const b = await r.json().catch(() => null);
-    return { status: r.status, ok: !!(b && b.ok === true && b.request), request: b && b.request ? b.request : null };
-  } catch (e) { return { status: 0, ok: false, request: null }; }
+    // AND THE REQUEST'S OWN REPLY, when it has one (`replyFor`: while it
+    // waits on a go-ahead, or once it has ended), with where it came from.
+    const reply = b && typeof b.reply === "string" && b.reply ? { text: b.reply, source: b.replySource === "model" ? "model" : "composed", for: typeof b.replyFor === "string" ? b.replyFor : "" } : null;
+    return { status: r.status, ok: !!(b && b.ok === true && b.request), request: b && b.request ? b.request : null, reply };
+  } catch (e) { return { status: 0, ok: false, request: null, reply: null }; }
 }
 
 /** The request's own Stop, through the page's own session: nothing new starts, and a running part's job is cancelled at its next gate. */
@@ -1162,6 +1469,15 @@ export async function runUi(opts) {
     // this run's id, which goes into the marker booking's name.
     rules: rulesIo = null, allow = null, runId = "", bookMs = 45_000, answerMs = 30_000, bookSettleMs = 6_000,
     root = new URL("../", import.meta.url).pathname,
+    // A MESSAGE'S OWN BOUND (`step.ms`) never past this (`stepBoundMs`).
+    stepCapMs = UI_STEP_MAX_MS,
+    // A MESSAGE SENT WITH ITS TAB THEN CLOSED (`step.away`) is read through
+    // the canary's own session, never a page: `requestsNow()` answers the
+    // requests list (`GET /api/site/requests/<slug>`, which moves nothing) as
+    // `{ status, json }`, and `stopNow(key)` is the request's own Stop
+    // (`DELETE /api/site/request/<slug>/<key>`), sent only when a part is
+    // routed where the message may not go. Read every `awayEveryMs`.
+    requestsNow = null, stopNow = null, awayEveryMs = UI_AWAY_EVERY_MS,
   } = opts;
   const origin = new URL(base).origin;
   const t0 = Date.now();
@@ -1224,6 +1540,82 @@ export async function runUi(opts) {
     }
   };
 
+  // THE APP'S CONTEXT, set once the browser is open; and, while a message's
+  // tab is closed (`away`), where any read of a request's own route made in
+  // it is recorded — there must be none.
+  let context = null;
+  let awayCalls = null;
+  // A REQUEST BEING FOLLOWED, its record on the message: every view read
+  // (`trail`, the statuses each time they changed), the wall, the Stop, the
+  // last view and the request's own reply.
+  const newFollow = (key) => ({ key, views: 0, wall: null, stop: null, final: null, trail: [], reply: null });
+  const noteView = (r, view) => {
+    r.request.views++;
+    r.request.final = view;
+    const parts = (Array.isArray(view.parts) ? view.parts : []).map((p) => [p.n, p.status]);
+    const last = r.request.trail[r.request.trail.length - 1];
+    if (!last || JSON.stringify(last.parts) !== JSON.stringify(parts)) r.request.trail.push({ ms: Date.now() - (r.sentAt || t0), parts });
+  };
+  const wallHit = (r, key, hit) => {
+    r.request.wall = hit;
+    rec.blocked.push({ ms: Date.now() - t0, method: "STOP", path: `request ${key} part ${hit.n}`, why: hit.why });
+    log(`  BLOCKED request ${key}, part ${hit.n}: ${hit.why} — the request is stopped`);
+  };
+  // EVERY PAGE THE RUN OPENS IS WATCHED THE SAME WAY: its console, its
+  // errors, and every API answer it gets (`recordsBody`).
+  const watch = (pg) => {
+    pg.on("console", (m) => { if (m.type() === "error") rec.consoleErrors.push(m.text().slice(0, 300)); });
+    pg.on("pageerror", (e) => rec.pageErrors.push(String((e && e.message) || e).slice(0, 300)));
+    pg.on("response", async (res) => {
+      const req = res.request();
+      const url = req.url();
+      if (!url.startsWith(origin + "/api/")) return;
+      const u = new URL(url);
+      const e = { ms: Date.now() - t0, method: req.method(), path: u.pathname + u.search, status: res.status() };
+      if (res.headers()["x-gf-edit"] === "final") e.final = true;
+      if (recordsBody(req.method(), u.pathname)) {
+        if (req.method() === "POST") e.req = recordableRequest(req.postData());
+        // A poll is recorded in full only when it is the answer; every other
+        // poll is a status line, or the record is mostly "still running".
+        if (req.method() === "POST" || e.final || e.status >= 400) {
+          try { const txt = await res.text(); try { e.res = JSON.parse(txt); } catch { e.res = txt.slice(0, 400); } } catch { /* a body the browser no longer holds */ }
+        }
+      }
+      rec.network.push(e);
+    });
+  };
+  // ── OPEN THE APP, SIGNED IN, AND THE SITE'S WORKSPACE ─────────────────
+  // `{ ok, why, shot, opened, card }`: a tab the run can type into, or the
+  // reason it is not one. The run's first tab, and the tab a message sent
+  // with its tab closed (`away`) is read in afterwards.
+  const openWorkspace = async (pg) => {
+    const out = { ok: false, why: "", shot: true, opened: null, card: "" };
+    await pg.goto(origin + "/projects", { waitUntil: "domcontentloaded", timeout: openMs });
+    const signed = await until(pg, (s) => s.gate || (s.signedIn && !!s.uid), openMs);
+    const want = (session.user && session.user.id) || "";
+    out.opened = { signedIn: !!(signed.s && signed.s.signedIn), uid: signed.s ? signed.s.uid : "", gate: !!(signed.s && signed.s.gate) };
+    if (out.opened.gate) return { ...out, why: "the app asked to sign in, so the planted session was refused — nothing was sent" };
+    if (!signed.ok || !out.opened.signedIn) return { ...out, why: "the app did not open signed in — nothing was sent" };
+    if (!want || out.opened.uid !== want) return { ...out, shot: false, why: `the app is signed in as ${out.opened.uid || "nobody"}, not the canary's account — nothing was sent` };
+    const cardEnd = Date.now() + openMs;
+    let card = "";
+    while (!card && Date.now() < cardEnd) {
+      card = await pg.evaluate(cardIdInPage, slug).catch(() => "");
+      if (card) break;
+      const g = await pg.evaluate(readComposerInPage).catch(() => null);
+      if (g && g.gate) return { ...out, why: "the app asked to sign in, so the planted session was refused — nothing was sent" };
+      await sleep(pollMs);
+    }
+    out.card = card;
+    if (!card) return { ...out, why: `the start screen never showed ${slug}'s card — nothing was sent` };
+    await pg.click(`.st-card[data-open="${card}"] .st-card-name`);
+    const ws = await until(pg, (s) => s.workspace, openMs);
+    if (!ws.ok) return { ...out, why: "the site's workspace never opened — nothing was sent" };
+    const idle = await until(pg, composerReady, openMs);
+    if (!idle.ok) return { ...out, why: "the workspace opened busy and never became idle — nothing was sent" };
+    return { ...out, ok: true, shot: false };
+  };
+
   // ONE WAIT FOR EITHER KIND OF MESSAGE (2026-10-03): an ordinary message is
   // done at its first reply with an idle composer; one the server took on as
   // a request (its routing answer names one) once the request has ended and
@@ -1236,26 +1628,109 @@ export async function runUi(opts) {
       try { s = await page.evaluate(readComposerInPage); } catch { s = null; }
       if (!key) key = requestKeyOf(rec.network.slice(netFrom));
       if (key) {
-        if (!r.request) r.request = { key, views: 0, wall: null, stop: null, final: null };
+        if (!r.request) r.request = newFollow(key);
         if (Date.now() - lastLook >= viewEveryMs || !view) {
           lastLook = Date.now();
           const v = await page.evaluate(requestViewInPage, { slug, key }).catch(() => null);
-          if (v && v.ok && v.request) { view = v.request; r.request.views++; r.request.final = view; }
+          if (v && v.ok && v.request) { view = v.request; noteView(r, view); if (v.reply) r.request.reply = v.reply; }
         }
         const hit = view && !r.request.wall ? requestWall(view, scenario, step) : null;
         if (hit) {
-          r.request.wall = hit;
-          rec.blocked.push({ ms: Date.now() - t0, method: "STOP", path: `request ${key} part ${hit.n}`, why: hit.why });
-          log(`  BLOCKED request ${key}, part ${hit.n}: ${hit.why} — the request is stopped`);
+          wallHit(r, key, hit);
           r.request.stop = await page.evaluate(stopRequestInPage, { slug, key }).catch(() => ({ status: 0, ok: false, state: "" }));
           view = null;
         }
         const shown = s && s.requests ? s.requests[key] : null;
+        // A MESSAGE THAT ENDS ON A STEP'S QUESTION (`until: "question"`): one
+        // part waits on it, nothing else is about to run or running, the page
+        // has shown every reply so far and draws the question's card for that
+        // part — so the next message is its answer.
+        if (step.until === "question" && s && composerReady(s) && view && !view.ended && !r.request.wall) {
+          const q = questionShown(view, s, key);
+          if (q) { r.question = q; return { ok: true, s }; }
+        }
         if (s && composerReady(s) && view && view.ended === true && shown && shown.closed === true) return { ok: true, s };
+      } else if (step.until === "question" && s && composerReady(s) && s.ask && !s.ask.key && s.askCard) {
+        // THE ROUTER'S OWN QUESTION, with no request opened: another valid
+        // path, recorded as such. The answer is then routed whole.
+        const route = routeCallOf(rec.network.slice(netFrom));
+        if (route && route.res && route.res.intent === "clarify") {
+          r.question = { by: "router", key: "", part: null, id: s.ask.id, text: s.ask.text };
+          return { ok: true, s };
+        }
       } else if (s && composerReady(s) && newReplies(before, s.messages).length > 0) return { ok: true, s };
       if (Date.now() >= end) return { ok: false, s };
       await sleep(pollMs);
     }
+  };
+
+  // ── A MESSAGE SENT, THEN ITS TAB CLOSED (`away`, 2026-10-03) ────────────
+  // Once the routing answer names the request and the page has drawn its
+  // card, the tab is closed. From then on nothing but the requests list is
+  // read — through the canary's own session, never a page, and every
+  // `awayEveryMs` — so the request is moved on by the server alone (its jobs'
+  // ends and the two-minute sweep). A part routed where the message may not
+  // go is stopped through the request's own Stop. Once the list shows the
+  // request ended, a new tab opens the site, and must show it ended: every
+  // part with its reply, the request closed.
+  const followAway = async (page, { before, netFrom, step, r, ms }) => {
+    const end = Date.now() + ms;
+    const a = r.away = { closed: false, ended: false, reads: 0, calls: [], list: [], endedMs: null, reopened: null };
+    let s = null, key = "";
+    for (;;) {
+      try { s = await page.evaluate(readComposerInPage); } catch { s = null; }
+      if (!key) key = requestKeyOf(rec.network.slice(netFrom));
+      if (key && s && s.requests && s.requests[key]) break;
+      if (Date.now() >= end) return { ok: false, s, page, why: key ? "the page never drew the request's card" : "the routing answer named no request, so there was nothing to leave running" };
+      await sleep(pollMs);
+    }
+    r.request = newFollow(key);
+    if (typeof requestsNow !== "function" || typeof stopNow !== "function") {
+      return { ok: false, s, page, why: "this run was not handed the requests list and the Stop, so the tab is not closed" };
+    }
+    awayCalls = a.calls;
+    await Promise.resolve().then(() => page.close()).catch(() => {});
+    a.closed = true;
+    const closedAt = Date.now();
+    log(`  away: the tab is closed; request ${key} is read through the requests list alone`);
+    let view = null;
+    for (;;) {
+      const res = await Promise.resolve().then(() => requestsNow()).catch(() => null);
+      a.reads++;
+      const list = res && res.status === 200 && res.json && Array.isArray(res.json.requests) ? res.json.requests : null;
+      view = list ? list.find((q) => q && q.key === key) || null : null;
+      a.list.push({ ms: Date.now() - closedAt, status: res ? res.status : 0, found: !!view, ...(view ? { state: view.state, ended: view.ended === true } : {}) });
+      if (view) noteView(r, view);
+      const hit = view && !r.request.wall ? requestWall(view, scenario, step) : null;
+      if (hit) {
+        wallHit(r, key, hit);
+        const st = await Promise.resolve().then(() => stopNow(key)).catch(() => null);
+        r.request.stop = { status: st ? st.status : 0, ok: !!(st && st.json && st.json.ok === true), state: st && st.json && st.json.request ? st.json.request.state : "" };
+      }
+      if (view && view.ended === true) { a.ended = true; a.endedMs = Date.now() - closedAt; break; }
+      if (Date.now() >= end) break;
+      await sleep(awayEveryMs);
+    }
+    awayCalls = null;
+    // THE TAB OPENED AFTERWARDS, in the same browser: the page's own record
+    // of the request is there, and the page follows it to its end.
+    const next = await context.newPage();
+    watch(next);
+    const opened = await openWorkspace(next);
+    if (!opened.ok) {
+      a.reopened = { ok: false, closed: false, why: opened.why.replace(/ — nothing was sent$/, "") };
+      return { ok: false, s: null, page: next, why: `the tab opened afterwards: ${a.reopened.why}` };
+    }
+    const shownEnd = Date.now() + Math.max(openMs, 60_000);
+    for (;;) {
+      try { s = await next.evaluate(readComposerInPage); } catch { s = null; }
+      const shown = s && s.requests ? s.requests[key] : null;
+      if (s && composerReady(s) && shown && shown.closed === true) break;
+      if (Date.now() >= shownEnd) { a.reopened = { ok: true, closed: false, why: "the reopened page never showed the request closed" }; return { ok: false, s, page: next, why: a.reopened.why }; }
+      await sleep(pollMs);
+    }
+    a.reopened = { ok: true, closed: true, why: "", tab: await next.evaluate(tabMarkInPage).catch(() => null) };
+    return { ok: a.ended, s, page: next, why: a.ended ? "" : "the request had not ended when the time ran out" };
   };
 
   const browser = await launch();
@@ -1289,8 +1764,19 @@ export async function runUi(opts) {
       rec.balance.end = await balanceNow();
       return rec;
     }
-    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     if (route) await route(context);
+    // ANY READ OF A REQUEST'S OWN ROUTE, from any page of the run's browser,
+    // while a message's tab is closed (`away`): none is expected, since no
+    // page is open, and one would mean the request was moved on by a page.
+    if (typeof context.on === "function") {
+      context.on("request", (req) => {
+        if (!awayCalls) return;
+        let u = null;
+        try { u = new URL(req.url()); } catch { return; }
+        if (u.origin === origin && u.pathname.startsWith("/api/site/request/")) awayCalls.push({ ms: Date.now() - t0, method: req.method(), path: u.pathname });
+      });
+    }
     // Registered after any test route, so it is asked first; anything it does
     // not refuse falls back to that route, or to the network. It sees every API
     // call the app makes, because a scenario that names its layers refuses
@@ -1336,51 +1822,14 @@ export async function runUi(opts) {
         user: session.user || null,
       }),
     });
-    const page = await context.newPage();
-    page.on("console", (m) => { if (m.type() === "error") rec.consoleErrors.push(m.text().slice(0, 300)); });
-    page.on("pageerror", (e) => rec.pageErrors.push(String((e && e.message) || e).slice(0, 300)));
-    page.on("response", async (res) => {
-      const req = res.request();
-      const url = req.url();
-      if (!url.startsWith(origin + "/api/")) return;
-      const u = new URL(url);
-      const e = { ms: Date.now() - t0, method: req.method(), path: u.pathname + u.search, status: res.status() };
-      if (res.headers()["x-gf-edit"] === "final") e.final = true;
-      if (recordsBody(req.method(), u.pathname)) {
-        if (req.method() === "POST") e.req = recordableRequest(req.postData());
-        // A poll is recorded in full only when it is the answer; every other
-        // poll is a status line, or the record is mostly "still running".
-        if (req.method() === "POST" || e.final || e.status >= 400) {
-          try { const txt = await res.text(); try { e.res = JSON.parse(txt); } catch { e.res = txt.slice(0, 400); } } catch { /* a body the browser no longer holds */ }
-        }
-      }
-      rec.network.push(e);
-    });
+    let page = await context.newPage();
+    watch(page);
 
     // ── OPEN THE APP, SIGNED IN, AND THE SITE'S WORKSPACE ─────────────────
-    await page.goto(origin + "/projects", { waitUntil: "domcontentloaded", timeout: openMs });
-    const signed = await until(page, (s) => s.gate || (s.signedIn && !!s.uid), openMs);
-    const want = (session.user && session.user.id) || "";
-    rec.opened = { signedIn: !!(signed.s && signed.s.signedIn), uid: signed.s ? signed.s.uid : "", gate: !!(signed.s && signed.s.gate) };
-    if (rec.opened.gate) { stop("open", "the app asked to sign in, so the planted session was refused — nothing was sent"); await shot(page, "ui-open"); return rec; }
-    if (!signed.ok || !rec.opened.signedIn) { stop("open", "the app did not open signed in — nothing was sent"); await shot(page, "ui-open"); return rec; }
-    if (!want || rec.opened.uid !== want) { stop("open", `the app is signed in as ${rec.opened.uid || "nobody"}, not the canary's account — nothing was sent`); return rec; }
-    const cardEnd = Date.now() + openMs;
-    let card = "";
-    while (!card && Date.now() < cardEnd) {
-      card = await page.evaluate(cardIdInPage, slug).catch(() => "");
-      if (card) break;
-      const g = await page.evaluate(readComposerInPage).catch(() => null);
-      if (g && g.gate) { stop("open", "the app asked to sign in, so the planted session was refused — nothing was sent"); await shot(page, "ui-open"); return rec; }
-      await sleep(pollMs);
-    }
-    rec.card = card;
-    if (!card) { stop("open", `the start screen never showed ${slug}'s card — nothing was sent`); await shot(page, "ui-open"); return rec; }
-    await page.click(`.st-card[data-open="${card}"] .st-card-name`);
-    const ws = await until(page, (s) => s.workspace, openMs);
-    if (!ws.ok) { stop("open", "the site's workspace never opened — nothing was sent"); await shot(page, "ui-open"); return rec; }
-    const idle = await until(page, composerReady, openMs);
-    if (!idle.ok) { stop("open", "the workspace opened busy and never became idle — nothing was sent"); await shot(page, "ui-open"); return rec; }
+    const o = await openWorkspace(page);
+    rec.opened = o.opened;
+    rec.card = o.card;
+    if (!o.ok) { stop("open", o.why); if (o.shot) await shot(page, "ui-open"); return rec; }
     // THE TAB, MARKED ONCE IT IS OPEN: every message goes from this document,
     // and each reply is read in it (`sameTab`).
     rec.tab = await page.evaluate(markTabInPage, crypto.randomBytes(12).toString("hex")).catch(() => null);
@@ -1391,6 +1840,10 @@ export async function runUi(opts) {
     for (const [i, step] of scenario.steps.entries()) {
       const n = i + 1;
       const r = { n, say: step.say, attach: step.attach || null };
+      // HOW THIS MESSAGE ENDS (2026-10-03): on a step's question
+      // (`until: "question"`), with its tab closed (`away`), or as any other.
+      r.mode = step.until === "question" ? "question" : step.away === true ? "away" : "";
+      r.boundMs = stepBoundMs(step, { stepMs, capMs: stepCapMs });
       rec.steps.push(r);
       // A MESSAGE THAT DEPENDS ON AN EARLIER ONE is sent only once that one
       // really did its work — never typed, never sent, never billed otherwise.
@@ -1505,14 +1958,18 @@ export async function runUi(opts) {
 
       const before = typed.messages.length;
       const netFrom = rec.network.length;
-      const sentAt = Date.now();
+      const sentAt = r.sentAt = Date.now();
       current = step;
       await page.click("#stSend");
       rec.sent++;
       r.sent = true;
       const started = await until(page, (s) => s.busy === true || s.stop || newReplies(before, s.messages).length > 0 || !!requestKeyOf(rec.network.slice(netFrom)), startMs);
       r.startedMs = started.ok ? Date.now() - sentAt : null;
-      const done = await followStep(page, { before, netFrom, step, r, ms: stepMs });
+      const done = r.mode === "away"
+        ? await followAway(page, { before, netFrom, step, r, ms: r.boundMs })
+        : await followStep(page, { before, netFrom, step, r, ms: r.boundMs });
+      // THE TAB A CLOSED-TAB MESSAGE IS READ IN is the one opened afterwards.
+      if (done.page) page = done.page;
       r.ms = Date.now() - sentAt;
       await sleep(settleMs);
       const after = done.s || (await page.evaluate(readComposerInPage).catch(() => null));
@@ -1523,16 +1980,22 @@ export async function runUi(opts) {
       // EVERY JOB THE MESSAGE FILED, IN ORDER. An edit the route hands to
       // another layer is a second edit request with a job of its own, and
       // following only the first would read the chain and the money short.
-      // A REQUEST'S are the server's, every one its own view names.
-      r.jobs = r.request ? requestJobsOf(r.request.final) : r.network
+      // A REQUEST'S are the server's, every one its own view names — and a
+      // later message of the same request (an answer) names only the jobs an
+      // earlier message did not, so no job is read, or charged, twice.
+      const earlier = new Set(rec.steps.filter((x) => x !== r).flatMap((x) => (Array.isArray(x.jobs) ? x.jobs : [])));
+      r.jobs = r.request ? requestJobsOf(r.request.final).filter((id) => !earlier.has(id)) : r.network
         .filter((e) => e.method === "POST" && /\/(edit|addon)$/.test(e.path) && e.res && typeof e.res.job === "string" && e.res.job)
         .map((e) => e.res.job);
       r.job = r.jobs[0] || "";
+      r.routing = routingEvidence(r);
       r.completed = done.ok;
       if (!done.ok) {
         await shot(page, `ui-step-${n}`);
-        const mins = Math.max(1, Math.round(stepMs / 60000));
-        stop(`step ${n}`, `no reply with an idle composer inside ${mins} minute${mins === 1 ? "" : "s"} — the outcome is unknown, and nothing more is sent`);
+        const mins = Math.max(1, Math.round(r.boundMs / 60000));
+        stop(`step ${n}`, done.why
+          ? `${done.why} — the outcome is unknown, and nothing more is sent`
+          : `no reply with an idle composer inside ${mins} minute${mins === 1 ? "" : "s"} — the outcome is unknown, and nothing more is sent`);
         break;
       }
       // USABLE, NOT MERELY DRAWN: the box takes typing and Send is live.
@@ -1553,6 +2016,22 @@ export async function runUi(opts) {
       }
       await shot(page, `ui-step-${n}`);
       log(`  step ${n} (${Math.round(r.ms / 1000)} s): ${r.reply.split("\n")[0].slice(0, 160)}  | composer ${r.usable ? "usable again" : "NOT usable"}${r.job ? `  | job ${r.job}` : ""}`);
+      // A REQUEST-MODE SCENARIO'S MESSAGE MUST BE TAKEN ON AS A REQUEST (or,
+      // for one that ends on a question, may meet the router's own question).
+      // One that was not went the old way, which the wall refused: the switch
+      // is not live, or the message was answered another way, and nothing more
+      // is sent.
+      if (scenario.request === true && !r.request && !(r.question && r.question.by === "router")) {
+        stop(`step ${n}`, `message ${n} was not taken on as a request (the switch is not live, or it was answered another way) — nothing more is sent`);
+        break;
+      }
+      // A MESSAGE WHOSE NEXT ONE ANSWERS ITS QUESTION, which never came (the
+      // request ended without asking): that answer would be a new message
+      // about nothing, so it is not sent.
+      if (r.mode === "question" && !r.question) {
+        stop(`step ${n}`, `message ${n} ended without the question message ${n + 1} answers — message ${n + 1} is NOT sent`);
+        break;
+      }
     }
     // ── WHAT THE MESSAGE DID TO THE ROW, AND PUTTING IT BACK ───────────────
     // Only once every message that was sent has its reply on screen: the job
@@ -1660,6 +2139,23 @@ export function describeUi(rec) {
       const f = s.request.final;
       out.push(`     request ${s.request.key}: ${f ? `${f.state}${f.ended ? ", ended" : ", NOT ended"} — ${(f.parts || []).map((p) => `${p.n}:${p.status}${p.route ? "@" + p.route : ""}`).join(" ")}` : "its view was never read"}  jobs ${(s.jobs || []).join(", ") || "none"}`);
       if (s.request.wall) out.push(`     STOPPED BY THE WALL at part ${s.request.wall.n}: ${s.request.wall.why} (stop ${s.request.stop ? s.request.stop.status + " " + (s.request.stop.state || "") : "not answered"})`);
+    }
+    // THE ROUTING EVIDENCE, FROM THIS VERY MESSAGE (`routingEvidence`).
+    if (s.routing) {
+      const g = s.routing;
+      const d = g.decision || {};
+      out.push(`     routing: ${g.intent || "?"}${g.layer ? "/" + g.layer : ""}${g.page ? " " + g.page : ""} (${d.source || "source unread"}${d.raw ? ", the model said " + JSON.stringify(d.raw) : ""})` +
+        `${g.alsoAsked.length ? `; held back ${JSON.stringify(g.alsoAsked)}` : ""}${g.dependsOn.length ? `; order ${JSON.stringify(g.dependsOn)}` : ""}${g.resumed ? `; resumes ${JSON.stringify(g.resumed)}` : ""}`);
+      if (g.final.length) out.push(`     parts: ${g.final.map((p) => `${p.n} "${String(p.words || "").slice(0, 60)}" ${p.status}${p.route ? "@" + p.route : ""}${p.addition ? " (handed over by the add-on step)" : ""}`).join("; ")}`);
+    }
+    if (s.question) out.push(`     question (${s.question.by === "router" ? "the router's own, no request opened" : `part ${s.question.part}'s, from its step`}): ${JSON.stringify(s.question.text)}`);
+    else if (s.mode === "question") out.push("     NO QUESTION was asked");
+    if (s.away) {
+      const a = s.away;
+      out.push(`     away: tab ${a.closed ? "closed" : "NOT closed"}; the requests list read ${a.reads} time(s)` +
+        `${a.ended ? `; ended ${Math.round((a.endedMs || 0) / 1000)} s after the tab closed` : "; NOT ended while away"}` +
+        `; reads of the request's own route while away: ${Array.isArray(a.calls) ? a.calls.length : "unwatched"}` +
+        `; the tab opened afterwards ${a.reopened ? (a.reopened.closed ? "showed it ended" : "did NOT show it ended (" + a.reopened.why + ")") : "was never opened"}`);
     }
     const fin = (s.network || []).filter((e) => e.final);
     if (fin.length) out.push(`     final reply: ${fin[fin.length - 1].status} ${JSON.stringify(fin[fin.length - 1].res).slice(0, 400)}`);

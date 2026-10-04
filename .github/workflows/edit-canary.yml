@@ -108,7 +108,16 @@ on:
         # add-on step is open to, for this site alone; any edit that is not
         # the add-on step's own hand-over is stopped. The additions stay on
         # the bakery afterwards: nothing is put back.
-        description: 'RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: 4a-part-b, 4b-d1-price (the focaccia price through the real app, then put back), 4b-d1-restore (the put-back alone), 4b-rules-close (close the bookings on lido-axes-b, then one real booking that must be refused), 5-page-remove (the gallery out of the menu, then the gallery page off fold-lane-bakery; put back afterwards with the restore box), 9-follow-up (on fretwork-1: a request that must fail, then from the same tab the Hour one-to-one price to £45, kept), or 12-additions (five additions on fold-lane-bakery through the add-on step; they stay on the site). Acts only with spend=yes; otherwise it reads and stops before sending or writing.'
+        #
+        # THE REQUEST BATCH (rq-*, on fold-lane-bakery) needs REQUEST_FLOW on:
+        # each press is one message the server takes on as a request, and an
+        # edit or add-on the page posts itself is refused, so with the switch
+        # off a press costs its routing call and changes nothing. rq-canary is
+        # one wording change; rq-1-classes and rq-2-wholesale mix an edit and
+        # an add-on in both orders; rq-3-facebook ends on a step's question
+        # and sends the answer; rq-4-logo attaches a picture; rq-5-away closes
+        # the tab once the request is taken on. The changes stay on the site.
+        description: 'RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: 4a-part-b, 4b-d1-price (the focaccia price through the real app, then put back), 4b-d1-restore (the put-back alone), 4b-rules-close (close the bookings on lido-axes-b, then one real booking that must be refused), 5-page-remove (the gallery out of the menu, then the gallery page off fold-lane-bakery; put back afterwards with the restore box), 9-follow-up (on fretwork-1: a request that must fail, then from the same tab the Hour one-to-one price to £45, kept), 12-additions (five additions on fold-lane-bakery through the add-on step; they stay on the site), or the request batch on fold-lane-bakery with REQUEST_FLOW on: rq-canary, rq-1-classes, rq-2-wholesale, rq-3-facebook, rq-4-logo, rq-5-away (each one message the server finishes; the changes stay). Acts only with spend=yes; otherwise it reads and stops before sending or writing.'
         required: false
         default: ''
       rules_allow:

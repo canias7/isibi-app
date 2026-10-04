@@ -1090,9 +1090,12 @@ test("a row scenario is handed the owner route, the visitor route and one PATCH,
   assert.match(readers, /Buffer\.from\(await r\.arrayBuffer\(\)\)\.toString\("utf8"\)/, "the visitor body is not decoded once from its bytes");
   assert.match(readers, /patch: \(id, body\) => call\("PATCH", `\/api\/site\/\$\{encodeURIComponent\(CANARY\)\}\/rows\/\$\{encodeURIComponent\(ROW\.table\)\}\/\$\{id\}`, \{ body \}\)/,
     "the one write is not the owner route's PATCH of that row");
-  // THE ONLY WRITES THE MODE MAKES ON ITS OWN are that PATCH and the rules
-  // test's cleanup DELETE of one booking row; the message is the page's.
-  assert.deepEqual(win.match(/call\("(POST|PATCH|PUT|DELETE)"/g), ['call("PATCH"', 'call("DELETE"'], "the mode writes on its own beyond the row PATCH and the rules cleanup");
+  // THE ONLY WRITES THE MODE MAKES ON ITS OWN are that PATCH, the rules
+  // test's cleanup DELETE of one booking row, and a request's own Stop
+  // (2026-10-03), handed to a message sent with its tab closed, which ends
+  // work and starts none; the message is the page's.
+  assert.deepEqual(win.match(/call\("(POST|PATCH|PUT|DELETE)"/g), ['call("PATCH"', 'call("DELETE"', 'call("DELETE"'], "the mode writes on its own beyond the row PATCH, the rules cleanup and a request's own Stop");
+  assert.match(win, /stop: \(key\) => call\("DELETE", `\/api\/site\/request\/\$\{encodeURIComponent\(CANARY\)\}\/\$\{encodeURIComponent\(key\)\}`\)/, "the third write is not a request's own Stop");
   const run = win.slice(win.indexOf("await runUi("), win.indexOf("\n", win.indexOf("await runUi(")));
   assert.match(run, /rows: rowReaders/, "the readers are not handed to the driver");
   assert.match(run, /siteOrigin: BEFORE\.origin/, "the site's origin is not handed to the driver");
@@ -1858,7 +1861,7 @@ test("the canary judges Test 5 by its operations — each stored reply, the chai
   const write = win.slice(win.indexOf("writeFileSync(`${EVID}/ui.json`"));
   // The additions batch's verdict rides beside it (2026-10-02), so the record
   // is read for the removal's own key rather than for the object's last brace.
-  assert.match(write, /chain, removal(, additions)? \}/, "ui.json does not carry the removal verdict");
+  assert.match(write, /chain, removal(, additions)?(, requests)? \}/, "ui.json does not carry the removal verdict");
   assert.match(write, /page removal \$\{removal\.ok \? "HAPPENED" : "DID NOT HAPPEN"\}/, "ui.txt does not say whether the removal happened");
   assert.match(CANARY, /import \{ removalVerdict \} from "\.\/canary-remove\.mjs"/);
   // The evidence upload runs on a failed run too.

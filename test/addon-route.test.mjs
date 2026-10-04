@@ -7911,8 +7911,20 @@ test("a supplied AUDIO url is external by construction, and an invented hosted o
 // `site_functions`, and what the customer was told.
 const ONCE_FN = { name: "send_note", internal: true, returns: "void", body: "BEGIN PERFORM 1; END;" };
 const ONCE_JOB = { name: "closing_note", fn: "send_note", everyMinutes: 60, at: "09:00", on: "2026-10-03" };
+// THE CLOCK THESE CASES RUN ON (2026-10-04, the owner: *"fix the
+// expired-date test fixtures using a controlled test clock"*). The one-time
+// jobs here are dated 2026-10-03, and the route reads "today" in the
+// browser's zone through `new Date()` (`aToday`), so on the real calendar
+// these cases expired when that date ended in London: three went red at
+// 23:00 UTC on 2026-10-03 for a reason of the calendar's alone. Each case
+// whose verdict turns on today's date runs with `Date` held at noon UTC on
+// 2026-10-02 — the day before every fixture date, after every past one, and
+// years before the leap day the refusal case accepts.
+const JOB_CLOCK = Date.parse("2026-10-02T12:00:00Z");
+const onJobClock = (t) => t.mock.timers.enable({ apis: ["Date"], now: JOB_CLOCK });
 
-test("a one-time job is offered, kept, registered and reported", async () => {
+test("a one-time job is offered, kept, registered and reported", async (t) => {
+  onJobClock(t);
   const r = await addon("fw-once", "email everyone on the 3rd of October that we're closed", {
     kinds: ["function", "job"], tz: "Europe/London",
     answers: { function: { function: [ONCE_FN] }, job: { job: [ONCE_JOB] } },
@@ -7957,7 +7969,8 @@ test("a one-time job is offered, kept, registered and reported", async () => {
   assert.equal(r.compiles.length, 0, "a job-only change wanted a container");
 });
 
-test("a one-time job is refused by name rather than quietly recurring", async () => {
+test("a one-time job is refused by name rather than quietly recurring", async (t) => {
+  onJobClock(t);
   // ⚠ THE OWNER'S SENTENCE AS THREE REFUSALS, and they are three because they
   // need three different things done about them. Each is asserted on the
   // customer's own words, and each costs nothing: `cost: 0`, no registration.
@@ -8053,7 +8066,8 @@ const jobNeed = (item) => ({
 });
 
 for (const [shape, job] of [["one-time", ONCE_REUSE], ["recurring", DAILY_REUSE]]) {
-  test("a " + shape + " job reusing a stored function is registered AND reported as scheduled", async () => {
+  test("a " + shape + " job reusing a stored function is registered AND reported as scheduled", async (t) => {
+    onJobClock(t);
     const r = await addon("fw-reuse-job-" + shape, "count the bookings on a schedule", {
       kinds: ["job"], tz: "Europe/London", stored: SITE_HAS_FN,
       answers: { job: { job: [job], requirements: [jobNeed(job.name)] } },
@@ -8116,7 +8130,8 @@ for (const [shape, job] of [["one-time", ONCE_REUSE], ["recurring", DAILY_REUSE]
   });
 }
 
-test("the genuine job failures are still reported when a stored function is in play", async () => {
+test("the genuine job failures are still reported when a stored function is in play", async (t) => {
+  onJobClock(t);
   // ⚠ THE CONTROLS, and without them the fix above is indistinguishable from
   // clearing every job failure. Each is a DIFFERENT reason a job legitimately
   // does not happen, and each must survive on a site that also has a reusable

@@ -20,6 +20,7 @@
 // no password anywhere, and the session is minted for this run and thrown away.
 import https from "node:https";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 // THE CUSTOMER'S OWN SCREEN, EXECUTED — never re-composed here. `editAnswer`
 // is the browser's real selection and `editBrowserReply` runs it with the
 // outward arms injected as recorders, which is the only way a harness can
@@ -56,6 +57,11 @@ import { requestVerdict, storedReplyVerdict, moneyVerdict, unpublishedVerdict, r
 import { failureVerdict, refundedVerdict, sameTab } from "./canary-ui.mjs";
 // A REQUEST'S FILES ARE ON THE MESSAGE'S ROUTING CALL (2026-10-03), read off the page's own record of it.
 import { routeCallOf } from "./canary-ui.mjs";
+// THE REQUEST BATCH (2026-10-03): each press judged on what landed, beside the
+// coverage it records and never fails on; its publishes put in the order the
+// request made them.
+import { chainOrdered } from "./canary-ui.mjs";
+import { requestBatchVerdict } from "./canary-requests.mjs";
 // TEST 5: a page removal is judged by what its operations did, never by how
 // many replies came back.
 import { removalVerdict } from "./canary-remove.mjs";
@@ -82,7 +88,7 @@ import { readStoredHead, storedHeadSaid } from "./canary-watch.mjs";
 // decided in the module, where tests drive it.
 import {
   readAllow, runIdOf, NEWEST_ROWS, readSurface, surfaceSame, sourceSame, legacyUnpublishedVerdict,
-  bookingBodyVerdict, EVIDENCE_BOUNDARY, rulesRecordable,
+  bookingBodyVerdict, EVIDENCE_BOUNDARY, rulesRecordable, tablesOf,
 } from "./canary-rules.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://ujrqdmmtcptvimazlhom.supabase.co";
@@ -673,8 +679,8 @@ async function inventory(label, expect = "") {
         const x = await fetch(origin + r);
         // A SITE ON THE OLDER LAYOUT carries no version header, and its build
         // header is the one that says which build served the page.
-        return { version: String(x.headers.get("x-site-version") || ""), build: String(x.headers.get("x-site-build") || ""), html: await x.text() };
-      } catch { return { version: "", build: "", html: "" }; }
+        return { status: x.status, version: String(x.headers.get("x-site-version") || ""), build: String(x.headers.get("x-site-build") || ""), html: await x.text() };
+      } catch { return { status: 0, version: "", build: "", html: "" }; }
     };
     let got;
     if (expect) {
@@ -686,7 +692,7 @@ async function inventory(label, expect = "") {
     const html = got.html || "";
     const file = (r === "/" ? "_home" : r.replace(/[^a-z0-9]+/gi, "_"));
     writeFileSync(`${EVID}/${label}/route${file}.html`, html);
-    render[r] = { bytes: html.length, version: got.version, build: got.build || "", reads: got.reads, photos: onPagePhotos(html, CANARY), headings: headingOrder(html), words: proseBag(html).length };
+    render[r] = { status: got.status || 0, bytes: html.length, version: got.version, build: got.build || "", reads: got.reads, photos: onPagePhotos(html, CANARY), headings: headingOrder(html), words: proseBag(html).length };
   }
 
   const inv = {
@@ -864,7 +870,18 @@ if (UI_ASK) {
   } : null;
   // D1's RECOVERY ON ITS OWN: a row scenario with no messages opens no app.
   const recoverOnly = !!ROW && !UI_ASK.scenario.steps.length;
-  const ui = await runUi({ base: BASE, session, slug: CANARY, scenario: UI_ASK.scenario, spend: SPEND, balanceNow, evid: EVID, rows: rowReaders, siteOrigin: BEFORE.origin, rules: rulesIo, allow: ALLOW, runId: RUN_ID });
+  // THE REQUEST BATCH (`request: true`): the owner's table listing, read just
+  // before the browser opens and again after the after-read, so a new table
+  // or a changed rule nobody asked for shows; and, for a message sent with its
+  // tab closed, the requests list (which moves nothing) and the request's own
+  // Stop, both through this run's session and never a page.
+  const REQ = UI_ASK.scenario.request === true;
+  const tablesBefore = REQ ? tablesOf(await call("GET", `/api/site/${encodeURIComponent(CANARY)}/rows`)) : null;
+  const requestsIo = {
+    list: () => call("GET", `/api/site/requests/${encodeURIComponent(CANARY)}`),
+    stop: (key) => call("DELETE", `/api/site/request/${encodeURIComponent(CANARY)}/${encodeURIComponent(key)}`),
+  };
+  const ui = await runUi({ base: BASE, session, slug: CANARY, scenario: UI_ASK.scenario, spend: SPEND, balanceNow, evid: EVID, rows: rowReaders, siteOrigin: BEFORE.origin, rules: rulesIo, allow: ALLOW, runId: RUN_ID, requestsNow: requestsIo.list, stopNow: requestsIo.stop });
   const told = describeUi(ui);
   console.log("\n" + told + "\n");
   if (!recoverOnly) {
@@ -880,7 +897,9 @@ if (UI_ASK) {
     for (const s of ui.steps.filter((x) => x.sent)) {
       check(`message ${s.n} got a reply on screen`, !!s.reply, s.reply ? s.reply.slice(0, 80) : "(none)");
       check(`the composer was usable again after message ${s.n}`, s.usable === true, JSON.stringify(s.composer));
-      check(`message ${s.n}'s reply was read in the tab the run opened, never reloaded`, s.sameTab === true, JSON.stringify({ opened: ui.tab, now: s.tab }));
+      // A MESSAGE SENT WITH ITS TAB THEN CLOSED (`away`) is read in the tab
+      // opened afterwards, by design; the batch's own checks judge that tab.
+      if (s.mode !== "away") check(`message ${s.n}'s reply was read in the tab the run opened, never reloaded`, s.sameTab === true, JSON.stringify({ opened: ui.tab, now: s.tab }));
       if (s.file) {
         // A REQUEST'S FILES TRAVEL ON THE ROUTING CALL, kept on the server under
         // the request for every step that reads them (2026-10-03).
@@ -895,7 +914,8 @@ if (UI_ASK) {
       ui.sent === 0 && !ui.network.some((e) => e.method === "POST"), `sent ${ui.sent}`);
   }
   // ── THE ROW: WHERE IT STARTED, WHAT CHANGED, AND THAT IT WENT BACK ────────
-  if (ROW) {
+  // (The request batch's row is judged with the rest of its press, below.)
+  if (ROW && !REQ) {
     const r = ui.row || {};
     const shownOk = (k) => !!(r.shown && r.shown[k] && r.shown[k].verdict && r.shown[k].verdict.ok);
     const shownSays = (k) => (r.shown && r.shown[k] ? (r.shown[k].target || r.shown[k].why || "") + (r.shown[k].verdict && !r.shown[k].verdict.ok ? ` [${r.shown[k].verdict.why}]` : "") : "not read");
@@ -1062,6 +1082,7 @@ if (UI_ASK) {
   let chain = null;
   let removal = null;
   let additions = null;
+  let requests = null;
   if (SPEND && ui.sent) {
     // THE OLDER LAYOUT (a site published before the versioned builds) serves no
     // version header, so there is no version to wait for and no chain to walk:
@@ -1078,11 +1099,14 @@ if (UI_ASK) {
     const filed = ui.steps.flatMap((s) => (Array.isArray(s.jobs) ? s.jobs : []).map((job) => ({ n: s.n, job })));
     const jobs = filed.map((f) => f.job);
     const list = jobs.length ? await call("GET", `/api/site/${encodeURIComponent(CANARY)}/versions`) : null;
-    const published = [];
+    let published = [];
     for (const f of filed) {
       const pv = publishedVersion(list, f.job);
       if (pv.ok) published.push({ n: f.n, job: f.job, id: pv.id, parent: pv.parent });
     }
+    // A REQUEST RUNS ITS PARTS IN THE ORDER THEIR NEEDS ALLOW, not the order
+    // they are numbered: its publishes are put in the order they were made.
+    if (REQ) published = chainOrdered(beforeV, published);
     let after = null;
     if (legacy) {
       console.log(`INVENTORY — after (written to ${EVID}/after)\n`);
@@ -1178,6 +1202,55 @@ if (UI_ASK) {
       const money = moneyVerdict({ start: ui.balance.start, end: ui.balance.end, routeCosts: routeCostsOf(ui.steps), jobs: jobRecords });
       check(`the money closes: routing ${money.routing ?? "?"} + jobs ${money.edits ?? "?"} = the balance's move of ${money.spent ?? "?"}`, money.ok, money.why || `${ui.balance.start} -> ${ui.balance.end}`);
     }
+    // THE REQUEST BATCH PASSES ON WHAT LANDED (2026-10-03): each message's
+    // request, the job order, the site's changes and everything else as it
+    // was, the replies on screen and the money; and records, beside them and
+    // never in them, the coverage — which hand-over the run went through.
+    if (REQ) {
+      const servedOf = (label, render) => {
+        const out = {};
+        for (const r of Object.keys(render || {})) {
+          const file = (r === "/" ? "_home" : r.replace(/[^a-z0-9]+/gi, "_"));
+          try { out[r] = readFileSync(`${EVID}/${label}/route${file}.html`, "utf8"); } catch { out[r] = ""; }
+        }
+        return out;
+      };
+      const served = servedOf("after", after && after.render);
+      const beforeServed = servedOf("before", BEFORE.render);
+      // THE LOGO'S OWN BYTES, read from where the home page's header says it is.
+      let logo = null;
+      if (UI_ASK.scenario.expect && UI_ASK.scenario.expect.logo) {
+        const m = /<header\b[\s\S]*?<img\b[^>]*\bsrc="([^"]*\/u\/[^"]+)"/.exec(served["/"] || "");
+        const path = m ? m[1].slice(m[1].indexOf("/u/")) : "";
+        if (path) {
+          try {
+            const x = await fetch(`${BEFORE.origin}${path}`, { headers: { "cache-control": "no-cache" } });
+            const bytes = Buffer.from(await x.arrayBuffer());
+            logo = { url: path, status: x.status, bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
+          } catch (e) { logo = { url: path, status: 0, why: String((e && e.message) || e).slice(0, 120) }; }
+        } else logo = { url: "", status: 0, why: "the home page's header draws no uploaded logo" };
+      }
+      const tablesAfter = tablesOf(await call("GET", `/api/site/${encodeURIComponent(CANARY)}/rows`));
+      requests = requestBatchVerdict({
+        spec: UI_ASK.scenario, steps: ui.steps,
+        before: { ...BEFORE, complete: BEFORE.readsComplete === true },
+        after: after ? { ...after, complete: after.readsComplete === true } : null,
+        served, beforeServed, logo, row: ui.row || null, tables: { before: tablesBefore, after: tablesAfter }, slug: CANARY,
+      });
+      requests.logo = logo;
+      requests.tables = { before: tablesBefore, after: tablesAfter };
+      console.log("");
+      for (const c of requests.checks) check(c.name, c.ok, c.why);
+      console.log("\n  THE REPLIES (each the model's own, and on screen):");
+      for (const c of requests.replies) check(c.name, c.ok, c.why);
+      // THE MONEY, as every other press's: the routing calls' own costs plus
+      // what each of the request's jobs' rows and ledger both say it took.
+      const money = moneyVerdict({ start: ui.balance.start, end: ui.balance.end, routeCosts: routeCostsOf(ui.steps), jobs: jobRecords });
+      check(`the money closes: routing ${money.routing ?? "?"} + jobs ${money.edits ?? "?"} = the balance's move of ${money.spent ?? "?"}`, money.ok, money.why || `${ui.balance.start} -> ${ui.balance.end}`);
+      // COVERAGE: recorded, never a check.
+      console.log("\n  COVERAGE (which hand-over this run went through; recorded, never failed on):");
+      for (const c of requests.coverage) console.log(`    ${c.covered ? "COVERED    " : "NOT COVERED"}  ${c.name} — ${c.why}`);
+    }
     if (UI_ASK.scenario.publishes === 0) {
       const each = ui.steps.filter((s) => s.sent);
       check(each.length > 1 ? "each message filed exactly one job" : "the message filed exactly one job",
@@ -1212,10 +1285,12 @@ if (UI_ASK) {
   mkdirSync(EVID, { recursive: true });
   // THE RULES RECORD IS WRITTEN WITH ROW IDS AND NEVER ROW CONTENTS: a
   // booking table's rows are its visitors' names and numbers.
-  writeFileSync(`${EVID}/ui.json`, JSON.stringify({ scenario: UI_ASK.name, spend: SPEND, ui: ui.rules ? { ...ui, rules: rulesRecordable(ui.rules) } : ui, chain, removal, additions }, null, 2));
+  writeFileSync(`${EVID}/ui.json`, JSON.stringify({ scenario: UI_ASK.name, spend: SPEND, ui: ui.rules ? { ...ui, rules: rulesRecordable(ui.rules) } : ui, chain, removal, additions, requests }, null, 2));
   writeFileSync(`${EVID}/ui.txt`, told + (chain ? `\n  chain ${chain.verified ? "VERIFIED" : "UNVERIFIED (" + chain.why + ")"}\n` : "\n")
     + (removal ? `  page removal ${removal.ok ? "HAPPENED" : "DID NOT HAPPEN"}\n${removal.checks.map((c) => `    ${c.ok ? "ok  " : "FAIL"}  ${c.name}${c.ok ? "" : " — " + c.why}`).join("\n")}\n` : "")
-    + (additions ? `  additions ${additions.ok ? "ALL LANDED" : "NOT ALL LANDED"}\n${additions.checks.map((c) => `    ${c.ok ? "ok  " : "FAIL"}  ${c.name}${c.ok ? "" : " — " + c.why}`).join("\n")}\n` : ""));
+    + (additions ? `  additions ${additions.ok ? "ALL LANDED" : "NOT ALL LANDED"}\n${additions.checks.map((c) => `    ${c.ok ? "ok  " : "FAIL"}  ${c.name}${c.ok ? "" : " — " + c.why}`).join("\n")}\n` : "")
+    + (requests ? `  request press ${requests.ok ? "PASSED ITS CHECKS" : "FAILED A CHECK"}\n${requests.checks.concat(requests.replies).map((c) => `    ${c.ok ? "ok  " : "FAIL"}  ${c.name}${c.ok ? "" : " — " + c.why}`).join("\n")}\n`
+      + `  coverage (recorded, never failed on)\n${requests.coverage.map((c) => `    ${c.covered ? "COVERED    " : "NOT COVERED"}  ${c.name} — ${c.why}`).join("\n")}\n` : ""));
   console.log(`\n${failed ? "UI MODE FAILED" : "UI MODE PASSED"}: ${ui.sent} message${ui.sent === 1 ? "" : "s"} sent${ui.stopped ? `; stopped at ${ui.stopped.at}` : ""}`);
   process.exit(failed ? 1 : 0);
 }
