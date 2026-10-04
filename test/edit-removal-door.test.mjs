@@ -1532,6 +1532,64 @@ for (const mode of ["sync", "job"]) {
     assert.match(both.reply.msg, /\/starter has no menu to put “Order” in, so it isn't there/);
   });
 
+  // THE OWNER'S REVIEW (2026-10-04): every page named for a footer entry is
+  // accounted for — given the entry in its list, given a list where its frame
+  // has none, or told — and nothing is satisfied while a named page is undone.
+  test(`FRAME ADDITION (${mode}): social links on named pages — a list made where a named page's frame has none, an entry joining a named page's list that lacks it, the page that had it left, and only the named pages touched`, async () => {
+    const INSTA = { to: "social", network: "instagram", href: "https://instagram.com/harbourloaf" };
+    const FB = { to: "social", network: "facebook", href: "https://facebook.com/harbourloafbristol" };
+    const socialOn = (r, f) => (chromeListSlots([{ path: f, source: page(r, f) }], "social")[0] || {}).items;
+    const ask = (site, add, words) => drive({ mode, site, ask: words, routed: { layer: "nav", addition: true }, answers: { write_nav: { add } } });
+    // NO PAGE HAS SOCIAL LINKS: the two named pages are each given the list.
+    const r1 = await ask(undefined, [{ ...INSTA, pages: ["/", "/gallery"] }], "Add our Instagram to the footer of the home and gallery pages.");
+    assert.equal(r1.reply.ok, true, JSON.stringify(r1.reply));
+    for (const f of ["index.tsx", "gallery.tsx"]) assert.deepEqual(socialOn(r1, f).map((i) => i.network), ["instagram"], f);
+    for (const f of ["order.tsx", "visit.tsx", "starter.tsx"]) assert.equal(page(r1, f), ORIG[f], f + " changed");
+    // FACEBOOK ON THE HOME AND VISIT PAGES: joins the home page's list, and /visit — a frame with no list — is given one.
+    const r2 = await ask(r1.site, [{ ...FB, pages: ["/", "/visit"] }], "Add our Facebook to the footer of the home and visit pages.");
+    assert.equal(r2.reply.ok, true, JSON.stringify(r2.reply));
+    assert.deepEqual(socialOn(r2, "index.tsx").map((i) => i.network), ["instagram", "facebook"]);
+    assert.deepEqual(socialOn(r2, "visit.tsx").map((i) => i.network), ["facebook"]);
+    assert.equal(page(r2, "gallery.tsx"), page(r1, "gallery.tsx"), "a page nobody named was given Facebook");
+    assert.equal(page(r2, "order.tsx"), ORIG["order.tsx"]);
+    // INSTAGRAM ON THE HOME AND VISIT PAGES: the home page had it; /visit's list lacks it and gains it.
+    const r3 = await ask(r2.site, [{ ...INSTA, pages: ["/", "/visit"] }], "Add our Instagram to the footer of the home and visit pages.");
+    assert.equal(r3.reply.ok, true, JSON.stringify(r3.reply));
+    assert.notEqual(r3.reply.satisfied, true, "a named page still without it was answered as done");
+    assert.deepEqual(r3.reply.changed, ["visit.tsx"]);
+    assert.deepEqual(socialOn(r3, "visit.tsx").map((i) => i.network), ["facebook", "instagram"]);
+    assert.equal(page(r3, "index.tsx"), page(r2, "index.tsx"), "the page that had it was rewritten");
+    assert.match(r3.reply.msg, /\(\/ already had it\)/);
+    // ASKED AGAIN: done, nothing published, the queued step not charged.
+    const r4 = await ask(r3.site, [{ ...INSTA, pages: ["/", "/visit"] }], "Add our Instagram to the footer of the home and visit pages.");
+    assert.deepEqual([r4.reply.ok, r4.reply.satisfied], [true, true], JSON.stringify(r4.reply));
+    assert.equal(r4.builds.length, 0);
+    if (mode === "job") assert.deepEqual([r4.row.state, r4.row.cost], ["done", 0]);
+  });
+
+  test(`FRAME ADDITION (${mode}): legal links on named pages — a named page with a list keeps it, one without is given it; a named page with no footer is refused by name, never satisfied, and its reserve given back`, async () => {
+    const TERMS = { to: "legal", label: "Terms", href: "https://harbourloaf.example/terms" };
+    const legalOn = (r, f) => (chromeListSlots([{ path: f, source: page(r, f) }], "legal")[0] || {}).items;
+    const ask = (site, add, words) => drive({ mode, site, ask: words, routed: { layer: "nav", addition: true }, answers: { write_nav: { add } } });
+    const r1 = await ask(undefined, [{ ...TERMS, pages: ["/visit"] }], "Add our terms to the footer of the visit page.");
+    assert.deepEqual(legalOn(r1, "visit.tsx"), [{ label: "Terms", href: TERMS.href }]);
+    // /visit HAD IT; /order — a frame with no small print — is given it.
+    const r2 = await ask(r1.site, [{ ...TERMS, pages: ["/visit", "/order"] }], "Add our terms to the footer of the visit and order pages.");
+    assert.equal(r2.reply.ok, true, JSON.stringify(r2.reply));
+    assert.notEqual(r2.reply.satisfied, true);
+    assert.deepEqual(r2.reply.changed, ["order.tsx"]);
+    assert.deepEqual(legalOn(r2, "order.tsx"), [{ label: "Terms", href: TERMS.href }]);
+    assert.match(r2.reply.msg, /\(\/visit already had it\)/);
+    // /starter HAS NO FOOTER: refused by name; /visit's having it never makes the addition done.
+    const r3 = await ask(r2.site, [{ ...TERMS, pages: ["/visit", "/starter"] }], "Add our terms to the footer of the visit and starter pages.");
+    assert.equal(r3.reply.ok, false, JSON.stringify(r3.reply));
+    assert.notEqual(r3.reply.satisfied, true);
+    assert.match(r3.reply.msg, /\/starter has no footer to put “Terms” in, so it isn't there\./);
+    assert.equal(r3.builds.length, 0);
+    assert.equal(page(r3, "starter.tsx"), ORIG["starter.tsx"]);
+    if (mode === "job") assert.equal(r3.row.billing, "refunded", "a refused addition kept its reserve");
+  });
+
   test(`FRAME ADDITION (${mode}): footer legal links — a list is made only where no page in scope has one, a later link goes into the lists that exist, and the pages left without one stay so`, async () => {
     const TERMS = { label: "Terms", href: "https://harbourloaf.example/terms" };
     const PRIVACY = { label: "Privacy", href: "https://harbourloaf.example/privacy" };

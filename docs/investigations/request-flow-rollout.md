@@ -29,10 +29,15 @@ nothing paid run; `docs/investigations/request-batch-findings.md`, *What is
 fixed*): an addition names its items and code puts each into every list in its
 scope that lacks it, and a reply is written on the server once the job's
 outcome and money are final, never by a read. Shown with supplied model answers
-only. **Next, after your merge and deploy**: the free runtime press, then one
-focused paid press, `rq-menu-link` (§4: the bakery's Classes link put into the
-three menus that lack it, its reply the model's own; 3–9), then R2–R5.
-R2–R5 and RW have not been pressed. The presses' record:
+only. **Your review of the fixes** found four more things, now done on the
+branch (`docs/history/2026-10-04-review-round.md`): a footer addition accounts
+for every page it names; a retry is never claimed before its time; the page
+applies a job's outcome at once and follows its reply on its own; and R2–R5
+can be one press, `rq-batch-r2` (§3.1). **Next, after your merge and
+deploy**: the free runtime press, then one focused paid press, `rq-menu-link`
+(§4: the bakery's Classes link put into the three menus that lack it, its
+reply the model's own; 3–9), then R2–R5 in one press. R2–R5 and RW have not
+been pressed. The presses' record:
 `docs/history/2026-10-04-request-batch.md`. The record: `docs/history/2026-10-04-deploy-2181.md`.
 
 Your first order: *"Freeze this implementation and prepare the concrete rollout
@@ -275,6 +280,9 @@ and come back to you (§7).
   the same rule between presses, from its own box (the spend before it) and
   each press's measured spend, and it also stops after a press that fails
   (`docs/instruments.md`).
+- **R2–R5 in one press** (`rq-batch-r2`, 2026-10-04, on your word): the same,
+  from R2, after run 95 did R1. Its box is the batch's spend before it, at
+  least 25 (rq-canary 4, R1 21) plus the focused check's.
 - **The routing evidence comes from these presses themselves.** There is no
   separate routing press: a probe's answer does not bind the next answer to the
   same words, so the evidence that matters is the router's answer to the very
@@ -326,6 +334,19 @@ merged and deployed: as each canary press above, with the scenario box
   before this press …": `4`;
 - the site `fold-lane-bakery`, the deploy sha box `f69c873c`, the image box
   `882477e1bbbe8cbe`; "What to change" and the probe-list box blank.
+
+**R2–R5 in one press (`rq-batch-r2`)**, after the focused check, once the
+continuation is merged and deployed:
+- "Use workflow from": `main`;
+- "Run the ONE paid edit as well (yes/no)": `yes`;
+- the scenario box: `rq-batch-r2`;
+- "REQUEST BATCH ONLY (rq-batch, rq-batch-r2): the credits the batch has
+  already spent before this press …": 25 plus what the focused check cost
+  (its own money check says it);
+- the site `fold-lane-bakery`; the deploy sha and image boxes as that deploy
+  names them; every other box blank.
+- At the upper estimates — the focused check's 9, then R2 25, R3 12, R4 7 and
+  R5 17 — the batch reaches 95 of 100, so every press fits.
 
 ## 4. The batch
 

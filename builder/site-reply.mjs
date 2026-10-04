@@ -112,6 +112,13 @@ export const REPLY_LEASE_MS = REPLY_BG_DEADLINE_MS + 60000;
 export const REPLY_HORIZON_MS = 15 * 60000;
 /** A wait past this, with no writer started, is a lost message: the reply is asked for again. */
 export const REPLY_RETRY_GRACE_MS = 90000;
+/**
+ * HOW EARLY A RETRY'S OWN MESSAGE MAY BE TAKEN (2026-10-04, the owner's
+ * review): the message is sent with the wait itself, so it comes at its time;
+ * this allows only for two machines' clocks disagreeing, never for a
+ * duplicate or early delivery, which waits like any other.
+ */
+export const REPLY_RETRY_SKEW_MS = 2000;
 /** The states of a reply's record — its own progress, never the job's. */
 export const REPLY_STATES = Object.freeze(["pending", "writing", "written", "failed", "none"]);
 
@@ -160,6 +167,27 @@ export function replyNext(rec, now) {
   if (now - rec.asked > REPLY_HORIZON_MS) return "give-up";
   if (rec.state === "writing") return rec.lease && rec.lease.until > now ? "wait" : "requeue";
   return now - (rec.retryAt || rec.asked) > REPLY_RETRY_GRACE_MS ? "requeue" : "wait";
+}
+
+/**
+ * MAY A WRITER TAKE THE REPLY NOW (2026-10-04, the owner's review) — the one
+ * rule at the claim:
+ *   claim   a try is due: none yet, a writer's claim run out, or a retry
+ *           whose time has come;
+ *   skip    not this writer's: written, failed or owed nothing; being written
+ *           under a claim that holds; or a retry not yet due — so a duplicate
+ *           or early delivery spends no try and skips no wait;
+ *   fail    past its horizon, or its tries spent.
+ * `rec` as `readReplyRecord` reads it, or null for none; `now` in ms.
+ */
+export function replyClaim(rec, now) {
+  if (!rec) return "claim";
+  const next = replyNext(rec, now);
+  if (next === "serve" || next === "failed" || next === "none") return "skip";
+  if (rec.state === "writing" && rec.lease && rec.lease.until > now) return "skip";
+  if (next === "give-up" || rec.attempts >= REPLY_BG_ATTEMPTS) return "fail";
+  if (rec.state === "pending" && Number.isFinite(rec.retryAt) && rec.retryAt - now > REPLY_RETRY_SKEW_MS) return "skip";
+  return "claim";
 }
 
 export const REPLY_TOOL = {
@@ -1056,6 +1084,30 @@ export async function writeReply(deps, { facts, context = "", model, deadlineMs 
     why = "uncovered";
   }
   return { ok: false, why, usage, attempts };
+}
+
+/**
+ * WHAT THE JOB DID, IN ONE WORD, FROM THE FACTS ITS REPLY IS WRITTEN FROM
+ * (2026-10-04): the line the page holds a reply's place with while the reply
+ * is written (`PENDING_LINES` in public/edit-poll.js). The owner: *"do not
+ * display "Done" for a failed or refused operation simply because its
+ * explanation is pending."* So "done" is something changed and nothing asked
+ * for left undone or waiting on a question; "partly" is something changed
+ * beside a part not done or a question; "not-done" is nothing changed and a
+ * part not done; "asked" is a question and nothing else; "nothing" is nothing
+ * changed with nothing refused (an addition already there). "" when the facts
+ * say none of these — a skipped body, a list that does not read — and the
+ * page then holds the place with a line that claims nothing.
+ */
+export const REPLY_OUTCOMES = Object.freeze(["done", "partly", "not-done", "asked", "nothing"]);
+export function replyOutcomeOf(read) {
+  const facts = read && Array.isArray(read.facts) ? read.facts : [];
+  const has = (kind) => facts.some((f) => f && f.kind === kind);
+  if (has("changed")) return has("not-done") || has("question") ? "partly" : "done";
+  if (has("not-done")) return "not-done";
+  if (has("question")) return "asked";
+  if (has("nothing")) return "nothing";
+  return "";
 }
 
 /** The answer with the reply on it, as one new object: every field kept, `reply` and `replySource` added. */

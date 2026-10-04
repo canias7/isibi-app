@@ -1620,8 +1620,17 @@ function itemsLeftOut(dropped) {
   for (const d of list.filter((x) => x.why === "no-list-there")) {
     out += " " + (d.page || "That page") + " has no " + listSaid(d) + " to put " + name(d) + " in, so it isn't there.";
   }
+  for (const d of list.filter((x) => x.why === "no-footer-there")) {
+    out += " " + (d.page || "That page") + " has no footer to put " + name(d) + " in, so it isn't there.";
+  }
+  for (const d of list.filter((x) => x.why === "not-written")) {
+    out += " I couldn't write " + name(d) + " into " + (d.page || "that page") + "'s " + listSaid(d) + ", so it isn't there.";
+  }
+  for (const d of list.filter((x) => x.why === "home-self")) {
+    out += " " + name(d) + " goes to the home page itself, and the home page's menu doesn't link to itself, so it isn't there.";
+  }
   for (const d of list.filter((x) => x.why === "no-list")) out += " There's no " + listSaid(d) + " on the site to put " + name(d) + " in.";
-  const own = new Set(["no-such-page", "page-local", "no-such-scope", "no-list-there", "no-list"]);
+  const own = new Set(["no-such-page", "page-local", "no-such-scope", "no-list-there", "no-footer-there", "not-written", "home-self", "no-list"]);
   const other = list.filter((d) => !own.has(d.why));
   if (other.length) {
     out += " I left out " + other.map((d) => name(d) + (REASON[d.why] ? " (" + REASON[d.why] + ")" : "")).join(", ") +
@@ -1871,18 +1880,25 @@ export function applyAdditions(pages, adds) {
   let cur = Array.isArray(pages) ? pages : [];
   const list = (Array.isArray(adds) ? adds : []).filter((a) => a && a.item && typeof a.item.href === "string" && Object.hasOwn(ADD_LISTS, a.to));
   const inScope = (a, page) => !a.pages || a.pages.includes(routeOf(page));
-  const report = list.map((a) => ({ add: a, targets: [], had: [], added: [], missing: [] }));
+  const report = list.map((a) => ({ add: a, targets: [], had: [], added: [], missing: [], home: null }));
   const changed = new Set();
   const placed = (a) => ({ item: a.item, after: a.after || "$end" });
 
   const menuAt = list.map((a, i) => [a, i]).filter(([a]) => a.to === "menu");
   if (menuAt.length) {
     const before = navSlots(cur);
-    const target = (a, s) => inScope(a, s.page) && !(a.item.href === "/" && routeOf(s.page) === "/" && !s.items.some((it) => it.href === "/"));
+    // THE HOME PAGE IS NO TARGET FOR A LINK TO ITSELF unless it lists one:
+    // the menu writer's own rule (`applyNav`), which never writes one there.
+    // Nobody named it: left out, as ever. NAMED (2026-10-04, the owner's
+    // review: every named page is accounted for), it is reported with that
+    // reason (`home`), and the addition is never counted as done.
+    const selfLink = (a, s) => a.item.href === "/" && routeOf(s.page) === "/" && !s.items.some((it) => it.href === "/");
+    const target = (a, s) => inScope(a, s.page) && !selfLink(a, s);
     const holds = (slots, page, href) => { const mine = slots.filter((s) => s.page === page); return mine.length > 0 && mine.every((s) => s.items.some((it) => it.href === href)); };
     for (const [a, i] of menuAt) {
       const r = report[i];
       for (const s of before) if (target(a, s) && !r.targets.includes(s.page)) r.targets.push(s.page);
+      if (a.pages && before.some((s) => inScope(a, s.page) && selfLink(a, s))) r.home = "/";
       if (a.pages) for (const route of a.pages) if (!before.some((s) => routeOf(s.page) === route)) r.missing.push(route);
       r.had = r.targets.filter((pg) => holds(before, pg, a.item.href));
     }
@@ -1905,7 +1921,13 @@ export function applyAdditions(pages, adds) {
       const r = report[i];
       const scoped = before.filter((s) => inScope(a, s.page));
       const there = scoped.filter((s) => Array.isArray(s.items));
-      const targets = there.length ? there : scoped;
+      // EVERY PAGE THEY NAMED IS A TARGET (2026-10-04, the owner's review): a
+      // named page whose frame has no such list yet is given one, since they
+      // asked for it there; a named page with no frame at all is `missing`,
+      // below, and told. UNNAMED, the entry goes where the site has the list
+      // — a page without it may be without it on purpose — and the list is
+      // made on every frame only when no page has one.
+      const targets = a.pages ? scoped : (there.length ? there : scoped);
       aim.set(i, new Set(targets.map(listSlotKey)));
       r.targets = [...new Set(targets.map((s) => s.page))];
       if (a.pages) for (const route of a.pages) if (!before.some((s) => routeOf(s.page) === route)) r.missing.push(route);
@@ -1992,16 +2014,18 @@ export function firstButton(read, hasButton) {
 export function additionReply({ report = [], dropped = [], action = null, secondAction = null, contact = null, already = null } = {}) {
   const pagesSaid = (list) => list.length === 1 ? routeOf(list[0]) || list[0] : list.length + " pages";
   const nameOf = (a) => (a.to === "social" ? a.item.network : "“" + a.item.label + "”");
-  const scopeSaid = (a) => (a.pages ? "on " + a.pages.join(", ") : "on every page that has one");
+  const scopeSaid = (r) => (!r.add.pages && r.had.length === r.targets.length ? "on every page that has one" : "on " + r.had.map((pg) => routeOf(pg) || pg).join(", "));
   const did = [], was = [];
   // ONE SENTENCE PER LIST AND PLACE: items added to the same list on the same
   // pages are named together, in the order they were asked for.
   const groups = new Map();
   for (const r of Array.isArray(report) ? report : []) {
     const a = r.add;
-    const kind = r.added.length ? "did" : r.targets.length && r.had.length === r.targets.length && !r.missing.length ? "was" : "";
+    // ALREADY THERE is said for the pages that had it — beside any page it
+    // could not reach, which the dropped note names with its reason.
+    const kind = r.added.length ? "did" : r.had.length ? "was" : "";
     if (!kind) continue;
-    const key = kind + "\u0000" + a.to + "\u0000" + JSON.stringify(kind === "did" ? [r.added, r.had] : a.pages || "*");
+    const key = kind + "\u0000" + a.to + "\u0000" + JSON.stringify(kind === "did" ? [r.added, r.had] : [!!a.pages, r.had, r.targets.length]);
     if (!groups.has(key)) groups.set(key, { kind, r, names: [] });
     groups.get(key).names.push(nameOf(a));
   }
@@ -2012,7 +2036,7 @@ export function additionReply({ report = [], dropped = [], action = null, second
         (r.had.length ? " (" + (r.had.length === 1 ? routeOf(r.had[0]) + " already had " + (names.length === 1 ? "it" : "them") : "the other " + r.had.length + " already had " + (names.length === 1 ? "it" : "them")) + ")" : "") +
         (a.to === "menu" ? (r.added.length === 1 ? ", beside the items it had" : ", beside the items each had") : ""));
     } else {
-      was.push(names.join(", ") + (names.length === 1 ? " is" : " are") + " already in " + ADD_LISTS[a.to] + " " + scopeSaid(a));
+      was.push(names.join(", ") + (names.length === 1 ? " is" : " are") + " already in " + ADD_LISTS[a.to] + " " + scopeSaid(r));
     }
   }
   if (action) did.push("added a button at the top, “" + action.label + "”, going to " + action.href);
@@ -2049,17 +2073,26 @@ const NOTHING_READ = Object.freeze({ links: null, dropped: [], action: undefined
  * what could not go where it was asked — a page they named with no such list,
  * or no page with the list at all; never a list made where there was none —
  * which were already true everywhere they were asked for, and the items each
- * list gained.
+ * list gained. EXPORTED FOR ITS GUARD (2026-10-04): a target the writer left
+ * without the entry is a case the real writer never makes, so it is driven
+ * here, from a report, or nothing could fail on it.
  */
-function additionOutcome(report) {
+export function additionOutcome(report) {
   const notThere = [];
   for (const r of report) {
     const label = r.add.to === "social" ? r.add.item.network : r.add.item.label;
     const list = r.add.to !== "menu" ? { list: r.add.to } : {};
-    for (const route of r.missing) notThere.push({ label, href: r.add.item.href, why: "no-list-there", page: route, ...list });
+    // A NAMED PAGE WITHOUT THE PLACE FOR IT: no menu, or — for a footer list —
+    // no footer at all to make the list in.
+    for (const route of r.missing) notThere.push({ label, href: r.add.item.href, why: r.add.to === "menu" ? "no-list-there" : "no-footer-there", page: route, ...list });
     if (!r.add.pages && !r.targets.length) notThere.push({ label, href: r.add.item.href, why: "no-list", ...list });
+    // A TARGET THAT NEITHER HAD IT NOR GAINED IT — the writer could not put it
+    // there — is never left unsaid (2026-10-04): every target is accounted for.
+    for (const pg of r.targets) if (!r.had.includes(pg) && !r.added.includes(pg)) notThere.push({ label, href: r.add.item.href, why: "not-written", page: routeOf(pg) || pg, ...list });
+    // THE HOME PAGE THEY NAMED FOR A LINK TO ITSELF, which its menu does not take.
+    if (r.home) notThere.push({ label, href: r.add.item.href, why: "home-self", page: r.home, ...list });
   }
-  const isAlready = (r) => !r.added.length && r.targets.length > 0 && r.had.length === r.targets.length && !r.missing.length;
+  const isAlready = (r) => !r.added.length && r.targets.length > 0 && r.had.length === r.targets.length && !r.missing.length && !r.home;
   const items = (to, rs) => rs.filter((r) => r.add.to === to).map((r) => r.add.item);
   const there = report.filter(isAlready);
   const added = report.filter((r) => r.added.length);

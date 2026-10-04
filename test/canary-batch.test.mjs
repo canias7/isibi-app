@@ -19,7 +19,7 @@ import { spawnSync } from "node:child_process";
 import { UI_SCENARIOS, UI_PRESS_MAX_MS, stepBoundMs } from "../scripts/canary-ui.mjs";
 import {
   BATCH_NAME, BATCH_THRESHOLD, BATCH, BATCH_PRESS_OVERHEAD_MS, batchWorstMs, readBatchSpent, fits, spentOf, runBatch,
-  describeBatch, batchRefusal,
+  describeBatch, batchRefusal, BATCH_FROM_R2_NAME, BATCH_FROM_R2, BATCH_FROM_R2_SPENT_MIN, batchOf,
 } from "../scripts/canary-batch.mjs";
 
 const ROOT = new URL("../", import.meta.url).pathname;
@@ -38,6 +38,7 @@ test("the batch is R1 to R5 in the plan's order, each a request scenario on the 
   assert.match(PLAN, /\*\*The threshold of 100 is a check between presses, not a ceiling\.\*\*/, "the plan no longer names its threshold");
   for (const [i, p] of BATCH.entries()) {
     const s = UI_SCENARIOS[p.name];
+    assert.equal(p.n, i + 1, `${p.name} does not carry its own number in the plan`);
     assert.ok(s, `${p.name} is not a scenario`);
     assert.equal(s.request, true, `${p.name} is not a request press`);
     assert.equal(s.site, "fold-lane-bakery");
@@ -50,11 +51,14 @@ test("the batch is R1 to R5 in the plan's order, each a request scenario on the 
   assert.equal(UI_SCENARIOS[BATCH_NAME], undefined);
 });
 
-test("the workflow gives the batch alone a longer limit that covers its worst case, and every other run keeps 45", () => {
-  const m = /timeout-minutes:\s*\$\{\{\s*github\.event\.inputs\.ui_scenario == '([^']+)' && (\d+) \|\| (\d+)\s*\}\}/.exec(FLOW);
+test("the workflow gives the batch and its continuation from R2 alone a longer limit that covers the worst case, and every other run keeps 45", () => {
+  const m = /timeout-minutes:\s*\$\{\{\s*\(github\.event\.inputs\.ui_scenario == '([^']+)' \|\| github\.event\.inputs\.ui_scenario == '([^']+)'\) && (\d+) \|\| (\d+)\s*\}\}/.exec(FLOW);
   assert.ok(m, "the workflow's limit is not the batch's expression");
-  assert.equal(m[1], BATCH_NAME);
-  const batchMin = Number(m[2]), otherMin = Number(m[3]);
+  assert.deepEqual([m[1], m[2]], [BATCH_NAME, BATCH_FROM_R2_NAME]);
+  const batchMin = Number(m[3]), otherMin = Number(m[4]);
+  // THE CONTINUATION IS FOUR OF THE FIVE: inside the same limit, with more to spare.
+  assert.ok(batchWorstMs(BATCH_FROM_R2) < batchWorstMs(), "the continuation's worst case is not less than the whole batch's");
+  assert.ok(batchWorstMs(BATCH_FROM_R2) + 15 * 60_000 <= batchMin * 60_000);
   assert.equal(otherMin, 45, "a single press's limit moved");
   assert.equal(batchMin, 180);
   // Every message at its bound and every press at its overhead, and still a
@@ -76,7 +80,7 @@ test("the workflow's form carries the batch's box, hands it to the canary, names
   assert.match(FLOW, /\n {6}batch_spent:\n/, "the form has no batch box");
   const at = FLOW.indexOf("\n      batch_spent:\n");
   const box = FLOW.slice(at, FLOW.indexOf("\n      rules_allow:\n", at));
-  assert.match(box, /description: 'REQUEST BATCH ONLY \(rq-batch\):[^']*100[^']*'/);
+  assert.match(box, /description: 'REQUEST BATCH ONLY \(rq-batch, rq-batch-r2\):[^']*for rq-batch-r2, rq-canary and R1 cost 25 together, plus what the focused check cost[^']*100[^']*'/);
   assert.match(box, /required: false\n {8}default: ''/);
   assert.match(FLOW, /CANARY_BATCH_SPENT:\s*\$\{\{\s*github\.event\.inputs\.batch_spent\s*\}\}/);
   // The box never arms spending.
@@ -85,6 +89,7 @@ test("the workflow's form carries the batch's box, hands it to the canary, names
   const sAt = FLOW.indexOf("\n      ui_scenario:\n");
   const sBox = FLOW.slice(sAt, FLOW.indexOf("\n      batch_spent:\n", sAt));
   assert.match((sBox.match(/description: '([^']*)'/) || [])[1] || "", /rq-batch \(rq-1-classes to rq-5-away in order in this one run/);
+  assert.match((sBox.match(/description: '([^']*)'/) || [])[1] || "", /rq-batch-r2 \(its continuation: rq-2-wholesale to rq-5-away the same way, never pressing rq-canary or rq-1-classes again; fill the batch box\)/);
   // One canary step, as before: the script hands the mode on itself.
   assert.equal(FLOW.split("run: node scripts/edit-canary.mjs").length - 1, 1);
   assert.doesNotMatch(FLOW, /canary-batch\.mjs\s*$/m, "the workflow runs the batch module directly");
@@ -92,13 +97,13 @@ test("the workflow's form carries the batch's box, hands it to the canary, names
 
 test("the canary hands the mode on before anything is signed in, and refuses the batch's box beside any other run", () => {
   const ui = CANARY.indexOf('const UI = String(process.env.CANARY_UI || "").trim();');
-  const hand = CANARY.indexOf("if (UI === BATCH_NAME) process.exit(await runBatchMain(process.env));");
+  const hand = CANARY.indexOf("if (batchOf(UI)) process.exit(await runBatchMain(process.env));");
   const box = CANARY.indexOf('if (String(process.env.CANARY_BATCH_SPENT || "").trim()) {');
   const need = CANARY.indexOf("if (!EMAIL || !SERVICE_KEY || (!CANARY && !READ_JOB)) {");
   const signIn = CANARY.indexOf("/auth/v1/admin/generate_link");
   for (const [n, i] of Object.entries({ ui, hand, box, need, signIn })) assert.ok(i > 0, `${n} not found`);
   assert.ok(ui < hand && hand < box && box < need && need < signIn, "the hand-on or the box's refusal is not above the sign-in");
-  assert.match(CANARY, /import \{ BATCH_NAME, runBatchMain \} from "\.\/canary-batch\.mjs";/);
+  assert.match(CANARY, /import \{ BATCH_NAME, BATCH_FROM_R2_NAME, batchOf, runBatchMain \} from "\.\/canary-batch\.mjs";/);
 });
 
 // ── THE READERS ───────────────────────────────────────────────────────────
@@ -142,14 +147,14 @@ test("a press's spend is the move of the balance it read itself, or cannot-tell"
 
 // ── THE BATCH, DRIVEN ─────────────────────────────────────────────────────
 
-function driven({ codes = {}, spends = {}, records = {}, spent0 = 4, spend = true } = {}) {
+function driven({ codes = {}, spends = {}, records = {}, spent0 = 4, spend = true, batch } = {}) {
   const calls = [];
   const logs = [];
   let bal = 133;
   return {
     calls, logs,
     run: () => runBatch({
-      spent0, spend,
+      spent0, spend, ...(batch ? { batch } : {}),
       runOne: async (name) => { calls.push(name); return Object.hasOwn(codes, name) ? codes[name] : 0; },
       readRecord: (name) => {
         if (Object.hasOwn(records, name)) return records[name];
@@ -345,6 +350,8 @@ test("the real canary script runs the five presses in order, one at a time, each
   assert.equal(batch.stopped, null);
   assert.deepEqual(batch.results.map((x) => [x.name, x.code, x.spent]), NAMES.map((n) => [n, 0, plan[n].spent]));
   assert.match(fs.readFileSync(`${st.evid}/batch.txt`, "utf8"), /BATCH ENDED: no press failed/);
+  assert.equal(batch.name, BATCH_NAME);
+  assert.doesNotMatch(r.stdout, /THE CONTINUATION FROM R2/, "the whole batch was told as the continuation");
 });
 
 test("the real script stops after a failed press and answers 1; before a press past 100 and answers 0", () => {
@@ -395,4 +402,158 @@ test("the real script refuses the whole batch with 2 before any press, and refus
   assert.equal(r.status, 2, r.stdout + r.stderr);
   assert.match(r.stderr, /REFUSING: the batch's spend box is filled, but the scenario box does not name rq-batch/);
   assert.deepEqual(pressesOf(st), []);
+});
+
+// ── THE CONTINUATION FROM R2 (`rq-batch-r2`, 2026-10-04) ──────────────────
+//
+// The owner: *"prepare a minimal continuation option for rq-batch starting at
+// R2 so we can run R2–R5 in one press after the focused check, preserving
+// sequential execution, failure stops and the existing spending threshold
+// without repeating R1 or rq-canary."* The same driver and the same presses;
+// what is held here is that it starts at R2, never presses R1 or rq-canary,
+// tells each press by its own number, stops exactly as the batch does, and
+// counts its threshold from what the batch has really spent.
+
+const R2_ON = NAMES.slice(1);
+
+test("the continuation from R2 is R2 to R5 — the batch's own presses, numbers and upper estimates — and never R1 or rq-canary", () => {
+  assert.equal(BATCH_FROM_R2_NAME, "rq-batch-r2");
+  assert.deepEqual(BATCH_FROM_R2.map((p) => p.name), R2_ON);
+  assert.deepEqual(BATCH_FROM_R2.map((p) => p.n), [2, 3, 4, 5]);
+  for (const p of BATCH_FROM_R2) assert.ok(BATCH.includes(p), `${p.name} is a copy of the batch's press, which could drift from it`);
+  assert.ok(!BATCH_FROM_R2.some((p) => p.name === "rq-1-classes" || p.name === "rq-canary"));
+  assert.equal(batchOf(BATCH_NAME), BATCH);
+  assert.equal(batchOf(BATCH_FROM_R2_NAME), BATCH_FROM_R2);
+  for (const other of ["rq-canary", "rq-1-classes", "rq-batch-r3", "RQ-BATCH-R2", " rq-batch-r2", "", undefined, null, ["rq-batch-r2"]]) {
+    assert.equal(batchOf(other), null, JSON.stringify(other) + " was read as a batch");
+  }
+  assert.equal(UI_SCENARIOS[BATCH_FROM_R2_NAME], undefined, "the continuation's name is a scenario, so a press could run it alone");
+  // WHAT THE BATCH HAD SPENT BEFORE R2, AS RECORDED: rq-canary 4 (run 94) and R1 21 (run 95).
+  assert.equal(BATCH_FROM_R2_SPENT_MIN, 4 + 21);
+});
+
+test("the continuation presses R2 to R5 in order, tells each by its own number, and adds their spend to what the batch had", async () => {
+  const d = driven({ batch: BATCH_FROM_R2, spent0: 31, spends: { "rq-2-wholesale": 15, "rq-3-facebook": 6, "rq-4-logo": 3, "rq-5-away": 11 } });
+  const out = await d.run();
+  assert.deepEqual(d.calls, R2_ON);
+  assert.equal(out.ok, true);
+  assert.equal(out.stopped, null);
+  assert.equal(out.spent, 31 + 15 + 6 + 3 + 11);
+  assert.ok(d.logs.some((l) => /R2 rq-2-wholesale: spent so far 31, its upper estimate 25, 56 within 100/.test(l)), d.logs.join("\n"));
+  assert.ok(d.logs.some((l) => /R5 rq-5-away: PASSED, spent 11; the batch has spent 66/.test(l)), d.logs.join("\n"));
+  assert.ok(!d.logs.some((l) => /\bR1\b/.test(l)), "a press was told as R1");
+  const told = describeBatch(out, { spent0: 31, batch: BATCH_FROM_R2 });
+  assert.match(told, /4 of 4 pressed; spent before 31, in this press 35, the batch 66/);
+  assert.match(told, /R2 rq-2-wholesale\s+PASSED/);
+  assert.match(told, /R5 rq-5-away\s+PASSED/);
+  assert.doesNotMatch(told, /rq-1-classes|\bR1\b/);
+  // THE PLAN'S OWN CASE: 25 spent, the focused check at its upper estimate,
+  // then R2–R5 at theirs — within 100, so every press is made.
+  const check = UI_SCENARIOS["rq-menu-link"].budget - 1;
+  const d2 = driven({ batch: BATCH_FROM_R2, spent0: 25 + check, spends: Object.fromEntries(BATCH_FROM_R2.map((p) => [p.name, p.upper])) });
+  const o2 = await d2.run();
+  assert.deepEqual(d2.calls, R2_ON);
+  assert.equal(o2.spent, 25 + check + 25 + 12 + 7 + 17);
+  assert.ok(o2.spent <= BATCH_THRESHOLD, `the plan's own case reaches ${o2.spent}`);
+});
+
+test("the continuation stops after a failed press, after a press whose spend cannot be read, and before a press past 100 — exactly as the batch does", async () => {
+  const d = driven({ batch: BATCH_FROM_R2, spent0: 31, codes: { "rq-3-facebook": 1 } });
+  const out = await d.run();
+  assert.deepEqual(d.calls, ["rq-2-wholesale", "rq-3-facebook"]);
+  assert.equal(out.ok, false);
+  assert.equal(out.stopped.after, "rq-3-facebook");
+  assert.match(out.stopped.why, /R3 rq-3-facebook failed \(exit 1\), so the rest were not pressed/);
+  const told = describeBatch(out, { spent0: 31, batch: BATCH_FROM_R2 });
+  assert.match(told, /R3 rq-3-facebook\s+FAILED \(exit 1\)/);
+  assert.match(told, /-- rq-4-logo\s+not pressed/);
+  assert.match(told, /-- rq-5-away\s+not pressed/);
+  assert.match(told, /BATCH FAILED/);
+  const d2 = driven({ batch: BATCH_FROM_R2, spent0: 31, records: { "rq-2-wholesale": null } });
+  const o2 = await d2.run();
+  assert.deepEqual(d2.calls, ["rq-2-wholesale"]);
+  assert.equal(o2.ok, false);
+  assert.match(o2.stopped.why, /R2 rq-2-wholesale's spend could not be read/);
+  // AT THE UPPER ESTIMATES FROM 40: 65, 77, 84 — and R5's 17 would take it to 101.
+  const d3 = driven({ batch: BATCH_FROM_R2, spent0: 40, spends: { "rq-2-wholesale": 25, "rq-3-facebook": 12, "rq-4-logo": 7 } });
+  const o3 = await d3.run();
+  assert.deepEqual(d3.calls, ["rq-2-wholesale", "rq-3-facebook", "rq-4-logo"]);
+  assert.equal(o3.ok, true);
+  assert.equal(o3.stopped.before, "rq-5-away");
+  assert.match(o3.stopped.why, /the batch has spent 84; R5 rq-5-away's upper estimate of 17 would take it to 101, past 100/);
+  // AND BEFORE R2 ITSELF, when even it does not fit.
+  const d4 = driven({ batch: BATCH_FROM_R2, spent0: 76 });
+  const o4 = await d4.run();
+  assert.deepEqual(d4.calls, []);
+  assert.equal(o4.stopped.before, "rq-2-wholesale");
+  assert.match(o4.stopped.why, /R2 rq-2-wholesale's upper estimate of 25 would take it to 101/);
+});
+
+test("the continuation's box counts what rq-canary and R1 already spent: under 25 it is refused before any press, as a blank box, the wrong site or a paid press without its version are", () => {
+  const ok = { CANARY_BATCH_SPENT: "31", CANARY_SLUG: "fold-lane-bakery", CANARY_SPEND: "1", EXPECT_DEPLOY: "f69c873c", EXPECT_IMAGE: "882477e1bbbe8cbe" };
+  assert.deepEqual(batchRefusal(ok, BATCH_FROM_R2), { spent0: 31 });
+  assert.deepEqual(batchRefusal({ ...ok, CANARY_BATCH_SPENT: "25" }, BATCH_FROM_R2), { spent0: 25 });
+  for (const low of ["24", "4", "0"]) {
+    assert.match(batchRefusal({ ...ok, CANARY_BATCH_SPENT: low }, BATCH_FROM_R2).why, /the continuation from R2 follows rq-canary and R1, which spent 25 between them, so the batch's spend so far is at least 25/);
+  }
+  // THE WHOLE BATCH KEEPS ITS OWN BOX: 4 is still its first press's spend so far.
+  assert.deepEqual(batchRefusal({ ...ok, CANARY_BATCH_SPENT: "4" }), { spent0: 4 });
+  assert.match(batchRefusal({ ...ok, CANARY_BATCH_SPENT: "" }, BATCH_FROM_R2).why, /blank/);
+  assert.match(batchRefusal({ ...ok, CANARY_SLUG: "fretwork-1" }, BATCH_FROM_R2).why, /runs on fold-lane-bakery, and the site box says fretwork-1/);
+  assert.match(batchRefusal({ ...ok, EXPECT_DEPLOY: "" }, BATCH_FROM_R2).why, /deploy sha and image boxes/);
+  assert.deepEqual(batchRefusal({ ...ok, CANARY_SPEND: "0", EXPECT_DEPLOY: "", EXPECT_IMAGE: "" }, BATCH_FROM_R2), { spent0: 31 });
+});
+
+const PAID_R2 = { ...PAID, CANARY_UI: "rq-batch-r2", CANARY_BATCH_SPENT: "31" };
+
+test("the real canary script, named rq-batch-r2, presses R2 to R5 in order, one at a time, each with its own scenario and evidence — never R1 or rq-canary — and stops and refuses as the batch does", () => {
+  const st = stage();
+  const plan = { "rq-2-wholesale": { spent: 15 }, "rq-3-facebook": { spent: 6 }, "rq-4-logo": { spent: 3 }, "rq-5-away": { spent: 11 } };
+  const r = runReal({ ...PAID_R2, STUB_PLAN: JSON.stringify(plan) }, st);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  const presses = pressesOf(st);
+  assert.deepEqual(presses.map((p) => p.ui), R2_ON);
+  for (const p of presses) {
+    assert.equal(p.evid, `${st.evid}/${p.ui}`);
+    assert.equal(p.box, false, "a press was handed the batch's box");
+    assert.equal(p.childVar, false);
+    assert.equal(p.slug, "fold-lane-bakery");
+    assert.equal(p.spend, "1");
+  }
+  for (let i = 1; i < presses.length; i++) assert.ok(presses[i].t >= presses[i - 1].end, "two presses overlapped");
+  assert.match(r.stdout, /REQUEST BATCH — rq-2-wholesale, rq-3-facebook, rq-4-logo, rq-5-away, in that order, one at a time, on fold-lane-bakery; PAID; spent before 31, threshold 100 between presses/);
+  assert.match(r.stdout, /THE CONTINUATION FROM R2: rq-1-classes and rq-canary are done, and neither is pressed again/);
+  assert.match(r.stdout, /4 of 4 pressed; spent before 31, in this press 35, the batch 66/);
+  assert.doesNotMatch(r.stdout, /PRESS rq-1-classes|PRESS rq-canary/);
+  const batch = JSON.parse(fs.readFileSync(`${st.evid}/batch.json`, "utf8"));
+  assert.equal(batch.name, BATCH_FROM_R2_NAME);
+  assert.deepEqual(batch.batch.map((p) => [p.n, p.name]), [[2, "rq-2-wholesale"], [3, "rq-3-facebook"], [4, "rq-4-logo"], [5, "rq-5-away"]]);
+  assert.equal(batch.threshold, 100);
+  assert.equal(batch.spent, 66);
+  assert.equal(batch.ok, true);
+  // A FAILED PRESS STOPS IT: nothing after it is pressed, and it answers 1.
+  const st2 = stage();
+  const r2 = runReal({ ...PAID_R2, STUB_PLAN: JSON.stringify({ "rq-2-wholesale": { spent: 10, code: 1 } }) }, st2);
+  assert.equal(r2.status, 1, r2.stdout + r2.stderr);
+  assert.deepEqual(pressesOf(st2).map((p) => p.ui), ["rq-2-wholesale"]);
+  assert.match(r2.stdout, /stopped after rq-2-wholesale: R2 rq-2-wholesale failed \(exit 1\)/);
+  // BEFORE A PRESS PAST 100, and it answers 0.
+  const st3 = stage();
+  const r3 = runReal({ ...PAID_R2, CANARY_BATCH_SPENT: "40", STUB_PLAN: JSON.stringify({ "rq-2-wholesale": { spent: 25 }, "rq-3-facebook": { spent: 12 }, "rq-4-logo": { spent: 7 } }) }, st3);
+  assert.equal(r3.status, 0, r3.stdout + r3.stderr);
+  assert.deepEqual(pressesOf(st3).map((p) => p.ui), ["rq-2-wholesale", "rq-3-facebook", "rq-4-logo"]);
+  assert.match(r3.stdout, /STOPPING BEFORE R5 rq-5-away: the batch has spent 84; R5 rq-5-away's upper estimate of 17 would take it to 101, past 100/);
+  // A BOX UNDER WHAT THE BATCH HAS SPENT: refused with 2 before any press, nothing signed in.
+  const st4 = stage();
+  const r4 = runReal({ ...PAID_R2, CANARY_BATCH_SPENT: "4" }, st4);
+  assert.equal(r4.status, 2, r4.stdout + r4.stderr);
+  assert.match(r4.stderr, /REFUSING THE BATCH: the continuation from R2 follows rq-canary and R1, which spent 25 between them/);
+  assert.match(r4.stderr, /Nothing was signed in, pressed or charged\./);
+  assert.deepEqual(pressesOf(st4), []);
+  // AND THE BOX BESIDE A SINGLE PRESS STILL REFUSES, naming both batches.
+  const st5 = stage();
+  const r5 = runReal({ CANARY_UI: "rq-2-wholesale", CANARY_BATCH_SPENT: "31", CANARY_SLUG: "fold-lane-bakery" }, st5);
+  assert.equal(r5.status, 2, r5.stdout + r5.stderr);
+  assert.match(r5.stderr, /REFUSING: the batch's spend box is filled, but the scenario box does not name rq-batch or rq-batch-r2/);
+  assert.deepEqual(pressesOf(st5), []);
 });

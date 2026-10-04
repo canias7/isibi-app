@@ -1000,14 +1000,40 @@ batch's spend would pass 100: *"yeah do that better"*.
   (`fold-lane-bakery`); a paid batch without the deploy and image boxes.
   The batch box beside any other run is refused the same way.
 - **ITS LIMIT**: the workflow's `timeout-minutes` is 180 for `rq-batch`
-  alone and 45 for every other run. The batch's worst case, every message
-  at its bound and six minutes per press beyond (`batchWorstMs`), is 145
-  minutes.
+  and its continuation `rq-batch-r2` (below), and 45 for every other run.
+  The batch's worst case, every message at its bound and six minutes per
+  press beyond (`batchWorstMs`), is 145 minutes; the continuation's is four
+  of those presses.
 - **ITS RECORD**: each press's own evidence under its name, and
   `batch.json` and `batch.txt`: each press's exit and spend, the batch's
   spend, and where and why it stopped.
 - **WITHOUT `spend`** every press is a rehearsal that sends nothing, and
   the batch counts nothing spent.
+
+### THE BATCH'S CONTINUATION FROM R2 (`rq-batch-r2`, 2026-10-04 — on the branch)
+
+The owner: *"prepare a minimal continuation option for rq-batch starting at
+R2 so we can run R2–R5 in one press after the focused check, preserving
+sequential execution, failure stops and the existing spending threshold
+without repeating R1 or rq-canary."*
+- **WHAT IT IS**: the scenario box's `rq-batch-r2` runs `rq-2-wholesale`,
+  `rq-3-facebook`, `rq-4-logo` and `rq-5-away`, in that order, through the
+  same driver as `rq-batch` (`batchOf`, `scripts/canary-batch.mjs`): the
+  same presses and upper estimates, the threshold of 100 between presses, one
+  press at a time as its own process, and the same three stops. Neither
+  `rq-canary` nor `rq-1-classes` is pressed.
+- **EACH PRESS KEEPS ITS NUMBER** (`n`): the log and `batch.txt` say R2–R5,
+  and `batch.json` names the batch.
+- **ITS BOX** is what the batch spent before it: rq-canary's 4 and R1's 21,
+  plus the focused check's. **Under 25 it is refused whole** (exit 2, nothing
+  signed in), so the threshold never counts from too low. Otherwise it is
+  refused exactly as `rq-batch` is (a blank or non-numeric box, the wrong
+  site, a paid run without the deploy and image boxes).
+- **Proven with a stand-in press only** (`test/canary-batch.test.mjs`): R2 to
+  R5 exactly, in order, one at a time, never R1 or rq-canary; stopping after
+  a failed press, after one with no record, before one past 100 and before
+  R2 itself; the box's floor; the form and the limit.
+- **The press** is in `docs/history/2026-10-04-review-round.md` §4.
 - **WHERE IT RUNS FROM**: the mode is on the branch, not on `main`, so it
   is pressed with "Use workflow from" set to the branch. The live Worker
   it checks is whatever is deployed; the press's own deploy and image boxes

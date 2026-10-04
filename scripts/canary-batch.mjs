@@ -39,14 +39,36 @@ export const BATCH_NAME = "rq-batch";
 export const BATCH_THRESHOLD = 100;
 // THE ORDER, AND EACH PRESS'S UPPER ESTIMATE, as the rollout plan's §7 has them
 // (docs/investigations/request-flow-rollout.md). Each is its scenario's budget
-// less one; a test holds both ties.
+// less one; a test holds both ties. `n` is the press's own number in the plan,
+// which a batch that starts later keeps.
 export const BATCH = Object.freeze([
-  Object.freeze({ name: "rq-1-classes", upper: 24 }),
-  Object.freeze({ name: "rq-2-wholesale", upper: 25 }),
-  Object.freeze({ name: "rq-3-facebook", upper: 12 }),
-  Object.freeze({ name: "rq-4-logo", upper: 7 }),
-  Object.freeze({ name: "rq-5-away", upper: 17 }),
+  Object.freeze({ name: "rq-1-classes", n: 1, upper: 24 }),
+  Object.freeze({ name: "rq-2-wholesale", n: 2, upper: 25 }),
+  Object.freeze({ name: "rq-3-facebook", n: 3, upper: 12 }),
+  Object.freeze({ name: "rq-4-logo", n: 4, upper: 7 }),
+  Object.freeze({ name: "rq-5-away", n: 5, upper: 17 }),
 ]);
+// THE CONTINUATION FROM R2 (`rq-batch-r2`, 2026-10-04). The owner: *"prepare
+// a minimal continuation option for rq-batch starting at R2 so we can run
+// R2–R5 in one press after the focused check, preserving sequential
+// execution, failure stops and the existing spending threshold without
+// repeating R1 or rq-canary."* The same presses from R2 on, through the same
+// driver: one at a time, stopping before a press past the threshold, after a
+// press that fails, and after one whose spend cannot be read.
+export const BATCH_FROM_R2_NAME = "rq-batch-r2";
+export const BATCH_FROM_R2 = Object.freeze(BATCH.slice(1));
+// AND ITS BOX COUNTS FROM WHAT THE BATCH HAS ALREADY SPENT: rq-canary's 4
+// (run 94) and R1's 21 (run 95). Less than that would let the threshold count
+// from too low, so a smaller box is refused before anything is pressed.
+export const BATCH_FROM_R2_SPENT_MIN = 25;
+/** The presses a batch name runs — the whole batch, or the continuation from R2 — or null for a name that is no batch. */
+export function batchOf(name) {
+  if (name === BATCH_NAME) return BATCH;
+  if (name === BATCH_FROM_R2_NAME) return BATCH_FROM_R2;
+  return null;
+}
+/** A press's number in the plan: its own, or its place in a batch given without one. */
+const numberOf = (p, i) => (p && Number.isInteger(p.n) ? p.n : i + 1);
 // WHAT A PRESS NEEDS BEYOND ITS MESSAGES' OWN BOUNDS: the sign-in, the
 // preflight and its zero-cost job, the before- and after-reads and the wait
 // for the last version, and the job records. A generous allowance, so the
@@ -106,7 +128,7 @@ export async function runBatch({ spent0, spend, runOne, readRecord, batch = BATC
   let spent = spent0;
   const end = (stopped, ok) => ({ ok, spent, results, stopped });
   for (const [i, p] of batch.entries()) {
-    const tag = `R${i + 1} ${p.name}`;
+    const tag = `R${numberOf(p, i)} ${p.name}`;
     if (!fits({ spent, upper: p.upper, threshold })) {
       const why = `the batch has spent ${spent}; ${tag}'s upper estimate of ${p.upper} would take it to ${spent + p.upper}, past ${threshold}`;
       log(`\n── STOPPING BEFORE ${tag}: ${why} ──`);
@@ -129,7 +151,7 @@ export async function runBatch({ spent0, spend, runOne, readRecord, batch = BATC
 /** The batch's account, as the log and `batch.txt` print it. */
 export function describeBatch(out, { spent0, threshold = BATCH_THRESHOLD, batch = BATCH } = {}) {
   const lines = [`REQUEST BATCH — ${out.results.length} of ${batch.length} pressed; spent before ${spent0}, in this press ${out.spent - spent0}, the batch ${out.spent} (threshold ${threshold}, checked between presses)`];
-  for (const [i, r] of out.results.entries()) lines.push(`  R${i + 1} ${r.name.padEnd(15)} ${r.code === 0 ? "PASSED" : `FAILED (exit ${r.code})`}  spent ${r.spent === null ? "UNKNOWN" : r.spent}`);
+  for (const [i, r] of out.results.entries()) lines.push(`  R${numberOf(batch[i], i)} ${r.name.padEnd(15)} ${r.code === 0 ? "PASSED" : `FAILED (exit ${r.code})`}  spent ${r.spent === null ? "UNKNOWN" : r.spent}`);
   for (const p of batch.slice(out.results.length)) lines.push(`  -- ${p.name.padEnd(15)} not pressed`);
   lines.push(out.stopped ? `  stopped ${out.stopped.before ? "before " + out.stopped.before : "after " + out.stopped.after}: ${out.stopped.why}` : "  every press was made");
   lines.push(out.ok ? "BATCH ENDED: no press failed" : "BATCH FAILED: a press failed or its spend could not be read");
@@ -139,11 +161,14 @@ export function describeBatch(out, { spent0, threshold = BATCH_THRESHOLD, batch 
 // WHAT REFUSES THE WHOLE BATCH BEFORE ANY PRESS STARTS, with nothing signed in
 // or spent: the box, the site, and — with spend — the deploy and image boxes
 // every paid press demands anyway.
-export function batchRefusal(env) {
+export function batchRefusal(env, batch = BATCH) {
   const box = readBatchSpent(env.CANARY_BATCH_SPENT);
   if (!box.ok) return { why: box.why };
+  if (batch === BATCH_FROM_R2 && box.spent < BATCH_FROM_R2_SPENT_MIN) {
+    return { why: `the continuation from R2 follows rq-canary and R1, which spent ${BATCH_FROM_R2_SPENT_MIN} between them, so the batch's spend so far is at least ${BATCH_FROM_R2_SPENT_MIN} (and the focused check's on top), not ${box.spent}` };
+  }
   const site = String(env.CANARY_SLUG || "").trim().toLowerCase();
-  for (const p of BATCH) {
+  for (const p of batch) {
     const s = UI_SCENARIOS[p.name];
     if (!s) return { why: `the batch names ${p.name}, which is not a scenario` };
     if (s.site !== site) return { why: `the batch runs on ${s.site}, and the site box says ${site || "(blank)"}` };
@@ -156,7 +181,9 @@ export function batchRefusal(env) {
 
 /** The CLI: refuse whole or run the batch, write its record, answer the exit code. */
 export async function runBatchMain(env, { child = fileURLToPath(new URL("./edit-canary.mjs", import.meta.url)) } = {}) {
-  const r = batchRefusal(env);
+  // WHICH BATCH THE SCENARIO BOX NAMED: the whole one, or the continuation from R2.
+  const batch = batchOf(String(env.CANARY_UI || "").trim()) || BATCH;
+  const r = batchRefusal(env, batch);
   if (r.why) {
     console.error(`REFUSING THE BATCH: ${r.why}. Nothing was signed in, pressed or charged.`);
     return 2;
@@ -165,7 +192,8 @@ export async function runBatchMain(env, { child = fileURLToPath(new URL("./edit-
   const evid = String(env.CANARY_EVIDENCE_DIR || "docs/edits/canary").trim();
   const script = String(env.CANARY_BATCH_CHILD || "").trim() || child;
   mkdirSync(evid, { recursive: true });
-  console.log(`REQUEST BATCH — ${BATCH.map((p) => p.name).join(", ")}, in that order, one at a time, on ${env.CANARY_SLUG}; ${spend ? "PAID" : "a rehearsal: nothing is sent"}; spent before ${r.spent0}, threshold ${BATCH_THRESHOLD} between presses`);
+  console.log(`REQUEST BATCH — ${batch.map((p) => p.name).join(", ")}, in that order, one at a time, on ${env.CANARY_SLUG}; ${spend ? "PAID" : "a rehearsal: nothing is sent"}; spent before ${r.spent0}, threshold ${BATCH_THRESHOLD} between presses`);
+  if (batch === BATCH_FROM_R2) console.log(`THE CONTINUATION FROM R2: ${BATCH[0].name} and rq-canary are done, and neither is pressed again`);
   const runOne = (name) => new Promise((resolve) => {
     const e = { ...env, CANARY_UI: name, CANARY_EVIDENCE_DIR: `${evid}/${name}` };
     delete e.CANARY_BATCH_SPENT;
@@ -177,10 +205,10 @@ export async function runBatchMain(env, { child = fileURLToPath(new URL("./edit-
   const readRecord = (name) => {
     try { return JSON.parse(readFileSync(`${evid}/${name}/ui.json`, "utf8")); } catch { return null; }
   };
-  const out = await runBatch({ spent0: r.spent0, spend, runOne, readRecord, log: (s) => console.log(s) });
-  const told = describeBatch(out, { spent0: r.spent0 });
+  const out = await runBatch({ spent0: r.spent0, spend, runOne, readRecord, batch, log: (s) => console.log(s) });
+  const told = describeBatch(out, { spent0: r.spent0, batch });
   console.log("\n" + told);
-  writeFileSync(`${evid}/batch.json`, JSON.stringify({ batch: BATCH, threshold: BATCH_THRESHOLD, spend, spent0: r.spent0, ...out }, null, 2));
+  writeFileSync(`${evid}/batch.json`, JSON.stringify({ name: batch === BATCH_FROM_R2 ? BATCH_FROM_R2_NAME : BATCH_NAME, batch, threshold: BATCH_THRESHOLD, spend, spent0: r.spent0, ...out }, null, 2));
   writeFileSync(`${evid}/batch.txt`, told + "\n");
   return out.ok ? 0 : 1;
 }

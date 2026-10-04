@@ -1170,7 +1170,17 @@ test("onceState tells a job ahead of its time from one that was missed", () => {
 // and TWO of its fields could be emptied with the whole suite green. *A wall
 // nobody can drive is a wall nobody is guarding*, and the fix this repository
 // keeps reaching for is to make it drivable rather than to call it unguardable.
-test("the panel's row says which function, which schedule, and what became of it", () => {
+// ⚠ ON A CONTROLLED CLOCK (2026-10-04): the one-time job's date, 3 October
+// 2026, went by — past its day's grace at 08:00 UTC on the 4th — and both
+// cases that call it "scheduled" read "missed" from then on, every run, with
+// no code changed. The clock is fixed the day before (Date only, as
+// test/addon-route.test.mjs's one-time jobs are since dd632b96), so the date is
+// always ahead of it.
+const PANEL_CLOCK = Date.parse("2026-10-02T12:00:00Z");
+const onPanelClock = (t) => t.mock.timers.enable({ apis: ["Date"], now: PANEL_CLOCK });
+
+test("the panel's row says which function, which schedule, and what became of it", (t) => {
+  onPanelClock(t);
   const ONCE = { name: "closing_note", spec: { fn: "send_note", at: "09:00", tz: "Europe/London", on: "2026-10-03" },
     schedule_minutes: MAX_EVERY_MINUTES, enabled: true, last_run: null, last_result: null };
 
@@ -1400,7 +1410,8 @@ const jobRow = new Function("ic",
   ["esc", "browserTimeZone", "jobZone", "onceWhen", "jobEvery", "jobRowHtml"].map(cutFn).join("\n") + "\nreturn jobRowHtml;")(() => "");
 const words = (h) => h.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 
-test("the Jobs panel says a one-time job's real date, and tells its four states apart", () => {
+test("the Jobs panel says a one-time job's real date, and tells its four states apart", (t) => {
+  onPanelClock(t);
   const spec = { fn: "remind_once", on: "2026-10-03", at: "09:00", tz: "Europe/London" };
   const row = (over) => jobPanelRow({ name: "remind_once", spec, schedule_minutes: MAX_EVERY_MINUTES,
     enabled: true, last_run: null, last_result: null, ...over });

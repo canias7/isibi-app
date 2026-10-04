@@ -242,7 +242,7 @@ import { routeMessage, routeDecision, routeFailure, clarifiedBrief, siteDigest, 
 // work moves from one step to another — the parts put off, the scope, and why.
 import { readHandOver, handOverLine, heldReport, deferredOf } from "./builder/hand-over.mjs";
 import { loadAsk, storeAsk, storeAskIfFree, closeAsk, replaceAsk, askLive, packAsk, newAskId, askOf, readAsk, readContext, shownContext, repeatOf, appendAnswer, againNote, clarifyTransport, clarifyCall, MAX_NOTE_CHARS, MAX_SAME_ASK, MAX_ASKED } from "./builder/clarify.mjs";
-import { repliesOn, editReplyFacts, addonReplyFacts, routeReplyFacts, cancelReplyFacts, repeatNoteFacts, requestReplyFacts, replyContext, writeReply, withReplyText, REPLY_CALL_MS, REPLY_BG_CALL_MS, REPLY_BG_DEADLINE_MS, REPLY_BG_ATTEMPTS, REPLY_BG_RETRY_S, REPLY_LEASE_MS, REPLY_HORIZON_MS, REPLY_RETRY_GRACE_MS, readReplyRecord, replyNext } from "./builder/site-reply.mjs";
+import { repliesOn, editReplyFacts, addonReplyFacts, routeReplyFacts, cancelReplyFacts, repeatNoteFacts, requestReplyFacts, replyContext, writeReply, withReplyText, REPLY_CALL_MS, REPLY_BG_CALL_MS, REPLY_BG_DEADLINE_MS, REPLY_BG_ATTEMPTS, REPLY_BG_RETRY_S, REPLY_LEASE_MS, REPLY_HORIZON_MS, REPLY_RETRY_GRACE_MS, readReplyRecord, replyNext, replyClaim, replyOutcomeOf } from "./builder/site-reply.mjs";
 // ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03): the record,
 // the plan, what a job's answer means for its part, and the next job.
 import {
@@ -6521,11 +6521,14 @@ async function claimReply(env, key, now) {
     etag = await putReplyRecord(env, key, rec, at.etag);
     if (!etag) return null;
   }
-  const next = replyNext(rec, now);
-  if (next === "serve" || next === "failed" || next === "none") return null;
-  if (rec.state === "writing" && rec.lease && rec.lease.until > now) return null;
-  if (next === "give-up" || rec.attempts >= REPLY_BG_ATTEMPTS) {
-    await putReplyRecord(env, key, { ...rec, state: "failed", why: rec.why || (next === "give-up" ? "horizon" : "tries"), lease: undefined, retryAt: undefined, at: now }, etag);
+  // THE ONE RULE AT THE CLAIM (`replyClaim`): a retry not yet due is not
+  // taken (2026-10-04, the owner's review), so an early or duplicate delivery
+  // spends no try and skips no wait; its own message comes at its time, and
+  // one lost is asked again by the cron once its time and the grace are past.
+  const may = replyClaim(rec, now);
+  if (may === "skip") return null;
+  if (may === "fail") {
+    await putReplyRecord(env, key, { ...rec, state: "failed", why: rec.why || (replyNext(rec, now) === "give-up" ? "horizon" : "tries"), lease: undefined, retryAt: undefined, at: now }, etag);
     return null;
   }
   const attempt = rec.attempts + 1;
@@ -6601,7 +6604,8 @@ async function writeJobReply(env, task) {
  * `replyFor` taken off, and the reply's own progress beside the outcome
  * (2026-10-04) —
  *   written   the reply on it (`withReplyText`);
- *   pending   `replyState: "pending"`, while it is written in the background;
+ *   pending   `replyState: "pending"`, while it is written in the background,
+ *             with what the job did in one word (`replyOutcome`);
  *   failed    `replyState: "failed"`: the browser says it the old way;
  *   none      nothing owed: the answer as it was.
  * A READ NEVER CALLS THE MODEL. One that finds no record — the job's own ask
@@ -6622,7 +6626,12 @@ async function servedModelReply(env, job, text, { uid = "" } = {}) {
   const plain = JSON.stringify(rest);
   if (!repliesOn(env) || !replyFor || typeof replyFor !== "object" || (replyFor.kind !== "edit" && replyFor.kind !== "addon")) return plain;
   if (!env || !env.SITES_BUCKET) return plain;
-  const pending = JSON.stringify({ ...rest, replyState: "pending" });
+  // WHAT THE JOB DID, IN ONE WORD (2026-10-04), from the facts its reply is
+  // written from: the page holds the reply's place with a line that says it
+  // (`pendingReplyLine`), and never "Done" over a refusal.
+  const read = replyFactsOf(replyFor.kind, rest, askOfReplyFor(replyFor));
+  const outcome = replyOutcomeOf(read);
+  const pending = JSON.stringify({ ...rest, replyState: "pending", ...(outcome ? { replyOutcome: outcome } : {}) });
   const failed = JSON.stringify({ ...rest, replyState: "failed" });
   const key = replyKey(job);
   const now = Date.now();
@@ -6635,7 +6644,6 @@ async function servedModelReply(env, job, text, { uid = "" } = {}) {
   if (next === "wait") return pending;
   const task = { id: job, uid: String(uid || "") };
   if (next === "ask") {
-    const read = replyFactsOf(replyFor.kind, rest, askOfReplyFor(replyFor));
     if (read.skip || !read.facts.length) {
       await putReplyRecord(env, key, { state: "none", attempts: 0, asked: now, at: now, why: String(read.skip || "no-facts").slice(0, 40) }, at.etag);
       return plain;

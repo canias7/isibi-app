@@ -122,16 +122,21 @@ on:
         # checks, and the batch stops itself before a press whose upper
         # estimate would take its spend past 100, after a press that fails,
         # and after one whose spend cannot be read. It needs the batch box.
-        description: 'RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: 4a-part-b, 4b-d1-price (the focaccia price through the real app, then put back), 4b-d1-restore (the put-back alone), 4b-rules-close (close the bookings on lido-axes-b, then one real booking that must be refused), 5-page-remove (the gallery out of the menu, then the gallery page off fold-lane-bakery; put back afterwards with the restore box), 9-follow-up (on fretwork-1: a request that must fail, then from the same tab the Hour one-to-one price to £45, kept), 12-additions (five additions on fold-lane-bakery through the add-on step; they stay on the site), or the request batch on fold-lane-bakery with REQUEST_FLOW on: rq-canary, rq-1-classes, rq-2-wholesale, rq-3-facebook, rq-4-logo, rq-5-away (each one message the server finishes; the changes stay), rq-menu-link (the check of the two fixes from run 95: the Classes link put into every menu that lacks it, with a reply written by the model; it stays), or rq-batch (rq-1-classes to rq-5-away in order in this one run, stopping itself before 100; fill the batch box). Acts only with spend=yes; otherwise it reads and stops before sending or writing.'
+        # rq-batch-r2 is its continuation from R2: rq-2-wholesale to rq-5-away
+        # the same way, for a batch whose rq-canary and R1 are done (neither
+        # is pressed again); its box counts them, so it is at least 25.
+        description: 'RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: 4a-part-b, 4b-d1-price (the focaccia price through the real app, then put back), 4b-d1-restore (the put-back alone), 4b-rules-close (close the bookings on lido-axes-b, then one real booking that must be refused), 5-page-remove (the gallery out of the menu, then the gallery page off fold-lane-bakery; put back afterwards with the restore box), 9-follow-up (on fretwork-1: a request that must fail, then from the same tab the Hour one-to-one price to £45, kept), 12-additions (five additions on fold-lane-bakery through the add-on step; they stay on the site), or the request batch on fold-lane-bakery with REQUEST_FLOW on: rq-canary, rq-1-classes, rq-2-wholesale, rq-3-facebook, rq-4-logo, rq-5-away (each one message the server finishes; the changes stay), rq-menu-link (the check of the two fixes from run 95: the Classes link put into every menu that lacks it, with a reply written by the model; it stays), or rq-batch (rq-1-classes to rq-5-away in order in this one run, stopping itself before 100; fill the batch box), or rq-batch-r2 (its continuation: rq-2-wholesale to rq-5-away the same way, never pressing rq-canary or rq-1-classes again; fill the batch box). Acts only with spend=yes; otherwise it reads and stops before sending or writing.'
         required: false
         default: ''
       batch_spent:
         # THE REQUEST BATCH'S OWN BOX, and only its: what the batch spent before
         # this press (rq-canary's 4). With it the run stops before any press
         # whose upper estimate would take the batch past 100 credits. Blank
-        # beside rq-batch refuses, and filled beside any other run refuses,
-        # each before anything is signed in.
-        description: 'REQUEST BATCH ONLY (rq-batch): the credits the batch has already spent before this press (rq-canary cost 4). The run stops before any press whose upper estimate would take the total past 100. Blank otherwise.'
+        # beside rq-batch or rq-batch-r2 refuses, and filled beside any other
+        # run refuses, each before anything is signed in. For rq-batch-r2 it
+        # is rq-canary's 4 and R1's 21, plus the focused check's: under 25
+        # refuses.
+        description: 'REQUEST BATCH ONLY (rq-batch, rq-batch-r2): the credits the batch has already spent before this press (rq-canary cost 4; for rq-batch-r2, rq-canary and R1 cost 25 together, plus what the focused check cost). The run stops before any press whose upper estimate would take the total past 100. Blank otherwise.'
         required: false
         default: ''
       rules_allow:
@@ -212,9 +217,9 @@ jobs:
     # script itself, and installs a browser first; 45 covers three of them.
     # THE REQUEST BATCH ALONE GETS 180: five presses one after another, each
     # inside its own bounds, and their worst case together is under that
-    # (`batchWorstMs`, held by test/canary-batch.test.mjs). Every other run
-    # keeps 45.
-    timeout-minutes: ${{ github.event.inputs.ui_scenario == 'rq-batch' && 180 || 45 }}
+    # (`batchWorstMs`, held by test/canary-batch.test.mjs). Its continuation
+    # from R2 is four of them, and gets the same. Every other run keeps 45.
+    timeout-minutes: ${{ (github.event.inputs.ui_scenario == 'rq-batch' || github.event.inputs.ui_scenario == 'rq-batch-r2') && 180 || 45 }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

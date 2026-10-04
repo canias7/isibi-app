@@ -108,7 +108,13 @@ const doneRow = (slug, r, over = {}) => ({ slug, state: "done", billing: "finali
  */
 const QE = (store, sent) => ({ ...ON(store), BUILD_QUEUE: { async send(body, opts) { sent.push({ body, delaySeconds: (opts && opts.delaySeconds) || 0 }); } } });
 const replyTasks = (sent) => sent.filter((m) => m.body && m.body.kind === "edit-reply");
-async function deliver(worker, env, sent, row) {
+async function deliver(worker, env, sent, row, { lateMs = 0 } = {}) {
+  // A MESSAGE SENT WITH A WAIT IS DELIVERED AT ITS TIME (`lateMs`, 2026-10-04):
+  // the clock is moved on by that much while the queue delivers it, as the
+  // queue holds a delayed message until then. A retry delivered early is not
+  // taken (`replyClaim`).
+  const realNow = Date.now;
+  if (lateMs > 0) Date.now = () => realNow() + lateMs;
   const wire = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = String((input && input.url) || input || "");
@@ -116,12 +122,14 @@ async function deliver(worker, env, sent, row) {
     return wire(input, init);
   };
   try {
-    for (let m; (m = sent.shift());) {
+    // THE MESSAGES QUEUED WHEN IT IS CALLED, and no others: one a delivery
+    // sends — a retry with its wait — stays queued for a later call.
+    for (const m of sent.splice(0, sent.length)) {
       const ctx = makeCtx();
       await worker.queue({ messages: [{ body: m.body, ack() {}, retry() {} }] }, env, ctx);
       await Promise.allSettled(ctx.pending || []);
     }
-  } finally { globalThis.fetch = wire; }
+  } finally { globalThis.fetch = wire; Date.now = realNow; }
 }
 /** A reply's record as kept. */
 const recordOf = (store, id) => { const o = store.store.get("edit-replies/" + id + ".json"); return o ? JSON.parse(o.body) : null; };
@@ -265,7 +273,8 @@ test("COMPLETE SUCCESS, QUEUED: the job makes, publishes and charges the change 
       assert.equal(p0.body.reply, undefined);
       assert.equal(replyCalls(seen), 0, "a poll called the reply model");
       assert.equal(replyTasks(sent).length, 1, "a poll asked for the reply a second time");
-      assert.deepEqual(EditPoll.readPoll(p0.status, p0.final, p0.body), { act: "wait", kind: "reply" }, "the page would not wait for the reply");
+      assert.deepEqual(EditPoll.readPoll(p0.status, p0.final, p0.body), { act: "wait", kind: "reply" }, "the page would not see the reply as still being written");
+      assert.equal(p0.body.replyOutcome, "done", "the held line would not know what the job did");
       // THE QUEUE'S WRITER: one call, the reply kept.
       await deliver(worker, QE(store, sent), sent, doneRow(slug, r));
       assert.equal(replyCalls(seen), 1);
@@ -407,10 +416,17 @@ test("A QUEUED JOB WHOSE REPLY CANNOT BE WRITTEN: the writer's failed try waits 
       assert.equal(p1.body.replyState, "pending");
       assert.equal(Object.hasOwn(p1.body, "replyFor"), false, "what the reply needed was served when no reply was");
       const { replyFor, ...stored } = r.body;
-      assert.deepEqual({ ...p1.body, replyState: undefined }, { ...stored, replyState: undefined }, "the stored answer was not handed back as it was");
-      // THE NEXT TRY, WITH THE MODEL BACK: written, and every read hands it back.
+      // AS IT WAS, beside the reply's progress and what the job did in one word
+      // (2026-10-04, `replyOutcome`: the page's held line).
+      assert.equal(p1.body.replyOutcome, "done");
+      assert.deepEqual({ ...p1.body, replyState: undefined, replyOutcome: undefined }, { ...stored, replyState: undefined, replyOutcome: undefined }, "the stored answer was not handed back as it was");
+      // DELIVERED EARLY, THE NEXT TRY IS NOT TAKEN: the wait is the record's.
+      const early = sent.map((m) => ({ ...m }));
+      await deliver(worker, QE(store, sent), early, doneRow(slug, r));
+      assert.deepEqual([recordOf(store, id).state, recordOf(store, id).attempts], ["pending", 1], "an early delivery took the next try");
+      // THE NEXT TRY, AT ITS TIME, WITH THE MODEL BACK: written, and every read hands it back.
       down = false;
-      await deliver(worker, QE(store, sent), sent, doneRow(slug, r));
+      await deliver(worker, QE(store, sent), sent, doneRow(slug, r), { lateMs: 31_000 });
       const p2 = await poll(worker, QE(store, sent), id, doneRow(slug, r));
       assert.equal(p2.body.replySource, "model", "the next try did not write the reply");
       assert.equal(recordOf(store, id).attempts, 2);
@@ -423,7 +439,8 @@ test("A QUEUED JOB WHOSE REPLY CANNOT BE WRITTEN: the writer's failed try waits 
     await withWire({ [T.pick]: { fields: ["description"] }, "lane:description": NEW_DESC, [W]: () => ({ reply: "", covers: [] }) }, async (seen) => {
       const r = await postRoute(worker, QE(store2, sent2), store2, seen, slug2, browserPost(SITE(slug2), { intent: "edit", layer: "look" }, DESC_WORDS), "job");
       const id = r.finalized.p_id;
-      for (let i = 0; i < 3; i++) await deliver(worker, QE(store2, sent2), sent2, doneRow(slug2, r));
+      // EACH TRY AT ITS TIME: now, 30 s on, 120 s after that.
+      for (const lateMs of [0, 31_000, 152_000]) await deliver(worker, QE(store2, sent2), sent2, doneRow(slug2, r), { lateMs });
       const rec = recordOf(store2, id);
       assert.deepEqual([rec.state, rec.attempts], ["failed", 3], JSON.stringify(rec));
       assert.equal(replyTasks(sent2).length, 0, "a fourth try was sent");

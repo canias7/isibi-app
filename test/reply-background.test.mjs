@@ -23,7 +23,7 @@ import { installCompiler } from "./fixtures/cf-containers.mjs";
 import { writtenPage } from "./fixtures/addon-route.mjs";
 import { gatewayHandler, gatewayKey, signJobToken, verifyJobToken, preScopeSlug } from "../builder/job-gateway.mjs";
 import { makeContainerEnv } from "../builder/container-env.mjs";
-import { REPLY_LEASE_MS, REPLY_BG_ATTEMPTS, REPLY_BG_RETRY_S, REPLY_CALL_MS } from "../builder/site-reply.mjs";
+import { REPLY_LEASE_MS, REPLY_BG_ATTEMPTS, REPLY_BG_RETRY_S, REPLY_CALL_MS, REPLY_RETRY_GRACE_MS, REPLY_RETRY_SKEW_MS, REPLY_HORIZON_MS, replyClaim } from "../builder/site-reply.mjs";
 import { editBrowserReply } from "../scripts/addon-sweep.mjs";
 
 const EditPoll = createRequire(import.meta.url)("../public/edit-poll.js");
@@ -98,7 +98,11 @@ test("BG1 — a reply that takes 13 s, longer than the 12 s that cut run 95's, i
       assert.equal(p.body.reply, undefined);
       assert.equal(p.headers.get(EditPoll.FINAL_HEADER), EditPoll.FINAL_VALUE, "the job's outcome was not said to be final");
       assert.deepEqual(EditPoll.readPoll(p.status, p.headers.get(EditPoll.FINAL_HEADER), p.body), { act: "wait", kind: "reply" });
-      assert.equal(EditPoll.waitingMessage(p.body), "Done — writing up what changed…");
+      // WHAT THE JOB DID, IN ONE WORD, from the reply's own facts: the page
+      // holds the reply's place with the line for it (2026-10-04).
+      assert.equal(p.body.replyOutcome, "done");
+      assert.equal(EditPoll.pendingReplyLine(p.body), "Done — writing up what changed…");
+      assert.equal(EditPoll.waitingMessage(p.body), "", "a finished job's held reply was painted as a job still waiting");
     }
     assert.equal(writes(P), calls, "a read called the model");
     assert.equal(P.queue.length, queued, "a read asked for another reply while one was being written");
@@ -125,8 +129,11 @@ test("BG2 — the provider refuses every try: three tries, 30 s and 120 s apart,
   });
   await withPlatform({ slug: "rb-bg2-same", replies: true, answers: TWO, replyWith: () => ({ status: 500 }) }, async (P) => {
     const r = await sendMessage(P, { message: MESSAGE, key: "rqbg2samekey00000000" });
-    const { rec } = await settle(P, r.key);
+    // EACH RETRY IS DELIVERED AT ITS TIME (`due`), as the queue holds it: the
+    // first tries now, the second 30 s on, the third 120 s after that.
+    const { rec } = await settle(P, r.key, { due: true });
     assert.deepEqual(statuses(rec), ["done", "done"], "a reply that could not be written stopped the request");
+    for (const wait of REPLY_BG_RETRY_S) { P.advance(wait * 1000); await pump(P, { due: true }); }
     const jobs = P.jobsOf(r.key).filter((j) => j.op !== "route").map((j) => j.id);
     let tries = 0;
     for (const id of jobs) {
@@ -363,4 +370,130 @@ test("BG8 — a job whose reply was never asked is asked for by the first read i
       }
     });
   }
+});
+
+// ── THE OWNER'S REVIEW (2026-10-04): A RETRY IS TAKEN AT ITS TIME ────────────
+//
+// The claim took a waiting record whatever its next try's time: an attempt-1
+// record due at 32 000 was claimed at 2 500 as attempt 2, so an early or
+// duplicate delivery spent a try and skipped the wait. The rule at the claim
+// is `replyClaim`; the cases below drive it through the queue's consumer.
+
+test("BG9 — the rule at the claim (`replyClaim`): the owner's reproduction is skipped, a retry is taken at its time, a holding claim is never taken, a lapsed one is, and spent tries or the horizon fail it", () => {
+  const waiting = { state: "pending", attempts: 1, asked: 0, at: 2000, retryAt: 32000 };
+  assert.equal(replyClaim(waiting, 2500), "skip", "the owner's reproduction: attempt 1, due at 32 000, taken at 2 500");
+  assert.equal(replyClaim(waiting, 32000 - REPLY_RETRY_SKEW_MS - 1), "skip");
+  assert.equal(replyClaim(waiting, 32000 - REPLY_RETRY_SKEW_MS), "claim", "the clocks' allowance");
+  assert.equal(replyClaim(waiting, 32000), "claim");
+  assert.equal(replyClaim(null, 0), "claim", "a reply nobody asked for yet");
+  assert.equal(replyClaim({ state: "pending", attempts: 0, asked: 0, at: 0 }, 10), "claim", "a first try has no wait");
+  const writing = { state: "writing", attempts: 1, asked: 0, at: 0, lease: { owner: "a", until: 5000 } };
+  assert.equal(replyClaim(writing, 4999), "skip", "a claim that holds was taken");
+  assert.equal(replyClaim(writing, 5001), "claim", "a lapsed claim was not taken");
+  assert.equal(replyClaim({ ...waiting, attempts: REPLY_BG_ATTEMPTS }, 40000), "fail", "spent tries were tried again");
+  assert.equal(replyClaim({ ...writing, attempts: REPLY_BG_ATTEMPTS }, 5001), "fail");
+  assert.equal(replyClaim({ ...waiting, retryAt: undefined }, REPLY_HORIZON_MS + 1), "fail", "past the horizon");
+  for (const state of ["written", "failed", "none"]) assert.equal(replyClaim({ state, attempts: 1, asked: 0, at: 0, ...(state === "written" ? { text: "x" } : {}) }, 1), "skip", state);
+});
+
+test("BG10 — through the queue: a retry's message delivered early, twice, spends no try and calls no model; delivered at its time — twice at once — it is the next try, once; a copy spent early and the timed one lost is asked again by the cron; a reply whose tries are spent takes nothing", async () => {
+  // THE FIRST TRY FAILS, AND EVERY LATER ONE IS WRITTEN.
+  await withPlatform({ slug: slugOf("bg10"), replies: true, answers: TWO, replyWith: ({ n, facts }) => (part0(facts) && n === 0 ? { status: 500 } : undefined) }, async (P) => {
+    const r = await sendMessage(P, { message: MESSAGE });
+    const job0 = P.jobsOf(r.key)[0].id;
+    await pump(P, { max: 1 });
+    const first = P.queue.splice(P.queue.findIndex((m) => isReplyTask(m, job0)), 1)[0];
+    await deliver(P, first);
+    const failed = replyRec(P, job0);
+    assert.deepEqual([failed.state, failed.attempts, failed.retryAt - P.now() > 25_000], ["pending", 1, true], JSON.stringify(failed));
+    const retry = P.queue.splice(P.queue.findIndex((m) => isReplyTask(m, job0)), 1)[0];
+    assert.equal(retry.delaySeconds, REPLY_BG_RETRY_S[0]);
+    const calls = writes(P);
+    const before = P.objects.get("edit-replies/" + job0 + ".json").etag;
+    // EARLY, TWICE: nothing taken, nothing written, nothing called, nothing sent.
+    await deliver(P, retry);
+    await deliver(P, retry);
+    P.advance(20_000);
+    await deliver(P, retry);
+    assert.equal(P.objects.get("edit-replies/" + job0 + ".json").etag, before, "an early delivery touched the record");
+    assert.equal(writes(P), calls, "an early delivery called the model");
+    assert.equal(P.queue.filter((m) => isReplyTask(m, job0)).length, 0, "an early delivery sent another task");
+    // AT ITS TIME, TWICE AT ONCE: the second try, once.
+    P.advance(REPLY_BG_RETRY_S[0] * 1000 - 20_000);
+    await Promise.all([deliver(P, retry), deliver(P, retry)]);
+    const done = replyRec(P, job0);
+    assert.deepEqual([done.state, done.attempts], ["written", 2], JSON.stringify(done));
+    assert.equal(writes(P), calls + 1, "two deliveries at its time made two calls");
+  });
+  // A COPY SPENT EARLY AND THE TIMED ONE LOST: the cron asks again once its time and the grace are past.
+  await withPlatform({ slug: slugOf("bg10-lost"), replies: true, answers: TWO, replyWith: ({ n, facts }) => (part0(facts) && n === 0 ? { status: 500 } : undefined) }, async (P) => {
+    const r = await sendMessage(P, { message: MESSAGE });
+    const job0 = P.jobsOf(r.key)[0].id;
+    await pump(P, { max: 1 });
+    await deliver(P, P.queue.splice(P.queue.findIndex((m) => isReplyTask(m, job0)), 1)[0]);
+    const retry = P.queue.splice(P.queue.findIndex((m) => isReplyTask(m, job0)), 1)[0];
+    await deliver(P, retry);
+    assert.deepEqual([replyRec(P, job0).state, replyRec(P, job0).attempts], ["pending", 1]);
+    P.advance(REPLY_BG_RETRY_S[0] * 1000 + REPLY_RETRY_GRACE_MS + 1000);
+    await tick(P);
+    assert.ok(P.queue.some((m) => isReplyTask(m, job0)), "the cron did not ask again for a retry whose message was lost");
+    await pump(P, { due: true });
+    const rr = replyRec(P, job0);
+    assert.deepEqual([rr.state, rr.attempts], ["written", 2], JSON.stringify(rr));
+  });
+  // TRIES SPENT: a late copy of the last retry takes nothing.
+  await withPlatform({ slug: slugOf("bg10-spent"), replies: true, answers: TWO, replyWith: ({ facts }) => (part0(facts) ? { status: 500 } : undefined) }, async (P) => {
+    const r = await sendMessage(P, { message: MESSAGE });
+    const job0 = P.jobsOf(r.key)[0].id;
+    await settle(P, r.key, { due: true });
+    let last = null;
+    for (const wait of REPLY_BG_RETRY_S) {
+      P.advance(wait * 1000);
+      last = P.queue.find((m) => isReplyTask(m, job0)) || last;
+      await pump(P, { due: true });
+    }
+    const rr = replyRec(P, job0);
+    assert.deepEqual([rr.state, rr.attempts], ["failed", REPLY_BG_ATTEMPTS], JSON.stringify(rr));
+    const calls = writes(P);
+    assert.ok(last, "the last retry's message was not seen");
+    await deliver(P, last);
+    assert.equal(writes(P), calls, "a reply whose tries were spent was tried again");
+    assert.deepEqual([replyRec(P, job0).state, replyRec(P, job0).attempts], ["failed", REPLY_BG_ATTEMPTS]);
+  });
+});
+
+test("BG11 — what the job did, in one word, rides every read while its reply is written (2026-10-04): a part that went through reads `done`, a part that did not reads `not-done` — so the page never holds a refusal's place with Done — and the word goes once the reply is written", async () => {
+  let release;
+  const gate = new Promise((ok) => { release = ok; });
+  // THE ADDITION FAILS: its designer makes nothing. Both parts' replies are held.
+  const answers = { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }], ...DESCRIBE, [T.adds]: { kinds: [] } };
+  await withPlatform({ slug: slugOf("bg11"), replies: true, answers, replyWith: async () => { await gate; } }, async (P) => {
+    const r = await sendMessage(P, { message: MESSAGE });
+    // EVERY REPLY HELD BESIDE THE WORK: both parts' and the request's own.
+    const asked = [];
+    const running = await pumpBeside(P, (m) => { if (isReplyTask(m)) asked.push(m.body.id || "request"); return isReplyTask(m); });
+    const [edit, addon] = [P.jobsOf(r.key).find((j) => j.op === "edit"), P.jobsOf(r.key).find((j) => j.op === "addon")];
+    assert.ok(edit && addon, "both parts did not run");
+    assert.deepEqual([asked.includes(edit.id), asked.includes(addon.id)], [true, true], "both parts' replies were not asked for: " + JSON.stringify(asked));
+    assert.equal(addon.state, "failed");
+    // EACH WRITER AT ITS CALL, held there, before any read is counted.
+    for (let i = 0; i < 200 && writes(P) < asked.length; i++) await new Promise((ok) => setImmediate(ok));
+    const calls = writes(P);
+    assert.equal(calls, asked.length, "a held reply never reached its writer");
+    const pe = await poll(P, edit.id);
+    const pa = await poll(P, addon.id);
+    assert.deepEqual([pe.body.replyState, pe.body.ok, pe.body.replyOutcome], ["pending", true, "done"]);
+    assert.deepEqual([pa.body.replyState, pa.body.ok, pa.body.replyOutcome], ["pending", false, "not-done"]);
+    assert.equal(EditPoll.pendingReplyLine(pe.body), "Done — writing up what changed…");
+    assert.equal(EditPoll.pendingReplyLine(pa.body), "That didn’t go through — writing up why…");
+    assert.equal(writes(P), calls, "a read called the model");
+    release();
+    await Promise.all(running);
+    for (const j of [edit, addon]) {
+      const p = await poll(P, j.id);
+      assert.equal(p.body.replySource, "model");
+      assert.equal(p.body.replyState, undefined);
+      assert.equal(p.body.replyOutcome, undefined, "the word stayed on a written reply");
+    }
+  });
 });

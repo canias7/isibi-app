@@ -373,7 +373,8 @@ exist:
 real replies take; whether 90 s per call is right. The reply log line keeps
 each reply's `ms`, so real times can set it.
 
-**Limits, kept separate** (the backlog):
+**Limits, kept separate** (the backlog), **both fixed since in the owner's
+review round** (below):
 - The page applies a part's result only when its reply is shown. So while a
   reply is retried the preview waits too: about ten minutes at worst (three
   tries), within the 15-minute horizon. Typical replies take seconds.
@@ -416,7 +417,65 @@ each reply's `ms`, so real times can set it.
    - One press each, since `rq-batch` always starts at R1.
    - **The batch has spent 25**: `rq-canary` 4, R1 21. With the focused
      check's 9 and R2–R5's 62 at their upper estimates, it would reach 96,
-     within 100.
+     within 100. *(Corrected in the review round: R2–R5's upper estimates
+     are 25, 12, 7 and 17, which is 61, so 95.)*
+
+## The owner's review of the fixes (2026-10-04, on the branch; not merged or deployed)
+
+The owner, reviewing `d5f11aef`: *"The review confirms that the original
+Classes menu failure is fixed, but address these remaining issues before
+merging."* Four, each done; nothing merged, deployed, built or paid. The full
+account, with every test and check, is
+`docs/history/2026-10-04-review-round.md`.
+
+1. **A footer addition accounts for every page it names**
+   (`builder/site-nav.mjs`). The owner's reproduction (a legal Classes link
+   on `/` only, then `pages: ["/", "/visit"]`) answered `satisfied` with
+   nothing changed while `/visit` had no small print: named pages went
+   through the rule for an addition nobody scoped (the list where the site
+   has one). Now:
+   - every named page is a target, and a named page whose footer lacks the
+     list is given it;
+   - a named page with no footer is refused by name (`no-footer-there`);
+   - a target left without the entry is said (`not-written`, the last guard);
+   - a home page named for a link to itself is told with the menu writer's
+     own reason (`home-self`);
+   - nothing is `satisfied` while a named page is unmet. With nothing else
+     changed, the part is `failed`; with something changed, the part is
+     `partial`. Either way, what needed it is not run;
+   - an addition nobody scoped keeps its default.
+2. **A retry is never claimed before its time** (`builder/site-reply.mjs`,
+   `worker.js`). The owner reproduced an attempt-1 record due at 32 000
+   claimed at 2 500 as attempt 2. One rule at the claim, `replyClaim`: a
+   retry not yet due is skipped (2 s for the clocks), so an early or
+   duplicate delivery spends no try and skips no wait; a holding claim is
+   never taken; spent tries or the horizon fail it; a lost timed message is
+   asked again by the cron after its time and the grace.
+3. **The page applies the outcome at once and follows the reply on its own**
+   (`public/edit-poll.js`, `public/chat.js`; the word from
+   `builder/site-reply.mjs` and `worker.js`):
+   - the preview, the page list, the undo offer, the credits and the send
+     box move the moment the outcome arrives;
+   - the reply's place on the thread is held by a line chosen from what the
+     job did (`replyOutcome`, read from the reply's own facts): "Done" only
+     where something changed, nothing was left undone and the answer's `ok`
+     is true;
+   - the reply is followed (`editReplyFollow`) and settles that message where
+     it stands, once — or becomes the page's own sentence if it fails or
+     never comes;
+   - request parts the same way;
+   - reloads and duplicate looks apply nothing and add nothing.
+4. **R2–R5 in one press** (`rq-batch-r2`, `scripts/canary-batch.mjs`): the
+   same driver from R2, never R1 or `rq-canary`. It keeps the order, one
+   press at a time, the three stops and the threshold of 100. Its box is
+   refused under 25, the batch's spend before it.
+
+**Checks**: red check on `d5f11aef` (every new or converted case fails but
+two, each explained; no unchanged case fails); sweeps 34 of 37, then the 3
+survivors' gaps closed and 8 of 8, every comment-only control surviving; the
+full suite `9381 / 9381 / 0 / 0`. Supplied model answers only. Two dated
+Jobs-panel tests that the calendar broke on 2026-10-04 run on a fixed clock
+(test only).
 
 ## How the findings were checked (before the fixes)
 

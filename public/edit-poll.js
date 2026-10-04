@@ -227,11 +227,102 @@
    * waiting, so the ordinary poll paints nothing new.
    */
   function waitingMessage(body) {
-    // DONE, AND ITS REPLY BEING WRITTEN (2026-10-04): the change is made, and
-    // the server is writing what to say about it.
-    if (body && typeof body === "object" && body.replyState === "pending") return "Done — writing up what changed…";
     if (!body || typeof body !== "object" || body.waiting !== true) return "";
     return "Waiting — your site is busy with another change, or the platform is being updated. This will carry on by itself.";
+  }
+
+  // ── A FINISHED CHANGE WHOSE REPLY IS STILL BEING WRITTEN (2026-10-04) ────
+  //
+  // The owner, on the background replies: *"apply the completed result and
+  // refresh the preview as soon as the authoritative job outcome arrives,
+  // while continuing to follow the model-written reply independently. Do not
+  // make the preview wait through reply retries, and do not display "Done"
+  // for a failed or refused operation simply because its explanation is
+  // pending."* The page waited for the reply before it applied anything, and
+  // said "Done — writing up what changed…" over every ending, a refusal's too.
+  //
+  // So the outcome is applied the moment it arrives, and the reply's place on
+  // the thread is HELD by one line until the reply is written: the message is
+  // marked with the job (`held`), and replaced where it stands, once.
+
+  /**
+   * THE HELD LINE, by what the job really did. `replyOutcome` is the server's
+   * reading of the same facts its reply writer is given (`replyOutcomeOf` in
+   * builder/site-reply.mjs): "Done" only where something changed and nothing
+   * asked for was left undone. A body without one — an older server, facts it
+   * could not read — gets a line that claims nothing.
+   */
+  var PENDING_LINES = Object.freeze({
+    done: "Done — writing up what changed…",
+    partly: "Partly done — writing up what changed and what didn’t…",
+    asked: "A question first — writing it up…",
+    nothing: "Nothing changed — writing up why…",
+    "not-done": "That didn’t go through — writing up why…",
+  });
+  var PENDING_LINE = "Writing up what happened…";
+  function pendingReplyLine(body) {
+    var k = body && typeof body === "object" && typeof body.replyOutcome === "string" ? body.replyOutcome : "";
+    // AND NEVER A "DONE" OVER AN ANSWER THAT SAYS IT DID NOT FINISH: the word
+    // is the server's, the `ok` the job's own, and the two must agree.
+    if ((k === "done" || k === "partly") && body.ok !== true) k = "";
+    return Object.prototype.hasOwnProperty.call(PENDING_LINES, k) ? PENDING_LINES[k] : PENDING_LINE;
+  }
+
+  /**
+   * HOW LONG THE PAGE FOLLOWS A HELD REPLY: past the server's last try. The
+   * server gives a reply up fifteen minutes after it was asked
+   * (`REPLY_HORIZON_MS`), a try that starts just inside that runs up to its own
+   * deadline, and the sweep finds a missed retry within its grace —
+   * `test/reply-held-page.test.mjs` holds this above their sum. Past it, the
+   * held line becomes the page's own sentence for the outcome.
+   */
+  var REPLY_WATCH_MS = 1200000;
+
+  /** The held mark on a thread message, read strictly; null when it has none or it does not read. */
+  function heldOf(m) {
+    var h = m && typeof m === "object" ? m.held : null;
+    if (!h || typeof h !== "object" || Array.isArray(h)) return null;
+    if (typeof h.job !== "string" || !h.job || h.job.length > 100) return null;
+    if (typeof h.else !== "string") return null;
+    return {
+      job: h.job,
+      at: typeof h.at === "number" && isFinite(h.at) && h.at > 0 ? h.at : 0,
+      else: h.else,
+      asked: typeof h.asked === "string" ? h.asked : "",
+    };
+  }
+
+  /**
+   * THE MESSAGE THAT HOLDS A REPLY'S PLACE: the held line, with a question's
+   * card under it when the ending asked one (the question is part of the
+   * outcome, so it is drawn now), and kept with it the job, when, the page's
+   * own sentence for the outcome (`else`, said if the reply never comes) and
+   * the question's words (`asked`), which the written reply goes above.
+   * `said` is what the reader composed: a sentence, or `askReplyMsg`'s
+   * message.
+   */
+  function holdReply(said, job, line, now) {
+    var m = said && typeof said === "object" && typeof said.t === "string" ? said : { t: typeof said === "string" ? said : "" };
+    var out = { t: String(line), held: { job: String(job), at: typeof now === "number" ? now : Date.now(), else: m.t, asked: typeof m.asked === "string" ? m.asked : "" } };
+    if (m.q !== undefined) out.q = m.q;
+    if (m.opts !== undefined) out.opts = m.opts;
+    if (m.ask !== undefined) out.ask = m.ask;
+    return out;
+  }
+
+  /**
+   * THE HELD MESSAGE SETTLED, ONCE: the written reply (above the question's
+   * words, as `askReplyMsg` puts it), or the page's own sentence when there is
+   * none. The mark is the latch: a message without one is left as it is, and
+   * false says nothing was done.
+   */
+  function settleHeld(m, text) {
+    var h = heldOf(m);
+    if (!h) return false;
+    var t = typeof text === "string" ? text.replace(/\s+$/, "") : "";
+    m.t = t ? (h.asked ? t + "\n" + h.asked : t) : h.else;
+    delete m.held;
+    return true;
   }
 
   /**
@@ -552,9 +643,11 @@
     //    503 IS the outcome, and reading it as a transient failure polls past
     //    the thing being waited for.
     // …UNLESS ITS REPLY IS STILL BEING WRITTEN (2026-10-04): the work is done
-    //    and the server writes the customer's sentence in the background, so
-    //    the page waits for it — with a sentence of its own — rather than say
-    //    the old fixed one first. `failed` is an answer: the old wording.
+    //    and the server writes the customer's sentence in the background. The
+    //    OUTCOME is in: the page applies it at once and holds the reply's
+    //    place (`holdReply`), following the reply on its own; a watcher that
+    //    needs the reply's words — the canary's — keeps waiting. `failed` is
+    //    an answer: the page's own sentence.
     if (finalHeader === FINAL_VALUE && body && body.replyState === "pending") return { act: "wait", kind: "reply" };
     if (finalHeader === FINAL_VALUE) return { act: "reply" };
     // 3. A POLL THAT FAILED IS NOT AN EDIT THAT FAILED.
@@ -849,6 +942,13 @@
     modelReply: modelReply,
     MODEL_REPLY_MAX: MODEL_REPLY_MAX,
     waitingMessage: waitingMessage,
+    pendingReplyLine: pendingReplyLine,
+    PENDING_LINES: PENDING_LINES,
+    PENDING_LINE: PENDING_LINE,
+    REPLY_WATCH_MS: REPLY_WATCH_MS,
+    heldOf: heldOf,
+    holdReply: holdReply,
+    settleHeld: settleHeld,
     makeWatch: makeWatch,
     shouldGiveUp: shouldGiveUp,
     POLL_GIVE_UP_MS: POLL_GIVE_UP_MS,

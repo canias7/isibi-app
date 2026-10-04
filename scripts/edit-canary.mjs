@@ -86,8 +86,9 @@ import {
 import { publishedVersion } from "./canary-watch.mjs";
 // THE REQUEST BATCH IN ONE PRESS (`rq-batch`, 2026-10-04): R1–R5 in order,
 // each this script run once, stopping itself between presses — see
-// `canary-batch.mjs`.
-import { BATCH_NAME, runBatchMain } from "./canary-batch.mjs";
+// `canary-batch.mjs`. AND ITS CONTINUATION FROM R2 (`rq-batch-r2`): R2–R5,
+// the same way.
+import { BATCH_NAME, BATCH_FROM_R2_NAME, batchOf, runBatchMain } from "./canary-batch.mjs";
 // TEST 6: the description in the site's settings, beside the one the head serves.
 import { readStoredHead, storedHeadSaid } from "./canary-watch.mjs";
 // AND THE RULES TEST'S (lido-axes-b): its approvals, its readers' verdicts, and
@@ -131,9 +132,9 @@ const UI = String(process.env.CANARY_UI || "").trim();
 // the driver runs this script once per press, each with its own scenario
 // named, and answers the batch's exit code. Its box beside any other run is
 // refused, as every mode's box is.
-if (UI === BATCH_NAME) process.exit(await runBatchMain(process.env));
+if (batchOf(UI)) process.exit(await runBatchMain(process.env));
 if (String(process.env.CANARY_BATCH_SPENT || "").trim()) {
-  console.error(`REFUSING: the batch's spend box is filled, but the scenario box does not name ${BATCH_NAME}. Nothing was signed in or charged.`);
+  console.error(`REFUSING: the batch's spend box is filled, but the scenario box does not name ${BATCH_NAME} or ${BATCH_FROM_R2_NAME}. Nothing was signed in or charged.`);
   process.exit(2);
 }
 

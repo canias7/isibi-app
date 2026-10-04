@@ -43,13 +43,25 @@ here; take a closed one out of both.**
   (found 2026-10-04, with the background replies): while a reply is retried,
   the site's preview and the part's message wait together, at worst about ten
   minutes (three tries), within the reply's 15-minute horizon. It predates
-  the fix (the poll-time reply held them together for up to 20 s). Not
-  changed: showing the result first and the reply after is a page change of
-  its own.
+  the fix (the poll-time reply held them together for up to 20 s). **Fixed on
+  the branch in the owner's review round** (2026-10-04, not merged or
+  deployed; `docs/history/2026-10-04-review-round.md` §3): the outcome is
+  applied at once, the reply's place held by a line that says what the job
+  did (never "Done" over a refusal), and the reply followed on its own and
+  settled in place once. Supplied answers only.
 - **The Stop control still shows while a finished job's reply is written**
   (found 2026-10-04): pressing it undoes nothing (a published job is refused
   as too late, an unpublished one has already ended) and the page goes back to
-  waiting; the control is merely there. Not changed.
+  waiting; the control is merely there. **Gone with the fix above** (the same
+  round): the watch ends when the outcome arrives, so the live steps and their
+  control stop there.
+- **The preview's first refresh on a site with no stored version keeps
+  `?v=1`** (found 2026-10-04, the owner's review round): `sitePreviewSrc`
+  defaults a missing `previewV` to 1 and the first bump makes it 1, so the
+  frame's address does not change, and published pages are served
+  `public, max-age=60`: the frame may show the cached page for up to a
+  minute after that first change. Older than the round, unchanged by it. Not
+  changed.
 - A half of a message the router puts off (`alsoAsked`) is still attempted,
   on the home page, and the reply contradicts itself (run 52). **Fixed and
   deployed 2026-09-29 (deploy 2166); run 57 made both changes live, with
@@ -565,13 +577,32 @@ here; take a closed one out of both.**
   - Open: whether to show the result first and the reply after. That is a
     page change of its own; applying a result twice must stay impossible
     (`take()`).
+  - **Fixed on the branch** (the owner's review round, 2026-10-04; not
+    merged or deployed): the outcome first, by the same reader; the reply's
+    place held (`EditPoll.holdReply`) with the server's word for what the job
+    did (`replyOutcome`); the reply followed (`editReplyFollow`) and settled
+    where it stands, once; a reload follows the held message and applies
+    nothing (`docs/history/2026-10-04-review-round.md` §3).
 - **THE STOP CONTROL STILL SHOWS WHILE A FINISHED JOB'S REPLY IS WRITTEN**
   (found 2026-10-04, in the screenshot of the waiting page). Pressing it asks
   the server to cancel a job that has ended (`edit_cancel`): a published one
   is refused as too late (409), an unpublished one answers that it has ended
   with no cancel. Either way nothing is undone and the page goes back to
   waiting for the reply (`isCancelTooLate`, `isCancelConfirmed`). Open:
-  whether the control should give way to the waiting note.
+  whether the control should give way to the waiting note. **Gone with the
+  fix above** (the same round): the job's watch ends when its outcome
+  arrives, so the live steps and their control stop then; the reply is
+  followed from the thread.
+- **THE PREVIEW'S FIRST REFRESH ON A SITE WITH NO STORED VERSION KEEPS
+  `?v=1`** (found 2026-10-04, the owner's review round). `sitePreviewSrc`
+  (`public/chat.js`) gives a site with no `previewV` the address `?v=1`, and
+  the first bump after a change sets `previewV` to 1, so the frame is pointed
+  at the same address. A re-pointed frame with an unchanged address is
+  rendered afresh by the workspace, but published pages are served
+  `public, max-age=60` (`worker.js`), so it may show the cached page for up
+  to a minute after the first change on such a site. Every later change moves
+  the address. Older than the round and the same before and after it; seen in
+  the source, not measured in a browser. Not changed.
 - **The combined request flow** (2026-10-03, `docs/request-flow.md`; merged and
   deployed in deploy 2181 (2026-10-04); `REQUEST_FLOW` set by the owner in
   deploy 2182;

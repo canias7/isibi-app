@@ -31,7 +31,7 @@ import { PART_HEADING } from "../builder/site-ask.mjs";
 import { jobBody, handOff, HOPS_MAX } from "../builder/request.mjs";
 import { gatewayHandler, gatewayKey, signJobToken, verifyJobToken, preScopeSlug } from "../builder/job-gateway.mjs";
 import { makeContainerEnv } from "../builder/container-env.mjs";
-import { navSlots } from "../builder/site-nav.mjs";
+import { navSlots, chromeListSlots, applyAdditions } from "../builder/site-nav.mjs";
 import { rowsDb, BAKERY_LOAVES, LOAF_COLUMNS } from "./fixtures/rows-db.mjs";
 
 const DESC = "Change the site description to say we bake overnight sourdough";
@@ -2098,6 +2098,52 @@ test("M5 — run 95's R1 shape: the new page's own placement puts its link in ev
     assert.ok(kinds.includes("x") && !kinds.includes("c"), "the part already done was told as a change: " + JSON.stringify(kinds));
   });
 });
+
+// THE OWNER'S REVIEW (2026-10-04): A FOOTER ADDITION NAMING ITS PAGES IS DONE
+// ONLY WHEN EVERY NAMED PAGE HAS IT. Run 47's bakery: four pages with a footer
+// and no social links, a starter page with no footer at all; Instagram already
+// on the home page. Its own part is followed by one that needs it.
+const BAKERY = ["index", "order", "starter", "visit", "gallery"].map((n) => ({ path: n + ".tsx", source: fs.readFileSync(new URL("./fixtures/run47/" + n + ".before.tsx", import.meta.url), "utf8") }));
+const INSTA = { to: "social", network: "instagram", href: "https://instagram.com/harbourloaf" };
+const BAKERY_INSTA_HOME = applyAdditions(BAKERY, [{ to: "social", item: { network: INSTA.network, href: INSTA.href }, pages: ["/"], after: null }]).pages;
+const socialOf = (P, file) => (chromeListSlots([{ path: file, source: P.page(file) }], "social")[0] || {}).items;
+const INSTA_WORDS = "add our Instagram to the footer of the home page and the";
+
+for (const [named, met] of [["/visit", true], ["/starter", false]]) {
+  test(`M6 (${named}) — a footer addition naming its pages: ${met ? "the named page whose footer had no social links is given them, the part is done, and the part that needed it runs" : "the named page with no footer is told by name, the part is not done though the home page had it, and the part that needed it never runs"}`, async () => {
+    assert.deepEqual((chromeListSlots([{ path: "index.tsx", source: BAKERY_INSTA_HOME[0].source }], "social")[0] || {}).items, [{ network: "instagram", href: INSTA.href }], "the fixture's home page has no Instagram");
+    const words = INSTA_WORDS + " " + named.slice(1) + " page";
+    await withPlatform({
+      slug: slugOf("m6" + named.slice(1)), pages: BAKERY_INSTA_HOME, replies: true,
+      answers: {
+        route: [{ intent: "edit", layer: "nav", alsoAsked: [DESC], dependsOn: [{ change: 1, after: [0] }] }, { intent: "edit", layer: "look" }],
+        write_nav: { add: [{ ...INSTA, pages: ["/", named] }] },
+        ...DESCRIBE,
+      },
+    }, async (P) => {
+      const r = await sendMessage(P, { message: words + ", then " + DESC + "." });
+      const { rec } = await settle(P, r.key);
+      const nav = P.answerOf(P.jobsOf(r.key)[0]);
+      assert.notEqual(nav.satisfied, true, "an addition with a named page undone, or newly done, was answered as already true");
+      if (met) {
+        assert.deepEqual(statuses(rec), ["done", "done"], JSON.stringify(rec.parts.map((p) => [p.status, p.why])));
+        assert.deepEqual(socialOf(P, "visit.tsx"), [{ network: "instagram", href: INSTA.href }]);
+        assert.equal(P.look().description, NEW_DESC, "the part that needed it did not run");
+      } else {
+        assert.equal(nav.ok, false, JSON.stringify(nav));
+        assert.match(nav.msg, /\/starter has no footer to put “instagram” in/);
+        assert.equal(rec.parts[0].status, "failed", JSON.stringify(rec.parts[0]));
+        assert.deepEqual([rec.parts[1].status, rec.parts[1].why], ["not-run", "needs:0"]);
+        // NO PART DONE: the request failed, as any whose every part did.
+        assert.equal(rec.state, "failed");
+        assert.equal(P.look().description, OLD_DESC, "the part that needed the unmet addition ran");
+        assert.equal(P.page("starter.tsx"), BAKERY.find((x) => x.path === "starter.tsx").source, "the page with no footer was given one");
+        const told = toldIn(P, await readWritten(P, REQ(P, r.key)));
+        assert.match(told, /Not started: “Change the site description[^”]*”, because it needed “[^”]*” done first/, told);
+      }
+    });
+  });
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // K. WHAT A PART'S OWN REPLY TELLS THE CUSTOMER ABOUT THE OTHER PARTS

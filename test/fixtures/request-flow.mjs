@@ -454,7 +454,8 @@ export function platform({ slug, balance = 50, founder = false, answers = {}, ow
     BUILD_QUEUE: {
       async send(body, opts) {
         if (env.__dropSends > 0) { env.__dropSends--; throw new Error("queue unavailable"); }
-        const m = { body, delaySeconds: (opts && opts.delaySeconds) || 0 };
+        // WHEN IT WAS SENT, on the platform's clock, so a case can deliver it at its time (`pump`'s `due`).
+        const m = { body, delaySeconds: (opts && opts.delaySeconds) || 0, at: now() };
         queue.push(m); sent.push(m);
         // A SEND THAT LANDS AND WHOSE SENDER NEVER HEARS (`hangSend`): evicted right after it.
         if (sendHangs > 0) { sendHangs--; hung.what = "send"; die(null); hung.resolve("send"); return new Promise(() => {}); }
@@ -582,12 +583,21 @@ export async function sendMessage(P, { message, key = newKey(), images, ask, att
   });
 }
 
-/** Deliver queued messages to the real consumer, one at a time, until none are left (or `max`). A hung call ends that delivery. */
-export async function pump(P, { max = 40, twice = false } = {}) {
+/**
+ * Deliver queued messages to the real consumer, one at a time, until none are
+ * left (or `max`). A hung call ends that delivery. WITH `due` (2026-10-04),
+ * only messages whose time has come on the platform's clock — sent at `at`,
+ * with their `delaySeconds` — are delivered; the rest stay queued, as the real
+ * queue holds a delayed message until its time.
+ */
+export async function pump(P, { max = 40, twice = false, due = false } = {}) {
   const worker = await loadWorker();
   let n = 0;
-  while (P.queue.length && n < max) {
-    const m = P.queue.shift();
+  const ready = (m) => !due || (m.at || 0) + (m.delaySeconds || 0) * 1000 <= P.now();
+  while (n < max) {
+    const at = P.queue.findIndex(ready);
+    if (at < 0) break;
+    const m = P.queue.splice(at, 1)[0];
     const deliveries = twice ? 2 : 1;
     for (let d = 0; d < deliveries; d++) {
       n++;
@@ -685,10 +695,10 @@ export async function call(P, method, path, body, auth = TOKEN) {
   });
 }
 
-/** Run every queued job and the steps after them until the request ends or nothing moves. */
-export async function settle(P, key, { rounds = 12 } = {}) {
+/** Run every queued job and the steps after them until the request ends or nothing moves (`due`: as `pump`'s). */
+export async function settle(P, key, { rounds = 12, due = false } = {}) {
   for (let i = 0; i < rounds; i++) {
-    const r = await pump(P);
+    const r = await pump(P, { due });
     if (r.hung) return { hung: r.hung, rec: P.record(key) };
     const rec = P.record(key);
     if (!rec || rec.ended || (!P.queue.length && rec.state !== "running")) return { rec };

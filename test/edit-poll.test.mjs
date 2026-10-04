@@ -927,8 +927,9 @@ test("the resume is wired: on site selection, once per job, with the ask and the
   const rs = CHAT.slice(CHAT.indexOf("function renderSites()"), CHAT.indexOf("function renderSiteWorkspace("));
   assert.ok(rs.length > 200, "the renderSites window came out empty");
   // AND THE SITE'S LIVE QUESTION IS CHECKED THERE TOO (2026-10-02, `siteAskCheck`),
-  // AND ITS REQUESTS PICKED UP FROM THE SERVER (2026-10-03, `siteRequestsCheck`).
-  assert.match(rs, /if \(open\) \{ resumeOpenSite\(open\); siteAskCheck\(open\); siteRequestsCheck\(open\); renderSiteWorkspace\(view, open\); return; \}/,
+  // AND ITS REQUESTS PICKED UP FROM THE SERVER (2026-10-03, `siteRequestsCheck`),
+  // AND ITS HELD REPLIES FOLLOWED AGAIN (2026-10-04, `siteHeldRepliesCheck`).
+  assert.match(rs, /if \(open\) \{ resumeOpenSite\(open\); siteHeldRepliesCheck\(open\); siteAskCheck\(open\); siteRequestsCheck\(open\); renderSiteWorkspace\(view, open\); return; \}/,
     "the open site is not resumed before it is drawn");
   const re = CHAT.slice(CHAT.indexOf("function resumeEditJob("), CHAT.indexOf("function resumeOpenSite("));
   const ro = CHAT.slice(CHAT.indexOf("function resumeOpenSite("), CHAT.indexOf("function siteAddon("));

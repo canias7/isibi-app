@@ -5412,7 +5412,7 @@ function renderSites() {
   // 2026-09-05): a refresh mid-edit used to lose sight of the job for good.
   // Idempotent — a job already watched is refused inside — so this is safe on
   // the render every reply triggers.
-  if (open) { resumeOpenSite(open); siteAskCheck(open); siteRequestsCheck(open); renderSiteWorkspace(view, open); return; }
+  if (open) { resumeOpenSite(open); siteHeldRepliesCheck(open); siteAskCheck(open); siteRequestsCheck(open); renderSiteWorkspace(view, open); return; }
   // AN ID THAT NAMES NOTHING FALLS BACK TO THE LIST, AND THE URL STOPS LYING.
   // A pasted link to a deleted project, or one belonging to another account,
   // lands here. `replaceState` and not a push, and not `openProject` either:
@@ -8077,7 +8077,7 @@ function renderSiteWorkspace(view, site) {
     const linkify = (s) => esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
     thread.innerHTML = (site.msgs || []).map((m) => m.r === 'u'
       ? '<div class="st-msg u">' + esc(m.t) + '</div>'
-      : '<div class="st-msg a">' + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + linkify(m.t) + (m.why ? '<div class="st-why">' + esc(m.why) + '</div>' : '') + (m.build ? reactStepsHTML(m.build) : '') + siteAskHTML(m, site) + (m.request ? siteRequestHTML(m, site) : '') + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
+      : '<div class="st-msg a">' + (m.note ? '<div class="st-note">' + esc(m.note) + '</div>' : '') + siteMsgText(m, linkify) + (m.why ? '<div class="st-why">' + esc(m.why) + '</div>' : '') + (m.build ? reactStepsHTML(m.build) : '') + siteAskHTML(m, site) + (m.request ? siteRequestHTML(m, site) : '') + '<span class="st-acts"><button type="button" class="st-act" data-copy="1" title="Copy">⧉</button></span></div>'
     ).join('') + (siteBusy
       ? (siteBuild
           ? '<div class="st-msg a st-busy st-busy-react">' + reactLiveStepsHTML() + '</div>'
@@ -9513,8 +9513,11 @@ function siteRequestFollow(origin, key) {
 }
 /**
  * One reading of a request on the page; true when it has ended and all it said
- * is shown. A REPLY STILL BEING WRITTEN (2026-10-04, `replyState: "pending"`)
- * keeps the page reading: a part's own, or the request's.
+ * is shown. A PART'S REPLY STILL BEING WRITTEN (2026-10-04) does not hold the
+ * page up: the part's outcome is applied and its place held on the thread
+ * (`siteRequestJobReply`), and the reply is followed on its own. THE
+ * REQUEST'S OWN, still being written (`replyState: "pending"`), keeps the page
+ * reading the request.
  */
 async function siteRequestShow(origin, key, view, reply, replyFor, replyState) {
   const s = siteById(origin);
@@ -9566,14 +9569,18 @@ async function siteRequestJobReply(origin, key, part, job) {
     e = await r.json().catch(() => null);
   } catch (err) { return false; }
   const read = EditPoll.readPoll(r.status, r.headers && r.headers.get(EditPoll.FINAL_HEADER), e);
-  if (read.act !== 'reply' && read.act !== 'ended' && read.act !== 'gone') return false;
+  // THE OUTCOME, ITS REPLY STILL BEING WRITTEN (2026-10-04): applied now, its
+  // place on the thread held, and the reply followed on its own — so the
+  // preview moves, and the part after it is shown, without waiting for it.
+  const held = read.act === 'wait' && read.kind === 'reply';
+  if (!held && read.act !== 'reply' && read.act !== 'ended' && read.act !== 'gone') return false;
   const st = siteReqState(origin, key);
   if (!st || st.shown.includes(job)) return true;
   st.shown.push(job);
   sitesSave();
   // A JOB WITH NO STORED REPLY, OR A HAND-OVER (the server's to act on): the
   // request's own reply says what became of the part.
-  if (read.act !== 'reply' || !e || typeof e !== 'object' || e.escalate === true) return true;
+  if ((read.act !== 'reply' && !held) || !e || typeof e !== 'object' || e.escalate === true) return true;
   // A QUESTION WAITING ITS TURN is not drawn as live: its card comes when the
   // server puts it in the site's slot. AND THE PARTS THIS STEP LEFT ARE THE
   // REQUEST'S OWN, on its card and run after it by the server, so the page's
@@ -9581,7 +9588,10 @@ async function siteRequestJobReply(origin, key, part, job) {
   const { deferred: _held, putOff: _off, ...kept } = e;
   const body = kept.clarify && kept.clarify.queued === true ? (({ clarify: _drop, ...rest }) => rest)(kept) : kept;
   const d = { intent: part.route === 'addon' ? 'addon' : 'edit', layer: part.route && part.route !== 'addon' ? part.route : '' };
-  const o = { site: s, d, instruction: part.words, origin, finish: (t) => siteReqSay(origin, t), fallback: null, imgs: [], handedOff: false, slug: s.slug };
+  const addon = d.intent === 'addon';
+  const say = (t) => siteReqSay(origin, t);
+  const finish = held && replyTellsEnding(!!r.ok, body, addon) ? editReplyHold(origin, job, e, say) : say;
+  const o = { site: s, d, instruction: part.words, origin, finish, fallback: null, imgs: [], handedOff: false, slug: s.slug };
   try { (d.intent === 'addon' ? addonAnswer : editAnswer)(!!r.ok, body, o); } catch (err) { /* what was said stands */ }
   return true;
 }
@@ -9735,6 +9745,10 @@ const editBlocked = new Set();
 // second watcher on one job would apply the reply twice — the exactly-once
 // latch inside a watch is per WATCH, not per job.
 const editWatched = new Set();
+// `editReplyFollowing` is the held replies this page is following (2026-10-04),
+// one per site and job: the resume runs on every render too, and the held mark
+// on the message is what makes a settle happen once.
+const editReplyFollowing = new Set();
 
 // ── THE ASK THAT TOOK A SITE'S LATCH IS THE ONLY ONE THAT RELEASES IT ──────
 //
@@ -10369,7 +10383,7 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
   if (editWatched.has(w.job)) return;
   editWatched.add(w.job);
   const release = () => { editWatched.delete(w.job); };
-  const apply = (e, r0) => {
+  const apply = (e, r0, held) => {
     // ── EXACTLY ONCE ──────────────────────────────────────────────────────
     //
     // A final answer can arrive more than once: a retry that raced the first,
@@ -10387,6 +10401,17 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
     const once = w.take(e);
     EditPoll.forgetJob(slug);
     release();
+    // ── ITS REPLY STILL BEING WRITTEN (2026-10-04) ────────────────────────
+    //
+    // The owner: *"apply the completed result and refresh the preview as soon
+    // as the authoritative job outcome arrives, while continuing to follow the
+    // model-written reply independently."* The outcome is applied here and
+    // now, by the same reader, and an ending that a written reply tells holds
+    // the reply's place on the thread (`editReplyHold`) — the page freed, the
+    // preview moved — while the reply is followed on its own. The job is
+    // forgotten all the same: what is left to follow is on the message.
+    const httpOk = !!(r0 && r0.ok);
+    const said = held && once && replyTellsEnding(httpOk, once, reader === addonAnswer) ? editReplyHold(origin, w.job, once, finish) : finish;
     // ── THE SAME READER THE SYNCHRONOUS PATH USES, ON THE SAME OBJECT ─────
     //
     // Including the escalate, which this function briefly checked for itself —
@@ -10402,7 +10427,7 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
     // `httpOk` is the POLL's, which for a stored reply IS the edit's own
     // status: a 422 handed back by the poll says the edit did not compile
     // exactly as an inline 422 does.
-    return reader(!!(r0 && r0.ok), once, { site, d, instruction, origin, finish, fallback, imgs, handedOff: !!handedOff, slug });
+    return reader(httpOk, once, { site, d, instruction, origin, finish: said, fallback, imgs, handedOff: !!handedOff, slug });
   };
   const step = async () => {
     let r = null;
@@ -10451,6 +10476,9 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
       finish('⚠️ I lost track of that edit. Your site is unchanged unless it had already published.' + alsoTail({ deferred: d && d.alsoAsked }, false));
       return;
     }
+    // THE OUTCOME, ITS REPLY STILL BEING WRITTEN (2026-10-04): applied now,
+    // and the reply followed on its own — never waited for here.
+    if (read.act === 'wait' && read.kind === 'reply') { apply(e, r, true); return; }
     if (read.act === 'wait') {
       w.attempt++;
       // A JOB WAITING BEHIND ANOTHER CHANGE, OR A PLATFORM UPDATE, SAYS SO
@@ -10482,6 +10510,107 @@ function watchEditJob(site, d, job, origin, finish, fallback, instruction, imgs,
     finish('⚠️ ' + ((e && typeof e.msg === 'string' && e.msg) || EditPoll.outcomeMessage(read.kind)) + wholeRequestNote({ ok: false, cost: e && e.cost }, d) + alsoTail({ deferred: d && d.alsoAsked }, false));
   };
   setTimeout(step, EditPoll.pollDelayMs(0));
+}
+
+/**
+ * WHICH ENDINGS A WRITTEN REPLY TELLS (2026-10-04): those whose reader shows
+ * the model's reply when it has one — a success, a question, a refusal (but an
+ * edit's under review, which keeps its fixed sentence: `editAnswer`). Only they
+ * hold their place for it. Not knowing, a receipt and a hand-over never do:
+ * they are said, or acted on, at once. Asked of the readers' own reading of the
+ * reply (`readEditReply`, `readAddonReply`), so nothing here decides what a
+ * reply means; `test/reply-held-page.test.mjs` holds every ending to what its
+ * reader says with the reply in hand.
+ */
+function replyTellsEnding(httpOk, e, addon) {
+  const said = addon ? readAddonReply(httpOk, e) : readEditReply(httpOk, e);
+  if (said.act === 'success' || said.act === 'clarify') return true;
+  return said.act === 'refusal' && (addon || !(e && e.error === 'needs-review'));
+}
+
+/**
+ * THE FINISH OF AN ENDING WHOSE REPLY IS STILL BEING WRITTEN (2026-10-04). What
+ * the reader composed for it is kept on a message that holds the reply's place
+ * (`EditPoll.holdReply`): the line says what the job did (`replyOutcome`), never
+ * "Done" over a refusal, and a question's card is drawn under it at once. It
+ * goes out through the ask's own finish, so the page is freed and the preview
+ * has already moved; then the reply is followed on its own (`editReplyFollow`),
+ * even when the redraw threw.
+ */
+function editReplyHold(origin, job, e, finish) {
+  return (said) => {
+    try { return finish(EditPoll.holdReply(said, job, EditPoll.pendingReplyLine(e))); }
+    finally { editReplyFollow(origin, job); }
+  };
+}
+
+/**
+ * FOLLOW A HELD REPLY UNTIL IT IS WRITTEN, OR COULD NO LONGER COME (2026-10-04).
+ *
+ * The job's outcome was applied when it arrived; this only reads the job's
+ * stored answer again — the same poll, which never calls the model — and
+ * settles the message holding the reply's place: the written reply, or, when
+ * the reply failed, the job is gone or the page has looked past the server's
+ * last try (`EditPoll.REPLY_WATCH_MS`), the reader's own sentence, which the
+ * message kept. ONCE: the held mark is the latch, and there is one follower per
+ * site and job. Nothing here applies a result, posts anything or adds a
+ * message to the thread.
+ */
+function editReplyFollow(origin, job) {
+  const id = origin + '|' + job;
+  if (editReplyFollowing.has(id)) return;
+  editReplyFollowing.add(id);
+  const startedAt = Date.now();
+  let attempt = 0;
+  const heldMsg = () => {
+    const s = siteById(origin);
+    return (s && Array.isArray(s.msgs) && s.msgs.find((m) => { const h = EditPoll.heldOf(m); return !!h && h.job === job; })) || null;
+  };
+  const settle = (text) => {
+    editReplyFollowing.delete(id);
+    const s = siteById(origin);
+    const m = heldMsg();
+    if (!s || !m || !EditPoll.settleHeld(m, text)) return;
+    s.updatedAt = Date.now();
+    sitesSave();
+    if (siteOpenId === origin) renderSites();
+  };
+  const step = async () => {
+    const m = heldMsg();
+    if (!m) { editReplyFollowing.delete(id); return; }
+    let r = null;
+    let e = null;
+    try {
+      r = await apiFetch('/api/site/edit/' + encodeURIComponent(job), { method: 'GET' });
+      e = await r.json().catch(() => null);
+    } catch (err) { r = null; }
+    const read = r ? EditPoll.readPoll(r.status, r.headers && r.headers.get(EditPoll.FINAL_HEADER), e) : { act: 'retry' };
+    // WRITTEN, OR NOT TO BE: the reply when there is one, the page's own
+    // sentence otherwise (`replyState: "failed"`, or nothing owed).
+    if (read.act === 'reply') { settle(EditPoll.modelReply(e)); return; }
+    if (read.act === 'gone' || read.act === 'ended') { settle(null); return; }
+    // STILL BEING WRITTEN, OR A POLL THAT FAILED: looked at again, until the
+    // reply could no longer come — measured from when it was held, or from
+    // this follow when that is later (a page reopened).
+    const h = EditPoll.heldOf(m);
+    if (Date.now() > Math.max((h && h.at) || 0, startedAt) + EditPoll.REPLY_WATCH_MS) { settle(null); return; }
+    setTimeout(step, EditPoll.pollDelayMs(++attempt));
+  };
+  setTimeout(step, EditPoll.pollDelayMs(0));
+}
+
+/**
+ * THE OPEN SITE'S HELD REPLIES, FOLLOWED AGAIN after a reload, or when the site
+ * is opened (2026-10-04): each message still holding a reply's place is
+ * followed, once per page (`editReplyFollow`'s latch). Nothing else is done:
+ * the outcome it holds a place for was applied when it arrived.
+ */
+function siteHeldRepliesCheck(site) {
+  if (!site || !site.id || !Array.isArray(site.msgs)) return;
+  for (const m of site.msgs) {
+    const h = EditPoll.heldOf(m);
+    if (h) editReplyFollow(site.id, h.job);
+  }
 }
 
 /**
@@ -12819,11 +12948,23 @@ function askFilesDrop(id) {
 // thread writes through this, so a reader can end its chain with a question.
 function siteReplyMsg(reply) {
   if (reply && typeof reply === 'object' && typeof reply.t === 'string') {
+    // A REPLY STILL BEING WRITTEN (2026-10-04): the line that holds its place,
+    // with what replaces it — `EditPoll.holdReply`, settled by `editReplyFollow`.
+    const held = EditPoll.heldOf(reply);
     // A SITE'S QUESTION KEEPS EVERY ANSWER (2026-10-03); a first build's card
     // draws its own four (`siteAskHTML`), as it always has.
-    return { r: 'a', t: reply.t, q: reply.q || undefined, opts: Array.isArray(reply.opts) ? (reply.ask ? reply.opts.slice() : reply.opts.slice(0, 4)) : undefined, ask: reply.ask || undefined };
+    return { r: 'a', t: reply.t, q: reply.q || undefined, opts: Array.isArray(reply.opts) ? (reply.ask ? reply.opts.slice() : reply.opts.slice(0, 4)) : undefined, ask: reply.ask || undefined, ...(held ? { held } : {}) };
   }
   return { r: 'a', t: reply };
+}
+// AN ASSISTANT MESSAGE'S WORDS ON THE THREAD — or, for a reply still being
+// written (2026-10-04), the line holding its place, drawn as the live steps'
+// own waiting line, with a question's words under it. `linkify` is the
+// thread's own: escaped, with its links made live.
+function siteMsgText(m, linkify) {
+  const h = EditPoll.heldOf(m);
+  if (!h) return linkify(m.t);
+  return '<div class="st-think"><i></i>' + esc(m.t) + '</div>' + (h.asked ? '<div>' + linkify(h.asked) + '</div>' : '');
 }
 // THE MESSAGE A QUESTION IS DRAWN UNDER: what was said before it, then the
 // question in the model's own words, last, above its answers — always with the
@@ -12834,7 +12975,9 @@ function askReplyMsg(before, q) {
   // settle it, so it is never read as the same question asked again for nothing.
   const asked = q.note ? q.note + '\n' + q.text : q.text;
   const t = lead ? lead + '\n' + asked : asked;
-  return { t: t, q: q.text, opts: q.options.slice(), ask: q.id };
+  // AND THE QUESTION'S OWN WORDS (2026-10-04): a reply still being written goes
+  // above them when it comes (`EditPoll.holdReply`). Not kept on the thread.
+  return { t: t, q: q.text, opts: q.options.slice(), ask: q.id, asked: asked };
 }
 // THE CARD'S STATE, ON THE SITE — what `sitesSave` keeps, files apart.
 function siteAskKeep(origin, q, imgs) {

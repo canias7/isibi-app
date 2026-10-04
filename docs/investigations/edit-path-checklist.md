@@ -925,13 +925,36 @@ the owner's free press, run 51, at 22:57 UTC):
       30, 5 of 5 and 2 of 2 with controls; the suite `9335 / 9335 / 0 / 0`;
       unit CI (`9335 / 9331 / 0 / 4`) and the site build green on
       `6759c1a6`, as on `1c914c81` before it.
+    - **The owner's review of the fixes, four corrections on the branch**
+      (not merged or deployed; nothing paid;
+      `docs/history/2026-10-04-review-round.md`):
+      - **footer additions**: every named page is accounted for — given the
+        list, refused by name with no footer (`no-footer-there`), said when
+        left unwritten (`not-written`) or when it is the home page asked for
+        a link to itself (`home-self`); never `satisfied`, and nothing that
+        needs it runs, while one is unmet; the unscoped default unchanged;
+      - **replies**: a retry is never claimed before its time
+        (`replyClaim`), so early or duplicate deliveries spend no try;
+      - **the page**: a job's outcome is applied at once and the reply's
+        place held by a line that says what the job did (never "Done" over a
+        refusal); the reply follows on its own and settles in place once,
+        and reloads and duplicate looks apply and add nothing;
+      - **`rq-batch-r2`**: R2–R5 in one press, the same driver, stops and
+        threshold, its box at least 25.
+
+      Supplied answers only. Red check on `d5f11aef` (every new or converted
+      case fails but two, explained); sweeps 34 of 37, then the 3 gaps
+      closed and 8 of 8, every control surviving; the suite
+      `9381 / 9381 / 0 / 0`.
     - **Next**, the owner's:
       1. merge and deploy, then the free runtime press;
       2. the focused check, `rq-menu-link` (3–9): the bakery's Classes link
          into the three menus that lack it, its reply the model's own;
-      3. R2–R5, one press each (R1 and `rq-canary` are not repeated).
+      3. R2–R5 in one press, `rq-batch-r2` (R1 and `rq-canary` are not
+         repeated).
 
-      The batch has spent 25. RW stays separate.
+      The batch has spent 25; at the upper estimates the focused check and
+      R2–R5 take it to 95. RW stays separate.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

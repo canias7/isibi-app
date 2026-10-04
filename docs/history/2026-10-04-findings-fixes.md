@@ -174,4 +174,6 @@ The full account is the investigation's *What is fixed*.
    `rq-canary` are done and not repeated.
 
 The batch has spent **25** (`rq-canary` 4, R1 21). The steps above, at their
-upper estimates, take it to 96, within 100.
+upper estimates, take it to 96, within 100. *(Corrected in the owner's review
+round, `2026-10-04-review-round.md`: the focused check's 9 and R2–R5's 61
+take it to 95.)*

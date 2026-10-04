@@ -417,8 +417,12 @@ test("siteAddon mints one key per POST and watches a filed job with the addon's 
   // same reader, as a value, for a record an addon filed.
   // FIVE SINCE 2026-10-03: a part of a request the server finishes has its
   // job's stored reply read by the same reader (`siteRequestJobReply`).
+  // SIX SINCE 2026-10-04: the watcher asks whether the reader it was handed is
+  // the add-on's, so a held reply's ending is read by the add-on's own rule
+  // (`replyTellsEnding`) — a comparison, never a call.
   const readers = (CHAT.match(/\baddonAnswer\b/g) || []).length;
-  assert.equal(readers, 5, `addonAnswer has ${readers} mentions — one definition, the synchronous call, the watcher argument, the resumed watch's reader and a request part's reply, and no sixth copy`);
+  assert.equal(readers, 6, `addonAnswer has ${readers} mentions — one definition, the synchronous call, the watcher argument, the resumed watch's reader, a request part's reply and the watcher's comparison, and no seventh copy`);
+  assert.match(between(CHAT, "\nfunction watchEditJob(", "\nfunction cancelEditJob(", "watch"), /replyTellsEnding\(httpOk, once, reader === addonAnswer\)/, "the watcher's sixth mention is not the comparison");
   assert.match(between(CHAT, "\nasync function siteRequestJobReply(", "\nfunction siteRequestStop(", "a part's reply"), /\(d\.intent === 'addon' \? addonAnswer : editAnswer\)\(!!r\.ok, body, o\)/, "a request part's reply is not read by the routes' own readers");
 });
 
@@ -426,7 +430,12 @@ test("the shared watcher takes a reader and defaults to the edit's", () => {
   const w = between(CHAT, "\nfunction watchEditJob(", "\nfunction cancelEditJob(", "watch");
   assert.match(w, /function watchEditJob\(site, d, job, origin, finish, fallback, instruction, imgs, answer, handedOff\)/, "the watcher no longer takes a reader");
   assert.match(w, /const reader = typeof answer === 'function' \? answer : editAnswer;/, "the default reader is not the edit's");
-  assert.match(w, /return reader\(!!\(r0 && r0\.ok\), once, \{ site, d, instruction, origin, finish, fallback, imgs, handedOff: !!handedOff, slug \}\);/,
+  // THE FINISH IT IS HANDED IS THE ASK'S OWN, or — an ending a written reply
+  // tells, its reply still being written (2026-10-04) — that finish behind the
+  // one that holds the reply's place (`editReplyHold`).
+  assert.match(w, /const httpOk = !!\(r0 && r0\.ok\);/);
+  assert.match(w, /const said = held && once && replyTellsEnding\(httpOk, once, reader === addonAnswer\) \? editReplyHold\(origin, w\.job, once, finish\) : finish;/);
+  assert.match(w, /return reader\(httpOk, once, \{ site, d, instruction, origin, finish: said, fallback, imgs, handedOff: !!handedOff, slug \}\);/,
     "the reader is not handed the poll's status and the same options the edit's reader gets");
   // The edit's own call site passes no reader, so nothing about a queued edit changed.
   // RE-ANCHORED 2026-09-24: the edit's receipt is read by `readEditReply` now,

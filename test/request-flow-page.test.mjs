@@ -14,7 +14,7 @@
 // and shown as screenshots.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { page, settle as drain } from "./fixtures/browser-page.mjs";
+import { page, settle as drain, copy } from "./fixtures/browser-page.mjs";
 import { platform, pump, pumpBeside, tick, T, USER } from "./fixtures/request-flow.mjs";
 import { loadWorker, makeCtx } from "./fixtures/worker-harness.mjs";
 import { installCompiler } from "./fixtures/cf-containers.mjs";
@@ -310,7 +310,7 @@ test("PAGE 6 — a routing answer lost on the way back: the message comes back t
   });
 });
 
-test("PAGE 7 — a part's reply still being written in the background: the page shows nothing for it yet and keeps looking, the part after it waits its turn on the thread, and no look calls the model; once the queue has written it the page shows both, in order, once — and a page opened afterwards on another device shows the same", async () => {
+test("PAGE 7 — a part's reply still being written in the background: the part's outcome is applied at once (the preview moves) and its place held by “Done — writing up what changed…”, the part after it is shown under it straight away, and no look calls the model; once the queue has written it, the held line becomes the reply where it stands — once, in order — and a page opened afterwards on another device shows the same", async () => {
   let release;
   const gate = new Promise((ok) => { release = ok; });
   const part0 = (facts) => facts.some((f) => f.text.startsWith("Changed the description"));
@@ -328,24 +328,36 @@ test("PAGE 7 — a part's reply still being written in the background: the page 
     assert.equal(P.record(KEY).state, "done");
     const writes = () => P.modelLog.filter((m) => m.tool === "write_reply").length;
     const calls = writes();
-    // THE PAGE LOOKS, TWICE: nothing for part 0 yet, and part 1's reply waits behind it.
+    // THE PAGE LOOKS, TWICE: part 0 applied and its place held; part 1's reply under it.
     for (let i = 0; i < 2; i++) { p.flush(); await idle(); }
     const during = texts(p);
-    assert.ok(!during.some((t) => /description/i.test(t) || /gallery/i.test(t)), "a reply was shown before part 0's was written: " + JSON.stringify(during));
+    const at0 = during.indexOf("Done — writing up what changed…");
+    const at1 = during.findIndex((t) => /Added \/gallery/.test(t));
+    assert.ok(at0 >= 0 && at1 > at0, "part 0's place is not held above part 1's reply: " + JSON.stringify(during));
+    assert.ok(!during.some((t) => /Changed the description/.test(t)), "part 0's reply was shown before it was written");
+    assert.equal(p.s.previewV, 2, "a part's outcome waited for its reply");
+    assert.equal(p.s.msgs.find((m) => m && m.held).held.job, job0);
     assert.equal(writes(), calls, "a look of the page called the model");
-    // WRITTEN: the next look shows both, part 0's first.
+    // WRITTEN: the next look settles the held line where it stands.
     release();
     await Promise.all(running);
+    const n0 = p.said().length;
     p.flush(); await idle();
     const said = texts(p);
-    const at0 = said.findIndex((t) => /Changed the description/.test(t));
-    const at1 = said.findIndex((t) => /Added \/gallery/.test(t));
-    assert.ok(at0 >= 0 && at1 > at0, "the replies are not both shown, in order: " + JSON.stringify(said));
-    // ONCE: looking again shows nothing new.
+    const w0 = said.findIndex((t) => /Changed the description/.test(t));
+    const w1 = said.findIndex((t) => /Added \/gallery/.test(t));
+    assert.ok(w0 >= 0 && w1 > w0, "the replies are not both shown, in order: " + JSON.stringify(said));
+    assert.equal(w0, at0, "the reply did not land in its part's place");
+    assert.ok(!said.includes("Done — writing up what changed…"), "the held line is still there");
+    assert.equal(p.said().length, n0, "a message was added instead of the held one settled");
+    assert.equal(p.s.previewV, 2, "a part's outcome was applied again");
+    // ONCE: looking again — the request, the held replies — shows nothing new.
     const n = p.said().length;
     p.ctx.siteRequestFollow("origin-1", KEY);
-    await idle();
+    p.ctx.siteHeldRepliesCheck(p.s);
+    for (let i = 0; i < 2; i++) { p.flush(); await idle(); }
     assert.equal(p.said().length, n, "a reply was shown twice");
+    assert.equal(p.s.previewV, 2);
     // ANOTHER DEVICE, OPENED AFTERWARDS: the same replies, from the server's record — and no model call.
     const b = openPage(P, wire(P));
     b.ctx.siteRequestsCheck(b.s);
@@ -353,6 +365,78 @@ test("PAGE 7 — a part's reply still being written in the background: the page 
     const there = texts(b);
     assert.deepEqual([there.some((t) => /Changed the description/.test(t)), there.some((t) => /Added \/gallery/.test(t))], [true, true], JSON.stringify(there));
     assert.equal(writes(), calls, "a page's look called the model");
+  });
+});
+
+test("PAGE 9 — a reload while a part's reply is still being written: the reopened page applies no part again and shows nothing twice, follows the held reply from its message, and settles it once", async () => {
+  let release;
+  const gate = new Promise((ok) => { release = ok; });
+  const part0 = (facts) => facts.some((f) => f.text.startsWith("Changed the description"));
+  await withPage({
+    slug: slugOf("p9"), replies: true, replyWith: async ({ facts }) => { if (part0(facts)) await gate; },
+    answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }], ...DESCRIBE, ...GALLERY },
+  }, async (P) => {
+    const p = openPage(P, wire(P));
+    p.ctx.siteSend(DESC + ", and " + ADD + ".");
+    await idle();
+    const job0 = P.jobsOf(KEY)[0].id;
+    const running = await pumpBeside(P, (m) => m.body && m.body.kind === "edit-reply" && m.body.id === job0);
+    for (let i = 0; i < 2; i++) { p.flush(); await idle(); }
+    assert.equal(p.s.previewV, 2);
+    const before = texts(p);
+    assert.ok(before.includes("Done — writing up what changed…"), JSON.stringify(before));
+    // RELOADED: the site as `sitesSave` kept it, and what a render resumes.
+    const seen = [];
+    const b = page({ site: copy(p.s), answer: wire(P, seen), timers: true });
+    b.ctx.buildPicker = "sonnet";
+    b.ctx.siteRequestsCheck(b.s);
+    b.ctx.siteHeldRepliesCheck(b.s);
+    for (let i = 0; i < 2; i++) { b.flush(); await idle(); }
+    assert.deepEqual(texts(b), before, "the reopened page showed something again, or lost the held line");
+    assert.equal(b.s.previewV, 2, "the reopened page applied a part again");
+    assert.ok(seen.some((c) => c.url === "/api/site/edit/" + job0), "the reopened page does not follow the held reply");
+    // WRITTEN: settled where it stands, once.
+    release();
+    await Promise.all(running);
+    b.flush(); await idle();
+    const after = texts(b);
+    assert.equal(after.length, before.length, "a message was added instead of the held one settled");
+    assert.match(after[before.indexOf("Done — writing up what changed…")], /Changed the description/);
+    assert.equal(b.s.previewV, 2);
+    b.ctx.siteHeldRepliesCheck(b.s);
+    b.ctx.siteRequestsCheck(b.s);
+    for (let i = 0; i < 2; i++) { b.flush(); await idle(); }
+    assert.deepEqual(texts(b), after, "a reply was shown twice");
+  });
+});
+
+test("PAGE 10 — a part that did not go through, its explanation still being written: its place is held by a line that says so — never Done — while the rest is shown, and the written explanation then takes that place", async () => {
+  let release;
+  const gate = new Promise((ok) => { release = ok; });
+  const ofFailedAdd = (facts) => facts.some((f) => /^Nothing was added|^The addition did not go through/.test(f.text));
+  await withPage({
+    slug: slugOf("p10"), replies: true, replyWith: async ({ facts }) => { if (ofFailedAdd(facts)) await gate; },
+    // THE ADDITION FAILS: its designer makes nothing.
+    answers: { route: [{ intent: "edit", layer: "look", alsoAsked: [ADD] }, { intent: "addon" }], ...DESCRIBE, [T.adds]: { kinds: [] } },
+  }, async (P) => {
+    const p = openPage(P, wire(P));
+    p.ctx.siteSend(DESC + ", and " + ADD + ".");
+    await idle();
+    const add = () => P.jobsOf(KEY).find((j) => j.op === "addon");
+    const running = await pumpBeside(P, (m) => m.body && m.body.kind === "edit-reply" && add() && m.body.id === add().id);
+    assert.equal(running.length, 1, "the failed addition's reply was not asked for");
+    for (let i = 0; i < 2; i++) { p.flush(); await idle(); }
+    const during = texts(p);
+    assert.ok(during.some((t) => /Changed the description/.test(t)), "the part that went through is not shown: " + JSON.stringify(during));
+    assert.ok(during.includes("That didn’t go through — writing up why…"), "the failed part's place is not held as not done: " + JSON.stringify(during));
+    assert.ok(!during.some((t) => /Done — writing up/.test(t)), "a part that did not go through said Done: " + JSON.stringify(during));
+    assert.equal(p.s.previewV, 1, "the failed addition moved the preview");
+    release();
+    await Promise.all(running);
+    p.flush(); await idle();
+    const said = texts(p);
+    assert.ok(!said.includes("That didn’t go through — writing up why…"), "the held line is still there");
+    assert.equal(said.length, during.length, "a message was added instead of the held one settled");
   });
 });
 
