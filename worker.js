@@ -6609,11 +6609,12 @@ async function writeJobReply(env, task) {
  * otherwise it makes the record and asks, once, for the reply; one that finds
  * a writer's claim run out, or a try never started, asks again within the
  * tries; one past the horizon fails it. `text` is the body the poll was about
- * to serve (its money already the row's); `uid` the owner's; `ageMs` how long
- * ago the job was made — one made before replies were written this way is
- * not asked for one now.
+ * to serve (its money already the row's); `uid` the owner's. A job that ended
+ * more than two hours ago (`REPLY_ASK_WINDOW_MS`, its row's last change) is
+ * not asked for one now — one from before replies were written this way,
+ * read again long after; one whose end cannot be told is asked for, once.
  */
-async function servedModelReply(env, job, text, { uid = "", ageMs = null } = {}) {
+async function servedModelReply(env, job, text, { uid = "" } = {}) {
   let body;
   try { body = JSON.parse(text); } catch { return text; }
   if (!body || typeof body !== "object" || Array.isArray(body) || !Object.hasOwn(body, "replyFor")) return text;
@@ -6639,10 +6640,28 @@ async function servedModelReply(env, job, text, { uid = "", ageMs = null } = {})
       await putReplyRecord(env, key, { state: "none", attempts: 0, asked: now, at: now, why: String(read.skip || "no-facts").slice(0, 40) }, at.etag);
       return plain;
     }
-    if (Number.isFinite(ageMs) && ageMs > REPLY_ASK_WINDOW_MS) return plain;
+    const ended = await jobEndedAt(env, job);
+    if (ended !== null && now - ended > REPLY_ASK_WINDOW_MS) return plain;
   }
   const state = await askReply(env, key, task, now);
   return state === "failed" ? failed : pending;
+}
+
+/**
+ * WHEN A JOB LAST CHANGED — its end, for one that has ended — read off its
+ * row (`updated_at`); null when it cannot be told. `edit_get`'s `ms` is how
+ * long the job ran, not how long ago it ended, so it cannot say this.
+ */
+async function jobEndedAt(env, job) {
+  if (!env || !env.SUPABASE_SERVICE_KEY || !isJobId(job)) return null;
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/edit_jobs?select=updated_at&id=eq.${encodeURIComponent(job)}`, { headers: svcHeaders(env) });
+    if (!r.ok) return null;
+    const rows = await r.json();
+    const v = Array.isArray(rows) && rows[0] ? rows[0].updated_at : null;
+    const t = typeof v === "number" ? v : Date.parse(String(v || ""));
+    return Number.isFinite(t) ? t : null;
+  } catch { return null; }
 }
 
 /**
@@ -22399,7 +22418,7 @@ async function handleRequest(request, env, ctx) {
         // AND ITS REPLY, WRITTEN ONCE THE MONEY IS THE ROW'S (2026-10-03,
         // `servedModelReply`): from the answer as it is about to be served,
         // kept for every later read, its private `replyFor` never served.
-        return new Response(await servedModelReply(env, ejid, servedEditReply(row, res.body), { uid: eu.id, ageMs: Number(row.ms) }), {
+        return new Response(await servedModelReply(env, ejid, servedEditReply(row, res.body), { uid: eu.id }), {
           status: Number(res.status) || 200,
           headers: {
             "content-type": String(res.type || "application/json"),

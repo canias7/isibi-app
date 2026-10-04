@@ -755,6 +755,10 @@ test("A QUEUED CHANGE STOPPED AT THE CUSTOMER'S CANCEL: its stored answer is an 
     const stopped = { ok: false, error: "cancelled", phase: "build", cost: 0, refunded: 1, msg: "I stopped that edit before anything was published.", replyFor };
     const id = "c".repeat(32);
     const row = { slug, state: "cancelled", billing: "refunded", cost: 1, result: { status: 503, body: JSON.stringify(stopped), type: "application/json" } };
+    // ITS END CANNOT BE TOLD HERE — this wire does not serve the job table —
+    // so a read that finds no record asks for the reply once, as for a job
+    // that just ended (BG8 in test/reply-background.test.mjs: one read hours
+    // after its end asks nothing).
     const p0 = await poll(worker, QE(store, sent), id, row);
     assert.equal(p0.body.replyState, "pending", "a read that found no reply did not ask for one");
     assert.equal(replies.length, 0, "a read wrote the reply");

@@ -57,7 +57,11 @@ Option B, on the server's own job and recovery machinery:
   - 90 s per call and 150 s per try;
   - three tries, 30 s and then 120 s apart, then `failed`.
 - **The reads.** No read calls the model. A read that finds nothing, or a
-  stale record, asks once.
+  stale record, asks once, unless the job ended more than two hours ago.
+  - Its end is read off its row (`updated_at`), never `edit_get`'s `ms`, which
+    is how long the job ran.
+  - Found in my own review after the first push (`1c914c81`); fixed in the
+    next commit.
 - **Recovery.** The two-minute cron asks again for a lost ask, a lapsed claim
   or a missed retry; past 15 minutes, the reply is `failed`.
 - **The page** waits while the reply is written (*"Done — writing up what
@@ -95,7 +99,8 @@ The full account is the investigation's *What is fixed*.
   - BG4: the consumer dying after finalize; the cron asks;
   - BG5: a writer evicted after its claim;
   - BG6: the gateway's `/reply` and the container's `JOB_REPLY`;
-  - BG7: a reload or another device.
+  - BG7: a reload or another device;
+  - BG8: the two-hour window, read off the job's row.
 - `test/request-flow-page.test.mjs`, the page's own functions:
   - PAGE 7: a part's reply pending, then both replies shown in order, and a
     page on another device;
@@ -145,7 +150,19 @@ The full account is the investigation's *What is fixed*.
   - the controls survived both runs, and every file was restored by hash.
 - **Sweep of the focused check's verdict**: 5 of 5 killed, and its control
   survived.
-- **The full suite**: `9334 / 9334 / 0 / 0`, from 9,308 by 26 new cases.
+- **Sweep of the reply window**: 2 of 2 killed, and its control survived.
+  The case where the end cannot be told is held by the route tests, whose
+  wire does not serve the job table.
+- **The full suite**: `9334 / 9334 / 0 / 0` at `1c914c81`, from 9,308 by 26
+  new cases; unit CI there `9334 / 9330 / 0 / 4` (run 37180538871; CI skips
+  four), and the site build green, every job (run 37180538878). With the
+  window fix, `9335 / 9335 / 0 / 0` (one case more, BG8).
+- **The image**, predicted over both ends (`containerInputs`, `imageId`),
+  194 inputs, not built:
+  - `882477e1bbbe8cbe` (main, running) → `8610e6514e666cdb` at `1c914c81`;
+  - → **`66b30d542d98bc74` at the window fix's commit**, the branch head after
+    `1c914c81` (`worker.js` is one of the image's inputs). A merge of the branch
+    as it stands would build this one.
 
 ## 6. Next (each the owner's word)
 

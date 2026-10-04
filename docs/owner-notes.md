@@ -216,7 +216,13 @@ spent, merged or deployed.
   load there.
 - **Deliberate breaks**: 30 of 30 caught. Four first slipped through, each a
   missing test, now added. All comment-only controls survived.
-- **The full suite**: `9334 / 9334 / 0 / 0`.
+- **The full suite**: `9335 / 9335 / 0 / 0`. The unit tests and the site
+  build on GitHub are green.
+- **Found in my own review after the first push, and fixed**: a page reading
+  an old job asked for its reply by how long the job had run, not how long
+  ago it ended. It now reads the job's end off its row, and a job that ended
+  more than two hours ago gets its plain answer. One more test, and 2 of 2
+  deliberate breaks caught.
 
 **Built for the next step**:
 - **`rq-menu-link`**, one focused press (about 3–9 credits): your bakery's

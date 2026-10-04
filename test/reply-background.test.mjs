@@ -334,3 +334,33 @@ test("BG7 — a page that reloads, or opens on another device, while the reply i
     assert.equal(replyRec(P, job0).text, [...texts][0]);
   });
 });
+
+test("BG8 — a job whose reply was never asked is asked for by the first read inside two hours of its end; read after that, it gets its plain answer and nothing is asked — its end read off its row, never from how long it ran", async () => {
+  for (const late of [false, true]) {
+    await withPlatform({ slug: slugOf(late ? "bg8-late" : "bg8-soon"), replies: true, answers: TWO }, async (P) => {
+      const r = await sendMessage(P, { message: MESSAGE });
+      const job0 = P.jobsOf(r.key)[0].id;
+      // THE ASK IS LOST: the consumer dies just after the money is final.
+      P.hang("edit_finalize", (args) => args.p_id === job0);
+      assert.equal((await pump(P, { max: 1 })).hung, "edit_finalize");
+      P.recover();
+      assert.equal(replyRec(P, job0), null);
+      const queued = () => P.queue.filter((m) => isReplyTask(m, job0)).length;
+      if (late) P.advance(3 * 3600 * 1000);
+      const p = await poll(P, job0);
+      assert.equal(p.status, 200);
+      if (late) {
+        assert.equal(p.body.replyState, undefined, "a reply was promised for a job that ended hours ago");
+        assert.equal(p.body.reply, undefined);
+        assert.equal(queued(), 0, "a read asked for the reply of a job that ended hours ago");
+        assert.equal(replyRec(P, job0), null, "a read made a record for a job that ended hours ago");
+        assert.match(editBrowserReply(p.body, true, {}).text, /^✅ /, "the page did not say what it always said");
+      } else {
+        assert.equal(p.body.replyState, "pending");
+        assert.equal(queued(), 1, "the read did not ask for the reply");
+        await settle(P, r.key);
+        assert.equal((await poll(P, job0)).body.replySource, "model");
+      }
+    });
+  }
+});

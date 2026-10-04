@@ -300,7 +300,10 @@ the focused live check's to show (*The next live steps*, below).
 - **A read never calls the model.** The job poll and the request read hand
   back the reply, or `replyState: "pending"` or `"failed"`. A read that finds
   no record, or a stale one, asks once: the same conditional create, one
-  message.
+  message. A job that ended more than two hours ago is not asked for one: it
+  gets its plain answer. Its end is read off its row (`updated_at`); `edit_get`'s
+  `ms` is how long the job ran, so it cannot say this. A job whose end
+  cannot be told is asked for, once.
 - **Recovered by the two-minute cron** (`runReplySweep`, and the request
   sweep for a request's reply). An ended job with no record, a lapsed claim
   or a missed retry is asked again; past 15 minutes it is `failed`.
@@ -359,6 +362,9 @@ exist:
     on the second try);
   - **the container**: its `/reply` under its own token; a pre-scoped build
     is refused, and with replies off nothing is asked;
+  - **the window**: a job whose reply was never asked is asked for by the
+    first read soon after it ends, and read three hours later gets its plain
+    answer with nothing asked;
   - **the page**: it waits, then shows the parts' replies in order, the
     request's own once written, each once; a page opened later on another
     device shows the same.
@@ -384,8 +390,16 @@ each reply's `ms`, so real times can set it.
   - the fixes, 30 of 30 mutants killed. 26 at first; the four survivors were
     test gaps, each closed by a case and killed on the re-run;
   - 3 comment-only controls survived both runs;
-  - the focused check's verdict, 5 of 5 killed, and its control survived.
-- **The full suite**: `9334 / 9334 / 0 / 0`, from 9,308 by 26 new cases.
+  - the focused check's verdict, 5 of 5 killed, and its control survived;
+  - the reply window (read off the job's row, found in review after the
+    first push), 2 of 2 killed, and its control survived.
+- **The full suite**: `9334 / 9334 / 0 / 0` at `1c914c81`, from 9,308 by 26
+  new cases; unit CI there `9334 / 9330 / 0 / 4` (run 37180538871; CI skips
+  four), and the site build green, every job (run 37180538878). With the
+  window fix, `9335 / 9335 / 0 / 0`.
+- **The image**, predicted, not built: `882477e1bbbe8cbe` (main, running) →
+  `66b30d542d98bc74` at the branch head, the window fix's commit after
+  `1c914c81` (194 inputs).
 
 **The next live steps** (each the owner's word; nothing is pressed from here):
 1. Merge and deploy, then the free runtime press.
