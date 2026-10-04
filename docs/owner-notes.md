@@ -1,51 +1,42 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-04, 18:35 UTC)
+## Current handoff — read this first (2026-10-04, 22:25 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **Merged and deployed once, on your word: deploy 2183.** `main` moved
-  `f69c873c` → **`e84b8e7e`** at 18:10 UTC (13 commits: run 95's fixes and
-  your review round).
-  - **The container image was built once, exactly as predicted**:
-    **`386607152d4cb319`** (it was `882477e1bbbe8cbe`). It rolled at
-    18:13 UTC, and I waited the image window once.
-  - **The page's files are live**: the served `chat.js` and `edit-poll.js`
-    are byte-identical to the merged ones.
-  - **Both switches were uploaded again**: `REQUEST_FLOW` from your secret,
-    `MODEL_REPLIES` on by default. The log can't show their values; the
-    request presses are their live reading.
-- **Deployed, not yet runtime-confirmed.** My one try at pressing the free
-  check was refused (403), as a session's always is, so the press is yours.
-- **Nothing paid has run.** Money: balance **95**, last ledger row 367, no job
-  open (18:10 UTC). The batch has spent **25** of its 100.
+- **Deploy 2183 is live and runtime-confirmed** by your free press, run 96
+  (22:19 UTC): the Worker runs `e84b8e7e`, a fresh container starts on image
+  `386607152d4cb319` (built once, as predicted), and queued jobs and the
+  runner are on. Nothing was charged.
+- **Nothing paid has run yet.** Money: balance **95**, last ledger row 367, no
+  job open (22:20 UTC). The batch has spent **25** of its 100.
 - **The bakery**: unchanged. *Classes* is in the menu on `/` and `/classes`
   only.
 
 **Exact next action — your press, then tell me "ran"**
-- **The free runtime check** ("Use workflow from" `main`):
-  - "Run the ONE paid edit as well (yes/no)": `no`;
+- **`rq-menu-link`** (about 3–9 credits), at
+  https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml →
+  **Run workflow**, "Use workflow from" `main`:
+  - "Run the ONE paid edit as well (yes/no)": `yes`;
+  - "RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: …":
+    `rq-menu-link`;
+  - "The site to edit. Defaults to the canary site; name another to run this
+    against it. Not needed with read_job.": `fold-lane-bakery`;
   - "Refuse to spend unless the Worker reports this deploy sha (prefix, >=7
     chars). Blank = read and print only.": `e84b8e7e`;
   - "Refuse to spend unless a cold container reports this image id (exact).
     Blank = read and print only.": `386607152d4cb319`;
-  - every other box as it is.
-- I read it, and only if it passes hand you the next press.
+  - every other box as it is ("What to change" and the batch box blank).
+- **It passes only if**: `/order`, `/visit` and `/gallery` each gain the
+  Classes link with their own links kept; `/` and `/classes` stay as they
+  are; `/starter` gets no menu; nothing else changes; and the reply on screen
+  is the model's own.
 
-**Then, in this order, each only if the one before passed**
-1. **`rq-menu-link`** (about 3–9 credits): *"Put the Classes page in the menu
-   on every page."* on `fold-lane-bakery`. It passes only if `/order`,
-   `/visit` and `/gallery` each gain the Classes link with their own links
-   kept, `/` and `/classes` stay as they are, `/starter` gets no menu,
-   nothing else changes, and the reply is the model's own.
-2. **`rq-batch-r2`**, once: R2–R5 in order, its box 25 plus what
-   `rq-menu-link` actually cost. It stops itself before passing 100, after a
-   failure, or if a spend can't be read.
-
-I'll give you each press's exact boxes when it's due. No rewrite test, no
+**Then, only if it passes**: `rq-batch-r2`, once, its box 25 plus what
+`rq-menu-link` actually cost; I'll give you its boxes. No rewrite test, no
 restore, no repeat of R1 or `rq-canary`, and no rebuild in between.
 
 **Still yours** (the plan's §11)

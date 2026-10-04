@@ -1237,9 +1237,11 @@ the owner's review round), at 18:10:27 UTC. Run 37223381974, `push` on
   876,852 `9c183012…`, `edit-poll.js` 50,048 `b2a9aba6…`; `styles.css`
   unchanged), after the before reading at 18:10:04;
 - **the image window** waited once, to 18:30:30;
-- **deployed, not runtime-confirmed**: the session's one dispatch of the free
-  press answered 403 at 18:31 UTC, so the press is the owner's
-  (`docs/history/2026-10-04-deploy-2183.md` §6).
+- **runtime-confirmed by the owner's free press, run 96** (22:19 UTC; the
+  session's one dispatch had answered 403): both readers answered
+  `e84b8e7e1bb2`, a cold container `386607152d4cb319`, queued jobs and the
+  runner on, nothing charged (balance 95, last row 367)
+  (`docs/history/2026-10-04-deploy-2183.md` §6.1).
 
 ## The served-file check, driven end to end on deploy 2139
 
