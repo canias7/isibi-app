@@ -865,14 +865,13 @@ the owner's free press, run 51, at 22:57 UTC):
       predicted. `REQUEST_FLOW` was uploaded `off` and `MODEL_REPLIES` `on`
       (the workflow's fallbacks, read in the deploy log). The served
       `chat.js`, `edit-poll.js` and `styles.css` are byte-identical to the
-      merged files. **Deployed, not runtime-confirmed**: the session's
-      one dispatch of the free runtime press answered 403 (not retried), so
-      that press is the owner's. Nothing charged: balance 137.
+      merged files. **Runtime-confirmed by the owner's free press, run
+      93** (02:02 UTC; the session's own dispatch had answered 403): both
+      readers `f69c873cc6e0`, a cold container `882477e1bbbe8cbe`. Nothing charged: balance 137.
       The record: `docs/history/2026-10-04-deploy-2181.md`.
-    - **Next**: the owner's free runtime press; then, each on the
-      owner's word: `REQUEST_FLOW` on (Phase C), the `rq-canary` press (Phase
-      D), and R1–R5 with the ledger read before each press (Phase E). RW
-      stays separate.
+    - **Next**, each on the owner's word: `REQUEST_FLOW` on (Phase C), the
+      `rq-canary` press (Phase D), and R1–R5 with the ledger read before each
+      press (Phase E). RW stays separate.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

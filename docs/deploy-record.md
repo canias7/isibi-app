@@ -1158,6 +1158,22 @@ UTC (up, not a version reading). The press's exact boxes are in
 (01:10:24 UTC): balance 137, the ledger's last row 355, no job open, no live
 lease.
 
+**Runtime-confirmed by the owner's free press, run 93** (37169827364,
+2026-10-04 02:02:28–02:03:04 UTC, from `main` at `f69c873c`, spend `no`),
+pressed 58 minutes after the roll:
+- `build-health 200 deploy=f69c873cc6e0 image=882477e1bbbe8cbe` and
+  `runtime 200 deploy=f69c873cc6e0 async=true runner=true`: both readers
+  answered `f69c873cc6e0`, and a cold container `882477e1bbbe8cbe`;
+- the expected-build and expected-image checks both `ok`, and `ALL FREE
+  CHECKS PASSED`;
+- its zero-cost job on `fretwork-1` settled `empty` at cost 0, as designed,
+  and the control's job on `washhouse-3` ended at cost 0 too; the canary
+  stopped before the paid edit.
+
+Nothing was charged: balance 137, the ledger's last row 355, no job open and
+no live lease (read at 02:04:37 UTC). The readings are in
+`docs/history/2026-10-04-deploy-2181.md` §8.1.
+
 ## The served-file check, driven end to end on deploy 2139
 
 **DRIVEN END TO END ON DEPLOY 2139 (2026-09-21), and it is stronger than the

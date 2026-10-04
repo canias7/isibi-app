@@ -9,8 +9,9 @@ fast-forwarded to `f69c873c` and deployed once, as deploy 2181. The image
 `882477e1bbbe8cbe` was built and rolled as predicted. `REQUEST_FLOW` was
 uploaded `off` and `MODEL_REPLIES` `on`, the workflow's fallbacks, read in the
 deploy log. The served files are byte-identical to the merged ones.
-**Deployed, not runtime-confirmed**: the session's one dispatch of the
-free runtime press (01:24 UTC) answered 403, so that press is yours (§3.1). **Phases C–F have not started**: no switch turned on, no paid
+**Runtime-confirmed by your free press, run 93** (02:02 UTC): both readers
+answered `f69c873cc6e0`, a cold container `882477e1bbbe8cbe`, and nothing was
+charged. The session's own dispatch had answered 403. **Phases C–F have not started**: no switch turned on, no paid
 press, no full rewrite. The record: `docs/history/2026-10-04-deploy-2181.md`.
 
 Your first order: *"Freeze this implementation and prepare the concrete rollout
@@ -102,10 +103,11 @@ container rebuild yet."*
   rolled by deploy 2181 at 01:04:54 UTC, as predicted (from
   `8bfc67dc695e65cc`).
 - **The building account**: balance **137**, last ledger row 355
-  (2026-10-02 06:49 UTC), no job open (read 2026-10-04 01:10 UTC, after the
-  deploy).
-- **The runtime check**: deployed, not runtime-confirmed. The session's one
-  dispatch (01:24 UTC) answered 403; the free press is yours (§3.1).
+  (2026-10-02 06:49 UTC), no job open (read 2026-10-04 02:04 UTC, after the
+  runtime press).
+- **The runtime check**: passed, as your free press run 93 (02:02 UTC): both
+  readers `f69c873cc6e0`, a cold container `882477e1bbbe8cbe`, nothing
+  charged.
 - **Unit CI was red from 2026-10-03 23:00 UTC for a reason of the calendar's**:
   three one-time job tests dated their job `2026-10-03`, a past date once that
   day ended in London. **Fixed** (Phase A, item 0).
