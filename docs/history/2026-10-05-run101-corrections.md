@@ -360,7 +360,23 @@ comment-only controls that must survive):
   new browser cases run here (Chromium is installed), and unit CI skips
   them.
 
-**CI**: read once the runs on the push end, and recorded then.
+**CI** on `936295a5`:
+- **Unit tests** (run 37371311515): `9502 / 9490 / 0 / 12`. The totals
+  match. CI skips its usual 6, and the 6 new browser cases (KEEP 1–4,
+  REOPEN 1–2), which need Chromium.
+- **The site build** (run 37371311514) is **not green, and no check in it
+  failed**:
+  - five of its seven jobs passed: shards 1–3 (341 checks in 19 sections),
+    the kit and generator checks, and the published-site checks;
+  - the other two, the theme checks and shard 4, never started. GitHub
+    gave them no runner ("The job was not acquired by Runner of type
+    hosted even after multiple attempts") and cancelled them at 20:56 UTC;
+  - so the gate (`all checks`) failed, naming those two jobs and shard 4's
+    8 sections, which ran 0 times: fonts, colour-override, row-value,
+    edit-shapes, salvage-stub, render-check, comment-boundary and stopping;
+  - its inputs are `9833608b1323318a` (3,972 files);
+  - **it needs its failed jobs re-run**. That is free, and it is the owner's
+    press: the session cannot re-run a job.
 
 **The image** (predicted, not built): `589e3e4e85a20066` at `d53caefc`
 (deploy 2184's) becomes `1df286f23782ff82` on this branch. There are 194

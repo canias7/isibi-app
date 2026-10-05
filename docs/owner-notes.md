@@ -24,12 +24,16 @@ is in git; the dated entries further down are the full story.*
     a real choice is asked;
   - the canary's closed-tab preview check measures from the reopened tab's
     own first address.
-- **Checks**: the full suite `9502 / 9502 / 0 / 0` here. CI on the push is
-  read once it ends, and recorded then.
+- **Checks**: the full suite `9502 / 9502 / 0 / 0` here. On the push
+  (`936295a5`), unit CI passed (`9502 / 9490 / 0 / 12`, run 37371311515).
+  The site build (run 37371311514) is not green: two of its seven jobs never
+  got a GitHub runner, and none of its checks failed.
 - **Money**: balance **21** (read at 20:24 UTC: last ledger row 392, no
   job open). Nothing was spent in this batch.
 
 **Yours to decide**
+- **Re-run the site build's failed jobs** (free): Actions → site build → run
+  37371311514 → *Re-run failed jobs*. I'll read it when it ends.
 - **Review the batch** (`docs/history/2026-10-05-run101-corrections.md`).
 - **Then, if you want it live**: merge and deploy (the image would roll:
   the prediction is in the history file's §6), and decide whether a paid
@@ -156,7 +160,13 @@ since. Add new ones there.
     safety checks for cases the real page doesn't reach today, and the CI
     tests catch them;
   - the full suite: `9502 / 9502 / 0 / 0` here;
-  - CI on the push: read once it ends, and recorded then.
+  - CI on the push (`936295a5`):
+    - the unit tests passed: `9502 / 9490 / 0 / 12`, the same 9,502, with
+      the 12 browser-only cases skipped there;
+    - the site build is **not green, but nothing in it failed**. Five of its
+      seven jobs passed. The other two (the theme checks and the last
+      shard) never started, because GitHub had no runner for them, so its
+      final check failed for want of their results.
 - **Not merged, not deployed, no image built, nothing pressed or spent.**
   First Build and RW stay out. Balance **21** (read at 20:24 UTC: last
   ledger row 392, no job open).
