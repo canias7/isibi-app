@@ -171,7 +171,12 @@ The harness list in `test/fixtures/browser-page.mjs` gained `siteReqRefresh`,
     read taking the newer one off the shared reads; and the question rule's
     two halves.
 - **The full suite**: `9440 / 9440 / 0 / 0` locally, from 9,427 by the 13
-  cases. Unit CI on the pushed commit: in the handoff.
+  cases; unit CI `9440 / 9436 / 0 / 4` on `f2c4a543` (run 37273803493; CI
+  skips four).
+- **The image**, predicted over `main` (`cd817fee`) and `f2c4a543`:
+  `386607152d4cb319` at both, 194 inputs, none under `public/`. The page is
+  the Worker's asset, not the container's, so a merge would deploy it
+  without building an image.
 - **Screenshots** (headless Chromium, the repo's own `public/`, every answer
   supplied): a second browser open while another browser's addition runs,
   which finishes with the owner's shape. **Before** (`22dd7e53`'s page): the

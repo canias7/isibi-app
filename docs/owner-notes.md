@@ -23,8 +23,8 @@ is in git; the dated entries further down are the full story.*
   - each reply still goes with its request.
   - Shown with supplied answers (a scripted server) and in the two
     screenshots I sent (before and after); not live.
-  - The suite `9440 / 9440 / 0 / 0` here; unit CI on the pushed commit is
-    stamped below once read.
+  - Commit `f2c4a543`: the suite `9440 / 9440 / 0 / 0` here and
+    `9440 / 9436 / 0 / 4` on unit CI (run 37273803493; CI skips four).
 - **Money**: balance **48**, read again at 06:41 UTC (last ledger row 385, no
   job open); nothing spent since run 99.
 - **The bakery** keeps every change from the batch (your demo rule).
@@ -144,7 +144,8 @@ since. Add new ones there.
   being written), and repeated looks changing nothing twice. 8 of the 13
   fail on the regressed page; the other 5 guard what was already right
   there. The mutation sweep on the final code killed 23 of 23. The suite:
-  `9440 / 9440 / 0 / 0`. Two screenshots, before and after, were sent.
+  `9440 / 9440 / 0 / 0` here and `9440 / 9436 / 0 / 4` on unit CI (run
+  37273803493 on `f2c4a543`). Two screenshots, before and after, were sent.
 - **Found and recorded separately**: when a page adds one addition's tables
   to an empty list, it then sends only those to the router, which stops
   reading the site's own list. That was already true for your own additions;
