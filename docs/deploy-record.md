@@ -1287,7 +1287,16 @@ the only run that push started, `completed` / `success`, the job **2m46s**
 - **runtime-confirmed by the owner's free press, run 100** (12:17 UTC): both
   readers answered `d75d79f37492`, a cold container `589e3e4e85a20066`,
   queued jobs and the runner on, nothing charged (balance 48, last row 385)
-  (`docs/history/2026-10-05-deploy-2184.md` §6.1).
+  (`docs/history/2026-10-05-deploy-2184.md` §6.1);
+- **the live check passed as the owner's paid press, run 101** (`lv-reopen`
+  on `fold-lane-bakery`, 12:20–12:34 UTC, from `main`, its preflight
+  answering `d75d79f37492` and `589e3e4e85a20066` again). All 75 checks
+  passed. 27 credits (balance 48 → 21, ledger rows 386–392, each under the
+  press's own refs). Found while reading the evidence, and recorded in the
+  backlog: the preview reloads on every reading of a running request; a
+  reply that calls a page both updated and left as it was; an add-on
+  requirement the customer did not state; and the canary's preview baseline
+  for a closed-tab message (`docs/history/2026-10-05-deploy-2184.md` §7).
 
 ## The served-file check, driven end to end on deploy 2139
 

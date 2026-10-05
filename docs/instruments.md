@@ -1130,7 +1130,7 @@ without repeating R1 or rq-canary."*
     `test/canary-money.test.mjs` on run 94's own records; a sweep of 24 of
     24; the suite `9302 / 9302 / 0 / 0`.
 
-### THE LIVE CHECK OF THE PAGE'S REFRESH (`lv-reopen`, 2026-10-05 — on the branch, scripts and tests only; not pressed)
+### THE LIVE CHECK OF THE PAGE'S REFRESH (`lv-reopen`, 2026-10-05 — merged in deploy 2184; pressed as run 101, passed)
 
 The owner, after the response-order correction passed review: *"Prepare one
 combined live Edit/Add-on verification covering correct reply placement,
@@ -1170,3 +1170,23 @@ stage it belongs to, with the press's boxes and the cost, is
   request's reply drawn after a message), each failing by name; each check
   failing alone on its own defect; the table expectation's four ways of
   failing. Sweep and suite: `docs/history/2026-10-05-live-check.md`.
+- **PRESSED AS RUN 101** (2026-10-05, the owner's, from `main` after deploy
+  2184): all 75 checks passed, for 27 credits
+  (`docs/history/2026-10-05-deploy-2184.md` §7).
+- **WHAT RUN 101 TAUGHT ABOUT THE INSTRUMENT** (in the backlog, not
+  changed):
+  - **The preview baseline of a closed-tab message**: it is the address read
+    before the send. A real first tab moves its own preview right after a
+    send, when its first look at the site's earlier requests reconciles them
+    (`?v=0` → `?v=9` in run 101). The reopened tab then opens at an address
+    already newer, so "given a newer address" and "loaded the newer address"
+    cannot fail there. The reopened tab's own opening address is the right
+    baseline. Until then, read that message's refresh off `frameLoads`: the
+    moves after the tab opens, each just after the page reads one of the
+    request's publishing jobs.
+  - **The page list**: a reopened page's own list is also read from the
+    server when the tab opens, so it shows the list is right, not which path
+    made it right.
+  - **`frameLoads` counts every request for the preview's address**, so it
+    also shows each time the page draws a new frame: run 101 showed one on
+    every reading of a running request (the backlog's reload item).

@@ -1,51 +1,52 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-05, 12:20 UTC)
+## Current handoff — read this first (2026-10-05, 12:50 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **Merged and deployed once as deploy 2184**, on your word ("merge and
-  deploy"): `main` `cd817fee` → `d75d79f3` (a fast-forward of 13 commits) at
-  11:44:54 UTC; one deploy run, green in 2m46s; the image built once as
-  predicted (`386607152d4cb319` → `589e3e4e85a20066`), the container rolled at
-  11:47:39 UTC; the served `chat.js` byte-identical to the merged file. It
-  carries the page corrections you closed (each reply with its request, the
-  watched refresh, the reconcile, the preview's address, the three answers,
-  the response order) and the prepared live check. **Runtime-confirmed by
-  your free press, run 100** (12:17 UTC): both readers answered
-  `d75d79f37492`, a cold container `589e3e4e85a20066`, queued jobs and the
-  runner on, nothing charged.
-- **REQUEST_FLOW and MODEL_REPLIES** were uploaded as before (still `on`).
-- **Money**: balance **48** (last ledger row 385, no job open, read at
-  12:18 UTC); nothing spent.
-- **The bakery** keeps every change from the batch (your demo rule), and
-  will keep the live check's too.
+- **Deploy 2184** (`d75d79f3`, image `589e3e4e85a20066`) is live and
+  runtime-confirmed by your free press (run 100).
+- **The live check passed as your paid press, run 101** (12:20–12:34 UTC):
+  all 75 checks passed, for 27 credits, and my own reads of the live pages
+  and the ledger agree. The changes stay on the bakery (your demo rule): the
+  Bake List page with its form and its table, its link in every menu, and the
+  Visit and Gallery headings.
+- **Money**: balance **21** (the last ledger row is 392, no job open, read at
+  12:40 UTC).
+- **The branch** is `main` plus these records (documents only).
 
-**Next, yours to press** (`docs/investigations/live-check.md` §3.2)
-- **The live check**: "Use workflow from" `main`; paid edit `yes`; scenario
-  `lv-reopen`; site `fold-lane-bakery`; deploy sha `d75d79f3`; image
-  `589e3e4e85a20066`. About 17–27 credits.
+**Yours to decide**
+- **Whether to close the live check on run 101**: every reading is in
+  `docs/history/2026-10-05-deploy-2184.md` §7.
+- **The four items found in the evidence** (backlog, none fixed):
+  - the preview reloads every few seconds while a request runs;
+  - message 1's reply calls the Visit page both updated and left as it was;
+  - the add-on named a confirmation email nobody asked for;
+  - the canary's preview check for a closed-tab message couldn't fail in
+    this run, so I judged that refresh from the preview's own load record.
+
+  Say which, if any, you want next.
 
 **Still open** (`docs/backlog.md`)
 - An old request's own reply with no record is still asked for whenever it is
-  read (the server side of the placement item).
+  read.
 - A data edit's reply can't name the change; the new page's own menu label;
   the free lookup's wording for a job with no reply.
-- Limits kept from the last rounds (their records, §5): your own job found
-  done by a late first read is reconciled without its undo offer; a page
-  opening many finished requests moves its preview once per job; two tabs of
-  one browser keep their own table lists.
+- Limits kept from the last rounds:
+  - your own job found done by a late first read is reconciled without its
+    undo offer;
+  - a page opening many finished requests moves its preview once per job
+    (seen live in run 101: 9 moves in under a second);
+  - two tabs of one browser keep their own table lists.
 - **First Build and RW**: outside this stage.
 
 **Links**
-- This deploy: `docs/history/2026-10-05-deploy-2184.md`.
-- The stage and its boxes: `docs/investigations/live-check.md`.
-- The corrections: `docs/history/2026-10-05-response-order.md`,
-  `-inventory.md`, `-reconcile.md`, `-watched-refresh.md`,
-  `-reply-placement.md`.
+- The deploy and the live check: `docs/history/2026-10-05-deploy-2184.md`
+  (§7 is run 101).
+- The plan: `docs/investigations/live-check.md`.
 - The open items: `docs/backlog.md`.
 ---
 
@@ -105,6 +106,51 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-05 — Your live check passed (run 101): all 75 checks, 27 credits
+
+- **What ran**: two messages on the bakery, in a real browser, from `main`.
+  - **Message 1** asked for a Bake List page where people join with their
+    name and email, and for the Visit heading to change. Its tab was closed
+    as soon as it was taken on. The work finished about 9 minutes later with
+    no tab open, and the tab opened afterwards showed it done, with both
+    replies.
+  - **Message 2**, the Gallery heading, was sent from that reopened tab.
+- **Every check passed. My own reads of the live pages and the ledger
+  agree**:
+  - the Bake List page is live, with its form (name, email, "Join the bake
+    list") and its link at the end of every menu;
+  - the Visit heading reads "Find us on the street", and the Gallery heading
+    "Photographs from Fold Lane";
+  - everything else is as it was;
+  - the canary read the new table, `bake_list`: visitors can send to it, and
+    nobody can read it.
+- **Reply placement held, in the exact case that broke in run 99**. The page
+  looked at the earlier requests just after message 1 was sent, and all 10 of
+  their replies went above it, none below.
+- **The reopened tab caught up with the finished request**. Its preview moved
+  once for each published change, and its lists had the new page and table.
+  Message 2's routing was told all three tables.
+- **The replies**: every one was written by the model and shown on screen.
+- **Money**: 48 → 21, which is 27 credits, exactly the press's own charges
+  and the top of the 17–27 estimate. The first message cost 24, 2 over its
+  own estimate, mostly the add-on at 16.
+- **Found while reading the evidence** (in the backlog; nothing changed):
+  - **the preview reloads every few seconds while a request runs**: each
+    time the page checks on the request (about every 8.6 seconds) it redraws
+    everything, the preview included;
+  - **message 1's reply contradicts itself**: it says it "updated … Visit",
+    and then "The Visit page was left as it was";
+  - **the add-on invented a requirement**: the reply says it can't confirm
+    "an email confirming they're on the list", which you didn't ask for and
+    nothing sends;
+  - **the canary's preview check for the closed-tab message couldn't have
+    failed in this run**, so I judged that refresh from the browser's own
+    record of what the preview loaded.
+- **Closing the live check is yours.** Nothing else was pressed or spent.
+
+**Recorded in**: `docs/history/2026-10-05-deploy-2184.md` §7, the deploy
+record, the backlog, the checklist, `docs/instruments.md` and the plan.
 
 ## 2026-10-05 — Your free check passed (run 100): deploy 2184 is runtime-confirmed (nothing spent)
 

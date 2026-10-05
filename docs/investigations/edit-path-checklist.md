@@ -1071,8 +1071,29 @@ the owner's free press, run 51, at 22:57 UTC):
       **Merged and deployed in deploy 2184** on the owner's word (2026-10-05,
       `d75d79f3`, image `589e3e4e85a20066`;
       `docs/history/2026-10-05-deploy-2184.md`), runtime-confirmed by the
-      owner's free press, run 100 (12:17 UTC); the live check is the owner's
-      press.
+      owner's free press, run 100 (12:17 UTC).
+    - **The live check passed as the owner's paid press, run 101**
+      (2026-10-05, 12:20–12:34 UTC, 27 credits;
+      `docs/history/2026-10-05-deploy-2184.md` §7). All 75 checks passed,
+      and the session's own reads agree:
+      - **message 1**, an edit and an add-on, ended with its tab closed. It
+        made the Bake List page with its sign-up form, the `bake_list`
+        table, the link in every menu, and the Visit heading;
+      - **message 2**, the Gallery heading, was sent from the reopened tab;
+      - **placement held in run 99's own case**: 10 earlier replies were
+        drawn above message 1 and none after it, though the page's first
+        look at them came after the send;
+      - **the reopened tab reconciled the closed-tab request**: the preview
+        moved once per publishing job, and the new page and table were in
+        its lists;
+      - **message 2's routing call and answer carried all three tables**.
+
+      Message 1's preview was judged off the frame's load record, because
+      the canary's two checks for it could not fail there. Found, and in the
+      backlog: the preview reloads on every reading of a running request; a
+      reply calling the Visit page both updated and left as it was; an
+      add-on requirement nobody asked for (a confirmation email); and that
+      check's baseline. **Closing it is the owner's decision.**
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

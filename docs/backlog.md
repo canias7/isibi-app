@@ -46,10 +46,68 @@ here; take a closed one out of both.**
   screenshots; not yet live. **Its live check is prepared** (2026-10-05,
   `lv-reopen`, `docs/investigations/live-check.md`). **Merged and deployed
   in deploy 2184** (2026-10-05, `d75d79f3`, image `589e3e4e85a20066`),
-  runtime-confirmed by the owner's free press (run 100); not yet
-  live-checked. **Still open, not changed**: an ended request's
+  runtime-confirmed by the owner's free press (run 100). **Live-checked by
+  the owner's paid press, run 101** (`lv-reopen`, 2026-10-05; all 75 checks
+  passed; `docs/history/2026-10-05-deploy-2184.md` §7). The first tab's
+  first look at earlier requests began 76 ms after the message was sent, run
+  99's own case, and all 5 earlier requests and their 10 replies were drawn
+  above the message, none after it. The reopened tab reconciled the
+  closed-tab request: the preview moved once per publishing job, and the new
+  page and table were in its lists. The canary's two preview checks for that
+  message could not judge it (below), so that evidence is the frame's load
+  record, read by the session. The item stays open for the owner to close.
+  **Still open, not changed**: an ended request's
   own reply with no record is asked for whenever it is read, however old
   (R1's, about 20 hours after it ended); a job's is not, after two hours.
+- **The preview frame is reloaded on every reading of a running request**
+  (found in run 101's evidence, 2026-10-05):
+  - **The code**: the page reads a running request about every 8.6 s once its
+    back-off reaches the 8 s ceiling. Each reading ends in `renderSites()`
+    (`siteRequestShow`, `public/chat.js`), which rewrites the whole workspace
+    through `innerHTML`, preview `<iframe>` included
+    (`renderSiteWorkspace`), so a new frame loads the preview.
+  - **Run 101's load record**: the same `?v=11` requested 17 times in message
+    2's two minutes, each about 15 ms after one of the page's own readings,
+    and never after the canary's.
+  - **What a customer sees**: a preview that blanks and reloads every few
+    seconds while a request runs, losing its scroll. This is inferred from
+    the code and the record; no screenshot shows it.
+  - **Since when**: reading on every poll came with the request flow.
+  - Not changed.
+- **A page that one add-on both changed and put back is reported both
+  ways** (run 101's reply, 2026-10-05):
+  - **What happened**: the add-on's merge put back its page step's change to
+    `visit.tsx`, a page its part did not name (`reverted`). The code then
+    added the menu link there (`changed`).
+  - **The reply**: "updated the home, Order, Visit, … pages" and "The Visit
+    page was left as it was; nothing there needed to change for this."
+  - **The cause**: `reverted` is taken before the menu-link step changes the
+    same page (`builder/site-addon.mjs`, `builder/site-reply.mjs`).
+  - Not changed.
+- **The add-on can declare a requirement the customer did not state** (run
+  101, 2026-10-05):
+  - **What happened**: its requirement note named "The person who joins gets
+    an email confirming they are on the list". The message asked only for a
+    page where people join with their name and email, and nothing that sends
+    mail was built.
+  - **The reply**: it said it couldn't confirm that email, which can read as
+    though one was set up.
+  - **The source**: `requirementNote` reads the add-on planner's own
+    requirements.
+  - Not traced further, not changed.
+- **The canary's preview checks cannot judge a closed-tab message's refresh
+  when the first tab moves its own preview after the send** (the
+  instrument; run 101, 2026-10-05):
+  - **What happened**: the baseline is the address read before the send
+    (`?v=0`). The first tab's own first look at earlier requests then moved
+    the stored address to `?v=9`, the reopened tab opened there, and both
+    checks would have passed with no reconcile.
+  - **The fix it needs**: a reopened tab's baseline should be the address
+    that tab opened at.
+  - **A related limit**: the reopened page's page list is also read from the
+    server when a tab opens, so that check shows the list is right, not
+    which path made it right.
+  - Not changed.
 - **The new page's own menu names it differently** (a remaining follow-up;
   run 99's R2, 2026-10-05):
   `/wholesale`'s menu says "Wholesale", placed before Order, while every other

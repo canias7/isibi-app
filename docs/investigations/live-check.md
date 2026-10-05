@@ -10,10 +10,15 @@ credit cost together so we can authorize the next stage in one go. Keep the
 current no-merge, no-deployment and no-paid-retest hold until that
 authorization; first Build and RW remain outside scope."*
 
-**Prepared, not authorized.** Nothing is merged, deployed, built, pressed or
-spent. The press is the canary's new scenario, `lv-reopen`, on the branch with
-its tests (`docs/history/2026-10-05-live-check.md`). First Build and RW are
-outside it.
+**Authorized and run** (2026-10-05, the owner: *"merge and deploy"*). It was
+merged and deployed as deploy 2184 (`d75d79f3`, image `589e3e4e85a20066`),
+runtime-confirmed by the owner's free press (run 100), and **the live check
+passed as the owner's paid press, run 101**: all 75 checks, for 27 credits,
+the top of §5's estimate. The readings, and what the session found while
+reading the evidence, are in `docs/history/2026-10-05-deploy-2184.md` §7.
+The plan below is kept as it was written. The press is the canary's
+scenario `lv-reopen` (`docs/history/2026-10-05-live-check.md`). First Build
+and RW are outside it.
 
 ## 1. What it verifies, and what it does not repeat
 
