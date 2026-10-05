@@ -991,6 +991,10 @@ the owner's free press, run 51, at 22:57 UTC):
       no other request's reply counted. A stand-in page only; not yet run
       live. The read-only lookup now says what became of a job's reply. R2–R5
       are still unpressed; the batch's spend is 29.
+    - **Run 98** (2026-10-05, the owner's free read of run 97's job): **the
+      reply was written by the model** — so run 97's reply check failed on
+      the canary's timing alone. Live: a part's job reply written in the
+      background. Not yet live: its settling in place on the page.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

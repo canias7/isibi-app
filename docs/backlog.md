@@ -25,8 +25,8 @@ here; take a closed one out of both.**
   request, and since the review round a part's reply still being written no
   longer keeps it open. Run 97 judged its part's reply 8 s after the job
   ended, while it was `pending`, and failed it as composed. A gap in the
-  instrument, not a reading of the writer; whether that reply was written is
-  not established (a free read-one-job press would show it). **Fixed on the
+  instrument, not a reading of the writer: **run 98 (the free read-one-job
+  press, 2026-10-05) found that reply written by the model**. **Fixed on the
   branch on the owner's word (2026-10-05; scripts and tests only, no deploy;
   `docs/history/2026-10-05-canary-reply-watch.md`)**: after a request ends,
   the canary waits on its own jobs until each reply is written or has failed
@@ -67,10 +67,14 @@ here; take a closed one out of both.**
   12 s ceiling (strongly inferred; the log line was not read). **Fixed on the
   branch, on the owner's word (the same day and file)**: the reply is written
   on the queue once the job's outcome and money are final, never by a read.
-  Shown with supplied answers. **Merged and deployed in deploy 2183; not yet
-  shown live for a part**: run 97's canary judged its part's reply while it
-  was still `pending` (the item above). Live so far: a request's own reply
-  written in the background and served (R1's, during run 97, about 35 s).
+  Shown with supplied answers. **Merged and deployed in deploy 2183, and shown
+  live for a part by run 98** (2026-10-05): run 97's part reply was written by
+  the model in the background (*"✅ Classes is now in the menu on 3 of your
+  pages; the other 2 already had it, next to the items that were already
+  there."*), read afterwards by the free lookup; run 97's canary had judged it
+  too early (the item above). Also live: a request's own reply written in the
+  background and served (R1's, during run 97, about 35 s). **Not yet seen
+  live**: the reply settling in place on the page.
 - **The page applies a part's result only when its reply is shown**
   (found 2026-10-04, with the background replies): while a reply is retried,
   the site's preview and the part's message wait together, at worst about ten
@@ -609,9 +613,13 @@ here; take a closed one out of both.**
   after its job ended, and the canary judged it then (the canary's gap,
   below). Supabase's request logs show no read of the job by a writer after
   23:34:38 up to 23:42:49, where a retry or a re-ask would have read it by
-  23:36:40, so the record most likely settled on its first try; whether as
-  written is not established. A request's own reply was written in the
-  background and served in the same run (R1's, about 35 s).
+  23:36:40, so the record most likely settled on its first try. **Run 98 (the
+  free read-one-job press, 2026-10-05) found it written by the model**: *"✅
+  Classes is now in the menu on 3 of your pages; the other 2 already had it,
+  next to the items that were already there."* A request's own reply was
+  written in the background and served in the same run (R1's, about 35 s).
+  **Still open until seen live**: a part's reply settling in place on the
+  page, and every reply of R2–R5 the model's own.
 - **THE PAGE APPLIES A PART'S RESULT ONLY WHEN ITS REPLY IS SHOWN** (found
   2026-10-04, writing the background replies).
   - `editAnswer` takes the stored answer and the reply together: the preview

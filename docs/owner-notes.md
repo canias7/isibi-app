@@ -1,49 +1,51 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-05, 00:35 UTC)
+## Current handoff — read this first (2026-10-05, 01:20 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **The canary now waits for a request's replies** (on the branch at
-  `cfe6688a`, for your review; scripts and tests only, so nothing deploys and
-  nothing is rebuilt). After a request ends — normally, on a step's question,
-  or in the tab opened afterwards — it waits on that request's own jobs until
-  each reply is written or has failed and is on screen, within the message's
-  time and never less than a minute after the end. It tells "the model's own",
-  "failed", "timed out", "composed" and "unread" apart, and never counts
-  another request's reply. Shown with a stand-in page only; **not yet run
-  live**.
-- **Run 97's reply is still unknown.** The free lookup below answers it; my one
-  try to start it was refused (403).
+- **Run 97's reply was written by the model.** Your free read (run 98, 01:08
+  UTC) found it on the job: *"✅ Classes is now in the menu on 3 of your
+  pages; the other 2 already had it, next to the items that were already
+  there."* So run 97 failed its reply check only because the canary looked
+  too early.
+- **The canary fix that waits for replies** is on the branch for your review
+  (scripts and tests only; nothing deploys). Shown with a stand-in page; not
+  yet run live.
 - **R2–R5 are still unpressed**; the batch has spent **29** of its 100.
-- **Money**: balance **91**, last ledger row 369, no job open (00:29 UTC).
-  Nothing was spent since run 97.
+- **Money** (01:09 UTC): balance **91**, last ledger row 369, no job open;
+  run 98 cost nothing.
+- **A correction of mine**: I had written that run 97's job was too old for a
+  read to ask for a missing reply. It wasn't — inside two hours of a job's end,
+  a read of a job with no reply on record asks for one (a model call that is
+  ours, not yours). It made no difference here: the reply was already written.
+  Corrected in the records.
 - **Still open, not fixed (a product bug, as you asked)**: a browser opening a
   site for the first time draws the replies to the site's earlier requests
-  under a message sent in the first seconds. The canary ignores them now; it
-  does not wait for them before sending, which would only hide the bug.
+  under a message sent in the first seconds.
 
-**Exact next action — your free press, then tell me "ran"**
-- **The read-only lookup for run 97's job** (nothing spent, nothing resent), at
-  https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml →
-  **Run workflow**:
-  - "Use workflow from": **`claude/help-needed-ehlwlj`** (the branch, so it
-    prints the new `REPLY` line);
-  - "READ ONE EXISTING JOB AND STOP: a job id. Spends nothing, changes
-    nothing, and ignores every input below.":
-    `f666481af2ef5410b14e00b9ad0da43d`;
-  - every other box as it is ("Run the ONE paid edit as well (yes/no)" stays
-    `no`).
-- **What it says**: `REPLY  WRITTEN by the model: "…"`, or `still PENDING`,
-  or `FAILED`, or `NONE on the answer` — the last one meaning either nothing
-  was owed or nothing was ever asked for, which the server does not tell
-  apart. The read never calls the model.
-
-**Then, yours to decide**: your review of the canary fix; and, after it,
-`rq-batch-r2` once from the branch, its batch box `29`. I'll give you its boxes.
+**Next — yours**
+1. **Review the canary fix**: `docs/history/2026-10-05-canary-reply-watch.md`.
+2. **After it, `rq-batch-r2` once** (R2–R5, at most about 61 more credits at
+   the upper estimates, so about 90 of 100), at
+   https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml →
+   **Run workflow**:
+   - "Use workflow from": `claude/help-needed-ehlwlj` (the canary that waits
+     for replies);
+   - "Run the ONE paid edit as well (yes/no)": `yes`;
+   - "RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: …":
+     `rq-batch-r2`;
+   - "REQUEST BATCH ONLY (rq-batch, rq-batch-r2): the credits the batch has
+     already spent before this press …": `29`;
+   - "The site to edit. Defaults to the canary site; …": `fold-lane-bakery`;
+   - "Refuse to spend unless the Worker reports this deploy sha …":
+     `e84b8e7e`;
+   - "Refuse to spend unless a cold container reports this image id …":
+     `386607152d4cb319`;
+   - every other box as it is.
 
 **Still yours** (the plan's §11)
 1. Approve the revised plan, with 100 as a threshold between presses, or
@@ -53,11 +55,11 @@ is in git; the dated entries further down are the full story.*
 4. The demo changes stay unless you say otherwise.
 
 **Links**
-- The canary fix: `docs/history/2026-10-05-canary-reply-watch.md`.
+- Run 98 and the canary fix: `docs/history/2026-10-05-canary-reply-watch.md`
+  (§8 for run 98).
 - Run 97: `docs/history/2026-10-04-deploy-2183.md` §7.
-- The canary: `docs/instruments.md` (*THE CANARY WAITS FOR A REQUEST'S
-  REPLIES*). The open items: `docs/backlog.md`. The plan:
-  `docs/investigations/request-flow-rollout.md`.
+- The canary: `docs/instruments.md`. The open items: `docs/backlog.md`. The
+  plan: `docs/investigations/request-flow-rollout.md`.
 ---
 
 2026-09-25: **Escalation correction CLOSED.** Independently reviewed (437 focused
@@ -116,6 +118,28 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-05 — Your free read (run 98): run 97's reply was written by the model (nothing spent)
+
+- **What it found**: run 97's menu job carries a reply written by the model:
+  *"✅ Classes is now in the menu on 3 of your pages; the other 2 already had
+  it, next to the items that were already there."* It was written in the
+  background after the job ended (23:34 UTC). The read itself can't write a
+  reply, so it was there before your press at 01:08 UTC. The logs fit it
+  being written within seconds.
+- **What it means**: run 97 failed its reply check only because the canary
+  looked too early, which the fix on the branch addresses. The background
+  reply for a request's part is now shown live; the page swapping it in on
+  screen is not yet.
+- **A correction of mine**: I'd written that run 97's job was past the window
+  in which a read asks for a missing reply. It was inside it (1 h 34 min of
+  2 h), so a missing reply would have been asked for by your read (our model
+  call, not yours). It wasn't missing, so nothing was asked.
+- **Money**: balance 91, last row 369, no job open; nothing charged.
+
+**Recorded in**: `docs/history/2026-10-05-canary-reply-watch.md` §8 (and its
+§5, corrected), `docs/history/2026-10-04-deploy-2183.md` §7.5, the backlog,
+the findings, the plan and the checklist.
 
 ## 2026-10-05 — The canary waits for a request's replies now (on the branch, for review; nothing spent, nothing deployed)
 

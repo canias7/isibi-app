@@ -188,10 +188,19 @@ owner; it posts nothing and resends nothing. With this branch it prints the
 **What the poll itself can do**: the poll route never calls the model. It hands
 back the reply's record as it is. A record still pending past its 15-minute
 horizon is marked failed by the read. A job that ended more than two hours ago
-with no record is not asked for a reply by a read. So the answer comes back with
+with no record is not asked for a reply by a read, so the answer comes back with
 no reply and no state, exactly as one owed nothing does, and the `REPLY` line
-says that it cannot tell those apart. Run 97's job ended at 23:34:21 UTC on
-2026-10-04, well past both.
+says that it cannot tell those apart. **But a job inside those two hours with no
+record IS asked for one by a read**: the read makes the record and queues the
+reply, and the queue writes it with a model call (ours, not the customer's; the
+edit is never resent).
+
+**⚠ Corrected 2026-10-05, after run 98.** This section first said run 97's job
+(ended 23:34:21 UTC on 2026-10-04) was "well past both". It was past the
+15-minute horizon, but not the two-hour window: the record of 00:30 UTC was
+written 56 minutes after the job ended, and run 98 read it 1 h 34 min after. So
+had the job had no reply record, run 98's read would have asked for one. It had
+one, already written (§8).
 
 **The press**: §7.
 
@@ -223,3 +232,39 @@ owner's. Its boxes, by their descriptions:
 **R2–R5 are still unpressed**, and the batch's spend is **29** (rq-canary 4,
 R1 21, the focused check 4). Money at 00:29 UTC: balance 91, last ledger row
 369, no job open.
+
+## 8. Run 98: run 97's reply was written by the model (live)
+
+The owner pressed the lookup as **run 98** (37250237664, `workflow_dispatch` on
+the branch at `46763ac8`, `success`, the job 01:08:36–01:08:53 UTC on
+2026-10-05; `CANARY_READ_JOB` `f666481af2ef5410b14e00b9ad0da43d`,
+`CANARY_SPEND` 0). Its account:
+- the job: `done`, nav, `changed` `order.tsx`, `visit.tsx`, `gallery.tsx`,
+  published 23:34:17 UTC on 2026-10-04; `billing finalized cost 1`; the ledger
+  `charged 1, with no refund` (row 369);
+- `poll  HTTP 200  x-gf-edit: final`;
+- **`REPLY  WRITTEN by the model: "✅ Classes is now in the menu on 3 of your
+  pages; the other 2 already had it, next to the items that were already
+  there."`**
+
+The evidence file holds the poll's whole answer: `replySource: "model"`, that
+`reply`, no `replyState`, beside the page's own sentence (`msg`: *"✅ Added
+“Classes” to the menu on 3 pages (the other 2 already had it), beside the items
+each had."*), which is different words.
+
+**What it establishes**:
+- **Run 97's reply was written by the model, in the background, after its job
+  ended and before 01:08:51 UTC.** The read cannot have written it: the poll
+  never calls the model, and one that has just asked for a reply answers
+  `pending`, never `written`. Supabase's request logs (`2026-10-04-deploy-2183.md`
+  §7.5: one claim read at 23:34:25.7, no retry) fit its first try writing it
+  within seconds of the job's end; the exact time is not on the record.
+- **So run 97's reply check failed on the canary's timing alone**, which the
+  fix above addresses.
+- **Live now**: a request part's own job reply written by the model in the
+  background. **Still not seen live**: that reply settled in place on the page
+  (run 97's canary closed the page first), and the fixed canary itself.
+
+**Money** (01:09:41 UTC): balance 91, last ledger row 369, no job open, and no
+job filed since run 97: run 98 charged nothing. Nothing was resent, pressed,
+restored or rebuilt.

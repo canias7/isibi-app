@@ -506,10 +506,12 @@ real money, the real site.
   The canary ended the message then, because the page had closed the request,
   and judged the reply as composed. Since the review round, a held reply no
   longer keeps the page's request open, and the canary was not taught that.
-  So **a gap in the instrument**. Whether the reply was then written is not
-  established: Supabase's request logs show no writer reading the job after
-  23:34:38 up to 23:42:49, which fits a first try that settled at once, but
-  not which way. A free read-one-job press on `f666481a…` would show it.
+  So **a gap in the instrument**. **Run 98 settled it** (the free read-one-job
+  press, 2026-10-05): the reply was written by the model, in the background
+  (*"✅ Classes is now in the menu on 3 of your pages; the other 2 already had
+  it, next to the items that were already there."*). So F2's fix is shown live
+  for a part's job; its settling in place on the page is not yet seen live.
+  The canary now waits for replies (`docs/history/2026-10-05-canary-reply-watch.md`).
 - **Also live in the run**: a request's own reply written in the background
   and served (R1's, about 35 s). It was R1's, 20 hours late, because a fresh
   browser picks up a site's earlier requests on open. It appended their

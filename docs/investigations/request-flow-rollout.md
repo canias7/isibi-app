@@ -50,7 +50,9 @@ and RW have not been pressed. **The canary now waits for a request's replies**
 `docs/history/2026-10-05-canary-reply-watch.md`): after a request ends, each of
 its own jobs' replies is waited for until written or failed and on screen,
 within the message's bound and never less than 60 s after the end, and no other
-request's reply is counted. It runs from the branch (§3.1). The presses' record:
+request's reply is counted. It runs from the branch (§3.1). **Run 98**, your
+free read of run 97's job, found its reply written by the model, so run 97
+failed its reply check on the canary's timing alone. The presses' record:
 `docs/history/2026-10-04-request-batch.md`. The record: `docs/history/2026-10-04-deploy-2181.md`.
 
 Your first order: *"Freeze this implementation and prepare the concrete rollout

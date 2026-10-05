@@ -442,11 +442,15 @@ and the browser are all unreachable from it. `scripts/canary-read-job.mjs`.
   poll, read by the reply watch's own readers (`replyReading`): written by the
   model (with its words), still pending, failed, a hand-over, or none on the
   answer. **What the poll itself can do**: it never calls the model; it marks a
-  record still pending past its 15-minute horizon failed; and for a job that
-  ended more than two hours ago with no record it asks for nothing, so that
-  answer comes back with no reply and no state, as one owed nothing does — the
-  line says it cannot tell those two apart. The whole answer is also in the
-  evidence file (`job-<id>.json`, `poll.body`).
+  record still pending past its 15-minute horizon failed; for a job that ended
+  more than two hours ago with no record it asks for nothing, so that answer
+  comes back with no reply and no state, as one owed nothing does — the line
+  says it cannot tell those two apart; and **for a job inside those two hours
+  with no record it asks for one** (the queue then writes it with a model call
+  that is ours, not the customer's; the edit is never resent). The whole answer
+  is also in the evidence file (`job-<id>.json`, `poll.body`). **First used as
+  run 98** (2026-10-05): run 97's reply was already written by the model
+  (`docs/history/2026-10-05-canary-reply-watch.md` §8).
   **⚠ AND THE FIRST CUT DID FOLD IT, on the one line anybody reads.** Reported
   and reproduced: a 503 from `credit_events` printed `LEDGER  no ledger rows
   name this job — nothing was debited under it` and then a failed-read note

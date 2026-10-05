@@ -244,7 +244,11 @@ export async function readJobRecords({ job, sb, poll, traceWindowMs = 30 * 60 * 
  * that ended more than two hours ago with no record is not asked for a reply
  * by a read (`REPLY_ASK_WINDOW_MS` in worker.js), so the answer then comes
  * back with no reply and no state, exactly as one owed nothing does: the
- * server does not tell those two apart, and neither does this.
+ * server does not tell those two apart, and neither does this. INSIDE those
+ * two hours a job with no record IS asked for one by a read — the record made
+ * and the reply queued, which the queue writes with a model call (ours, not
+ * the customer's) — and the read answers `pending`. Run 98 read run 97's job
+ * 1 h 34 min after it ended and found its reply already written.
  */
 export function replyReading(poll) {
   if (!poll) return { state: "unread", says: "not polled" };
