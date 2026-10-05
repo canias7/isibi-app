@@ -32,8 +32,11 @@ here; take a closed one out of both.**
   the canary waits on its own jobs until each reply is written or has failed
   and is on screen, within the message's bound (never less than 60 s after the
   end), telling model, failed, timed out, composed and unread apart, and
-  counting no other request's reply. Shown with a stand-in page only; not yet
-  run live.
+  counting no other request's reply. **Run live as run 99** (R2–R5,
+  2026-10-05; `docs/history/2026-10-05-batch-r2.md` §3): it waited for three
+  replies still being written when their requests ended (5–31 s), and all
+  eight replies were the model's own and on screen. Merging it (scripts only,
+  no deploy) is the owner's call.
 - **Earlier requests' replies land under a message sent before the page's
   check of them** (run 97): a browser that has not seen a site's recent
   requests appends their replies at the end of the thread when it opens the
@@ -44,7 +47,18 @@ here; take a closed one out of both.**
   two hours. **Open, a product bug, not changed** (the same file, §7.6). Since
   2026-10-05 the canary neither waits for nor counts those replies; it does
   not wait for them before sending either, which would only hide the bug in
-  its own runs.
+  its own runs. **Live in three presses of run 99**: 7, 10 and 12 other
+  requests' replies drawn after the new message, none counted.
+- **The new page's own menu names it differently** (run 99's R2, 2026-10-05):
+  `/wholesale`'s menu says "Wholesale", placed before Order, while every other
+  page's menu says "Wholesale Orders", after Order. The canary's menu check
+  passed (each label carries "Wholesale"). Seen in the served pages; not
+  changed.
+- **The read-only lookup's `REPLY` line names a two-hour case for any job with
+  no reply on it** (run 99, 2026-10-05): for a routing job minutes old it
+  still says "either none was owed, or none was ever asked for (a job over two
+  hours old …)", though only the first can apply. The instrument's wording
+  (`replyReading`); not changed.
 - **A menu link handed from the add-on step to the menu step failed with
   `no-menu`** (R1, run 95, 2026-10-04): the add-on had already put the link on
   the home page and the new page, and the other three pages got none. **Cause
@@ -58,8 +72,9 @@ here; take a closed one out of both.**
   and deployed in deploy 2183, and shown live by run 97** (`rq-menu-link`,
   2026-10-04): the add-on handed the link to the menu step, which put it into
   the three menus that lacked it and left the two that had it and the
-  starter page (no menu) as they were. R2's own menu link is not pressed yet.
-  Closing it is the owner's.
+  starter page (no menu) as they were. **And R2's own menu link, by run 99**:
+  the add-on put the Wholesale page's link into every menu by code. Closing it
+  is the owner's.
 - **A multi-part request's parts got no model-written reply** (R1, run 95):
   their job results carried no `reply`, so the page showed the old fixed
   sentences; a single part had one (run 94). **Cause found from the run's
@@ -73,8 +88,10 @@ here; take a closed one out of both.**
   pages; the other 2 already had it, next to the items that were already
   there."*), read afterwards by the free lookup; run 97's canary had judged it
   too early (the item above). Also live: a request's own reply written in the
-  background and served (R1's, during run 97, about 35 s). **Not yet seen
-  live**: the reply settling in place on the page.
+  background and served (R1's, during run 97, about 35 s). **And across R2–R5
+  by run 99**: every part's reply the model's own and on screen, three of
+  them settled in place on the page after their requests ended. Closing it is
+  the owner's.
 - **The page applies a part's result only when its reply is shown**
   (found 2026-10-04, with the background replies): while a reply is retried,
   the site's preview and the part's message wait together, at worst about ten
@@ -683,6 +700,22 @@ here; take a closed one out of both.**
     Shown with a stand-in page and supplied answers; red check, two sweeps
     (28 of 32, then 8 of 8) and the suite in the history file. Not yet run
     live.
+- **THE NEW PAGE'S OWN MENU NAMES IT DIFFERENTLY** (found in run 99's R2,
+  2026-10-05; `docs/history/2026-10-05-batch-r2.md` §4). The add-on made the
+  Wholesale page and linked it from every menu: on `/wholesale` itself the
+  item reads "Wholesale", before Order; on every other page it reads
+  "Wholesale Orders", after Order. Read off the served pages at 03:06 UTC. The
+  canary's menu check passed, since each label carries "Wholesale". Open: one
+  label and one place in every menu. Not changed.
+- **THE READ-ONLY LOOKUP'S `REPLY` LINE NAMES A TWO-HOUR CASE FOR ANY JOB WITH
+  NO REPLY** (found in run 99, 2026-10-05). The account prints, for every job
+  whose answer carries no reply and no state — a routing job among them —
+  *"either none was owed, or none was ever asked for (a job over two hours old
+  with no reply record is not asked for one by a read)"*. For a job minutes
+  old only the first can apply (a read inside two hours asks for a missing
+  reply). The instrument's own wording (`replyReading` in
+  `scripts/canary-read-job.mjs`), which has the row's `updated_at` to tell the
+  two apart. Not changed.
 - **EARLIER REQUESTS' REPLIES LAND UNDER A MESSAGE SENT BEFORE THE PAGE'S
   CHECK OF THEM** (found live in run 97; the same file, §7.6).
   - On opening a site, the page follows every request the server lists for

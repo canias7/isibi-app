@@ -52,7 +52,11 @@ its own jobs' replies is waited for until written or failed and on screen,
 within the message's bound and never less than 60 s after the end, and no other
 request's reply is counted. It runs from the branch (§3.1). **Run 98**, your
 free read of run 97's job, found its reply written by the model, so run 97
-failed its reply check on the canary's timing alone. The presses' record:
+failed its reply check on the canary's timing alone. **R2–R5 passed as run 99**
+(2026-10-05, from the branch, one press; `docs/history/2026-10-05-batch-r2.md`):
+every check of every press, every reply the model's own and on screen, 43
+credits (R2 17, R3 8, R4 4, R5 14). **The batch is complete at 72 of 100.**
+RW (§9) has not been run and is yours to approve or drop. The presses' record:
 `docs/history/2026-10-04-request-batch.md`. The record: `docs/history/2026-10-04-deploy-2181.md`.
 
 Your first order: *"Freeze this implementation and prepare the concrete rollout

@@ -1064,8 +1064,11 @@ block the current request's verdict."* `docs/history/2026-10-05-canary-reply-wat
   `test/canary-replies.test.mjs`, 28 cases): delayed success, failure, timeout,
   the floor, a reload, a step's question, the closed tab, history that cannot
   block or satisfy, the request's own reply, a reply answered before it is
-  drawn. Red check, two sweeps and the suite in the history file. **Not yet
-  run live.**
+  drawn. Red check, two sweeps and the suite in the history file. **Run live
+  as run 99** (R2–R5, 2026-10-05; `docs/history/2026-10-05-batch-r2.md` §3):
+  three replies still being written when their requests ended were waited for
+  (5–31 s), all eight were the model's own and on screen, and 7, 10 and 12
+  other requests' replies drawn after the messages were left uncounted.
 
 ### THE BATCH'S CONTINUATION FROM R2 (`rq-batch-r2`, 2026-10-04 — on the branch)
 

@@ -512,6 +512,11 @@ real money, the real site.
   it, next to the items that were already there."*). So F2's fix is shown live
   for a part's job; its settling in place on the page is not yet seen live.
   The canary now waits for replies (`docs/history/2026-10-05-canary-reply-watch.md`).
+- **Run 99 (R2–R5, 2026-10-05) carried both fixes through four more presses**,
+  live and all passing (`docs/history/2026-10-05-batch-r2.md`): R2's Wholesale
+  link went into every menu by the add-on (F1's placement half); every part's
+  reply in R2–R5 was the model's own and on screen, three of them waited for
+  after their requests ended (F2).
 - **Also live in the run**: a request's own reply written in the background
   and served (R1's, about 35 s). It was R1's, 20 hours late, because a fresh
   browser picks up a site's earlier requests on open. It appended their

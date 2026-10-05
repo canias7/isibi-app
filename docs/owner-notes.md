@@ -1,65 +1,49 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-05, 01:20 UTC)
+## Current handoff — read this first (2026-10-05, 03:20 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **Run 97's reply was written by the model.** Your free read (run 98, 01:08
-  UTC) found it on the job: *"✅ Classes is now in the menu on 3 of your
-  pages; the other 2 already had it, next to the items that were already
-  there."* So run 97 failed its reply check only because the canary looked
-  too early.
-- **The canary fix that waits for replies** is on the branch for your review
-  (scripts and tests only; nothing deploys). Shown with a stand-in page; not
-  yet run live.
-- **R2–R5 are still unpressed**; the batch has spent **29** of its 100.
-- **Money** (01:09 UTC): balance **91**, last ledger row 369, no job open;
-  run 98 cost nothing.
-- **A correction of mine**: I had written that run 97's job was too old for a
-  read to ask for a missing reply. It wasn't — inside two hours of a job's end,
-  a read of a job with no reply on record asks for one (a model call that is
-  ours, not yours). It made no difference here: the reply was already written.
-  Corrected in the records.
-- **Still open, not fixed (a product bug, as you asked)**: a browser opening a
-  site for the first time draws the replies to the site's earlier requests
-  under a message sent in the first seconds.
+- **The request batch is done.** Your `rq-batch-r2` press (run 99, 02:32–03:04
+  UTC) passed all four: R2 (a Wholesale page and a price), R3 (a heading and a
+  Facebook link, with its question answered), R4 (a heading and your attached
+  logo) and R5 (a line and a heading, finished with the tab closed). Every
+  check passed, and every reply was the model's own and on screen.
+- **The canary fix worked live**: three replies were still being written when
+  their requests ended, and it waited for each (5–31 s). It counted none of
+  the 7–12 other requests' replies the page drew after the messages.
+- **Money**: balance **48** (from 91), no job open. R2–R5 cost 43 (17, 8, 4,
+  14); the batch's total is **72 of 100**.
+- **The bakery** keeps every change (your demo rule): Classes and Wholesale in
+  every menu, the Facebook link in every footer, the new logo, the three new
+  headings, the closing-time line on Order, and the Walnut Levain at £6.20.
+- **The branch** carries the canary fix and the records (scripts, tests and
+  documents only); `main` is still `e84b8e7e`. Merging it starts no deploy.
 
-**Next — yours**
-1. **Review the canary fix**: `docs/history/2026-10-05-canary-reply-watch.md`.
-2. **After it, `rq-batch-r2` once** (R2–R5, at most about 61 more credits at
-   the upper estimates, so about 90 of 100), at
-   https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml →
-   **Run workflow**:
-   - "Use workflow from": `claude/help-needed-ehlwlj` (the canary that waits
-     for replies);
-   - "Run the ONE paid edit as well (yes/no)": `yes`;
-   - "RUN A NAMED SCENARIO IN A REAL BROWSER instead of the one edit: …":
-     `rq-batch-r2`;
-   - "REQUEST BATCH ONLY (rq-batch, rq-batch-r2): the credits the batch has
-     already spent before this press …": `29`;
-   - "The site to edit. Defaults to the canary site; …": `fold-lane-bakery`;
-   - "Refuse to spend unless the Worker reports this deploy sha …":
-     `e84b8e7e`;
-   - "Refuse to spend unless a cold container reports this image id …":
-     `386607152d4cb319`;
-   - every other box as it is.
+**Still open** (`docs/backlog.md`)
+- The page draws earlier requests' replies under a new message (a product
+  bug; seen in three of the four presses).
+- A data edit's reply can't name the change ("I've updated one of the
+  loaves"), the known limit you kept for the reply work.
+- Two small ones from this run: the new page's own menu says "Wholesale" where
+  the others say "Wholesale Orders"; and the free lookup's wording for a job
+  with no reply on it.
 
-**Still yours** (the plan's §11)
-1. Approve the revised plan, with 100 as a threshold between presses, or
-   change it.
-2. R2's wording: as it is, or the page-only version.
-3. RW: whether to run it, and whether to put the bakery back after.
-4. The demo changes stay unless you say otherwise.
+**Yours to decide**
+1. **RW**, the separate full-rewrite test: run it, or drop it; and whether to
+   put the bakery back after.
+2. **Merging the branch** to `main` (no deploy; the canary fix and the
+   records).
+3. Which of the open items to take next.
 
 **Links**
-- Run 98 and the canary fix: `docs/history/2026-10-05-canary-reply-watch.md`
-  (§8 for run 98).
-- Run 97: `docs/history/2026-10-04-deploy-2183.md` §7.
-- The canary: `docs/instruments.md`. The open items: `docs/backlog.md`. The
-  plan: `docs/investigations/request-flow-rollout.md`.
+- Run 99: `docs/history/2026-10-05-batch-r2.md`.
+- The canary fix: `docs/history/2026-10-05-canary-reply-watch.md`.
+- The plan: `docs/investigations/request-flow-rollout.md`. The open items:
+  `docs/backlog.md`.
 ---
 
 2026-09-25: **Escalation correction CLOSED.** Independently reviewed (437 focused
@@ -118,6 +102,35 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-05 — Your batch press (run 99): R2, R3, R4 and R5 all passed (43 credits)
+
+- **What ran**: the four remaining requests, one after another, from the
+  branch so the canary waited for replies. Each one's preflight checked the
+  live deploy (`e84b8e7e`) and image (`386607152d4cb319`) first.
+  - **R2** made the Wholesale page with its link in every menu, and changed
+    the Walnut Levain to £6.20 (17 credits).
+  - **R3** changed the Visit heading, asked for your Facebook address, and on
+    the answer put the link in every footer (8).
+  - **R4** changed the home heading and made your attached picture the logo
+    (4; the logo itself is free).
+  - **R5** changed the Gallery heading and added the closing-time line to
+    Order. It finished while no tab was open, and the tab opened afterwards
+    showed it (14).
+- **Every check passed**: each change exactly where asked, everything else
+  unchanged, and the money exactly each press's own charges.
+- **The replies**: all eight were written by the model and shown on screen.
+  Three were still being written when their requests ended, and the new
+  canary waited for them (5 to 31 seconds).
+- **Seen again**: the page drew 7, 10 and 12 replies from earlier requests
+  after the new messages (the open bug). And the new page's menu calls itself
+  "Wholesale" while the other pages say "Wholesale Orders" (new, small).
+- **Money**: 91 → 48. The batch has spent 72 of its 100 and is complete; RW
+  is still yours to decide.
+
+**Recorded in**: `docs/history/2026-10-05-batch-r2.md`, the plan, the
+backlog, the findings, the checklist, `docs/instruments.md` and
+`docs/deploy-record.md`.
 
 ## 2026-10-05 — Your free read (run 98): run 97's reply was written by the model (nothing spent)
 

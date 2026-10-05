@@ -268,3 +268,12 @@ each had."*), which is different words.
 **Money** (01:09:41 UTC): balance 91, last ledger row 369, no job open, and no
 job filed since run 97: run 98 charged nothing. Nothing was resent, pressed,
 restored or rebuilt.
+
+## 9. Run live: run 99 (R2–R5)
+
+The fixed canary ran live as run 99, the owner's `rq-batch-r2` press from the
+branch (`docs/history/2026-10-05-batch-r2.md` §3). It waited for three replies
+still being written when their requests ended (R2's, 31 s; R3's footer reply,
+14 s; R4's heading reply, 5 s), judged all eight replies the model's own and on
+screen, and left uncounted the 7, 10 and 12 other requests' replies the page
+drew after R3's, R4's and R5's messages. Every press passed.

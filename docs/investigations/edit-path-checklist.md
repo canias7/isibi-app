@@ -995,6 +995,13 @@ the owner's free press, run 51, at 22:57 UTC):
       reply was written by the model** — so run 97's reply check failed on
       the canary's timing alone. Live: a part's job reply written in the
       background. Not yet live: its settling in place on the page.
+    - **`rq-batch-r2` pressed as run 99** (2026-10-05, from the branch;
+      `docs/history/2026-10-05-batch-r2.md`): **R2, R3, R4 and R5 all
+      passed**, live — an add-on and an edit in one message (R2, R5), a
+      step's question and its answer resuming the request (R3), an attached
+      logo (R4), a request finished with its tab closed (R5) — every reply
+      the model's own and on screen (three waited for after their requests
+      ended), 43 credits; the batch complete at 72 of 100. RW not run.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

@@ -1246,7 +1246,11 @@ the owner's review round), at 18:10:27 UTC. Run 37223381974, `push` on
   the same image, no rebuild): the Classes link put into the three menus that
   lacked it, every site check passed, 4 credits (rows 368–369, balance 91);
   the reply check failed because the canary judged a reply still being
-  written, so `rq-batch-r2` was not pressed (§7 of the same file).
+  written, so `rq-batch-r2` was not pressed (§7 of the same file);
+- **then, on the same image, run 98** (the free read of run 97's job: its
+  reply written by the model) **and run 99** (`rq-batch-r2` from the branch,
+  02:32–03:04 UTC on 2026-10-05: R2–R5 all passed, 43 credits, balance 48;
+  `docs/history/2026-10-05-batch-r2.md`).
 
 ## The served-file check, driven end to end on deploy 2139
 
