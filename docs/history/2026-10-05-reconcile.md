@@ -184,8 +184,15 @@ Also changed:
     dropping the page's names too.
 - **The full suite**: `9456 / 9456 / 0 / 0` locally, from 9,440 by 16 cases
   (10 + 2 new files, 2 address cases, and the inventory cases' net 2). Unit
-  CI: CI-RECON
-- **The image**: IMAGE-RECON
+  CI `9456 / 9450 / 0 / 6` on `c3fff062` (run 37278518977): the totals
+  match, and CI skips its usual 4 and the 2 browser cases, which need a
+  browser. The site build is green on `c3fff062` (run 37278518946): all 8
+  jobs, the gate reading 404 checks in 27 sections across 4 shards; its
+  inputs are now `6805c0ef42c72b3d` (3,972 files), `worker.js` being one.
+- **The image**, predicted with `containerInputs` and `imageId`:
+  `386607152d4cb319` at `main` (`cd817fee`) and at `f2c4a543`, and
+  **`da027774faa35eaf` at `c3fff062`**: 194 inputs, `worker.js` among them.
+  A merge would build it; nothing was built.
 - **Screenshots** (headless Chromium, the repo's own `public/`, every answer
   supplied): the owner's reproduction on a fresh browser.
   - **Before** (`f2c4a543`'s page): the reply under its card and the picker

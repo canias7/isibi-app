@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-05, 06:41 UTC)
+## Current handoff — read this first (2026-10-05, 07:42 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,48 +9,52 @@ is in git; the dated entries further down are the full story.*
 **State now**
 - **Nothing merged or deployed since `cd817fee`**: the live site is still
   deploy 2183 (`e84b8e7e`, image `386607152d4cb319`). Nothing spent.
-- **The placement fix stays unmerged, as you said, with your regression
-  corrected on the branch**:
-  - work that finishes while a page watches is applied. For another
-    browser's request: the preview moves, its new tables join the list, and
-    the page list is read again from the server, never replayed from the job;
-  - history that had finished before the page first looked is only shown,
-    never replayed — now also for your own requests that finished while the
-    browser was closed. When it added or took away pages, only the page list
-    is read again from the server, so a page removed while the browser was
-    closed leaves its picker;
-  - no undo offers, words in the box or old questions come back;
-  - each reply still goes with its request.
-  - Shown with supplied answers (a scripted server) and in the two
-    screenshots I sent (before and after); not live.
-  - Commit `f2c4a543`: the suite `9440 / 9440 / 0 / 0` here and
-    `9440 / 9436 / 0 / 4` on unit CI (run 37273803493; CI skips four).
-- **Money**: balance **48**, read again at 06:41 UTC (last ledger row 385, no
-  job open); nothing spent since run 99.
+- **The placement fix stays unmerged, with your three gaps fixed on top**
+  (`c3fff062`):
+  - **every preview move changes the frame's address**: a site never moved
+    is drawn at `?v=0`, so a fresh browser's first refresh no longer keeps
+    `?v=1`. Tested on the address the render gives the frame, and in a real
+    Chromium;
+  - **reconciled whenever it finished**: every finished job the page's own
+    reader didn't apply is brought up to date with what's published — the
+    preview moves on, its tables are kept, the page list is read again —
+    even when the first read failed or came late. Each job once; no undo
+    offers, words in the box or old questions come back;
+  - **the whole table list**: the routing route reads your site's tables on
+    every call, whatever the page sent, and the page keeps what it read;
+  - each reply still goes with its request; replies are still the model's.
+  - Shown with supplied answers, the real Worker route and a real Chromium,
+    and in the two screenshots I sent; not live.
+  - The suite `9456 / 9456 / 0 / 0` here and `9456 / 9450 / 0 / 6` on unit
+    CI (run 37278518977); the site build is green (run 37278518946).
+- **Merging now deploys the Worker and builds an image**: `worker.js`
+  changed, and it is one of the container image's inputs
+  (`386607152d4cb319` → `da027774faa35eaf`, predicted). After a merge, the
+  usual wait of 15–20 minutes applies before container work.
+- **Money**: balance **48**, read at 06:41 UTC (last ledger row 385, no job
+  open); nothing spent since run 99.
 - **The bakery** keeps every change from the batch (your demo rule).
 
 **Still open** (`docs/backlog.md`)
-- New, found while correcting: a page that adds one addition's tables to an
-  empty list then sends only those, so the router stops reading the site's
-  own list. That was already true for your own additions; not changed.
-- Already recorded, and shared by this correction: on a site with no stored
-  preview version (one adopted from the list), the first preview move keeps
-  the address `?v=1`, so a cache may answer it for up to a minute.
 - An old request's own reply with no record is still asked for whenever it is
   read (the server side of the placement item).
 - A data edit's reply can't name the change; the new page's own menu label;
   the free lookup's wording for a job with no reply.
+- Limits of this round (in its record, §5): your own job found done by a
+  late first read is reconciled without its undo offer; a page opening many
+  finished requests moves its preview once per job.
 
 **Yours to decide**
-1. **The placement fix with this correction**: review it. Merging deploys
-   `public/chat.js` only (the image is predicted unchanged,
-   `386607152d4cb319`); a live check would come after, on your word.
+1. **The placement fix with both corrections**: review it. Merging deploys
+   the page and the Worker, and builds the image above; a live check would
+   come after, on your word.
 2. **RW**, the separate full-rewrite test: not started.
 3. Which of the open items to take next.
 
 **Links**
-- The correction: `docs/history/2026-10-05-watched-refresh.md`.
-- The fix it corrects: `docs/history/2026-10-05-reply-placement.md`.
+- This round: `docs/history/2026-10-05-reconcile.md`.
+- The corrections before it: `docs/history/2026-10-05-watched-refresh.md`,
+  `docs/history/2026-10-05-reply-placement.md`.
 - The open items: `docs/backlog.md`.
 ---
 
@@ -135,13 +139,16 @@ since. Add new ones there.
   last day moves its preview once per job. That is one extra fetch of your
   published page each, never a replay.
 - **The server changed too**: `worker.js` is one of the container image's
-  inputs, so merging would build a new image (IMAGE-LINE). Nothing was built.
+  inputs, so merging would build a new image (`386607152d4cb319` →
+  `da027774faa35eaf`, predicted). Nothing was built.
 - **Unchanged**: each reply's place with its request, and the model's written
   replies.
 - **Tests**: 10 combined cases, whose routing cases hand the page's own
   request to the real Worker route; 2 real-browser cases; the address and
   table-list cases. 16 fail on the previous commit. The mutation sweep killed
-  12 of 12. The suite: `9456 / 9456 / 0 / 0` here (unit CI below). Two
+  12 of 12. The suite: `9456 / 9456 / 0 / 0` here and `9456 / 9450 / 0 / 6`
+  on unit CI (run 37278518977 on `c3fff062`; CI skips its usual 4 and the 2
+  browser cases). The site build is green (run 37278518946). Two
   screenshots, before and after.
 
 **Recorded in**: `docs/history/2026-10-05-reconcile.md`, `docs/request-flow.md`,
