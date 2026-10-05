@@ -26,9 +26,14 @@ here; take a closed one out of both.**
   longer keeps it open. Run 97 judged its part's reply 8 s after the job
   ended, while it was `pending`, and failed it as composed. A gap in the
   instrument, not a reading of the writer; whether that reply was written is
-  not established (a free read-one-job press would show it). **Proposed**
-  (scripts only, no deploy): no message ends while a reply's place is held.
-  Not built (`docs/history/2026-10-04-deploy-2183.md` §7.5).
+  not established (a free read-one-job press would show it). **Fixed on the
+  branch on the owner's word (2026-10-05; scripts and tests only, no deploy;
+  `docs/history/2026-10-05-canary-reply-watch.md`)**: after a request ends,
+  the canary waits on its own jobs until each reply is written or has failed
+  and is on screen, within the message's bound (never less than 60 s after the
+  end), telling model, failed, timed out, composed and unread apart, and
+  counting no other request's reply. Shown with a stand-in page only; not yet
+  run live.
 - **Earlier requests' replies land under a message sent before the page's
   check of them** (run 97): a browser that has not seen a site's recent
   requests appends their replies at the end of the thread when it opens the
@@ -36,7 +41,10 @@ here; take a closed one out of both.**
   other requests (five in run 97, from runs 94 and 95). And an ended
   request's own reply with no record is asked for whenever it is read,
   however old (R1's, about 20 hours after it ended); a job's is not, after
-  two hours. Not changed (the same file, §7.6).
+  two hours. **Open, a product bug, not changed** (the same file, §7.6). Since
+  2026-10-05 the canary neither waits for nor counts those replies; it does
+  not wait for them before sending either, which would only hide the bug in
+  its own runs.
 - **A menu link handed from the add-on step to the menu step failed with
   `no-menu`** (R1, run 95, 2026-10-04): the add-on had already put the link on
   the home page and the new page, and the other three pages got none. **Cause
@@ -652,12 +660,21 @@ here; take a closed one out of both.**
     the reply from the last answer the page had: `pending`, recorded as
     composed. The canary was not taught the held reply when the page was,
     and its tests did not cover it.
-  - **Proposed, not built** (scripts only, no deploy; the owner's word
-    first): no message ends while a reply's place is held on the thread,
-    up to the message's own bound; the reply is judged once it has settled,
-    the model's or the fixed wording; and the first message is sent only
-    after the page's own check of the site's earlier requests has settled
-    (the next item).
+  - **Fixed on the branch on the owner's word** (2026-10-05; scripts and
+    tests only: `scripts/canary-replies.mjs`, `watchReplies` in
+    `scripts/canary-ui.mjs`, the verdict in `scripts/canary-requests.mjs`;
+    `docs/history/2026-10-05-canary-reply-watch.md`). After a request ends —
+    normally, on a step's question, or as the tab opened afterwards shows it —
+    the canary waits on that request's own jobs, each reply's state read off
+    its own job and its place found by the job's own id or its own words,
+    until each is written or has failed for good and is on screen, within the
+    message's own bound and never less than 60 s after the end. Another
+    request's replies neither hold it up nor stand in. The canary does not
+    wait for the page's check of earlier requests before sending: the owner
+    keeps that placement as a product bug, which waiting would only hide.
+    Shown with a stand-in page and supplied answers; red check, two sweeps
+    (28 of 32, then 8 of 8) and the suite in the history file. Not yet run
+    live.
 - **EARLIER REQUESTS' REPLIES LAND UNDER A MESSAGE SENT BEFORE THE PAGE'S
   CHECK OF THEM** (found live in run 97; the same file, §7.6).
   - On opening a site, the page follows every request the server lists for
@@ -675,7 +692,11 @@ here; take a closed one out of both.**
     (`REPLY_ASK_WINDOW_MS`). The model call is ours, not the customer's.
   - Open: where a reply to an earlier request belongs on a thread that has
     moved on, and whether a request too old to matter is asked for a reply
-    at all. Not changed.
+    at all. **Not changed; a product bug, kept open on the owner's word
+    (2026-10-05):** *"Keep the historical-message placement issue recorded as
+    an unresolved product bug; waiting for history in the test does not fix
+    it."* The canary now ignores those replies when judging (it neither waits
+    for them nor counts them), which is the instrument's matter only.
 - **THE PREVIEW'S FIRST REFRESH ON A SITE WITH NO STORED VERSION KEEPS
   `?v=1`** (found 2026-10-04, the owner's review round). `sitePreviewSrc`
   (`public/chat.js`) gives a site with no `previewV` the address `?v=1`, and

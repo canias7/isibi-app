@@ -45,7 +45,12 @@ reply check failed: the canary judged the part's reply 8 s after its job
 ended, while it was still being written in the background
 (`docs/history/2026-10-04-deploy-2183.md` §7). By your rule R2–R5 were not
 pressed. The batch has spent **29** (rq-canary 4, R1 21, the check 4). R2–R5
-and RW have not been pressed. The presses' record:
+and RW have not been pressed. **The canary now waits for a request's replies**
+(2026-10-05, on your word; scripts and tests only, no deploy;
+`docs/history/2026-10-05-canary-reply-watch.md`): after a request ends, each of
+its own jobs' replies is waited for until written or failed and on screen,
+within the message's bound and never less than 60 s after the end, and no other
+request's reply is counted. It runs from the branch (§3.1). The presses' record:
 `docs/history/2026-10-04-request-batch.md`. The record: `docs/history/2026-10-04-deploy-2181.md`.
 
 Your first order: *"Freeze this implementation and prepare the concrete rollout
@@ -346,7 +351,9 @@ merged and deployed: as each canary press above, with the scenario box
 
 **R2–R5 in one press (`rq-batch-r2`)**, after the focused check, once the
 continuation is merged and deployed:
-- "Use workflow from": `main`;
+- "Use workflow from": `main` — **or the branch, for the canary that waits for
+  a request's replies** (2026-10-05; scripts only, so a press from the branch
+  checks the same deployed Worker with the newer canary);
 - "Run the ONE paid edit as well (yes/no)": `yes`;
 - the scenario box: `rq-batch-r2`;
 - "REQUEST BATCH ONLY (rq-batch, rq-batch-r2): the credits the batch has

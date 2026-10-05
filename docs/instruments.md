@@ -438,6 +438,15 @@ and the browser are all unreachable from it. `scripts/canary-read-job.mjs`.
   on the build path.
 - **A FAILED LEDGER READ IS NAMED, NEVER FOLDED INTO "NO ROWS"** — the two
   answer identically as `[]` and only one of them licenses a claim about money.
+- **AND THE JOB'S REPLY** (2026-10-05, after run 97): a `REPLY` line under the
+  poll, read by the reply watch's own readers (`replyReading`): written by the
+  model (with its words), still pending, failed, a hand-over, or none on the
+  answer. **What the poll itself can do**: it never calls the model; it marks a
+  record still pending past its 15-minute horizon failed; and for a job that
+  ended more than two hours ago with no record it asks for nothing, so that
+  answer comes back with no reply and no state, as one owed nothing does — the
+  line says it cannot tell those two apart. The whole answer is also in the
+  evidence file (`job-<id>.json`, `poll.body`).
   **⚠ AND THE FIRST CUT DID FOLD IT, on the one line anybody reads.** Reported
   and reproduced: a 503 from `credit_events` printed `LEDGER  no ledger rows
   name this job — nothing was debited under it` and then a failed-read note
@@ -963,10 +972,10 @@ One request-mode press, made before R2–R5 once the fixes are deployed
   up what changed…"*), so the canary ends the message and judges the reply
   before it is written. **Run 97 failed its reply check this way** (the
   part's answer `pending` 6 and 8 s after its job ended;
-  `docs/history/2026-10-04-deploy-2183.md` §7.5). Until the canary waits
-  for a held reply to settle, a request-mode reply check reads only what was
-  written before the request closed. A fix is proposed, not built
-  (`docs/backlog.md`).
+  `docs/history/2026-10-04-deploy-2183.md` §7.5). **Fixed on the branch on
+  2026-10-05** (scripts and tests only; *THE CANARY WAITS FOR A REQUEST'S
+  REPLIES*, below): the canary now waits on the request's own jobs until each
+  reply is written or has failed and is on screen.
 - **Proven with the bakery's stored pages only**:
   - 2 cases in `test/canary-requests.test.mjs`: it lands, and six ways it
     does not;
@@ -1018,6 +1027,41 @@ batch's spend would pass 100: *"yeah do that better"*.
   spend, and where and why it stopped.
 - **WITHOUT `spend`** every press is a rehearsal that sends nothing, and
   the batch counts nothing spent.
+
+### THE CANARY WAITS FOR A REQUEST'S REPLIES (2026-10-05 — on the branch, scripts and tests only)
+
+The owner, after run 97: *"Request completion does not mean its model-written
+replies have finished: track the current request's job IDs and wait within a
+bounded deadline for their replies to settle and actually appear on screen
+before judging them … ensure unrelated historical replies cannot satisfy or
+block the current request's verdict."* `docs/history/2026-10-05-canary-reply-watch.md`.
+- **WHEN**: after every message the server took on as a request has ended —
+  the ordinary end, a step's question, or the tab opened afterwards showing it
+  ended — and before anything is judged or sent next (`watchReplies`).
+- **WHAT IT WAITS ON**: the request's own reply-bearing jobs (each part's
+  `jobs`; never a hand-over or a routing job; never one an earlier message of
+  the same request was judged on), and the request's own reply when one is
+  owed. Nothing else on the thread.
+- **A REPLY'S STATE IS READ OFF ITS OWN JOB** (`scripts/canary-replies.mjs`):
+  the page's own polls of that job, recorded under `x-gf-edit: final` —
+  `model`, `pending`, `failed`, `question`, `composed`, `none`, `unread`, and
+  `timeout` for one still pending or still held when the time ran out.
+- **ITS PLACE ON SCREEN** is the message that held it (`held.job`, kept per
+  page life), or else its own words, counted against every other job whose
+  answer carries the same words, so another request's message never stands in.
+- **THE DEADLINE**: the message's own bound, never less than
+  `UI_REPLY_FLOOR_MS` (60 s) after the request ended; the floors are counted in
+  each request press's 30 minutes.
+- **THE REPLY ON SCREEN** (`reply`, read by "message N got a reply on screen")
+  is the request's own replies only; other replies drawn after the message are
+  kept apart (`otherReplies`), printed, never counted. **Where the page draws
+  them is an open product bug** (`docs/backlog.md`), which this does not fix.
+- **PROVEN WITH A STAND-IN PAGE ONLY** (`test/fixtures/canary-held-app.mjs`,
+  `test/canary-replies.test.mjs`, 28 cases): delayed success, failure, timeout,
+  the floor, a reload, a step's question, the closed tab, history that cannot
+  block or satisfy, the request's own reply, a reply answered before it is
+  drawn. Red check, two sweeps and the suite in the history file. **Not yet
+  run live.**
 
 ### THE BATCH'S CONTINUATION FROM R2 (`rq-batch-r2`, 2026-10-04 — on the branch)
 

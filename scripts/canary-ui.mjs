@@ -38,6 +38,7 @@ import {
   cleanupPlan, stillMarker, deleteVerdict, cleanupVerified, censusOf, tablesOf, describeRules, bookingBodyVerdict,
   bookingGate,
 } from "./canary-rules.mjs";
+import { replyJobsOf, trackHeld, repliesNow, timedOut } from "./canary-replies.mjs";
 
 export const SESSION_KEY = "zephyr_session_v1";
 // THE APP'S FIRST-RUN GREETING, KEPT AS SEEN (`WELCOME_KEY` in public/chat.js).
@@ -531,6 +532,12 @@ export const UI_PRESS_MAX_MS = 30 * 60_000;
 // HOW OFTEN A REQUEST IS READ WHILE ITS TAB IS CLOSED (`away`): through the
 // requests list, which moves nothing.
 export const UI_AWAY_EVERY_MS = 20_000;
+// THE LEAST TIME A REQUEST'S REPLIES GET ONCE IT HAS ENDED (2026-10-05): they
+// are waited for within the message's own bound (`watchReplies`), and never
+// less than this after the request ended, so a request that ends near its
+// bound still gives a reply written in the background a minute. A request
+// press's bounds and these floors together stay inside UI_PRESS_MAX_MS.
+export const UI_REPLY_FLOOR_MS = 60_000;
 
 /** A message's own time bound: its `ms` where it names one, the default otherwise, never past the cap. */
 export function stepBoundMs(step, { stepMs = UI_STEP_MS, capMs = UI_STEP_MAX_MS } = {}) {
@@ -1156,6 +1163,21 @@ function readComposerInPage() {
   const gate = document.getElementById("authGate");
   let attached = null;
   try { attached = siteDraft(siteAttachFor).imgs.length; } catch (e) { attached = null; }
+  // EACH MESSAGE'S OWN PLACE ON THE PAGE'S THREAD (2026-10-05): a reply still
+  // being written holds its place with its job's id (`held.job`), drawn as the
+  // waiting line (`.st-think`). The thread draws the open site's messages one
+  // for one and in order, the busy row last, so the n-th drawn is the n-th
+  // kept — read only while the two counts agree.
+  let kept = [];
+  try { const open = siteById(siteOpenId); kept = open && Array.isArray(open.msgs) ? open.msgs : []; } catch (e) { kept = []; }
+  const drawn = [...document.querySelectorAll("#stThread .st-msg")];
+  const aligned = drawn.filter((m) => !m.classList.contains("st-busy")).length === kept.length;
+  const heldJob = (m) => {
+    try {
+      const h = window.EditPoll && typeof EditPoll.heldOf === "function" ? EditPoll.heldOf(m) : null;
+      return h && typeof h.job === "string" ? h.job : "";
+    } catch (e) { return ""; }
+  };
   return {
     signedIn: !!(window.Auth && Auth.isSignedIn && Auth.isSignedIn()),
     uid: window.Auth && Auth.userId ? Auth.userId() : "",
@@ -1171,13 +1193,18 @@ function readComposerInPage() {
     working: document.querySelectorAll("#stThread .st-busy").length,
     attached,
     strip: document.querySelectorAll("#stAttach > *").length,
-    messages: [...document.querySelectorAll("#stThread .st-msg")].map((m) => ({
+    messages: drawn.map((m, i) => ({
       who: m.classList.contains("u") ? "u" : "a",
       busy: m.classList.contains("st-busy"),
       // A REQUEST'S CARD, not a reply (`newReplies`).
       card: !!m.querySelector(".st-req"),
       text: String(m.innerText || m.textContent || "").replace(/⧉\s*$/, "").trim(),
+      // A REPLY'S PLACE HELD: the waiting line drawn, and the job it is for.
+      holding: !!m.querySelector(".st-think"),
+      held: aligned && !m.classList.contains("st-busy") ? heldJob(kept[i]) : "",
     })),
+    // THIS PAGE'S OWN LIFE: a reload, or a tab opened afresh, starts another.
+    origin: typeof performance !== "undefined" && Number.isFinite(performance.timeOrigin) ? performance.timeOrigin : null,
     // WHAT THE PAGE HAS SHOWN OF EACH REQUEST on the open site: ended, and
     // closed once every part's reply and the request's own are on screen —
     // and which jobs' replies it has shown so far.
@@ -1188,6 +1215,9 @@ function readComposerInPage() {
         return Object.fromEntries(Object.entries(all).map(([k, r]) => [k, {
           closed: !!(r && r.closed), ended: !!(r && r.view && r.view.ended),
           shown: r && Array.isArray(r.shown) ? r.shown.filter((j) => typeof j === "string") : [],
+          // AND WHETHER IT HAS SHOWN THE REQUEST'S OWN REPLIES (its end's, a go-ahead's).
+          replied: !!(r && r.replied === true),
+          replies: r && Array.isArray(r.replies) ? r.replies.filter((f) => typeof f === "string") : [],
         }]));
       } catch (e) { return null; }
     })(),
@@ -1215,8 +1245,10 @@ async function requestViewInPage({ slug, key }) {
     // AND THE REQUEST'S OWN REPLY, when it has one (`replyFor`: while it
     // waits on a go-ahead, or once it has ended), with where it came from.
     const reply = b && typeof b.reply === "string" && b.reply ? { text: b.reply, source: b.replySource === "model" ? "model" : "composed", for: typeof b.replyFor === "string" ? b.replyFor : "" } : null;
-    return { status: r.status, ok: !!(b && b.ok === true && b.request), request: b && b.request ? b.request : null, reply };
-  } catch (e) { return { status: 0, ok: false, request: null, reply: null }; }
+    // AND, WITH NO REPLY ON IT YET, WHETHER ONE IS BEING WRITTEN OR FAILED (2026-10-05).
+    const replyState = b && (b.replyState === "pending" || b.replyState === "failed") ? b.replyState : "";
+    return { status: r.status, ok: !!(b && b.ok === true && b.request), request: b && b.request ? b.request : null, reply, replyState, replyFor: b && typeof b.replyFor === "string" ? b.replyFor : "" };
+  } catch (e) { return { status: 0, ok: false, request: null, reply: null, replyState: "", replyFor: "" }; }
 }
 
 /** The request's own Stop, through the page's own session: nothing new starts, and a running part's job is cancelled at its next gate. */
@@ -1595,6 +1627,8 @@ export async function runUi(opts) {
     // (`DELETE /api/site/request/<slug>/<key>`), sent only when a part is
     // routed where the message may not go. Read every `awayEveryMs`.
     requestsNow = null, stopNow = null, awayEveryMs = UI_AWAY_EVERY_MS,
+    // THE LEAST TIME A REQUEST'S REPLIES GET ONCE IT HAS ENDED (`watchReplies`).
+    replyFloorMs = UI_REPLY_FLOOR_MS,
   } = opts;
   const origin = new URL(base).origin;
   const t0 = Date.now();
@@ -1850,6 +1884,50 @@ export async function runUi(opts) {
     return { ok: a.ended, s, page: next, why: a.ended ? "" : "the request had not ended when the time ran out" };
   };
 
+  // ── THE CURRENT REQUEST'S REPLIES, SETTLED AND ON SCREEN (2026-10-05) ────
+  // A request's end is not its replies' end: since deploy 2183 the page closes
+  // a request once each part's outcome is applied, while a part's reply may
+  // still be written in the background, its place held on the thread by the
+  // job's id (run 97 judged one 8 s after its job ended, still `pending`). So
+  // once a message's request has ended — or stopped on a step's question, or
+  // been shown ended by the tab opened afterwards — its own jobs' replies are
+  // waited for on the page that shows them, each read off its own job
+  // (`repliesNow`), until every one is written or has failed for good and is
+  // on screen, or the time runs out: the message's own bound, and never less
+  // than `replyFloorMs` after the request ended. The request's own reply, when
+  // one is owed, likewise. Nothing else on the thread is waited for or
+  // counted: another request's replies, wherever the page draws them, neither
+  // hold this up nor stand in for it.
+  const watchReplies = async (page, r, { key, earlier, end }) => {
+    const began = Date.now();
+    let slots = { tab: null, at: {} };
+    let s = null;
+    let view = r.request && r.request.final ? r.request.final : null;
+    let own = null;
+    let lastLook = 0;
+    let now = null;
+    for (;;) {
+      // THE REQUEST AS IT STANDS, for its jobs and its own reply.
+      if (!lastLook || Date.now() - lastLook >= viewEveryMs) {
+        lastLook = Date.now();
+        const v = await page.evaluate(requestViewInPage, { slug, key }).catch(() => null);
+        if (v && v.ok && v.request) {
+          view = v.request;
+          noteView(r, view);
+          own = v.reply ? { text: v.reply.text, source: v.reply.source, for: v.reply.for } : v.replyState ? { state: v.replyState, for: v.replyFor || "" } : null;
+          if (v.reply) r.request.reply = v.reply;
+        }
+      }
+      try { s = await page.evaluate(readComposerInPage); } catch { s = null; }
+      slots = trackHeld(slots, s);
+      now = repliesNow({ jobs: replyJobsOf(view, earlier), network: rec.network, s, slots, key, request: own });
+      if (now.settled) break;
+      if (Date.now() >= end) { now = timedOut(now); break; }
+      await sleep(pollMs);
+    }
+    return { s, watch: { ms: Date.now() - began, timedOut: !now.settled, jobs: now.jobs, request: now.request, attributed: now.attributed } };
+  };
+
   const browser = await launch();
   // The visitor's page, read in a context of its own. The verdict against the
   // first reading is the caller's: what it must show changes from step to step.
@@ -2091,9 +2169,30 @@ export async function runUi(opts) {
       // THE TAB A CLOSED-TAB MESSAGE IS READ IN is the one opened afterwards.
       if (done.page) page = done.page;
       r.ms = Date.now() - sentAt;
+      // A REQUEST'S OWN REPLIES, SETTLED AND ON SCREEN, before anything is
+      // judged or sent next (2026-10-05; `watchReplies`). The jobs an earlier
+      // message of the same request was judged on are not waited for again.
+      if (done.ok && r.request && r.request.key) {
+        const earlier = new Set(rec.steps.filter((x) => x !== r).flatMap((x) => (x.replyWatch && Array.isArray(x.replyWatch.jobs) ? x.replyWatch.jobs.map((j) => j.job) : [])));
+        const w = await watchReplies(page, r, { key: r.request.key, earlier, end: Math.max(sentAt + r.boundMs, Date.now() + replyFloorMs) });
+        r.replyWatch = w.watch;
+        if (w.s) done.s = w.s;
+      }
       await sleep(settleMs);
       const after = done.s || (await page.evaluate(readComposerInPage).catch(() => null));
-      r.replies = after ? newReplies(before, after.messages).map((m) => m.text) : [];
+      if (r.replyWatch) {
+        // THE MESSAGE'S OWN REPLIES ON SCREEN, in the thread's order — and,
+        // kept apart and never counted, every other reply drawn after the
+        // message (another request's, put there by the page: an open bug).
+        const msgs = after && Array.isArray(after.messages) ? after.messages : [];
+        const mine = new Set(r.replyWatch.attributed);
+        r.replies = r.replyWatch.attributed.map((i) => (msgs[i] ? msgs[i].text : "")).filter(Boolean);
+        let from = -1;
+        msgs.forEach((m, i) => { if (m && m.who === "u" && m.text === step.say) from = i; });
+        r.otherReplies = msgs.filter((m, i) => i > (from >= 0 ? from : before - 1) && m && m.who === "a" && !m.card && !m.busy && !m.holding && !mine.has(i)).map((m) => m.text);
+      } else {
+        r.replies = after ? newReplies(before, after.messages).map((m) => m.text) : [];
+      }
       r.reply = r.replies.join("\n");
       r.composer = after ? { busy: after.busy, send: after.send, sendDisabled: after.sendDisabled, stop: after.stop, working: after.working, disabled: after.disabled, value: after.value } : null;
       r.network = rec.network.slice(netFrom);
@@ -2260,6 +2359,15 @@ export function describeUi(rec) {
       const f = s.request.final;
       out.push(`     request ${s.request.key}: ${f ? `${f.state}${f.ended ? ", ended" : ", NOT ended"} — ${(f.parts || []).map((p) => `${p.n}:${p.status}${p.route ? "@" + p.route : ""}`).join(" ")}` : "its view was never read"}  jobs ${(s.jobs || []).join(", ") || "none"}`);
       if (s.request.wall) out.push(`     STOPPED BY THE WALL at part ${s.request.wall.n}: ${s.request.wall.why} (stop ${s.request.stop ? s.request.stop.status + " " + (s.request.stop.state || "") : "not answered"})`);
+    }
+    // ITS OWN REPLIES, WATCHED TO THEIR END (`watchReplies`).
+    if (s.replyWatch) {
+      const w = s.replyWatch;
+      const said = (j) => `${j.job} ${j.state}${j.state === "question" ? (j.asked ? ", on screen" : ", NOT on screen") : j.holding ? ", still held on screen" : j.shown ? ", on screen" : ", NOT on screen"}` +
+        `${Number.isFinite(j.pendingMs) ? ` (pending at ${Math.round(j.pendingMs / 1000)} s${Number.isFinite(j.settledMs) ? `, settled at ${Math.round(j.settledMs / 1000)} s` : ""})` : ""}`;
+      out.push(`     replies, watched ${Math.round((w.ms || 0) / 1000)} s after the request${w.timedOut ? " — THE TIME RAN OUT" : ""}: ${(w.jobs || []).map(said).join("; ") || "none owed"}` +
+        `${w.request ? `; the request's own: ${w.request.state}${w.request.shown ? ", on screen" : ""}` : ""}`);
+      if (Array.isArray(s.otherReplies) && s.otherReplies.length) out.push(`     also drawn after the message, not this request's (never counted; the page's placement of other requests' replies is an open bug): ${s.otherReplies.length}`);
     }
     // THE ROUTING EVIDENCE, FROM THIS VERY MESSAGE (`routingEvidence`).
     if (s.routing) {

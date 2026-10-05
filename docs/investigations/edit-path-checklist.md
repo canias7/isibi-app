@@ -983,6 +983,14 @@ the owner's free press, run 51, at 22:57 UTC):
       owner's: a free read-one-job press on `f666481a…`; whether the canary
       should wait for held replies (scripts only); then `rq-batch-r2` with
       its box at 29.
+    - **The canary now waits for a request's replies** (2026-10-05, on the
+      owner's word; scripts and tests only, no deploy;
+      `docs/history/2026-10-05-canary-reply-watch.md`): after a request ends,
+      its own jobs' replies are waited for until written or failed and on
+      screen, model, failed, timed out, composed and unread told apart, and
+      no other request's reply counted. A stand-in page only; not yet run
+      live. The read-only lookup now says what became of a job's reply. R2–R5
+      are still unpressed; the batch's spend is 29.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

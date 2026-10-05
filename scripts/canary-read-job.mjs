@@ -19,6 +19,8 @@
 // ⚠ THE POLL ROUTE'S OWN `DELETE` IS A CANCEL, so this only ever sends GET —
 // and `edit-canary.mjs` hands it a reader already bound to the method.
 
+import { replyStateOf, modelTextOf, questionOf } from "./canary-replies.mjs";
+
 /**
  * WHAT `billing` MEANS, AND IT IS THE ONE FIELD THAT ANSWERS THE MONEY
  * QUESTION DIRECTLY.
@@ -228,6 +230,39 @@ export async function readJobRecords({ job, sb, poll, traceWindowMs = 30 * 60 * 
   return out;
 }
 
+/**
+ * WHAT THE POLL SAYS OF THE JOB'S REPLY (2026-10-05), read by the same readers
+ * as the UI canary's reply watch (`scripts/canary-replies.mjs`): written by the
+ * model, still being written, failed, or none on the answer. Asked for run 97,
+ * whose canary judged a reply while it was still being written: this read is
+ * how to learn, afterwards and for nothing, whether it was written.
+ *
+ * WHAT THE READ ITSELF CAN DO, said once here and on every account: the poll
+ * route never calls the model. It hands back the reply's record as it is — a
+ * written reply, a failed one, nothing owed — and for a record still pending
+ * past its horizon (15 minutes) it marks that record failed on the spot. A job
+ * that ended more than two hours ago with no record is not asked for a reply
+ * by a read (`REPLY_ASK_WINDOW_MS` in worker.js), so the answer then comes
+ * back with no reply and no state, exactly as one owed nothing does: the
+ * server does not tell those two apart, and neither does this.
+ */
+export function replyReading(poll) {
+  if (!poll) return { state: "unread", says: "not polled" };
+  const body = poll.body && typeof poll.body === "object" && !Array.isArray(poll.body) ? poll.body : null;
+  if (poll.status !== 200 && !(poll.final === "final" && body)) return { state: "unread", says: `the poll answered HTTP ${poll.status}, so the reply's state is not known` };
+  if (poll.final !== "final" || !body) return { state: "unread", says: `the poll handed back no stored answer (x-gf-edit: ${poll.final || "absent"}), so the reply's state is not known` };
+  const state = replyStateOf(body);
+  const asks = questionOf(body);
+  switch (state) {
+    case "model": return { state, says: `WRITTEN by the model: ${JSON.stringify(modelTextOf(body).slice(0, 400))}${asks ? ` (and its question: ${JSON.stringify(asks)})` : ""}` };
+    case "pending": return { state, says: `still PENDING — being written${body.replyOutcome ? ` (the job's outcome: ${body.replyOutcome})` : ""}` };
+    case "failed": return { state, says: "FAILED — the reply was not written; the page shows its own sentence instead" };
+    case "none": return { state, says: "none: the answer is a hand-over, for which nothing is shown" };
+    case "question": return { state, says: `a question with no reply on it: ${JSON.stringify(asks)}` };
+    default: return { state: "plain", says: "NONE on the answer, and no state: either none was owed, or none was ever asked for (a job over two hours old with no reply record is not asked for one by a read) — the server does not say which" };
+  }
+}
+
 /** One printable account, so the workflow log carries the whole answer. */
 export function describeJob(rec) {
   const L = [];
@@ -261,7 +296,11 @@ export function describeJob(rec) {
   // listing them beneath an "unknown" invites exactly the arithmetic the line
   // above refuses to do.
   if (led.readable) for (const e of rec.ledger) L.push(`    ${e.at}  ${e.kind}  ${e.reason}  delta ${e.delta}  after ${e.balance_after}  ref ${e.ref}`);
-  if (rec.poll) L.push(`  poll        HTTP ${rec.poll.status}  x-gf-edit: ${rec.poll.final || "(absent)"}`);
+  if (rec.poll) {
+    L.push(`  poll        HTTP ${rec.poll.status}  x-gf-edit: ${rec.poll.final || "(absent)"}`);
+    // THE JOB'S REPLY, AS THAT POLL HANDED IT BACK (`replyReading`).
+    L.push(`  REPLY       ${replyReading(rec.poll).says}`);
+  }
   for (const t of rec.traces) {
     L.push(`  trace ${t.cid}  ended ${t.ended_at}  ms ${t.ms}  ok ${t.ok}  failed_phase ${t.failed_phase || "-"}${t.err_name ? "  " + t.err_name : ""}`);
     if (t.err_msg) L.push(`    err       ${t.err_msg}`);

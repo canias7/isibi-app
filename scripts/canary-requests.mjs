@@ -27,6 +27,7 @@
 // owner's table listing, the logo's bytes — never how many replies came back.
 import { frameOf, withoutAdditions, profileMatches, plain, states, wordsOf, less, changedSpan, anchors, region, visible, photosOf } from "./canary-additions.mjs";
 import { requestKeyOf, routeCallOf } from "./canary-ui.mjs";
+import { replyStateOf, modelTextOf, questionOf, watchedReplies, replyFailure } from "./canary-replies.mjs";
 
 const byPath = (list) => new Map((Array.isArray(list) ? list : []).filter((p) => p && typeof p.path === "string").map((p) => [p.path, String(p.source || "")]));
 const listOf = (v) => (typeof v === "string" && v ? [v] : Array.isArray(v) ? v.filter((x) => typeof x === "string" && x) : []);
@@ -258,13 +259,20 @@ export function jobOrderVerdict(step) {
 
 /**
  * EACH PART'S REPLY: the model's own (`replySource: "model"`) and on screen
- * in the browser, read off the job's stored answer the page was handed under
- * `x-gf-edit: final`. A question is the step's own words, shown on its card.
- * A reply composed because the model's could not be had is recorded as
- * composed, never passed as the model's. The request's own reply, when it has
- * one, is read the same way.
+ * in the browser. A step's question is the step's own words, shown on its
+ * card. The request's own reply, when it has one, is judged the same way.
+ *
+ * SINCE 2026-10-05 a request's message carries its replies WATCHED TO THEIR
+ * END (`replyWatch`, `watchReplies` in canary-ui.mjs): each of its own jobs'
+ * replies read off that job alone, waited for until it was written or had
+ * failed for good and was on screen, and told apart — the model's, failed,
+ * timed out, composed, unread (`watchedReplies`). A message recorded before
+ * then is read the old way, off the last answer the page was handed for each
+ * job, and with the same states: a reply still `pending` there was judged
+ * before it was written, and says so, never "composed".
  */
 export function repliesOf(step, seen = new Set()) {
+  if (step && step.replyWatch) return watchedReplies(step.replyWatch, seen);
   const out = [];
   const net = Array.isArray(step && step.network) ? step.network : [];
   const screen = (Array.isArray(step && step.replies) ? step.replies : []).map((t) => plain(t));
@@ -281,10 +289,11 @@ export function repliesOf(step, seen = new Set()) {
       const hits = net.filter((e) => e && e.final === true && e.res && typeof e.res === "object" && e.path === `/api/site/edit/${job}`);
       const res = hits.length ? hits[hits.length - 1].res : null;
       if (!res) { out.push({ part: p.n, job, source: "unread", shown: false }); continue; }
-      const q = res.clarify && typeof res.clarify === "object" ? res.clarify : null;
-      if (q && typeof q.text === "string") { out.push({ part: p.n, job, source: "question", text: q.text, shown: shown(q.text) }); continue; }
-      const model = res.replySource === "model" && typeof res.reply === "string" && res.reply.trim() ? res.reply : "";
-      out.push({ part: p.n, job, source: model ? "model" : "composed", text: model || String(res.msg || ""), shown: shown(model || res.msg || "") });
+      const state = replyStateOf(res);
+      const asks = questionOf(res);
+      if (asks) { out.push({ part: p.n, job, source: "question", text: asks, shown: shown(asks) }); if (state === "question") continue; }
+      const model = modelTextOf(res);
+      out.push({ part: p.n, job, source: state, text: model || String(res.msg || ""), shown: shown(model || res.msg || "") });
     }
   }
   const rr = step && step.request && step.request.reply;
@@ -292,18 +301,29 @@ export function repliesOf(step, seen = new Set()) {
   return out;
 }
 
-/** The replies as checks: each one the model's own and on screen; a question on screen. */
+/**
+ * The replies as checks: each one the model's own and on screen, a question
+ * on screen — each failing with what it was (`replyFailure`): failed, timed
+ * out, composed, unread, or written and never shown. A message the server
+ * took on as a request whose replies were not watched to their end fails too.
+ */
 export function replyChecks(steps) {
   const out = [];
   const seen = new Set();
   for (const s of Array.isArray(steps) ? steps : []) {
     if (!s || !s.sent) continue;
+    if (s.completed === true && s.request && s.request.key && !s.replyWatch) {
+      out.push({ name: `message ${s.n}'s replies were watched to their end`, ok: false, why: "the request ended, and its replies were judged without waiting for them" });
+    }
     const list = repliesOf(s, seen);
     if (!list.length) { out.push({ name: `message ${s.n} had a reply`, ok: false, why: "no part's reply was read" }); continue; }
     for (const r of list) {
       const who = r.part === "request" ? `the request's own reply${r.for ? ` (${r.for})` : ""}` : `part ${r.part}'s ${r.source === "question" ? "question" : "reply"}`;
-      if (r.source === "question") out.push({ name: `message ${s.n}: ${who} is on screen`, ok: r.shown, why: r.shown ? "" : JSON.stringify(r.text.slice(0, 120)) });
-      else out.push({ name: `message ${s.n}: ${who} is the model's own, and on screen`, ok: r.source === "model" && r.shown, why: r.source !== "model" ? `${r.source}: ${JSON.stringify(String(r.text || "").slice(0, 120))}` : r.shown ? "" : "not on screen" });
+      if (r.source === "question") out.push({ name: `message ${s.n}: ${who} is on screen`, ok: r.shown, why: r.shown ? "" : JSON.stringify(String(r.text || "").slice(0, 120)) });
+      else {
+        const ok = r.source === "model" && r.shown;
+        out.push({ name: `message ${s.n}: ${who} is the model's own, and on screen`, ok, why: ok ? "" : replyFailure(r) });
+      }
     }
   }
   return out;

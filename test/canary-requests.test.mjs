@@ -1180,7 +1180,7 @@ test("the readers that run inside the app read the request's shown replies and t
   const kept = { at: 1, view: { ended: false, parts: [] }, shown: ["j1", "j2"], replied: false, replies: [], closed: false, approving: [] };
   const fromReply = inApp({ site: { requests: { [KEY]: kept }, ask: { id: "q1", text: "What is your Facebook page's address?", options: [], attached: false } } });
   const s = vm.runInContext("readComposerInPage()", fromReply);
-  assert.deepEqual(JSON.parse(JSON.stringify(s.requests)), { [KEY]: { closed: false, ended: false, shown: ["j1", "j2"] } });
+  assert.deepEqual(JSON.parse(JSON.stringify(s.requests)), { [KEY]: { closed: false, ended: false, shown: ["j1", "j2"], replied: false, replies: [] } });
   assert.deepEqual(JSON.parse(JSON.stringify(s.ask)), { id: "q1", text: "What is your Facebook page's address?", key: "", part: null });
   assert.equal(s.askCard, true);
   assert.deepEqual(JSON.parse(JSON.stringify(s.messages.map((m) => m.card))), [false, true, false], "the request's card was not told from a reply");

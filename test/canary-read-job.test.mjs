@@ -14,7 +14,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  billingMeans, ledgerVerdict, oldWatchWouldHaveSeen, readJobRecords, describeJob,
+  billingMeans, ledgerVerdict, oldWatchWouldHaveSeen, readJobRecords, describeJob, replyReading,
 } from "../scripts/canary-read-job.mjs";
 
 const MOD = readFileSync(new URL("../scripts/canary-read-job.mjs", import.meta.url), "utf8");
@@ -520,4 +520,39 @@ test("the workflow carries the mode, and the read job beats a stale spend", () =
   const spend = FLOW.match(/CANARY_SPEND:.*/);
   assert.ok(spend, "CANARY_SPEND is gone from the workflow");
   assert.match(spend[0], /inputs\.read_job == ''/, "a read-job dispatch can still arm the paid half");
+});
+
+// ── THE JOB'S REPLY, AS THE POLL HANDS IT BACK (2026-10-05) ──────────────────
+//
+// Asked after run 97, whose canary judged a reply while it was still being
+// written: this free read is how to learn, afterwards, whether it was written.
+
+const FIN = (body, status = 200) => ({ status, final: "final", body, text: JSON.stringify(body) });
+const OUTCOME = { ok: true, layer: "nav", msg: "✅ Added “Classes” to the menu on 3 pages.", cost: 1 };
+
+test("the account says what the poll's answer means for the job's reply: written by the model, still pending, failed, a hand-over, or none on it — and says when the answer cannot tell 'none owed' from 'never asked'", () => {
+  assert.match(replyReading(FIN({ ...OUTCOME, reply: "I've put Classes in every menu that lacked it.", replySource: "model" })).says, /^WRITTEN by the model: "I've put Classes in every menu that lacked it\."$/);
+  assert.equal(replyReading(FIN({ ...OUTCOME, reply: "x", replySource: "model" })).state, "model");
+  assert.match(replyReading(FIN({ ...OUTCOME, replyState: "pending", replyOutcome: "done" })).says, /^still PENDING — being written \(the job's outcome: done\)$/);
+  assert.match(replyReading(FIN({ ...OUTCOME, replyState: "failed" })).says, /^FAILED — the reply was not written/);
+  assert.match(replyReading(FIN({ ok: false, escalate: true, layer: "nav" })).says, /hand-over/);
+  const plain = replyReading(FIN(OUTCOME));
+  assert.equal(plain.state, "plain");
+  assert.match(plain.says, /either none was owed, or none was ever asked for/);
+  assert.match(plain.says, /over two hours old/);
+  // NO STORED ANSWER: nothing is claimed about the reply.
+  assert.equal(replyReading({ status: 200, final: null, body: { status: "running" } }).state, "unread");
+  assert.equal(replyReading({ status: 404, final: null, body: null }).state, "unread");
+  assert.equal(replyReading(null).state, "unread");
+  // A STORED ANSWER AT A FAILING STATUS is still the answer.
+  assert.equal(replyReading(FIN({ ok: false, error: "no-menu", msg: "x", replyState: "failed" }, 422)).state, "failed");
+});
+
+test("the printed account carries the REPLY line under the poll, and the read stays a read: one poll GET, nothing posted", async () => {
+  const rec = await readJobRecords({ job: "JOBID", sb: store().sb, poll: async () => ({ status: 200, headers: { "x-gf-edit": "final" }, json: { ...OUTCOME, reply: "Done, in the model's words.", replySource: "model" }, text: "" }) });
+  const out = describeJob(rec);
+  assert.match(out, /\n  poll        HTTP 200  x-gf-edit: final\n  REPLY       WRITTEN by the model: "Done, in the model's words\."/);
+  // THE BOUND: still no transport of its own and no write verb.
+  const src = blankLineComments(MOD);
+  for (const verb of ["fetch(", "\"POST\"", "\"PUT\"", "\"PATCH\"", "\"DELETE\""]) assert.ok(!src.includes(verb), `the read-job module now carries ${verb}`);
 });
