@@ -200,7 +200,11 @@ says that it cannot tell those apart. Run 97's job ended at 23:34:21 UTC on
 - **The full unit suite, locally**: `9411 / 9411 / 0 / 0` (before the change
   `9381`; the 30 new cases are the 28 in `test/canary-replies.test.mjs` and the
   2 in `test/canary-read-job.test.mjs`).
-- **Unit CI**: recorded after the push (below).
+- **Unit CI**: run 37247801770 (`push` on `66279cd4`, the code at `cfe6688a`
+  with the records on top), `success`, `9411 / 9407 / 0 / 4` — the local total
+  exactly, CI skipping four as always. The run on `cfe6688a` itself
+  (37247745937) was cancelled by that second push. No other workflow ran:
+  nothing under the site build's paths changed, and no deploy run started.
 
 ## 7. The press
 

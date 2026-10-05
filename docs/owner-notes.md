@@ -142,7 +142,8 @@ batch_spent at 29."*
     module's own pure cases. The old canary also gives run 97's wrong
     "composed" verdict on the delayed case.
   - Two mutation sweeps: 28 of 32 caught, then the 4 gaps tested and 8 of 8.
-  - The full suite: 9,411 of 9,411.
+  - The full suite: 9,411 of 9,411 here, and green on CI (`9411 / 9407 / 0 / 4`,
+    CI skipping four as always).
 - **Unchanged, as you asked**: the page's placement of earlier requests'
   replies stays an open product bug. Nothing was pressed, restored or
   rebuilt; R2–R5 wait; the batch has spent 29.
