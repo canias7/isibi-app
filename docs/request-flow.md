@@ -395,10 +395,19 @@ meaning they had in the message. A routing job is shown the same.
   device, or before this browser kept its records — gets its card where it
   falls in time: under the message that started it, when that is on the
   thread; otherwise above anything sent from this page since it opened, and
-  above any request made after it. Such a request is only said there: the
-  model's reply, or the page's own sentence, with nothing applied again (no
-  preview, page list, undo, message box or question of that page's), and a
-  question it still waits on is made live by its own reading, once a page.
+  above any request made after it. **What it applies is decided by when each
+  job finished** (`docs/history/2026-10-05-watched-refresh.md`): a job that
+  had finished before the page's first look at the request is history, only
+  said, with nothing applied again (no preview, table, undo, message box or
+  question); only its page list is read again from the server when it added
+  or took away pages, since the list a page opens with only gains pages. A
+  job that finishes while the page watches is
+  applied: by the reader, as ever, for a request this page sent; for another
+  browser's, the preview moves to what is published now, the job's tables
+  join the page's list, and the page list is read again from the server,
+  never replayed from the job, so an older job read late cannot undo a newer
+  change. A question a request still waits on is made live by its own
+  reading, once a page.
 
 ## The owner's routes
 

@@ -70,6 +70,10 @@ const FNS = [...new Set([
   // EACH REQUEST'S MESSAGES WITH THAT REQUEST (2026-10-05): its own, its
   // card where it falls in time, and a message put after the last of its own.
   "siteReqOwnMsg", "siteReqMsgAt", "siteReqCardAt", "siteReqCard", "siteReqPut",
+  // A JOB THIS PAGE DID NOT APPLY ITSELF (2026-10-05): another browser's,
+  // finished while the page watched (the site's preview, tables and pages
+  // brought up to date), or history, whose page list alone is read again.
+  "siteReqRefresh", "siteRoutesSync",
   // A REPLY STILL BEING WRITTEN (2026-10-04): the outcome applied at once, the
   // reply's place held on the thread and followed on its own.
   "replyTellsEnding", "editReplyHold", "editReplyFollow", "siteHeldRepliesCheck",
@@ -81,7 +85,7 @@ const LINES = [...new Set([
   "const SITE_NO_PAGES_MSG =", "const siteNewDraft =", "function siteBuildStop(", ...ASK_LINES, "const siteAskChecked =",
   "const ST_PHASE_ORDER =",
   "const SITE_REQ_KEEP_MS =", "const SITE_REQ_MISSES =", "const siteReqFollowing =", "const siteReqChecked =",
-  "const siteReqAsked =",
+  "const siteReqAsked =", "const siteReqSeen =", "const siteRoutesSyncs =",
   "const editReplyFollowing =",
 ])];
 const SRC = [

@@ -1,52 +1,57 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-05, 04:30 UTC)
+## Current handoff — read this first (2026-10-05, 06:41 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **Merged, no deploy**: `main` is `cd817fee` (the canary fix and its
-  records). No workflow ran, so the live site is still deploy 2183
-  (`e84b8e7e`, image `386607152d4cb319`).
-- **The batch's five findings are closed** on your word, and the backlog no
-  longer says no real model has written a reply.
-- **The reply placement fix is on the branch for your review** (not merged,
-  not deployed, nothing spent):
-  - each request's replies now go with that request, even when they arrive
-    late or the page reloads, never under a message sent since;
-  - a request the page learns of late goes above anything you sent since the
-    page opened;
-  - another device's request is shown, never applied again here.
-  - Shown with supplied answers and in the two screenshots I sent; not live.
-  - Commit `22dd7e53`: the suite `9427 / 9427 / 0 / 0` here and
-    `9427 / 9423 / 0 / 4` on unit CI (run 37263890210).
-- **Money**: balance **48**, unchanged since run 99 (read at 04:31 UTC: last
-  ledger row 385, no job open).
+- **Nothing merged or deployed since `cd817fee`**: the live site is still
+  deploy 2183 (`e84b8e7e`, image `386607152d4cb319`). Nothing spent.
+- **The placement fix stays unmerged, as you said, with your regression
+  corrected on the branch**:
+  - work that finishes while a page watches is applied. For another
+    browser's request: the preview moves, its new tables join the list, and
+    the page list is read again from the server, never replayed from the job;
+  - history that had finished before the page first looked is only shown,
+    never replayed — now also for your own requests that finished while the
+    browser was closed. When it added or took away pages, only the page list
+    is read again from the server, so a page removed while the browser was
+    closed leaves its picker;
+  - no undo offers, words in the box or old questions come back;
+  - each reply still goes with its request.
+  - Shown with supplied answers (a scripted server) and in the two
+    screenshots I sent (before and after); not live.
+  - The suite `9440 / 9440 / 0 / 0` here; unit CI on the pushed commit is
+    stamped below once read.
+- **Money**: balance **48**, read again at 06:41 UTC (last ledger row 385, no
+  job open); nothing spent since run 99.
 - **The bakery** keeps every change from the batch (your demo rule).
 
 **Still open** (`docs/backlog.md`)
+- New, found while correcting: a page that adds one addition's tables to an
+  empty list then sends only those, so the router stops reading the site's
+  own list. That was already true for your own additions; not changed.
+- Already recorded, and shared by this correction: on a site with no stored
+  preview version (one adopted from the list), the first preview move keeps
+  the address `?v=1`, so a cache may answer it for up to a minute.
 - An old request's own reply with no record is still asked for whenever it is
-  read, however old (the server side of the placement item; not changed).
-- A data edit's reply can't name the change ("I've updated one of the
-  loaves"): a remaining follow-up.
-- The new page's own menu says "Wholesale" where the others say "Wholesale
-  Orders": a remaining follow-up.
-- The free lookup's wording for a job with no reply on it.
+  read (the server side of the placement item).
+- A data edit's reply can't name the change; the new page's own menu label;
+  the free lookup's wording for a job with no reply.
 
 **Yours to decide**
-1. **The placement fix**: review it; merging it deploys `public/chat.js` only
-   (the image is predicted unchanged), and a live check would come after,
-   on your word.
-2. **RW**, the separate full-rewrite test: not started, as you said.
+1. **The placement fix with this correction**: review it. Merging deploys
+   `public/chat.js` only (the image is predicted unchanged,
+   `386607152d4cb319`); a live check would come after, on your word.
+2. **RW**, the separate full-rewrite test: not started.
 3. Which of the open items to take next.
 
 **Links**
-- The fix: `docs/history/2026-10-05-reply-placement.md`.
-- The merge and the closures: `docs/history/2026-10-05-merge-and-closures.md`.
-- Run 99: `docs/history/2026-10-05-batch-r2.md`. The open items:
-  `docs/backlog.md`.
+- The correction: `docs/history/2026-10-05-watched-refresh.md`.
+- The fix it corrects: `docs/history/2026-10-05-reply-placement.md`.
+- The open items: `docs/backlog.md`.
 ---
 
 2026-09-25: **Escalation correction CLOSED.** Independently reviewed (437 focused
@@ -105,6 +110,48 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-05 — Your review: work finishing while a page watches now updates it; history still doesn't replay (on the branch; nothing spent, nothing deployed)
+
+- **The regression you found**: the placement fix treated every request a
+  browser hadn't sent as history, including one still running when the
+  browser opened. So when its addition finished, the reply appeared, but the
+  page list stayed at "/", the table list stayed empty and the preview didn't
+  move. Your own-request control updated all three.
+- **Now it goes by when each job finished**, not by who sent the request:
+  - the page notes what each request had already finished when it first
+    looked at it; that is history, already in the site it loaded, so it is
+    only shown (this now also holds for your own requests that finished while
+    the browser was closed). One exception: when history added or took away
+    pages, the page list is read again from the server. The list a page
+    opens with only gains pages, so a page removed while the browser was
+    closed would otherwise stay in the picker; on `main`, replaying such a
+    request happened to remove it;
+  - anything that finishes while the page watches is applied. Your own
+    request: exactly as before. Another browser's: the preview moves to
+    what's published now, its new tables join the list, and the page list is
+    read again from the server rather than replayed from the job, so an
+    older job read late can't undo a newer change.
+  - No undo offers, words in the message box or old questions come back from
+    history or from another browser's work. A waiting question is made live
+    once per page, and never again after you answer or cancel it.
+- **Placement unchanged**: every reply still goes with its request.
+- **Tests**: 13 new cases with a scripted server, using your reproduction's
+  shape (`added: src/routes/gallery.tsx`, `tables: bookings`): another
+  browser opening during a running request, a lost routing answer then a
+  reload, page additions and removals and tables finishing afterwards, an
+  older result read late, a change that adds no page (with a reply still
+  being written), and repeated looks changing nothing twice. 8 of the 13
+  fail on the regressed page; the other 5 guard what was already right
+  there. The mutation sweep on the final code killed 23 of 23. The suite:
+  `9440 / 9440 / 0 / 0`. Two screenshots, before and after, were sent.
+- **Found and recorded separately**: when a page adds one addition's tables
+  to an empty list, it then sends only those to the router, which stops
+  reading the site's own list. That was already true for your own additions;
+  not changed.
+
+**Recorded in**: `docs/history/2026-10-05-watched-refresh.md`, the placement
+record, `docs/request-flow.md`, the backlog and the checklist.
 
 ## 2026-10-05 — Each request's replies now go with that request (on the branch, for review; nothing spent, nothing deployed)
 

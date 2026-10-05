@@ -66,13 +66,18 @@ Reading the code turned up three related faults, fixed with it:
     or a request made after it by the server's clock, taken from the head of
     that request's messages;
   - at the end when nothing is newer.
-- **Another device's request is only said here** (`own: false` on a record the
-  page picked up, `true` once it sends a message for it). Its replies are the
-  same words, the model's or the page's own sentence, but the reader is given
-  no site, address or page, so nothing of this page's is changed by them. A
-  question it still waits on is made live by the request's own reading
-  (`siteRequestShow`), once a page (`siteReqAsked`), so an answer or a cancel
-  sent meanwhile is never undone by a reading taken before it.
+- **Another device's request is only said here** (`own: false` on a record
+  the page picked up, `true` once it sends a message for it). Its replies are
+  the same words, the model's or the page's own sentence, but the reader is
+  given no site, address or page, so nothing of this page's is changed by
+  them. **Corrected after the owner's review** (`2026-10-05-watched-refresh.md`):
+  that applied to every such request, even one still running, so work
+  finishing while the page watched never reached its page list, tables or
+  preview. It is now decided by when the job finished: what had finished
+  before the page's first look is history and only said (its page list
+  alone read again from the server when it changed pages), and what
+  finishes while it watches is applied. A question it still waits on is made live by
+  the request's own reading (`siteRequestShow`), once a page.
 - **A request's question is drawn by that request's reading only**: the
   open-time check keeps it live and follows the request, which draws it under
   its card after what its parts said.

@@ -29,10 +29,16 @@ here; take a closed one out of both.**
   (2026-10-05; not merged or deployed;
   `docs/history/2026-10-05-reply-placement.md`)**: each request's messages
   go with that request, by its key and each reply's job, never at the
-  bottom; a request the page learns of late goes above anything sent since;
-  another device's request is only said, never applied again. Shown with
-  supplied answers only (14 page cases through the real Worker) and in
-  screenshots; not yet live. **Still open, not changed**: an ended request's
+  bottom; a request the page learns of late goes above anything sent since.
+  **Corrected after the owner's review**
+  (`docs/history/2026-10-05-watched-refresh.md`): history that had finished
+  before the page's first look is only said, never applied again (its page
+  list alone read again from the server when it changed pages), while work
+  finishing as the page watches is applied (another browser's: the preview,
+  its tables, and the page list read again from the server). Shown with
+  supplied answers only (14 placement cases through the real Worker, 13
+  refresh cases against a scripted server) and in screenshots; not yet
+  live. **Still open, not changed**: an ended request's
   own reply with no record is asked for whenever it is read, however old
   (R1's, about 20 hours after it ended); a job's is not, after two hours.
 - **The new page's own menu names it differently** (a remaining follow-up;
@@ -48,6 +54,11 @@ here; take a closed one out of both.**
   and the column (`applied`), so the reply writer has no value to state. The
   limit the owner kept for the reply work when closing D1 (2026-09-27). Not
   changed.
+- **A partial table list stops the router reading the site's own** (found
+  2026-10-05, writing the watched-refresh correction): the routing route
+  fills in the site's table names only when the page sends none, and a page
+  that adds one addition's tables to an empty list then sends just those.
+  There before the correction (this browser's own additions); not fixed.
 - **The read-only lookup's `REPLY` line names a two-hour case for any job with
   no reply on it** (run 99, 2026-10-05): for a routing job minutes old it
   still says "either none was owed, or none was ever asked for (a job over two
@@ -476,6 +487,17 @@ here; take a closed one out of both.**
   "Wholesale Orders", after Order. Read off the served pages at 03:06 UTC. The
   canary's menu check passed, since each label carries "Wholesale". Open: one
   label and one place in every menu. Not changed.
+- **A PARTIAL TABLE LIST STOPS THE ROUTER READING THE SITE'S OWN** (found
+  2026-10-05, writing the watched-refresh correction;
+  `docs/history/2026-10-05-watched-refresh.md` §5). `routeDigest` in
+  `worker.js` reads the site's table names only when the page's digest sends
+  none (`sent.length ? null : read`). A page whose list was empty and that
+  applies one addition's `tables` (`applyAddonResult` for this browser's own,
+  and now `siteReqRefresh` for another browser's watched one) then sends only
+  those, so a later routing call is no longer told the site's older tables.
+  There before the correction for this browser's own additions. Open: fill
+  from the server whenever it can be read, or keep the page's list whole.
+  Not changed.
 - **THE READ-ONLY LOOKUP'S `REPLY` LINE NAMES A TWO-HOUR CASE FOR ANY JOB WITH
   NO REPLY** (found in run 99, 2026-10-05). The account prints, for every job
   whose answer carries no reply and no state — a routing job among them —
@@ -518,10 +540,18 @@ here; take a closed one out of both.**
     message goes after the last of its own. A request the page has no card
     for gets one where it falls in time: under the message that started it,
     or above anything sent from the page since it opened and any request made
-    after it. Another device's request is only said, with nothing applied
-    again, and a question it still waits on is made live once a page.
-    Supplied answers only; not yet live. **The old-request half stays open**:
-    a request's own reply with no record is still asked for whenever read.
+    after it. A question a request still waits on is made live once a page.
+    **Corrected after the owner's review** (the same day;
+    `docs/history/2026-10-05-watched-refresh.md`): what is applied is decided
+    by when each job finished, not by who sent the request. History that had
+    finished before the page's first look is only said (its page list alone
+    read again from the server when it changed pages, since the list a page
+    opens with only gains pages); work finishing while the page watches is
+    applied (another browser's: the preview moves, its tables join the list,
+    and the page list is read again from the server, never replayed from the
+    job). Supplied answers only; not yet live. **The
+    old-request half stays open**: a request's own reply with no record is
+    still asked for whenever read.
 - **THE PREVIEW'S FIRST REFRESH ON A SITE WITH NO STORED VERSION KEEPS
   `?v=1`** (found 2026-10-04, the owner's review round). `sitePreviewSrc`
   (`public/chat.js`) gives a site with no `previewV` the address `?v=1`, and
@@ -531,7 +561,10 @@ here; take a closed one out of both.**
   `public, max-age=60` (`worker.js`), so it may show the cached page for up
   to a minute after the first change on such a site. Every later change moves
   the address. Older than the round and the same before and after it; seen in
-  the source, not measured in a browser. Not changed.
+  the source, not measured in a browser. Not changed. **The watched refresh
+  (2026-10-05) moves it the same way**, and a site another browser adopted
+  from the list is such a site (`docs/history/2026-10-05-watched-refresh.md`
+  §5).
 - **The combined request flow** (2026-10-03, `docs/request-flow.md`; merged and
   deployed in deploy 2181 (2026-10-04); `REQUEST_FLOW` set by the owner in
   deploy 2182;

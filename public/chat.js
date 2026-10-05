@@ -4784,9 +4784,12 @@ const siteRoutesAsked = new Set();
 // be said as one.
 const SITE_ROUTES_WAIT_MS = 15000;
 const siteRoutesPending = new Map();
-function siteRoutesRead(slug) {
+function siteRoutesRead(slug, fresh) {
   const held = siteRoutesPending.get(slug);
-  if (held) return held;
+  // A FRESH READ (2026-10-05) is never answered by one already on its way: it
+  // is asked after a change this page saw finish, which an older read may not
+  // show (`siteRoutesSync`).
+  if (held && fresh !== true) return held;
   // ANY READ IS THE PICKER'S ONE ASK FOR THIS LOAD, so a list a message already
   // fetched is not fetched again by the next render.
   siteRoutesAsked.add(slug);
@@ -4802,7 +4805,7 @@ function siteRoutesRead(slug) {
       return { paths: d.routes.filter((p) => typeof p === 'string' && p.charAt(0) === '/'), status: r.status };
     })
     .catch(() => ({ paths: null, status: 0 }))
-    .then((out) => { clearTimeout(timer); siteRoutesPending.delete(slug); return out; });
+    .then((out) => { clearTimeout(timer); if (siteRoutesPending.get(slug) === read) siteRoutesPending.delete(slug); return out; });
   siteRoutesPending.set(slug, read);
   return read;
 }
@@ -4834,6 +4837,34 @@ function siteRoutesApply(id, paths) {
   }
   sitesSave();
   return true;
+}
+// THE SITE'S PAGES AS THE SERVER NOW KEEPS THEM, after a change this page
+// watched finish on another browser's request (2026-10-05, `siteReqRefresh`):
+// pages it no longer has leave the list and pages it gained join it, each kept
+// one keeping its name and markup. Read fresh, never from a read already on
+// its way. Only the latest refresh begun is applied, and never over a list
+// that changed while it was read — that change (this page's own, or another
+// read's) is newer, and a refresh is asked again instead, once.
+const siteRoutesSyncs = new Map();
+function siteRoutesSync(origin, again) {
+  const s = siteById(origin);
+  if (!s || !s.slug) return;
+  const slug = s.slug;
+  const n = (siteRoutesSyncs.get(origin) || 0) + 1;
+  siteRoutesSyncs.set(origin, n);
+  const list = (x) => (x && Array.isArray(x.pages) ? x.pages : []).map((p) => (p && typeof p.path === 'string' ? p.path : '')).join('\n');
+  const was = list(s);
+  siteRoutesRead(slug, true).then((got) => {
+    const t = siteById(origin);
+    if (!t || t.slug !== slug || siteRoutesSyncs.get(origin) !== n || !Array.isArray(got.paths) || !got.paths.length) return;
+    if (list(t) !== was) { if (!again) siteRoutesSync(origin, true); return; }
+    const kept = (Array.isArray(t.pages) ? t.pages : []).filter((p) => p && got.paths.includes(p.path));
+    const next = kept.concat(got.paths.filter((path) => !kept.some((p) => p.path === path)).map(pageFromPath));
+    if (list({ pages: next }) === was) return;
+    t.pages = next;
+    sitesSave();
+    if (siteOpenId === origin) renderSites();
+  });
 }
 function siteRoutesFetch(site) {
   if (!site || !site.slug || !site.react || !site.id) return;
@@ -9436,8 +9467,14 @@ const SITE_REQ_MISSES = 30;
 // to run: the page only gives the go-ahead (`siteRequestApprove`), and the
 // request keeps its own files for it.
 const siteReqFollowing = new Set();
-// The questions of requests this page did not send that it has made live (`siteRequestShow`).
+// The questions this page has made live, or found live, for a request: never
+// made live again by a later reading (`siteRequestShow`).
 const siteReqAsked = new Set();
+// WHAT EACH REQUEST HAD FINISHED WHEN THIS PAGE FIRST LOOKED AT IT (2026-10-05),
+// by job: that much is history, already in the site this page loaded; what
+// finishes after it, this page watched (`siteRequestJobReply`). Empty for a
+// request this page sends. In memory only: a reload looks afresh.
+const siteReqSeen = new Map();
 /** The request the routing reply says the server took on, or null. */
 function siteRequestOf(d) {
   const v = d && d.request;
@@ -9558,8 +9595,10 @@ function siteRequestStart(origin, d, imgs, key) {
   const s = siteById(origin);
   if (!s || !view) return;
   const st = siteReqState(origin, view.key, view);
-  // SENT FROM THIS PAGE (2026-10-05): what its parts do is this page's to apply.
+  // SENT FROM THIS PAGE (2026-10-05): what its parts do is this page's to apply,
+  // and this page watches it from the start.
   if (st) st.own = true;
+  if (!siteReqSeen.has(origin + '|' + view.key)) siteReqSeen.set(origin + '|' + view.key, new Set());
   // AND THE MESSAGE IS ONE OF ITS OWN — the one that asked for it, or the
   // answer that resumed it — so its card and replies go with it.
   const sent = typeof key === 'string' && key ? s.msgs.find((m) => m && m.r === 'u' && siteMsgsSent.get(m) === key) : null;
@@ -9570,6 +9609,7 @@ function siteRequestStart(origin, d, imgs, key) {
   if (q) {
     const p = (view.parts || []).find((x) => x && x.question && x.question.id === q.id);
     siteAskKeep(origin, { ...q, request: p ? { key: view.key, part: p.n } : undefined }, []);
+    siteReqAsked.add(q.id);
     siteReqPut(s, view.key, siteReplyMsg(askReplyMsg('', q)));
   }
   s.updatedAt = Date.now();
@@ -9628,6 +9668,8 @@ async function siteRequestShow(origin, key, view, reply, replyFor, replyState) {
   if (!s) return true;
   const st = siteReqState(origin, key, view);
   siteReqCard(s, key);
+  // THIS PAGE'S FIRST LOOK AT IT: whatever had finished by now is history.
+  if (!siteReqSeen.has(origin + '|' + key)) siteReqSeen.set(origin + '|' + key, new Set(view.parts.flatMap((p) => (p && Array.isArray(p.jobs) ? p.jobs : []))));
   // EACH PART'S OWN REPLY, ONCE, IN ORDER.
   let all = true;
   for (const p of view.parts) {
@@ -9637,19 +9679,20 @@ async function siteRequestShow(origin, key, view, reply, replyFor, replyState) {
     }
     if (!all) break;
   }
-  // A QUESTION THE SERVER PUT IN THE SITE'S SLOT that no reply drew: its card.
-  // AND ONE A REQUEST THIS PAGE DID NOT SEND IS WAITING ON (2026-10-05): its
-  // part's reply was only said here (`siteRequestJobReply`), so the question
-  // is made the live one by this reading of the request — once a page, so an
-  // answer or a cancel sent since is never undone by a reading taken before it.
+  // A QUESTION THE SERVER PUT IN THE SITE'S SLOT: its card, when no reply drew
+  // it. AND A QUESTION THE REQUEST STILL WAITS ON IS MADE THE LIVE ONE when its
+  // part's reply was only said here — history, or another browser's request
+  // (2026-10-05, `siteRequestJobReply`) — once a page: one found live, or made
+  // live, is never made live again, so an answer or a cancel sent since is not
+  // undone by a reading taken before it.
   for (const p of view.parts) {
     const q = p && p.status === 'waiting' && p.question && p.question.queued !== true ? clarifyOf(p.question) : null;
     if (!q) continue;
-    const drawn = s.msgs.some((m) => m && m.ask === q.id);
-    if (drawn && (st.own !== false || siteReqAsked.has(q.id))) continue;
+    if (s.ask && s.ask.id === q.id) { siteReqAsked.add(q.id); continue; }
+    if (siteReqAsked.has(q.id)) continue;
     siteReqAsked.add(q.id);
     siteAskKeep(origin, { ...q, request: { key, part: p.n } }, []);
-    if (!drawn) siteReqPut(s, key, siteReplyMsg(askReplyMsg('', q)));
+    if (!s.msgs.some((m) => m && m.ask === q.id)) siteReqPut(s, key, siteReplyMsg(askReplyMsg('', q)));
   }
   // THE REQUEST'S OWN REPLIES, EACH ONCE: one while it waits on a go-ahead,
   // one when it has ended — named by the server (`replyFor`), so a page opened
@@ -9706,16 +9749,57 @@ async function siteRequestJobReply(origin, key, part, job) {
   // messages, never at the bottom of the thread.
   const say = (t) => siteReqSay(origin, t, { key, job });
   const finish = held && replyTellsEnding(!!r.ok, body, addon) ? editReplyHold(origin, job, e, say) : say;
-  // A REQUEST THIS PAGE DID NOT SEND IS ONLY SAID (2026-10-05): what its part
-  // did was done where it was sent, so the reader is handed no site, address
-  // or page here — no preview, page list, undo, message box, block or question
-  // of this page's is touched by it. What it says is the same: the model's
-  // reply, or the reader's own sentence. A question still waiting is made live
-  // by the request's own reading (`siteRequestShow`).
-  const only = st.own === false;
-  const o = { site: only ? null : s, d, instruction: part.words, origin: only ? '' : origin, finish, fallback: null, imgs: [], handedOff: false, slug: only ? '' : s.slug };
+  // WHAT THE READER MAY APPLY (2026-10-05). A job that had finished when this
+  // page first looked at its request is HISTORY: the preview this page loaded
+  // already shows it, so it is only said — no preview, table, undo, message
+  // box, block or question of this page's is touched by it, and the reader is
+  // handed no site, address or page; only the page list is read again from
+  // the server when the job added or took away pages (`siteReqRefresh`). A
+  // job that finished while this page watched is applied: by the reader, as
+  // ever, when this page sent the request; otherwise it is said, and the
+  // site's current state is brought up to date — never another browser's
+  // undo offer, words or question. What is said is the same either way: the
+  // model's reply, or the reader's own sentence. A question still waiting is
+  // made live by the request's own reading (`siteRequestShow`).
+  const seen = siteReqSeen.get(origin + '|' + key);
+  const live = !!seen && !seen.has(job);
+  const mine = live && st.own !== false;
+  const o = { site: mine ? s : null, d, instruction: part.words, origin: mine ? origin : '', finish, fallback: null, imgs: [], handedOff: false, slug: mine ? s.slug : '' };
   try { (d.intent === 'addon' ? addonAnswer : editAnswer)(!!r.ok, body, o); } catch (err) { /* what was said stands */ }
+  if (!mine) siteReqRefresh(origin, !!r.ok, body, addon, !live);
   return true;
+}
+/**
+ * A JOB THIS PAGE DID NOT APPLY ITSELF (2026-10-05): the site's current state
+ * brought up to date here, never the job's own result replayed.
+ * - ANOTHER BROWSER'S, FINISHED WHILE THIS PAGE WATCHED IT: as this page's own
+ *   would be — the preview moved on to what is published now (the request's
+ *   reading draws the workspace when it ends), the tables the job made added
+ *   to the ones this page tells the router, and the page list read again from
+ *   the server when the job added or took away pages.
+ * - HISTORY (`history`), finished before this page first looked, whoever sent
+ *   it: the page list alone, read again when the job added or took away
+ *   pages. The preview this page loaded is already what is published, but the
+ *   list it opened with only gains pages (`siteRoutesApply`), so a page taken
+ *   away while this browser was closed would stay in its picker.
+ * Read again, never replayed from the job, so an older job read late cannot
+ * undo a newer change (`siteRoutesSync`). Only a job that went through; and
+ * nothing else of the reader's: no undo offer, no words for the message box,
+ * no question, no block — those belong to the browser that sent it.
+ */
+function siteReqRefresh(origin, httpOk, body, addon, history) {
+  const s = siteById(origin);
+  if (!s || !body || typeof body !== 'object') return;
+  if ((addon ? readAddonReply(httpOk, body) : readEditReply(httpOk, body)).act !== 'success') return;
+  const named = (k) => Array.isArray(body[k]) && body[k].length > 0;
+  const pages = named('added') || named('removed');
+  if (history === true) { if (pages) siteRoutesSync(origin); return; }
+  s.previewV = (s.previewV || 0) + 1;
+  const names = (Array.isArray(body.tables) ? body.tables : []).filter((x) => typeof x === 'string' && x);
+  if (names.length) s.tables = [...new Set([...(Array.isArray(s.tables) ? s.tables : []), ...names])].slice(0, 48);
+  sitesSave();
+  try { scheduleCreditRefresh(); } catch (err) { /* the balance is read again on the next look */ }
+  if (pages) siteRoutesSync(origin);
 }
 /** Stop what is left of a request: the server's stop, through the jobs' own cancel. */
 function siteRequestStop(origin, key) {

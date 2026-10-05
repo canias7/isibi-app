@@ -1024,6 +1024,16 @@ the owner's free press, run 51, at 22:57 UTC):
       said, never applied again, its waiting question made live once a page.
       **Supplied answers only** (the placement cases through the real
       Worker) and screenshots; not shown live.
+    - **Corrected after the owner's review** (2026-10-05; on the branch;
+      `docs/history/2026-10-05-watched-refresh.md`): another browser's request
+      finishing while the page watched updated nothing but the thread. Now
+      what is applied is decided by when each job finished: history that had
+      finished before the page's first look is only said (this browser's own
+      too; its page list alone read again from the server when it changed
+      pages); work finishing while it watches is applied — another browser's
+      by refreshing the preview, the tables, and the page list read again
+      from the server. **Supplied answers only** (a scripted server); not
+      shown live.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).
