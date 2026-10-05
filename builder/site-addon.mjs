@@ -643,10 +643,56 @@ export function unseenPagesNote(paths) {
     " own and I'll have the whole thing in view.";
 }
 
-export function addonReply({ added = [], changed = [], removed = [], kept = [], unlinked = [], reverted = [] } = {}) {
+/**
+ * WHAT WAS PUT BACK, SETTLED ONCE EVERY STEP HAS RUN (2026-10-05, run 101).
+ *
+ * `reverted` is decided at the merge above: a page the page writer changed
+ * though this addition never named it, its change nothing to do with a new or
+ * removed route, is put back to its stored source. LATER STEPS CAN THEN CHANGE
+ * THAT SAME PAGE for a reason of their own — the code puts a new page's link in
+ * every menu — and "left as it was" stops being true of it. Run 101's reply
+ * said both of one page: "updated … Visit" and "The Visit page was left as it
+ * was".
+ *
+ * Settled against the FINAL sources, page by page:
+ *   - byte for byte what was stored → still `reverted`: left as it was;
+ *   - exactly what the menu-link step left it as → `restored`: the writer's
+ *     change was not kept, and the one change there is the link, named by
+ *     where it goes (`to`);
+ *   - anything else → neither: it changed for a reason this cannot name, and
+ *     no claim is made either way.
+ * Pure. `linked` is the menu-link step's own record: each page it changed,
+ * with its source right after it and the addresses it gained.
+ */
+export function settleReverted({ reverted = [], stored = [], pages = [], linked = new Map() } = {}) {
+  const sources = (list) => new Map((Array.isArray(list) ? list : []).filter((p) => p && typeof p.path === "string").map((p) => [p.path, p.source]));
+  const was = sources(stored);
+  const now = sources(pages);
+  const out = { reverted: [], restored: [] };
+  for (const path of Array.isArray(reverted) ? reverted : []) {
+    if (typeof path !== "string") continue;
+    const a = was.get(path);
+    const b = now.get(path);
+    if (typeof a !== "string" || typeof b !== "string") continue;
+    if (a === b) { out.reverted.push(path); continue; }
+    const l = linked instanceof Map ? linked.get(path) : null;
+    const to = l && Array.isArray(l.to) ? l.to.filter((t) => typeof t === "string" && t) : [];
+    if (l && l.source === b && to.length) out.restored.push({ path, to });
+  }
+  return out;
+}
+
+export function addonReply({ added = [], changed = [], removed = [], kept = [], unlinked = [], reverted = [], restored = [], suggestions = [] } = {}) {
   const bits = [];
   if (added.length) bits.push("added " + added.map(routeOf).filter(Boolean).join(", "));
   if (removed.length) bits.push("removed " + removed.map(routeOf).filter(Boolean).join(", "));
+  // A PAGE WHOSE ONE CHANGE IS THE NEW PAGE'S LINK (`restored`, settled after
+  // every step) is said on its own below, never as a page "updated" as a whole.
+  const onlyLinked = (Array.isArray(restored) ? restored : [])
+    .map((r) => (r && typeof r.path === "string" ? { page: routeOf(r.path), to: (Array.isArray(r.to) ? r.to : []).filter((t) => typeof t === "string" && t) } : null))
+    .filter((r) => r && r.page && r.to.length);
+  const linkedPages = new Set(onlyLinked.map((r) => r.page));
+  changed = changed.filter((p) => !linkedPages.has(routeOf(p)));
   // ⚠ A CHANGED PAGE IS "UPDATED", ALWAYS (owner, 2026-09-17: *"a changed page
   // does not establish that a link was added"*).
   //
@@ -682,6 +728,10 @@ export function addonReply({ added = [], changed = [], removed = [], kept = [], 
       " — nothing there needed to change for this. Ask me directly if you did want " +
       (back.length === 1 ? "it" : "them") + " edited.";
   }
+  for (const r of onlyLinked) head += " On " + r.page + " I only added the link to " + r.to.join(", ") + " — nothing else there needed to change for this.";
+  // AN EXTRA A DESIGNER SUGGESTED (2026-10-05): offered, never claimed.
+  const ideas = (Array.isArray(suggestions) ? suggestions : []).filter((t) => typeof t === "string" && t.trim()).slice(0, 3);
+  if (ideas.length) head += " You didn't ask for " + (ideas.length === 1 ? "this" : "these") + ", so I didn't add " + (ideas.length === 1 ? "it" : "them") + ": " + ideas.join("; ") + " — say if you'd like " + (ideas.length === 1 ? "it" : "any of them") + ".";
   if (!unlinked.length) return head;
   // Said plainly, because the owner is about to look for a page they cannot
   // find, and the fix is one sentence from them.

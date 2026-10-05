@@ -270,7 +270,7 @@ function bucket(slug, stored, look, parts, css, partsFail, configFail, uploads, 
  * to and IS honestly empty. Those two look identical from the old code and need
  * opposite answers.
  */
-function stub({ kinds, answers, fnFail = false, jobsFail = false, sql, prompts, meta, registered, patched, traces, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null, credits = null, shots = null, shotFail = false, legacyRows = [], legacyFail = false, notes = "", db = null }) {
+function stub({ kinds, answers, ungrounded = false, fnFail = false, jobsFail = false, sql, prompts, meta, registered, patched, traces, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null, credits = null, shots = null, shotFail = false, legacyRows = [], legacyFail = false, notes = "", db = null }) {
   let provisioned = false;
   const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
@@ -597,9 +597,34 @@ function stub({ kinds, answers, fnFail = false, jobsFail = false, sql, prompts, 
       // and "may this replace a component the writer never saw?" cannot be
       // asked of a writer that returns none. Omitted by default, so every
       // earlier case sends a `write_pages` answer with no `parts` key at all.
+      // ── A REQUIREMENT AS THE TOOL ASKS FOR ONE NOW (2026-10-05, run 101) ──
+      //
+      // Every requirement says where it comes from (`basis`) and quotes the
+      // customer's own words (`words`), which the route checks against what
+      // they wrote. The cases written before supply neither, so such an entry
+      // is answered here as a designer quoting their whole message would answer
+      // it — the words exactly what the route showed this designer as their
+      // message, read off the request it really sent. An entry carrying either
+      // field is the case's own and is left as written; a case about an entry
+      // with no grounding at all says so (`ungrounded`).
+      const shownAsk = (() => {
+        for (const m of b.messages || []) {
+          const c = typeof m.content === "string" ? m.content : Array.isArray(m.content) ? m.content.map((x) => (x && x.text) || "").join("") : "";
+          const at = c.indexOf("What they asked to add:\n");
+          if (at < 0) continue;
+          const rest = c.slice(at + "What they asked to add:\n".length);
+          const end = rest.indexOf("\n\n");
+          return end >= 0 ? rest.slice(0, end) : rest;
+        }
+        return "";
+      })();
+      const supplied = answers[kind] || {};
+      const designed = !ungrounded && asked === "add_to_site" && Array.isArray(supplied.requirements)
+        ? { ...supplied, requirements: supplied.requirements.map((e) => (e && typeof e === "object" && !Object.hasOwn(e, "basis") && !Object.hasOwn(e, "words") ? { ...e, basis: "asked", words: shownAsk } : e)) }
+        : supplied;
       const inputObj = asked === "pick_adds" ? { kinds }
         : asked === "write_pages" ? { pages: written || WRITTEN_PAGES, notes, ...(writtenParts ? { parts: writtenParts } : {}) }
-        : (answers[kind] || {});
+        : designed;
       const body = anthropic
         ? { stop_reason: "tool_use", content: [{ type: "tool_use", name: asked, input: inputObj }], usage: { input_tokens: 10, output_tokens: 5 } }
         : { choices: [{ message: { content: "", tool_calls: [{ id: "c1", function: { name: asked, arguments: JSON.stringify(inputObj) } }] }, finish_reason: "stop" }], usage: { prompt_tokens: 10, completion_tokens: 5 } };

@@ -20,45 +20,13 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
-- **Earlier requests' replies land under a message sent before the page's
-  check of them** (run 97): a browser that has not seen a site's recent
-  requests appends their replies at the end of the thread when it opens the
-  site; a message sent in the first seconds is then followed by replies to
-  other requests (five in run 97, from runs 94 and 95; 7, 10 and 12 in three
-  presses of run 99). **Fixed on the branch, on the owner's word
-  (2026-10-05; not merged or deployed;
-  `docs/history/2026-10-05-reply-placement.md`)**: each request's messages
-  go with that request, by its key and each reply's job, never at the
-  bottom; a request the page learns of late goes above anything sent since.
-  **Corrected after the owner's review**
-  (`docs/history/2026-10-05-watched-refresh.md`): history that had finished
-  before the page's first look is only said, never applied again (its page
-  list alone read again from the server when it changed pages), while work
-  finishing as the page watches is applied (another browser's: the preview,
-  its tables, and the page list read again from the server). **Corrected
-  again** (`docs/history/2026-10-05-reconcile.md`): every finished job the
-  page's own reader did not apply is reconciled with what is published now,
-  whenever it finished, since a first read that failed or came late finds
-  jobs done the loaded preview never saw; never replayed (no undo offer,
-  words or question). Shown with supplied answers only (14 placement cases
-  through the real Worker, 13 refresh and 10 reconcile cases, the routing
-  ones through the real Worker), in a real Chromium (2 cases) and in
-  screenshots; not yet live. **Its live check is prepared** (2026-10-05,
-  `lv-reopen`, `docs/investigations/live-check.md`). **Merged and deployed
-  in deploy 2184** (2026-10-05, `d75d79f3`, image `589e3e4e85a20066`),
-  runtime-confirmed by the owner's free press (run 100). **Live-checked by
-  the owner's paid press, run 101** (`lv-reopen`, 2026-10-05; all 75 checks
-  passed; `docs/history/2026-10-05-deploy-2184.md` §7). The first tab's
-  first look at earlier requests began 76 ms after the message was sent, run
-  99's own case, and all 5 earlier requests and their 10 replies were drawn
-  above the message, none after it. The reopened tab reconciled the
-  closed-tab request: the preview moved once per publishing job, and the new
-  page and table were in its lists. The canary's two preview checks for that
-  message could not judge it (below), so that evidence is the frame's load
-  record, read by the session. The item stays open for the owner to close.
-  **Still open, not changed**: an ended request's
-  own reply with no record is asked for whenever it is read, however old
-  (R1's, about 20 hours after it ended); a job's is not, after two hours.
+- **An ended request's own reply with no record is asked for whenever it is
+  read, however old** (found in run 97): R1's, about 20 hours after it
+  ended; a job's is not, after two hours. It was the second half of the
+  item on earlier requests' replies landing under a new message. That
+  placement half was fixed, corrected twice, merged and deployed in deploy
+  2184, and **closed by the owner on run 101** (2026-10-05;
+  `docs/history/2026-10-05-run101-corrections.md` §1).
 - **The preview frame is reloaded on every reading of a running request**
   (found in run 101's evidence, 2026-10-05):
   - **The code**: the page reads a running request about every 8.6 s once its
@@ -73,7 +41,16 @@ here; take a closed one out of both.**
     seconds while a request runs, losing its scroll. This is inferred from
     the code and the record; no screenshot shows it.
   - **Since when**: reading on every poll came with the request flow.
-  - Not changed.
+  - **Fixed on the branch, on the owner's word** (2026-10-05, not merged or
+    deployed; `docs/history/2026-10-05-run101-corrections.md` §2):
+    - a repaint keeps the frame for the same site, and every element above
+      it, and draws everything beside them anew (`paintWorkspace`);
+    - a frame is sent only to an address it does not have, and a draft
+      loads again only when it changed or Refresh asks;
+    - in a real Chromium the frame stays the same element through the
+      readings, loads nothing, and keeps its scroll and typed words; a
+      published change still loads it, never twice;
+    - not shown live.
 - **A page that one add-on both changed and put back is reported both
   ways** (run 101's reply, 2026-10-05):
   - **What happened**: the add-on's merge put back its page step's change to
@@ -83,7 +60,12 @@ here; take a closed one out of both.**
     page was left as it was; nothing there needed to change for this."
   - **The cause**: `reverted` is taken before the menu-link step changes the
     same page (`builder/site-addon.mjs`, `builder/site-reply.mjs`).
-  - Not changed.
+  - **Fixed on the branch, on the owner's word** (2026-10-05, not merged or
+    deployed; the same file §3): once every step has run, a page put back
+    and changed since only by the menu link is `restored`, with that link
+    (`settleReverted`). The facts and both composed replies say only that
+    the link went in there. Shown with supplied answers through the real
+    route; not shown live.
 - **The add-on can declare a requirement the customer did not state** (run
   101, 2026-10-05):
   - **What happened**: its requirement note named "The person who joins gets
@@ -94,7 +76,18 @@ here; take a closed one out of both.**
     though one was set up.
   - **The source**: `requirementNote` reads the add-on planner's own
     requirements.
-  - Not traced further, not changed.
+  - **Traced and fixed on the branch, on the owner's word** (2026-10-05,
+    not merged or deployed; the same file §4):
+    - **the cause**: the requirement item every designer shares asked for
+      what the ask "implies";
+    - **now** each requirement names its basis (asked, or needed for what
+      was asked) and the customer's own words. One whose words are not in
+      what they wrote is set aside, and never reported
+      (`groundRequirements`);
+    - extras go to `suggestions`: offered as ideas, never built;
+    - a real choice goes to the designers' existing question;
+    - no email was added;
+    - shown with supplied answers through the real route; not shown live.
 - **The canary's preview checks cannot judge a closed-tab message's refresh
   when the first tab moves its own preview after the send** (the
   instrument; run 101, 2026-10-05):
@@ -107,7 +100,12 @@ here; take a closed one out of both.**
   - **A related limit**: the reopened page's page list is also read from the
     server when a tab opens, so that check shows the list is right, not
     which path made it right.
-  - Not changed.
+  - **Fixed on the branch, on the owner's word** (2026-10-05, not merged;
+    the same file §5): a closed-tab message's preview is judged against
+    the first address the reopened tab's frame asked for (`firstFrame`).
+    With the reconcile cut from that tab, both checks fail, in the
+    stand-in app and on the real page in Chromium. The page-list limit
+    stays.
 - **The new page's own menu names it differently** (a remaining follow-up;
   run 99's R2, 2026-10-05):
   `/wholesale`'s menu says "Wholesale", placed before Order, while every other
@@ -121,32 +119,11 @@ here; take a closed one out of both.**
   and the column (`applied`), so the reply writer has no value to state. The
   limit the owner kept for the reply work when closing D1 (2026-09-27). Not
   changed.
-- **A partial table list stops the router reading the site's own** (found
-  2026-10-05, writing the watched-refresh correction): the routing route
-  fills in the site's table names only when the page sends none, and a page
-  that adds one addition's tables to an empty list then sends just those.
-  **Fixed on the branch, on the owner's word** (2026-10-05, not merged;
-  `docs/history/2026-10-05-reconcile.md`): the route reads the site's names
-  whatever the page sent, and the page keeps them. **Then as three answers**
-  (`docs/history/2026-10-05-inventory.md`): a site read to have none is told
-  so ("It has no database tables.") and answered `tablesFilled: []`, and the
-  page's names are sent on only when the read cannot answer. **Then in order**
-  (`docs/history/2026-10-05-response-order.md`): an older routing answer no
-  longer undoes a newer read, and an addition finishing during a call stays.
 - **The read-only lookup's `REPLY` line names a two-hour case for any job with
   no reply on it** (run 99, 2026-10-05): for a routing job minutes old it
   still says "either none was owed, or none was ever asked for (a job over two
   hours old …)", though only the first can apply. The instrument's wording
   (`replyReading`); not changed.
-- **The preview's first refresh on a site with no stored version keeps
-  `?v=1`** (found 2026-10-04, the owner's review round): `sitePreviewSrc`
-  defaults a missing `previewV` to 1 and the first bump makes it 1, so the
-  frame's address does not change, and published pages are served
-  `public, max-age=60`: the frame may show the cached page for up to a
-  minute after that first change. Older than the round, unchanged by it.
-  **Fixed on the branch, on the owner's word** (2026-10-05, not merged;
-  `docs/history/2026-10-05-reconcile.md`): a site never moved is drawn at
-  `?v=0`, so every move changes the address.
 - A half of a message the router puts off (`alsoAsked`) is still attempted,
   on the home page, and the reply contradicts itself (run 52). **Fixed and
   deployed 2026-09-29 (deploy 2166); run 57 made both changes live, with
@@ -563,38 +540,6 @@ here; take a closed one out of both.**
   "Wholesale Orders", after Order. Read off the served pages at 03:06 UTC. The
   canary's menu check passed, since each label carries "Wholesale". Open: one
   label and one place in every menu. Not changed.
-- **A PARTIAL TABLE LIST STOPS THE ROUTER READING THE SITE'S OWN** (found
-  2026-10-05, writing the watched-refresh correction;
-  `docs/history/2026-10-05-watched-refresh.md` §5). `routeDigest` in
-  `worker.js` reads the site's table names only when the page's digest sends
-  none (`sent.length ? null : read`). A page whose list was empty and that
-  applies one addition's `tables` (`applyAddonResult` for this browser's own,
-  and now `siteReqRefresh` for another browser's watched one) then sends only
-  those, so a later routing call is no longer told the site's older tables.
-  There before the correction for this browser's own additions. **Fixed on
-  the branch, on the owner's word** (2026-10-05, not merged;
-  `docs/history/2026-10-05-reconcile.md`): `routeDigest` reads the site's
-  names for its owner on every call and they replace the page's, which stand
-  only when the read cannot answer; the page keeps the names the route read
-  (`tablesFilled`), so its fallback is the whole list once it has kept a read.
-  **And as three answers, not two** (2026-10-05, after the owner's next
-  review; `docs/history/2026-10-05-inventory.md`): `routeTableNames` answered
-  `[]` both for a site with none and for one it could not read, so a site
-  with none was routed on the page's stale names and the router was never
-  told none. Now it answers names, `[]` or `null`; an empty answer replaces
-  the page's names, the router is told "It has no database tables."
-  (`tables-none`), the answer carries `tablesFilled: []`, and the page takes
-  it whole unless its list changed while the call was out. **And in order**
-  (2026-10-05, after the owner's next review;
-  `docs/history/2026-10-05-response-order.md`): that mark moved only when the
-  list's contents did, so an answer confirming what the page held left none,
-  and an older answer arriving after it was taken whole (the owner's
-  `trainers` taken away, `old_bookings` brought back); and a newer answer and
-  an addition were one mark, after which a late answer only added. Now one
-  clock orders every routing call and addition; an answer is taken, even one
-  that changes nothing, whenever no answer to a later call has been, with the
-  tables an addition put there after its call went out; an answer to an
-  earlier call than the one taken last changes nothing.
 - **THE READ-ONLY LOOKUP'S `REPLY` LINE NAMES A TWO-HOUR CASE FOR ANY JOB WITH
   NO REPLY** (found in run 99, 2026-10-05). The account prints, for every job
   whose answer carries no reply and no state — a routing job among them —
@@ -604,72 +549,23 @@ here; take a closed one out of both.**
   reply). The instrument's own wording (`replyReading` in
   `scripts/canary-read-job.mjs`), which has the row's `updated_at` to tell the
   two apart. Not changed.
-- **EARLIER REQUESTS' REPLIES LAND UNDER A MESSAGE SENT BEFORE THE PAGE'S
-  CHECK OF THEM** (found live in run 97; the same file, §7.6).
-  - On opening a site, the page follows every request the server lists for
-    it that this browser has not closed (`siteRequestsCheck`) and appends
-    each part's reply, and the request's own, at the end of the thread. A
-    browser that has never opened the site has closed none.
-  - Run 97's canary sent its message about 2 s after the site opened. The
-    check answered after that, and five replies from runs 94 and 95 landed
-    under the new message, where they read as its replies. The canary's
-    reply list counted them; its verdicts did not depend on them.
-  - **And an ended request's own reply with no record is asked for whenever
-    it is read, however old** (`requestReply`): R1's, about 20 hours after
-    R1 ended, was written then (read `pending` for about 35 s, then served).
-    A job's reply is not asked for more than two hours after the job ended
-    (`REPLY_ASK_WINDOW_MS`). The model call is ours, not the customer's.
-  - Open: where a reply to an earlier request belongs on a thread that has
-    moved on, and whether a request too old to matter is asked for a reply
-    at all. Kept open on the owner's word (2026-10-05): *"Keep the
-    historical-message placement issue recorded as an unresolved product
-    bug; waiting for history in the test does not fix it."* The canary
-    ignores those replies when judging (it neither waits for them nor counts
-    them), which is the instrument's matter only.
-  - **The placement, fixed on the branch** (2026-10-05, the owner: *"place it
-    with that request, including delayed model replies, questions, reloads
-    and opening the site in another browser … Use request/job identity
-    rather than matching message wording"*; not merged or deployed;
-    `docs/history/2026-10-05-reply-placement.md`). Every message a request
-    writes carries its key (`req`), a part's reply its job (`job`), the
-    request's own reply which one it is (`for`); so do the message that
-    started it and an answer or cancel of its question. A request's next
-    message goes after the last of its own. A request the page has no card
-    for gets one where it falls in time: under the message that started it,
-    or above anything sent from the page since it opened and any request made
-    after it. A question a request still waits on is made live once a page.
-    **Corrected after the owner's review** (the same day;
-    `docs/history/2026-10-05-watched-refresh.md`): what is applied is decided
-    by when each job finished, not by who sent the request. History that had
-    finished before the page's first look is only said (its page list alone
-    read again from the server when it changed pages, since the list a page
-    opens with only gains pages); work finishing while the page watches is
-    applied (another browser's: the preview moves, its tables join the list,
-    and the page list is read again from the server, never replayed from the
-    job). **Corrected again** (`docs/history/2026-10-05-reconcile.md`): every
-    finished job the page's own reader did not apply is reconciled with what
-    is published now, whenever it finished — a first read that failed or came
-    late no longer makes a job history — and never replayed. Supplied answers
-    only; not yet live. **The
-    old-request half stays open**: a request's own reply with no record is
-    still asked for whenever read.
-- **THE PREVIEW'S FIRST REFRESH ON A SITE WITH NO STORED VERSION KEEPS
-  `?v=1`** (found 2026-10-04, the owner's review round). `sitePreviewSrc`
-  (`public/chat.js`) gives a site with no `previewV` the address `?v=1`, and
-  the first bump after a change sets `previewV` to 1, so the frame is pointed
-  at the same address. A re-pointed frame with an unchanged address is
-  rendered afresh by the workspace, but published pages are served
-  `public, max-age=60` (`worker.js`), so it may show the cached page for up
-  to a minute after the first change on such a site. Every later change moves
-  the address. Older than the round and the same before and after it; seen in
-  the source, not measured in a browser. **The watched refresh
-  (2026-10-05) moves it the same way**, and a site another browser adopted
-  from the list is such a site (`docs/history/2026-10-05-watched-refresh.md`
-  §5). **Fixed on the branch, on the owner's word** (2026-10-05, not merged;
-  `docs/history/2026-10-05-reconcile.md`): `sitePreviewSrc` draws a site
-  never moved at `?v=0`, so every move changes the address the frame is
-  given; read off a real Chromium's frame, and every move in `chat.js` held
-  to it.
+- **AN ENDED REQUEST'S OWN REPLY WITH NO RECORD IS ASKED FOR WHENEVER IT IS
+  READ, HOWEVER OLD** (found live in run 97;
+  `docs/history/2026-10-04-deploy-2183.md` §7.6; `requestReply`).
+  - R1's, about 20 hours after R1 ended, was written then: read `pending`
+    for about 35 s, then served.
+  - A job's reply is not asked for more than two hours after the job
+    ended (`REPLY_ASK_WINDOW_MS`).
+  - The model call is ours, not the customer's.
+  - Open: whether a request too old to matter is asked for a reply at
+    all.
+  - **The other half of the item, closed**: earlier requests' replies
+    landing under a message sent before the page's check of them (five
+    in run 97; 7, 10 and 12 in run 99). Fixed on the branch
+    (`docs/history/2026-10-05-reply-placement.md`), corrected twice
+    (`2026-10-05-watched-refresh.md`, `2026-10-05-reconcile.md`),
+    merged and deployed in deploy 2184, and **closed by the owner on run
+    101** (2026-10-05; `docs/history/2026-10-05-run101-corrections.md` §1).
 - **The combined request flow** (2026-10-03, `docs/request-flow.md`; merged and
   deployed in deploy 2181 (2026-10-04); `REQUEST_FLOW` set by the owner in
   deploy 2182;

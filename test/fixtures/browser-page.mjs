@@ -231,7 +231,11 @@ export function page({ site, answer = () => null, idb, timers = false, frame = f
     siteOpenId: s.id,
     renderSites: () => {
       if (!frame) return;
-      drawn = { src: "", attrs: {}, setAttribute(k, v) { this.attrs[k] = String(v); } };
+      // A FRESH ELEMENT PER DRAWING, as the page made before 2026-10-05; the
+      // page keeps its frame across repaints now (`paintWorkspace`), and what
+      // a drawing asks the frame for is the same either way. `getAttribute`
+      // answers what `loadSiteFrame` reads before it navigates.
+      drawn = { src: "", attrs: {}, getAttribute(k) { return k === "src" ? (this.src || null) : (Object.hasOwn(this.attrs, k) ? this.attrs[k] : null); }, setAttribute(k, v) { this.attrs[k] = String(v); } };
       ctx.siteDrawFrame(s, ctx.siteActivePage(s), !!(s.react && s.url));
       frames.push(drawn.src);
     },

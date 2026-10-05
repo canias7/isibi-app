@@ -728,12 +728,23 @@ export function liveChecks({ steps, tables, newPages, frameLoads }) {
   // THE PREVIEW.
   list.forEach((s, i) => {
     if (!s || !s.sent) return;
-    const before = s.typed ? s.typed.frame : null, after = s.view ? s.view.frame : null;
+    // A MESSAGE SENT WITH ITS TAB CLOSED IS JUDGED AGAINST THE ADDRESS THE TAB
+    // OPENED AFTERWARDS FIRST SHOWED (2026-10-05, run 101): the first tab moves
+    // its own preview after a send — its first look at the site's earlier
+    // requests reconciles them — so the reopened tab can open at an address
+    // newer than the one read before the send, and a check against that one
+    // could not fail with no reconcile at all. Its own first address is
+    // captured off the frame's loads before anything could move it.
+    const away = s.mode === "away";
+    const re = away && s.away && s.away.reopened && typeof s.away.reopened === "object" ? s.away.reopened : null;
+    const before = away ? (re && typeof re.firstFrame === "string" ? re.firstFrame : null) : (s.typed ? s.typed.frame : null);
+    const after = s.view ? s.view.frame : null;
     const vb = previewVOf(before), va = previewVOf(after);
     // THE TAB THAT SHOWS IT: the run's first is 1, each closed-tab message opens the next.
-    const tab = 1 + list.slice(0, i + 1).filter((x) => x && x.mode === "away").length;
-    add(`message ${s.n}: the preview was given a newer address once it was done${s.mode === "away" ? ", in the tab opened afterwards" : ""}`,
-      vb !== null && va !== null && va > vb, `before the send ${before || "unread"}, once done ${after || "unread"}`);
+    const tab = away && re && Number.isInteger(re.frameTab) ? re.frameTab : 1 + list.slice(0, i + 1).filter((x) => x && x.mode === "away").length;
+    add(`message ${s.n}: the preview was given a newer address once it was done${away ? " than the tab opened afterwards first showed" : ""}`,
+      vb !== null && va !== null && va > vb,
+      away ? `the tab opened afterwards first showed ${before || "nothing that was seen"}, once done ${after || "unread"}` : `before the send ${before || "unread"}, once done ${after || "unread"}`);
     // A NEWER ADDRESS, LOADED: an address the frame already had is not one,
     // however often that tab loaded it.
     const want = after && vb !== null && va !== null && va > vb ? pathAndQuery(after) : "";

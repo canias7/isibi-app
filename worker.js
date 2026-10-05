@@ -216,7 +216,7 @@ import { resolveAccess, accessNameFor, accessLabel, ACCESS_PRESETS, unguardedBoo
 // data layer's gate cannot drift from the vocabulary again — it was compared
 // against "anyone", which is a WRITE level, and matched nothing on any site.
 const DISPLAY_PAIR = ACCESS_PRESETS.display;
-import { addonFailure, mergeAddonPages, mergeAddonSchema, unlinkedPages, keptPartsNote, unseenPartsNote, unseenPagesNote, routeOf, orderingMoved } from "./builder/site-addon.mjs";
+import { addonFailure, mergeAddonPages, mergeAddonSchema, unlinkedPages, keptPartsNote, unseenPartsNote, unseenPagesNote, routeOf, orderingMoved, settleReverted } from "./builder/site-addon.mjs";
 import { resolveLangs } from "./builder/site-langs.mjs";
 import { collectStrings, missingFrom, nextCache, untranslated, translatePages, readTranslation, TRANSLATE_TOOL } from "./builder/site-translate.mjs";
 import { listVersions, rollbackVersion, deleteAllVersions, versionLabel } from "./site-versions.mjs";
@@ -275,7 +275,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 import { pickAdds, runAdd, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
-import { requirementNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
+import { requirementNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
 import { modelsFor, BUILD_MODELS, contextWindow } from "./builder/build-models.mjs";
 import { contextReport } from "./builder/context-report.mjs";
 import { isXaiModel, toXaiRequest, fromXaiResponse, xaiSkipped, xaiErrorDetail, XAI_ENDPOINT } from "./builder/model-xai.mjs";
@@ -29568,6 +29568,17 @@ async function handleRequest(request, env, ctx) {
             // which carries both arrays on every return including its failures.
             const aReq = [];
             const aReqSkipped = [];
+            // WHAT THEIR WORDS DO NOT HOLD UP, AND THE EXTRAS OFFERED INSTEAD
+            // (2026-10-05, run 101): a declared requirement is kept only when
+            // the words it says it comes from are in what they wrote — this
+            // part's own words and every answer they gave about it — and a
+            // designer's suggestions are kept apart, for them to ask for.
+            const aAskedWords = [aInstruction, ...(aCtxShown || []).map((p) => p && p.a)];
+            // `known` IS `aReq` ITSELF, filled as each designer's are kept, so a
+            // later step's answer to an earlier one's hand-off is held to it.
+            const aGrounding = { asked: aAskedWords, known: aReq };
+            const aUngrounded = [];
+            const aSuggested = [];
             // AND THE PROPERTIES THE MODEL WROTE THAT THE ENGINE CANNOT KEEP
             // (owner, 2026-09-13: "Validate model-authored properties before
             // applying changes"). Names only, and the customer never sees them.
@@ -30055,9 +30066,18 @@ async function handleRequest(request, env, ctx) {
               // BELOW IT. A coverage list read after the decline check, after
               // the cleaner's refusal or after the truncation check is a list
               // that vanishes in exactly the three cases worth reading it in.
-              for (const r of Array.isArray(ran.requirements) ? ran.requirements : []) aReq.push(r);
+              // …AND ONLY WHAT THEIR WORDS HOLD UP (2026-10-05, run 101): a
+              // requirement resting on words they never wrote is set aside —
+              // not counted, not handed on, never reported to them as set up,
+              // unconfirmed or missing — and the designer's extras kept apart.
+              const aGround = groundRequirements(ran.requirements, aGrounding);
+              for (const r of aGround.list) aReq.push(r);
+              for (const r of aGround.ungrounded) aUngrounded.push(r);
+              for (const t of Array.isArray(ran.suggestions) ? ran.suggestions : []) {
+                if (typeof t === "string" && !aSuggested.some((x) => x.toLowerCase() === t.toLowerCase())) aSuggested.push(t);
+              }
               for (const r of Array.isArray(ran.reqSkipped) ? ran.reqSkipped : []) aReqSkipped.push(r);
-              aMark("add:" + k, ran.failed ? "fail" : "ok", { answered: ran.value !== undefined, needs: (ran.requirements || []).length, asked: ran.ask ? 1 : 0 });
+              aMark("add:" + k, ran.failed ? "fail" : "ok", { answered: ran.value !== undefined, needs: aGround.list.length, ungrounded: aGround.ungrounded.length, suggested: (ran.suggestions || []).length, asked: ran.ask ? 1 : 0 });
               if (ran.usage) aDesignUsage.push(ran.usage);
               if (ran.failed) return aDown(ran.error, "The builder is busy — try again in a moment.");
               aKept.push({ kind: k, answered: ran.value !== undefined, stop_reason: (ran.raw && ran.raw.stop_reason) || null, content: (ran.raw && ran.raw.content) || null });
@@ -30301,6 +30321,7 @@ async function handleRequest(request, env, ctx) {
             // before a single statement reached Postgres.
             const aRecord = () => requirementRecord({
               list: aReq, skipped: aReqSkipped, invalid: [...aBadProps], altered: [...aChanged],
+              ungrounded: aUngrounded, suggestions: aSuggested,
               ran: aAnswers.map((a) => a.kind), told: [...aTold], shown: aShown,
               failed: [...aFailedKinds], failedItems: aFailedItems(),
               made: aMade(), reportable: aReportable(), existing: aExisting(),
@@ -30793,6 +30814,8 @@ async function handleRequest(request, env, ctx) {
                 // (2026-10-03, the mixed-work audit's MW6): read only when every
                 // kind declined before, so a declined part vanished.
                 declined: aDeclined.length ? aDeclined.slice() : undefined,
+                // THE EXTRAS A DESIGNER OFFERED, never among the requirements (2026-10-05).
+                suggestions: aSuggested.length ? aSuggested.slice() : undefined,
                 // AN `ok: true` THAT STILL OWES SOMETHING SAYS SO. A job or an
                 // internal function changes no page, so this reply is the whole
                 // of what the customer hears — and a requirement handed to the
@@ -31561,6 +31584,8 @@ async function handleRequest(request, env, ctx) {
               }, { status: 422 });
             }
 
+            // EACH PAGE THE MENU-LINK STEP BELOW CHANGES, with its source after it (`settleReverted`).
+            const aLinked = new Map();
             // ── A NEW PAGE GOES INTO EVERY MENU, BY CODE (2026-10-04, run 95's F1) ──
             //
             // A page whose design puts it in the menu (`link.in`, the default)
@@ -31580,6 +31605,14 @@ async function handleRequest(request, env, ctx) {
                 if (aIn.changed.length) {
                   const aKnown = new Set([...(aMerge.added || []), ...(aMerge.changed || [])]);
                   aMerge = { ...aMerge, pages: aIn.pages, changed: [...(aMerge.changed || []), ...aIn.changed.filter((pg) => !aKnown.has(pg))] };
+                  // WHAT THIS STEP DID TO EACH PAGE, KEPT FOR THE SETTLING BELOW
+                  // (2026-10-05, run 101): its source right after the link went
+                  // in, and the addresses it gained — so a page the merge put
+                  // back is told apart from one whose only change is this link.
+                  for (const pg of aIn.pages) {
+                    if (!pg || !aIn.changed.includes(pg.path)) continue;
+                    aLinked.set(pg.path, { source: pg.source, to: (aIn.report || []).filter((r) => r && Array.isArray(r.added) && r.added.includes(pg.path)).map((r) => r.add.item.href) });
+                  }
                 }
                 aMark("menu-links", "ok", { pages: aLinks.length, menus: aIn.changed.length });
               }
@@ -32628,13 +32661,21 @@ async function handleRequest(request, env, ctx) {
               // EVERY kind declined, so beside a kind that was added it
               // vanished — in no field and no sentence.
               declined: aDeclined.length ? aDeclined.slice() : undefined,
+              // THE EXTRAS A DESIGNER OFFERED, never among the requirements (2026-10-05).
+              suggestions: aSuggested.length ? aSuggested.slice() : undefined,
               // WHAT THE CHANGE STILL OWES, AFTER THE WHOLE OF IT RAN. A
               // requirement handed to the page step IS covered here, because
               // the page step really ran — which is why this is computed from
               // the kinds that produced work rather than from the list alone.
               ...aCoverage(),
               added: aMerge.added, changed: aMerge.changed, removed: aMerge.removed, kept: aMerge.kept,
-              reverted: aMerge.reverted,
+              // WHAT WAS PUT BACK, SETTLED NOW THAT EVERY STEP HAS RUN (2026-10-05,
+              // run 101): a page the merge put back and the menu-link step then
+              // linked is `restored`, never "left as it was".
+              ...(() => {
+                const aSettled = settleReverted({ reverted: aMerge.reverted, stored: aSrc, pages: aMerge.pages, linked: aLinked });
+                return { reverted: aSettled.reverted, ...(aSettled.restored.length ? { restored: aSettled.restored } : {}) };
+              })(),
               // THE NEW WORDS AND THE SITE'S OWN PHOTOGRAPHS PLACED (2026-10-02),
               // each one found on its page by `wordsLanded` / `photosLanded`
               // before the publish — so the reply can say what was added from

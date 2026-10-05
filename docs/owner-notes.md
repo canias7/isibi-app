@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-05, 12:50 UTC)
+## Current handoff — read this first (2026-10-05, 20:36 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,45 +9,50 @@ is in git; the dated entries further down are the full story.*
 **State now**
 - **Deploy 2184** (`d75d79f3`, image `589e3e4e85a20066`) is live and
   runtime-confirmed by your free press (run 100).
-- **The live check passed as your paid press, run 101** (12:20–12:34 UTC):
-  all 75 checks passed, for 27 credits, and my own reads of the live pages
-  and the ledger agree. The changes stay on the bakery (your demo rule): the
-  Bake List page with its form and its table, its link in every menu, and the
-  Visit and Gallery headings.
-- **Money**: balance **21** (the last ledger row is 392, no job open, read at
-  12:40 UTC).
-- **The branch** is `main` plus these records (documents only).
+- **The live check is closed on run 101**, on your word. Three kinds of
+  evidence are kept apart: what it showed live; message 1's two preview
+  checks, not counted; and message 1's refresh, judged from the preview's
+  load record (`docs/history/2026-10-05-run101-corrections.md` §1).
+- **The branch** is `main` plus the correction batch for run 101's four
+  findings, on top of `d53caefc`. It is not merged, not deployed, and no
+  image is built:
+  - the preview is kept through the page's checks, with its scroll and
+    form, and a published change still loads it, never twice;
+  - a page put back and then given a menu link is described as exactly
+    that;
+  - requirements must quote your own words, extras become suggestions, and
+    a real choice is asked;
+  - the canary's closed-tab preview check measures from the reopened tab's
+    own first address.
+- **Checks**: the full suite `9502 / 9502 / 0 / 0` here. CI on the push is
+  read once it ends, and recorded then.
+- **Money**: balance **21** (read at 20:24 UTC: last ledger row 392, no
+  job open). Nothing was spent in this batch.
 
 **Yours to decide**
-- **Whether to close the live check on run 101**: every reading is in
-  `docs/history/2026-10-05-deploy-2184.md` §7.
-- **The four items found in the evidence** (backlog, none fixed):
-  - the preview reloads every few seconds while a request runs;
-  - message 1's reply calls the Visit page both updated and left as it was;
-  - the add-on named a confirmation email nobody asked for;
-  - the canary's preview check for a closed-tab message couldn't fail in
-    this run, so I judged that refresh from the preview's own load record.
-
-  Say which, if any, you want next.
+- **Review the batch** (`docs/history/2026-10-05-run101-corrections.md`).
+- **Then, if you want it live**: merge and deploy (the image would roll:
+  the prediction is in the history file's §6), and decide whether a paid
+  press should show any of it live. None of it has been shown live yet.
 
 **Still open** (`docs/backlog.md`)
 - An old request's own reply with no record is still asked for whenever it is
   read.
 - A data edit's reply can't name the change; the new page's own menu label;
   the free lookup's wording for a job with no reply.
-- Limits kept from the last rounds:
+- Limits kept from the earlier rounds:
   - your own job found done by a late first read is reconciled without its
     undo offer;
-  - a page opening many finished requests moves its preview once per job
-    (seen live in run 101: 9 moves in under a second);
+  - a page opening many finished requests moves its preview once per job;
   - two tabs of one browser keep their own table lists.
 - **First Build and RW**: outside this stage.
 
 **Links**
-- The deploy and the live check: `docs/history/2026-10-05-deploy-2184.md`
-  (§7 is run 101).
-- The plan: `docs/investigations/live-check.md`.
+- This batch, and the closure of the live check:
+  `docs/history/2026-10-05-run101-corrections.md`.
+- Run 101's readings: `docs/history/2026-10-05-deploy-2184.md` §7.
 - The open items: `docs/backlog.md`.
+
 ---
 
 2026-09-25: **Escalation correction CLOSED.** Independently reviewed (437 focused
@@ -106,6 +111,59 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-05 — Your review of run 101: the live check closed, and the four things it turned up fixed on the branch (nothing spent, merged or deployed)
+
+- **The live check is closed on run 101**, as you asked, with three kinds of
+  evidence kept apart:
+  - **what it showed live**:
+    - the request finished with its tab closed;
+    - replies stayed with their own request, in exactly the case that broke
+      in run 99;
+    - every table reached both routing calls and the page's own lists;
+    - message 2's preview moved and loaded;
+    - an edit and an add-on worked in one message;
+    - it cost 27 credits, exactly the press's own charges;
+  - **not counted**: message 1's two preview checks, which couldn't have
+    failed in that run;
+  - **message 1's refresh**: judged from the preview's own load record
+    instead, which I read myself.
+- **The four things it turned up, fixed together on the branch**:
+  1. **The preview no longer reloads while a request runs.** The page keeps
+     the same preview through all its checks, so its scroll and anything
+     typed in it stay put. A published change still loads it, never twice. I
+     tested this in a real browser on two sites and a draft; the screenshots
+     show before and after.
+  2. **A page put back and then given a menu link is described as exactly
+     that**: "On /visit I only added the link to /bake-list". It is never
+     called "updated" and "left as it was" at once.
+  3. **The invented email**: it came from the instructions every add-on
+     designer shares, which asked for what a request "implies".
+     - Now each requirement must quote your own words and say why it's
+       there. Anything else is set aside and never reported.
+     - Extras become suggestions you can ask for. Nothing is built for them.
+     - A choice only you can make is asked as a question.
+     - No email feature was added, no words are banned, and nothing is
+       special-cased for a site.
+  4. **The canary's closed-tab preview check** now measures from the address
+     the reopened tab first showed. It fails when that tab's catch-up is
+     switched off, both in the stand-in and on the real page.
+- **Checked**:
+  - the new tests fail on the code from before the fix;
+  - the mutation sweeps over the CI tests caught every planted defect (43
+    of 43, run again on the final code);
+  - the sweep over the real-browser tests caught 9 of 12. The other 3 are
+    safety checks for cases the real page doesn't reach today, and the CI
+    tests catch them;
+  - the full suite: `9502 / 9502 / 0 / 0` here;
+  - CI on the push: read once it ends, and recorded then.
+- **Not merged, not deployed, no image built, nothing pressed or spent.**
+  First Build and RW stay out. Balance **21** (read at 20:24 UTC: last
+  ledger row 392, no job open).
+
+**Recorded in**: `docs/history/2026-10-05-run101-corrections.md`, the
+backlog, the checklist, `docs/instruments.md`, the plan and
+`docs/history/2026-10-05-deploy-2184.md` §7.
 
 ## 2026-10-05 — Your live check passed (run 101): all 75 checks, 27 credits
 

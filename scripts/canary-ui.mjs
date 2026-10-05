@@ -1962,6 +1962,14 @@ export async function runUi(opts) {
     // of the request is there, and the page follows it to its end.
     const next = await context.newPage();
     watch(next);
+    // ITS NUMBER AMONG THE RUN'S TABS, for its own first address (2026-10-05):
+    // the address its frame first asked for is the one it opened at — before
+    // the page's first look at the site's requests could move anything — and
+    // it is the baseline this message's preview is judged against
+    // (`liveChecks`). Run 101 judged it against the first tab's address read
+    // before the send, which that tab had itself moved since.
+    const reTab = tabsWatched;
+    const firstFrame = () => { const f = rec.frameLoads.find((x) => x && x.tab === reTab); return f ? f.path : null; };
     const opened = await openWorkspace(next);
     if (!opened.ok) {
       a.reopened = { ok: false, closed: false, why: opened.why.replace(/ — nothing was sent$/, "") };
@@ -1972,10 +1980,10 @@ export async function runUi(opts) {
       try { s = await next.evaluate(readComposerInPage); } catch { s = null; }
       const shown = s && s.requests ? s.requests[key] : null;
       if (s && composerReady(s) && shown && shown.closed === true) break;
-      if (Date.now() >= shownEnd) { a.reopened = { ok: true, closed: false, why: "the reopened page never showed the request closed" }; return { ok: false, s, page: next, why: a.reopened.why }; }
+      if (Date.now() >= shownEnd) { a.reopened = { ok: true, closed: false, why: "the reopened page never showed the request closed", frameTab: reTab, firstFrame: firstFrame() }; return { ok: false, s, page: next, why: a.reopened.why }; }
       await sleep(pollMs);
     }
-    a.reopened = { ok: true, closed: true, why: "", tab: await next.evaluate(tabMarkInPage).catch(() => null) };
+    a.reopened = { ok: true, closed: true, why: "", tab: await next.evaluate(tabMarkInPage).catch(() => null), frameTab: reTab, firstFrame: firstFrame() };
     return { ok: a.ended, s, page: next, why: a.ended ? "" : "the request had not ended when the time ran out" };
   };
 
@@ -2499,7 +2507,9 @@ export function describeUi(rec) {
       out.push(`     away: tab ${a.closed ? "closed" : "NOT closed"}; the requests list read ${a.reads} time(s)` +
         `${a.ended ? `; ended ${Math.round((a.endedMs || 0) / 1000)} s after the tab closed` : "; NOT ended while away"}` +
         `; reads of the request's own route while away: ${Array.isArray(a.calls) ? a.calls.length : "unwatched"}` +
-        `; the tab opened afterwards ${a.reopened ? (a.reopened.closed ? "showed it ended" : "did NOT show it ended (" + a.reopened.why + ")") : "was never opened"}`);
+        `; the tab opened afterwards ${a.reopened ? (a.reopened.closed ? "showed it ended" : "did NOT show it ended (" + a.reopened.why + ")") : "was never opened"}` +
+        // ITS OWN FIRST ADDRESS, the baseline its preview is judged against (2026-10-05).
+        (a.reopened && a.reopened.firstFrame !== undefined ? `; its preview first asked for ${a.reopened.firstFrame || "nothing that was seen"}` : ""));
     }
     // THE PREVIEW AND THE PAGE'S OWN LISTS, BEFORE THE SEND AND ONCE DONE (2026-10-05).
     if (s.typed || s.view) {

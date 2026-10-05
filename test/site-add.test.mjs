@@ -650,7 +650,10 @@ test("one property per tool, named by the kind, nothing required at the top, the
     // RE-ANCHORED 2026-10-02 (the owner's review: *"Extend clarification into
     // … add-on designers"*): and the one question back (`QUESTION_FIELD`,
     // never designed into the site) — still no other metadata.
-    const want = (REQUIREMENT_ADDS.includes(k) ? [k, "requirements"] : [k]).concat("question");
+    // RE-ANCHORED 2026-10-05 (run 101): and its suggestions — the extras a
+    // designer thought of, kept apart from the requirements and designed by
+    // nobody — beside the coverage list, on the kinds that answer one.
+    const want = (REQUIREMENT_ADDS.includes(k) ? [k, "requirements", "suggestions"] : [k]).concat("question");
     assert.deepEqual(Object.keys(t.input_schema.properties).sort(), want.slice().sort(),
       k + ": the tool has a property that is neither the kind nor this step's own metadata");
     if (REQUIREMENT_ADDS.includes(k)) {
@@ -658,6 +661,8 @@ test("one property per tool, named by the kind, nothing required at the top, the
         k + ": the coverage list is not the shared item");
       assert.ok(!Object.keys(TABLE_ITEM.properties).includes("requirements"),
         "the coverage list leaked into TABLE_ITEM, which design_schema binds by identity");
+      assert.ok(!Object.keys(TABLE_ITEM.properties).includes("suggestions"),
+        "the suggestions leaked into TABLE_ITEM, which design_schema binds by identity");
     }
     assert.equal(t.input_schema.properties.question, QUESTION_FIELD, k + ": the designer's question is not the shared question field");
     assert.deepEqual(t.input_schema.required, [], k + ": something is required of a kind that may decline");

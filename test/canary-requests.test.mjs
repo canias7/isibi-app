@@ -903,6 +903,11 @@ function rqApp(opt = {}) {
           if (opt.live && plan.route && Array.isArray(plan.route.tablesFilled)) keep.tables = [...plan.route.tablesFilled];
           keep.msgs.push({ who: "a", card: true, text: said + " Queued" });
           keep.requests[plan.request.key] = { closed: false, ended: false, shown: [] };
+          // THE FIRST TAB'S FIRST LOOK AT THE SITE'S EARLIER REQUESTS, landing
+          // after the send (`historyMoves`, run 101's shape): it reconciles
+          // their jobs, moving this tab's preview once each — and the stored
+          // address, which the tab opened afterwards opens at.
+          if (opt.live && opt.historyMoves && sends === 1) for (let k = 0; k < opt.historyMoves; k++) { keep.previewV++; draw(); }
           return;
         }
         if (plan.clarify) {
@@ -1343,7 +1348,7 @@ test("LV on the old page: a request found done in the tab opened afterwards is n
   assert.equal(rec.sent, 2, JSON.stringify(rec.stopped));
   const f = failed(lvChecks(rec));
   for (const want of [
-    /^message 1: the preview was given a newer address once it was done, in the tab opened afterwards/,
+    /^message 1: the preview was given a newer address once it was done than the tab opened afterwards first showed/,
     /^message 1: that tab's preview loaded the newer address/,
     /^once message 1 was done, the page's own pages hold the new page/,
     /^once message 1 was done, the page's own tables hold the new one/,
@@ -1351,6 +1356,39 @@ test("LV on the old page: a request found done in the tab opened afterwards is n
   ]) assert.ok(f.some((x) => want.test(x)), `not failed: ${want}\n${f.join("\n")}`);
   // WHAT STILL HOLDS: the route's own read names them all, and the page keeps it.
   assert.ok(!f.some((x) => /^message 2's routing answer named every table/.test(x)), f.join("\n"));
+});
+
+test("LV IN RUN 101'S SHAPE: the first tab moves its own preview right after the send, so the tab opened afterwards opens at a newer address than the one read before it — that tab's own first address is captured, and the preview is judged against it: passing with the reconcile, failing without it, where the old baseline passed both", async () => {
+  // RUN 101: `?v=0` read before the send, nine history moves in the first tab
+  // within two seconds of it, the reopened tab opening at `?v=9`.
+  const withIt = await drive(lvApp({ historyMoves: 9 }), LV, { siteOrigin: SITE });
+  const without = await drive(lvApp({ historyMoves: 9, oldReconcile: true }), LV, { siteOrigin: SITE });
+  for (const rec of [withIt, without]) {
+    assert.equal(rec.sent, 2, JSON.stringify(rec.stopped));
+    const one = rec.steps[0];
+    assert.equal(one.typed.frame, `${SITE}/?v=0`, "the address before the send was not the first tab's");
+    assert.equal(one.away.reopened.frameTab, 2);
+    assert.equal(one.away.reopened.firstFrame, "/?v=9", "the tab opened afterwards was not captured at the address it opened at");
+    assert.deepEqual(rec.frameLoads.filter((f) => f.tab === 1).map((f) => f.path).slice(-1), ["/?v=9"], "the first tab did not move its own preview after the send");
+  }
+  const preview = (rec) => lvChecks(rec).filter((c) => /^message 1: (the preview was given|that tab's preview)/.test(c.name));
+  assert.equal(preview(withIt).length, 2);
+  assert.deepEqual(failed(preview(withIt)), [], "the reconciled tab failed its own preview checks");
+  assert.equal(withIt.steps[0].view.frame, `${SITE}/?v=11`);
+  // WITHOUT THE RECONCILE: the tab stays at the address it opened at, and both checks say so.
+  assert.equal(without.steps[0].view.frame, `${SITE}/?v=9`);
+  assert.deepEqual(failed(preview(without)).map((x) => x.split(" — ")[0]), [
+    "message 1: the preview was given a newer address once it was done than the tab opened afterwards first showed",
+    "message 1: that tab's preview loaded the newer address",
+  ]);
+  // …WHERE THE OLD BASELINE — THE ADDRESS READ BEFORE THE SEND — WOULD HAVE PASSED IT.
+  const s = without.steps[0];
+  assert.ok(previewVOf(s.view.frame) > previewVOf(s.typed.frame), "the old baseline would not have passed this run, so it shows nothing");
+  assert.ok(without.frameLoads.some((f) => f.tab === 2 && f.path === "/?v=9"), "the old rule's 'loaded the newer address' would not have found a load");
+  // A REOPENED TAB WHOSE FIRST ADDRESS WAS NOT SEEN IS NOT JUDGED AGAINST ANYTHING ELSE.
+  const blind = JSON.parse(JSON.stringify(withIt));
+  delete blind.steps[0].away.reopened.firstFrame;
+  assert.ok(failed(lvChecks(blind)).some((x) => /tab opened afterwards first showed nothing that was seen/.test(x)), failed(lvChecks(blind)).join("\n"));
 });
 
 test("LV with the old placement: another request's reply drawn after the second message fails the press, by name", async () => {

@@ -1,0 +1,116 @@
+[
+  {
+    "label": "CONTROL: a comment in the frame's repaint changes nothing",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "// AT EACH LEVEL everything beside the path is replaced, the path's own element staying where it is.",
+    "to": "// AT EACH LEVEL everything beside the path is replaced, the path's own element staying where it is (control).",
+    "control": true
+  },
+  {
+    "label": "CONTROL: a comment in the live checks changes nothing",
+    "files": [
+      "scripts/canary-requests.mjs"
+    ],
+    "from": "    // THE TAB THAT SHOWS IT: the run's first is 1, each closed-tab message opens the next.\n    const tab = away",
+    "to": "    // THE TAB THAT SHOWS IT: the run's first is 1, each closed-tab message opens the next (control).\n    const tab = away",
+    "control": true
+  },
+  {
+    "label": "P1: a repaint never keeps the frame",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (!was || !was.getAttribute('src')) { view.innerHTML = html; return; }",
+    "to": "  if (true) { view.innerHTML = html; return; }"
+  },
+  {
+    "label": "P2: the frame is loaded again at the address it already has",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (fr.getAttribute('src') === url) return false;\n",
+    "to": ""
+  },
+  {
+    "label": "P3: another site's frame is kept",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (!next || next.getAttribute('data-site') !== was.getAttribute('data-site')) { view.innerHTML = html; return; }",
+    "to": "  if (!next) { view.innerHTML = html; return; }"
+  },
+  {
+    "label": "P4: an element on the frame's path keeps its old attributes",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    for (const a of [...n.attributes]) if (o.getAttribute(a.name) !== a.value) o.setAttribute(a.name, a.value);\n",
+    "to": ""
+  },
+  {
+    "label": "P5: an element on the path keeps attributes the new markup dropped",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    for (const a of [...o.attributes]) if (!n.hasAttribute(a.name)) o.removeAttribute(a.name);\n",
+    "to": ""
+  },
+  {
+    "label": "P6: the render assigns its markup whole again",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  paintWorkspace(view,\n    // BOTH HALVES",
+    "to": "  view.innerHTML = (\n    // BOTH HALVES"
+  },
+  {
+    "label": "P7: the same draft is loaded again on every repaint",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (!again && fr._siteDraft === withShim && fr.getAttribute('src')) return false;\n",
+    "to": ""
+  },
+  {
+    "label": "P8: Refresh no longer asks for the draft again",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "      loadSitePreview(f, curHtml, site.slug, true);",
+    "to": "      loadSitePreview(f, curHtml, site.slug);"
+  },
+  {
+    "label": "P9: a different shape is kept anyway",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (oldPath[top].parentElement !== view || oldPath.length !== newPath.length ||\n      oldPath.some((n, i) => n.tagName !== newPath[i].tagName)) { view.innerHTML = html; return; }",
+    "to": "  if (oldPath[top].parentElement !== view) { view.innerHTML = html; return; }"
+  },
+  {
+    "label": "P10: the frame's markup no longer says whose it is",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "data-site=\"' + esc(site.id) + '\" title=\"Site preview\"",
+    "to": "title=\"Site preview\""
+  },
+  {
+    "label": "C1: a closed-tab message is judged against the address read before the send again",
+    "files": [
+      "scripts/canary-requests.mjs"
+    ],
+    "from": "    const before = away ? (re && typeof re.firstFrame === \"string\" ? re.firstFrame : null) : (s.typed ? s.typed.frame : null);",
+    "to": "    const before = s.typed ? s.typed.frame : null;"
+  },
+  {
+    "label": "C5: a closed-tab message's loads are looked for in the first tab",
+    "files": [
+      "scripts/canary-requests.mjs"
+    ],
+    "from": "    const tab = away && re && Number.isInteger(re.frameTab) ? re.frameTab : 1 + list.slice(0, i + 1).filter((x) => x && x.mode === \"away\").length;",
+    "to": "    const tab = away ? 1 : 1 + list.slice(0, i + 1).filter((x) => x && x.mode === \"away\").length;"
+  }
+]

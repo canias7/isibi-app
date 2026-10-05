@@ -16,6 +16,11 @@ runtime-confirmed by the owner's free press (run 100), and **the live check
 passed as the owner's paid press, run 101**: all 75 checks, for 27 credits,
 the top of §5's estimate. The readings, and what the session found while
 reading the evidence, are in `docs/history/2026-10-05-deploy-2184.md` §7.
+**Closed by the owner** (2026-10-05) on run 101. Message 1's two preview
+checks are not counted, because their baseline could not fail there, and
+its refresh is taken from the frame's load record
+(`docs/history/2026-10-05-run101-corrections.md` §1). The four things found
+in the evidence are corrected on the branch, not merged.
 The plan below is kept as it was written. The press is the canary's
 scenario `lv-reopen` (`docs/history/2026-10-05-live-check.md`). First Build
 and RW are outside it.

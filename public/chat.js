@@ -5043,10 +5043,13 @@ function frameSandbox(url) {
 // trap with a URL as its subject, and the drift is silent: a frame pointed at a
 // path the router redirects away from looks like a slow site, not a bug.
 //
-// `?v=` IS LOAD-BEARING AND IS NOT DECORATION. Assigning `fr.src` a value it
-// already has does not reload an iframe, so the cache-buster is the only thing
-// that makes a re-point actually re-fetch. It is bumped on every revise
-// (`previewV`), and the Refresh button bumps it for the same reason.
+// `?v=` IS LOAD-BEARING AND IS NOT DECORATION. It is what makes a move a NEW
+// address: bumped on every revise (`previewV`), and by the Refresh button for
+// the same reason, so a cache can never answer a move with the page as it was.
+// (This said that assigning `fr.src` the value it already has does not reload
+// the frame. It does — measured in Chromium, 2026-10-05: the property and the
+// attribute each reload it — which is why `loadSiteFrame` skips an unchanged
+// address, and why a move must always change it.)
 // A SITE NEVER MOVED IS AT 0 (2026-10-05, the owner's review): every move is
 // `(previewV || 0) + 1`, and with a default of 1 here the first move of a site
 // with no `previewV` — a fresh browser's, a site adopted from the list — left
@@ -5063,10 +5066,71 @@ function sitePreviewSrc(site, path) {
   const at = path || '/';
   return site.url + (at !== '/' ? String(at).replace(/^\//, '') : '') + '?v=' + (site.previewV || 0);
 }
+// AN ADDRESS THE FRAME ALREADY HAS IS NOT LOADED AGAIN (2026-10-05, run 101).
+// A repaint keeps the frame (`paintWorkspace`) and then asks for its address
+// again; assigning it unchanged would reload the page, and with it every bit
+// of state a visitor's look had built up — where it was scrolled, what was
+// typed into a form. A real move always changes the address, so nothing is
+// lost by skipping one that did not. TRUE WHEN IT LOADED.
 function loadSiteFrame(fr, url) {
-  if (!fr || typeof url !== 'string' || !url) return;
+  if (!fr || typeof url !== 'string' || !url) return false;
+  if (fr.getAttribute('src') === url) return false;
   fr.setAttribute('sandbox', frameSandbox(url));
   fr.src = url;
+  return true;
+}
+// ── THE PREVIEW FRAME OUTLIVES A REPAINT (2026-10-05, run 101) ──────────────
+//
+// The owner: *"Preserve the preview iframe and its state during chat/progress
+// polling while still showing actual published changes and updating
+// progress."*
+//
+// The workspace is drawn by replacing its whole markup, and every reading of a
+// running request draws it (`siteRequestShow` → `renderSites`), as does every
+// reply and every progress step. With the frame inside that markup each
+// drawing threw the frame away and made a new one, which loaded the site
+// again: run 101's reopened tab asked for the same `?v=11` seventeen times in
+// two minutes, once after each of the page's own readings, and a look at the
+// preview — scrolled down, half a form typed — was thrown away with it.
+//
+// SO A REPAINT KEEPS THE FRAME THAT IS THERE when the new markup draws a frame
+// for the same site (`data-site`) in the same place: every element from the
+// workspace down to the frame is kept and given the new markup's attributes,
+// and everything beside that path is the new markup's. The frame itself is
+// not touched here. MOVING IT IS NOT AN OPTION: an iframe taken out of the
+// document and put back reloads (measured in Chromium, 2026-10-05), so the
+// path to it is kept instead. Where it then points is `loadSiteFrame`'s call,
+// and that only navigates to a new address — a published change, another
+// page, Refresh. Anything else — no frame there now, none in the new markup,
+// another site's, a different shape — is drawn whole, as before.
+function paintWorkspace(view, html) {
+  const was = view.querySelector('#stFrame');
+  if (!was || !was.getAttribute('src')) { view.innerHTML = html; return; }
+  const tpl = document.createElement('template');
+  tpl.innerHTML = html;
+  const next = tpl.content.querySelector('#stFrame');
+  if (!next || next.getAttribute('data-site') !== was.getAttribute('data-site')) { view.innerHTML = html; return; }
+  // THE TWO PATHS, frame first: the old one ends at the view's own child, the new one at the markup's.
+  const oldPath = [], newPath = [];
+  for (let n = was; n && n !== view; n = n.parentElement) oldPath.push(n);
+  for (let n = next; n; n = n.parentElement) newPath.push(n);
+  const top = oldPath.length - 1;
+  if (oldPath[top].parentElement !== view || oldPath.length !== newPath.length ||
+      oldPath.some((n, i) => n.tagName !== newPath[i].tagName)) { view.innerHTML = html; return; }
+  // AT EACH LEVEL everything beside the path is replaced, the path's own element staying where it is.
+  const besides = (parent, keep, nodes, newKeep) => {
+    for (const c of [...parent.childNodes]) if (c !== keep) c.remove();
+    const at = nodes.indexOf(newKeep);
+    keep.before(...nodes.slice(0, at));
+    keep.after(...nodes.slice(at + 1));
+  };
+  besides(view, oldPath[top], [...tpl.content.childNodes], newPath[top]);
+  for (let k = top; k >= 1; k--) {
+    const o = oldPath[k], n = newPath[k];
+    for (const a of [...o.attributes]) if (!n.hasAttribute(a.name)) o.removeAttribute(a.name);
+    for (const a of [...n.attributes]) if (o.getAttribute(a.name) !== a.value) o.setAttribute(a.name, a.value);
+    besides(o, oldPath[k - 1], [...n.childNodes], newPath[k - 1]);
+  }
 }
 // The workspace preview renders from a Blob URL in a sandboxed allow-scripts
 // iframe (opaque origin — no access to the app), NOT srcdoc: srcdoc inherits
@@ -5094,12 +5158,20 @@ let sitePrevUrl = null;
 // NOTHING WRITES THAT OBJECT — so the route answers "Preview not ready" to
 // every request it has ever had. A working draft preview needs the POST route
 // that writes it, and then this call in front of the blob again.
-async function loadSitePreview(fr, html, slug) {
-  if (!fr) return;
+// THE SAME DRAFT IS NOT LOADED AGAIN (2026-10-05): every call makes a new blob
+// address, so `loadSiteFrame`'s own rule cannot see that nothing changed, and a
+// repaint that kept the frame (`paintWorkspace`) would reload the page it shows.
+// The draft the frame was last given is remembered on the frame itself; Refresh
+// asks for a load whatever it shows (`again`). TRUE WHEN IT LOADED — no longer
+// `async`, since nothing in it waits, so the render can tell.
+function loadSitePreview(fr, html, slug, again = false) {
+  if (!fr) return false;
   const withShim = sitePreviewHtml(html, slug);
+  if (!again && fr._siteDraft === withShim && fr.getAttribute('src')) return false;
   if (sitePrevUrl) { try { URL.revokeObjectURL(sitePrevUrl); } catch (e) {} sitePrevUrl = null; }
   sitePrevUrl = URL.createObjectURL(new Blob([withShim], { type: 'text/html' }));
-  loadSiteFrame(fr, sitePrevUrl);
+  fr._siteDraft = withShim;
+  return loadSiteFrame(fr, sitePrevUrl);
 }
 function sitePreviewHtml(html, slug) {
   // Intercept internal "/path" link clicks in the preview and hand them to the
@@ -7766,7 +7838,8 @@ function renderSiteWorkspace(view, site) {
   // a site carrying 'data' with no Data tab would show the preview with the
   // phone hidden beside it, which is the thing being asked against.
   const stageView = stStageView(siteView, !!(isReact && site.backend));
-  view.innerHTML =
+  // DRAWN WHOLE, THE PREVIEW FRAME KEPT where it can be (`paintWorkspace`).
+  paintWorkspace(view,
     // BOTH HALVES OF THE PANEL'S STATE LAND HERE, and that is the whole reason
     // the width is written at the render rather than left where the drag put
     // it. `setMobileW` sets `--mob-w` as an inline property on THIS element,
@@ -8066,7 +8139,7 @@ function renderSiteWorkspace(view, site) {
                   ? '<div class="st-datawrap" id="stData"><div class="st-empty">Loading your data…</div></div>'
                   : stageView === 'more'
                     ? siteMoreView(site)
-                    : '<div class="st-frame"><div class="st-frame-bar"><span class="st-frame-url">' + esc(previewUrl) + '</span></div><iframe id="stFrame" sandbox="' + FRAME_SANDBOX + '" title="Site preview"></iframe></div>') +
+                    : '<div class="st-frame"><div class="st-frame-bar"><span class="st-frame-url">' + esc(previewUrl) + '</span></div><iframe id="stFrame" sandbox="' + FRAME_SANDBOX + '" data-site="' + esc(site.id) + '" title="Site preview"></iframe></div>') +
           // The fix bar overlays the preview iframe, so it asks the stage's own
           // question rather than keeping a second copy of it — found by the
           // guard that counts copies, which is what that guard is for.
@@ -8116,7 +8189,7 @@ function renderSiteWorkspace(view, site) {
         // closed is the stage's edge.
         '<button type="button" class="st-mob-tab" id="stMobileTab" title="' + (siteMobileOpen ? 'Hide the mobile app' : 'Show the mobile app') + '" aria-label="' + (siteMobileOpen ? 'Hide the mobile app' : 'Show the mobile app') + '">' + ic('chevronleft', 13) + '</button>' +
       '</div>' +
-    '</div>';
+    '</div>');
   bindSiteNav();
   const thread = document.getElementById('stThread');
   if (thread) {
@@ -8171,8 +8244,9 @@ function renderSiteWorkspace(view, site) {
     // page whatever the picker said. Same fix as `switchSitePage`.
     loadSiteFrame(fr, sitePreviewSrc(site, active && active.path));
   } else if (fr && curHtml) {
-    sitePreviewErrs[site.id + '|' + (site.active || '/')] = []; // fresh page load → clear stale errors
-    loadSitePreview(fr, curHtml, site.slug);
+    // A FRESH PAGE LOAD CLEARS THE STALE ERRORS — and only a load: a repaint
+    // that kept the frame on the same draft keeps what that page reported.
+    if (loadSitePreview(fr, curHtml, site.slug)) sitePreviewErrs[site.id + '|' + (site.active || '/')] = [];
   }
   paintPreviewErrBadge(); // hidden until the preview reports errors
   // "Fix with AI": route the caught runtime errors through the normal revise flow.
@@ -8433,7 +8507,7 @@ function renderSiteWorkspace(view, site) {
       paintPreviewErrBadge();
     } else if (curHtml) {
       sitePreviewErrs[previewErrKey()] = [];
-      loadSitePreview(f, curHtml, site.slug);
+      loadSitePreview(f, curHtml, site.slug, true);
       paintPreviewErrBadge();
     }
   };
@@ -11619,7 +11693,14 @@ function addonReplyText(a) {
   // read as '✅ Done.' with every list empty.
   if (EditPoll.isRecovered(a)) return EditPoll.outcomeMessage('recovered');
   const added = (Array.isArray(a.added) ? a.added : []).map(sitePathOf).filter(Boolean);
-  const changed = (Array.isArray(a.changed) ? a.changed : []).map(sitePathOf).filter(Boolean);
+  // A PAGE WHOSE ONE CHANGE IS THE NEW PAGE'S LINK (`restored`, settled on the
+  // server once every step ran — 2026-10-05, run 101) is said on its own, never
+  // as a page "updated" or "left as it was" as a whole. The server's rule.
+  const onlyLinked = (Array.isArray(a.restored) ? a.restored : [])
+    .map((r) => (r && typeof r.path === 'string' ? { page: sitePathOf(r.path), to: (Array.isArray(r.to) ? r.to : []).filter((t) => typeof t === 'string' && t) } : null))
+    .filter((r) => r && r.page && r.to.length);
+  const linkedPages = new Set(onlyLinked.map((r) => r.page));
+  const changed = (Array.isArray(a.changed) ? a.changed : []).map(sitePathOf).filter(Boolean).filter((p) => !linkedPages.has(p));
   const removed = (Array.isArray(a.removed) ? a.removed : []).map(sitePathOf).filter(Boolean);
   const bits = [];
   if (added.length) bits.push('added ' + added.join(', '));
@@ -11805,6 +11886,10 @@ function addonReplyText(a) {
       ' — nothing there needed to change for this. Ask me directly if you did want ' +
       (back.length === 1 ? 'it' : 'them') + ' edited.';
   }
+  for (const r of onlyLinked) out += ' On ' + r.page + ' I only added the link to ' + r.to.join(', ') + ' — nothing else there needed to change for this.';
+  // AN EXTRA A DESIGNER SUGGESTED (2026-10-05): offered, never claimed. The server's rule.
+  const ideas = (Array.isArray(a.suggestions) ? a.suggestions : []).filter((t) => typeof t === 'string' && t.trim()).slice(0, 3);
+  if (ideas.length) out += ' You didn\u2019t ask for ' + (ideas.length === 1 ? 'this' : 'these') + ', so I didn\u2019t add ' + (ideas.length === 1 ? 'it' : 'them') + ': ' + ideas.join('; ') + ' \u2014 say if you\u2019d like ' + (ideas.length === 1 ? 'it' : 'any of them') + '.';
   // A COMPONENT WE KEPT RATHER THAN REPLACE (2026-09-17). The writer returned
   // a rewrite of one of this site's own components and had not been shown what
   // it was rewriting — its source is too long to carry in one request — so the

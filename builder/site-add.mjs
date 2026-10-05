@@ -157,7 +157,7 @@ import { IMAGE_CAP, MAX_PROMPT_CHARS, imageRefs, imageSources, imageRefCounts, i
 // part of `TABLE_ITEM`: that item is bound by identity into `design_schema` too,
 // so anything added there enlarges the build's tool and becomes a promise the
 // engine must keep. A coverage note is neither — no DDL, nothing in `_meta`.
-import { REQUIREMENT_ITEM, MAX_REQUIREMENTS, SITE_KINDS, cleanRequirements, requirementBrief } from "./site-requirements.mjs";
+import { REQUIREMENT_ITEM, MAX_REQUIREMENTS, MAX_SUGGESTIONS, SITE_KINDS, cleanRequirements, cleanSuggestions, requirementBrief } from "./site-requirements.mjs";
 // THE TWO BODY WALLS, IMPORTED RATHER THAN RETYPED. Both engines SLICE, and a
 // slice is silent: the cleaner refuses at the same number so the customer hears
 // about it instead of the site quietly POSTing half a request for ever. The
@@ -1652,11 +1652,31 @@ export function addTool(kind) {
       maxItems: MAX_REQUIREMENTS,
       items: REQUIREMENT_ITEM,
       description:
-        "What this change has to be able to do, and what became of each one. One entry per requirement you " +
-        "worked out above — what they asked for AND what it implies. Answer this even when you answer no " +
-        "design at all: a requirement you could not express is the single most useful thing you can tell us, " +
-        "and leaving it out is the one outcome that reaches the customer as silence. The one exception is a " +
-        "question back to them: then leave this out too, since nothing is designed until they reply.",
+        "What this change has to be able to do, and what became of each one. One entry per requirement — what " +
+        "they asked for, and what that cannot work without — each with where it comes from and their own words " +
+        "for it. Answer this even when you answer no design at all: a requirement you could not express is the " +
+        "single most useful thing you can tell us, and leaving it out is the one outcome that reaches the customer " +
+        "as silence. The one exception is a question back to them: then leave this out too, since nothing is " +
+        "designed until they reply.",
+    };
+    // ── AN EXTRA IS A SUGGESTION, NEVER A REQUIREMENT (2026-10-05, run 101) ──
+    //
+    // Run 101's designer declared a confirmation email nobody asked for as a
+    // requirement, and the customer was told it had been set up but could not
+    // be confirmed. An idea beside the ask has its own place now: designed by
+    // nobody, built by nobody, counted nowhere, and offered to them as theirs
+    // to ask for. A choice only they can make, where what you build depends on
+    // it, is neither: it is the question field's.
+    properties.suggestions = {
+      type: "array",
+      maxItems: MAX_SUGGESTIONS,
+      items: { type: "string" },
+      description:
+        "Optional extras you thought of that they did NOT ask for and that what they asked for works without — " +
+        "each in a few plain words, as you would say it to them. Nothing is " +
+        "designed or built for any of them; they are offered to the customer to ask for if they want. Leave it out " +
+        "when there are none. When what you build depends on a choice only they can make, do not put it here and " +
+        "do not guess: ask them that one thing instead.",
     };
   }
   // ── AND THE DESIGNER MAY ASK (2026-10-02, the owner's review: *"Extend
@@ -2269,7 +2289,8 @@ export function readAddAnswer(reply, kind) {
   // step that then refused everything could never be tied back to that refusal,
   // and six kinds answering makes that the ordinary case rather than a corner.
   const req = cleanRequirements(input ? input.requirements : null, kind);
-  return { value: v === null ? undefined : v, requirements: req.list, skipped: req.skipped };
+  // AND ITS SUGGESTIONS, beside the requirements and never among them (2026-10-05).
+  return { value: v === null ? undefined : v, requirements: req.list, skipped: req.skipped, suggestions: cleanSuggestions(input ? input.suggestions : null) };
 }
 
 /**
@@ -2284,7 +2305,7 @@ export async function runAdd(deps, { kind, message, site, model, brief = "" }) {
   // a consumer that will one day forget to — and the failure shapes are where
   // that costs most, since a truncated answer is exactly when a half-read list
   // would be silently dropped.
-  const none = { requirements: [], reqSkipped: [] };
+  const none = { requirements: [], reqSkipped: [], suggestions: [] };
   let reply;
   try {
     reply = await deps.send(addRequest({ kind, message, site, model, brief }));
@@ -2312,6 +2333,7 @@ export async function runAdd(deps, { kind, message, site, model, brief = "" }) {
     // so a cleaner that refuses every table cannot take the reason with it.
     requirements: answer.requirements,
     reqSkipped: answer.skipped,
+    suggestions: answer.suggestions,
     usage: addUsage(reply, model),
     failed: false,
     raw: reply,

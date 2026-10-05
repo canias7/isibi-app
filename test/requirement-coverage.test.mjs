@@ -25,7 +25,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 import {
-  COVERAGE, COVERAGE_STEPS, MAX_REQUIREMENTS, REQUIREMENT_ITEM, REQUIREMENT_STATES, SITE_KINDS, OPAQUE_KINDS,
+  COVERAGE, COVERAGE_STEPS, MAX_REQUIREMENTS, REQUIREMENT_ITEM, BASES, REQUIREMENT_STATES, SITE_KINDS, OPAQUE_KINDS,
   ITEM_KINDS, referenceOf, evidenceItems, implementationOf,
   cleanRequirements, unresolvedRequirements, requirementsByStep, requirementCounts,
   requirementBrief, requirementNote, requirementRecord, requirementOutcomes, evidenceName, claimEvidence,
@@ -70,7 +70,10 @@ const toolReply = (name, input) => ({ content: [{ type: "tool_use", name, input 
 
 test("the three statuses are genuinely different answers and the item asks for all three", () => {
   assert.deepEqual(COVERAGE, ["covered", "elsewhere", "unsupported"]);
-  assert.deepEqual(REQUIREMENT_ITEM.required, ["need", "status"]);
+  // WHERE IT COMES FROM, IN THEIR OWN WORDS (2026-10-05, run 101): required,
+  // and the basis offered is the constant the route grounds by, not a copy.
+  assert.deepEqual(REQUIREMENT_ITEM.required, ["need", "status", "basis", "words"]);
+  assert.equal(REQUIREMENT_ITEM.properties.basis.enum, BASES);
   // THE ENUM IS THE CONSTANT, not a second copy of it: a status the cleaner
   // accepts and the tool never offers is a status no model will ever send, and
   // the reverse is a status the tool asks for and the cleaner bins.
@@ -424,7 +427,9 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   // HOP 3 IS ABOVE EVERY EXIT BELOW IT. A list collected after the decline
   // check, after the cleaner's refusal or after the truncation check is a list
   // that vanishes in exactly the three cases worth reading it in.
-  const collect = at("for (const r of Array.isArray(ran.requirements) ? ran.requirements : []) aReq.push(r);", "the collect");
+  // RE-ANCHORED 2026-10-05: what is collected is what the customer's words
+  // hold up (`groundRequirements`), worked out in the same unconditional span.
+  const collect = at("for (const r of aGround.list) aReq.push(r);", "the collect");
   const decline = W.indexOf("if (ran.value === undefined) { aDeclined.push(k); continue; }", runAt);
   const refuse = W.indexOf('error: "add", kind: k, reason: clean.why', runAt);
   assert.ok(collect > runAt, "the coverage is collected before the designer ran");
@@ -455,6 +460,8 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   assert.doesNotMatch(between, /[{}]/, "a block opens between the designer call and the collect");
   // …AND THE SPAN IS REAL: an empty one satisfies both absences perfectly.
   assert.ok(between.length > 100, "the span is too short to have tested anything: " + between.length);
+  // …AND WHAT IS COLLECTED IS GROUNDED THERE, from this designer's own answer.
+  assert.match(between, /const aGround = groundRequirements\(ran\.requirements, aGrounding\);/, "the collect no longer keeps only what their words hold up");
   // HOP 5 AND 6: every exit carries it. Four of them, and the two failures are
   // the ones that matter — an `ok: false` is where a customer most needs to
   // hear what the change could not do.

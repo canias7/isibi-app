@@ -72,7 +72,7 @@ function press({ isReact, curHtml, previewV = 1, path = "/", presses = 1, fresh 
     // The REAL builder, so the URL under test is the product's own.
     sitePreviewSrc: new Function(fn("function sitePreviewSrc(site, path)") + "; return sitePreviewSrc;")(),
     loadSiteFrame: (f, url) => calls.push({ via: "loadSiteFrame", url }),
-    loadSitePreview: (f, html, slug) => calls.push({ via: "loadSitePreview", html: String(html).slice(0, 12), slug }),
+    loadSitePreview: (f, html, slug, again) => calls.push({ via: "loadSitePreview", html: String(html).slice(0, 12), slug, again }),
     paintPreviewErrBadge: () => calls.push({ via: "paintPreviewErrBadge" }),
   };
   // `rl` IS NOT HANDED IN. The carried block opens with its own
@@ -99,10 +99,11 @@ test("pressing Refresh on a React site really reloads the frame", () => {
 });
 
 test("...and the cache-buster MOVES, or the iframe keeps the page it has", () => {
-  // Assigning `fr.src` a value it already holds does not reload an iframe, so a
-  // re-point without a bump is a button that looks wired and is inert — the
-  // right symptom fixed by the wrong cause, which this panel has cost three
-  // rounds of once already.
+  // A re-point without a bump asks for an address the frame already has, which
+  // `loadSiteFrame` now skips (2026-10-05) — and a cache could answer it with
+  // the page as it was anyway — so it is a button that looks wired and is
+  // inert: the right symptom fixed by the wrong cause, which this panel has
+  // cost three rounds of once already.
   const { calls, site } = press({ isReact: true, curHtml: "", previewV: 4, presses: 2 });
   const urls = calls.filter((c) => c.via === "loadSiteFrame").map((c) => c.url);
   assert.equal(urls.length, 2, "two presses did not produce two loads");
@@ -174,6 +175,10 @@ test("a site that really has stored HTML still uses the legacy loader", () => {
   const load = calls.find((c) => c.via === "loadSitePreview");
   assert.ok(load, "the legacy preview path was lost with the fix");
   assert.equal(load.slug, "hey", "the legacy loader no longer gets the slug");
+  // REFRESH ASKS FOR THE DRAFT AGAIN WHATEVER THE FRAME SHOWS (2026-10-05): the
+  // loader skips a draft it already shows, so a repaint keeps the page in it,
+  // and without this Refresh would be that repaint.
+  assert.equal(load.again, true, "Refresh would leave the draft the frame already shows exactly as it is");
 });
 
 test("a project with neither does nothing, and does not throw", () => {

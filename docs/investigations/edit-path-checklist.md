@@ -126,6 +126,31 @@ runs 91 and 92.**
   separate (backlog): the photo reply's mid-sentence capital, two untraced
   404 lines in the app tab, and the menu list rewritten on one line.
 
+**Closed by the owner (2026-10-05): the live check of the page's refresh, on
+run 101** (`lv-reopen`; `docs/history/2026-10-05-run101-corrections.md`
+§1, the readings in `docs/history/2026-10-05-deploy-2184.md` §7).
+- **Shown live**:
+  - a request finished with its tab closed, and the reopened tab showed it
+    ended with every reply;
+  - reply placement in run 99's own case: 10 earlier replies above
+    message 1, none after it;
+  - every table through both routing calls and the page's lists, and the
+    new page in the page's list (that list is also read from the server
+    when a tab opens);
+  - message 2's preview moved and loaded;
+  - an edit and an add-on in one message, every reply the model's own;
+  - 27 credits, exactly the press's own charges.
+- **Not counted**: message 1's two preview checks. Their baseline was read
+  before the send, and the first tab then moved its own preview, so they
+  could not fail.
+- **Message 1's refresh, from separate evidence**: the frame's load record,
+  read by the session. The reopened tab opened at `?v=9`, and moved to
+  `?v=10` and `?v=11`, each just after reading one of the request's
+  publishing jobs.
+- Still with supplied answers only: another browser's addition while a page
+  watches, an older routing answer arriving late, and a route whose read is
+  unavailable.
+
 **Test 11, one item added to an existing list: prepared, then its
 capability built (2026-10-01, on the owner's word), corrected in three
 rounds and merged and deployed in deploy 2175 the same day, its code
@@ -1093,7 +1118,24 @@ the owner's free press, run 51, at 22:57 UTC):
       backlog: the preview reloads on every reading of a running request; a
       reply calling the Visit page both updated and left as it was; an
       add-on requirement nobody asked for (a confirmation email); and that
-      check's baseline. **Closing it is the owner's decision.**
+      check's baseline. **Closed by the owner** (2026-10-05), with message 1's
+      two preview checks not counted and its refresh taken from the load
+      record (the entry at the top).
+    - **The four things found, corrected** (2026-10-05, on the owner's word;
+      on the branch, not merged or deployed;
+      `docs/history/2026-10-05-run101-corrections.md`):
+      - the preview frame and its scroll and form are kept through the
+        page's readings, and a published change still loads it, never twice
+        (a real Chromium);
+      - a page put back and since given only the menu link is reported as
+        exactly that, never as updated and left as it was;
+      - a requirement is kept only on the customer's own words, an extra is
+        offered as a suggestion and never built, and a real choice is asked;
+      - a closed-tab message's preview is judged against the reopened tab's
+        own first address, and fails with that tab's reconcile cut.
+
+      **Supplied answers, the real routes and a real Chromium**; not shown
+      live.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

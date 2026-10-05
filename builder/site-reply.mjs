@@ -696,10 +696,19 @@ export function addonReplyFacts(a, { routedCost = null, inRequest = false } = {}
   if (a.ok === true) {
     const added = paths(a.added);
     const removed = paths(a.removed);
-    const changed = paths(a.changed);
+    // A PAGE WHOSE ONE CHANGE IS A NEW PAGE'S LINK (`restored`, settled once
+    // every step ran — 2026-10-05, run 101): the page writer's own change to it
+    // was not kept, so it is said exactly, never as "updated" or "left as it
+    // was" of the whole page.
+    const restored = (Array.isArray(a.restored) ? a.restored : [])
+      .map((r) => (r && typeof r === "object" ? { page: pathOf(r.path), to: paths(r.to) } : null))
+      .filter((r) => r && r.page && r.to.length);
+    const linkedOnly = new Set(restored.map((r) => r.page));
+    const changed = paths(a.changed).filter((p) => !linkedOnly.has(p));
     if (added.length) F.add("changed", "Added " + listOf(added) + " to the site.");
     if (removed.length) F.add("changed", "Removed " + listOf(removed) + ".");
     if (changed.length) F.add("changed", "Updated " + listOf(changed) + ".");
+    restored.forEach((r, i) => F.add("changed", "On " + r.page + ", the only change is the link to " + listOf(r.to) + " in its menu; nothing else there needed to change for this.", "restored:" + i));
     const tables = strings(a.tables);
     if (tables.length) F.add("changed", "The site now stores " + listOf(tables) + ".");
     const fns = strings(a.functions);
@@ -742,6 +751,11 @@ export function addonReplyFacts(a, { routedCost = null, inRequest = false } = {}
     const secrets = strings(a.needsSecrets);
     if (secrets.length) F.add("note", "To switch it on, they add " + listOf(secrets) + " under Cloud → Secrets.");
     for (const k of ["credentialNote", "pictureNote", "coverNote", "keptPartsNote"]) { const s = said(a[k]); if (s) F.add(k === "coverNote" ? "not-done" : "note", s); }
+    // WHAT A DESIGNER SUGGESTED BESIDE THE ASK (2026-10-05, run 101): never a
+    // requirement, never done or not done — an extra nobody asked for and
+    // nothing was made for, theirs to ask for if they want it.
+    const ideas = strings(a.suggestions).slice(0, 3);
+    if (ideas.length) F.add("note", "Something they did not ask for, so nothing was made for it, which they could ask for if they want: " + listOf(ideas.map(quote)) + ".");
     const frames = Number(a.photos) || 0;
     if (frames > 0) F.add("note", "There " + (frames === 1 ? "is an empty space" : "are " + frames + " empty spaces") + " for a photo; uploading their own in the Data panel fills " + (frames === 1 ? "it" : "them") + ".");
     const skipped = Array.isArray(a.skipped) ? a.skipped : [];

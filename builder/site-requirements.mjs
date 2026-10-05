@@ -171,6 +171,18 @@ export const HANDOFF_STATES = ["delivered", "undelivered"];
 /** A ceiling, never a quota — the rules say "one per thing the change needs". */
 export const MAX_REQUIREMENTS = 12;
 
+/**
+ * WHERE A REQUIREMENT COMES FROM (2026-10-05, run 101): they asked for it, or
+ * what they asked for cannot work without it. An extra is neither — it is a
+ * suggestion (`cleanSuggestions`), never a requirement.
+ */
+export const BASES = Object.freeze(["asked", "needed"]);
+const MAX_WORDS = 200;
+
+/** Suggestions one designer may offer, and how long each may be. */
+export const MAX_SUGGESTIONS = 3;
+const MAX_IDEA = 160;
+
 const MAX_NEED = 200;
 const MAX_BY = 200;
 const MAX_WHY = 300;
@@ -187,14 +199,41 @@ const MAX_WHY = 300;
 export const REQUIREMENT_ITEM = {
   type: "object",
   properties: {
+    // ── GROUNDED IN WHAT THEY ASKED (2026-10-05, run 101) ────────────────
+    //
+    // Run 101's add-on was asked for a page where people join a list with
+    // their name and email; a designer declared "the person who joins gets an
+    // email confirming they are on the list" as a requirement, claimed it, and
+    // the customer read "I've set that up, but I can't confirm … that they then
+    // get an email". Nothing sends one. The old wording invited it: "Read it
+    // off what they asked for, including what the ask IMPLIES". A requirement
+    // is now what they asked for, or what that cannot work without, and says
+    // which (`basis`) in their own words (`words`), which the route checks
+    // against what they wrote; an extra is a suggestion, kept apart.
     need: {
       type: "string",
       description:
         "One thing this change has to be able to do, in the business's own terms and in a single short sentence " +
         "— \"a visitor can book a slot and get it back later\", \"only the owner sees a customer's phone number\", " +
-        "\"the same slot cannot be taken twice\". Read it off what they asked for, including what the ask IMPLIES: " +
-        "a booking form implies somewhere to put the booking and somebody who may read it. Not a column, not a " +
-        "table name — the requirement, which the configuration below is your answer to.",
+        "\"the same slot cannot be taken twice\". ONLY what they asked for, and what that cannot work without: a " +
+        "booking form cannot work without somewhere to keep the bookings and somebody allowed to read them. Something " +
+        "that would be nice beside it but that they did not ask for, and that what they asked works without — an " +
+        "email back, a reminder, a second page — is NOT a requirement: put it in `suggestions` and design none of " +
+        "it. Not a column, not a table name — the requirement, which the configuration below is your answer to.",
+    },
+    basis: {
+      type: "string",
+      enum: BASES,
+      description:
+        "\"asked\" — they asked for this. \"needed\" — they did not say it, but what they asked for cannot work " +
+        "without it. Nothing else is a requirement.",
+    },
+    words: {
+      type: "string",
+      description:
+        "Their own words this comes from, copied exactly from their message — for \"asked\" the words that ask for " +
+        "it, for \"needed\" the words asking for what it is needed by. A few words are enough. We check them " +
+        "against what they wrote: a requirement whose words are not there is not treated as one.",
     },
     status: {
       type: "string",
@@ -291,7 +330,7 @@ export const REQUIREMENT_ITEM = {
         "platform can act on. Never an apology and never a promise about later.",
     },
   },
-  required: ["need", "status"],
+  required: ["need", "status", "basis", "words"],
 };
 
 const str = (v, n) => (typeof v === "string" ? v.trim().slice(0, n) : "");
@@ -352,6 +391,13 @@ export function cleanRequirements(raw, from = "") {
     // step wrote it: with no owner there is nothing to make an id out of and
     // nothing downstream that could use one.
     const e = { need, status, ...(owner ? { from: owner, id: owner + "#" + list.length } : {}) };
+    // WHERE IT COMES FROM, KEPT AS SAID (2026-10-05): checked against their
+    // message by `groundRequirements`, never repaired here — a basis we do not
+    // know is simply absent, and an absent one grounds nothing.
+    const basis = str(r.basis, 12).toLowerCase();
+    if (BASES.includes(basis)) e.basis = basis;
+    const words = str(r.words, MAX_WORDS);
+    if (words) e.words = words;
     // THE EXPLICIT REFERENCE SURVIVES CLEANING FOR BOTH STATUSES (owner,
     // 2026-09-15: *"Support explicit item references for covered requirements,
     // preserve them through cleaning"*). It sat inside the `elsewhere` branch,
@@ -424,6 +470,70 @@ export function cleanRequirements(raw, from = "") {
     list.push(e);
   }
   return { list, skipped };
+}
+
+/** Words as compared: one case, no punctuation, single spaces — any language's letters and digits kept. */
+const plain = (t) => String(t || "").toLocaleLowerCase()
+  .replace(/[\u2018\u2019\u201b\u2032]/g, "'").replace(/[\u201c\u201d\u201f\u2033]/g, '"')
+  .replace(/[^\p{L}\p{N}']+/gu, " ").replace(/\s+/g, " ").trim();
+
+/**
+ * ── A REQUIREMENT IS GROUNDED IN WHAT THEY WROTE (2026-10-05, run 101) ──────
+ *
+ * The owner: *"ground requirements in the user's request and necessary
+ * dependencies, keep optional suggestions distinct … Do not add email
+ * functionality to satisfy an invented requirement or introduce keyword
+ * bans."*
+ *
+ * A designer says where each requirement comes from — they asked for it, or
+ * what they asked cannot work without it (`basis`) — and quotes their words
+ * (`words`). Kept is an entry whose words are really in what they wrote (the
+ * message, and every answer they gave to a question about this request), or one
+ * that answers a hand-off already kept. EVERYTHING ELSE IS SET ASIDE, never
+ * counted, handed on, reported to them as set up, unconfirmed or missing:
+ * nothing they asked for rests on it, and nothing here can say what it is. It
+ * is kept for the record (`ungrounded`), with why.
+ *
+ * NO WORD IS BANNED AND NO SITE IS SPECIAL. The one test is whether the
+ * customer's own words are where the designer says they are; it holds a
+ * booking, a newsletter and a gallery to the same rule, in any language. What
+ * it cannot judge — whether a dependency really is one — is the designer's
+ * own instruction (`REQUIREMENT_ITEM.need`), and an extra it calls necessary
+ * still has to rest on words they wrote.
+ */
+export function groundRequirements(list, { asked = [], known = [] } = {}) {
+  const texts = (Array.isArray(asked) ? asked : []).filter((t) => typeof t === "string" && t.trim()).map(plain);
+  const ids = new Set((Array.isArray(known) ? known : []).map((r) => r && r.id).filter((x) => typeof x === "string"));
+  const out = { list: [], ungrounded: [] };
+  for (const r of Array.isArray(list) ? list : []) {
+    if (!r || typeof r !== "object") continue;
+    const w = plain(r.words);
+    // ONLY THE TWO BASES THE RULE KNOWS ground anything: "implied", "assumed"
+    // or any other a model might write is not one, whatever its words.
+    const quoted = BASES.includes(r.basis) && w.length >= 2 && texts.some((t) => (" " + t + " ").includes(" " + w + " "));
+    const answering = typeof r.answers === "string" && ids.has(r.answers);
+    if (quoted || answering) { out.list.push(r); if (r.id) ids.add(r.id); continue; }
+    out.ungrounded.push({ need: r.need, status: r.status, ...(r.from ? { from: r.from } : {}), ...(r.words ? { words: r.words } : {}),
+      why: !BASES.includes(r.basis) ? "no-basis" : !w ? "no-words" : "not-in-request" });
+  }
+  return out;
+}
+
+/**
+ * THE DESIGNER'S SUGGESTIONS (2026-10-05): extras it thought of that they did
+ * not ask for and that what they asked works without. Designed and built by
+ * nobody, and kept APART from the requirements — never counted, never handed
+ * on, never said to be set up or missing; offered to them as theirs to ask for.
+ * Strings only, trimmed, distinct, at most `MAX_SUGGESTIONS`.
+ */
+export function cleanSuggestions(raw) {
+  const out = [];
+  for (const v of Array.isArray(raw) ? raw : []) {
+    const t = str(v, MAX_IDEA).replace(/\s+/g, " ");
+    if (t && !out.some((x) => plain(x) === plain(t))) out.push(t);
+    if (out.length >= MAX_SUGGESTIONS) break;
+  }
+  return out;
 }
 
 /**
@@ -1599,7 +1709,7 @@ export function requirementNote(list, { told = [], invalid = [], failed = [], fa
  * the file run 28's three blind declines are the reason for — a boolean is not
  * a diagnosis. Bounded, because this is written on every addition.
  */
-export function requirementRecord({ list = [], skipped = [], invalid = [], altered = [], ran = [], told = [], shown = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unbuilt = {}, unexpressed = [], missingPages = [], unknownKit = [], unseenPages = [], dropped = [] } = {}) {
+export function requirementRecord({ list = [], skipped = [], invalid = [], altered = [], ran = [], told = [], shown = [], failed = [], failedItems = [], made = [], reportable = [], existing = null, unbuilt = {}, unexpressed = [], missingPages = [], unknownKit = [], unseenPages = [], dropped = [], ungrounded = [], suggestions = [] } = {}) {
   const outcomes = requirementOutcomes(list, { told, failed, failedItems, made, reportable, existing });
   const n = (s) => outcomes.filter((r) => r.state === s).length;
   return {
@@ -1635,6 +1745,11 @@ export function requirementRecord({ list = [], skipped = [], invalid = [], alter
       undelivered: outcomes.filter((r) => r.handoff === "undelivered").length,
     },
     requirements: outcomes.slice(0, MAX_REQUIREMENTS),
+    // WHAT A DESIGNER DECLARED THAT THEIR WORDS DO NOT HOLD UP (2026-10-05),
+    // and the extras it offered instead: kept here for whoever reads the
+    // record, and in no count above.
+    ...(Array.isArray(ungrounded) && ungrounded.length ? { ungrounded: ungrounded.slice(0, MAX_REQUIREMENTS) } : {}),
+    ...(Array.isArray(suggestions) && suggestions.length ? { suggestions: suggestions.slice(0, MAX_REQUIREMENTS) } : {}),
     unreadable: (Array.isArray(skipped) ? skipped : []).slice(0, MAX_REQUIREMENTS),
     invalidProps: (Array.isArray(invalid) ? invalid : []).slice(0, MAX_REQUIREMENTS),
     // A DECLARED VALUE THE PIPELINE STORED DIFFERENTLY — `method: "PUT"` kept as

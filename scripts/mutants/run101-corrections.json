@@ -1,0 +1,373 @@
+[
+  {
+    "label": "CONTROL: a comment in the frame's repaint changes nothing",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "// AT EACH LEVEL everything beside the path is replaced, the path's own element staying where it is.",
+    "to": "// AT EACH LEVEL everything beside the path is replaced, the path's own element staying where it is (control).",
+    "control": true
+  },
+  {
+    "label": "CONTROL: a comment in the grounding changes nothing",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "/** Words as compared: one case, no punctuation, single spaces — any language's letters and digits kept. */",
+    "to": "/** Words as compared: one case, no punctuation, single spaces — any language's letters and digits kept (control). */",
+    "control": true
+  },
+  {
+    "label": "CONTROL: a comment in the live checks changes nothing",
+    "files": [
+      "scripts/canary-requests.mjs"
+    ],
+    "from": "    // THE TAB THAT SHOWS IT: the run's first is 1, each closed-tab message opens the next.\n    const tab = away",
+    "to": "    // THE TAB THAT SHOWS IT: the run's first is 1, each closed-tab message opens the next (control).\n    const tab = away",
+    "control": true
+  },
+  {
+    "label": "P1: a repaint never keeps the frame",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (!was || !was.getAttribute('src')) { view.innerHTML = html; return; }",
+    "to": "  if (true) { view.innerHTML = html; return; }"
+  },
+  {
+    "label": "P2: the frame is loaded again at the address it already has",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (fr.getAttribute('src') === url) return false;\n",
+    "to": ""
+  },
+  {
+    "label": "P3: another site's frame is kept",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (!next || next.getAttribute('data-site') !== was.getAttribute('data-site')) { view.innerHTML = html; return; }",
+    "to": "  if (!next) { view.innerHTML = html; return; }"
+  },
+  {
+    "label": "P4: an element on the frame's path keeps its old attributes",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    for (const a of [...n.attributes]) if (o.getAttribute(a.name) !== a.value) o.setAttribute(a.name, a.value);\n",
+    "to": ""
+  },
+  {
+    "label": "P5: an element on the path keeps attributes the new markup dropped",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "    for (const a of [...o.attributes]) if (!n.hasAttribute(a.name)) o.removeAttribute(a.name);\n",
+    "to": ""
+  },
+  {
+    "label": "P6: the render assigns its markup whole again",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  paintWorkspace(view,\n    // BOTH HALVES",
+    "to": "  view.innerHTML = (\n    // BOTH HALVES"
+  },
+  {
+    "label": "P7: the same draft is loaded again on every repaint",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (!again && fr._siteDraft === withShim && fr.getAttribute('src')) return false;\n",
+    "to": ""
+  },
+  {
+    "label": "P8: Refresh no longer asks for the draft again",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "      loadSitePreview(f, curHtml, site.slug, true);",
+    "to": "      loadSitePreview(f, curHtml, site.slug);"
+  },
+  {
+    "label": "P9: a different shape is kept anyway",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  if (oldPath[top].parentElement !== view || oldPath.length !== newPath.length ||\n      oldPath.some((n, i) => n.tagName !== newPath[i].tagName)) { view.innerHTML = html; return; }",
+    "to": "  if (oldPath[top].parentElement !== view) { view.innerHTML = html; return; }"
+  },
+  {
+    "label": "P10: the frame's markup no longer says whose it is",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "data-site=\"' + esc(site.id) + '\" title=\"Site preview\"",
+    "to": "title=\"Site preview\""
+  },
+  {
+    "label": "S1: every page put back stays 'left as it was'",
+    "files": [
+      "builder/site-addon.mjs"
+    ],
+    "from": "    if (a === b) { out.reverted.push(path); continue; }",
+    "to": "    { out.reverted.push(path); continue; }"
+  },
+  {
+    "label": "S2: a page changed for another reason is called 'only the link'",
+    "files": [
+      "builder/site-addon.mjs"
+    ],
+    "from": "    if (l && l.source === b && to.length) out.restored.push({ path, to });",
+    "to": "    if (l && to.length) out.restored.push({ path, to });"
+  },
+  {
+    "label": "S3: the route never settles what it put back",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                const aSettled = settleReverted({ reverted: aMerge.reverted, stored: aSrc, pages: aMerge.pages, linked: aLinked });",
+    "to": "                const aSettled = { reverted: aMerge.reverted, restored: [] };"
+  },
+  {
+    "label": "S4: the menu-link step keeps no record",
+    "files": [
+      "worker.js"
+    ],
+    "from": "                    aLinked.set(pg.path, { source: pg.source, to: (aIn.report || []).filter((r) => r && Array.isArray(r.added) && r.added.includes(pg.path)).map((r) => r.add.item.href) });",
+    "to": ""
+  },
+  {
+    "label": "S5: the facts still call the linked page updated",
+    "files": [
+      "builder/site-reply.mjs"
+    ],
+    "from": "    const changed = paths(a.changed).filter((p) => !linkedOnly.has(p));",
+    "to": "    const changed = paths(a.changed);"
+  },
+  {
+    "label": "S6: the facts drop what changed on the linked page",
+    "files": [
+      "builder/site-reply.mjs"
+    ],
+    "from": "    restored.forEach((r, i) => F.add(\"changed\", \"On \" + r.page + \", the only change is the link to \" + listOf(r.to) + \" in its menu; nothing else there needed to change for this.\", \"restored:\" + i));",
+    "to": ""
+  },
+  {
+    "label": "S7: the server's reply still calls the linked page updated",
+    "files": [
+      "builder/site-addon.mjs"
+    ],
+    "from": "  changed = changed.filter((p) => !linkedPages.has(routeOf(p)));",
+    "to": ""
+  },
+  {
+    "label": "S8: the server's reply drops what changed on the linked page",
+    "files": [
+      "builder/site-addon.mjs"
+    ],
+    "from": "  for (const r of onlyLinked) head += \" On \" + r.page + \" I only added the link to \" + r.to.join(\", \") + \" — nothing else there needed to change for this.\";",
+    "to": ""
+  },
+  {
+    "label": "S9: the browser's reply still calls the linked page updated",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": ".filter(Boolean).filter((p) => !linkedPages.has(p));",
+    "to": ".filter(Boolean);"
+  },
+  {
+    "label": "S10: the browser's reply drops what changed on the linked page",
+    "files": [
+      "public/chat.js"
+    ],
+    "from": "  for (const r of onlyLinked) out += ' On ' + r.page + ' I only added the link to ' + r.to.join(', ') + ' — nothing else there needed to change for this.';",
+    "to": ""
+  },
+  {
+    "label": "G1: every declared requirement is kept",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    if (quoted || answering) { out.list.push(r); if (r.id) ids.add(r.id); continue; }",
+    "to": "    if (true) { out.list.push(r); if (r.id) ids.add(r.id); continue; }"
+  },
+  {
+    "label": "G2: the words are never looked for",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    const quoted = BASES.includes(r.basis) && w.length >= 2 && texts.some((t) => (\" \" + t + \" \").includes(\" \" + w + \" \"));",
+    "to": "    const quoted = BASES.includes(r.basis) && w.length >= 2 && texts.length > 0;"
+  },
+  {
+    "label": "G3: half a word is taken for their words",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "texts.some((t) => (\" \" + t + \" \").includes(\" \" + w + \" \"))",
+    "to": "texts.some((t) => t.includes(w))"
+  },
+  {
+    "label": "G4: an entry with no basis is grounded",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    const quoted = BASES.includes(r.basis) && w.length >= 2 &&",
+    "to": "    const quoted = w.length >= 2 &&"
+  },
+  {
+    "label": "G5: an answer to a kept hand-off is not held to it",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    const answering = typeof r.answers === \"string\" && ids.has(r.answers);",
+    "to": "    const answering = false;"
+  },
+  {
+    "label": "G6: an entry kept earlier in the same answer cannot be answered",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "{ out.list.push(r); if (r.id) ids.add(r.id); continue; }",
+    "to": "{ out.list.push(r); continue; }"
+  },
+  {
+    "label": "G7: the route collects what it set aside too",
+    "files": [
+      "worker.js"
+    ],
+    "from": "              for (const r of aGround.ungrounded) aUngrounded.push(r);",
+    "to": "              for (const r of aGround.ungrounded) { aUngrounded.push(r); aReq.push(r); }"
+  },
+  {
+    "label": "G8: their answers to its questions are not their words",
+    "files": [
+      "worker.js"
+    ],
+    "from": "            const aAskedWords = [aInstruction, ...(aCtxShown || []).map((p) => p && p.a)];",
+    "to": "            const aAskedWords = [aInstruction];"
+  },
+  {
+    "label": "G9: the page path's answer carries no suggestions",
+    "files": [
+      "worker.js"
+    ],
+    "from": "\n              declined: aDeclined.length ? aDeclined.slice() : undefined,\n              // THE EXTRAS A DESIGNER OFFERED, never among the requirements (2026-10-05).\n              suggestions: aSuggested.length ? aSuggested.slice() : undefined,",
+    "to": "\n              declined: aDeclined.length ? aDeclined.slice() : undefined,"
+  },
+  {
+    "label": "G10: a designer's suggestions are never read",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "suggestions: cleanSuggestions(input ? input.suggestions : null) };",
+    "to": "suggestions: [] };"
+  },
+  {
+    "label": "G11: the tool offers no place for an extra",
+    "files": [
+      "builder/site-add.mjs"
+    ],
+    "from": "    properties.suggestions = {",
+    "to": "    properties._suggestions = {"
+  },
+  {
+    "label": "G12: where a requirement comes from is optional again",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "  required: [\"need\", \"status\", \"basis\", \"words\"],",
+    "to": "  required: [\"need\", \"status\"],"
+  },
+  {
+    "label": "G13: the requirement invites what the ask implies again",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "\"\\\"the same slot cannot be taken twice\\\". ONLY what they asked for, and what that cannot work without:",
+    "to": "\"\\\"the same slot cannot be taken twice\\\". Read it off what they asked for, including what the ask IMPLIES, and what that cannot work without:"
+  },
+  {
+    "label": "G14: the facts drop the suggestion",
+    "files": [
+      "builder/site-reply.mjs"
+    ],
+    "from": "    if (ideas.length) F.add(\"note\", \"Something they did not ask for, so nothing was made for it, which they could ask for if they want: \" + listOf(ideas.map(quote)) + \".\");",
+    "to": ""
+  },
+  {
+    "label": "G15: the record drops what was set aside",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    ...(Array.isArray(ungrounded) && ungrounded.length ? { ungrounded: ungrounded.slice(0, MAX_REQUIREMENTS) } : {}),",
+    "to": ""
+  },
+  {
+    "label": "G16: suggestions that differ only in case are kept twice",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    if (t && !out.some((x) => plain(x) === plain(t))) out.push(t);",
+    "to": "    if (t) out.push(t);"
+  },
+  {
+    "label": "G17: a basis the model made up is kept",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    if (BASES.includes(basis)) e.basis = basis;",
+    "to": "    if (basis) e.basis = basis;"
+  },
+  {
+    "label": "C1: a closed-tab message is judged against the address read before the send again",
+    "files": [
+      "scripts/canary-requests.mjs"
+    ],
+    "from": "    const before = away ? (re && typeof re.firstFrame === \"string\" ? re.firstFrame : null) : (s.typed ? s.typed.frame : null);",
+    "to": "    const before = s.typed ? s.typed.frame : null;"
+  },
+  {
+    "label": "C2: the driver captures the reopened tab's last address, not its first",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "    const firstFrame = () => { const f = rec.frameLoads.find((x) => x && x.tab === reTab); return f ? f.path : null; };",
+    "to": "    const firstFrame = () => { const f = [...rec.frameLoads].reverse().find((x) => x && x.tab === reTab); return f ? f.path : null; };"
+  },
+  {
+    "label": "C3: the driver records no first address",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "tab: await next.evaluate(tabMarkInPage).catch(() => null), frameTab: reTab, firstFrame: firstFrame() };",
+    "to": "tab: await next.evaluate(tabMarkInPage).catch(() => null), frameTab: reTab, firstFrame: null };"
+  },
+  {
+    "label": "C4: the driver takes the wrong tab for the reopened one",
+    "files": [
+      "scripts/canary-ui.mjs"
+    ],
+    "from": "    const reTab = tabsWatched;",
+    "to": "    const reTab = tabsWatched + 1;"
+  },
+  {
+    "label": "C5: a closed-tab message's loads are looked for in the first tab",
+    "files": [
+      "scripts/canary-requests.mjs"
+    ],
+    "from": "    const tab = away && re && Number.isInteger(re.frameTab) ? re.frameTab : 1 + list.slice(0, i + 1).filter((x) => x && x.mode === \"away\").length;",
+    "to": "    const tab = away ? 1 : 1 + list.slice(0, i + 1).filter((x) => x && x.mode === \"away\").length;"
+  },
+  {
+    "label": "G18: grounding takes a basis the rule does not know",
+    "files": [
+      "builder/site-requirements.mjs"
+    ],
+    "from": "    const quoted = BASES.includes(r.basis) && w.length >= 2 &&",
+    "to": "    const quoted = !!r.basis && w.length >= 2 &&"
+  }
+]

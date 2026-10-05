@@ -1130,7 +1130,7 @@ without repeating R1 or rq-canary."*
     `test/canary-money.test.mjs` on run 94's own records; a sweep of 24 of
     24; the suite `9302 / 9302 / 0 / 0`.
 
-### THE LIVE CHECK OF THE PAGE'S REFRESH (`lv-reopen`, 2026-10-05 — merged in deploy 2184; pressed as run 101, passed)
+### THE LIVE CHECK OF THE PAGE'S REFRESH (`lv-reopen`, 2026-10-05 — merged in deploy 2184; pressed as run 101, passed; closed by the owner)
 
 The owner, after the response-order correction passed review: *"Prepare one
 combined live Edit/Add-on verification covering correct reply placement,
@@ -1173,20 +1173,26 @@ stage it belongs to, with the press's boxes and the cost, is
 - **PRESSED AS RUN 101** (2026-10-05, the owner's, from `main` after deploy
   2184): all 75 checks passed, for 27 credits
   (`docs/history/2026-10-05-deploy-2184.md` §7).
-- **WHAT RUN 101 TAUGHT ABOUT THE INSTRUMENT** (in the backlog, not
-  changed):
-  - **The preview baseline of a closed-tab message**: it is the address read
+- **WHAT RUN 101 TAUGHT ABOUT THE INSTRUMENT**:
+  - **The preview baseline of a closed-tab message** was the address read
     before the send. A real first tab moves its own preview right after a
     send, when its first look at the site's earlier requests reconciles them
-    (`?v=0` → `?v=9` in run 101). The reopened tab then opens at an address
+    (`?v=0` → `?v=9` in run 101). The reopened tab then opened at an address
     already newer, so "given a newer address" and "loaded the newer address"
-    cannot fail there. The reopened tab's own opening address is the right
-    baseline. Until then, read that message's refresh off `frameLoads`: the
-    moves after the tab opens, each just after the page reads one of the
-    request's publishing jobs.
+    could not fail there, and run 101's message 1 was judged off
+    `frameLoads` instead. **Corrected on the branch** (2026-10-05, not
+    merged; `docs/history/2026-10-05-run101-corrections.md` §5): the
+    driver keeps the first address the reopened tab's frame asked for
+    (`away.reopened.firstFrame`,
+    with the tab's number `frameTab`), and a closed-tab message is judged
+    against it. With that tab's reconcile cut, both checks fail (the
+    stand-in app in run 101's shape, and the real page in Chromium).
   - **The page list**: a reopened page's own list is also read from the
     server when the tab opens, so it shows the list is right, not which path
     made it right.
   - **`frameLoads` counts every request for the preview's address**, so it
     also shows each time the page draws a new frame: run 101 showed one on
-    every reading of a running request (the backlog's reload item).
+    every reading of a running request. The page keeps its frame on the
+    branch now (`docs/history/2026-10-05-run101-corrections.md` §2), so
+    a press after a merge would show at most one load per published
+    change, and none per reading.
