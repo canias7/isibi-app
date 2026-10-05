@@ -25,7 +25,8 @@ is in git; the dated entries further down are the full story.*
   page and table lists, through a request finished with its tab closed. The
   canary's scenario and checks are built and tested on the branch (stand-in
   app only): a sweep of 22 mutants, all caught; the suite
-  `9480 / 9480 / 0 / 0` here; unit CI read after the push.
+  `9480 / 9480 / 0 / 0` here and `9480 / 9474 / 0 / 6` on unit CI (run
+  37300930331).
 - **Merging now deploys the page and the Worker and builds an image**
   (`386607152d4cb319` → `589e3e4e85a20066`, predicted; nothing built).
 - **Money**: balance **48**, read at 11:07 UTC (last ledger row 385, no
@@ -151,8 +152,8 @@ since. Add new ones there.
   Testing caught a flaw in my first version of the "loaded the newer
   address" check (it passed when nothing had moved); fixed. The mutation
   sweep caught all 22 defects it put in (its first run 21: the missing case
-  is now a test), and the suite is `9480 / 9480 / 0 / 0` here (CI after the
-  push).
+  is now a test), and the suite is `9480 / 9480 / 0 / 0` here and
+  `9480 / 9474 / 0 / 6` on unit CI (run 37300930331).
 - **First Build and RW** stay out.
 
 **Recorded in**: `docs/investigations/live-check.md`,

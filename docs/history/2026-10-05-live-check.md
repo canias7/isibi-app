@@ -107,7 +107,10 @@ replies, whose wording changed ("judged by the live check alone").
     or once done not kept; the preview's loads not recorded; the message's
     place on its thread not kept.
 - **The full suite**: `9480 / 9480 / 0 / 0` locally, from 9,474 by the 6
-  new cases. Unit CI: read after the push.
+  new cases. Unit CI `9480 / 9474 / 0 / 6` on `a245463f` (run 37300930331):
+  the totals match, CI skipping its usual 4 and the 2 browser cases. The site
+  build did not run: nothing it covers changed (its last run, green on
+  `685a922c`, run 37282482599, covers the Worker as it still is).
 - **The image**: unchanged. Scripts, tests, documents and the canary's
   workflow are not its inputs, so it is still `589e3e4e85a20066` (predicted;
   the three-answer round set it).
