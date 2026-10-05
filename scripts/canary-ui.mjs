@@ -514,6 +514,50 @@ export const UI_SCENARIOS = Object.freeze({
       Object.freeze({ say: "Put the Classes page in the menu on every page.", ms: 14 * 60_000 }),
     ]),
   }),
+  // THE LIVE CHECK OF THE PAGE'S REFRESH (2026-10-05, the owner, after the
+  // response-order correction passed review): *"one combined live Edit/Add-on
+  // verification covering correct reply placement, preview refresh, updated
+  // page/table inventory and completion with the tab closed, using existing
+  // passing evidence to avoid redundant cases."* Two messages. The first is an
+  // edit and an add-on that makes a page with a table of its own (its menu
+  // link the builder's), sent with its tab then closed; the tab opened
+  // afterwards must show it ended, and is the one the second message — a
+  // heading — goes from. What R1–R5 showed live is not asked again; what is
+  // judged here beside the usual checks is the page's own side, read off the
+  // record (`liveChecks`): each reply with its request; the preview frame given,
+  // and loading, a newer address; the new page and the new table in the
+  // page's own lists; the second routing call sending, and the route telling
+  // the router, every table the site has. Look and nav are allowed beside text
+  // because the router may send a heading or the menu link through them; the
+  // page rung because it hands a new page to the add-on step.
+  "lv-reopen": Object.freeze({
+    site: "fold-lane-bakery",
+    request: true,
+    budget: 32,
+    addon: true,
+    layers: Object.freeze(["text", "look", "nav", "page"]),
+    expect: Object.freeze({
+      headings: Object.freeze([
+        Object.freeze({ route: "/visit", from: "Our shop on the street", to: "Find us on the street" }),
+        Object.freeze({ route: "/gallery", from: "Photographs from the bakery", to: "Photographs from Fold Lane" }),
+      ]),
+      pages: Object.freeze([Object.freeze({ about: Object.freeze(["bake", "list"]) })]),
+      menu: Object.freeze({ label: "Bake List", page: 0 }),
+      // ONE NEW TABLE, A VISITOR'S TO SEND TO AND NOBODY'S TO READ (`collect`),
+      // with a column for the email address; every other table as it was.
+      tables: Object.freeze({ added: 1, pair: Object.freeze({ read: "none", write: "anyone" }), column: "email" }),
+      live: true,
+    }),
+    covers: Object.freeze(["edit-and-addon", "several-parts", "closed-tab"]),
+    steps: Object.freeze([
+      Object.freeze({
+        say: "Add a Bake List page where people can join our weekly bake list by leaving their name and email address, and change the Visit page heading 'Our shop on the street' to 'Find us on the street'.",
+        away: true,
+        ms: 20 * 60_000,
+      }),
+      Object.freeze({ say: "Change the Gallery page heading 'Photographs from the bakery' to 'Photographs from Fold Lane'.", ms: 8 * 60_000 }),
+    ]),
+  }),
 });
 
 // Bounds. A step is one message: its routing call, its job and its publish.
@@ -538,6 +582,20 @@ export const UI_AWAY_EVERY_MS = 20_000;
 // bound still gives a reply written in the background a minute. A request
 // press's bounds and these floors together stay inside UI_PRESS_MAX_MS.
 export const UI_REPLY_FLOOR_MS = 60_000;
+
+/**
+ * WHAT A READING OF THE PAGE SAYS OF THE OPEN SITE'S PREVIEW AND LISTS
+ * (`readComposerInPage`): the address its preview frame was last given, and
+ * the pages and tables it keeps. Each null where the reading had none.
+ */
+export function pageViewOf(s) {
+  if (!s || typeof s !== "object") return null;
+  return {
+    frame: typeof s.frame === "string" ? s.frame : null,
+    pages: Array.isArray(s.pages) ? s.pages.filter((p) => typeof p === "string") : null,
+    tables: Array.isArray(s.tables) ? s.tables.filter((t) => typeof t === "string") : null,
+  };
+}
 
 /** A message's own time bound: its `ms` where it names one, the default otherwise, never past the cap. */
 export function stepBoundMs(step, { stepMs = UI_STEP_MS, capMs = UI_STEP_MAX_MS } = {}) {
@@ -1213,6 +1271,23 @@ function readComposerInPage() {
     })),
     // THIS PAGE'S OWN LIFE: a reload, or a tab opened afresh, starts another.
     origin: typeof performance !== "undefined" && Number.isFinite(performance.timeOrigin) ? performance.timeOrigin : null,
+    // THE PREVIEW FRAME'S ADDRESS, AND THE PAGES AND TABLES THE PAGE KEEPS FOR
+    // THE OPEN SITE (2026-10-05, the live check of the page's refresh): the
+    // address the frame was last given, and the two lists the next routing
+    // call sends. Read only.
+    frame: (() => { const f = document.getElementById("stFrame"); return f ? f.getAttribute("src") : null; })(),
+    pages: (() => {
+      try {
+        const site = siteById(siteOpenId);
+        return site && Array.isArray(site.pages) ? site.pages.map((p) => (p && typeof p.path === "string" ? p.path : "")).filter(Boolean) : null;
+      } catch (e) { return null; }
+    })(),
+    tables: (() => {
+      try {
+        const site = siteById(siteOpenId);
+        return site && Array.isArray(site.tables) ? site.tables.filter((t) => typeof t === "string") : null;
+      } catch (e) { return null; }
+    })(),
     // WHAT THE PAGE HAS SHOWN OF EACH REQUEST on the open site: ended, and
     // closed once every part's reply and the request's own are on screen —
     // and which jobs' replies it has shown so far.
@@ -1722,7 +1797,19 @@ export async function runUi(opts) {
   };
   // EVERY PAGE THE RUN OPENS IS WATCHED THE SAME WAY: its console, its
   // errors, and every API answer it gets (`recordsBody`).
+  // AND EVERY ADDRESS ITS PREVIEW FRAME LOADS (2026-10-05): a request to the
+  // site's own origin carrying the preview's `v`, by the tab that made it (the
+  // run's first tab is 1, a tab opened after a closed-tab message 2).
+  const siteHost = (() => { try { return siteOrigin ? new URL(siteOrigin).origin : ""; } catch { return ""; } })();
+  rec.frameLoads = [];
+  let tabsWatched = 0;
   const watch = (pg) => {
+    const tab = ++tabsWatched;
+    pg.on("request", (req) => {
+      let u = null;
+      try { u = new URL(req.url()); } catch { return; }
+      if (siteHost && u.origin === siteHost && u.searchParams.has("v")) rec.frameLoads.push({ ms: Date.now() - t0, tab, path: u.pathname + u.search });
+    });
     pg.on("console", (m) => { if (m.type() === "error") rec.consoleErrors.push(m.text().slice(0, 300)); });
     pg.on("pageerror", (e) => rec.pageErrors.push(String((e && e.message) || e).slice(0, 300)));
     pg.on("response", async (res) => {
@@ -2072,6 +2159,8 @@ export async function runUi(opts) {
       await page.fill("#stRevise", step.say);
       const typed = await page.evaluate(readComposerInPage);
       if (typed.value !== step.say) { stop(`step ${n}`, "the words did not land in the message box — nothing was sent"); break; }
+      // THE PREVIEW AND THE LISTS AS THE PAGE HAD THEM BEFORE THE SEND (`pageViewOf`).
+      r.typed = pageViewOf(typed);
       // ── THE FRESH BASELINE, IMMEDIATELY BEFORE THE FIRST MESSAGE ──────────
       // The condition probe first, then the page a visitor sees, then both
       // database readers last, so nothing but the budget's balance read stands
@@ -2176,6 +2265,16 @@ export async function runUi(opts) {
         : await followStep(page, { before, netFrom, step, r, ms: r.boundMs });
       // THE TAB A CLOSED-TAB MESSAGE IS READ IN is the one opened afterwards.
       if (done.page) page = done.page;
+      // AND A LATER MESSAGE GOES FROM THAT TAB (2026-10-05, the live check of
+      // the page's refresh): once a closed-tab message has been shown ended in
+      // the tab opened afterwards, that tab is marked as the run's, and every
+      // later message must go from it, never reloaded or left since
+      // (`sameTab`). The first tab's mark stays on the record (`tabs`).
+      if (r.mode === "away" && done.ok && i + 1 < scenario.steps.length) {
+        rec.tabs = [rec.tab];
+        rec.tab = await page.evaluate(markTabInPage, crypto.randomBytes(12).toString("hex")).catch(() => null);
+        rec.tabs.push(rec.tab);
+      }
       r.ms = Date.now() - sentAt;
       // A REQUEST'S OWN REPLIES, SETTLED AND ON SCREEN, before anything is
       // judged or sent next (2026-10-05; `watchReplies`). The jobs an earlier
@@ -2188,16 +2287,24 @@ export async function runUi(opts) {
       }
       await sleep(settleMs);
       const after = done.s || (await page.evaluate(readComposerInPage).catch(() => null));
+      // AND AS THE PAGE HAS THEM ONCE THE MESSAGE IS DONE: in the tab opened
+      // afterwards, for a message sent with its tab closed.
+      r.view = pageViewOf(after);
       if (r.replyWatch) {
         // THE MESSAGE'S OWN REPLIES ON SCREEN, in the thread's order — and,
-        // kept apart and never counted, every other reply drawn after the
-        // message (another request's, put there by the page: an open bug).
+        // kept apart, every other reply drawn after the message (another
+        // request's): none is, since each request's replies go with it
+        // (2026-10-05; the live check judges it, `liveChecks`).
         const msgs = after && Array.isArray(after.messages) ? after.messages : [];
         const mine = new Set(r.replyWatch.attributed);
         r.replies = r.replyWatch.attributed.map((i) => (msgs[i] ? msgs[i].text : "")).filter(Boolean);
         let from = -1;
         msgs.forEach((m, i) => { if (m && m.who === "u" && m.text === step.say) from = i; });
         r.otherReplies = msgs.filter((m, i) => i > (from >= 0 ? from : before - 1) && m && m.who === "a" && !m.card && !m.busy && !m.holding && !mine.has(i)).map((m) => m.text);
+        // THE THREAD AS IT STANDS, by who said each line and the job a reply is
+        // marked with, and where this message is on it (`liveChecks`).
+        r.at = from;
+        r.thread = msgs.map((m) => ({ who: m && m.who === "u" ? "u" : "a", card: !!(m && m.card), job: m && typeof m.job === "string" ? m.job : "", text: String((m && m.text) || "").slice(0, 80) }));
       } else {
         r.replies = after ? newReplies(before, after.messages).map((m) => m.text) : [];
       }
@@ -2375,7 +2482,7 @@ export function describeUi(rec) {
         `${Number.isFinite(j.pendingMs) ? ` (pending at ${Math.round(j.pendingMs / 1000)} s${Number.isFinite(j.settledMs) ? `, settled at ${Math.round(j.settledMs / 1000)} s` : ""})` : ""}`;
       out.push(`     replies, watched ${Math.round((w.ms || 0) / 1000)} s after the request${w.timedOut ? " — THE TIME RAN OUT" : ""}: ${(w.jobs || []).map(said).join("; ") || "none owed"}` +
         `${w.request ? `; the request's own: ${w.request.state}${w.request.shown ? ", on screen" : ""}` : ""}`);
-      if (Array.isArray(s.otherReplies) && s.otherReplies.length) out.push(`     also drawn after the message, not this request's (never counted; the page's placement of other requests' replies is an open bug): ${s.otherReplies.length}`);
+      if (Array.isArray(s.otherReplies) && s.otherReplies.length) out.push(`     also drawn after the message, not this request's (judged by the live check alone): ${s.otherReplies.length}`);
     }
     // THE ROUTING EVIDENCE, FROM THIS VERY MESSAGE (`routingEvidence`).
     if (s.routing) {
@@ -2394,6 +2501,12 @@ export function describeUi(rec) {
         `; reads of the request's own route while away: ${Array.isArray(a.calls) ? a.calls.length : "unwatched"}` +
         `; the tab opened afterwards ${a.reopened ? (a.reopened.closed ? "showed it ended" : "did NOT show it ended (" + a.reopened.why + ")") : "was never opened"}`);
     }
+    // THE PREVIEW AND THE PAGE'S OWN LISTS, BEFORE THE SEND AND ONCE DONE (2026-10-05).
+    if (s.typed || s.view) {
+      const t = s.typed || {}, v = s.view || {};
+      const list = (l) => (Array.isArray(l) ? l.join(", ") || "none" : "unread");
+      out.push(`     preview ${t.frame || "unread"} -> ${v.frame || "unread"}; the page's pages: ${list(v.pages)}; its tables: ${list(v.tables)}`);
+    }
     const fin = (s.network || []).filter((e) => e.final);
     if (fin.length) out.push(`     final reply: ${fin[fin.length - 1].status} ${JSON.stringify(fin[fin.length - 1].res).slice(0, 400)}`);
     if (s.failure) out.push(`     failure: ${s.failure.ok ? `${s.failure.error}, shown as a warning, the edit's own cost ${s.failure.cost}` : "NOT the failure this message must be — " + s.failure.why}`);
@@ -2402,6 +2515,7 @@ export function describeUi(rec) {
     if (Number.isFinite(s.balanceBefore) && Number.isFinite(s.balanceAfter)) out.push(`     balance ${s.balanceBefore} -> ${s.balanceAfter}`);
   }
   for (const b of rec.blocked || []) out.push(`  BLOCKED ${b.method} ${b.path}: ${b.why || "the page tried to start work this scenario never asks for"}`);
+  if (Array.isArray(rec.frameLoads) && rec.frameLoads.length) out.push(`  preview loads: ${rec.frameLoads.map((f) => `tab ${f.tab} ${f.path}`).join("; ")}`);
   if (rec.row && rec.row.spec) {
     out.push(rec.row.recovery ? describeRecovery(rec.row.recovery, rec.row.spec, { write: rec.spend, capability: rec.row.capability }) : describeRows(rec.row, rec.row.spec));
     if (rec.row.recovery) {

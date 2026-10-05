@@ -27,6 +27,11 @@ reply-placement behavior."*
 pressed or spent. Shown with the page's own functions, the real Worker route
 and supplied database and router answers; not shown live.
 
+**Closed by the owner** (2026-10-05) on Codex's review, with independent
+reproductions of the unchanged confirmations, the reversed order, the
+concurrent additions and the unavailable later lookups
+(`2026-10-05-live-check.md`).
+
 ## 1. The gap
 
 The page told how old a routing answer was by whether its own list had changed

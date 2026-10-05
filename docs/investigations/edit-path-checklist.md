@@ -1060,6 +1060,15 @@ the owner's free press, run 51, at 22:57 UTC):
       answer to an earlier call than the one taken last changes nothing, and
       an addition finishing during a call stays. **The page's own functions
       and the real Worker route with supplied answers**; not shown live.
+      **Closed by the owner** (2026-10-05, on Codex's review).
+    - **The live check of all of it, prepared** (2026-10-05;
+      `docs/investigations/live-check.md`, `docs/history/2026-10-05-live-check.md`):
+      one press, `lv-reopen`, on the bakery after the merge — an edit and an
+      add-on with a page and a table, its tab closed and reopened, then a
+      heading from the reopened tab — judged on reply placement, the
+      preview's newer address, and the page and table inventory through both
+      routing calls and the page's lists. **Stand-in app only so far**; the
+      merge, the deploy and the press wait for the owner's authorization.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

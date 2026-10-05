@@ -249,9 +249,10 @@ test("HISTORY CANNOT BLOCK: another request's reply that is never written, and i
   assert.deepEqual(w.jobs.map((j) => j.job), ["m1"], "another request's job was waited on");
   assert.deepEqual(failed(replyChecks(rec.steps)), []);
   assert.deepEqual(s.replies, [MENU_REPLY]);
-  // THE OTHER REQUEST'S REPLIES, DRAWN AFTER THE MESSAGE: kept apart, never counted.
+  // THE OTHER REQUEST'S REPLIES, DRAWN AFTER THE MESSAGE: kept apart, and
+  // judged by the live check alone (`liveChecks`, 2026-10-05).
   assert.deepEqual(s.otherReplies, ["✅ Updated the look — the description.", "⚠️ I changed the site description, and a link to the new Classes page was not put in the menu."]);
-  assert.match(describeUi(rec), /also drawn after the message, not this request's \(never counted; .*open bug\): 2/);
+  assert.match(describeUi(rec), /also drawn after the message, not this request's \(judged by the live check alone\): 2/);
 });
 
 test("HISTORY CANNOT SATISFY: with this request's reply never written, another request's replies drawn after the message — one in the very words it would have had — answer nothing: the reply times out and the message has no reply on screen", async () => {

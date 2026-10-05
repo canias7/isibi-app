@@ -43,7 +43,9 @@ here; take a closed one out of both.**
   words or question). Shown with supplied answers only (14 placement cases
   through the real Worker, 13 refresh and 10 reconcile cases, the routing
   ones through the real Worker), in a real Chromium (2 cases) and in
-  screenshots; not yet live. **Still open, not changed**: an ended request's
+  screenshots; not yet live. **Its live check is prepared** (2026-10-05,
+  `lv-reopen`, `docs/investigations/live-check.md`), for the owner to
+  authorize with the merge. **Still open, not changed**: an ended request's
   own reply with no record is asked for whenever it is read, however old
   (R1's, about 20 hours after it ended); a job's is not, after two hours.
 - **The new page's own menu names it differently** (a remaining follow-up;

@@ -1253,6 +1253,7 @@ if (UI_ASK) {
         before: { ...BEFORE, complete: BEFORE.readsComplete === true },
         after: after ? { ...after, complete: after.readsComplete === true } : null,
         served, beforeServed, logo, row: ui.row || null, tables: { before: tablesBefore, after: tablesAfter }, slug: CANARY,
+        frameLoads: ui.frameLoads || [],
       });
       requests.logo = logo;
       requests.tables = { before: tablesBefore, after: tablesAfter };

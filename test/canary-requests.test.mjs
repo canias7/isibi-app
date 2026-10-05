@@ -15,12 +15,13 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import crypto from "node:crypto";
 import {
-  UI_SCENARIOS, readUiScenario, runUi, describeUi, stepBoundMs, UI_STEP_MS, UI_STEP_MAX_MS, UI_PRESS_MAX_MS, UI_AWAY_EVERY_MS,
+  UI_SCENARIOS, readUiScenario, runUi, describeUi, stepBoundMs, UI_STEP_MS, UI_STEP_MAX_MS, UI_PRESS_MAX_MS, UI_AWAY_EVERY_MS, pageViewOf,
   wallRefusal, blocksPost, requestWall, requestVerdict, questionShown, routingEvidence, chainOrdered, chainVerdict, routeCallsOf,
 } from "../scripts/canary-ui.mjs";
 import {
   headingOnly, timeWords, statesAll, namesAll, routeOfPage, pageForRoute, headerLogos, servedDescription, routeAllowed,
   requestStepChecks, relationsOf, jobOrderVerdict, repliesOf, replyChecks, outcomeChecks, coverageOf, COVERAGE, requestBatchVerdict,
+  liveChecks, previewVOf,
 } from "../scripts/canary-requests.mjs";
 import { frameOf } from "../scripts/canary-additions.mjs";
 import { applyNav, applyChromeList } from "../builder/site-nav.mjs";
@@ -29,6 +30,7 @@ const ROOT = new URL("../", import.meta.url).pathname;
 const SLUG = "fold-lane-bakery";
 const UID = "22175f41-6fbf-49d7-b039-a65078a0141c";
 const ORIGIN = "https://gofarther.dev";
+const SITE = "https://fold-lane-bakery.gofarther.app";
 const PLAN = fs.readFileSync(ROOT + "docs/investigations/request-flow-rollout.md", "utf8");
 const CANARY = fs.readFileSync(ROOT + "scripts/edit-canary.mjs", "utf8");
 const failed = (checks) => checks.filter((c) => !c.ok).map((c) => `${c.name} — ${c.why}`);
@@ -761,8 +763,11 @@ function rqApp(opt = {}) {
   const calls = [];
   const routes = [];
   const requestListeners = [];
-  const keep = { msgs: [], requests: {}, ask: null };
+  const keep = { msgs: [], requests: {}, ask: null, previewV: 0, pages: opt.pages ? [...opt.pages] : null, tables: opt.tables ? [...opt.tables] : null };
   const server = { key: "", views: [], at: 0, stopped: false };
+  // WHICH TAB SENT EACH REQUEST (a live case): a tab that did not send it and
+  // finds it done is reconciling, which the old page did not (`oldReconcile`).
+  const senders = {};
   let sends = 0;
   const now = () => (server.views.length ? JSON.parse(JSON.stringify(server.views[Math.min(server.at, server.views.length - 1)])) : null);
   const read = () => { if (server.at < server.views.length - 1) server.at++; return now(); };
@@ -775,8 +780,15 @@ function rqApp(opt = {}) {
   };
   const tabs = [];
   const newTab = () => {
-    const t = { id: tabs.length + 1, closed: false, workspace: false, busy: false, value: "", attached: 0, strip: 0, mark: "", origin: 1000 + tabs.length, listeners: {}, looks: 0 };
+    const t = { id: tabs.length + 1, closed: false, workspace: false, busy: false, value: "", attached: 0, strip: 0, mark: "", origin: 1000 + tabs.length, listeners: {}, looks: 0, frame: null };
     tabs.push(t);
+    // THE PREVIEW FRAME (a live case): given the site's address with the
+    // preview's version, and loading it — a request from this tab to the site.
+    const draw = () => {
+      if (!opt.live) return;
+      t.frame = `${SITE}/?v=${keep.previewV}`;
+      for (const h of t.listeners.request || []) h({ url: () => t.frame, method: () => "GET" });
+    };
     const emit = async (method, path, status, req, res, headers = {}) => {
       for (const l of requestListeners) l({ url: () => ORIGIN + path, method: () => method });
       const r = { request: () => ({ url: () => ORIGIN + path, method: () => method, postData: () => (req ? JSON.stringify(req) : null) }), status: () => status, headers: () => headers, text: async () => JSON.stringify(res) };
@@ -817,7 +829,20 @@ function rqApp(opt = {}) {
             // `clarifyOf` carries its id, words and answers, not its request.
             keep.ask = { id: reply.clarify.id, text: reply.clarify.text, key: opt.askKeepsRequest ? key : "", part: opt.askKeepsRequest ? p.n : null };
             keep.msgs.push({ who: "a", text: reply.clarify.text, ask: true });
-          } else keep.msgs.push({ who: "a", text: reply.replySource === "model" ? reply.reply : reply.msg });
+          } else keep.msgs.push({ who: "a", text: reply.replySource === "model" ? reply.reply : reply.msg, job: opt.live ? job : "" });
+          // A LIVE CASE: the page moves its preview on and keeps the job's
+          // pages and tables — the old page did not, for a request it did not
+          // send and found done (`oldReconcile`).
+          if (opt.live && !(opt.oldReconcile && senders[key] !== t.id)) {
+            keep.previewV++;
+            const fx = (opt.jobs || {})[job] || {};
+            if (fx.pages) keep.pages = [...new Set([...(keep.pages || []), ...fx.pages])];
+            if (fx.tables) keep.tables = [...new Set([...(keep.tables || []), ...fx.tables])];
+            draw();
+          }
+          // ANOTHER REQUEST'S REPLY, DRAWN AT THE END OF THE THREAD (the old
+          // page's placement, `misplace`): once, after this job's reply.
+          if (opt.misplace && opt.misplace.after === job) keep.msgs.push({ who: "a", text: opt.misplace.text, job: opt.misplace.job });
           return;
         }
       }
@@ -827,7 +852,8 @@ function rqApp(opt = {}) {
       signedIn: true, uid: UID, gate: false, workspace: t.workspace, busy: t.busy,
       send: t.workspace && !t.busy, sendDisabled: t.workspace && !t.busy ? false : null, stop: t.workspace && t.busy,
       textarea: t.workspace, disabled: t.workspace ? false : null, value: t.value, working: t.busy ? 1 : 0, attached: t.attached, strip: t.strip,
-      messages: keep.msgs.map((m) => ({ who: m.who, busy: false, card: !!m.card, text: m.text })),
+      messages: keep.msgs.map((m) => ({ who: m.who, busy: false, card: !!m.card, text: m.text, job: m.job || "" })),
+      frame: t.frame, pages: keep.pages ? [...keep.pages] : null, tables: keep.tables ? [...keep.tables] : null,
       requests: JSON.parse(JSON.stringify(keep.requests)),
       ask: keep.ask ? { ...keep.ask } : null, askCard: !!keep.ask,
     });
@@ -853,7 +879,7 @@ function rqApp(opt = {}) {
       },
       click: async (sel) => {
         calls.push(`tab ${t.id} click ${sel}`);
-        if (sel.includes(".st-card-name")) t.workspace = true;
+        if (sel.includes(".st-card-name")) { t.workspace = true; draw(); }
         if (sel !== "#stSend") return;
         const said = t.value;
         t.value = "";
@@ -871,7 +897,10 @@ function rqApp(opt = {}) {
         const plan = opt.send(sends++, said);
         if (plan.request) {
           server.key = plan.request.key; server.views = plan.request.views; server.at = 0;
-          await emit("POST", "/api/site/route", 200, { message: said, attached: false }, { ok: true, intent: "edit", layer: "text", cost: 2, ...(plan.route || {}), request: now() });
+          senders[plan.request.key] = t.id;
+          const site = opt.live ? { site: { tables: keep.tables ? [...keep.tables] : [] } } : {};
+          await emit("POST", "/api/site/route", 200, { message: said, attached: false, ...site }, { ok: true, intent: "edit", layer: "text", cost: 2, ...(plan.route || {}), request: now() });
+          if (opt.live && plan.route && Array.isArray(plan.route.tablesFilled)) keep.tables = [...plan.route.tablesFilled];
           keep.msgs.push({ who: "a", card: true, text: said + " Queued" });
           keep.requests[plan.request.key] = { closed: false, ended: false, shown: [] };
           return;
@@ -1199,4 +1228,183 @@ test("the readers that run inside the app read the request's shown replies and t
   assert.equal(v.ok, true);
   const plainView = inApp({ site: { requests: {} }, fetched: { ok: true, request: { key: KEY, ended: false, parts: [] } } });
   assert.equal((await vm.runInContext(`requestViewInPage({ slug: "fold-lane-bakery", key: "${KEY}" })`, plainView)).reply, null);
+});
+
+// ── THE LIVE CHECK OF THE PAGE'S REFRESH (lv-reopen, 2026-10-05) ─────────────
+//
+// The owner, after the response-order correction passed review: *"Prepare one
+// combined live Edit/Add-on verification covering correct reply placement,
+// preview refresh, updated page/table inventory and completion with the tab
+// closed, using existing passing evidence to avoid redundant cases."* One
+// press, two messages: an edit and an add-on with a page and a table of its
+// own, sent with the tab then closed; the second message from the tab opened
+// afterwards. The stand-in app below is the one above with `live` on: its
+// preview frame, the page's own lists, each reply marked with its job, and a
+// routing call carrying the page's tables. `oldReconcile` and `misplace` are
+// the old page's two ways of failing it.
+
+const LV = UI_SCENARIOS["lv-reopen"];
+const LV_WORDS = [
+  "Add a Bake List page where people can join our weekly bake list by leaving their name and email address, and change the Visit page heading 'Our shop on the street' to 'Find us on the street'.",
+  "Change the Gallery page heading 'Photographs from the bakery' to 'Photographs from Fold Lane'.",
+];
+const LV_PLAN = fs.readFileSync(ROOT + "docs/investigations/live-check.md", "utf8");
+const LV_K1 = "lvreopen" + "0".repeat(15) + "1";
+const LV_K2 = "lvreopen" + "0".repeat(15) + "2";
+const LV_V1 = [
+  view(LV_K1, [part(0, "Add a Bake List page …", "queued", { route: "addon", ids: ["b1"] }), part(1, "change the Visit page heading …", "ready")]),
+  view(LV_K1, [part(0, "Add a Bake List page …", "done", { route: "addon", ids: ["b1"], jobs: ["b1"] }), part(1, "change the Visit page heading …", "started", { route: "text", ids: ["v1"] })]),
+  view(LV_K1, [part(0, "Add a Bake List page …", "done", { route: "addon", ids: ["b1"], jobs: ["b1"] }), part(1, "change the Visit page heading …", "done", { route: "text", ids: ["v1"], jobs: ["v1"] })], { ended: true }),
+];
+const LV_V2 = [
+  view(LV_K2, [part(0, "Change the Gallery page heading …", "started", { route: "text", ids: ["g1"] })]),
+  view(LV_K2, [part(0, "Change the Gallery page heading …", "done", { route: "text", ids: ["g1"], jobs: ["g1"] })], { ended: true }),
+];
+const LOAVES = { access: "display", pair: { read: "public", write: "none" }, rows: 7, columns: ["name", "description", "price", "photo"] };
+const LV_TABLES = {
+  before: { ok: true, names: ["loaves"], tables: { loaves: LOAVES } },
+  after: { ok: true, names: ["bake_list", "loaves"], tables: { loaves: LOAVES, bake_list: { access: "collect", pair: { read: "none", write: "anyone" }, rows: 0, columns: ["name", "email"] } } },
+};
+const LV_PAGES = { found: [{ want: { about: ["bake", "list"] }, route: "/bake-list", path: "bake-list.tsx" }], extra: [] };
+const lvApp = (over = {}) => rqApp({
+  live: true, pages: ["/", "/visit", "/order", "/gallery"], tables: [], followAfter: 3,
+  jobs: { b1: { pages: ["/bake-list"], tables: ["bake_list"] } },
+  send: (i) => (i === 0
+    ? { request: { key: LV_K1, views: LV_V1 }, route: { intent: "addon", layer: "", tablesFilled: ["loaves"] } }
+    : { request: { key: LV_K2, views: LV_V2 }, route: { intent: "edit", layer: "text", tablesFilled: ["bake_list", "loaves"] } }),
+  ...over,
+});
+const lvChecks = (rec) => liveChecks({ steps: rec.steps, tables: LV_TABLES, newPages: LV_PAGES, frameLoads: rec.frameLoads });
+
+test("lv-reopen: on the bakery, in request mode, the plan's two messages word for word — an edit and an add-on with a page and a table of its own, sent with its tab closed, then a heading from the tab opened afterwards — inside its budget, walls and time", () => {
+  assert.equal(LV.site, SLUG);
+  assert.equal(LV.request, true);
+  assert.equal(LV.addon, true, "the add-on part cannot run");
+  assert.deepEqual([...LV.layers], ["text", "look", "nav", "page"]);
+  assert.ok(!LV.layers.includes("rules") && !LV.layers.includes("picture") && !LV.layers.includes("data") && LV.adds !== true);
+  assert.equal(LV.budget, 32);
+  assert.deepEqual(LV.steps.map((x) => x.say), LV_WORDS);
+  for (const w of LV_WORDS) assert.ok(LV_PLAN.includes(w), `the plan does not carry: ${w}`);
+  assert.ok(LV_PLAN.includes("`lv-reopen`"), "the plan does not name the scenario");
+  assert.equal(LV.steps[0].away, true, "the first message's tab is not closed");
+  assert.equal(LV.steps[1].away, undefined, "the second message closes its tab too");
+  assert.equal(LV.expect.live, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(LV.expect.tables)), { added: 1, pair: { read: "none", write: "anyone" }, column: "email" });
+  assert.deepEqual(LV.expect.headings.map((h) => h.route), ["/visit", "/gallery"]);
+  assert.equal(LV.expect.menu.label, "Bake List");
+  const total = LV.steps.reduce((t, x) => t + stepBoundMs(x), 0);
+  assert.ok(total <= UI_PRESS_MAX_MS, `its messages may run ${total / 60000} minutes`);
+  assert.equal(readUiScenario("lv-reopen", SLUG).ok, true);
+  assert.equal(readUiScenario("lv-reopen", "fretwork-1").ok, false);
+  assert.equal(blocksPost("POST", "/api/site/react-revise", LV), true);
+  assert.equal(blocksPost("POST", "/api/site/request/fold-lane-bakery/" + "k".repeat(20) + "/approve", LV), true);
+  for (const c of LV.covers) assert.ok(Object.hasOwn(COVERAGE, c), `it covers ${c}, which no reader knows`);
+});
+
+test("LV END TO END: the first message's tab closes, the request ends with no page open, the tab opened afterwards reconciles it — preview, pages, tables — and the second message goes from that tab; every live check passes", async () => {
+  const h = lvApp();
+  const rec = await drive(h, LV, { siteOrigin: SITE });
+  assert.equal(rec.stopped, null, JSON.stringify(rec.stopped));
+  assert.equal(rec.sent, 2);
+  const [one, two] = rec.steps;
+  assert.equal(one.mode, "away");
+  assert.equal(one.away.ended, true);
+  assert.equal(one.away.reopened.closed, true);
+  // THE SECOND MESSAGE WENT FROM THE TAB OPENED AFTERWARDS, never reloaded.
+  assert.equal(h.tabs.length, 2);
+  assert.ok(h.calls.includes("tab 2 click #stSend"), "the second message did not go from the tab opened afterwards");
+  assert.equal(rec.tabs.length, 2);
+  assert.equal(two.sameTab, true);
+  assert.equal(rec.tab.mark, h.tabs[1].mark);
+  // WHAT THE PAGE HAD, BEFORE EACH SEND AND ONCE EACH WAS DONE.
+  assert.deepEqual(one.typed, { frame: `${SITE}/?v=0`, pages: ["/", "/visit", "/order", "/gallery"], tables: [] });
+  assert.deepEqual(one.view, { frame: `${SITE}/?v=2`, pages: ["/", "/visit", "/order", "/gallery", "/bake-list"], tables: ["loaves", "bake_list"] });
+  assert.deepEqual(two.typed.frame, `${SITE}/?v=2`);
+  assert.deepEqual(two.view, { frame: `${SITE}/?v=3`, pages: ["/", "/visit", "/order", "/gallery", "/bake-list"], tables: ["bake_list", "loaves"] });
+  // THE PREVIEW'S LOADS, BY TAB.
+  assert.deepEqual(rec.frameLoads.map((f) => `${f.tab} ${f.path}`), ["1 /?v=0", "2 /?v=0", "2 /?v=1", "2 /?v=2", "2 /?v=3"]);
+  // THE THREAD: each message, its card, its own replies.
+  assert.deepEqual(two.thread.map((m) => m.who + (m.card ? "c" : "") + (m.job ? ":" + m.job : "")), ["u", "ac", "a:b1", "a:v1", "u", "ac", "a:g1"]);
+  assert.deepEqual(failed(lvChecks(rec)), []);
+  assert.equal(lvChecks(rec).length, 15);
+  for (const st of rec.steps) assert.deepEqual(failed(requestStepChecks(st, LV)), [], `message ${st.n}`);
+  assert.deepEqual(failed(replyChecks(rec.steps)), []);
+  // AND THE PRESS'S OWN VERDICT CARRIES THEM, for a scenario that asks.
+  const v = requestBatchVerdict({ spec: LV, steps: rec.steps, before: site(RUN47).inv, after: site(RUN47).inv, served: {}, tables: LV_TABLES, frameLoads: rec.frameLoads });
+  assert.ok(v.checks.some((c) => c.name === "message 1: no other request's reply is drawn after it"), "the live checks are not in the press's verdict");
+  const rq = requestBatchVerdict({ spec: UI_SCENARIOS["rq-5-away"], steps: rec.steps.slice(0, 1), before: site(RUN47).inv, after: site(RUN47).inv, served: {}, tables: LV_TABLES, frameLoads: rec.frameLoads });
+  assert.ok(!rq.checks.some((c) => /no other request's reply/.test(c.name)), "a scenario that does not ask was judged on the live checks");
+  assert.match(describeUi(rec), /preview https:\/\/fold-lane-bakery\.gofarther\.app\/\?v=0 -> https:\/\/fold-lane-bakery\.gofarther\.app\/\?v=2; the page's pages: \/, \/visit, \/order, \/gallery, \/bake-list; its tables: loaves, bake_list/);
+  assert.match(describeUi(rec), /preview loads: tab 1 \/\?v=0; tab 2 \/\?v=0; tab 2 \/\?v=1; tab 2 \/\?v=2; tab 2 \/\?v=3/);
+});
+
+test("LV on the old page: a request found done in the tab opened afterwards is not reconciled — the preview keeps its address, the new page and table never reach its lists, and the next routing call sends the old list — and the live checks say so", async () => {
+  const rec = await drive(lvApp({ oldReconcile: true }), LV, { siteOrigin: SITE });
+  assert.equal(rec.sent, 2, JSON.stringify(rec.stopped));
+  const f = failed(lvChecks(rec));
+  for (const want of [
+    /^message 1: the preview was given a newer address once it was done, in the tab opened afterwards/,
+    /^message 1: that tab's preview loaded the newer address/,
+    /^once message 1 was done, the page's own pages hold the new page/,
+    /^once message 1 was done, the page's own tables hold the new one/,
+    /^message 2's routing call sent every table, the new one with them/,
+  ]) assert.ok(f.some((x) => want.test(x)), `not failed: ${want}\n${f.join("\n")}`);
+  // WHAT STILL HOLDS: the route's own read names them all, and the page keeps it.
+  assert.ok(!f.some((x) => /^message 2's routing answer named every table/.test(x)), f.join("\n"));
+});
+
+test("LV with the old placement: another request's reply drawn after the second message fails the press, by name", async () => {
+  const rec = await drive(lvApp({ misplace: { after: "g1", text: "✅ Updated an older heading.", job: "old1" } }), LV, { siteOrigin: SITE });
+  assert.equal(rec.sent, 2, JSON.stringify(rec.stopped));
+  assert.deepEqual(rec.steps[1].otherReplies, ["✅ Updated an older heading."]);
+  assert.deepEqual(failed(lvChecks(rec)).map((x) => x.split(" — ")[0]), ["message 2: no other request's reply is drawn after it"]);
+});
+
+test("the live checks, each read off the record: a reply out of place, a preview address that did not move or never loaded in its tab, a first answer missing a table or already naming the new one, and a page whose tables are not what the last answer read — each fails by name; an address is read for its v and nothing else", async () => {
+  const rec = await drive(lvApp(), LV, { siteOrigin: SITE });
+  const base = JSON.parse(JSON.stringify(rec));
+  const run = (tweak) => { const r = JSON.parse(JSON.stringify(base)); tweak(r); return failed(lvChecks(r)).map((x) => x.split(" — ")[0]); };
+  assert.deepEqual(run(() => {}), []);
+  // MESSAGE 1'S REPLY DRAWN AFTER MESSAGE 2 on the second thread.
+  assert.deepEqual(run((r) => { const t = r.steps[1].thread; const [m] = t.splice(2, 1); t.push(m); r.steps[1].at = 3; }), ["message 1's replies stay with it, before message 2"]);
+  // ITS OWN REPLY DRAWN BEFORE IT.
+  assert.deepEqual(run((r) => { r.steps[1].replyWatch.attributed = [3]; }), ["message 2's own replies are drawn after it"]);
+  // THE PREVIEW: not moved; moved but never loaded by its tab; loaded by the other tab only.
+  assert.deepEqual(run((r) => { r.steps[1].view.frame = r.steps[1].typed.frame; }), ["message 2: the preview was given a newer address once it was done", "message 2: that tab's preview loaded the newer address"]);
+  assert.deepEqual(run((r) => { r.frameLoads = r.frameLoads.filter((x) => x.path !== "/?v=3"); }), ["message 2: that tab's preview loaded the newer address"]);
+  assert.deepEqual(run((r) => { r.frameLoads = r.frameLoads.map((x) => (x.path === "/?v=2" ? { ...x, tab: 1 } : x)); }), ["message 1: that tab's preview loaded the newer address"]);
+  // THE FIRST ANSWER: missing the site's table; naming the new one before it existed.
+  assert.deepEqual(run((r) => { const e = r.steps[0].network.find((x) => x.path === "/api/site/route"); e.res.tablesFilled = []; }),
+    ["message 1's routing answer named every table the site had (loaves): what the router was told"]);
+  assert.deepEqual(run((r) => { const e = r.steps[0].network.find((x) => x.path === "/api/site/route"); e.res.tablesFilled = ["loaves", "bake_list"]; }), ["message 1's routing answer named every table the site had (loaves): what the router was told"]);
+  // THE LAST ANSWER'S READ, NOT KEPT BY THE PAGE.
+  assert.deepEqual(run((r) => { r.steps[1].view.tables = ["loaves"]; }), ["once message 2 was done, the page still holds the new page, and its tables are what that answer read"]);
+  // THE SECOND ANSWER LEAVING THE NEW TABLE OUT, with the page keeping exactly what it read.
+  assert.deepEqual(run((r) => { const e = r.steps[1].network.find((x) => x.path === "/api/site/route"); e.res.tablesFilled = ["loaves"]; r.steps[1].view.tables = ["loaves"]; }),
+    ["message 2's routing answer named every table, the new one with them: what the router was told"]);
+  // AN ADDRESS IS READ FOR ITS v, AND ONLY A WHOLE NUMBER IS ONE.
+  assert.equal(previewVOf(`${SITE}/?v=12`), 12);
+  assert.equal(previewVOf("/visit?v=0"), 0);
+  assert.equal(previewVOf(`${SITE}/?v=`), null);
+  assert.equal(previewVOf(`${SITE}/?v=1e3`), null);
+  assert.equal(previewVOf(`${SITE}/`), null);
+  assert.equal(previewVOf(null), null);
+  assert.deepEqual(pageViewOf({ frame: 3, pages: ["/", 4], tables: "x" }), { frame: null, pages: ["/"], tables: null });
+});
+
+test("a press that asks for one new table gets exactly one, a visitor's to send to and nobody's to read, with the column named — and every other table as it was; two new tables, one anyone can read, one with no such column, or an old table changed each fail", () => {
+  const tableChecks = (tables) => outcomeChecks({ spec: LV, before: site(RUN47).inv, after: site(RUN47).inv, served: {}, tables }).checks.filter((c) => /table/.test(c.name));
+  const name = (c) => c.name;
+  assert.deepEqual(tableChecks(LV_TABLES).map(name), ["exactly 1 new table, read none and written by anyone, with a column for email", "every other table is as it was: the same rules, columns and row counts"]);
+  assert.deepEqual(failed(tableChecks(LV_TABLES)), []);
+  const after = (fx) => { const a = JSON.parse(JSON.stringify(LV_TABLES.after)); fx(a); return { before: LV_TABLES.before, after: a }; };
+  const firstFails = (t) => failed(tableChecks(t)).map((x) => x.split(" — ")[0]);
+  assert.deepEqual(firstFails(after((a) => { a.names.push("waitlist"); a.tables.waitlist = { access: "collect", pair: { read: "none", write: "anyone" }, rows: 0, columns: ["email"] }; })), ["exactly 1 new table, read none and written by anyone, with a column for email"]);
+  assert.deepEqual(firstFails(after((a) => { a.tables.bake_list.pair = { read: "public", write: "anyone" }; })), ["exactly 1 new table, read none and written by anyone, with a column for email"]);
+  assert.deepEqual(firstFails(after((a) => { a.tables.bake_list.columns = ["name", "phone"]; })), ["exactly 1 new table, read none and written by anyone, with a column for email"]);
+  assert.deepEqual(firstFails(after((a) => { a.tables.loaves = { ...a.tables.loaves, rows: 8 }; })), ["every other table is as it was: the same rules, columns and row counts"]);
+  assert.deepEqual(firstFails({ before: LV_TABLES.before, after: LV_TABLES.before }), ["exactly 1 new table, read none and written by anyone, with a column for email"]);
+  // A PRESS THAT ASKS FOR NONE IS JUDGED AS BEFORE: a new table is a change.
+  const plain = outcomeChecks({ spec: UI_SCENARIOS["rq-5-away"], before: site(RUN47).inv, after: site(RUN47).inv, served: {}, tables: LV_TABLES }).checks.filter((c) => /table/.test(c.name));
+  assert.deepEqual(failed(plain).map((x) => x.split(" — ")[0]), ["the site's tables are as they were: the same tables, rules, columns and row counts"]);
 });

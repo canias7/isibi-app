@@ -563,19 +563,33 @@ export function outcomeChecks({ spec, before, after, served, beforeServed, logo,
   // THE DATABASE, AS ITS OWNER LISTS IT: the same tables, each with the same
   // rules, columns and number of rows. A new table, or a rule changed by a
   // part nobody asked for, shows here.
+  // A PRESS THAT ASKS FOR A NEW TABLE (`want.tables`, 2026-10-05) gets that
+  // many, each with the rules and the column named, and every other table as
+  // it was.
   const tb = tables && tables.before, ta = tables && tables.after;
   if (!(tb && tb.ok && ta && ta.ok)) add("the site's tables were read before and after", false, `${tb ? (tb.ok ? "after" : "before: " + tb.why) : "before"} not read${ta && !ta.ok ? "; after: " + ta.why : ""}`);
   else {
     const diff = [];
+    const added = [];
     for (const n of new Set([...tb.names, ...ta.names])) {
       const x = tb.tables[n], y = ta.tables[n];
-      if (!x) { diff.push(`${n} is new`); continue; }
+      if (!x) { if (want.tables) added.push(n); else diff.push(`${n} is new`); continue; }
       if (!y) { diff.push(`${n} is gone`); continue; }
       if (x.access !== y.access) diff.push(`${n}'s rules ${x.access} -> ${y.access}`);
       if (JSON.stringify(x.columns) !== JSON.stringify(y.columns)) diff.push(`${n}'s columns changed`);
       if (x.rows !== y.rows) diff.push(`${n} ${x.rows} -> ${y.rows} rows`);
     }
-    add("the site's tables are as they were: the same tables, rules, columns and row counts", !diff.length, diff.join("; "));
+    if (want.tables) {
+      const t = want.tables;
+      const fits = (n) => {
+        const y = ta.tables[n];
+        return !!(y && y.pair && y.pair.read === t.pair.read && y.pair.write === t.pair.write && y.columns.some((c) => String(c).toLowerCase().includes(t.column)));
+      };
+      add(`exactly ${t.added} new table${t.added === 1 ? "" : "s"}, read ${t.pair.read} and written by ${t.pair.write}, with a column for ${t.column}`,
+        added.length === t.added && added.every(fits),
+        added.length ? added.map((n) => `${n}: ${JSON.stringify({ access: ta.tables[n].access, columns: ta.tables[n].columns })}`).join("; ") : "no new table");
+      add("every other table is as it was: the same rules, columns and row counts", !diff.length, diff.join("; "));
+    } else add("the site's tables are as they were: the same tables, rules, columns and row counts", !diff.length, diff.join("; "));
   }
   return { checks: out, newPages: pf };
 }
@@ -649,13 +663,123 @@ export function coverageOf({ spec, steps }) {
   });
 }
 
+// ── THE LIVE CHECK OF THE PAGE'S REFRESH (2026-10-05) ─────────────────────────
+
+/** The preview's `v` an address carries, or null. */
+export function previewVOf(addr) {
+  if (typeof addr !== "string" || !addr) return null;
+  try {
+    const v = new URL(addr, "https://preview.invalid/").searchParams.get("v");
+    return v !== null && /^\d{1,9}$/.test(v) ? Number(v) : null;
+  } catch { return null; }
+}
+const pathAndQuery = (addr) => { try { const u = new URL(addr, "https://preview.invalid/"); return u.pathname + u.search; } catch { return ""; } };
+
+/**
+ * THE PAGE'S OWN SIDE OF A PRESS THAT ASKS FOR IT (`expect.live`), read off the
+ * record, beside the usual checks. Every one fails the press:
+ * - EACH REPLY WITH ITS REQUEST: no other request's reply is drawn after a
+ *   message, each of its own is drawn after it, and an earlier message's
+ *   replies stay before the next message (read by the jobs they are marked
+ *   with, on the next message's thread);
+ * - THE PREVIEW: once a message is done its frame was given a newer address
+ *   than before its Send, and the tab showing it loaded that address — the
+ *   tab opened afterwards, for a message sent with its tab closed and every
+ *   message after it;
+ * - THE INVENTORY: the first message's routing answer named the site's tables
+ *   (every one its owner lists), the router's input; once it was done, the
+ *   page's own lists hold the new page and every table, the new one with
+ *   them; the next message's routing call sent them all and its answer named
+ *   them all; and once that one was done the page's tables are what that
+ *   answer read.
+ * The tables are compared as sets, by name, against the first answer's names
+ * and the owner's listing of what is new — never against a fixed list.
+ */
+export function liveChecks({ steps, tables, newPages, frameLoads }) {
+  const out = [];
+  const add = (name, ok, why) => out.push({ name, ok: !!ok, why: ok ? "" : String(why || "not established") });
+  const list = Array.isArray(steps) ? steps : [];
+  const low = (l) => (Array.isArray(l) ? l.filter((x) => typeof x === "string").map((x) => x.toLowerCase()) : null);
+  const holds = (l, names) => { const x = low(l); return !!x && names.every((nm) => x.includes(nm)); };
+  const same = (a, b) => { const x = low(a), y = low(b); return !!x && !!y && [...new Set(x)].sort().join("\n") === [...new Set(y)].sort().join("\n"); };
+  const loads = Array.isArray(frameLoads) ? frameLoads : [];
+  const shown = (v) => (Array.isArray(v) ? JSON.stringify(v) : "no list");
+  // EACH REPLY WITH ITS REQUEST.
+  list.forEach((s, i) => {
+    if (!s || !s.sent) return;
+    const others = Array.isArray(s.otherReplies) ? s.otherReplies : null;
+    add(`message ${s.n}: no other request's reply is drawn after it`, !!others && !others.length,
+      others ? `${others.length} drawn after it: ${JSON.stringify(others.slice(0, 3))}` : "its thread was not read");
+    const mine = s.replyWatch && Array.isArray(s.replyWatch.attributed) ? s.replyWatch.attributed : null;
+    add(`message ${s.n}'s own replies are drawn after it`, !!mine && mine.length > 0 && Number.isInteger(s.at) && s.at >= 0 && mine.every((k) => k > s.at),
+      !mine ? "its replies were not watched" : !mine.length ? "none of its replies was found on screen" : `the message is at ${s.at}, its replies at ${mine.join(", ")}`);
+    const prev = i > 0 ? list[i - 1] : null;
+    if (prev && prev.sent) {
+      const jobs = new Set(Array.isArray(prev.jobs) ? prev.jobs : []);
+      const thread = Array.isArray(s.thread) ? s.thread : [];
+      const marked = thread.map((m, k) => (m && m.job && jobs.has(m.job) ? k : -1)).filter((k) => k >= 0);
+      let from = -1;
+      thread.forEach((m, k) => { if (m && m.who === "u" && m.text === String(prev.say || "").slice(0, 80)) from = k; });
+      add(`message ${prev.n}'s replies stay with it, before message ${s.n}`,
+        marked.length > 0 && from >= 0 && Number.isInteger(s.at) && s.at > from && marked.every((k) => k > from && k < s.at),
+        !marked.length ? `none of message ${prev.n}'s replies is marked on the thread` : `message ${prev.n} at ${from}, its replies at ${marked.join(", ")}, message ${s.n} at ${s.at}`);
+    }
+  });
+  // THE PREVIEW.
+  list.forEach((s, i) => {
+    if (!s || !s.sent) return;
+    const before = s.typed ? s.typed.frame : null, after = s.view ? s.view.frame : null;
+    const vb = previewVOf(before), va = previewVOf(after);
+    // THE TAB THAT SHOWS IT: the run's first is 1, each closed-tab message opens the next.
+    const tab = 1 + list.slice(0, i + 1).filter((x) => x && x.mode === "away").length;
+    add(`message ${s.n}: the preview was given a newer address once it was done${s.mode === "away" ? ", in the tab opened afterwards" : ""}`,
+      vb !== null && va !== null && va > vb, `before the send ${before || "unread"}, once done ${after || "unread"}`);
+    // A NEWER ADDRESS, LOADED: an address the frame already had is not one,
+    // however often that tab loaded it.
+    const want = after && vb !== null && va !== null && va > vb ? pathAndQuery(after) : "";
+    add(`message ${s.n}: that tab's preview loaded the newer address`, !!want && loads.some((f) => f && f.tab === tab && f.path === want),
+      want ? `tab ${tab} loaded ${loads.filter((f) => f && f.tab === tab).map((f) => f.path).join(", ") || "nothing"}` : "there was no newer address to look for");
+  });
+  // THE INVENTORY.
+  const tb = tables && tables.before, ta = tables && tables.after;
+  const known = !!(tb && tb.ok && ta && ta.ok);
+  const added = known ? ta.names.filter((nm) => !tb.names.includes(nm)) : [];
+  const page = newPages && Array.isArray(newPages.found) && newPages.found[0] && newPages.found[0].route ? newPages.found[0].route : "";
+  const first = list[0], second = list[1];
+  const answer = (s) => { const r = routeCallOf(s && s.network); return r && r.res && typeof r.res === "object" ? r.res : null; };
+  const firstNamed = first && first.sent ? low((answer(first) || {}).tablesFilled) : null;
+  if (first && first.sent) {
+    add(`message 1's routing answer named every table the site had (${known ? tb.names.join(", ") || "none" : "unread"}): what the router was told`,
+      known && !!firstNamed && holds(firstNamed, tb.names) && !added.some((nm) => firstNamed.includes(nm)),
+      `it named ${firstNamed ? JSON.stringify(firstNamed) : "no list"}`);
+    const v = first.view || {};
+    add(`once message 1 was done, the page's own pages hold the new page (${page || "not found"})`, !!page && Array.isArray(v.pages) && v.pages.includes(page), `the page's pages: ${shown(v.pages)}`);
+    add(`once message 1 was done, the page's own tables hold the new one (${added.join(", ") || "none new"}) and every one that answer named`,
+      known && added.length > 0 && !!firstNamed && holds(v.tables, [...firstNamed, ...added]), `the page's tables: ${shown(v.tables)}`);
+  }
+  if (second && second.sent) {
+    const r = routeCallOf(second.network);
+    const hint = r && r.req && r.req.site && typeof r.req.site === "object" ? r.req.site.tables : undefined;
+    const named = (answer(second) || {}).tablesFilled;
+    const all = [...(firstNamed || []), ...added];
+    add("message 2's routing call sent every table, the new one with them", known && added.length > 0 && !!firstNamed && holds(hint, all), `it sent ${shown(hint)}`);
+    add("message 2's routing answer named every table, the new one with them: what the router was told", known && added.length > 0 && !!firstNamed && holds(named, all), `it named ${shown(named)}`);
+    const v = second.view || {};
+    add("once message 2 was done, the page still holds the new page, and its tables are what that answer read",
+      !!page && Array.isArray(v.pages) && v.pages.includes(page) && Array.isArray(named) && same(v.tables, named),
+      `the page's pages: ${shown(v.pages)}; its tables: ${shown(v.tables)}`);
+  }
+  return out;
+}
+
 /**
  * THE WHOLE VERDICT OF ONE PRESS: each message's request, the job order, the
  * site's changes and everything else as it was, the replies — and, beside
  * them and never in them, the coverage. Taken whether or not every message was
- * sent, so a stopped press records why it did not pass.
+ * sent, so a stopped press records why it did not pass. A press that asks for
+ * it (`expect.live`) is judged on the page's own side too (`liveChecks`).
  */
-export function requestBatchVerdict({ spec, steps, before, after, served, beforeServed, logo, row, tables, slug }) {
+export function requestBatchVerdict({ spec, steps, before, after, served, beforeServed, logo, row, tables, slug, frameLoads }) {
   const checks = [];
   const want = Array.isArray(spec && spec.steps) ? spec.steps : [];
   want.forEach((_, i) => {
@@ -667,6 +791,7 @@ export function requestBatchVerdict({ spec, steps, before, after, served, before
   });
   const o = outcomeChecks({ spec, before, after, served, beforeServed, logo, row, tables, slug });
   checks.push(...o.checks);
+  if (spec && spec.expect && spec.expect.live === true) checks.push(...liveChecks({ steps, tables, newPages: o.newPages, frameLoads }));
   const replies = replyChecks(steps);
   const coverage = coverageOf({ spec, steps });
   return { ok: checks.every((c) => c.ok) && replies.every((c) => c.ok), checks, replies, coverage, newPages: o.newPages };

@@ -1129,3 +1129,44 @@ without repeating R1 or rq-canary."*
   - every other press keeps the balance-move check. 9 cases in
     `test/canary-money.test.mjs` on run 94's own records; a sweep of 24 of
     24; the suite `9302 / 9302 / 0 / 0`.
+
+### THE LIVE CHECK OF THE PAGE'S REFRESH (`lv-reopen`, 2026-10-05 — on the branch, scripts and tests only; not pressed)
+
+The owner, after the response-order correction passed review: *"Prepare one
+combined live Edit/Add-on verification covering correct reply placement,
+preview refresh, updated page/table inventory and completion with the tab
+closed, using existing passing evidence to avoid redundant cases."* The
+stage it belongs to, with the press's boxes and the cost, is
+`docs/investigations/live-check.md`.
+- **WHAT IT IS**: one request-mode press on `fold-lane-bakery`, two messages.
+  The first, an edit and an add-on that makes a page with a table of its own,
+  is sent with its tab then closed (`away`); the tab opened afterwards must
+  show it ended, and **the second message goes from that tab**: once a
+  closed-tab message has been shown ended there and more messages follow,
+  the driver marks that tab as the run's (`rec.tab`; the first tab's mark
+  stays in `rec.tabs`), so every later message is held to it, never
+  reloaded or left. Before, a closed tab could only end a press.
+- **WHAT THE CANARY READS NOW**, for every UI press: the preview frame's
+  address and the page's own lists of pages and tables (`readComposerInPage`
+  → `pageViewOf`), before each send (`typed`) and once each message is done
+  (`view`); every address the frame loads, by the tab that loaded it
+  (`frameLoads`, a request to the site's own origin carrying `v`); and each
+  message's place on its thread with the job each reply is marked with
+  (`at`, `thread`). All read only.
+- **ITS EXTRA CHECKS** (`liveChecks`, `scripts/canary-requests.mjs`, only for
+  a press whose scenario says `live`), each failing the press: no other
+  request's reply after a message, its own after it, the earlier message's
+  replies before the next; the frame given a newer address once each is done
+  and that tab loading it; the first routing answer naming every table the
+  owner's listing has (and not the new one); the reopened page's lists
+  holding the new page and the new table; the second routing call and its
+  answer carrying them all; the page's tables after it equal to what that
+  answer read. **A new table** (`expect.tables`): exactly the number asked,
+  with the rules and the column named, every other table as it was; a press
+  that asks for none still fails on any new table.
+- **Proven with the stand-in app only** (`test/canary-requests.test.mjs`): the
+  press end to end, every live check passing; the old page modelled two ways
+  (a request found done in the reopened tab not reconciled; another
+  request's reply drawn after a message), each failing by name; each check
+  failing alone on its own defect; the table expectation's four ways of
+  failing. Sweep and suite: `docs/history/2026-10-05-live-check.md`.

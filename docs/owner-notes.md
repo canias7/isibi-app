@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-05, 10:30 UTC)
+## Current handoff — read this first (2026-10-05, 11:10 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,36 +9,29 @@ is in git; the dated entries further down are the full story.*
 **State now**
 - **Nothing merged or deployed since `cd817fee`**: the live site is still
   deploy 2183 (`e84b8e7e`, image `386607152d4cb319`). Nothing spent.
-- **The branch stays unmerged**: the placement fix, the corrections you
-  passed (the preview's address, late first reads, the whole table list, the
-  three answers), and this round on top (`80bba1f6`):
-  - **the page's table list kept in order**: one clock puts every routing
-    call and every addition (this page's, another browser's, a build's) in
-    order;
-    - an answer is taken whenever no answer to a later call has been, **even
-      when it changes nothing**, so your `trainers` stays and your
-      `old_bookings` doesn't come back;
-    - **an answer to an earlier call than the one taken last changes
-      nothing**;
-    - **an addition that finishes while a call is out stays**, and the
-      answer still removes what its read found gone;
-  - unchanged: the server side (the three answers, the ownership check, the
-    3-second bound), each reply's place with its request, the model's
-    replies, the refresh fixes.
-  - Shown with the page's own functions, the real Worker route and supplied
-    answers, reading the page's list, what it sends next and what the router
-    is told; not live. No screenshots: nothing on screen changes.
-  - The suite `9474 / 9474 / 0 / 0` here and `9474 / 9468 / 0 / 6` on unit
-    CI (run 37296510487). The site build didn't run, since nothing it
-    covers changed; its last run is green (37282482599, on `685a922c`).
-- **Merging now deploys the page and the Worker and builds an image**: this
-  round changed only the page and tests, so the image is the one the
-  three-answer round set (`386607152d4cb319` → `589e3e4e85a20066`, predicted,
-  and unchanged by this round; nothing built). After a merge, the usual wait
-  of 15–20 minutes applies before container work.
-- **Money**: balance **48**, read at 10:20 UTC (last ledger row 385, no
+- **The page corrections are complete and closed** on the branch: each
+  request's replies with their request, work finishing while a page watches,
+  every finished job reconciled with what is published, the preview's
+  address moving on every move, the route reading the site's whole table
+  list as one of three answers, and the page keeping those reads in order.
+  **The last of them, the response order (`80bba1f6`), you closed on
+  Codex's review.** The audit is not widened further.
+- **The live check is prepared, not authorized**
+  (`docs/investigations/live-check.md`): the merge (whose push is the deploy;
+  no workflow inputs), the deploy's readings, the image window, your free
+  check, and one paid press, `lv-reopen` on the bakery, with every box
+  spelled out, what passes, and **about 17–27 credits** (an estimate). It
+  shows live what R1–R5 did not: reply placement, the preview's refresh, the
+  page and table lists, through a request finished with its tab closed. The
+  canary's scenario and checks are built and tested on the branch (stand-in
+  app only): a sweep of 22 mutants, all caught; the suite
+  `9480 / 9480 / 0 / 0` here; unit CI read after the push.
+- **Merging now deploys the page and the Worker and builds an image**
+  (`386607152d4cb319` → `589e3e4e85a20066`, predicted; nothing built).
+- **Money**: balance **48**, read at 11:07 UTC (last ledger row 385, no
   job open); nothing spent since run 99.
-- **The bakery** keeps every change from the batch (your demo rule).
+- **The bakery** keeps every change from the batch (your demo rule), and
+  would keep the live check's too.
 
 **Still open** (`docs/backlog.md`)
 - An old request's own reply with no record is still asked for whenever it is
@@ -51,18 +44,18 @@ is in git; the dated entries further down are the full story.*
   one browser keep their own table lists.
 
 **Yours to decide**
-1. **The table list in order**: review it. Merging deploys the page and the
-   Worker, and builds the image above; a live check would come after, on
-   your word.
-2. **RW**, the separate full-rewrite test: not started.
+1. **Authorize the stage, or not**: the merge and deploy, the free check, and
+   the one paid press, as `docs/investigations/live-check.md` lists them. The
+   hold stands until you do.
+2. **First Build and RW**: outside this stage.
 3. Which of the open items to take next.
 
 **Links**
-- This round: `docs/history/2026-10-05-response-order.md`.
-- The rounds before it: `docs/history/2026-10-05-inventory.md`,
-  `docs/history/2026-10-05-reconcile.md`,
-  `docs/history/2026-10-05-watched-refresh.md`,
-  `docs/history/2026-10-05-reply-placement.md`.
+- The stage: `docs/investigations/live-check.md`.
+- This round: `docs/history/2026-10-05-live-check.md`.
+- The corrections: `docs/history/2026-10-05-response-order.md`,
+  `-inventory.md`, `-reconcile.md`, `-watched-refresh.md`,
+  `-reply-placement.md`.
 - The open items: `docs/backlog.md`.
 ---
 
@@ -122,6 +115,49 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-05 — Your review: the order correction closed; the live check ready for one authorization (on the branch; nothing spent, nothing deployed)
+
+- **Closed**: the response-order correction (`80bba1f6`), on Codex's review.
+  The page corrections since the placement fix are complete on the branch,
+  and I've stopped widening the audit.
+- **The next stage, ready to authorize in one go**
+  (`docs/investigations/live-check.md`, every box spelled out there):
+  1. I merge: a fast-forward of `main` to the branch. That push is the
+     deploy; the deploy workflow takes no inputs;
+  2. I read the deploy: one run, the image built as predicted
+     (`386607152d4cb319` → `589e3e4e85a20066`), the served `chat.js`
+     identical to the merged file;
+  3. I wait 15–20 minutes for the new image;
+  4. you press the free check: spend `no`, the merged commit, image
+     `589e3e4e85a20066`;
+  5. you press the live check: spend `yes`, scenario `lv-reopen`, site
+     `fold-lane-bakery`, the same commit and image;
+  6. I read and record it all.
+- **The live check**, one press with two messages on the bakery: message 1
+  adds a Bake List page with a sign-up table and changes the Visit heading,
+  and its tab is closed; once the server has finished, a new tab opens the
+  site and message 2 changes the Gallery heading from there. Beside the usual
+  checks, it passes only if each reply sits with its own request, the preview
+  moves to a newer address and loads it, the new page and table appear in the
+  page's own lists, and both routing calls carry every table (the second with
+  the new one).
+- **It doesn't repeat** what R1–R5 already showed live (mixed requests, menu
+  links, questions, logos, the closed tab itself).
+- **Cost**: about 17–27 credits, an estimate; the press stops before message
+  2 if message 1 has spent 32. Balance 48.
+- **Built for it**, scripts and tests only: the canary's new scenario, a
+  reopened tab that carries on, the new readings and checks, 6 new cases.
+  Testing caught a flaw in my first version of the "loaded the newer
+  address" check (it passed when nothing had moved); fixed. The mutation
+  sweep caught all 22 defects it put in (its first run 21: the missing case
+  is now a test), and the suite is `9480 / 9480 / 0 / 0` here (CI after the
+  push).
+- **First Build and RW** stay out.
+
+**Recorded in**: `docs/investigations/live-check.md`,
+`docs/history/2026-10-05-live-check.md`, `docs/instruments.md`, the backlog
+and the checklist.
 
 ## 2026-10-05 — Your review: the table list kept in order — a newer read stands, an addition stays (on the branch; nothing spent, nothing deployed)
 
