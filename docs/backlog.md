@@ -44,8 +44,9 @@ here; take a closed one out of both.**
   through the real Worker, 13 refresh and 10 reconcile cases, the routing
   ones through the real Worker), in a real Chromium (2 cases) and in
   screenshots; not yet live. **Its live check is prepared** (2026-10-05,
-  `lv-reopen`, `docs/investigations/live-check.md`), for the owner to
-  authorize with the merge. **Still open, not changed**: an ended request's
+  `lv-reopen`, `docs/investigations/live-check.md`). **Merged and deployed
+  in deploy 2184** (2026-10-05, `d75d79f3`, image `589e3e4e85a20066`), not
+  yet runtime-confirmed or live-checked. **Still open, not changed**: an ended request's
   own reply with no record is asked for whenever it is read, however old
   (R1's, about 20 hours after it ended); a job's is not, after two hours.
 - **The new page's own menu names it differently** (a remaining follow-up;

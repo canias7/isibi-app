@@ -1,38 +1,33 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-05, 11:10 UTC)
+## Current handoff — read this first (2026-10-05, 12:05 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **Nothing merged or deployed since `cd817fee`**: the live site is still
-  deploy 2183 (`e84b8e7e`, image `386607152d4cb319`). Nothing spent.
-- **The page corrections are complete and closed** on the branch: each
-  request's replies with their request, work finishing while a page watches,
-  every finished job reconciled with what is published, the preview's
-  address moving on every move, the route reading the site's whole table
-  list as one of three answers, and the page keeping those reads in order.
-  **The last of them, the response order (`80bba1f6`), you closed on
-  Codex's review.** The audit is not widened further.
-- **The live check is prepared, not authorized**
-  (`docs/investigations/live-check.md`): the merge (whose push is the deploy;
-  no workflow inputs), the deploy's readings, the image window, your free
-  check, and one paid press, `lv-reopen` on the bakery, with every box
-  spelled out, what passes, and **about 17–27 credits** (an estimate). It
-  shows live what R1–R5 did not: reply placement, the preview's refresh, the
-  page and table lists, through a request finished with its tab closed. The
-  canary's scenario and checks are built and tested on the branch (stand-in
-  app only): a sweep of 22 mutants, all caught; the suite
-  `9480 / 9480 / 0 / 0` here and `9480 / 9474 / 0 / 6` on unit CI (run
-  37300930331).
-- **Merging now deploys the page and the Worker and builds an image**
-  (`386607152d4cb319` → `589e3e4e85a20066`, predicted; nothing built).
-- **Money**: balance **48**, read at 11:07 UTC (last ledger row 385, no
-  job open); nothing spent since run 99.
+- **Merged and deployed once as deploy 2184**, on your word ("merge and
+  deploy"): `main` `cd817fee` → `d75d79f3` (a fast-forward of 13 commits) at
+  11:44:54 UTC; one deploy run, green in 2m46s; the image built once as
+  predicted (`386607152d4cb319` → `589e3e4e85a20066`), the container rolled at
+  11:47:39 UTC; the served `chat.js` byte-identical to the merged file. It
+  carries the page corrections you closed (each reply with its request, the
+  watched refresh, the reconcile, the preview's address, the three answers,
+  the response order) and the prepared live check. **Deployed, not
+  runtime-confirmed**: the free check is your press.
+- **The image window is over** (waited to 12:05 UTC).
+- **REQUEST_FLOW and MODEL_REPLIES** were uploaded as before (still `on`).
+- **Money**: balance **48** (last ledger row 385, no job open); nothing spent.
 - **The bakery** keeps every change from the batch (your demo rule), and
-  would keep the live check's too.
+  will keep the live check's too.
+
+**Next, yours to press** (`docs/investigations/live-check.md` §3)
+1. **The free check**: "Use workflow from" `main`; paid edit `no`; deploy sha
+   `d75d79f3`; image `589e3e4e85a20066`.
+2. **Then the live check**, once I confirm the free one: "Use workflow from"
+   `main`; paid edit `yes`; scenario `lv-reopen`; site `fold-lane-bakery`;
+   the same deploy sha and image. About 17–27 credits.
 
 **Still open** (`docs/backlog.md`)
 - An old request's own reply with no record is still asked for whenever it is
@@ -43,17 +38,11 @@ is in git; the dated entries further down are the full story.*
   done by a late first read is reconciled without its undo offer; a page
   opening many finished requests moves its preview once per job; two tabs of
   one browser keep their own table lists.
-
-**Yours to decide**
-1. **Authorize the stage, or not**: the merge and deploy, the free check, and
-   the one paid press, as `docs/investigations/live-check.md` lists them. The
-   hold stands until you do.
-2. **First Build and RW**: outside this stage.
-3. Which of the open items to take next.
+- **First Build and RW**: outside this stage.
 
 **Links**
-- The stage: `docs/investigations/live-check.md`.
-- This round: `docs/history/2026-10-05-live-check.md`.
+- This deploy: `docs/history/2026-10-05-deploy-2184.md`.
+- The stage and its boxes: `docs/investigations/live-check.md`.
 - The corrections: `docs/history/2026-10-05-response-order.md`,
   `-inventory.md`, `-reconcile.md`, `-watched-refresh.md`,
   `-reply-placement.md`.
@@ -116,6 +105,27 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-05 — Merged and deployed once as deploy 2184 (not yet runtime-confirmed: the free check is your press)
+
+- **On your word** ("merge and deploy"): `main` `cd817fee` → `d75d79f3`, a
+  fast-forward of 13 commits, at 11:44:54 UTC. **One deploy run** (2184),
+  green in 2m46s.
+- **The image was built once, exactly as predicted**: `386607152d4cb319` →
+  `589e3e4e85a20066`; the container rolled at 11:47:39 UTC.
+- **The served `chat.js` is byte-identical to the merged file** (895,780
+  bytes); `edit-poll.js` and `styles.css` didn't change.
+- **The switches**: `REQUEST_FLOW` and `MODEL_REPLIES` were uploaded as
+  before (still on).
+- **Before the merge**: CI green on the commit merged (`9480 / 9474 / 0 / 6`),
+  the site build's inputs unchanged since its last green run, the rollback
+  verified, nothing in flight, balance 48.
+- **The image window is over** (12:05 UTC): the free check is yours to press,
+  then the live check once I've confirmed it (the boxes are in the handoff
+  above and in `docs/investigations/live-check.md` §3).
+
+**Recorded in**: `docs/history/2026-10-05-deploy-2184.md`,
+`docs/deploy-record.md`, the backlog and the checklist.
 
 ## 2026-10-05 — Your review: the order correction closed; the live check ready for one authorization (on the branch; nothing spent, nothing deployed)
 

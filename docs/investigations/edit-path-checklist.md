@@ -1067,8 +1067,11 @@ the owner's free press, run 51, at 22:57 UTC):
       add-on with a page and a table, its tab closed and reopened, then a
       heading from the reopened tab — judged on reply placement, the
       preview's newer address, and the page and table inventory through both
-      routing calls and the page's lists. **Stand-in app only so far**; the
-      merge, the deploy and the press wait for the owner's authorization.
+      routing calls and the page's lists. **Stand-in app only so far.**
+      **Merged and deployed in deploy 2184** on the owner's word (2026-10-05,
+      `d75d79f3`, image `589e3e4e85a20066`;
+      `docs/history/2026-10-05-deploy-2184.md`): not yet runtime-confirmed;
+      the free check and the press are the owner's.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).
