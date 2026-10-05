@@ -173,8 +173,12 @@ in `test/fixtures/browser-ask.mjs`, and the placement functions and
     each killed by its intended case.
   - Every file was restored and checked by hash.
 - **The full suite**: `9427 / 9427 / 0 / 0` locally, from 9,411 by the 14
-  placement cases and the 2 canary cases. Unit CI on the pushed commit: in
-  the handoff.
+  placement cases and the 2 canary cases; unit CI `9427 / 9423 / 0 / 4` on
+  `22dd7e53` (run 37263890210; CI skips four).
+- **The image**, predicted over `main` (`cd817fee`) and the branch
+  (`22dd7e53`): `386607152d4cb319` at both, 194 inputs, none different. The
+  page is the Worker's asset, not the container's, so a merge would deploy it
+  without building an image.
 - **Screenshots** (headless Chromium, the repo's own `public/`, every answer
   supplied): a fresh browser, a message sent before two earlier requests were
   read. **Before** (main's page): both earlier cards and their replies land

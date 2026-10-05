@@ -20,6 +20,8 @@ is in git; the dated entries further down are the full story.*
     page opened;
   - another device's request is shown, never applied again here.
   - Shown with supplied answers and in the two screenshots I sent; not live.
+  - Commit `22dd7e53`: the suite `9427 / 9427 / 0 / 0` here and
+    `9427 / 9423 / 0 / 4` on unit CI (run 37263890210).
 - **Money**: balance **48**, unchanged since run 99 (read at 04:31 UTC: last
   ledger row 385, no job open).
 - **The bakery** keeps every change from the batch (your demo rule).
