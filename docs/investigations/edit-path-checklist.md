@@ -1043,6 +1043,15 @@ the owner's free press, run 51, at 22:57 UTC):
       reconciled with what is published now, whenever it finished; and the
       route reads the site's table names whatever the page sent. **Supplied
       answers, the real Worker route and a real Chromium**; not shown live.
+    - **The inventory as three answers** (2026-10-05, after the owner passed
+      the reconcile round; on the branch;
+      `docs/history/2026-10-05-inventory.md`): a site with no tables and one
+      whose tables could not be read were one value, so the router got the
+      browser's stale names for both and was never told "none". Now: names;
+      none, told in words and carried as `tablesFilled: []`; or cannot tell,
+      the only case the browser's names stand. The page takes an answer whole
+      unless its list changed while the call was out. **The real Worker route
+      with supplied database and router answers**; not shown live.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

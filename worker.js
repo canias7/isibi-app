@@ -6013,16 +6013,29 @@ async function ownerSiteConn(env, slug) {
 const ROUTE_TABLES_MS = 3000;
 const ROUTE_TABLE_NAME = /^[a-z_][a-z0-9_]{0,62}$/i;
 async function routeTableNames(env, uid, slug, owned = null) {
-  if (!uid || !(owned === true || (await siteOwnerBySlug(slug, env)) === uid)) return [];
+  // THREE ANSWERS, NEVER TWO (2026-10-05, the owner's review): the site's names,
+  // an EMPTY list when it has none, or `null` when they cannot be told. Every
+  // way of not knowing used to answer `[]` as well, so "this site has no
+  // tables" and "we could not read them" were one value, and the route kept
+  // the browser's names for both.
+  if (!uid || !(owned === true || (await siteOwnerBySlug(slug, env)) === uid)) return null;
   const conn = await ownerSiteConn(env, slug);
+  // NO DATABASE AT ALL IS AN ANSWER: the backend reader says so (`none`), and
+  // it throws when it cannot tell (`unreadable`), which the caller's bound
+  // turns into `null`.
   if (!conn) return [];
   const st = await readStoredSpec(conn);
-  if (!st || !st.ok) return [];
+  // UNREADABLE IS CANNOT-TELL; `ok` with no tables is the catalog saying none.
+  if (!st || !st.ok) return null;
+  const all = Array.isArray(st.tables) ? st.tables : [];
   // IDENTIFIER-SHAPED NAMES ONLY: a quoted table name can say anything, and it
   // would land in the router's instructions. The 24 is the digest's own cap
   // (`siteDigest`), kept here as a belt: removing it changes nothing a test can
   // see while that cap stands.
-  return (Array.isArray(st.tables) ? st.tables : []).filter((n) => typeof n === "string" && ROUTE_TABLE_NAME.test(n)).slice(0, 24);
+  const names = all.filter((n) => typeof n === "string" && ROUTE_TABLE_NAME.test(n)).slice(0, 24);
+  // TABLES THAT CANNOT BE NAMED are not no tables: what was read cannot be told.
+  if (all.length && !names.length) return null;
+  return names;
 }
 
 /**
@@ -6825,7 +6838,11 @@ async function routeDigest(env, user, rb) {
     owned.then((ok) => (ok === true ? withinMs(loadSiteSource(env, slug).then(sitePageRoutes), ROUTE_PAGES_MS, "route pages:", slug) : null)),
   ]);
   let out = site;
-  const filled = Array.isArray(names) && names.length ? names : null;
+  // THE THREE KEPT APART (2026-10-05): names read replace the browser's, and so
+  // does an empty list — a site read to have no tables is told it has none
+  // (`tablesNone`) — while the browser's stand only when the read could not
+  // answer (`null`: not the owner, unreadable, out of time).
+  const filled = Array.isArray(names) ? names : null;
   if (filled) out = { ...out, tables: filled };
   const pagesFilled = Array.isArray(routes) && routes.length > 0;
   if (pagesFilled) out = { ...out, pages: routes };
@@ -21989,7 +22006,10 @@ async function handleRequest(request, env, ctx) {
           hasSite: rb.hasSite === true,
           // WHETHER THE NAMES THE ROUTER IS SHOWN WERE FILLED IN HERE: named in
           // the decision (`tables-filled`), never a change to what it is shown.
-          tablesFilled: !!rDigest.filled,
+          tablesFilled: !!(rDigest.filled && rDigest.filled.length),
+          // AND WHETHER THE SITE WAS READ TO HAVE NONE (2026-10-05): the router
+          // is told so in words, and the decision names it (`tables-none`).
+          tablesNone: !!(rDigest.filled && !rDigest.filled.length),
           // AND THE PAGES (2026-10-03): read from the site itself when the route
           // could, and whether that list is the whole of them — a page missing
           // from a list that may be partial is never read as one it lacks.
@@ -22306,7 +22326,9 @@ async function handleRequest(request, env, ctx) {
         failure: routed.failed === true && routed.failure ? routed.failure : undefined,
         // AND WHICH TABLE NAMES THE ROUTE FILLED IN (Lane 1d), so a run's
         // evidence shows what the router was told. The caller's own site's
-        // names, and only when the route filled them: absent otherwise.
+        // names when the route read them — an EMPTY list when the site has
+        // none (2026-10-05) — and absent when it could not read them, so the
+        // browser can tell the three apart.
         tablesFilled: rDigest.filled || undefined,
         // WHERE THE ANSWER CAME FROM (the router audit, 2026-10-02): the
         // model's own, a fallback, or a rule, with every code that applied,

@@ -141,7 +141,7 @@ for (const mode of ["sync", "job"]) {
         assert.match(String(seen.routerAsked[0].messages[0].content), /A QUESTION MAY BE ASKED/);
         assert.equal(d.body.intent, "clarify", "the router's question at the threshold was turned into work");
         assert.equal(d.body.instruction, undefined, "a request to run rode the held question");
-        assert.deepEqual(d.body.decision.reasons, ["pages-filled", "edit-fields-ignored", "clarify-again"], "the layer proposed beside the question was not named and set aside");
+        assert.deepEqual(d.body.decision.reasons, ["tables-none", "pages-filled", "edit-fields-ignored", "clarify-again"], "the layer proposed beside the question was not named and set aside");
         assert.equal(d.body.question.note, againNote([SIGN, DOOR, third]));
         assert.match(d.body.question.note, /“Both really”, then “Keep the sign”/);
         assert.deepEqual(seen.calls, [T.route], "a step ran on the router's held question");
@@ -200,7 +200,7 @@ test("THE REPEATED-QUESTION THRESHOLD AT THE ROUTER: a question answered twice, 
     assert.equal(r.body.intent, "clarify", "the question at the threshold was turned into work");
     assert.equal(r.body.instruction, undefined);
     assert.equal(r.body.layer, undefined, "the layer proposed beside the question reached the browser");
-    assert.deepEqual(r.body.decision.reasons, ["pages-filled", "edit-fields-ignored", "clarify-again"]);
+    assert.deepEqual(r.body.decision.reasons, ["tables-none", "pages-filled", "edit-fields-ignored", "clarify-again"]);
     assert.equal(r.body.question.text, Q.text);
     assert.equal(r.body.question.note, againNote([first, second]));
     assert.match(r.body.question.note, /“the nice one”, then “the nicer one” — haven’t settled it\. Answer once more, or cancel this request/);
@@ -263,7 +263,7 @@ test("BELOW THE THRESHOLD AND THE LIMIT, THE ROUTER'S ONE RE-SEND STILL OFFERS I
       assert.match(again, /A QUESTION MAY BE ASKED/, "the router's re-send was not offered its question" + why);
       assert.doesNotMatch(again, /Questions are closed/, "the router's re-send closed questions — permission to act on a guess" + why);
       assert.equal(r.body.question.text, SPECIFIC.text, "the more specific question was not kept" + why);
-      assert.deepEqual(r.body.decision.reasons, ["pages-filled", "clarify-reused"]);
+      assert.deepEqual(r.body.decision.reasons, ["tables-none", "pages-filled", "clarify-reused"]);
       assert.deepEqual(question(store, slug).context, [...told, { q: Q.text, a: "the nice one" }]);
     });
   }
@@ -346,7 +346,7 @@ test("THE TOTAL-ANSWER LIMIT AT THE ROUTER: the twelfth answer is still met with
     assert.doesNotMatch(told, /Questions are closed/, "the total-answer limit closed questions — permission to act on a guess");
     assert.equal(seen.routerAsked.length, 1);
     assert.equal(r.body.intent, "clarify", "the question at the limit was turned into work");
-    assert.deepEqual(r.body.decision.reasons, ["pages-filled", "edit-fields-ignored"]);
+    assert.deepEqual(r.body.decision.reasons, ["tables-none", "pages-filled", "edit-fields-ignored"]);
     assert.equal(r.body.question.note, undefined, "a new question carries a note");
     assert.equal(charged(seen, m0), 1);
     const kept = question(store, slug);
@@ -365,7 +365,7 @@ test("THE TOTAL-ANSWER LIMIT AT THE ROUTER: the twelfth answer is still met with
     assert.equal(r.status, 200, JSON.stringify(r.body).slice(0, 300));
     assert.equal(seen.routerAsked.length, 1, "the router was sent again past the total-answer limit");
     assert.equal(r.body.intent, "clarify");
-    assert.deepEqual(r.body.decision.reasons, ["pages-filled", "edit-fields-ignored", "clarify-again"]);
+    assert.deepEqual(r.body.decision.reasons, ["tables-none", "pages-filled", "edit-fields-ignored", "clarify-again"]);
     assert.equal(r.body.question.note, againNote([{ q: "Detail 4?", a: "Answer 4" }]));
     const kept = question(store, slug);
     assert.equal(kept.context.length, MAX_ASKED + 1, "an answer was let go because twelve already existed");

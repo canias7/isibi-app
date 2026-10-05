@@ -409,8 +409,12 @@ meaning they had in the message. A routing job is shown the same.
   never replayed from the job, so an older job read late cannot undo a newer
   change. Once a job, never again on a later poll or a reload. A question a
   request still waits on is made live by its own reading, once a page. The
-  page's table list is a hint: the routing route reads the site's own names
-  for its owner on every call, and the page keeps what it read.
+  page's table list is a hint: the routing route reads the site's own tables
+  for its owner on every call, as one of three answers
+  (`docs/history/2026-10-05-inventory.md`) — names, none (the router is told
+  "It has no database tables."), or cannot tell (only then are the page's
+  names sent on) — and the page takes what it read, empty included, unless
+  its list changed while the call was out, when it only adds.
 
 ## The owner's routes
 

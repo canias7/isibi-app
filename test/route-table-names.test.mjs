@@ -130,6 +130,16 @@ function toldAbout(r) {
 }
 const TABLES_LINE = /Its database tables are: ([^.]*)\./;
 const tablesTold = (r) => { const m = TABLES_LINE.exec(toldAbout(r)); return m ? m[1].split(", ") : []; };
+// WHAT THE ROUTER IS TOLD OF THE SITE'S TABLES, one of three (2026-10-05):
+// names, that it has none, or nothing at all (not known).
+const NONE_LINE = "It has no database tables.";
+function inventoryTold(r) {
+  const site = toldAbout(r);
+  const names = tablesTold(r);
+  const none = site.includes(NONE_LINE);
+  assert.ok(!(none && names.length), "the router was told both names and none: " + site);
+  return names.length ? names : none ? "none" : "unknown";
+}
 /** Every step was a read: no Supabase write, no statement but a SELECT. */
 function assertReadOnly(r, what) {
   assert.deepEqual(r.seen.writes, [], what + ": the lookup wrote to Supabase");
@@ -240,11 +250,84 @@ test("when the site's own names cannot be read, the browser's stand, as before",
   }
 });
 
-test("an empty database: nothing to name, and the router is told nothing", async () => {
+test("an empty database: the router is told the site has no tables, in words", async () => {
   const r = await route({ slug: "tables-empty", wire: { catalog: [["_meta", "k", "text"]], spec: null } });
-  assert.deepEqual(tablesTold(r), []);
-  assert.equal(r.body.tablesFilled, undefined);
+  assert.equal(inventoryTold(r), "none");
+  // THE WHOLE SITE SECTION, EXACTLY: the no-tables sentence where the names go.
+  assert.equal(toldAbout(r), "The site is called tables-empty. It is published at https://tables-empty.gofarther.app. "
+    + "Its pages are: /, /prices, /gear. It has no database tables.");
+  assert.deepEqual(r.body.tablesFilled, [], "a site read to have no tables is not told apart from one that could not be read");
+  assert.ok(r.body.decision.reasons.includes("tables-none"));
+  assert.ok(!r.body.decision.reasons.includes("tables-filled"));
   assertReadOnly(r, "empty");
+});
+
+// THE OWNER'S REVIEW (2026-10-05): *"routeTableNames returns [] both when the
+// authoritative inventory is successfully empty and when it cannot be read …
+// I reproduced readStoredSpec returning {ok:true,tables:[]} while the browser
+// sends ["appointments"]; the router still receives appointments, exactly as it
+// does on a read failure."* Three answers, kept apart, with varied names.
+test("an empty site with a stale hint: the browser sends appointments, the site has none — the router is told none, and never appointments", async () => {
+  const r = await route({ slug: "inv-empty-stale", site: { name: "inv-empty-stale", pages: PAGES, tables: ["appointments"] }, wire: { catalog: [["_meta", "k", "text"]], spec: null } });
+  assert.ok(r.seen.sql.some((q) => /information_schema\.columns/i.test(q)), "the site's tables were not read");
+  assert.equal(inventoryTold(r), "none", "the router was told the browser's stale names");
+  assert.ok(!toldAbout(r).includes("appointments"));
+  assert.deepEqual(r.body.tablesFilled, []);
+  assert.ok(r.body.decision.reasons.includes("tables-none"));
+  assertReadOnly(r, "empty-stale");
+});
+
+test("a stored schema with no live tables left (the last one taken away): none, whatever the browser sent", async () => {
+  const r = await route({ slug: "inv-last-gone", site: { name: "inv-last-gone", pages: PAGES, tables: ["waitlist"] },
+    wire: { catalog: [["_meta", "k", "text"]], spec: { tables: [] } } });
+  assert.equal(inventoryTold(r), "none");
+  assert.ok(!toldAbout(r).includes("waitlist"));
+  assert.deepEqual(r.body.tablesFilled, []);
+});
+
+test("a site with no database at all: none, read from the backend's own answer, whatever the browser sent", async () => {
+  const r = await route({ slug: "inv-no-db", site: { name: "inv-no-db", pages: PAGES, tables: ["members"] }, wire: { neonDb: "", project: [] } });
+  assert.equal(inventoryTold(r), "none", "a site with no database was not told it has no tables");
+  assert.deepEqual(r.body.tablesFilled, []);
+  assert.deepEqual(r.seen.sql, [], "a site with no database had a database read");
+});
+
+test("a nonempty site: its own names, whatever the browser sent, and the decision names the fill", async () => {
+  const r = await route({ slug: "inv-classes", site: { name: "inv-classes", pages: PAGES, tables: ["appointments"] },
+    wire: { catalog: [["classes", "id", "integer"], ["classes", "title", "text"], ["members", "id", "integer"], ["members", "email", "text"], ["_meta", "k", "text"]],
+      spec: { tables: [{ name: "classes", access: "display", columns: [{ name: "title" }] }, { name: "members", access: "collect", columns: [{ name: "email" }] }] } } });
+  assert.deepEqual([...inventoryTold(r)].sort(), ["classes", "members"]);
+  assert.ok(!toldAbout(r).includes("appointments"));
+  assert.deepEqual([...r.body.tablesFilled].sort(), ["classes", "members"]);
+  assert.ok(r.body.decision.reasons.includes("tables-filled"));
+  assert.ok(!r.body.decision.reasons.includes("tables-none"));
+});
+
+test("a read that cannot answer: the browser's names stand when it sent some, nothing is said when it sent none — never none", async () => {
+  for (const [what, wire] of [
+    ["the ownership read fails", { owner: "fail" }],
+    ["the project row cannot be read (incomplete link)", { neonDb: "", project: "fail" }],
+    ["the derived database will not answer", { neonDb: "", sqlFail: /^SELECT 1$/ }],
+    ["the catalog cannot be read", { sqlFail: /information_schema/ }],
+    ["the stored schema cannot be read", { sqlFail: /_meta/ }],
+    ["another owner's slug", { owner: STRANGER }],
+  ]) {
+    for (const [sent, told] of [[["appointments", "rooms"], ["appointments", "rooms"]], [[], "unknown"]]) {
+      const slug = "inv-fail-" + what.length + "-" + sent.length;
+      const r = await route({ slug, site: { name: slug, pages: PAGES, tables: sent }, wire });
+      assert.equal(r.status, 200, what);
+      assert.deepEqual(inventoryTold(r), told, what + " (sent " + JSON.stringify(sent) + ")");
+      assert.equal(r.body.tablesFilled, undefined, what + ": a read that did not answer was reported as one that did");
+      assert.ok(!r.body.decision.reasons.includes("tables-none") && !r.body.decision.reasons.includes("tables-filled"), what);
+    }
+  }
+});
+
+test("tables that exist but none of whose names can be told: not none — the browser's names stand", async () => {
+  const r = await route({ slug: "inv-unnameable", site: { name: "inv-unnameable", pages: PAGES, tables: ["rooms"] },
+    wire: { catalog: [["my rooms", "id", "integer"], ["_meta", "k", "text"]], spec: null } });
+  assert.deepEqual(inventoryTold(r), ["rooms"], "tables the route could not name were told as none");
+  assert.equal(r.body.tablesFilled, undefined);
 });
 
 test("every lookup failure routes blind, as before, and nothing is written", async () => {

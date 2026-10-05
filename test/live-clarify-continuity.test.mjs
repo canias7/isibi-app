@@ -299,7 +299,7 @@ test("AN UNCLEAR ANSWER GETS A MORE SPECIFIC FOLLOW-UP — from the router and f
       assert.equal(r.status, 200, JSON.stringify(r.body).slice(0, 300));
       assert.equal(r.body.question.text, SPECIFIC.text, "the follow-up is not the more specific question");
       assert.equal(r.body.question.note, undefined, "a new, more specific question carries a note");
-      assert.deepEqual(r.body.decision.reasons, ["pages-filled", "clarify-reused"]);
+      assert.deepEqual(r.body.decision.reasons, ["tables-none", "pages-filled", "clarify-reused"]);
       assert.ok(String(seen.routerAsked[1].messages[0].content).includes("they answered: “the nice one”"), "the router was not shown the unclear answer");
       const kept = question(store, slug);
       assert.equal(kept.request, q.request, "the request was not kept as it was");

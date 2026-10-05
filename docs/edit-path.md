@@ -106,7 +106,11 @@ answers unless a run is named.
     `docs/history/2026-10-05-reconcile.md`) it reads them whatever the
     browser sent**: a browser's list can be one addition's tables alone, so
     the site's own replace it, and the browser's stand only when the read
-    cannot answer;
+    cannot answer. **And as three answers**
+    (`docs/history/2026-10-05-inventory.md`): names; none, which the router is
+    told in words ("It has no database tables.", `tables-none`) and the
+    answer carries as `tablesFilled: []`; or cannot tell, the only case where
+    the browser's names are sent on;
   - **a failed routing call names why** (`failure`: request, config,
     provider, timeout or transport, from allow-lists only), with the same
     fallback and no charge;

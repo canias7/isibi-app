@@ -397,7 +397,7 @@ test("A QUESTION ALREADY ANSWERED IS NEVER AN ENDING (the owner's second review)
       assert.equal(r.body.error, undefined, "a repeated question ended the request");
       assert.equal(seen.routerAsked.length, 2, "the router was not sent its answer back before the question was kept");
       assert.match(String(seen.routerAsked[1].messages[0].content), /YOU ASKED THEM THIS ALREADY, and they answered:\nAsked: “Which page should the band move on — Home or Visit\?” — they answered: “the bigger one”/);
-      assert.deepEqual(r.body.decision.reasons, ["pages-filled", "clarify-reused", "clarify-again"], JSON.stringify(r.body.decision));
+      assert.deepEqual(r.body.decision.reasons, ["tables-none", "pages-filled", "clarify-reused", "clarify-again"], JSON.stringify(r.body.decision));
       assert.match(r.body.question.note, /Your answer — “the bigger one” — didn’t settle this/, "the question asked again carries no note");
       assert.equal(r.body.usage.in, 10, "both routing calls were billed, not the one whose answer was used");
       assert.equal(seen.debits.length, 1, "the routing call was not charged once, as any");

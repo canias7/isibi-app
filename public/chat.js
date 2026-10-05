@@ -9258,6 +9258,9 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     pages: sitePages(site).map((p) => p.path),
     tables: Array.isArray(site.tables) ? site.tables.slice(0, 24) : [],
   };
+  // WHERE THIS PAGE'S TABLE LIST STOOD WHEN THE CALL WENT OUT (2026-10-05): an
+  // answer read before a later change to it only adds names (below).
+  const tablesAt = (siteById(origin) || site).tablesAt || 0;
   apiFetch('/api/site/route', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     // `firstBuild` is what opens the question path at all, and it is `isBuild` —
@@ -9351,18 +9354,29 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // decision every branch below can act on as it stands.
     if (!isBuild && !(r.ok && routeActionable(d, site))) return lost(r);
     if (!r.ok || !d) return go();
-    // THE SITE'S OWN TABLE NAMES, AS THE ROUTE READ THEM (2026-10-05, the
-    // owner's review): kept with this page's, so a later routing call whose
-    // own read cannot answer still sends them. The route reads the site's
-    // names itself whenever it can (`routeDigest`): this page's list is a hint
-    // and a fallback, never the inventory — an addition's names alone are not
-    // the site's.
-    const readNames = !isBuild && Array.isArray(d.tablesFilled) ? d.tablesFilled.filter((x) => typeof x === 'string' && x) : [];
-    const keepIn = readNames.length ? siteById(origin) : null;
+    // THE SITE'S OWN TABLES, AS THE ROUTE READ THEM (2026-10-05, the owner's
+    // reviews). The route reads them itself whenever it can (`routeDigest`):
+    // this page's list is a hint, sent for the times that read cannot answer.
+    // Three answers, kept apart:
+    // - A LIST (`tablesFilled`), the site's own when the route read it — EMPTY
+    //   when it has none — becomes this page's list: a name the site no longer
+    //   has goes, and a site with none is held to none. Unless this page's
+    //   list changed while the call was out (`tablesAt`: an addition finished,
+    //   or another routing answer came first), when the read is older than
+    //   that change and its names are only added: an older answer never takes
+    //   away what a newer one, or an addition, put there.
+    // - NO LIST: the route could not read them, and this page's stand.
+    // - A list holding anything but names is read as no list.
+    const readNames = !isBuild && Array.isArray(d.tablesFilled) && d.tablesFilled.every((x) => typeof x === 'string' && x) ? d.tablesFilled : null;
+    const keepIn = readNames ? siteById(origin) : null;
     if (keepIn) {
       const had = Array.isArray(keepIn.tables) ? keepIn.tables : [];
-      const next = [...new Set([...had, ...readNames])].slice(0, 48);
-      if (next.length !== had.length) { keepIn.tables = next; sitesSave(); }
+      const next = ((keepIn.tablesAt || 0) === tablesAt ? [...new Set(readNames)] : [...new Set([...had, ...readNames])]).slice(0, 48);
+      if (next.length !== had.length || next.some((x, i) => x !== had[i])) {
+        keepIn.tables = next;
+        keepIn.tablesAt = (keepIn.tablesAt || 0) + 1;
+        sitesSave();
+      }
     }
     // ── THE WAITING QUESTION IS SETTLED (2026-10-02) ───────────────────────
     // Answered, or replaced by a message that asked for something else: the
@@ -9817,7 +9831,7 @@ function siteReqRefresh(origin, httpOk, body, addon) {
   const pages = named('added') || named('removed');
   s.previewV = (s.previewV || 0) + 1;
   const names = (Array.isArray(body.tables) ? body.tables : []).filter((x) => typeof x === 'string' && x);
-  if (names.length) s.tables = [...new Set([...(Array.isArray(s.tables) ? s.tables : []), ...names])].slice(0, 48);
+  if (names.length) { s.tables = [...new Set([...(Array.isArray(s.tables) ? s.tables : []), ...names])].slice(0, 48); s.tablesAt = (s.tablesAt || 0) + 1; }
   sitesSave();
   try { scheduleCreditRefresh(); } catch (err) { /* the balance is read again on the next look */ }
   if (pages) siteRoutesSync(origin);
@@ -11271,7 +11285,9 @@ function applyAddonResult(a, o) {
       // go?" blind. Union like the build path: the response names what this
       // addon touched, not the whole site.
       const tnames = (Array.isArray(a.tables) ? a.tables : []).filter((x) => typeof x === 'string' && x);
-      if (tnames.length) s.tables = [...new Set([...(Array.isArray(s.tables) ? s.tables : []), ...tnames])].slice(0, 48);
+      // EACH CHANGE TO THE LIST IS MARKED (`tablesAt`, 2026-10-05), so a routing
+      // answer read before it never takes it away.
+      if (tnames.length) { s.tables = [...new Set([...(Array.isArray(s.tables) ? s.tables : []), ...tnames])].slice(0, 48); s.tablesAt = (s.tablesAt || 0) + 1; }
       sitesSave();
     }
     scheduleCreditRefresh();

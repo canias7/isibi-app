@@ -65,7 +65,10 @@ here; take a closed one out of both.**
   that adds one addition's tables to an empty list then sends just those.
   **Fixed on the branch, on the owner's word** (2026-10-05, not merged;
   `docs/history/2026-10-05-reconcile.md`): the route reads the site's names
-  whatever the page sent, and the page keeps them.
+  whatever the page sent, and the page keeps them. **Then as three answers**
+  (`docs/history/2026-10-05-inventory.md`): a site read to have none is told
+  so ("It has no database tables.") and answered `tablesFilled: []`, and the
+  page's names are sent on only when the read cannot answer.
 - **The read-only lookup's `REPLY` line names a two-hour case for any job with
   no reply on it** (run 99, 2026-10-05): for a routing job minutes old it
   still says "either none was owed, or none was ever asked for (a job over two
@@ -510,6 +513,14 @@ here; take a closed one out of both.**
   names for its owner on every call and they replace the page's, which stand
   only when the read cannot answer; the page keeps the names the route read
   (`tablesFilled`), so its fallback is the whole list once it has kept a read.
+  **And as three answers, not two** (2026-10-05, after the owner's next
+  review; `docs/history/2026-10-05-inventory.md`): `routeTableNames` answered
+  `[]` both for a site with none and for one it could not read, so a site
+  with none was routed on the page's stale names and the router was never
+  told none. Now it answers names, `[]` or `null`; an empty answer replaces
+  the page's names, the router is told "It has no database tables."
+  (`tables-none`), the answer carries `tablesFilled: []`, and the page takes
+  it whole unless its list changed while the call was out.
 - **THE READ-ONLY LOOKUP'S `REPLY` LINE NAMES A TWO-HOUR CASE FOR ANY JOB WITH
   NO REPLY** (found in run 99, 2026-10-05). The account prints, for every job
   whose answer carries no reply and no state — a routing job among them —

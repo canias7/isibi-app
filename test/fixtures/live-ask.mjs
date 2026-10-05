@@ -178,6 +178,8 @@ export function withWire(answers, run, { owner = USER.id, slug = "" } = {}) {
     if (url.includes("/rpc/get_credits")) return json(50);
     if (url.includes("/rpc/use_credits")) { seen.debits.push(Number(args.cost) || 0); return json(Number(args.cost) || 0); }
     if (url.includes("/rpc/credit_back")) return new Response(null, { status: 204 });
+    // A SITE WITH NO DATABASE (a blank name, no project row): the routing route
+    // reads it as having no tables and says so (`tables-none`, 2026-10-05).
     if (url.includes("/rest/v1/site_backends")) return json([{ uid: owner, brief: "", neon_db: "" }]);
     if (url.includes("/rest/v1/site_project") || url.includes("/rest/v1/site_aliases")) return json([]);
     if (url.includes("/v1/messages")) {

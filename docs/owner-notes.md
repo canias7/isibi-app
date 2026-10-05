@@ -115,6 +115,39 @@ since. Add new ones there.
 
 ---
 
+## 2026-10-05 — Your review: the table list as three answers — names, none, or can't tell (on the branch; nothing spent, nothing deployed)
+
+- **The gap you found**: "this site has no tables" and "we couldn't read its
+  tables" were the same value. So a site with none was routed on whatever the
+  page still held (your `appointments`), and the model was never told
+  "none": an empty list simply wrote no line.
+- **Now three answers, kept apart all the way through**:
+  - **names**: the router is told them, and the page takes them;
+  - **none**: the router is told "It has no database tables.", the decision
+    says so (`tables-none`), the answer carries an empty list, and the page
+    clears its list, so the next call sends nothing stale;
+  - **can't tell** (a failed or slow read, or not your site): the only case
+    where the page's own names are used.
+- **The page never lets an older answer erase a newer change**: if its list
+  changed while a routing call was out (an addition finished, or another
+  answer came first), that answer's names are only added; the next call
+  sorts it out.
+- **Unchanged**: the ownership check first, the 3-second bound, each reply's
+  place with its request, the model's replies, and everything you passed
+  last round.
+- **Tests**: 7 page cases whose real routing requests go to the real Worker
+  route with a database that changes between calls, and 7 routing cases on
+  the actual model input. They use varied names: `appointments`, `waitlist`,
+  `classes`, `members`, `rooms`, `studios`, `lockers`, `rentals`. 12 fail on
+  the previous commit. The mutation sweep killed 17 of 18; the survivor is a
+  belt check its only caller never reaches. The suite: `9469 / 9469 / 0 / 0`
+  here (CI below).
+- **Nothing on screen changes**, so no screenshots: what changes is what the
+  router is told and what the page sends next.
+
+**Recorded in**: `docs/history/2026-10-05-inventory.md`, `docs/request-flow.md`,
+`docs/edit-path.md`, the backlog and the checklist.
+
 ## 2026-10-05 — Your next review: the preview's address, late first reads, and the whole table list (on the branch; nothing spent, nothing deployed)
 
 - **The three gaps you found, fixed together**:

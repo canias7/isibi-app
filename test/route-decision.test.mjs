@@ -132,6 +132,8 @@ const CASES = [
   ["answer-cut", () => routed(null, {}, { ...toolReply({ intent: "edit", layer: "look", alsoAsked: "and make the foot" }), stop_reason: "max_tokens" }), "fallback"],
   ["tables-cut", () => routed({ intent: "edit", layer: "look" }, { site: { ...SITE, tables: ["services", 7] } }), "model"],
   ["tables-filled", () => routed({ intent: "edit", layer: "data" }, { tablesFilled: true }), "model"],
+  // A SITE READ TO HAVE NO TABLES (2026-10-05): its own code, never the fill's.
+  ["tables-none", () => routed({ intent: "edit", layer: "data" }, { tablesNone: true }), "model"],
   // A SITE THAT EXISTS (2026-10-02, the owner's second review): a question back
   // the waiting request already asked is sent its answer once — the router's
   // answer then is its own (`clarify-reused`, context) — and one still asked is
@@ -371,13 +373,14 @@ test("the route's reply carries the decision: the model's own, a fallback, and t
   assert.equal(own.status, 200);
   assert.equal(own.body.intent, "addon");
   // THE ROUTE READ THE SITE'S OWN PAGES (2026-10-03): a context code, the
-  // model's answer its own.
-  assert.deepEqual(own.body.decision, { source: "model", reasons: ["pages-filled"], raw: { intent: "addon", layer: "none" } });
+  // model's answer its own. AND ITS TABLES (2026-10-05): this stub's site has
+  // no database, which the route reads as none and says (`tables-none`).
+  assert.deepEqual(own.body.decision, { source: "model", reasons: ["tables-none", "pages-filled"], raw: { intent: "addon", layer: "none" } });
 
   // A PAGE THE SITE'S OWN LIST DOES NOT HAVE is an addition on that page.
   const converted = await route({ input: { intent: "edit", layer: "page", page: "/blog" } });
   assert.equal(converted.body.intent, "addon", "the route's answer moved: this change is reporting only");
-  assert.deepEqual(converted.body.decision, { source: "fallback", reasons: ["pages-filled", "page-unknown"], raw: { intent: "edit", layer: "page" } });
+  assert.deepEqual(converted.body.decision, { source: "fallback", reasons: ["tables-none", "pages-filled", "page-unknown"], raw: { intent: "edit", layer: "page" } });
   // THE HAND-OVER RIDES THE ROUTE'S REPLY (2026-10-02, the audit's W24), so the
   // browser posts it to the add-on step: why it came, and the page.
   assert.deepEqual(converted.body.handOver, { from: "route", reason: "page-unknown", page: "/blog" });
@@ -407,7 +410,7 @@ test("the route's decision holds codes and fixed names only, never the customer'
   const r = await route({ input: { intent: "ask", answer: "Footer? Sure: Instagram", alsoAsked: "secret words" }, body: { message: "Add our Instagram to the footer: @harbourloaf." } });
   const d = JSON.stringify(r.body.decision);
   for (const words of ["Instagram", "harbourloaf", "secret", "Footer"]) assert.ok(!d.includes(words), `the decision carries "${words}"`);
-  assert.deepEqual(r.body.decision.reasons, ["pages-filled", "also-ignored"]);
+  assert.deepEqual(r.body.decision.reasons, ["tables-none", "pages-filled", "also-ignored"]);
   assert.equal(r.body.decision.source, "model");
 });
 

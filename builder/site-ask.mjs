@@ -995,7 +995,7 @@ export function layerLine(layer) {
  * names, not contents — because it rides on every builder message and the rows
  * of a `collect` table are customer data that has no business in a routing call.
  */
-export function siteDigest(site) {
+export function siteDigest(site, { tablesNone = false } = {}) {
   const s = site || {};
   const bits = [];
   const name = String(s.name || "").trim();
@@ -1005,6 +1005,10 @@ export function siteDigest(site) {
   const { pages, tables } = digestLists(s);
   if (pages.length) bits.push("Its pages are: " + pages.join(", ") + ".");
   if (tables.length) bits.push("Its database tables are: " + tables.join(", ") + ".");
+  // NONE, WHEN THE ROUTE READ THE SITE AND FOUND NONE (2026-10-05): said, so the
+  // router never takes a site with no tables for one whose tables it was not
+  // told. Only the route's own read says so (`tablesNone`), never the browser.
+  else if (tablesNone === true) bits.push("It has no database tables.");
   if (!bits.length) return "They have not built anything yet — this is a brand new, empty project.";
   return bits.join(" ");
 }
@@ -1128,7 +1132,7 @@ function liveBlock({ canAsk = false, pending = null, context = [], part = null }
   return waiting + (told ? "\n" + told : "") + asking;
 }
 
-export function askRequest({ message, site, canClarify = false, brief = "", qa = [], hasSite = false, model = ASK_MODEL, live = false, canAsk = false, pending = null, context = [], part = null } = {}) {
+export function askRequest({ message, site, canClarify = false, brief = "", qa = [], hasSite = false, model = ASK_MODEL, live = false, canAsk = false, pending = null, context = [], part = null, tablesNone = false } = {}) {
   // A FIRST BUILD'S MESSAGE IS CUT TO ITS OWN BOUND, AS IT ALWAYS WAS; a site
   // that exists sends it whole (2026-10-03, the size policy): the route has
   // already refused one past `MAX_INPUT_CHARS`, so nothing here shortens what
@@ -1191,7 +1195,7 @@ export function askRequest({ message, site, canClarify = false, brief = "", qa =
     // ONE PART OF A LONGER REQUEST (2026-10-03): the message it came from and
     // what the parts before it did, after its own words — a site's only, and
     // only when the route was handed one (`partBlock`).
-    messages: [{ role: "user", content: "THEIR SITE\n" + siteDigest(site) + state + round + "\n\nTHEIR MESSAGE\n" + text + (live && partBlock(part) ? "\n\n" + partBlock(part) : "") }],
+    messages: [{ role: "user", content: "THEIR SITE\n" + siteDigest(site, { tablesNone }) + state + round + "\n\nTHEIR MESSAGE\n" + text + (live && partBlock(part) ? "\n\n" + partBlock(part) : "") }],
   };
 }
 
@@ -1296,6 +1300,9 @@ export const ROUTE_REASONS = Object.freeze({
   "answer-cut": Object.freeze({ kind: "fallback", what: "the routing answer was cut off at its length limit, a failure of the answer" }),
   "tables-cut": Object.freeze({ kind: "context", what: "the router was shown fewer table names than were sent" }),
   "tables-filled": Object.freeze({ kind: "context", what: "the route filled in the site's own table names" }),
+  // A SITE READ TO HAVE NO TABLES (2026-10-05, the owner's review): told so in
+  // words, never left to look like a site whose tables are unknown.
+  "tables-none": Object.freeze({ kind: "context", what: "the route read the site's own tables and found none, and the router was told so" }),
 });
 
 /** Where a routing answer came from; `routeDecision` derives it from the codes. */
@@ -2723,7 +2730,7 @@ export function routeFailure(stage, e, { model, classify } = {}) {
  * for a call that failed — the same our-fault rule the build path follows. And
  * it says why, as `failure` (`routeFailure` above).
  */
-export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, attached = false, hasSite = false, model = ASK_MODEL, tablesFilled = false, pagesFilled = false, pagesComplete = true, canAsk: askable = false, context = [], pending = null, part = null } = {}) {
+export async function routeMessage(deps, { message, site, firstBuild = false, brief = "", qa = [], answering = false, attached = false, hasSite = false, model = ASK_MODEL, tablesFilled = false, tablesNone = false, pagesFilled = false, pagesComplete = true, canAsk: askable = false, context = [], pending = null, part = null } = {}) {
   const text = String(message || "").trim();
   // AN EMPTY MESSAGE NEVER REACHES THE MODEL. The composer will not send one, but
   // this is a paid call behind a public route and "the client wouldn't do that"
@@ -2786,12 +2793,13 @@ export async function routeMessage(deps, { message, site, firstBuild = false, br
     // The route's own word that it filled the table names in (Lane 1d), and the
     // page addresses (2026-10-03).
     if (tablesFilled === true) shown.push("tables-filled");
+    if (tablesNone === true) shown.push("tables-none");
     if (pagesFilled === true) shown.push("pages-filled");
     // A PART OF A LONGER REQUEST (2026-10-03) is shown the answers that
     // request already has beside its own words, as a waiting request is, and
     // the message it came from (`partBlock`).
     const partOf = live && !waiting ? readPartOf(part) : null;
-    request = askRequest({ message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live, canAsk, pending: waiting, context: waiting ? told : (partOf ? (readContext(context) || []) : told), part: partOf });
+    request = askRequest({ message: text, site, canClarify, brief, qa: questions, hasSite: !!hasSite, model, live, canAsk, pending: waiting, context: waiting ? told : (partOf ? (readContext(context) || []) : told), part: partOf, tablesNone: tablesNone === true });
   } catch (e) {
     return fail("request", e);
   }
