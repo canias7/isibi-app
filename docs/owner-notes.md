@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-05, 07:42 UTC)
+## Current handoff — read this first (2026-10-05, 08:30 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,29 +9,33 @@ is in git; the dated entries further down are the full story.*
 **State now**
 - **Nothing merged or deployed since `cd817fee`**: the live site is still
   deploy 2183 (`e84b8e7e`, image `386607152d4cb319`). Nothing spent.
-- **The placement fix stays unmerged, with your three gaps fixed on top**
-  (`c3fff062`):
-  - **every preview move changes the frame's address**: a site never moved
-    is drawn at `?v=0`, so a fresh browser's first refresh no longer keeps
-    `?v=1`. Tested on the address the render gives the frame, and in a real
-    Chromium;
-  - **reconciled whenever it finished**: every finished job the page's own
-    reader didn't apply is brought up to date with what's published — the
-    preview moves on, its tables are kept, the page list is read again —
-    even when the first read failed or came late. Each job once; no undo
-    offers, words in the box or old questions come back;
-  - **the whole table list**: the routing route reads your site's tables on
-    every call, whatever the page sent, and the page keeps what it read;
-  - each reply still goes with its request; replies are still the model's.
-  - Shown with supplied answers, the real Worker route and a real Chromium,
-    and in the two screenshots I sent; not live.
-  - The suite `9456 / 9456 / 0 / 0` here and `9456 / 9450 / 0 / 6` on unit
-    CI (run 37278518977); the site build is green (run 37278518946).
-- **Merging now deploys the Worker and builds an image**: `worker.js`
-  changed, and it is one of the container image's inputs
-  (`386607152d4cb319` → `da027774faa35eaf`, predicted). After a merge, the
-  usual wait of 15–20 minutes applies before container work.
-- **Money**: balance **48**, read at 06:41 UTC (last ledger row 385, no job
+- **The branch stays unmerged**: the placement fix, the two corrections you
+  passed (the preview's address, late first reads, the whole table list), and
+  this round on top (`685a922c`):
+  - **the table list as three answers, kept apart through the reader, the
+    routing call and the answer**:
+    - **names**: the router is told them, and the page takes them;
+    - **none**: the router is told "It has no database tables.", the
+      decision says so (`tables-none`), the answer carries an empty list,
+      and the page clears its list, so the next call sends nothing stale;
+    - **can't tell** (a failed or slow read, or not your site): the only
+      case where the page's own names are used;
+  - **an older answer never erases a newer change**: if the page's list
+    changed while a routing call was out (an addition finished, here or in
+    another browser, or another answer came first), that answer's names are
+    only added; the next call sorts it out;
+  - unchanged: the ownership check first, the 3-second bound, each reply's
+    place with its request, the model's replies, the refresh fixes.
+  - Shown with the real Worker route and supplied database and router
+    answers, reading what the router was sent and what the page sends next;
+    not live. No screenshots: nothing on screen changes.
+  - The suite `9469 / 9469 / 0 / 0` here and `9469 / 9463 / 0 / 6` on unit
+    CI (run 37282482632); the site build is green (run 37282482599).
+- **Merging now deploys the page and the Worker and builds an image**:
+  `worker.js` and `builder/site-ask.mjs` are its inputs
+  (`386607152d4cb319` → `589e3e4e85a20066`, predicted; nothing built). After
+  a merge, the usual wait of 15–20 minutes applies before container work.
+- **Money**: balance **48**, read at 08:25 UTC (last ledger row 385, no job
   open); nothing spent since run 99.
 - **The bakery** keeps every change from the batch (your demo rule).
 
@@ -40,20 +44,24 @@ is in git; the dated entries further down are the full story.*
   read (the server side of the placement item).
 - A data edit's reply can't name the change; the new page's own menu label;
   the free lookup's wording for a job with no reply.
-- Limits of this round (in its record, §5): your own job found done by a
-  late first read is reconciled without its undo offer; a page opening many
-  finished requests moves its preview once per job.
+- Limits kept from the last two rounds (their records, §5): your own job
+  found done by a late first read is reconciled without its undo offer; a
+  page opening many finished requests moves its preview once per job; a
+  routing answer older than a change to the page's list only adds names, so
+  a name the site lost in between stays until the next routing call reads
+  the site again.
 
 **Yours to decide**
-1. **The placement fix with both corrections**: review it. Merging deploys
-   the page and the Worker, and builds the image above; a live check would
-   come after, on your word.
+1. **The three-answer table list**: review it. Merging deploys the page and
+   the Worker, and builds the image above; a live check would come after, on
+   your word.
 2. **RW**, the separate full-rewrite test: not started.
 3. Which of the open items to take next.
 
 **Links**
-- This round: `docs/history/2026-10-05-reconcile.md`.
-- The corrections before it: `docs/history/2026-10-05-watched-refresh.md`,
+- This round: `docs/history/2026-10-05-inventory.md`.
+- The rounds before it: `docs/history/2026-10-05-reconcile.md`,
+  `docs/history/2026-10-05-watched-refresh.md`,
   `docs/history/2026-10-05-reply-placement.md`.
 - The open items: `docs/backlog.md`.
 ---
@@ -141,7 +149,12 @@ since. Add new ones there.
   `classes`, `members`, `rooms`, `studios`, `lockers`, `rentals`. 12 fail on
   the previous commit. The mutation sweep killed 17 of 18; the survivor is a
   belt check its only caller never reaches. The suite: `9469 / 9469 / 0 / 0`
-  here (CI below).
+  here and `9469 / 9463 / 0 / 6` on unit CI (run 37282482632, the usual 4
+  skips and the 2 browser cases); the site build is green (run
+  37282482599).
+- **Merging would build a new image**: `worker.js` and
+  `builder/site-ask.mjs` are its inputs (`386607152d4cb319` →
+  `589e3e4e85a20066`, predicted; nothing built).
 - **Nothing on screen changes**, so no screenshots: what changes is what the
   router is told and what the page sends next.
 

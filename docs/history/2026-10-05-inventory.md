@@ -167,8 +167,18 @@ Also changed:
     stranger cases.
 - **The full suite**: `9469 / 9469 / 0 / 0` locally, from 9,456 by 13 (the
   6 routing cases and the 7 page cases; the empty-database case was rewritten
-  in place). Unit CI: CI-INV
-- **The image**: IMAGE-INV
+  in place). Unit CI `9469 / 9463 / 0 / 6` on `685a922c` (run
+  37282482632): the totals match, and CI skips its usual 4 and the 2
+  browser cases, which need a browser. The site build is green on
+  `685a922c` (run 37282482599): all 8 jobs, the gate reading 404 checks in
+  27 sections across 4 shards; its inputs are now `23a4d36259d3fb7a` (3,972
+  files), `worker.js` being one.
+- **The image**, predicted with `containerInputs` and `imageId`:
+  `386607152d4cb319` at `main` (`cd817fee`), `da027774faa35eaf` at
+  `c3fff062` and `5186866a` (the reconcile round), and
+  **`589e3e4e85a20066` at `685a922c`**: 194 inputs, `worker.js` and
+  `builder/site-ask.mjs` among them, none under `public/`. A merge would
+  build it; nothing was built.
 - **No screenshots**: nothing on screen changes; what changes is what the
   router is told and what the page sends next, read in the cases above.
 
