@@ -4946,6 +4946,16 @@ function siteMessageKey(origin, t, leaveDraft) {
   siteHeldKeys.delete(at);
   return typeof kept === 'string' && kept ? kept : EditPoll.newIdemKey();
 }
+// A MESSAGE SENT FROM THIS PAGE SINCE IT OPENED, AND THE KEY IT WENT UNDER
+// (2026-10-05). Anything older that reaches the thread after it — a request
+// made on another device, or before this browser kept its records — goes above
+// it (`siteReqCardAt`), never under it; and a request the server names by that
+// key has its card under it. In memory only, so a reload starts afresh.
+const siteMsgsSent = new WeakMap();
+function siteSentMsg(m, key) {
+  siteMsgsSent.set(m, typeof key === 'string' ? key : '');
+  return m;
+}
 function siteActivePage(site) {
   const pages = sitePages(site);
   return pages.find((p) => p.path === (site && site.active)) || pages[0] || null;
@@ -9326,7 +9336,7 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // ── THE SERVER TOOK IT ON (2026-10-03) ──────────────────────────────────
     // A request it finishes itself, every part, with no page needed: this page
     // follows it and starts nothing — no edit, no addition, no hand-over.
-    if (!isBuild && siteRequestOf(d)) return siteRequestStart(origin, d, sendImgs);
+    if (!isBuild && siteRequestOf(d)) return siteRequestStart(origin, d, sendImgs, key);
     // A QUESTION ON A SITE THAT EXISTS: the model's words and its answers on
     // the thread, kept on the site with this message's files so a reload still
     // shows it and the next message answers it. Nothing is built or charged
@@ -9426,6 +9436,8 @@ const SITE_REQ_MISSES = 30;
 // to run: the page only gives the go-ahead (`siteRequestApprove`), and the
 // request keeps its own files for it.
 const siteReqFollowing = new Set();
+// The questions of requests this page did not send that it has made live (`siteRequestShow`).
+const siteReqAsked = new Set();
 /** The request the routing reply says the server took on, or null. */
 function siteRequestOf(d) {
   const v = d && d.request;
@@ -9439,34 +9451,126 @@ function siteReqState(origin, key, view) {
   const now = Date.now();
   for (const k of Object.keys(s.requests)) { const r = s.requests[k]; if (!r || !(now - (r.at || 0) < SITE_REQ_KEEP_MS)) delete s.requests[k]; }
   let r = s.requests[key];
-  if (!r) r = s.requests[key] = { at: now, view: null, shown: [], replied: false, replies: [], closed: false, approving: [] };
+  // NOT THIS PAGE'S OWN (2026-10-05) until it sends a message for it
+  // (`siteRequestStart`): a request picked up from the server is only said.
+  if (!r) r = s.requests[key] = { at: now, view: null, shown: [], replied: false, replies: [], closed: false, approving: [], own: false };
   if (view && typeof view === 'object' && Array.isArray(view.parts)) r.view = view;
   return r;
 }
-/** A line on the site's thread, said once. */
-function siteReqSay(origin, reply) {
+// ── EACH REQUEST'S MESSAGES, WITH THAT REQUEST (2026-10-05) ─────────────────
+//
+// Owner, after run 99: *"fix the product bug that appends historical requests'
+// replies beneath a new message: preserve each reply's association with its
+// original request and place it with that request, including delayed model
+// replies, questions, reloads and opening the site in another browser … Use
+// request/job identity rather than matching message wording."* Every reply
+// was pushed to the bottom of the thread, so a page that picked up a site's
+// earlier requests after a message was sent drew their replies under it — five
+// in run 97, and 7, 10 and 12 in run 99.
+//
+// Now every message a request writes is marked as its own (`req`, its key): a
+// part's reply with its job too (`job`), the request's own reply with which
+// one it is (`for`). So is an answer to its question, and the message that
+// started it — known on this page by the key it was sent under
+// (`siteMsgsSent`), which the server names the request by. A request's next
+// message goes after the last of its own on the thread. A request with no card
+// here — made on another device, or before this browser kept its records — has
+// its card put where it falls in time.
+/** Whether a message on the thread is one of a request's own: its card, one it wrote, or one that started or answered it. */
+function siteReqOwnMsg(m, key) {
+  return !!m && !!key && (m.request === key || m.req === key || (m.r === 'u' && siteMsgsSent.get(m) === key));
+}
+/**
+ * WHEN A MESSAGE'S REQUEST WAS MADE, by the server's clock (its record's
+ * `at`), for a card or a message that started or answered one; +Infinity for a
+ * message sent from this page since it opened, which is newer than any request
+ * the page learns of after it; null where the thread cannot tell (an older
+ * thread's messages, a reply).
+ */
+function siteReqMsgAt(s, m) {
+  if (!m) return null;
+  if (m.r === 'u' && siteMsgsSent.has(m)) return Infinity;
+  const k = m.request || (m.r === 'u' ? m.req : '');
+  const r = typeof k === 'string' && k && s.requests && Object.hasOwn(s.requests, k) ? s.requests[k] : null;
+  const at = r && r.view ? r.view.at : null;
+  return typeof at === 'number' && Number.isFinite(at) ? at : null;
+}
+/**
+ * WHERE A REQUEST'S CARD GOES when the thread has none: after the message that
+ * started it, when that is here (or before the first of its own still kept,
+ * when an old thread has lost its card); otherwise before the first message
+ * that is newer — one sent from this page since it opened, or a request made
+ * after it, taken from the head of that request's messages — and at the end
+ * when none is.
+ */
+function siteReqCardAt(s, key) {
+  const msgs = s.msgs;
+  const first = msgs.findIndex((m) => siteReqOwnMsg(m, key));
+  if (first >= 0) return msgs[first].r === 'u' && siteMsgsSent.get(msgs[first]) === key ? first + 1 : first;
+  const r = s.requests && Object.hasOwn(s.requests, key) ? s.requests[key] : null;
+  const at = r && r.view && typeof r.view.at === 'number' && Number.isFinite(r.view.at) ? r.view.at : null;
+  if (at === null) return msgs.length;
+  for (let i = 0; i < msgs.length; i++) {
+    const t = siteReqMsgAt(s, msgs[i]);
+    if (t === null || !(t > at)) continue;
+    // AN OLDER THREAD'S CARD stands under the message that asked for it, which carries no mark.
+    const before = msgs[i - 1];
+    return msgs[i].request && before && before.r === 'u' && !before.req ? i - 1 : i;
+  }
+  return msgs.length;
+}
+/** A request's card on the thread, once, where the request falls. */
+function siteReqCard(s, key) {
+  if (s.msgs.some((m) => m && m.request === key)) return;
+  s.msgs.splice(siteReqCardAt(s, key), 0, { r: 'a', t: '', request: key });
+}
+/** One of a request's own messages, put with it: after the last of its own on the thread, its card placed first when there is none. */
+function siteReqPut(s, key, m) {
+  siteReqCard(s, key);
+  let end = -1;
+  s.msgs.forEach((x, i) => { if (siteReqOwnMsg(x, key)) end = i; });
+  // AN OLDER THREAD'S REPLIES CARRY NO MARK: those standing right under a card
+  // with nothing marked after it are taken as its own, so a request begun
+  // before this change keeps its replies in the order they came.
+  if (s.msgs[end].request === key) while (end + 1 < s.msgs.length && s.msgs[end + 1] && s.msgs[end + 1].r === 'a' && !s.msgs[end + 1].request && !s.msgs[end + 1].req) end++;
+  m.req = key;
+  s.msgs.splice(end + 1, 0, m);
+  return m;
+}
+/** A line on the site's thread, said once — with its request, and its job, when it is a request's (`of`). */
+function siteReqSay(origin, reply, of) {
   const s = siteById(origin);
   if (!s) return;
-  s.msgs.push(siteReplyMsg(reply));
+  const m = siteReplyMsg(reply);
+  if (of && typeof of.key === 'string' && of.key) {
+    if (typeof of.job === 'string' && of.job) m.job = of.job;
+    siteReqPut(s, of.key, m);
+  } else s.msgs.push(m);
   s.updatedAt = Date.now();
   sitesSave();
   if (siteOpenId === origin) renderSites();
 }
-/** The routing reply took the work on: its card, its question if it asked one, and the follow. */
-function siteRequestStart(origin, d, imgs) {
+/** The routing reply took the work on: its card, its question if it asked one, and the follow. `key` is the message's own. */
+function siteRequestStart(origin, d, imgs, key) {
   siteBusy = false;
   siteBuildStop();
   const view = siteRequestOf(d);
   const s = siteById(origin);
   if (!s || !view) return;
-  siteReqState(origin, view.key, view);
-  if (!s.msgs.some((m) => m && m.request === view.key)) s.msgs.push({ r: 'a', t: '', request: view.key });
+  const st = siteReqState(origin, view.key, view);
+  // SENT FROM THIS PAGE (2026-10-05): what its parts do is this page's to apply.
+  if (st) st.own = true;
+  // AND THE MESSAGE IS ONE OF ITS OWN — the one that asked for it, or the
+  // answer that resumed it — so its card and replies go with it.
+  const sent = typeof key === 'string' && key ? s.msgs.find((m) => m && m.r === 'u' && siteMsgsSent.get(m) === key) : null;
+  if (sent) sent.req = view.key;
+  siteReqCard(s, view.key);
   // AN ANSWER MET WITH THE NEXT QUESTION: its card, as any question's.
   const q = d.intent === 'clarify' ? liveQuestion(d) : null;
   if (q) {
     const p = (view.parts || []).find((x) => x && x.question && x.question.id === q.id);
     siteAskKeep(origin, { ...q, request: p ? { key: view.key, part: p.n } : undefined }, []);
-    s.msgs.push(siteReplyMsg(askReplyMsg('', q)));
+    siteReqPut(s, view.key, siteReplyMsg(askReplyMsg('', q)));
   }
   s.updatedAt = Date.now();
   sitesSave();
@@ -9496,7 +9600,7 @@ function siteRequestFollow(origin, key) {
       misses++;
       if (misses > SITE_REQ_MISSES) {
         stop();
-        siteReqSay(origin, '⚠️ I lost sight of how that request is going. It carries on without this page — reload to see where it is.');
+        siteReqSay(origin, '⚠️ I lost sight of how that request is going. It carries on without this page — reload to see where it is.', { key });
         return;
       }
       setTimeout(step, EditPoll.pollDelayMs(++attempt));
@@ -9523,7 +9627,7 @@ async function siteRequestShow(origin, key, view, reply, replyFor, replyState) {
   const s = siteById(origin);
   if (!s) return true;
   const st = siteReqState(origin, key, view);
-  if (!s.msgs.some((m) => m && m.request === key)) s.msgs.push({ r: 'a', t: '', request: key });
+  siteReqCard(s, key);
   // EACH PART'S OWN REPLY, ONCE, IN ORDER.
   let all = true;
   for (const p of view.parts) {
@@ -9534,22 +9638,29 @@ async function siteRequestShow(origin, key, view, reply, replyFor, replyState) {
     if (!all) break;
   }
   // A QUESTION THE SERVER PUT IN THE SITE'S SLOT that no reply drew: its card.
+  // AND ONE A REQUEST THIS PAGE DID NOT SEND IS WAITING ON (2026-10-05): its
+  // part's reply was only said here (`siteRequestJobReply`), so the question
+  // is made the live one by this reading of the request — once a page, so an
+  // answer or a cancel sent since is never undone by a reading taken before it.
   for (const p of view.parts) {
     const q = p && p.status === 'waiting' && p.question && p.question.queued !== true ? clarifyOf(p.question) : null;
-    if (!q || s.msgs.some((m) => m && m.ask === q.id)) continue;
+    if (!q) continue;
+    const drawn = s.msgs.some((m) => m && m.ask === q.id);
+    if (drawn && (st.own !== false || siteReqAsked.has(q.id))) continue;
+    siteReqAsked.add(q.id);
     siteAskKeep(origin, { ...q, request: { key, part: p.n } }, []);
-    s.msgs.push(siteReplyMsg(askReplyMsg('', q)));
+    if (!drawn) siteReqPut(s, key, siteReplyMsg(askReplyMsg('', q)));
   }
   // THE REQUEST'S OWN REPLIES, EACH ONCE: one while it waits on a go-ahead,
   // one when it has ended — named by the server (`replyFor`), so a page opened
   // later or on another device shows each once too.
   const rf = typeof replyFor === 'string' && replyFor ? replyFor : (view.ended ? 'end' : '');
   if (!Array.isArray(st.replies)) st.replies = [];
-  const said = st.replies.includes(rf) || (rf === 'end' && st.replied);
+  const said = st.replies.includes(rf) || (rf === 'end' && st.replied) || s.msgs.some((m) => m && m.req === key && m.for === rf);
   if (all && reply && rf && !said) {
     st.replies.push(rf);
     if (rf === 'end') st.replied = true;
-    s.msgs.push({ r: 'a', t: reply });
+    siteReqPut(s, key, { r: 'a', t: reply, for: rf });
   }
   const done = view.ended && all && replyState !== 'pending';
   if (done) st.closed = true;
@@ -9578,6 +9689,8 @@ async function siteRequestJobReply(origin, key, part, job) {
   if (!st || st.shown.includes(job)) return true;
   st.shown.push(job);
   sitesSave();
+  // ON THE THREAD ALREADY, by its job (2026-10-05): said once.
+  if (s.msgs.some((m) => m && m.req === key && m.job === job)) return true;
   // A JOB WITH NO STORED REPLY, OR A HAND-OVER (the server's to act on): the
   // request's own reply says what became of the part.
   if ((read.act !== 'reply' && !held) || !e || typeof e !== 'object' || e.escalate === true) return true;
@@ -9589,9 +9702,18 @@ async function siteRequestJobReply(origin, key, part, job) {
   const body = kept.clarify && kept.clarify.queued === true ? (({ clarify: _drop, ...rest }) => rest)(kept) : kept;
   const d = { intent: part.route === 'addon' ? 'addon' : 'edit', layer: part.route && part.route !== 'addon' ? part.route : '' };
   const addon = d.intent === 'addon';
-  const say = (t) => siteReqSay(origin, t);
+  // SAID WITH ITS REQUEST, UNDER ITS JOB (2026-10-05): after the request's own
+  // messages, never at the bottom of the thread.
+  const say = (t) => siteReqSay(origin, t, { key, job });
   const finish = held && replyTellsEnding(!!r.ok, body, addon) ? editReplyHold(origin, job, e, say) : say;
-  const o = { site: s, d, instruction: part.words, origin, finish, fallback: null, imgs: [], handedOff: false, slug: s.slug };
+  // A REQUEST THIS PAGE DID NOT SEND IS ONLY SAID (2026-10-05): what its part
+  // did was done where it was sent, so the reader is handed no site, address
+  // or page here — no preview, page list, undo, message box, block or question
+  // of this page's is touched by it. What it says is the same: the model's
+  // reply, or the reader's own sentence. A question still waiting is made live
+  // by the request's own reading (`siteRequestShow`).
+  const only = st.own === false;
+  const o = { site: only ? null : s, d, instruction: part.words, origin: only ? '' : origin, finish, fallback: null, imgs: [], handedOff: false, slug: only ? '' : s.slug };
   try { (d.intent === 'addon' ? addonAnswer : editAnswer)(!!r.ok, body, o); } catch (err) { /* what was said stands */ }
   return true;
 }
@@ -9599,7 +9721,7 @@ async function siteRequestJobReply(origin, key, part, job) {
 function siteRequestStop(origin, key) {
   const s = siteById(origin);
   if (!s || !s.slug) return;
-  const failed = () => siteReqSay(origin, '⚠️ I couldn’t stop that just now, so the rest is still going ahead. Try again in a moment.');
+  const failed = () => siteReqSay(origin, '⚠️ I couldn’t stop that just now, so the rest is still going ahead. Try again in a moment.', { key });
   apiFetch('/api/site/request/' + encodeURIComponent(s.slug) + '/' + encodeURIComponent(key), { method: 'DELETE' }).then(async (r) => {
     const b = await r.json().catch(() => null);
     if (!r.ok || !b || b.ok !== true || !siteRequestOf(b)) { failed(); return; }
@@ -9626,7 +9748,7 @@ function siteRequestApprove(origin, key, n) {
   const settle = () => { st.approving = (st.approving || []).filter((x) => x !== n); sitesSave(); };
   const failed = () => {
     settle();
-    siteReqSay(origin, '⚠️ I couldn’t confirm the go-ahead just now. If the part still shows its button, press it again — pressing twice never starts it twice.');
+    siteReqSay(origin, '⚠️ I couldn’t confirm the go-ahead just now. If the part still shows its button, press it again — pressing twice never starts it twice.', { key });
     siteRequestFollow(origin, key);
   };
   apiFetch('/api/site/request/' + encodeURIComponent(s.slug) + '/' + encodeURIComponent(key) + '/approve', {
@@ -9665,7 +9787,8 @@ function siteRequestsCheck(site) {
       const known = s.requests && s.requests[v.key];
       if (known && known.closed) continue;
       siteReqState(origin, v.key, v);
-      if (!s.msgs.some((m) => m && m.request === v.key)) s.msgs.push({ r: 'a', t: '', request: v.key });
+      // WHERE IT FALLS IN TIME (2026-10-05), never under a message sent since.
+      siteReqCard(s, v.key);
       siteRequestFollow(origin, v.key);
     }
     s.updatedAt = Date.now();
@@ -13043,7 +13166,9 @@ function siteAskReply(label, chosen, leaveDraft) {
   const draft = chosen || leaveDraft ? null : siteDraft(origin);
   const own = draft ? draft.imgs.slice(0, 3) : [];
   if (draft) { draft.imgs = []; paintAttachStrip(); }
-  site.msgs.push({ r: 'u', t: said });
+  // ITS REQUEST'S, when the question is one's (2026-10-05): what that request
+  // says next goes under this answer.
+  site.msgs.push(siteSentMsg({ r: 'u', t: said, ...(asked.request ? { req: asked.request.key } : {}) }, key));
   siteBusy = true;
   siteBuildStart(true);
   sitesSave();
@@ -13053,7 +13178,10 @@ function siteAskReply(label, chosen, leaveDraft) {
     siteBuildStop();
     const s = siteById(origin);
     if (!s) return;
-    s.msgs.push(siteReplyMsg(reply));
+    // AND WHAT IS SAID OF IT, there too — an answer lost on its way back, or
+    // one held for its files — so what the request says next comes after.
+    if (asked.request) siteReqPut(s, asked.request.key, siteReplyMsg(reply));
+    else s.msgs.push(siteReplyMsg(reply));
     s.updatedAt = Date.now();
     sitesSave();
     if (siteOpenId === origin) renderSites();
@@ -13096,7 +13224,10 @@ function siteAskCancel() {
   if (!site || siteBusy || !site.ask || !site.slug) return;
   const asked = site.ask;
   const origin = siteOpenId;
-  site.msgs.push({ r: 'u', t: 'Cancel this request' });
+  // A REQUEST'S QUESTION (2026-10-05): the cancel, and what it is told, go
+  // with that request.
+  const of = asked.request ? asked.request.key : '';
+  site.msgs.push(siteSentMsg({ r: 'u', t: 'Cancel this request', ...(of ? { req: of } : {}) }, ''));
   siteBusy = true;
   sitesSave();
   renderSites();
@@ -13104,7 +13235,8 @@ function siteAskCancel() {
     siteBusy = false;
     const s = siteById(origin);
     if (!s) return;
-    s.msgs.push({ r: 'a', t: t });
+    if (of) siteReqPut(s, of, { r: 'a', t: t });
+    else s.msgs.push({ r: 'a', t: t });
     s.updatedAt = Date.now();
     sitesSave();
     if (siteOpenId === origin) renderSites();
@@ -13153,7 +13285,12 @@ function siteAskCheck(site) {
     }
     if (s.ask && s.ask.id === q.id) return;
     siteAskKeep(origin, { ...q, attached: c.question.attached === true, request: c.question.request }, []);
-    if (!s.msgs.some((m) => m && m.ask === q.id)) s.msgs.push(siteReplyMsg(askReplyMsg('', q)));
+    // A REQUEST'S QUESTION IS DRAWN BY THAT REQUEST'S OWN READING (2026-10-05):
+    // under its card, after what its parts said — one of which may be this
+    // question, from its job — so it is drawn once, with its request.
+    const of = s.ask && s.ask.request && /^[A-Za-z0-9_-]{16,64}$/.test(s.ask.request.key) ? s.ask.request.key : '';
+    if (of) siteRequestFollow(origin, of);
+    else if (!s.msgs.some((m) => m && m.ask === q.id)) s.msgs.push(siteReplyMsg(askReplyMsg('', q)));
     s.updatedAt = Date.now();
     sitesSave();
     if (siteOpenId === origin) renderSites();
@@ -13210,7 +13347,10 @@ function siteSend(text, leaveDraft) {
   if (!firstBuild && siteTooLong(siteOpenId, t, leaveDraft, 'message')) return;
   const isBuild = !sitePages(site).length;
   const active = siteActivePage(site);
-  site.msgs.push({ r: 'u', t });
+  // UNDER ITS KEY (2026-10-05), which a request the server makes of it is
+  // named by, so that request's card and replies go with this message.
+  const key = siteMessageKey(siteOpenId, t, leaveDraft);
+  site.msgs.push(siteSentMsg({ r: 'u', t }, key));
   siteBusy = true;
   // The React engine (build = new project, revise = any React site) drives its own
   // live step-rows; legacy static sites keep the classic activity log / no log.
@@ -13241,7 +13381,6 @@ function siteSend(text, leaveDraft) {
   // (`leaveDraft`), and whatever is in the box and the strip stays there: a
   // picture waiting beside its words is never sent away from them with an
   // instruction nobody wrote.
-  const key = siteMessageKey(origin, t, leaveDraft);
   const draft = leaveDraft ? null : siteDraft(origin);
   const imgs = draft ? draft.imgs.slice(0, 3) : [];
   if (draft) { draft.imgs = []; paintAttachStrip(); }

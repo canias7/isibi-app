@@ -160,6 +160,13 @@ export function trackHeld(slots, s) {
     const job = m && typeof m.held === "string" ? m.held : "";
     if (job && !Object.hasOwn(out.at, job)) out.at[job] = i;
   });
+  // A PLACE FOUND AGAIN BY ITS MARK (2026-10-05): a page that marks each
+  // part's reply with its job (`job`, kept when it settles) may put messages
+  // above it — an earlier request picked up late — and the place moves with it.
+  msgs.forEach((m, i) => {
+    const job = m && typeof m.job === "string" ? m.job : "";
+    if (job && Object.hasOwn(out.at, job)) out.at[job] = i;
+  });
   return out;
 }
 
@@ -183,12 +190,13 @@ export function repliesNow({ jobs = [], network = [], s = null, slots = null, ke
   const answers = jobAnswers(network);
   const msgs = s && Array.isArray(s.messages) ? s.messages : [];
   const at = slots && slots.at && typeof slots.at === "object" ? slots.at : {};
-  // A PLACE IS GOOD while its message is still there and holds no other job.
+  // A PLACE IS GOOD while its message is still there and holds, or is marked
+  // with, no other job.
   const slotOf = (job) => {
     if (!Object.hasOwn(at, job)) return null;
     const i = at[job];
     const m = msgs[i];
-    if (!m || (typeof m.held === "string" && m.held && m.held !== job)) return null;
+    if (!m || (typeof m.held === "string" && m.held && m.held !== job) || (typeof m.job === "string" && m.job && m.job !== job)) return null;
     return i;
   };
   const placed = new Set();

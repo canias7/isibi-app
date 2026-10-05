@@ -67,6 +67,9 @@ const FNS = [...new Set([
   // message's key, following a request, its card, Stop and the rewrite go-ahead.
   "siteMessageKey", "siteUnsentBack", "siteRequestOf", "siteReqState", "siteReqSay", "siteRequestStart", "siteRequestFollow",
   "siteRequestStop", "siteRequestApprove", "siteRequestsCheck", "siteRequestHTML",
+  // EACH REQUEST'S MESSAGES WITH THAT REQUEST (2026-10-05): its own, its
+  // card where it falls in time, and a message put after the last of its own.
+  "siteReqOwnMsg", "siteReqMsgAt", "siteReqCardAt", "siteReqCard", "siteReqPut",
   // A REPLY STILL BEING WRITTEN (2026-10-04): the outcome applied at once, the
   // reply's place held on the thread and followed on its own.
   "replyTellsEnding", "editReplyHold", "editReplyFollow", "siteHeldRepliesCheck",
@@ -78,6 +81,7 @@ const LINES = [...new Set([
   "const SITE_NO_PAGES_MSG =", "const siteNewDraft =", "function siteBuildStop(", ...ASK_LINES, "const siteAskChecked =",
   "const ST_PHASE_ORDER =",
   "const SITE_REQ_KEEP_MS =", "const SITE_REQ_MISSES =", "const siteReqFollowing =", "const siteReqChecked =",
+  "const siteReqAsked =",
   "const editReplyFollowing =",
 ])];
 const SRC = [

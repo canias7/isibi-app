@@ -574,11 +574,15 @@ export function composerReady(s) {
  * The replies that arrived after a send: the assistant's messages past the
  * ones already there. A REQUEST'S CARD is not a reply (2026-10-03): it is the
  * list of a request's parts and their statuses, drawn the moment the server
- * takes the message on, and the replies come after it.
+ * takes the message on, and the replies come after it. AND PAST THE MESSAGE
+ * ITSELF (2026-10-05): the page puts an earlier request it picks up late above
+ * a message already sent, so the count from before the send can fall short of
+ * where the message now stands; the last one the customer sent is it.
  */
 export function newReplies(beforeCount, messages) {
   const list = Array.isArray(messages) ? messages : [];
-  return list.slice(Math.max(0, Number(beforeCount) || 0)).filter((m) => m && m.who === "a" && !m.busy && !m.card);
+  const sent = list.reduce((k, m, i) => (m && m.who === "u" ? i : k), -1);
+  return list.slice(Math.max(0, Number(beforeCount) || 0, sent + 1)).filter((m) => m && m.who === "a" && !m.busy && !m.card);
 }
 
 // ── A MESSAGE THE SERVER TAKES ON AS A REQUEST (2026-10-03) ─────────────────
@@ -1178,6 +1182,9 @@ function readComposerInPage() {
       return h && typeof h.job === "string" ? h.job : "";
     } catch (e) { return ""; }
   };
+  // THE JOB A PART'S REPLY IS MARKED WITH (2026-10-05), where the page marks
+  // one: it stays when the reply settles.
+  const jobMark = (m) => (m && typeof m.job === "string" ? m.job : "");
   return {
     signedIn: !!(window.Auth && Auth.isSignedIn && Auth.isSignedIn()),
     uid: window.Auth && Auth.userId ? Auth.userId() : "",
@@ -1202,6 +1209,7 @@ function readComposerInPage() {
       // A REPLY'S PLACE HELD: the waiting line drawn, and the job it is for.
       holding: !!m.querySelector(".st-think"),
       held: aligned && !m.classList.contains("st-busy") ? heldJob(kept[i]) : "",
+      job: aligned && !m.classList.contains("st-busy") ? jobMark(kept[i]) : "",
     })),
     // THIS PAGE'S OWN LIFE: a reload, or a tab opened afresh, starts another.
     origin: typeof performance !== "undefined" && Number.isFinite(performance.timeOrigin) ? performance.timeOrigin : null,

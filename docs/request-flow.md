@@ -356,9 +356,10 @@ meaning they had in the message. A routing job is shown the same.
 ## What the customer reads
 
 - **Each part's own reply** is its job's model-written reply, written once
-  by the job poll. Its facts mark it as part of a longer request, so the
-  other parts are said to be done separately by the same request, and never
-  "send it next".
+  on the queue when the job's outcome and money are final (since deploy
+  2183; the job poll wrote it before). Its facts mark it as part of a longer
+  request, so the other parts are said to be done separately by the same
+  request, and never "send it next".
 - **The request's own replies**: one while it waits only on a go-ahead —
   what waits, why only the full rewrite can make it, that a full rewrite of
   the same site was measured at 17 credits, that it starts only from the
@@ -383,6 +384,21 @@ meaning they had in the message. A routing job is shown the same.
 - **The card** under the message lists each part's words and status — *Partly
   done*, *Needs your go-ahead* with its button, *Full rewrite queued* or *in
   progress* once given — with *Stop the rest* while anything is left.
+- **Where each of its messages goes** (2026-10-05; on the branch, not merged
+  or deployed; `docs/history/2026-10-05-reply-placement.md`): with its own
+  request, after the last of that request's messages on the thread — never at
+  the bottom, under a message sent since. Every message a request writes
+  carries its key (`req`): a part's reply its job too (`job`), the request's
+  own reply which one it is (`for`). So does an answer to its question or a
+  cancel of it, and the message that started it (known on the page by the key
+  it was sent under). A request the page has no card for — made on another
+  device, or before this browser kept its records — gets its card where it
+  falls in time: under the message that started it, when that is on the
+  thread; otherwise above anything sent from this page since it opened, and
+  above any request made after it. Such a request is only said there: the
+  model's reply, or the page's own sentence, with nothing applied again (no
+  preview, page list, undo, message box or question of that page's), and a
+  question it still waits on is made live by its own reading, once a page.
 
 ## The owner's routes
 

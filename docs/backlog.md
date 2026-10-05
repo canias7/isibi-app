@@ -24,14 +24,17 @@ here; take a closed one out of both.**
   check of them** (run 97): a browser that has not seen a site's recent
   requests appends their replies at the end of the thread when it opens the
   site; a message sent in the first seconds is then followed by replies to
-  other requests (five in run 97, from runs 94 and 95). And an ended
-  request's own reply with no record is asked for whenever it is read,
-  however old (R1's, about 20 hours after it ended); a job's is not, after
-  two hours. **Open, a product bug, not changed** (the same file, §7.6). Since
-  2026-10-05 the canary neither waits for nor counts those replies; it does
-  not wait for them before sending either, which would only hide the bug in
-  its own runs. **Live in three presses of run 99**: 7, 10 and 12 other
-  requests' replies drawn after the new message, none counted.
+  other requests (five in run 97, from runs 94 and 95; 7, 10 and 12 in three
+  presses of run 99). **Fixed on the branch, on the owner's word
+  (2026-10-05; not merged or deployed;
+  `docs/history/2026-10-05-reply-placement.md`)**: each request's messages
+  go with that request, by its key and each reply's job, never at the
+  bottom; a request the page learns of late goes above anything sent since;
+  another device's request is only said, never applied again. Shown with
+  supplied answers only (14 page cases through the real Worker) and in
+  screenshots; not yet live. **Still open, not changed**: an ended request's
+  own reply with no record is asked for whenever it is read, however old
+  (R1's, about 20 hours after it ended); a job's is not, after two hours.
 - **The new page's own menu names it differently** (a remaining follow-up;
   run 99's R2, 2026-10-05):
   `/wholesale`'s menu says "Wholesale", placed before Order, while every other
@@ -499,11 +502,26 @@ here; take a closed one out of both.**
     (`REPLY_ASK_WINDOW_MS`). The model call is ours, not the customer's.
   - Open: where a reply to an earlier request belongs on a thread that has
     moved on, and whether a request too old to matter is asked for a reply
-    at all. **Not changed; a product bug, kept open on the owner's word
-    (2026-10-05):** *"Keep the historical-message placement issue recorded as
-    an unresolved product bug; waiting for history in the test does not fix
-    it."* The canary now ignores those replies when judging (it neither waits
-    for them nor counts them), which is the instrument's matter only.
+    at all. Kept open on the owner's word (2026-10-05): *"Keep the
+    historical-message placement issue recorded as an unresolved product
+    bug; waiting for history in the test does not fix it."* The canary
+    ignores those replies when judging (it neither waits for them nor counts
+    them), which is the instrument's matter only.
+  - **The placement, fixed on the branch** (2026-10-05, the owner: *"place it
+    with that request, including delayed model replies, questions, reloads
+    and opening the site in another browser … Use request/job identity
+    rather than matching message wording"*; not merged or deployed;
+    `docs/history/2026-10-05-reply-placement.md`). Every message a request
+    writes carries its key (`req`), a part's reply its job (`job`), the
+    request's own reply which one it is (`for`); so do the message that
+    started it and an answer or cancel of its question. A request's next
+    message goes after the last of its own. A request the page has no card
+    for gets one where it falls in time: under the message that started it,
+    or above anything sent from the page since it opened and any request made
+    after it. Another device's request is only said, with nothing applied
+    again, and a question it still waits on is made live once a page.
+    Supplied answers only; not yet live. **The old-request half stays open**:
+    a request's own reply with no record is still asked for whenever read.
 - **THE PREVIEW'S FIRST REFRESH ON A SITE WITH NO STORED VERSION KEEPS
   `?v=1`** (found 2026-10-04, the owner's review round). `sitePreviewSrc`
   (`public/chat.js`) gives a site with no `previewV` the address `?v=1`, and

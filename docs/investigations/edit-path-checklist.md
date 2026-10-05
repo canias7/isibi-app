@@ -1014,6 +1014,16 @@ the owner's free press, run 51, at 22:57 UTC):
       Remaining follow-ups: the new page's own menu label and a data edit's
       reply that cannot name the change; earlier requests' replies placed
       under a new message is being fixed on the branch. RW not started.
+    - **Each request's replies with that request** (2026-10-05, on the
+      owner's word; on the branch, not merged or deployed;
+      `docs/history/2026-10-05-reply-placement.md`): the page puts every
+      message a request writes after the last of that request's own,
+      marked by its key and each reply's job, never at the bottom under a
+      message sent since; a request it picks up late goes above anything
+      sent from the page since it opened; another device's request is only
+      said, never applied again, its waiting question made live once a page.
+      **Supplied answers only** (the placement cases through the real
+      Worker) and screenshots; not shown live.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

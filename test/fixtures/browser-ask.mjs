@@ -19,6 +19,11 @@ export const ASK_FNS = Object.freeze([
   // own key (`siteMessageKey`), and every routing answer is asked whether the
   // server took the work on (`siteRequestOf`) — both on every send.
   "siteMessageKey", "siteRequestOf",
+  // EACH MESSAGE SENT FROM THE PAGE IS MARKED SO (2026-10-05): a request
+  // picked up later goes above it, never under it. AND AN ANSWER TO A
+  // REQUEST'S QUESTION, WITH WHAT IS SAID OF IT, GOES WITH THAT REQUEST:
+  // its own messages, its card where it falls, and the next after them.
+  "siteSentMsg", "siteReqOwnMsg", "siteReqMsgAt", "siteReqCardAt", "siteReqCard", "siteReqPut",
 ]);
 
 // The block's three top-level lines, each one line of chat.js named by its opening.
@@ -30,4 +35,5 @@ export const ASK_LINES = Object.freeze([
   // AND THE KEYS OF MESSAGES HELD TO SEND AGAIN (2026-10-03, the combined
   // request flow), beside them in memory.
   "const siteHeldKeys =",
+  "const siteMsgsSent =",
 ]);

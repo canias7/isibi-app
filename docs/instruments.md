@@ -1053,13 +1053,23 @@ block the current request's verdict."* `docs/history/2026-10-05-canary-reply-wat
 - **ITS PLACE ON SCREEN** is the message that held it (`held.job`, kept per
   page life), or else its own words, counted against every other job whose
   answer carries the same words, so another request's message never stands in.
+  **Since the page's placement fix (2026-10-05, on the branch)** a page that
+  marks each part's reply with its job (`job`, kept when it settles) has a
+  held place found again by that mark, so messages the page puts above it
+  later do not move it out from under the watch; a place now marked with
+  another job is never read as this one's. A page without the marks (deploy
+  2183's) is read as before.
 - **THE DEADLINE**: the message's own bound, never less than
   `UI_REPLY_FLOOR_MS` (60 s) after the request ended; the floors are counted in
   each request press's 30 minutes.
 - **THE REPLY ON SCREEN** (`reply`, read by "message N got a reply on screen")
   is the request's own replies only; other replies drawn after the message are
   kept apart (`otherReplies`), printed, never counted. **Where the page draws
-  them is an open product bug** (`docs/backlog.md`), which this does not fix.
+  them was a product bug** (`docs/backlog.md`), fixed on the branch since
+  (2026-10-05, not deployed: `docs/history/2026-10-05-reply-placement.md`);
+  on a fixed page they go above the message, so none should be left after it.
+  A message's replies are read after the message itself (`newReplies`), so an
+  earlier request put above it once it is sent is not read as its replies.
 - **PROVEN WITH A STAND-IN PAGE ONLY** (`test/fixtures/canary-held-app.mjs`,
   `test/canary-replies.test.mjs`, 28 cases): delayed success, failure, timeout,
   the floor, a reload, a step's question, the closed tab, history that cannot

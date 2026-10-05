@@ -1,47 +1,49 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-05, 03:20 UTC)
+## Current handoff — read this first (2026-10-05, 04:30 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **The request batch is done.** Your `rq-batch-r2` press (run 99, 02:32–03:04
-  UTC) passed all four: R2 (a Wholesale page and a price), R3 (a heading and a
-  Facebook link, with its question answered), R4 (a heading and your attached
-  logo) and R5 (a line and a heading, finished with the tab closed). Every
-  check passed, and every reply was the model's own and on screen.
-- **The canary fix worked live**: three replies were still being written when
-  their requests ended, and it waited for each (5–31 s). It counted none of
-  the 7–12 other requests' replies the page drew after the messages.
-- **Money**: balance **48** (from 91), no job open. R2–R5 cost 43 (17, 8, 4,
-  14); the batch's total is **72 of 100**.
-- **The bakery** keeps every change (your demo rule): Classes and Wholesale in
-  every menu, the Facebook link in every footer, the new logo, the three new
-  headings, the closing-time line on Order, and the Walnut Levain at £6.20.
-- **`main` is `cd817fee`** (the canary fix and the records, merged on your
-  word, no deploy); the live site is still deploy 2183 (`e84b8e7e`). The
-  batch's five findings are closed (the entry below).
+- **Merged, no deploy**: `main` is `cd817fee` (the canary fix and its
+  records). No workflow ran, so the live site is still deploy 2183
+  (`e84b8e7e`, image `386607152d4cb319`).
+- **The batch's five findings are closed** on your word, and the backlog no
+  longer says no real model has written a reply.
+- **The reply placement fix is on the branch for your review** (not merged,
+  not deployed, nothing spent):
+  - each request's replies now go with that request, even when they arrive
+    late or the page reloads, never under a message sent since;
+  - a request the page learns of late goes above anything you sent since the
+    page opened;
+  - another device's request is shown, never applied again here.
+  - Shown with supplied answers and in the two screenshots I sent; not live.
+- **Money**: balance **48**, unchanged since run 99 (read at 04:31 UTC: last
+  ledger row 385, no job open).
+- **The bakery** keeps every change from the batch (your demo rule).
 
 **Still open** (`docs/backlog.md`)
-- The page draws earlier requests' replies under a new message (a product
-  bug; seen in three of the four presses).
+- An old request's own reply with no record is still asked for whenever it is
+  read, however old (the server side of the placement item; not changed).
 - A data edit's reply can't name the change ("I've updated one of the
-  loaves"), the known limit you kept for the reply work.
-- Two small ones from this run: the new page's own menu says "Wholesale" where
-  the others say "Wholesale Orders"; and the free lookup's wording for a job
-  with no reply on it.
+  loaves"): a remaining follow-up.
+- The new page's own menu says "Wholesale" where the others say "Wholesale
+  Orders": a remaining follow-up.
+- The free lookup's wording for a job with no reply on it.
 
 **Yours to decide**
-1. **RW**, the separate full-rewrite test: run it, or drop it; and whether to
-   put the bakery back after.
-2. Which of the open items to take next.
+1. **The placement fix**: review it; merging it deploys `public/chat.js` only
+   (the image is predicted unchanged), and a live check would come after,
+   on your word.
+2. **RW**, the separate full-rewrite test: not started, as you said.
+3. Which of the open items to take next.
 
 **Links**
-- Run 99: `docs/history/2026-10-05-batch-r2.md`.
-- The canary fix: `docs/history/2026-10-05-canary-reply-watch.md`.
-- The plan: `docs/investigations/request-flow-rollout.md`. The open items:
+- The fix: `docs/history/2026-10-05-reply-placement.md`.
+- The merge and the closures: `docs/history/2026-10-05-merge-and-closures.md`.
+- Run 99: `docs/history/2026-10-05-batch-r2.md`. The open items:
   `docs/backlog.md`.
 ---
 
@@ -101,6 +103,44 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-05 — Each request's replies now go with that request (on the branch, for review; nothing spent, nothing deployed)
+
+- **The bug you saw in runs 97 and 99**: when a browser opened the site and
+  a message went out before the site's earlier requests were read, every
+  earlier request's card and reply was drawn under the new message (5, then
+  7, 10 and 12 of them). A request's late reply went to the bottom the same
+  way.
+- **Now**: every reply carries which request it belongs to (and which job),
+  and goes right after that request's own messages, never at the bottom. An
+  earlier request the page learns of late goes above anything you've sent
+  since the page opened, in the order the requests were made. This holds for
+  late model replies, questions, answers, cancels, reloads and a second
+  browser.
+- **Also fixed with it**: another device's request is now only shown, never
+  applied again in this browser (before, it could move the preview, put
+  words in your message box, or make an old question live, so your next
+  message would have been sent as its answer). A request's question is drawn
+  once, not twice. Nothing is said twice, even if the browser's record of a
+  request is lost.
+- **Kept as it was**: the message box is free while history loads, older
+  conversations keep their order, and replies are the model's own words.
+- **Tests**: 14 page cases through the real Worker with supplied answers: a
+  message sent before history loads; replies in either order; duplicate
+  looks; replies still being written; reloads; questions; a cancel; older
+  threads. All 14 fail on `main`'s page. The mutation sweep killed 24 of 27
+  at first; the 3 it missed were real gaps, each closed with its own case,
+  and the re-run killed 4 of 4. The suite: `9427 / 9427 / 0 / 0`. The canary
+  now reads the fixed page correctly too (scripts only).
+- **The screenshots** I sent show before (main) and after (the branch), with
+  supplied answers.
+- **Not shown live**, and not deployed: merging it would deploy `public/chat.js`
+  only. Still open separately: an old request's own reply is still asked for
+  whenever it's read.
+
+**Recorded in**: `docs/history/2026-10-05-reply-placement.md`, the backlog,
+`docs/request-flow.md`, `docs/instruments.md`, the checklist and the rollout
+plan.
 
 ## 2026-10-05 — Merged the canary fix (no deploy), and closed the batch's findings (nothing spent)
 

@@ -416,6 +416,26 @@ test("held places are kept from read to read of one page, and read again from sc
   assert.deepEqual(slots, { tab: 2, at: {} });
 });
 
+test("A PLACE FOUND AGAIN BY ITS JOB'S MARK (2026-10-05): the page may put an earlier request's messages above a held reply; where the page marks each reply with its job, the place moves with it, and a place now marked with another job is never read as this one's", () => {
+  const read1 = { origin: 1, messages: [{ who: "u", text: "x" }, { who: "a", text: HOLD_LINE, held: "j1", holding: true, job: "j1" }] };
+  let slots = trackHeld(null, read1);
+  assert.deepEqual(slots.at, { j1: 1 });
+  // AN EARLIER REQUEST PUT ABOVE IT, AND THE REPLY SETTLED: found at 3 by its mark.
+  const read2 = { origin: 1, messages: [{ who: "a", text: "", card: true }, { who: "a", text: "Changed the description.", job: "h1" }, { who: "u", text: "x" }, { who: "a", text: MENU_REPLY, held: "", holding: false, job: "j1" }] };
+  slots = trackHeld(slots, read2);
+  assert.deepEqual(slots.at, { j1: 3 });
+  const network = [{ method: "GET", path: "/api/site/edit/j1", final: true, status: 200, res: WRITTEN(MENU_REPLY), ms: 9 }];
+  const now = repliesNow({ jobs: [{ job: "j1", part: 0 }], network, s: read2, slots, key: KEY(1) });
+  assert.deepEqual(now.jobs.map((j) => [j.state, j.at, j.shown, j.settled]), [["model", 3, true, true]]);
+  // A PAGE THAT MARKS NOTHING (deploy 2183's): the place stays where it was first seen.
+  const bare = (m) => { const { job: _drop, ...rest } = m; return rest; };
+  assert.deepEqual(trackHeld(trackHeld(null, { ...read1, messages: read1.messages.map(bare) }), { ...read2, messages: read2.messages.map(bare) }).at, { j1: 1 });
+  // AND A KEPT PLACE NOW MARKED WITH ANOTHER JOB is not this one's: the reply is looked for by its words instead.
+  const moved = { origin: 1, messages: [{ who: "u", text: "x" }, { who: "a", text: "Changed the description.", job: "h1" }] };
+  const other = repliesNow({ jobs: [{ job: "j1", part: 0 }], network, s: moved, slots: { tab: 1, at: { j1: 1 } }, key: KEY(1) });
+  assert.deepEqual(other.jobs.map((j) => [j.at, j.shown]), [[null, false]]);
+});
+
 test("on screen as many times as needed: two jobs whose answers carry the same words need two messages carrying them; a question asked in the same words by another request likewise", () => {
   const net = [
     { method: "GET", path: "/api/site/edit/j1", final: true, res: WRITTEN("Same words."), ms: 1 },
@@ -495,7 +515,7 @@ test("the reader inside the app reads each message's held job off the page's own
   const kept = [
     { r: "u", t: "Put the Classes page in the menu on every page." },
     { r: "a", t: "", request: KEY(1) },
-    { r: "a", t: HOLD_LINE, held: { job: "m1", at: 5, else: "✅ Added." } },
+    { r: "a", t: HOLD_LINE, held: { job: "m1", at: 5, else: "✅ Added." }, job: "m1" },
   ];
   const run = (drawn, site) => {
     const ctx = vm.createContext({
@@ -511,6 +531,8 @@ test("the reader inside the app reads each message's held job off the page's own
   const site = { msgs: kept, requests: { [KEY(1)]: { closed: true, view: { ended: true }, shown: ["m1"], replied: true, replies: ["end"] } } };
   const s = run(drawn, site);
   assert.deepEqual(s.messages.map((m) => [m.who, m.card, m.holding, m.held]), [["u", false, false, ""], ["a", true, false, ""], ["a", false, true, "m1"]]);
+  // AND EACH REPLY'S JOB MARK, where the page writes one (2026-10-05), paired the same way.
+  assert.deepEqual(s.messages.map((m) => m.job), ["", "", "m1"]);
   assert.equal(s.origin, 1234.5);
   assert.deepEqual(s.requests[KEY(1)], { closed: true, ended: true, shown: ["m1"], replied: true, replies: ["end"] });
   // THE BUSY ROW, LAST, DOES NOT SHIFT THE COUNT.
@@ -519,6 +541,7 @@ test("the reader inside the app reads each message's held job off the page's own
   // COUNTS THAT DISAGREE: no message is given a job.
   const off = run(drawn.slice(0, 2), site);
   assert.deepEqual(off.messages.map((m) => m.held), ["", ""]);
+  assert.deepEqual(off.messages.map((m) => m.job), ["", ""]);
   // MORE DRAWN THAN KEPT (a drawing behind the thread): pairing them by
   // place would hand the held job to the wrong message, so none is given.
   const lag = run([...drawn.slice(0, 2), el(["st-msg"], "a message the thread no longer keeps")], { ...site, msgs: [kept[0], kept[2]] });

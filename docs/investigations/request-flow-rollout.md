@@ -56,7 +56,11 @@ failed its reply check on the canary's timing alone. **R2–R5 passed as run 99*
 (2026-10-05, from the branch, one press; `docs/history/2026-10-05-batch-r2.md`):
 every check of every press, every reply the model's own and on screen, 43
 credits (R2 17, R3 8, R4 4, R5 14). **The batch is complete at 72 of 100.**
-RW (§9) has not been run and is yours to approve or drop. The presses' record:
+RW (§9) has not been run and is yours to approve or drop. **Since, on your
+word (2026-10-05)**: the canary fix merged to `main` (`cd817fee`, no deploy),
+the batch's findings closed (`docs/history/2026-10-05-merge-and-closures.md`),
+and the page's placement of each request's replies fixed on the branch for
+your review, not deployed (`docs/history/2026-10-05-reply-placement.md`). The presses' record:
 `docs/history/2026-10-04-request-batch.md`. The record: `docs/history/2026-10-04-deploy-2181.md`.
 
 Your first order: *"Freeze this implementation and prepare the concrete rollout

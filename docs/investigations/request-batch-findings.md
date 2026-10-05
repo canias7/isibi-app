@@ -545,7 +545,8 @@ Closed, each in the backlog's index and in full
   (`cd817fee`).
 
 **Still open, kept separate**: earlier requests' replies placed under a new
-message (a product bug, fixed on the branch since: the same history file);
+message (a product bug, fixed on the branch since, not deployed:
+`docs/history/2026-10-05-reply-placement.md`);
 the new page's own menu label; a data edit's reply that cannot name the
 change; the read-only lookup's `REPLY` wording; the preview's first `?v=1`.
 

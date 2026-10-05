@@ -95,6 +95,20 @@ test("the replies are the assistant's messages after the send, never a Working r
   assert.deepEqual(newReplies(0, null), []);
 });
 
+test("the replies are counted after the message itself, so an earlier request put above it once it is sent is not read as its replies (2026-10-05)", () => {
+  // THE THREAD WAS EMPTY AT THE SEND; THE PAGE THEN PUT AN EARLIER REQUEST ABOVE THE MESSAGE.
+  const msgs = [
+    { who: "a", busy: false, card: true, text: "" },
+    { who: "a", busy: false, text: "Changed the description." },
+    { who: "u", busy: false, text: "Use this picture as the logo." },
+    { who: "a", busy: false, card: true, text: "" },
+    { who: "a", busy: false, text: "✅ That's your logo in the header now, on every page." },
+  ];
+  assert.deepEqual(newReplies(0, msgs).map((m) => m.text), ["✅ That's your logo in the header now, on every page."]);
+  // NOTHING SENT ON THE THREAD YET: the count alone, as before.
+  assert.deepEqual(newReplies(1, msgs.slice(0, 2)).map((m) => m.text), ["Changed the description."]);
+});
+
 test("the budget refuses once it is spent, and refuses a balance it cannot read", () => {
   assert.equal(budgetRefusal({ start: 65, now: 60, budget: 15 }), "");
   assert.match(budgetRefusal({ start: 65, now: 50, budget: 15 }), /spent 15 of its 15/);
