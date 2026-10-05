@@ -1,57 +1,49 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-05, 00:05 UTC)
+## Current handoff — read this first (2026-10-05, 00:35 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
 is in git; the dated entries further down are the full story.*
 
 **State now**
-- **Deploy 2183 is live and runtime-confirmed** by your free press, run 96:
-  the Worker runs `e84b8e7e` and a fresh container starts on image
-  `386607152d4cb319` (built once, as predicted).
-- **Your `rq-menu-link` press ran as run 97 (4 credits) and did not pass**,
-  so, by your rule, **`rq-batch-r2` was not pressed**:
-  - **the menu passed**: *Classes* went into the menus on `/order`,
-    `/visit` and `/gallery`, each keeping its own links in their order;
-    `/` and `/classes` stayed as they were; `/starter` still has no menu;
-    nothing else on the site changed. Run 95's menu problem is fixed live;
-  - **the reply check failed**: the canary judged the reply 8 seconds after
-    the menu job ended, while the model's reply was still being written in
-    the background (the page showed *"Done — writing up what changed…"*).
-    That's a gap in the canary from your review round: the page no longer
-    waits for a reply before closing a request, and I didn't teach the
-    canary that. **Whether that reply was then written is not known yet.**
-    The logs fit a first try that settled at once, but not which way.
-- **Money**: balance **91** (routing 3, the menu edit 1), no job open. The
-  batch has spent **29** of its 100.
-- **The bakery**: *Classes* is now in all five menus. Nothing was put back.
+- **The canary now waits for a request's replies** (on the branch at
+  `cfe6688a`, for your review; scripts and tests only, so nothing deploys and
+  nothing is rebuilt). After a request ends — normally, on a step's question,
+  or in the tab opened afterwards — it waits on that request's own jobs until
+  each reply is written or has failed and is on screen, within the message's
+  time and never less than a minute after the end. It tells "the model's own",
+  "failed", "timed out", "composed" and "unread" apart, and never counts
+  another request's reply. Shown with a stand-in page only; **not yet run
+  live**.
+- **Run 97's reply is still unknown.** The free lookup below answers it; my one
+  try to start it was refused (403).
+- **R2–R5 are still unpressed**; the batch has spent **29** of its 100.
+- **Money**: balance **91**, last ledger row 369, no job open (00:29 UTC).
+  Nothing was spent since run 97.
+- **Still open, not fixed (a product bug, as you asked)**: a browser opening a
+  site for the first time draws the replies to the site's earlier requests
+  under a message sent in the first seconds. The canary ignores them now; it
+  does not wait for them before sending, which would only hide the bug.
 
-**Also found in run 97** (recorded in the backlog, not fixed): when a
-browser opens a site for the first time, the page shows the replies to the
-site's earlier requests, and a message sent in the first seconds ends up
-with those replies under it (five from runs 94 and 95 here). One of them,
-R1's request reply, was written by the model just then, 20 hours after R1
-ended.
+**Exact next action — your free press, then tell me "ran"**
+- **The read-only lookup for run 97's job** (nothing spent, nothing resent), at
+  https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml →
+  **Run workflow**:
+  - "Use workflow from": **`claude/help-needed-ehlwlj`** (the branch, so it
+    prints the new `REPLY` line);
+  - "READ ONE EXISTING JOB AND STOP: a job id. Spends nothing, changes
+    nothing, and ignores every input below.":
+    `f666481af2ef5410b14e00b9ad0da43d`;
+  - every other box as it is ("Run the ONE paid edit as well (yes/no)" stays
+    `no`).
+- **What it says**: `REPLY  WRITTEN by the model: "…"`, or `still PENDING`,
+  or `FAILED`, or `NONE on the answer` — the last one meaning either nothing
+  was owed or nothing was ever asked for, which the server does not tell
+  apart. The read never calls the model.
 
-**Exact next actions, yours to choose**
-1. **A free check of that reply** (nothing spent): the canary's
-   read-one-job mode, at
-   https://github.com/canias7/isibi-app/actions/workflows/edit-canary.yml →
-   **Run workflow**, "Use workflow from" `main`:
-   - "READ ONE EXISTING JOB AND STOP: a job id. Spends nothing, changes
-     nothing, and ignores every input below.":
-     `f666481af2ef5410b14e00b9ad0da43d`;
-   - every other box as it is.
-
-   Its evidence holds the job's answer as you would be handed it now: the
-   model's reply if it was written.
-2. **Whether I teach the canary to wait for a held reply** (scripts only, no
-   deploy, nothing spent): no message ends while a reply's place is held,
-   and the first message waits for the page's own check of earlier
-   requests.
-3. **Then `rq-batch-r2`, once**, its batch box **29**; I'll give you its
-   boxes.
+**Then, yours to decide**: your review of the canary fix; and, after it,
+`rq-batch-r2` once from the branch, its batch box `29`. I'll give you its boxes.
 
 **Still yours** (the plan's §11)
 1. Approve the revised plan, with 100 as a threshold between presses, or
@@ -61,11 +53,11 @@ ended.
 4. The demo changes stay unless you say otherwise.
 
 **Links**
-- Run 97 in full: `docs/history/2026-10-04-deploy-2183.md` §7.
-- The deploy: the same file; `docs/deploy-record.md`.
-- The findings: `docs/backlog.md` (the first two items);
-  `docs/investigations/request-batch-findings.md` (*Run 97, live*).
-- The plan: `docs/investigations/request-flow-rollout.md`.
+- The canary fix: `docs/history/2026-10-05-canary-reply-watch.md`.
+- Run 97: `docs/history/2026-10-04-deploy-2183.md` §7.
+- The canary: `docs/instruments.md` (*THE CANARY WAITS FOR A REQUEST'S
+  REPLIES*). The open items: `docs/backlog.md`. The plan:
+  `docs/investigations/request-flow-rollout.md`.
 ---
 
 2026-09-25: **Escalation correction CLOSED.** Independently reviewed (437 focused
@@ -124,6 +116,39 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-05 — The canary waits for a request's replies now (on the branch, for review; nothing spent, nothing deployed)
+
+You said: *"Fix the canary's pending-reply handling now, keeping this change
+to scripts and tests so no deployment or container rebuild is needed … Push
+the instrument fix and evidence for review, with R2–R5 still pending and
+batch_spent at 29."*
+
+- **What it does now**: after a request ends — normally, on a step's
+  question, or in the tab opened after a closed one — the canary waits on
+  that request's own jobs until each reply is written or has failed and is on
+  screen. It waits within the message's own time, never less than a minute
+  after the end. Each reply is read from its own job, so "the model's own",
+  "failed", "timed out", "composed" and "unread" each get their own words.
+- **Other requests' replies don't count**: they can't hold the wait up, and
+  they can't stand in for this request's reply, even in the very same words.
+  The message's "reply on screen" is now only its own request's.
+- **The free lookup** now says what became of a job's reply. My one try to
+  start it for run 97's job was refused (403); the boxes are in the handoff.
+- **Checked** with a stand-in page that holds and settles replies the way the
+  real page does: 28 new cases, including delayed success, failure, timeout,
+  a reload, a question, the closed tab, and history arriving mid-request.
+  - On the old canary, 19 of the 28 fail; the 9 that pass are the new
+    module's own pure cases. The old canary also gives run 97's wrong
+    "composed" verdict on the delayed case.
+  - Two mutation sweeps: 28 of 32 caught, then the 4 gaps tested and 8 of 8.
+  - The full suite: 9,411 of 9,411.
+- **Unchanged, as you asked**: the page's placement of earlier requests'
+  replies stays an open product bug. Nothing was pressed, restored or
+  rebuilt; R2–R5 wait; the batch has spent 29.
+
+**Recorded in**: `docs/history/2026-10-05-canary-reply-watch.md`,
+`docs/instruments.md`, `docs/backlog.md`, the plan and the checklist.
 
 ## 2026-10-04 — The free check passed (run 96); your `rq-menu-link` press (run 97) fixed the menu but failed the reply check (4 credits)
 

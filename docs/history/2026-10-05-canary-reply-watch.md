@@ -204,4 +204,18 @@ says that it cannot tell those apart. Run 97's job ended at 23:34:21 UTC on
 
 ## 7. The press
 
-Recorded after the dispatch (below).
+**The session's one dispatch** of the lookup (00:29:58 UTC, from the branch,
+`read_job` `f666481af2ef5410b14e00b9ad0da43d`, every other box as it is)
+answered **403** *"Resource not accessible by integration"*, as a session's
+dispatch always has. Tried once, as asked, and not retried: the press is the
+owner's. Its boxes, by their descriptions:
+- "Use workflow from": `claude/help-needed-ehlwlj`, so it prints the `REPLY`
+  line;
+- "READ ONE EXISTING JOB AND STOP: a job id. Spends nothing, changes nothing,
+  and ignores every input below.": `f666481af2ef5410b14e00b9ad0da43d`;
+- every other box as it is ("Run the ONE paid edit as well (yes/no)" stays
+  `no`).
+
+**R2–R5 are still unpressed**, and the batch's spend is **29** (rq-canary 4,
+R1 21, the focused check 4). Money at 00:29 UTC: balance 91, last ledger row
+369, no job open.
