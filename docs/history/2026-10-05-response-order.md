@@ -144,7 +144,12 @@ Also changed:
   - another browser's addition, this page's own, and a build's not reaching
     the list (the build's held by the guard alone).
 - **The full suite**: `9474 / 9474 / 0 / 0` locally, from 9,469 by the 5
-  new cases. Unit CI and the site build: read after the push (below).
+  new cases. Unit CI `9474 / 9468 / 0 / 6` on `80bba1f6` (run
+  37296510487): the totals match, and CI skips its usual 4 and the 2
+  browser cases, which need a browser. The site build did not run: it runs
+  on a push that touches one of the image's inputs, and this round touched
+  none. Its last run, green on `685a922c` (run 37282482599), covers
+  `worker.js` and `builder/` as they still are.
 - **The image**: unchanged. Nothing this round touched is one of its inputs
   (`public/` and the tests are not), so it is still `589e3e4e85a20066`,
   the image the three-answer round set (from `386607152d4cb319` at

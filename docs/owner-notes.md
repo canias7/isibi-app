@@ -11,7 +11,7 @@ is in git; the dated entries further down are the full story.*
   deploy 2183 (`e84b8e7e`, image `386607152d4cb319`). Nothing spent.
 - **The branch stays unmerged**: the placement fix, the corrections you
   passed (the preview's address, late first reads, the whole table list, the
-  three answers), and this round on top (the commit on top of `260b44db`):
+  three answers), and this round on top (`80bba1f6`):
   - **the page's table list kept in order**: one clock puts every routing
     call and every addition (this page's, another browser's, a build's) in
     order;
@@ -28,8 +28,9 @@ is in git; the dated entries further down are the full story.*
   - Shown with the page's own functions, the real Worker route and supplied
     answers, reading the page's list, what it sends next and what the router
     is told; not live. No screenshots: nothing on screen changes.
-  - The suite `9474 / 9474 / 0 / 0` here; unit CI and the site build are
-    read after the push.
+  - The suite `9474 / 9474 / 0 / 0` here and `9474 / 9468 / 0 / 6` on unit
+    CI (run 37296510487). The site build didn't run, since nothing it
+    covers changed; its last run is green (37282482599, on `685a922c`).
 - **Merging now deploys the page and the Worker and builds an image**: this
   round changed only the page and tests, so the image is the one the
   three-answer round set (`386607152d4cb319` → `589e3e4e85a20066`, predicted,
@@ -151,7 +152,9 @@ since. Add new ones there.
   `sessions` alone (the model told `sessions`) and brings back
   `old_bookings`: your two results, measured. The mutation sweep caught all
   14 defects it put back (3 comment-only controls survived), and the suite
-  is `9474 / 9474 / 0 / 0` here (CI after the push).
+  is `9474 / 9474 / 0 / 0` here and `9474 / 9468 / 0 / 6` on unit CI (run
+  37296510487, the usual 4 skips and the 2 browser cases). The site build
+  didn't run (nothing it covers changed); it's still green from last round.
 - **Nothing on screen changes**, so no screenshots.
 
 **Recorded in**: `docs/history/2026-10-05-response-order.md`,
