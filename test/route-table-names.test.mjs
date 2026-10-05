@@ -196,15 +196,48 @@ test("a missing or invalid slug, or no site: no lookup at all", async () => {
   }
 });
 
-test("names the browser already sent stand, and no table name is looked up", async () => {
+// THE OWNER'S REVIEW (2026-10-05): *"stop treating an addition's table names as
+// a complete site inventory: with existing loaves and newly added bookings,
+// routeDigest currently receives only bookings and makes zero authoritative
+// table reads."* A browser's names are a hint: the site's own are read for the
+// owner on every call, and the browser's stand only when the read cannot answer.
+const LOAVES_CATALOG = [["loaves", "id", "integer"], ["loaves", "name", "text"], ["loaves", "price", "integer"], ["bookings", "id", "integer"], ["bookings", "email", "text"], ["_meta", "k", "text"]];
+const LOAVES_SPEC = { tables: [{ name: "loaves", access: "display", columns: [{ name: "name" }, { name: "price" }] }, { name: "bookings", access: "collect", columns: [{ name: "email" }] }] };
+const catalogReads = (r) => r.seen.sql.filter((q) => /information_schema\.columns/i.test(q)).length;
+
+test("an addition's names alone are not the site's: the site's own are read for the owner, and the router is told them all", async () => {
+  const r = await route({ slug: "tables-added", site: { name: "tables-added", pages: PAGES, tables: ["bookings"] }, wire: { catalog: LOAVES_CATALOG, spec: LOAVES_SPEC } });
+  assert.equal(r.status, 200);
+  assert.ok(catalogReads(r) >= 1, "the site's tables were not read: the browser's names were taken for the site's");
+  assert.deepEqual([...tablesTold(r)].sort(), ["bookings", "loaves"], "the router was told an addition's tables alone");
+  assert.deepEqual([...r.body.tablesFilled].sort(), ["bookings", "loaves"], "the route did not say what it told the router");
+  assert.ok(r.body.decision.reasons.includes("tables-filled"));
+  assertReadOnly(r, "added");
+});
+
+test("names the browser sent that the site does not have are not told: the site's own replace them", async () => {
   const r = await route({ slug: "tables-sent", site: { name: "tables-sent", pages: PAGES, tables: ["menu"] } });
-  assert.deepEqual(tablesTold(r), ["menu"], "the browser's own names were replaced");
-  assert.equal(r.body.tablesFilled, undefined);
-  // THE ONE READ LEFT IS WHO OWNS THE SITE (2026-10-03): the route reads the
-  // site's own page list for a verified owner whatever the browser sent, so it
-  // asks the owner — and nothing else, and nothing of the database.
-  assert.ok(r.seen.rest.length >= 1 && r.seen.rest.every((u) => /\/rest\/v1\/site_backends\?.*select=uid(&|$)/.test(u)), "something but the ownership read was looked up: " + JSON.stringify(r.seen.rest));
-  assertNothingRead(r, "sent");
+  assert.deepEqual(tablesTold(r), ["bookings", "lessons"], "a name the site does not have reached the router");
+  assert.deepEqual(r.body.tablesFilled, ["bookings", "lessons"]);
+  assertReadOnly(r, "sent");
+});
+
+test("when the site's own names cannot be read, the browser's stand, as before", async () => {
+  // A SLUG OF ITS OWN FOR EACH: a connection the Worker resolved for one slug
+  // is kept for it, as the failure case below does.
+  for (const [what, wire] of [
+    ["the catalog cannot be read", { catalog: LOAVES_CATALOG, spec: LOAVES_SPEC, sqlFail: /information_schema/ }],
+    ["the project row cannot be read (incomplete link)", { neonDb: "", project: "fail" }],
+    ["the stored schema cannot be read", { catalog: LOAVES_CATALOG, spec: LOAVES_SPEC, sqlFail: /_meta/ }],
+    ["another owner's slug", { owner: STRANGER }],
+  ]) {
+    const slug = "tables-fallback-" + what.length;
+    const r = await route({ slug, site: { name: slug, pages: PAGES, tables: ["bookings"] }, wire });
+    assert.equal(r.status, 200, what);
+    assert.deepEqual(tablesTold(r), ["bookings"], what + ": the browser's names did not stand");
+    assert.equal(r.body.tablesFilled, undefined, what);
+    assert.ok(!r.body.decision.reasons.includes("tables-filled"), what + ": a fill that did not happen is in the decision");
+  }
 });
 
 test("an empty database: nothing to name, and the router is told nothing", async () => {

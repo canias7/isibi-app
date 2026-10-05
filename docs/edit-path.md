@@ -102,7 +102,11 @@ answers unless a run is named.
     none. Ownership is verified first (`siteOwnerBySlug`), the lookup is
     read-only and names only, it is bounded at 3 s, and any failure routes
     blind as before. The answer carries `tablesFilled` when the route filled
-    them;
+    them. **Since 2026-10-05 (on the branch, not merged;
+    `docs/history/2026-10-05-reconcile.md`) it reads them whatever the
+    browser sent**: a browser's list can be one addition's tables alone, so
+    the site's own replace it, and the browser's stand only when the read
+    cannot answer;
   - **a failed routing call names why** (`failure`: request, config,
     provider, timeout or transport, from allow-lists only), with the same
     fallback and no charge;

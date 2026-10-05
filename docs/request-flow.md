@@ -395,19 +395,22 @@ meaning they had in the message. A routing job is shown the same.
   device, or before this browser kept its records — gets its card where it
   falls in time: under the message that started it, when that is on the
   thread; otherwise above anything sent from this page since it opened, and
-  above any request made after it. **What it applies is decided by when each
-  job finished** (`docs/history/2026-10-05-watched-refresh.md`): a job that
-  had finished before the page's first look at the request is history, only
-  said, with nothing applied again (no preview, table, undo, message box or
-  question); only its page list is read again from the server when it added
-  or took away pages, since the list a page opens with only gains pages. A
-  job that finishes while the page watches is
-  applied: by the reader, as ever, for a request this page sent; for another
-  browser's, the preview moves to what is published now, the job's tables
-  join the page's list, and the page list is read again from the server,
+  above any request made after it. **What it applies**
+  (`docs/history/2026-10-05-watched-refresh.md`, corrected in
+  `docs/history/2026-10-05-reconcile.md`): the reader — the outcome as the
+  page's own, with its undo offer, words for the message box and question —
+  runs only for a job of a request this page sent that finished after the
+  page first looked at the request. Every other finished job is said and
+  reconciled with what is published now, whenever it finished, since a first
+  read that failed or came late finds jobs done the loaded preview never saw:
+  the preview moves on (a site never moved is drawn at `?v=0`, so every move
+  changes the frame's address), the job's tables join the page's list, and
+  the page list is read again from the server when the job changed pages,
   never replayed from the job, so an older job read late cannot undo a newer
-  change. A question a request still waits on is made live by its own
-  reading, once a page.
+  change. Once a job, never again on a later poll or a reload. A question a
+  request still waits on is made live by its own reading, once a page. The
+  page's table list is a hint: the routing route reads the site's own names
+  for its owner on every call, and the page keeps what it read.
 
 ## The owner's routes
 

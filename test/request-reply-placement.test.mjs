@@ -185,9 +185,14 @@ test("PLACE 1 — another browser, and a message sent before the earlier request
     for (const t of said) assert.equal(t.length, 1);
     for (const [t] of said) assert.ok(P.factsOf(t), "a reply is not the writer's: " + t);
     assert.equal(new Set(said.map(([t]) => t)).size, 1, "the case meant to show replies alike by their words: " + JSON.stringify(said));
-    // NOTHING OF THE EARLIER REQUESTS WAS APPLIED HERE: one preview move (this
-    // message's), no question, nothing back in the box, no step posted.
-    assert.equal(b.s.previewV, 1, "an earlier request's outcome was applied again");
+    // NOTHING OF THE EARLIER REQUESTS WAS REPLAYED HERE: no question, nothing
+    // back in the box, no step posted. Each of their finished jobs moved the
+    // preview on to what is published now, once (2026-10-05, the owner's
+    // review: the page cannot tell whether its preview was loaded before or
+    // after a job published), and this message's once: three.
+    assert.equal(b.s.previewV, 3, "an earlier request's job was not reconciled once, or this message's once");
+    await looks(b);
+    assert.equal(b.s.previewV, 3, "looking again moved the preview again");
     assert.equal(b.ask(), null);
     assert.ok(!b.s.unsent || b.s.unsent.length === 0, "an earlier request put words back in the box");
     assert.deepEqual(posts(seen, /\/(edit|addon)$/), [], "the page posted a step");
@@ -308,7 +313,9 @@ test("PLACE 4 — a reply still being written: an earlier request's part reply h
     assert.deepEqual(shape(b), ["card:" + K1, "a:" + K1 + "#", "u:" + K3, "card:" + K3, "a:" + K3 + "#"]);
     assert.equal(b.s.msgs.length, n, "a message was added instead of the held one settled");
     assert.ok(P.factsOf(b.s.msgs[1].t), "the settled reply is not the writer's: " + b.s.msgs[1].t);
-    assert.equal(b.s.previewV, 1, "the earlier request's outcome was applied here");
+    // THE EARLIER REQUEST'S JOB MOVED THE PREVIEW ON ONCE (reconciled, never
+    // replayed), and settling its reply moved nothing more; this message's once.
+    assert.equal(b.s.previewV, 2, "the earlier request's job was reconciled more or less than once");
   }, () => release());
 });
 
@@ -447,8 +454,9 @@ test("PLACE 6 — questions go with their requests: an earlier question already 
     assert.equal(P.record(K2).ended, true);
     assert.deepEqual(shape(b), ["card:" + K1, "a:" + K1 + "#", "a:" + K1 + "#", "card:" + K2, "a:" + K2 + "#", "u:" + K2, "a:" + K2 + "#"]);
     assert.equal(b.ask(), null);
-    // THE OTHER DEVICE'S CHANGES WERE NOT APPLIED HERE; THE ONE ANSWERED HERE WAS, ONCE.
-    assert.equal(b.s.previewV, 1);
+    // THE OTHER DEVICE'S CHANGE WAS RECONCILED ONCE (the preview moved on, its
+    // question never made live again); THE ONE ANSWERED HERE WAS APPLIED, ONCE.
+    assert.equal(b.s.previewV, 2);
     assert.deepEqual(posts(seen, /\/(edit|addon)$/), []);
   });
 });

@@ -76,7 +76,10 @@ Reading the code turned up three related faults, fixed with it:
   preview. It is now decided by when the job finished: what had finished
   before the page's first look is history and only said (its page list
   alone read again from the server when it changed pages), and what
-  finishes while it watches is applied. A question it still waits on is made live by
+  finishes while it watches is applied. **Corrected again**
+  (`2026-10-05-reconcile.md`): every finished job the page's own reader did
+  not apply is reconciled with what is published now, whenever it finished,
+  and never replayed. A question it still waits on is made live by
   the request's own reading (`siteRequestShow`), once a page.
 - **A request's question is drawn by that request's reading only**: the
   open-time check keeps it live and follows the request, which draws it under

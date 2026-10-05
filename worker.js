@@ -6002,6 +6002,13 @@ async function ownerSiteConn(env, slug) {
  * ANY FAILURE IS NO NAMES, and the caller bounds the whole lookup in time: this
  * sits in front of the routing call, and a lookup that cannot answer must
  * leave routing exactly as it was before this existed.
+ *
+ * AND WHATEVER THE BROWSER SENT (2026-10-05, the owner's review): a browser's
+ * names are not the site's. It adds one addition's tables to the list it
+ * holds, and a browser that held none then sent only those — a site with
+ * `loaves` and a new `bookings` was routed with `bookings` alone, and nothing
+ * was read. So the route reads the site's names for its owner on every call
+ * (`routeDigest`), and the browser's stand only when this cannot answer.
  */
 const ROUTE_TABLES_MS = 3000;
 const ROUTE_TABLE_NAME = /^[a-z_][a-z0-9_]{0,62}$/i;
@@ -6020,7 +6027,8 @@ async function routeTableNames(env, uid, slug, owned = null) {
 
 /**
  * The digest the router is sent: the browser's, with the site's own table names
- * filled in when it named none — for a site the caller says exists, under a
+ * in place of the browser's whenever they can be read (2026-10-05; before,
+ * only when it named none) — for a site the caller says exists, under a
  * well-formed slug, within `ROUTE_TABLES_MS`. Otherwise exactly what arrived.
  */
 // ── A STEP'S QUESTION, KEPT BY THE ROUTE'S ONE ENDING (2026-10-02) ─────────
@@ -6804,14 +6812,16 @@ async function routeDigest(env, user, rb) {
   if (!site || rb.hasSite !== true) return { site: rb && rb.site, filled: null, pagesFilled: false, pagesComplete: false };
   const slug = typeof rb.slug === "string" ? rb.slug : "";
   if (!/^[a-z0-9][a-z0-9-]{0,80}$/.test(slug)) return { site, filled: null, pagesFilled: false, pagesComplete: false };
-  const sent = Array.isArray(site.tables) ? site.tables.filter((t) => typeof t === "string" && t.trim()) : [];
   // OWNERSHIP FIRST, ONCE, FOR BOTH READS: nothing of a site leaves for a
   // caller who does not own it.
   const uid = user && user.id;
   const owned = uid ? withinMs(siteOwnerBySlug(slug, env).then((o) => o === uid), ROUTE_PAGES_MS, "route owner:", slug) : Promise.resolve(false);
+  // THE SITE'S OWN TABLE NAMES, WHATEVER THE BROWSER SENT (2026-10-05, the
+  // owner's review): the browser's list can be one addition's tables alone,
+  // so it is never taken for the site's — read for the owner on every call,
+  // and the browser's stand only when the read cannot answer.
   const [names, routes] = await Promise.all([
-    sent.length ? Promise.resolve(null)
-      : owned.then((ok) => (ok === true ? withinMs(routeTableNames(env, uid, slug, true), ROUTE_TABLES_MS, "route tables:", slug) : null)),
+    owned.then((ok) => (ok === true ? withinMs(routeTableNames(env, uid, slug, true), ROUTE_TABLES_MS, "route tables:", slug) : null)),
     owned.then((ok) => (ok === true ? withinMs(loadSiteSource(env, slug).then(sitePageRoutes), ROUTE_PAGES_MS, "route pages:", slug) : null)),
   ]);
   let out = site;

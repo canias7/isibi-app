@@ -18,6 +18,15 @@ older job's result. Preserve the request/job-based reply placement."*
 **On the branch only**: not merged, not deployed, no image built, nothing
 pressed or spent. Shown with supplied answers; not shown live.
 
+**Corrected again after the owner's next review**
+(`2026-10-05-reconcile.md`): history is no longer only said. Every finished
+job the page's own reader did not apply is reconciled with what is published
+now, whenever it finished, because a first read that failed or came late
+finds done jobs the loaded preview never saw. A site never moved is drawn at
+`?v=0`, so every move changes the frame's address, and the route reads the
+site's table names whatever the page sent. §2's history rule below is what
+this correction replaced.
+
 ## 1. The regression
 
 The placement fix decided whether to apply a request part's outcome by who

@@ -111,6 +111,43 @@ since. Add new ones there.
 
 ---
 
+## 2026-10-05 — Your next review: the preview's address, late first reads, and the whole table list (on the branch; nothing spent, nothing deployed)
+
+- **The three gaps you found, fixed together**:
+  - **The preview's address.** A fresh browser's first refresh kept `?v=1`:
+    a site never moved was drawn at `?v=1`, and its first move made it 1.
+    A site never moved is now drawn at `?v=0`, so every move gives the frame
+    a new address: this page's own changes, another browser's, and the
+    Refresh button. Tested on the address the page's render actually gives
+    the frame, and in a real Chromium.
+  - **A late or failed first read.** The page took anything finished by its
+    first successful read of a request to be in the site it had loaded.
+    Now every finished job the page's own reader didn't apply is brought up
+    to date with what's published, whenever it finished: the preview moves
+    on, its tables are kept, and the page list is read again. Each job
+    once; no undo offers, words in the box or old questions come back.
+  - **The table list.** A page that knew only an addition's tables sent just
+    those, and the route didn't read the site. The route now reads your
+    site's tables on every routing call, whatever the page sent. The page's
+    list is used only when that read can't answer, and the page keeps what
+    the route read.
+- **One cost to know**: a page opening a site with finished requests from the
+  last day moves its preview once per job. That is one extra fetch of your
+  published page each, never a replay.
+- **The server changed too**: `worker.js` is one of the container image's
+  inputs, so merging would build a new image (IMAGE-LINE). Nothing was built.
+- **Unchanged**: each reply's place with its request, and the model's written
+  replies.
+- **Tests**: 10 combined cases, whose routing cases hand the page's own
+  request to the real Worker route; 2 real-browser cases; the address and
+  table-list cases. 16 fail on the previous commit. The mutation sweep killed
+  12 of 12. The suite: `9456 / 9456 / 0 / 0` here (unit CI below). Two
+  screenshots, before and after.
+
+**Recorded in**: `docs/history/2026-10-05-reconcile.md`, `docs/request-flow.md`,
+the backlog (the `?v=1` and partial-table items fixed on the branch), the
+checklist and `docs/edit-path.md`.
+
 ## 2026-10-05 — Your review: work finishing while a page watches now updates it; history still doesn't replay (on the branch; nothing spent, nothing deployed)
 
 - **The regression you found**: the placement fix treated every request a

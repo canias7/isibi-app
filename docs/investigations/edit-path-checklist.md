@@ -1034,6 +1034,15 @@ the owner's free press, run 51, at 22:57 UTC):
       by refreshing the preview, the tables, and the page list read again
       from the server. **Supplied answers only** (a scripted server); not
       shown live.
+    - **Corrected again after the owner's next review** (2026-10-05; on the
+      branch; `docs/history/2026-10-05-reconcile.md`): a fresh browser's first
+      preview move kept the address `?v=1`; a first read that failed or came
+      late made a finished job history; and an addition's tables alone were
+      sent as the site's, with no read. Now a site never moved is drawn at
+      `?v=0`; every finished job the page's own reader did not apply is
+      reconciled with what is published now, whenever it finished; and the
+      route reads the site's table names whatever the page sent. **Supplied
+      answers, the real Worker route and a real Chromium**; not shown live.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

@@ -35,10 +35,15 @@ here; take a closed one out of both.**
   before the page's first look is only said, never applied again (its page
   list alone read again from the server when it changed pages), while work
   finishing as the page watches is applied (another browser's: the preview,
-  its tables, and the page list read again from the server). Shown with
-  supplied answers only (14 placement cases through the real Worker, 13
-  refresh cases against a scripted server) and in screenshots; not yet
-  live. **Still open, not changed**: an ended request's
+  its tables, and the page list read again from the server). **Corrected
+  again** (`docs/history/2026-10-05-reconcile.md`): every finished job the
+  page's own reader did not apply is reconciled with what is published now,
+  whenever it finished, since a first read that failed or came late finds
+  jobs done the loaded preview never saw; never replayed (no undo offer,
+  words or question). Shown with supplied answers only (14 placement cases
+  through the real Worker, 13 refresh and 10 reconcile cases, the routing
+  ones through the real Worker), in a real Chromium (2 cases) and in
+  screenshots; not yet live. **Still open, not changed**: an ended request's
   own reply with no record is asked for whenever it is read, however old
   (R1's, about 20 hours after it ended); a job's is not, after two hours.
 - **The new page's own menu names it differently** (a remaining follow-up;
@@ -58,7 +63,9 @@ here; take a closed one out of both.**
   2026-10-05, writing the watched-refresh correction): the routing route
   fills in the site's table names only when the page sends none, and a page
   that adds one addition's tables to an empty list then sends just those.
-  There before the correction (this browser's own additions); not fixed.
+  **Fixed on the branch, on the owner's word** (2026-10-05, not merged;
+  `docs/history/2026-10-05-reconcile.md`): the route reads the site's names
+  whatever the page sent, and the page keeps them.
 - **The read-only lookup's `REPLY` line names a two-hour case for any job with
   no reply on it** (run 99, 2026-10-05): for a routing job minutes old it
   still says "either none was owed, or none was ever asked for (a job over two
@@ -69,8 +76,10 @@ here; take a closed one out of both.**
   defaults a missing `previewV` to 1 and the first bump makes it 1, so the
   frame's address does not change, and published pages are served
   `public, max-age=60`: the frame may show the cached page for up to a
-  minute after that first change. Older than the round, unchanged by it. Not
-  changed.
+  minute after that first change. Older than the round, unchanged by it.
+  **Fixed on the branch, on the owner's word** (2026-10-05, not merged;
+  `docs/history/2026-10-05-reconcile.md`): a site never moved is drawn at
+  `?v=0`, so every move changes the address.
 - A half of a message the router puts off (`alsoAsked`) is still attempted,
   on the home page, and the reply contradicts itself (run 52). **Fixed and
   deployed 2026-09-29 (deploy 2166); run 57 made both changes live, with
@@ -495,9 +504,12 @@ here; take a closed one out of both.**
   applies one addition's `tables` (`applyAddonResult` for this browser's own,
   and now `siteReqRefresh` for another browser's watched one) then sends only
   those, so a later routing call is no longer told the site's older tables.
-  There before the correction for this browser's own additions. Open: fill
-  from the server whenever it can be read, or keep the page's list whole.
-  Not changed.
+  There before the correction for this browser's own additions. **Fixed on
+  the branch, on the owner's word** (2026-10-05, not merged;
+  `docs/history/2026-10-05-reconcile.md`): `routeDigest` reads the site's
+  names for its owner on every call and they replace the page's, which stand
+  only when the read cannot answer; the page keeps the names the route read
+  (`tablesFilled`), so its fallback is the whole list once it has kept a read.
 - **THE READ-ONLY LOOKUP'S `REPLY` LINE NAMES A TWO-HOUR CASE FOR ANY JOB WITH
   NO REPLY** (found in run 99, 2026-10-05). The account prints, for every job
   whose answer carries no reply and no state — a routing job among them —
@@ -549,7 +561,11 @@ here; take a closed one out of both.**
     opens with only gains pages); work finishing while the page watches is
     applied (another browser's: the preview moves, its tables join the list,
     and the page list is read again from the server, never replayed from the
-    job). Supplied answers only; not yet live. **The
+    job). **Corrected again** (`docs/history/2026-10-05-reconcile.md`): every
+    finished job the page's own reader did not apply is reconciled with what
+    is published now, whenever it finished — a first read that failed or came
+    late no longer makes a job history — and never replayed. Supplied answers
+    only; not yet live. **The
     old-request half stays open**: a request's own reply with no record is
     still asked for whenever read.
 - **THE PREVIEW'S FIRST REFRESH ON A SITE WITH NO STORED VERSION KEEPS
@@ -561,10 +577,14 @@ here; take a closed one out of both.**
   `public, max-age=60` (`worker.js`), so it may show the cached page for up
   to a minute after the first change on such a site. Every later change moves
   the address. Older than the round and the same before and after it; seen in
-  the source, not measured in a browser. Not changed. **The watched refresh
+  the source, not measured in a browser. **The watched refresh
   (2026-10-05) moves it the same way**, and a site another browser adopted
   from the list is such a site (`docs/history/2026-10-05-watched-refresh.md`
-  §5).
+  §5). **Fixed on the branch, on the owner's word** (2026-10-05, not merged;
+  `docs/history/2026-10-05-reconcile.md`): `sitePreviewSrc` draws a site
+  never moved at `?v=0`, so every move changes the address the frame is
+  given; read off a real Chromium's frame, and every move in `chat.js` held
+  to it.
 - **The combined request flow** (2026-10-03, `docs/request-flow.md`; merged and
   deployed in deploy 2181 (2026-10-04); `REQUEST_FLOW` set by the owner in
   deploy 2182;

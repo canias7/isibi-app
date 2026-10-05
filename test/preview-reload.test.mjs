@@ -58,9 +58,11 @@ function handlerSource() {
  * Returns what it DID: which loader was called, with what, and whether the
  * collected errors were cleared and the badge repainted.
  */
-function press({ isReact, curHtml, previewV = 1, path = "/", presses = 1 }) {
+function press({ isReact, curHtml, previewV = 1, path = "/", presses = 1, fresh = false }) {
   const calls = [];
-  const site = { id: "s1", slug: "hey", url: "https://hey.gofarther.app/", active: path, previewV };
+  // `fresh`: a site never moved — no `previewV` at all, as a fresh browser or a
+  // site adopted from the list holds it.
+  const site = { id: "s1", slug: "hey", url: "https://hey.gofarther.app/", active: path, ...(fresh ? {} : { previewV }) };
   const active = { path };
   const sitePreviewErrs = { ["s1|" + path]: [{ msg: "a stale error from the page that was on screen" }] };
   const scope = {
@@ -106,6 +108,38 @@ test("...and the cache-buster MOVES, or the iframe keeps the page it has", () =>
   assert.equal(urls.length, 2, "two presses did not produce two loads");
   assert.notEqual(urls[0], urls[1], "both presses asked for the SAME url — the second reloads nothing");
   assert.equal(site.previewV, 6, "previewV did not advance once per press");
+});
+
+test("A SITE NEVER MOVED: the first press asks for an address the frame has not had (2026-10-05, the owner's review)", () => {
+  // THE DEFECT: the address carried `previewV || 1` and every move is
+  // `(previewV || 0) + 1`, so the first press on a site with no `previewV`
+  // pointed the frame at `?v=1` — the address it already had — and a cache
+  // could answer it with the page as it was.
+  const before = new Function(fn("function sitePreviewSrc(site, path)") + "; return sitePreviewSrc;")()({ url: "https://hey.gofarther.app/" }, "/");
+  const { calls, site } = press({ isReact: true, curHtml: "", fresh: true, presses: 2 });
+  const urls = calls.filter((c) => c.via === "loadSiteFrame").map((c) => c.url);
+  assert.equal(urls.length, 2);
+  assert.notEqual(urls[0], before, "the first press asked for the address the frame already had");
+  assert.notEqual(urls[1], urls[0], "the second press asked for the first one's address");
+  assert.equal(site.previewV, 2);
+});
+
+test("EVERY MOVE IN chat.js changes the frame's address, from any version, a site never moved included", () => {
+  // Read off the file, so a move written another way tomorrow is held to this.
+  const moves = CHAT.split("\n").filter((l) => /\bpreviewV = /.test(l) && !/^\s*\/\//.test(l));
+  assert.ok(moves.length >= 5, "the moves are not where this reads them: " + moves.length);
+  const src = new Function(fn("function sitePreviewSrc(site, path)") + "; return sitePreviewSrc;")();
+  for (const line of moves) {
+    const m = /(\w+)\.previewV = (.+?);/.exec(line);
+    assert.ok(m, "a move this cannot read: " + line.trim());
+    const move = new Function(m[1], m[0]);
+    for (const v of [undefined, 1, 4]) {
+      const site = { url: "https://hey.gofarther.app/", ...(v === undefined ? {} : { previewV: v }) };
+      const was = src(site, "/press");
+      move(site);
+      assert.notEqual(src(site, "/press"), was, "`" + m[0] + "` left the address where it was, from " + v);
+    }
+  }
 });
 
 test("it reloads the PICKED page, not the home page", () => {
@@ -163,7 +197,7 @@ test("every caller asks sitePreviewSrc — there are no copies of the arithmetic
   // The old inline spelling is gone from every call site — asserted over the
   // whole file, so a fourth copy pasted in tomorrow fails by existing. The one
   // survivor is the helper's own body.
-  const inline = (CHAT.match(/previewV \|\| 1/g) || []).length;
+  const inline = (CHAT.match(/'\?v=' \+/g) || []).length;
   assert.equal(inline, 1, "the URL arithmetic is written out at a call site again");
 });
 
@@ -176,7 +210,7 @@ test("the builder addresses a real path, never a fragment", () => {
   assert.equal(build(site, "/press"), "https://hey.gofarther.app/press?v=2");
   assert.equal(build(site, "/"), "https://hey.gofarther.app/?v=2", "the home page grew a segment");
   assert.equal(build(site, undefined), "https://hey.gofarther.app/?v=2", "no page must read as the home page");
-  assert.equal(build({ url: "https://hey.gofarther.app/" }, "/"), "https://hey.gofarther.app/?v=1",
-    "a site that has never been revised must still get a cache-buster");
+  assert.equal(build({ url: "https://hey.gofarther.app/" }, "/"), "https://hey.gofarther.app/?v=0",
+    "a site that has never been revised must still get a cache-buster, one its first move changes");
   for (const p of ["/press", "/", null]) assert.ok(!build(site, p).includes("#"), "a fragment is back in the preview URL");
 });

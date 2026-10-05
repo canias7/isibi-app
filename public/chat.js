@@ -5047,6 +5047,11 @@ function frameSandbox(url) {
 // already has does not reload an iframe, so the cache-buster is the only thing
 // that makes a re-point actually re-fetch. It is bumped on every revise
 // (`previewV`), and the Refresh button bumps it for the same reason.
+// A SITE NEVER MOVED IS AT 0 (2026-10-05, the owner's review): every move is
+// `(previewV || 0) + 1`, and with a default of 1 here the first move of a site
+// with no `previewV` — a fresh browser's, a site adopted from the list — left
+// the address at `?v=1`, so the frame asked for the address it already had and
+// a cache could answer it with the page as it was. Every move now changes it.
 // THE DEFAULT GUARDS `String(null)`, NOT THE EMPTY STRING — measured, because
 // it reads like tidiness and is not. `'' ` and `'/'` produce the same answer
 // (the test below is `!== '/'`, and `''.replace(/^\//, '')` is `''`), so
@@ -5056,7 +5061,7 @@ function frameSandbox(url) {
 // no site has. Do not "simplify" this away.
 function sitePreviewSrc(site, path) {
   const at = path || '/';
-  return site.url + (at !== '/' ? String(at).replace(/^\//, '') : '') + '?v=' + (site.previewV || 1);
+  return site.url + (at !== '/' ? String(at).replace(/^\//, '') : '') + '?v=' + (site.previewV || 0);
 }
 function loadSiteFrame(fr, url) {
   if (!fr || typeof url !== 'string' || !url) return;
@@ -9346,6 +9351,19 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // decision every branch below can act on as it stands.
     if (!isBuild && !(r.ok && routeActionable(d, site))) return lost(r);
     if (!r.ok || !d) return go();
+    // THE SITE'S OWN TABLE NAMES, AS THE ROUTE READ THEM (2026-10-05, the
+    // owner's review): kept with this page's, so a later routing call whose
+    // own read cannot answer still sends them. The route reads the site's
+    // names itself whenever it can (`routeDigest`): this page's list is a hint
+    // and a fallback, never the inventory — an addition's names alone are not
+    // the site's.
+    const readNames = !isBuild && Array.isArray(d.tablesFilled) ? d.tablesFilled.filter((x) => typeof x === 'string' && x) : [];
+    const keepIn = readNames.length ? siteById(origin) : null;
+    if (keepIn) {
+      const had = Array.isArray(keepIn.tables) ? keepIn.tables : [];
+      const next = [...new Set([...had, ...readNames])].slice(0, 48);
+      if (next.length !== had.length) { keepIn.tables = next; sitesSave(); }
+    }
     // ── THE WAITING QUESTION IS SETTLED (2026-10-02) ───────────────────────
     // Answered, or replaced by a message that asked for something else: the
     // route has closed it either way, so its card comes off. An answer runs the
@@ -9471,9 +9489,14 @@ const siteReqFollowing = new Set();
 // made live again by a later reading (`siteRequestShow`).
 const siteReqAsked = new Set();
 // WHAT EACH REQUEST HAD FINISHED WHEN THIS PAGE FIRST LOOKED AT IT (2026-10-05),
-// by job: that much is history, already in the site this page loaded; what
-// finishes after it, this page watched (`siteRequestJobReply`). Empty for a
-// request this page sends. In memory only: a reload looks afresh.
+// by job. It decides one thing: whether this page's own reader may apply a job
+// of a request this page sent — its undo offer, words for the box and question
+// — which only a job finished after that first look may (`siteRequestJobReply`).
+// It is NOT taken to say what the site this page loaded already shows: a first
+// look that failed or came late finds jobs done that the loaded preview never
+// saw, so every job the reader does not apply is reconciled with what is
+// published now (`siteReqRefresh`). Empty for a request this page sends. In
+// memory only: a reload looks afresh.
 const siteReqSeen = new Map();
 /** The request the routing reply says the server took on, or null. */
 function siteRequestOf(d) {
@@ -9749,51 +9772,49 @@ async function siteRequestJobReply(origin, key, part, job) {
   // messages, never at the bottom of the thread.
   const say = (t) => siteReqSay(origin, t, { key, job });
   const finish = held && replyTellsEnding(!!r.ok, body, addon) ? editReplyHold(origin, job, e, say) : say;
-  // WHAT THE READER MAY APPLY (2026-10-05). A job that had finished when this
-  // page first looked at its request is HISTORY: the preview this page loaded
-  // already shows it, so it is only said — no preview, table, undo, message
-  // box, block or question of this page's is touched by it, and the reader is
-  // handed no site, address or page; only the page list is read again from
-  // the server when the job added or took away pages (`siteReqRefresh`). A
-  // job that finished while this page watched is applied: by the reader, as
-  // ever, when this page sent the request; otherwise it is said, and the
-  // site's current state is brought up to date — never another browser's
-  // undo offer, words or question. What is said is the same either way: the
-  // model's reply, or the reader's own sentence. A question still waiting is
-  // made live by the request's own reading (`siteRequestShow`).
+  // WHAT THE READER MAY APPLY (2026-10-05, corrected the same day after the
+  // owner's review). The reader — the outcome as this page's own, with its
+  // undo offer, words for the message box, block and question — runs only for
+  // a job of a request this page sent that finished after this page first
+  // looked at it. Every other finished job is said, the reader handed no
+  // site, address or page, and the site's current state is brought up to date
+  // (`siteReqRefresh`): the preview moved on to what is published now, the
+  // job's tables kept, the page list read again from the server. WHENEVER IT
+  // FINISHED: this page cannot tell whether its preview was loaded before or
+  // after the job published — a first reading of the request that failed or
+  // came late finds the job done all the same — so no job is taken to be in
+  // the site this page loaded. Once a job: `st.shown` above, and its reply's
+  // mark on the thread. What is said is the same either way: the model's
+  // reply, or the reader's own sentence. A question still waiting is made
+  // live by the request's own reading (`siteRequestShow`).
   const seen = siteReqSeen.get(origin + '|' + key);
-  const live = !!seen && !seen.has(job);
-  const mine = live && st.own !== false;
+  const mine = !!seen && !seen.has(job) && st.own !== false;
   const o = { site: mine ? s : null, d, instruction: part.words, origin: mine ? origin : '', finish, fallback: null, imgs: [], handedOff: false, slug: mine ? s.slug : '' };
   try { (d.intent === 'addon' ? addonAnswer : editAnswer)(!!r.ok, body, o); } catch (err) { /* what was said stands */ }
-  if (!mine) siteReqRefresh(origin, !!r.ok, body, addon, !live);
+  if (!mine) siteReqRefresh(origin, !!r.ok, body, addon);
   return true;
 }
 /**
- * A JOB THIS PAGE DID NOT APPLY ITSELF (2026-10-05): the site's current state
- * brought up to date here, never the job's own result replayed.
- * - ANOTHER BROWSER'S, FINISHED WHILE THIS PAGE WATCHED IT: as this page's own
- *   would be — the preview moved on to what is published now (the request's
- *   reading draws the workspace when it ends), the tables the job made added
- *   to the ones this page tells the router, and the page list read again from
- *   the server when the job added or took away pages.
- * - HISTORY (`history`), finished before this page first looked, whoever sent
- *   it: the page list alone, read again when the job added or took away
- *   pages. The preview this page loaded is already what is published, but the
- *   list it opened with only gains pages (`siteRoutesApply`), so a page taken
- *   away while this browser was closed would stay in its picker.
- * Read again, never replayed from the job, so an older job read late cannot
- * undo a newer change (`siteRoutesSync`). Only a job that went through; and
- * nothing else of the reader's: no undo offer, no words for the message box,
- * no question, no block — those belong to the browser that sent it.
+ * A FINISHED JOB THIS PAGE'S READER DID NOT APPLY (2026-10-05): another
+ * browser's, or one of this page's own requests that finished before this
+ * page first looked at it — whenever it finished (`siteRequestJobReply`). The
+ * site's current state is brought up to date here, never the job's own result
+ * replayed: the preview moved on to what is published now (the request's
+ * reading draws the workspace when it ends), the tables the job made kept with
+ * the ones this page tells the router (a hint: the route reads the site's own,
+ * `routeDigest`), and the page list read again from the server when the job
+ * added or took away pages — the list a page opens with only gains pages
+ * (`siteRoutesApply`). Read again, never replayed from the job, so an older job
+ * read late cannot undo a newer change (`siteRoutesSync`). Only a job that went
+ * through, once (the caller's latches); and nothing else of the reader's: no
+ * undo offer, no words for the message box, no question, no block.
  */
-function siteReqRefresh(origin, httpOk, body, addon, history) {
+function siteReqRefresh(origin, httpOk, body, addon) {
   const s = siteById(origin);
   if (!s || !body || typeof body !== 'object') return;
   if ((addon ? readAddonReply(httpOk, body) : readEditReply(httpOk, body)).act !== 'success') return;
   const named = (k) => Array.isArray(body[k]) && body[k].length > 0;
   const pages = named('added') || named('removed');
-  if (history === true) { if (pages) siteRoutesSync(origin); return; }
   s.previewV = (s.previewV || 0) + 1;
   const names = (Array.isArray(body.tables) ? body.tables : []).filter((x) => typeof x === 'string' && x);
   if (names.length) s.tables = [...new Set([...(Array.isArray(s.tables) ? s.tables : []), ...names])].slice(0, 48);

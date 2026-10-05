@@ -165,7 +165,7 @@ test("LIVE 2 — a page taken away while this page watches another browser's req
   assert.deepEqual(said(b, KEY(3)), [JOB(1)]);
 });
 
-test("LIVE 3 — history: a request that had finished before this page first looked is only said; its preview, table and undo are not applied again, and its page changes are read again from the server, never replayed — once", async () => {
+test("LIVE 3 — history (finished before this page first looked): shown once and reconciled with what is published now — the preview moved on, its tables kept, its page changes read again from the server — and never replayed: no undo offer, question or words in the box; once", async () => {
   const S = server();
   S.views.set(KEY(4), view(KEY(4), T0, [part(0, "Add a gallery page with bookings", "done", [JOB(1)])], true));
   S.answers.set(JOB(1), ADDED);
@@ -181,7 +181,10 @@ test("LIVE 3 — history: a request that had finished before this page first loo
   await looks(b);
   assert.deepEqual(said(b, KEY(4)), [JOB(1)]);
   assert.deepEqual(said(b, KEY(5)), [JOB(2)]);
-  assert.deepEqual(kept(b), { previewV: undefined, pages: ["/", "/gallery", "/contact"], tables: [], undo: null, ask: null, unsent: 0 });
+  // RECONCILED, NOT REPLAYED (2026-10-05, the owner's review): the page cannot
+  // tell whether its preview was loaded before or after these jobs published,
+  // so each moved it on, once; their tables are kept; no undo for the row.
+  assert.deepEqual(kept(b), { previewV: 2, pages: ["/", "/gallery", "/contact"], tables: ["bookings"], undo: null, ask: null, unsent: 0 });
   assert.equal(b.s.pages[1].name, "Our Gallery", "a page kept lost its own name");
   // AND ONCE: looking again reads nothing more and changes nothing.
   const reads = routesReads(S);
@@ -190,7 +193,7 @@ test("LIVE 3 — history: a request that had finished before this page first loo
   b.ctx.siteHeldRepliesCheck(b.s);
   await looks(b);
   assert.equal(routesReads(S), reads, "a second look read the pages again");
-  assert.deepEqual(kept(b), { previewV: undefined, pages: ["/", "/gallery", "/contact"], tables: [], undo: null, ask: null, unsent: 0 });
+  assert.deepEqual(kept(b), { previewV: 2, pages: ["/", "/gallery", "/contact"], tables: ["bookings"], undo: null, ask: null, unsent: 0 }, "a second look reconciled again");
   // THE SAME FOR THIS BROWSER'S OWN REQUEST, FINISHED WHILE IT WAS CLOSED: shown, not replayed.
   const own = siteFor(["/", "/gallery", "/visit"]);
   own.msgs = [{ r: "u", t: "Take the Visit page down and the Rye loaf off", req: KEY(5) }, { r: "a", t: "", request: KEY(5) }];
@@ -199,8 +202,8 @@ test("LIVE 3 — history: a request that had finished before this page first loo
   await idle();
   await looks(c);
   assert.deepEqual(said(c, KEY(5)), [JOB(2)]);
-  assert.deepEqual(kept(c), { previewV: undefined, pages: ["/", "/gallery", "/contact"], tables: [], undo: null, ask: null, unsent: 0 });
-  // AND A HISTORY JOB THAT CHANGED NO PAGE reads nothing.
+  assert.deepEqual(kept(c), { previewV: 2, pages: ["/", "/gallery", "/contact"], tables: ["bookings"], undo: null, ask: null, unsent: 0 }, "this browser's own history was replayed, or not reconciled");
+  // AND A HISTORY JOB THAT CHANGED NO PAGE reads no page list; it moves the preview on, once.
   const S2 = server();
   S2.views.set(KEY(21), view(KEY(21), T0, [part(0, "Change the home page heading", "done", [JOB(1)], "text")], true));
   S2.answers.set(JOB(1), { ok: true, layer: "text", changed: ["src/routes/index.tsx"], files: 1, cost: 1, reply: "✅ The heading now reads “Fed every morning”.", replySource: "model" });
@@ -208,7 +211,7 @@ test("LIVE 3 — history: a request that had finished before this page first loo
   await idle();
   await looks(d);
   assert.deepEqual(said(d, KEY(21)), [JOB(1)]);
-  assert.deepEqual([routesReads(S2), d.s.previewV, paths(d)], [0, undefined, ["/", "/visit"]]);
+  assert.deepEqual([routesReads(S2), d.s.previewV, paths(d)], [0, 1, ["/", "/visit"]]);
 });
 
 test("LIVE 4 — a routing answer lost on the way back, though the server took the message; the page reloaded: the request is picked up, and its addition finishing afterwards updates the preview, pages and tables, its reply with its card", async () => {

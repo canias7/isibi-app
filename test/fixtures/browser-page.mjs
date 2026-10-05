@@ -77,6 +77,9 @@ const FNS = [...new Set([
   // A REPLY STILL BEING WRITTEN (2026-10-04): the outcome applied at once, the
   // reply's place held on the thread and followed on its own.
   "replyTellsEnding", "editReplyHold", "editReplyFollow", "siteHeldRepliesCheck",
+  // WHERE THE PREVIEW FRAME POINTS (2026-10-05): its address, its loader and its
+  // sandbox, for the render's own frame step below.
+  "sitePreviewSrc", "loadSiteFrame", "frameSandbox",
 ])];
 // AND THE TWO OF THEM THAT ARE `async function`s.
 const ASYNC_FNS = ["siteRequestShow", "siteRequestJobReply"];
@@ -86,8 +89,23 @@ const LINES = [...new Set([
   "const ST_PHASE_ORDER =",
   "const SITE_REQ_KEEP_MS =", "const SITE_REQ_MISSES =", "const siteReqFollowing =", "const siteReqChecked =",
   "const siteReqAsked =", "const siteReqSeen =", "const siteRoutesSyncs =",
-  "const editReplyFollowing =",
+  "const editReplyFollowing =", "const FRAME_SANDBOX =",
 ])];
+// THE RENDER'S OWN FRAME STEP (2026-10-05, the owner's review: *"test the
+// rendered iframe URL, not merely previewV increasing"*): where `renderSites`
+// points the preview frame of a React site, carried out of chat.js landmark to
+// landmark — the real lines, run against a stand-in element by a page opened
+// with `frame: true`, which records the address each drawing gives it.
+const FRAME_HEAD = "\n  const fr = document.getElementById('stFrame');\n  if (fr && isReact) {";
+const FRAME_TAIL = "\n    loadSiteFrame(fr, sitePreviewSrc(site, active && active.path));\n  }";
+const FRAME_STEP = (() => {
+  const at = CHAT.indexOf(FRAME_HEAD);
+  assert.ok(at > 0 && CHAT.indexOf(FRAME_HEAD, at + 1) < 0, "the render's frame step is gone from chat.js, or is not one");
+  const end = CHAT.indexOf(FRAME_TAIL, at);
+  assert.ok(end > at, "the render's frame step has no end in chat.js");
+  return CHAT.slice(at, end + FRAME_TAIL.length);
+})();
+
 const SRC = [
   cut("async function apiFetch("),
   ...FNS.map((n) => cut("function " + n + "(")),
@@ -96,6 +114,7 @@ const SRC = [
   KEYS,
   REQ_STATUS,
   "function wireThread(thread, site) {" + CLICKS + "}",
+  "function siteDrawFrame(site, active, isReact) {" + FRAME_STEP + "\n}",
 ].join("\n");
 
 export const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -159,9 +178,13 @@ export function fakeIndexedDB() {
  * `{ reject }`, or nothing for a request that never answers. `site` is the
  * record as `sitesSave` would have kept it. Returns the page's handles.
  */
-export function page({ site, answer = () => null, idb, timers = false } = {}) {
+export function page({ site, answer = () => null, idb, timers = false, frame = false } = {}) {
   const calls = [];
   const keys = [];
+  // WITH `frame`: each drawing runs the render's frame step on a fresh element,
+  // as the render's own markup makes one, and keeps the address it was given.
+  const frames = [];
+  let drawn = null;
   // THE PAGE'S OWN TIMERS, WHEN A CASE DRIVES THEM (2026-10-03): a request's
   // poll waits on `setTimeout`; with `timers`, each wait is held until the case
   // runs it (`flush`), so a poll happens exactly when the case says.
@@ -171,7 +194,11 @@ export function page({ site, answer = () => null, idb, timers = false } = {}) {
   const ctx = vm.createContext({
     window: {}, Auth: { accessToken: async () => "token" },
     AbortController, encodeURIComponent,
-    document: { addEventListener: (type, fn) => { if (type === "keydown") keys.push(fn); } },
+    document: {
+      addEventListener: (type, fn) => { if (type === "keydown") keys.push(fn); },
+      ...(frame ? { getElementById: (id) => (id === "stFrame" ? drawn : null) } : {}),
+    },
+    ...(frame ? { location: { origin: "https://gofarther.dev", href: "https://gofarther.dev/" } } : {}),
     indexedDB: idb,
     fetch: (url, init) => {
       const method = (init && init.method) || "GET";
@@ -199,7 +226,12 @@ export function page({ site, answer = () => null, idb, timers = false } = {}) {
     buildPicker: "grok",
     siteBusy: false, siteBuild: null, siteTicker: null,
     siteOpenId: s.id,
-    renderSites: () => {},
+    renderSites: () => {
+      if (!frame) return;
+      drawn = { src: "", attrs: {}, setAttribute(k, v) { this.attrs[k] = String(v); } };
+      ctx.siteDrawFrame(s, ctx.siteActivePage(s), !!(s.react && s.url));
+      frames.push(drawn.src);
+    },
     editBlocked: new Set(), editInFlight: new Map(), editIdem: new Map(),
     EditPoll: { ...realEditPoll, newIdemKey: () => "idem-1", outcomeMessage: (k) => "outcome:" + k, rememberJob: () => {}, forgetJob: () => {} },
     browserTimeZone: () => "Europe/London",
@@ -211,6 +243,8 @@ export function page({ site, answer = () => null, idb, timers = false } = {}) {
   ctx.wireThread(thread, s);
   return {
     s, ctx, calls, thread,
+    /** Each drawing's frame address, in order (a page opened with `frame`). */
+    frames: () => frames.slice(),
     /** Run every wait the page is holding (its polls), once. */
     flush: () => { const now = held.splice(0); now.forEach((fn) => fn()); return now.length; },
     said: () => copy(s.msgs),
