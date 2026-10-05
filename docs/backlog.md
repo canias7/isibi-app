@@ -20,23 +20,6 @@
 The open items in full are `docs/backlog.md`. **Add a new one there and a line
 here; take a closed one out of both.**
 
-- **The UI canary judges a request part's reply before it is written** (run
-  97, 2026-10-04): in request mode a message ends when the page closes the
-  request, and since the review round a part's reply still being written no
-  longer keeps it open. Run 97 judged its part's reply 8 s after the job
-  ended, while it was `pending`, and failed it as composed. A gap in the
-  instrument, not a reading of the writer: **run 98 (the free read-one-job
-  press, 2026-10-05) found that reply written by the model**. **Fixed on the
-  branch on the owner's word (2026-10-05; scripts and tests only, no deploy;
-  `docs/history/2026-10-05-canary-reply-watch.md`)**: after a request ends,
-  the canary waits on its own jobs until each reply is written or has failed
-  and is on screen, within the message's bound (never less than 60 s after the
-  end), telling model, failed, timed out, composed and unread apart, and
-  counting no other request's reply. **Run live as run 99** (R2–R5,
-  2026-10-05; `docs/history/2026-10-05-batch-r2.md` §3): it waited for three
-  replies still being written when their requests ended (5–31 s), and all
-  eight replies were the model's own and on screen. Merging it (scripts only,
-  no deploy) is the owner's call.
 - **Earlier requests' replies land under a message sent before the page's
   check of them** (run 97): a browser that has not seen a site's recent
   requests appends their replies at the end of the thread when it opens the
@@ -49,68 +32,24 @@ here; take a closed one out of both.**
   not wait for them before sending either, which would only hide the bug in
   its own runs. **Live in three presses of run 99**: 7, 10 and 12 other
   requests' replies drawn after the new message, none counted.
-- **The new page's own menu names it differently** (run 99's R2, 2026-10-05):
+- **The new page's own menu names it differently** (a remaining follow-up;
+  run 99's R2, 2026-10-05):
   `/wholesale`'s menu says "Wholesale", placed before Order, while every other
   page's menu says "Wholesale Orders", after Order. The canary's menu check
   passed (each label carries "Wholesale"). Seen in the served pages; not
+  changed.
+- **A data edit's reply cannot name the change** (a remaining follow-up,
+  recorded on the owner's word, 2026-10-05; seen again in run 99's R2): the
+  Walnut Levain's price went to £6.20, and the model's reply said *"I've
+  updated one of the loaves"*. The data step reports only the table, the row
+  and the column (`applied`), so the reply writer has no value to state. The
+  limit the owner kept for the reply work when closing D1 (2026-09-27). Not
   changed.
 - **The read-only lookup's `REPLY` line names a two-hour case for any job with
   no reply on it** (run 99, 2026-10-05): for a routing job minutes old it
   still says "either none was owed, or none was ever asked for (a job over two
   hours old …)", though only the first can apply. The instrument's wording
   (`replyReading`); not changed.
-- **A menu link handed from the add-on step to the menu step failed with
-  `no-menu`** (R1, run 95, 2026-10-04): the add-on had already put the link on
-  the home page and the new page, and the other three pages got none. **Cause
-  found and reproduced** (`docs/investigations/request-batch-findings.md`):
-  the add-on links a new page from one page's menu, and the menu step counts a
-  link any page has as there on every page. **Fixed on the branch, on the
-  owner's word (2026-10-04; not merged or deployed;
-  `docs/history/2026-10-04-findings-fixes.md`)**: an addition names its items
-  and code puts each into every list in its scope that lacks it; the add-on
-  carries its page's placement; an addition already true is done. **Merged
-  and deployed in deploy 2183, and shown live by run 97** (`rq-menu-link`,
-  2026-10-04): the add-on handed the link to the menu step, which put it into
-  the three menus that lacked it and left the two that had it and the
-  starter page (no menu) as they were. **And R2's own menu link, by run 99**:
-  the add-on put the Wholesale page's link into every menu by code. Closing it
-  is the owner's.
-- **A multi-part request's parts got no model-written reply** (R1, run 95):
-  their job results carried no `reply`, so the page showed the old fixed
-  sentences; a single part had one (run 94). **Cause found from the run's
-  timings** (the same file): all six reply attempts ran into the reply call's
-  12 s ceiling (strongly inferred; the log line was not read). **Fixed on the
-  branch, on the owner's word (the same day and file)**: the reply is written
-  on the queue once the job's outcome and money are final, never by a read.
-  Shown with supplied answers. **Merged and deployed in deploy 2183, and shown
-  live for a part by run 98** (2026-10-05): run 97's part reply was written by
-  the model in the background (*"✅ Classes is now in the menu on 3 of your
-  pages; the other 2 already had it, next to the items that were already
-  there."*), read afterwards by the free lookup; run 97's canary had judged it
-  too early (the item above). Also live: a request's own reply written in the
-  background and served (R1's, during run 97, about 35 s). **And across R2–R5
-  by run 99**: every part's reply the model's own and on screen, three of
-  them settled in place on the page after their requests ended. Closing it is
-  the owner's.
-- **The page applies a part's result only when its reply is shown**
-  (found 2026-10-04, with the background replies): while a reply is retried,
-  the site's preview and the part's message wait together, at worst about ten
-  minutes (three tries), within the reply's 15-minute horizon. It predates
-  the fix (the poll-time reply held them together for up to 20 s). **Fixed on
-  the branch in the owner's review round** (2026-10-04, not merged or
-  deployed; `docs/history/2026-10-04-review-round.md` §3): the outcome is
-  applied at once, the reply's place held by a line that says what the job
-  did (never "Done" over a refusal), and the reply followed on its own and
-  settled in place once. **Merged and deployed in deploy 2183**; live in run
-  97 as far as the held line (*"Done — writing up what changed…"*, the
-  server's `replyOutcome` `done`); its settling in place is not seen live
-  (the canary closed the page first).
-- **The Stop control still shows while a finished job's reply is written**
-  (found 2026-10-04): pressing it undoes nothing (a published job is refused
-  as too late, an unpublished one has already ended) and the page goes back to
-  waiting; the control is merely there. **Gone with the fix above** (the same
-  round): the watch ends when the outcome arrives, so the live steps and their
-  control stop there.
 - **The preview's first refresh on a site with no stored version keeps
   `?v=1`** (found 2026-10-04, the owner's review round): `sitePreviewSrc`
   defaults a missing `previewV` to 1 and the first bump makes it 1, so the
@@ -472,14 +411,16 @@ here; take a closed one out of both.**
   a long history makes every call shown it longer, about 47,000 characters
   at its longest (N60).
 - **What the model-written replies leave** (2026-10-03, MR1–MR8 in
-  `docs/history/2026-10-03-model-replies.md` §8): no real model has written
-  a reply (MR1); the reply calls are absorbed, not charged, your decision
-  (MR2); one quick call more per ending, unmeasured (MR3); the revise and
-  the first build keep their composed sentences (MR4); a job that ends with
-  no stored answer keeps its fixed sentence, and a Stop before the job is
-  claimed is not traced (MR5); one reply per job relies on R2's wildcard
-  condition (MR6); the reply's rules are sent uncached (MR7); a fact carries
-  only what the route's answer does (MR8). **After the owner's review
+  `docs/history/2026-10-03-model-replies.md` §8): real models have written
+  replies live since run 94, all eight of R2–R5's in run 99, but how
+  faithful, how long and how costly they are is read only case by case
+  (MR1, corrected 2026-10-05); the reply calls are absorbed, not charged,
+  your decision (MR2); one call more per ending, its own time unmeasured
+  (MR3); the revise and the first build keep their composed sentences (MR4);
+  a job that ends with no stored answer keeps its fixed sentence, and a Stop
+  before the job is claimed is not traced (MR5); one reply per job relies on
+  R2's wildcard condition (MR6); the reply's rules are sent uncached (MR7); a
+  fact carries only what the route's answer does (MR8). **After the owner's review
   (nothing cut)**: every fact now reaches the model whole; the routes' own
   answers still cap several lists before any reply sees them (MR9, found).
 - **Information limits on Edit and Add-on** (2026-10-03, the limits audit,
@@ -516,193 +457,18 @@ here; take a closed one out of both.**
   server** (`handOff`,
   `docs/request-flow.md`). The page still makes them with the switch off, or
   where edits are not queued for an owner and site.
-- **A MENU LINK HANDED FROM THE ADD-ON STEP TO THE MENU STEP FAILED WITH
-  `no-menu`** (found live in R1, run 95, 2026-10-04;
-  `docs/history/2026-10-04-request-batch.md` §3). The message: *"Change the
-  site description to say we now run Saturday bread-making classes, put a
-  link to the new Classes page in the menu, and add a Classes page that
-  explains the classes."* The router held the link back and ordered it after
-  the page, and the request kept that order.
-  - The add-on made the page (job `073e0a57…`) and itself put *Classes* in
-    the menu of the home page and of the new page.
-  - The link's own part was then routed to the add-on (routing job
-    `1964a100…`), whose job (`1de75e3f…`) handed it to the menu step
-    (`nav`, `frame`).
-  - The menu step (`ac0a5b9f…`) answered `422 no-menu`, *"I couldn't work
-    out what the menu should be"*, refunded.
-  - So `/order`, `/visit` and `/gallery` have no *Classes* link.
-
-  **Cause found and reproduced, free** (on the owner's word, *"yes look into
-  both problems"*; `docs/investigations/request-batch-findings.md`, F1;
-  `test/request-findings.test.mjs`):
-  - **The add-on links a new page from one page.** Its page step's directive
-    (`addDirective`) asks the page writer to return one page with the link
-    added, while every page in this kit carries its own menu.
-  - **The menu step cannot finish a link some pages already have.** For an
-    addition it keeps only what the union of every page's menu lacks
-    (`frameNow`, `additionOnly`), so *Classes*, on two pages, was nothing new.
-  - The real `runNavEdit` on R1's stored pages gives the same `no-menu`,
-    word for word.
-
-  **Proposed, not built** (product; on the owner's word):
-  1. the add-on puts a new page linked from the header menu into every page's
-     menu, by code (`withAdded`);
-  2. for an addition, the menu editor names only the items to add. Each is
-     added where a page's menu lacks it, and an item every page has finishes
-     as already there, refunded.
-
-  The bakery's *Classes* stays on two pages under the demo rule. Until fix 2,
-  a menu edit asking for it is refused the same way.
-
-  **Fixed on the branch, on the owner's word** (2026-10-04, *"Proceed with
-  fixing both findings on the current branch"*; not merged or deployed;
-  `docs/history/2026-10-04-findings-fixes.md` §1 and the investigation's
-  *What is fixed*):
-  - the model names each addition and its scope (`add`); code puts it into
-    every menu or footer list in that scope that lacks it, each page keeping
-    its own items, order and differences, and nothing reads the union;
-  - a page with no menu is given none (run 95's site: six pages, five menus);
-    named, it is refused by name; a footer list is made only where no page in
-    the scope has one;
-  - already true is `satisfied`: nothing published, queued no reserve,
-    routing kept, and a request part that needed it runs;
-  - the add-on carries its page's placement: the menu, added to every menu by
-    code, or one page, the writer's.
-
-  Shown with supplied answers (run 95's pages, run 47's bakery through the
-  edit and add-on routes, sync and queued, and R1's shape through the request
-  flow). **Shown live by run 97** (2026-10-04, deploy 2183, `rq-menu-link`;
-  `docs/history/2026-10-04-deploy-2183.md` §7): the router answered `addon`,
-  the add-on step (`1eac152b…`) handed the link to the menu step as an
-  addition, and the menu step (`f666481a…`, cost 1) put *Classes* into the
-  menus of `/order`, `/visit` and `/gallery` (both menus and the header on
-  each, at the end), leaving `/`, `/classes` and `/starter` (no menu) as
-  they were; every canary site check passed and the session's own read of
-  the served pages agrees. R2's own menu link is not pressed yet; closing
-  the item is the owner's.
-- **A MULTI-PART REQUEST'S PARTS GOT NO MODEL-WRITTEN REPLY** (found live in
-  R1, run 95; the same section).
-  - The job results the page read for the request's three parts carried no
-    `reply` or `replySource`: part 0's (`4ad20b96…`, with `deferred`), part
-    2's (`073e0a57…`) and part 1's refusal (`ac0a5b9f…`, 422).
-  - So the page showed the old fixed sentences.
-  - Run 94's single part's result carried one (`replySource: "model"`).
-
-  **Cause found from the run's timings, free** (the same file, F2):
-  - The context was stored and three facts were built for each part, so
-    nothing was skipped.
-  - Each read that had a reply to write took about 12 s longer than a read
-    with nothing to write. The page's reads took 12.2 and 12.3 s; the
-    canary's own after-reads took 12.97 to 13.20 s, against 0.75 to 1.23 s.
-    Run 94's one-fact reply took about 5 s.
-  - A reply call is cut at 12 s (`REPLY_CALL_MS`). The writer reads that as
-    `send` and does not try again, and a reply not written is not kept. So
-    all six attempts fell back, and each part's answer came 12 s later, in
-    the old wording.
-  - **To confirm, free**: the owner's Workers Logs, `reply:` from 02:53 to
-    03:02 UTC on 2026-10-04. Six lines are expected, each `fell back (send)`
-    after about 12 s with no tokens.
-  - Not known: why these replies took over 12 s (three facts against one, or
-    a slower model that night).
-
-  **Proposed, not built** (product; on the owner's word, after the log
-  line): the smallest fix gives a queued job's reply call the whole 20 s.
-  The better one writes the reply as soon as the job's money is settled,
-  instead of when the page reads it, so nobody waits on it.
-
-  **Fixed on the branch, on the owner's word: the better one, option B**
-  (2026-10-04; not merged or deployed; `docs/history/2026-10-04-findings-fixes.md`
-  §2). The owner made the log line no prerequisite, so the cause stays
-  strongly inferred.
-  - The reply has its own record and state, asked for once the job's outcome
-    and money are final (the container through the gateway's `/reply`).
-  - The queue writes it: a claim with a lease, 90 s per call and 150 s per
-    try, three tries 30 s and 120 s apart, then `failed`.
-  - No read calls the model; the two-minute cron recovers a lost ask or a
-    lapsed claim; the page waits, and picks the reply up after a reload or on
-    another device.
-  - Synchronous replies: 30 s per call, 45 s in all.
-
-  Shown with supplied answers, including a reply held 13 s in real time.
-  **Open until shown live**: every part's reply the model's own in
-  `rq-menu-link` and R2–R5. **Run 97 (deploy 2183) did not show it**: the
-  page was handed the part's outcome with `replyState: "pending"` 6 and 8 s
-  after its job ended, and the canary judged it then (the canary's gap,
-  below). Supabase's request logs show no read of the job by a writer after
-  23:34:38 up to 23:42:49, where a retry or a re-ask would have read it by
-  23:36:40, so the record most likely settled on its first try. **Run 98 (the
-  free read-one-job press, 2026-10-05) found it written by the model**: *"✅
-  Classes is now in the menu on 3 of your pages; the other 2 already had it,
-  next to the items that were already there."* A request's own reply was
-  written in the background and served in the same run (R1's, about 35 s).
-  **Still open until seen live**: a part's reply settling in place on the
-  page, and every reply of R2–R5 the model's own.
-- **THE PAGE APPLIES A PART'S RESULT ONLY WHEN ITS REPLY IS SHOWN** (found
-  2026-10-04, writing the background replies).
-  - `editAnswer` takes the stored answer and the reply together: the preview
-    moves, the message is said and the undo offered in one go. So while a
-    reply is still being written, the page shows *"Done — writing up what
-    changed…"* and the site's preview has not moved yet.
-  - Typically a few seconds. At worst, a provider failing every try, about
-    ten minutes (three tries, 30 s and 120 s apart, each up to 150 s), within
-    the reply's 15-minute horizon, after which the fixed wording is shown.
-  - It predates the fix: the poll-time reply held both for up to 20 s.
-  - Open: whether to show the result first and the reply after. That is a
-    page change of its own; applying a result twice must stay impossible
-    (`take()`).
-  - **Fixed on the branch** (the owner's review round, 2026-10-04; not
-    merged or deployed): the outcome first, by the same reader; the reply's
-    place held (`EditPoll.holdReply`) with the server's word for what the job
-    did (`replyOutcome`); the reply followed (`editReplyFollow`) and settled
-    where it stands, once; a reload follows the held message and applies
-    nothing (`docs/history/2026-10-04-review-round.md` §3).
-  - **Merged and deployed in deploy 2183.** Run 97 showed the held line live
-    (the outcome `done` from the server, the line its own); the canary
-    closed the page before the line could settle.
-- **THE STOP CONTROL STILL SHOWS WHILE A FINISHED JOB'S REPLY IS WRITTEN**
-  (found 2026-10-04, in the screenshot of the waiting page). Pressing it asks
-  the server to cancel a job that has ended (`edit_cancel`): a published one
-  is refused as too late (409), an unpublished one answers that it has ended
-  with no cancel. Either way nothing is undone and the page goes back to
-  waiting for the reply (`isCancelTooLate`, `isCancelConfirmed`). Open:
-  whether the control should give way to the waiting note. **Gone with the
-  fix above** (the same round): the job's watch ends when its outcome
-  arrives, so the live steps and their control stop then; the reply is
-  followed from the thread.
-- **THE UI CANARY JUDGES A REQUEST PART'S REPLY BEFORE IT IS WRITTEN**
-  (found live in run 97, 2026-10-04; `docs/history/2026-10-04-deploy-2183.md`
-  §7.5).
-  - In request mode a message ends when the composer is ready, the request
-    has ended and the page has closed it (`scripts/canary-ui.mjs`,
-    `followStep`). The page closes a request once each part's job has been
-    handed over and the request's own reply is not pending
-    (`siteRequestShow`).
-  - Since the owner's review round (deploy 2183) a part whose reply is still
-    being written counts as handed over: its outcome is applied and its
-    place held with *"Done — writing up what changed…"*, and the reply is
-    followed on its own (`siteRequestJobReply`, `editReplyHold`).
-  - So the canary ended run 97's message 8 s after the job ended and judged
-    the reply from the last answer the page had: `pending`, recorded as
-    composed. The canary was not taught the held reply when the page was,
-    and its tests did not cover it.
-  - **Fixed on the branch on the owner's word** (2026-10-05; scripts and
-    tests only: `scripts/canary-replies.mjs`, `watchReplies` in
-    `scripts/canary-ui.mjs`, the verdict in `scripts/canary-requests.mjs`;
-    `docs/history/2026-10-05-canary-reply-watch.md`). After a request ends —
-    normally, on a step's question, or as the tab opened afterwards shows it —
-    the canary waits on that request's own jobs, each reply's state read off
-    its own job and its place found by the job's own id or its own words,
-    until each is written or has failed for good and is on screen, within the
-    message's own bound and never less than 60 s after the end. Another
-    request's replies neither hold it up nor stand in. The canary does not
-    wait for the page's check of earlier requests before sending: the owner
-    keeps that placement as a product bug, which waiting would only hide.
-    Shown with a stand-in page and supplied answers; red check, two sweeps
-    (28 of 32, then 8 of 8) and the suite in the history file. Not yet run
-    live.
-- **THE NEW PAGE'S OWN MENU NAMES IT DIFFERENTLY** (found in run 99's R2,
-  2026-10-05; `docs/history/2026-10-05-batch-r2.md` §4). The add-on made the
-  Wholesale page and linked it from every menu: on `/wholesale` itself the
+- **A DATA EDIT'S REPLY CANNOT NAME THE CHANGE** (a remaining follow-up, on
+  the owner's word, 2026-10-05; `docs/history/2026-10-05-batch-r2.md` §6). In
+  run 99's R2 the data step changed `loaves` id 5's price from 6 to 6.2, and
+  its model-written reply said *"⚠️ I've updated one of the loaves."* — right,
+  and unable to say which loaf or what price. The step's answer carries only
+  `applied: [{ table, id, columns }]`, so neither the reply writer nor the
+  page's own sentence ("✅ Updated one entry in loaves.") has the value. The
+  owner kept this for the reply work when closing D1 (2026-09-27); recorded
+  now as a follow-up. Not changed.
+- **THE NEW PAGE'S OWN MENU NAMES IT DIFFERENTLY** (a remaining follow-up;
+  found in run 99's R2, 2026-10-05; `docs/history/2026-10-05-batch-r2.md`
+  §4). The add-on made the Wholesale page and linked it from every menu: on `/wholesale` itself the
   item reads "Wholesale", before Order; on every other page it reads
   "Wholesale Orders", after Order. Read off the served pages at 03:06 UTC. The
   canary's menu check passed, since each label carries "Wholesale". Open: one
@@ -994,10 +760,19 @@ here; take a closed one out of both.**
   making edit and add-on replies model-written on the owner's word;
   deliberate unless marked).** Each is in
   `docs/history/2026-10-03-model-replies.md` §8.
-  - **No real model has written a reply** (MR1, untested model behaviour):
-    whether its replies are faithful to the facts, in the customer's
-    language and words, how long they take and what they cost is unmeasured.
-    Every route and page case supplies the reply.
+  - **A real model's replies are read only case by case** (MR1, model
+    behaviour; corrected 2026-10-05: it said no real model had written a
+    reply). Real models (grok-4.6) have written them live: rq-canary's
+    one-fact reply (run 94, about 5 s); R1's request reply, written in the
+    background and served during run 97; run 97's part reply, found written
+    by the free lookup (run 98); and all eight of R2–R5's part replies, each
+    the model's own and on screen, three of them settling in place after
+    their request ended (run 99, `docs/history/2026-10-05-batch-r2.md` §3).
+    Still unmeasured: faithfulness beyond the replies read one by one (run
+    99's data reply was true and vague, the follow-up above), a customer
+    writing in another language, and the reply call's own time and cost
+    (the `reply:` log lines were not read). Every route and page case
+    supplies the reply.
   - **The reply calls are absorbed** (MR2, yours to decide): not charged to
     the customer and not on the ledger; each call is logged (`reply:` with
     tokens and milliseconds). At list price about a third to half a credit
@@ -1007,7 +782,13 @@ here; take a closed one out of both.**
     synchronous ending that gets a reply, at the first poll of a finished
     queued job, and for a repeated question's note; unmeasured, bounded at
     12 s per call and 20 s in all (a provider that hangs), after which the
-    answer goes out without one. A refusal that came back at once (a stale
+    answer goes out without one. **Since deploy 2183** a queued job's reply
+    is written on the queue once its outcome and money are final, never by
+    a read (90 s per call, three tries, `failed` past 15 minutes), and a
+    synchronous one is bounded at 30 s per call and 45 s in all
+    (`docs/history/2026-10-04-findings-fixes.md` §2); live, the page waited
+    on such replies and they settled in place (run 99). The call's own time
+    is still not measured. A refusal that came back at once (a stale
     answer, one too long) now waits for its reply; on the synchronous path
     the wait adds to the customer's open connection (reset at about 273 s in
     run 21), while a queued edit, the default, writes it at the poll.

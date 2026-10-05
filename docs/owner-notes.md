@@ -20,8 +20,9 @@ is in git; the dated entries further down are the full story.*
 - **The bakery** keeps every change (your demo rule): Classes and Wholesale in
   every menu, the Facebook link in every footer, the new logo, the three new
   headings, the closing-time line on Order, and the Walnut Levain at £6.20.
-- **The branch** carries the canary fix and the records (scripts, tests and
-  documents only); `main` is still `e84b8e7e`. Merging it starts no deploy.
+- **`main` is `cd817fee`** (the canary fix and the records, merged on your
+  word, no deploy); the live site is still deploy 2183 (`e84b8e7e`). The
+  batch's five findings are closed (the entry below).
 
 **Still open** (`docs/backlog.md`)
 - The page draws earlier requests' replies under a new message (a product
@@ -35,9 +36,7 @@ is in git; the dated entries further down are the full story.*
 **Yours to decide**
 1. **RW**, the separate full-rewrite test: run it, or drop it; and whether to
    put the bakery back after.
-2. **Merging the branch** to `main` (no deploy; the canary fix and the
-   records).
-3. Which of the open items to take next.
+2. Which of the open items to take next.
 
 **Links**
 - Run 99: `docs/history/2026-10-05-batch-r2.md`.
@@ -102,6 +101,31 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-05 — Merged the canary fix (no deploy), and closed the batch's findings (nothing spent)
+
+- **The merge**, on your word after your review of run 99: `main` moved from
+  `e84b8e7e` to `cd817fee` (8 commits). I checked first that the 19 files
+  were only scripts, tests and documents. No workflow ran, so nothing
+  deployed and no image was built. The live site is still deploy 2183, so a
+  press still names `e84b8e7e` in its deploy box.
+- **Closed, on your word**: the menu link that failed with `no-menu`, the
+  parts with no model-written reply, the page waiting on a reply before
+  showing a result, the Stop button showing while a reply was written, and
+  the canary judging a reply too early. Each is out of the backlog, with its
+  evidence (runs 97, 98 and 99) in the closure record.
+- **Corrected**: the backlog still said no real model had written a reply.
+  It now names the live replies (runs 94, 97, 98 and 99) and what is still
+  unmeasured (how faithful they are beyond the ones read, other languages,
+  and the reply call's own time and cost).
+- **Recorded as follow-ups**: the new page's menu says "Wholesale" where the
+  others say "Wholesale Orders"; and a data edit's reply can't say what
+  changed ("I've updated one of the loaves").
+- The bakery keeps every change. The batch is not repeated, and RW is not
+  started.
+
+**Recorded in**: `docs/history/2026-10-05-merge-and-closures.md`, the
+backlog, the findings record and the checklist.
 
 ## 2026-10-05 — Your batch press (run 99): R2, R3, R4 and R5 all passed (43 credits)
 

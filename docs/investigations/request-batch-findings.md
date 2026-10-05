@@ -12,10 +12,12 @@ spent.
 below): not merged or deployed, no image built, nothing paid run, and shown
 with supplied model answers only.
 
-**Since: merged and deployed (deploy 2183), and checked live by run 97**
-(*Run 97, live*, below): F1 is fixed live; F2 is not yet shown live for a
-part, because the canary judged the part's reply while it was still being
-written.
+**Since: merged and deployed (deploy 2183), shown live by runs 97–99, and
+closed by the owner (2026-10-05)** (*Run 97, live* and *Closed*, below): F1
+is fixed live (run 97, and R2's menu link in run 99); F2 is shown live for a
+part's job (run 98) and on the page, three replies settling in place after
+their requests ended (run 99). Run 97's own reply check had failed on the
+canary's timing alone.
 
 ## F1. The menu link was refused (`no-menu`): cause found, reproduced
 
@@ -510,7 +512,8 @@ real money, the real site.
   press, 2026-10-05): the reply was written by the model, in the background
   (*"✅ Classes is now in the menu on 3 of your pages; the other 2 already had
   it, next to the items that were already there."*). So F2's fix is shown live
-  for a part's job; its settling in place on the page is not yet seen live.
+  for a part's job; its settling in place on the page was not yet seen live
+  then (run 99 saw it, below).
   The canary now waits for replies (`docs/history/2026-10-05-canary-reply-watch.md`).
 - **Run 99 (R2–R5, 2026-10-05) carried both fixes through four more presses**,
   live and all passing (`docs/history/2026-10-05-batch-r2.md`): R2's Wholesale
@@ -523,6 +526,28 @@ real money, the real site.
   replies under the message just sent (a finding of its own, in the backlog).
 - **By the owner's rule, `rq-batch-r2` was not pressed.** The batch has spent
   29 (rq-canary 4, R1 21, the check 4).
+
+## Closed (2026-10-05, the owner's review of run 99)
+
+The owner: *"Run 99 passed review. … Close the completed batch findings."*
+Closed, each in the backlog's index and in full
+(`docs/history/2026-10-05-merge-and-closures.md`):
+- **F1**, the menu link refused with `no-menu`: fixed live in run 97, and the
+  add-on's own menu link by code in run 99's R2.
+- **F2**, the parts with no model-written reply: written in the background
+  and read by run 98; every part's reply in R2–R5 the model's own and on
+  screen, three settling in place after their requests ended (run 99).
+- **Both limits above**, fixed in the review round and deployed in 2183: the
+  page applies a part's result at once and holds the reply's place; the Stop
+  control is not shown over a reply being written.
+- **The canary judging a part's reply before it was written** (run 97): the
+  reply watch, run live as run 99 and merged to `main` with no deploy
+  (`cd817fee`).
+
+**Still open, kept separate**: earlier requests' replies placed under a new
+message (a product bug, fixed on the branch since: the same history file);
+the new page's own menu label; a data edit's reply that cannot name the
+change; the read-only lookup's `REPLY` wording; the preview's first `?v=1`.
 
 ## How the findings were checked (before the fixes)
 

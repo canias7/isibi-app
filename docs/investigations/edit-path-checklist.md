@@ -989,12 +989,14 @@ the owner's free press, run 51, at 22:57 UTC):
       its own jobs' replies are waited for until written or failed and on
       screen, model, failed, timed out, composed and unread told apart, and
       no other request's reply counted. A stand-in page only; not yet run
-      live. The read-only lookup now says what became of a job's reply. R2–R5
-      are still unpressed; the batch's spend is 29.
+      live (run live since, as run 99). The read-only lookup now says what
+      became of a job's reply. R2–R5 are still unpressed; the batch's spend
+      is 29.
     - **Run 98** (2026-10-05, the owner's free read of run 97's job): **the
       reply was written by the model** — so run 97's reply check failed on
       the canary's timing alone. Live: a part's job reply written in the
-      background. Not yet live: its settling in place on the page.
+      background. Not yet live: its settling in place on the page (seen
+      since, in run 99).
     - **`rq-batch-r2` pressed as run 99** (2026-10-05, from the branch;
       `docs/history/2026-10-05-batch-r2.md`): **R2, R3, R4 and R5 all
       passed**, live — an add-on and an edit in one message (R2, R5), a
@@ -1002,6 +1004,16 @@ the owner's free press, run 51, at 22:57 UTC):
       logo (R4), a request finished with its tab closed (R5) — every reply
       the model's own and on screen (three waited for after their requests
       ended), 43 credits; the batch complete at 72 of 100. RW not run.
+    - **Passed by the owner's review, and the batch's findings closed**
+      (2026-10-05; `docs/history/2026-10-05-merge-and-closures.md`): the
+      menu link's `no-menu` (F1), the parts' missing model replies (F2), the
+      page applying a part's result only with its reply, the Stop control
+      over a reply being written, and the canary judging a reply before it
+      was written. The reviewed canary scripts, tests and records were
+      merged to `main` (`cd817fee`, 8 commits), which started no deploy run.
+      Remaining follow-ups: the new page's own menu label and a data edit's
+      reply that cannot name the change; earlier requests' replies placed
+      under a new message is being fixed on the branch. RW not started.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).
