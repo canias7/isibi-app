@@ -275,6 +275,11 @@ const SRC = [
   cutLine("const BUILD_POLL_MS ="), cutLine("const BUILD_FOLLOW_MS ="),
   cut("async function followBuildJob("),
   cut("function reactSend("),
+  // A SITE'S TABLE LIST, IN ORDER (2026-10-05): the clock every routing call
+  // and addition is put in order by, and the two that keep the list by it.
+  cutLine("const siteTablesOrder ="),
+  cut("function siteTablesAdd("),
+  cut("function siteTablesRead("),
   cut("function alsoTail("),
   cut("function buildCostWords("),
   cut("function buildErrOutcome("),

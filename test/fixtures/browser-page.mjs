@@ -80,6 +80,9 @@ const FNS = [...new Set([
   // WHERE THE PREVIEW FRAME POINTS (2026-10-05): its address, its loader and its
   // sandbox, for the render's own frame step below.
   "sitePreviewSrc", "loadSiteFrame", "frameSandbox",
+  // A SITE'S TABLE LIST, IN ORDER (2026-10-05): every addition's tables, and
+  // each routing answer's read, kept by when its call went out.
+  "siteTablesAdd", "siteTablesRead",
 ])];
 // AND THE TWO OF THEM THAT ARE `async function`s.
 const ASYNC_FNS = ["siteRequestShow", "siteRequestJobReply"];
@@ -89,7 +92,7 @@ const LINES = [...new Set([
   "const ST_PHASE_ORDER =",
   "const SITE_REQ_KEEP_MS =", "const SITE_REQ_MISSES =", "const siteReqFollowing =", "const siteReqChecked =",
   "const siteReqAsked =", "const siteReqSeen =", "const siteRoutesSyncs =",
-  "const editReplyFollowing =", "const FRAME_SANDBOX =",
+  "const editReplyFollowing =", "const FRAME_SANDBOX =", "const siteTablesOrder =",
 ])];
 // THE RENDER'S OWN FRAME STEP (2026-10-05, the owner's review: *"test the
 // rendered iframe URL, not merely previewV increasing"*): where `renderSites`

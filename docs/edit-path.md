@@ -110,7 +110,10 @@ answers unless a run is named.
     (`docs/history/2026-10-05-inventory.md`): names; none, which the router is
     told in words ("It has no database tables.", `tables-none`) and the
     answer carries as `tablesFilled: []`; or cannot tell, the only case where
-    the browser's names are sent on;
+    the browser's names are sent on. **The page keeps those reads in order**
+    (`docs/history/2026-10-05-response-order.md`): an answer to an earlier
+    call than the one it took last changes nothing, and an addition finishing
+    while a call is out stays;
   - **a failed routing call names why** (`failure`: request, config,
     provider, timeout or transport, from allow-lists only), with the same
     fallback and no charge;

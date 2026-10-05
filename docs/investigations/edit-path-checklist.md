@@ -1052,6 +1052,14 @@ the owner's free press, run 51, at 22:57 UTC):
       the only case the browser's names stand. The page takes an answer whole
       unless its list changed while the call was out. **The real Worker route
       with supplied database and router answers**; not shown live.
+    - **The page's table list in order** (2026-10-05, after the owner passed
+      the three answers; on the branch;
+      `docs/history/2026-10-05-response-order.md`): an answer that confirmed
+      what the page held left no mark, so an older answer arriving after it
+      undid it. Now one clock orders every routing call and addition; an
+      answer to an earlier call than the one taken last changes nothing, and
+      an addition finishing during a call stays. **The page's own functions
+      and the real Worker route with supplied answers**; not shown live.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

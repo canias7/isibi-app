@@ -187,5 +187,7 @@ Also changed:
 - **Live**: nothing here has run against the real site or a real model.
 - **A routing answer older than a change to the page's list** only adds
   names, so a name the site lost between that answer's read and the change
-  stays until the next routing call reads the site again.
+  stays until the next routing call reads the site again. (Corrected after
+  the owner's next review, with the order of the answers:
+  `2026-10-05-response-order.md`.)
 - **The router is told at most 24 table names**, as before.

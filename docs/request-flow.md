@@ -413,8 +413,12 @@ meaning they had in the message. A routing job is shown the same.
   for its owner on every call, as one of three answers
   (`docs/history/2026-10-05-inventory.md`) — names, none (the router is told
   "It has no database tables."), or cannot tell (only then are the page's
-  names sent on) — and the page takes what it read, empty included, unless
-  its list changed while the call was out, when it only adds.
+  names sent on) — and the page keeps those reads in order
+  (`docs/history/2026-10-05-response-order.md`): one clock for every routing
+  call and every addition; an answer is taken, even one that changes
+  nothing, whenever no answer to a later call has been, as the site's list
+  with the tables an addition put there after its call went out; an answer
+  to an earlier call than the one taken last changes nothing.
 
 ## The owner's routes
 

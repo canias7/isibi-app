@@ -499,15 +499,23 @@ test("THE DIGEST'S TABLE LIST IS FED — the client stores what the responses na
   // guard's comment match): prose explaining a fix contains the fix's
   // spelling. Line comments only; the window holds no block comments and a
   // whole-file blanker on chat.js has its own recorded hazards.
+  // BOTH HAND THEIR NAMES TO THE ONE PLACE AN ADDITION'S TABLES JOIN THE LIST
+  // (`siteTablesAdd`, 2026-10-05, which also marks when they joined), and the
+  // union is asserted there, below.
   const finBlock = src.slice(fin, src.indexOf("siteSnap(s, t);", fin)).replace(/\/\/[^\n]*/g, "");
-  assert.match(finBlock, /s\.tables = \[\.\.\.new Set\(\[\.\.\.\(Array\.isArray\(s\.tables\) \? s\.tables : \[\]\), \.\.\.tnames\]\)\]/,
+  assert.match(finBlock, /siteTablesAdd\(s, tnames\);/,
     "the build response's table names are not merged into the site record");
   assert.match(finBlock, /d\.schema/, "the merged spec (d.schema) is not consulted — d.tables alone is the revise delta");
   const add = src.indexOf("function siteAddon(");
   assert.ok(add > 0, "siteAddon moved — rescope this");
-  const addBlock = src.slice(add, src.indexOf("function sitePathOf(", add));
-  assert.match(addBlock, /s\.tables = \[\.\.\.new Set\(/,
+  const addBlock = src.slice(add, src.indexOf("function sitePathOf(", add)).replace(/\/\/[^\n]*/g, "");
+  assert.match(addBlock, /siteTablesAdd\(s, a\.tables\);/,
     "the addon lane adds tables and never tells the digest about them");
+  const join = src.indexOf("\nfunction siteTablesAdd(");
+  assert.ok(join > 0, "siteTablesAdd moved — rescope this");
+  const joinBlock = src.slice(join, src.indexOf("\n}\n", join)).replace(/\/\/[^\n]*/g, "");
+  assert.match(joinBlock, /s\.tables = \[\.\.\.new Set\(\[\.\.\.\(Array\.isArray\(s\.tables\) \? s\.tables : \[\]\), \.\.\.fresh\]\)\]/,
+    "an addition's table names replace the site's list instead of joining it");
 });
 
 // ── what a build cost goes to the meter, not into the sentence ───────────────

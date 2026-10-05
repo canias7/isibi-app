@@ -96,6 +96,11 @@ const SRC = [
   cut("function routeQuestion("),
   cut("function routeActionable("),
   cut("function siteRoute("),
+  // A SITE'S TABLE LIST, IN ORDER (2026-10-05): the clock every routing call
+  // and addition is put in order by, and the two that keep the list by it.
+  cutLine("const siteTablesOrder ="),
+  cut("function siteTablesAdd("),
+  cut("function siteTablesRead("),
   cut("function siteSend("),
   cut("function siteAnswer("),
   cut("function siteBuildStart("),

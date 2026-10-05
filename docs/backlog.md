@@ -68,7 +68,9 @@ here; take a closed one out of both.**
   whatever the page sent, and the page keeps them. **Then as three answers**
   (`docs/history/2026-10-05-inventory.md`): a site read to have none is told
   so ("It has no database tables.") and answered `tablesFilled: []`, and the
-  page's names are sent on only when the read cannot answer.
+  page's names are sent on only when the read cannot answer. **Then in order**
+  (`docs/history/2026-10-05-response-order.md`): an older routing answer no
+  longer undoes a newer read, and an addition finishing during a call stays.
 - **The read-only lookup's `REPLY` line names a two-hour case for any job with
   no reply on it** (run 99, 2026-10-05): for a routing job minutes old it
   still says "either none was owed, or none was ever asked for (a job over two
@@ -520,7 +522,17 @@ here; take a closed one out of both.**
   told none. Now it answers names, `[]` or `null`; an empty answer replaces
   the page's names, the router is told "It has no database tables."
   (`tables-none`), the answer carries `tablesFilled: []`, and the page takes
-  it whole unless its list changed while the call was out.
+  it whole unless its list changed while the call was out. **And in order**
+  (2026-10-05, after the owner's next review;
+  `docs/history/2026-10-05-response-order.md`): that mark moved only when the
+  list's contents did, so an answer confirming what the page held left none,
+  and an older answer arriving after it was taken whole (the owner's
+  `trainers` taken away, `old_bookings` brought back); and a newer answer and
+  an addition were one mark, after which a late answer only added. Now one
+  clock orders every routing call and addition; an answer is taken, even one
+  that changes nothing, whenever no answer to a later call has been, with the
+  tables an addition put there after its call went out; an answer to an
+  earlier call than the one taken last changes nothing.
 - **THE READ-ONLY LOOKUP'S `REPLY` LINE NAMES A TWO-HOUR CASE FOR ANY JOB WITH
   NO REPLY** (found in run 99, 2026-10-05). The account prints, for every job
   whose answer carries no reply and no state — a routing job among them —

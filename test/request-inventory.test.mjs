@@ -125,7 +125,8 @@ function openSite(slug, tables) {
         return hold ? hold.then(() => out) : out;
       });
     }
-    if (url === "/api/site/edit" && method === "POST") return Promise.resolve({ status: 200, body: copy(DATA_EDIT) });
+    // THE EDIT'S OWN ADDRESS, as the page posts it (`/api/site/<slug>/edit`).
+    if (url === "/api/site/" + slug + "/edit" && method === "POST") return Promise.resolve({ status: 200, body: copy(DATA_EDIT) });
     if (url.startsWith("/api/site/routes?")) return Promise.resolve({ status: 200, body: { ok: true, slug, routes: ["/"] } });
     return Promise.resolve({ status: 200, body: { ok: true, question: null } });
   };
@@ -260,7 +261,7 @@ test("INV 7 — an answer whose list holds anything but names is no list: the pa
       sent.push(copy(body));
       return Promise.resolve({ status: 200, body: { ok: true, intent: "edit", layer: "data", cost: 1, tablesFilled: ["rooms", 7] } });
     }
-    if (url === "/api/site/edit" && method === "POST") return Promise.resolve({ status: 200, body: copy(DATA_EDIT) });
+    if (url === "/api/site/" + slug + "/edit" && method === "POST") return Promise.resolve({ status: 200, body: copy(DATA_EDIT) });
     return Promise.resolve({ status: 200, body: { ok: true, question: null } });
   };
   const slug = "inv-page-bad";
@@ -273,4 +274,134 @@ test("INV 7 — an answer whose list holds anything but names is no list: the pa
   q.ctx.siteSend("And the Thursday one");
   await until(() => sent.length === 2 && q.busy() === false);
   assert.deepEqual(sent[1].site.tables, ["rooms", "guests"], "the next call did not send the page's own names");
+});
+
+// ── THE ORDER OF THE ANSWERS (2026-10-05, the owner's review of the three answers) ──
+//
+// *"I reproduced this using the actual siteRoute function with supplied
+// transport: start with tables ["sessions","trainers"], send two routing
+// calls, resolve the newer call with ["sessions","trainers"], then resolve the
+// older call with ["sessions"]. Because the newer answer changes no values,
+// tablesAt remains unchanged and the older answer removes trainers; the next
+// request sends only sessions, and an unavailable authoritative lookup passes
+// that incomplete inventory to the model. The empty equivalent also
+// reproduces: a newer [] confirming an already-empty cache is followed by an
+// older ["old_bookings"], which restores stale names. Track accepted inventory
+// observations even when their contents are unchanged, distinguish superseded
+// routing responses from additions completing during a call, and prevent older
+// routing results from undoing newer confirmed inventory while preserving new
+// additions."* Each case below sends through the page's own `siteRoute`, to the
+// real route, and ends on the next message with the route's own read
+// unavailable: what the page then sends is all the router is told.
+
+/** The edits this page posted: one per routing answer it acted on, so the count says an answer was handled, whether or not it changed the list. */
+const edits = (S) => S.calls.filter((c) => /^\/api\/site\/[^/]+\/edit$/.test(c.url) && c.method === "POST").length;
+/** A routing call through the page's own `siteRoute`, its read made against the database `wire`. */
+function routeFrom(S, p, words, wire, key) {
+  S.db = wire;
+  p.ctx.siteRoute(p.s, words, p.s.id, false, [], () => {}, false, null, key);
+}
+const sorted = (v) => (Array.isArray(v) ? [...v].sort() : v);
+
+test("INV 8 — the owner's reproduction, a confirmation that changes nothing: the page holds sessions and trainers; two calls go out; the later one confirms both and arrives first; the earlier one, which read sessions alone, arrives after and takes nothing away — the next call, its own read unavailable, sends both and the router is told both", async () => {
+  const { S, p } = openSite("inv-page-same", ["sessions", "trainers"]);
+  const releaseOlder = S.holdNext();
+  routeFrom(S, p, "Move the Monday session", db("sessions"), "invsamefirst000000");
+  await until(() => S.routed().length === 1 && S.routed()[0].route);
+  routeFrom(S, p, "And the Wednesday one", db("sessions", "trainers"), "invsamesecond00000");
+  await until(() => edits(S) === 1);
+  assert.deepEqual(inventoryTold(S.routed()[1].route), ["sessions", "trainers"]);
+  assert.deepEqual(tablesOf(p), ["sessions", "trainers"]);
+  releaseOlder();
+  await until(() => edits(S) === 2);
+  assert.deepEqual(inventoryTold(S.routed()[0].route), ["sessions"], "the case is about an earlier read that lacked trainers");
+  assert.deepEqual(S.routed()[0].route.body.tablesFilled, ["sessions"]);
+  assert.deepEqual(tablesOf(p), ["sessions", "trainers"], "the earlier answer, arriving late, took away a table the later one confirmed");
+  const next = await send(S, p, "And the Friday one", { ...db("sessions", "trainers"), sqlFail: /information_schema/ });
+  assert.deepEqual(next.sent.site.tables, ["sessions", "trainers"], "the page's hint is the earlier answer's incomplete list");
+  assert.deepEqual(inventoryTold(next.route), ["sessions", "trainers"], "the router was handed the earlier answer's incomplete list");
+  assert.equal(next.route.body.tablesFilled, undefined);
+});
+
+test("INV 9 — the owner's empty reproduction: the page already holds none; two calls go out; the later one says none and arrives first, changing nothing; the earlier one, which read old_bookings, arrives after and brings nothing back — the next call, its own read unavailable, sends none and the router is told nothing", async () => {
+  const { S, p } = openSite("inv-page-same-empty", []);
+  const releaseOlder = S.holdNext();
+  routeFrom(S, p, "Change the opening hours", db("old_bookings"), "invnonefirst000000");
+  await until(() => S.routed().length === 1 && S.routed()[0].route);
+  routeFrom(S, p, "And the phone number", EMPTY, "invnonesecond00000");
+  await until(() => edits(S) === 1);
+  assert.equal(inventoryTold(S.routed()[1].route), "none");
+  assert.deepEqual(S.routed()[1].route.body.tablesFilled, []);
+  assert.deepEqual(tablesOf(p), []);
+  releaseOlder();
+  await until(() => edits(S) === 2);
+  assert.deepEqual(inventoryTold(S.routed()[0].route), ["old_bookings"], "the case is about an earlier read that still had old_bookings");
+  assert.deepEqual(tablesOf(p), [], "the earlier answer, arriving late, brought back a table the later one said is gone");
+  const next = await send(S, p, "And the address", { ...EMPTY, sqlFail: /information_schema/ });
+  assert.deepEqual(next.sent.site.tables, [], "the page's hint is the earlier answer's stale name");
+  assert.equal(inventoryTold(next.route), "unknown", "the router was told the earlier answer's stale name");
+});
+
+test("INV 10 — an addition finishing during a routing call, this page's own and another browser's: the answer, read before it, still takes away the name the site no longer has, and the addition's table stays — the next call, its own read unavailable, sends both and the router is told both", async () => {
+  for (const who of ["own", "other"]) {
+    const slug = "inv-page-during-" + who;
+    const { S, p } = openSite(slug, ["courts", "old_rates"]);
+    const release = S.holdNext();
+    routeFrom(S, p, "Rename court two", db("courts"), "invduring" + who + "0".repeat(10));
+    await until(() => S.routed().length === 1 && S.routed()[0].route);
+    assert.deepEqual(inventoryTold(S.routed()[0].route), ["courts"], who + ": the read is the site's, without old_rates");
+    // THE ADDITION FINISHES WHILE THE ANSWER IS OUT.
+    const added = { ok: true, kinds: ["table"], tables: ["coaches"], cost: 3, reply: "✅ Coaches now have a table.", replySource: "model" };
+    if (who === "own") p.ctx.addonAnswer(true, added, { site: p.s, d: { intent: "addon", layer: "" }, instruction: "Track coaches", origin: p.s.id, finish: () => {}, fallback: null, imgs: [], handedOff: false, slug });
+    else p.ctx.siteReqRefresh(p.s.id, true, added, true);
+    assert.deepEqual(sorted(tablesOf(p)), ["coaches", "courts", "old_rates"], who + ": the addition's table did not join the list");
+    release();
+    await until(() => edits(S) === 1);
+    assert.deepEqual(sorted(tablesOf(p)), ["coaches", "courts"], who + ": the answer did not take away old_rates, or lost the addition's coaches");
+    const next = await send(S, p, "Rename court three", { ...db("courts", "coaches"), sqlFail: /_meta/ });
+    assert.deepEqual(sorted(next.sent.site.tables), ["coaches", "courts"], who);
+    assert.deepEqual(inventoryTold(next.route), ["coaches", "courts"], who + ": the router was not told the site as it is");
+  }
+});
+
+test("INV 11 — out of order with an addition finishing while both calls are out: the later answer, read before the addition, arrives first and keeps it; the earlier answer, still holding a name the later one found gone, arrives after and changes nothing — the next call, its own read unavailable, sends the whole list and the router is told it", async () => {
+  for (const who of ["own", "other"]) {
+    const slug = "inv-page-both-" + who;
+    const { S, p } = openSite(slug, ["lanes", "swimmers", "old_rates"]);
+    const releaseOlder = S.holdNext();
+    routeFrom(S, p, "Open lane four", db("lanes", "old_rates"), "invbothfirst" + who + "000000");
+    await until(() => S.routed().length === 1 && S.routed()[0].route);
+    const releaseNewer = S.holdNext();
+    routeFrom(S, p, "And lane five", db("lanes", "swimmers"), "invbothsecond" + who + "00000");
+    await until(() => S.routed().length === 2 && S.routed()[1].route);
+    const added = { ok: true, kinds: ["table"], tables: ["lessons"], cost: 3, reply: "✅ Lessons now have a table.", replySource: "model" };
+    if (who === "own") p.ctx.addonAnswer(true, added, { site: p.s, d: { intent: "addon", layer: "" }, instruction: "Track lessons", origin: p.s.id, finish: () => {}, fallback: null, imgs: [], handedOff: false, slug });
+    else p.ctx.siteReqRefresh(p.s.id, true, added, true);
+    releaseNewer();
+    await until(() => edits(S) === 1);
+    assert.deepEqual(sorted(tablesOf(p)), ["lanes", "lessons", "swimmers"], who + ": the later answer kept old_rates, or lost the addition's lessons");
+    releaseOlder();
+    await until(() => edits(S) === 2);
+    assert.deepEqual(sorted(tablesOf(p)), ["lanes", "lessons", "swimmers"], who + ": the earlier answer, arriving late, changed the list");
+    const next = await send(S, p, "And lane six", { ...db("lanes", "swimmers", "lessons"), sqlFail: /information_schema/ });
+    assert.deepEqual(sorted(next.sent.site.tables), ["lanes", "lessons", "swimmers"], who);
+    assert.deepEqual(inventoryTold(next.route), ["lanes", "lessons", "swimmers"], who + ": the router was handed a stale or partial list");
+  }
+});
+
+test("INV 12 — a later call whose read could not answer puts nothing behind it: the earlier call's read, arriving after, is the newest the page has, and is taken — the next call, its own read unavailable, sends it", async () => {
+  const { S, p } = openSite("inv-page-blind-later", ["pitches"]);
+  const releaseOlder = S.holdNext();
+  routeFrom(S, p, "Book pitch one", db("pitches", "teams"), "invblindfirst00000");
+  await until(() => S.routed().length === 1 && S.routed()[0].route);
+  routeFrom(S, p, "And pitch two", { ...db("pitches", "teams"), sqlFail: /information_schema/ }, "invblindsecond0000");
+  await until(() => edits(S) === 1);
+  assert.equal(S.routed()[1].route.body.tablesFilled, undefined, "the case is about a later read that could not answer");
+  assert.deepEqual(tablesOf(p), ["pitches"]);
+  releaseOlder();
+  await until(() => edits(S) === 2);
+  assert.deepEqual(sorted(tablesOf(p)), ["pitches", "teams"], "the earlier read was put behind a later call that read nothing");
+  const next = await send(S, p, "And pitch three", { ...db("pitches", "teams"), sqlFail: /information_schema/ });
+  assert.deepEqual(sorted(next.sent.site.tables), ["pitches", "teams"]);
+  assert.deepEqual(inventoryTold(next.route), ["pitches", "teams"]);
 });

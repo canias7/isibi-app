@@ -9167,6 +9167,58 @@ function routeActionable(d, site) {
   if (d.intent === 'clarify') return !!liveQuestion(d);
   return false;
 }
+// ── A SITE'S TABLE LIST, IN ORDER (2026-10-05, the owner's review of the
+// three answers) ──────────────────────────────────────────────────────────────
+// Two kinds of news reach the list this page tells the router, and they are
+// not alike:
+// - A ROUTING ANSWER'S READ (`tablesFilled`) is the site's whole list as the
+//   route found it, at some moment while its call was out. Of two answers, the
+//   one whose call went out later read the site later, whichever arrives first.
+// - AN ADDITION'S TABLES — this page's own, another browser's reconciled here,
+//   a build's — are only what that work made, news from the moment this page
+//   learns of them.
+// So one clock orders every routing call as it goes out and every addition as
+// it is applied, and each site keeps the clock of the call whose answer was
+// taken last (`seen`) and when each addition's table joined (`added`). An
+// answer is taken whenever no answer to a later call has been — even one that
+// changes nothing, since taking it is what puts every earlier call's answer
+// behind it — and is then the site's list, with the tables an addition put
+// there after its call went out, which its read may have missed. An answer to
+// an earlier call than the one taken last changes nothing: it can neither take
+// a table away nor bring one back. In memory only: a reload has no call out,
+// and looks afresh.
+const siteTablesOrder = { clock: 0, sites: new Map() };
+/**
+ * AN ADDITION'S TABLES JOIN THE SITE'S LIST: a union, never a replace — the
+ * work names what it made, not the whole site — each one marked with when it
+ * joined, so an answer to a call that went out before it keeps it.
+ */
+function siteTablesAdd(s, names) {
+  const fresh = (Array.isArray(names) ? names : []).filter((x) => typeof x === 'string' && x);
+  if (!s || !fresh.length) return;
+  let o = siteTablesOrder.sites.get(s.id);
+  if (!o) siteTablesOrder.sites.set(s.id, (o = { seen: 0, added: new Map() }));
+  const at = ++siteTablesOrder.clock;
+  for (const n of fresh) o.added.set(n, at);
+  s.tables = [...new Set([...(Array.isArray(s.tables) ? s.tables : []), ...fresh])].slice(0, 48);
+}
+/**
+ * A ROUTING ANSWER'S READ OF THE SITE'S TABLES — names, or empty when it has
+ * none — for a call that went out at `sent` on the clock above. True when the
+ * page's list changed.
+ */
+function siteTablesRead(s, names, sent) {
+  if (!s || !Array.isArray(names)) return false;
+  let o = siteTablesOrder.sites.get(s.id);
+  if (!o) siteTablesOrder.sites.set(s.id, (o = { seen: 0, added: new Map() }));
+  if (sent < o.seen) return false;
+  o.seen = sent;
+  const had = Array.isArray(s.tables) ? s.tables : [];
+  const next = [...new Set([...names, ...had.filter((n) => o.added.get(n) > sent)])].slice(0, 48);
+  if (next.length === had.length && next.every((x, i) => x === had[i])) return false;
+  s.tables = next;
+  return true;
+}
 // Ask the router whether this is a question, then either answer it or build.
 //
 // ONE extra call in front of the build path, ~0.3 credits, and it pays for
@@ -9258,9 +9310,10 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     pages: sitePages(site).map((p) => p.path),
     tables: Array.isArray(site.tables) ? site.tables.slice(0, 24) : [],
   };
-  // WHERE THIS PAGE'S TABLE LIST STOOD WHEN THE CALL WENT OUT (2026-10-05): an
-  // answer read before a later change to it only adds names (below).
-  const tablesAt = (siteById(origin) || site).tablesAt || 0;
+  // WHEN THIS CALL WENT OUT, on the clock every routing call and addition is
+  // put in order by (2026-10-05, `siteTablesOrder`): it decides whether this
+  // call's answer is taken, and which additions are kept with it (below).
+  const tablesSent = ++siteTablesOrder.clock;
   apiFetch('/api/site/route', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     // `firstBuild` is what opens the question path at all, and it is `isBuild` —
@@ -9360,24 +9413,15 @@ function siteRoute(site, t, origin, isBuild, imgs, finish, answering, answer, ke
     // Three answers, kept apart:
     // - A LIST (`tablesFilled`), the site's own when the route read it — EMPTY
     //   when it has none — becomes this page's list: a name the site no longer
-    //   has goes, and a site with none is held to none. Unless this page's
-    //   list changed while the call was out (`tablesAt`: an addition finished,
-    //   or another routing answer came first), when the read is older than
-    //   that change and its names are only added: an older answer never takes
-    //   away what a newer one, or an addition, put there.
+    //   has goes, and a site with none is held to none. In order
+    //   (`siteTablesRead`): taken whenever no answer to a later call has been,
+    //   even when it changes nothing, and kept with the tables an addition put
+    //   there after this call went out; an answer to an earlier call than the
+    //   one taken last changes nothing, so it never undoes a newer read.
     // - NO LIST: the route could not read them, and this page's stand.
     // - A list holding anything but names is read as no list.
     const readNames = !isBuild && Array.isArray(d.tablesFilled) && d.tablesFilled.every((x) => typeof x === 'string' && x) ? d.tablesFilled : null;
-    const keepIn = readNames ? siteById(origin) : null;
-    if (keepIn) {
-      const had = Array.isArray(keepIn.tables) ? keepIn.tables : [];
-      const next = ((keepIn.tablesAt || 0) === tablesAt ? [...new Set(readNames)] : [...new Set([...had, ...readNames])]).slice(0, 48);
-      if (next.length !== had.length || next.some((x, i) => x !== had[i])) {
-        keepIn.tables = next;
-        keepIn.tablesAt = (keepIn.tablesAt || 0) + 1;
-        sitesSave();
-      }
-    }
+    if (readNames && siteTablesRead(siteById(origin), readNames, tablesSent)) sitesSave();
     // ── THE WAITING QUESTION IS SETTLED (2026-10-02) ───────────────────────
     // Answered, or replaced by a message that asked for something else: the
     // route has closed it either way, so its card comes off. An answer runs the
@@ -9830,8 +9874,7 @@ function siteReqRefresh(origin, httpOk, body, addon) {
   const named = (k) => Array.isArray(body[k]) && body[k].length > 0;
   const pages = named('added') || named('removed');
   s.previewV = (s.previewV || 0) + 1;
-  const names = (Array.isArray(body.tables) ? body.tables : []).filter((x) => typeof x === 'string' && x);
-  if (names.length) { s.tables = [...new Set([...(Array.isArray(s.tables) ? s.tables : []), ...names])].slice(0, 48); s.tablesAt = (s.tablesAt || 0) + 1; }
+  siteTablesAdd(s, body.tables);
   sitesSave();
   try { scheduleCreditRefresh(); } catch (err) { /* the balance is read again on the next look */ }
   if (pages) siteRoutesSync(origin);
@@ -11284,10 +11327,9 @@ function applyAddonResult(a, o) {
       // digest that never learns them keeps routing "where do my bookings
       // go?" blind. Union like the build path: the response names what this
       // addon touched, not the whole site.
-      const tnames = (Array.isArray(a.tables) ? a.tables : []).filter((x) => typeof x === 'string' && x);
-      // EACH CHANGE TO THE LIST IS MARKED (`tablesAt`, 2026-10-05), so a routing
-      // answer read before it never takes it away.
-      if (tnames.length) { s.tables = [...new Set([...(Array.isArray(s.tables) ? s.tables : []), ...tnames])].slice(0, 48); s.tablesAt = (s.tablesAt || 0) + 1; }
+      // MARKED WITH WHEN THEY JOINED (`siteTablesAdd`, 2026-10-05), so a
+      // routing answer whose call went out before this never takes them away.
+      siteTablesAdd(s, a.tables);
       sitesSave();
     }
     scheduleCreditRefresh();
@@ -12816,9 +12858,12 @@ function reactSend(site, t, origin, mode, imgs, finish, qa, ho) {
         // is the delta only — either way it is a UNION into what is already
         // known, never a replace, so a delta cannot erase the rest. Names
         // only, same rule as the digest itself.
+        // THROUGH `siteTablesAdd` (2026-10-05), as every addition's tables go,
+        // so a routing answer whose call went out before the build finished
+        // never takes them away.
         const tnames = (Array.isArray(d.schema) ? d.schema.map((x) => x && x.name) : (Array.isArray(d.tables) ? d.tables : []))
           .filter((x) => typeof x === 'string' && x);
-        if (tnames.length) s.tables = [...new Set([...(Array.isArray(s.tables) ? s.tables : []), ...tnames])].slice(0, 48);
+        siteTablesAdd(s, tnames);
         s.active = '/'; delete s.html;
         s.previewV = (s.previewV || 0) + 1; // cache-bust the preview iframe on revise
         siteSnap(s, t);

@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-05, 08:30 UTC)
+## Current handoff — read this first (2026-10-05, 10:30 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -9,34 +9,34 @@ is in git; the dated entries further down are the full story.*
 **State now**
 - **Nothing merged or deployed since `cd817fee`**: the live site is still
   deploy 2183 (`e84b8e7e`, image `386607152d4cb319`). Nothing spent.
-- **The branch stays unmerged**: the placement fix, the two corrections you
-  passed (the preview's address, late first reads, the whole table list), and
-  this round on top (`685a922c`):
-  - **the table list as three answers, kept apart through the reader, the
-    routing call and the answer**:
-    - **names**: the router is told them, and the page takes them;
-    - **none**: the router is told "It has no database tables.", the
-      decision says so (`tables-none`), the answer carries an empty list,
-      and the page clears its list, so the next call sends nothing stale;
-    - **can't tell** (a failed or slow read, or not your site): the only
-      case where the page's own names are used;
-  - **an older answer never erases a newer change**: if the page's list
-    changed while a routing call was out (an addition finished, here or in
-    another browser, or another answer came first), that answer's names are
-    only added; the next call sorts it out;
-  - unchanged: the ownership check first, the 3-second bound, each reply's
-    place with its request, the model's replies, the refresh fixes.
-  - Shown with the real Worker route and supplied database and router
-    answers, reading what the router was sent and what the page sends next;
-    not live. No screenshots: nothing on screen changes.
-  - The suite `9469 / 9469 / 0 / 0` here and `9469 / 9463 / 0 / 6` on unit
-    CI (run 37282482632); the site build is green (run 37282482599).
-- **Merging now deploys the page and the Worker and builds an image**:
-  `worker.js` and `builder/site-ask.mjs` are its inputs
-  (`386607152d4cb319` → `589e3e4e85a20066`, predicted; nothing built). After
-  a merge, the usual wait of 15–20 minutes applies before container work.
-- **Money**: balance **48**, read at 08:25 UTC (last ledger row 385, no job
-  open); nothing spent since run 99.
+- **The branch stays unmerged**: the placement fix, the corrections you
+  passed (the preview's address, late first reads, the whole table list, the
+  three answers), and this round on top (the commit on top of `260b44db`):
+  - **the page's table list kept in order**: one clock puts every routing
+    call and every addition (this page's, another browser's, a build's) in
+    order;
+    - an answer is taken whenever no answer to a later call has been, **even
+      when it changes nothing**, so your `trainers` stays and your
+      `old_bookings` doesn't come back;
+    - **an answer to an earlier call than the one taken last changes
+      nothing**;
+    - **an addition that finishes while a call is out stays**, and the
+      answer still removes what its read found gone;
+  - unchanged: the server side (the three answers, the ownership check, the
+    3-second bound), each reply's place with its request, the model's
+    replies, the refresh fixes.
+  - Shown with the page's own functions, the real Worker route and supplied
+    answers, reading the page's list, what it sends next and what the router
+    is told; not live. No screenshots: nothing on screen changes.
+  - The suite `9474 / 9474 / 0 / 0` here; unit CI and the site build are
+    read after the push.
+- **Merging now deploys the page and the Worker and builds an image**: this
+  round changed only the page and tests, so the image is the one the
+  three-answer round set (`386607152d4cb319` → `589e3e4e85a20066`, predicted,
+  and unchanged by this round; nothing built). After a merge, the usual wait
+  of 15–20 minutes applies before container work.
+- **Money**: balance **48**, read at 10:20 UTC (last ledger row 385, no
+  job open); nothing spent since run 99.
 - **The bakery** keeps every change from the batch (your demo rule).
 
 **Still open** (`docs/backlog.md`)
@@ -44,23 +44,22 @@ is in git; the dated entries further down are the full story.*
   read (the server side of the placement item).
 - A data edit's reply can't name the change; the new page's own menu label;
   the free lookup's wording for a job with no reply.
-- Limits kept from the last two rounds (their records, §5): your own job
-  found done by a late first read is reconciled without its undo offer; a
-  page opening many finished requests moves its preview once per job; a
-  routing answer older than a change to the page's list only adds names, so
-  a name the site lost in between stays until the next routing call reads
-  the site again.
+- Limits kept from the last rounds (their records, §5): your own job found
+  done by a late first read is reconciled without its undo offer; a page
+  opening many finished requests moves its preview once per job; two tabs of
+  one browser keep their own table lists.
 
 **Yours to decide**
-1. **The three-answer table list**: review it. Merging deploys the page and
-   the Worker, and builds the image above; a live check would come after, on
+1. **The table list in order**: review it. Merging deploys the page and the
+   Worker, and builds the image above; a live check would come after, on
    your word.
 2. **RW**, the separate full-rewrite test: not started.
 3. Which of the open items to take next.
 
 **Links**
-- This round: `docs/history/2026-10-05-inventory.md`.
-- The rounds before it: `docs/history/2026-10-05-reconcile.md`,
+- This round: `docs/history/2026-10-05-response-order.md`.
+- The rounds before it: `docs/history/2026-10-05-inventory.md`,
+  `docs/history/2026-10-05-reconcile.md`,
   `docs/history/2026-10-05-watched-refresh.md`,
   `docs/history/2026-10-05-reply-placement.md`.
 - The open items: `docs/backlog.md`.
@@ -122,6 +121,41 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-05 — Your review: the table list kept in order — a newer read stands, an addition stays (on the branch; nothing spent, nothing deployed)
+
+- **The gap you found**: the page judged how old a routing answer was by
+  whether its own list had changed while the call was out, and an answer that
+  only confirmed what the page held changed nothing. So an older answer
+  arriving after it was taken as new: your `trainers` was taken away and your
+  `old_bookings` came back, and whenever the server's own read was
+  unavailable the next message handed that list to the model.
+- **Now one clock puts every routing call and every addition in order** (this
+  page's own additions, another browser's, and a build's):
+  - an answer is taken whenever no answer to a later call has been, **even
+    when it changes nothing**: that is what puts the older answers behind it;
+  - **an answer to an earlier call than the one taken last changes
+    nothing**: it can't take a table away or bring one back;
+  - **an addition that finishes while a call is out stays**, and the answer
+    still removes what its read found gone.
+- Nothing special for any table name, and the server side is unchanged.
+- **Tests**: 5 new page cases, each through the page's own routing function
+  to the real server route, and each ending on the next message with the
+  server's read unavailable, so both the page's list and exactly what the
+  model is told are read. They cover your two reproductions, an addition
+  finishing during a call (yours and another browser's), reversed order with
+  an addition in between, and a later call that couldn't read anything.
+  Names: `sessions`, `trainers`, `old_bookings`, `courts`, `coaches`,
+  `old_rates`, `lanes`, `swimmers`, `lessons`, `pitches`, `teams`.
+- **On the previous commit 4 of them fail**, and the old page sends
+  `sessions` alone (the model told `sessions`) and brings back
+  `old_bookings`: your two results, measured. The mutation sweep caught all
+  14 defects it put back (3 comment-only controls survived), and the suite
+  is `9474 / 9474 / 0 / 0` here (CI after the push).
+- **Nothing on screen changes**, so no screenshots.
+
+**Recorded in**: `docs/history/2026-10-05-response-order.md`,
+`docs/request-flow.md`, `docs/edit-path.md`, the backlog and the checklist.
 
 ## 2026-10-05 — Your review: the table list as three answers — names, none, or can't tell (on the branch; nothing spent, nothing deployed)
 
