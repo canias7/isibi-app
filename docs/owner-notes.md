@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-05, 12:05 UTC)
+## Current handoff — read this first (2026-10-05, 12:20 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -14,20 +14,20 @@ is in git; the dated entries further down are the full story.*
   11:47:39 UTC; the served `chat.js` byte-identical to the merged file. It
   carries the page corrections you closed (each reply with its request, the
   watched refresh, the reconcile, the preview's address, the three answers,
-  the response order) and the prepared live check. **Deployed, not
-  runtime-confirmed**: the free check is your press.
-- **The image window is over** (waited to 12:05 UTC).
+  the response order) and the prepared live check. **Runtime-confirmed by
+  your free press, run 100** (12:17 UTC): both readers answered
+  `d75d79f37492`, a cold container `589e3e4e85a20066`, queued jobs and the
+  runner on, nothing charged.
 - **REQUEST_FLOW and MODEL_REPLIES** were uploaded as before (still `on`).
-- **Money**: balance **48** (last ledger row 385, no job open); nothing spent.
+- **Money**: balance **48** (last ledger row 385, no job open, read at
+  12:18 UTC); nothing spent.
 - **The bakery** keeps every change from the batch (your demo rule), and
   will keep the live check's too.
 
-**Next, yours to press** (`docs/investigations/live-check.md` §3)
-1. **The free check**: "Use workflow from" `main`; paid edit `no`; deploy sha
-   `d75d79f3`; image `589e3e4e85a20066`.
-2. **Then the live check**, once I confirm the free one: "Use workflow from"
-   `main`; paid edit `yes`; scenario `lv-reopen`; site `fold-lane-bakery`;
-   the same deploy sha and image. About 17–27 credits.
+**Next, yours to press** (`docs/investigations/live-check.md` §3.2)
+- **The live check**: "Use workflow from" `main`; paid edit `yes`; scenario
+  `lv-reopen`; site `fold-lane-bakery`; deploy sha `d75d79f3`; image
+  `589e3e4e85a20066`. About 17–27 credits.
 
 **Still open** (`docs/backlog.md`)
 - An old request's own reply with no record is still asked for whenever it is
@@ -105,6 +105,17 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-05 — Your free check passed (run 100): deploy 2184 is runtime-confirmed (nothing spent)
+
+- **Run 100** (12:17 UTC, from `main`): both readers answered `d75d79f37492`,
+  a cold container got `589e3e4e85a20066`, queued jobs and the runner are on,
+  and every zero-cost check passed. Nothing was charged: balance 48, last
+  ledger row 385, no job open.
+- **Next**: the live check, `lv-reopen` (the boxes are in the handoff above).
+
+**Recorded in**: `docs/history/2026-10-05-deploy-2184.md` §6.1 and
+`docs/deploy-record.md`.
 
 ## 2026-10-05 — Merged and deployed once as deploy 2184 (not yet runtime-confirmed: the free check is your press)
 

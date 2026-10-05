@@ -1284,8 +1284,10 @@ the only run that push started, `completed` / `success`, the job **2m46s**
 - **the served files** byte-identical to `d75d79f3`'s at 11:49:03 (`chat.js`
   895,780 `188dc2a9…`; `edit-poll.js` and `styles.css` unchanged);
 - **the image window** waited once, to 12:05 UTC;
-- **deployed, not runtime-confirmed**: the free check is the owner's press
-  (`docs/history/2026-10-05-deploy-2184.md`).
+- **runtime-confirmed by the owner's free press, run 100** (12:17 UTC): both
+  readers answered `d75d79f37492`, a cold container `589e3e4e85a20066`,
+  queued jobs and the runner on, nothing charged (balance 48, last row 385)
+  (`docs/history/2026-10-05-deploy-2184.md` §6.1).
 
 ## The served-file check, driven end to end on deploy 2139
 
