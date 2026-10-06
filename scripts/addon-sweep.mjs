@@ -673,6 +673,9 @@ export const BROWSER_FNS = Object.freeze([
   // cannot use, a refusal with no sentence and a success it broke showing are
   // said by it, where they used to start the rewrite and say nothing.
   "addonOutcomeMsg",
+  // `failureOutcomeOf` DECIDES WHETHER A FAILURE'S NOTE IS SHOWN (2026-10-06):
+  // only beside the outcome the server composed it for.
+  "failureOutcomeOf",
   // `readAddonReply` IS WHAT THE SELECTION ASKS FIRST (2026-09-24): whether a
   // reply may be trusted with the success, the receipt or the paid step it
   // claims. It reads the edit route's layer list, which is a LINE and not a

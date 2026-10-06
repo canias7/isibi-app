@@ -479,14 +479,16 @@ test("the addon reserves the designers' spend before the schema apply, the page 
   const apply = at(addon, "aMade = await applySiteSchema(adb, merged);", "the apply");
   const seed = at(addon, "aSeedUsage = aTop.usage;", "the seed net");
   assert.ok(seed < first && first < apply, "sequence #1 does not sit between the seed net and the schema apply");
-  assert.match(addon.slice(first, apply), /if \(aCharges\.refused\(\) > 0\) return unbilledReply\(aCharges\);/, "a refused #1 does not stop before the DDL");
+  // RE-ANCHORED 2026-10-06: `unbilledReply`'s answer through the add-on's
+  // failure door (`aFail`), which adds what the failure left behind.
+  assert.match(addon.slice(first, apply), /if \(aCharges\.refused\(\) > 0\) \{ const u = unbilledBody\(aCharges\); return aFail\(u\.body, u\.status\); \}/, "a refused #1 does not stop before the DDL");
   // The job-only guard: synchronously nothing moves ahead of the work.
   const guard = addon.slice(addon.lastIndexOf("if (aJob) {", first), first);
   assert.ok(guard.length > 0 && guard.length < 80, "sequence #1 is not gated on the job alone: " + JSON.stringify(guard));
   assert.match(addon, /const aCostNow = aFirstPlaced \? aFirst : await aCharge\(/, "the pageless answer reserves a second time after #1");
   const bill = at(addon, "const aBill = aFirstPlaced ? pageCredits(aGen && aGen.usage) : pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage);", "the page path's bill");
   assert.match(addon.slice(bill, bill + 700), /aCharge\(aBill, 4\)/, "the page call is not reserved as sequence 4 after #1");
-  const stop = at(addon, "if (aJob && aCharges.refused() > 0) return unbilledReply(aCharges);", "the page path's stop");
+  const stop = at(addon, "if (aJob && aCharges.refused() > 0) { const u = unbilledBody(aCharges); return aFail(u.body, u.status); }", "the page path's stop");
   const store = at(addon, "const w = await patchSiteConfig(env, ownerSlug, adb, aLookPatch);", "the look store");
   assert.ok(bill < stop && stop < store, "the page path's refusal does not stop before the look is stored");
   // The reader the spine is handed.

@@ -115,10 +115,19 @@ export function pendingMigration(list, job) {
  */
 export function migrationNote(entry) {
   if (!entry || entry.status !== "applied_without_page") return "";
-  const t = (entry.tables && entry.tables.applied) || [];
+  // THE TABLES THIS CHANGE MADE OR CHANGED, never every table the engine
+  // applied (2026-10-06): the apply re-runs the site's whole schema, so
+  // `applied` names tables it has had all along, and "now storing bookings,
+  // signups" credited this change with `bookings`. Only what the engine
+  // reports applying is named, so a table it did not touch is never claimed.
+  const applied = new Set((entry.tables && entry.tables.applied) || []);
+  const mine = (k) => ((entry.tables && entry.tables[k]) || []).filter((n) => applied.has(n));
+  const t = mine("added");
+  const changed = mine("altered").filter((n) => !t.includes(n));
   const f = (entry.functions && entry.functions.made) || [];
   const what = [];
   if (t.length) what.push("now storing " + t.join(", "));
+  if (changed.length) what.push("changes to " + changed.join(", "));
   if (f.length) what.push("the function" + (f.length > 1 ? "s " : " ") + f.join(", "));
   if ((entry.jobs || []).length) what.push("the scheduled job" + (entry.jobs.length > 1 ? "s " : " ") + entry.jobs.join(", "));
   return "The database changes for this were made" + (what.length ? " — " + what.join(", ") + " — " : " ") +

@@ -398,6 +398,82 @@ const warnedReads = (o) => Object.hasOwn(WARNED_FACTS, o.what) && typeof o.name 
   && (o.added === undefined || typeof o.added === "boolean")
   && (o.route === undefined || typeof o.route === "string")
   && (o.why === undefined || (typeof o.why === "string" && Object.hasOwn(SEED_FACTS, o.why)));
+/** An answer's requirements as told, read strictly (`entriesOf`): the reply's facts' reading, and a stored answer's (`replayedCoverNote`). */
+export const toldEntries = (a) => entriesOf(a && a.requirementsTold, toldReads);
+/** …and what the change could not do, read the same way. */
+export const warnedEntries = (a) => entriesOf(a && a.warningsTold, warnedReads);
+
+// ── WHAT A FAILED ADDITION LEFT BEHIND (2026-10-06) ────────────────────────
+//
+// The owner, on 08b9a657: *"Distinguish no changes, partial application,
+// unpublished work and unknown outcomes; ok:false alone must never establish
+// that nothing changed or that something already existed."* The route writes
+// `outcome` on every failure after the design (`failureOutcome` in
+// site-add.mjs, from its own applied, migration and publish evidence); this is
+// the one reader of it, and of what an answer stored before it carries.
+export const FAILURE_STATES = Object.freeze(["none", "partial", "unpublished", "unknown"]);
+const OUTCOME_LISTS = Object.freeze(["tables", "altered", "functions", "apis", "jobs"]);
+
+/**
+ * Whether an answer's `outcome` may be trusted: every field its own type,
+ * and a summary that is the one its fields give — a contradiction reads as no
+ * outcome at all, never as either half of it.
+ */
+export function outcomeReads(o) {
+  if (!o || typeof o !== "object" || Array.isArray(o)) return false;
+  if (!FAILURE_STATES.includes(o.state) || o.published !== false || !["none", "applied", "unknown"].includes(o.database)) return false;
+  for (const k of OUTCOME_LISTS) {
+    const v = o[k];
+    if (!(v === undefined || (o.database === "applied" && Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string" && !!flat(x))))) return false;
+  }
+  if (!(o.provisioned === undefined || o.provisioned === true) || !(o.saved === undefined || o.saved === true)) return false;
+  if (!(o.photos === undefined || (Number.isSafeInteger(o.photos) && o.photos > 0))) return false;
+  if (o.recorded !== undefined) return false;
+  const state = o.database === "unknown" ? "unknown"
+    : o.database === "applied" || o.provisioned === true ? "partial"
+      : o.saved === true || o.photos > 0 ? "unpublished" : "none";
+  return o.state === state;
+}
+
+/**
+ * WHAT A FAILED ADDITION'S ANSWER SAYS IT LEFT BEHIND, or `null` for one that
+ * is not a failure. Its own `outcome` when that reads. An answer stored before
+ * the route wrote one is read off what it does carry, and never off `ok:
+ * false` alone:
+ *
+ *   - the database's record on it (`migration`, on the compile and schema
+ *     exits since 2026-09-05): `applied_without_page` is changes that went in
+ *     and are live, the page that goes with them not published; `pending` or
+ *     `failed` is an apply whose outcome is not known;
+ *   - a designer's refusal (`add`) or every designer declining (`declined`):
+ *     both answer inside the design, before anything is applied, stored,
+ *     bought or published, in every version that has written them — so
+ *     nothing changed;
+ *   - anything else: not recorded (`recorded: false`) — said as not known.
+ */
+export function outcomeOf(a) {
+  if (!a || typeof a !== "object" || Array.isArray(a) || a.ok !== false) return null;
+  if (outcomeReads(a.outcome)) return a.outcome;
+  const m = a.migration && typeof a.migration === "object" && !Array.isArray(a.migration) ? a.migration : null;
+  if (m && m.status === "applied_without_page") return { state: "partial", published: false, database: "applied" };
+  if (m && (m.status === "pending" || m.status === "failed")) return { state: "unknown", published: false, database: "unknown" };
+  if (a.error === "add" || a.error === "declined") return { state: "none", published: false, database: "none" };
+  return { state: "unknown", published: false, database: "unknown", recorded: false };
+}
+
+/**
+ * HOW A REQUIREMENT IS SAID UNDER AN ANSWER'S OUTCOME. On a success, and on a
+ * failure whose database changes went in, as the route told it. On a failure
+ * where nothing of this change was applied, "set up" or "scheduled" can only
+ * have been carried by what the site already had — the reading of an older
+ * refusal's list (the route has told it so since 2026-10-06) — and where what
+ * the apply did is not known, it is unseen: neither half is established.
+ */
+export function toldAs(o, out) {
+  const t = o && o.told;
+  if (!out || out.database === "applied" || (t !== "set-up" && t !== "scheduled")) return t;
+  return out.database === "unknown" ? "unseen" : "already-there";
+}
 
 /**
  * The requirements' facts, the change's own shortfalls, then what the note
@@ -407,31 +483,69 @@ const warnedReads = (o) => Object.hasOwn(WARNED_FACTS, o.what) && typeof o.name 
  * neither list (one stored before the route sent them, or one with nothing
  * to tell but the note).
  *
- * ⚠ ON A REFUSAL (2026-10-06, `refused`): nothing was added, so nothing here
- * may say it was set up — the owner: *"On refusal, report only what the
- * available evidence establishes; an incomplete judgment must never become a
- * claim that work succeeded."* A requirement an older answer told as set up
- * or scheduled can only have been carried by what the site already had, and
- * is said so; the note is never the fallback, because an older one may say
- * "I've set that up"; and `coverOther` is not told, because its sentences
- * describe a change that was built. What nobody judged was never in the list.
+ * ⚠ ON A FAILURE (2026-10-06, `out`, the answer's `outcomeOf`): each
+ * requirement is said as `toldAs` says it under what the failure left — the
+ * owner: *"On refusal, report only what the available evidence establishes;
+ * an incomplete judgment must never become a claim that work succeeded."* The
+ * note is never the fallback, because an older one may say "I've set that
+ * up"; and `coverOther` is told only beside database changes that went in,
+ * because its sentences describe a change that was built.
  */
-function coverFacts(F, a, { refused = false } = {}) {
-  const told = entriesOf(a.requirementsTold, toldReads);
-  const warned = entriesOf(a.warningsTold, warnedReads);
+function coverFacts(F, a, { out = null } = {}) {
+  const told = toldEntries(a);
+  const warned = warnedEntries(a);
   if (!told || !warned || (!told.length && !warned.length)) {
-    const s = refused ? "" : said(a.coverNote);
+    const s = out ? "" : said(a.coverNote);
     if (s) F.add("not-done", s);
     return;
   }
   for (const o of told) {
-    const as = refused && (o.told === "set-up" || o.told === "scheduled") ? "already-there" : o.told;
-    const [kind, text] = TOLD_FACTS[as];
+    const [kind, text] = TOLD_FACTS[toldAs(o, out)];
     F.add(kind, text({ need: flat(o.need), why: o.why ? flat(o.why) : "" }));
   }
   for (const o of warned) F.add("not-done", WARNED_FACTS[o.what]({ ...o, name: flat(o.name), route: o.route ? flat(o.route) : "" }));
-  const rest = refused ? "" : said(a.coverOther);
+  const rest = out && out.database !== "applied" ? "" : said(a.coverOther);
   if (rest) F.add("not-done", rest);
+}
+
+/** What of a failed addition went in and is live, by name: the database changes its apply made. */
+function liveOf(out) {
+  const parts = [];
+  const tables = strings(out.tables), altered = strings(out.altered), fns = strings(out.functions), apis = strings(out.apis), jobs = strings(out.jobs);
+  if (tables.length) parts.push("the site now stores " + listOf(tables));
+  if (altered.length) parts.push((altered.length === 1 ? "a change to the table " : "changes to the tables ") + listOf(altered));
+  if (fns.length) parts.push((fns.length === 1 ? "the function " : "the functions ") + listOf(fns));
+  if (apis.length) parts.push((apis.length === 1 ? "the connection to " : "the connections to ") + listOf(apis));
+  if (jobs.length) parts.push((jobs.length === 1 ? "the scheduled job " : "the scheduled jobs ") + listOf(jobs));
+  return parts;
+}
+
+/**
+ * THE FACTS OF A FAILED ADDITION'S OUTCOME, its own reason beside them
+ * (2026-10-06). Nothing changed is said only where the evidence says so; what
+ * went in is done, and said by name; what did not is not done; what is saved
+ * and not live, and what cannot be established, are each worth knowing.
+ */
+function failureFacts(F, out, why) {
+  if (out.state === "none") { F.add("not-done", "Nothing was added." + why); return; }
+  const live = out.database === "applied" ? liveOf(out) : [];
+  if (live.length) F.add("changed", "Part of this addition went in and is live: " + listOf(live) + ".");
+  else if (out.database === "applied") F.add("changed", "Changes to their database for this addition went in and are live.");
+  if (out.provisioned === true) F.add("changed", "The site has its own database now" + (out.database === "applied" ? "." : ", made for this addition; nothing from it is stored in it yet."));
+  const some = out.database === "applied" || out.provisioned === true;
+  F.add("not-done", (some ? "The rest of it did not go through" : "The addition did not go through") +
+    ": nothing was published, so the site's pages are as they were." + why);
+  if (out.database === "unknown") {
+    F.add("note", out.recorded === false
+      ? "This answer does not record whether any part of the addition went in before it stopped, so that cannot be said either way."
+      : "Some of its database change may have gone in before it stopped; which parts did could not be established.");
+  }
+  if (out.saved === true) F.add("note", "The change itself is still saved, so it could go out with their next edit.");
+  if (out.photos > 0) {
+    F.add("note", out.photos === 1
+      ? "The photograph made for it is saved in their uploads; it is not on the site."
+      : "The " + out.photos + " photographs made for it are saved in their uploads; they are not on the site.");
+  }
 }
 
 /**
@@ -892,16 +1006,22 @@ export function addonReplyFacts(a, { routedCost = null, inRequest = false } = {}
   } else if (a.error === "clarify") {
     F.add("nothing", "Nothing was added yet; one detail is needed first.");
   } else {
+    // WHAT IT LEFT BEHIND, FROM ITS OWN EVIDENCE (2026-10-06). This led every
+    // failure with "Nothing was added" — beside a compile failure whose
+    // database changes had gone in, under the sentence saying so (Codex, on
+    // 08b9a657). `outcomeOf` reads the answer's own outcome, or what an older
+    // answer carries, and never `ok: false` alone.
+    const out = outcomeOf(a);
     const own = said(a.msg);
-    F.add("not-done", own ? "Nothing was added. The builder's own reason: " + quote(own) : "The addition did not go through.");
+    failureFacts(F, out, own ? " The builder's own reason: " + quote(own) : "");
     (Array.isArray(a.notAdded) ? a.notAdded : []).forEach((nA, i) => {
       if (nA && typeof nA.msg === "string" && nA.msg) F.add("not-done", "Left out " + (typeof nA.name === "string" && nA.name ? quote(nA.name) : "one entry") + ". The builder's own reason: " + quote(nA.msg), "notAdded:" + i);
     });
-    // WHAT EACH REQUIREMENT CAME TO, ON A REFUSAL TOO (2026-10-06). The
+    // WHAT EACH REQUIREMENT CAME TO, ON A FAILURE TOO (2026-10-06). The
     // refused answer has carried them since 2026-09-14 and this branch read
     // none of them: "their site cannot take payments by bank transfer" beside
     // a refused 3D model reached neither the reply nor the screen.
-    coverFacts(F, a, { refused: true });
+    coverFacts(F, a, { out });
     if (routedCost !== null && num(routedCost) > 0) F.add("money", "Reading their message cost " + count(num(routedCost), "credit") + ".");
   }
   heldFacts(F, a, a.ok === true, inRequest === true);

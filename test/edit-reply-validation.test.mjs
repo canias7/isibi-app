@@ -101,6 +101,8 @@ const SRC = [
   cut("function readEditReply("),
   cut("function applyAddonResult("),
   cut("function addonOutcomeMsg("),
+  // WHETHER A FAILURE'S NOTE IS SHOWN (2026-10-06): only beside its outcome.
+  cut("function failureOutcomeOf("),
   cut("function sitePathOf("),
   ...["problemNote", "photoNote", "listPhotoNote", "browserTimeZone", "jobZone", "onceWhen", "jobWords",
     "jobOnceNote", "addonReplyText", "renderTail", "alsoTail", "editOutcomes", "partialSaid", "pageOpVerb",

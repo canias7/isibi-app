@@ -153,6 +153,7 @@ function neonRows(rows, cols) {
 }
 
 function bucket(slug, stored, look, parts, css, partsFail, configFail, uploads, uploadsFail, noHead) {
+  let configWrites = 0;
   const store = new Map([
     // THE SITE'S OWN PAGES. One by default; a case that is about a MULTI-PAGE
     // site says so, because "which page does this go on" is only a guess when
@@ -214,8 +215,14 @@ function bucket(slug, stored, look, parts, css, partsFail, configFail, uploads, 
     // every `put` succeeds cannot tell "the write failed and we said so" from
     // "the write failed and we carried on". A THROW, because that is what R2
     // does when it cannot write — `saveConfig` reads a throw, not a falsy.
+    // …AND A NUMBER LETS THAT MANY WRITES THROUGH FIRST (2026-10-06): `1` stores
+    // the design and refuses the write that would put it back after a failed
+    // publish — the state `KEPT_CHANGE_NOTE` describes. `true` refuses every one.
     async put(k, v) {
-      if (configFail && k === "config/" + slug + ".json") throw new Error("R2 PutObject: connection reset");
+      if (configFail && k === "config/" + slug + ".json") {
+        configWrites += 1;
+        if (configFail === true || configWrites > Number(configFail)) throw new Error("R2 PutObject: connection reset");
+      }
       store.set(k, String(v));
     },
     async delete(k) { store.delete(k); },
@@ -277,7 +284,7 @@ function bucket(slug, stored, look, parts, css, partsFail, configFail, uploads, 
  * to and IS honestly empty. Those two look identical from the old code and need
  * opposite answers.
  */
-function stub({ kinds, answers, judge = null, judgeUsage = null, charges = null, ungrounded = false, fnFail = false, jobsFail = false, sql, prompts, meta, registered, patched, traces, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null, credits = null, shots = null, shotFail = false, legacyRows = [], legacyFail = false, notes = "", db = null, rowFail = null }) {
+function stub({ kinds, answers, judge = null, judgeUsage = null, charges = null, ungrounded = false, fnFail = false, tableFail = null, jobsFail = false, sql, prompts, meta, registered, patched, traces, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null, credits = null, shots = null, shotFail = false, legacyRows = [], legacyFail = false, notes = "", db = null, rowFail = null }) {
   let provisioned = false;
   const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
@@ -560,6 +567,16 @@ function stub({ kinds, answers, judge = null, judgeUsage = null, charges = null,
       if (ins && ins[1] !== "_meta" && rowFail.test(ins[1])) {
         return new Response(JSON.stringify({ message: "invalid input syntax for type integer", code: "22P02" }), { status: 400, headers: { "content-type": "application/json" } });
       }
+      // ── A TABLE THE DATABASE WILL NOT CREATE (2026-10-06) ─────────────────
+      //
+      // `tableFail` names one table, and its `CREATE TABLE` is refused in
+      // Postgres's own error shape. The engine applies one statement at a time
+      // and does not catch a table's creation, so the apply throws there —
+      // after whatever came before it went in — which is the state the route
+      // must call unknown rather than untouched. Absent, nothing changes.
+      if (tableFail && /^CREATE TABLE/i.test(q.trim()) && q.includes('"' + tableFail + '"')) {
+        return new Response(JSON.stringify({ message: 'permission denied for schema public', code: "42501" }), { status: 400, headers: { "content-type": "application/json" } });
+      }
       if (fnFail && /CREATE OR REPLACE FUNCTION/i.test(q)
         && (fnFail === true || new RegExp("FUNCTION\\s+\"?" + String(fnFail) + "\"?\\s*\\(", "i").test(q))) {
         return new Response(JSON.stringify({ message: 'syntax error at or near "selct"' }), { status: 400, headers: { "content-type": "application/json" } });
@@ -765,8 +782,12 @@ export async function addon(slug, instruction, opts) {
   // look back when the publish did not land. Without a seam here that branch
   // is a claim in a comment — which is exactly the shape of the defect the
   // ordering fix corrects, so leaving it undrivable would repeat it.
+  // …AND `notServed: true` (2026-10-06) MAKES IT FAIL AFTER THE COMPILE: the
+  // build packages no script, so the activation cannot serve it and puts the
+  // pointer back (`not-served`) — a publish that fails AFTER the seam, where
+  // the schema has already been applied.
   const c = (opts && opts.publishes)
-    ? installCompiler(opts.compileFail ? { ok: false, error: "compile failed" } : {})
+    ? installCompiler(opts.compileFail ? { ok: false, error: "compile failed" } : opts.notServed ? { worker: false } : {})
     : null;
   try {
     const worker = await loadWorker();

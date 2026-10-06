@@ -242,7 +242,7 @@ import { routeMessage, routeDecision, routeFailure, clarifiedBrief, siteDigest, 
 // work moves from one step to another — the parts put off, the scope, and why.
 import { readHandOver, handOverLine, heldReport, deferredOf } from "./builder/hand-over.mjs";
 import { loadAsk, storeAsk, storeAskIfFree, closeAsk, replaceAsk, askLive, packAsk, newAskId, askOf, readAsk, readContext, shownContext, repeatOf, appendAnswer, againNote, clarifyTransport, clarifyCall, MAX_NOTE_CHARS, MAX_SAME_ASK, MAX_ASKED } from "./builder/clarify.mjs";
-import { repliesOn, editReplyFacts, addonReplyFacts, routeReplyFacts, cancelReplyFacts, repeatNoteFacts, requestReplyFacts, replyContext, writeReply, withReplyText, REPLY_CALL_MS, REPLY_BG_CALL_MS, REPLY_BG_DEADLINE_MS, REPLY_BG_ATTEMPTS, REPLY_BG_RETRY_S, REPLY_LEASE_MS, REPLY_HORIZON_MS, REPLY_RETRY_GRACE_MS, readReplyRecord, replyNext, replyClaim, replyOutcomeOf } from "./builder/site-reply.mjs";
+import { repliesOn, editReplyFacts, addonReplyFacts, routeReplyFacts, cancelReplyFacts, repeatNoteFacts, requestReplyFacts, replyContext, writeReply, withReplyText, REPLY_CALL_MS, REPLY_BG_CALL_MS, REPLY_BG_DEADLINE_MS, REPLY_BG_ATTEMPTS, REPLY_BG_RETRY_S, REPLY_LEASE_MS, REPLY_HORIZON_MS, REPLY_RETRY_GRACE_MS, readReplyRecord, replyNext, replyClaim, replyOutcomeOf, outcomeOf, outcomeReads } from "./builder/site-reply.mjs";
 // ONE MESSAGE, SEVERAL PARTS, FINISHED ON THE SERVER (2026-10-03): the record,
 // the plan, what a job's answer means for its part, and the next job.
 import {
@@ -272,7 +272,7 @@ import { MARKS, MARK_WORDS, MARK_UPLOAD, markOf, markWire, markRemove, markWords
 // module, its own picker, one small tool per kind of thing a site can lack,
 // and nothing from this file. The addon route below calls it where it used
 // to call the build's designer.
-import { pickAdds, runAdd, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, warningReport, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
+import { pickAdds, runAdd, runJudge, judgeItems, cleanAdd, foldAdds, addLayer, addLayerIn, addRefusal, alreadyReply, pageLabels, pageComponents, backendDesigned, pageless, APPLIED_KINDS, existingFacts, addRepairRound, addRepairNote, rewroteMsg, lostPhotosMsg, unionSpec, siteNote, shownSchema, tableFacts, proposedSpec, appliedFacts, auditFrontend, missingPages, missingPagesNote, droppedNote, deadQrs, deadQrNote, routedSources, missingPopulation, readTables, populationNote, seedSkipNote, warningReport, failureOutcome, failureNote, replayedCoverNote, SPEC_OF_KIND, rowTables, rowMarkerKey, rowsInsert, readSavedRows, readRowMarker, rowBrief, rowWriteOutcome, ROW_VOID, rowReviewKey, rowReviewVerdict, rowUncertainBody, rowReviewReply, keepsRowReply, ownPhotos, wordsLanded, photosLanded, notLandedMsg, noPhotoMsg, menuLinkAdds } from "./builder/site-add.mjs";
 // THE COVERAGE METADATA (owner, 2026-09-13). Its own module, deliberately not
 // part of `TABLE_ITEM` — see the head of builder/site-requirements.mjs.
 import { requirementReport, toldNote, propertyNote, requirementRecord, unresolvedRequirements, requirementCounts, requirementOutcomes, requirementBrief, groundRequirements, handoffsByStep, applyVerdicts, COVERAGE_STEPS } from "./builder/site-requirements.mjs";
@@ -9517,12 +9517,19 @@ const writeSiteMigrations = async (env, slug, list) => {
   } catch (e) { console.error("migrations write failed:", slug, e && e.message); return false; }
 };
 /**
- * The customer's sentence for a schema the engine refused to apply. "Your
- * site is untouched" is TRUE here by construction since stage 8: the apply
- * runs after the compile and before the publish gate, so a refusal leaves
- * nothing activated and nothing charged once the consumer's refund lands.
+ * The customer's sentence for a schema the engine refused to apply. Nothing
+ * is activated and nothing charged once the consumer's refund lands: since
+ * stage 8 the apply runs after the compile and before the publish gate, so
+ * the live pages are what they were.
+ *
+ * ⚠ AND "YOUR SITE IS UNTOUCHED" WAS NOT TRUE OF THE DATABASE (2026-10-06).
+ * `applySiteSchema` runs one statement at a time, outside a transaction, and
+ * a refusal is a throw from whichever one failed — so the tables before it
+ * may already stand. What went in is not known, and the sentence says so; a
+ * second ask applies the rest without making anything twice, because every
+ * statement the engine emits is additive or `IF NOT EXISTS`.
  */
-const ADDON_SCHEMA_FAIL_MSG = "That change needed the site's database and it couldn't be applied — this is on us, and your site is untouched. Try again in a few minutes.";
+const ADDON_SCHEMA_FAIL_MSG = "That change needed the site's database and it couldn't be applied — this is on us. Your live pages weren't changed, but some of the database change may already have gone in before it stopped; asking again won't make anything twice. Try again in a few minutes.";
 /** File a fresh `pending` record for this job — replacing an earlier record of the same job — and answer it. */
 async function recordSiteMigration(env, slug, entry) {
   const list = upsertMigration(await readSiteMigrations(env, slug), entry);
@@ -10521,9 +10528,14 @@ async function fetchSiteFonts(families = []) {
  * `compileMsg`'s, so the two roads read the same.
  */
 function unbilledReply(charges) {
+  const { body, status } = unbilledBody(charges);
+  return Response.json(body, { status });
+}
+/** `unbilledReply`'s answer and status, for a route that adds to the answer (the add-on's `aFail`, 2026-10-06). */
+function unbilledBody(charges) {
   const why = (charges && typeof charges.refusals === "function" && charges.refusals()[0]) || "rpc";
   const pub = { ok: false, error: "unbilled", ours: why !== "insufficient", detail: why };
-  return Response.json({ ok: false, error: "unbilled", cost: 0, detail: why, msg: compileMsg(pub, "") }, { status: why === "insufficient" ? 402 : 503 });
+  return { body: { ok: false, error: "unbilled", cost: 0, detail: why, msg: compileMsg(pub, "") }, status: why === "insufficient" ? 402 : 503 };
 }
 
 /**
@@ -13865,6 +13877,22 @@ function servedEditReply(row, body) {
   const cost = ledgerEditCost(row);
   if (cost === null) delete out.cost; else out.cost = cost;
   if (row.billing === "refunded" && Number(row.cost) > 0) out.refunded = Number(row.cost);
+  // ── A FAILED ADDITION STORED BEFORE ITS OUTCOME (2026-10-06) ─────────────
+  //
+  // Codex, on 08b9a657: the browser printed an older refusal's note verbatim —
+  // "I couldn't add that" and then "I've set that up" — while the reply's facts
+  // said the same requirement was already there. The page prints a failure's
+  // note only beside an `outcome` (`addonAnswer`), so an answer stored before
+  // the route wrote one is handed its outcome read off what it carries
+  // (`outcomeOf`, the facts' own reader) and a note composed from its lists by
+  // the facts' rule (`replayedCoverNote`) — never its old note, which is gone
+  // from what is served when no list can stand in for it. The stored reply is
+  // untouched; only what is handed back is.
+  if (typeof out.coverNote === "string" && out.ok === false && !outcomeReads(out.outcome)) {
+    out.outcome = outcomeOf(out);
+    const note = replayedCoverNote(out);
+    if (note) out.coverNote = note; else delete out.coverNote;
+  }
   return JSON.stringify(out);
 }
 
@@ -28783,7 +28811,19 @@ async function handleRequest(request, env, ctx) {
               ? (() => { try { return new Intl.DateTimeFormat("en-CA", { timeZone: aTz }).format(new Date()); } catch { return null; } })()
               : null;
             const aAuth = request.headers.get("Authorization") || "";
-            const aFailure = (reason, extra) => Response.json(addonFailure(reason, extra));
+            // ⚠ AND SAYS NOTHING CHANGED BY ITS OWN EVIDENCE (2026-10-06): every
+            // stop through here answers before this run designs, stores,
+            // applies or publishes anything, so its outcome is `none`
+            // (`failureOutcome`) — the reply's facts no longer read that off
+            // `ok: false` alone. A hand-off (`escalate`) is not an ending.
+            const aFailure = (reason, extra) => {
+              const f = addonFailure(reason, extra);
+              return Response.json(f.escalate ? f : { ...f, outcome: failureOutcome() });
+            };
+            // THE SAME FOR A STOP WITH ITS OWN ANSWER BEFORE ANY WRITE: the row
+            // step's refusals before its one statement, an addition already
+            // true. A failure after the design goes through `aFail`, below.
+            const aNone = (body, status) => Response.json({ ...body, outcome: failureOutcome() }, { status });
             if (!aInstruction) return aFailure("empty");
             // ONE REQUEST, AT MOST THE SIZE POLICY'S, AND WHAT IT CARRIES AT MOST
             // ITS OWN (2026-10-03) — the edit route's rule: refused at no cost,
@@ -29118,6 +29158,13 @@ async function handleRequest(request, env, ctx) {
                 // A JUDGMENT THAT DID NOT FINISH (2026-10-06): named for whoever
                 // reads the answer back; the customer's sentence is the caller's.
                 incomplete: (e && e.incomplete === true) || undefined,
+                // NOTHING CHANGED, BY WHERE EVERY CALLER STANDS (2026-10-06):
+                // the picker, the row step's designer, the designers and both
+                // judgments, all above the backend block — so this run has
+                // made, stored, applied, bought and published nothing yet. No
+                // requirement is told: none was settled (a test holds every
+                // caller above that block).
+                outcome: failureOutcome(),
               }, { status: 503 });
             };
             // ── THE CHARGE, ONE FUNCTION FOR BOTH ROADS ────────────────────
@@ -29374,22 +29421,22 @@ async function handleRequest(request, env, ctx) {
               if (rowRan.usage) aDesignUsage.push(rowRan.usage);
               if (rowRan.failed) return aDown(rowRan.error, "The builder is busy — try again in a moment.");
               if (rowRan.value === undefined) {
-                return Response.json({ ok: false, error: "declined", kinds: ["row"], cost: 0, msg: addRefusal("nothing") }, { status: 422 });
+                return aNone({ ok: false, error: "declined", kinds: ["row"], cost: 0, msg: addRefusal("nothing") }, 422);
               }
               const rowClean = cleanAdd("row", rowRan.value, { ...aSite, today: aToday, rowTables: aRowLists });
               const rowSkipped = (Array.isArray(rowClean.skipped) ? rowClean.skipped : []).map((sk) => ({ kind: "row", ...sk, msg: addRefusal(sk.why, "row") }));
               if (!rowClean.ok) {
-                return Response.json({
+                return aNone({
                   ok: false, error: "add", kind: "row", reason: rowClean.why, cost: 0,
                   msg: addRefusal(rowClean.why, "row") + " Nothing was added.",
                   notAdded: rowSkipped.length > 1 ? rowSkipped : undefined,
-                }, { status: 422 });
+                }, 422);
               }
               const rowBill = pageCredits(...aDesignUsage);
               let rowCost = 0;
               if (aJob) {
                 rowCost = await aCharge(rowBill);
-                if (aCharges.refused() > 0) return unbilledReply(aCharges);
+                if (aCharges.refused() > 0) { const u = unbilledBody(aCharges); return aNone(u.body, u.status); }
               }
               // NO PROTECTION, NO WRITE (2026-10-01, the reviews of 31741f6f
               // and c3e310e6). Nothing was sent, so "nothing was added" is
@@ -29427,10 +29474,10 @@ async function handleRequest(request, env, ctx) {
                   // WITHOUT A KEY THE STATEMENT WROTE NONE, so the key refused
                   // can only be the list's own.
                   if (back.state !== "absent" && back.state !== "no-key") return aRowsUnknown("unread", rowSkipped);
-                  return Response.json({
+                  return aNone({
                     ok: false, error: "row-duplicate", cost: 0,
                     msg: "That list doesn't allow two entries the same, and one like this is already there — so nothing was added.",
-                  }, { status: 422 });
+                  }, 422);
                 }
                 // THE DATABASE'S OWN REFUSAL ENDED THE STATEMENT before it
                 // committed: nothing was saved, and saying so is true.
@@ -29520,7 +29567,7 @@ async function handleRequest(request, env, ctx) {
             // carries no list of what was left out, so the entry would vanish
             // unsaid. Refused instead, at no cost, with both halves named.
             if (aRowAside && aHop && aKinds.length === 1) {
-              return Response.json({ ok: false, error: "add", kind: "row", reason: "row-alone", cost: 0, msg: addRefusal("row-alone", "row") + " Nothing was changed." }, { status: 422 });
+              return aNone({ ok: false, error: "add", kind: "row", reason: "row-alone", cost: 0, msg: addRefusal("row-alone", "row") + " Nothing was changed." }, 422);
             }
             if (aHop && aKinds.length === 1) return aFailure("layer", { layer: addLayerIn(aHop, aKinds), kind: aHop });
             const aSkipped = aKinds.filter((k) => addLayerIn(k, aKinds));
@@ -29538,7 +29585,7 @@ async function handleRequest(request, env, ctx) {
             // same-name / same-destination refusals live in `cleanAdd`.
             for (const f of SINGLE_FIELDS) {
               if (aKinds.includes(f) && aHas[f]) {
-                return Response.json({ ok: false, error: "already", kind: f, cost: 0, msg: alreadyReply(f) }, { status: 422 });
+                return aNone({ ok: false, error: "already", kind: f, cost: 0, msg: alreadyReply(f) }, 422);
               }
             }
             // A TABLE ON A SITE WITH NO DATABASE IS NO LONGER REFUSED HERE
@@ -29718,6 +29765,20 @@ async function handleRequest(request, env, ctx) {
             // loop ABOVE that line. The same trap, in the same route, found by
             // reading rather than by a throw this time.
             let aTables = [], aAltered = [], aFunctions = [], aApis = [], aJobs = [], aFnErrors = [], aJobErrors = [];
+            // …AND `aProvisioned` (2026-10-06): a failure's outcome says whether
+            // a database was made for the site (`aFail`), and the first failure
+            // that composes one is a refusal in the kinds loop — four hundred
+            // lines above where the backend block used to declare it.
+            let aProvisioned = false;
+            // …AND WHAT THE SITE'S DATABASE REALLY HOLDS WHILE `aSpec` IS THE
+            // UNION (2026-10-06). The page call reads the stored spec with this
+            // change's design folded in (`unionSpec`, below) — and `aExisting`
+            // read that same `aSpec`, so a failure before the apply called this
+            // change's own unmade table "already there". Measured through the
+            // route: a compile that failed before the seam told a sign-up
+            // table nobody created as the site's own. Set when the union is
+            // taken, cleared when the apply lands and `aSpec` is read back.
+            let aSpecHad = null;
             // `holds` and `fails` are the closed vocabulary `claimEvidence`
             // checks a claim against, and `appliedFacts` owns both — LIFTED OUT
             // OF THIS ROUTE because a decision about the schema engine's own
@@ -29774,17 +29835,27 @@ async function handleRequest(request, env, ctx) {
             // on the publish's clock like `aThreeOn`, for the reply: a code
             // stored is configuration, a page rendering its binding is placement.
             let aApplied = false, aShipped = null, aLookMade = null, aPhotoMade = null, aThreeOn = [], aThreeUnsure = false, aPhotoUnsure = false, aPhotoLost = [], aPhotoShots = [], aQrShown = null;
-            const aMade = () => appliedFacts({
-              spec: aSpec, tables: aTables, altered: aAltered,
-              functions: aFunctions, apis: aApis, jobs: aJobs, fnErrors: aFnErrors,
-              pages: aShipped || [],
-              qrs: (aLookMade && aLookMade.qrs) || [],
-              three: !!(aLookMade && aLookMade.three),
-              threeOn: aThreeOn,
-              threeUnsure: aThreeUnsure,
-              photos: aPhotoMade || [],
-              shots: aPhotoShots,
-            });
+            // ⚠ ON A FAILURE (2026-10-06, `failed`, the exit's `failureOutcome`)
+            // WHAT THE PUBLISH WOULD HAVE MADE IS NOTHING, and is known to be:
+            // no page went out, a code or a scene is not live (a design that
+            // could not be put back is saved, not shown — the outcome's
+            // `saved`), and no photograph is on the site. And the database's
+            // results count only where its apply went in — a design's
+            // alterations are on `aAltered` before any statement runs.
+            const aMade = (failed = null) => {
+              const db = !failed || failed.database === "applied";
+              return appliedFacts({
+                spec: aSpec, tables: db ? aTables : [], altered: db ? aAltered : [],
+                functions: db ? aFunctions : [], apis: db ? aApis : [], jobs: db ? aJobs : [], fnErrors: db ? aFnErrors : [],
+                pages: failed ? [] : aShipped || [],
+                qrs: failed ? [] : (aLookMade && aLookMade.qrs) || [],
+                three: failed ? false : !!(aLookMade && aLookMade.three),
+                threeOn: failed ? [] : aThreeOn,
+                threeUnsure: failed ? false : aThreeUnsure,
+                photos: failed ? [] : aPhotoMade || [],
+                shots: failed ? [] : aPhotoShots,
+              });
+            };
             // WHICH STEPS THIS CHANGE CAN ANSWER "IT MADE NOTHING" FOR, and the
             // first clause is the one that does most of the work: a kind this
             // change never ran made nothing, definitionally, with no apply and
@@ -29821,7 +29892,7 @@ async function handleRequest(request, env, ctx) {
             // it reading as "still to do" over something nothing can see. Its
             // sweep mutant moves the PAIR, because a mutant of this line alone
             // cannot die and would read as a guard gap for ever.
-            const aReportable = () => {
+            const aReportable = (failed = null) => {
               const ran = new Set(aKinds || []);
               // `photo` IS ON THE PUBLISH'S CLOCK, like `page` (2026-09-19): a
               // picture's placement is not known until the merge has settled
@@ -29839,14 +29910,19 @@ async function handleRequest(request, env, ctx) {
               // answered in the opposite direction. One unreadable placement
               // makes the whole kind unreportable, because which routes it
               // would have named is exactly what could not be established.
-              const ready = {
-                page: !!aShipped, qr: !!aLookMade, three: !!aLookMade,
-                photo: !!aPhotoMade && !aPhotoUnsure,
-              };
+              // ⚠ AND ON A FAILURE (2026-10-06) THE ANSWER IS KNOWN FOR ALL OF
+              // THEM BUT ONE: nothing was published, stored or placed, so the
+              // publish's kinds made nothing (`aMade(failed)`); the database's
+              // made what its apply landed, or nothing when it never ran. Only
+              // an apply that stopped part-way (`unknown`) leaves its kinds
+              // unanswerable — what went in before the error is not known.
+              const ready = failed
+                ? { page: true, qr: true, three: true, photo: true }
+                : { page: !!aShipped, qr: !!aLookMade, three: !!aLookMade, photo: !!aPhotoMade && !aPhotoUnsure };
               return COVERAGE_STEPS.filter((k) => {
                 if (!ran.has(k)) return true;
                 if (!APPLIED_KINDS.includes(k)) return false;
-                return Object.hasOwn(ready, k) ? ready[k] : aApplied;
+                return Object.hasOwn(ready, k) ? ready[k] : failed ? failed.database !== "unknown" : aApplied;
               });
             };
             // ── WHAT THE SITE ALREADY HAD, beside what this change applied ──
@@ -29862,7 +29938,7 @@ async function handleRequest(request, env, ctx) {
             // nothing in `aMade()`, and without this the reconciliation read
             // that silence as "still to do" about something live.
             const aExisting = () => existingFacts({
-              spec: aSpec,
+              spec: aSpecHad || aSpec,
               pages: (aSrc || []).map((p) => routeOf(p && p.path)).filter(Boolean),
               // …AND THE LOOK, for the two kinds a site carries by name rather
               // than in its schema. `aLook` is the resolved config this step
@@ -29987,9 +30063,14 @@ async function handleRequest(request, env, ctx) {
               }
               return j;
             };
-            // `refused` (2026-10-06): the answer is a refusal, and nothing
-            // this request asked for was added — see the note's own half below.
-            const aCoverage = ({ refused = false } = {}) => {
+            // `failed` (2026-10-06): the answer is a failure, and this is what
+            // its own evidence says it left behind (`failureOutcome`, written
+            // by `aFail`) — see the note's own half below. `said` is the
+            // failure's own sentence, so the note never says a thing twice.
+            const aCoverage = ({ failed = null, said = "" } = {}) => {
+              // SOMETHING OF THIS CHANGE WAS BUILT: a success, or a failure
+              // whose database changes went in.
+              const built = !failed || failed.database === "applied";
               const open = unresolvedRequirements(aReq);
               const bad = [...aBadProps];
               // ── WHAT EACH REQUIREMENT CAME TO, WHOLE (2026-10-06) ──────────
@@ -29999,7 +30080,7 @@ async function handleRequest(request, env, ctx) {
               // fourth. The report is every requirement the customer hears
               // about (`requirementsTold`); the reply's facts are written from
               // it one by one, and the note from it whole.
-              const aRep = requirementReport(aReq, { told: [...aTold], invalid: bad, failed: [...aFailedKinds], failedItems: aFailedItems(), made: aMade(), reportable: aReportable(), existing: aExisting(), unexpressed: [...aUnexpressed], judged: true });
+              const aRep = requirementReport(aReq, { told: [...aTold], invalid: bad, failed: [...aFailedKinds], failedItems: aFailedItems(), made: aMade(failed), reportable: aReportable(failed), existing: aExisting(), unexpressed: [...aUnexpressed], judged: true });
               // …AND EVERYTHING ELSE THE NOTE SAYS, which is about this change
               // rather than about a requirement: the reply's facts carry it
               // beside the requirements (`coverOther`), never twice.
@@ -30055,13 +30136,18 @@ async function handleRequest(request, env, ctx) {
               // keeps only the two COUNTED sentences, which name no items.
               const aWarned = warningReport({ missing: aMissing, deadQr: aDeadQr, seedSkips: aSeedSkips, noFill: aNoFill });
               const aCounted = [aProps, aPartly].filter(Boolean);
-              // ⚠ A REFUSAL'S NOTE (2026-10-06): the requirements and the
-              // change's own items, and NOT the two counted sentences — "so
-              // it's on the database's own default" and "Part of that didn't
-              // get built" describe a change that was built, and nothing was.
-              // The browser prints this under the refusal's own sentence.
-              const aNote = refused
-                ? [toldNote(aRep.told), ...aOther.filter((x) => x !== aProps && x !== aPartly)]
+              // ⚠ A FAILURE'S NOTE (2026-10-06): the requirements and the
+              // change's own items, and the two counted sentences only beside
+              // database changes that went in — "so it's on the database's own
+              // default" and "Part of that didn't get built" describe a change
+              // that was built. Then what no exit's own sentence says it left
+              // (`failureNote`). The browser prints this under the failure's
+              // own sentence, so a sentence that sentence already says is left
+              // out here (a code and the pages that went with it, said by the
+              // QR refusal itself).
+              const aNote = failed
+                ? [toldNote(aRep.told), ...aOther.filter((x) => built || (x !== aProps && x !== aPartly)), failureNote(failed)]
+                    .filter((x) => !(x && typeof said === "string" && said.includes(x)))
                 : [toldNote(aRep.told), ...aOther];
               return {
                 // THE CUSTOMER'S HALF: a sentence, or nothing at all. Never the
@@ -30087,7 +30173,7 @@ async function handleRequest(request, env, ctx) {
                 // counted sentences beside them (none on a refusal).
                 requirementsTold: aRep.told.length ? aRep.told : undefined,
                 warningsTold: aWarned.length ? aWarned : undefined,
-                coverOther: !refused && aCounted.length ? aCounted.join(" ") : undefined,
+                coverOther: built && aCounted.length ? aCounted.join(" ") : undefined,
                 // THE WIRE'S HALF, for the browser to render and a test to read.
                 requirements: open.length ? open.slice(0, 12) : undefined,
                 // THE DEVELOPER'S HALF, kept off the customer's sentence.
@@ -30146,6 +30232,31 @@ async function handleRequest(request, env, ctx) {
                 backend: aBack.state,
                 backendHealed: aHealedRef || undefined,
               };
+            };
+            // ── EVERY FAILURE AFTER THE DESIGN SAYS WHAT IT LEFT BEHIND (2026-10-06) ──
+            //
+            // The owner, on 08b9a657: *"Extend the shared outcome reporting
+            // across the later Add-on failure exits using existing applied,
+            // migration and publish evidence … ok:false alone must never
+            // establish that nothing changed or that something already
+            // existed."* One door for all of them: the exit's own answer, the
+            // coverage composed against what its evidence says (`aCoverage`),
+            // and that evidence as `outcome` (`failureOutcome`), which the
+            // reply's facts, the browser and a stored answer all read.
+            //
+            // `database` is the exit's to say — `none` for every exit before
+            // the publish's seam, the compile exit's own reading after it —
+            // and the rest is read here, off the route's applied results.
+            // The exit's own fields win over the coverage's (a QR refusal's
+            // `missingPages`), and execution, charging and retries are the
+            // exit's, untouched: this only says what happened.
+            const aFail = (body, status, { database = "none", saved = false, photos = 0 } = {}) => {
+              const failed = failureOutcome({
+                database,
+                made: { tables: aTables, altered: aAltered.map((x) => x && x.table), functions: aFunctions, apis: aApis, jobs: aJobs.map((j) => j && j.name) },
+                provisioned: aProvisioned, saved, photos,
+              });
+              return Response.json({ ...aCoverage({ failed, said: body.msg }), ...body, outcome: failed }, { status });
             };
             // A DESIGNER THAT ASKED (2026-10-02): its kind and its question.
             let aStepAsk = null;
@@ -30250,7 +30361,7 @@ async function handleRequest(request, env, ctx) {
                 // here leaves the requirements unjudged and untold — the
                 // refusal is the answer, and it says nothing was added.
                 if (aReq.length) await aJudge(aReq.slice());
-                return Response.json({ ok: false, error: "add", kind: k, reason: clean.why, cost: 0, msg: addRefusal(clean.why, k), ...aCoverage({ refused: true }) }, { status: 422 });
+                return aFail({ ok: false, error: "add", kind: k, reason: clean.why, cost: 0, msg: addRefusal(clean.why, k) }, 422);
               }
               // ── VALIDATED BEFORE ANYTHING IS APPLIED (owner, 2026-09-13) ──
               //
@@ -30502,7 +30613,7 @@ async function handleRequest(request, env, ctx) {
               // say why — run 28's three blind declines. The coverage list
               // survives an answer that designed nothing, which is the whole
               // reason it rides beside `value` rather than inside it.
-              return Response.json({ ok: false, error: "declined", kinds: aDeclined, cost: 0, msg: addRefusal("nothing"), ...aCoverage({ refused: true }) }, { status: 422 });
+              return aFail({ ok: false, error: "declined", kinds: aDeclined, cost: 0, msg: addRefusal("nothing") }, 422);
             }
             // THE FOLD: what the look and the schema store, what the page call
             // is told, and the union of kit parts it is shown the props of.
@@ -30581,7 +30692,9 @@ async function handleRequest(request, env, ctx) {
             // `aJobErrors` IS DECLARED WITH THE OTHER APPLIED RESULTS, above the
             // kinds loop — `aFailedItems()` reads it and a refusal there can
             // compose the coverage before this line ever runs.
-            let aProvisioned = false, aSecrets = [];
+            // `aProvisioned` IS DECLARED WITH THE OTHER APPLIED RESULTS, above the
+            // kinds loop, for `aJobErrors`' reason: a failure's outcome reads it.
+            let aSecrets = [];
             // What sequence #1 reserved ahead of the schema apply, and whether it
             // did — see the block before `aApplyBackend`.
             let aFirst = 0, aFirstPlaced = false;
@@ -30624,12 +30737,19 @@ async function handleRequest(request, env, ctx) {
                   // the build route's own rule — a dead key, a quota and Neon
                   // being down each need a different fix and read alike
                   // without them. Ours, never "try describing it differently".
-                  return Response.json({
+                  // THROUGH THE ONE DOOR (2026-10-06), so the requirements the
+                  // judgment settled are told beside it. Its outcome is no
+                  // change: the provision threw before `aProvisioned`, and
+                  // nothing below it ran. A project a later stage left behind
+                  // is not linked to the site (that is `save_backend`, the
+                  // last stage) and the next ask reuses it, never makes a
+                  // second (`lookupProject`) — the site itself is unchanged.
+                  return aFail({
                     ok: false, error: "provision", cost: 0, ours: true,
                     msg: "That needed a database for your site and one couldn't be made right now — this is on us, and nothing was changed. Try again in a few minutes.",
                     upstream: (e && e.status) || null, stage: (e && e.stage) || null,
                     detail: scrubSecrets(String((e && (e.detail || e.message)) || "")).slice(0, 300),
-                  }, { status: 502 });
+                  }, 502);
                 }
                 // A DATABASE JUST MADE STORES NOTHING — the honest spec, the
                 // one a site with no database was described by above.
@@ -30713,7 +30833,7 @@ async function handleRequest(request, env, ctx) {
               if (aJob) {
                 aFirst = await aCharge(pageCredits(...aDesignUsage, aSeedUsage));
                 aFirstPlaced = true;
-                if (aCharges.refused() > 0) return unbilledReply(aCharges);
+                if (aCharges.refused() > 0) { const u = unbilledBody(aCharges); return aFail(u.body, u.status); }
               }
               // ── THE SCHEMA IS APPLIED AFTER THE COMPILE (stage 8) ──────────
               //
@@ -30727,6 +30847,7 @@ async function handleRequest(request, env, ctx) {
               // designed, so the reply says what the engine made of THEM — a
               // function that failed to CREATE is in `functionErrors`, never
               // in `functions`.
+              aSpecHad = aSpec;
               aSpec = unionSpec(aSpec, merged);
               const aNamed = (k) => (Array.isArray(aDesigned[k]) ? aDesigned[k] : []).map((x) => x && String(x.name || "").toLowerCase()).filter(Boolean);
               aApplyBackend = async (version) => {
@@ -30752,6 +30873,7 @@ async function handleRequest(request, env, ctx) {
                   // since it was built.
                   aTables = folded.added;
                   aSpec = (await loadSiteSchema(adb).catch(() => null)) || merged;
+                  aSpecHad = null;
                 } catch (e) {
                   // `failed`: nothing activated, the refund clean — the seam
                   // answers a refusal and the route says it is ours; the
@@ -30945,7 +31067,9 @@ async function handleRequest(request, env, ctx) {
               // already placed and a refusal already answered, above.
               if (aApplyBackend) {
                 const ap = await aApplyBackend(null);
-                if (!ap.ok) return Response.json({ ok: false, error: "schema", cost: 0, ours: true, msg: ADDON_SCHEMA_FAIL_MSG, detail: ap.detail, migration: migrationSummary(aMigration) }, { status: 502 });
+                // AN APPLY THAT STOPPED PART-WAY (2026-10-06): what went in
+                // before the error is not known, and the answer says so.
+                if (!ap.ok) return aFail({ ok: false, error: "schema", cost: 0, ours: true, msg: ADDON_SCHEMA_FAIL_MSG, detail: ap.detail, migration: migrationSummary(aMigration) }, 502, { database: "unknown" });
                 aMigration = (await settleSiteMigration(env, ownerSlug, aMigJob, "applied", { publish: { ok: true, pageless: true } })) || aMigration;
                 // THE STORED COVERAGE, RE-WRITTEN OVER THE APPLIED RESULT
                 // (owner, 2026-09-14). The write above the loop was decided
@@ -31095,10 +31219,10 @@ async function handleRequest(request, env, ctx) {
             // it always was; the buy below asks the same question once more,
             // for a purchase that fails after the page was written.
             const aPhotoOnly = aKinds.length === 1 && aKinds[0] === "photo";
-            const aNoPhoto = () => Response.json({
+            const aNoPhoto = () => aFail({
               ok: false, error: "no-photo", cost: 0,
               msg: noPhotoMsg() + (aRowAside && !aRowCarried ? " " + addRefusal("row-alone", "row") : ""),
-            }, { status: 422 });
+            }, 422);
             if (aPhotoOnly && !aFold.reuse.length && !aShots.length) {
               aMark("photos", "skip", { planned: aFold.photos.length, offered: 0, reuse: 0 });
               return aNoPhoto();
@@ -31325,13 +31449,13 @@ async function handleRequest(request, env, ctx) {
               aMark("pages", "fail", { error: String((e && e.message) || e).slice(0, 200), ms: Date.now() - aPagesT0, ...callFailure(e) });
               console.error("addon generate failed:", ownerSlug, e && e.message, JSON.stringify(callFailure(e)));
               const aKind = upstreamKind(e && e.detail, e && e.status);
-              return Response.json({
+              return aFail({
                 ok: false, error: "generate", cost: 0,
                 msg: aKind.billing
                   ? "The site builder is temporarily unavailable — this is on us, not your change."
                   : "The builder is busy — try again in a moment.",
                 upstream: (e && e.status) || null, upstreamType: aKind.type, billing: aKind.billing || undefined,
-              }, { status: 503 });
+              }, 503);
             }
 
             // `knownRoutes` for the same reason as the page-edit lane: without
@@ -31443,10 +31567,10 @@ async function handleRequest(request, env, ctx) {
             // recorded "a considered refusal does not climb the ladder", met
             // from the refusing side.
             if (!aMerge.ok && aRewrote.length) {
-              return Response.json({
+              return aFail({
                 ok: false, error: "unseen-rewrite", cost: 0, keptPages: aRewrote.slice(),
                 msg: unseenPagesNote(aRewrote),
-              }, { status: 422 });
+              }, 422);
             }
             // A CONSIDERED REFUSAL DOES NOT CLIMB THE LADDER. Escalation is for
             // "this lane could not answer" — the rung above rewrites the whole
@@ -31454,7 +31578,7 @@ async function handleRequest(request, env, ctx) {
             // an answer, and sending it up rebuilds a customer's site, for ~25
             // credits, in reply to a request that should have been one sentence.
             if (!aMerge.ok && aMerge.msg) {
-              return Response.json({ ok: false, error: aMerge.reason, cost: 0, msg: aMerge.msg.trim() }, { status: 422 });
+              return aFail({ ok: false, error: aMerge.reason, cost: 0, msg: aMerge.msg.trim() }, 422);
             }
             // …AND NEITHER DOES A CONSIDERED REFUSAL FROM THE MODEL, which is the
             // same rule one branch up and did not cover the commonest case of it.
@@ -31485,11 +31609,11 @@ async function handleRequest(request, env, ctx) {
             // on this path really does take nothing off the ledger.
             const aNote = aGen && aGen.input && typeof aGen.input.notes === "string" ? aGen.input.notes.trim() : "";
             if (!aMerge.ok && aMerge.reason === "nothing-returned" && aNote) {
-              return Response.json({ ok: false, error: aMerge.reason, cost: 0, msg: aNote.slice(0, 500) }, { status: 422 });
+              return aFail({ ok: false, error: aMerge.reason, cost: 0, msg: aNote.slice(0, 500) }, 422);
             }
             // No usable/effective output is a stop, including unknown reasons.
             // The explanatory refusals and the model's own note above win.
-            if (!aMerge.ok) return aFailure(aMerge.reason, { problems: aProblems.slice(0, 4) });
+            if (!aMerge.ok) return aFail(addonFailure(aMerge.reason, { problems: aProblems.slice(0, 4) }), 200);
 
             // ── WHAT WAS THERE IS STILL THERE (owner, 2026-09-04: "add a second one") ──
             //
@@ -31516,7 +31640,7 @@ async function handleRequest(request, env, ctx) {
             }
             aMark("kept", aLost.length ? "fail" : "ok", { changed: aMerge.changed.length, lost: aLost.map((l) => l.path) });
             if (aLost.length) {
-              return Response.json({ ok: false, error: "rewrote", cost: 0, lost: aLost, msg: rewroteMsg(aLost) }, { status: 422 });
+              return aFail({ ok: false, error: "rewrote", cost: 0, lost: aLost, msg: rewroteMsg(aLost) }, 422);
             }
             // ── MAY THIS STILL PUBLISH? (async path) ──────────────────────
             //
@@ -31670,14 +31794,14 @@ async function handleRequest(request, env, ctx) {
                 // (2026-10-06): the codes' own sentence says "that page", and
                 // on this refusal nothing before it said which — the missing
                 // page reached neither the screen nor the stored answer.
-                return Response.json({
+                return aFail({
                   ok: false, error: "qr-dependency", cost: 0,
                   missingPages: aGone.length ? aGone.slice() : undefined,
                   droppedQrs: aDeadQr.dropped.slice(),
                   heldPages: aDeadQr.withheld.map((w) => w.path),
                   heldParts: aDeadQr.withheldParts.length ? aDeadQr.withheldParts.map((w) => w.name) : undefined,
                   msg: [missingPagesNote(aGone), deadQrNote(aDeadQr)].filter(Boolean).join(" ").trim(),
-                }, { status: 422 });
+                }, 422);
               }
               aMerge = aHeld;
               // AND WHAT IS STILL GOING OUT IS RE-ASKED, never patched — the
@@ -31734,11 +31858,11 @@ async function handleRequest(request, env, ctx) {
             const aPhotosAt = photosLanded(aSrc, aMerge.pages, aFold.reuse, ownerSlug);
             aMark("landed", aWordsAt.ok && aPhotosAt.ok ? "ok" : "fail", { words: aFold.words.length, photos: aFold.reuse.length, missing: aWordsAt.missing.length + aPhotosAt.missing.length });
             if (!aWordsAt.ok || !aPhotosAt.ok) {
-              return Response.json({
+              return aFail({
                 ok: false, error: "not-landed", cost: 0,
                 missing: { words: aWordsAt.missing.slice(), photos: aPhotosAt.missing.slice() },
-                msg: notLandedMsg({ words: aWordsAt.missing, photos: aPhotosAt.missing }),
-              }, { status: 422 });
+                msg: notLandedMsg({ words: aWordsAt.missing, photos: aPhotosAt.missing }, { changed: aProvisioned }),
+              }, 422);
             }
 
             // EACH PAGE THE MENU-LINK STEP BELOW CHANGES, with its source after it (`settleReverted`).
@@ -31789,7 +31913,7 @@ async function handleRequest(request, env, ctx) {
             const aBill = aFirstPlaced ? pageCredits(aGen && aGen.usage) : pageCredits(...aDesignUsage, aGen && aGen.usage, aSeedUsage);
             let aCost = 0;
             if (aJob) aCost = aFirstPlaced ? aFirst + await aCharge(aBill, 4) : await aCharge(aBill);
-            if (aJob && aCharges.refused() > 0) return unbilledReply(aCharges);
+            if (aJob && aCharges.refused() > 0) { const u = unbilledBody(aCharges); return aFail(u.body, u.status); }
 
             // THE COMPONENTS THE ADDON WROTE GO WITH THE PAGES, merged over the
             // stored list by name — the page rung's own fix, one rung up.
@@ -31908,10 +32032,10 @@ async function handleRequest(request, env, ctx) {
             const aKeptPics = keptImages(aPicsBefore, aPicsAfter, ownerSlug);
             aMark("pics", aKeptPics.ok ? "ok" : "fail", { lost: aKeptPics.lost.length });
             if (!aKeptPics.ok) {
-              return Response.json({
+              return aFail({
                 ok: false, error: "lost-photos", cost: 0, lostPhotos: aKeptPics.lost.slice(),
                 msg: lostPhotosMsg(aKeptPics.lost),
-              }, { status: 422 });
+              }, 422);
             }
             // ── AND A `src` THIS SITE DOES NOT OWN NEVER SHIPS (2026-09-19) ──
             //
@@ -32029,7 +32153,12 @@ async function handleRequest(request, env, ctx) {
               const w = await patchSiteConfig(env, ownerSlug, adb, aLookPatch);
               if (!w.ok) {
                 console.error("addon look store failed:", ownerSlug, w.error);
-                return Response.json({ ok: false, error: "config", cost: 0, msg: "That addition couldn't be saved, so your site is untouched — try again in a moment." }, { status: 503 });
+                // "UNTOUCHED" ONLY WHEN IT IS (2026-10-06): a database made for
+                // the site before this write is live, so it is said as what did
+                // not happen.
+                return aFail({ ok: false, error: "config", cost: 0, msg: aProvisioned
+                  ? "That addition couldn't be saved, so it wasn't published — try again in a moment."
+                  : "That addition couldn't be saved, so your site is untouched — try again in a moment." }, 503);
               }
               aStored = true;
             }
@@ -32371,19 +32500,38 @@ async function handleRequest(request, env, ctx) {
               if (aMigration && !aSchemaFail && aMigration.status === "pending") {
                 aMigration = (await settleSiteMigration(env, ownerSlug, aMigJob, "applied_without_page", { publish: { ok: false, error: String(aPub.error || ""), detail: String(aPub.detail || "").slice(0, 200) } })) || aMigration;
               }
-              return Response.json({
+              // ── WHAT IT LEFT BEHIND, FROM ITS OWN EVIDENCE (2026-10-06) ─────
+              //
+              // Codex, on 08b9a657: a publish that failed after the apply was
+              // told "Nothing was added", under the sentence saying the tables
+              // were made. THE APPLY'S OWN FLAG, never the record's state alone:
+              // a settle that could not be written leaves the record `pending`
+              // with its tables live (`settleSiteMigration` answers null and the
+              // pending entry stands). `aApplied` is set after the apply's last
+              // throwing statement, so it is true exactly when it landed; a
+              // record filed and never landed is an apply that threw part-way —
+              // the engine runs one statement at a time, so what went in is not
+              // known — and no record is no apply (the compile failed before the
+              // seam, or the ledger refused it there).
+              const aDb = aApplied ? "applied" : aMigration ? "unknown" : "none";
+              // SOMETHING OUTSIDE THE PUBLISH CHANGED — the database's changes,
+              // or a database made for the site — so neither "nothing was
+              // changed" nor "untouched" is said: each sentence says what did
+              // not happen (`compileMsg`'s `landed`), and the outcome what did.
+              const aLanded = aDb !== "none" || aProvisioned;
+              return aFail({
                 ok: false, error: aSchemaFail ? "schema" : "compile", cost: 0,
                 ...(aSchemaFail ? { ours: true } : {}),
                 msg: aSchemaFail
-                  ? (aKept
-                    ? "That change needed the site's database and it couldn't be applied — this is on us, and your live site wasn't changed. Try again in a few minutes." + KEPT_CHANGE_NOTE
-                    : ADDON_SCHEMA_FAIL_MSG)
+                  ? ADDON_SCHEMA_FAIL_MSG + (aKept ? KEPT_CHANGE_NOTE : "")
                   : [migrationNote(aMigration), compileMsg(aPub, aKept
                     ? "That addition didn't compile, so your live site wasn't changed — try describing it differently."
-                    : "That addition didn't compile, so your site is untouched — try describing it differently.", false, aKept)].filter(Boolean).join(" "),
+                    : aLanded
+                      ? "That addition didn't compile, so it wasn't published — try describing it differently."
+                      : "That addition didn't compile, so your site is untouched — try describing it differently.", aLanded, aKept)].filter(Boolean).join(" "),
                 detail: aPub.detail,
                 migration: migrationSummary(aMigration),
-              }, { status: aSchemaFail ? 502 : 422 });
+              }, aSchemaFail ? 502 : 422, { database: aDb, saved: aKept, photos: (aPhotos && aPhotos.made) || 0 });
             }
             // THE RECORD IS `applied` ONCE THE PAGE IS LIVE (stage 8), naming
             // the version that went live — the spine's own answer, the same

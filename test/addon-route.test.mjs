@@ -1637,8 +1637,16 @@ test("a coverage composed before anything published cannot answer `absent` for a
   // opens *"I've set that up"*.
   assert.equal(want.state, "unknown");
   assert.equal(cov.counts.missing, 0, "work that was never attempted was reported as work that is not there");
-  assert.doesNotMatch(r.body.coverNote || "", /Still to do/,
-    "a refused change reported its unattempted pages as still to do: " + r.body.coverNote);
+  // ⚠ AND THE FAILURE'S OWN ANSWER IS COMPOSED AFTER THE PUBLISH HAS SAID NO
+  // (2026-10-06). This asserted the answer's note never said "Still to do",
+  // when the compile exit carried no coverage at all. Every failure after the
+  // design carries it now (`aFail`), composed once the failure is known: no
+  // page went out, so the page the requirement asks for is not there — known,
+  // not unknown — and the note says it is still to do. The record above is
+  // composed before the publish and keeps the cannot-tell answer.
+  assert.deepEqual(r.body.outcome, { state: "none", published: false, database: "none" }, JSON.stringify(r.body.outcome));
+  assert.deepEqual(r.body.requirementsTold.map((o) => [o.told, o.need]), [["still-to-do", WANT.need]]);
+  assert.match(r.body.coverNote || "", /Still to do: A page lists the waiting list\./, r.body.coverNote);
   assert.doesNotMatch(r.body.coverNote || "", /I've set that up/,
     "a change that published nothing claimed it had set the page up: " + r.body.coverNote);
 });
@@ -6926,8 +6934,12 @@ test("a photograph cannot be reported absent before the publish has said anythin
   assert.equal(q.implementation, "unknown",
     "a picture was reported absent before the publish could say anything: " + JSON.stringify(q));
   assert.equal(q.state, "unknown");
-  assert.doesNotMatch(r.body.coverNote || "", /Still to do/,
-    "work that was never attempted was reported as outstanding: " + r.body.coverNote);
+  // ⚠ AND THE REFUSAL'S OWN ANSWER SAYS IT IS NOT DONE (2026-10-06): composed
+  // once the refusal is known (`aFail`), it knows nothing was placed — the
+  // record above is composed before the refusal and keeps cannot-tell.
+  assert.deepEqual(r.body.outcome, { state: "none", published: false, database: "none" });
+  assert.deepEqual(r.body.requirementsTold.map((o) => [o.told, o.need]), [["still-to-do", HANDOFF.need]]);
+  assert.doesNotMatch(r.body.coverNote || "", /I've set that up/, r.body.coverNote);
 });
 
 /* ═══════════════════════════════════════════════════════════════════════════

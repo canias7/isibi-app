@@ -161,7 +161,10 @@ test("the addon merges the designed look, tells the page call the bindings, stor
   // STORED AFTER EVERY REFUSAL AND BEFORE THE PUBLISH, so a refused addon
   // leaves the site as it was and the container bakes the new mark.
   const store = b.indexOf("await patchSiteConfig(env, ownerSlug, adb, aLookPatch)");
-  const climb = b.indexOf("if (!aMerge.ok) return aFailure(aMerge.reason");
+  // RE-ANCHORED (2026-10-06): the merge's last refusal answers through the
+  // failure door (`aFail`) since a failure says what it left behind; the
+  // property — the look stored after it — is unchanged.
+  const climb = b.indexOf("if (!aMerge.ok) return aFail(addonFailure(aMerge.reason");
   const publish = b.indexOf("const aPub = await recompileAndPublish(env, {");
   assert.ok(store > 0 && climb > 0 && publish > 0, "a landmark is gone");
   assert.ok(climb < store && store < publish, "the look must be stored after the last refusal and before the publish");

@@ -157,7 +157,10 @@ import { IMAGE_CAP, MAX_PROMPT_CHARS, imageRefs, imageSources, imageRefCounts, i
 // part of `TABLE_ITEM`: that item is bound by identity into `design_schema` too,
 // so anything added there enlarges the build's tool and becomes a promise the
 // engine must keep. A coverage note is neither — no DDL, nothing in `_meta`.
-import { REQUIREMENT_ITEM, MAX_REQUIREMENTS, MAX_SUGGESTIONS, SITE_KINDS, TABLE_PARTS, FOLLOWS, CARRIED, carrierOf, cleanRequirements, cleanSuggestions, requirementBrief, readVerdicts } from "./site-requirements.mjs";
+import { REQUIREMENT_ITEM, MAX_REQUIREMENTS, MAX_SUGGESTIONS, SITE_KINDS, TABLE_PARTS, FOLLOWS, CARRIED, carrierOf, cleanRequirements, cleanSuggestions, requirementBrief, readVerdicts, toldNote } from "./site-requirements.mjs";
+// THE ONE READER OF A FAILED ADDITION'S OUTCOME AND ITS STORED LISTS (2026-10-06):
+// a stored answer's note is composed from what the reply's facts read, by the same rule.
+import { FAILURE_STATES, outcomeOf, toldAs, toldEntries, warnedEntries } from "./site-reply.mjs";
 // THE TWO BODY WALLS, IMPORTED RATHER THAN RETYPED. Both engines SLICE, and a
 // slice is silent: the cleaner refuses at the same number so the customer hears
 // about it instead of the site quietly POSTing half a request for ever. The
@@ -4483,15 +4486,21 @@ export function photosLanded(before, after, items, slug) {
   return { ok: missing.length === 0, missing };
 }
 
-/** The sentence for an addition that did not arrive where it was asked for. */
-export function notLandedMsg({ words = [], photos = [] } = {}) {
+/**
+ * The sentence for an addition that did not arrive where it was asked for.
+ *
+ * `changed` (2026-10-06): something outside the publish already changed — a
+ * database made for the site before the page came back — so "nothing on your
+ * site changed" would be false, and what is said is what did not happen.
+ */
+export function notLandedMsg({ words = [], photos = [] } = {}, { changed = false } = {}) {
   const what = [];
   if (words.length) what.push(words.length === 1 ? "the new words" : "the new lines");
   if (photos.length) what.push(photos.length === 1 ? "the photograph" : "the photographs");
   // "The new words" are always "them"; only a single photograph is "it".
   const one = words.length === 0 && photos.length === 1;
   return "I couldn't add " + (what.join(" or ") || "that") + " — the page came back without " + (one ? "it" : "them") +
-    ", so nothing on your site changed. Try again in a moment.";
+    (changed === true ? ", so it wasn't published." : ", so nothing on your site changed.") + " Try again in a moment.";
 }
 
 /**
@@ -5534,17 +5543,31 @@ function fillTables(names) {
  * read, so it starts empty" of all of them — of a table that "already has
  * rows" too, which is the opposite. The other four are named with no reason
  * here; the reply model is told each one's own (`warningReport`).
+ *
+ * ⚠ AND THE DISPLAY-ONLY REASON IS THE RULE, NOT A CLAIM ABOUT THE TABLE
+ * (2026-10-06, the owner: *"a seeding restriction does not prove visitors
+ * cannot read the table"*). The engine seeds only a table anyone can read and
+ * no visitor can change, so a table visitors read and members write is
+ * skipped too — and "isn't one visitors can read, so it starts empty" was
+ * false of it twice over: visitors read it, and one the site already had
+ * keeps the rows it has. The sentence says the rule the engine applied, as
+ * the reply model's fact does, and claims nothing else.
  */
 export function seedSkipNote(skipped) {
   // NOTHING SELECTED SAYS NOTHING — never a sentence about no table, which is
   // the "imply seeding was required when it wasn't" the owner ruled out. An
   // empty list and a list whose entries carry no table name (`"  "`,
-  // `": nothing"`) both select nothing (`seedSkipsOf`). The early return below
-  // is a shortcut, declared rather than deleted: without it the three groups
-  // are empty and so is the sentence. What really stands between a list of
-  // blanks and a sentence about no table is `seedSkipsOf`'s blank-name check,
-  // and that is what the sweep mutates (2026-10-06; it was two checks here).
-  const list = seedSkipsOf(skipped);
+  // `": nothing"`) both select nothing (`seedSkipsOf`). The early return in
+  // `seedSkipSentence` is a shortcut, declared rather than deleted: without it
+  // the three groups are empty and so is the sentence. What really stands
+  // between a list of blanks and a sentence about no table is `seedSkipsOf`'s
+  // blank-name check, and that is what the sweep mutates (2026-10-06; it was
+  // two checks here).
+  return seedSkipSentence(seedSkipsOf(skipped));
+}
+
+/** The seed note from skips already read (`{name, why}`, each once): `seedSkipNote`'s and a stored answer's (`replayedCoverNote`). */
+function seedSkipSentence(list) {
   if (!list.length) return "";
   // EVERY TABLE (2026-10-06): it named three and counted the rest.
   const empty = list.filter((s) => s.why === "not-display").map((s) => s.name);
@@ -5552,9 +5575,7 @@ export function seedSkipNote(skipped) {
   const other = list.filter((s) => s.why !== "not-display" && s.why !== "row-failed").map((s) => s.name);
   const out = [];
   if (empty.length) {
-    out.push(empty.length === 1
-      ? "I had starter rows ready for " + empty[0] + " and didn't put them in — that table isn't one visitors can read, so it starts empty."
-      : "I had starter rows ready for " + empty.join(", ") + " and didn't put them in — those tables aren't ones visitors can read, so they start empty.");
+    out.push("I had starter rows ready for " + empty.join(", ") + " and didn't put them in — I only add starter rows to a table anyone can read and no visitor can change.");
   }
   // A ROW REFUSED IS NOT A TABLE SKIPPED: each row is tried on its own, so
   // this says what is known — not all of them went in — and no more.
@@ -5627,6 +5648,115 @@ export function warningReport({ missing = [], deadQr = null, seedSkips = [], noF
   for (const s of seedSkipsOf(seedSkips)) out.push({ what: "seed", name: s.name, ...(s.why ? { why: s.why } : {}) });
   for (const n of fillTables(noFill)) out.push({ what: "fill", name: n });
   return out;
+}
+
+// ── WHAT A FAILED ADDITION LEFT BEHIND (2026-10-06) ────────────────────────
+//
+// The owner, on 08b9a657: *"Extend the shared outcome reporting across the
+// later Add-on failure exits using existing applied, migration and publish
+// evidence. Distinguish no changes, partial application, unpublished work and
+// unknown outcomes; ok:false alone must never establish that nothing changed
+// or that something already existed."* Codex reproduced why: a publish that
+// failed after the database changes had gone in was told "Nothing was added",
+// beside the sentence saying the tables were made.
+//
+// ONE PRODUCER FOR EVERY FAILURE AFTER THE DESIGN. The route hands in what its
+// own evidence says at the exit, and the answer carries this beside its
+// coverage, so the reply's facts (`outcomeOf`), the browser and a stored answer
+// read one reading:
+//
+//   database     `none` — the apply never ran: every exit before the publish
+//                seam, a compile that failed before it, a ledger that refused
+//                it; `applied` — it landed, and what it made is live whatever
+//                the page then did; `unknown` — it threw part-way, and the
+//                engine applies one statement at a time, so what went in
+//                before the error is not known.
+//   made         what the apply landed, by name, read only when `applied`:
+//                the tables this change added, the ones it altered, the
+//                functions the engine created, the connections and the
+//                scheduled jobs the merge kept and registered.
+//   provisioned  a database was made for the site before the exit.
+//   saved        the stored design could not be put back after the publish
+//                failed (`KEPT_CHANGE_NOTE`'s state): saved, and not live.
+//   photos       photographs made and kept in the site's uploads, not shown.
+//
+// `state` IS THE SUMMARY, FIRST MATCH WINS: `unknown`, then `partial`
+// (something of this change is live), then `unpublished` (something is saved
+// and not live), then `none`. The fields keep every part, so a change partly
+// live AND with a design that could not be put back loses neither half.
+// `published` is always false: no failure answer published anything.
+export function failureOutcome({ database = "none", made = null, provisioned = false, saved = false, photos = 0 } = {}) {
+  const db = database === "applied" || database === "unknown" ? database : "none";
+  const names = (v) => [...new Set((Array.isArray(v) ? v : []).filter((x) => typeof x === "string" && x.trim()))];
+  const m = made && typeof made === "object" ? made : {};
+  const live = {};
+  if (db === "applied") {
+    for (const k of ["tables", "altered", "functions", "apis", "jobs"]) {
+      const list = names(m[k]);
+      if (list.length) live[k] = list;
+    }
+  }
+  const n = Number.isSafeInteger(photos) && photos > 0 ? photos : 0;
+  const state = db === "unknown" ? FAILURE_STATES[3]
+    : db === "applied" || provisioned === true ? FAILURE_STATES[1]
+      : saved === true || n > 0 ? FAILURE_STATES[2] : FAILURE_STATES[0];
+  return {
+    state, published: false, database: db, ...live,
+    ...(provisioned === true ? { provisioned: true } : {}),
+    ...(saved === true ? { saved: true } : {}),
+    ...(n ? { photos: n } : {}),
+  };
+}
+
+/**
+ * THE CUSTOMER'S SENTENCES FOR WHAT NO EXIT'S OWN SENTENCE SAYS: a database
+ * made along the way that nothing of this change went into, and photographs
+ * kept in the uploads. The database changes that did go in are the migration
+ * record's sentence (`migrationNote`, before the compile sentence), a design
+ * that could not be put back is `KEPT_CHANGE_NOTE`'s, and an apply that
+ * stopped part-way is the schema sentence's — each said once, by its owner.
+ */
+export function failureNote(outcome) {
+  const o = outcome && typeof outcome === "object" ? outcome : {};
+  const out = [];
+  if (o.provisioned === true && o.database !== "applied") out.push("I did set up a database for your site along the way — nothing from this is stored in it yet.");
+  const n = Number.isSafeInteger(o.photos) && o.photos > 0 ? o.photos : 0;
+  if (n) {
+    out.push(n === 1
+      ? "The photograph I made for it is in your uploads, though it isn't on your site."
+      : "The " + n + " photographs I made for it are in your uploads, though they aren't on your site.");
+  }
+  return out.join(" ");
+}
+
+/**
+ * A FAILED ADDITION'S ANSWER STORED BEFORE `outcome` (2026-10-06), AS THE
+ * BROWSER IS SHOWN IT. Its note was composed by a route that did not yet know
+ * what a failure leaves behind, and an older refusal's says "I've set that up"
+ * of what the site already had (Codex, on 08b9a657) — so that note is never
+ * shown. What is shown is composed from the lists it carries, every
+ * requirement said as `toldAs` says it under the answer's own outcome — the
+ * reply's facts' rule, so the screen and the reply tell one story — and every
+ * thing it could not do. `""` when it carries neither list, or one that does
+ * not read: cannot-tell is never the old note.
+ */
+export function replayedCoverNote(a) {
+  const out = outcomeOf(a);
+  const told = toldEntries(a);
+  const warned = warnedEntries(a);
+  if (!out || !told || !warned) return "";
+  const of = (what) => warned.filter((w) => w.what === what);
+  return [
+    toldNote(told.map((o) => ({ ...o, told: toldAs(o, out) }))),
+    missingPagesNote(of("page").map((w) => w.name)),
+    deadQrNote({
+      dropped: of("qr").map((w) => ({ name: w.name })),
+      withheld: of("held-page").map((w) => ({ path: w.name, added: w.added === true })),
+      withheldParts: of("held-section").map((w) => ({ name: w.name, added: w.added === true })),
+    }),
+    seedSkipSentence(of("seed").map((w) => ({ name: w.name, why: w.why || "" }))),
+    populationNote(of("fill").map((w) => w.name)),
+  ].filter(Boolean).join(" ");
 }
 
 export function addRepairNote(round) {

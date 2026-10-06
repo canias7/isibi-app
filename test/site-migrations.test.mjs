@@ -296,7 +296,9 @@ test("inside the closure: the record is filed pending before the first statement
   // THE RESERVE PRECEDES THE CLOSURE — and so the DDL, on both paths.
   const first = at(block, "aFirst = await aCharge(pageCredits(...aDesignUsage, aSeedUsage));", "sequence #1");
   assert.ok(first < at(block, "aApplyBackend = async (version) => {"), "sequence #1 is not placed before the closure is built");
-  assert.match(block.slice(first, at(block, "aApplyBackend = async (version) => {")), /if \(aCharges\.refused\(\) > 0\) return unbilledReply\(aCharges\);/, "a refused #1 does not stop before the closure");
+  // RE-ANCHORED 2026-10-06: the refusal is `unbilledReply`'s answer through the
+  // route's failure door (`aFail`), which adds what the failure left behind.
+  assert.match(block.slice(first, at(block, "aApplyBackend = async (version) => {")), /if \(aCharges\.refused\(\) > 0\) \{ const u = unbilledBody\(aCharges\); return aFail\(u\.body, u\.status\); \}/, "a refused #1 does not stop before the closure");
 });
 
 test("the pageless path applies directly, answers a refused apply as ours at 502 with the record, marks a landed one applied, and carries the record on its answer", () => {
@@ -305,8 +307,10 @@ test("the pageless path applies directly, answers a refused apply as ours at 502
   const call = at(pl, "const ap = await aApplyBackend(null);", "the direct apply");
   const cost = at(pl, "const aCostNow = aFirstPlaced ? aFirst : await aCharge(", "the pageless charge");
   assert.ok(call < cost, "the pageless path takes its money before the apply");
-  assert.match(pl, /if \(!ap\.ok\) return Response\.json\(\{ ok: false, error: "schema", cost: 0, ours: true, msg: ADDON_SCHEMA_FAIL_MSG, detail: ap\.detail, migration: migrationSummary\(aMigration\) \}, \{ status: 502 \}\);/,
-    "a refused apply on the pageless path is not answered as ours, at 502, with the record");
+  // RE-ANCHORED 2026-10-06: through the failure door, and an apply that stopped
+  // part-way is one whose database outcome is not known.
+  assert.match(pl, /if \(!ap\.ok\) return aFail\(\{ ok: false, error: "schema", cost: 0, ours: true, msg: ADDON_SCHEMA_FAIL_MSG, detail: ap\.detail, migration: migrationSummary\(aMigration\) \}, 502, \{ database: "unknown" \}\);/,
+    "a refused apply on the pageless path is not answered as ours, at 502, with the record and an unknown database");
   assert.match(pl, /aMigration = \(await settleSiteMigration\(env, ownerSlug, aMigJob, "applied", \{ publish: \{ ok: true, pageless: true \} \}\)\) \|\| aMigration;/, "a landed pageless apply is not marked applied");
   assert.ok(at(pl, 'settleSiteMigration(env, ownerSlug, aMigJob, "applied"') < cost, "the mark is not before the charge");
   assert.match(pl, /migration: migrationSummary\(aMigration\),\s*cost: aCostNow,/, "the pageless answer does not carry the record");
@@ -345,13 +349,22 @@ test("after the publish: a refused apply is the schema sentence at 502 and ours;
   // whether the look went back (`aKept`), the untouched wording only when it did.
   const msgAt = at(fail, "msg: aSchemaFail", "the failure sentence");
   const msg = fail.slice(msgAt, at(fail, "migration: migrationSummary(aMigration),", "the record on the reply"));
-  assert.match(msg, /^msg: aSchemaFail\s*\? \(aKept\s*\? "[^"]+" \+ KEPT_CHANGE_NOTE\s*: ADDON_SCHEMA_FAIL_MSG\)\s*:/,
+  // RE-ANCHORED 2026-10-06 (the owner, on 08b9a657: *"ok:false alone must
+  // never establish that nothing changed"*): the schema sentence no longer
+  // calls the database untouched, so one sentence serves both arms with the
+  // kept note beside it; and the compile arm says "untouched" only when nothing
+  // outside the publish changed (`aLanded`), which `compileMsg` is told too.
+  assert.match(msg, /^msg: aSchemaFail\s*\? ADDON_SCHEMA_FAIL_MSG \+ \(aKept \? KEPT_CHANGE_NOTE : ""\)\s*:/,
     "a refused apply is not the schema sentence, or a revert that failed is not said on it");
-  assert.match(msg, /: \[migrationNote\(aMigration\), compileMsg\(aPub, aKept\s*\? "[^"]+"\s*: "That addition didn't compile, so your site is untouched — try describing it differently\.", false, aKept\)\]\.filter\(Boolean\)\.join\(" "\),/,
-    "the customer is not told what stands in the database before the compile sentence, or the revert's result does not reach it");
+  assert.match(msg, /: \[migrationNote\(aMigration\), compileMsg\(aPub, aKept\s*\? "[^"]+"\s*: aLanded\s*\? "That addition didn't compile, so it wasn't published — try describing it differently\."\s*: "That addition didn't compile, so your site is untouched — try describing it differently\.", aLanded, aKept\)\]\.filter\(Boolean\)\.join\(" "\),/,
+    "the customer is not told what stands in the database before the compile sentence, or the revert's result or what landed does not reach it");
+  // WHAT IT LEFT BEHIND IS READ OFF THE APPLY'S OWN FLAG, never the record alone.
+  assert.match(fail, /const aDb = aApplied \? "applied" : aMigration \? "unknown" : "none";/, "the database's outcome is not read off the apply's own flag");
+  assert.match(fail, /const aLanded = aDb !== "none" \|\| aProvisioned;/, "a database made for the site does not count as something that changed");
+  assert.ok(at(fail, "const aDb =", "the outcome") > at(fail, "const aSchemaFail", "the schema test"), "the outcome is read before the record is settled");
   assert.ok(at(fail, "if (!back.ok) { aKept = true;", "the revert's result") < msgAt, "the revert's result is not known before the sentence is composed");
   assert.match(fail, /migration: migrationSummary\(aMigration\),/, "the failure reply does not carry the record");
-  assert.match(fail, /\{ status: aSchemaFail \? 502 : 422 \}/, "a refused apply is not a 502");
+  assert.match(fail, /\}, aSchemaFail \? 502 : 422, \{ database: aDb, saved: aKept, photos: \(aPhotos && aPhotos\.made\) \|\| 0 \}\);/, "a refused apply is not a 502, or the failure door is not told what the publish left behind");
   // The revert of the look still comes first.
   assert.ok(at(fail, "patchSiteConfig(env, ownerSlug, adb, { look: aLook, css: aCss })", "the look revert") < at(fail, "const aSchemaFail", "the schema test"), "the look is not put back before the record is read");
   // The applied mark sits AFTER the failure branch (a failed publish never
@@ -364,9 +377,10 @@ test("after the publish: a refused apply is the schema sentence at 502 and ours;
   assert.match(r.slice(applied - 80, applied), /if \(aMigration && aMigration\.status === "pending"\) \{\s*$/, "a settled record is marked applied again, or a record that was never filed is");
   const reply = between(r, "return Response.json({\n              ok: true,", "cost: aCost,\n            });", "the success reply");
   assert.match(reply, /migration: migrationSummary\(aMigration\),/, "the success reply does not carry the record");
-  // The old sentence is gone from the route: nothing says "untouched" for a
-  // schema failure without the constant that keeps it true.
-  assert.match(W, /const ADDON_SCHEMA_FAIL_MSG = "That change needed the site's database and it couldn't be applied — this is on us, and your site is untouched\. Try again in a few minutes\.";/);
+  // THE SCHEMA SENTENCE IS ONE CONSTANT, and it no longer calls the site
+  // untouched (2026-10-06): the engine applies one statement at a time, so
+  // what went in before a refusal is not known.
+  assert.match(W, /const ADDON_SCHEMA_FAIL_MSG = "That change needed the site's database and it couldn't be applied — this is on us\. Your live pages weren't changed, but some of the database change may already have gone in before it stopped; asking again won't make anything twice\. Try again in a few minutes\.";/);
 });
 
 test("the store: read and write are best-effort under the answer store's key, a fresh record replaces its job's, a settle answers null for a job with no record; the reconcile settles a pending record after the money, inside its own try", () => {

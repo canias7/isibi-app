@@ -358,7 +358,9 @@ test("the addon lane provisions ONLY on first touch of the backend, and charges 
 test("a failed compile preserves the live site, and unusable output stops", () => {
   const b = addonBlock();
   assert.match(b, /site is untouched/, "a failed compile must promise the live site survived");
-  assert.match(b, /if \(!aMerge\.ok\) return aFailure\(aMerge\.reason/,
+  // RE-ANCHORED 2026-10-06: the stop is the same failure, said through the
+  // route's failure door (`aFail`), which adds what it left behind.
+  assert.match(b, /if \(!aMerge\.ok\) return aFail\(addonFailure\(aMerge\.reason/,
     "nothing usable back must stop rather than report success");
   // COMMENTS BLANKED FIRST. The first version of this loop listed
   // "no-backend" and kept passing after that refusal was deleted, because the
@@ -1218,7 +1220,7 @@ test("the route hands a considered refusal to the customer, not to the build lan
   assert.ok(end > at, "the publish that bounds this region moved — rescope this");
   const after = w.slice(at, end);
   const refuse = after.indexOf("if (!aMerge.ok && aMerge.msg)");
-  const stop = after.indexOf("return aFailure(aMerge.reason");
+  const stop = after.indexOf("return aFail(addonFailure(aMerge.reason");
   assert.ok(refuse > 0, "a refusal with a reason still escalates to the build lane");
   assert.ok(stop > 0, "the generic stop is missing");
   assert.ok(refuse < stop, "the generic stop hides the specific refusal");
@@ -1829,7 +1831,7 @@ test("the addon reports the model's own note instead of escalating", () => {
     "the refusal branch is gone or no longer requires a note");
   // The model note must precede the generic stop explanation.
   const refusal = win.indexOf('aMerge.reason === "nothing-returned"');
-  const stop = win.indexOf("return aFailure(aMerge.reason");
+  const stop = win.indexOf("return aFail(addonFailure(aMerge.reason");
   assert.ok(refusal > 0 && stop > 0 && refusal < stop,
     "the model note must take precedence over the generic stop");
 });
@@ -1842,7 +1844,7 @@ test("unexplained unusable output stops instead of escalating", () => {
   const at = w.indexOf("aMerge = mergeAddonPages(");
   assert.ok(at > 0, "the addon merge moved — rescope this");
   const win = w.slice(at, w.indexOf("recompileAndPublish(env, {", at));
-  assert.match(win, /if \(!aMerge\.ok\) return aFailure\(aMerge\.reason/,
+  assert.match(win, /if \(!aMerge\.ok\) return aFail\(addonFailure\(aMerge\.reason/,
     "the unexplained-failure path must stop");
 });
 

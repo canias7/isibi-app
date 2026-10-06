@@ -1095,10 +1095,16 @@ test("a seed skip is said as an effect, and nothing is said when nothing was ski
   assert.equal(A.seedSkipNote([]), "");
   assert.equal(A.seedSkipNote(null), "");
   assert.equal(A.seedSkipNote(["   "]), "", "a blank entry produced a sentence about nothing");
-  // THE ENGINE'S OWN SENTENCE, rendered as an effect rather than as our rule.
+  // THE ENGINE'S OWN SENTENCE, rendered as what happened — the rows did not go
+  // in — and the rule in the customer's words rather than ours. RE-ANCHORED
+  // 2026-10-06 (the owner: "a seeding restriction does not prove visitors
+  // cannot read the table"): "starts empty" was false of a table the site
+  // already had, and "isn't one visitors can read" of one visitors read and
+  // members write — so the effect said is the one true of every skip.
   const one = A.seedSkipNote(["repairs: only display tables are seeded (read none / write none)"]);
-  assert.match(one, /starter rows ready for repairs/);
-  assert.match(one, /starts empty/, "the sentence does not say what it means for the feature");
+  assert.match(one, /starter rows ready for repairs and didn't put them in/, "the sentence does not say what it means for the feature");
+  assert.match(one, /a table anyone can read and no visitor can change/, "the rule the engine applied is not said");
+  assert.doesNotMatch(one, /starts empty|can't read|isn't one visitors/, "the sentence claims something the rule does not establish");
   assert.ok(!/display table/.test(one), "our own vocabulary reached the customer");
   // TWO READS AS TWO.
   assert.match(A.seedSkipNote(["a: x", "b: y"]), /\ba, b\b/);

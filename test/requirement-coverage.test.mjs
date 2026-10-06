@@ -59,9 +59,11 @@ const C = blank(CHAT);
 // blanked text, and a blanker that ate the file satisfies each absence check
 // perfectly — this repository's most-recorded trap, met in a lint, a router
 // guard, an absence check and a scope scan.
-// RE-ANCHORED 2026-10-06: the composer takes `{ refused }`, so a refusal's
-// note says nothing that describes a change that was built.
-assert.ok(W.includes("const aCoverage = ({ refused = false } = {}) =>"), "the blanker ate the worker's coverage composer");
+// RE-ANCHORED 2026-10-06, TWICE: the composer took `{ refused }`, so a
+// refusal's note says nothing that describes a change that was built; it takes
+// a failure's outcome now (`{ failed, said }`), so every failure's note is
+// composed against what its evidence says it left behind.
+assert.ok(W.includes('const aCoverage = ({ failed = null, said = "" } = {}) =>'), "the blanker ate the worker's coverage composer");
 assert.ok(C.includes("function addonReplyText"), "the blanker ate the browser's addon reader");
 
 const toolReply = (name, input) => ({ content: [{ type: "tool_use", name, input }], usage: { input_tokens: 1, output_tokens: 1 } });
@@ -467,13 +469,18 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   // HOP 5 AND 6: every exit carries it. Four of them, and the two failures are
   // the ones that matter — an `ok: false` is where a customer most needs to
   // hear what the change could not do.
-  const spread = W.split("...aCoverage(").length - 1;
-  assert.ok(spread >= 4, "not every exit carries the coverage: " + spread + " of 4");
-  // RE-ANCHORED 2026-10-06: both refusals say they are refusals, so their
-  // note says nothing that describes a change that was built.
-  assert.match(W, /error: "add", kind: k, reason: clean\.why, cost: 0, msg: addRefusal\(clean\.why, k\), \.\.\.aCoverage\(\{ refused: true \}\)/,
+  // RE-ANCHORED 2026-10-06 (TWICE THAT DAY): the two successes spread it, and
+  // every failure after the design carries it through ONE door, `aFail`, which
+  // composes it against what that failure's evidence says it left behind — so
+  // the count is the successes' spreads plus the door's own, and the door must
+  // really be the way every one of those failures answers.
+  assert.equal(W.split("...aCoverage()").length - 1, 2, "a success no longer carries the coverage");
+  assert.match(W, /return Response\.json\(\{ \.\.\.aCoverage\(\{ failed, said: body\.msg \}\), \.\.\.body, outcome: failed \}, \{ status \}\);/, "the failure door does not carry the coverage and the outcome");
+  const doors = W.split("return aFail(").length - 1;
+  assert.ok(doors >= 14, "not every failure after the design answers through the door: " + doors);
+  assert.match(W, /return aFail\(\{ ok: false, error: "add", kind: k, reason: clean\.why, cost: 0, msg: addRefusal\(clean\.why, k\) \}, 422\);/,
     "a cleaner's refusal drops the coverage");
-  assert.match(W, /error: "declined", kinds: aDeclined, cost: 0, msg: addRefusal\("nothing"\), \.\.\.aCoverage\(\{ refused: true \}\)/,
+  assert.match(W, /return aFail\(\{ ok: false, error: "declined", kinds: aDeclined, cost: 0, msg: addRefusal\("nothing"\) \}, 422\);/,
     "the all-declined answer drops the coverage — the one shape this was built for");
   // RE-ANCHORED 2026-09-14. The composer took the kinds that RAN and decided a
   // hand-off against them; it reads `aTold` — the steps really handed an
@@ -496,11 +503,12 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   // and one set. What replaces the old assertion is the pair below, which is
   // the same property one layer over: the composer must read the recorded
   // `aTold` and the APPLIED result, and must not reach for the picked kinds.
-  const covAt = at("const aCoverage = ({ refused = false } = {}) => {", "the coverage composer");
+  const covAt = at('const aCoverage = ({ failed = null, said = "" } = {}) => {', "the coverage composer");
   const covBody = W.slice(covAt, W.indexOf("\n            };", covAt));
   assert.ok(covBody.length > 200, "the composer's body could not be found: " + covBody.length);
   assert.match(covBody, /told: \[\.\.\.aTold\]/, "the note is not told which steps were handed a requirement");
-  assert.match(covBody, /made: aMade\(\)/, "the note is not told what was really applied");
+  // RE-ANCHORED 2026-10-06: told what the failure settled, when it is one.
+  assert.match(covBody, /made: aMade\(failed\), reportable: aReportable\(failed\)/, "the note is not told what was really applied");
   // AND IT DOES NOT REACH FOR THE PICKED KINDS: `aKinds` is every kind the
   // PICKER named, including ones that declined and ones nobody handed
   // anything, and reading it here is the lie this whole shape is about.
@@ -557,7 +565,9 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   const noteAt = W.indexOf("requirementReport(aReq, { told:");
   assert.ok(noteAt > 0, "the customer's coverage sentence is gone");
   const noteCall = W.slice(noteAt, W.indexOf("})", noteAt) + 2);
-  for (const field of ["failed: [...aFailedKinds]", "made: aMade()", "told: [...aTold]"]) {
+  // RE-ANCHORED 2026-10-06: `aMade` is told what a failure settled (`failed`,
+  // null on a success), so its call carries the outcome.
+  for (const field of ["failed: [...aFailedKinds]", "made: aMade(failed)", "told: [...aTold]"]) {
     assert.ok(noteCall.includes(field), "the customer's sentence cannot tell delivered from unverified: no `" + field + "`");
   }
   // …AND THE EVIDENCE IS WHAT WAS REALLY APPLIED, never what the model said and
@@ -570,12 +580,16 @@ test("HOPS 3, 5, 6, 7 and 8 are wired in the route, each read by its own conditi
   // off the CLEANED DESIGNS — so a function Postgres refused to create counted
   // as evidence for the job that names it. The lists it must read now are the
   // APPLIED ones.
-  const madeAt = W.indexOf("const aMade = () => appliedFacts({");
+  // RE-ANCHORED 2026-10-06: the reader takes a failure's outcome, and on one
+  // whose database changes did not go in it answers none of them (`db`) — the
+  // lists it reads otherwise are still the applied ones, by name.
+  const madeAt = W.indexOf("const aMade = (failed = null) => {");
   assert.ok(madeAt > 0, "the evidence reader is gone");
   const made = W.slice(madeAt, W.indexOf("});", madeAt) + 3);
-  for (const list of ["tables: aTables", "altered: aAltered", "functions: aFunctions", "apis: aApis", "jobs: aJobs", "fnErrors: aFnErrors"]) {
+  for (const list of ["tables: db ? aTables : []", "altered: db ? aAltered : []", "functions: db ? aFunctions : []", "apis: db ? aApis : []", "jobs: db ? aJobs : []", "fnErrors: db ? aFnErrors : []"]) {
     assert.ok(made.includes(list), "the evidence does not read what this change really applied: no `" + list + "`");
   }
+  assert.match(made, /const db = !failed \|\| failed\.database === "applied";/, "the database's results count where its apply did not go in");
   // NOT the model's answer, and NOT the proposal: `aAnswers`/`aDesigned` are
   // what was SAID, and `aNewNames` is what was going to be done.
   assert.doesNotMatch(made, /aAnswers|aDesigned|aNewNames/, "a claim is checked against itself, or against the proposal");

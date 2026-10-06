@@ -523,7 +523,14 @@ test("the step imports nothing from worker.js and carries none of the build's to
     // policy every hop of a site's conversation reads — how long one message
     // may be — so this step sends the whole message the route kept rather than
     // a cut of its own. Numbers and their reasons; no path's wording.
-    assert.ok(["./site-plan.mjs", "./clarify.mjs", "./input-budget.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs", "./site-tweak.mjs", "./site-render.mjs", "./site-langs.mjs", "./site-requirements.mjs", "./site-files.mjs", "./site-images.mjs", "./site-rows.mjs", "./site-text.mjs", "../site-access.mjs", "../site-schema.mjs", "../site-apis.mjs", "../site-api-shape.mjs", "../site-rls.mjs"].includes(from),
+    // `./site-reply.mjs` (2026-10-06) is the ONE READER of a failed addition's
+    // outcome and of the requirement and warning lists an answer stores
+    // (`outcomeOf`, `toldAs`, `toldEntries`, `warnedEntries`): a stored
+    // answer's note (`replayedCoverNote`) is composed from them by the rule the
+    // reply's facts use, so the screen and the reply cannot tell two stories.
+    // It is dependency-light by its own rule and carries the reply model's
+    // facts, no path's tool or wording.
+    assert.ok(["./site-plan.mjs", "./clarify.mjs", "./input-budget.mjs", "./site-reply.mjs", "./site-table.mjs", "./site-addon.mjs", "./build-models.mjs", "./site-qr-list.mjs", "./site-tweak.mjs", "./site-render.mjs", "./site-langs.mjs", "./site-requirements.mjs", "./site-files.mjs", "./site-images.mjs", "./site-rows.mjs", "./site-text.mjs", "../site-access.mjs", "../site-schema.mjs", "../site-apis.mjs", "../site-api-shape.mjs", "../site-rls.mjs"].includes(from),
       "the add step reaches into a module the two paths do not share: " + from);
     assert.notEqual(from, "./site-repair.mjs", "the add step imports the BUILD's repair — the addon path triggering the build path");
   }
@@ -1449,7 +1456,9 @@ test("THE BACKEND HOPS: the site is described with its columns and tiers, design
   assert.match(fail, /error: "provision", cost: 0, ours: true,/, "a failed provision is not named as ours at no charge");
   assert.match(fail, /stage: \(e && e\.stage\) \|\| null,/, "a failed provision does not say which call failed");
   assert.match(fail, /detail: scrubSecrets\(/, "the detail is not scrubbed");
-  assert.match(fail, /status: 502/);
+  // THROUGH THE FAILURE DOOR since 2026-10-06 (`aFail(body, 502)`), so its
+  // requirements are told beside it; the status is the door's second argument.
+  assert.match(fail, /return aFail\(\{\s*ok: false, error: "provision"[\s\S]*?\}, 502\);/, "a failed provision is not answered 502 through the failure door");
   assert.match(fail, /aSpec = \{ tables: \[\] \};/, "a database just made is not described as empty");
   // RE-ANCHORED, NOT APPEASED (2026-09-15). This was pinned to
   // `let adb = await siteBackendBySlug(env, ownerSlug);` — the SPELLING of a

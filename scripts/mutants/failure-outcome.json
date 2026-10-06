@@ -1,0 +1,518 @@
+[
+ {
+  "label": "CONTROL: a comment in the outcome's producer changes nothing",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "// ── WHAT A FAILED ADDITION LEFT BEHIND (2026-10-06) ────────────────────────\n//\n// The owner, on 08b9a657: *\"Extend",
+  "to": "// ── WHAT A FAILED ADDITION LEFT BEHIND (2026-10-06, control) ───────────────\n//\n// The owner, on 08b9a657: *\"Extend",
+  "control": true
+ },
+ {
+  "label": "CONTROL: a comment in the outcome's reader changes nothing",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "// ── WHAT A FAILED ADDITION LEFT BEHIND (2026-10-06) ────────────────────────\n//\n// The owner, on 08b9a657: *\"Distinguish",
+  "to": "// ── WHAT A FAILED ADDITION LEFT BEHIND (2026-10-06, control) ───────────────\n//\n// The owner, on 08b9a657: *\"Distinguish",
+  "control": true
+ },
+ {
+  "label": "CONTROL: a comment in the route's failure door changes nothing",
+  "files": [
+   "worker.js"
+  ],
+  "from": "// ── EVERY FAILURE AFTER THE DESIGN SAYS WHAT IT LEFT BEHIND (2026-10-06) ──",
+  "to": "// ── EVERY FAILURE AFTER THE DESIGN SAYS WHAT IT LEFT BEHIND (2026-10-06, c) ──",
+  "control": true
+ },
+ {
+  "label": "CONTROL: a comment in the browser's gate changes nothing",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "// WHAT A FAILED ADDITION SAYS IT LEFT BEHIND (2026-10-06): the server's",
+  "to": "// WHAT A FAILED ADDITION SAYS IT LEFT BEHIND (2026-10-06, control): the server's",
+  "control": true
+ },
+ {
+  "label": "A1: an apply that stopped part-way reads as partial",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "const state = db === \"unknown\" ? FAILURE_STATES[3]",
+  "to": "const state = db === \"unknown\" ? FAILURE_STATES[1]"
+ },
+ {
+  "label": "A2: a database made along the way is not a change",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": ": db === \"applied\" || provisioned === true ? FAILURE_STATES[1]",
+  "to": ": db === \"applied\" ? FAILURE_STATES[1]"
+ },
+ {
+  "label": "A3: photographs kept in the uploads are not unpublished work",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": ": saved === true || n > 0 ? FAILURE_STATES[2] : FAILURE_STATES[0];",
+  "to": ": saved === true ? FAILURE_STATES[2] : FAILURE_STATES[0];"
+ },
+ {
+  "label": "A4: names are read off an apply that never landed",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  if (db === \"applied\") {\n    for (const k of [\"tables\", \"altered\", \"functions\", \"apis\", \"jobs\"]) {",
+  "to": "  if (db !== \"none\") {\n    for (const k of [\"tables\", \"altered\", \"functions\", \"apis\", \"jobs\"]) {"
+ },
+ {
+  "label": "A5: the outcome drops the database made along the way",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    ...(provisioned === true ? { provisioned: true } : {}),\n    ...(saved === true ? { saved: true } : {}),",
+  "to": "    ...({}),\n    ...(saved === true ? { saved: true } : {}),"
+ },
+ {
+  "label": "A6: the database made along the way is said beside changes that went in",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "if (o.provisioned === true && o.database !== \"applied\") out.push(",
+  "to": "if (o.provisioned === true) out.push("
+ },
+ {
+  "label": "A7: kept photographs are not said",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  const n = Number.isSafeInteger(o.photos) && o.photos > 0 ? o.photos : 0;\n  if (n) {",
+  "to": "  const n = 0;\n  if (n) {"
+ },
+ {
+  "label": "A8: a stored answer's set-up is shown as set up",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "toldNote(told.map((o) => ({ ...o, told: toldAs(o, out) }))),",
+  "to": "toldNote(told),"
+ },
+ {
+  "label": "A9: a stored answer's old note is shown when its lists do not read",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "  if (!out || !told || !warned) return \"\";",
+  "to": "  if (!out || !told || !warned) return String((a && a.coverNote) || \"\");"
+ },
+ {
+  "label": "A10: a stored answer's seed skips are not shown",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    seedSkipSentence(of(\"seed\").map((w) => ({ name: w.name, why: w.why || \"\" }))),",
+  "to": "    \"\","
+ },
+ {
+  "label": "A11: the display-only skip says visitors cannot read the table",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": " and didn't put them in — I only add starter rows to a table anyone can read and no visitor can change.\");",
+  "to": " and didn't put them in — that table isn't one visitors can read, so it starts empty.\");"
+ },
+ {
+  "label": "A12: an addition that did not land ignores what else changed",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "(changed === true ? \", so it wasn't published.\" : \", so nothing on your site changed.\")",
+  "to": "(\", so nothing on your site changed.\")"
+ },
+ {
+  "label": "R1: an outcome whose summary its fields contradict is trusted",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "  return o.state === state;\n}",
+  "to": "  return true;\n}"
+ },
+ {
+  "label": "R2: an outcome that says it published is trusted",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "if (!FAILURE_STATES.includes(o.state) || o.published !== false ||",
+  "to": "if (!FAILURE_STATES.includes(o.state) ||"
+ },
+ {
+  "label": "R3: names are trusted beside an apply that never landed",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "(o.database === \"applied\" && Array.isArray(v) && v.length > 0 &&",
+  "to": "(Array.isArray(v) && v.length > 0 &&"
+ },
+ {
+  "label": "R4: an older answer's applied database record reads as nothing changed",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "if (m && m.status === \"applied_without_page\") return { state: \"partial\", published: false, database: \"applied\" };",
+  "to": "if (m && m.status === \"applied_without_page\") return { state: \"none\", published: false, database: \"none\" };"
+ },
+ {
+  "label": "R5: an older answer's unsettled record is not an unknown apply",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "  if (m && (m.status === \"pending\" || m.status === \"failed\")) return { state: \"unknown\", published: false, database: \"unknown\" };\n",
+  "to": ""
+ },
+ {
+  "label": "R6: an older designer refusal is not read as nothing changed",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "  if (a.error === \"add\" || a.error === \"declined\") return { state: \"none\", published: false, database: \"none\" };\n",
+  "to": ""
+ },
+ {
+  "label": "R7: ok:false alone establishes that nothing changed",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "  return { state: \"unknown\", published: false, database: \"unknown\", recorded: false };\n}",
+  "to": "  return { state: \"none\", published: false, database: \"none\" };\n}"
+ },
+ {
+  "label": "R8: a requirement carried by changes that went in becomes the site's own",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "if (!out || out.database === \"applied\" || (t !== \"set-up\" && t !== \"scheduled\")) return t;",
+  "to": "if (!out || (t !== \"set-up\" && t !== \"scheduled\")) return t;"
+ },
+ {
+  "label": "R9: an apply nobody can read leaves a set-up already there",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "  return out.database === \"unknown\" ? \"unseen\" : \"already-there\";",
+  "to": "  return \"already-there\";"
+ },
+ {
+  "label": "R10: a failure's note is the fallback when its lists do not read",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "    const s = out ? \"\" : said(a.coverNote);",
+  "to": "    const s = said(a.coverNote);"
+ },
+ {
+  "label": "R11: a failure tells the counted sentences of a change that was not built",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "  const rest = out && out.database !== \"applied\" ? \"\" : said(a.coverOther);",
+  "to": "  const rest = said(a.coverOther);"
+ },
+ {
+  "label": "R12: every failure but a partial one is told as nothing added",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "  if (out.state === \"none\") { F.add(\"not-done\", \"Nothing was added.\" + why); return; }",
+  "to": "  if (out.state !== \"partial\") { F.add(\"not-done\", \"Nothing was added.\" + why); return; }"
+ },
+ {
+  "label": "R13: what went in is not told",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "  if (live.length) F.add(\"changed\", \"Part of this addition went in and is live: \" + listOf(live) + \".\");",
+  "to": "  if (false) F.add(\"changed\", \"Part of this addition went in and is live: \" + listOf(live) + \".\");"
+ },
+ {
+  "label": "R14: the database made along the way is not told",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "  if (out.provisioned === true) F.add(\"changed\", \"The site has its own database now\"",
+  "to": "  if (false) F.add(\"changed\", \"The site has its own database now\""
+ },
+ {
+  "label": "R15: an apply nobody can read is not said as unknown",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "  if (out.database === \"unknown\") {\n    F.add(\"note\", out.recorded === false",
+  "to": "  if (false) {\n    F.add(\"note\", out.recorded === false"
+ },
+ {
+  "label": "R16: a design that could not be put back is not told",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "  if (out.saved === true) F.add(\"note\", \"The change itself is still saved, so it could go out with their next edit.\");",
+  "to": "  if (false) F.add(\"note\", \"The change itself is still saved, so it could go out with their next edit.\");"
+ },
+ {
+  "label": "R17: kept photographs are not told",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "  if (out.photos > 0) {",
+  "to": "  if (false) {"
+ },
+ {
+  "label": "R18: the facts read ok:false as nothing changed (the reported defect)",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": "    const out = outcomeOf(a);\n    const own = said(a.msg);",
+  "to": "    const out = { state: \"none\", published: false, database: \"none\" };\n    const own = said(a.msg);"
+ },
+ {
+  "label": "M1: the migration sentence names every table the apply re-ran",
+  "files": [
+   "builder/site-migrations.mjs"
+  ],
+  "from": "  const t = mine(\"added\");",
+  "to": "  const t = [...applied];"
+ },
+ {
+  "label": "W1: a failure's answer carries no outcome",
+  "files": [
+   "worker.js"
+  ],
+  "from": "return Response.json({ ...aCoverage({ failed, said: body.msg }), ...body, outcome: failed }, { status });",
+  "to": "return Response.json({ ...aCoverage({ failed, said: body.msg }), ...body }, { status });"
+ },
+ {
+  "label": "W2: a failure's coverage is composed as a success's",
+  "files": [
+   "worker.js"
+  ],
+  "from": "return Response.json({ ...aCoverage({ failed, said: body.msg }), ...body, outcome: failed }, { status });",
+  "to": "return Response.json({ ...aCoverage({ said: body.msg }), ...body, outcome: failed }, { status });"
+ },
+ {
+  "label": "W3: the coverage overwrites the exit's own fields",
+  "files": [
+   "worker.js"
+  ],
+  "from": "return Response.json({ ...aCoverage({ failed, said: body.msg }), ...body, outcome: failed }, { status });",
+  "to": "return Response.json({ ...body, ...aCoverage({ failed, said: body.msg }), outcome: failed }, { status });"
+ },
+ {
+  "label": "W4: the failure door forgets the database made along the way",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                provisioned: aProvisioned, saved, photos,",
+  "to": "                provisioned: false, saved, photos,"
+ },
+ {
+  "label": "W5: the compile exit says nothing went in",
+  "files": [
+   "worker.js"
+  ],
+  "from": "const aDb = aApplied ? \"applied\" : aMigration ? \"unknown\" : \"none\";",
+  "to": "const aDb = \"none\";"
+ },
+ {
+  "label": "W6: an apply that stopped part-way reads as one that landed",
+  "files": [
+   "worker.js"
+  ],
+  "from": "const aDb = aApplied ? \"applied\" : aMigration ? \"unknown\" : \"none\";",
+  "to": "const aDb = aApplied ? \"applied\" : aMigration ? \"applied\" : \"none\";"
+ },
+ {
+  "label": "W7: a database made along the way leaves the compile sentence 'untouched'",
+  "files": [
+   "worker.js"
+  ],
+  "from": "const aLanded = aDb !== \"none\" || aProvisioned;",
+  "to": "const aLanded = aDb !== \"none\";"
+ },
+ {
+  "label": "W8: the publish's sentence is not told something landed",
+  "files": [
+   "worker.js"
+  ],
+  "from": "\"That addition didn't compile, so your site is untouched — try describing it differently.\", aLanded, aKept)]",
+  "to": "\"That addition didn't compile, so your site is untouched — try describing it differently.\", false, aKept)]"
+ },
+ {
+  "label": "W9: the schema sentence drops the kept-change note",
+  "files": [
+   "worker.js"
+  ],
+  "from": "? ADDON_SCHEMA_FAIL_MSG + (aKept ? KEPT_CHANGE_NOTE : \"\")",
+  "to": "? ADDON_SCHEMA_FAIL_MSG"
+ },
+ {
+  "label": "W10: the schema sentence calls the site untouched again",
+  "files": [
+   "worker.js"
+  ],
+  "from": "const ADDON_SCHEMA_FAIL_MSG = \"That change needed the site's database and it couldn't be applied — this is on us. Your live pages weren't changed, but some of the database change may already have gone in before it stopped; asking again won't make anything twice. Try again in a few minutes.\";",
+  "to": "const ADDON_SCHEMA_FAIL_MSG = \"That change needed the site's database and it couldn't be applied — this is on us, and your site is untouched. Try again in a few minutes.\";"
+ },
+ {
+  "label": "W11: a failure's note keeps the counted sentences",
+  "files": [
+   "worker.js"
+  ],
+  "from": ".filter((x) => built || (x !== aProps && x !== aPartly))",
+  "to": ".filter((x) => true)"
+ },
+ {
+  "label": "W12: a failure's note repeats what its own sentence says",
+  "files": [
+   "worker.js"
+  ],
+  "from": ".filter((x) => !(x && typeof said === \"string\" && said.includes(x)))",
+  "to": ".filter((x) => true)"
+ },
+ {
+  "label": "W13: a failure's note drops what no exit sentence says",
+  "files": [
+   "worker.js"
+  ],
+  "from": ", failureNote(failed)]",
+  "to": ", \"\"]"
+ },
+ {
+  "label": "W14: a failure carries the counted sentences for the facts",
+  "files": [
+   "worker.js"
+  ],
+  "from": "coverOther: built && aCounted.length ? aCounted.join(\" \") : undefined,",
+  "to": "coverOther: aCounted.length ? aCounted.join(\" \") : undefined,"
+ },
+ {
+  "label": "W15: a failure counts a saved code as made",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                qrs: failed ? [] : (aLookMade && aLookMade.qrs) || [],",
+  "to": "                qrs: (aLookMade && aLookMade.qrs) || [],"
+ },
+ {
+  "label": "W16: a failure counts a design's alterations as applied",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                spec: aSpec, tables: db ? aTables : [], altered: db ? aAltered : [],",
+  "to": "                spec: aSpec, tables: db ? aTables : [], altered: aAltered,"
+ },
+ {
+  "label": "W17: a failure leaves the page unanswerable",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                ? { page: true, qr: true, three: true, photo: true }",
+  "to": "                ? { page: false, qr: true, three: true, photo: true }"
+ },
+ {
+  "label": "W18: an apply nobody can read leaves its kinds answerable",
+  "files": [
+   "worker.js"
+  ],
+  "from": "return Object.hasOwn(ready, k) ? ready[k] : failed ? failed.database !== \"unknown\" : aApplied;",
+  "to": "return Object.hasOwn(ready, k) ? ready[k] : failed ? true : aApplied;"
+ },
+ {
+  "label": "W19: a stop before anything carries no outcome",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              return Response.json(f.escalate ? f : { ...f, outcome: failureOutcome() });",
+  "to": "              return Response.json(f);"
+ },
+ {
+  "label": "W20: a refusal before any write carries no outcome",
+  "files": [
+   "worker.js"
+  ],
+  "from": "            const aNone = (body, status) => Response.json({ ...body, outcome: failureOutcome() }, { status });",
+  "to": "            const aNone = (body, status) => Response.json(body, { status });"
+ },
+ {
+  "label": "W21: the poll serves an older failure as it was stored",
+  "files": [
+   "worker.js"
+  ],
+  "from": "  if (typeof out.coverNote === \"string\" && out.ok === false && !outcomeReads(out.outcome)) {",
+  "to": "  if (false) {"
+ },
+ {
+  "label": "W22: the poll serves an older note when no list stands in for it",
+  "files": [
+   "worker.js"
+  ],
+  "from": "    if (note) out.coverNote = note; else delete out.coverNote;",
+  "to": "    if (note) out.coverNote = note;"
+ },
+ {
+  "label": "W23: the site's own evidence is the proposed schema",
+  "files": [
+   "worker.js"
+  ],
+  "from": "              spec: aSpecHad || aSpec,",
+  "to": "              spec: aSpec,"
+ },
+ {
+  "label": "W24: an addition that did not land is not told a database was made",
+  "files": [
+   "worker.js"
+  ],
+  "from": "{ words: aWordsAt.missing, photos: aPhotosAt.missing }, { changed: aProvisioned }),",
+  "to": "{ words: aWordsAt.missing, photos: aPhotosAt.missing }),"
+ },
+ {
+  "label": "W25: a design that could not be saved calls the site untouched after a database was made",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                return aFail({ ok: false, error: \"config\", cost: 0, msg: aProvisioned\n",
+  "to": "                return aFail({ ok: false, error: \"config\", cost: 0, msg: false\n"
+ },
+ {
+  "label": "W26: the model-down stop carries no outcome",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                outcome: failureOutcome(),\n              }, { status: 503 });",
+  "to": "              }, { status: 503 });"
+ },
+ {
+  "label": "W27: the provision's refusal skips the door again (no requirements, no outcome)",
+  "files": [
+   "worker.js"
+  ],
+  "from": "                  return aFail({\n                    ok: false, error: \"provision\", cost: 0, ours: true,\n                    msg: \"That needed a database for your site and one couldn't be made right now — this is on us, and nothing was changed. Try again in a few minutes.\",\n                    upstream: (e && e.status) || null, stage: (e && e.stage) || null,\n                    detail: scrubSecrets(String((e && (e.detail || e.message)) || \"\")).slice(0, 300),\n                  }, 502);",
+  "to": "                  return Response.json({\n                    ok: false, error: \"provision\", cost: 0, ours: true,\n                    msg: \"That needed a database for your site and one couldn't be made right now — this is on us, and nothing was changed. Try again in a few minutes.\",\n                    upstream: (e && e.status) || null, stage: (e && e.stage) || null,\n                    detail: scrubSecrets(String((e && (e.detail || e.message)) || \"\")).slice(0, 300),\n                  }, { status: 502 });"
+ },
+ {
+  "label": "B1: the browser prints a failure's note with no outcome (the reported defect)",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "const cover = failureOutcomeOf(a) && typeof a.coverNote === 'string' && a.coverNote.trim()",
+  "to": "const cover = typeof a.coverNote === 'string' && a.coverNote.trim()"
+ },
+ {
+  "label": "B2: the browser trusts an outcome that says it published",
+  "files": [
+   "public/chat.js"
+  ],
+  "from": "return states.indexOf(o.state) >= 0 && o.published === false && ['none', 'applied', 'unknown'].indexOf(o.database) >= 0 ? o : null;",
+  "to": "return states.indexOf(o.state) >= 0 && ['none', 'applied', 'unknown'].indexOf(o.database) >= 0 ? o : null;"
+ }
+]

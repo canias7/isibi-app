@@ -114,6 +114,8 @@ const SRC = [
   cut("function readEditReply("),
   cut("function applyAddonResult("),
   cut("function addonOutcomeMsg("),
+  // WHETHER A FAILURE'S NOTE IS SHOWN (2026-10-06): only beside its outcome.
+  cut("function failureOutcomeOf("),
   cut("function sitePathOf("),
   // The success composers, whole, so a reply reads as a tab would print it.
   ...["problemNote", "photoNote", "listPhotoNote", "browserTimeZone", "jobZone", "onceWhen", "jobWords",
@@ -604,7 +606,10 @@ async function browserReply(r, expected = "stop") {
       : { addon: [ok(r.body, r.status)] }) } });
     if (expected === "stop") {
       assert.notEqual(r.body.escalate, true);
-      assertStopped(o, before, "⚠️ " + r.body.msg);
+      // THE ROUTE'S SENTENCE, AND THE NOTE BESIDE ITS OUTCOME (2026-10-06): a
+      // failure after the design says what it left behind under its sentence.
+      const note = r.body.outcome && typeof r.body.coverNote === "string" && r.body.coverNote.trim() ? " " + r.body.coverNote.trim() : "";
+      assertStopped(o, before, "⚠️ " + r.body.msg + note);
       assert.ok(!o.trail.some(t => t === "POST " + EDIT), "no paid handoff");
     } else if (expected === "success") {
       assert.equal(r.body.ok, true, json(r.body));
@@ -668,7 +673,13 @@ for (const [name, opts] of stoppedRoutes) test(`REAL stop ${name}: direct and qu
   if (name === "model-note") assert.ok(r.body.msg.includes(opts.notes));
   if (name.startsWith("recovery-")) assert.equal(r.body.recovery.ok, false);
   if (name === "recovery-partial-write") assert.equal(r.store.store.get(sourceKey("bounded-" + name)), json([storedPage("/")]));
-  if (name === "provisioned-output-empty") assert.ok(r.neonCalls.length > 0, "provisioning preceded this stop");
+  if (name === "provisioned-output-empty") {
+    assert.ok(r.neonCalls.length > 0, "provisioning preceded this stop");
+    // AND IT IS SAID (2026-10-06): the site has a database now, and nothing of
+    // this addition is in it — a stop after provisioning is not "nothing changed".
+    assert.deepEqual(r.body.outcome, { state: "partial", published: false, database: "none", provisioned: true });
+    assert.equal(r.body.coverNote, "I did set up a database for your site along the way — nothing from this is stored in it yet.");
+  }
   assert.doesNotMatch(r.body.msg, /nothing (?:changed|charged)|\bfree\b/i);
   await browserReply(r);
 });

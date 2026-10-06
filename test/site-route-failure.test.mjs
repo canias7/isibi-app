@@ -107,6 +107,8 @@ const SRC = [
   cut("function readAddonReply("),
   cut("function readEditReply("),
   cut("function addonOutcomeMsg("),
+  // WHETHER A FAILURE'S NOTE IS SHOWN (2026-10-06): only beside its outcome.
+  cut("function failureOutcomeOf("),
   // THE LAST SENTENCE ON EVERY ENDING (2026-10-02, the audit's W7): what was put
   // off, said by the add-on's and the rewrite's endings alike.
   cut("function alsoTail("),

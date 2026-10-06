@@ -11237,9 +11237,15 @@ function addonAnswer(httpOk, a, o) {
     // (2026-10-06). A refused addition has carried the server's note since
     // 2026-09-14 and this printed none of it, so "your site can't take
     // payments yet" beside a refused 3D model was never seen. PRINTED
-    // VERBATIM, `coverNote`'s rule: the server composes a refusal's note
-    // without anything that says work was done.
-    const cover = typeof a.coverNote === 'string' && a.coverNote.trim() ? ' ' + a.coverNote.trim() : '';
+    // VERBATIM, `coverNote`'s rule: the server composes a failure's note from
+    // what the failure really left behind.
+    // ⚠ AND ONLY BESIDE THE OUTCOME IT WAS COMPOSED FOR (2026-10-06, Codex on
+    // 08b9a657): an answer stored before the server wrote `outcome` carries a
+    // note that may say "I've set that up", and this printed it under "I
+    // couldn't add that". The poll hands such an answer back with its outcome
+    // and a note composed by the reply's own rule; one that arrives without an
+    // outcome has its note left unsaid.
+    const cover = failureOutcomeOf(a) && typeof a.coverNote === 'string' && a.coverNote.trim() ? ' ' + a.coverNote.trim() : '';
     if (said.ask) {
       const told = typeof a.msg === 'string' && a.msg.trim() ? '⚠️ ' + a.msg : '';
       o.finish(askReplyMsg(told + cover + alsoTail(a, false), askFromReply(o.origin, said.ask, o.imgs)));
@@ -11424,6 +11430,16 @@ function applyAddonResult(a, o) {
     const shown = addonOutcomeMsg('shown') + alsoTail(a);
     try { finish(shown); } catch (again) { /* left standing */ }
   }
+}
+// WHAT A FAILED ADDITION SAYS IT LEFT BEHIND (2026-10-06): the server's
+// `outcome` (`failureOutcome` in builder/site-add.mjs), read for its shape —
+// the one thing this page does with it is decide whether the note composed for
+// it may be shown. `null` for anything that is not one.
+function failureOutcomeOf(a) {
+  const o = a && a.outcome;
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return null;
+  const states = ['none', 'partial', 'unpublished', 'unknown'];
+  return states.indexOf(o.state) >= 0 && o.published === false && ['none', 'applied', 'unknown'].indexOf(o.database) >= 0 ? o : null;
 }
 // WHAT THE SCREEN SAYS WHEN AN ADDITION'S OWN ANSWER CANNOT BE USED
 // (2026-09-24, owner: "A transport failure, unreadable response, missing

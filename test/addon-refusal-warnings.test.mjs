@@ -93,10 +93,16 @@ test("REFUSE 1 — a designer's refusal beside a judgment that finished: every r
   assert.ok(!r.sql.some((q) => /CREATE TABLE|INSERT INTO "/i.test(q)), "a refusal wrote to the database");
   // THE LIST THE ROUTE SENDS: every requirement the judgment kept, in the
   // note's order — and the extra it set aside is not one.
+  // RE-ANCHORED 2026-10-06: a failure SETTLES the publish's kinds — nothing of
+  // the scene was made, and is known not to have been — so the requirement the
+  // scene's step declared and nothing carries is not done, where before the
+  // scene's results counted as not yet known ("nobody can see").
   assert.deepEqual(r.body.requirementsTold.map((o) => [o.told, o.need, o.state]), [
-    ["unsupported", PAY.need, "failed"], ["still-to-do", SPIN.need, "missing"],
-    ["already-there", EMAIL.need, "unverified"], ["unseen", LIGHT.need, "unknown"],
+    ["unsupported", PAY.need, "failed"], ["still-to-do", SPIN.need, "missing"], ["still-to-do", LIGHT.need, "missing"],
+    ["already-there", EMAIL.need, "unverified"],
   ]);
+  // AND THE ANSWER SAYS WHAT IT LEFT BEHIND: nothing.
+  assert.deepEqual(r.body.outcome, { state: "none", published: false, database: "none" });
   // THE REPLY MODEL'S FACTS: the refusal's own first, then one per requirement,
   // each its state's kind.
   const f = facts(r.body);
@@ -104,8 +110,8 @@ test("REFUSE 1 — a designer's refusal beside a judgment that finished: every r
     refusalFact(r.body),
     "not-done: Their site cannot do this yet: People can pay by bank transfer (this step cannot take payments).",
     "not-done: Not done: The model turns slowly.",
+    "not-done: Not done: The model is lit from above.",
     "note: Their site already had this before this request, and nothing here can check that it works: The owner is emailed about each new enquiry.",
-    "not-done: Nothing here can see whether this is in place: The model is lit from above.",
   ]);
   assert.equal(replyOutcomeOf(addonReplyFacts(r.body)), "not-done");
   // THE SCREEN: the refusal's sentence, then the note the server composed.
@@ -348,8 +354,10 @@ test("WARN 1 — every list above its old cut, at the module: one report entry p
   assert.match(dead, /The footer-band, hero sections are unchanged/);
   assert.match(dead, /And I haven't written the qr-banner, qr-card sections/);
   assert.ok(fill.startsWith("Nothing can put rows into " + FILL.join(", ") + " yet,"), fill);
-  // "STARTS EMPTY" ONLY OF THE TABLES THE ENGINE SKIPPED FOR WHO CAN READ THEM.
-  assert.equal(seed, "I had starter rows ready for orders, returns and didn't put them in — those tables aren't ones visitors can read, so they start empty."
+  // THE DISPLAY-ONLY RULE ONLY OF THE TABLES THE ENGINE SKIPPED FOR IT — and
+  // as the rule (2026-10-06, the owner: "a seeding restriction does not prove
+  // visitors cannot read the table"), never as a claim about the table.
+  assert.equal(seed, "I had starter rows ready for orders, returns and didn't put them in — I only add starter rows to a table anyone can read and no visitor can change."
     + " Not all of the starter rows I had ready for breads, t1, t2, t3, t4, t5, t6 went in."
     + " I had starter rows ready for specials, ghosts, blank, pies and didn't put them in.");
   // THE REPLY MODEL'S FACTS: one per entry, every one not done.
@@ -454,7 +462,18 @@ test("WARN 4 — a code whose page did not come, shown on five new pages, throug
   assert.deepEqual(z.body.missingPages, ["/gallery"]);
   assert.match(z.body.msg, /^One page I set out to add isn't there — \/gallery didn't make it through/);
   assert.match(z.body.msg, /I haven't added \/posters, \/flyers, \/cards, \/stickers, \/banners either/);
-  assert.deepEqual(facts(z.body), [refusalFact(z.body)]);
+  // RE-ANCHORED 2026-10-06: the refusal carries the shared outcome reporting
+  // too (`aFail`), so the code and every page withheld with it are a fact of
+  // their own beside the refusal's quoted sentence — and nothing changed.
+  assert.deepEqual(facts(z.body), [
+    refusalFact(z.body),
+    "not-done: A QR code was not added, because the page it would open did not make it through: gallery (it would have opened /gallery).",
+    ...PRINTS.map((p) => "not-done: A new page was not added, because it depended on a QR code that was not added: " + p + "."),
+  ]);
+  assert.deepEqual(z.body.outcome, { state: "none", published: false, database: "none" });
+  // THE SCREEN SAYS EACH ONCE: the refusal's own sentence already says the
+  // code and its pages, so its note leaves them out.
+  assert.equal(z.body.coverNote, "");
   assert.equal(screen(z.body, false), "⚠️ " + z.body.msg);
 });
 
@@ -490,7 +509,7 @@ test("WARN 5 — seed skips and empty tables through the route, past every old c
   const f2 = facts(two.body);
   assert.ok(f2.includes("not-done: Starter rows were ready for the table specials and were not put in: it already had rows."), JSON.stringify(f2));
   const s2 = screen(two.body, true);
-  assert.match(s2, /I had starter rows ready for orders, returns, reviews, requests, waitlist and didn't put them in — those tables aren't ones visitors can read, so they start empty\. I had starter rows ready for specials and didn't put them in\./);
+  assert.match(s2, /I had starter rows ready for orders, returns, reviews, requests, waitlist and didn't put them in — I only add starter rows to a table anyone can read and no visitor can change\. I had starter rows ready for specials and didn't put them in\./);
   // FIVE TABLES NOTHING CAN FILL, read by a function this change adds.
   const LEDGERS = ["stock", "suppliers", "invoices", "payouts", "audits"];
   const fill = await addon("rw-fill", "keep a stock, supplier, invoice, payout and audit ledger and count them", {
@@ -591,18 +610,25 @@ test("WIRE 1 — the route keeps every seed skip and sends every list whole; bot
   const W = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   const C = readFileSync(new URL("../public/chat.js", import.meta.url), "utf8");
   // LANDMARKS FIRST, so an absence below is about the code and not the reader.
-  for (const at of ["const aCoverage = ({ refused = false } = {}) =>", "aSeedSkips = (aSeeded && Array.isArray(aSeeded.skipped))", 'error: "qr-dependency"']) assert.ok(W.includes(at), "landmark gone: " + at);
+  // RE-ANCHORED 2026-10-06: the coverage takes a failure's outcome (`failed`)
+  // where it took `refused`, and every failure after the design composes it
+  // through one door (`aFail`).
+  for (const at of ['const aCoverage = ({ failed = null, said = "" } = {}) =>', "aSeedSkips = (aSeeded && Array.isArray(aSeeded.skipped))", 'error: "qr-dependency"']) assert.ok(W.includes(at), "landmark gone: " + at);
   assert.ok(W.includes("aSeedSkips = (aSeeded && Array.isArray(aSeeded.skipped)) ? aSeeded.skipped.slice() : [];"), "the seed skips are cut where the engine hands them over");
   assert.match(W, /seedSkips: aSeedSkips\.length \? aSeedSkips : undefined,/);
   assert.match(W, /noPopulation: aNoFill\.length \? aNoFill : undefined,/);
   assert.match(W, /warningsTold: aWarned\.length \? aWarned : undefined,/);
   assert.match(W, /const aWarned = warningReport\(\{ missing: aMissing, deadQr: aDeadQr, seedSkips: aSeedSkips, noFill: aNoFill \}\);/);
-  assert.match(W, /coverOther: !refused && aCounted\.length \? aCounted\.join\(" "\) : undefined,/);
-  assert.equal(W.split("...aCoverage({ refused: true })").length - 1, 2, "both refusals compose their note as refusals");
+  assert.match(W, /coverOther: built && aCounted\.length \? aCounted\.join\(" "\) : undefined,/);
+  assert.match(W, /return aFail\(\{ ok: false, error: "add", kind: k, reason: clean\.why, cost: 0, msg: addRefusal\(clean\.why, k\) \}, 422\);/, "the designer's refusal does not compose its note through the failure door");
+  assert.match(W, /return aFail\(\{ ok: false, error: "declined", kinds: aDeclined, cost: 0, msg: addRefusal\("nothing"\) \}, 422\);/, "every designer declining does not compose its note through the failure door");
+  assert.equal(W.split("aCoverage({ refused: true })").length - 1, 0, "a refusal still composes its note by the old flag");
   assert.match(W, /msg: \[missingPagesNote\(aGone\), deadQrNote\(aDeadQr\)\]\.filter\(Boolean\)\.join\(" "\)\.trim\(\),/);
   // THE BROWSER'S REFUSAL: its sentence, then the note, in all three arms.
   const at = C.indexOf("if (said.act === 'refusal') {");
   assert.ok(at > 0, "the browser's refusal branch is gone");
   const branch = C.slice(at, C.indexOf("return applyAddonResult(a, o);", at));
   assert.equal((branch.match(/\+ cover \+ alsoTail\(a, false\)/g) || []).length, 3, branch.slice(0, 200));
+  // …AND THE NOTE ONLY BESIDE THE OUTCOME IT WAS COMPOSED FOR (2026-10-06).
+  assert.match(branch, /const cover = failureOutcomeOf\(a\) && typeof a\.coverNote === 'string' && a\.coverNote\.trim\(\) \? ' ' \+ a\.coverNote\.trim\(\) : '';/, "the browser prints a failure's note with no outcome beside it");
 });

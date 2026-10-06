@@ -112,8 +112,9 @@ test("THE WALL: the addon route refuses a changed page that lost words — after
   const route = between(worker, "aMerge = mergeAddonPages(", 'const aGatePub = aJob ? aJob.gate("build") : null;', "the addon's merge-to-gate stretch");
   const wall = between(route, "const aWas = new Map(", "// ── MAY THIS STILL PUBLISH?", "the wall");
   // After every merge refusal, before the gate and the bill.
-  assert.ok(route.indexOf("if (!aMerge.ok) return aFailure(aMerge.reason") > 0, "the merge decision is missing");
-  assert.ok(route.indexOf("if (!aMerge.ok) return aFailure(aMerge.reason") < route.indexOf("const aWas = new Map("), "the wall runs before the merge is judged");
+  // RE-ANCHORED 2026-10-06: through the route's failure door (`aFail`).
+  assert.ok(route.indexOf("if (!aMerge.ok) return aFail(addonFailure(aMerge.reason") > 0, "the merge decision is missing");
+  assert.ok(route.indexOf("if (!aMerge.ok) return aFail(addonFailure(aMerge.reason") < route.indexOf("const aWas = new Map("), "the wall runs before the merge is judged");
   assert.ok(worker.indexOf("const aWas = new Map(") < worker.indexOf('const aGatePub = aJob ? aJob.gate("build") : null;'), "the wall runs after the gate");
   // RE-ANCHORED 2026-09-05 (stage 1a-ii): the page bill's line reads
   // `aCost = aFirstPlaced ? aFirst + await aCharge(aBill, 4) : await aCharge(aBill)`
@@ -133,7 +134,9 @@ test("THE WALL: the addon route refuses a changed page that lost words — after
   assert.match(wall, /const kept = keptProse\(aWas\.get\(p\.path\), p\.source\);\s*\n\s*if \(!kept\.ok\) aLost\.push\(\{ path: p\.path, lost: kept\.lost\.slice\(0, 3\) \}\);/);
   // Said in the trace, refused by name, for nothing, with the sentence.
   assert.match(wall, /aMark\("kept", aLost\.length \? "fail" : "ok",/, "the wall leaves no trace");
-  assert.match(wall, /if \(aLost\.length\) \{\s*\n\s*return Response\.json\(\{ ok: false, error: "rewrote", cost: 0, lost: aLost, msg: rewroteMsg\(aLost\) \}, \{ status: 422 \}\);/, "a lost page is not refused as `rewrote`, free, with the sentence");
+  // RE-ANCHORED 2026-10-06: the same refusal through the route's failure door
+  // (`aFail`), which adds what it left behind — nothing, here.
+  assert.match(wall, /if \(aLost\.length\) \{\s*\n\s*return aFail\(\{ ok: false, error: "rewrote", cost: 0, lost: aLost, msg: rewroteMsg\(aLost\) \}, 422\);/, "a lost page is not refused as `rewrote`, free, with the sentence");
   // The browser prints a refusal's `msg` as the answer (the `declined`/`already`
   // path). RE-ANCHORED 2026-09-24 from the spelling `if (a.msg) { … }` — which
   // went red when the check learned to refuse a sentence that is not a string —
