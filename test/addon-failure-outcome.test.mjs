@@ -539,3 +539,166 @@ test("WIRE 2 — the model-down stop says nothing changed only where that is tru
   assert.ok(calls.length >= 5, "the callers could not be found: " + calls.length);
   for (const at of calls) assert.ok(at > def && at < backend, "a model-down stop below the backend block, where this run may already have changed something: " + W.slice(at, at + 80));
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. A DATABASE MADE, THEN AN APPLY THAT STOPPED PART-WAY (2026-10-06)
+//
+// The owner, after Codex's review of 13bfcd17: *"failureOutcome({provisioned:
+// true,database:"unknown"}) produces a valid unknown outcome, but failureNote
+// still says "nothing from this is stored in it yet," and failureFacts uses
+// the same unsupported assertion. Codex reproduced the contradiction through
+// the actual browser composer alongside ADDON_SCHEMA_FAIL_MSG. State that the
+// database was created while preserving uncertainty about what applied; only
+// claim that nothing from the addition was applied when the evidence
+// establishes database:"none"."*
+//
+// Both schema exits produce it — the pageless apply and the publish's seam —
+// whenever this run made the site's database first.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SCHEMA_MSG = "That change needed the site's database and it couldn't be applied — this is on us. Your live pages weren't changed, but some of the database change may already have gone in before it stopped; asking again won't make anything twice. Try again in a few minutes.";
+const MADE_UNKNOWN = "I did set up a database for your site along the way, and some of this change may already have gone into it.";
+const MADE_NOTHING = "I did set up a database for your site along the way — nothing from this is stored in it yet.";
+const UNKNOWN_FACT = "note: Some of its database change may have gone in before it stopped; which parts did could not be established.";
+const REPAIRS = { table: [{ table: { name: "repairs", columns: [{ name: "who", type: "text" }] } }] };
+/** An internal function and a job over it: a design the pageless path takes. */
+const FN = { name: "send_reminder", internal: true, returns: "void", body: "BEGIN PERFORM 1; END;" };
+const JOB = { name: "daily_reminder", fn: "send_reminder", everyMinutes: 1440, at: "09:00" };
+
+test("PROV 1 — at the modules: a database made beside an apply that stopped part-way is said made, with what went into it not known; 'nothing stored' only where the apply never ran; nothing about it beside an apply that landed", () => {
+  const unknown = failureOutcome({ provisioned: true, database: "unknown" });
+  assert.deepEqual(unknown, { state: "unknown", published: false, database: "unknown", provisioned: true });
+  assert.ok(outcomeReads(unknown));
+  // THE NOTE: the screen's own words when no model reply is written.
+  assert.equal(failureNote(unknown), MADE_UNKNOWN);
+  assert.equal(failureNote({ ...unknown, photos: 2 }), MADE_UNKNOWN + " The 2 photographs I made for it are in your uploads, though they aren't on your site.");
+  // ONLY THE EVIDENCE THAT THE APPLY NEVER RAN EARNS "nothing stored".
+  assert.equal(failureNote(failureOutcome({ provisioned: true })), MADE_NOTHING);
+  for (const database of ["unknown", "maybe", undefined]) {
+    assert.doesNotMatch(failureNote({ provisioned: true, database }), /nothing from this/, String(database));
+  }
+  // AN APPLY THAT LANDED: what is live is the migration sentence's to say.
+  assert.equal(failureNote(failureOutcome({ provisioned: true, database: "applied", made: { tables: ["repairs"] } })), "");
+  // THE REPLY MODEL'S FACTS, for a stored answer they read.
+  const stored = { ok: false, error: "compile", cost: 0, msg: "That addition didn't compile, so it wasn't published — try describing it differently.", outcome: unknown };
+  assert.deepEqual(facts(stored), [
+    "changed: The site has its own database now, made for this addition.",
+    "not-done: The rest of it did not go through: nothing was published, so the site's pages are as they were. The builder's own reason: “" + stored.msg + "”",
+    UNKNOWN_FACT,
+  ]);
+  assert.equal(replyOutcomeOf(addonReplyFacts(stored)), "partly");
+  // CONTROLS: the apply never ran; the apply landed.
+  assert.equal(facts({ ...stored, outcome: failureOutcome({ provisioned: true }) })[0], "changed: The site has its own database now, made for this addition; nothing from it is stored in it yet.");
+  const landed = facts({ ...stored, outcome: failureOutcome({ provisioned: true, database: "applied", made: { tables: ["repairs"] } }) });
+  assert.deepEqual(landed.slice(0, 2), ["changed: Part of this addition went in and is live: the site now stores repairs.", "changed: The site has its own database now."]);
+  assert.ok(!landed.some((x) => /may have gone in|nothing from it/.test(x)), JSON.stringify(landed));
+});
+
+test("PROV 2 — the pageless path: the site's database made, then its apply stops part-way — the outcome is unknown with the database made, and the screen says the database was made and that some of the change may be in it, never that nothing is; ours, so no model reply; nothing charged", async () => {
+  const r = await addon("fo-prov-pageless", "remind people the day before", {
+    backend: "none", provisions: true, kinds: ["function", "job"],
+    // THE ENGINE'S OWN TABLES GO IN, THEN ONE IS REFUSED — on a database this run made.
+    sqlFail: /^CREATE TABLE IF NOT EXISTS _errors /,
+    answers: { function: { function: [FN] }, job: { job: [JOB] } },
+  });
+  assert.deepEqual([r.status, r.body.ok, r.body.error, r.body.ours, r.body.cost], [502, false, "schema", true, 0], JSON.stringify(r.body).slice(0, 400));
+  assert.ok(r.neonCalls.length > 0, "no database was made — this case tests nothing");
+  const secrets = r.sql.findIndex((q) => /^CREATE TABLE IF NOT EXISTS _secrets /.test(q));
+  const refused = r.sql.findIndex((q) => /^CREATE TABLE IF NOT EXISTS _errors /.test(q));
+  assert.ok(secrets >= 0 && refused > secrets, "nothing went in before the refusal — this is not part-way");
+  assert.equal(r.body.migration.status, "failed");
+  assert.deepEqual(r.charges, []);
+  assert.deepEqual(r.body.outcome, { state: "unknown", published: false, database: "unknown", provisioned: true });
+  assert.equal(r.body.msg, SCHEMA_MSG);
+  assert.equal(r.body.coverNote, MADE_UNKNOWN);
+  const said = screen(r.body, false);
+  assert.equal(said, "⚠️ " + SCHEMA_MSG + " " + MADE_UNKNOWN);
+  assert.doesNotMatch(said, /nothing from this|untouched/);
+  assert.equal(addonReplyFacts(r.body).skip, "technical");
+});
+
+test("PROV 3 — the publish path: the site's database made, then the apply at the publish's seam stops part-way — the same outcome and the same sentence beside the schema's; each requirement by what is known (the table's unseen, the page's not done)", async () => {
+  const r = await signupAsk("fo-prov-publish", { backend: "none", provisions: true, tableFail: "signups" });
+  assert.deepEqual([r.status, r.body.error, r.body.ours, r.body.cost], [502, "schema", true, 0], JSON.stringify(r.body).slice(0, 400));
+  assert.ok(r.neonCalls.length > 0, "no database was made — this case tests nothing");
+  assert.ok(r.sql.some((q) => /CREATE TABLE IF NOT EXISTS "signups"/i.test(q)), "the apply never reached the table — this case tests nothing");
+  assert.equal(r.body.migration.status, "failed");
+  assert.deepEqual(r.charges, []);
+  assert.deepEqual(r.body.outcome, { state: "unknown", published: false, database: "unknown", provisioned: true });
+  assert.equal(r.body.msg, SCHEMA_MSG);
+  assert.deepEqual(r.body.requirementsTold.map((o) => [o.told, o.need]), [["still-to-do", FORM.need], ["unseen", STORE.need]]);
+  assert.ok(r.body.coverNote.endsWith(" " + MADE_UNKNOWN), r.body.coverNote);
+  const said = screen(r.body, false);
+  assert.equal(said, "⚠️ " + SCHEMA_MSG + " " + r.body.coverNote);
+  assert.ok(said.includes(STORE.need) && said.includes(FORM.need), said);
+  assert.doesNotMatch(said, /nothing from this|untouched|I've set that up/);
+  assert.equal(addonReplyFacts(r.body).skip, "technical");
+});
+
+test("PROV 4 — controls through the route: a database made and an apply that landed before the publish failed says what is live by name and the database plainly, with no doubt and no 'nothing stored'; a database made and a stop before any apply keeps 'nothing from this is stored in it yet'", async () => {
+  const shows = { table: REPAIRS, page: { page: [PAGE("/repairs", "Repairs")] } };
+  const r = await addon("fo-prov-landed", "keep a list of repairs and show it", {
+    backend: "none", provisions: true, kinds: ["table", "page"], publishes: true, notServed: true, written: [writtenPage("/repairs")], answers: shows,
+  });
+  assert.deepEqual([r.status, r.body.error, r.body.cost], [422, "compile", 0], JSON.stringify(r.body).slice(0, 400));
+  assert.ok(r.neonCalls.length > 0, "no database was made — this case tests nothing");
+  assert.equal(r.body.migration.status, "applied_without_page");
+  assert.deepEqual(r.body.outcome, { state: "partial", published: false, database: "applied", tables: ["repairs"], provisioned: true });
+  assert.match(r.body.msg, /^The database changes for this were made — now storing repairs — but the page didn't publish/);
+  assert.doesNotMatch(String(r.body.coverNote || ""), /nothing from this|may already have gone into it/);
+  const f = facts(r.body);
+  assert.deepEqual(f.slice(0, 2), ["changed: Part of this addition went in and is live: the site now stores repairs.", "changed: The site has its own database now."]);
+  assert.ok(!f.some((x) => /may have gone in|nothing from it/.test(x)), JSON.stringify(f));
+  // …AND A STOP BEFORE ANY APPLY: nothing from this is stored, as the evidence says.
+  const c = await addon("fo-prov-before", "keep a list of repairs and show it", {
+    backend: "none", provisions: true, kinds: ["table", "page"], publishes: true, compileFail: true, written: [writtenPage("/repairs")], answers: shows,
+  });
+  assert.ok(!c.sql.some((q) => /CREATE TABLE IF NOT EXISTS "repairs"/i.test(q)), "the apply ran before a compile that failed");
+  assert.deepEqual(c.body.outcome, { state: "partial", published: false, database: "none", provisioned: true });
+  assert.equal(c.body.coverNote, MADE_NOTHING);
+  assert.equal(screen(c.body, false), "⚠️ " + c.body.msg + " " + MADE_NOTHING);
+  assert.equal(facts(c.body)[0], "changed: The site has its own database now, made for this addition; nothing from it is stored in it yet.");
+});
+
+test("PROV 5 — stored and replayed: the route's answer for a database made and an apply that stopped part-way is served by the real poll route as stored, and the browser with no model reply shows the database made with what went in not known; a stored answer the facts do read says the same", async () => {
+  const pub = await signupAsk("fo-prov-stored", { backend: "none", provisions: true, tableFail: "signups" });
+  assert.deepEqual([pub.body.error, pub.body.outcome && pub.body.outcome.provisioned], ["schema", true], JSON.stringify(pub.body).slice(0, 300));
+  const PAY = { need: "People can pay by bank transfer", status: "unsupported", why: "this step cannot take payments", basis: "asked", words: "let people pay by bank transfer" };
+  const compiler = installCompiler();
+  const P = platform({
+    slug: "fo-prov-replay-" + Math.random().toString(16).slice(2, 8), replies: true,
+    answers: {
+      route: [{ intent: "addon" }],
+      [T.adds]: { kinds: ["three"] },
+      "add:three": { three: { page: "/" }, requirements: [PAY] },
+      judge_requirements: requestJudge([[/bank transfer/, "asked", "no"]]),
+    },
+  });
+  try {
+    const r = await sendMessage(P, { message: "add a spinning 3D model of our shop to the home page, and let people pay by bank transfer." });
+    await settle(P, r.key);
+    await pump(P);
+    const job = P.jobsOf(r.key).find((j) => j.op === "addon");
+    assert.ok(job, "no add-on job was filed");
+    // THE ROUTE'S OWN ANSWER, STORED ON THE JOB AND SERVED BACK.
+    job.result = { ...job.result, body: JSON.stringify(pub.body) };
+    const served = (await call(P, "GET", "/api/site/edit/" + job.id)).body;
+    assert.deepEqual(served.outcome, pub.body.outcome);
+    assert.equal(served.coverNote, pub.body.coverNote);
+    const said = screen(served, false);
+    assert.equal(said, "⚠️ " + SCHEMA_MSG + " " + pub.body.coverNote);
+    assert.ok(said.endsWith(" " + MADE_UNKNOWN), said);
+    assert.doesNotMatch(said, /nothing from this/);
+    assert.equal(addonReplyFacts(served).skip, "technical");
+    // A STORED ANSWER THE FACTS DO READ: an unknown outcome beside a database made, on a stop that is not ours.
+    const readable = { ok: false, error: "compile", cost: 0, msg: "That addition didn't compile, so it wasn't published — try describing it differently.", coverNote: MADE_UNKNOWN, outcome: pub.body.outcome };
+    job.result = { ...job.result, body: JSON.stringify(readable) };
+    const again = (await call(P, "GET", "/api/site/edit/" + job.id)).body;
+    assert.equal(again.coverNote, MADE_UNKNOWN);
+    assert.equal(screen(again, false), "⚠️ " + readable.msg + " " + MADE_UNKNOWN);
+    const g = facts(again);
+    assert.equal(g[0], "changed: The site has its own database now, made for this addition.");
+    assert.ok(g.includes(UNKNOWN_FACT), JSON.stringify(g));
+    assert.ok(!g.some((x) => /nothing from it/.test(x)), JSON.stringify(g));
+  } finally { P.close(); compiler.uninstall(); }
+});

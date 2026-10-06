@@ -531,7 +531,13 @@ function failureFacts(F, out, why) {
   const live = out.database === "applied" ? liveOf(out) : [];
   if (live.length) F.add("changed", "Part of this addition went in and is live: " + listOf(live) + ".");
   else if (out.database === "applied") F.add("changed", "Changes to their database for this addition went in and are live.");
-  if (out.provisioned === true) F.add("changed", "The site has its own database now" + (out.database === "applied" ? "." : ", made for this addition; nothing from it is stored in it yet."));
+  // THE DATABASE MADE, AND NOTHING IN IT ONLY WHERE THE APPLY NEVER RAN
+  // (2026-10-06, Codex, on 13bfcd17): beside an apply that stopped part-way,
+  // what went in is the unknown note's, below — never "nothing stored".
+  if (out.provisioned === true) {
+    F.add("changed", "The site has its own database now" + (out.database === "applied" ? "."
+      : out.database === "none" ? ", made for this addition; nothing from it is stored in it yet." : ", made for this addition."));
+  }
   const some = out.database === "applied" || out.provisioned === true;
   F.add("not-done", (some ? "The rest of it did not go through" : "The addition did not go through") +
     ": nothing was published, so the site's pages are as they were." + why);

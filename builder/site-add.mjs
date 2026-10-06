@@ -5710,8 +5710,8 @@ export function failureOutcome({ database = "none", made = null, provisioned = f
 
 /**
  * THE CUSTOMER'S SENTENCES FOR WHAT NO EXIT'S OWN SENTENCE SAYS: a database
- * made along the way that nothing of this change went into, and photographs
- * kept in the uploads. The database changes that did go in are the migration
+ * made along the way — empty of this change only where its apply never ran —
+ * and photographs kept in the uploads. The database changes that did go in are the migration
  * record's sentence (`migrationNote`, before the compile sentence), a design
  * that could not be put back is `KEPT_CHANGE_NOTE`'s, and an apply that
  * stopped part-way is the schema sentence's — each said once, by its owner.
@@ -5719,7 +5719,16 @@ export function failureOutcome({ database = "none", made = null, provisioned = f
 export function failureNote(outcome) {
   const o = outcome && typeof outcome === "object" ? outcome : {};
   const out = [];
-  if (o.provisioned === true && o.database !== "applied") out.push("I did set up a database for your site along the way — nothing from this is stored in it yet.");
+  // THE DATABASE MADE IS SAID; WHAT IS IN IT ONLY AS FAR AS THE EVIDENCE GOES
+  // (2026-10-06, Codex, on 13bfcd17). "Nothing from this is stored in it yet"
+  // was said whenever the apply had not landed — beside one that stopped
+  // part-way too, under the schema sentence saying some of it may have gone
+  // in. Only an apply that never ran (`none`) establishes nothing went in.
+  if (o.provisioned === true && o.database !== "applied") {
+    out.push(o.database === "none"
+      ? "I did set up a database for your site along the way — nothing from this is stored in it yet."
+      : "I did set up a database for your site along the way, and some of this change may already have gone into it.");
+  }
   const n = Number.isSafeInteger(o.photos) && o.photos > 0 ? o.photos : 0;
   if (n) {
     out.push(n === 1

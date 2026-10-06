@@ -80,8 +80,8 @@
   "files": [
    "builder/site-add.mjs"
   ],
-  "from": "if (o.provisioned === true && o.database !== \"applied\") out.push(",
-  "to": "if (o.provisioned === true) out.push("
+  "from": "if (o.provisioned === true && o.database !== \"applied\") {",
+  "to": "if (o.provisioned === true) {"
  },
  {
   "label": "A7: kept photographs are not said",
@@ -240,8 +240,8 @@
   "files": [
    "builder/site-reply.mjs"
   ],
-  "from": "  if (out.provisioned === true) F.add(\"changed\", \"The site has its own database now\"",
-  "to": "  if (false) F.add(\"changed\", \"The site has its own database now\""
+  "from": "  if (out.provisioned === true) {\n    F.add(\"changed\", \"The site has its own database now\"",
+  "to": "  if (false) {\n    F.add(\"changed\", \"The site has its own database now\""
  },
  {
   "label": "R15: an apply nobody can read is not said as unknown",
@@ -498,6 +498,54 @@
   ],
   "from": "                  return aFail({\n                    ok: false, error: \"provision\", cost: 0, ours: true,\n                    msg: \"That needed a database for your site and one couldn't be made right now — this is on us, and nothing was changed. Try again in a few minutes.\",\n                    upstream: (e && e.status) || null, stage: (e && e.stage) || null,\n                    detail: scrubSecrets(String((e && (e.detail || e.message)) || \"\")).slice(0, 300),\n                  }, 502);",
   "to": "                  return Response.json({\n                    ok: false, error: \"provision\", cost: 0, ours: true,\n                    msg: \"That needed a database for your site and one couldn't be made right now — this is on us, and nothing was changed. Try again in a few minutes.\",\n                    upstream: (e && e.status) || null, stage: (e && e.stage) || null,\n                    detail: scrubSecrets(String((e && (e.detail || e.message)) || \"\")).slice(0, 300),\n                  }, { status: 502 });"
+ },
+ {
+  "label": "P1: the note says nothing is stored beside an apply that stopped part-way (the reported defect)",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "    out.push(o.database === \"none\"\n",
+  "to": "    out.push(true\n"
+ },
+ {
+  "label": "P2: the note loses the database made beside an apply that stopped part-way",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "      : \"I did set up a database for your site along the way, and some of this change may already have gone into it.\");",
+  "to": "      : \"\");"
+ },
+ {
+  "label": "P3: the facts say nothing is stored beside an apply that stopped part-way (the reported defect)",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": ": out.database === \"none\" ? \", made for this addition; nothing from it is stored in it yet.\" : \", made for this addition.\"));",
+  "to": ": \", made for this addition; nothing from it is stored in it yet.\"));"
+ },
+ {
+  "label": "P4: the facts stop saying the database was made for this addition beside an apply that stopped part-way",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": ": out.database === \"none\" ? \", made for this addition; nothing from it is stored in it yet.\" : \", made for this addition.\"));",
+  "to": ": out.database === \"none\" ? \", made for this addition; nothing from it is stored in it yet.\" : \".\"));"
+ },
+ {
+  "label": "P5: the note doubts an apply that never ran (the control)",
+  "files": [
+   "builder/site-add.mjs"
+  ],
+  "from": "      ? \"I did set up a database for your site along the way — nothing from this is stored in it yet.\"",
+  "to": "      ? \"I did set up a database for your site along the way, and some of this change may already have gone into it.\""
+ },
+ {
+  "label": "P6: the facts doubt an apply that never ran (the control)",
+  "files": [
+   "builder/site-reply.mjs"
+  ],
+  "from": ": out.database === \"none\" ? \", made for this addition; nothing from it is stored in it yet.\" : \", made for this addition.\"));",
+  "to": ": out.database === \"none\" ? \", made for this addition.\" : \", made for this addition.\"));"
  },
  {
   "label": "B1: the browser prints a failure's note with no outcome (the reported defect)",

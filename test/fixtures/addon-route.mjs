@@ -284,7 +284,7 @@ function bucket(slug, stored, look, parts, css, partsFail, configFail, uploads, 
  * to and IS honestly empty. Those two look identical from the old code and need
  * opposite answers.
  */
-function stub({ kinds, answers, judge = null, judgeUsage = null, charges = null, ungrounded = false, fnFail = false, tableFail = null, jobsFail = false, sql, prompts, meta, registered, patched, traces, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null, credits = null, shots = null, shotFail = false, legacyRows = [], legacyFail = false, notes = "", db = null, rowFail = null }) {
+function stub({ kinds, answers, judge = null, judgeUsage = null, charges = null, ungrounded = false, fnFail = false, tableFail = null, sqlFail = null, jobsFail = false, sql, prompts, meta, registered, patched, traces, written = null, writtenParts = null, backend = "ready", metaFail = false, metaMissing = false, probeFail = false, healNoop = false, metaJunk = false, provisions = false, neonCalls = null, catalog = null, credits = null, shots = null, shotFail = false, legacyRows = [], legacyFail = false, notes = "", db = null, rowFail = null }) {
   let provisioned = false;
   const real = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
@@ -575,6 +575,17 @@ function stub({ kinds, answers, judge = null, judgeUsage = null, charges = null,
       // after whatever came before it went in — which is the state the route
       // must call unknown rather than untouched. Absent, nothing changes.
       if (tableFail && /^CREATE TABLE/i.test(q.trim()) && q.includes('"' + tableFail + '"')) {
+        return new Response(JSON.stringify({ message: 'permission denied for schema public', code: "42501" }), { status: 400, headers: { "content-type": "application/json" } });
+      }
+      // ── ANY STATEMENT THE DATABASE WILL NOT RUN (2026-10-06) ──────────────
+      //
+      // `sqlFail` is a pattern over the statement itself, refused in the same
+      // shape. `tableFail` reaches a declared table, whose name the engine
+      // quotes; the engine's own tables (`_meta`, `_secrets`, `_errors`) are
+      // created unquoted on every apply, and a design of functions and jobs
+      // alone (the pageless path) declares no table at all — so stopping that
+      // apply part-way needs the statement, not a name. Absent, nothing changes.
+      if (sqlFail && sqlFail.test(q.trim())) {
         return new Response(JSON.stringify({ message: 'permission denied for schema public', code: "42501" }), { status: 400, headers: { "content-type": "application/json" } });
       }
       if (fnFail && /CREATE OR REPLACE FUNCTION/i.test(q)
