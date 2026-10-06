@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-06, 19:10 UTC)
+## Current handoff — read this first (2026-10-06, 19:16 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -35,8 +35,9 @@ is in git; the dated entries further down are the full story.*
     every survivor closed by a case and killed on its rerun, every control
     surviving); the full suite `9692 / 9692 / 0 / 0` locally on `84d46faf`;
     unit CI green on it (run 37515371950, `9692 / 9671 / 0 / 21`, the 21
-    real-browser cases skipped there); the site build on it (run 37515372064)
-    six jobs green, shard 3 of 4 still running at 19:08 UTC.
+    real-browser cases skipped there); the site build green on it (run
+    37515372064: "404 checks in 27 sections across 4 shards, every job
+    green").
   - **A merge would roll the image**: `c7fe818d446dd957` → `5f946c22d42a1b10`
     (predicted, not built; 194 → 195 inputs).
 - **Live is unchanged**: deploy 2185 (`main` `b2409b3c`, image
@@ -256,12 +257,14 @@ since. Add new ones there.
     comment-only control surviving;
   - the full suite `9692 / 9692 / 0 / 0` locally on `84d46faf`; unit CI green
     on it (run 37515371950, `9692 / 9671 / 0 / 21`, the 21 real-browser cases
-    skipped there); the site build on it (run
-    37515372064) six jobs green, shard 3 of 4 still running at 19:08 UTC;
+    skipped there); the site build green on it (run 37515372064: "404
+    checks in 27 sections across 4 shards, every job green");
   - the image predicted, not built: `141b0dcc2a92d926` → `5f946c22d42a1b10`
     (195 inputs), so a merge would roll main's `c7fe818d446dd957`;
   - nothing pressed or spent: balance 9, the ledger's last row 397, no job
-    open (read 18:58 UTC). The records are the commit after `84d46faf`.
+    open (read 18:58 UTC). The records are `1dbfb367` (unit CI run
+    37516767766, the same totals) and the commit after it, which stamps the
+    site build's result.
 - **Remaining limitations**:
   - no real model has written a line in any of the seven states, so their
     wording, tense and cost stay unmeasured until a live press with the

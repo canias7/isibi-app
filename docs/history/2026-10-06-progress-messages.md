@@ -412,10 +412,12 @@ spent):
 - **Unit CI** on it: run 37515371950, `9692 / 9671 / 0 / 21`, green; the 21
   skipped are the real-browser cases (CANARY and OUTCOMES the new ones), and
   the total matches the local run.
-- **Site build** on it: run 37515372064, six jobs green (the kit and
-  generator checks, the theme checks, the published-site checks and
-  site-build shards 1, 2 and 4), and shard 3 of 4 still running when these
-  records were committed (19:08 UTC).
+- **Site build** on it: run 37515372064, every job green: "404 checks in 27
+  sections across 4 shards" (inputs `979f94b2735bc0a2`, 3,973 files). Shard
+  3 was still running when the records were first committed (`1dbfb367`,
+  19:08 UTC); its result is stamped here after the run.
+- **The records commit** `1dbfb367`: unit CI run 37516767766, `9692 / 9671
+  / 0 / 21`, green, the same totals.
 - **The image, predicted, not built**: `84d46faf` → `5f946c22d42a1b10` (195
   inputs, 165 distinct paths). Against `ba8a12dc` (`141b0dcc2a92d926`) five
   inputs differ: `builder/container-env.mjs`, `builder/job-gateway.mjs`,

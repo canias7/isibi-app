@@ -895,9 +895,9 @@ on their rerun) and the earlier spec's 15 moved mutants (14 killed, the
 survivor closed by RECORDER 6 and killed on its rerun), every control
 surviving; the full suite `9692 / 9692 / 0 / 0` locally on `84d46faf`, and
 unit CI green on it (run 37515371950, `9692 / 9671 / 0 / 21`, the 21
-real-browser cases skipped there); the site build on it (run 37515372064)
-six jobs green and shard 3 of 4 still running when this was written; the
-image predicted `5f946c22d42a1b10` (195 inputs), not built.
+real-browser cases skipped there); the site build green on it (run
+37515372064, 404 checks in 27 sections across 4 shards); the image predicted
+`5f946c22d42a1b10` (195 inputs), not built.
 
 ## 7. What this does not show, and the limits that stay
 
