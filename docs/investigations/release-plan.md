@@ -11,13 +11,13 @@ from what the live check would prove. Keep unrelated gaps and model-written
 progress updates parked. Preparation only: no merge, deployment, container
 image build or paid retest until I approve the prepared plan."*
 
-**Executed through §2.6 on 2026-10-06, on the owner's approval**: `main`
-`d75d79f3` → `b2409b3c`, deploy 2185 with the image built once as predicted
-(`c7fe818d446dd957`), the served files byte-identical, the image window, and
-the runtime confirmed by the owner's free press, run 102
-(`docs/history/2026-10-06-deploy-2185.md`). **§2.7 is not met**: the balance
-read 21 at 13:29 UTC, below the 30 the paid press needs, so **the live check
-(§2.8) is pending**. Everything below stands as written for that press.
+**Executed on 2026-10-06, on the owner's approval, and the live check
+passed**: `main` `d75d79f3` → `b2409b3c`, deploy 2185 with the image built
+once as predicted (`c7fe818d446dd957`), the served files byte-identical, the
+image window, the runtime confirmed by the owner's free press (run 102), the
+balance raised to 35 at the owner's request, and **the owner's paid press,
+run 103: every check passed, 26 credits** (balance 35 → 9). The readings are
+in `docs/history/2026-10-06-deploy-2185.md` §7.
 
 *As prepared:* the press below is a new canary scenario, `lv-release`,
 prepared on the branch for review with this plan (§4.3). **The balance did

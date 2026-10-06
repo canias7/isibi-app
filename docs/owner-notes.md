@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-06, 13:39 UTC)
+## Current handoff — read this first (2026-10-06, 14:06 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -16,13 +16,29 @@ is in git; the dated entries further down are the full story.*
   readers answered `b2409b3c0649`, a cold container `c7fe818d446dd957`,
   queued jobs and the runner on, every zero-cost confirmation passed,
   nothing charged (`docs/history/2026-10-06-deploy-2185.md` §6.1).
-- **The live check (`lv-release`) is ready for your press.** The balance read
-  21 at 13:29 and 13:34 UTC; **at your request it was raised to 35** (13:37
-  UTC), and read back at 13:37:49 UTC: 35, last ledger row 392, no job open.
-  The live `/gallery` still reads "Photographs from Fold Lane" and
-  `/tasting-evenings` answers 404 (13:38 UTC). The press is yours, with every
-  box in the release plan's §3.2; it runs once and is not repeated if it
-  fails.
+- **The live check passed: your paid press, run 103** (`lv-release` on
+  `fold-lane-bakery`, 13:47–14:01 UTC, from `main` on `b2409b3c`), after the
+  balance was raised to 35 at your request. **Every check passed** (`UI MODE
+  PASSED`):
+  - one message, routed `addon` with the heading held back as its own part;
+    the request ended with both parts done (the add-on, then a text edit);
+  - **the pages**: `/tasting-evenings` stored and served, linked "Tasting
+    Evenings" from every page's menu and header; `/gallery` reads
+    "Photographs from our ovens"; every other page, component, logo and the
+    description as they were;
+  - **the table**: exactly one new one, `tasting_list`, which visitors can
+    send to and nobody can read, with an email column; the other tables as
+    they were;
+  - **the replies**: both the model's own and on screen (below);
+  - **the visitor's form entry**: sent once through the page's own form,
+    taken by the site, and read back by your account's route as exactly one
+    row, **each entry in its bound column: "Your name *" → `name`, "Email
+    *" → `email`** (the email field has no name attribute and was bound by
+    its id and label);
+  - **the money**: routing 3 + jobs 23 = **26 credits**, exactly the
+    balance's move, **35 → 9** (ledger rows 393–397).
+  The screenshots of the new page and the Gallery were sent to you; the full
+  readings are `docs/history/2026-10-06-deploy-2185.md` §7.
 - **The reporting work and the form step's correction are closed**: Codex
   passed `9c2ca743` at `1f3dc370`, and `09470116` at `b2409b3c`.
 - **What the release carried**: the 22 reviewed commits to `1f3dc370`, every
@@ -116,13 +132,14 @@ is in git; the dated entries further down are the full story.*
   the new form. It proves no failure path.
 
 **Yours to decide**
-- **The funds, then the paid press**: it needs a balance of at least 30, and
-  35 leaves room above the estimate's top (17–27 credits, most likely about
-  25; an estimate, not a cap). Raising it is yours. When it is raised, the
-  session reads it again, and the one `lv-release` press is yours (boxes in
-  the release plan's §3.2), run once and not repeated if it fails.
-- **The one entry the paid press writes** (a marked visitor entry in the new
-  table) stays on the bakery, as the page and table do (the demo-site rule).
+- **Review run 103's result** (§7 of the deploy history, and the
+  screenshots). Other work stays parked until you have.
+- **What it left on the bakery** (the demo-site rule): the Tasting Evenings
+  page, the `tasting_list` table, the menu links, the Gallery heading, and
+  the one marked entry (`Canary release 37473592366`,
+  `canary-release-37473592366@example.com`). Taking any of it out is yours.
+- **The balance is 9** after the press. Anything paid next needs it raised
+  first.
 
 **Still open** (`docs/backlog.md`)
 - **Found in the reporting work, not fixed**:
@@ -234,7 +251,7 @@ since. Add new ones there.
 
 ---
 
-## 2026-10-06 — Deploy 2185: the release merged, deployed and runtime-confirmed on your approval (`b2409b3c`, image `c7fe818d446dd957`); the paid live check pending for funds (balance 21)
+## 2026-10-06 — Deploy 2185: the release merged, deployed and runtime-confirmed on your approval (`b2409b3c`, image `c7fe818d446dd957`); the live check passed, run 103, 26 credits
 
 - **Your word**: Codex passed `09470116` at `b2409b3c`, and you approved
   executing the release plan, with the balance read again before the paid
@@ -282,17 +299,66 @@ since. Add new ones there.
     ended at cost 0;
   - `ALL FREE CHECKS PASSED`, and the run stopped before the paid edit.
   **Deploy 2185 is runtime-confirmed.**
-- **The paid `lv-release` press is pending: the funds are not there.** The
-  balance was read again before it, as you required: **21** at 13:29:05 UTC
-  (last ledger row 392, no job open), below the 30 it needs. The session did
-  not raise it, and the press was not handed over to run.
-- **Charges**: none. The balance has been 21, with the ledger's last row
-  392, through the merge, the deploy and run 102.
-- **Read again at 13:34:28 UTC, when you asked**: still 21 (last ledger row
-  392, no job open).
-- **Raised to 35 at your request** (13:37:26 UTC), after you chose it over
-  topping it up yourself; read back at 13:37:49 UTC: 35, the ledger's last
-  row still 392, no job open. The paid press was then handed over to you.
+- **The funds**: the balance read 21 at 13:29 and 13:34 UTC, below the 30
+  the paid press needs. **At your request it was raised to 35** (13:37:26
+  UTC), after you chose that over topping it up yourself; read back at
+  13:37:49 UTC: 35, the ledger's last row 392, no job open. The live
+  `/gallery` still read "Photographs from Fold Lane" and
+  `/tasting-evenings` answered 404 (13:38 UTC).
+- **The live check: your paid press, run 103** (37473592366, from `main` on
+  `b2409b3c`, `success`, 13:47:29–14:01:15 UTC; `lv-release` on
+  `fold-lane-bakery`). Its preflight answered `b2409b3c0649` and
+  `c7fe818d446dd957` again, and **every check passed** (`UI MODE PASSED: 1
+  message sent`):
+  - **the request**: one routing call with the message's words (`addon`,
+    cost 3), the heading held back as its own part; request `9e3c6fe9…`
+    ended with part 0 `done@addon` (job `4915d9ee…`) and part 1 `done@text`
+    (routed by `83c15795…`, done by `c31d3a06…`); two publishes in one
+    verified chain (`qf8hbs`, then `tgh1l6`);
+  - **the pages**: `/tasting-evenings` stored and served 200 ("Tasting
+    Evenings", "Join the waiting list", "Taste the week's bake with us", one
+    form); every page's menu gained "Tasting Evenings" and kept its items;
+    every header links it and draws its logo; `/gallery` reads "Photographs
+    from our ovens"; every other stored page byte for byte as it was apart
+    from the named changes; components, description and served pages as
+    they were. The session read the pages too, as a visitor is served them,
+    and sent you the screenshots;
+  - **the table**: exactly one new one, `tasting_list`, read `none` and
+    written by `anyone`, with an email column; `bake_list`, `loaves` and
+    `orders` as they were;
+  - **the visitor's form entry**: the page's one form filled with the run's
+    marker; the bindings established from the form and the table ("Your name
+    *" → `name`, "Email *" → `email`; the email field has no name attribute
+    and was bound by its id and label); exactly one request to the table's
+    own data route, from a visitor signed in to nothing; the site took it;
+    the table empty before, and **exactly that one row after, each entry in
+    its bound column and in no other**, read back by your account's route;
+  - **the replies**, both the model's own and on screen. Part 0: *"⚠️ I've
+    added a Tasting Evenings page. I also updated the home page, Order,
+    Visit, Classes, Wholesale and Bake-list. On Gallery, the only change is
+    the menu link to Tasting Evenings. Your site now keeps the tasting
+    waiting list. People can join … by leaving their name and email … That's
+    all set up, but nothing here can check that it works. Nothing was made
+    for sending a confirmation email when someone joins the tasting waiting
+    list, because you didn't ask for that. You can ask if you want it.
+    Changing the Gallery page heading … was not tried — that part of your
+    request will be done separately after this, without you sending it
+    again."* Part 1: *"✅ The heading on the Gallery page now reads
+    "Photographs from our ovens"."* Each is true of the moment it was
+    written; the confirmation email is the judgment's suggestion, not a
+    requirement;
+  - **the money**: routing 3 + jobs 23 = **26 credits**, exactly the
+    balance's move, **35 → 9**. Ledger rows 393 (the request's routing, −3),
+    394 and 395 (the add-on, −9 and −9), 396 (part 1's routing, −3) and 397
+    (the heading, −2); each job's billing finalized; no refund; no job open
+    (read at 14:02 UTC). Inside the 17–27 estimate, near its top.
+- **Seen while reading, not changed**: the new page's picture is the kit's
+  placeholder, as the Gallery's already was (no photograph generated or
+  bought); the add-on's reply opens with ⚠️ although both parts ended done,
+  because the heading had not yet been tried when it was written;
+  `/starter` still reads "This page isn't finished yet" (parked).
+- **What stays on the bakery** (the demo-site rule): the page, the table, the
+  menu links, the heading and the one marked entry.
 
 **Recorded in**: `docs/history/2026-10-06-deploy-2185.md`,
 `docs/deploy-record.md` and the history index.

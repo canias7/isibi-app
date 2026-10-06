@@ -1335,9 +1335,19 @@ to `1f3dc370`, the release check `f448aaba` and the form step's correction
   queued jobs and the runner on, every zero-cost confirmation passed, nothing
   charged (balance 21, last row 392)
   (`docs/history/2026-10-06-deploy-2185.md` §6.1);
-- **the live check (`lv-release`) is pending**: the balance read 21 again at
-  13:29:05 UTC, below the 30 the press needs, and the session does not raise
-  it (`docs/history/2026-10-06-deploy-2185.md` §7).
+- **the live check passed as the owner's paid press, run 103** (`lv-release`
+  on `fold-lane-bakery`, 13:47–14:01 UTC, from `main`, its preflight
+  answering `b2409b3c0649` and `c7fe818d446dd957` again), after the balance,
+  21 at 13:29 and 13:34 UTC, was raised to 35 at the owner's request. Every
+  check passed: one message, routed `addon` with the heading held back as
+  its own part, both parts done (the add-on and a text edit), the new page
+  served and linked from every menu, the heading changed, one new
+  visitor-to-owner table, everything else as it was, both replies the
+  model's own on screen, and the visitor's form entry stored, read back by
+  the owner's route with each entry in its bound column ("Your name *" →
+  `name`, "Email *" → `email`). **26 credits** (balance 35 → 9, ledger rows
+  393–397, each under the press's own refs)
+  (`docs/history/2026-10-06-deploy-2185.md` §7).
 
 ## The served-file check, driven end to end on deploy 2139
 
