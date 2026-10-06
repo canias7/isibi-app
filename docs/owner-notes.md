@@ -26,6 +26,8 @@ is in git; the dated entries further down are the full story.*
     narration's attempts, tokens, time and cost from the logs.
   - **About 20 credits (16–26); hard cap 32.** Raise the balance from 9 to
     exactly 32; the press refuses to start above 32 or below 28.
+  - **Ready on the branch at `cc3b955d`**, with unit CI green there (run
+    37546973039) and the image predicted at it.
   - **Not merged, not deployed, no image built, the secret not set, nothing
     pressed or spent.**
 - **Live is unchanged**: deploy 2185 (`main` `b2409b3c`, image
@@ -261,8 +263,13 @@ since. Add new ones there.
   - two sweeps. The canary code: 51 mutants, 48 caught first and the 3
     survivors closed by new cases. The card reader: 7 of 7. Every control
     survived;
-  - the full suite, CI and the image at this commit are in the history's
-    §7.
+  - the full suite: `9714 / 9714 / 0 / 0` locally;
+  - **unit CI green on `cc3b955d`** (run 37546973039, `9714 / 9692 / 0 /
+    22`, the 22 real-browser cases skipped there) after one fix. The first
+    run, on `9476541e`, failed one new test that made its temporary folder
+    in a place only this session's machine has;
+  - **the image at that commit is still `5f946c22d42a1b10`**, as predicted:
+    none of this work's files goes into it.
 
 ## 2026-10-06 — Your request after Codex's reproduction: progress cards and lines from each job's real outcome, no line after the final reply, a failed milestone kept and sent again, the canary's reply read apart (on the branch, `84d46faf`; nothing spent, merged or deployed)
 

@@ -540,5 +540,14 @@ only; no product file changed, so the image stays `5f946c22d42a1b10`):
   machine; it is the one change in the push that depends on its machine.
   The case now uses the system's temporary directory, as every other test
   does (`os.tmpdir()`), and passes locally with either.
+- **Unit CI on `cc3b955d`** (that fix): run 37546973039, `9714 / 9692 / 0 /
+  22`, green, the total matching the local run. The one change between the
+  two runs was that case's directory, so it was the one failure.
+- **The site build** did not run on these pushes, since nothing it reads
+  changed. Its last green run stands: 37515372064 on `84d46faf`.
+- **The image, predicted, not built**: `81eb5b0f`, `9476541e` and `cc3b955d`
+  → `5f946c22d42a1b10` (195 inputs, 165 distinct paths), as at `7abe6c3d`;
+  `main` `b2409b3c` → `c7fe818d446dd957` (194 inputs). None of this
+  preparation's files is an input.
 - **Balance 9**, read at 23:01 UTC: the ledger's last row 397, no job open,
   nothing spent.
