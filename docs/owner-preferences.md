@@ -1127,3 +1127,19 @@
   *"Keep the feature off by default, push the implementation and evidence
   for review, and update owner-notes. No merge, deployment, container image
   build, paid test or unrelated backlog work."*
+- **The assistant speaks for itself, in the first person, in the tense the
+  work is in** (2026-10-06, after the first progress screenshots): *"One
+  wording clarification: make the assistant's task summaries and progress
+  updates conversational and first-person. “Change the Gallery heading”
+  reads like a command; I want the tone of “Okay, I’ll update the Gallery
+  heading” or “I’m updating it now.” These are tone examples, not
+  templates. Let the model generate the wording naturally from context,
+  matching whether the work is planned, happening or finished. Don’t add
+  hardcoded prefixes to the user’s words."* So what the assistant shows
+  about a task — its title as well as its progress — is the model's own
+  first-person sentence, written for whether the work is still to come,
+  under way or finished; an example the owner gives sets the tone and is
+  never copied into instructions or code as a template; and the customer's
+  words are never dressed up with a fixed prefix ("I'll …" + their words).
+  Where the model's sentence is not there, their words are shown exactly as
+  they wrote them.

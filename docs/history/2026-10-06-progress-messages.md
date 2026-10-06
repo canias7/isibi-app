@@ -153,3 +153,99 @@ nothing filters words by keyword; one residual window when the job's own
 close fails (in the backlog); "saved" is not reported on its own; the bounds
 (50 running jobs a cron tick, the 20 most recent standalone jobs, 200
 milestones a record) are stated where they apply.
+
+## 5. The wording round (2026-10-06, after the first push)
+
+The owner, after the screenshots of the first build: *"One wording
+clarification: make the assistant's task summaries and progress updates
+conversational and first-person. “Change the Gallery heading” reads like a
+command; I want the tone of “Okay, I’ll update the Gallery heading” or “I’m
+updating it now.” These are tone examples, not templates. Let the model
+generate the wording naturally from context, matching whether the work is
+planned, happening or finished. Don’t add hardcoded prefixes to the user’s
+words."*
+
+**What was built** (the design is the plan's §2.10):
+
+- **The progress lines**: `PROGRESS_SYSTEM` now opens with the model as the
+  website builder telling the customer itself, and adds one rule: the first
+  person, naturally and conversationally — next facts as what it will do,
+  doing facts as what it is doing now, the rest as what it has done or could
+  not do. No example line; the owner's examples are not quoted to the model.
+- **The task summaries**: a card's title was the customer's own words (also
+  what the job runs on), so it read as a command. The model now writes each
+  task's line once for every state it can be in (`write_tasks`, four states:
+  planned, doing, done, notdone), and **code picks the one for the status the
+  server gives**, so a line can never claim a state its task is not in. Until
+  the lines come, or if they never do, the title is the customer's words with
+  nothing put before them.
+- **Kept and written** on the same record, lease and queue as the progress
+  lines: a page-filed job's one task on its own record (asked for at its
+  opening); a request's parts on the request's own narration record, opened
+  at the acceptance and given every part carved later — by the driver as it
+  saves the part, and by the cron for anything missed. A task's lines carry
+  no state, so they are committed even after the job ended.
+- **Read** on the job poll, the requests list's found jobs, and a request's
+  read and list (`said`), strictly on the page (all four states or none).
+
+**Found during the round**: a part carved from another after the acceptance
+(a job's held additions) would have kept the customer's words for good,
+because the request's narration was opened once with the parts known then.
+The narration is now kept to the request's parts (create-or-add), the driver
+adds a carved part as it saves it, and only the tasks still without lines are
+sent to the model. NAMES 5 shows it on the queue alone, with no cron; it fails
+with the driver's addition taken out (checked by hand before the sweep).
+
+**A slip of mine, repaired**: while checking NAMES 5 against a disabled
+driver hook by hand, I backed `worker.js` up with an unset path variable, so
+the backup went to `/worker.js.bak` and my restore copied an older scratch
+copy over the file. It was noticed at once (the diff had grown to 836 lines
+and 30 flow cases failed), and the file was restored from `/worker.js.bak`,
+the copy taken just before the edit; the diff and every focused case were
+checked again after it. The stray copy at the filesystem root could not be
+removed from this session (a safety check refuses it) and is outside the
+repository.
+
+**The sweep found one more, a test's fault taken by the new record**: the full
+run of the spec (140 mutants and 6 comment-only controls: the first build's
+and this round's) killed 139; the one survivor was the first build's
+"a record that did not open is never opened again". Its case, OPEN, fails
+the next read of any progress record once, and the request's narration,
+opened at the acceptance, is now read first: it took the fault, and the job's
+own opening was never made to fail. OPEN now aims the fault at a job's own
+record. Rerun with the 17 page mutants (the page's new block had been moved
+above the progress lines' comment after the sweep, its code unchanged) and
+the 6 controls: 18 of 18 killed, every control surviving.
+
+**The evidence so far** (all with supplied model answers; nothing pressed or
+spent):
+
+- **The focused cases**: `test/progress.test.mjs` 25 (TASKS 1–5 and PROSE 3
+  new, PROSE 2 extended), `test/progress-flow.test.mjs` 35 (NAMES 1–8 new;
+  OFF, LOG and OPEN extended), `test/progress-page.test.mjs` 13 (four SAID
+  cases new), all passing; `test/progress-browser.test.mjs` 4 in real
+  Chromium (TENSES new; Path A and the fresh device extended), passing
+  locally.
+- **The sweep**: as above — 140 mutants, 139 killed, the survivor closed by
+  OPEN's aim and killed on its rerun; 0 never applied; all 6 controls
+  surviving.
+- **The instructions**: `PROGRESS_SYSTEM` 1,490 characters, `TASK_SYSTEM`
+  853; no example line in either, no length checked anywhere.
+- **The screenshots** (real Chromium, in this conversation): three parts at
+  once in the past, present and future tense, then all finished; a request's
+  part named by its doing line while it runs; a fresh device's two cards.
+- **The commit**: `dd446201` (the code, its tests and the spec).
+- **The full suite** on it: `9669 / 9669 / 0 / 0` locally (19 more than
+  before, the round's new cases: 6 + 8 + 4 + 1).
+- **Unit CI** on it: run 37502463796, `9669 / 9650 / 0 / 19`, green; the 19
+  skipped are the real-browser cases (TENSES the new one), and the total
+  matches the local run.
+- **Site build** on it: run 37502463614, every job green: "404 checks in 27
+  sections across 4 shards" (inputs `8442e8c495d45135`, 3,973 files).
+- **The image, predicted, not built**: main `b2409b3c` → `c7fe818d446dd957`
+  (194 inputs); `dd446201` → `141b0dcc2a92d926` (195 inputs). Against the
+  first build's `ecbe624e` (`4a3e09b1d0c8056f`), three inputs differ:
+  `builder/request.mjs`, `builder/site-progress.mjs` and `worker.js`. A merge
+  would roll the image.
+- **Live state, read** (17:17 UTC): balance 9, the ledger's last row 397, no
+  job open — nothing spent.

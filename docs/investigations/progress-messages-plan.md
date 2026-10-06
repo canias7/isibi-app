@@ -4,7 +4,9 @@
 deployed, no image built, no paid test run.** The plan was written first (its
 trace is §1, unchanged); the owner then approved it with corrections, and the
 design sections below describe what was built. Where the build departs from
-the first plan, the section says so.
+the first plan, the section says so. **The wording round** (the owner's
+clarification after the first build: first person, and each task named by the
+model's own line for the state it is in) is §2.10.
 
 The owner's request for the plan: *"Now prepare the concrete implementation
 plan for model-written progress messages during Edit and Add-on only. …
@@ -69,6 +71,19 @@ work."*
 | Focused tests for races, interrupted writes, duplicates, false claims, reloads and a fresh device | §6 |
 | Log attempts, tokens and latency; promise no call count | §4 |
 | Off by default | §2.9 |
+
+**The wording clarification, after the first build** (2026-10-06), in full:
+*"One wording clarification: make the assistant's task summaries and progress
+updates conversational and first-person. “Change the Gallery heading” reads
+like a command; I want the tone of “Okay, I’ll update the Gallery heading” or
+“I’m updating it now.” These are tone examples, not templates. Let the model
+generate the wording naturally from context, matching whether the work is
+planned, happening or finished. Don’t add hardcoded prefixes to the user’s
+words."* What was built for it is §2.10: one first-person rule in the progress
+lines' instructions, and each task's title written by the model in every state
+it can be in, the state chosen by code from the status. Neither set of
+instructions quotes the owner's examples, and nothing is put before the
+customer's words.
 
 ## 1. What existed before the build (traced, 2026-10-06; line numbers as of `fa3a25ad`)
 
@@ -286,11 +301,15 @@ index object: that was two things to keep in step. Now:
 - **The model**: the customer's selected quick model; one forced tool call,
   `write_progress { text, says }`. It is shown their site, its pages, their
   words, the lines already written, and each fact as `[fN] (state) text`.
-- **The instructions are short** (`PROGRESS_SYSTEM`, under 2,000 characters):
-  the seven states, describe each fact as its state says and nothing else,
-  never say or suggest anything is published or live or that the request is
-  finished, do not repeat earlier lines, the customer's words and language,
-  "usually a sentence or two", no worked example.
+- **The instructions are short** (`PROGRESS_SYSTEM`, 1,490 characters):
+  the model is the website builder telling the customer itself; the seven
+  states; **the first person, naturally and conversationally — next facts as
+  what it will do, doing facts as what it is doing now, the rest as what it
+  has done or could not do** (the wording round, §2.10); describe each fact
+  as its state says and nothing else; never say or suggest anything is
+  published or live or that the request is finished; do not repeat earlier
+  lines; the customer's words and language; "usually a sentence or two"; no
+  worked example.
 - **No character limit.** Nothing measures or cuts the text. The call's
   output budget (1,000 tokens) is the transport's, not a cut: an answer that
   reaches it is read as cut and tried again, never shortened.
@@ -411,21 +430,97 @@ real model does this is not measured: no paid test has run.
 `PROGRESS_REPLIES`, **off by default**: on only for the exact value "on"
 (trimmed, any case). An optional secret with an `|| 'off'` fallback in
 `deploy.yml`, carried to the container (`JOB_ENV_NAMES`). Off: nothing is
-recorded, no task is sent, and no answer carries `progress` or `jobs` (the
-OFF test).
+recorded, no task is sent, and no answer carries `progress`, `jobs` or `said`
+(the OFF test), so every title is the customer's words, as before.
+
+### 2.10 Each task named by the model's own line, in every state (the wording round)
+
+**Why.** A task's title on the page — a request part's, a found job's card's —
+was the customer's own words, which are also what the job runs on, so it read
+as a command ("Change the Gallery heading"). The words stay what the jobs run
+on; the title is now the model's.
+
+- **The model writes each task's line once for every state it can be in**:
+  one forced call, `write_tasks { tasks: [{ id, planned, doing, done, notdone
+  }] }`, for every task still without lines, shown their site, their message
+  and each task as `[tN] words`. The instructions (`TASK_SYSTEM`, 853
+  characters) define the four states (planned: say you will do it; doing: say
+  you are doing it; done: say you did it; notdone: say so, with no reason —
+  the final message gives it), ask for the first person, naturally and
+  conversationally, the task in the model's own words and never the
+  customer's words handed back as an instruction, never "published" or
+  "live", the customer's language, usually one sentence. No example line,
+  and no length checked.
+- **The check reads the answer's shape, never its words** (`readTasks`): every
+  task by its id, a line with words in every state, no id in any line; a
+  first answer that misses one is asked once more, told which.
+- **Code picks the line from the status the server gives**, so no line can
+  claim a state the task is not in, and a line written after the job ended
+  claims nothing:
+  - a request's part (`SITE_SAID_FOR`): waiting for another part, next,
+    queued, waiting for an answer, needing a go-ahead or a full rewrite →
+    planned; in progress, or checking it published → doing; done → done;
+    partly done, not done, not run, stopped, question expired, refused → not
+    done;
+  - a found job's card (`SITE_JOB_SAID`): queued → planned; finished → done;
+    not done or stopped → not done; anything else → doing.
+
+  The fixed label stays beside the line ("Partly done" beside the not-done
+  line, for instance).
+- **Until the lines are written, or when they cannot be**, the title is the
+  customer's words exactly as they were: nothing is put before them, and the
+  page reads the lines strictly (`EditPoll.taskSaid`: all four states with
+  words in them, or none at all).
+- **Where they are kept**:
+  - **a page-filed job's one task** on the job's own record (`taskWords`,
+    `tasks`): its words given when the record opens (`begin` with `task:
+    true`, sent only for a job the page filed, told apart from a request's
+    part by the request its stored body carries), and a writer asked at
+    once, so the card can be named while the job's first step runs;
+  - **a request's parts** on the request's own narration record (`op:
+    "request"`, under an id of 32 hex characters made from the site and the
+    request's key, in `jobs/` with the same seven-day rotation, never on the
+    request record, whose etag stays the driver's): opened at the acceptance,
+    held by its `waitUntil`; **a part carved from another later** (a job's
+    held additions, `carveParts`) is added by the driver as it saves that
+    part (`syncRequestTasks`, create-or-add by compare-and-swap), and the
+    cron's sweep adds any part those miss.
+- **The writer** is the same one writer on the same record, lease and queue.
+  The task lines go first, on tries of their own (`taskTries`, given up as
+  `tasksWhy` after two), so a failing call for them never costs the milestones
+  their lines. Only the tasks with no lines yet are sent; a commit keeps the
+  lines already written; a part added while a call ran still waits, and the
+  writer is asked again for it; adding a part begins the tries again.
+  **Their lines say no state, so they are committed on the lease alone**,
+  even on a closed record: a job that ended before its lines came still gets
+  them, for the card that shows it finished.
+- **Recovery**, with no page: a job that ended before its task's lines were
+  written is asked for again by the cron (ended jobs of the last day, the 50
+  most recently updated a tick); a request whose narration never opened is
+  opened by the cron from the request, and one whose ask was lost is asked
+  for again — while the request runs, and for 16½ minutes after it ends (the
+  final reply's own horizon and grace).
+- **Read and shown**, joined at the look and never written onto anything
+  else: the job poll (`said`, running and finished), the requests list's
+  found jobs (`said`), a request's read and the requests list
+  (`parts[n].said`). A later reading brings lines to a card already drawn,
+  and a found job's follow takes them from the poll.
+- **Billing and the log**: absorbed, as the progress lines are; each call
+  logged as `progress: tasks <id> written | not written (<why>) model
+  <model> tasks <n> attempts <n> tokens <in>/<out> ms <ms>`.
 
 ## 3. The files
 
 | File | What changed |
 |---|---|
-| `builder/site-progress.mjs` (new) | the switch, the record and its strict reader, milestones and their facts, the writer's rules (claim, batch, commit, fail, close), the row verdict, the instructions, the tool, the check and the call. Pure, no I/O |
-| `worker.js` | the store (compare-and-swap), the recorder (`makeProgress`) on the job's context, the close at the job's end, the writer (`runProgressTask`), the queue branch, the cron's sweep, the gateway's door, the poll, the request read and list (`jobs`), and the milestones in the edit and add-on routes |
+| `builder/site-progress.mjs` (new) | the switch, the record and its strict reader, milestones and their facts, the writer's rules (claim, batch, commit, fail, close), the row verdict, the instructions, the tool, the check and the call. Pure, no I/O. **The wording round**: the first-person rule; the tasks' words and lines on the record, their writer's rules (`tasksNeeded`, `unwrittenTasks`, `commitTasks`, `failTasks`, `addTasks`, `saidOf`), and their call (`TASK_TOOL`, `TASK_SYSTEM`, `taskRequest`, `readTasks`, `writeTasks`) |
+| `worker.js` | the store (compare-and-swap), the recorder (`makeProgress`) on the job's context, the close at the job's end, the writer (`runProgressTask`), the queue branch, the cron's sweep, the gateway's door, the poll, the request read and list (`jobs`), and the milestones in the edit and add-on routes. **The wording round**: a page-filed job's task at its opening; the task lines first in the writer (`writeTaskLines`); the request's narration (`syncRequestTasks` at the acceptance and in the driver, `ensureRequestTasks` in the request sweep, `saidForRequest`); ended jobs in the progress sweep; `said` on the poll, the found jobs and a request's read and list |
 | `builder/job-gateway.mjs` | `/progress`, bound to the job's own token |
 | `builder/container-env.mjs` | `env.JOB_PROGRESS`, through the gateway |
 | `builder/edit-job.mjs` | `PROGRESS_REPLIES` carried to the container |
-| `builder/request.mjs` | `requestView` takes the lines by job and adds them to each part |
-| `public/edit-poll.js` | `progressLines` |
-| `public/chat.js` | the lines on a part's card, Path B's bubble, the lines kept on a watched job's reply, the found job's card and its follow |
+| `builder/request.mjs` | `requestView` takes the lines by job and adds them to each part; and each part's own lines in every state (`said`) |
+| `public/edit-poll.js` | `progressLines`; `taskSaid` (all four states, or none) |
+| `public/chat.js` | the lines on a part's card, Path B's bubble, the lines kept on a watched job's reply, the found job's card and its follow; each title by the line for its status (`SITE_SAID_FOR`, `SITE_JOB_SAID`, `siteSaidFor`), the customer's words until then |
 | `public/styles.css` | the lines' style, the live marker, the muted ended lines |
 | `.github/workflows/deploy.yml` | the secret, with its `|| 'off'` fallback |
 | `Dockerfile` | the new module copied into the image |
@@ -448,7 +543,14 @@ closed; per batch at most two tries of at most two calls.
     progress: <job> written | not written (<why>) model <model> milestones <n> facts <n> attempts <n> tokens <in>/<out> ms <ms>
 
 with `progress: <job> given up after 2 tries` and `progress: <job> milestone
-refused — <why>` beside it.
+refused — <why>` beside it. The task lines' call (§2.10) is logged the same
+way:
+
+    progress: tasks <id> written | not written (<why>) model <model> tasks <n> attempts <n> tokens <in>/<out> ms <ms>
+
+A request makes one such call for the parts it was accepted with, and one
+more for each batch of parts carved later; a page-filed job makes one. Each is
+at most two tries of at most two calls; no total is promised.
 
 ### 4.2 Added time
 
@@ -466,6 +568,9 @@ refused — <why>` beside it.
   who picked a Claude model costs several times more. Unmeasured until a
   live run with the switch on.
 - **Absorbed** (§5), and measured only by the log line.
+- **The task lines' call** (§2.10) is of the same size or smaller — four short
+  lines per task in one answer — so about the same per call, estimated and
+  unmeasured.
 
 ## 5. Billing
 
@@ -544,6 +649,36 @@ real Chromium for the drawing.
 - **`test/progress-browser.test.mjs`** (real Chromium; skipped where there is
   none, as on unit CI): Path A with a reload, Path B with a reload and no
   doubling, and a **fresh device** finding both; the screenshots.
+- **The wording round's cases** (§2.10), all with supplied answers:
+  - the module: TASKS 1–5 (the record with the tasks' words and lines, read
+    strictly; the writer's rules, the lines first on tries of their own and
+    on the lease alone, even on a closed record; the check reads shape, not
+    words; the call and its one re-ask; a part added later, only it asked
+    for, the lines already written kept, a part added during a call still
+    waiting, and the tries begun again); PROSE 2 and PROSE 3 (the first
+    person asked for in both instructions, no example line, no length);
+  - through the real routes: NAMES 1 (a request's part named on the
+    request's narration, not on its job), NAMES 2 (a page-filed job's task,
+    its lines before the milestone's line, on the poll and the list, kept on
+    the finished answer), NAMES 3 (a call that keeps failing: the words kept,
+    tried again, given up, the milestones still written), NAMES 4 (a job
+    that ended first, its writer's message lost: the cron's sweep of ended
+    jobs), NAMES 5 (a part carved mid-request, named by the driver on the
+    queue alone, with no cron, and written alone), NAMES 6 (the opening asks
+    for a writer before any milestone; with no task, nothing), NAMES 7 (a
+    narration that never opened, opened by the sweep while the work runs),
+    NAMES 8 (a request that ended first, its ask lost: asked again within
+    the horizon); OFF (no `said` anywhere); LOG (the task call measured);
+    OPEN (its one-shot fault now aimed at the job's own record, since the
+    request's narration is read first at the acceptance);
+  - the page, no browser: SAID (the strict reader; every status to its
+    line, never another state's; the words as they are without lines or
+    with a state missing; a found job's card by its state; a later reading
+    and the follow bring lines to a drawn card);
+  - real Chromium: Path A named by its words until its lines come, then by
+    its doing and done lines through a reload; a fresh device's two cards by
+    their lines; TENSES (three parts at once: past, present and future, each
+    moving to its next line as its status moves).
 
 **The checks**, in full in `docs/history/2026-10-06-progress-messages.md`
 §3: the four files above (19, 27, 9 and 3 cases); the sweep over the module
@@ -552,6 +687,17 @@ run, the one survivor closed by the ADD-ON case and killed on its own rerun,
 after the first run's seven survivors had each become a case); the full suite
 `9650 / 9650 / 0 / 0` locally; unit CI green on `5cfebd0a`; the site build
 green on `9c931540`; the image predicted, not built.
+
+**The wording round's checks** (the history file's §5): the four files at 25,
+35, 13 and 4 cases; the whole spec swept again with this round's mutants (140
+mutants and 6 comment-only controls: 139 killed, the one survivor — OPEN's
+one-shot fault taken by the request's new narration record — closed by aiming
+the fault at the job's own record, and killed on its rerun with the page
+mutants, 18 of 18, every control surviving); the full suite `9669 / 9669 / 0
+/ 0` locally on `dd446201`, and unit CI green on it (run 37502463796, `9669 /
+9650 / 0 / 19`, the 19 real-browser cases skipped there); the site build
+green on it (run 37502463614, 404 checks in 27 sections across 4 shards); the
+image predicted `141b0dcc2a92d926` (195 inputs), not built.
 
 ## 7. What this does not show, and the limits that stay
 
@@ -574,6 +720,18 @@ green on `9c931540`; the image predicted, not built.
 - **The facts are in the builder's own terms** (a page's address, a step's
   fields), and the model is told to say them in the customer's words and
   language; how well it does that is part of the unmeasured live behavior.
+- **The task lines (§2.10), likewise unmeasured**: no real model has written
+  one, so how naturally it phrases them, and whether each state's line reads
+  in its own tense, is unknown until a live press. Their words are not
+  checked either: a done line that called the change live would be shown.
+- **A task's lines do not know its outcome**: they are written before it
+  ends, so the done line says what was done in general terms, and the final
+  reply says what really happened. A partly done part shows its not-done
+  line beside the "Partly done" label.
+- **The customer's words show** until the lines come (one queue round and one
+  call; for a part carved later, from the driver's save of that part), and
+  for good when their tries are spent or a request would hold more than 50
+  tasks (`PROGRESS_MAX_TASKS`).
 
 ## 8. Decisions
 

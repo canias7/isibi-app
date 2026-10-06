@@ -24,6 +24,10 @@ here; take a closed one out of both.**
   fails** (found while building the progress lines, 2026-10-06; the feature
   is off by default): one store write's window, in full below and in
   `docs/investigations/progress-messages-plan.md` §2.5.
+- **With progress on, the UI canary reads a reply's kept progress lines as
+  part of the reply** (found in the wording round, 2026-10-06; the feature
+  is off by default): to be handled before a live press with the switch on;
+  in full below.
 - **An ended request's own reply with no record is asked for whenever it is
   read, however old** (found in run 97): R1's, about 20 hours after it
   ended; a job's is not, after two hours. It was the second half of the
@@ -870,6 +874,19 @@ here; take a closed one out of both.**
   after the final reply. A possible direction, not built: the poll and the
   request's view hold back a line committed after the job's end.
   `docs/investigations/progress-messages-plan.md` §2.5.
+- **PROGRESS LINES: THE UI CANARY WOULD READ THEM AS PART OF A REPLY
+  (2026-10-06, found in the wording round; the feature is off by default,
+  not merged).** On the page-driven path a finished job's lines are kept on
+  its reply (`m.prog`) and drawn inside the same message, above the reply's
+  text (`public/chat.js`, the thread's message markup). `scripts/canary-ui.mjs`
+  reads each message's whole text (`innerText`), so with `PROGRESS_REPLIES`
+  on, a reply it reads would begin with the kept lines: the failure check
+  that looks for a reply beginning "⚠️" with the job's message
+  (`startsWith("⚠️")`) would miss it, and a scenario's expected reply would
+  carry text before it. Nothing is wrong with the switch off, which is the
+  only way it has run. A possible direction, not built: the canary reads the
+  reply's own text element, leaving the kept lines out. Before any live press
+  with the switch on.
 - **INFORMATION LIMITS ON EDIT AND ADD-ON (21 defects, 2 optional
   capabilities, 15 untested risks; found 2026-10-03 by the limits audit on
   the owner's word and corrected on their review; batch 1 implemented for

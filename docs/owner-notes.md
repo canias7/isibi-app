@@ -1,6 +1,6 @@
 # Owner Notes
 
-## Current handoff — read this first (2026-10-06, 16:23 UTC)
+## Current handoff — read this first (2026-10-06, 17:25 UTC)
 
 *Rewritten at every handoff, and committed and pushed before any "ready for
 review" (your standing process, in `owner-preferences.md`). The previous one
@@ -8,33 +8,45 @@ is in git; the dated entries further down are the full story.*
 
 **State now**
 - **Model-written progress during Edit and Add-on is built on the branch,
-  off by default, for your review** (`PROGRESS_REPLIES`; the newest entry
-  below, `docs/history/2026-10-06-progress-messages.md`, and the design as
-  built in `docs/investigations/progress-messages-plan.md`, whose §0 maps
-  each of your corrections to where it is met).
+  off by default, for your review** (`PROGRESS_REPLIES`; the two newest
+  entries below, `docs/history/2026-10-06-progress-messages.md`, and the
+  design as built in `docs/investigations/progress-messages-plan.md`, whose
+  §0 maps each of your corrections to where it is met).
+  - **Your wording clarification is in** (the newest entry; the plan's
+    §2.10): the progress lines are asked for in the first person, in the
+    tense each step is in; each task's title is the model's own line for the
+    state the task is in (still to come, under way, finished, not done),
+    picked by code from the status, and the customer's words exactly as
+    written until those lines arrive. Your examples are not templates
+    anywhere: neither set of instructions quotes them.
   - **Not merged, not deployed, no image built, nothing pressed or spent.**
     Shown with supplied model answers only; no real model has written a
-    line.
-  - **The evidence**: 58 focused cases with supplied model answers (19 on the
-    module, 27 through the real Worker, 9 on the page's own functions, 3 in
-    real Chromium), all passing; the full suite `9650 / 9650 / 0 / 0` locally;
-    unit CI green on `5cfebd0a` (`9649 / 9631 / 0 / 18`, the 18 real-browser
-    cases skipped there); the site build green on `9c931540`; the sweep's
-    survivors (seven in its first run, then one in its full run of 81 mutants,
-    80 killed) each closed by a case; the image predicted, not built.
-  - **A merge would roll the image**: `c7fe818d446dd957` →
-    `4a3e09b1d0c8056f` (predicted, 194 → 195 inputs).
+    progress line or a task line.
+  - **The evidence**: 77 focused cases with supplied model answers (25 + 35 +
+    13 + 4 in real Chromium), all passing; the sweep of the whole spec (140
+    mutants: 139 killed, the one survivor closed by a test fix and killed on
+    its rerun; all 6 controls surviving); the full suite `9669 / 9669 / 0 / 0`
+    locally on `dd446201`; unit CI green on it (run 37502463796, `9669 / 9650
+    / 0 / 19`, the 19 real-browser cases skipped there); the site build green
+    on it (run 37502463614: "404 checks in 27 sections across 4 shards, every
+    job green").
+  - **A merge would roll the image**: `c7fe818d446dd957` → `141b0dcc2a92d926`
+    (predicted, not built; 194 → 195 inputs, seven differing from main's).
 - **Live is unchanged**: deploy 2185 (`main` `b2409b3c`, image
   `c7fe818d446dd957`), runtime-confirmed by run 102; the release closed on
   run 103.
-- **The balance is 9** (read: the ledger's last row 397, no job open).
-  Anything paid next needs it raised first.
+- **The balance is 9** (read at 17:17 UTC: the ledger's last row 397, no job
+  open). Anything paid next needs it raised first.
 
 **Yours to decide**
-- **The progress implementation**: your review of the branch.
+- **The progress implementation, with the wording round**: your review of
+  the branch.
 - **Switching it on and a live look**: `PROGRESS_REPLIES` on in a deploy,
-  then a paid press to read the first real lines, their words and their
-  cost (about 0.15–0.35 credit a call, estimated, absorbed).
+  then a paid press to read the first real lines and task titles, their
+  words and their cost (about 0.15–0.35 credit a call, estimated, absorbed).
+  **Before that press**: the UI canary would read a reply's kept progress
+  lines as part of the reply (new in the backlog), so its reply checks need
+  to read the reply's own text first.
 - **What run 103 left on the bakery** (the demo-site rule): the Tasting
   Evenings page, the `tasting_list` table, the menu links, the Gallery
   heading, and the one marked entry (`Canary release 37473592366`,
@@ -44,7 +56,9 @@ is in git; the dated entries further down are the full story.*
 - **New, from the progress work**: a progress line can follow the final
   reply when the job's own close fails (one store write's window). The
   model's words are not checked, only its account of them (stated and
-  tested, not filtered, as you said).
+  tested, not filtered, as you said); the same holds for the task titles.
+  With the switch on, the UI canary would read a reply's kept progress lines
+  as part of the reply (found in the wording round; before any live press).
 - **Found in the reporting work, not fixed**:
   - a dead job's reconciled reply names no database change;
   - a request records an add-on part whose database changes went in as
@@ -156,6 +170,67 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-06 — Your wording clarification: the assistant in the first person, and each task named by the model's own line for its state (on the branch, `dd446201`; nothing spent, merged or deployed)
+
+- **What you asked**: *"One wording clarification: make the assistant's task
+  summaries and progress updates conversational and first-person. “Change the
+  Gallery heading” reads like a command; I want the tone of “Okay, I’ll update
+  the Gallery heading” or “I’m updating it now.” These are tone examples, not
+  templates. Let the model generate the wording naturally from context,
+  matching whether the work is planned, happening or finished. Don’t add
+  hardcoded prefixes to the user’s words."*
+- **The progress lines**: the model is told it is the builder telling the
+  customer itself, in the first person: what comes next as what it will do,
+  what is happening as what it is doing now, the rest as what it has done or
+  could not do. Your examples are not in its instructions, and no example
+  line is.
+- **The task titles** (a request's parts, and a job found from another
+  device) were the customer's own words, which are also what the job runs on,
+  so they read as commands. Now the model writes each task's line once for
+  every state it can be in (still to come, under way, finished, not done),
+  and code shows the one that matches the status the server gives, so a
+  title never claims a state its task is not in. Until those lines arrive,
+  or if they never do, the title is the customer's words exactly as written,
+  with nothing put before them.
+- **How it is kept**: on the same record, writer, lease and queue as the
+  progress lines, and recovered the same way with no page open: a job the
+  page filed names its one task as it opens; a request names its parts at
+  acceptance, and **a part added later** (a link a job puts off for later,
+  for example) is named by the request's driver as it adds the part, with the
+  two-minute cron catching anything missed. Only the tasks without lines yet
+  are sent to the model. The lines carry no state, so a job that ended first
+  still gets them for its finished card. Absorbed, like the progress lines,
+  and logged per call (attempts, tokens, time).
+- **Found during the work**: a part added mid-request would have kept the
+  customer's words for good (the narration was opened once, with the parts
+  known at acceptance). Fixed as above, and shown on the queue alone.
+- **A slip of mine, repaired the same minute**: a hand check backed
+  `worker.js` up to the wrong place and the restore copied an older scratch
+  copy over it; caught at once (30 flow cases failed and the diff had
+  ballooned), restored from the copy taken just before, and every focused
+  case and the diff checked again. A stray copy of the file sits at the
+  container's root (`/worker.js.bak`), outside the repository; this session
+  is not allowed to delete it.
+- **The evidence**: 77 focused cases with supplied model answers (25 on the
+  module, 35 through the real Worker, 13 on the page's own functions, 4 in
+  real Chromium), all passing; the whole spec swept again with this round's
+  mutants (140 mutants and 6 comment-only controls: 139 killed; the one
+  survivor, the OPEN case's one-shot fault taken by the request's new
+  narration record, closed by aiming the fault at the job's own record and
+  killed on its rerun, 18 of 18 with the page mutants, every control
+  surviving); the full suite `9669 / 9669 / 0 / 0` locally on `dd446201`; unit
+  CI green on it (run 37502463796, `9669 / 9650 / 0 / 19`, the 19 real-browser
+  cases skipped there); the site build green on it (run 37502463614: "404
+  checks in 27 sections across 4 shards, every job green"); the image
+  predicted, not built: `c7fe818d446dd957` → `141b0dcc2a92d926` (195 inputs).
+  Nothing pressed or spent: balance 9, the ledger's last row 397, no job open
+  (read 17:17 UTC).
+- **What it does not show**: no real model has written a task line or a
+  first-person progress line; their tone, tense and cost are unmeasured
+  until a live press with the switch on. Their words are not checked (as
+  before). A task's lines are written before it ends, so the finished line
+  says what was done in general terms; the final reply says what happened.
 
 ## 2026-10-06 — Your go-ahead: progress while an Edit or Add-on runs, built and off by default (on the branch, ``9c931540` to `49ba56bd``; nothing spent, merged or deployed)
 
