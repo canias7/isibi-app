@@ -539,7 +539,9 @@ line:
     nothing changed by its position. The door's answer carries an `outcome`
     from the exit's own evidence (`failureOutcome`): the
     database `none`, `applied` (this change's names) or `unknown` (an apply
-    that stopped part-way), a database made along the way, a design that could
+    that stopped part-way), a database made along the way (said empty of this
+    change only beside `none`, and beside `unknown` as perhaps holding some of
+    it), a design that could
     not be put back (`saved`) and photographs kept in the uploads; its summary
     is `none`, `partial`, `unpublished` or `unknown`;
   - its coverage is composed against that outcome (`aCoverage({ failed })`):

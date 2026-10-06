@@ -1198,7 +1198,11 @@ the owner's free press, run 51, at 22:57 UTC):
       and the browser prints a failure's note only beside an outcome. The
       seed note says the rule, not that visitors cannot read the table.
       **Supplied answers through the real routes, the poll route and a
-      request's background reply**; not shown live.
+      request's background reply**; not shown live. **Corrected after
+      review** (§6 of that file): a database this run made beside an apply
+      that stopped part-way is said made, with what went into it not known.
+      "Nothing from this is stored" is said only where the apply never ran,
+      on the screen and in the facts.
 
 **Closed by the owner on controlled tests, with no live run proposed**: the
 stylesheet scope and rule keys (deploy 2161).

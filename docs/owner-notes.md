@@ -24,8 +24,29 @@ is in git; the dated entries further down are the full story.*
     requirements and warnings are told against that, on the screen and to
     the reply model. Older saved answers are read from what they carry, and
     the seed sentence states the rule
-    (`docs/history/2026-10-06-failure-outcome.md`).
-- **Evidence**, all with supplied model answers through the real routes;
+    (`docs/history/2026-10-06-failure-outcome.md`). Codex passed it on
+    `13bfcd17`;
+  - **this correction** (`9c2ca743`, on your word after that review): a
+    database this run made, beside an apply that stopped part-way, is said
+    made, with what went into it not known. "Nothing from this is stored in
+    it yet" is said only where the apply never ran, on the screen and in the
+    reply model's facts (§6 of the same history file).
+- **This correction's evidence** (supplied answers through the real route;
+  not shown live):
+  - **both paths**: the pageless apply and the apply at the publish's seam,
+    each on a database the same run made, now end *"I did set up a database
+    for your site along the way, and some of this change may already have
+    gone into it."* under the schema sentence;
+  - **stored and replayed**: the route's answer served by the real poll
+    route, and a stored answer the facts read (*"The site has its own
+    database now, made for this addition."*, then the unknown note);
+  - **controls kept**: an apply that landed (what is live, no doubt), and a
+    stop before any apply (still "nothing from this is stored in it yet");
+  - **the red check**: on `9d309401` exactly the 4 contradiction cases of
+    the 5 new ones fail; the controls and the 18 earlier cases pass;
+  - **the sweep**: 66 of 66 planted defects caught (six new for this correction, two re-anchored), none that failed to apply, and the 4 controls survived;
+  - **the suite**: `9576 / 9576 / 0 / 0` here (9,571 plus the 5 new cases).
+- **The batch's evidence**, all with supplied model answers through the real routes;
   nothing is shown live:
   - **Codex's two gaps, reproduced and closed**:
     - the older refusal's "I've set that up" no longer reaches the screen.
@@ -50,14 +71,16 @@ is in git; the dated entries further down are the full story.*
     new outcome;
   - **the sweep**: 60 of 60 planted defects caught, and the 4 controls survived;
   - **the suite**: `9571 / 9571 / 0 / 0` here.
-- **CI on `13bfcd17` is complete and green** (the fix's code with its
+- **CI on this correction**: started on the push of the correction with its records; read to completion and recorded in the next commit.
+- **CI on `13bfcd17` was complete and green** (the fix's code with its
   records on top):
   - unit tests (run 37451667975): `9571 / 9559 / 0 / 12`, the same total as
     here. CI skips its usual 6 and the 6 real-browser cases;
   - the site build (run 37451668063): all seven jobs and the gate passed,
     *"404 checks in 27 sections across 4 shards, every job green"*.
 - **Screenshots** (sent in the chat): the older refusal and the partial
-  failure, each before and after.
+  failure, each before and after; and for this correction, both failures
+  beside a database made, before and after.
 - **Money**: balance **21** (read at 10:37 UTC on 6 October: last ledger
   row 392, no job queued or running). Nothing was spent in this batch.
 
@@ -71,8 +94,9 @@ is in git; the dated entries further down are the full story.*
   - the database's failure no longer says "your site is untouched";
   - the migration sentence names only this change's tables.
 - **Then, if you want it live**: merge and deploy. The image would roll from
-  deploy 2184's `589e3e4e85a20066` to `01abfc1e158153f9` (predicted, not
-  built), and `public/chat.js` changed, so the served-file check applies.
+  deploy 2184's `589e3e4e85a20066` to `c7fe818d446dd957` (predicted, not
+  built), and `public/chat.js` changed in the batch, so the served-file check
+  applies.
   Decide whether a paid press should show any of it.
 
 **Still open** (`docs/backlog.md`)
@@ -95,7 +119,8 @@ is in git; the dated entries further down are the full story.*
   - a table whose starter rows were skipped isn't also reported as one
     nothing can fill.
 - **Parked, as you asked**: a designer's requirements past its twelfth are
-  set aside when they come in and never told.
+  set aside when they come in and never told; the planned model-written
+  progress updates.
 - **Limits of the judgment** (the judgment history files): the judging is
   only as good as the model, and a whole but wrong answer passes; it sees the
   design, not the published result; a part a designer builds for an extra
@@ -180,6 +205,55 @@ word, together with the approval boundaries and the preferences you've stated
 since. Add new ones there.
 
 ---
+
+## 2026-10-06 — Your review: a database made beside an apply that stopped part-way is said made, with what went in not known (on the branch, `9c2ca743`; nothing spent, merged or deployed)
+
+- **What was wrong, reproduced first** (Codex's finding on `13bfcd17`, free,
+  through the real route and the page's own composer): when one run made the
+  site's database and then its schema apply stopped part-way (the pageless
+  path, or the apply at the publish's seam), the outcome was right ("not
+  known", database made), but the screen printed the schema sentence's
+  *"…some of the database change may already have gone in before it
+  stopped…"* and then *"I did set up a database for your site along the way
+  — nothing from this is stored in it yet."*. The reply model's facts said
+  the same "nothing from it is stored" above "Some of its database change
+  may have gone in…".
+- **Now**:
+  - **the screen's note**: *"I did set up a database for your site along
+    the way, and some of this change may already have gone into it."*;
+  - **the reply model's facts**: *"The site has its own database now, made
+    for this addition."*, then the not-known note;
+  - **"nothing from this is stored in it yet"** is said only where the apply
+    never ran. Beside an apply that landed, the note stays silent and the
+    sentence naming what is live says it;
+  - **nothing else changed**: execution, charging and retries are as they
+    were, and the route itself is untouched (two sentences in two shared
+    functions);
+  - no stored answer carries the old sentence: the code that wrote it was
+    never deployed.
+- **Checked**:
+  - **5 new cases**: the two functions; the pageless path (a database made,
+    the engine's own tables part-way in, then one refused); the publish path
+    (the seam's apply refused at the sign-up table); the controls (an apply
+    that landed, and a stop before any apply); and the route's answer stored
+    on a job and served by the real poll route, plus a stored answer the
+    facts read. Each one also goes through the page's composer with no model
+    reply;
+  - **the red check**: on `9d309401`, exactly the 4 contradiction cases
+    fail; the controls case and the 18 earlier cases pass;
+  - **the sweep**: 66 of 66 planted defects caught (six new for this correction, two re-anchored), none that failed to apply, and the 4 controls survived;
+  - **the full suite**: `9576 / 9576 / 0 / 0` here;
+  - **CI**: started on the push of the correction with its records; read to completion and recorded in the next commit.;
+  - the image would roll from deploy 2184's `589e3e4e85a20066` to
+    `c7fe818d446dd957` (predicted, not built).
+- **Screenshots** (sent in the chat): both failures before and after.
+- **Left parked, as you asked**: the unrelated backlog, the intake limit and
+  the planned model-written progress updates.
+- **Not merged, not deployed, no image built, nothing pressed or spent**
+  (balance 21).
+
+**Recorded in**: §6 of `docs/history/2026-10-06-failure-outcome.md`, the
+checklist, `docs/addon-path.md` and the history index.
 
 ## 2026-10-06 — Your review: a failed addition now says what it left behind — nothing, part of it live, saved but not live, or not known (on the branch, `c4748136`; nothing spent, merged or deployed)
 

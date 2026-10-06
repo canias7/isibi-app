@@ -181,8 +181,10 @@ unchanged. The door only says what happened.
   note (the QR refusal says its code and pages itself). The reply model gets
   each one as its own fact.
 - **What no exit's own sentence says** is said once by the outcome's note
-  (`failureNote`): a database made along the way that nothing went into, and
-  photographs kept in the uploads.
+  (`failureNote`): a database made along the way, and photographs kept in the
+  uploads. The database is said empty of this change only where its apply
+  never ran; beside one that stopped part-way, the note says some of the
+  change may already be in it (§6).
 
 ### The reply's facts
 
@@ -193,7 +195,8 @@ The failure branch of `addonReplyFacts` leads from the outcome, never from
 - what went in: *"Part of this addition went in and is live: the site now
   stores signups."* (done), and a database made: *"The site has its own
   database now, made for this addition; nothing from it is stored in it
-  yet."*;
+  yet."* where the apply never ran, and *"…made for this addition."* beside
+  one that stopped part-way, whose unknown note follows (§6);
 - what did not: *"The rest of it did not go through: nothing was published,
   so the site's pages are as they were."* with the builder's own reason (not
   done);
@@ -368,3 +371,75 @@ claims neither that visitors cannot read the table nor that it starts empty.
   (`keptReply`).
 - **Parked, as the owner said**: a designer's requirements past its twelfth;
   the rest of the backlog.
+
+## 6. The correction after review: a database made, then an apply that stopped part-way
+
+The owner, after Codex passed the replay and partial-failure fixes on
+`13bfcd17` with CI green: *"Close one remaining combination within this same
+fix: failureOutcome({provisioned:true,database:"unknown"}) produces a valid
+unknown outcome, but failureNote still says "nothing from this is stored in it
+yet," and failureFacts uses the same unsupported assertion. Codex reproduced
+the contradiction through the actual browser composer alongside
+ADDON_SCHEMA_FAIL_MSG. State that the database was created while preserving
+uncertainty about what applied; only claim that nothing from the addition was
+applied when the evidence establishes database:"none". Correct the shared
+fallback and model-fact paths consistently."*
+
+**Reproduced first** (free, through the real route and the browser's
+composer). Both schema exits produce it when this run made the site's
+database first: the pageless apply, and the apply at the publish's seam. The
+outcome was right (`{ state: "unknown", published: false, database:
+"unknown", provisioned: true }`), but the words were not:
+- **the screen** (no model reply, since a schema stop is ours) printed the
+  schema sentence's *"…some of the database change may already have gone in
+  before it stopped…"* and then the note's *"I did set up a database for your
+  site along the way — nothing from this is stored in it yet."*. On the
+  publish path the note also had *"I can't see from here whether Each signup
+  is kept…"* before it;
+- **the reply model's facts**, for a stored answer they read, said *"The site
+  has its own database now, made for this addition; nothing from it is stored
+  in it yet."* above *"Some of its database change may have gone in before it
+  stopped…"*.
+
+**Now** only an apply that never ran (`database: "none"`) earns "nothing
+stored", on both paths that say it:
+- **the note** (`failureNote`, the screen's own words when no model reply is
+  written): *"I did set up a database for your site along the way, and some
+  of this change may already have gone into it."* beside an apply that did
+  not land and may have partly run. It is unchanged beside one that never ran,
+  and it is still silent beside one that landed (the migration sentence says
+  what is live). Any value other than `none` gets the uncertain sentence;
+- **the facts** (`failureFacts`): *"The site has its own database now, made
+  for this addition."*, with the unknown note after it. Beside an apply that
+  never ran, or one that landed, they are unchanged;
+- **no route change**: execution, charging and retries are as they were;
+- **stored answers**: none carries the old sentence beside an unknown outcome.
+  The code that wrote it (`c4748136`) was never deployed. The poll route
+  serves a stored answer as stored, and the facts are recomputed from its
+  outcome;
+- **the harness** gained `sqlFail`, a statement pattern refused in
+  Postgres's own shape. The pageless path declares no table, and the engine's
+  own tables are created unquoted, so `tableFail` cannot reach them.
+
+**Verification** (the correction is `9c2ca743`):
+- **5 new cases** (PROV 1–5), each also through the browser's composer with
+  no model reply:
+  - the note and the facts at the modules;
+  - the pageless path: a database this run made, the engine's `_secrets` in,
+    then `_errors` refused;
+  - the publish path: the seam's apply refused at `signups`;
+  - the controls: an apply that landed before the publish failed, and a stop
+    before any apply;
+  - the route's answer stored on a job and served by the real poll route,
+    and a stored answer the facts read;
+- **the red check** on `9d309401` (a throwaway worktree, the updated test file
+  and harness copied in, nothing stubbed: every name they use is there).
+  Exactly PROV 1, 2, 3 and 5 fail, each on the sentence. The 18 earlier cases
+  and PROV 4 (the controls) pass;
+- **the sweep**: 66 of 66 planted defects caught (six new for this correction, two re-anchored), none that failed to apply, and the 4 controls survived;
+- **the suite**: `9576 / 9576 / 0 / 0` here (9,571 plus the 5 new cases);
+- **CI**: started on the push of the correction with its records; read to completion and recorded in the next commit.;
+- **the image** (predicted, not built): `c7fe818d446dd957`;
+- **screenshots** (sent in the chat): both failures before (`9d309401`) and
+  after, on the page's own screen with the answers the real route gave in
+  the harness. `public/chat.js` is not changed by this correction.
